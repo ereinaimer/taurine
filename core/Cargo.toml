@@ -12,3 +12,11 @@ crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
 flutter_rust_bridge = "=2.11.1"
+rusqlite = { version = "0.31", features = ["bundled"] }
+directories = "5.0"
+
+[dev-dependencies]
+tempfile = "3.10"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
