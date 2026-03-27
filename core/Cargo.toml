@@ -10,3 +10,4 @@ repository.workspace = true
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
+flutter_rust_bridge = "=2.11.1"
