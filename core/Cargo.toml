@@ -5,6 +5,7 @@ edition.workspace = true
 authors.workspace = true
 description.workspace = true
 repository.workspace = true
+license-file.workspace = true
 
 [lib]
 crate-type = ["lib", "cdylib", "staticlib"]

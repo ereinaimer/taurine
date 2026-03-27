@@ -13,3 +13,4 @@ edition = "2024"
 authors = ["ereinaimer"]
 description = "A fast, secure and easy to use text expander and keyboard automation tool"
 repository = "https://github.com/ereinaimer/taurine"
+license-file = "LICENSE"

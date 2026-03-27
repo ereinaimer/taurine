@@ -1,3 +1,5 @@
+// Licensed under the Aimer Software License (ASL). See LICENSE for details.
+
 import 'package:flutter/material.dart';
 import 'package:taurine_app/src/rust/api/simple.dart';
 import 'package:taurine_app/src/rust/frb_generated.dart';
