@@ -1,0 +1,12 @@
+[package]
+name = "taurine"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+repository.workspace = true
+
+[dependencies]
+taurine_core = { path = "../core" }
+taurine_daemon = { path = "../daemon" }
+taurine_tui = { path = "../tui" }
