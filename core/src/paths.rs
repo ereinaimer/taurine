@@ -13,11 +13,11 @@ pub fn init_android_path(path: String) {
 }
 
 /// Resolves the database path across different operating systems
-/// - Windows: %APPDATA%\Taurine\taurine.db
-/// - macOS/Linux: App-specific config directory (e.g., ~/.config/Taurine/taurine.db)
+/// - Windows: %LOCALAPPDATA%\Taurine\taurine.db
+/// - macOS/Linux: App-specific data directory (e.g., ~/.local/share/taurine/taurine.db)
 /// - Android: Path provided by Flutter initialization
 pub fn get_db_path() -> PathBuf {
-    // Allow overriding via environment variable (for headless CI)
+    // Allow overriding via environment variable (for headless CI or tests)
     if let Ok(env_path) = std::env::var("TAURINE_DB_PATH") {
         return PathBuf::from(env_path);
     }
@@ -30,8 +30,8 @@ pub fn get_db_path() -> PathBuf {
     #[cfg(not(target_os = "android"))]
     {
         let base_dirs = directories::BaseDirs::new().expect("Failed to get base directories");
-        // config_dir evaluates to %APPDATA% on Windows, ~/.config on Linux, and ~/Library/Application Support on macOS.
-        let config_dir = base_dirs.config_dir(); 
+        // data_local_dir evaluates to %LOCALAPPDATA% on Windows, ~/.local/share on Linux, and ~/Library/Application Support on macOS.
+        let data_dir = base_dirs.data_local_dir(); 
 
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         let app_folder = "Taurine";
@@ -39,7 +39,7 @@ pub fn get_db_path() -> PathBuf {
         #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "android")))]
         let app_folder = "taurine";
 
-        config_dir.join(app_folder).join("taurine.db")
+        data_dir.join(app_folder).join("taurine.db")
     }
 }
 
