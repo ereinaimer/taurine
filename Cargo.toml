@@ -11,6 +11,10 @@ resolver = "2"
 version = "0.1.0"
 edition = "2024"
 authors = ["ereinaimer"]
-description = "A fast, secure and easy to use text expander and keyboard automation tool"
+description = "Fast, secure and easy to use text expander and keyboard automation tool"
 repository = "https://github.com/ereinaimer/taurine"
 license-file = "LICENSE"
+
+[workspace.dependencies]
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

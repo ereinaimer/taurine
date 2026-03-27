@@ -11,3 +11,6 @@ license-file.workspace = true
 taurine_core = { path = "../core" }
 taurine_daemon = { path = "../daemon" }
 taurine_tui = { path = "../tui" }
+clap = { version = "4", features = ["derive"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

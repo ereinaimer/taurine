@@ -1,6 +1,6 @@
 # Taurine
 
-A fast, secure and easy to use text expander and keyboard automation tool.
+Fast, secure and easy to use text expander and keyboard automation tool.
 
 ## Architecture
 
