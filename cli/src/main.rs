@@ -18,11 +18,10 @@ struct Cli {
 fn main() {
     let cli = Cli::parse();
 
-    
     let default_level = if cli.verbose { "debug" } else { "info" };
     let env_filter = EnvFilter::try_from_default_env()
-    .unwrap_or_else(|_| EnvFilter::new(default_level));
-    
+        .unwrap_or_else(|_| EnvFilter::new(default_level));
+
     if cli.verbose {
         let timer = tracing_subscriber::fmt::time::LocalTime::new(
             time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]"),
@@ -42,6 +41,14 @@ fn main() {
             .with_env_filter(env_filter)
             .init();
     }
+
+    if let Err(e) = run() {
+        eprintln!("Error: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting Taurine v{}", env!("CARGO_PKG_VERSION"));
 
     let db_path = paths::get_db_path();
@@ -49,13 +56,10 @@ fn main() {
 
     debug!("Database path: {}", db_path.display());
 
-    let conn = match db::init_db() {
-        Ok(c) => c,
-        Err(e) => {
-            error!("Failed to open database: {}", e);
-            std::process::exit(1);
-        }
-    };
+    let conn = db::init_db().map_err(|e| {
+        error!("Failed to open database: {}", e);
+        e
+    })?;
 
     if is_new {
         info!("New database created at {}", db_path.display());
@@ -63,8 +67,10 @@ fn main() {
 
     // Run schema migrations — safe to call every startup, already-applied
     // migrations are no-ops tracked by PRAGMA user_version.
-    if let Err(e) = db::run_migrations(&conn) {
+    db::run_migrations(&conn).map_err(|e| {
         error!("Schema migration failed: {}", e);
-        std::process::exit(1);
-    }
+        e
+    })?;
+
+    Ok(())
 }
