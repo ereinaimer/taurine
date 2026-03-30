@@ -49,7 +49,7 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    info!("Starting Taurine v{}", env!("CARGO_PKG_VERSION"));
+    info!("Initializing Taurine v{}", env!("CARGO_PKG_VERSION"));
 
     let db_path = paths::get_db_path();
     let is_new = !db_path.exists();
