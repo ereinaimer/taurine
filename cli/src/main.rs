@@ -3,7 +3,6 @@
 use clap::Parser;
 use taurine_core::{db, paths};
 use tracing::{debug, error, info};
-use tracing_subscriber::EnvFilter;
 
 /// Taurine Command Line Interface
 #[derive(Parser, Debug)]
@@ -15,37 +14,27 @@ struct Cli {
     verbose: bool,
 }
 
-fn main() {
+fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
 
-    let default_level = if cli.verbose { "debug" } else { "info" };
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(default_level));
+    taurine_core::logs::init_tracing_for_app(cli.verbose);
 
-    if cli.verbose {
-        let timer = tracing_subscriber::fmt::time::LocalTime::new(
-            time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]"),
-        );
-
-        tracing_subscriber::fmt()
-            .with_timer(timer)
-            .with_env_filter(env_filter)
-            .init();
-    } else {
-        tracing_subscriber::fmt()
-            .compact()
-            .with_target(false)
-            .with_file(false)
-            .with_line_number(false)
-            .without_time()
-            .with_env_filter(env_filter)
-            .init();
-    }
+    // Install a panic hook that:
+    // 1) writes structured diagnostics into tracing + daily log file
+    // 2) prints the human-friendly color-eyre report.
+    let (panic_hook, _eyre_hook) = color_eyre::config::HookBuilder::new().into_hooks();
+    let color_eyre_panic = panic_hook.into_panic_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        taurine_core::logs::handle_panic_info(panic_info);
+        color_eyre_panic(panic_info);
+    }));
 
     if let Err(e) = run() {
-        eprintln!("Error: {e}");
-        std::process::exit(1);
+        error!(error=%e, "Taurine exited with an error");
+        return std::process::ExitCode::from(1);
     }
+
+    std::process::ExitCode::SUCCESS
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -57,7 +46,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     debug!("Database path: {}", db_path.display());
 
     let conn = db::init_db().map_err(|e| {
-        error!("Failed to open database: {}", e);
+        error!(error=%e, "Failed to open database");
         e
     })?;
 
@@ -68,7 +57,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Run schema migrations — safe to call every startup, already-applied
     // migrations are no-ops tracked by PRAGMA user_version.
     db::run_migrations(&conn).map_err(|e| {
-        error!("Schema migration failed: {}", e);
+        error!(error=%e, "Schema migration failed");
         e
     })?;
 

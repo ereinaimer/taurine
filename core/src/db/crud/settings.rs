@@ -114,6 +114,7 @@ mod tests {
 
     #[test]
     fn get_setting_returns_none_for_missing_key() {
+        crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
         let result = get_setting(&conn, "nonexistent").unwrap();
         assert!(result.is_none());
@@ -121,6 +122,7 @@ mod tests {
 
     #[test]
     fn get_setting_value_returns_none_for_missing_key() {
+        crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
         let result = get_setting_value(&conn, "nonexistent").unwrap();
         assert!(result.is_none());
@@ -130,6 +132,7 @@ mod tests {
 
     #[test]
     fn upsert_setting_inserts_new_key_with_version_1() {
+        crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
         upsert_setting(&conn, "theme", r#""dark""#).unwrap();
 
@@ -142,6 +145,7 @@ mod tests {
 
     #[test]
     fn get_setting_value_returns_value_after_insert() {
+        crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
         upsert_setting(&conn, "theme", r#""dark""#).unwrap();
 
@@ -153,6 +157,7 @@ mod tests {
 
     #[test]
     fn upsert_setting_increments_version_on_update() {
+        crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         upsert_setting(&conn, "theme", r#""dark""#).unwrap();
@@ -166,6 +171,7 @@ mod tests {
 
     #[test]
     fn upsert_setting_updates_value() {
+        crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         upsert_setting(&conn, "lang", r#""en""#).unwrap();
@@ -177,6 +183,7 @@ mod tests {
 
     #[test]
     fn upsert_setting_does_not_affect_other_keys() {
+        crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         upsert_setting(&conn, "theme", r#""dark""#).unwrap();
@@ -192,6 +199,7 @@ mod tests {
 
     #[test]
     fn delete_setting_returns_true_when_key_exists() {
+        crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
         upsert_setting(&conn, "to_delete", r#"true"#).unwrap();
 
@@ -201,6 +209,7 @@ mod tests {
 
     #[test]
     fn delete_setting_returns_false_when_key_missing() {
+        crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
         let deleted = delete_setting(&conn, "ghost").unwrap();
         assert!(!deleted);
@@ -208,6 +217,7 @@ mod tests {
 
     #[test]
     fn delete_setting_actually_removes_the_row() {
+        crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
         upsert_setting(&conn, "gone", r#"42"#).unwrap();
         delete_setting(&conn, "gone").unwrap();

@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
+use tracing::debug;
 
 #[cfg(target_os = "android")]
 use std::sync::OnceLock;
@@ -23,6 +24,7 @@ pub fn init_android_path(data_dir: String) {
 pub fn get_data_dir() -> PathBuf {
     // Allow overriding via environment variable (for headless CI or tests)
     if let Ok(env_path) = std::env::var("TAURINE_APP_DIR") {
+        debug!("TAURINE_APP_DIR override enabled");
         return PathBuf::from(env_path);
     }
 
@@ -56,6 +58,7 @@ pub fn ensure_data_dir() -> PathBuf {
     let data_dir = get_data_dir();
 
     if !data_dir.exists() {
+        debug!("Creating Taurine data directory: {}", data_dir.display());
         fs::create_dir_all(&data_dir).expect("Failed to create Taurine app directories");
     }
 
@@ -66,6 +69,7 @@ pub fn ensure_data_dir() -> PathBuf {
 pub fn get_db_path() -> PathBuf {
     // Keep the specific DB path override for your existing tests
     if let Ok(env_path) = std::env::var("TAURINE_DB_PATH") {
+        debug!("TAURINE_DB_PATH override enabled");
         return PathBuf::from(env_path);
     }
 
@@ -91,6 +95,7 @@ mod tests {
 
     #[test]
     fn test_db_env_override() {
+        crate::logs::init_tracing_for_tests();
         if env::var("TAURINE_SKIP_DB_ENV_OVERRIDE_TEST").unwrap_or_default() == "true" {
             return; 
         }
@@ -106,6 +111,7 @@ mod tests {
 
     #[test]
     fn test_data_dir_env_override() {
+        crate::logs::init_tracing_for_tests();
         let test_dir = "some/custom/app_dir";
         unsafe { env::set_var("TAURINE_APP_DIR", test_dir) };
 
@@ -117,6 +123,7 @@ mod tests {
 
     #[test]
     fn test_default_desktop_path_resolution() {
+        crate::logs::init_tracing_for_tests();
         if env::var("TAURINE_SKIP_DB_DEFAULT_PATH_RESOLUTION_TEST").unwrap_or_default() == "true" {
             return; 
         }

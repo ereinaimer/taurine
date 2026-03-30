@@ -65,6 +65,7 @@ mod tests {
 
     #[test]
     fn test_settings_table() {
+        crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         conn.execute(
@@ -91,6 +92,7 @@ mod tests {
 
     #[test]
     fn test_automations_table() {
+        crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         let now = 1_700_000_000_i64;
@@ -133,6 +135,7 @@ mod tests {
 
     #[test]
     fn test_metrics_table() {
+        crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         let now = 1_700_000_000_i64;
@@ -156,6 +159,7 @@ mod tests {
 
     #[test]
     fn test_migrations_are_idempotent() {
+        crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db(); // already applied
 
         // Running again must be a no-op, not an error

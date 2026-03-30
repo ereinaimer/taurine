@@ -1,4 +1,5 @@
 use rusqlite::{Connection, Result};
+use tracing::{debug, error, info};
 
 /// Runs all pending schema migrations against an open connection.
 ///
@@ -29,12 +30,27 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     const CURRENT_SCHEMA_VERSION: u32 = 1;
 
     // Read the stamp baked into the file header (0 for a fresh database).
-    let version: u32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    let version: u32 = conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(|e| {
+            error!(error=%e, "Failed to read schema version (PRAGMA user_version)");
+            e
+        })?;
 
     // Fast exit: nothing to do on the vast majority of startups.
     if version >= CURRENT_SCHEMA_VERSION {
+        debug!(
+            current_schema_version = version,
+            "Schema is up to date"
+        );
         return Ok(());
     }
+
+    info!(
+        from_schema_version = version,
+        to_schema_version = CURRENT_SCHEMA_VERSION,
+        "Running database migrations"
+    );
 
     // Walk every missing migration in order.
     for v in version..CURRENT_SCHEMA_VERSION {
@@ -46,7 +62,8 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             // automations  — trigger rules with sync/tombstone metadata
             // metrics      — daily usage counters
             // ----------------------------------------------------------------
-            0 => conn.execute_batch(
+            0 => conn
+                .execute_batch(
                 "CREATE TABLE IF NOT EXISTS settings (
                     key        TEXT    PRIMARY KEY,
                     value      JSON    NOT NULL,
@@ -98,7 +115,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     ON metrics(version, updated_at);
 
                 PRAGMA user_version = 1;",
-            )?,
+                )
+                .map_err(|e| {
+                    error!(error=%e, "Schema migration v0 -> v1 failed");
+                    e
+                })?,
 
             // ----------------------------------------------------------------
             // Template for the next migration — copy, fill in, bump version.

@@ -15,3 +15,5 @@ clap = { version = "4", features = ["derive"] }
 time = { version = "0.3", features = ["macros", "local-offset"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+color-eyre = { version = "0.6.5", features = ["default"] }
+tracing-error = "0.2.1"

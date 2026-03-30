@@ -14,6 +14,10 @@ crate-type = ["lib", "cdylib", "staticlib"]
 tracing = { workspace = true }
 rusqlite = { version = "0.31", features = ["bundled"] }
 directories = "5.0"
+tracing-appender = "0.2.4"
+tracing-subscriber = { workspace = true, features = ["env-filter", "time", "local-time"] }
+time = { version = "0.3.47", features = ["macros", "local-offset"] }
+tracing-error = "0.2.1"
 
 [dev-dependencies]
 tempfile = "3.10"
