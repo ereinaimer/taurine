@@ -18,16 +18,19 @@ static TRACING_INIT: OnceLock<()> = OnceLock::new();
 static TEST_TRACING_INIT: OnceLock<()> = OnceLock::new();
 static PANIC_HOOK_INIT: OnceLock<()> = OnceLock::new();
 static LOG_GUARD: OnceLock<tracing_appender::non_blocking::WorkerGuard> = OnceLock::new();
+static QUIET_LEVEL: OnceLock<u8> = OnceLock::new();
 
 /// Initialize tracing for normal application runtime.
 ///
 /// - Console verbosity is controlled by CLI `-v/-vv/-vvv` unless `RUST_LOG` is set.
-/// - `--quiet` disables console output entirely.
+/// - `-q`/`--quiet` disables console output.
+/// - `-qq` disables both console and file logging.
 /// - File logs default to `debug` unless `RUST_LOG` overrides.
 /// - Logs are written into `.../logs/taurine-log-YYYY-MM-DD.txt` with
 ///   7-day retention.
-pub fn init_tracing_for_app(verbosity: u8, quiet: bool) {
+pub fn init_tracing_for_app(verbosity: u8, quiet: u8) {
     let _ = TRACING_INIT.get_or_init(|| {
+        let _ = QUIET_LEVEL.set(quiet);
         let logs_dir = logs_dir();
         let retention_days = DEFAULT_RETENTION_DAYS;
 
@@ -40,7 +43,11 @@ pub fn init_tracing_for_app(verbosity: u8, quiet: bool) {
         let (non_blocking, guard) = tracing_appender::non_blocking(file_writer);
         let _ = LOG_GUARD.set(guard);
 
-        if quiet {
+        if quiet >= 2 {
+            // Fully silent mode: no console layer and no file layer.
+            let subscriber = tracing_subscriber::registry();
+            let _ = tracing::subscriber::set_global_default(subscriber);
+        } else if quiet == 1 {
             let file_timer = tracing_subscriber::fmt::time::LocalTime::new(
                 time::macros::format_description!(
                     "[year]-[month]-[day] [hour]:[minute]:[second]"
@@ -166,6 +173,10 @@ pub fn install_tracing_panic_hook() {
 ///
 /// This is safe to call from a panic hook.
 pub fn handle_panic_info(panic_info: &PanicHookInfo<'_>) {
+    if QUIET_LEVEL.get().copied().unwrap_or(0) >= 2 {
+        return;
+    }
+
     let location = panic_info
         .location()
         .map(|l| format!("{}:{}", l.file(), l.line()))

@@ -13,9 +13,9 @@ struct Cli {
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
 
-    /// Run silently (disable console logging)
-    #[arg(short, long, conflicts_with = "verbose")]
-    quiet: bool,
+    /// Reduce logging output (-q disables console, -qq disables console and file logging)
+    #[arg(short, long, action = clap::ArgAction::Count, conflicts_with = "verbose")]
+    quiet: u8,
 }
 
 fn main() -> std::process::ExitCode {
