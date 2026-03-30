@@ -21,47 +21,26 @@ static LOG_GUARD: OnceLock<tracing_appender::non_blocking::WorkerGuard> = OnceLo
 
 /// Initialize tracing for normal application runtime.
 ///
-/// - Console formatting matches the CLI verbose flag.
+/// - Console verbosity is controlled by CLI `-v/-vv/-vvv` unless `RUST_LOG` is set.
+/// - `--quiet` disables console output entirely.
 /// - File logs default to `debug` unless `RUST_LOG` overrides.
 /// - Logs are written into `.../logs/taurine-log-YYYY-MM-DD.txt` with
 ///   7-day retention.
-pub fn init_tracing_for_app(verbose_console: bool) {
+pub fn init_tracing_for_app(verbosity: u8, quiet: bool) {
     let _ = TRACING_INIT.get_or_init(|| {
         let logs_dir = logs_dir();
         let retention_days = DEFAULT_RETENTION_DAYS;
 
-        // If `RUST_LOG` is set, use it for both console and file.
-        // Otherwise, default console differs based on `verbose_console`,
-        // but file logs remain at `debug`.
-        let (console_filter, file_filter) = if std::env::var_os("RUST_LOG").is_some() {
-            let filter =
-                EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-            (filter.clone(), filter)
-        } else {
-            let default_console = if verbose_console { "debug" } else { "info" };
-            (EnvFilter::new(default_console), EnvFilter::new("debug"))
-        };
+        let env_filter = EnvFilter::try_from_default_env().ok();
+        let file_filter = env_filter
+            .clone()
+            .unwrap_or_else(|| EnvFilter::new("debug"));
 
         let file_writer = DailyRotatingLogWriter::new(logs_dir, retention_days);
         let (non_blocking, guard) = tracing_appender::non_blocking(file_writer);
         let _ = LOG_GUARD.set(guard);
 
-        // Build subscriber in two branches so we can keep the original
-        // compact/no-time console formatting in non-verbose mode.
-        if verbose_console {
-            let console_timer = tracing_subscriber::fmt::time::LocalTime::new(
-                time::macros::format_description!(
-                    "[year]-[month]-[day] [hour]:[minute]:[second]"
-                ),
-            );
-
-            let console_layer = tracing_subscriber::fmt::layer()
-                .with_timer(console_timer)
-                .with_target(false)
-                .with_file(false)
-                .with_line_number(false)
-                .with_filter(console_filter);
-
+        if quiet {
             let file_timer = tracing_subscriber::fmt::time::LocalTime::new(
                 time::macros::format_description!(
                     "[year]-[month]-[day] [hour]:[minute]:[second]"
@@ -77,40 +56,79 @@ pub fn init_tracing_for_app(verbose_console: bool) {
                 .with_filter(file_filter);
 
             let subscriber = tracing_subscriber::registry()
-                .with(console_layer)
                 .with(file_layer)
                 .with(ErrorLayer::default());
-
             let _ = tracing::subscriber::set_global_default(subscriber);
         } else {
-            let console_layer = tracing_subscriber::fmt::layer()
-                .compact()
-                .with_target(false)
-                .with_file(false)
-                .with_line_number(false)
-                .without_time()
-                .with_filter(console_filter);
+            let console_level = match verbosity {
+                0 => "info",
+                1 => "debug",
+                _ => "trace",
+            };
+            let console_filter = env_filter.unwrap_or_else(|| EnvFilter::new(console_level));
 
-            let file_timer = tracing_subscriber::fmt::time::LocalTime::new(
-                time::macros::format_description!(
-                    "[year]-[month]-[day] [hour]:[minute]:[second]"
-                ),
-            );
-            let file_layer = tracing_subscriber::fmt::layer()
-                .with_writer(non_blocking)
-                .with_timer(file_timer)
-                .with_ansi(false)
-                .with_target(false)
-                .with_file(false)
-                .with_line_number(false)
-                .with_filter(file_filter);
+            let use_timestamp = verbosity > 0;
+            if use_timestamp {
+                let console_timer = tracing_subscriber::fmt::time::LocalTime::new(
+                    time::macros::format_description!(
+                        "[year]-[month]-[day] [hour]:[minute]:[second]"
+                    ),
+                );
+                let console_layer = tracing_subscriber::fmt::layer()
+                    .with_timer(console_timer)
+                    .with_target(false)
+                    .with_file(false)
+                    .with_line_number(false)
+                    .with_filter(console_filter);
 
-            let subscriber = tracing_subscriber::registry()
-                .with(console_layer)
-                .with(file_layer)
-                .with(ErrorLayer::default());
+                let file_timer = tracing_subscriber::fmt::time::LocalTime::new(
+                    time::macros::format_description!(
+                        "[year]-[month]-[day] [hour]:[minute]:[second]"
+                    ),
+                );
+                let file_layer = tracing_subscriber::fmt::layer()
+                    .with_writer(non_blocking)
+                    .with_timer(file_timer)
+                    .with_ansi(false)
+                    .with_target(false)
+                    .with_file(false)
+                    .with_line_number(false)
+                    .with_filter(file_filter);
 
-            let _ = tracing::subscriber::set_global_default(subscriber);
+                let subscriber = tracing_subscriber::registry()
+                    .with(console_layer)
+                    .with(file_layer)
+                    .with(ErrorLayer::default());
+                let _ = tracing::subscriber::set_global_default(subscriber);
+            } else {
+                let console_layer = tracing_subscriber::fmt::layer()
+                    .compact()
+                    .with_target(false)
+                    .with_file(false)
+                    .with_line_number(false)
+                    .without_time()
+                    .with_filter(console_filter);
+
+                let file_timer = tracing_subscriber::fmt::time::LocalTime::new(
+                    time::macros::format_description!(
+                        "[year]-[month]-[day] [hour]:[minute]:[second]"
+                    ),
+                );
+                let file_layer = tracing_subscriber::fmt::layer()
+                    .with_writer(non_blocking)
+                    .with_timer(file_timer)
+                    .with_ansi(false)
+                    .with_target(false)
+                    .with_file(false)
+                    .with_line_number(false)
+                    .with_filter(file_filter);
+
+                let subscriber = tracing_subscriber::registry()
+                    .with(console_layer)
+                    .with(file_layer)
+                    .with(ErrorLayer::default());
+                let _ = tracing::subscriber::set_global_default(subscriber);
+            }
         }
     });
 }

@@ -9,15 +9,19 @@ use tracing::{debug, error, info};
 #[command(name = "taurine")]
 #[command(about = "Fast, secure and easy to use text expander and keyboard automation tool")]
 struct Cli {
-    /// Enable verbose logging
-    #[arg(short, long)]
-    verbose: bool,
+    /// Increase console verbosity (-v, -vv, -vvv)
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
+
+    /// Run silently (disable console logging)
+    #[arg(short, long, conflicts_with = "verbose")]
+    quiet: bool,
 }
 
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
 
-    taurine_core::logs::init_tracing_for_app(cli.verbose);
+    taurine_core::logs::init_tracing_for_app(cli.verbose, cli.quiet);
 
     // Install a panic hook that:
     // 1) writes structured diagnostics into tracing + daily log file
