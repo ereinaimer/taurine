@@ -12,5 +12,6 @@ taurine_core = { path = "../core" }
 taurine_daemon = { path = "../daemon" }
 taurine_tui = { path = "../tui" }
 clap = { version = "4", features = ["derive"] }
+time = { version = "0.3", features = ["macros", "local-offset"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

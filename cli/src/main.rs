@@ -18,12 +18,18 @@ struct Cli {
 fn main() {
     let cli = Cli::parse();
 
+    
     let default_level = if cli.verbose { "debug" } else { "info" };
     let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(default_level));
-
+    .unwrap_or_else(|_| EnvFilter::new(default_level));
+    
     if cli.verbose {
+        let timer = tracing_subscriber::fmt::time::LocalTime::new(
+            time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]"),
+        );
+
         tracing_subscriber::fmt()
+            .with_timer(timer)
             .with_env_filter(env_filter)
             .init();
     } else {
@@ -36,11 +42,12 @@ fn main() {
             .with_env_filter(env_filter)
             .init();
     }
+    info!("Starting Taurine v{}", env!("CARGO_PKG_VERSION"));
 
     let db_path = paths::get_db_path();
     let is_new = !db_path.exists();
 
-    debug!("Opening database at {}", db_path.display());
+    debug!("Database path: {}", db_path.display());
 
     let conn = match db::init_db() {
         Ok(c) => c,
