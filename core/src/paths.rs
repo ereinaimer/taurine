@@ -1,37 +1,43 @@
-#[cfg(target_os = "android")]
-use std::sync::OnceLock;
+use std::fs;
 use std::path::PathBuf;
 
 #[cfg(target_os = "android")]
-static ANDROID_DB_PATH: OnceLock<PathBuf> = OnceLock::new();
+use std::sync::OnceLock;
 
-/// Initialize the path for Android. This must be called from Flutter
-/// via flutter_rust_bridge before any database operations
 #[cfg(target_os = "android")]
-pub fn init_android_path(path: String) {
-    let _ = ANDROID_DB_PATH.set(PathBuf::from(path));
+static ANDROID_DATA_PATH: OnceLock<PathBuf> = OnceLock::new();
+
+/// Initializes the app data directory for Android. This must be called from Flutter
+/// via flutter_rust_bridge before any file-system operations.
+/// Pass the app's internal data directory (e.g. context.filesDir.absolutePath).
+#[cfg(target_os = "android")]
+pub fn init_android_path(data_dir: String) {
+    let _ = ANDROID_DATA_PATH.set(PathBuf::from(data_dir));
 }
 
-/// Resolves the database path across different operating systems
-/// - Windows: %LOCALAPPDATA%\Taurine\taurine.db
-/// - macOS/Linux: App-specific data directory (e.g., ~/.local/share/taurine/taurine.db)
-/// - Android: Path provided by Flutter initialization
-pub fn get_db_path() -> PathBuf {
+/// 1. Resolves the base data directory for the app.
+/// - Windows:  %LOCALAPPDATA%\Taurine
+/// - macOS:    ~/Library/Application Support/Taurine
+/// - Linux:    ~/.local/share/taurine
+/// - Android:  Directory provided via `init_android_path()`.
+pub fn get_data_dir() -> PathBuf {
     // Allow overriding via environment variable (for headless CI or tests)
-    if let Ok(env_path) = std::env::var("TAURINE_DB_PATH") {
+    if let Ok(env_path) = std::env::var("TAURINE_APP_DIR") {
         return PathBuf::from(env_path);
     }
 
     #[cfg(target_os = "android")]
     {
-        ANDROID_DB_PATH.get().expect("Android database path must be initialized via init_android_path() from Flutter before use!").clone()
+        ANDROID_DATA_PATH
+            .get()
+            .expect("Android data path must be initialized via init_android_path() from Flutter before use!")
+            .clone()
     }
 
     #[cfg(not(target_os = "android"))]
     {
         let base_dirs = directories::BaseDirs::new().expect("Failed to get base directories");
-        // data_local_dir evaluates to %LOCALAPPDATA% on Windows, ~/.local/share on Linux, and ~/Library/Application Support on macOS.
-        let data_dir = base_dirs.data_local_dir(); 
+        let data_dir = base_dirs.data_local_dir();
 
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         let app_folder = "Taurine";
@@ -39,7 +45,42 @@ pub fn get_db_path() -> PathBuf {
         #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "android")))]
         let app_folder = "taurine";
 
-        data_dir.join(app_folder).join("taurine.db")
+        data_dir.join(app_folder)
+    }
+}
+
+/// 2. The combined Ensure function.
+/// Gets the app data directory and guarantees it exists on disk.
+/// Call this when you need a safe place to write files (logs, scripts, DBs).
+pub fn ensure_data_dir() -> PathBuf {
+    let data_dir = get_data_dir();
+
+    if !data_dir.exists() {
+        fs::create_dir_all(&data_dir).expect("Failed to create Taurine app directories");
+    }
+
+    data_dir
+}
+
+/// 3. Resolves the exact file path for the SQLite database.
+pub fn get_db_path() -> PathBuf {
+    // Keep the specific DB path override for your existing tests
+    if let Ok(env_path) = std::env::var("TAURINE_DB_PATH") {
+        return PathBuf::from(env_path);
+    }
+
+    #[cfg(target_os = "android")]
+    {
+        // On Android the data dir is provided directly; append the db file name.
+        ANDROID_DATA_PATH
+            .get()
+            .expect("Android data path must be initialized via init_android_path() from Flutter before use!")
+            .join("taurine.db")
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        get_data_dir().join("taurine.db")
     }
 }
 
@@ -49,10 +90,8 @@ mod tests {
     use std::env;
 
     #[test]
-    fn test_env_override() {
-        // Dynamically skip this test if the environment variable is set
-        if env::var("SKIP_DB_PATH_TEST").unwrap_or_default() == "true" {
-            println!("Skipping test_env_override due to SKIP_DB_PATH_TEST=true");
+    fn test_db_env_override() {
+        if env::var("TAURINE_SKIP_DB_ENV_OVERRIDE_TEST").unwrap_or_default() == "true" {
             return; 
         }
 
@@ -66,28 +105,39 @@ mod tests {
     }
 
     #[test]
+    fn test_data_dir_env_override() {
+        let test_dir = "some/custom/app_dir";
+        unsafe { env::set_var("TAURINE_APP_DIR", test_dir) };
+
+        let path = get_data_dir();
+        assert_eq!(path.to_str().unwrap(), test_dir);
+
+        unsafe { env::remove_var("TAURINE_APP_DIR") };
+    }
+
+    #[test]
     fn test_default_desktop_path_resolution() {
-        // We only test the desktop resolution here. 
-        // Android requires init_android_path() to be called first, which uses a global OnceLock.
+        if env::var("TAURINE_SKIP_DB_DEFAULT_PATH_RESOLUTION_TEST").unwrap_or_default() == "true" {
+            return; 
+        }
+        
         #[cfg(not(target_os = "android"))]
         {
-            // Temporarily hide the env var if it exists, so we test the true default fallback
             let backup_env = env::var("TAURINE_DB_PATH").ok();
             unsafe { env::remove_var("TAURINE_DB_PATH") };
 
-            let path = get_db_path();
-            
-            // We can't hardcode the exact path because it varies by developer machine (e.g., /Users/name vs C:\Users\name)
-            // But we CAN verify it ends with the correct subdirectories.
-            assert!(path.ends_with("taurine.db"));
+            let db_path = get_db_path();
+            let data_dir = get_data_dir();
+
+            assert!(db_path.ends_with("taurine.db"));
+            assert_eq!(db_path.parent().unwrap(), data_dir.as_path());
 
             #[cfg(any(target_os = "windows", target_os = "macos"))]
-            assert!(path.parent().unwrap().ends_with("Taurine"));
+            assert!(data_dir.ends_with("Taurine"));
 
             #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "android")))]
-            assert!(path.parent().unwrap().ends_with("taurine"));
+            assert!(data_dir.ends_with("taurine"));
 
-            // Restore the env var if it was there
             if let Some(val) = backup_env {
                 unsafe { env::set_var("TAURINE_DB_PATH", val) };
             }

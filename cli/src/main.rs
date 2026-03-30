@@ -38,16 +38,26 @@ fn main() {
     }
 
     let db_path = paths::get_db_path();
+    let is_new = !db_path.exists();
 
-    // Only initialize if the database file does not exist
-    if !db_path.exists() {
-        info!("Database not found. Initializing Taurine database at {}", db_path.display());
-        
-        if let Err(e) = db::init_db() {
-            error!("Failed to initialize database: {}", e);
+    debug!("Opening database at {}", db_path.display());
+
+    let conn = match db::init_db() {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Failed to open database: {}", e);
             std::process::exit(1);
         }
-    } else {
-        debug!("Database already exists at {}. Skipping initialization.", db_path.display());
+    };
+
+    if is_new {
+        info!("New database created at {}", db_path.display());
+    }
+
+    // Run schema migrations — safe to call every startup, already-applied
+    // migrations are no-ops tracked by PRAGMA user_version.
+    if let Err(e) = db::run_migrations(&conn) {
+        error!("Schema migration failed: {}", e);
+        std::process::exit(1);
     }
 }
