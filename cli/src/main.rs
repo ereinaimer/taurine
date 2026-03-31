@@ -9,11 +9,11 @@ use tracing::{debug, error, info};
 #[command(name = "taurine")]
 #[command(about = "Fast, secure and easy to use text expander and keyboard automation tool")]
 struct Cli {
-    /// Increase console verbosity (-v, -vv, -vvv)
+    /// Increase console verbosity
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
 
-    /// Reduce logging output (-q disables console, -qq disables console and file logging)
+    /// Reduce logging output
     #[arg(short, long, action = clap::ArgAction::Count, conflicts_with = "verbose")]
     quiet: u8,
 }
