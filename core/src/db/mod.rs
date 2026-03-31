@@ -5,6 +5,10 @@ pub mod crud;
 pub use crud::{delete_setting, get_setting, get_setting_value, upsert_setting, SettingRow};
 pub use init_db::init_db;
 pub use migrations::run_migrations;
+pub use crud::{
+    delete_automation, get_automation, upsert_automation, AutomationRow, delete_metric,
+    get_metric, get_metric_counters, upsert_metric, MetricRow,
+};
 
 /// Returns the current time as Unix seconds (UTC).
 ///
