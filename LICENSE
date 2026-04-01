@@ -1,33 +1,160 @@
-# Aimer Software License (ASL)
-Version 1.0, March 2026
+AIMER SOFTWARE LICENSE
+Version 1.1 - April 2026
+Copyright © 2026 Erein Aimer. All Rights Reserved.
 
-Copyright (c) 2026 Erein Aimer and Project Contributors
-All Rights Reserved.
+IMPORTANT — PLEASE READ CAREFULLY BEFORE ACCESSING OR USING THIS SOFTWARE.
 
-By accessing, viewing, or using this source code, you agree to the following terms:
+This License Agreement ("License") is a legally binding agreement between you ("Licensee") and Erein Aimer ("Licensor") governing your access to and use of the software, source code, and associated documentation (collectively, the "Software"). By accessing, cloning, downloading, viewing, or otherwise interacting with the Software, you acknowledge that you have read, understood, and agree to be bound by the terms of this License. If you do not agree to these terms, you must not access or use the Software.
 
-1. PERMITTED USE
-Permission is hereby granted to any individual obtaining a copy of this software and any associated documentation files to view, audit, clone, and use the source code strictly for personal, individual, and non-commercial purposes. 
 
-2. CONTRIBUTIONS
-Contributions are welcomed and encouraged! By submitting a pull request or otherwise contributing code, documentation, or assets to this project, you grant Erein Aimer a non-exclusive, royalty-free, worldwide, sublicensable, and irrevocable license to use, reproduce, modify, and distribute your contribution as part of this project in any form (including commercial/paid tiers). You represent that you have the right to grant this license for your contribution.
+1. DEFINITIONS
 
-3. RESTRICTIONS
-Unless explicitly authorized in writing by the copyright holder, you may not:
-- Use the Software, in whole or in part, for any commercial purpose or personal financial gain.
-- Copy, redistribute, reproduce, sublicense, or sell copies of the Software, whether modified or unmodified.
-- Host, deploy, or otherwise make the Software available as a public or private service to third parties.
+For the purposes of this License, the following terms have the meanings set out below:
 
-4. OWNERSHIP
-All title, ownership rights, and intellectual property rights in and to the Software remain exclusively with Erein Aimer. This license does not grant any implied rights to any patents, trademarks, or copyrights owned by the author.
+"Commercial Purpose" means any use of the Software, in whole or in part, that is primarily intended for or directed toward commercial advantage or monetary compensation, including but not limited to: incorporating the Software into a product or service offered to third parties for payment; using the Software to provide paid consulting, development, or other services; or using the Software in any manner that generates direct revenue for the Licensee.
 
-5. DISCLAIMER OF WARRANTY AND LIMITATION OF LIABILITY
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+"Contribution" means any work of authorship, including source code, documentation, configuration files, design assets, data files, or any other material, that is intentionally submitted to the Licensor for inclusion in the Software by any means, including via pull request, patch, issue tracker, email, or any other communication channel.
 
-6. NO ENDORSEMENT
-You may not use the name "Erein Aimer", the name of the Software, or the names of any contributors to endorse, promote, or falsely claim affiliation with any other project, service, or individual without specific prior written permission.
+"Contributor" means any individual or legal entity that submits a Contribution to the Software.
 
-7. CONTACT INFORMATION
-For commercial licensing inquiries, permissions beyond the scope of this license, or other questions, please contact:
-Email: ereinaimer@gmail.com
-GitHub: https://github.com/ereinaimer
+"Fork" means a copy of the Software repository hosted under a separate account or location, whether on the same hosting platform or another.
+
+"Non-Commercial Personal Use" means use by a natural person solely for that person's own private purposes, where such use is not intended to generate, and does not generate, any Commercial Purpose or financial gain for any person or entity.
+
+"Software" means the source code, object code, compiled binaries, documentation, configuration files, and all other files and materials included in or distributed with this project.
+
+
+2. GRANT OF LICENCE — PERMITTED USES
+
+Subject to the terms and conditions of this License, the Licensor hereby grants the Licensee a limited, non-exclusive, non-transferable, licence that is revocable only in accordance with Section 9, to:
+
+(a) View and read the source code of the Software;
+(b) Download or create a local copy (including by cloning a repository) of the Software onto the Licensee's own personal device;
+(c) Modify the downloaded or locally copied version of the Software; and
+(d) Run and use the Software;
+
+in each case solely for Non-Commercial Personal Use and subject to the restrictions set out in Section 4.
+
+For the avoidance of doubt, this licence does not include any right to redistribute, sublicense, publish, or make the Software (whether modified or unmodified) available to any third party.
+
+
+3. CONTRIBUTIONS
+
+Contributors are the lifeblood of this project. Contributions of all kinds — code, documentation, design, testing, and ideas — are welcomed and deeply valued. In recognition of that, the following terms are designed to be fair to both contributors and the Licensor:
+
+3.1  Licence Grant. By submitting a Contribution, each Contributor grants the Licensor a non-exclusive, royalty-free, worldwide, sublicensable, and irrevocable licence to use, reproduce, modify, prepare derivative works of, publicly display, publicly perform, and distribute the Contribution, including as part of the Software, in any form and for any purpose, including commercial purposes.
+
+3.2  Enhanced Contributor Licence. In recognition of and in consideration for each Contributor's grant under clause 3.1, the Licensor grants each verified Contributor an enhanced personal licence that exceeds the rights available to ordinary Licensees under Section 2. This enhanced licence permits each Contributor to: (a) use the Software, including their own Contribution and the Software as a whole, for Non-Commercial Personal Use; (b) run a private, non-public instance of the Software solely for the purpose of demonstrating their own Contribution in a personal portfolio or job application context, provided no third party is given ongoing access to such instance; and (c) reference, describe, and showcase their Contribution — including screenshots and brief demonstrations — in professional portfolios, CVs, personal websites, and job applications. This enhanced licence is personal to the Contributor and is not transferable.
+
+3.3  Attribution and Public Recognition. The Licensor commits to maintaining a public CONTRIBUTORS file in the Software repository listing all Contributors by name or handle, as they prefer. Contributors will be acknowledged by name in release notes for any release that incorporates their Contribution. In any commercial version or paid tier of the Software, the Licensor will maintain attribution to Contributors in the product documentation or credits. Contributors may at any time request correction or removal of their attribution details by contacting the Licensor.
+
+3.4  First Right of Engagement. If the Licensor intends to engage paid contractors or consultants for development work on the Software that is substantially similar in nature to a Contributor's prior Contribution, the Licensor will, where reasonably practicable, notify verified Contributors of the opportunity before advertising it publicly. This clause creates no obligation on the Licensor to offer or enter into any paid engagement, and creates no expectation of remuneration on the part of any Contributor.
+
+3.5  Contributor Representations. Each Contributor represents that, to the best of their knowledge: (a) the Contribution is their own original work or they have the full right to submit it; (b) they have the authority to grant the licences set out in clause 3.1; and (c) the Contribution does not intentionally infringe any third party's intellectual property rights or applicable laws.
+
+NOTICE TO CONTRIBUTORS: By submitting a Contribution, you grant the Licensor the right to use your work in commercial versions of the Software. You will not receive financial compensation for your Contribution unless separately agreed in writing with the Licensor. In return, you receive the enhanced personal licence, attribution rights, and engagement priority set out above. Please read Section 3 in full before contributing.
+
+
+4. RESTRICTIONS
+
+Unless the Licensor has given prior written authorisation, the Licensee must not:
+
+(a) Use the Software, in whole or in part, for any Commercial Purpose;
+
+(b) Copy, reproduce, publish, redistribute, sell, sublicense, or otherwise transfer the Software or any rights in it to any third party;
+
+(c) Host, deploy, or otherwise make the Software available as a service — whether public or private — to any third party;
+
+(d) Use any Fork of the Software — whether created by the Licensee or any third party — for any purpose beyond Non-Commercial Personal Use. Platform Exception: To comply with the terms of service of public hosting platforms (such as GitHub), the Licensee may create and maintain a publicly visible Fork on the same platform, provided that such Fork is maintained strictly for Non-Commercial Personal Use or for the purpose of developing Contributions to be submitted back to the Licensor. However, regardless of where a Fork is hosted, the Licensee must not: (i) deploy, host, or operate a Fork as a live service accessible to any third party; (ii) distribute compiled binaries or independent releases of the Fork to the public; (iii) use a Fork for any Commercial Purpose; or (iv) use a Fork to circumvent any restriction in this License. The Software contained within any Fork remains the intellectual property of the Licensor.
+
+(e) Remove, alter, or obscure any copyright notice, attribution notice, or other proprietary notice appearing in or on the Software; or
+
+(f) Use the Software in any way that violates applicable laws or regulations.
+
+There is no minimum threshold: even partial or incidental use of the Software for a restricted purpose requires prior written authorisation from the Licensor.
+
+
+5. OWNERSHIP AND INTELLECTUAL PROPERTY
+
+5.1  Sole Ownership. All title, ownership rights, and intellectual property rights in and to the Software vest exclusively in Erein Aimer. The copyright notice at the top of this License refers to the authorship of the Software as a whole. Contributors retain copyright in their individual Contributions, subject to the licence granted under Section 3.
+
+5.2  No Implied Rights. This License does not grant the Licensee any rights in any patents, trade marks, trade names, domain names, or other intellectual property rights belonging to the Licensor, except as expressly set out in this License. No licence is granted under any patent rights of the Licensor or Contributors, whether expressly, by implication, estoppel, or otherwise.
+
+5.3  Moral Rights. Nothing in this License affects any moral rights that the Licensor or any Contributor may hold in their respective works under applicable law.
+
+
+6. DISCLAIMER OF WARRANTIES
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE," WITHOUT ANY EXPRESS OR IMPLIED WARRANTIES OF ANY KIND, INCLUDING WITHOUT LIMITATION ANY WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, ACCURACY, RELIABILITY, OR NON-INFRINGEMENT.
+
+THE LICENSOR DOES NOT WARRANT THAT THE SOFTWARE WILL BE UNINTERRUPTED, ERROR-FREE, OR FREE OF HARMFUL COMPONENTS, OR THAT ANY DEFECTS WILL BE CORRECTED.
+
+Nothing in this License excludes, restricts, or modifies any right, guarantee, or remedy that applicable mandatory consumer protection law confers on a consumer and that cannot lawfully be excluded or modified by agreement. This includes, without limitation: (a) in India, rights under the Consumer Protection Act 2019 and the Information Technology Act 2000; and (b) in Australia, consumer guarantees under the Australian Consumer Law (Schedule 2 of the Competition and Consumer Act 2010 (Cth)) in relation to any Licensee who acquires the Software as a consumer within the meaning of that Act. To the extent that any such mandatory law applies and cannot be excluded, the Licensor's liability is limited, at the Licensor's option, to resupplying the Software or paying the cost of having the Software resupplied.
+
+For the avoidance of doubt, this Section does not limit the Licensor's liability for fraud, wilful misconduct, death, or personal injury caused by the Licensor's negligence, to the extent such liability cannot be excluded under applicable law.
+
+
+7. LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE LICENSOR OR ANY CONTRIBUTOR BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, PUNITIVE, OR CONSEQUENTIAL DAMAGES (INCLUDING WITHOUT LIMITATION LOSS OF PROFITS, LOSS OF DATA, BUSINESS INTERRUPTION, OR LOSS OF GOODWILL), HOWEVER CAUSED AND UNDER ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, TORT (INCLUDING NEGLIGENCE), STRICT LIABILITY, OR OTHERWISE, ARISING OUT OF OR IN CONNECTION WITH THE USE OF OR INABILITY TO USE THE SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+Nothing in this Section limits any liability that cannot lawfully be excluded or limited under applicable law.
+
+
+8. NO ENDORSEMENT
+
+The Licensee must not use the name "Erein Aimer," the name of the Software, or the name of any Contributor to endorse, promote, advertise, or claim affiliation with any product, service, project, or individual, without the prior specific written permission of the relevant person.
+
+
+9. TERM AND TERMINATION
+
+9.1  Term. This License is effective from the date the Licensee first accesses the Software and continues until terminated.
+
+9.2  Termination for Breach. This License and the rights granted under it will terminate automatically and without notice if the Licensee breaches any term of this License.
+
+9.3  Effect of Termination. Upon termination, the Licensee must immediately cease all use of the Software and destroy all copies in the Licensee's possession or control.
+
+9.4  Survival. Sections 4, 5, 6, 7, 8, 10, 11, and 12 survive termination of this License.
+
+
+10. GOVERNING LAW AND DISPUTE RESOLUTION
+
+10.1 Governing Law. This License is governed by and construed in accordance with the laws of India, without regard to its conflict of laws rules.
+
+10.2 Jurisdiction. The parties irrevocably submit to the exclusive jurisdiction of the courts at Kochi, Ernakulam, Kerala, India for the resolution of any dispute arising out of or in connection with this License. The Licensor reserves the right to seek injunctive or other equitable relief in any court of competent jurisdiction to protect its intellectual property rights.
+
+10.3 Mandatory Local Law. Notwithstanding clause 10.1, where mandatory consumer protection or intellectual property laws of another jurisdiction apply to a Licensee's use of the Software and cannot be displaced by choice of law, those laws will apply to the extent required by law in that jurisdiction only, and Indian law will continue to govern all other aspects of this License.
+
+
+11. GENERAL
+
+11.1 Severability. If any provision of this License is held to be invalid, illegal, or unenforceable by a court of competent jurisdiction, that provision will be modified to the minimum extent necessary to make it enforceable, or severed if modification is not possible, and the remainder of this License will continue in full force and effect.
+
+11.2 No Waiver. The Licensor's failure to enforce any right or provision of this License will not constitute a waiver of that right or provision.
+
+11.3 Entire Agreement. This License constitutes the entire agreement between the parties with respect to the Software and supersedes all prior and contemporaneous understandings, agreements, representations, and warranties.
+
+11.4 Amendments and Versioning. Any amendment to this License will apply only to access to or use of the Software occurring after the effective date of the amended version, and does not retroactively alter rights already granted under a prior version of this License. The Licensor otherwise reserves the right to amend, update, or replace this License at any time, subject to the following:
+
+(a) Major Amendments. Any amendment that materially changes the rights or obligations of Licensees or Contributors will be designated by a new version number (e.g., Version 1.2, Version 2.0) and published at the same location as this License or announced via the Software's official repository. Existing Licensees will have thirty (30) days from the date of publication to review the amended terms. Continued use of the Software after that period constitutes acceptance of the amended terms. Licensees who do not accept the amended terms must cease all use of the Software and destroy all copies in their possession.
+
+(b) Minor Corrections. The Licensor may correct typographical errors, formatting issues, or minor drafting inconsistencies that do not affect the substance of any party's rights or obligations without issuing a new version number, provided such corrections are clearly noted in a changelog accompanying the License.
+
+(c) Grandfathering. At the Licensor's sole discretion, the Licensor may elect to allow existing Licensees or Contributors to continue operating under a prior version of this License following the publication of an amended version. Any such grandfathering must be confirmed in writing by the Licensor and applies only to the specific party named in that confirmation.
+
+(d) Individual Exceptions. The Licensor may at any time grant an individual Licensee or Contributor rights that differ from or exceed those set out in this License by separate written agreement. Any such individual agreement supplements but does not modify the terms of this License for any other party.
+
+11.5 No Assignment. The Licensee may not assign or transfer this License or any rights under it without the prior written consent of the Licensor.
+
+
+12. COMMERCIAL LICENSING AND CONTACT
+
+Commercial use of the Software requires a separate written licence agreement with the Licensor. To inquire about commercial licensing, report a security issue, or seek any permission beyond the scope of this License, please contact:
+
+Erein Aimer
+Email:   ereinaimer@gmail.com
+GitHub:  https://github.com/ereinaimer
+
+The Licensor aims to respond to commercial licensing enquiries within 3-5 business days. Any commercial licence granted will be set out in a separate written agreement signed by both parties.
+
+END OF AIMER SOFTWARE LICENSE — VERSION 1.1

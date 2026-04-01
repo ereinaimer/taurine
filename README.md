@@ -13,5 +13,9 @@ This project is organized into the following components:
 
 ## License
 
-This project is licensed under the Aimer Software License (ASL). It allows for personal use and contributions while reserving commercial rights to the author. See the [LICENSE](LICENSE) file for details.
+This project is Source-Available under the Aimer Software License (ASL). It is entirely free for non-commercial personal use; however, commercial rights and public redistribution are reserved.
+
+Community contributions are welcome. Since this isn't a standard open-source license, we’ve included an Enhanced Contributor License so you can safely showcase your work and live demos in portfolios, CVs, and job applications without any legal grey areas.
+
+See the [LICENSE](LICENSE) file for full details and any commercial licensing inquiries.
 
