@@ -1,4 +1,3 @@
-use crate::paths::ensure_data_dir;
 use std::fs::{self, OpenOptions};
 use std::io;
 use std::io::Write;
@@ -6,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use time::OffsetDateTime;
 
-use super::{LOG_FILE_PREFIX, LOG_FILE_SUFFIX, LOGS_FOLDER};
+use super::{LOG_FILE_PREFIX, LOG_FILE_SUFFIX};
 
 enum DailyLogTarget {
     File(std::fs::File),
@@ -118,11 +117,6 @@ impl Write for DailyRotatingLogWriter {
             DailyLogTarget::Stderr(stderr) => stderr.flush(),
         }
     }
-}
-
-pub(crate) fn logs_dir() -> PathBuf {
-    let data_dir = ensure_data_dir();
-    data_dir.join(LOGS_FOLDER)
 }
 
 fn open_log_file(logs_dir: &Path, date_str: &str) -> io::Result<std::fs::File> {

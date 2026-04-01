@@ -1,4 +1,5 @@
-use crate::logs::daily_log::{local_date_string, logs_dir, DailyRotatingLogWriter};
+use crate::logs::daily_log::{local_date_string, DailyRotatingLogWriter};
+use crate::paths::logs_dir;
 use std::backtrace::Backtrace;
 use std::fs;
 use std::fs::OpenOptions;
@@ -23,7 +24,7 @@ static QUIET_LEVEL: OnceLock<u8> = OnceLock::new();
 /// Initialize tracing for normal application runtime.
 ///
 /// - Console verbosity is controlled by CLI `-v/-vv/-vvv` unless `RUST_LOG` is set.
-/// - `-q`/`--quiet` disables console output.
+/// - `-q` or `--quiet` disables console output.
 /// - `-qq` disables both console and file logging.
 /// - File logs default to `debug` unless `RUST_LOG` overrides.
 /// - Logs are written into `.../logs/taurine-log-YYYY-MM-DD.txt` with
@@ -44,10 +45,17 @@ pub fn init_tracing_for_app(verbosity: u8, quiet: u8) {
         let _ = LOG_GUARD.set(guard);
 
         if quiet >= 2 {
-            // Fully silent mode: no console layer and no file layer.
+            // Silent mode: no console layer and no file layer.
+
+            // Tracing is initialized here because the tracing crate allows global subscriber
+            // to be set only once per application lifecycle and we want to ensure that tracing
+            // is initialized only here so that no other part of the application can
+            // initialize tracing and ignore the quiet flag.
+
             let subscriber = tracing_subscriber::registry();
             let _ = tracing::subscriber::set_global_default(subscriber);
         } else if quiet == 1 {
+            // Quiet mode: only file logging.
             let file_timer = tracing_subscriber::fmt::time::LocalTime::new(
                 time::macros::format_description!(
                     "[year]-[month]-[day] [hour]:[minute]:[second]"
@@ -67,6 +75,7 @@ pub fn init_tracing_for_app(verbosity: u8, quiet: u8) {
                 .with(ErrorLayer::default());
             let _ = tracing::subscriber::set_global_default(subscriber);
         } else {
+            // Normal mode: console and file logging.
             let console_level = match verbosity {
                 0 => "info",
                 1 => "debug",
@@ -115,7 +124,8 @@ pub fn init_tracing_for_app(verbosity: u8, quiet: u8) {
                     .with_line_number(false)
                     .without_time()
                     .with_filter(console_filter);
-
+                
+                // File logs are always on debug level
                 let file_timer = tracing_subscriber::fmt::time::LocalTime::new(
                     time::macros::format_description!(
                         "[year]-[month]-[day] [hour]:[minute]:[second]"
@@ -197,7 +207,7 @@ pub fn handle_panic_info(panic_info: &PanicHookInfo<'_>) {
         panic_payload = %payload,
         panic_location = %location,
         backtrace = ?backtrace,
-        "application panicked"
+        "Application panicked"
     );
 
     // Also synchronously write the panic to the log file so we keep useful

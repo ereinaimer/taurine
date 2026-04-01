@@ -88,6 +88,12 @@ pub fn get_db_path() -> PathBuf {
     }
 }
 
+/// 4. Resolves the logs directory path.
+pub fn logs_dir() -> PathBuf {
+    let data_dir = ensure_data_dir();
+    data_dir.join("logs")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
