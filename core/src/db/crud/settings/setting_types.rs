@@ -10,4 +10,3 @@ pub struct SettingRow {
     /// Unix timestamp (seconds) of the last write.
     pub updated_at: i64,
 }
-

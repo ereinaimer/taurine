@@ -33,4 +33,3 @@ pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<SettingRow>> {
 pub fn get_setting_value(conn: &Connection, key: &str) -> Result<Option<String>> {
     Ok(get_setting(conn, key)?.map(|row| row.value))
 }
-

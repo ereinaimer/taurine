@@ -28,4 +28,3 @@ pub fn upsert_metric(
 
     Ok(())
 }
-

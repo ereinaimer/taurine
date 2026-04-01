@@ -22,4 +22,3 @@ pub fn delete_automation(conn: &Connection, id: &str) -> Result<bool> {
 
     Ok(rows_changed > 0)
 }
-

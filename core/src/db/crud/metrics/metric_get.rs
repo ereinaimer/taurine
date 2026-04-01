@@ -32,4 +32,3 @@ pub fn get_metric(conn: &Connection, date: &str) -> Result<Option<MetricRow>> {
 pub fn get_metric_counters(conn: &Connection, date: &str) -> Result<Option<(i64, i64)>> {
     Ok(get_metric(conn, date)?.map(|row| (row.executions, row.keystrokes_saved)))
 }
-

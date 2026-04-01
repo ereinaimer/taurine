@@ -7,4 +7,3 @@ pub struct MetricRow {
     pub version: i64,
     pub updated_at: i64,
 }
-

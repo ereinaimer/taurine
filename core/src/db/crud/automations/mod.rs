@@ -1,16 +1,16 @@
-mod automation_types;
+mod automation_delete;
 mod automation_get;
 mod automation_set;
-mod automation_delete;
 mod automation_sync;
+mod automation_types;
 
-pub use automation_types::{AutomationAction, AutomationRow, AutomationSummary};
+pub use automation_delete::delete_automation;
 pub use automation_get::{
     get_action_by_trigger, get_all_active_triggers, get_automation, search_automations,
 };
 pub use automation_set::upsert_automation;
-pub use automation_delete::delete_automation;
 pub use automation_sync::{get_pending_sync_automations, mark_automations_synced};
+pub use automation_types::{AutomationAction, AutomationRow, AutomationSummary};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests
@@ -381,34 +381,12 @@ mod tests {
         let (_dir, conn) = open_test_db();
 
         upsert_automation(
-            &conn,
-            "uuid-1",
-            "A1",
-            None,
-            "t1",
-            "p1",
-            "text",
-            false,
-            "all",
-            r#"[]"#,
-            0,
-            None,
+            &conn, "uuid-1", "A1", None, "t1", "p1", "text", false, "all", r#"[]"#, 0, None,
         )
         .unwrap();
 
         upsert_automation(
-            &conn,
-            "uuid-2",
-            "A2",
-            None,
-            "t2",
-            "p2",
-            "text",
-            false,
-            "all",
-            r#"[]"#,
-            0,
-            None,
+            &conn, "uuid-2", "A2", None, "t2", "p2", "text", false, "all", r#"[]"#, 0, None,
         )
         .unwrap();
 
@@ -422,4 +400,3 @@ mod tests {
         assert!(pending_after.is_empty());
     }
 }
-

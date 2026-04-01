@@ -1,12 +1,12 @@
-mod setting_types;
+mod setting_delete;
 mod setting_get;
 mod setting_set;
-mod setting_delete;
+mod setting_types;
 
-pub use setting_types::SettingRow;
+pub use setting_delete::delete_setting;
 pub use setting_get::{get_setting, get_setting_value};
 pub use setting_set::upsert_setting;
-pub use setting_delete::delete_setting;
+pub use setting_types::SettingRow;
 
 #[cfg(test)]
 mod tests {
@@ -129,4 +129,3 @@ mod tests {
         assert!(result.is_none());
     }
 }
-

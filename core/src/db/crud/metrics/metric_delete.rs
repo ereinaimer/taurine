@@ -7,4 +7,3 @@ pub fn delete_metric(conn: &Connection, date: &str) -> Result<bool> {
     let rows_changed = conn.execute("DELETE FROM metrics WHERE date = ?1", [date])?;
     Ok(rows_changed > 0)
 }
-

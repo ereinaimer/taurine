@@ -1,12 +1,12 @@
-mod metric_types;
+mod metric_delete;
 mod metric_get;
 mod metric_set;
-mod metric_delete;
+mod metric_types;
 
-pub use metric_types::MetricRow;
+pub use metric_delete::delete_metric;
 pub use metric_get::{get_metric, get_metric_counters};
 pub use metric_set::upsert_metric;
-pub use metric_delete::delete_metric;
+pub use metric_types::MetricRow;
 
 #[cfg(test)]
 mod tests {
@@ -67,9 +67,7 @@ mod tests {
 
         upsert_metric(&conn, "2026-03-30", 5, 123).unwrap();
 
-        let counters = get_metric_counters(&conn, "2026-03-30")
-            .unwrap()
-            .unwrap();
+        let counters = get_metric_counters(&conn, "2026-03-30").unwrap().unwrap();
         assert_eq!(counters, (5, 123));
     }
 
@@ -105,4 +103,3 @@ mod tests {
         assert!(result.is_none());
     }
 }
-

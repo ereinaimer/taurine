@@ -58,10 +58,7 @@ pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRo
 ///
 /// Uses the `idx_active_triggers` partial index by matching its predicate:
 /// `WHERE is_deleted = 0 AND trigger = ?`.
-pub fn get_action_by_trigger(
-    conn: &Connection,
-    trigger: &str,
-) -> Result<Option<AutomationAction>> {
+pub fn get_action_by_trigger(conn: &Connection, trigger: &str) -> Result<Option<AutomationAction>> {
     let mut stmt = conn.prepare_cached(
         "SELECT payload, action_type
          FROM   automations
@@ -89,9 +86,7 @@ pub fn get_action_by_trigger(
 ///
 /// Use this at app startup to build a fast in-memory lookup cache.
 pub fn get_all_active_triggers(conn: &Connection) -> Result<Vec<String>> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT trigger FROM automations WHERE is_deleted = 0",
-    )?;
+    let mut stmt = conn.prepare_cached("SELECT trigger FROM automations WHERE is_deleted = 0")?;
 
     let rows = stmt.query_map([], |row| row.get(0))?;
 
@@ -141,4 +136,3 @@ pub fn search_automations(
 
     Ok(results)
 }
-

@@ -1,14 +1,14 @@
+pub mod crud;
 mod init_db;
 mod migrations;
-pub mod crud;
 
-pub use crud::{delete_setting, get_setting, get_setting_value, upsert_setting, SettingRow};
+pub use crud::{
+    AutomationRow, MetricRow, delete_automation, delete_metric, get_automation, get_metric,
+    get_metric_counters, upsert_automation, upsert_metric,
+};
+pub use crud::{SettingRow, delete_setting, get_setting, get_setting_value, upsert_setting};
 pub use init_db::init_db;
 pub use migrations::run_migrations;
-pub use crud::{
-    delete_automation, get_automation, upsert_automation, AutomationRow, delete_metric,
-    get_metric, get_metric_counters, upsert_metric, MetricRow,
-};
 
 /// Returns the current time as Unix seconds (UTC).
 ///
@@ -87,7 +87,9 @@ mod tests {
             .prepare("SELECT value, version FROM settings WHERE key = ?1")
             .unwrap();
         let (value, version): (String, i64) = stmt
-            .query_row(["fuzzy_finder_prefs"], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))
+            .query_row(["fuzzy_finder_prefs"], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })
             .unwrap();
 
         assert!(value.contains("show_icons"));
@@ -115,7 +117,12 @@ mod tests {
             .unwrap();
 
         let (name, action_type, is_regex, is_deleted, is_synced, version): (
-            String, String, bool, bool, bool, i64,
+            String,
+            String,
+            bool,
+            bool,
+            bool,
+            i64,
         ) = stmt
             .query_row(["uuid-1"], |row| {
                 Ok((
@@ -154,7 +161,9 @@ mod tests {
             .prepare("SELECT executions, keystrokes_saved FROM metrics WHERE date = ?1")
             .unwrap();
         let (executions, keystrokes): (i64, i64) = stmt
-            .query_row(["2026-03-30"], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))
+            .query_row(["2026-03-30"], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+            })
             .unwrap();
 
         assert_eq!(executions, 42);

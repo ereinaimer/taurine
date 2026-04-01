@@ -10,6 +10,7 @@ use crate::db::now_unix_secs;
 /// - On **update**: `version` is incremented by `1` atomically.
 /// - `is_deleted` is forced to `0` (reactivates tombstoned rows).
 /// - `is_synced` is forced to `0` so the sync layer can enqueue this record.
+#[allow(clippy::too_many_arguments)]
 pub fn upsert_automation(
     conn: &Connection,
     id: &str,
@@ -68,4 +69,3 @@ pub fn upsert_automation(
 
     Ok(())
 }
-

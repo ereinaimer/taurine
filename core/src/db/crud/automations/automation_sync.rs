@@ -88,4 +88,3 @@ pub fn mark_automations_synced(conn: &Connection, ids: &[&str]) -> Result<()> {
     tx.commit()?;
     Ok(())
 }
-

@@ -1,4 +1,4 @@
-use crate::logs::daily_log::{local_date_string, DailyRotatingLogWriter};
+use crate::logs::daily_log::{DailyRotatingLogWriter, local_date_string};
 use crate::paths::logs_dir;
 use std::backtrace::Backtrace;
 use std::fs;
@@ -57,9 +57,7 @@ pub fn init_tracing_for_app(verbosity: u8, quiet: u8) {
         } else if quiet == 1 {
             // Quiet mode: only file logging.
             let file_timer = tracing_subscriber::fmt::time::LocalTime::new(
-                time::macros::format_description!(
-                    "[year]-[month]-[day] [hour]:[minute]:[second]"
-                ),
+                time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]"),
             );
             let file_layer = tracing_subscriber::fmt::layer()
                 .with_writer(non_blocking)
@@ -124,7 +122,7 @@ pub fn init_tracing_for_app(verbosity: u8, quiet: u8) {
                     .with_line_number(false)
                     .without_time()
                     .with_filter(console_filter);
-                
+
                 // File logs are always on debug level
                 let file_timer = tracing_subscriber::fmt::time::LocalTime::new(
                     time::macros::format_description!(
@@ -153,8 +151,7 @@ pub fn init_tracing_for_app(verbosity: u8, quiet: u8) {
 /// Initialize tracing for tests.
 pub fn init_tracing_for_tests() {
     let _ = TEST_TRACING_INIT.get_or_init(|| {
-        let filter =
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("error"));
+        let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("error"));
 
         // Tests log to console only; no file writer for clean app logs.
         let _ = tracing_subscriber::fmt()
@@ -231,4 +228,3 @@ fn write_panic_to_log_file(payload: &str, location: &str, backtrace: &Backtrace)
     file.flush()?;
     Ok(())
 }
-

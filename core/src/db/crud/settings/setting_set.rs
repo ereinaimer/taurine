@@ -29,4 +29,3 @@ pub fn upsert_setting(conn: &Connection, key: &str, value_json: &str) -> Result<
 
     Ok(())
 }
-

@@ -9,4 +9,3 @@ pub fn delete_setting(conn: &Connection, key: &str) -> Result<bool> {
     let rows_changed = conn.execute("DELETE FROM settings WHERE key = ?1", [key])?;
     Ok(rows_changed > 0)
 }
-

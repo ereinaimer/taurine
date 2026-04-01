@@ -89,8 +89,8 @@ impl DailyRotatingLogWriter {
                 continue;
             }
 
-            let date_part = &file_name
-                [LOG_FILE_PREFIX.len()..file_name.len() - LOG_FILE_SUFFIX.len()];
+            let date_part =
+                &file_name[LOG_FILE_PREFIX.len()..file_name.len() - LOG_FILE_SUFFIX.len()];
 
             // ISO `YYYY-MM-DD` sorts lexicographically.
             if date_part < cutoff_date_str.as_str() {
@@ -170,9 +170,7 @@ mod tests {
         let logs_dir = dir.path().to_path_buf();
 
         let date_str = local_date_string();
-        let expected = logs_dir.join(format!(
-            "{LOG_FILE_PREFIX}{date_str}{LOG_FILE_SUFFIX}"
-        ));
+        let expected = logs_dir.join(format!("{LOG_FILE_PREFIX}{date_str}{LOG_FILE_SUFFIX}"));
 
         let mut writer = DailyRotatingLogWriter::new(logs_dir, DEFAULT_RETENTION_DAYS);
         writer.write_all(b"hello\n").expect("write");
@@ -246,4 +244,3 @@ mod tests {
         assert!(today_path.exists(), "expected today's log file to exist");
     }
 }
-

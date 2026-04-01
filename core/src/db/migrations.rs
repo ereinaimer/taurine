@@ -39,10 +39,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
 
     // Fast exit: nothing to do on the vast majority of startups.
     if version >= CURRENT_SCHEMA_VERSION {
-        debug!(
-            current_schema_version = version,
-            "Schema is up to date"
-        );
+        debug!(current_schema_version = version, "Schema is up to date");
         return Ok(());
     }
 
@@ -64,7 +61,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             // ----------------------------------------------------------------
             0 => conn
                 .execute_batch(
-                "CREATE TABLE IF NOT EXISTS settings (
+                    "CREATE TABLE IF NOT EXISTS settings (
                     key        TEXT    PRIMARY KEY,
                     value      JSON    NOT NULL,
                     version    INTEGER DEFAULT 1,
@@ -128,7 +125,6 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             //     "ALTER TABLE automations ADD COLUMN shortcut TEXT;
             //      PRAGMA user_version = 2;",
             // )?,
-
             _ => unreachable!("Unhandled migration version {v}"),
         }
     }

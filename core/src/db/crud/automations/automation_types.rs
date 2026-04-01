@@ -34,4 +34,3 @@ pub struct AutomationSummary {
     pub trigger: String,
     pub usage_count: i64,
 }
-

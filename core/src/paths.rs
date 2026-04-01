@@ -16,7 +16,7 @@ pub fn init_android_path(data_dir: String) {
     let _ = ANDROID_DATA_PATH.set(PathBuf::from(data_dir));
 }
 
-/// 1. Resolves the base data directory for the app.
+/// Resolves the base data directory for the app.
 /// - Windows:  %LOCALAPPDATA%\Taurine
 /// - macOS:    ~/Library/Application Support/Taurine
 /// - Linux:    ~/.local/share/taurine
@@ -51,9 +51,10 @@ pub fn get_data_dir() -> PathBuf {
     }
 }
 
-/// 2. The combined Ensure function.
+/// The combined Ensure function.
+///
 /// Gets the app data directory and guarantees it exists on disk.
-/// Call this when you need a safe place to write files (logs, scripts, DBs).
+/// Call this when a safe place to write data is needed.
 pub fn ensure_data_dir() -> PathBuf {
     let data_dir = get_data_dir();
 
@@ -65,7 +66,7 @@ pub fn ensure_data_dir() -> PathBuf {
     data_dir
 }
 
-/// 3. Resolves the exact file path for the SQLite database.
+/// Resolves the exact file path for the SQLite database.
 pub fn get_db_path() -> PathBuf {
     // DB path override
     if let Ok(env_path) = std::env::var("TAURINE_DB_PATH") {
@@ -88,7 +89,7 @@ pub fn get_db_path() -> PathBuf {
     }
 }
 
-/// 4. Resolves the logs directory path.
+/// Resolves the logs directory path.
 pub fn logs_dir() -> PathBuf {
     let data_dir = ensure_data_dir();
     data_dir.join("logs")
@@ -104,15 +105,15 @@ mod tests {
         crate::logs::init_tracing_for_tests();
         // Skip this test via an env var override
         if env::var("TAURINE_SKIP_DB_ENV_OVERRIDE_TEST").unwrap_or_default() == "true" {
-            return; 
+            return;
         }
 
         let test_path = "some/custom/path/taurine.db";
         unsafe { env::set_var("TAURINE_DB_PATH", test_path) };
-        
+
         let path = get_db_path();
         assert_eq!(path.to_str().unwrap(), test_path);
-        
+
         unsafe { env::remove_var("TAURINE_DB_PATH") };
     }
 
@@ -133,9 +134,9 @@ mod tests {
         crate::logs::init_tracing_for_tests();
         // Skip this test via an env var override
         if env::var("TAURINE_SKIP_DEFAULT_PATH_RESOLUTION_TEST").unwrap_or_default() == "true" {
-            return; 
+            return;
         }
-        
+
         #[cfg(not(target_os = "android"))]
         {
             let backup_env = env::var("TAURINE_DB_PATH").ok();
