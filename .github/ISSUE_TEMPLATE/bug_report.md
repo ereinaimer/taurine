@@ -7,20 +7,20 @@ assignees: ''
 ---
 
 **Description**
-A short description of the issue.
+<!-- A short description of the issue. -->
 
 **Steps to reproduce:**
-Tell us how to reproduce the issue.
+<!-- Tell us how to reproduce the issue. -->
 
 **Expected behavior**
-Tell us what should've happened.
+<!-- Tell us what should've happened. -->
 
 **Actual behavior**
-Tell us what actually happened instead.
+<!-- Tell us what actually happened instead. -->
 
 **Platform:**
-- OS: [e.g., Windows 11, macOS, Linux]
-- Target App: [e.g., Chrome, VS Code, Notepad]
+- OS: <!-- Windows 11, macOS, Linux, Android, iOS -->
+- Target App: <!-- Chrome, VS Code, Notepad -->
 
 **Additional context (Optional)**
-Kindly share any screenshots or extra details that may help us better understand the issue.
+<!-- Kindly share any screenshots or extra details that may help us better understand the issue. -->
