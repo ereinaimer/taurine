@@ -3,6 +3,3 @@ contact_links:
   - name: Ask a question
     url: https://github.com/ereinaimer/taurine/discussions/new?category=q-a
     about: Need help or have a question about Taurine? Ask it here.
-  - name: Report a security vulnerability
-    url: https://github.com/ereinaimer/taurine/security/advisories/new
-    about: Please report security vulnerabilities privately.
