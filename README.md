@@ -11,11 +11,10 @@ This project is organized into the following components:
 - `daemon`: The background daemon logic.
 - `tui`: The TUI interface.
 
-## Community
+## Contributing
 
-Join our awesome community on [Discord](https://discord.gg/Kc9XmHJgsS).
-
-If you are planning to contribute, please consult with our community before trying to develop any new feature yourself.
+Interested in contributing? Check out our [Contributing Guide](./CONTRIBUTING.md#how-to-contribute).
+Also feel free to join our awesome community on [Discord](https://discord.gg/Kc9XmHJgsS).
 
 ## License
 
