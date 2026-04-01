@@ -23,8 +23,8 @@ pub fn init_android_path(data_dir: String) {
 /// - Android:  Directory provided via `init_android_path()`.
 pub fn get_data_dir() -> PathBuf {
     // Allow overriding via environment variable (for headless CI or tests)
-    if let Ok(env_path) = std::env::var("TAURINE_APP_DIR") {
-        debug!("TAURINE_APP_DIR override enabled");
+    if let Ok(env_path) = std::env::var("TAURINE_DATA_DIR") {
+        debug!("TAURINE_DATA_DIR override enabled");
         return PathBuf::from(env_path);
     }
 
@@ -67,7 +67,7 @@ pub fn ensure_data_dir() -> PathBuf {
 
 /// 3. Resolves the exact file path for the SQLite database.
 pub fn get_db_path() -> PathBuf {
-    // Keep the specific DB path override for your existing tests
+    // DB path override
     if let Ok(env_path) = std::env::var("TAURINE_DB_PATH") {
         debug!("TAURINE_DB_PATH override enabled");
         return PathBuf::from(env_path);
@@ -96,6 +96,7 @@ mod tests {
     #[test]
     fn test_db_env_override() {
         crate::logs::init_tracing_for_tests();
+        // Skip this test via an env var override
         if env::var("TAURINE_SKIP_DB_ENV_OVERRIDE_TEST").unwrap_or_default() == "true" {
             return; 
         }
@@ -113,18 +114,19 @@ mod tests {
     fn test_data_dir_env_override() {
         crate::logs::init_tracing_for_tests();
         let test_dir = "some/custom/app_dir";
-        unsafe { env::set_var("TAURINE_APP_DIR", test_dir) };
+        unsafe { env::set_var("TAURINE_DATA_DIR", test_dir) };
 
         let path = get_data_dir();
         assert_eq!(path.to_str().unwrap(), test_dir);
 
-        unsafe { env::remove_var("TAURINE_APP_DIR") };
+        unsafe { env::remove_var("TAURINE_DATA_DIR") };
     }
 
     #[test]
     fn test_default_desktop_path_resolution() {
         crate::logs::init_tracing_for_tests();
-        if env::var("TAURINE_SKIP_DB_DEFAULT_PATH_RESOLUTION_TEST").unwrap_or_default() == "true" {
+        // Skip this test via an env var override
+        if env::var("TAURINE_SKIP_DEFAULT_PATH_RESOLUTION_TEST").unwrap_or_default() == "true" {
             return; 
         }
         
