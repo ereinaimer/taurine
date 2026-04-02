@@ -225,7 +225,16 @@ fn write_panic_to_log_file(payload: &str, location: &str, backtrace: &Backtrace)
     let file_name = format!("{LOG_FILE_PREFIX}{date_str}{LOG_FILE_SUFFIX}");
     let path = logs_dir.join(file_name);
 
-    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    let mut options = OpenOptions::new();
+    options.create(true).append(true);
+
+    #[cfg(all(unix, not(target_os = "android")))]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+
+    let mut file = options.open(path)?;
     writeln!(file, "==================== PANIC ====================")?;
     writeln!(file, "panic_payload: {payload}")?;
     writeln!(file, "panic_location: {location}")?;

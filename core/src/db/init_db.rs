@@ -15,7 +15,21 @@ pub fn init_db() -> Result<Connection> {
     // Guarantee the data directory exists before SQLite tries to create the file
     ensure_data_dir();
 
-    let conn = Connection::open(get_db_path())?;
+    let db_path = get_db_path();
+
+    #[cfg(all(unix, not(target_os = "android")))]
+    if !db_path.exists() {
+        use std::fs::OpenOptions;
+        use std::os::unix::fs::OpenOptionsExt;
+        // Pre-create the DB file with secure permissions to prevent unauthorized access
+        let _ = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .mode(0o600)
+            .open(&db_path);
+    }
+
+    let conn = Connection::open(db_path)?;
 
     // Connection-level PRAGMAs only — not schema, not migrations.
     // WAL:         multiple readers don't block a single writer.

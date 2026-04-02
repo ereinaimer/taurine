@@ -121,10 +121,16 @@ impl Write for DailyRotatingLogWriter {
 
 fn open_log_file(logs_dir: &Path, date_str: &str) -> io::Result<std::fs::File> {
     let file_name = format!("{LOG_FILE_PREFIX}{date_str}{LOG_FILE_SUFFIX}");
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(logs_dir.join(file_name))
+    let mut options = OpenOptions::new();
+    options.create(true).append(true);
+
+    #[cfg(all(unix, not(target_os = "android")))]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+
+    options.open(logs_dir.join(file_name))
 }
 
 fn open_log_file_best_effort(logs_dir: &Path, date_str: &str) -> io::Result<std::fs::File> {
