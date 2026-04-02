@@ -13,15 +13,19 @@ struct Cli {
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
 
-    /// Reduce logging output
-    #[arg(short, long, action = clap::ArgAction::Count, conflicts_with = "verbose")]
-    quiet: u8,
+    /// Disable console logging output
+    #[arg(short, long, conflicts_with = "verbose")]
+    quiet: bool,
+
+    /// Disable writing logs to the log file
+    #[arg(long)]
+    no_log_file: bool,
 }
 
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
 
-    let _guard = taurine_core::logs::init_tracing_for_app(cli.verbose, cli.quiet);
+    let _guard = taurine_core::logs::init_tracing_for_app(cli.verbose, cli.quiet, cli.no_log_file);
 
     // Install a panic hook that:
     // 1) writes structured diagnostics into tracing + daily log file

@@ -18,37 +18,34 @@ use super::{DEFAULT_RETENTION_DAYS, LOG_FILE_PREFIX, LOG_FILE_SUFFIX};
 static TRACING_INIT: std::sync::Once = std::sync::Once::new();
 static TEST_TRACING_INIT: OnceLock<()> = OnceLock::new();
 static PANIC_HOOK_INIT: OnceLock<()> = OnceLock::new();
-static QUIET_LEVEL: OnceLock<u8> = OnceLock::new();
+static QUIET_CONSOLE: OnceLock<bool> = OnceLock::new();
+static NO_LOG_FILE: OnceLock<bool> = OnceLock::new();
 
 /// Initialize tracing for normal application runtime.
 ///
 /// - Console verbosity is controlled by CLI `-v/-vv/-vvv` unless `RUST_LOG` is set.
 /// - `-q` or `--quiet` disables console output.
-/// - `-qq` disables both console and file logging.
+/// - `--no-log-file` disables file logging.
 /// - File logs default to `debug` unless `RUST_LOG` overrides.
 /// - Logs are written into `.../logs/taurine-log-YYYY-MM-DD.txt` with
 ///   7-day retention.
 pub fn init_tracing_for_app(
     verbosity: u8,
-    quiet: u8,
+    quiet: bool,
+    no_log_file: bool,
 ) -> Option<tracing_appender::non_blocking::WorkerGuard> {
     let mut returned_guard = None;
 
     TRACING_INIT.call_once(|| {
-        let _ = QUIET_LEVEL.set(quiet);
+        let _ = QUIET_CONSOLE.set(quiet);
+        let _ = NO_LOG_FILE.set(no_log_file);
+
         let logs_dir = logs_dir();
         let retention_days = DEFAULT_RETENTION_DAYS;
 
         let env_filter = EnvFilter::try_from_default_env().ok();
-        let file_filter = env_filter
-            .clone()
-            .unwrap_or_else(|| EnvFilter::new("debug"));
 
-        let file_writer = DailyRotatingLogWriter::new(logs_dir, retention_days);
-        let (non_blocking, guard) = tracing_appender::non_blocking(file_writer);
-        returned_guard = Some(guard);
-
-        if quiet >= 2 {
+        if quiet && no_log_file {
             // Silent mode: no console layer and no file layer.
 
             // Tracing is initialized here because the tracing crate allows global subscriber
@@ -58,8 +55,16 @@ pub fn init_tracing_for_app(
 
             let subscriber = tracing_subscriber::registry();
             let _ = tracing::subscriber::set_global_default(subscriber);
-        } else if quiet == 1 {
+        } else if quiet {
             // Quiet mode: only file logging.
+            let file_filter = env_filter
+                .clone()
+                .unwrap_or_else(|| EnvFilter::new("debug"));
+
+            let file_writer = DailyRotatingLogWriter::new(logs_dir, retention_days);
+            let (non_blocking, guard) = tracing_appender::non_blocking(file_writer);
+            returned_guard = Some(guard);
+
             let file_timer = tracing_subscriber::fmt::time::LocalTime::new(
                 time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]"),
             );
@@ -76,8 +81,57 @@ pub fn init_tracing_for_app(
                 .with(file_layer)
                 .with(ErrorLayer::default());
             let _ = tracing::subscriber::set_global_default(subscriber);
+        } else if no_log_file {
+            // No log file: only console logging.
+            let console_level = match verbosity {
+                0 => "info",
+                1 => "debug",
+                _ => "trace",
+            };
+            let console_filter = env_filter.unwrap_or_else(|| EnvFilter::new(console_level));
+
+            let use_timestamp = verbosity > 0;
+            if use_timestamp {
+                let console_timer = tracing_subscriber::fmt::time::LocalTime::new(
+                    time::macros::format_description!(
+                        "[year]-[month]-[day] [hour]:[minute]:[second]"
+                    ),
+                );
+                let console_layer = tracing_subscriber::fmt::layer()
+                    .with_timer(console_timer)
+                    .with_target(false)
+                    .with_file(false)
+                    .with_line_number(false)
+                    .with_filter(console_filter);
+
+                let subscriber = tracing_subscriber::registry()
+                    .with(console_layer)
+                    .with(ErrorLayer::default());
+                let _ = tracing::subscriber::set_global_default(subscriber);
+            } else {
+                let console_layer = tracing_subscriber::fmt::layer()
+                    .compact()
+                    .with_target(false)
+                    .with_file(false)
+                    .with_line_number(false)
+                    .without_time()
+                    .with_filter(console_filter);
+
+                let subscriber = tracing_subscriber::registry()
+                    .with(console_layer)
+                    .with(ErrorLayer::default());
+                let _ = tracing::subscriber::set_global_default(subscriber);
+            }
         } else {
             // Normal mode: console and file logging.
+            let file_filter = env_filter
+                .clone()
+                .unwrap_or_else(|| EnvFilter::new("debug"));
+
+            let file_writer = DailyRotatingLogWriter::new(logs_dir, retention_days);
+            let (non_blocking, guard) = tracing_appender::non_blocking(file_writer);
+            returned_guard = Some(guard);
+
             let console_level = match verbosity {
                 0 => "info",
                 1 => "debug",
@@ -186,7 +240,10 @@ pub fn install_tracing_panic_hook() {
 ///
 /// This is safe to call from a panic hook.
 pub fn handle_panic_info(panic_info: &PanicHookInfo<'_>) {
-    if QUIET_LEVEL.get().copied().unwrap_or(0) >= 2 {
+    let quiet_console = QUIET_CONSOLE.get().copied().unwrap_or(false);
+    let no_log_file = NO_LOG_FILE.get().copied().unwrap_or(false);
+
+    if quiet_console && no_log_file {
         return;
     }
 
@@ -215,7 +272,10 @@ pub fn handle_panic_info(panic_info: &PanicHookInfo<'_>) {
 
     // Also synchronously write the panic to the log file so we keep useful
     // diagnostics even if the non-blocking writer hasn't flushed yet.
-    let _ = write_panic_to_log_file(&payload, &location, &backtrace);
+    let no_log_file = NO_LOG_FILE.get().copied().unwrap_or(false);
+    if !no_log_file {
+        let _ = write_panic_to_log_file(&payload, &location, &backtrace);
+    }
 }
 
 fn write_panic_to_log_file(payload: &str, location: &str, backtrace: &Backtrace) -> io::Result<()> {
