@@ -5,7 +5,7 @@ mod metric_types;
 
 pub use metric_delete::delete_metric;
 pub use metric_get::{get_metric, get_metric_counters};
-pub use metric_set::upsert_metric;
+pub use metric_set::increment_metric;
 pub use metric_types::MetricRow;
 
 #[cfg(test)]
@@ -32,11 +32,11 @@ mod tests {
     }
 
     #[test]
-    fn upsert_metric_inserts_new_row_with_version_1() {
+    fn increment_metric_inserts_new_row_with_version_1() {
         crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        upsert_metric(&conn, "2026-03-30", 42, 500).unwrap();
+        increment_metric(&conn, "2026-03-30", 42, 500).unwrap();
 
         let row = get_metric(&conn, "2026-03-30").unwrap().unwrap();
         assert_eq!(row.date, "2026-03-30");
@@ -47,17 +47,17 @@ mod tests {
     }
 
     #[test]
-    fn upsert_metric_updates_counters_and_increments_version() {
+    fn increment_metric_updates_counters_and_increments_version() {
         crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        upsert_metric(&conn, "2026-03-30", 1, 10).unwrap();
-        upsert_metric(&conn, "2026-03-30", 2, 20).unwrap();
+        increment_metric(&conn, "2026-03-30", 1, 10).unwrap();
+        increment_metric(&conn, "2026-03-30", 2, 20).unwrap();
 
         let row = get_metric(&conn, "2026-03-30").unwrap().unwrap();
         assert_eq!(row.version, 2);
-        assert_eq!(row.executions, 2);
-        assert_eq!(row.keystrokes_saved, 20);
+        assert_eq!(row.executions, 3);
+        assert_eq!(row.keystrokes_saved, 30);
     }
 
     #[test]
@@ -65,7 +65,7 @@ mod tests {
         crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        upsert_metric(&conn, "2026-03-30", 5, 123).unwrap();
+        increment_metric(&conn, "2026-03-30", 5, 123).unwrap();
 
         let counters = get_metric_counters(&conn, "2026-03-30").unwrap().unwrap();
         assert_eq!(counters, (5, 123));
@@ -76,7 +76,7 @@ mod tests {
         crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        upsert_metric(&conn, "2026-03-30", 42, 500).unwrap();
+        increment_metric(&conn, "2026-03-30", 42, 500).unwrap();
 
         let deleted = delete_metric(&conn, "2026-03-30").unwrap();
         assert!(deleted);
@@ -96,7 +96,7 @@ mod tests {
         crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        upsert_metric(&conn, "2026-03-30", 42, 500).unwrap();
+        increment_metric(&conn, "2026-03-30", 42, 500).unwrap();
         delete_metric(&conn, "2026-03-30").unwrap();
 
         let result = get_metric(&conn, "2026-03-30").unwrap();

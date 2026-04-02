@@ -4,7 +4,7 @@ mod migrations;
 
 pub use crud::{
     AutomationRow, MetricRow, delete_automation, delete_metric, get_automation, get_metric,
-    get_metric_counters, upsert_automation, upsert_metric,
+    get_metric_counters, increment_metric, upsert_automation,
 };
 pub use crud::{SettingRow, delete_setting, get_setting, get_setting_value, upsert_setting};
 pub use init_db::init_db;

@@ -7,5 +7,5 @@ pub use automations::{
     get_all_active_triggers, get_automation, get_pending_sync_automations, mark_automations_synced,
     search_automations, upsert_automation,
 };
-pub use metrics::{MetricRow, delete_metric, get_metric, get_metric_counters, upsert_metric};
+pub use metrics::{MetricRow, delete_metric, get_metric, get_metric_counters, increment_metric};
 pub use settings::{SettingRow, delete_setting, get_setting, get_setting_value, upsert_setting};

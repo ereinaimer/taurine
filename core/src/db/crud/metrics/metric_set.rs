@@ -7,11 +7,11 @@ use crate::db::now_unix_secs;
 /// - On **insert**: `version` starts at `1`.
 /// - On **update**: `version` is incremented by `1` atomically.
 /// - `updated_at` is always set to the current Unix timestamp.
-pub fn upsert_metric(
+pub fn increment_metric(
     conn: &Connection,
     date: &str,
-    executions: i64,
-    keystrokes_saved: i64,
+    delta_executions: i64,
+    delta_keystrokes_saved: i64,
 ) -> Result<()> {
     let now = now_unix_secs();
 
@@ -19,11 +19,11 @@ pub fn upsert_metric(
         "INSERT INTO metrics (date, executions, keystrokes_saved, version, updated_at)
          VALUES (?1, ?2, ?3, 1, ?4)
          ON CONFLICT(date) DO UPDATE SET
-             executions        = excluded.executions,
-             keystrokes_saved = excluded.keystrokes_saved,
+             executions       = executions + excluded.executions,
+             keystrokes_saved = keystrokes_saved + excluded.keystrokes_saved,
              version          = version + 1,
              updated_at       = excluded.updated_at",
-        (date, executions, keystrokes_saved, now),
+        (date, delta_executions, delta_keystrokes_saved, now),
     )?;
 
     Ok(())
