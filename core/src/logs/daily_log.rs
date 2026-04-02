@@ -49,9 +49,9 @@ impl DailyRotatingLogWriter {
             return Ok(());
         }
 
-        self.current_date = new_date.clone();
-        if let Ok(file) = open_log_file(&self.logs_dir, &self.current_date) {
+        if let Ok(file) = open_log_file_best_effort(&self.logs_dir, &new_date) {
             self.target = DailyLogTarget::File(file);
+            self.current_date = new_date.clone();
         }
 
         let _ = self.cleanup_old_logs_for_date(&new_date);
