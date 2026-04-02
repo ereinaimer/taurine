@@ -21,7 +21,7 @@ struct Cli {
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
 
-    taurine_core::logs::init_tracing_for_app(cli.verbose, cli.quiet);
+    let _guard = taurine_core::logs::init_tracing_for_app(cli.verbose, cli.quiet);
 
     // Install a panic hook that:
     // 1) writes structured diagnostics into tracing + daily log file

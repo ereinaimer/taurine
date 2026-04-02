@@ -15,10 +15,9 @@ use tracing_subscriber::prelude::*;
 
 use super::{DEFAULT_RETENTION_DAYS, LOG_FILE_PREFIX, LOG_FILE_SUFFIX};
 
-static TRACING_INIT: OnceLock<()> = OnceLock::new();
+static TRACING_INIT: std::sync::Once = std::sync::Once::new();
 static TEST_TRACING_INIT: OnceLock<()> = OnceLock::new();
 static PANIC_HOOK_INIT: OnceLock<()> = OnceLock::new();
-static LOG_GUARD: OnceLock<tracing_appender::non_blocking::WorkerGuard> = OnceLock::new();
 static QUIET_LEVEL: OnceLock<u8> = OnceLock::new();
 
 /// Initialize tracing for normal application runtime.
@@ -29,8 +28,13 @@ static QUIET_LEVEL: OnceLock<u8> = OnceLock::new();
 /// - File logs default to `debug` unless `RUST_LOG` overrides.
 /// - Logs are written into `.../logs/taurine-log-YYYY-MM-DD.txt` with
 ///   7-day retention.
-pub fn init_tracing_for_app(verbosity: u8, quiet: u8) {
-    let _ = TRACING_INIT.get_or_init(|| {
+pub fn init_tracing_for_app(
+    verbosity: u8,
+    quiet: u8,
+) -> Option<tracing_appender::non_blocking::WorkerGuard> {
+    let mut returned_guard = None;
+
+    TRACING_INIT.call_once(|| {
         let _ = QUIET_LEVEL.set(quiet);
         let logs_dir = logs_dir();
         let retention_days = DEFAULT_RETENTION_DAYS;
@@ -42,7 +46,7 @@ pub fn init_tracing_for_app(verbosity: u8, quiet: u8) {
 
         let file_writer = DailyRotatingLogWriter::new(logs_dir, retention_days);
         let (non_blocking, guard) = tracing_appender::non_blocking(file_writer);
-        let _ = LOG_GUARD.set(guard);
+        returned_guard = Some(guard);
 
         if quiet >= 2 {
             // Silent mode: no console layer and no file layer.
@@ -146,6 +150,8 @@ pub fn init_tracing_for_app(verbosity: u8, quiet: u8) {
             }
         }
     });
+
+    returned_guard
 }
 
 /// Initialize tracing for tests.
