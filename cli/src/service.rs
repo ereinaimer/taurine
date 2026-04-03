@@ -33,14 +33,14 @@ mod unix {
                 info!("Taurine is already running.");
             }
             Ok(ServiceStatus::Stopped(_)) => {
-                info!("Taurine service found but stopped. Starting...");
+                debug!("Taurine service found but stopped. Starting...");
                 manager.start(ServiceStartCtx {
                     label: label.clone(),
                 })?;
                 info!("Taurine started successfully.");
             }
             Ok(ServiceStatus::NotInstalled) | Err(_) => {
-                info!("Taurine service not found. Installing...");
+                debug!("Taurine service not found. Installing...");
 
                 let current_exe = env::current_exe()?;
 
@@ -56,7 +56,7 @@ mod unix {
                     restart_policy: Default::default(),
                 })?;
 
-                info!("Install successful. Starting...");
+                debug!("Install successful. Starting...");
                 manager.start(ServiceStartCtx {
                     label: label.clone(),
                 })?;
@@ -69,7 +69,7 @@ mod unix {
 
     pub fn down() -> Result<(), Box<dyn std::error::Error>> {
         // Placeholder INFO log until gRPC graceful shutdown is implemented
-        info!("TODO: Issue stop command to Taurine background process via gRPC.");
+        debug!("TODO: Issue stop command to Taurine background process via gRPC.");
 
         // Fallback/Hard stop via service manager for now
         let manager = get_manager()?;
@@ -88,7 +88,7 @@ mod unix {
         match manager.stop(ServiceStopCtx {
             label: label.clone(),
         }) {
-            Ok(_) => info!("Taurine stopped via OS service manager."),
+            Ok(_) => info!("Taurine has been stopped."),
             Err(e) => error!("Failed to stop service: {}", e),
         }
 
@@ -97,7 +97,7 @@ mod unix {
 
     pub fn status() -> Result<(), Box<dyn std::error::Error>> {
         // Placeholder INFO log until gRPC status check is implemented
-        info!("TODO: Fetch detailed status (active snippets, uptime) via gRPC.");
+        debug!("TODO: Fetch detailed status (active snippets, uptime) via gRPC.");
 
         let manager = get_manager()?;
         let label: ServiceLabel = TAURINE_SERVICE_LABEL.parse()?;
@@ -105,9 +105,9 @@ mod unix {
         match manager.status(ServiceStatusCtx {
             label: label.clone(),
         }) {
-            Ok(ServiceStatus::Running) => info!("OS Service Status: ONLINE (Running)"),
-            Ok(ServiceStatus::Stopped(_)) => info!("OS Service Status: OFFLINE (Stopped)"),
-            Ok(ServiceStatus::NotInstalled) | Err(_) => info!("OS Service Status: NOT INSTALLED"),
+            Ok(ServiceStatus::Running) => info!("ONLINE (Running)"),
+            Ok(ServiceStatus::Stopped(_)) => info!("OFFLINE (Stopped)"),
+            Ok(ServiceStatus::NotInstalled) | Err(_) => info!("NOT INSTALLED"),
         }
 
         Ok(())
@@ -187,7 +187,6 @@ mod windows {
         if is_daemon_running(&mut sys) {
             info!("Taurine is already running.");
         } else {
-            info!("Starting Taurine locally...");
             Command::new(&current_exe)
                 .arg("--daemon")
                 .creation_flags(CREATE_NO_WINDOW)
@@ -195,22 +194,21 @@ mod windows {
             info!("Taurine started successfully.");
         }
 
-        info!("Registering Taurine to start on login...");
+        debug!("Registering Taurine to start on login...");
         if let Err(e) = set_autorun(&current_exe) {
             error!("Failed to register startup hook: {}", e);
         } else {
-            info!("Startup hook registered.");
+            debug!("Startup hook registered.");
         }
 
         Ok(())
     }
 
     pub fn down() -> Result<(), Box<dyn std::error::Error>> {
-        info!("TODO: Issue stop command to Taurine background process via gRPC.");
+        debug!("TODO: Issue stop command to Taurine background process via gRPC.");
 
-        info!("Removing startup hook...");
         if let Err(e) = remove_autorun() {
-            info!("Could not remove startup hook (was it installed?): {}", e);
+            error!("Could not remove startup hook (was it installed?): {}", e);
         }
 
         let mut sys = System::new();
@@ -221,10 +219,7 @@ mod windows {
 
         let killed = kill_daemon(&mut sys);
         if killed > 0 {
-            info!(
-                "Taurine stopped successfully (killed {} process(es)).",
-                killed
-            );
+            info!("Taurine has been stopped.");
         } else {
             error!("Failed to kill Taurine process. It might still be running.");
         }

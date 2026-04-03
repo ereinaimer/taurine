@@ -2,7 +2,7 @@
 // See LICENSE for details.
 
 use taurine_core::db::init;
-use tracing::{error, info};
+use tracing::{debug, error};
 
 pub fn start() -> Result<(), Box<dyn std::error::Error>> {
     let _conn = init::setup().map_err(|e| {
@@ -10,7 +10,7 @@ pub fn start() -> Result<(), Box<dyn std::error::Error>> {
         e
     })?;
 
-    info!("Daemon initialization complete!");
+    debug!("Daemon initialization complete!");
 
     Ok(())
 }

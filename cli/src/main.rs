@@ -33,8 +33,10 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Start Taurine
+    #[command(alias = "start")]
     Up,
     /// Stop Taurine
+    #[command(alias = "stop")]
     Down,
     /// Check if Taurine is currently running
     Status,
