@@ -1,9 +1,7 @@
 // Licensed under the Aimer Software License (ASL).
 // See LICENSE for details.
 use clap::Parser;
-use taurine_core::{db, paths};
-use tracing::{debug, error, info};
-
+use tracing::{error, info};
 /// Taurine Command Line Interface
 #[derive(Parser, Debug)]
 #[command(name = "taurine")]
@@ -48,26 +46,9 @@ fn main() -> std::process::ExitCode {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     info!("Initializing Taurine v{}", env!("CARGO_PKG_VERSION"));
 
-    let db_path = paths::get_db_path();
-    let is_new = !db_path.exists();
-
-    debug!("Database path: {}", db_path.display());
-
-    let conn = db::init_db().map_err(|e| {
-        error!(error=%e, "Failed to open database");
-        e
-    })?;
-
-    if is_new {
-        info!("New database created at {}", db_path.display());
-    }
-
-    // Run schema migrations — safe to call every startup, already-applied
-    // migrations are no-ops tracked by PRAGMA user_version.
-    db::run_migrations(&conn).map_err(|e| {
-        error!(error=%e, "Schema migration failed");
-        e
-    })?;
+    // TODO: This is to be called when the hidden flag --daemon is passed to the CLI
+    // to start the background daemon process
+    taurine_daemon::start()?;
 
     Ok(())
 }

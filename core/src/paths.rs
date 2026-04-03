@@ -85,7 +85,9 @@ pub fn get_db_path() -> PathBuf {
 
     #[cfg(not(target_os = "android"))]
     {
-        get_data_dir().join("taurine.db")
+        let db_path = get_data_dir().join("taurine.db");
+        debug!("Database path: {}", db_path.display());
+        db_path
     }
 }
 

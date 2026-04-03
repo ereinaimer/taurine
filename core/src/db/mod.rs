@@ -1,14 +1,11 @@
 pub mod crud;
-mod init_db;
-mod migrations;
+pub mod init;
 
 pub use crud::{
     AutomationRow, MetricRow, delete_automation, delete_metric, get_automation, get_metric,
     get_metric_counters, increment_metric, upsert_automation,
 };
 pub use crud::{SettingRow, delete_setting, get_setting, get_setting_value, upsert_setting};
-pub use init_db::init_db;
-pub use migrations::run_migrations;
 
 /// Returns the current time as Unix seconds (UTC).
 ///
@@ -54,8 +51,8 @@ pub(crate) fn open_test_db() -> (tempfile::TempDir, rusqlite::Connection) {
     )
     .expect("PRAGMA setup failed");
 
-    run_migrations(&conn).expect("run_migrations failed");
-
+    init::migrate::run_migrations(&conn).expect("run_migrations failed");
+    init::seed::ensure_defaults(&conn).expect("ensure_defaults failed");
     (dir, conn)
 }
 
@@ -176,7 +173,7 @@ mod tests {
         let (_dir, conn) = open_test_db(); // already applied
 
         // Running again must be a no-op, not an error
-        run_migrations(&conn).expect("Second run_migrations call must not fail");
+        init::migrate::run_migrations(&conn).expect("Second run_migrations call must not fail");
 
         let version: u32 = conn
             .query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))
