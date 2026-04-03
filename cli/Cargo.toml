@@ -18,6 +18,8 @@ tracing-subscriber = { workspace = true }
 color-eyre = { version = "0.6.5", features = ["default"] }
 tracing-error = "0.2.1"
 service-manager = "0.11.0"
+tokio = { version = "1.0", features = ["full"] }
+tonic = "0.12"
 
 [target."cfg(windows)".dependencies]
 sysinfo = "0.38.4"

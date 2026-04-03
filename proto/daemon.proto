@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package taurine;
+
+service DaemonControl {
+    rpc GetStatus (StatusRequest) returns (StatusResponse);
+    rpc Shutdown (ShutdownRequest) returns (ShutdownResponse);
+}
+
+message StatusRequest {}
+
+message StatusResponse {
+    bool online = 1;
+}
+
+message ShutdownRequest {}
+
+message ShutdownResponse {
+    bool success = 1;
+}

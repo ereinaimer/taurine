@@ -10,3 +10,5 @@ license-file.workspace = true
 [dependencies]
 taurine_core = { path = "../core" }
 tracing = { workspace = true }
+tokio = { version = "1.0", features = ["full"] }
+tonic = "0.12"

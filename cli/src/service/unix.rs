@@ -3,6 +3,9 @@ use service_manager::{
     ServiceStatusCtx, ServiceStopCtx, native_service_manager,
 };
 use std::env;
+use taurine_core::rpc::daemon_control_client::DaemonControlClient;
+use taurine_core::rpc::{ShutdownRequest, StatusRequest};
+use tokio::runtime::Runtime;
 use tracing::{debug, error, info};
 
 const TAURINE_SERVICE_LABEL: &str = "com.ereinaimer.taurine";
@@ -66,12 +69,46 @@ pub fn up() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub fn down() -> Result<(), Box<dyn std::error::Error>> {
-    // Placeholder INFO log until gRPC graceful shutdown is implemented
-    debug!("TODO: Issue stop command to Taurine background process via gRPC.");
+    debug!("Attempting graceful shutdown via gRPC...");
+
+    let mut grpc_success = false;
+    if let Ok(rt) = Runtime::new() {
+        rt.block_on(async {
+            if let Ok(mut client) = DaemonControlClient::connect("http://127.0.0.1:50051").await {
+                let request = tonic::Request::new(ShutdownRequest {});
+                match client.shutdown(request).await {
+                    Ok(_) => {
+                        info!("Graceful shutdown signal sent successfully.");
+                        grpc_success = true;
+                    }
+                    Err(e) => error!("Failed to send graceful shutdown signal: {}", e),
+                }
+            } else {
+                debug!(
+                    "Failed to connect to daemon for graceful shutdown. It may already be stopped."
+                );
+            }
+        });
+    }
 
     // Fallback/Hard stop via service manager for now
     let manager = get_manager()?;
     let label: ServiceLabel = TAURINE_SERVICE_LABEL.parse()?;
+
+    if grpc_success {
+        for _ in 0..10 {
+            match manager.status(ServiceStatusCtx {
+                label: label.clone(),
+            }) {
+                Ok(ServiceStatus::Stopped(_)) | Ok(ServiceStatus::NotInstalled) | Err(_) => {
+                    info!("Taurine is stopped.");
+                    return Ok(());
+                }
+                _ => {}
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+    }
 
     match manager.status(ServiceStatusCtx {
         label: label.clone(),
@@ -86,7 +123,7 @@ pub fn down() -> Result<(), Box<dyn std::error::Error>> {
     match manager.stop(ServiceStopCtx {
         label: label.clone(),
     }) {
-        Ok(_) => info!("Taurine has been stopped."),
+        Ok(_) => info!("Taurine has been stopped (fallback)."),
         Err(e) => error!("Failed to stop service: {}", e),
     }
 
@@ -94,8 +131,21 @@ pub fn down() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub fn status() -> Result<(), Box<dyn std::error::Error>> {
-    // Placeholder INFO log until gRPC status check is implemented
-    debug!("TODO: Fetch detailed status (active snippets, uptime) via gRPC.");
+    debug!("Fetching status from daemon via gRPC...");
+
+    if let Ok(rt) = Runtime::new() {
+        rt.block_on(async {
+            if let Ok(mut client) = DaemonControlClient::connect("http://127.0.0.1:50051").await {
+                let request = tonic::Request::new(StatusRequest {});
+                match client.get_status(request).await {
+                    Ok(_) => info!("Engine status: ONLINE (gRPC)"),
+                    Err(e) => info!("Engine status error via gRPC: {}", e),
+                }
+            } else {
+                info!("Engine status: OFFLINE (gRPC)");
+            }
+        });
+    }
 
     let manager = get_manager()?;
     let label: ServiceLabel = TAURINE_SERVICE_LABEL.parse()?;

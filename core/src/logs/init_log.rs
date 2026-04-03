@@ -57,9 +57,9 @@ pub fn init_tracing_for_app(
             let _ = tracing::subscriber::set_global_default(subscriber);
         } else if quiet {
             // Quiet mode: only file logging.
-            let file_filter = env_filter
-                .clone()
-                .unwrap_or_else(|| EnvFilter::new("debug"));
+            let file_filter = env_filter.clone().unwrap_or_else(|| {
+                EnvFilter::new("debug,h2=warn,hyper=warn,tower=warn,tonic=warn")
+            });
 
             let file_writer = DailyRotatingLogWriter::new(logs_dir, retention_days);
             let (non_blocking, guard) = tracing_appender::non_blocking(file_writer);
@@ -84,9 +84,9 @@ pub fn init_tracing_for_app(
         } else if no_log_file {
             // No log file: only console logging.
             let console_level = match verbosity {
-                0 => "info",
-                1 => "debug",
-                _ => "trace",
+                0 => "info,h2=error,hyper=error,tower=error,tonic=error",
+                1 => "debug,h2=warn,hyper=warn,tower=warn,tonic=warn",
+                _ => "trace,h2=info,hyper=info,tower=info,tonic=info",
             };
             let console_filter = env_filter.unwrap_or_else(|| EnvFilter::new(console_level));
 
@@ -124,18 +124,18 @@ pub fn init_tracing_for_app(
             }
         } else {
             // Normal mode: console and file logging.
-            let file_filter = env_filter
-                .clone()
-                .unwrap_or_else(|| EnvFilter::new("debug"));
+            let file_filter = env_filter.clone().unwrap_or_else(|| {
+                EnvFilter::new("debug,h2=warn,hyper=warn,tower=warn,tonic=warn")
+            });
 
             let file_writer = DailyRotatingLogWriter::new(logs_dir, retention_days);
             let (non_blocking, guard) = tracing_appender::non_blocking(file_writer);
             returned_guard = Some(guard);
 
             let console_level = match verbosity {
-                0 => "info",
-                1 => "debug",
-                _ => "trace",
+                0 => "info,h2=error,hyper=error,tower=error,tonic=error",
+                1 => "debug,h2=warn,hyper=warn,tower=warn,tonic=warn",
+                _ => "trace,h2=info,hyper=info,tower=info,tonic=info",
             };
             let console_filter = env_filter.unwrap_or_else(|| EnvFilter::new(console_level));
 

@@ -2,6 +2,9 @@ use std::env;
 use std::os::windows::process::CommandExt;
 use std::process::Command;
 use sysinfo::System;
+use taurine_core::rpc::daemon_control_client::DaemonControlClient;
+use taurine_core::rpc::{ShutdownRequest, StatusRequest};
+use tokio::runtime::Runtime;
 use tracing::{debug, error, info};
 use winreg::RegKey;
 use winreg::enums::*;
@@ -84,13 +87,44 @@ pub fn up() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub fn down() -> Result<(), Box<dyn std::error::Error>> {
-    debug!("TODO: Issue stop command to Taurine background process via gRPC.");
+    debug!("Attempting graceful shutdown via gRPC...");
+
+    let mut grpc_success = false;
+    if let Ok(rt) = Runtime::new() {
+        rt.block_on(async {
+            if let Ok(mut client) = DaemonControlClient::connect("http://127.0.0.1:50051").await {
+                let request = tonic::Request::new(ShutdownRequest {});
+                match client.shutdown(request).await {
+                    Ok(_) => {
+                        info!("Graceful shutdown signal sent successfully.");
+                        grpc_success = true;
+                    }
+                    Err(e) => error!("Failed to send graceful shutdown signal: {}", e),
+                }
+            } else {
+                debug!(
+                    "Failed to connect to daemon for graceful shutdown. It may already be stopped."
+                );
+            }
+        });
+    }
 
     if let Err(e) = remove_autorun() {
         error!("Could not remove startup hook (was it installed?): {}", e);
     }
 
     let mut sys = System::new();
+
+    // Wait for the daemon to stop (5 seconds)
+    if grpc_success {
+        for _ in 0..10 {
+            if !is_daemon_running(&mut sys) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+    }
+
     if !is_daemon_running(&mut sys) {
         info!("Taurine is already stopped.");
         return Ok(());
@@ -107,7 +141,21 @@ pub fn down() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub fn status() -> Result<(), Box<dyn std::error::Error>> {
-    debug!("TODO: Fetch detailed status (active snippets, uptime) via gRPC.");
+    debug!("Fetching status from daemon via gRPC...");
+
+    if let Ok(rt) = Runtime::new() {
+        rt.block_on(async {
+            if let Ok(mut client) = DaemonControlClient::connect("http://127.0.0.1:50051").await {
+                let request = tonic::Request::new(StatusRequest {});
+                match client.get_status(request).await {
+                    Ok(_) => info!("Engine status: ONLINE (gRPC)"),
+                    Err(e) => info!("Engine status error via gRPC: {}", e),
+                }
+            } else {
+                info!("Engine status: OFFLINE (gRPC)");
+            }
+        });
+    }
 
     let mut sys = System::new();
     if is_daemon_running(&mut sys) {
