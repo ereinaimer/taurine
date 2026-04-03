@@ -11,15 +11,15 @@ use tracing::{error, info};
 #[command(about = "Fast, secure and easy to use text expander and keyboard automation tool")]
 struct Cli {
     /// Increase console verbosity
-    #[arg(short, long, action = clap::ArgAction::Count)]
+    #[arg(short, long, global = true, action = clap::ArgAction::Count)]
     verbose: u8,
 
     /// Disable console logging output
-    #[arg(short, long, conflicts_with = "verbose")]
+    #[arg(short, long, global = true, conflicts_with = "verbose")]
     quiet: bool,
 
     /// Disable writing logs to the log file
-    #[arg(long)]
+    #[arg(long, global = true)]
     no_log_file: bool,
 
     /// Internal flag used by the OS service manager (DO NOT RUN MANUALLY)
