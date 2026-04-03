@@ -11,12 +11,22 @@ use winreg::enums::*;
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+/// HKCU Run launches console binaries with a new console window; `taurine up` avoids that via
+/// `CREATE_NO_WINDOW`. For logon startup, spawn through PowerShell so the daemon has no visible window.
+fn autorun_command_line(current_exe: &std::path::Path) -> String {
+    let exe_path = current_exe.to_string_lossy();
+    let exe_ps = exe_path.replace('\'', "''");
+    format!(
+        "powershell.exe -NoProfile -WindowStyle Hidden -Command \"Start-Process -FilePath '{}' -ArgumentList '--daemon' -WindowStyle Hidden\"",
+        exe_ps
+    )
+}
+
 fn set_autorun(current_exe: &std::path::Path) -> std::io::Result<()> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let path = r#"Software\Microsoft\Windows\CurrentVersion\Run"#;
     let (key, _) = hkcu.create_subkey(path)?;
-    let exe_path = current_exe.to_string_lossy();
-    let val = format!("\"{}\" --daemon", exe_path);
+    let val = autorun_command_line(current_exe);
     key.set_value("Taurine", &val)?;
     Ok(())
 }
