@@ -24,11 +24,17 @@ pub fn start() -> Result<(), Box<dyn std::error::Error>> {
 
     // Instantiate our Core Engine State
     use std::sync::{Arc, Mutex};
-    use taurine_core::db::crud::get_all_active_automations;
+    use taurine_core::db::crud::{get_all_active_automations, get_setting_value};
     use taurine_core::engine::{EngineState, Evaluator};
 
-    // NOTE: Hardcoded `/` trigger for now, should eventually come from setting table!
-    let state = EngineState::new('/');
+    // Fetch trigger_char dynamically from settings table, fallback to '>'
+    let trigger_char_val = get_setting_value(&conn, "trigger_char").unwrap_or(None);
+    let trigger_char = trigger_char_val
+        .as_deref()
+        .and_then(|s| s.chars().next())
+        .unwrap_or('>');
+
+    let state = EngineState::new(trigger_char);
 
     // Load snippets efficiently!
     if let Ok(active) = get_all_active_automations(&conn) {
