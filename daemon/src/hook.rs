@@ -9,24 +9,27 @@ use taurine_core::engine::{EngineEvent, Evaluator};
 
 pub fn start_listener(evaluator: Arc<Mutex<Evaluator>>) {
     let callback = move |event: Event| {
-        // Drop all synthetic events we ourselves generate to avoid feedback loops.
-        if IS_INJECTING.load(Ordering::SeqCst) {
-            return;
-        }
-
         match event.event_type {
             EventType::ButtonPress(_) => {
-                // Mouse click → cancel any in-progress sequence.
+                // Mouse click — ignore if we're mid-injection; otherwise clear the buffer.
+                if IS_INJECTING.load(Ordering::SeqCst) {
+                    return;
+                }
                 let mut lock = evaluator.lock().unwrap();
                 let _ = lock.process_event(EngineEvent::Interrupt);
             }
             EventType::KeyPress(key) => {
+                // All events during injection are synthetic (our own backspaces / Ctrl+V).
+                // Ignore them so they don't feed back into the evaluator.
+                if IS_INJECTING.load(Ordering::SeqCst) {
+                    return;
+                }
+
                 let engine_event = match key {
                     Key::Escape => Some(EngineEvent::Interrupt),
                     Key::Backspace => Some(EngineEvent::Backspace),
                     Key::Space => Some(EngineEvent::Char(' ')),
-                    // Enter is also treated as a hard interrupt — it submits a form
-                    // or moves to a new line, which breaks any trigger sequence.
+                    // Enter submits / moves to a new line — break any active sequence.
                     Key::Return => Some(EngineEvent::Interrupt),
                     _ => {
                         // Use rdev's pre-decoded character for layout-awareness.
@@ -45,11 +48,15 @@ pub fn start_listener(evaluator: Arc<Mutex<Evaluator>>) {
                 if let Some(ev) = engine_event {
                     let mut lock = evaluator.lock().unwrap();
                     if let Some(expansion) = lock.process_event(ev) {
-                        // Release the lock immediately — injection is slow and we
-                        // must not block the global OS hook thread.
                         drop(lock);
 
                         debug!("Trigger matched! Expanding: {:?}", expansion);
+
+                        // CRITICAL: Set IS_INJECTING = true HERE, in the hook thread,
+                        // BEFORE spawning. This closes the race window where the OS
+                        // could deliver the next keystroke event before the spawned
+                        // thread gets scheduled and sets the flag itself.
+                        IS_INJECTING.store(true, Ordering::SeqCst);
 
                         thread::spawn(move || {
                             injector::inject_payload(expansion.payload, expansion.delete_count);

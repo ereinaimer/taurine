@@ -172,4 +172,102 @@ mod tests {
         }
         assert_eq!(eval.process_event(EngineEvent::Char(' ')), None);
     }
+
+    #[test]
+    fn test_multiple_trigger_chars_rejects_ambiguous_sequence() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_snippets(vec![
+            ("brb".to_string(), "Be right back!".to_string()),
+            ("gm".to_string(), "Good morning!".to_string()),
+        ]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">brb>gm".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+        // Ambiguous: two `>` in one span — do not expand with a partial delete.
+        assert_eq!(eval.process_event(EngineEvent::Char(' ')), None);
+    }
+
+    /// Simulates two separate expansions in a row: first snippet finishes (buffer cleared), then
+    /// user types the second trigger — must not merge or double-fire.
+    #[test]
+    fn test_back_to_back_separate_triggers_like_user_typing_brb_then_gm() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_snippets(vec![
+            ("brb".to_string(), "Be right back!".to_string()),
+            ("gm".to_string(), "Good morning!".to_string()),
+        ]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">brb ".chars() {
+            if c == ' ' {
+                let r = eval.process_event(EngineEvent::Char(' ')).unwrap();
+                assert_eq!(r.payload, "Be right back!");
+                assert_eq!(r.delete_count, 1 + "brb".len() + 1);
+            } else {
+                assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+            }
+        }
+        assert_eq!(eval.buffer.len, 0);
+
+        for c in ">gm ".chars() {
+            if c == ' ' {
+                let r = eval.process_event(EngineEvent::Char(' ')).unwrap();
+                assert_eq!(r.payload, "Good morning!");
+                assert_eq!(r.delete_count, 1 + "gm".len() + 1);
+            } else {
+                assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+            }
+        }
+        assert_eq!(eval.buffer.len, 0);
+    }
+
+    /// Same keyword twice in a row must yield two independent expansions (no merged buffer).
+    #[test]
+    fn test_same_trigger_twice_in_a_row_two_expansions() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_snippets(vec![("gm".to_string(), "Good morning!".to_string())]);
+        let mut eval = Evaluator::new(state);
+
+        for _ in 0..2 {
+            for c in ">gm ".chars() {
+                if c == ' ' {
+                    let r = eval.process_event(EngineEvent::Char(' ')).unwrap();
+                    assert_eq!(r.payload, "Good morning!");
+                    assert_eq!(r.delete_count, 1 + 2 + 1);
+                } else {
+                    assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+                }
+            }
+            assert_eq!(eval.buffer.len, 0);
+        }
+    }
+
+    /// After a failed match (unknown keyword), a later valid trigger on a fresh suffix must work.
+    #[test]
+    fn test_unknown_keyword_then_valid_trigger_still_expands() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_snippets(vec![("gm".to_string(), "Good morning!".to_string())]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">nope ".chars() {
+            if c == ' ' {
+                assert_eq!(eval.process_event(EngineEvent::Char(' ')), None);
+            } else {
+                assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+            }
+        }
+        assert!(eval.buffer.len > 0);
+
+        eval.process_event(EngineEvent::Interrupt);
+        for c in ">gm ".chars() {
+            if c == ' ' {
+                let r = eval.process_event(EngineEvent::Char(' ')).unwrap();
+                assert_eq!(r.payload, "Good morning!");
+            } else {
+                assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+            }
+        }
+    }
 }

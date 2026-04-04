@@ -1,20 +1,64 @@
 use arboard::Clipboard;
 use rdev::{EventType, Key, simulate};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
-/// Shared flag: set to `true` while we are simulating keystrokes so the
-/// hook callback can ignore those synthetic events and avoid feeding them
-/// back into the evaluator.
+/// Abstraction so clipboard ordering (read original → set payload → verify → restore) can be
+/// unit-tested without the OS clipboard or `simulate()`.
+trait ClipboardAccess {
+    fn get_text(&mut self) -> Result<String, String>;
+    fn set_text(&mut self, text: &str) -> Result<(), String>;
+}
+
+impl ClipboardAccess for Clipboard {
+    fn get_text(&mut self) -> Result<String, String> {
+        Ok(self.get_text().unwrap_or_default())
+    }
+
+    fn set_text(&mut self, text: &str) -> Result<(), String> {
+        Clipboard::set_text(self, text).map_err(|e| e.to_string())
+    }
+}
+
+/// Reads the user's current clipboard, writes `payload`, waits, then verifies the clipboard
+/// still equals `payload`. Returns the original text for restore after paste.
+///
+/// If verification fails, the caller must not simulate paste (avoids injecting stale clipboard).
+fn prepare_clipboard_for_expansion(
+    clipboard: &mut impl ClipboardAccess,
+    payload: &str,
+) -> Result<String, String> {
+    let original = clipboard.get_text()?;
+    clipboard.set_text(payload)?;
+
+    // Same delay as production: OS listeners may not see the write immediately.
+    thread::sleep(Duration::from_millis(25));
+
+    match clipboard.get_text() {
+        Ok(ref actual) if actual == payload => Ok(original),
+        Ok(actual) => Err(format!(
+            "clipboard verify failed: expected {:?}, got {:?}",
+            payload, actual
+        )),
+        Err(e) => Err(e),
+    }
+}
+
+/// Serializes clipboard set / paste / restore across overlapping injections. Without this,
+/// a second expansion can overwrite the clipboard before the first paste is processed, so the
+/// target app pastes the wrong payload or the restored clipboard (stale paste).
+fn inject_mutex() -> &'static Mutex<()> {
+    static M: OnceLock<Mutex<()>> = OnceLock::new();
+    M.get_or_init(|| Mutex::new(()))
+}
+
+/// Set to `true` by the hook thread the moment an expansion is dispatched, and
+/// cleared here at the end of injection. This ensures all synthetic keystrokes
+/// (backspaces, Ctrl+V) are invisible to the evaluator with zero race window.
 pub static IS_INJECTING: AtomicBool = AtomicBool::new(false);
-
-/// Serializes concurrent injection requests. Without this, back-to-back
-/// expansions spawn overlapping threads whose backspaces and clipboard
-/// writes clobber each other.
-static INJECTION_LOCK: Mutex<()> = Mutex::new(());
 
 /// Sends n Backspace keystrokes with inter-key sleeps so the OS registers
 /// each one individually.
@@ -30,16 +74,12 @@ fn erase_trigger(delete_count: usize) {
 /// Erases the typed trigger sequence and pastes the expansion payload via the
 /// OS clipboard, restoring the previous clipboard contents afterwards.
 ///
-/// This function is serialized: if a second expansion fires while the first
-/// is still injecting, it queues behind the lock instead of racing.
+/// `IS_INJECTING` must already be `true` when this is called (the hook sets it
+/// before spawning this thread). We clear it when we are done.
 pub fn inject_payload(payload: String, delete_count: usize) {
-    // Serialize: only one injection can run at a time.
-    let _guard = INJECTION_LOCK.lock().unwrap();
+    let _inject_guard = inject_mutex().lock().expect("inject mutex poisoned");
 
-    // Gate: tell the hook to ignore all synthetic events we're about to send.
-    IS_INJECTING.store(true, Ordering::SeqCst);
-
-    // 1. Delete the trigger sequence
+    // 1. Erase the trigger
     erase_trigger(delete_count);
 
     // 2. Clipboard swap
@@ -52,19 +92,20 @@ pub fn inject_payload(payload: String, delete_count: usize) {
         }
     };
 
-    let original_clipboard = clipboard.get_text().unwrap_or_default();
+    let original_clipboard = match prepare_clipboard_for_expansion(&mut clipboard, &payload) {
+        Ok(s) => s,
+        Err(e) => {
+            if e.starts_with("clipboard verify failed:") {
+                warn!("Clipboard content mismatch before paste — {}. Skipping.", e);
+            } else {
+                error!("Could not prepare clipboard before paste: {}", e);
+            }
+            IS_INJECTING.store(false, Ordering::SeqCst);
+            return;
+        }
+    };
 
-    if let Err(e) = clipboard.set_text(&payload) {
-        error!("Failed to set payload onto clipboard: {}", e);
-        IS_INJECTING.store(false, Ordering::SeqCst);
-        return;
-    }
-
-    // 3. Give the OS time to flush the clipboard write before we simulate paste.
-    //    Without this, Ctrl+V can read stale clipboard contents on Windows.
-    thread::sleep(Duration::from_millis(10));
-
-    // 4. Paste: Ctrl+V (Win/Linux) or Cmd+V (macOS)
+    // 5. Simulate paste: Ctrl+V (Win/Linux) or Cmd+V (macOS)
     let modifier = if cfg!(target_os = "macos") {
         Key::MetaLeft
     } else {
@@ -76,10 +117,144 @@ pub fn inject_payload(payload: String, delete_count: usize) {
     let _ = simulate(&EventType::KeyRelease(Key::KeyV));
     let _ = simulate(&EventType::KeyRelease(modifier));
 
-    // 5. Wait for the OS to fully dispatch the paste before restoring the clipboard.
-    thread::sleep(Duration::from_millis(60));
+    // 6. Wait long enough for the target application's message loop to process
+    //    the paste event before we restore the original clipboard. On Windows,
+    //    SendInput enqueues events; restoring too early yields a paste of the
+    //    pre-expansion clipboard (user-visible "wrong" or duplicated text).
+    let post_paste_wait = if cfg!(target_os = "windows") {
+        Duration::from_millis(220)
+    } else {
+        Duration::from_millis(160)
+    };
+    thread::sleep(post_paste_wait);
 
-    // 6. Restore original clipboard and release the injection gate.
-    let _ = clipboard.set_text(original_clipboard);
+    // 7. Restore original clipboard and signal the hook that injection is done.
+    if let Err(e) = clipboard.set_text(&original_clipboard) {
+        error!("Failed to restore clipboard: {}", e);
+    }
     IS_INJECTING.store(false, Ordering::SeqCst);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+    use std::sync::{Arc, Barrier};
+
+    /// Mock clipboard: records operations and supports simulating a race where post-write read
+    /// does not match the payload (verify failure).
+    struct MockClipboard {
+        text: String,
+        /// Number of `get_text` calls so far (used to sabotage the verify read).
+        get_count: usize,
+        /// If true, the second `get_text` returns stale content (another writer "won" the race).
+        sabotage_second_read: bool,
+        ops: Vec<&'static str>,
+    }
+
+    impl MockClipboard {
+        fn new(initial: &str) -> Self {
+            Self {
+                text: initial.to_string(),
+                get_count: 0,
+                sabotage_second_read: false,
+                ops: Vec::new(),
+            }
+        }
+
+        fn with_sabotage(initial: &str) -> Self {
+            Self {
+                text: initial.to_string(),
+                get_count: 0,
+                sabotage_second_read: true,
+                ops: Vec::new(),
+            }
+        }
+    }
+
+    impl ClipboardAccess for MockClipboard {
+        fn get_text(&mut self) -> Result<String, String> {
+            self.get_count += 1;
+            self.ops.push("get_text");
+            if self.sabotage_second_read && self.get_count == 2 {
+                // Verify read (after set_text): another writer won the race.
+                return Ok("STALE_FROM_ANOTHER_PROCESS".to_string());
+            }
+            Ok(self.text.clone())
+        }
+
+        fn set_text(&mut self, text: &str) -> Result<(), String> {
+            self.ops.push("set_text");
+            self.text = text.to_string();
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn prepare_reads_previous_clipboard_sets_payload_verifies_then_restore_restores_previous() {
+        let mut mock = MockClipboard::new("Something the user had copied earlier");
+        let payload = "Expanded text only — not the old clipboard";
+
+        let original = prepare_clipboard_for_expansion(&mut mock, payload).unwrap();
+        assert_eq!(original, "Something the user had copied earlier");
+        assert_eq!(
+            mock.text, payload,
+            "clipboard must hold payload until after paste+restore"
+        );
+
+        // Simulated app would read this value on Ctrl+V — not the pre-expansion clipboard.
+        assert_eq!(mock.get_text().unwrap(), payload);
+
+        mock.set_text(&original).unwrap();
+        assert_eq!(
+            mock.text, "Something the user had copied earlier",
+            "after restore, user must see their original clip, not the expansion"
+        );
+    }
+
+    #[test]
+    fn prepare_fails_if_clipboard_raced_before_paste_so_stale_clip_is_never_intended_payload() {
+        let mut mock = MockClipboard::with_sabotage("old");
+        let err = prepare_clipboard_for_expansion(&mut mock, "new").unwrap_err();
+        assert!(
+            err.contains("clipboard verify failed"),
+            "expected verify error, got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn inject_mutex_serializes_overlapping_injections_no_interleaved_critical_sections() {
+        let depth = Arc::new(AtomicUsize::new(0));
+        let barrier = Arc::new(Barrier::new(3));
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                let depth = depth.clone();
+                let barrier = barrier.clone();
+                thread::spawn(move || {
+                    barrier.wait();
+                    let _guard = inject_mutex().lock().expect("mutex");
+                    assert_eq!(depth.fetch_add(1, AtomicOrdering::SeqCst), 0);
+                    thread::sleep(Duration::from_millis(40));
+                    depth.fetch_sub(1, AtomicOrdering::SeqCst);
+                })
+            })
+            .collect();
+
+        barrier.wait();
+        for h in handles {
+            h.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn mock_clipboard_operation_order_matches_protocol() {
+        let mut mock = MockClipboard::new("clip0");
+        let _ = prepare_clipboard_for_expansion(&mut mock, "payload1").unwrap();
+        assert_eq!(
+            mock.ops,
+            vec!["get_text", "set_text", "get_text"],
+            "must read original, write payload, read back to verify before any paste"
+        );
+    }
 }
