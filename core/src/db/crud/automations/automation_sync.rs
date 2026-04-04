@@ -2,11 +2,12 @@ use rusqlite::{Connection, Result};
 
 use super::AutomationRow;
 
-/// Returns all automations that have local changes waiting to be synced up.
+/// Returns all automations that are configured by the user to be synced to the cloud.
 ///
-/// Ordered by `(version, updated_at)` to align with the `idx_sync_queue` index,
-/// so the sync worker can process the newest state for each record first.
-pub fn get_pending_sync_automations(conn: &Connection) -> Result<Vec<AutomationRow>> {
+/// Under a Last-Write-Wins (LWW) architecture, the sync worker pulls these
+/// configured rows and compares their `version` and `updated_at` against the cloud
+/// to resolve state.
+pub fn get_syncable_automations(conn: &Connection) -> Result<Vec<AutomationRow>> {
     let mut stmt = conn.prepare_cached(
         "SELECT
             id,
@@ -24,9 +25,10 @@ pub fn get_pending_sync_automations(conn: &Connection) -> Result<Vec<AutomationR
             updated_at,
             version,
             is_deleted,
-            is_synced
+            is_synced,
+            is_enabled
          FROM automations
-         WHERE is_synced = 0
+         WHERE is_synced = 1
          ORDER BY version, updated_at",
     )?;
 
@@ -48,6 +50,7 @@ pub fn get_pending_sync_automations(conn: &Connection) -> Result<Vec<AutomationR
             version: row.get(13)?,
             is_deleted: row.get(14)?,
             is_synced: row.get(15)?,
+            is_enabled: row.get(16)?,
         })
     })?;
 
@@ -57,34 +60,4 @@ pub fn get_pending_sync_automations(conn: &Connection) -> Result<Vec<AutomationR
     }
 
     Ok(results)
-}
-
-/// Marks a batch of IDs as successfully synced to the cloud.
-///
-/// This variant uses a single transaction with one `UPDATE` per ID, which is
-/// efficient enough for typical sync batch sizes and works without requiring
-/// SQLite virtual table extensions. If you later enable the `vtab`/`array`
-/// features and load the `rarray` module on the connection, this can be
-/// swapped to an `IN rarray(?1)`-style implementation.
-pub fn mark_automations_synced(conn: &Connection, ids: &[&str]) -> Result<()> {
-    if ids.is_empty() {
-        return Ok(());
-    }
-
-    let tx = conn.unchecked_transaction()?;
-
-    {
-        let mut stmt = tx.prepare_cached(
-            "UPDATE automations
-             SET    is_synced = 1
-             WHERE  id = ?1",
-        )?;
-
-        for id in ids {
-            stmt.execute([id])?;
-        }
-    }
-
-    tx.commit()?;
-    Ok(())
 }

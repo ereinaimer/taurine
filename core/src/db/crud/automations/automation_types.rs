@@ -16,6 +16,7 @@ pub struct AutomationRow {
     pub version: i64,
     pub is_deleted: bool,
     pub is_synced: bool,
+    pub is_enabled: bool,
 }
 
 /// Minimal data needed by the keystroke listener.

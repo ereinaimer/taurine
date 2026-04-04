@@ -6,10 +6,10 @@ mod automation_types;
 
 pub use automation_delete::delete_automation;
 pub use automation_get::{
-    get_action_by_trigger, get_all_active_triggers, get_automation, search_automations,
+    get_action_by_trigger, get_all_active_automations, get_automation, search_automations,
 };
 pub use automation_set::upsert_automation;
-pub use automation_sync::{get_pending_sync_automations, mark_automations_synced};
+pub use automation_sync::get_syncable_automations;
 pub use automation_types::{AutomationAction, AutomationRow, AutomationSummary};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -67,7 +67,7 @@ mod tests {
         assert!(row.updated_at > 0);
         assert_eq!(row.version, 1);
         assert!(!row.is_deleted);
-        assert!(!row.is_synced, "upsert should enqueue for sync");
+        assert!(row.is_synced); // default configuration should be syncable
     }
 
     #[test]
@@ -115,7 +115,7 @@ mod tests {
         assert_eq!(row.usage_count, 7);
         assert_eq!(row.last_used_at, Some(1_700_000_000_i64));
         assert!(!row.is_deleted);
-        assert!(!row.is_synced);
+        assert!(row.is_synced);
     }
 
     #[test]
@@ -144,7 +144,7 @@ mod tests {
 
         let row = get_automation(&conn, "uuid-1").unwrap().unwrap();
         assert!(row.is_deleted);
-        assert!(!row.is_synced);
+        assert!(row.is_synced);
         let version_after_delete = row.version;
 
         let deleted_again = delete_automation(&conn, "uuid-1").unwrap();
@@ -173,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    fn get_all_active_triggers_ignores_deleted_rows() {
+    fn get_all_active_automations_ignores_deleted_rows() {
         crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
@@ -212,7 +212,8 @@ mod tests {
         // Tombstone one automation; its trigger must not appear.
         delete_automation(&conn, "uuid-2").unwrap();
 
-        let mut triggers = get_all_active_triggers(&conn).unwrap();
+        let rows = get_all_active_automations(&conn).unwrap();
+        let mut triggers: Vec<String> = rows.into_iter().map(|(t, _)| t).collect();
         triggers.sort();
 
         assert_eq!(triggers, vec!["gm".to_string()]);
@@ -325,78 +326,29 @@ mod tests {
     }
 
     #[test]
-    fn get_pending_sync_automations_returns_only_unsynced_rows() {
+    fn get_syncable_automations_returns_only_sync_enabled_rows() {
         crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        // One automation that starts as unsynced.
-        upsert_automation(
-            &conn,
-            "uuid-1",
-            "Unsynced",
-            None,
-            "u1",
-            "payload-1",
-            "text",
-            false,
-            "all",
-            r#"[]"#,
-            0,
-            None,
-        )
-        .unwrap();
-
-        // Another that we mark as synced manually.
-        upsert_automation(
-            &conn,
-            "uuid-2",
-            "Synced",
-            None,
-            "u2",
-            "payload-2",
-            "text",
-            false,
-            "all",
-            r#"[]"#,
-            0,
-            None,
-        )
-        .unwrap();
-
-        crate::logs::init_tracing_for_tests();
-        conn.execute(
-            "UPDATE automations SET is_synced = 1 WHERE id = 'uuid-2'",
-            [],
-        )
-        .unwrap();
-
-        let pending = get_pending_sync_automations(&conn).unwrap();
-        let ids: Vec<String> = pending.into_iter().map(|a| a.id).collect();
-        assert_eq!(ids, vec!["uuid-1".to_string()]);
-    }
-
-    #[test]
-    fn mark_automations_synced_updates_batch_in_transaction() {
-        crate::logs::init_tracing_for_tests();
-        let (_dir, conn) = open_test_db();
-
+        // Standard upserts default to is_synced = 1
         upsert_automation(
             &conn, "uuid-1", "A1", None, "t1", "p1", "text", false, "all", r#"[]"#, 0, None,
         )
         .unwrap();
 
+        // Force one to is_synced = 0 manually to test the filter
         upsert_automation(
             &conn, "uuid-2", "A2", None, "t2", "p2", "text", false, "all", r#"[]"#, 0, None,
         )
         .unwrap();
+        conn.execute(
+            "UPDATE automations SET is_synced = 0 WHERE id = 'uuid-2'",
+            [],
+        )
+        .unwrap();
 
-        // Sanity: both start as unsynced.
-        let pending_before = get_pending_sync_automations(&conn).unwrap();
-        assert_eq!(pending_before.len(), 2);
-
-        mark_automations_synced(&conn, &["uuid-1", "uuid-2"]).unwrap();
-
-        let pending_after = get_pending_sync_automations(&conn).unwrap();
-        assert!(pending_after.is_empty());
+        let syncable = get_syncable_automations(&conn).unwrap();
+        let ids: Vec<String> = syncable.into_iter().map(|a| a.id).collect();
+        assert_eq!(ids, vec!["uuid-1".to_string()]);
     }
 }

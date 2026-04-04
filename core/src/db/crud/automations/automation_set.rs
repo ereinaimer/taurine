@@ -31,10 +31,10 @@ pub fn upsert_automation(
     conn.execute(
         "INSERT INTO automations
             (id, name, description, trigger, payload, action_type, is_regex, target_os, tags,
-             usage_count, last_used_at, created_at, updated_at, version, is_deleted, is_synced)
+             usage_count, last_used_at, created_at, updated_at, version, is_deleted)
          VALUES
             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
-             ?10, ?11, ?12, ?13, 1, 0, 0)
+             ?10, ?11, ?12, ?13, 1, 0)
          ON CONFLICT(id) DO UPDATE SET
             name         = excluded.name,
             description  = excluded.description,
@@ -47,7 +47,6 @@ pub fn upsert_automation(
             usage_count  = excluded.usage_count,
             last_used_at = excluded.last_used_at,
             is_deleted   = 0,
-            is_synced    = 0,
             version      = version + 1,
             updated_at   = excluded.updated_at",
         (

@@ -13,7 +13,6 @@ pub fn delete_automation(conn: &Connection, id: &str) -> Result<bool> {
     let rows_changed = conn.execute(
         "UPDATE automations
             SET is_deleted = 1,
-                is_synced  = 0,
                 version    = version + 1,
                 updated_at = ?1
          WHERE id = ?2 AND is_deleted = 0",

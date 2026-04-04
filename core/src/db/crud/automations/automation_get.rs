@@ -2,6 +2,17 @@ use rusqlite::{Connection, Result};
 
 use super::{AutomationAction, AutomationRow, AutomationSummary};
 
+fn get_current_os_db_string() -> &'static str {
+    match std::env::consts::OS {
+        "windows" => "win",
+        "macos" => "mac",
+        "linux" => "linux",
+        "android" => "android",
+        "ios" => "ios",
+        _ => "unknown",
+    }
+}
+
 /// Returns the full row for `id`, or `None` if it does not exist.
 pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRow>> {
     let mut stmt = conn.prepare_cached(
@@ -21,7 +32,8 @@ pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRo
             updated_at,
             version,
             is_deleted,
-            is_synced
+            is_synced,
+            is_enabled
          FROM automations
          WHERE id = ?1",
     )?;
@@ -44,6 +56,7 @@ pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRo
             version: row.get(13)?,
             is_deleted: row.get(14)?,
             is_synced: row.get(15)?,
+            is_enabled: row.get(16)?,
         })
     });
 
@@ -59,16 +72,19 @@ pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRo
 /// Uses the `idx_active_triggers` partial index by matching its predicate:
 /// `WHERE is_deleted = 0 AND trigger = ?`.
 pub fn get_action_by_trigger(conn: &Connection, trigger: &str) -> Result<Option<AutomationAction>> {
+    let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
         "SELECT payload, action_type
          FROM   automations
          WHERE  trigger = ?1
            AND  is_deleted = 0
+           AND  is_enabled = 1
+           AND  (target_os = 'all' OR target_os = ?2)
          ORDER BY usage_count DESC
          LIMIT 1",
     )?;
 
-    let result = stmt.query_row([trigger], |row| {
+    let result = stmt.query_row(rusqlite::params![trigger, os_str], |row| {
         Ok(AutomationAction {
             payload: row.get(0)?,
             action_type: row.get(1)?,
@@ -85,17 +101,32 @@ pub fn get_action_by_trigger(conn: &Connection, trigger: &str) -> Result<Option<
 /// Fetches just the trigger strings for all active automations.
 ///
 /// Use this at app startup to build a fast in-memory lookup cache.
-pub fn get_all_active_triggers(conn: &Connection) -> Result<Vec<String>> {
-    let mut stmt = conn.prepare_cached("SELECT trigger FROM automations WHERE is_deleted = 0")?;
+pub fn get_all_active_automations(conn: &Connection) -> Result<Vec<(String, AutomationAction)>> {
+    let os_str = get_current_os_db_string();
+    let mut stmt = conn.prepare_cached(
+        "SELECT trigger, payload, action_type
+         FROM automations
+         WHERE is_deleted = 0
+           AND is_enabled = 1
+           AND (target_os = 'all' OR target_os = ?1)",
+    )?;
 
-    let rows = stmt.query_map([], |row| row.get(0))?;
+    let rows = stmt.query_map([os_str], |row| {
+        Ok((
+            row.get(0)?,
+            AutomationAction {
+                payload: row.get(1)?,
+                action_type: row.get(2)?,
+            },
+        ))
+    })?;
 
-    let mut triggers = Vec::new();
-    for trigger in rows {
-        triggers.push(trigger?);
+    let mut actions = Vec::new();
+    for action in rows {
+        actions.push(action?);
     }
 
-    Ok(triggers)
+    Ok(actions)
 }
 
 /// Fuzzy-finder search over active automations by name and trigger.
@@ -109,17 +140,20 @@ pub fn search_automations(
 ) -> Result<Vec<AutomationSummary>> {
     let pattern = format!("%{}%", query);
 
+    let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
         "SELECT id, name, description, trigger, usage_count
          FROM   automations
          WHERE  is_deleted = 0
+           AND  is_enabled = 1
+           AND  (target_os = 'all' OR target_os = ?3)
            AND  (name    LIKE ?1
                  OR trigger LIKE ?1)
          ORDER BY usage_count DESC, updated_at DESC
          LIMIT  ?2",
     )?;
 
-    let rows = stmt.query_map((pattern, limit), |row| {
+    let rows = stmt.query_map((pattern, limit, os_str), |row| {
         Ok(AutomationSummary {
             id: row.get(0)?,
             name: row.get(1)?,
