@@ -120,6 +120,9 @@ pub fn down() -> Result<(), Box<dyn std::error::Error>> {
         _ => {}
     }
 
+    debug!(
+        "Graceful shutdown did not terminate the process in time; invoking service manager hard stop as fallback."
+    );
     match manager.stop(ServiceStopCtx {
         label: label.clone(),
     }) {

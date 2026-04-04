@@ -125,11 +125,12 @@ pub fn down() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut sys = System::new();
 
-    // Wait for the daemon to stop (5 seconds)
+    // Wait for the daemon to stop gracefully (up to 5 seconds)
     if grpc_success {
         for _ in 0..10 {
             if !is_daemon_running(&mut sys) {
-                break;
+                info!("Taurine is stopped.");
+                return Ok(());
             }
             std::thread::sleep(std::time::Duration::from_millis(500));
         }
@@ -140,6 +141,9 @@ pub fn down() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    debug!(
+        "Graceful shutdown did not terminate the process in time; invoking process killer as fallback."
+    );
     let killed = kill_daemon(&mut sys);
     if killed > 0 {
         info!("Taurine has been stopped.");

@@ -78,5 +78,10 @@ pub fn start() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    Ok(())
+    // The rdev::listen() OS hook thread blocks permanently on a native message
+    // loop (SetWindowsHookEx + GetMessage on Windows, similar on Unix) and
+    // cannot be unblocked from outside. After the gRPC server has shut down
+    // gracefully, the only correct action for a daemon is to exit the process.
+    debug!("gRPC server stopped. Exiting daemon process.");
+    std::process::exit(0);
 }
