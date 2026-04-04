@@ -14,3 +14,4 @@ tokio = { version = "1.0", features = ["full"] }
 tonic = "0.12"
 rdev = "0.5.3"
 arboard = "3.4.1"
+serde_json = "1.0.149"

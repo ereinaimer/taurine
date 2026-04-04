@@ -27,10 +27,11 @@ pub fn start() -> Result<(), Box<dyn std::error::Error>> {
     use taurine_core::db::crud::{get_all_active_automations, get_setting_value};
     use taurine_core::engine::{EngineState, Evaluator};
 
-    // Fetch trigger_char dynamically from settings table, fallback to '>'
-    let trigger_char_val = get_setting_value(&conn, "trigger_char").unwrap_or(None);
-    let trigger_char = trigger_char_val
-        .as_deref()
+    // The trigger_char is stored as a JSON string literal (e.g. `">"`).
+    // Deserialize it properly with serde_json to get the raw Rust String.
+    let trigger_char = get_setting_value(&conn, "trigger_char")
+        .unwrap_or(None)
+        .and_then(|json| serde_json::from_str::<String>(&json).ok())
         .and_then(|s| s.chars().next())
         .unwrap_or('>');
 

@@ -1923,6 +1923,7 @@ version = "0.1.0"
 dependencies = [
  "arboard",
  "rdev",
+ "serde_json",
  "taurine_core",
  "tokio",
  "tonic",
