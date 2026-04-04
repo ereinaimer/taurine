@@ -18,3 +18,10 @@ license-file = "LICENSE"
 [workspace.dependencies]
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "time", "local-time"] }
+
+[profile.release]
+opt-level = "z"      # Optimize for size
+lto = true           # Link Time Optimization (huge win for size)
+codegen-units = 1    # Better optimization at the cost of compile time
+panic = "abort"      # Remove unwinding code (saves size)
+strip = true         # Strip symbols from the binary
