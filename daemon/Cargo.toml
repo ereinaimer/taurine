@@ -12,3 +12,5 @@ taurine_core = { path = "../core" }
 tracing = { workspace = true }
 tokio = { version = "1.0", features = ["full"] }
 tonic = "0.12"
+rdev = "0.5.3"
+arboard = "3.4.1"

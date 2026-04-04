@@ -8,16 +8,44 @@ use tokio::sync::mpsc;
 use tonic::transport::Server;
 use tracing::{debug, error, info};
 
+mod hook;
+mod injector;
 mod server;
-use server::DaemonService;
+
+pub use server::DaemonService;
 
 pub fn start() -> Result<(), Box<dyn std::error::Error>> {
-    let _conn = init::setup().map_err(|e| {
+    let conn = init::setup().map_err(|e| {
         error!("Fatal database error during daemon boot: {}", e);
         e
     })?;
 
     debug!("Daemon initialization complete!");
+
+    // Instantiate our Core Engine State
+    use std::sync::{Arc, Mutex};
+    use taurine_core::db::crud::get_all_active_automations;
+    use taurine_core::engine::{EngineState, Evaluator};
+
+    // NOTE: Hardcoded `/` trigger for now, should eventually come from setting table!
+    let state = EngineState::new('/');
+
+    // Load snippets efficiently!
+    if let Ok(active) = get_all_active_automations(&conn) {
+        let snippets = active
+            .into_iter()
+            .map(|(trigger, action)| (trigger, action.payload));
+        state.load_snippets(snippets);
+    }
+
+    let evaluator = Arc::new(Mutex::new(Evaluator::new(Arc::new(state))));
+
+    // Fire up listener in OS thread
+    let eval_clone = evaluator.clone();
+    std::thread::spawn(move || {
+        info!("Starting OS keyboard hook listener...");
+        hook::start_listener(eval_clone);
+    });
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
