@@ -2,6 +2,7 @@
 // See LICENSE for details.
 
 pub mod db;
+pub mod engine;
 pub mod logs;
 pub mod paths;
 pub mod rpc;
