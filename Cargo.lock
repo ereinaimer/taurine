@@ -1928,6 +1928,7 @@ dependencies = [
  "tokio",
  "tonic",
  "tracing",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

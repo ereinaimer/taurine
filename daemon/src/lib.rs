@@ -11,6 +11,8 @@ use tracing::{debug, error, info};
 mod hook;
 mod injector;
 mod server;
+#[cfg(windows)]
+mod win_clipboard;
 
 pub use server::DaemonService;
 

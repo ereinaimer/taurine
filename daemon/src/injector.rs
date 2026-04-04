@@ -23,6 +23,20 @@ impl ClipboardAccess for Clipboard {
     }
 }
 
+#[cfg(windows)]
+struct WindowsInjectClipboard;
+
+#[cfg(windows)]
+impl ClipboardAccess for WindowsInjectClipboard {
+    fn get_text(&mut self) -> Result<String, String> {
+        crate::win_clipboard::get_unicode_text()
+    }
+
+    fn set_text(&mut self, text: &str) -> Result<(), String> {
+        crate::win_clipboard::set_unicode_text_exclude_from_history(text)
+    }
+}
+
 /// Reads the user's current clipboard, writes `payload`, waits, then verifies the clipboard
 /// still equals `payload`. Returns the original text for restore after paste.
 ///
@@ -71,6 +85,18 @@ fn erase_trigger(delete_count: usize) {
     }
 }
 
+fn simulate_paste() {
+    let modifier = if cfg!(target_os = "macos") {
+        Key::MetaLeft
+    } else {
+        Key::ControlLeft
+    };
+    let _ = simulate(&EventType::KeyPress(modifier));
+    let _ = simulate(&EventType::KeyPress(Key::KeyV));
+    let _ = simulate(&EventType::KeyRelease(Key::KeyV));
+    let _ = simulate(&EventType::KeyRelease(modifier));
+}
+
 /// Erases the typed trigger sequence and pastes the expansion payload via the
 /// OS clipboard, restoring the previous clipboard contents afterwards.
 ///
@@ -82,57 +108,71 @@ pub fn inject_payload(payload: String, delete_count: usize) {
     // 1. Erase the trigger
     erase_trigger(delete_count);
 
-    // 2. Clipboard swap
-    let mut clipboard = match Clipboard::new() {
-        Ok(c) => c,
-        Err(e) => {
-            error!("Failed to initialize clipboard: {}", e);
-            IS_INJECTING.store(false, Ordering::SeqCst);
-            return;
-        }
-    };
-
-    let original_clipboard = match prepare_clipboard_for_expansion(&mut clipboard, &payload) {
-        Ok(s) => s,
-        Err(e) => {
-            if e.starts_with("clipboard verify failed:") {
-                warn!("Clipboard content mismatch before paste — {}. Skipping.", e);
-            } else {
-                error!("Could not prepare clipboard before paste: {}", e);
-            }
-            IS_INJECTING.store(false, Ordering::SeqCst);
-            return;
-        }
-    };
-
-    // 5. Simulate paste: Ctrl+V (Win/Linux) or Cmd+V (macOS)
-    let modifier = if cfg!(target_os = "macos") {
-        Key::MetaLeft
-    } else {
-        Key::ControlLeft
-    };
-
-    let _ = simulate(&EventType::KeyPress(modifier));
-    let _ = simulate(&EventType::KeyPress(Key::KeyV));
-    let _ = simulate(&EventType::KeyRelease(Key::KeyV));
-    let _ = simulate(&EventType::KeyRelease(modifier));
-
-    // 6. Wait long enough for the target application's message loop to process
-    //    the paste event before we restore the original clipboard. On Windows,
-    //    SendInput enqueues events; restoring too early yields a paste of the
-    //    pre-expansion clipboard (user-visible "wrong" or duplicated text).
     let post_paste_wait = if cfg!(target_os = "windows") {
         Duration::from_millis(220)
     } else {
         Duration::from_millis(160)
     };
-    thread::sleep(post_paste_wait);
 
-    // 7. Restore original clipboard and signal the hook that injection is done.
-    if let Err(e) = clipboard.set_text(&original_clipboard) {
-        error!("Failed to restore clipboard: {}", e);
+    #[cfg(windows)]
+    {
+        // Win32 UTF-16 + cloud-clipboard exclusion flags so expansion text does not land in
+        // Win+V history while keeping reliable paste for emoji and non-Latin scripts.
+        let mut clip = WindowsInjectClipboard;
+        let original_clipboard = match prepare_clipboard_for_expansion(&mut clip, &payload) {
+            Ok(s) => s,
+            Err(e) => {
+                if e.starts_with("clipboard verify failed:") {
+                    warn!("Clipboard content mismatch before paste — {}. Skipping.", e);
+                } else {
+                    error!("Could not prepare clipboard before paste: {}", e);
+                }
+                IS_INJECTING.store(false, Ordering::SeqCst);
+                return;
+            }
+        };
+
+        simulate_paste();
+        thread::sleep(post_paste_wait);
+
+        if let Err(e) = clip.set_text(&original_clipboard) {
+            error!("Failed to restore clipboard: {}", e);
+        }
+        IS_INJECTING.store(false, Ordering::SeqCst);
     }
-    IS_INJECTING.store(false, Ordering::SeqCst);
+
+    #[cfg(not(windows))]
+    {
+        let mut clipboard = match Clipboard::new() {
+            Ok(c) => c,
+            Err(e) => {
+                error!("Failed to initialize clipboard: {}", e);
+                IS_INJECTING.store(false, Ordering::SeqCst);
+                return;
+            }
+        };
+
+        let original_clipboard = match prepare_clipboard_for_expansion(&mut clipboard, &payload) {
+            Ok(s) => s,
+            Err(e) => {
+                if e.starts_with("clipboard verify failed:") {
+                    warn!("Clipboard content mismatch before paste — {}. Skipping.", e);
+                } else {
+                    error!("Could not prepare clipboard before paste: {}", e);
+                }
+                IS_INJECTING.store(false, Ordering::SeqCst);
+                return;
+            }
+        };
+
+        simulate_paste();
+        thread::sleep(post_paste_wait);
+
+        if let Err(e) = clipboard.set_text(&original_clipboard) {
+            error!("Failed to restore clipboard: {}", e);
+        }
+        IS_INJECTING.store(false, Ordering::SeqCst);
+    }
 }
 
 #[cfg(test)]

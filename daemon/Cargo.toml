@@ -15,3 +15,10 @@ tonic = "0.12"
 rdev = "0.5.3"
 arboard = "3.4.1"
 serde_json = "1.0.149"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+] }
