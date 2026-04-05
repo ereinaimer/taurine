@@ -13,13 +13,14 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::Layer;
 use tracing_subscriber::prelude::*;
 
-use super::{DEFAULT_RETENTION_DAYS, LOG_FILE_PREFIX, LOG_FILE_SUFFIX};
+use super::{DEFAULT_RETENTION_DAYS, LOG_FILE_PREFIX, LOG_FILE_SUFFIX, LogComponent};
 
 static TRACING_INIT: std::sync::Once = std::sync::Once::new();
 static TEST_TRACING_INIT: OnceLock<()> = OnceLock::new();
 static PANIC_HOOK_INIT: OnceLock<()> = OnceLock::new();
 static QUIET_CONSOLE: OnceLock<bool> = OnceLock::new();
 static NO_LOG_FILE: OnceLock<bool> = OnceLock::new();
+static ACTIVE_COMPONENT: OnceLock<LogComponent> = OnceLock::new();
 
 /// Initialize tracing for normal application runtime.
 ///
@@ -27,21 +28,23 @@ static NO_LOG_FILE: OnceLock<bool> = OnceLock::new();
 /// - `-q` or `--quiet` disables console output.
 /// - `--no-log-file` disables file logging.
 /// - File logs default to `debug` unless `RUST_LOG` overrides.
-/// - Logs are written into `.../logs/taurine-log-YYYY-MM-DD.txt` with
+/// - Logs are written into `.../logs/<component>/taurine-YYYY-MM-DD.log` with
 ///   7-day retention.
 pub fn init_tracing_for_app(
     verbosity: u8,
     quiet: bool,
     no_log_file: bool,
     no_color: bool,
+    component: LogComponent,
 ) -> Option<tracing_appender::non_blocking::WorkerGuard> {
     let mut returned_guard = None;
 
     TRACING_INIT.call_once(|| {
         let _ = QUIET_CONSOLE.set(quiet);
         let _ = NO_LOG_FILE.set(no_log_file);
+        let _ = ACTIVE_COMPONENT.set(component);
 
-        let logs_dir = logs_dir();
+        let component_logs_dir = logs_dir().join(component.dir_name());
         let retention_days = DEFAULT_RETENTION_DAYS;
 
         let env_filter = EnvFilter::try_from_default_env().ok();
@@ -62,7 +65,8 @@ pub fn init_tracing_for_app(
                 EnvFilter::new("debug,h2=warn,hyper=warn,tower=warn,tonic=warn")
             });
 
-            let file_writer = DailyRotatingLogWriter::new(logs_dir, retention_days);
+            let file_writer =
+                DailyRotatingLogWriter::new(component_logs_dir, retention_days, component);
             let (non_blocking, guard) = tracing_appender::non_blocking(file_writer);
             returned_guard = Some(guard);
 
@@ -131,7 +135,8 @@ pub fn init_tracing_for_app(
                 EnvFilter::new("debug,h2=warn,hyper=warn,tower=warn,tonic=warn")
             });
 
-            let file_writer = DailyRotatingLogWriter::new(logs_dir, retention_days);
+            let file_writer =
+                DailyRotatingLogWriter::new(component_logs_dir, retention_days, component);
             let (non_blocking, guard) = tracing_appender::non_blocking(file_writer);
             returned_guard = Some(guard);
 
@@ -284,11 +289,12 @@ pub fn handle_panic_info(panic_info: &PanicHookInfo<'_>) {
 }
 
 fn write_panic_to_log_file(payload: &str, location: &str, backtrace: &Backtrace) -> io::Result<()> {
-    let logs_dir = logs_dir();
-    fs::create_dir_all(&logs_dir)?;
+    let component = ACTIVE_COMPONENT.get().copied().unwrap_or(LogComponent::Cli);
+    let component_logs_dir = logs_dir().join(component.dir_name());
+    fs::create_dir_all(&component_logs_dir)?;
     let date_str = local_date_string();
     let file_name = format!("{LOG_FILE_PREFIX}{date_str}{LOG_FILE_SUFFIX}");
-    let path = logs_dir.join(file_name);
+    let path = component_logs_dir.join(file_name);
 
     let mut options = OpenOptions::new();
     options.create(true).append(true);

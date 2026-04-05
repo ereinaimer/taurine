@@ -49,11 +49,18 @@ enum Commands {
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
 
+    let component = if cli.daemon {
+        taurine_core::logs::LogComponent::Daemon
+    } else {
+        taurine_core::logs::LogComponent::Cli
+    };
+
     let _guard = taurine_core::logs::init_tracing_for_app(
         cli.verbose,
         cli.quiet,
         cli.no_log_file,
         cli.no_color,
+        component,
     );
 
     // Install a panic hook that:
