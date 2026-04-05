@@ -21,6 +21,8 @@ pub struct ExpansionResult {
     pub delete_count: usize,
     /// The replacement text to type out.
     pub payload: String,
+    /// The trigger keyword that was matched.
+    pub trigger: String,
 }
 
 pub struct Evaluator {
@@ -60,6 +62,7 @@ impl Evaluator {
                     return Some(ExpansionResult {
                         delete_count,
                         payload,
+                        trigger: keyword,
                     });
                 }
 

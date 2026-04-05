@@ -68,3 +68,33 @@ pub fn upsert_automation(
 
     Ok(())
 }
+
+/// Increments the usage_count and updates last_used_at for the given trigger.
+pub fn increment_usage_count_by_trigger(conn: &Connection, trigger: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE automations
+         SET usage_count = usage_count + 1,
+             last_used_at = ?1
+         WHERE trigger = ?2 AND is_deleted = 0",
+        rusqlite::params![now_unix_secs(), trigger],
+    )?;
+    Ok(())
+}
+
+/// Opens the production DB and increments `usage_count` for every active row
+/// whose trigger matches.
+///
+/// Intended for callers (e.g. the daemon hook thread) that do not hold an open
+/// `Connection` and do not want a direct dependency on `rusqlite`.
+pub fn record_expansion_usage(trigger: &str) {
+    match Connection::open(crate::paths::get_db_path()) {
+        Ok(conn) => {
+            if let Err(e) = increment_usage_count_by_trigger(&conn, trigger) {
+                tracing::warn!(trigger, error = %e, "Failed to increment usage_count");
+            }
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "record_expansion_usage: could not open DB");
+        }
+    }
+}
