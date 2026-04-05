@@ -167,6 +167,7 @@ mod tests {
     fn get_action_by_trigger_returns_none_for_missing_trigger() {
         crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
+        conn.execute("DELETE FROM automations", []).unwrap();
 
         let result = get_action_by_trigger(&conn, "gm").unwrap();
         assert!(result.is_none());
@@ -176,6 +177,7 @@ mod tests {
     fn get_all_active_automations_ignores_deleted_rows() {
         crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
+        conn.execute("DELETE FROM automations", []).unwrap();
 
         upsert_automation(
             &conn,
@@ -266,6 +268,7 @@ mod tests {
     fn search_automations_matches_name_and_trigger_and_sorts_by_usage() {
         crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
+        conn.execute("DELETE FROM automations", []).unwrap();
 
         upsert_automation(
             &conn,
@@ -329,6 +332,7 @@ mod tests {
     fn get_syncable_automations_returns_only_sync_enabled_rows() {
         crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
+        conn.execute("DELETE FROM automations", []).unwrap();
 
         // Standard upserts default to is_synced = 1
         upsert_automation(

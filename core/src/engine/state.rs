@@ -23,6 +23,17 @@ impl EngineState {
     }
 
     pub fn fetch_expansion(&self, keyword: &str) -> Option<String> {
+        // If TAURINE_DB_PATH is set, query the DB directly to respect the override.
+        if std::env::var("TAURINE_DB_PATH").is_ok() {
+            if let Ok(conn) = rusqlite::Connection::open(crate::paths::get_db_path())
+                && let Ok(Some(action)) =
+                    crate::db::crud::automations::get_action_by_trigger(&conn, keyword)
+            {
+                return Some(action.payload);
+            }
+            return None;
+        }
+
         let read_guard = self.map.read();
         read_guard.get(keyword).cloned()
     }
