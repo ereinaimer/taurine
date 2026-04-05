@@ -80,7 +80,29 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     match cli.command {
-        Some(Commands::Up) => service::up()?,
+        Some(Commands::Up) => {
+            // Open the DB (idempotent: runs migrations + seeds if needed) and
+            // read the user's start_on_boot preference before handing off to
+            // the platform service layer.
+            let start_on_boot = {
+                use taurine_core::db::crud::get_setting_value;
+                use taurine_core::db::init;
+
+                let conn = init::setup().unwrap_or_else(|e| {
+                    error!("Could not open database to read settings: {}", e);
+                    // Fall back to a safe default so the daemon still starts.
+                    std::process::exit(1);
+                });
+
+                get_setting_value(&conn, "start_on_boot")
+                    .ok()
+                    .flatten()
+                    .and_then(|json| serde_json::from_str::<bool>(&json).ok())
+                    .unwrap_or(true)
+            };
+
+            service::up(start_on_boot)?;
+        }
         Some(Commands::Down) => service::down()?,
         Some(Commands::Status) => service::status()?,
         None => {

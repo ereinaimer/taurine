@@ -1,6 +1,6 @@
 use crate::db::crud::{get_setting, upsert_automation, upsert_setting};
 use rusqlite::{Connection, Result};
-use tracing::{debug, info};
+use tracing::debug;
 
 pub fn ensure_defaults(conn: &Connection) -> Result<()> {
     debug!("Checking database for required default settings");
@@ -9,9 +9,16 @@ pub fn ensure_defaults(conn: &Connection) -> Result<()> {
     // stored as a JSON string literal — i.e. with surrounding double-quotes.
     let trigger_val = get_setting(conn, "trigger_char")?;
     if trigger_val.is_none() {
-        info!("Default 'trigger_char' missing. Seeding database with '>'.");
+        debug!("Default 'trigger_char' missing. Seeding database with '>'.");
         // Stored as the JSON string ">" (with quotes) per the settings schema.
         upsert_setting(conn, "trigger_char", r#"">""#)?;
+    }
+
+    let start_on_boot_val = get_setting(conn, "start_on_boot")?;
+    if start_on_boot_val.is_none() {
+        debug!("Default 'start_on_boot' missing. Seeding database with 'true'.");
+        // Stored as a JSON boolean literal.
+        upsert_setting(conn, "start_on_boot", "true")?;
     }
 
     // ──────────────────────────────────────────────────────────────────────────

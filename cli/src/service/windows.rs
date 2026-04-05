@@ -31,6 +31,14 @@ fn set_autorun(current_exe: &std::path::Path) -> std::io::Result<()> {
     Ok(())
 }
 
+fn is_autorun_registered() -> bool {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let path = r#"Software\Microsoft\Windows\CurrentVersion\Run"#;
+    hkcu.open_subkey(path)
+        .and_then(|key| key.get_value::<String, _>("Taurine"))
+        .is_ok()
+}
+
 fn remove_autorun() -> std::io::Result<()> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let path = r#"Software\Microsoft\Windows\CurrentVersion\Run"#;
@@ -72,7 +80,7 @@ fn kill_daemon(sys: &mut System) -> usize {
     killed
 }
 
-pub fn up() -> Result<(), Box<dyn std::error::Error>> {
+pub fn up(start_on_boot: bool) -> Result<(), Box<dyn std::error::Error>> {
     let mut sys = System::new();
     let current_exe = env::current_exe()?;
 
@@ -86,11 +94,22 @@ pub fn up() -> Result<(), Box<dyn std::error::Error>> {
         info!("Taurine started successfully.");
     }
 
-    debug!("Registering Taurine to start on login...");
-    if let Err(e) = set_autorun(&current_exe) {
-        error!("Failed to register startup hook: {}", e);
+    if start_on_boot {
+        if is_autorun_registered() {
+            debug!("Startup hook already registered; skipping.");
+        } else {
+            debug!("Registering Taurine to start on login...");
+            if let Err(e) = set_autorun(&current_exe) {
+                error!("Failed to register startup hook: {}", e);
+            } else {
+                debug!("Startup hook registered.");
+            }
+        }
     } else {
-        debug!("Startup hook registered.");
+        debug!("start_on_boot is disabled; removing startup hook if present.");
+        if let Err(e) = remove_autorun() {
+            debug!("No startup hook to remove (or removal failed): {}", e);
+        }
     }
 
     Ok(())

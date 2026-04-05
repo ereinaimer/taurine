@@ -23,7 +23,7 @@ fn get_manager() -> Result<Box<dyn ServiceManager>, Box<dyn std::error::Error>> 
     Ok(manager)
 }
 
-pub fn up() -> Result<(), Box<dyn std::error::Error>> {
+pub fn up(start_on_boot: bool) -> Result<(), Box<dyn std::error::Error>> {
     let manager = get_manager()?;
     let label: ServiceLabel = TAURINE_SERVICE_LABEL.parse()?;
 
@@ -53,7 +53,7 @@ pub fn up() -> Result<(), Box<dyn std::error::Error>> {
                 username: None,
                 working_directory: None,
                 environment: None,
-                autostart: true,
+                autostart: start_on_boot,
                 restart_policy: Default::default(),
             })?;
 
