@@ -22,6 +22,10 @@ struct Cli {
     #[arg(long, global = true)]
     no_log_file: bool,
 
+    /// Disable tracking colors in console output
+    #[arg(long, global = true)]
+    no_color: bool,
+
     /// Internal flag used by the OS service manager (DO NOT RUN MANUALLY)
     #[arg(long, hide = true)]
     daemon: bool,
@@ -45,7 +49,12 @@ enum Commands {
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
 
-    let _guard = taurine_core::logs::init_tracing_for_app(cli.verbose, cli.quiet, cli.no_log_file);
+    let _guard = taurine_core::logs::init_tracing_for_app(
+        cli.verbose,
+        cli.quiet,
+        cli.no_log_file,
+        cli.no_color,
+    );
 
     // Install a panic hook that:
     // 1) writes structured diagnostics into tracing + daily log file

@@ -33,6 +33,7 @@ pub fn init_tracing_for_app(
     verbosity: u8,
     quiet: bool,
     no_log_file: bool,
+    no_color: bool,
 ) -> Option<tracing_appender::non_blocking::WorkerGuard> {
     let mut returned_guard = None;
 
@@ -99,6 +100,7 @@ pub fn init_tracing_for_app(
                 );
                 let console_layer = tracing_subscriber::fmt::layer()
                     .with_timer(console_timer)
+                    .with_ansi(!no_color)
                     .with_target(false)
                     .with_file(false)
                     .with_line_number(false)
@@ -111,6 +113,7 @@ pub fn init_tracing_for_app(
             } else {
                 let console_layer = tracing_subscriber::fmt::layer()
                     .compact()
+                    .with_ansi(!no_color)
                     .with_target(false)
                     .with_file(false)
                     .with_line_number(false)
@@ -148,6 +151,7 @@ pub fn init_tracing_for_app(
                 );
                 let console_layer = tracing_subscriber::fmt::layer()
                     .with_timer(console_timer)
+                    .with_ansi(!no_color)
                     .with_target(false)
                     .with_file(false)
                     .with_line_number(false)
@@ -175,6 +179,7 @@ pub fn init_tracing_for_app(
             } else {
                 let console_layer = tracing_subscriber::fmt::layer()
                     .compact()
+                    .with_ansi(!no_color)
                     .with_target(false)
                     .with_file(false)
                     .with_line_number(false)
