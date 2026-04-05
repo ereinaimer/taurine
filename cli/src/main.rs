@@ -42,6 +42,9 @@ enum Commands {
     /// Stop Taurine
     #[command(alias = "stop")]
     Down,
+    /// Restart Taurine (stop + start)
+    #[command(alias = "reboot")]
+    Restart,
     /// Check if Taurine is currently running
     Status,
 }
@@ -96,7 +99,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     match cli.command {
-        Some(Commands::Up) => {
+        Some(Commands::Up) | Some(Commands::Restart) => {
             // Open the DB (idempotent: runs migrations + seeds if needed) and
             // read the user's start_on_boot preference before handing off to
             // the platform service layer.
@@ -117,7 +120,11 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     .unwrap_or(true)
             };
 
-            service::up(start_on_boot)?;
+            if matches!(cli.command, Some(Commands::Restart)) {
+                service::restart(start_on_boot)?;
+            } else {
+                service::up(start_on_boot)?;
+            }
         }
         Some(Commands::Down) => service::down()?,
         Some(Commands::Status) => service::status()?,

@@ -173,6 +173,78 @@ pub fn down() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+pub fn restart(start_on_boot: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let mut sys = System::new();
+    let current_exe = env::current_exe()?;
+
+    // ── Phase 1: Stop the running daemon (if any) ──────────────────────
+    let was_running = is_daemon_running(&mut sys);
+
+    if was_running {
+        // Try graceful gRPC shutdown first
+        let mut grpc_success = false;
+        if let Ok(rt) = Runtime::new() {
+            rt.block_on(async {
+                if let Ok(mut client) = DaemonControlClient::connect("http://127.0.0.1:50051").await
+                {
+                    let request = tonic::Request::new(ShutdownRequest {});
+                    if client.shutdown(request).await.is_ok() {
+                        grpc_success = true;
+                    }
+                }
+            });
+        }
+
+        // Wait up to 5 seconds for graceful exit
+        if grpc_success {
+            for _ in 0..10 {
+                if !is_daemon_running(&mut sys) {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+        }
+
+        // Force-kill if still alive
+        if is_daemon_running(&mut sys) {
+            debug!("Daemon did not exit gracefully; force-killing for restart.");
+            kill_daemon(&mut sys);
+
+            // Brief wait after kill to ensure the port is freed
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+    }
+
+    // ── Phase 2: Spawn a fresh daemon ──────────────────────────────────
+    match Command::new(&current_exe)
+        .arg("--daemon")
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+    {
+        Ok(_) => info!("Taurine has been restarted."),
+        Err(e) => {
+            error!("Failed to restart Taurine: {}", e);
+            return Err(e.into());
+        }
+    }
+
+    // Honour the start_on_boot preference (idempotent — keeps existing
+    // hook intact or removes it as appropriate).
+    if start_on_boot {
+        if !is_autorun_registered() {
+            debug!("Registering Taurine to start on login...");
+            if let Err(e) = set_autorun(&current_exe) {
+                error!("Failed to register startup hook: {}", e);
+            }
+        }
+    } else {
+        debug!("start_on_boot is disabled; removing startup hook if present.");
+        let _ = remove_autorun();
+    }
+
+    Ok(())
+}
+
 pub fn status() -> Result<(), Box<dyn std::error::Error>> {
     debug!("Fetching status from daemon via gRPC...");
 
