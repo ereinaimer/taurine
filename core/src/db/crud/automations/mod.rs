@@ -9,8 +9,8 @@ pub use automation_get::{
     get_action_by_trigger, get_all_active_automations, get_automation, search_automations,
 };
 pub use automation_set::{
-    add_automation_by_trigger, increment_usage_count_by_trigger, record_expansion_usage,
-    upsert_automation,
+    AddOutcome, add_automation_by_trigger, increment_usage_count_by_trigger,
+    record_expansion_usage, upsert_automation,
 };
 pub use automation_sync::get_syncable_automations;
 pub use automation_types::{AutomationAction, AutomationRow, AutomationSummary};

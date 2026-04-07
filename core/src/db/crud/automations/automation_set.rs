@@ -96,20 +96,66 @@ pub fn record_expansion_usage(trigger: &str) {
     }
 }
 
-/// Helper function to create or update an automation using only its trigger and payload.
-/// Reuses the existing ID if it matches the trigger, otherwise generates a new UUID v4.
-pub fn add_automation_by_trigger(conn: &Connection, trigger: &str, output: &str) -> Result<()> {
-    let existing_id: Option<String> = conn
+/// Result of an `add_automation_by_trigger` call.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AddOutcome {
+    /// A brand-new automation was created.
+    Created,
+    /// An automation with the same trigger and identical output already exists.
+    AlreadyExists,
+    /// An automation with the same trigger existed but had a different output;
+    /// the output (and `updated_at` / `version`) have been updated.
+    Updated,
+}
+
+/// Creates or updates an automation using only its trigger and output.
+///
+/// - If no active automation exists for the trigger, a new row is inserted
+///   and `AddOutcome::Created` is returned.
+/// - If an active automation exists with the **same** output,
+///   `AddOutcome::AlreadyExists` is returned and no writes happen.
+/// - If an active automation exists with a **different** output, the output
+///   is updated (along with `updated_at` and `version`) and
+///   `AddOutcome::Updated` is returned.
+pub fn add_automation_by_trigger(
+    conn: &Connection,
+    trigger: &str,
+    output: &str,
+) -> Result<AddOutcome> {
+    // Check for an existing active row with this trigger.
+    let existing: Option<(String, String)> = conn
         .query_row(
-            "SELECT id FROM automations WHERE trigger = ?1 AND is_deleted = 0 ORDER BY updated_at DESC LIMIT 1",
+            "SELECT id, output FROM automations WHERE trigger = ?1 AND is_deleted = 0 ORDER BY updated_at DESC LIMIT 1",
             [trigger],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .ok();
 
-    let id = existing_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-
-    upsert_automation(
-        conn, &id, trigger, None, trigger, output, "text", "all", "[]", 0, None,
-    )
+    match existing {
+        Some((_, existing_output)) if existing_output == output => {
+            // Trigger and output are identical — nothing to do.
+            Ok(AddOutcome::AlreadyExists)
+        }
+        Some((id, _)) => {
+            // Same trigger, different output — update only the output.
+            let now = now_unix_secs();
+            conn.execute(
+                "UPDATE automations
+                 SET output     = ?1,
+                     updated_at = ?2,
+                     version    = version + 1
+                 WHERE id = ?3",
+                rusqlite::params![output, now, id],
+            )?;
+            Ok(AddOutcome::Updated)
+        }
+        None => {
+            // No existing row — create a new one.
+            let id = uuid::Uuid::new_v4().to_string();
+            upsert_automation(
+                conn, &id, trigger, None, trigger, output, "text", "all", "[]", 0, None,
+            )?;
+            Ok(AddOutcome::Created)
+        }
+    }
 }
