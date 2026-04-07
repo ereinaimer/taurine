@@ -21,7 +21,7 @@ pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRo
             name,
             description,
             trigger,
-            payload,
+            output,
             action_type,
             target_os,
             tags,
@@ -43,7 +43,7 @@ pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRo
             name: row.get(1)?,
             description: row.get(2)?,
             trigger: row.get(3)?,
-            payload: row.get(4)?,
+            output: row.get(4)?,
             action_type: row.get(5)?,
             target_os: row.get(6)?,
             tags: row.get(7)?,
@@ -72,7 +72,7 @@ pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRo
 pub fn get_action_by_trigger(conn: &Connection, trigger: &str) -> Result<Option<AutomationAction>> {
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
-        "SELECT payload, action_type
+        "SELECT output, action_type
          FROM   automations
          WHERE  trigger = ?1
            AND  is_deleted = 0
@@ -84,7 +84,7 @@ pub fn get_action_by_trigger(conn: &Connection, trigger: &str) -> Result<Option<
 
     let result = stmt.query_row(rusqlite::params![trigger, os_str], |row| {
         Ok(AutomationAction {
-            payload: row.get(0)?,
+            output: row.get(0)?,
             action_type: row.get(1)?,
         })
     });
@@ -102,7 +102,7 @@ pub fn get_action_by_trigger(conn: &Connection, trigger: &str) -> Result<Option<
 pub fn get_all_active_automations(conn: &Connection) -> Result<Vec<(String, AutomationAction)>> {
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
-        "SELECT trigger, payload, action_type
+        "SELECT trigger, output, action_type
          FROM automations
          WHERE is_deleted = 0
            AND is_enabled = 1
@@ -113,7 +113,7 @@ pub fn get_all_active_automations(conn: &Connection) -> Result<Vec<(String, Auto
         Ok((
             row.get(0)?,
             AutomationAction {
-                payload: row.get(1)?,
+                output: row.get(1)?,
                 action_type: row.get(2)?,
             },
         ))

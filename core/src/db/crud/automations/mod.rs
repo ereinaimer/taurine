@@ -58,7 +58,7 @@ mod tests {
         assert_eq!(row.name, "Good Morning");
         assert_eq!(row.description, None);
         assert_eq!(row.trigger, "gm");
-        assert_eq!(row.payload, "Good morning!");
+        assert_eq!(row.output, "Good morning!");
         assert_eq!(row.action_type, "text");
         assert_eq!(row.target_os, "all");
         assert_eq!(row.tags, r#"["morning"]"#);
@@ -109,7 +109,7 @@ mod tests {
         let row = get_automation(&conn, "uuid-1").unwrap().unwrap();
         assert_eq!(row.version, 2);
         assert_eq!(row.description.as_deref(), Some("description"));
-        assert_eq!(row.payload, "Good morning!!");
+        assert_eq!(row.output, "Good morning!!");
         assert_eq!(row.tags, r#"["morning","bright"]"#);
         assert_eq!(row.usage_count, 7);
         assert_eq!(row.last_used_at, Some(1_700_000_000_i64));
@@ -327,7 +327,7 @@ mod tests {
         .unwrap();
 
         let action = get_action_by_trigger(&conn, "gm").unwrap().unwrap();
-        assert_eq!(action.payload, "Good morning two!");
+        assert_eq!(action.output, "Good morning two!");
         assert_eq!(action.action_type, "text");
     }
 
@@ -376,7 +376,7 @@ mod tests {
         );
 
         let action_good = get_action_by_trigger(&conn, "t_all").unwrap().unwrap();
-        assert_eq!(action_good.payload, "World");
+        assert_eq!(action_good.output, "World");
     }
 
     #[test]

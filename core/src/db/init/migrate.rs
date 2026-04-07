@@ -73,7 +73,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     name         TEXT    NOT NULL,
                     description  TEXT,
                     trigger      TEXT    NOT NULL,
-                    payload      TEXT    NOT NULL,
+                    output       TEXT    NOT NULL,
                     action_type  TEXT    DEFAULT 'text',
                     is_enabled   BOOLEAN DEFAULT 1,
                     target_os    TEXT    DEFAULT 'all',

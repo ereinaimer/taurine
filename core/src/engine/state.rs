@@ -29,7 +29,7 @@ impl EngineState {
                 && let Ok(Some(action)) =
                     crate::db::crud::automations::get_action_by_trigger(&conn, keyword)
             {
-                return Some(action.payload);
+                return Some(action.output);
             }
             return None;
         }

@@ -60,7 +60,7 @@ pub fn start_listener(evaluator: Arc<Mutex<Evaluator>>) {
 
                         thread::spawn(move || {
                             let trigger_clone = expansion.trigger.clone();
-                            injector::inject_payload(expansion.payload, expansion.delete_count);
+                            injector::inject_payload(expansion.output, expansion.delete_count);
                             taurine_core::db::crud::record_expansion_usage(&trigger_clone);
                         });
                     }

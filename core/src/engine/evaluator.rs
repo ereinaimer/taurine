@@ -14,13 +14,13 @@ pub enum EngineEvent {
 ///
 /// The daemon's only job is to relay these instructions to the OS:
 /// 1. Send `delete_count` backspaces to erase the trigger sequence.
-/// 2. Type out the `payload` string.
+/// 2. Type out the `output` string.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExpansionResult {
     /// Number of characters to delete (the trigger char + keyword + the trailing space).
     pub delete_count: usize,
     /// The replacement text to type out.
-    pub payload: String,
+    pub output: String,
     /// The trigger keyword that was matched.
     pub trigger: String,
 }
@@ -61,7 +61,7 @@ impl Evaluator {
                     self.buffer.clear();
                     return Some(ExpansionResult {
                         delete_count,
-                        payload,
+                        output: payload,
                         trigger: keyword,
                     });
                 }
@@ -114,7 +114,7 @@ mod tests {
         let result = eval.process_event(EngineEvent::Char(' ')).unwrap();
         // delete_count = '/' (1) + "gm" (2) + ' ' (1) = 4
         assert_eq!(result.delete_count, 4);
-        assert_eq!(result.payload, "Good morning!");
+        assert_eq!(result.output, "Good morning!");
 
         // State machine buffer should reset upon expansion
         assert_eq!(eval.buffer.len, 0);
@@ -152,7 +152,7 @@ mod tests {
         // Fire expansion
         let result = eval.process_event(EngineEvent::Char(' ')).unwrap();
         assert_eq!(result.delete_count, 4);
-        assert_eq!(result.payload, "Good morning!");
+        assert_eq!(result.output, "Good morning!");
     }
 
     #[test]
@@ -164,7 +164,7 @@ mod tests {
         }
         let result = eval.process_event(EngineEvent::Char(' ')).unwrap();
         assert_eq!(result.delete_count, 7);
-        assert_eq!(result.payload, r#"¯\_(ツ)_/¯"#);
+        assert_eq!(result.output, r#"¯\_(ツ)_/¯"#);
     }
 
     #[test]
@@ -206,7 +206,7 @@ mod tests {
         for c in ">brb ".chars() {
             if c == ' ' {
                 let r = eval.process_event(EngineEvent::Char(' ')).unwrap();
-                assert_eq!(r.payload, "Be right back!");
+                assert_eq!(r.output, "Be right back!");
                 assert_eq!(r.delete_count, 1 + "brb".len() + 1);
             } else {
                 assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
@@ -217,7 +217,7 @@ mod tests {
         for c in ">gm ".chars() {
             if c == ' ' {
                 let r = eval.process_event(EngineEvent::Char(' ')).unwrap();
-                assert_eq!(r.payload, "Good morning!");
+                assert_eq!(r.output, "Good morning!");
                 assert_eq!(r.delete_count, 1 + "gm".len() + 1);
             } else {
                 assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
@@ -237,7 +237,7 @@ mod tests {
             for c in ">gm ".chars() {
                 if c == ' ' {
                     let r = eval.process_event(EngineEvent::Char(' ')).unwrap();
-                    assert_eq!(r.payload, "Good morning!");
+                    assert_eq!(r.output, "Good morning!");
                     assert_eq!(r.delete_count, 1 + 2 + 1);
                 } else {
                     assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
@@ -267,7 +267,7 @@ mod tests {
         for c in ">gm ".chars() {
             if c == ' ' {
                 let r = eval.process_event(EngineEvent::Char(' ')).unwrap();
-                assert_eq!(r.payload, "Good morning!");
+                assert_eq!(r.output, "Good morning!");
             } else {
                 assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
             }

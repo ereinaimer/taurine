@@ -4,7 +4,7 @@ pub struct AutomationRow {
     pub name: String,
     pub description: Option<String>,
     pub trigger: String,
-    pub payload: String,
+    pub output: String,
     pub action_type: String,
     pub target_os: String,
     pub tags: String, // JSON
@@ -21,7 +21,7 @@ pub struct AutomationRow {
 /// Minimal data needed by the keystroke listener.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AutomationAction {
-    pub payload: String,
+    pub output: String,
     pub action_type: String,
 }
 

@@ -17,7 +17,7 @@ pub fn upsert_automation(
     name: &str,
     description: Option<&str>,
     trigger: &str,
-    payload: &str,
+    output: &str,
     action_type: &str,
     target_os: &str,
     tags_json: &str, // JSON string
@@ -29,7 +29,7 @@ pub fn upsert_automation(
     // Keep created_at stable across updates.
     conn.execute(
         "INSERT INTO automations
-            (id, name, description, trigger, payload, action_type, target_os, tags,
+            (id, name, description, trigger, output, action_type, target_os, tags,
              usage_count, last_used_at, created_at, updated_at, version, is_deleted)
          VALUES
             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
@@ -38,7 +38,7 @@ pub fn upsert_automation(
             name         = excluded.name,
             description  = excluded.description,
             trigger      = excluded.trigger,
-            payload      = excluded.payload,
+            output       = excluded.output,
             action_type  = excluded.action_type,
             target_os    = excluded.target_os,
             tags         = excluded.tags,
@@ -52,7 +52,7 @@ pub fn upsert_automation(
             name,
             description,
             trigger,
-            payload,
+            output,
             action_type,
             target_os,
             tags_json,
@@ -98,7 +98,7 @@ pub fn record_expansion_usage(trigger: &str) {
 
 /// Helper function to create or update an automation using only its trigger and payload.
 /// Reuses the existing ID if it matches the trigger, otherwise generates a new UUID v4.
-pub fn add_automation_by_trigger(conn: &Connection, trigger: &str, payload: &str) -> Result<()> {
+pub fn add_automation_by_trigger(conn: &Connection, trigger: &str, output: &str) -> Result<()> {
     let existing_id: Option<String> = conn
         .query_row(
             "SELECT id FROM automations WHERE trigger = ?1 AND is_deleted = 0 ORDER BY updated_at DESC LIMIT 1",
@@ -110,6 +110,6 @@ pub fn add_automation_by_trigger(conn: &Connection, trigger: &str, payload: &str
     let id = existing_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     upsert_automation(
-        conn, &id, trigger, None, trigger, payload, "text", "all", "[]", 0, None,
+        conn, &id, trigger, None, trigger, output, "text", "all", "[]", 0, None,
     )
 }

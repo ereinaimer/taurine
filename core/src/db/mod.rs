@@ -100,7 +100,7 @@ mod tests {
 
         let now = 1_700_000_000_i64;
         conn.execute(
-            "INSERT INTO automations (id, name, trigger, payload, created_at, updated_at)
+            "INSERT INTO automations (id, name, trigger, output, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             ("uuid-1", "Good Morning", "gm", "Good morning!", now, now),
         )
@@ -169,6 +169,6 @@ mod tests {
         let version: u32 = conn
             .query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 1);
     }
 }

@@ -12,7 +12,7 @@ pub fn execute() -> Result<(), Box<dyn std::error::Error>> {
     table.load_preset(NOTHING);
     table.set_header(vec!["TRIGGER", "OUTPUT"]);
     for (trigger, action) in automations {
-        table.add_row(vec![trigger, action.payload]);
+        table.add_row(vec![trigger, action.output]);
     }
 
     info!("\n{}", table);

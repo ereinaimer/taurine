@@ -43,7 +43,7 @@ pub fn start() -> Result<(), Box<dyn std::error::Error>> {
     if let Ok(active) = get_all_active_automations(&conn) {
         let snippets = active
             .into_iter()
-            .map(|(trigger, action)| (trigger, action.payload));
+            .map(|(trigger, action)| (trigger, action.output));
         state.load_snippets(snippets);
     }
 
