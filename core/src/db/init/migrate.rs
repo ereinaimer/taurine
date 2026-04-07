@@ -27,7 +27,7 @@ use tracing::{debug, error, info};
 /// 4. Bump `CURRENT_SCHEMA_VERSION` by one.
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Bump this whenever you add a new match arm below.
-    const CURRENT_SCHEMA_VERSION: u32 = 2;
+    const CURRENT_SCHEMA_VERSION: u32 = 1;
 
     // Read the stamp baked into the file header (0 for a fresh database).
     let version: u32 = conn
@@ -75,7 +75,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     trigger      TEXT    NOT NULL,
                     payload      TEXT    NOT NULL,
                     action_type  TEXT    DEFAULT 'text',
-                    is_regex     BOOLEAN DEFAULT 0,
+                    is_enabled   BOOLEAN DEFAULT 1,
                     target_os    TEXT    DEFAULT 'all',
                     tags         JSON    DEFAULT '[]',
                     usage_count  INTEGER DEFAULT 0,
@@ -119,22 +119,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                 })?,
 
             // ----------------------------------------------------------------
-            // v1 → v2 : Add `is_enabled` flag
-            // ----------------------------------------------------------------
-            1 => conn
-                .execute_batch(
-                    "ALTER TABLE automations ADD COLUMN is_enabled INTEGER DEFAULT 1;
-                     PRAGMA user_version = 2;",
-                )
-                .map_err(|e| {
-                    error!(error=%e, "Schema migration v1 -> v2 failed");
-                    e
-                })?,
-
-            // ----------------------------------------------------------------
             // Template for the next migration — copy, fill in, bump version.
             // ----------------------------------------------------------------
-            // 2 => conn.execute_batch(
+            // 1 => conn.execute_batch(
             //     "ALTER TABLE automations ADD COLUMN shortcut TEXT;
             //      PRAGMA user_version = 3;",
             // )?,

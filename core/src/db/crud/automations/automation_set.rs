@@ -19,7 +19,6 @@ pub fn upsert_automation(
     trigger: &str,
     payload: &str,
     action_type: &str,
-    is_regex: bool,
     target_os: &str,
     tags_json: &str, // JSON string
     usage_count: i64,
@@ -30,18 +29,17 @@ pub fn upsert_automation(
     // Keep created_at stable across updates.
     conn.execute(
         "INSERT INTO automations
-            (id, name, description, trigger, payload, action_type, is_regex, target_os, tags,
+            (id, name, description, trigger, payload, action_type, target_os, tags,
              usage_count, last_used_at, created_at, updated_at, version, is_deleted)
          VALUES
-            (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
-             ?10, ?11, ?12, ?13, 1, 0)
+            (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
+             ?9, ?10, ?11, ?12, 1, 0)
          ON CONFLICT(id) DO UPDATE SET
             name         = excluded.name,
             description  = excluded.description,
             trigger      = excluded.trigger,
             payload      = excluded.payload,
             action_type  = excluded.action_type,
-            is_regex     = excluded.is_regex,
             target_os    = excluded.target_os,
             tags         = excluded.tags,
             usage_count  = excluded.usage_count,
@@ -56,7 +54,6 @@ pub fn upsert_automation(
             trigger,
             payload,
             action_type,
-            is_regex,
             target_os,
             tags_json,
             usage_count,
@@ -113,6 +110,6 @@ pub fn add_automation_by_trigger(conn: &Connection, trigger: &str, payload: &str
     let id = existing_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     upsert_automation(
-        conn, &id, trigger, None, trigger, payload, "text", false, "all", "[]", 0, None,
+        conn, &id, trigger, None, trigger, payload, "text", "all", "[]", 0, None,
     )
 }

@@ -46,7 +46,6 @@ mod tests {
             "gm",
             "Good morning!",
             "text",
-            false,
             "all",
             r#"["morning"]"#,
             0,
@@ -61,7 +60,6 @@ mod tests {
         assert_eq!(row.trigger, "gm");
         assert_eq!(row.payload, "Good morning!");
         assert_eq!(row.action_type, "text");
-        assert!(!row.is_regex);
         assert_eq!(row.target_os, "all");
         assert_eq!(row.tags, r#"["morning"]"#);
         assert_eq!(row.usage_count, 0);
@@ -86,7 +84,6 @@ mod tests {
             "gm",
             "Good morning!",
             "text",
-            false,
             "all",
             r#"["morning"]"#,
             0,
@@ -102,7 +99,6 @@ mod tests {
             "gm",
             "Good morning!!",
             "text",
-            false,
             "all",
             r#"["morning","bright"]"#,
             7,
@@ -134,7 +130,6 @@ mod tests {
             "gm",
             "Good morning!",
             "text",
-            false,
             "all",
             r#"["morning"]"#,
             0,
@@ -190,7 +185,6 @@ mod tests {
             "gm",
             "Good morning one!",
             "text",
-            false,
             "all",
             r#"[]"#,
             1,
@@ -206,7 +200,6 @@ mod tests {
             "gm2",
             "Good morning two!",
             "text",
-            false,
             "all",
             r#"[]"#,
             1,
@@ -239,7 +232,6 @@ mod tests {
             "gm_all",
             "payload_all",
             "text",
-            false,
             "all",
             "[]",
             1,
@@ -256,7 +248,6 @@ mod tests {
             "gm_fake",
             "payload_fake",
             "text",
-            false,
             "fake_test_os",
             "[]",
             1,
@@ -281,7 +272,6 @@ mod tests {
             "gm_native",
             "payload_native",
             "text",
-            false,
             current_os,
             "[]",
             1,
@@ -314,7 +304,6 @@ mod tests {
             "gm",
             "Good morning one!",
             "text",
-            false,
             "all",
             r#"[]"#,
             1,
@@ -330,7 +319,6 @@ mod tests {
             "gm",
             "Good morning two!",
             "text",
-            false,
             "all",
             r#"[]"#,
             10,
@@ -358,7 +346,6 @@ mod tests {
             "t_mac",
             "Apple",
             "text",
-            false,
             "fake_test_mac",
             "[]",
             1,
@@ -375,7 +362,6 @@ mod tests {
             "t_all",
             "World",
             "text",
-            false,
             "all",
             "[]",
             1,
@@ -407,7 +393,6 @@ mod tests {
             "gm",
             "Good morning!",
             "text",
-            false,
             "all",
             r#"[]"#,
             5,
@@ -423,7 +408,6 @@ mod tests {
             "standup",
             "Standup notes",
             "text",
-            false,
             "all",
             r#"[]"#,
             20,
@@ -440,7 +424,6 @@ mod tests {
             "oldgm",
             "Old",
             "text",
-            false,
             "all",
             r#"[]"#,
             100,
@@ -465,13 +448,13 @@ mod tests {
 
         // Standard upserts default to is_synced = 1
         upsert_automation(
-            &conn, "uuid-1", "A1", None, "t1", "p1", "text", false, "all", r#"[]"#, 0, None,
+            &conn, "uuid-1", "A1", None, "t1", "p1", "text", "all", r#"[]"#, 0, None,
         )
         .unwrap();
 
         // Force one to is_synced = 0 manually to test the filter
         upsert_automation(
-            &conn, "uuid-2", "A2", None, "t2", "p2", "text", false, "all", r#"[]"#, 0, None,
+            &conn, "uuid-2", "A2", None, "t2", "p2", "text", "all", r#"[]"#, 0, None,
         )
         .unwrap();
         conn.execute(

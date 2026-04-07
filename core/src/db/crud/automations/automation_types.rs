@@ -6,7 +6,6 @@ pub struct AutomationRow {
     pub trigger: String,
     pub payload: String,
     pub action_type: String,
-    pub is_regex: bool,
     pub target_os: String,
     pub tags: String, // JSON
     pub usage_count: i64,

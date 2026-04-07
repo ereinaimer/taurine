@@ -108,34 +108,25 @@ mod tests {
 
         let mut stmt = conn
             .prepare(
-                "SELECT name, action_type, is_regex, is_deleted, is_synced, version
+                "SELECT name, action_type, is_deleted, is_synced, version
                  FROM automations WHERE id = ?1",
             )
             .unwrap();
 
-        let (name, action_type, is_regex, is_deleted, is_synced, version): (
-            String,
-            String,
-            bool,
-            bool,
-            bool,
-            i64,
-        ) = stmt
-            .query_row(["uuid-1"], |row| {
+        let (name, action_type, is_deleted, is_synced, version): (String, String, bool, bool, i64) =
+            stmt.query_row(["uuid-1"], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, bool>(2)?,
                     row.get::<_, bool>(3)?,
-                    row.get::<_, bool>(4)?,
-                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(4)?,
                 ))
             })
             .unwrap();
 
         assert_eq!(name, "Good Morning");
         assert_eq!(action_type, "text");
-        assert!(!is_regex);
         assert!(!is_deleted);
         assert!(is_synced);
         assert_eq!(version, 1);
