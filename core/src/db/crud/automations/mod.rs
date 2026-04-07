@@ -224,6 +224,82 @@ mod tests {
     }
 
     #[test]
+    fn get_all_active_automations_filters_by_target_os() {
+        crate::logs::init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+        conn.execute("DELETE FROM automations", []).unwrap();
+
+        // 1. "all" should be loaded everywhere.
+        upsert_automation(
+            &conn,
+            "uuid-1",
+            "GM All",
+            None,
+            "gm_all",
+            "payload_all",
+            "text",
+            false,
+            "all",
+            "[]",
+            1,
+            None,
+        )
+        .unwrap();
+
+        // 2. A completely unrecognized/fake OS should never be loaded on any platform.
+        upsert_automation(
+            &conn,
+            "uuid-2",
+            "GM Fake OS",
+            None,
+            "gm_fake",
+            "payload_fake",
+            "text",
+            false,
+            "fake_test_os",
+            "[]",
+            1,
+            None,
+        )
+        .unwrap();
+
+        // 3. The exact match for current platform. We evaluate it ourselves to insert an exact match.
+        let current_os = match std::env::consts::OS {
+            "windows" => "win",
+            "macos" => "mac",
+            "linux" => "linux",
+            "android" => "android",
+            "ios" => "ios",
+            _ => "unknown",
+        };
+        upsert_automation(
+            &conn,
+            "uuid-3",
+            "GM Native",
+            None,
+            "gm_native",
+            "payload_native",
+            "text",
+            false,
+            current_os,
+            "[]",
+            1,
+            None,
+        )
+        .unwrap();
+
+        let rows = get_all_active_automations(&conn).unwrap();
+        let mut triggers: Vec<String> = rows.into_iter().map(|(t, _)| t).collect();
+        triggers.sort();
+
+        // Should load "gm_all" and "gm_native", but drop "gm_fake".
+        assert_eq!(
+            triggers,
+            vec!["gm_all".to_string(), "gm_native".to_string()]
+        );
+    }
+
+    #[test]
     fn get_action_by_trigger_picks_active_most_used_automation() {
         crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
@@ -264,6 +340,56 @@ mod tests {
         let action = get_action_by_trigger(&conn, "gm").unwrap().unwrap();
         assert_eq!(action.payload, "Good morning two!");
         assert_eq!(action.action_type, "text");
+    }
+
+    #[test]
+    fn get_action_by_trigger_respects_target_os() {
+        crate::logs::init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+        conn.execute("DELETE FROM automations", []).unwrap();
+
+        // A trigger locked to a non-existent OS
+        upsert_automation(
+            &conn,
+            "uuid-1",
+            "Mac specific",
+            None,
+            "t_mac",
+            "Apple",
+            "text",
+            false,
+            "fake_test_mac",
+            "[]",
+            1,
+            None,
+        )
+        .unwrap();
+
+        // A universal trigger
+        upsert_automation(
+            &conn,
+            "uuid-2",
+            "Universal",
+            None,
+            "t_all",
+            "World",
+            "text",
+            false,
+            "all",
+            "[]",
+            1,
+            None,
+        )
+        .unwrap();
+
+        let action_bad = get_action_by_trigger(&conn, "t_mac").unwrap();
+        assert!(
+            action_bad.is_none(),
+            "Should not return action for mismatched target_os"
+        );
+
+        let action_good = get_action_by_trigger(&conn, "t_all").unwrap().unwrap();
+        assert_eq!(action_good.payload, "World");
     }
 
     #[test]
