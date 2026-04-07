@@ -11,27 +11,47 @@ use winreg::enums::*;
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-/// HKCU Run launches console binaries with a new console window; `taurine up` avoids that via
-/// `CREATE_NO_WINDOW`. For logon startup, spawn through PowerShell so the daemon has no visible window.
-fn autorun_command_line(current_exe: &std::path::Path) -> String {
-    let exe_path = current_exe.to_string_lossy();
-    let exe_ps = exe_path.replace('\'', "''");
-    format!(
-        "powershell.exe -NoProfile -WindowStyle Hidden -Command \"Start-Process -FilePath '{}' -ArgumentList '--daemon' -WindowStyle Hidden\"",
-        exe_ps
-    )
+fn write_vbs_launcher(exe_path: &std::path::Path) -> std::io::Result<()> {
+    let vbs_path = taurine_core::paths::get_startup_vbs_path();
+    let exe_str = exe_path.to_string_lossy();
+    let vbs_content = format!(
+        "Set WshShell = CreateObject(\"WScript.Shell\")\r\n\
+         WshShell.Run \"\"\"{}\"\" --daemon\", 0, False\r\n\
+         Set WshShell = Nothing\r\n",
+        exe_str
+    );
+    std::fs::write(&vbs_path, vbs_content)?;
+    Ok(())
+}
+
+fn delete_vbs_launcher() {
+    let vbs_path = taurine_core::paths::get_startup_vbs_path();
+    if vbs_path.exists()
+        && let Err(e) = std::fs::remove_file(&vbs_path)
+    {
+        debug!("Failed to delete daemon-startup.vbs: {}", e);
+    }
 }
 
 fn set_autorun(current_exe: &std::path::Path) -> std::io::Result<()> {
+    write_vbs_launcher(current_exe)?;
+    let vbs_path = taurine_core::paths::get_startup_vbs_path();
+
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let path = r#"Software\Microsoft\Windows\CurrentVersion\Run"#;
     let (key, _) = hkcu.create_subkey(path)?;
-    let val = autorun_command_line(current_exe);
+
+    let val = format!("wscript.exe //B \"{}\"", vbs_path.to_string_lossy());
     key.set_value("Taurine", &val)?;
     Ok(())
 }
 
 fn is_autorun_registered() -> bool {
+    let vbs_path = taurine_core::paths::get_startup_vbs_path();
+    if !vbs_path.exists() {
+        return false;
+    }
+
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let path = r#"Software\Microsoft\Windows\CurrentVersion\Run"#;
     hkcu.open_subkey(path)
@@ -40,6 +60,8 @@ fn is_autorun_registered() -> bool {
 }
 
 fn remove_autorun() -> std::io::Result<()> {
+    delete_vbs_launcher();
+
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let path = r#"Software\Microsoft\Windows\CurrentVersion\Run"#;
     let key = hkcu.open_subkey_with_flags(path, KEY_WRITE)?;
@@ -270,4 +292,39 @@ pub fn status() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_vbs_launcher_lifecycle() {
+        // Setup tracing + env override for test dir
+        taurine_core::logs::init_tracing_for_tests();
+        let test_dir = std::env::temp_dir().join("taurine_vbs_lifecycle_test");
+        unsafe { std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
+
+        let dummy_exe = PathBuf::from(r"C:\fake\taurine.exe");
+        let vbs_path = taurine_core::paths::get_startup_vbs_path();
+
+        // 1. Write the launcher
+        write_vbs_launcher(&dummy_exe).expect("Failed to write VBS launcher");
+        assert!(vbs_path.exists());
+
+        // Verify contents
+        let contents = std::fs::read_to_string(&vbs_path).expect("Failed to read VBS");
+        assert!(contents.contains(&dummy_exe.to_string_lossy().into_owned()));
+        assert!(contents.contains("--daemon"));
+        assert!(contents.contains("WshShell.Run"));
+
+        // 2. Delete the launcher
+        delete_vbs_launcher();
+        assert!(!vbs_path.exists());
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&test_dir);
+        unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+    }
 }

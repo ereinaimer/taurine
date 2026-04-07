@@ -97,6 +97,20 @@ pub fn logs_dir() -> PathBuf {
     data_dir.join("logs")
 }
 
+/// Resolves the exact file path for the daemon startup VBScript.
+pub fn get_startup_vbs_path() -> PathBuf {
+    let data_dir = ensure_data_dir();
+    let startup_dir = data_dir.join("startup");
+    if !startup_dir.exists() {
+        debug!(
+            "Creating Taurine startup directory: {}",
+            startup_dir.display()
+        );
+        fs::create_dir_all(&startup_dir).expect("Failed to create startup directory");
+    }
+    startup_dir.join("daemon-startup.vbs")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,5 +174,24 @@ mod tests {
                 unsafe { env::set_var("TAURINE_DB_PATH", val) };
             }
         }
+    }
+
+    #[test]
+    fn test_startup_vbs_path_creation() {
+        crate::logs::init_tracing_for_tests();
+
+        let test_dir = std::env::temp_dir().join("taurine_vbs_test");
+        unsafe { env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
+
+        let vbs_path = get_startup_vbs_path();
+        assert!(vbs_path.ends_with("daemon-startup.vbs"));
+
+        let startup_dir = vbs_path.parent().unwrap();
+        assert!(startup_dir.ends_with("startup"));
+        assert!(startup_dir.exists());
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&test_dir);
+        unsafe { env::remove_var("TAURINE_DATA_DIR") };
     }
 }
