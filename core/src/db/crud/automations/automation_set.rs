@@ -98,3 +98,21 @@ pub fn record_expansion_usage(trigger: &str) {
         }
     }
 }
+
+/// Helper function to create or update an automation using only its trigger and payload.
+/// Reuses the existing ID if it matches the trigger, otherwise generates a new UUID v4.
+pub fn add_automation_by_trigger(conn: &Connection, trigger: &str, payload: &str) -> Result<()> {
+    let existing_id: Option<String> = conn
+        .query_row(
+            "SELECT id FROM automations WHERE trigger = ?1 AND is_deleted = 0 ORDER BY updated_at DESC LIMIT 1",
+            [trigger],
+            |r| r.get(0),
+        )
+        .ok();
+
+    let id = existing_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+    upsert_automation(
+        conn, &id, trigger, None, trigger, payload, "text", false, "all", "[]", 0, None,
+    )
+}

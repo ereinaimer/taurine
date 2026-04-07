@@ -21,3 +21,20 @@ pub fn delete_automation(conn: &Connection, id: &str) -> Result<bool> {
 
     Ok(rows_changed > 0)
 }
+
+/// Disables or tombstones all automations matching the specified trigger.
+/// Returns the number of affected rows.
+pub fn delete_automation_by_trigger(conn: &Connection, trigger: &str) -> Result<usize> {
+    let now = now_unix_secs();
+
+    let rows_changed = conn.execute(
+        "UPDATE automations
+            SET is_deleted = 1,
+                version    = version + 1,
+                updated_at = ?1
+         WHERE trigger = ?2 AND is_deleted = 0",
+        (now, trigger),
+    )?;
+
+    Ok(rows_changed)
+}

@@ -1,5 +1,6 @@
 // Licensed under the Aimer Software License (ASL).
 // See LICENSE for details.
+pub mod commands;
 pub mod service;
 
 use clap::{Parser, Subcommand};
@@ -42,11 +43,20 @@ enum Commands {
     /// Stop Taurine
     #[command(alias = "stop")]
     Down,
-    /// Restart Taurine (stop + start)
+    /// Restart Taurine
     #[command(alias = "reboot")]
     Restart,
     /// Check if Taurine is currently running
     Status,
+    /// Add a new automation
+    #[command(alias = "set")]
+    Add { trigger: String, output: String },
+    /// Remove an existing automation by trigger
+    #[command(aliases = ["rm", "remove"])]
+    Delete { trigger: String },
+    /// List all automations
+    #[command(alias = "ls")]
+    List,
 }
 
 fn main() -> std::process::ExitCode {
@@ -128,6 +138,15 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         }
         Some(Commands::Down) => service::down()?,
         Some(Commands::Status) => service::status()?,
+        Some(Commands::Add { trigger, output }) => {
+            commands::add::execute(trigger, output)?;
+        }
+        Some(Commands::Delete { trigger }) => {
+            commands::delete::execute(trigger)?;
+        }
+        Some(Commands::List) => {
+            commands::list::execute()?;
+        }
         None => {
             if !cli.daemon {
                 use clap::CommandFactory;
