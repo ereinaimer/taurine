@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use taurine_core::engine::EngineState;
 use taurine_core::rpc::{
     ReloadRequest, ReloadResponse, ShutdownRequest, ShutdownResponse, StatusRequest,
@@ -11,13 +12,22 @@ use tracing::info;
 pub struct DaemonService {
     shutdown_sender: mpsc::Sender<()>,
     state: Arc<EngineState>,
+    paused: Arc<AtomicBool>,
+    pause_hotkey: String,
 }
 
 impl DaemonService {
-    pub fn new(shutdown_sender: mpsc::Sender<()>, state: Arc<EngineState>) -> Self {
+    pub fn new(
+        shutdown_sender: mpsc::Sender<()>,
+        state: Arc<EngineState>,
+        paused: Arc<AtomicBool>,
+        pause_hotkey: String,
+    ) -> Self {
         Self {
             shutdown_sender,
             state,
+            paused,
+            pause_hotkey,
         }
     }
 }
@@ -28,7 +38,11 @@ impl DaemonControl for DaemonService {
         &self,
         _request: Request<StatusRequest>,
     ) -> Result<Response<StatusResponse>, Status> {
-        Ok(Response::new(StatusResponse { online: true }))
+        Ok(Response::new(StatusResponse {
+            online: true,
+            paused: self.paused.load(Ordering::Relaxed),
+            pause_hotkey: self.pause_hotkey.clone(),
+        }))
     }
 
     async fn shutdown(
@@ -64,6 +78,7 @@ impl DaemonControl for DaemonService {
 mod tests {
     use super::*;
     use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
     use taurine_core::db::crud::add_automation_by_trigger;
     use taurine_core::db::init;
     use taurine_core::engine::EngineState;
@@ -85,7 +100,12 @@ mod tests {
 
         let state = Arc::new(EngineState::new('>'));
         let (tx, _rx) = mpsc::channel(1);
-        let service = DaemonService::new(tx, state.clone());
+        let service = DaemonService::new(
+            tx,
+            state.clone(),
+            Arc::new(AtomicBool::new(false)),
+            "Alt + `".to_string(),
+        );
 
         // Initially state should be empty
         {

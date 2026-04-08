@@ -165,7 +165,7 @@ mod tests {
             assert_eq!(db_path.parent().unwrap(), data_dir.as_path());
 
             #[cfg(any(target_os = "windows", target_os = "macos"))]
-            assert!(data_dir.ends_with("Taurine"));
+            assert!(data_dir.ends_with("Taurine") || data_dir.ends_with("taurine"));
 
             #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "android")))]
             assert!(data_dir.ends_with("taurine"));

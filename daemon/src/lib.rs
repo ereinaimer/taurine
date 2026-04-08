@@ -9,7 +9,9 @@ use tonic::transport::Server;
 use tracing::{debug, error, info};
 
 mod hook;
+mod hotkey;
 mod injector;
+mod notify;
 mod server;
 #[cfg(windows)]
 mod win_clipboard;
@@ -39,6 +41,17 @@ pub fn start() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = Arc::new(EngineState::new(trigger_char));
 
+    // Global pause toggle hotkey (display + parse).
+    let pause_hotkey = get_setting_value(&conn, "pause_hotkey")
+        .unwrap_or(None)
+        .and_then(|json| serde_json::from_str::<String>(&json).ok())
+        .unwrap_or_else(|| "Alt + `".to_string());
+    let pause_hotkey_spec =
+        hotkey::parse_pause_hotkey_setting(&pause_hotkey).unwrap_or_else(|| {
+            // Fall back to strict default if DB is malformed or unsupported.
+            hotkey::parse_pause_hotkey_setting("Alt + `").expect("default pause hotkey parses")
+        });
+
     // Load snippets efficiently!
     if let Ok(active) = get_all_active_automations(&conn) {
         let snippets = active
@@ -49,11 +62,14 @@ pub fn start() -> Result<(), Box<dyn std::error::Error>> {
 
     let evaluator = Arc::new(Mutex::new(Evaluator::new(state.clone())));
 
+    let paused = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
     // Fire up listener in OS thread
     let eval_clone = evaluator.clone();
+    let paused_clone = paused.clone();
     std::thread::spawn(move || {
         info!("Starting OS keyboard hook listener...");
-        hook::start_listener(eval_clone);
+        hook::start_listener(eval_clone, paused_clone, pause_hotkey_spec);
     });
 
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -63,7 +79,7 @@ pub fn start() -> Result<(), Box<dyn std::error::Error>> {
     rt.block_on(async {
         let (tx, mut rx) = mpsc::channel(1);
         let addr: SocketAddr = "127.0.0.1:50051".parse().unwrap();
-        let daemon_service = DaemonService::new(tx, state.clone());
+        let daemon_service = DaemonService::new(tx, state.clone(), paused.clone(), pause_hotkey);
 
         info!("Starting gRPC server on {}", addr);
         let server_future = Server::builder()

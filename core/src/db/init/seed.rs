@@ -21,5 +21,13 @@ pub fn ensure_defaults(conn: &Connection) -> Result<()> {
         upsert_setting(conn, "start_on_boot", "true")?;
     }
 
+    // Global daemon pause toggle hotkey.
+    // Stored as a JSON string literal. Default: Alt + ` (Alt + Backtick).
+    let pause_hotkey_val = get_setting(conn, "pause_hotkey")?;
+    if pause_hotkey_val.is_none() {
+        debug!("Default 'pause_hotkey' missing. Seeding database with 'Alt + `'.");
+        upsert_setting(conn, "pause_hotkey", r#""Alt + `""#)?;
+    }
+
     Ok(())
 }

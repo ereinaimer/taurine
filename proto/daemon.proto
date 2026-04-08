@@ -12,6 +12,8 @@ message StatusRequest {}
 
 message StatusResponse {
     bool online = 1;
+    bool paused = 2;
+    string pause_hotkey = 3;
 }
 
 message ShutdownRequest {}

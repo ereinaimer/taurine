@@ -5,15 +5,46 @@ use std::thread;
 use tracing::{debug, error};
 
 use crate::injector::{self, IS_INJECTING};
+use crate::{hotkey, notify};
 use taurine_core::engine::{EngineEvent, Evaluator};
 
-pub fn start_listener(evaluator: Arc<Mutex<Evaluator>>) {
-    let callback = move |event: Event| {
+pub fn start_listener(
+    evaluator: Arc<Mutex<Evaluator>>,
+    paused: Arc<std::sync::atomic::AtomicBool>,
+    pause_hotkey: hotkey::HotkeySpec,
+) {
+    let alt_down = std::sync::atomic::AtomicBool::new(false);
+
+    let callback = move |event: Event| -> Option<Event> {
+        match event.event_type {
+            EventType::KeyPress(Key::Alt) | EventType::KeyPress(Key::AltGr) => {
+                alt_down.store(true, Ordering::Relaxed);
+            }
+            EventType::KeyRelease(Key::Alt) | EventType::KeyRelease(Key::AltGr) => {
+                alt_down.store(false, Ordering::Relaxed);
+            }
+            _ => {}
+        }
+
+        // Evaluate pause toggle before any typing buffer / expansion logic.
+        if hotkey::is_pause_chord(&event, alt_down.load(Ordering::Relaxed), &pause_hotkey) {
+            let now_paused = !paused.load(Ordering::Relaxed);
+            paused.store(now_paused, Ordering::Relaxed);
+            notify::notify_pause_toggled(now_paused);
+            // Strictly consume the keystroke (do not pass to OS).
+            return None;
+        }
+
+        // If paused, immediately pass all keystrokes through to the OS.
+        if paused.load(Ordering::Relaxed) {
+            return Some(event);
+        }
+
         match event.event_type {
             EventType::ButtonPress(_) => {
                 // Mouse click — ignore if we're mid-injection; otherwise clear the buffer.
                 if IS_INJECTING.load(Ordering::SeqCst) {
-                    return;
+                    return Some(event);
                 }
                 let mut lock = evaluator.lock().unwrap();
                 let _ = lock.process_event(EngineEvent::Interrupt);
@@ -22,7 +53,7 @@ pub fn start_listener(evaluator: Arc<Mutex<Evaluator>>) {
                 // All events during injection are synthetic (our own backspaces / Ctrl+V).
                 // Ignore them so they don't feed back into the evaluator.
                 if IS_INJECTING.load(Ordering::SeqCst) {
-                    return;
+                    return Some(event);
                 }
 
                 let engine_event = match key {
@@ -68,9 +99,11 @@ pub fn start_listener(evaluator: Arc<Mutex<Evaluator>>) {
             }
             _ => {}
         }
+
+        Some(event)
     };
 
-    if let Err(e) = rdev::listen(callback) {
+    if let Err(e) = rdev::grab(callback) {
         error!("Fatal OS global hook crash: {:?}", e);
     }
 }

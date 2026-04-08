@@ -275,11 +275,21 @@ pub fn status() -> Result<(), Box<dyn std::error::Error>> {
             if let Ok(mut client) = DaemonControlClient::connect("http://127.0.0.1:50051").await {
                 let request = tonic::Request::new(StatusRequest {});
                 match client.get_status(request).await {
-                    Ok(_) => info!("Engine status: ONLINE (gRPC)"),
-                    Err(e) => info!("Engine status error via gRPC: {}", e),
+                    Ok(res) => {
+                        let s = res.into_inner();
+                        if s.paused {
+                            info!(
+                                "Taurine is Paused. Press {} to resume operations",
+                                s.pause_hotkey
+                            );
+                        } else {
+                            debug!("Engine status: ONLINE (gRPC)");
+                        }
+                    }
+                    Err(e) => error!("Engine status error via gRPC: {}", e),
                 }
             } else {
-                info!("Engine status: OFFLINE (gRPC)");
+                debug!("Engine status: OFFLINE (gRPC)");
             }
         });
     }
