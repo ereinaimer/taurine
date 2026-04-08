@@ -52,6 +52,11 @@ pub fn start() -> Result<(), Box<dyn std::error::Error>> {
             hotkey::parse_pause_hotkey_setting("Alt + `").expect("default pause hotkey parses")
         });
 
+    let pause_notifications_enabled = get_setting_value(&conn, "pause_notifications_enabled")
+        .unwrap_or(None)
+        .and_then(|json| serde_json::from_str::<bool>(&json).ok())
+        .unwrap_or(true);
+
     // Load snippets efficiently!
     if let Ok(active) = get_all_active_automations(&conn) {
         let snippets = active
@@ -63,13 +68,22 @@ pub fn start() -> Result<(), Box<dyn std::error::Error>> {
     let evaluator = Arc::new(Mutex::new(Evaluator::new(state.clone())));
 
     let paused = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let pause_notifications_enabled = Arc::new(std::sync::atomic::AtomicBool::new(
+        pause_notifications_enabled,
+    ));
 
     // Fire up listener in OS thread
     let eval_clone = evaluator.clone();
     let paused_clone = paused.clone();
+    let pause_notifications_enabled_clone = pause_notifications_enabled.clone();
     std::thread::spawn(move || {
         info!("Starting OS keyboard hook listener...");
-        hook::start_listener(eval_clone, paused_clone, pause_hotkey_spec);
+        hook::start_listener(
+            eval_clone,
+            paused_clone,
+            pause_notifications_enabled_clone,
+            pause_hotkey_spec,
+        );
     });
 
     let rt = tokio::runtime::Builder::new_multi_thread()

@@ -29,5 +29,12 @@ pub fn ensure_defaults(conn: &Connection) -> Result<()> {
         upsert_setting(conn, "pause_hotkey", r#""Alt + `""#)?;
     }
 
+    let pause_notifications_enabled_val = get_setting(conn, "pause_notifications_enabled")?;
+    if pause_notifications_enabled_val.is_none() {
+        debug!("Default 'pause_notifications_enabled' missing. Seeding database with 'true'.");
+        // Stored as a JSON boolean literal.
+        upsert_setting(conn, "pause_notifications_enabled", "true")?;
+    }
+
     Ok(())
 }

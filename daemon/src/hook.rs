@@ -11,6 +11,7 @@ use taurine_core::engine::{EngineEvent, Evaluator};
 pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
     paused: Arc<std::sync::atomic::AtomicBool>,
+    pause_notifications_enabled: Arc<std::sync::atomic::AtomicBool>,
     pause_hotkey: hotkey::HotkeySpec,
 ) {
     let alt_down = std::sync::atomic::AtomicBool::new(false);
@@ -30,7 +31,9 @@ pub fn start_listener(
         if hotkey::is_pause_chord(&event, alt_down.load(Ordering::Relaxed), &pause_hotkey) {
             let now_paused = !paused.load(Ordering::Relaxed);
             paused.store(now_paused, Ordering::Relaxed);
-            notify::notify_pause_toggled(now_paused);
+            if pause_notifications_enabled.load(Ordering::Relaxed) {
+                notify::notify_pause_toggled(now_paused);
+            }
             // Strictly consume the keystroke (do not pass to OS).
             return None;
         }
