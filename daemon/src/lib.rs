@@ -24,7 +24,7 @@ pub fn start() -> Result<(), Box<dyn std::error::Error>> {
 
     debug!("Daemon initialization complete!");
 
-    // Instantiate our Core Engine State
+    // Instantiate the Core Engine State
     use std::sync::{Arc, Mutex};
     use taurine_core::db::crud::{get_all_active_automations, get_setting_value};
     use taurine_core::engine::{EngineState, Evaluator};
@@ -37,7 +37,7 @@ pub fn start() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|s| s.chars().next())
         .unwrap_or('>');
 
-    let state = EngineState::new(trigger_char);
+    let state = Arc::new(EngineState::new(trigger_char));
 
     // Load snippets efficiently!
     if let Ok(active) = get_all_active_automations(&conn) {
@@ -47,7 +47,7 @@ pub fn start() -> Result<(), Box<dyn std::error::Error>> {
         state.load_snippets(snippets);
     }
 
-    let evaluator = Arc::new(Mutex::new(Evaluator::new(Arc::new(state))));
+    let evaluator = Arc::new(Mutex::new(Evaluator::new(state.clone())));
 
     // Fire up listener in OS thread
     let eval_clone = evaluator.clone();
@@ -63,14 +63,14 @@ pub fn start() -> Result<(), Box<dyn std::error::Error>> {
     rt.block_on(async {
         let (tx, mut rx) = mpsc::channel(1);
         let addr: SocketAddr = "127.0.0.1:50051".parse().unwrap();
-        let daemon_service = DaemonService::new(tx);
+        let daemon_service = DaemonService::new(tx, state.clone());
 
         info!("Starting gRPC server on {}", addr);
         let server_future = Server::builder()
             .add_service(DaemonControlServer::new(daemon_service))
             .serve_with_shutdown(addr, async {
                 let _ = rx.recv().await;
-                info!("Shutdown signal received, initiating graceful shutdown.");
+                info!("Shutdown signal received, Initiating shutdown...");
             });
 
         if let Err(e) = server_future.await {

@@ -78,7 +78,7 @@ pub fn down() -> Result<(), Box<dyn std::error::Error>> {
                 let request = tonic::Request::new(ShutdownRequest {});
                 match client.shutdown(request).await {
                     Ok(_) => {
-                        info!("Graceful shutdown signal sent successfully.");
+                        info!("Shutdown signal sent successfully.");
                         grpc_success = true;
                     }
                     Err(e) => error!("Failed to send graceful shutdown signal: {}", e),

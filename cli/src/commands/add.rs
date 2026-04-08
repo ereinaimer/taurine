@@ -9,11 +9,17 @@ pub fn execute(trigger: String, output: String) -> Result<(), Box<dyn std::error
     let outcome = add_automation_by_trigger(&conn, &trigger, &output)?;
 
     match outcome {
-        AddOutcome::Created => info!("Added automation: {} -> {}", trigger, output),
+        AddOutcome::Created => {
+            info!("Added automation: {} -> {}", trigger, output);
+            taurine_core::engine::state::notify_daemon_reload();
+        }
         AddOutcome::AlreadyExists => {
             info!("Automation already exists: {} -> {}", trigger, output)
         }
-        AddOutcome::Updated => info!("Updated automation: {} -> {}", trigger, output),
+        AddOutcome::Updated => {
+            info!("Updated automation: {} -> {}", trigger, output);
+            taurine_core::engine::state::notify_daemon_reload();
+        }
     }
 
     Ok(())

@@ -14,6 +14,7 @@ pub fn execute(trigger: String) -> Result<(), Box<dyn std::error::Error>> {
             "Removed {} automation(s) for trigger: {}",
             removed_count, trigger
         );
+        taurine_core::engine::state::notify_daemon_reload();
     }
 
     Ok(())

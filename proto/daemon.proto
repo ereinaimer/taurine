@@ -5,6 +5,7 @@ package taurine;
 service DaemonControl {
     rpc GetStatus (StatusRequest) returns (StatusResponse);
     rpc Shutdown (ShutdownRequest) returns (ShutdownResponse);
+    rpc Reload (ReloadRequest) returns (ReloadResponse);
 }
 
 message StatusRequest {}
@@ -16,5 +17,11 @@ message StatusResponse {
 message ShutdownRequest {}
 
 message ShutdownResponse {
+    bool success = 1;
+}
+
+message ReloadRequest {}
+
+message ReloadResponse {
     bool success = 1;
 }
