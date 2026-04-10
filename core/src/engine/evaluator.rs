@@ -356,4 +356,44 @@ mod tests {
         let result = result.expect("Expansion should have triggered");
         assert_eq!(result.output, "https://github.com/randomguy/randomrepo");
     }
+
+    #[test]
+    fn test_inline_math_evaluation_simple() {
+        let state = Arc::new(EngineState::new('>'));
+        // No snippets loaded. Math should act as fallback.
+        let mut eval = Evaluator::new(state);
+
+        let input = ">5+2 ";
+        let mut last_result = None;
+
+        for c in input.chars() {
+            if let Some(res) = eval.process_event(EngineEvent::Char(c)) {
+                last_result = Some(res);
+            }
+        }
+
+        let result = last_result.expect("Math expansion should have triggered");
+        assert_eq!(result.output, "7");
+        assert_eq!(result.trigger, "5+2");
+    }
+
+    #[test]
+    fn test_inline_math_evaluation_complex() {
+        let state = Arc::new(EngineState::new('>'));
+        let mut eval = Evaluator::new(state);
+
+        let input = ">((5+2)/7%2)*2 ";
+        let mut last_result = None;
+
+        for c in input.chars() {
+            if let Some(res) = eval.process_event(EngineEvent::Char(c)) {
+                last_result = Some(res);
+            }
+        }
+
+        let result = last_result.expect("Math expansion should have triggered");
+        // ((5+2) / 7 % 2) * 2 = (7 / 7 % 2) * 2 = (1 % 2) * 2 = 1 * 2 = 2
+        assert_eq!(result.output, "2");
+        assert_eq!(result.trigger, "((5+2)/7%2)*2");
+    }
 }

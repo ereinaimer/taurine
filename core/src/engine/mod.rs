@@ -1,5 +1,6 @@
 pub mod buffer;
 pub mod evaluator;
+pub mod math;
 pub mod source;
 pub mod state;
 pub mod variables;
