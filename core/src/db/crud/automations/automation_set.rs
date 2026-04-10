@@ -79,15 +79,24 @@ pub fn increment_usage_count_by_trigger(conn: &Connection, trigger: &str) -> Res
 }
 
 /// Opens the production DB and increments `usage_count` for every active row
-/// whose trigger matches.
+/// whose trigger matches, while also updating the daily metrics.
 ///
 /// Intended for callers (e.g. the daemon hook thread) that do not hold an open
 /// `Connection` and do not want a direct dependency on `rusqlite`.
-pub fn record_expansion_usage(trigger: &str) {
+pub fn record_expansion_usage(trigger: &str, output_len: usize, delete_count: usize) {
     match Connection::open(crate::paths::get_db_path()) {
         Ok(conn) => {
+            // 1. Update the automation-specific counter
             if let Err(e) = increment_usage_count_by_trigger(&conn, trigger) {
                 tracing::warn!(trigger, error = %e, "Failed to increment usage_count");
+            }
+
+            // 2. Update the global daily metrics
+            let date = crate::metrics::get_current_date_string();
+            let saved = crate::metrics::calculate_saved_keystrokes(output_len, delete_count);
+
+            if let Err(e) = crate::db::crud::increment_metric(&conn, &date, 1, saved) {
+                tracing::warn!(date, error = %e, "Failed to update daily metrics");
             }
         }
         Err(e) => {

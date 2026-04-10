@@ -107,12 +107,19 @@ pub fn start_listener(
 
                         thread::spawn(move || {
                             let trigger_clone = expansion.trigger.clone();
+                            let output_len = expansion.output.chars().count();
+                            let delete_count = expansion.delete_count;
+
                             injector::inject_payload(
                                 expansion.output,
                                 expansion.delete_count,
                                 expansion.left_arrow_count,
                             );
-                            taurine_core::db::crud::record_expansion_usage(&trigger_clone);
+                            taurine_core::db::crud::record_expansion_usage(
+                                &trigger_clone,
+                                output_len,
+                                delete_count,
+                            );
                         });
                     }
                 }

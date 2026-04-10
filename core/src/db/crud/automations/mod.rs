@@ -467,4 +467,49 @@ mod tests {
         let ids: Vec<String> = syncable.into_iter().map(|a| a.id).collect();
         assert_eq!(ids, vec!["uuid-1".to_string()]);
     }
+
+    #[test]
+    fn test_record_expansion_usage_updates_automation_and_metrics() {
+        init_tracing_for_tests();
+        let (dir, conn) = open_test_db();
+        let db_path = dir.path().join("test_taurine.db");
+
+        // Set the path for the helper being tested
+        unsafe { std::env::set_var("TAURINE_DB_PATH", &db_path) };
+
+        // 1. Setup an automation
+        upsert_automation(
+            &conn,
+            "uuid-metrics-1",
+            "Test Metrics",
+            None,
+            "m",
+            "Metrics worked!",
+            "text",
+            "all",
+            "[]",
+            0,
+            None,
+        )
+        .unwrap();
+
+        // 2. Call record_expansion_usage
+        // trigger="m" (len 1), output="Metrics worked!" (len 15), delete_count=3 (">m ")
+        record_expansion_usage("m", 15, 3);
+
+        // 3. Verify automation usage_count
+        let row = get_automation(&conn, "uuid-metrics-1").unwrap().unwrap();
+        assert_eq!(row.usage_count, 1);
+
+        // 4. Verify metrics
+        let date = crate::metrics::get_current_date_string();
+        let (executions, saved) = crate::db::crud::get_metric_counters(&conn, &date)
+            .unwrap()
+            .unwrap();
+        assert_eq!(executions, 1);
+        assert_eq!(saved, 12); // 15 - 3 = 12
+
+        // Cleanup
+        unsafe { std::env::remove_var("TAURINE_DB_PATH") };
+    }
 }

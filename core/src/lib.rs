@@ -8,12 +8,14 @@
 //! - **DB**: SQLite-backed persistent storage for automations and settings.
 //! - **RPC**: Cross-process communication between CLI and Daemon.
 //! - **Settings**: Typed configuration management.
+//! - **Metrics**: Tracking usage statistics
 //! - **Error**: Centralized error handling.
 
 pub mod constants;
 pub mod db;
 pub mod engine;
 pub mod error;
+pub mod metrics;
 
 pub use error::{Error, Result};
 
