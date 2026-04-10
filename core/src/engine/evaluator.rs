@@ -273,4 +273,52 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_end_to_end_dynamic_variable_expansion() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_snippets(vec![(
+            "repo".to_string(),
+            "https://github.com/{0}/{1}".to_string(),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        let input = r#"Hello >repo-"ereinaimer, taurine" "#;
+        let mut last_result = None;
+
+        for c in input.chars() {
+            if let Some(res) = eval.process_event(EngineEvent::Char(c)) {
+                last_result = Some(res);
+            }
+        }
+
+        let result = last_result.expect("Expansion should have triggered on the space");
+        assert_eq!(result.output, "https://github.com/ereinaimer/taurine");
+        assert_eq!(result.trigger, r#"repo-"ereinaimer, taurine""#);
+        // trigger_char + keyword + space
+        assert_eq!(result.delete_count, 1 + result.trigger.len() + 1);
+    }
+
+    #[test]
+    fn test_end_to_end_dynamic_variable_named_args_and_defaults() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_snippets(vec![(
+            "gh".to_string(),
+            "https://github.com/{username}/{repo=taurine}".to_string(),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        let input = r#">gh-"username=ereinaimer" "#;
+        let mut last_result = None;
+
+        for c in input.chars() {
+            if let Some(res) = eval.process_event(EngineEvent::Char(c)) {
+                last_result = Some(res);
+            }
+        }
+
+        let result = last_result.expect("Expansion should have triggered");
+        assert_eq!(result.output, "https://github.com/ereinaimer/taurine");
+        assert_eq!(result.trigger, r#"gh-"username=ereinaimer""#);
+    }
 }
