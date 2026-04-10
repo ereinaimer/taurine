@@ -74,6 +74,27 @@ pub fn tokenize(expr: &str) -> Option<Vec<Token>> {
                     if ch.is_ascii_digit() || ch == '.' {
                         num_str.push(ch);
                         chars.next();
+                    } else if ch == 'e' || ch == 'E' {
+                        // Check if it's scientific notation: e[+-]?digit
+                        // We need to look ahead. Since we only have one peek,
+                        // we'll just consume it and if parsing fails, we fail the token.
+                        num_str.push(ch);
+                        chars.next();
+                        if let Some(&next) = chars.peek()
+                            && (next == '+' || next == '-')
+                        {
+                            num_str.push(next);
+                            chars.next();
+                        }
+                        // We expect at least one digit here
+                        while let Some(&next_digit) = chars.peek() {
+                            if next_digit.is_ascii_digit() {
+                                num_str.push(next_digit);
+                                chars.next();
+                            } else {
+                                break;
+                            }
+                        }
                     } else {
                         break;
                     }
