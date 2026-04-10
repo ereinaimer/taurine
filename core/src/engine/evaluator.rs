@@ -396,4 +396,23 @@ mod tests {
         assert_eq!(result.output, "2");
         assert_eq!(result.trigger, "((5+2)/7%2)*2");
     }
+
+    #[test]
+    fn test_inline_math_rounding() {
+        let state = Arc::new(EngineState::new('>'));
+        let mut eval = Evaluator::new(state);
+
+        let input = ">(5+3)/7 ";
+        let mut last_result = None;
+
+        for c in input.chars() {
+            if let Some(res) = eval.process_event(EngineEvent::Char(c)) {
+                last_result = Some(res);
+            }
+        }
+
+        let result = last_result.expect("Math expansion should have triggered");
+        // (5+3)/7 = 8/7 = 1.142857... rounds to 1.1429
+        assert_eq!(result.output, "1.1429");
+    }
 }

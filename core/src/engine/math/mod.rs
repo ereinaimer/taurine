@@ -12,6 +12,13 @@ pub fn evaluate(expr: &str) -> Option<String> {
     let tokens = parser::tokenize(expr)?;
     let result = parser::parse_expression(&tokens)?;
 
-    // Format intelligently, Rust's default f64 formatting strips trailing zeros.
-    Some(format!("{}", result))
+    // Format to at most 4 decimal places, trimming trailing zeros and the decimal point if unnecessary.
+    let formatted = format!("{:.4}", result);
+    let trimmed = formatted.trim_end_matches('0').trim_end_matches('.');
+
+    if trimmed.is_empty() {
+        Some("0".to_string())
+    } else {
+        Some(trimmed.to_string())
+    }
 }
