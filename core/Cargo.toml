@@ -24,6 +24,7 @@ tokio = { version = "1.0", features = ["full"] }
 ahash = "0.8"
 parking_lot = "0.12"
 uuid = { version = "1.23.0", features = ["v4"] }
+indexmap = "2.14.0"
 
 [build-dependencies]
 tonic-build = "0.12"
