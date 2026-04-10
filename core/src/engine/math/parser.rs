@@ -170,6 +170,11 @@ fn parse_mul_div(tokens: &[Token], pos: &mut usize) -> Option<f64> {
                 let right = parse_unary(tokens, pos)?;
                 left %= right;
             }
+            // Implicit Multiplication: number followed by '(', 'Number', or 'Ident'
+            Token::OpenParen | Token::Number(_) | Token::Ident(_) => {
+                let right = parse_unary(tokens, pos)?;
+                left *= right;
+            }
             _ => break,
         }
     }
