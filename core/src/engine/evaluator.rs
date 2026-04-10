@@ -7,6 +7,7 @@ use crate::engine::state::EngineState;
 pub enum EngineEvent {
     Char(char),
     Backspace,
+    WordBackspace,
     Interrupt, // Esc, Mouse clicks, or loss of focus
 }
 
@@ -48,6 +49,11 @@ impl Evaluator {
             EngineEvent::Backspace => {
                 // Backtrack buffer safely
                 self.buffer.pop();
+                None
+            }
+            EngineEvent::WordBackspace => {
+                // Backtrack a whole word
+                self.buffer.pop_word();
                 None
             }
             EngineEvent::Char(' ') => {
@@ -320,5 +326,31 @@ mod tests {
         let result = last_result.expect("Expansion should have triggered");
         assert_eq!(result.output, "https://github.com/ereinaimer/taurine");
         assert_eq!(result.trigger, r#"gh-"username=ereinaimer""#);
+    }
+    #[test]
+    fn test_backspace_with_args_bug() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_snippets(vec![(
+            "gh".to_string(),
+            "https://github.com/{username}/{repo=taurine}".to_string(),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        let input = ">gh-blah";
+        for c in input.chars() {
+            eval.process_event(EngineEvent::Char(c));
+        }
+
+        // Backspace blah (WordBackspace)
+        eval.process_event(EngineEvent::WordBackspace);
+
+        let input2 = "randomguy,randomrepo";
+        for c in input2.chars() {
+            eval.process_event(EngineEvent::Char(c));
+        }
+
+        let result = eval.process_event(EngineEvent::Char(' '));
+        let result = result.expect("Expansion should have triggered");
+        assert_eq!(result.output, "https://github.com/randomguy/randomrepo");
     }
 }

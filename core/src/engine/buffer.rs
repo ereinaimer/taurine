@@ -35,6 +35,47 @@ impl FastBuffer {
         }
     }
 
+    pub fn pop_word(&mut self) {
+        if self.len == 0 {
+            return;
+        }
+
+        // 1. Pop trailing whitespace
+        while self.len > 0 {
+            let curr = (self.head + 64 - 1) % 64;
+            if self.data[curr].is_whitespace() {
+                self.pop();
+            } else {
+                break;
+            }
+        }
+
+        if self.len == 0 {
+            return;
+        }
+
+        // 2. Determine class of the last character
+        let curr = (self.head + 64 - 1) % 64;
+        let start_char = self.data[curr];
+        let is_alphanumeric = start_char.is_alphanumeric();
+
+        // 3. Pop all characters of the same class
+        while self.len > 0 {
+            let curr = (self.head + 64 - 1) % 64;
+            let c = self.data[curr];
+
+            if c.is_whitespace() {
+                break;
+            }
+
+            if c.is_alphanumeric() == is_alphanumeric {
+                self.pop();
+            } else {
+                break;
+            }
+        }
+    }
+
     pub fn clear(&mut self) {
         self.head = 0;
         self.len = 0;

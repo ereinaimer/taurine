@@ -15,6 +15,7 @@ pub fn start_listener(
     pause_hotkey: hotkey::HotkeySpec,
 ) {
     let alt_down = std::sync::atomic::AtomicBool::new(false);
+    let ctrl_down = std::sync::atomic::AtomicBool::new(false);
 
     let callback = move |event: Event| -> Option<Event> {
         match event.event_type {
@@ -23,6 +24,12 @@ pub fn start_listener(
             }
             EventType::KeyRelease(Key::Alt) | EventType::KeyRelease(Key::AltGr) => {
                 alt_down.store(false, Ordering::Relaxed);
+            }
+            EventType::KeyPress(Key::ControlLeft) | EventType::KeyPress(Key::ControlRight) => {
+                ctrl_down.store(true, Ordering::Relaxed);
+            }
+            EventType::KeyRelease(Key::ControlLeft) | EventType::KeyRelease(Key::ControlRight) => {
+                ctrl_down.store(false, Ordering::Relaxed);
             }
             _ => {}
         }
@@ -61,7 +68,13 @@ pub fn start_listener(
 
                 let engine_event = match key {
                     Key::Escape => Some(EngineEvent::Interrupt),
-                    Key::Backspace => Some(EngineEvent::Backspace),
+                    Key::Backspace => {
+                        if ctrl_down.load(Ordering::Relaxed) {
+                            Some(EngineEvent::WordBackspace)
+                        } else {
+                            Some(EngineEvent::Backspace)
+                        }
+                    }
                     Key::Space => Some(EngineEvent::Char(' ')),
                     // Enter submits / moves to a new line — break any active sequence.
                     Key::Return => Some(EngineEvent::Interrupt),
