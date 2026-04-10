@@ -48,7 +48,7 @@ impl EngineState {
             let args = crate::engine::variables::ArgMap::default();
             let interpolated =
                 crate::engine::variables::interpolate(&template, &args, Some(keyword));
-            return Some(crate::engine::variables::extract_cursor_offset(
+            return Some(crate::engine::variables::finalize(
                 &interpolated,
                 Some(keyword),
             ));
@@ -61,7 +61,7 @@ impl EngineState {
             // Task 2.2: Hook up interpolation
             let args = crate::engine::variables::parse_args(raw_args);
             let interpolated = crate::engine::variables::interpolate(&template, &args, Some(base));
-            return Some(crate::engine::variables::extract_cursor_offset(
+            return Some(crate::engine::variables::finalize(
                 &interpolated,
                 Some(base),
             ));

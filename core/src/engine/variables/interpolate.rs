@@ -1,4 +1,6 @@
+use super::system;
 use super::types::ArgMap;
+
 use indexmap::IndexMap;
 
 #[derive(Debug, PartialEq)]
@@ -45,21 +47,21 @@ pub(crate) fn extract_placeholders<'a>(
                     (inner, None)
                 };
 
-                if key == "cursor" && default_value.is_some() {
+                if system::is_reserved(key) && default_value.is_some() {
                     let trigger_ctx = trigger
                         .map(|t| format!(" for trigger '{}'", t))
                         .unwrap_or_default();
                     tracing::warn!(
-                        "System variable {{cursor}} cannot have a default value. The default assignment will be ignored{}.",
+                        "System variable {{{}}} cannot have a default value. The default assignment will be ignored{}.",
+                        key,
                         trigger_ctx
                     );
                 }
 
-                // TODO: Create a centralized list/registry of all reserved system variables
-                // (eg: cursor, time.now) and update this condition to filter against it.
-                if key != "cursor" && !key.contains('.') && !placeholders.contains_key(key) {
+                if !system::is_reserved(key) && !placeholders.contains_key(key) {
                     placeholders.insert(key, Placeholder { key, default_value });
                 }
+
                 ptr = end;
             }
         }
@@ -128,15 +130,21 @@ pub fn interpolate(template: &str, args: &ArgMap, trigger: Option<&str>) -> Stri
                 let inner = &template[start..end];
                 let key = inner.split_once('=').map(|(k, _)| k).unwrap_or(inner);
 
-                if let Some(resolved) = resolutions.get(key) {
+                if let Some(resolved) = system::resolve(key) {
+                    output.push_str(&template[last_pushed..ptr]);
+                    output.push_str(&resolved);
+                    ptr = end + 1;
+                    last_pushed = ptr;
+                    continue;
+                } else if let Some(resolved) = resolutions.get(key) {
                     output.push_str(&template[last_pushed..ptr]);
                     output.push_str(resolved);
                     ptr = end + 1;
                     last_pushed = ptr;
                     continue;
-                } else if key == "cursor" {
+                } else if system::is_directive(key) {
                     output.push_str(&template[last_pushed..ptr]);
-                    output.push_str("{cursor}");
+                    output.push_str(&format!("{{{}}}", key));
                     ptr = end + 1;
                     last_pushed = ptr;
                     continue;
@@ -274,15 +282,15 @@ mod tests {
 
     #[test]
     fn test_extract_cursor_offset() {
-        let res = extract_cursor_offset("hello {cursor} world", None);
+        let res = system::finalize("hello {cursor} world", None);
         assert_eq!(res.text, "hello  world");
         assert_eq!(res.left_arrow_count, 6);
 
-        let res2 = extract_cursor_offset("hello {cursor} world {cursor}", None);
+        let res2 = system::finalize("hello {cursor} world {cursor}", None);
         assert_eq!(res2.text, "hello  world ");
         assert_eq!(res2.left_arrow_count, 7);
 
-        let res3 = extract_cursor_offset(r#"Hello \{cursor\}"#, None);
+        let res3 = system::finalize(r#"Hello \{cursor\}"#, None);
         assert_eq!(res3.text, "Hello {cursor}");
         assert_eq!(res3.left_arrow_count, 0);
     }
@@ -295,41 +303,5 @@ mod tests {
         args.positional.push("foo".to_string());
         let tpl = "https://{username}.github.io/{username}";
         assert_eq!(interpolate(tpl, &args, None), "https://foo.github.io/foo");
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct FinalExpansion {
-    pub text: String,
-    pub left_arrow_count: usize,
-}
-
-pub fn extract_cursor_offset(interpolated: &str, trigger: Option<&str>) -> FinalExpansion {
-    let mut text = interpolated.to_string();
-    let left_arrow_count;
-
-    if text.matches("{cursor}").count() > 1 {
-        let trigger_ctx = trigger
-            .map(|t| format!(" for trigger '{}'", t))
-            .unwrap_or_default();
-        tracing::warn!(
-            "Multiple {{cursor}} tags found in output{}. Only the first occurrence will define the final caret position.",
-            trigger_ctx
-        );
-    }
-
-    if let Some(cursor_idx) = text.find("{cursor}") {
-        let char_idx = text[..cursor_idx].chars().count();
-        text = text.replace("{cursor}", "");
-        left_arrow_count = text.chars().count() - char_idx;
-    } else {
-        left_arrow_count = 0;
-    }
-
-    text = text.replace(r#"\{cursor\}"#, "{cursor}");
-
-    FinalExpansion {
-        text,
-        left_arrow_count,
     }
 }
