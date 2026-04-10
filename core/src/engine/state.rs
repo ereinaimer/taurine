@@ -1,41 +1,35 @@
-use ahash::AHashMap;
-use parking_lot::RwLock;
+use crate::engine::source::{AdaptiveSource, MemorySource, SnippetSource};
+use std::sync::Arc;
 
 pub struct EngineState {
     pub trigger_char: char,
-    pub map: RwLock<AHashMap<String, String>>,
+    pub source: Arc<dyn SnippetSource>,
 }
 
 impl EngineState {
     pub fn new(trigger_char: char) -> Self {
+        let memory = Arc::new(MemorySource::new());
+        let adaptive = Arc::new(AdaptiveSource::new(memory));
         Self {
             trigger_char,
-            map: RwLock::new(AHashMap::new()),
+            source: adaptive,
+        }
+    }
+
+    /// Creates an EngineState with a custom snippet source.
+    pub fn with_source(trigger_char: char, source: Arc<dyn SnippetSource>) -> Self {
+        Self {
+            trigger_char,
+            source,
         }
     }
 
     pub fn load_snippets(&self, snippets: impl IntoIterator<Item = (String, String)>) {
-        let mut write_guard = self.map.write();
-        write_guard.clear();
-        for (k, v) in snippets {
-            write_guard.insert(k, v);
-        }
+        self.source.load_snippets(snippets.into_iter().collect());
     }
 
     fn get_raw_expansion(&self, keyword: &str) -> Option<String> {
-        // If TAURINE_DB_PATH is set, query the DB directly to respect the override.
-        if std::env::var("TAURINE_DB_PATH").is_ok() {
-            if let Ok(conn) = rusqlite::Connection::open(crate::paths::get_db_path())
-                && let Ok(Some(action)) =
-                    crate::db::crud::automations::get_action_by_trigger(&conn, keyword)
-            {
-                return Some(action.output);
-            }
-            return None;
-        }
-
-        let read_guard = self.map.read();
-        read_guard.get(keyword).cloned()
+        self.source.get_snippet(keyword)
     }
 
     pub fn fetch_expansion(

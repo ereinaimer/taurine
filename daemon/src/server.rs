@@ -108,10 +108,7 @@ mod tests {
         );
 
         // Initially state should be empty
-        {
-            let map = state.map.read();
-            assert_eq!(map.get("hello"), None);
-        }
+        assert_eq!(state.source.get_snippet("hello"), None);
 
         // Add a snippet to DB
         add_automation_by_trigger(&conn, "hello", "world").expect("Failed to add to DB");
@@ -126,10 +123,7 @@ mod tests {
         );
 
         // Now the in-memory cache should have the expansion
-        {
-            let map = state.map.read();
-            assert_eq!(map.get("hello").map(|s| s.as_str()), Some("world"));
-        }
+        assert_eq!(state.source.get_snippet("hello").as_deref(), Some("world"));
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&test_dir);
