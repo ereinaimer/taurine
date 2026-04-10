@@ -2380,6 +2380,8 @@ dependencies = [
  "parking_lot",
  "prost",
  "rusqlite",
+ "serde",
+ "serde_json",
  "tempfile",
  "time",
  "tokio",

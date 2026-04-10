@@ -6,3 +6,4 @@ pub mod engine;
 pub mod logs;
 pub mod paths;
 pub mod rpc;
+pub mod settings;

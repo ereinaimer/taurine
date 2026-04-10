@@ -114,8 +114,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             // read the user's start_on_boot preference before handing off to
             // the platform service layer.
             let start_on_boot = {
-                use taurine_core::db::crud::get_setting_value;
                 use taurine_core::db::init;
+                use taurine_core::settings::SettingsManager;
 
                 let conn = init::setup().unwrap_or_else(|e| {
                     error!("Could not open database to read settings: {}", e);
@@ -123,11 +123,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     std::process::exit(1);
                 });
 
-                get_setting_value(&conn, "start_on_boot")
-                    .ok()
-                    .flatten()
-                    .and_then(|json| serde_json::from_str::<bool>(&json).ok())
-                    .unwrap_or(true)
+                let settings_manager = SettingsManager::new(&conn);
+                settings_manager.load_all().start_on_boot
             };
 
             if matches!(cli.command, Some(Commands::Restart)) {

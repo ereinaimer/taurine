@@ -28,34 +28,26 @@ pub fn start() -> Result<(), Box<dyn std::error::Error>> {
 
     // Instantiate the Core Engine State
     use std::sync::{Arc, Mutex};
-    use taurine_core::db::crud::{get_all_active_automations, get_setting_value};
+    use taurine_core::db::crud::get_all_active_automations;
     use taurine_core::engine::{EngineState, Evaluator};
+    use taurine_core::settings::SettingsManager;
 
-    // The trigger_char is stored as a JSON string literal (e.g. `">"`).
-    // Deserialize it properly with serde_json to get the raw Rust String.
-    let trigger_char = get_setting_value(&conn, "trigger_char")
-        .unwrap_or(None)
-        .and_then(|json| serde_json::from_str::<String>(&json).ok())
-        .and_then(|s| s.chars().next())
-        .unwrap_or('>');
+    let settings_manager = SettingsManager::new(&conn);
+    let settings = settings_manager.load_all();
 
+    let trigger_char = settings.trigger_char;
     let state = Arc::new(EngineState::new(trigger_char));
 
     // Global pause toggle hotkey (display + parse).
-    let pause_hotkey = get_setting_value(&conn, "pause_hotkey")
-        .unwrap_or(None)
-        .and_then(|json| serde_json::from_str::<String>(&json).ok())
-        .unwrap_or_else(|| "Alt + `".to_string());
+    let pause_hotkey = settings.pause_hotkey.clone();
+
     let pause_hotkey_spec =
         hotkey::parse_pause_hotkey_setting(&pause_hotkey).unwrap_or_else(|| {
             // Fall back to strict default if DB is malformed or unsupported.
             hotkey::parse_pause_hotkey_setting("Alt + `").expect("default pause hotkey parses")
         });
 
-    let pause_notifications_enabled = get_setting_value(&conn, "pause_notifications_enabled")
-        .unwrap_or(None)
-        .and_then(|json| serde_json::from_str::<bool>(&json).ok())
-        .unwrap_or(true);
+    let pause_notifications_enabled = settings.pause_notifications_enabled;
 
     // Load snippets efficiently!
     if let Ok(active) = get_all_active_automations(&conn) {
