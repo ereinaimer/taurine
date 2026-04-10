@@ -10,6 +10,7 @@
 //! - **Settings**: Typed configuration management.
 //! - **Error**: Centralized error handling.
 
+pub mod constants;
 pub mod db;
 pub mod engine;
 pub mod error;

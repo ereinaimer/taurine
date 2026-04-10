@@ -1,3 +1,4 @@
+use crate::constants::{APP_NAME, DB_FILENAME, LOGS_DIR_NAME, STARTUP_DIR_NAME};
 use std::fs;
 use std::path::PathBuf;
 use tracing::debug;
@@ -17,9 +18,9 @@ pub fn init_android_path(data_dir: String) {
 }
 
 /// Resolves the base data directory for the app.
-/// - Windows:  %LOCALAPPDATA%\Taurine
-/// - macOS:    ~/Library/Application Support/Taurine
-/// - Linux:    ~/.local/share/taurine
+/// - Windows:  %LOCALAPPDATA%\APP_NAME
+/// - macOS:    ~/Library/Application Support/APP_NAME
+/// - Linux:    ~/.local/share/APP_NAME_SLUG
 /// - Android:  Directory provided via `init_android_path()`.
 pub fn get_data_dir() -> PathBuf {
     // Allow overriding via environment variable (for headless CI or tests)
@@ -42,10 +43,10 @@ pub fn get_data_dir() -> PathBuf {
         let data_dir = base_dirs.data_local_dir();
 
         #[cfg(any(target_os = "windows", target_os = "macos"))]
-        let app_folder = "Taurine";
+        let app_folder = APP_NAME;
 
         #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "android")))]
-        let app_folder = "taurine";
+        let app_folder = APP_NAME_SLUG;
 
         data_dir.join(app_folder)
     }
@@ -59,8 +60,12 @@ pub fn ensure_data_dir() -> PathBuf {
     let data_dir = get_data_dir();
 
     if !data_dir.exists() {
-        debug!("Creating Taurine data directory: {}", data_dir.display());
-        fs::create_dir_all(&data_dir).expect("Failed to create Taurine app directories");
+        debug!(
+            "Creating {} data directory: {}",
+            APP_NAME,
+            data_dir.display()
+        );
+        fs::create_dir_all(&data_dir).expect("Failed to create app data directories");
     }
 
     data_dir
@@ -80,12 +85,12 @@ pub fn get_db_path() -> PathBuf {
         ANDROID_DATA_PATH
             .get()
             .expect("Android data path must be initialized via init_android_path() from Flutter before use!")
-            .join("taurine.db")
+            .join(DB_FILENAME)
     }
 
     #[cfg(not(target_os = "android"))]
     {
-        let db_path = get_data_dir().join("taurine.db");
+        let db_path = get_data_dir().join(DB_FILENAME);
         debug!("Database path: {}", db_path.display());
         db_path
     }
@@ -94,16 +99,17 @@ pub fn get_db_path() -> PathBuf {
 /// Resolves the logs directory path.
 pub fn logs_dir() -> PathBuf {
     let data_dir = ensure_data_dir();
-    data_dir.join("logs")
+    data_dir.join(LOGS_DIR_NAME)
 }
 
 /// Resolves the exact file path for the daemon startup VBScript.
 pub fn get_startup_vbs_path() -> PathBuf {
     let data_dir = ensure_data_dir();
-    let startup_dir = data_dir.join("startup");
+    let startup_dir = data_dir.join(STARTUP_DIR_NAME);
     if !startup_dir.exists() {
         debug!(
-            "Creating Taurine startup directory: {}",
+            "Creating {} startup directory: {}",
+            APP_NAME,
             startup_dir.display()
         );
         fs::create_dir_all(&startup_dir).expect("Failed to create startup directory");
