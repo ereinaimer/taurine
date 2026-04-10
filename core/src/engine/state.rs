@@ -38,12 +38,18 @@ impl EngineState {
         read_guard.get(keyword).cloned()
     }
 
-    pub fn fetch_expansion(&self, keyword: &str) -> Option<String> {
+    pub fn fetch_expansion(
+        &self,
+        keyword: &str,
+    ) -> Option<crate::engine::variables::FinalExpansion> {
         // 1. Try exact match on `keyword` FIRST
         if let Some(template) = self.get_raw_expansion(keyword) {
             // Task 2.3: No-Argument Default Handling
             let args = crate::engine::variables::ArgMap::default();
-            return Some(crate::engine::variables::interpolate(&template, &args));
+            let interpolated = crate::engine::variables::interpolate(&template, &args);
+            return Some(crate::engine::variables::extract_cursor_offset(
+                &interpolated,
+            ));
         }
 
         // 2. Task 2.1: Add hyphen-split fallback logic
@@ -52,7 +58,10 @@ impl EngineState {
         {
             // Task 2.2: Hook up interpolation
             let args = crate::engine::variables::parse_args(raw_args);
-            return Some(crate::engine::variables::interpolate(&template, &args));
+            let interpolated = crate::engine::variables::interpolate(&template, &args);
+            return Some(crate::engine::variables::extract_cursor_offset(
+                &interpolated,
+            ));
         }
 
         None

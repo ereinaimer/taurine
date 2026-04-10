@@ -102,7 +102,7 @@ fn simulate_paste() {
 ///
 /// `IS_INJECTING` must already be `true` when this is called (the hook sets it
 /// before spawning this thread). We clear it when we are done.
-pub fn inject_payload(payload: String, delete_count: usize) {
+pub fn inject_payload(payload: String, delete_count: usize, left_arrow_count: usize) {
     let _inject_guard = inject_mutex().lock().expect("inject mutex poisoned");
 
     // 1. Erase the trigger
@@ -138,7 +138,6 @@ pub fn inject_payload(payload: String, delete_count: usize) {
         if let Err(e) = clip.set_text(&original_clipboard) {
             error!("Failed to restore clipboard: {}", e);
         }
-        IS_INJECTING.store(false, Ordering::SeqCst);
     }
 
     #[cfg(not(windows))]
@@ -171,8 +170,18 @@ pub fn inject_payload(payload: String, delete_count: usize) {
         if let Err(e) = clipboard.set_text(&original_clipboard) {
             error!("Failed to restore clipboard: {}", e);
         }
-        IS_INJECTING.store(false, Ordering::SeqCst);
     }
+
+    if left_arrow_count > 0 {
+        debug!("Moving cursor left {} times", left_arrow_count);
+        for _ in 0..left_arrow_count {
+            let _ = simulate(&EventType::KeyPress(Key::LeftArrow));
+            let _ = simulate(&EventType::KeyRelease(Key::LeftArrow));
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    IS_INJECTING.store(false, Ordering::SeqCst);
 }
 
 #[cfg(test)]

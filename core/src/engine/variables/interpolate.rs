@@ -36,19 +36,16 @@ pub(crate) fn extract_placeholders(template: &str) -> IndexMap<&str, Placeholder
 
             if found_close {
                 let inner = &template[start..end];
+                let (key, default_value) = if let Some((k, v)) = inner.split_once('=') {
+                    (k, Some(v))
+                } else {
+                    (inner, None)
+                };
 
                 // TODO: Create a centralized list/registry of all reserved system variables
                 // (eg: cursor, time.now) and update this condition to filter against it.
-                if inner != "cursor" && !inner.contains('.') {
-                    let (key, default_value) = if let Some((k, v)) = inner.split_once('=') {
-                        (k, Some(v))
-                    } else {
-                        (inner, None)
-                    };
-
-                    if !placeholders.contains_key(key) {
-                        placeholders.insert(key, Placeholder { key, default_value });
-                    }
+                if key != "cursor" && !key.contains('.') && !placeholders.contains_key(key) {
+                    placeholders.insert(key, Placeholder { key, default_value });
                 }
                 ptr = end;
             }
@@ -88,6 +85,12 @@ pub fn interpolate(template: &str, args: &ArgMap) -> String {
         if bytes[ptr] == b'\\' && ptr + 1 < bytes.len() {
             let next = bytes[ptr + 1];
             if next == b'{' || next == b'}' || next == b'\\' {
+                if template[ptr..].starts_with(r#"\{cursor\}"#) {
+                    output.push_str(&template[last_pushed..ptr + 9]);
+                    ptr += 9;
+                    last_pushed = ptr;
+                    continue;
+                }
                 output.push_str(&template[last_pushed..ptr]);
                 output.push(next as char);
                 ptr += 2;
@@ -115,6 +118,12 @@ pub fn interpolate(template: &str, args: &ArgMap) -> String {
                 if let Some(resolved) = resolutions.get(key) {
                     output.push_str(&template[last_pushed..ptr]);
                     output.push_str(resolved);
+                    ptr = end + 1;
+                    last_pushed = ptr;
+                    continue;
+                } else if key == "cursor" {
+                    output.push_str(&template[last_pushed..ptr]);
+                    output.push_str("{cursor}");
                     ptr = end + 1;
                     last_pushed = ptr;
                     continue;
@@ -244,10 +253,60 @@ mod tests {
     }
 
     #[test]
+    fn test_interpolate_system_cursor_collision() {
+        let args = ArgMap::default();
+        let tpl = "Hello {cursor=invalid} world";
+        assert_eq!(interpolate(tpl, &args), "Hello {cursor} world");
+    }
+
+    #[test]
+    fn test_extract_cursor_offset() {
+        let res = extract_cursor_offset("hello {cursor} world");
+        assert_eq!(res.text, "hello  world");
+        assert_eq!(res.left_arrow_count, 6);
+
+        let res2 = extract_cursor_offset("hello {cursor} world {cursor}");
+        assert_eq!(res2.text, "hello  world ");
+        assert_eq!(res2.left_arrow_count, 7);
+
+        let res3 = extract_cursor_offset(r#"Hello \{cursor\}"#);
+        assert_eq!(res3.text, "Hello {cursor}");
+        assert_eq!(res3.left_arrow_count, 0);
+    }
+
+    // Removed duplicate tests
+
+    #[test]
     fn test_interpolate_repeated() {
         let mut args = ArgMap::default();
         args.positional.push("foo".to_string());
         let tpl = "https://{username}.github.io/{username}";
         assert_eq!(interpolate(tpl, &args), "https://foo.github.io/foo");
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FinalExpansion {
+    pub text: String,
+    pub left_arrow_count: usize,
+}
+
+pub fn extract_cursor_offset(interpolated: &str) -> FinalExpansion {
+    let mut text = interpolated.to_string();
+    let left_arrow_count;
+
+    if let Some(cursor_idx) = text.find("{cursor}") {
+        let char_idx = text[..cursor_idx].chars().count();
+        text = text.replace("{cursor}", "");
+        left_arrow_count = text.chars().count() - char_idx;
+    } else {
+        left_arrow_count = 0;
+    }
+
+    text = text.replace(r#"\{cursor\}"#, "{cursor}");
+
+    FinalExpansion {
+        text,
+        left_arrow_count,
     }
 }

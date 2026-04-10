@@ -24,6 +24,8 @@ pub struct ExpansionResult {
     pub output: String,
     /// The trigger keyword that was matched.
     pub trigger: String,
+    /// The number of left arrow presses to execute after pasting.
+    pub left_arrow_count: usize,
 }
 
 pub struct Evaluator {
@@ -60,15 +62,16 @@ impl Evaluator {
                 // Action character — evaluate trigger extraction
                 let trigger_char = self.state.trigger_char;
                 if let Some(keyword) = self.buffer.extract_trigger_word(trigger_char)
-                    && let Some(payload) = self.state.fetch_expansion(&keyword)
+                    && let Some(expansion) = self.state.fetch_expansion(&keyword)
                 {
                     // trigger_char + keyword + the space that fired the action
                     let delete_count = 1 + keyword.len() + 1;
                     self.buffer.clear();
                     return Some(ExpansionResult {
                         delete_count,
-                        output: payload,
+                        output: expansion.text,
                         trigger: keyword,
+                        left_arrow_count: expansion.left_arrow_count,
                     });
                 }
 
