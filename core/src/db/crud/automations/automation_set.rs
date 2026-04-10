@@ -83,20 +83,38 @@ pub fn increment_usage_count_by_trigger(conn: &Connection, trigger: &str) -> Res
 ///
 /// Intended for callers (e.g. the daemon hook thread) that do not hold an open
 /// `Connection` and do not want a direct dependency on `rusqlite`.
-pub fn record_expansion_usage(trigger: &str, output_len: usize, delete_count: usize) {
+pub fn record_expansion_usage(
+    trigger: &str,
+    output_len: usize,
+    delete_count: usize,
+    left_arrow_count: usize,
+) {
     match Connection::open(crate::paths::get_db_path()) {
-        Ok(conn) => {
-            // 1. Update the automation-specific counter
-            if let Err(e) = increment_usage_count_by_trigger(&conn, trigger) {
-                tracing::warn!(trigger, error = %e, "Failed to increment usage_count");
-            }
+        Ok(mut conn) => {
+            // Use a transaction to ensure both updates succeed or fail together.
+            let tx_result = conn.transaction().and_then(|tx| {
+                // 1. Update the automation-specific counter
+                increment_usage_count_by_trigger(&tx, trigger)?;
 
-            // 2. Update the global daily metrics
-            let date = crate::metrics::get_current_date_string();
-            let saved = crate::metrics::calculate_saved_keystrokes(output_len, delete_count);
+                // 2. Update the global daily metrics
+                let date = crate::metrics::get_current_date_string();
+                let saved = crate::metrics::calculate_saved_keystrokes(
+                    output_len,
+                    delete_count,
+                    left_arrow_count,
+                );
 
-            if let Err(e) = crate::db::crud::increment_metric(&conn, &date, 1, saved) {
-                tracing::warn!(date, error = %e, "Failed to update daily metrics");
+                crate::db::crud::increment_metric(&tx, &date, 1, saved)?;
+
+                tx.commit()
+            });
+
+            if let Err(e) = tx_result {
+                tracing::warn!(
+                    trigger,
+                    error = %e,
+                    "Failed to record expansion usage transactionally"
+                );
             }
         }
         Err(e) => {

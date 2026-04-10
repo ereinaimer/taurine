@@ -2,9 +2,10 @@ pub mod calculator;
 
 use time::OffsetDateTime;
 
-/// Returns the current date in YYYY-MM-DD format (UTC).
+/// Returns the current date in YYYY-MM-DD format (Local time).
+/// Falls back to UTC if the local offset cannot be determined.
 pub fn get_current_date_string() -> String {
-    let now = OffsetDateTime::now_utc();
+    let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
     format!(
         "{:04}-{:02}-{:02}",
         now.year(),

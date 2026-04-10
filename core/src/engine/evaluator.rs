@@ -65,7 +65,7 @@ impl Evaluator {
                     && let Some(expansion) = self.state.fetch_expansion(&keyword)
                 {
                     // trigger_char + keyword + the space that fired the action
-                    let delete_count = 1 + keyword.len() + 1;
+                    let delete_count = 1 + keyword.chars().count() + 1;
                     self.buffer.clear();
                     return Some(ExpansionResult {
                         delete_count,

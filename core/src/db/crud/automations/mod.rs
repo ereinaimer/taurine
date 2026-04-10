@@ -494,8 +494,8 @@ mod tests {
         .unwrap();
 
         // 2. Call record_expansion_usage
-        // trigger="m" (len 1), output="Metrics worked!" (len 15), delete_count=3 (">m ")
-        record_expansion_usage("m", 15, 3);
+        // trigger="m" (len 1), output="Metrics worked!" (len 15), delete_count=3 (">m "), cursors=2
+        record_expansion_usage("m", 15, 3, 2);
 
         // 3. Verify automation usage_count
         let row = get_automation(&conn, "uuid-metrics-1").unwrap().unwrap();
@@ -507,7 +507,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(executions, 1);
-        assert_eq!(saved, 12); // 15 - 3 = 12
+        assert_eq!(saved, 14); // (15 + 2) - 3 = 14
 
         // Cleanup
         unsafe { std::env::remove_var("TAURINE_DB_PATH") };

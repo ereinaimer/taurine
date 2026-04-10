@@ -109,6 +109,7 @@ pub fn start_listener(
                             let trigger_clone = expansion.trigger.clone();
                             let output_len = expansion.output.chars().count();
                             let delete_count = expansion.delete_count;
+                            let left_arrow_count = expansion.left_arrow_count;
 
                             injector::inject_payload(
                                 expansion.output,
@@ -119,6 +120,7 @@ pub fn start_listener(
                                 &trigger_clone,
                                 output_len,
                                 delete_count,
+                                left_arrow_count,
                             );
                         });
                     }
