@@ -91,6 +91,7 @@ impl Evaluator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tracing::error;
 
     fn setup() -> Evaluator {
         let state = Arc::new(EngineState::new('/'));
@@ -414,5 +415,38 @@ mod tests {
         let result = last_result.expect("Math expansion should have triggered");
         // (5+3)/7 = 8/7 = 1.142857... rounds to 1.1429
         assert_eq!(result.output, "1.1429");
+    }
+
+    #[test]
+    fn test_inline_math_bedmas() {
+        let state = Arc::new(EngineState::new('>'));
+        let mut eval = Evaluator::new(state);
+
+        let cases = vec![
+            ("2+3*4", "14"),
+            ("(2+3)*4", "20"),
+            ("10-2^3", "2"),
+            ("2^3^2", "512"), // Right-associative
+            ("-2^2", "-4"),   // Unary minus precedence
+            ("4/2*3", "6"),   // Left-to-right DM
+            ("10%3^2", "1"),
+            ("2*(3+4)^2", "98"),
+            ("1+2*3/4-5%2", "1.5"), // Mixed
+        ];
+
+        for (input_str, expected) in cases {
+            eval.buffer.clear();
+            let mut result = None;
+            for c in format!(">{} ", input_str).chars() {
+                if let Some(res) = eval.process_event(EngineEvent::Char(c)) {
+                    result = Some(res);
+                }
+            }
+            let res = result.unwrap_or_else(|| {
+                error!("Failed to expand: {}", input_str);
+                panic!("Failed to expand: {}", input_str);
+            });
+            assert_eq!(res.output, expected, "Failed case: {}", input_str);
+        }
     }
 }

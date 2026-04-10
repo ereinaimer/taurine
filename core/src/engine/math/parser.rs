@@ -6,6 +6,7 @@ pub enum Token {
     Star,
     Slash,
     Percent,
+    Caret,
     OpenParen,
     CloseParen,
 }
@@ -37,6 +38,10 @@ pub fn tokenize(expr: &str) -> Option<Vec<Token>> {
             }
             '%' => {
                 tokens.push(Token::Percent);
+                chars.next();
+            }
+            '^' => {
+                tokens.push(Token::Caret);
                 chars.next();
             }
             '(' => {
@@ -124,27 +129,58 @@ fn parse_add_sub(tokens: &[Token], pos: &mut usize) -> Option<f64> {
 }
 
 fn parse_mul_div(tokens: &[Token], pos: &mut usize) -> Option<f64> {
-    let mut left = parse_primary(tokens, pos)?;
+    let mut left = parse_unary(tokens, pos)?;
 
     while *pos < tokens.len() {
         match tokens[*pos] {
             Token::Star => {
                 *pos += 1;
-                let right = parse_primary(tokens, pos)?;
+                let right = parse_unary(tokens, pos)?;
                 left *= right;
             }
             Token::Slash => {
                 *pos += 1;
-                let right = parse_primary(tokens, pos)?;
+                let right = parse_unary(tokens, pos)?;
                 left /= right;
             }
             Token::Percent => {
                 *pos += 1;
-                let right = parse_primary(tokens, pos)?;
+                let right = parse_unary(tokens, pos)?;
                 left %= right;
             }
             _ => break,
         }
+    }
+
+    Some(left)
+}
+
+fn parse_unary(tokens: &[Token], pos: &mut usize) -> Option<f64> {
+    if *pos < tokens.len() {
+        match &tokens[*pos] {
+            Token::Minus => {
+                *pos += 1;
+                let val = parse_unary(tokens, pos)?;
+                return Some(-val);
+            }
+            Token::Plus => {
+                *pos += 1;
+                return parse_unary(tokens, pos);
+            }
+            _ => {}
+        }
+    }
+    parse_exponent(tokens, pos)
+}
+
+fn parse_exponent(tokens: &[Token], pos: &mut usize) -> Option<f64> {
+    let left = parse_primary(tokens, pos)?;
+
+    if *pos < tokens.len() && tokens[*pos] == Token::Caret {
+        *pos += 1;
+        // Exponents are right-associative: 2^3^2 = 2^(3^2)
+        let right = parse_exponent(tokens, pos)?;
+        return Some(left.powf(right));
     }
 
     Some(left)
@@ -159,15 +195,6 @@ fn parse_primary(tokens: &[Token], pos: &mut usize) -> Option<f64> {
         Token::Number(n) => {
             *pos += 1;
             Some(*n)
-        }
-        Token::Minus => {
-            *pos += 1;
-            let val = parse_primary(tokens, pos)?;
-            Some(-val)
-        }
-        Token::Plus => {
-            *pos += 1;
-            parse_primary(tokens, pos)
         }
         Token::OpenParen => {
             *pos += 1;
