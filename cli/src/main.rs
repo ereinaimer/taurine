@@ -94,7 +94,7 @@ fn main() -> std::process::ExitCode {
     std::process::ExitCode::SUCCESS
 }
 
-fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
+fn run(cli: Cli) -> taurine_core::error::Result<()> {
     if cli.daemon {
         info!("Initializing Taurine v{}", env!("CARGO_PKG_VERSION"));
 
@@ -116,12 +116,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             let start_on_boot = {
                 use taurine_core::db::init;
                 use taurine_core::settings::SettingsManager;
-
-                let conn = init::setup().unwrap_or_else(|e| {
-                    error!("Could not open database to read settings: {}", e);
-                    // Fall back to a safe default so the daemon still starts.
-                    std::process::exit(1);
-                });
+                let conn = init::setup()?;
 
                 let settings_manager = SettingsManager::new(&conn);
                 settings_manager.load_all().start_on_boot

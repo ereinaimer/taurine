@@ -1,5 +1,6 @@
 use super::Settings;
 use crate::db::crud::{get_setting_value, upsert_setting};
+use crate::error::Result;
 use rusqlite::Connection;
 use serde::Serialize;
 
@@ -46,8 +47,9 @@ impl<'a> SettingsManager<'a> {
 
     /// Updates or inserts a persistent setting in the database.
     /// The value is serialized to a JSON string before storage.
-    pub fn update_setting<T: Serialize>(&self, key: &str, value: T) -> rusqlite::Result<()> {
-        let json_val = serde_json::to_string(&value).unwrap_or_default();
-        upsert_setting(self.conn, key, &json_val)
+    pub fn update_setting<T: Serialize>(&self, key: &str, value: T) -> Result<()> {
+        let json_val = serde_json::to_string(&value)?;
+        upsert_setting(self.conn, key, &json_val)?;
+        Ok(())
     }
 }

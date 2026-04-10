@@ -18,11 +18,8 @@ mod win_clipboard;
 
 pub use server::DaemonService;
 
-pub fn start() -> Result<(), Box<dyn std::error::Error>> {
-    let conn = init::setup().map_err(|e| {
-        error!("Fatal database error during daemon boot: {}", e);
-        e
-    })?;
+pub fn start() -> taurine_core::error::Result<()> {
+    let conn = init::setup()?;
 
     debug!("Daemon initialization complete!");
 

@@ -3,6 +3,8 @@
 
 pub mod db;
 pub mod engine;
+pub mod error;
+
 pub mod logs;
 pub mod paths;
 pub mod rpc;

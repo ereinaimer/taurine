@@ -102,7 +102,7 @@ fn kill_daemon(sys: &mut System) -> usize {
     killed
 }
 
-pub fn up(start_on_boot: bool) -> Result<(), Box<dyn std::error::Error>> {
+pub fn up(start_on_boot: bool) -> taurine_core::error::Result<()> {
     let mut sys = System::new();
     let current_exe = env::current_exe()?;
 
@@ -137,7 +137,7 @@ pub fn up(start_on_boot: bool) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn down() -> Result<(), Box<dyn std::error::Error>> {
+pub fn down() -> taurine_core::error::Result<()> {
     debug!("Attempting graceful shutdown via gRPC...");
 
     let mut grpc_success = false;
@@ -195,7 +195,7 @@ pub fn down() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn restart(start_on_boot: bool) -> Result<(), Box<dyn std::error::Error>> {
+pub fn restart(start_on_boot: bool) -> taurine_core::error::Result<()> {
     let mut sys = System::new();
     let current_exe = env::current_exe()?;
 
@@ -267,7 +267,7 @@ pub fn restart(start_on_boot: bool) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn status() -> Result<(), Box<dyn std::error::Error>> {
+pub fn status() -> taurine_core::error::Result<()> {
     debug!("Fetching status from daemon via gRPC...");
 
     if let Ok(rt) = Runtime::new() {

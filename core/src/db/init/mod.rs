@@ -1,8 +1,9 @@
 pub mod migrate;
 pub mod seed;
 
+use crate::error::Result;
 use crate::paths::{ensure_data_dir, get_db_path};
-use rusqlite::{Connection, Result};
+use rusqlite::Connection;
 
 pub fn setup() -> Result<Connection> {
     let conn = open_connection()?;

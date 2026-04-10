@@ -1,7 +1,7 @@
 use comfy_table::{Table, presets::NOTHING};
 use taurine_core::db::init;
 
-pub fn execute() -> Result<(), Box<dyn std::error::Error>> {
+pub fn execute() -> taurine_core::error::Result<()> {
     use taurine_core::db::crud::get_all_active_automations;
 
     let conn = init::setup()?;

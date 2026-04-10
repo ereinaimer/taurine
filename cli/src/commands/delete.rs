@@ -1,7 +1,7 @@
 use taurine_core::db::init;
 use tracing::{info, warn};
 
-pub fn execute(trigger: String) -> Result<(), Box<dyn std::error::Error>> {
+pub fn execute(trigger: String) -> taurine_core::error::Result<()> {
     use taurine_core::db::crud::delete_automation_by_trigger;
 
     let conn = init::setup()?;
