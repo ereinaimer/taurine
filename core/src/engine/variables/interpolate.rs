@@ -1,14 +1,12 @@
 use super::types::ArgMap;
 use indexmap::IndexMap;
 
-#[allow(dead_code)]
 #[derive(Debug, PartialEq)]
 pub(crate) struct Placeholder<'a> {
     pub key: &'a str,
     pub default_value: Option<&'a str>,
 }
 
-#[allow(dead_code)]
 pub(crate) fn extract_placeholders(template: &str) -> IndexMap<&str, Placeholder<'_>> {
     let mut placeholders = IndexMap::new();
     let bytes = template.as_bytes();
@@ -61,8 +59,76 @@ pub(crate) fn extract_placeholders(template: &str) -> IndexMap<&str, Placeholder
 }
 
 pub fn interpolate(template: &str, args: &ArgMap) -> String {
-    let _ = args; // placeholder
-    template.to_string()
+    let placeholders = extract_placeholders(template);
+    let mut resolutions = std::collections::HashMap::new();
+    let mut pos_cursor = 0;
+
+    for (key, placeholder) in placeholders.iter() {
+        let resolved = if let Some(val) = args.named.get(*key) {
+            val.clone()
+        } else if pos_cursor < args.positional.len() {
+            let val = args.positional[pos_cursor].clone();
+            pos_cursor += 1;
+            val
+        } else if let Some(def) = placeholder.default_value {
+            def.to_string()
+        } else {
+            format!("{{{}}}", key)
+        };
+        resolutions.insert(*key, resolved);
+    }
+
+    let mut output = String::with_capacity(template.len());
+    let bytes = template.as_bytes();
+    let mut ptr = 0;
+    let mut last_pushed = 0;
+
+    while ptr < bytes.len() {
+        if bytes[ptr] == b'\\' && ptr + 1 < bytes.len() {
+            let next = bytes[ptr + 1];
+            if next == b'{' || next == b'}' || next == b'\\' {
+                output.push_str(&template[last_pushed..ptr]);
+                output.push(next as char);
+                ptr += 2;
+                last_pushed = ptr;
+                continue;
+            }
+        }
+
+        if bytes[ptr] == b'{' {
+            let start = ptr + 1;
+            let mut end = start;
+            let mut found_close = false;
+            while end < bytes.len() {
+                if bytes[end] == b'}' {
+                    found_close = true;
+                    break;
+                }
+                end += 1;
+            }
+
+            if found_close {
+                let inner = &template[start..end];
+                let key = inner.split_once('=').map(|(k, _)| k).unwrap_or(inner);
+
+                if let Some(resolved) = resolutions.get(key) {
+                    output.push_str(&template[last_pushed..ptr]);
+                    output.push_str(resolved);
+                    ptr = end + 1;
+                    last_pushed = ptr;
+                    continue;
+                }
+            }
+        }
+
+        ptr += 1;
+    }
+
+    if last_pushed < template.len() {
+        output.push_str(&template[last_pushed..template.len()]);
+    }
+
+    output
 }
 
 #[cfg(test)]
@@ -103,5 +169,84 @@ mod tests {
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 1);
         assert!(p.contains_key("msg"));
+    }
+
+    #[test]
+    fn test_interpolate_positional() {
+        let mut args = ArgMap::default();
+        args.positional.push("ereinaimer".to_string());
+        args.positional.push("taurine".to_string());
+
+        let tpl = "https://github.com/{username}/{repo}";
+        assert_eq!(
+            interpolate(tpl, &args),
+            "https://github.com/ereinaimer/taurine"
+        );
+    }
+
+    #[test]
+    fn test_interpolate_named() {
+        let mut args = ArgMap::default();
+        args.named.insert("repo".to_string(), "taurine".to_string());
+        args.positional.push("ereinaimer".to_string());
+
+        let tpl = "https://github.com/{username}/{repo}";
+        assert_eq!(
+            interpolate(tpl, &args),
+            "https://github.com/ereinaimer/taurine"
+        );
+    }
+
+    #[test]
+    fn test_interpolate_defaults() {
+        let args = ArgMap::default();
+        let tpl = "https://github.com/{username=ereinaimer}/{repo=taurine}";
+        assert_eq!(
+            interpolate(tpl, &args),
+            "https://github.com/ereinaimer/taurine"
+        );
+    }
+
+    #[test]
+    fn test_interpolate_empty_default() {
+        let args = ArgMap::default();
+        let tpl = "git commit -m \"fix: {msg=}\"";
+        assert_eq!(interpolate(tpl, &args), "git commit -m \"fix: \"");
+    }
+
+    #[test]
+    fn test_interpolate_missing_args() {
+        let args = ArgMap::default();
+        let tpl = "https://github.com/{username}/{repo}";
+        assert_eq!(
+            interpolate(tpl, &args),
+            "https://github.com/{username}/{repo}"
+        );
+    }
+
+    #[test]
+    fn test_interpolate_escapes() {
+        let args = ArgMap::default();
+        let tpl = r#"const x = \{ "key": "{value=123}" \}; // literal \\ path"#;
+        assert_eq!(
+            interpolate(tpl, &args),
+            r#"const x = { "key": "123" }; // literal \ path"#
+        );
+    }
+
+    #[test]
+    fn test_interpolate_system_variables() {
+        let mut args = ArgMap::default();
+        args.named.insert("msg".to_string(), "hello".to_string());
+        let tpl = "{msg} {cursor} {time.now}";
+        assert_eq!(interpolate(tpl, &args), "hello {cursor} {time.now}");
+    }
+
+    #[test]
+    fn test_interpolate_repeated() {
+        let mut args = ArgMap::default();
+        args.positional.push("foo".to_string());
+        let tpl = "https://{username}.github.io/{username}";
+        assert_eq!(interpolate(tpl, &args), "https://foo.github.io/foo");
     }
 }
