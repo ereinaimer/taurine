@@ -37,7 +37,8 @@ pub(crate) fn extract_placeholders(template: &str) -> IndexMap<&str, Placeholder
             if found_close {
                 let inner = &template[start..end];
 
-                // Ignore system variables
+                // TODO: Create a centralized list/registry of all reserved system variables
+                // (eg: cursor, time.now) and update this condition to filter against it.
                 if inner != "cursor" && !inner.contains('.') {
                     let (key, default_value) = if let Some((k, v)) = inner.split_once('=') {
                         (k, Some(v))
