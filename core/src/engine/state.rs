@@ -46,9 +46,11 @@ impl EngineState {
         if let Some(template) = self.get_raw_expansion(keyword) {
             // Task 2.3: No-Argument Default Handling
             let args = crate::engine::variables::ArgMap::default();
-            let interpolated = crate::engine::variables::interpolate(&template, &args);
+            let interpolated =
+                crate::engine::variables::interpolate(&template, &args, Some(keyword));
             return Some(crate::engine::variables::extract_cursor_offset(
                 &interpolated,
+                Some(keyword),
             ));
         }
 
@@ -58,9 +60,10 @@ impl EngineState {
         {
             // Task 2.2: Hook up interpolation
             let args = crate::engine::variables::parse_args(raw_args);
-            let interpolated = crate::engine::variables::interpolate(&template, &args);
+            let interpolated = crate::engine::variables::interpolate(&template, &args, Some(base));
             return Some(crate::engine::variables::extract_cursor_offset(
                 &interpolated,
+                Some(base),
             ));
         }
 
