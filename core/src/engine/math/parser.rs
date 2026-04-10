@@ -9,6 +9,7 @@ pub enum Token {
     Caret,
     OpenParen,
     CloseParen,
+    Ident(String),
 }
 
 pub fn tokenize(expr: &str) -> Option<Vec<Token>> {
@@ -52,7 +53,7 @@ pub fn tokenize(expr: &str) -> Option<Vec<Token>> {
                 tokens.push(Token::CloseParen);
                 chars.next();
             }
-            'p' | 'e' | 'P' | 'E' => {
+            c if c.is_alphabetic() => {
                 let mut ident = String::new();
                 while let Some(&ch) = chars.peek() {
                     if ch.is_alphabetic() {
@@ -65,7 +66,7 @@ pub fn tokenize(expr: &str) -> Option<Vec<Token>> {
                 match ident.to_lowercase().as_str() {
                     "pi" => tokens.push(Token::Number(std::f64::consts::PI)),
                     "e" => tokens.push(Token::Number(std::f64::consts::E)),
-                    _ => return None,
+                    name => tokens.push(Token::Ident(name.to_string())),
                 }
             }
             c if c.is_ascii_digit() || c == '.' => {
@@ -216,6 +217,28 @@ fn parse_primary(tokens: &[Token], pos: &mut usize) -> Option<f64> {
         Token::Number(n) => {
             *pos += 1;
             Some(*n)
+        }
+        Token::Ident(name) => {
+            *pos += 1;
+            if *pos < tokens.len() && tokens[*pos] == Token::OpenParen {
+                *pos += 1;
+                let arg = parse_add_sub(tokens, pos)?;
+                if *pos < tokens.len() && tokens[*pos] == Token::CloseParen {
+                    *pos += 1;
+                    match name.as_str() {
+                        "sqrt" => Some(arg.sqrt()),
+                        "abs" => Some(arg.abs()),
+                        "floor" => Some(arg.floor()),
+                        "ceil" => Some(arg.ceil()),
+                        "round" => Some(arg.round()),
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
         }
         Token::OpenParen => {
             *pos += 1;
