@@ -22,11 +22,11 @@ pub use automation_types::{AutomationAction, AutomationRow, AutomationSummary};
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::open_test_db;
+    use crate::testing::{init_tracing_for_tests, open_test_db};
 
     #[test]
     fn get_automation_returns_none_for_missing_id() {
-        crate::logs::init_tracing_for_tests();
+        init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         let result = get_automation(&conn, "missing").unwrap();
@@ -35,7 +35,7 @@ mod tests {
 
     #[test]
     fn upsert_automation_inserts_new_row_with_version_1() {
-        crate::logs::init_tracing_for_tests();
+        init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         upsert_automation(
@@ -73,7 +73,7 @@ mod tests {
 
     #[test]
     fn upsert_automation_increments_version_on_update() {
-        crate::logs::init_tracing_for_tests();
+        init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         upsert_automation(
@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn delete_automation_tombstones_and_returns_true_once() {
-        crate::logs::init_tracing_for_tests();
+        init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         upsert_automation(
@@ -154,7 +154,7 @@ mod tests {
 
     #[test]
     fn delete_automation_returns_false_when_missing() {
-        crate::logs::init_tracing_for_tests();
+        init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         let deleted = delete_automation(&conn, "ghost").unwrap();
@@ -163,7 +163,7 @@ mod tests {
 
     #[test]
     fn get_action_by_trigger_returns_none_for_missing_trigger() {
-        crate::logs::init_tracing_for_tests();
+        init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
         conn.execute("DELETE FROM automations", []).unwrap();
 
@@ -173,7 +173,7 @@ mod tests {
 
     #[test]
     fn get_all_active_automations_ignores_deleted_rows() {
-        crate::logs::init_tracing_for_tests();
+        init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
         conn.execute("DELETE FROM automations", []).unwrap();
 
@@ -219,7 +219,7 @@ mod tests {
 
     #[test]
     fn get_all_active_automations_filters_by_target_os() {
-        crate::logs::init_tracing_for_tests();
+        init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
         conn.execute("DELETE FROM automations", []).unwrap();
 
@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn get_action_by_trigger_picks_active_most_used_automation() {
-        crate::logs::init_tracing_for_tests();
+        init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         // Two automations with the same trigger; the one with higher usage_count should win.
@@ -333,7 +333,7 @@ mod tests {
 
     #[test]
     fn get_action_by_trigger_respects_target_os() {
-        crate::logs::init_tracing_for_tests();
+        init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
         conn.execute("DELETE FROM automations", []).unwrap();
 
@@ -381,7 +381,7 @@ mod tests {
 
     #[test]
     fn search_automations_matches_name_and_trigger_and_sorts_by_usage() {
-        crate::logs::init_tracing_for_tests();
+        init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
         conn.execute("DELETE FROM automations", []).unwrap();
 

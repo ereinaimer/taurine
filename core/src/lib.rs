@@ -9,3 +9,8 @@ pub mod logs;
 pub mod paths;
 pub mod rpc;
 pub mod settings;
+#[cfg(test)]
+pub mod utils;
+
+#[cfg(test)]
+pub use utils::test_utils as testing;

@@ -11,11 +11,11 @@ pub use metric_types::MetricRow;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::open_test_db;
+    use crate::testing::{init_tracing_for_tests, open_test_db};
 
     #[test]
     fn get_metric_returns_none_for_missing_date() {
-        crate::logs::init_tracing_for_tests();
+        init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         let result = get_metric(&conn, "2099-01-01").unwrap();
@@ -24,7 +24,7 @@ mod tests {
 
     #[test]
     fn get_metric_counters_returns_none_for_missing_date() {
-        crate::logs::init_tracing_for_tests();
+        init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         let result = get_metric_counters(&conn, "2099-01-01").unwrap();
@@ -33,7 +33,7 @@ mod tests {
 
     #[test]
     fn increment_metric_inserts_new_row_with_version_1() {
-        crate::logs::init_tracing_for_tests();
+        init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         increment_metric(&conn, "2026-03-30", 42, 500).unwrap();
@@ -48,7 +48,7 @@ mod tests {
 
     #[test]
     fn increment_metric_updates_counters_and_increments_version() {
-        crate::logs::init_tracing_for_tests();
+        init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         increment_metric(&conn, "2026-03-30", 1, 10).unwrap();
@@ -62,7 +62,7 @@ mod tests {
 
     #[test]
     fn get_metric_counters_returns_updated_values() {
-        crate::logs::init_tracing_for_tests();
+        init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         increment_metric(&conn, "2026-03-30", 5, 123).unwrap();
@@ -73,7 +73,7 @@ mod tests {
 
     #[test]
     fn delete_metric_returns_true_when_date_exists() {
-        crate::logs::init_tracing_for_tests();
+        init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         increment_metric(&conn, "2026-03-30", 42, 500).unwrap();
@@ -84,7 +84,7 @@ mod tests {
 
     #[test]
     fn delete_metric_returns_false_when_date_missing() {
-        crate::logs::init_tracing_for_tests();
+        init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         let deleted = delete_metric(&conn, "ghost").unwrap();
@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn delete_metric_actually_removes_the_row() {
-        crate::logs::init_tracing_for_tests();
+        init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         increment_metric(&conn, "2026-03-30", 42, 500).unwrap();

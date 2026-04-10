@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn test_db_env_override() {
-        crate::logs::init_tracing_for_tests();
+        crate::testing::init_tracing_for_tests();
         // Skip this test via an env var override
         if env::var("TAURINE_SKIP_DB_ENV_OVERRIDE_TEST").unwrap_or_default() == "true" {
             return;
@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn test_data_dir_env_override() {
-        crate::logs::init_tracing_for_tests();
+        crate::testing::init_tracing_for_tests();
         let test_dir = "some/custom/app_dir";
         unsafe { env::set_var("TAURINE_DATA_DIR", test_dir) };
 
@@ -147,7 +147,7 @@ mod tests {
 
     #[test]
     fn test_default_desktop_path_resolution() {
-        crate::logs::init_tracing_for_tests();
+        crate::testing::init_tracing_for_tests();
         // Skip this test via an env var override
         if env::var("TAURINE_SKIP_DEFAULT_PATH_RESOLUTION_TEST").unwrap_or_default() == "true" {
             return;
@@ -178,7 +178,7 @@ mod tests {
 
     #[test]
     fn test_startup_vbs_path_creation() {
-        crate::logs::init_tracing_for_tests();
+        crate::testing::init_tracing_for_tests();
 
         let test_dir = std::env::temp_dir().join("taurine_vbs_test");
         unsafe { env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
