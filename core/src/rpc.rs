@@ -1,5 +1,10 @@
 tonic::include_proto!("taurine");
 
+pub const DEFAULT_RPC_HOST: &str = "127.0.0.1";
+pub const DEFAULT_RPC_PORT: u16 = 50051;
+pub const DEFAULT_RPC_ADDR_RAW: &str = "127.0.0.1:50051";
+pub const DEFAULT_RPC_URL: &str = "http://127.0.0.1:50051";
+
 pub fn notify_daemon_reload() {
     tracing::debug!("Dispatching Reload instruction to daemon...");
 
@@ -7,7 +12,7 @@ pub fn notify_daemon_reload() {
         rt.block_on(async {
             use daemon_control_client::DaemonControlClient;
 
-            match DaemonControlClient::connect("http://127.0.0.1:50051").await {
+            match DaemonControlClient::connect(DEFAULT_RPC_URL).await {
                 Ok(mut client) => {
                     let req = tonic::Request::new(ReloadRequest {});
                     if let Err(e) = client.reload(req).await {

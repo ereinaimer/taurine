@@ -1,9 +1,20 @@
-// Licensed under the Aimer Software License (ASL)
-// See LICENSE for details.
+//! # Taurine Core
+//!
+//! The architectural foundation of the Taurine text expander.
+//!
+//! This crate provides the foundational abstractions and business logic used by
+//! the daemon and CLI:
+//! - **Engine**: The core interpolation and state management logic.
+//! - **DB**: SQLite-backed persistent storage for automations and settings.
+//! - **RPC**: Cross-process communication between CLI and Daemon.
+//! - **Settings**: Typed configuration management.
+//! - **Error**: Centralized error handling.
 
 pub mod db;
 pub mod engine;
 pub mod error;
+
+pub use error::{Error, Result};
 
 pub mod logs;
 pub mod paths;

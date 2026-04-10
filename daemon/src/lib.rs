@@ -81,7 +81,7 @@ pub fn start() -> taurine_core::error::Result<()> {
 
     rt.block_on(async {
         let (tx, mut rx) = mpsc::channel(1);
-        let addr: SocketAddr = "127.0.0.1:50051".parse().unwrap();
+        let addr: SocketAddr = taurine_core::rpc::DEFAULT_RPC_ADDR_RAW.parse().unwrap();
         let daemon_service = DaemonService::new(tx, state.clone(), paused.clone(), pause_hotkey);
 
         info!("Starting gRPC server on {}", addr);
