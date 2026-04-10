@@ -40,6 +40,20 @@ impl FastBuffer {
         self.len = 0;
     }
 
+    fn count_consecutive_backslashes_before(&self, mut curr: usize, mut available: usize) -> usize {
+        let mut count = 0;
+        while available > 0 {
+            if self.data[curr] == '\\' {
+                count += 1;
+                curr = (curr + 64 - 1) % 64;
+                available -= 1;
+            } else {
+                break;
+            }
+        }
+        count
+    }
+
     /// Counts `trigger_char` only in the maximal suffix of consecutive non-whitespace characters.
     ///
     /// Using the whole ring buffer would false-reject valid triggers when an older trigger
@@ -52,14 +66,29 @@ impl FastBuffer {
         let mut count = 0;
         let mut curr = (self.head + 64 - 1) % 64;
         let mut n = 0;
+        let mut in_quote = false;
+
         while n < self.len {
             let c = self.data[curr];
-            if c.is_whitespace() {
+
+            let is_escaped = if c == '"' {
+                let prev_curr = (curr + 64 - 1) % 64;
+                let available = self.len - n - 1;
+                !self
+                    .count_consecutive_backslashes_before(prev_curr, available)
+                    .is_multiple_of(2)
+            } else {
+                false
+            };
+
+            if c == '"' && !is_escaped {
+                in_quote = !in_quote;
+            } else if c.is_whitespace() && !in_quote {
                 break;
-            }
-            if c == trigger_char {
+            } else if c == trigger_char && !in_quote {
                 count += 1;
             }
+
             curr = (curr + 64 - 1) % 64;
             n += 1;
         }
@@ -82,22 +111,38 @@ impl FastBuffer {
 
         let mut collected = Vec::new();
         let mut curr = (self.head + 64 - 1) % 64;
-        let mut count = 0;
+        let mut n = 0;
+        let mut in_quote = false;
 
-        while count < self.len {
+        while n < self.len {
             let c = self.data[curr];
-            if c == trigger_char {
+
+            let is_escaped = if c == '"' {
+                let prev_curr = (curr + 64 - 1) % 64;
+                let available = self.len - n - 1;
+                !self
+                    .count_consecutive_backslashes_before(prev_curr, available)
+                    .is_multiple_of(2)
+            } else {
+                false
+            };
+
+            if c == '"' && !is_escaped {
+                in_quote = !in_quote;
+                collected.push(c);
+            } else if c.is_whitespace() && !in_quote {
+                // Invalid sequence, space found before trigger char
+                return None;
+            } else if c == trigger_char && !in_quote {
                 // We've found the trigger char. The keyword is everything after it.
                 collected.reverse();
                 return Some(collected.into_iter().collect());
-            } else if c.is_whitespace() {
-                // Invalid sequence, space found before trigger char
-                return None;
             } else {
                 collected.push(c);
             }
+
             curr = (curr + 64 - 1) % 64;
-            count += 1;
+            n += 1;
         }
 
         None
@@ -162,5 +207,52 @@ mod tests {
         let mut b = FastBuffer::new();
         type_str(&mut b, "note: x > y and then >gm");
         assert_eq!(b.extract_trigger_word('>'), Some("gm".to_string()));
+    }
+
+    #[test]
+    fn extract_trigger_word_quote_aware_whitespace() {
+        let mut b = FastBuffer::new();
+        type_str(&mut b, r#">gfb-"my branch""#);
+        assert_eq!(
+            b.extract_trigger_word('>'),
+            Some(r#"gfb-"my branch""#.to_string())
+        );
+    }
+
+    #[test]
+    fn extract_trigger_word_ignores_trigger_chars_inside_quotes() {
+        let mut b = FastBuffer::new();
+        type_str(&mut b, r#">echo-">>>""#);
+        assert_eq!(
+            b.extract_trigger_word('>'),
+            Some(r#"echo-">>>""#.to_string())
+        );
+    }
+
+    #[test]
+    fn extract_trigger_word_handles_backslash_escaped_quotes_inside_quotes() {
+        let mut b = FastBuffer::new();
+        type_str(&mut b, r#">cmd-"\"echo\"""#);
+        assert_eq!(
+            b.extract_trigger_word('>'),
+            Some(r#"cmd-"\"echo\"""#.to_string())
+        );
+    }
+
+    #[test]
+    fn extract_trigger_word_handles_escaped_backslashes_before_quotes() {
+        let mut b = FastBuffer::new();
+        type_str(&mut b, r#">cmd-"ab\\""#);
+        assert_eq!(
+            b.extract_trigger_word('>'),
+            Some(r#"cmd-"ab\\""#.to_string())
+        );
+    }
+
+    #[test]
+    fn extract_trigger_word_abort_on_unopened_quote_state() {
+        let mut b = FastBuffer::new();
+        type_str(&mut b, r#">foo-"bar"#);
+        assert_eq!(b.extract_trigger_word('>'), None);
     }
 }
