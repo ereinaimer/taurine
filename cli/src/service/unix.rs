@@ -56,6 +56,50 @@ fn ensure_linux_capabilities() -> taurine_core::error::Result<()> {
     Ok(())
 }
 
+pub fn sync_boot(enabled: bool) -> taurine_core::error::Result<()> {
+    let manager = get_manager()?;
+    let label: ServiceLabel =
+        TAURINE_SERVICE_LABEL
+            .parse()
+            .map_err(|e: <ServiceLabel as std::str::FromStr>::Err| {
+                taurine_core::Error::Service(e.to_string())
+            })?;
+
+    // Check if installed.
+    match manager.status(ServiceStatusCtx {
+        label: label.clone(),
+    }) {
+        Ok(ServiceStatus::NotInstalled) | Err(_) => {
+            debug!("Taurine service is not installed; skipping boot sync.");
+            Ok(())
+        }
+        _ => {
+            debug!(
+                "Syncing boot (autostart={}) for installed service...",
+                enabled
+            );
+            let current_exe = env::current_exe()?;
+
+            // To update autostart via service_manager, we reinstall.
+            // This is safe as it primarily updates the service configuration files.
+            manager
+                .install(ServiceInstallCtx {
+                    label: label.clone(),
+                    program: current_exe,
+                    args: vec!["--daemon".into()],
+                    contents: None,
+                    username: None,
+                    working_directory: None,
+                    environment: None,
+                    autostart: enabled,
+                    restart_policy: Default::default(),
+                })
+                .map_err(|e| taurine_core::Error::Service(e.to_string()))?;
+            Ok(())
+        }
+    }
+}
+
 pub fn up(start_on_boot: bool) -> taurine_core::error::Result<()> {
     #[cfg(target_os = "linux")]
     ensure_linux_capabilities()?;
@@ -111,6 +155,9 @@ pub fn up(start_on_boot: bool) -> taurine_core::error::Result<()> {
             info!("Taurine started successfully.");
         }
     }
+
+    // Ensure boot sync is applied (in case it was already installed but with different flag)
+    sync_boot(start_on_boot)?;
 
     Ok(())
 }

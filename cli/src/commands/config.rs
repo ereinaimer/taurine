@@ -59,6 +59,12 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
             })?;
             manager.update_setting(actual_key, b)?;
             info!("Updated {} to: {}", actual_key, b);
+
+            if actual_key == "start_on_boot"
+                && let Err(e) = crate::service::sync_boot(b)
+            {
+                warn!("Failed to synchronize OS startup hook: {}", e);
+            }
         }
         _ => {
             warn!("Unknown setting key: {}", key);
@@ -95,6 +101,10 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
         "start_on_boot" => {
             manager.update_setting(actual_key, defaults.start_on_boot)?;
             info!("Reset start_on_boot to default: {}", defaults.start_on_boot);
+
+            if let Err(e) = crate::service::sync_boot(defaults.start_on_boot) {
+                warn!("Failed to synchronize OS startup hook: {}", e);
+            }
         }
         _ => {
             warn!("Unknown setting key: {}", key);

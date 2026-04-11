@@ -102,6 +102,27 @@ fn kill_daemon(sys: &mut System) -> usize {
     killed
 }
 
+pub fn sync_boot(enabled: bool) -> taurine_core::error::Result<()> {
+    let current_exe = env::current_exe()?;
+    if enabled {
+        if is_autorun_registered() {
+            debug!("Startup hook already registered; skipping.");
+        } else {
+            debug!("Registering Taurine to start on login...");
+            set_autorun(&current_exe).map_err(|e| taurine_core::Error::Service(e.to_string()))?;
+            debug!("Startup hook registered.");
+        }
+    } else {
+        debug!("Removing startup hook if present...");
+        if let Err(e) = remove_autorun() {
+            debug!("No startup hook to remove (or removal failed): {}", e);
+        } else {
+            debug!("Startup hook removed.");
+        }
+    }
+    Ok(())
+}
+
 pub fn up(start_on_boot: bool) -> taurine_core::error::Result<()> {
     let mut sys = System::new();
     let current_exe = env::current_exe()?;
@@ -116,23 +137,7 @@ pub fn up(start_on_boot: bool) -> taurine_core::error::Result<()> {
         info!("Taurine started successfully.");
     }
 
-    if start_on_boot {
-        if is_autorun_registered() {
-            debug!("Startup hook already registered; skipping.");
-        } else {
-            debug!("Registering Taurine to start on login...");
-            if let Err(e) = set_autorun(&current_exe) {
-                error!("Failed to register startup hook: {}", e);
-            } else {
-                debug!("Startup hook registered.");
-            }
-        }
-    } else {
-        debug!("start_on_boot is disabled; removing startup hook if present.");
-        if let Err(e) = remove_autorun() {
-            debug!("No startup hook to remove (or removal failed): {}", e);
-        }
-    }
+    sync_boot(start_on_boot)?;
 
     Ok(())
 }
