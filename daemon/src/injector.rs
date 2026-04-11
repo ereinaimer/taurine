@@ -1,3 +1,4 @@
+use crate::platform::ClipboardManager;
 use arboard::Clipboard;
 use rdev::{EventType, Key, simulate};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -8,12 +9,7 @@ use tracing::{debug, error, warn};
 
 /// Abstraction so clipboard ordering (read original → set payload → verify → restore) can be
 /// unit-tested without the OS clipboard or `simulate()`.
-trait ClipboardAccess {
-    fn get_text(&mut self) -> Result<String, String>;
-    fn set_text(&mut self, text: &str) -> Result<(), String>;
-}
-
-impl ClipboardAccess for Clipboard {
+impl crate::platform::ClipboardManager for Clipboard {
     fn get_text(&mut self) -> Result<String, String> {
         Ok(self.get_text().unwrap_or_default())
     }
@@ -23,26 +19,12 @@ impl ClipboardAccess for Clipboard {
     }
 }
 
-#[cfg(windows)]
-struct WindowsInjectClipboard;
-
-#[cfg(windows)]
-impl ClipboardAccess for WindowsInjectClipboard {
-    fn get_text(&mut self) -> Result<String, String> {
-        crate::win_clipboard::get_unicode_text()
-    }
-
-    fn set_text(&mut self, text: &str) -> Result<(), String> {
-        crate::win_clipboard::set_unicode_text_exclude_from_history(text)
-    }
-}
-
 /// Reads the user's current clipboard, writes `payload`, waits, then verifies the clipboard
 /// still equals `payload`. Returns the original text for restore after paste.
 ///
 /// If verification fails, the caller must not simulate paste (avoids injecting stale clipboard).
 fn prepare_clipboard_for_expansion(
-    clipboard: &mut impl ClipboardAccess,
+    clipboard: &mut impl crate::platform::ClipboardManager,
     payload: &str,
 ) -> Result<String, String> {
     let original = clipboard.get_text()?;
@@ -118,7 +100,7 @@ pub fn inject_payload(payload: String, delete_count: usize, left_arrow_count: us
     {
         // Win32 UTF-16 + cloud-clipboard exclusion flags so expansion text does not land in
         // Win+V history while keeping reliable paste for emoji and non-Latin scripts.
-        let mut clip = WindowsInjectClipboard;
+        let mut clip = crate::platform::windows::WindowsClipboard;
         let original_clipboard = match prepare_clipboard_for_expansion(&mut clip, &payload) {
             Ok(s) => s,
             Err(e) => {
@@ -221,7 +203,7 @@ mod tests {
         }
     }
 
-    impl ClipboardAccess for MockClipboard {
+    impl crate::platform::ClipboardManager for MockClipboard {
         fn get_text(&mut self) -> Result<String, String> {
             self.get_count += 1;
             self.ops.push("get_text");

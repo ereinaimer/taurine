@@ -12,9 +12,8 @@ mod hook;
 mod hotkey;
 mod injector;
 mod notify;
+pub mod platform;
 mod server;
-#[cfg(windows)]
-mod win_clipboard;
 
 pub use server::DaemonService;
 
