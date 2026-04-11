@@ -1,4 +1,4 @@
-use comfy_table::{Table, presets::NOTHING};
+use comfy_table::{Table, TableComponent, modifiers, presets};
 use taurine_core::db::init;
 use taurine_core::settings::{Settings, SettingsManager};
 use tracing::{info, warn};
@@ -9,7 +9,16 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
     let settings = manager.load_all();
 
     let mut table = Table::new();
-    table.load_preset(NOTHING);
+    table
+        .load_preset(presets::UTF8_FULL_CONDENSED)
+        .apply_modifier(modifiers::UTF8_ROUND_CORNERS);
+
+    table.set_style(TableComponent::HeaderLines, '─');
+    table.set_style(TableComponent::LeftHeaderIntersection, '├');
+    table.set_style(TableComponent::MiddleHeaderIntersections, '┼');
+    table.set_style(TableComponent::RightHeaderIntersection, '┤');
+    table.set_style(TableComponent::VerticalLines, '│');
+
     table.set_header(vec!["KEY", "VALUE"]);
 
     table.add_row(vec!["trigger_char", &settings.trigger_char.to_string()]);
