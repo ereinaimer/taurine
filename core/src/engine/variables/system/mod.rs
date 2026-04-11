@@ -5,6 +5,7 @@
 
 pub mod cursor;
 pub mod date;
+pub mod env;
 pub mod time;
 
 use crate::engine::variables::types::FinalExpansion;
@@ -35,6 +36,9 @@ pub fn resolve(key: &str) -> Option<String> {
     }
     if key.starts_with("date.") {
         return date::resolve(key);
+    }
+    if key.starts_with("env.") {
+        return env::resolve(key);
     }
     None
 }
