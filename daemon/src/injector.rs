@@ -61,22 +61,38 @@ pub static IS_INJECTING: AtomicBool = AtomicBool::new(false);
 fn erase_trigger(delete_count: usize) {
     debug!("Injecting {} backspaces", delete_count);
     for _ in 0..delete_count {
-        let _ = simulate(&EventType::KeyPress(Key::Backspace));
-        let _ = simulate(&EventType::KeyRelease(Key::Backspace));
+        #[cfg(target_os = "linux")]
+        {
+            crate::platform::linux::uinput::simulate_keypress(evdev::Key::KEY_BACKSPACE);
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = simulate(&EventType::KeyPress(Key::Backspace));
+            let _ = simulate(&EventType::KeyRelease(Key::Backspace));
+        }
         thread::sleep(Duration::from_millis(3));
     }
 }
 
 fn simulate_paste() {
-    let modifier = if cfg!(target_os = "macos") {
-        Key::MetaLeft
-    } else {
-        Key::ControlLeft
-    };
-    let _ = simulate(&EventType::KeyPress(modifier));
-    let _ = simulate(&EventType::KeyPress(Key::KeyV));
-    let _ = simulate(&EventType::KeyRelease(Key::KeyV));
-    let _ = simulate(&EventType::KeyRelease(modifier));
+    #[cfg(target_os = "linux")]
+    {
+        crate::platform::linux::uinput::simulate_key(evdev::Key::KEY_LEFTCTRL, true);
+        crate::platform::linux::uinput::simulate_keypress(evdev::Key::KEY_V);
+        crate::platform::linux::uinput::simulate_key(evdev::Key::KEY_LEFTCTRL, false);
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let modifier = if cfg!(target_os = "macos") {
+            Key::MetaLeft
+        } else {
+            Key::ControlLeft
+        };
+        let _ = simulate(&EventType::KeyPress(modifier));
+        let _ = simulate(&EventType::KeyPress(Key::KeyV));
+        let _ = simulate(&EventType::KeyRelease(Key::KeyV));
+        let _ = simulate(&EventType::KeyRelease(modifier));
+    }
 }
 
 /// Erases the typed trigger sequence and pastes the expansion payload via the
@@ -157,8 +173,15 @@ pub fn inject_payload(payload: String, delete_count: usize, left_arrow_count: us
     if left_arrow_count > 0 {
         debug!("Moving cursor left {} times", left_arrow_count);
         for _ in 0..left_arrow_count {
-            let _ = simulate(&EventType::KeyPress(Key::LeftArrow));
-            let _ = simulate(&EventType::KeyRelease(Key::LeftArrow));
+            #[cfg(target_os = "linux")]
+            {
+                crate::platform::linux::uinput::simulate_keypress(evdev::Key::KEY_LEFT);
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = simulate(&EventType::KeyPress(Key::LeftArrow));
+                let _ = simulate(&EventType::KeyRelease(Key::LeftArrow));
+            }
             thread::sleep(Duration::from_millis(2));
         }
     }
