@@ -269,11 +269,18 @@ mod tests {
     fn test_interpolate_system_variables() {
         let mut args = ArgMap::default();
         args.named.insert("msg".to_string(), "hello".to_string());
-        let tpl = "{msg} {cursor} {time.now}";
+
+        system::clipboard::set_mock_clipboard(Some("clip_content".to_string()));
+
+        let tpl = "{msg} {cursor} {time.now} {clipboard}";
         let res = interpolate(tpl, &args, None);
-        assert!(res.starts_with("hello {cursor} "));
+
+        assert!(res.contains("hello {cursor} "));
+        assert!(res.contains("clip_content"));
         assert!(!res.contains("{time.now}"));
-        assert!(res.contains(':'));
+        assert!(!res.contains("{clipboard}"));
+
+        system::clipboard::set_mock_clipboard(None);
     }
 
     #[test]
@@ -297,8 +304,6 @@ mod tests {
         assert_eq!(res3.text, "Hello {cursor}");
         assert_eq!(res3.left_arrow_count, 0);
     }
-
-    // Removed duplicate tests
 
     #[test]
     fn test_interpolate_repeated() {

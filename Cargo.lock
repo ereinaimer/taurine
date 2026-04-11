@@ -2499,6 +2499,7 @@ name = "taurine_core"
 version = "0.1.0"
 dependencies = [
  "ahash",
+ "arboard",
  "directories",
  "indexmap 2.14.0",
  "parking_lot",

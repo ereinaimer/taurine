@@ -3,6 +3,7 @@
 //! Centralizes logic for reserved keywords and system-wide markers like `{cursor}`,
 //! and future variables like `{time.now}`.
 
+pub mod clipboard;
 pub mod cursor;
 pub mod date;
 pub mod env;
@@ -13,7 +14,11 @@ use crate::engine::variables::types::FinalExpansion;
 
 /// Checks if a keyword is reserved by the system.
 pub fn is_reserved(key: &str) -> bool {
-    key == "cursor" || key == "uuid" || key.starts_with("uuid.") || key.contains('.')
+    key == "cursor"
+        || key == "uuid"
+        || key == "clipboard"
+        || key.starts_with("uuid.")
+        || key.contains('.')
 }
 
 /// Checks if a keyword is a post-processing directive.
@@ -41,6 +46,9 @@ pub fn resolve(key: &str) -> Option<String> {
     if key == "uuid" || key.starts_with("uuid.") {
         return uuid::resolve(key);
     }
+    if key == "clipboard" {
+        return clipboard::resolve(key);
+    }
     None
 }
 
@@ -66,6 +74,7 @@ mod tests {
     fn test_is_reserved() {
         assert!(is_reserved("cursor"));
         assert!(is_reserved("uuid"));
+        assert!(is_reserved("clipboard"));
         assert!(is_reserved("uuid.v4"));
         assert!(is_reserved("time.now"));
         assert!(is_reserved("crypto.price"));
