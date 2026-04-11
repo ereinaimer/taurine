@@ -26,6 +26,8 @@ pub struct ExpansionResult {
     pub trigger: String,
     /// The number of left arrow presses to execute after pasting.
     pub left_arrow_count: usize,
+    /// Whether this expansion was a mathematical calculation.
+    pub is_calculation: bool,
 }
 
 pub struct Evaluator {
@@ -72,6 +74,7 @@ impl Evaluator {
                         output: expansion.text,
                         trigger: keyword,
                         left_arrow_count: expansion.left_arrow_count,
+                        is_calculation: expansion.is_calculation,
                     });
                 }
 
@@ -163,6 +166,7 @@ mod tests {
         let result = eval.process_event(EngineEvent::Char(' ')).unwrap();
         assert_eq!(result.delete_count, 4);
         assert_eq!(result.output, "Good morning!");
+        assert!(!result.is_calculation);
     }
 
     #[test]
@@ -376,6 +380,7 @@ mod tests {
         let result = last_result.expect("Math expansion should have triggered");
         assert_eq!(result.output, "7");
         assert_eq!(result.trigger, "5+2");
+        assert!(result.is_calculation);
     }
 
     #[test]

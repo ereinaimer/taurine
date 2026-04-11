@@ -42,6 +42,7 @@ pub fn finalize(interpolated: &str, trigger: Option<&str>) -> FinalExpansion {
     FinalExpansion {
         text,
         left_arrow_count,
+        is_calculation: false,
     }
 }
 

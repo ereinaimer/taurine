@@ -10,5 +10,8 @@ pub use automations::{
     upsert_automation,
 };
 
-pub use metrics::{MetricRow, delete_metric, get_metric, get_metric_counters, increment_metric};
+pub use metrics::{
+    MetricRow, delete_metric, get_metric, get_metric_counters, increment_metric,
+    record_calculation_usage,
+};
 pub use settings::{SettingRow, delete_setting, get_setting, get_setting_value, upsert_setting};

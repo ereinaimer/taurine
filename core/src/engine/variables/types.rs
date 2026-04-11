@@ -10,4 +10,5 @@ pub struct ArgMap {
 pub struct FinalExpansion {
     pub text: String,
     pub left_arrow_count: usize,
+    pub is_calculation: bool,
 }

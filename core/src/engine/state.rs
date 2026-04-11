@@ -65,6 +65,7 @@ impl EngineState {
             return Some(crate::engine::variables::FinalExpansion {
                 text: math_result,
                 left_arrow_count: 0,
+                is_calculation: true,
             });
         }
 

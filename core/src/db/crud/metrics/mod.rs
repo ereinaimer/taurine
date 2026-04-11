@@ -3,10 +3,38 @@ mod metric_get;
 mod metric_set;
 mod metric_types;
 
+use rusqlite::Connection;
+
 pub use metric_delete::delete_metric;
 pub use metric_get::{get_metric, get_metric_counters};
 pub use metric_set::increment_metric;
 pub use metric_types::MetricRow;
+
+/// High-level function to record metrics for a mathematical calculation.
+///
+/// Unlike `record_expansion_usage`, this does not touch the `automations` table.
+pub fn record_calculation_usage(output_len: usize, delete_count: usize, left_arrow_count: usize) {
+    match Connection::open(crate::paths::get_db_path()) {
+        Ok(conn) => {
+            let date = crate::metrics::get_current_date_string();
+            let saved = crate::metrics::calculate_saved_keystrokes(
+                output_len,
+                delete_count,
+                left_arrow_count,
+            );
+
+            if let Err(e) = increment_metric(&conn, &date, 1, saved) {
+                tracing::warn!(
+                    error = %e,
+                    "record_calculation_usage: failed to increment metric"
+                );
+            }
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "record_calculation_usage: could not open DB");
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

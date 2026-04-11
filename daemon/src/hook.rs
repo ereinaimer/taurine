@@ -116,12 +116,21 @@ pub fn start_listener(
                                 expansion.delete_count,
                                 expansion.left_arrow_count,
                             );
-                            taurine_core::db::crud::record_expansion_usage(
-                                &trigger_clone,
-                                output_len,
-                                delete_count,
-                                left_arrow_count,
-                            );
+
+                            if expansion.is_calculation {
+                                taurine_core::db::crud::record_calculation_usage(
+                                    output_len,
+                                    delete_count,
+                                    left_arrow_count,
+                                );
+                            } else {
+                                taurine_core::db::crud::record_expansion_usage(
+                                    &trigger_clone,
+                                    output_len,
+                                    delete_count,
+                                    left_arrow_count,
+                                );
+                            }
                         });
                     }
                 }
