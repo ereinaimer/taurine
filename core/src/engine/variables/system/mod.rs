@@ -4,6 +4,7 @@
 //! and future variables like `{time.now}`.
 
 pub mod cursor;
+pub mod date;
 pub mod time;
 
 use crate::engine::variables::types::FinalExpansion;
@@ -31,6 +32,9 @@ pub fn is_directive(key: &str) -> bool {
 pub fn resolve(key: &str) -> Option<String> {
     if key.starts_with("time.") {
         return time::resolve(key);
+    }
+    if key.starts_with("date.") {
+        return date::resolve(key);
     }
     None
 }
