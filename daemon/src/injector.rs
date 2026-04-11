@@ -1,4 +1,3 @@
-#[cfg(not(target_os = "linux"))]
 use crate::platform::ClipboardManager;
 use arboard::Clipboard;
 #[cfg(not(target_os = "linux"))]
