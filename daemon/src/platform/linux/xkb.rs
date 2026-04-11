@@ -1,9 +1,11 @@
 use evdev::KeyCode;
+use std::collections::HashMap;
 use taurine_core::engine::EngineEvent;
 use xkbcommon::xkb;
 
 pub struct XkbMapper {
     state: xkb::State,
+    reverse_map: HashMap<char, (KeyCode, bool)>,
 }
 
 impl Default for XkbMapper {
@@ -27,7 +29,38 @@ impl XkbMapper {
         .ok_or_else(|| "Failed to create xkb keymap".to_string())?;
 
         let state = xkb::State::new(&keymap);
-        Ok(Self { state })
+        let mut reverse_map = HashMap::new();
+
+        // Scan common keycodes (8..255) to build a reverse lookup table for ASCII/standard chars
+        for keycode in 8..256 {
+            let key = KeyCode::new((keycode - 8) as u16);
+
+            // Level 0: No Shift
+            let syms0 = keymap.key_get_syms_by_level(keycode.into(), 0, 0);
+            for sym in syms0 {
+                if let Some(c) = char::from_u32(xkb::keysym_to_utf32(*sym)) {
+                    if c.is_ascii() || !c.is_control() {
+                        reverse_map.entry(c).or_insert((key, false));
+                    }
+                }
+            }
+
+            // Level 1: Shift (usually)
+            let syms1 = keymap.key_get_syms_by_level(keycode.into(), 0, 1);
+            for sym in syms1 {
+                if let Some(c) = char::from_u32(xkb::keysym_to_utf32(*sym)) {
+                    if c.is_ascii() || !c.is_control() {
+                        reverse_map.entry(c).or_insert((key, true));
+                    }
+                }
+            }
+        }
+
+        Ok(Self { state, reverse_map })
+    }
+
+    pub fn get_reverse_map(&self) -> &HashMap<char, (KeyCode, bool)> {
+        &self.reverse_map
     }
 
     pub fn process_key(&mut self, key: KeyCode, is_press: bool) -> Option<EngineEvent> {

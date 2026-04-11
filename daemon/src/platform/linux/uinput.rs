@@ -15,11 +15,9 @@ pub fn init_uinput() -> Result<(), String> {
     }
 
     let mut keys = AttributeSet::<KeyCode>::new();
-    keys.insert(KeyCode::KEY_BACKSPACE);
-    keys.insert(KeyCode::KEY_LEFT);
-    keys.insert(KeyCode::KEY_LEFTCTRL);
-    keys.insert(KeyCode::KEY_RIGHTCTRL);
-    keys.insert(KeyCode::KEY_V);
+    for code in 1..256 {
+        keys.insert(KeyCode::new(code as u16));
+    }
 
     let device = VirtualDevice::builder()
         .map_err(|e| format!("Uinput VirtualDeviceBuilder failed: {}", e))?
@@ -57,4 +55,20 @@ pub fn simulate_keypress(key: KeyCode) {
     simulate_key(key, true);
     thread::sleep(Duration::from_millis(3));
     simulate_key(key, false);
+}
+
+pub fn simulate_type_string(s: &str, lookup: &std::collections::HashMap<char, (KeyCode, bool)>) {
+    for c in s.chars() {
+        if let Some((key, shift)) = lookup.get(&c) {
+            if *shift {
+                simulate_key(KeyCode::KEY_LEFTSHIFT, true);
+            }
+            simulate_keypress(*key);
+            if *shift {
+                simulate_key(KeyCode::KEY_LEFTSHIFT, false);
+            }
+            // Small pause between characters for reliability
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
 }

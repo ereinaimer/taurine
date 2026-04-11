@@ -144,12 +144,47 @@ pub fn inject_payload(payload: String, delete_count: usize, left_arrow_count: us
         }
     }
 
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
     {
-        #[cfg(target_os = "linux")]
-        let mut clipboard = crate::platform::linux::LinuxClipboard;
+        use crate::platform::linux;
 
-        #[cfg(not(target_os = "linux"))]
+        // Detection: missing display variables usually means we are in a bare TTY.
+        let has_display =
+            std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok();
+        let mut use_typing = !has_display;
+
+        if !use_typing {
+            let mut clipboard = linux::LinuxClipboard;
+            match prepare_clipboard_for_expansion(&mut clipboard, &payload) {
+                Ok(original_clipboard) => {
+                    simulate_paste();
+                    thread::sleep(post_paste_wait);
+                    if let Err(e) = clipboard.set_text(&original_clipboard) {
+                        error!("Failed to restore clipboard: {}", e);
+                    }
+                }
+                Err(e) => {
+                    // Fallback to typing if clipboard connection fails (common on some Wayland contexts or terminal types)
+                    debug!(
+                        "Clipboard expansion failed ({}), falling back to direct typing",
+                        e
+                    );
+                    use_typing = true;
+                }
+            }
+        }
+
+        if use_typing {
+            if let Some(mapper) = linux::get_xkb_mapper() {
+                linux::uinput::simulate_type_string(&payload, mapper.get_reverse_map());
+            } else {
+                error!("Direct typing failed: Linux XKB mapper not initialized");
+            }
+        }
+    }
+
+    #[cfg(all(not(windows), not(target_os = "linux")))]
+    {
         let mut clipboard = match Clipboard::new() {
             Ok(c) => c,
             Err(e) => {

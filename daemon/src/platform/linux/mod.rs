@@ -1,3 +1,4 @@
+use self::xkb::XkbMapper;
 use crate::platform::ClipboardManager;
 use arboard::Clipboard;
 use std::sync::{Mutex, OnceLock};
@@ -8,11 +9,19 @@ pub mod uinput;
 pub mod xkb;
 
 static CLIPBOARD: OnceLock<Mutex<Clipboard>> = OnceLock::new();
+static XKB_MAPPER: OnceLock<XkbMapper> = OnceLock::new();
 
 pub fn init() -> Result<(), String> {
     uinput::init_uinput()?;
+    XKB_MAPPER
+        .set(XkbMapper::new().map_err(|e| format!("XKB init failed: {}", e))?)
+        .map_err(|_| "XKB_MAPPER already initialized".to_string())?;
     // For now, immediately drop privileges
     security::drop_privileges()
+}
+
+pub fn get_xkb_mapper() -> Option<&'static XkbMapper> {
+    XKB_MAPPER.get()
 }
 
 pub struct LinuxClipboard;
