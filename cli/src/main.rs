@@ -71,8 +71,14 @@ enum ConfigAction {
     /// List all current configuration values
     #[command(alias = "ls")]
     List,
-    /// Reset a configuration value to default
-    Reset { key: String },
+    /// Reset a configuration value to default. Use --all to reset everything.
+    Reset {
+        /// The setting key to reset
+        key: Option<String>,
+        /// Reset all settings to factory defaults
+        #[arg(long)]
+        all: bool,
+    },
 }
 
 fn main() -> std::process::ExitCode {
@@ -158,7 +164,16 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
         Some(Commands::Config { action }) => match action {
             ConfigAction::Set { key, value } => commands::config::execute_set(key, value)?,
             ConfigAction::List => commands::config::execute_list()?,
-            ConfigAction::Reset { key } => commands::config::execute_reset(key)?,
+            ConfigAction::Reset { key, all } => {
+                if all {
+                    commands::config::execute_reset_all()?;
+                } else if let Some(k) = key {
+                    commands::config::execute_reset(k)?;
+                } else {
+                    eprintln!("error: provide a key to reset or use --all to reset everything");
+                    std::process::exit(1);
+                }
+            }
         },
         None => {
             if !cli.daemon {

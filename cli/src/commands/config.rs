@@ -115,3 +115,26 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
     taurine_core::rpc::notify_daemon_reload();
     Ok(())
 }
+
+pub fn execute_reset_all() -> taurine_core::error::Result<()> {
+    let conn = init::setup()?;
+    let manager = SettingsManager::new(&conn);
+    let defaults = Settings::default();
+
+    manager.update_setting("trigger_char", defaults.trigger_char)?;
+    manager.update_setting("pause_hotkey", &defaults.pause_hotkey)?;
+    manager.update_setting(
+        "pause_notifications_enabled",
+        defaults.pause_notifications_enabled,
+    )?;
+    manager.update_setting("start_on_boot", defaults.start_on_boot)?;
+
+    info!("All settings have been reset to factory defaults.");
+
+    if let Err(e) = crate::service::sync_boot(defaults.start_on_boot) {
+        warn!("Failed to synchronize OS startup hook: {}", e);
+    }
+
+    taurine_core::rpc::notify_daemon_reload();
+    Ok(())
+}
