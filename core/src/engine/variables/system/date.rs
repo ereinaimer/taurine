@@ -13,20 +13,25 @@ pub fn resolve(key: &str) -> Option<String> {
         "iso" => Some(format_date_iso(now)),
         "short" => Some(format_date_short(now)),
         "long" => Some(format_date_long(now)),
-        "tomorrow" => {
-            let tomorrow = now + Duration::days(1);
-            Some(format_date_iso(tomorrow))
+        _ => {
+            let parts: Vec<&str> = sub_key.split('.').collect();
+            match parts.as_slice() {
+                ["tomorrow"] => Some(format_date_iso(now + Duration::days(1))),
+                ["tomorrow", "iso"] => Some(format_date_iso(now + Duration::days(1))),
+                ["tomorrow", "short"] => Some(format_date_short(now + Duration::days(1))),
+                ["tomorrow", "long"] => Some(format_date_long(now + Duration::days(1))),
+                ["yesterday"] => Some(format_date_iso(now - Duration::days(1))),
+                ["yesterday", "iso"] => Some(format_date_iso(now - Duration::days(1))),
+                ["yesterday", "short"] => Some(format_date_short(now - Duration::days(1))),
+                ["yesterday", "long"] => Some(format_date_long(now - Duration::days(1))),
+                ["weekday"] => Some(now.weekday().to_string()),
+                ["year"] => Some(now.year().to_string()),
+                ["month"] => Some(format!("{:02}", u8::from(now.month()))),
+                ["month_name"] => Some(now.month().to_string()),
+                ["day"] => Some(format!("{:02}", now.day())),
+                _ => None,
+            }
         }
-        "yesterday" => {
-            let yesterday = now - Duration::days(1);
-            Some(format_date_iso(yesterday))
-        }
-        "weekday" => Some(now.weekday().to_string()),
-        "year" => Some(now.year().to_string()),
-        "month" => Some(format!("{:02}", u8::from(now.month()))),
-        "month_name" => Some(now.month().to_string()),
-        "day" => Some(format!("{:02}", now.day())),
-        _ => None,
     }
 }
 
@@ -57,17 +62,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_resolve_base_keys() {
-        assert!(resolve("date.iso").is_some());
-        assert!(resolve("date.short").is_some());
-        assert!(resolve("date.long").is_some());
-        assert!(resolve("date.tomorrow").is_some());
-        assert!(resolve("date.yesterday").is_some());
-        assert!(resolve("date.weekday").is_some());
-        assert!(resolve("date.year").is_some());
-        assert!(resolve("date.month").is_some());
-        assert!(resolve("date.month_name").is_some());
-        assert!(resolve("date.day").is_some());
+    fn test_resolve_modifiers() {
+        assert!(resolve("date.tomorrow.iso").is_some());
+        assert!(resolve("date.tomorrow.short").is_some());
+        assert!(resolve("date.tomorrow.long").is_some());
+        assert!(resolve("date.yesterday.iso").is_some());
+        assert!(resolve("date.yesterday.short").is_some());
+        assert!(resolve("date.yesterday.long").is_some());
     }
 
     #[test]
