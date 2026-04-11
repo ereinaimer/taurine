@@ -57,6 +57,20 @@ enum Commands {
     /// List all automations
     #[command(alias = "ls")]
     List,
+    /// Manage application settings
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ConfigAction {
+    /// Set a configuration value
+    Set { key: String, value: String },
+    /// List all current configuration values
+    #[command(alias = "ls")]
+    List,
 }
 
 fn main() -> std::process::ExitCode {
@@ -139,6 +153,10 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
         Some(Commands::List) => {
             commands::list::execute()?;
         }
+        Some(Commands::Config { action }) => match action {
+            ConfigAction::Set { key, value } => commands::config::execute_set(key, value)?,
+            ConfigAction::List => commands::config::execute_list()?,
+        },
         None => {
             if !cli.daemon {
                 use clap::CommandFactory;

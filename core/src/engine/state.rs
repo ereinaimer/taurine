@@ -1,8 +1,9 @@
 use crate::engine::source::{AdaptiveSource, MemorySource, SnippetSource};
 use std::sync::Arc;
+use std::sync::atomic::AtomicU32;
 
 pub struct EngineState {
-    pub trigger_char: char,
+    pub trigger_char: AtomicU32,
     pub source: Arc<dyn SnippetSource>,
 }
 
@@ -11,7 +12,7 @@ impl EngineState {
         let memory = Arc::new(MemorySource::new());
         let adaptive = Arc::new(AdaptiveSource::new(memory));
         Self {
-            trigger_char,
+            trigger_char: AtomicU32::new(trigger_char as u32),
             source: adaptive,
         }
     }
@@ -19,7 +20,7 @@ impl EngineState {
     /// Creates an EngineState with a custom snippet source.
     pub fn with_source(trigger_char: char, source: Arc<dyn SnippetSource>) -> Self {
         Self {
-            trigger_char,
+            trigger_char: AtomicU32::new(trigger_char as u32),
             source,
         }
     }

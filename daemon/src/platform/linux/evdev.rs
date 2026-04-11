@@ -1,7 +1,7 @@
 use evdev::{Device, EventType, KeyCode};
 use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use tracing::{debug, error, info, warn};
 
@@ -15,7 +15,7 @@ pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
     paused: Arc<AtomicBool>,
     pause_notifications_enabled: Arc<AtomicBool>,
-    pause_hotkey: HotkeySpec,
+    pause_hotkey: Arc<RwLock<HotkeySpec>>,
 ) {
     let mut devices = vec![];
 

@@ -12,6 +12,18 @@ pub struct Settings {
     pub start_on_boot: bool,
 }
 
+impl Settings {
+    pub fn resolve_key(key: &str) -> &str {
+        match key {
+            "trigger" => "trigger_char",
+            "hotkey" => "pause_hotkey",
+            "notifications" => "pause_notifications_enabled",
+            "boot" => "start_on_boot",
+            _ => key,
+        }
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {

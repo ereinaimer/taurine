@@ -2,7 +2,7 @@
 use rdev::{Event, EventType, Key};
 #[cfg(not(target_os = "linux"))]
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 #[cfg(not(target_os = "linux"))]
 use std::thread;
 #[cfg(not(target_os = "linux"))]
@@ -22,7 +22,7 @@ pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
     paused: Arc<std::sync::atomic::AtomicBool>,
     pause_notifications_enabled: Arc<std::sync::atomic::AtomicBool>,
-    pause_hotkey: hotkey::HotkeySpec,
+    pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
 ) {
     crate::platform::linux::evdev::start_listener(
         evaluator,
@@ -37,7 +37,7 @@ pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
     paused: Arc<std::sync::atomic::AtomicBool>,
     pause_notifications_enabled: Arc<std::sync::atomic::AtomicBool>,
-    pause_hotkey: hotkey::HotkeySpec,
+    pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
 ) {
     let alt_down = std::sync::atomic::AtomicBool::new(false);
     let ctrl_down = std::sync::atomic::AtomicBool::new(false);
@@ -60,7 +60,13 @@ pub fn start_listener(
         }
 
         // Evaluate pause toggle before any typing buffer / expansion logic.
-        if hotkey::is_pause_chord(&event, alt_down.load(Ordering::Relaxed), &pause_hotkey) {
+        let is_chord = if let Ok(spec) = pause_hotkey.read() {
+            hotkey::is_pause_chord(&event, alt_down.load(Ordering::Relaxed), &spec)
+        } else {
+            false
+        };
+
+        if is_chord {
             let now_paused = !paused.load(Ordering::Relaxed);
             paused.store(now_paused, Ordering::Relaxed);
             if pause_notifications_enabled.load(Ordering::Relaxed) {

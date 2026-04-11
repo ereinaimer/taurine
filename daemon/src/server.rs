@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use taurine_core::engine::EngineState;
 use taurine_core::rpc::{
@@ -13,7 +14,9 @@ pub struct DaemonService {
     shutdown_sender: mpsc::Sender<()>,
     state: Arc<EngineState>,
     paused: Arc<AtomicBool>,
-    pause_hotkey: String,
+    pause_notifications_enabled: Arc<AtomicBool>,
+    pause_hotkey_spec: Arc<RwLock<crate::hotkey::HotkeySpec>>,
+    pause_hotkey_display: Arc<RwLock<String>>,
 }
 
 impl DaemonService {
@@ -21,13 +24,17 @@ impl DaemonService {
         shutdown_sender: mpsc::Sender<()>,
         state: Arc<EngineState>,
         paused: Arc<AtomicBool>,
-        pause_hotkey: String,
+        pause_notifications_enabled: Arc<AtomicBool>,
+        pause_hotkey_spec: Arc<RwLock<crate::hotkey::HotkeySpec>>,
+        pause_hotkey_display: Arc<RwLock<String>>,
     ) -> Self {
         Self {
             shutdown_sender,
             state,
             paused,
-            pause_hotkey,
+            pause_notifications_enabled,
+            pause_hotkey_spec,
+            pause_hotkey_display,
         }
     }
 }
@@ -38,10 +45,16 @@ impl DaemonControl for DaemonService {
         &self,
         _request: Request<StatusRequest>,
     ) -> Result<Response<StatusResponse>, Status> {
+        let pause_hotkey = self
+            .pause_hotkey_display
+            .read()
+            .map(|g| g.clone())
+            .unwrap_or_else(|_| "Unknown".to_string());
+
         Ok(Response::new(StatusResponse {
             online: true,
             paused: self.paused.load(Ordering::Relaxed),
-            pause_hotkey: self.pause_hotkey.clone(),
+            pause_hotkey,
         }))
     }
 
@@ -58,18 +71,45 @@ impl DaemonControl for DaemonService {
         &self,
         _request: Request<ReloadRequest>,
     ) -> Result<Response<ReloadResponse>, Status> {
-        info!("Received gRPC reload request, refreshing snippets...");
+        info!("Received gRPC reload request, refreshing snippets and settings...");
 
         let conn = taurine_core::db::init::setup()
             .map_err(|e| Status::internal(format!("Database connection failed: {}", e)))?;
 
+        // 1. Reload Snippets
         let active = taurine_core::db::crud::get_all_active_automations(&conn)
             .map_err(|e| Status::internal(format!("Failed to retrieve automations: {}", e)))?;
 
         let snippets = active.into_iter().map(|(t, a)| (t, a.output));
         self.state.load_snippets(snippets);
 
-        info!("Successfully reloaded snippets into in-memory cache.");
+        // 2. Reload Settings
+        use taurine_core::settings::SettingsManager;
+        let settings_manager = SettingsManager::new(&conn);
+        let settings = settings_manager.load_all();
+
+        // Update trigger char (atomic)
+        self.state
+            .trigger_char
+            .store(settings.trigger_char as u32, Ordering::Relaxed);
+
+        // Update pause notifications (atomic)
+        self.pause_notifications_enabled
+            .store(settings.pause_notifications_enabled, Ordering::Relaxed);
+
+        // Update pause hotkey spec (RwLock)
+        if let Some(spec) = crate::hotkey::parse_pause_hotkey_setting(&settings.pause_hotkey)
+            && let Ok(mut lock) = self.pause_hotkey_spec.write()
+        {
+            *lock = spec;
+        }
+
+        // Update pause hotkey display (RwLock)
+        if let Ok(mut lock) = self.pause_hotkey_display.write() {
+            *lock = settings.pause_hotkey;
+        }
+
+        info!("Successfully reloaded snippets and settings into daemon.");
         Ok(Response::new(ReloadResponse { success: true }))
     }
 }
@@ -100,11 +140,17 @@ mod tests {
 
         let state = Arc::new(EngineState::new('>'));
         let (tx, _rx) = mpsc::channel(1);
+        let pause_hotkey = "Alt + `".to_string();
+        let pause_hotkey_spec = Arc::new(std::sync::RwLock::new(
+            crate::hotkey::parse_pause_hotkey_setting(&pause_hotkey).unwrap(),
+        ));
         let service = DaemonService::new(
             tx,
             state.clone(),
             Arc::new(AtomicBool::new(false)),
-            "Alt + `".to_string(),
+            Arc::new(AtomicBool::new(true)),
+            pause_hotkey_spec,
+            Arc::new(std::sync::RwLock::new(pause_hotkey)),
         );
 
         // Initially state should be empty

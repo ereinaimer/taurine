@@ -31,7 +31,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     debug!("Daemon initialization complete!");
 
     // Instantiate the Core Engine State
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, RwLock};
     use taurine_core::db::crud::get_all_active_automations;
     use taurine_core::engine::{EngineState, Evaluator};
     use taurine_core::settings::SettingsManager;
@@ -43,13 +43,14 @@ pub fn start() -> taurine_core::error::Result<()> {
     let state = Arc::new(EngineState::new(trigger_char));
 
     // Global pause toggle hotkey (display + parse).
-    let pause_hotkey = settings.pause_hotkey.clone();
+    let pause_hotkey = Arc::new(RwLock::new(settings.pause_hotkey.clone()));
 
-    let pause_hotkey_spec =
-        hotkey::parse_pause_hotkey_setting(&pause_hotkey).unwrap_or_else(|| {
+    let pause_hotkey_spec = Arc::new(RwLock::new(
+        hotkey::parse_pause_hotkey_setting(&settings.pause_hotkey).unwrap_or_else(|| {
             // Fall back to strict default if DB is malformed or unsupported.
             hotkey::parse_pause_hotkey_setting("Alt + `").expect("default pause hotkey parses")
-        });
+        }),
+    ));
 
     let pause_notifications_enabled = settings.pause_notifications_enabled;
 
@@ -72,13 +73,14 @@ pub fn start() -> taurine_core::error::Result<()> {
     let eval_clone = evaluator.clone();
     let paused_clone = paused.clone();
     let pause_notifications_enabled_clone = pause_notifications_enabled.clone();
+    let pause_hotkey_spec_clone = pause_hotkey_spec.clone();
     std::thread::spawn(move || {
         info!("Starting OS keyboard hook listener...");
         hook::start_listener(
             eval_clone,
             paused_clone,
             pause_notifications_enabled_clone,
-            pause_hotkey_spec,
+            pause_hotkey_spec_clone,
         );
     });
 
@@ -89,7 +91,14 @@ pub fn start() -> taurine_core::error::Result<()> {
     rt.block_on(async {
         let (tx, mut rx) = mpsc::channel(1);
         let addr: SocketAddr = taurine_core::rpc::DEFAULT_RPC_ADDR_RAW.parse().unwrap();
-        let daemon_service = DaemonService::new(tx, state.clone(), paused.clone(), pause_hotkey);
+        let daemon_service = DaemonService::new(
+            tx,
+            state.clone(),
+            paused.clone(),
+            pause_notifications_enabled.clone(),
+            pause_hotkey_spec.clone(),
+            pause_hotkey.clone(),
+        );
 
         info!("Starting gRPC server on {}", addr);
         let server_future = Server::builder()

@@ -62,7 +62,10 @@ impl Evaluator {
             }
             EngineEvent::Char(' ') => {
                 // Action character — evaluate trigger extraction
-                let trigger_char = self.state.trigger_char;
+                use std::sync::atomic::Ordering;
+                let trigger_char_u32 = self.state.trigger_char.load(Ordering::Relaxed);
+                let trigger_char = std::char::from_u32(trigger_char_u32).unwrap_or('>');
+
                 if let Some(keyword) = self.buffer.extract_trigger_word(trigger_char)
                     && let Some(expansion) = self.state.fetch_expansion(&keyword)
                 {
