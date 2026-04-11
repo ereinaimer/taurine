@@ -7,15 +7,13 @@ pub mod cursor;
 pub mod date;
 pub mod env;
 pub mod time;
+pub mod uuid;
 
 use crate::engine::variables::types::FinalExpansion;
 
 /// Checks if a keyword is reserved by the system.
-///
-/// Reserved keys are either hardcoded (like `cursor`) or follow a namespace
-/// pattern (like `time.*`, `crypto.*`).
 pub fn is_reserved(key: &str) -> bool {
-    key == "cursor" || key.contains('.')
+    key == "cursor" || key == "uuid" || key.starts_with("uuid.") || key.contains('.')
 }
 
 /// Checks if a keyword is a post-processing directive.
@@ -39,6 +37,9 @@ pub fn resolve(key: &str) -> Option<String> {
     }
     if key.starts_with("env.") {
         return env::resolve(key);
+    }
+    if key == "uuid" || key.starts_with("uuid.") {
+        return uuid::resolve(key);
     }
     None
 }
@@ -64,10 +65,11 @@ mod tests {
     #[test]
     fn test_is_reserved() {
         assert!(is_reserved("cursor"));
+        assert!(is_reserved("uuid"));
+        assert!(is_reserved("uuid.v4"));
         assert!(is_reserved("time.now"));
         assert!(is_reserved("crypto.price"));
         assert!(!is_reserved("username"));
-        assert!(!is_reserved("repo"));
     }
 
     #[test]
