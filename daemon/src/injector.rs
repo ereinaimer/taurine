@@ -175,8 +175,8 @@ pub fn inject_payload(payload: String, delete_count: usize, left_arrow_count: us
         }
 
         if use_typing {
-            if let Some(mapper) = linux::get_xkb_mapper() {
-                linux::uinput::simulate_type_string(&payload, mapper.get_reverse_map());
+            if let Some(lookup) = linux::get_reverse_lookup() {
+                linux::uinput::simulate_type_string(&payload, lookup);
             } else {
                 error!("Direct typing failed: Linux XKB mapper not initialized");
             }

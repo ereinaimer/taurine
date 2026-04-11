@@ -1,6 +1,8 @@
 use self::xkb::XkbMapper;
 use crate::platform::ClipboardManager;
 use arboard::Clipboard;
+use evdev::KeyCode;
+use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 pub mod evdev;
@@ -9,19 +11,20 @@ pub mod uinput;
 pub mod xkb;
 
 static CLIPBOARD: OnceLock<Mutex<Clipboard>> = OnceLock::new();
-static XKB_MAPPER: OnceLock<XkbMapper> = OnceLock::new();
+static REVERSE_LOOKUP: OnceLock<HashMap<char, (KeyCode, bool)>> = OnceLock::new();
 
 pub fn init() -> Result<(), String> {
     uinput::init_uinput()?;
-    XKB_MAPPER
-        .set(XkbMapper::new().map_err(|e| format!("XKB init failed: {}", e))?)
-        .map_err(|_| "XKB_MAPPER already initialized".to_string())?;
+    let mapper = XkbMapper::new().map_err(|e| format!("XKB init failed: {}", e))?;
+    REVERSE_LOOKUP
+        .set(mapper.get_reverse_map().clone())
+        .map_err(|_| "REVERSE_LOOKUP already initialized".to_string())?;
     // For now, immediately drop privileges
     security::drop_privileges()
 }
 
-pub fn get_xkb_mapper() -> Option<&'static XkbMapper> {
-    XKB_MAPPER.get()
+pub fn get_reverse_lookup() -> Option<&'static HashMap<char, (KeyCode, bool)>> {
+    REVERSE_LOOKUP.get()
 }
 
 pub struct LinuxClipboard;

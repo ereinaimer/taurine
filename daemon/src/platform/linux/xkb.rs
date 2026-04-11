@@ -32,7 +32,7 @@ impl XkbMapper {
         let mut reverse_map = HashMap::new();
 
         // Scan common keycodes (8..255) to build a reverse lookup table for ASCII/standard chars
-        for keycode in 8..256 {
+        for keycode in 8u32..256u32 {
             let key = KeyCode::new((keycode - 8) as u16);
 
             // Level 0: No Shift
