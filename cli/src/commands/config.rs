@@ -60,3 +60,39 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
     taurine_core::rpc::notify_daemon_reload();
     Ok(())
 }
+pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
+    let conn = init::setup()?;
+    let manager = SettingsManager::new(&conn);
+    let defaults = Settings::default();
+
+    let actual_key = Settings::resolve_key(&key);
+
+    match actual_key {
+        "trigger_char" => {
+            manager.update_setting(actual_key, defaults.trigger_char)?;
+            info!("Reset trigger_char to default: {}", defaults.trigger_char);
+        }
+        "pause_hotkey" => {
+            manager.update_setting(actual_key, &defaults.pause_hotkey)?;
+            info!("Reset pause_hotkey to default: {}", defaults.pause_hotkey);
+        }
+        "pause_notifications_enabled" => {
+            manager.update_setting(actual_key, defaults.pause_notifications_enabled)?;
+            info!(
+                "Reset pause_notifications_enabled to default: {}",
+                defaults.pause_notifications_enabled
+            );
+        }
+        "start_on_boot" => {
+            manager.update_setting(actual_key, defaults.start_on_boot)?;
+            info!("Reset start_on_boot to default: {}", defaults.start_on_boot);
+        }
+        _ => {
+            warn!("Unknown setting key: {}", key);
+            return Ok(());
+        }
+    }
+
+    taurine_core::rpc::notify_daemon_reload();
+    Ok(())
+}

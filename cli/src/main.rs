@@ -71,6 +71,8 @@ enum ConfigAction {
     /// List all current configuration values
     #[command(alias = "ls")]
     List,
+    /// Reset a configuration value to default
+    Reset { key: String },
 }
 
 fn main() -> std::process::ExitCode {
@@ -156,6 +158,7 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
         Some(Commands::Config { action }) => match action {
             ConfigAction::Set { key, value } => commands::config::execute_set(key, value)?,
             ConfigAction::List => commands::config::execute_list()?,
+            ConfigAction::Reset { key } => commands::config::execute_reset(key)?,
         },
         None => {
             if !cli.daemon {
