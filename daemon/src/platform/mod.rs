@@ -3,6 +3,9 @@
 #[cfg(windows)]
 pub mod windows;
 
+#[cfg(target_os = "linux")]
+pub mod linux;
+
 pub trait ClipboardManager {
     fn get_text(&mut self) -> Result<String, String>;
     fn set_text(&mut self, text: &str) -> Result<(), String>;

@@ -23,7 +23,43 @@ fn get_manager() -> taurine_core::error::Result<Box<dyn ServiceManager>> {
     Ok(manager)
 }
 
+#[cfg(target_os = "linux")]
+fn ensure_linux_capabilities() -> taurine_core::error::Result<()> {
+    let exe = env::current_exe()?;
+    let output = std::process::Command::new("getcap").arg(&exe).output();
+
+    if let Ok(output) = output {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if !stdout.contains("cap_dac_override") {
+            info!(
+                "Taurine needs kernel-level input permissions to work on Wayland. Granting permissions? (requires sudo)"
+            );
+
+            let setcap = std::process::Command::new("sudo")
+                .arg("setcap")
+                .arg("cap_dac_override+ep")
+                .arg(&exe)
+                .status();
+
+            match setcap {
+                Ok(status) if status.success() => {
+                    info!("Hardware access permissions granted successfully.");
+                }
+                _ => {
+                    error!(
+                        "Failed to grant hardware access permissions. Taurine may not work under Wayland."
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn up(start_on_boot: bool) -> taurine_core::error::Result<()> {
+    #[cfg(target_os = "linux")]
+    ensure_linux_capabilities()?;
+
     let manager = get_manager()?;
     let label: ServiceLabel =
         TAURINE_SERVICE_LABEL

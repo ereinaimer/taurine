@@ -20,6 +20,14 @@ pub use server::DaemonService;
 pub fn start() -> taurine_core::error::Result<()> {
     let conn = init::setup()?;
 
+    #[cfg(target_os = "linux")]
+    {
+        if let Err(e) = crate::platform::linux::init() {
+            error!("Linux platform initialization failed: {}", e);
+            return Err(taurine_core::error::Error::System(e));
+        }
+    }
+
     debug!("Daemon initialization complete!");
 
     // Instantiate the Core Engine State

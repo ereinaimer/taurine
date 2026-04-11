@@ -23,3 +23,6 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_DataExchange",
     "Win32_System_Memory",
 ] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+caps = "0.5.6"
