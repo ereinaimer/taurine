@@ -1,7 +1,7 @@
 use self::xkb::XkbMapper;
 use crate::platform::ClipboardManager;
+use ::evdev::KeyCode;
 use arboard::Clipboard;
-use evdev::KeyCode;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 

@@ -6,7 +6,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
-use tracing::{debug, error, warn};
+#[cfg(not(target_os = "linux"))]
+use tracing::warn;
+use tracing::{debug, error};
 
 /// Abstraction so clipboard ordering (read original → set payload → verify → restore) can be
 /// unit-tested without the OS clipboard or `simulate()`.
