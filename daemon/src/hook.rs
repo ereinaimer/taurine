@@ -8,6 +8,22 @@ use crate::injector::{self, IS_INJECTING};
 use crate::{hotkey, notify};
 use taurine_core::engine::{EngineEvent, Evaluator};
 
+#[cfg(target_os = "linux")]
+pub fn start_listener(
+    evaluator: Arc<Mutex<Evaluator>>,
+    paused: Arc<std::sync::atomic::AtomicBool>,
+    pause_notifications_enabled: Arc<std::sync::atomic::AtomicBool>,
+    pause_hotkey: hotkey::HotkeySpec,
+) {
+    crate::platform::linux::evdev::start_listener(
+        evaluator,
+        paused,
+        pause_notifications_enabled,
+        pause_hotkey,
+    );
+}
+
+#[cfg(not(target_os = "linux"))]
 pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
     paused: Arc<std::sync::atomic::AtomicBool>,
