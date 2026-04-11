@@ -1,9 +1,15 @@
+#[cfg(not(target_os = "linux"))]
 use rdev::{Event, EventType, Key};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HotkeyKey {
+    BackQuote,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HotkeySpec {
     pub require_alt: bool,
-    pub key: Key,
+    pub key: HotkeyKey,
 }
 
 pub fn parse_pause_hotkey_setting(setting: &str) -> Option<HotkeySpec> {
@@ -13,24 +19,28 @@ pub fn parse_pause_hotkey_setting(setting: &str) -> Option<HotkeySpec> {
         // On rdev 0.5.x, the backtick key is represented as Key::BackQuote.
         return Some(HotkeySpec {
             require_alt: true,
-            key: Key::BackQuote,
+            key: HotkeyKey::BackQuote,
         });
     }
     None
 }
 
+#[cfg(not(target_os = "linux"))]
 pub fn is_pause_chord(event: &Event, alt_down: bool, spec: &HotkeySpec) -> bool {
     if spec.require_alt && !alt_down {
         return false;
     }
 
     match event.event_type {
-        EventType::KeyPress(k) => k == spec.key,
+        EventType::KeyPress(k) => match spec.key {
+            HotkeyKey::BackQuote => k == Key::BackQuote,
+        },
         _ => false,
     }
 }
 
 #[cfg(test)]
+#[cfg(not(target_os = "linux"))]
 mod tests {
     use super::*;
     use rdev::EventType;
@@ -47,7 +57,7 @@ mod tests {
     fn parse_strict_default() {
         let spec = parse_pause_hotkey_setting("Alt + `").expect("should parse");
         assert!(spec.require_alt);
-        assert_eq!(spec.key, Key::BackQuote);
+        assert_eq!(spec.key, HotkeyKey::BackQuote);
         assert!(parse_pause_hotkey_setting("alt + `").is_none());
         assert!(parse_pause_hotkey_setting("Alt+`").is_none());
     }

@@ -1,5 +1,5 @@
 use evdev::uinput::{VirtualDevice, VirtualDeviceBuilder};
-use evdev::{AttributeSet, EventType, InputEvent, Key};
+use evdev::{AttributeSet, EventType, InputEvent, KeyCode};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
@@ -14,12 +14,12 @@ pub fn init_uinput() -> Result<(), String> {
         return Ok(());
     }
 
-    let mut keys = AttributeSet::<Key>::new();
-    keys.insert(Key::KEY_BACKSPACE);
-    keys.insert(Key::KEY_LEFT);
-    keys.insert(Key::KEY_LEFTCTRL);
-    keys.insert(Key::KEY_RIGHTCTRL);
-    keys.insert(Key::KEY_V);
+    let mut keys = AttributeSet::<KeyCode>::new();
+    keys.insert(KeyCode::KEY_BACKSPACE);
+    keys.insert(KeyCode::KEY_LEFT);
+    keys.insert(KeyCode::KEY_LEFTCTRL);
+    keys.insert(KeyCode::KEY_RIGHTCTRL);
+    keys.insert(KeyCode::KEY_V);
 
     let device = VirtualDeviceBuilder::new()
         .map_err(|e| format!("Uinput VirtualDeviceBuilder failed: {}", e))?
@@ -37,13 +37,13 @@ pub fn init_uinput() -> Result<(), String> {
     Ok(())
 }
 
-pub fn simulate_key(key: Key, is_press: bool) {
+pub fn simulate_key(key: KeyCode, is_press: bool) {
     if let Some(mutex) = UINPUT_DEVICE.get() {
         if let Ok(mut device) = mutex.lock() {
             let value = if is_press { 1 } else { 0 };
-            let event = InputEvent::new(EventType::KEY, key.code(), value);
+            let event = InputEvent::new(EventType::KEY.0, key.code(), value);
             // Must emit EV_SYN after creating actual events.
-            let syn = InputEvent::new(EventType::SYNCHRONIZATION, 0, 0);
+            let syn = InputEvent::new(EventType::SYNCHRONIZATION.0, 0, 0);
             if let Err(e) = device.emit(&[event, syn]) {
                 error!("Failed to emit uinput event: {}", e);
             }
@@ -53,7 +53,7 @@ pub fn simulate_key(key: Key, is_press: bool) {
     }
 }
 
-pub fn simulate_keypress(key: Key) {
+pub fn simulate_keypress(key: KeyCode) {
     simulate_key(key, true);
     thread::sleep(Duration::from_millis(3));
     simulate_key(key, false);

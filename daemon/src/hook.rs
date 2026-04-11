@@ -1,12 +1,21 @@
+#[cfg(not(target_os = "linux"))]
 use rdev::{Event, EventType, Key};
+#[cfg(not(target_os = "linux"))]
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
+#[cfg(not(target_os = "linux"))]
 use std::thread;
+#[cfg(not(target_os = "linux"))]
 use tracing::{debug, error};
 
+use crate::hotkey;
+#[cfg(not(target_os = "linux"))]
 use crate::injector::{self, IS_INJECTING};
-use crate::{hotkey, notify};
-use taurine_core::engine::{EngineEvent, Evaluator};
+#[cfg(not(target_os = "linux"))]
+use crate::notify;
+#[cfg(not(target_os = "linux"))]
+use taurine_core::engine::EngineEvent;
+use taurine_core::engine::Evaluator;
 
 #[cfg(target_os = "linux")]
 pub fn start_listener(

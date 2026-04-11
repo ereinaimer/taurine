@@ -1,5 +1,6 @@
 use crate::platform::ClipboardManager;
 use arboard::Clipboard;
+#[cfg(not(target_os = "linux"))]
 use rdev::{EventType, Key, simulate};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -63,7 +64,7 @@ fn erase_trigger(delete_count: usize) {
     for _ in 0..delete_count {
         #[cfg(target_os = "linux")]
         {
-            crate::platform::linux::uinput::simulate_keypress(evdev::Key::KEY_BACKSPACE);
+            crate::platform::linux::uinput::simulate_keypress(evdev::KeyCode::KEY_BACKSPACE);
         }
         #[cfg(not(target_os = "linux"))]
         {
@@ -77,9 +78,9 @@ fn erase_trigger(delete_count: usize) {
 fn simulate_paste() {
     #[cfg(target_os = "linux")]
     {
-        crate::platform::linux::uinput::simulate_key(evdev::Key::KEY_LEFTCTRL, true);
-        crate::platform::linux::uinput::simulate_keypress(evdev::Key::KEY_V);
-        crate::platform::linux::uinput::simulate_key(evdev::Key::KEY_LEFTCTRL, false);
+        crate::platform::linux::uinput::simulate_key(evdev::KeyCode::KEY_LEFTCTRL, true);
+        crate::platform::linux::uinput::simulate_keypress(evdev::KeyCode::KEY_V);
+        crate::platform::linux::uinput::simulate_key(evdev::KeyCode::KEY_LEFTCTRL, false);
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -175,7 +176,7 @@ pub fn inject_payload(payload: String, delete_count: usize, left_arrow_count: us
         for _ in 0..left_arrow_count {
             #[cfg(target_os = "linux")]
             {
-                crate::platform::linux::uinput::simulate_keypress(evdev::Key::KEY_LEFT);
+                crate::platform::linux::uinput::simulate_keypress(evdev::KeyCode::KEY_LEFT);
             }
             #[cfg(not(target_os = "linux"))]
             {

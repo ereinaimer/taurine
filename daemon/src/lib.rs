@@ -24,7 +24,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     {
         if let Err(e) = crate::platform::linux::init() {
             error!("Linux platform initialization failed: {}", e);
-            return Err(taurine_core::error::Error::System(e));
+            return Err(taurine_core::error::Error::Service(e));
         }
     }
 

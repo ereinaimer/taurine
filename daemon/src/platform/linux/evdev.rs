@@ -1,4 +1,4 @@
-use evdev::{Device, InputEventKind, Key};
+use evdev::{Device, EventType, KeyCode};
 use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -30,7 +30,7 @@ pub fn start_listener(
             {
                 if let Ok(device) = Device::open(&path) {
                     if let Some(keys) = device.supported_keys() {
-                        if keys.contains(Key::KEY_ENTER) && keys.contains(Key::KEY_SPACE) {
+                        if keys.contains(KeyCode::KEY_ENTER) && keys.contains(KeyCode::KEY_SPACE) {
                             devices.push(device);
                         }
                     }
@@ -71,11 +71,13 @@ pub fn start_listener(
                             }
                             let is_press = value == 1;
 
-                            if let InputEventKind::Key(key) = event.kind() {
+                            if event.event_type() == EventType::KEY {
+                                let key = KeyCode::new(event.code());
+
                                 // Mouse buttons are sometimes emitted by combo devices.
-                                if key == Key::BTN_LEFT
-                                    || key == Key::BTN_RIGHT
-                                    || key == Key::BTN_MIDDLE
+                                if key == KeyCode::BTN_LEFT
+                                    || key == KeyCode::BTN_RIGHT
+                                    || key == KeyCode::BTN_MIDDLE
                                 {
                                     if is_press {
                                         if !IS_INJECTING.load(Ordering::SeqCst) {
@@ -94,7 +96,7 @@ pub fn start_listener(
                                 // It's a simplification, we assume the pause hotkey is something like Alt+`
                                 // Pause chord logic matches the string name (e.g., BackQuote).
                                 // For now, we manually check if alt is down and it's the grave key.
-                                if is_press && xkb.is_alt_down() && key == Key::KEY_GRAVE {
+                                if is_press && xkb.is_alt_down() && key == KeyCode::KEY_GRAVE {
                                     let now_paused = !paused.load(Ordering::Relaxed);
                                     paused.store(now_paused, Ordering::Relaxed);
                                     if pause_notifications_enabled.load(Ordering::Relaxed) {

@@ -1,6 +1,5 @@
-use evdev::Key;
+use evdev::KeyCode;
 use taurine_core::engine::EngineEvent;
-use tracing::error;
 use xkbcommon::xkb;
 
 pub struct XkbMapper {
@@ -31,7 +30,7 @@ impl XkbMapper {
         Ok(Self { state })
     }
 
-    pub fn process_key(&mut self, key: Key, is_press: bool) -> Option<EngineEvent> {
+    pub fn process_key(&mut self, key: KeyCode, is_press: bool) -> Option<EngineEvent> {
         // evdev keycodes map to XKB keycodes by adding 8.
         let keycode = key.code() as u32 + 8;
 
@@ -47,8 +46,8 @@ impl XkbMapper {
 
         if is_press {
             match key {
-                Key::KEY_ESC => return Some(EngineEvent::Interrupt),
-                Key::KEY_BACKSPACE => {
+                KeyCode::KEY_ESC => return Some(EngineEvent::Interrupt),
+                KeyCode::KEY_BACKSPACE => {
                     let ctrl_active = self
                         .state
                         .mod_name_is_active(xkb::MOD_NAME_CTRL, xkb::STATE_MODS_EFFECTIVE);
@@ -58,8 +57,8 @@ impl XkbMapper {
                         return Some(EngineEvent::Backspace);
                     }
                 }
-                Key::KEY_SPACE => return Some(EngineEvent::Char(' ')),
-                Key::KEY_ENTER | Key::KEY_KPENTER => return Some(EngineEvent::Interrupt),
+                KeyCode::KEY_SPACE => return Some(EngineEvent::Char(' ')),
+                KeyCode::KEY_ENTER | KeyCode::KEY_KPENTER => return Some(EngineEvent::Interrupt),
                 _ => {}
             }
 
