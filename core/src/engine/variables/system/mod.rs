@@ -4,6 +4,7 @@
 //! and future variables like `{time.now}`.
 
 pub mod cursor;
+pub mod time;
 
 use crate::engine::variables::types::FinalExpansion;
 
@@ -27,8 +28,10 @@ pub fn is_directive(key: &str) -> bool {
 ///
 /// For example, `time.now` would be resolved to the current timestamp.
 /// Returns `None` for directives or unknown keys.
-pub fn resolve(_key: &str) -> Option<String> {
-    // TODO: Implement time.* and other system modules here.
+pub fn resolve(key: &str) -> Option<String> {
+    if key.starts_with("time.") {
+        return time::resolve(key);
+    }
     None
 }
 

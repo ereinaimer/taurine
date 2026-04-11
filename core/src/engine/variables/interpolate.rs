@@ -270,7 +270,10 @@ mod tests {
         let mut args = ArgMap::default();
         args.named.insert("msg".to_string(), "hello".to_string());
         let tpl = "{msg} {cursor} {time.now}";
-        assert_eq!(interpolate(tpl, &args, None), "hello {cursor} {time.now}");
+        let res = interpolate(tpl, &args, None);
+        assert!(res.starts_with("hello {cursor} "));
+        assert!(!res.contains("{time.now}"));
+        assert!(res.contains(':'));
     }
 
     #[test]
