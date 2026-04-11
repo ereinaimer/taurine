@@ -1,3 +1,4 @@
+#[cfg(not(target_os = "linux"))]
 use crate::platform::ClipboardManager;
 use arboard::Clipboard;
 #[cfg(not(target_os = "linux"))]
@@ -193,6 +194,7 @@ pub fn inject_payload(payload: String, delete_count: usize, left_arrow_count: us
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::platform::ClipboardManager;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc, Barrier};
 

@@ -36,7 +36,7 @@ impl XkbMapper {
 
         // Update modifiers on key press/release
         self.state.update_key(
-            keycode,
+            keycode.into(),
             if is_press {
                 xkb::KeyDirection::Down
             } else {
@@ -62,7 +62,7 @@ impl XkbMapper {
                 _ => {}
             }
 
-            let s = self.state.key_get_utf8(keycode);
+            let s = self.state.key_get_utf8(keycode.into());
             if s.chars().count() == 1 {
                 return Some(EngineEvent::Char(s.chars().next().unwrap()));
             }

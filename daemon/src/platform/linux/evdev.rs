@@ -50,7 +50,7 @@ pub fn start_listener(
         let evaluator = evaluator.clone();
         let paused = paused.clone();
         let pause_notifications_enabled = pause_notifications_enabled.clone();
-        let pause_hotkey = pause_hotkey.clone();
+        let _pause_hotkey = pause_hotkey.clone();
 
         thread::spawn(move || {
             let mut xkb = XkbMapper::default();
@@ -59,6 +59,7 @@ pub fn start_listener(
             // This means we can't strictly "swallow" the pause hotkey, but it keeps
             // normal typing lag-free and safe.
 
+            let device_name = device.name().map(|s| s.to_string());
             loop {
                 match device.fetch_events() {
                     Ok(events) => {
@@ -155,7 +156,7 @@ pub fn start_listener(
                         }
                     }
                     Err(e) => {
-                        warn!("Device {:?} disconnected or error: {}", device.name(), e);
+                        warn!("Device {:?} disconnected or error: {}", device_name, e);
                         break;
                     }
                 }

@@ -1,10 +1,10 @@
-use evdev::uinput::{VirtualDevice, VirtualDeviceBuilder};
+use evdev::uinput::VirtualDevice;
 use evdev::{AttributeSet, EventType, InputEvent, KeyCode};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
-use tracing::{debug, error};
+use tracing::error;
 
 static UINPUT_DEVICE: OnceLock<Mutex<VirtualDevice>> = OnceLock::new();
 static UINPUT_INITIALIZED: AtomicBool = AtomicBool::new(false);
@@ -21,7 +21,7 @@ pub fn init_uinput() -> Result<(), String> {
     keys.insert(KeyCode::KEY_RIGHTCTRL);
     keys.insert(KeyCode::KEY_V);
 
-    let device = VirtualDeviceBuilder::new()
+    let device = VirtualDevice::builder()
         .map_err(|e| format!("Uinput VirtualDeviceBuilder failed: {}", e))?
         .name("Taurine Virtual Keyboard")
         .with_keys(&keys)
