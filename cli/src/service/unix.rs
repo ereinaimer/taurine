@@ -10,22 +10,27 @@ use tracing::{debug, error, info};
 
 const TAURINE_SERVICE_LABEL: &str = "com.ereinaimer.taurine";
 
-fn get_manager() -> Result<Box<dyn ServiceManager>, Box<dyn std::error::Error>> {
+fn get_manager() -> taurine_core::error::Result<Box<dyn ServiceManager>> {
     let mut manager = native_service_manager().map_err(|e| {
         error!("Failed to initialize OS user service manager: {}", e);
-        e
+        taurine_core::Error::Service(e.to_string())
     })?;
 
     manager.set_level(ServiceLevel::User).map_err(|e| {
         error!("Failed to set service level: {}", e);
-        e
+        taurine_core::Error::Service(e.to_string())
     })?;
     Ok(manager)
 }
 
-pub fn up(start_on_boot: bool) -> Result<(), Box<dyn std::error::Error>> {
+pub fn up(start_on_boot: bool) -> taurine_core::error::Result<()> {
     let manager = get_manager()?;
-    let label: ServiceLabel = TAURINE_SERVICE_LABEL.parse()?;
+    let label: ServiceLabel =
+        TAURINE_SERVICE_LABEL
+            .parse()
+            .map_err(|e: <ServiceLabel as std::str::FromStr>::Err| {
+                taurine_core::Error::Service(e.to_string())
+            })?;
 
     match manager.status(ServiceStatusCtx {
         label: label.clone(),
@@ -35,9 +40,11 @@ pub fn up(start_on_boot: bool) -> Result<(), Box<dyn std::error::Error>> {
         }
         Ok(ServiceStatus::Stopped(_)) => {
             debug!("Taurine service found but stopped. Starting...");
-            manager.start(ServiceStartCtx {
-                label: label.clone(),
-            })?;
+            manager
+                .start(ServiceStartCtx {
+                    label: label.clone(),
+                })
+                .map_err(|e| taurine_core::Error::Service(e.to_string()))?;
             info!("Taurine started successfully.");
         }
         Ok(ServiceStatus::NotInstalled) | Err(_) => {
@@ -45,22 +52,26 @@ pub fn up(start_on_boot: bool) -> Result<(), Box<dyn std::error::Error>> {
 
             let current_exe = env::current_exe()?;
 
-            manager.install(ServiceInstallCtx {
-                label: label.clone(),
-                program: current_exe,
-                args: vec!["--daemon".into()],
-                contents: None,
-                username: None,
-                working_directory: None,
-                environment: None,
-                autostart: start_on_boot,
-                restart_policy: Default::default(),
-            })?;
+            manager
+                .install(ServiceInstallCtx {
+                    label: label.clone(),
+                    program: current_exe,
+                    args: vec!["--daemon".into()],
+                    contents: None,
+                    username: None,
+                    working_directory: None,
+                    environment: None,
+                    autostart: start_on_boot,
+                    restart_policy: Default::default(),
+                })
+                .map_err(|e| taurine_core::Error::Service(e.to_string()))?;
 
             debug!("Install successful. Starting...");
-            manager.start(ServiceStartCtx {
-                label: label.clone(),
-            })?;
+            manager
+                .start(ServiceStartCtx {
+                    label: label.clone(),
+                })
+                .map_err(|e| taurine_core::Error::Service(e.to_string()))?;
             info!("Taurine started successfully.");
         }
     }
@@ -68,7 +79,7 @@ pub fn up(start_on_boot: bool) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn down() -> Result<(), Box<dyn std::error::Error>> {
+pub fn down() -> taurine_core::error::Result<()> {
     debug!("Attempting graceful shutdown via gRPC...");
 
     let mut grpc_success = false;
@@ -95,7 +106,12 @@ pub fn down() -> Result<(), Box<dyn std::error::Error>> {
 
     // Fallback/Hard stop via service manager for now
     let manager = get_manager()?;
-    let label: ServiceLabel = TAURINE_SERVICE_LABEL.parse()?;
+    let label: ServiceLabel =
+        TAURINE_SERVICE_LABEL
+            .parse()
+            .map_err(|e: <ServiceLabel as std::str::FromStr>::Err| {
+                taurine_core::Error::Service(e.to_string())
+            })?;
 
     if grpc_success {
         for _ in 0..10 {
@@ -135,9 +151,14 @@ pub fn down() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn restart(start_on_boot: bool) -> Result<(), Box<dyn std::error::Error>> {
+pub fn restart(start_on_boot: bool) -> taurine_core::error::Result<()> {
     let manager = get_manager()?;
-    let label: ServiceLabel = TAURINE_SERVICE_LABEL.parse()?;
+    let label: ServiceLabel =
+        TAURINE_SERVICE_LABEL
+            .parse()
+            .map_err(|e: <ServiceLabel as std::str::FromStr>::Err| {
+                taurine_core::Error::Service(e.to_string())
+            })?;
 
     // ── Phase 1: Stop the running daemon (if any) ──────────────────────
     let is_running = matches!(
@@ -203,17 +224,19 @@ pub fn restart(start_on_boot: bool) -> Result<(), Box<dyn std::error::Error>> {
     }) {
         Ok(ServiceStatus::NotInstalled) | Err(_) => {
             let current_exe = env::current_exe()?;
-            manager.install(ServiceInstallCtx {
-                label: label.clone(),
-                program: current_exe,
-                args: vec!["--daemon".into()],
-                contents: None,
-                username: None,
-                working_directory: None,
-                environment: None,
-                autostart: start_on_boot,
-                restart_policy: Default::default(),
-            })?;
+            manager
+                .install(ServiceInstallCtx {
+                    label: label.clone(),
+                    program: current_exe,
+                    args: vec!["--daemon".into()],
+                    contents: None,
+                    username: None,
+                    working_directory: None,
+                    environment: None,
+                    autostart: start_on_boot,
+                    restart_policy: Default::default(),
+                })
+                .map_err(|e| taurine_core::Error::Service(e.to_string()))?;
         }
         _ => {}
     }
@@ -224,14 +247,14 @@ pub fn restart(start_on_boot: bool) -> Result<(), Box<dyn std::error::Error>> {
         Ok(_) => info!("Taurine has been restarted."),
         Err(e) => {
             error!("Failed to restart Taurine: {}", e);
-            return Err(e.into());
+            return Err(taurine_core::Error::Service(e.to_string()));
         }
     }
 
     Ok(())
 }
 
-pub fn status() -> Result<(), Box<dyn std::error::Error>> {
+pub fn status() -> taurine_core::error::Result<()> {
     debug!("Fetching status from daemon via gRPC...");
 
     if let Ok(rt) = Runtime::new() {
@@ -261,7 +284,12 @@ pub fn status() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let manager = get_manager()?;
-    let label: ServiceLabel = TAURINE_SERVICE_LABEL.parse()?;
+    let label: ServiceLabel =
+        TAURINE_SERVICE_LABEL
+            .parse()
+            .map_err(|e: <ServiceLabel as std::str::FromStr>::Err| {
+                taurine_core::Error::Service(e.to_string())
+            })?;
 
     match manager.status(ServiceStatusCtx {
         label: label.clone(),

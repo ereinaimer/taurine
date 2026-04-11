@@ -26,6 +26,9 @@ pub enum Error {
 
     #[error("Engine error: {0}")]
     Engine(String),
+
+    #[error("Service error: {0}")]
+    Service(String),
 }
 
 impl From<tonic::Status> for Error {

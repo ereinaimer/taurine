@@ -1,3 +1,5 @@
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "android")))]
+use crate::constants::APP_NAME_SLUG;
 use crate::constants::{APP_NAME, DB_FILENAME, LOGS_DIR_NAME, STARTUP_DIR_NAME};
 use std::fs;
 use std::path::PathBuf;
