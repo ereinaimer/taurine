@@ -108,8 +108,13 @@ pub fn inject_payload(payload: String, delete_count: usize, left_arrow_count: us
     // 1. Erase the trigger
     erase_trigger(delete_count);
 
+    #[cfg(target_os = "linux")]
+    thread::sleep(Duration::from_millis(20));
+
     let post_paste_wait = if cfg!(target_os = "windows") {
         Duration::from_millis(220)
+    } else if cfg!(target_os = "linux") {
+        Duration::from_millis(300)
     } else {
         Duration::from_millis(160)
     };
@@ -142,6 +147,10 @@ pub fn inject_payload(payload: String, delete_count: usize, left_arrow_count: us
 
     #[cfg(not(windows))]
     {
+        #[cfg(target_os = "linux")]
+        let mut clipboard = crate::platform::linux::LinuxClipboard;
+
+        #[cfg(not(target_os = "linux"))]
         let mut clipboard = match Clipboard::new() {
             Ok(c) => c,
             Err(e) => {
