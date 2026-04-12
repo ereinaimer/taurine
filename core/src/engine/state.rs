@@ -63,11 +63,9 @@ impl EngineState {
         }
         // 3. Fallback to inline math evaluation
         if let Some(math_result) = crate::engine::math::evaluate(keyword) {
-            return Some(crate::engine::variables::FinalExpansion {
-                text: math_result,
-                left_arrow_count: 0,
-                is_calculation: true,
-            });
+            let mut fe = crate::engine::variables::FinalExpansion::text(math_result);
+            fe.is_calculation = true;
+            return Some(fe);
         }
 
         None

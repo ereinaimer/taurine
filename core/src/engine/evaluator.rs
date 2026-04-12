@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use crate::engine::variables::ExpansionStep;
+
 use crate::engine::buffer::FastBuffer;
 use crate::engine::state::EngineState;
 
@@ -15,17 +17,15 @@ pub enum EngineEvent {
 ///
 /// The daemon's only job is to relay these instructions to the OS:
 /// 1. Send `delete_count` backspaces to erase the trigger sequence.
-/// 2. Type out the `output` string.
+/// 2. Execute each `ExpansionStep` in the `steps` sequence.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExpansionResult {
     /// Number of characters to delete (the trigger char + keyword + the trailing space).
     pub delete_count: usize,
-    /// The replacement text to type out.
-    pub output: String,
+    /// Ordered sequence of actions (text pastes, key presses, delays).
+    pub steps: Vec<ExpansionStep>,
     /// The trigger keyword that was matched.
     pub trigger: String,
-    /// The number of left arrow presses to execute after pasting.
-    pub left_arrow_count: usize,
     /// Whether this expansion was a mathematical calculation.
     pub is_calculation: bool,
 }
@@ -74,9 +74,8 @@ impl Evaluator {
                     self.buffer.clear();
                     return Some(ExpansionResult {
                         delete_count,
-                        output: expansion.text,
+                        steps: expansion.steps,
                         trigger: keyword,
-                        left_arrow_count: expansion.left_arrow_count,
                         is_calculation: expansion.is_calculation,
                     });
                 }
@@ -130,7 +129,10 @@ mod tests {
         let result = eval.process_event(EngineEvent::Char(' ')).unwrap();
         // delete_count = '/' (1) + "gm" (2) + ' ' (1) = 4
         assert_eq!(result.delete_count, 4);
-        assert_eq!(result.output, "Good morning!");
+        assert_eq!(
+            result.steps,
+            vec![ExpansionStep::Text("Good morning!".to_string())]
+        );
 
         // State machine buffer should reset upon expansion
         assert_eq!(eval.buffer.len, 0);
@@ -168,7 +170,10 @@ mod tests {
         // Fire expansion
         let result = eval.process_event(EngineEvent::Char(' ')).unwrap();
         assert_eq!(result.delete_count, 4);
-        assert_eq!(result.output, "Good morning!");
+        assert_eq!(
+            result.steps,
+            vec![ExpansionStep::Text("Good morning!".to_string())]
+        );
         assert!(!result.is_calculation);
     }
 
@@ -181,7 +186,10 @@ mod tests {
         }
         let result = eval.process_event(EngineEvent::Char(' ')).unwrap();
         assert_eq!(result.delete_count, 7);
-        assert_eq!(result.output, r#"¯\_(ツ)_/¯"#);
+        assert_eq!(
+            result.steps,
+            vec![ExpansionStep::Text(r#"¯\_(ツ)_/¯"#.to_string())]
+        );
     }
 
     #[test]
@@ -223,7 +231,10 @@ mod tests {
         for c in ">brb ".chars() {
             if c == ' ' {
                 let r = eval.process_event(EngineEvent::Char(' ')).unwrap();
-                assert_eq!(r.output, "Be right back!");
+                assert_eq!(
+                    r.steps,
+                    vec![ExpansionStep::Text("Be right back!".to_string())]
+                );
                 assert_eq!(r.delete_count, 1 + "brb".len() + 1);
             } else {
                 assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
@@ -234,7 +245,10 @@ mod tests {
         for c in ">gm ".chars() {
             if c == ' ' {
                 let r = eval.process_event(EngineEvent::Char(' ')).unwrap();
-                assert_eq!(r.output, "Good morning!");
+                assert_eq!(
+                    r.steps,
+                    vec![ExpansionStep::Text("Good morning!".to_string())]
+                );
                 assert_eq!(r.delete_count, 1 + "gm".len() + 1);
             } else {
                 assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
@@ -254,7 +268,10 @@ mod tests {
             for c in ">gm ".chars() {
                 if c == ' ' {
                     let r = eval.process_event(EngineEvent::Char(' ')).unwrap();
-                    assert_eq!(r.output, "Good morning!");
+                    assert_eq!(
+                        r.steps,
+                        vec![ExpansionStep::Text("Good morning!".to_string())]
+                    );
                     assert_eq!(r.delete_count, 1 + 2 + 1);
                 } else {
                     assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
@@ -284,7 +301,10 @@ mod tests {
         for c in ">gm ".chars() {
             if c == ' ' {
                 let r = eval.process_event(EngineEvent::Char(' ')).unwrap();
-                assert_eq!(r.output, "Good morning!");
+                assert_eq!(
+                    r.steps,
+                    vec![ExpansionStep::Text("Good morning!".to_string())]
+                );
             } else {
                 assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
             }
@@ -310,7 +330,12 @@ mod tests {
         }
 
         let result = last_result.expect("Expansion should have triggered on the space");
-        assert_eq!(result.output, "https://github.com/ereinaimer/taurine");
+        assert_eq!(
+            result.steps,
+            vec![ExpansionStep::Text(
+                "https://github.com/ereinaimer/taurine".to_string()
+            )]
+        );
         assert_eq!(result.trigger, r#"repo-"ereinaimer, taurine""#);
         // trigger_char + keyword + space
         assert_eq!(result.delete_count, 1 + result.trigger.len() + 1);
@@ -335,7 +360,12 @@ mod tests {
         }
 
         let result = last_result.expect("Expansion should have triggered");
-        assert_eq!(result.output, "https://github.com/ereinaimer/taurine");
+        assert_eq!(
+            result.steps,
+            vec![ExpansionStep::Text(
+                "https://github.com/ereinaimer/taurine".to_string()
+            )]
+        );
         assert_eq!(result.trigger, r#"gh-"username=ereinaimer""#);
     }
     #[test]
@@ -362,7 +392,12 @@ mod tests {
 
         let result = eval.process_event(EngineEvent::Char(' '));
         let result = result.expect("Expansion should have triggered");
-        assert_eq!(result.output, "https://github.com/randomguy/randomrepo");
+        assert_eq!(
+            result.steps,
+            vec![ExpansionStep::Text(
+                "https://github.com/randomguy/randomrepo".to_string()
+            )]
+        );
     }
 
     #[test]
@@ -381,7 +416,7 @@ mod tests {
         }
 
         let result = last_result.expect("Math expansion should have triggered");
-        assert_eq!(result.output, "7");
+        assert_eq!(result.steps, vec![ExpansionStep::Text("7".to_string())]);
         assert_eq!(result.trigger, "5+2");
         assert!(result.is_calculation);
     }
@@ -402,7 +437,7 @@ mod tests {
 
         let result = last_result.expect("Math expansion should have triggered");
         // ((5+2) / 7 % 2) * 2 = (7 / 7 % 2) * 2 = (1 % 2) * 2 = 1 * 2 = 2
-        assert_eq!(result.output, "2");
+        assert_eq!(result.steps, vec![ExpansionStep::Text("2".to_string())]);
         assert_eq!(result.trigger, "((5+2)/7%2)*2");
     }
 
@@ -422,7 +457,10 @@ mod tests {
 
         let result = last_result.expect("Math expansion should have triggered");
         // (5+3)/7 = 8/7 = 1.142857... rounds to 1.1429
-        assert_eq!(result.output, "1.1429");
+        assert_eq!(
+            result.steps,
+            vec![ExpansionStep::Text("1.1429".to_string())]
+        );
     }
 
     #[test]
@@ -464,7 +502,12 @@ mod tests {
                 error!("Failed to expand: {}", input_str);
                 panic!("Failed to expand: {}", input_str);
             });
-            assert_eq!(res.output, expected, "Failed case: {}", input_str);
+            assert_eq!(
+                res.steps,
+                vec![ExpansionStep::Text(expected.to_string())],
+                "Failed case: {}",
+                input_str
+            );
         }
     }
 }

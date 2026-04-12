@@ -125,28 +125,37 @@ pub fn start_listener(
 
                                         thread::spawn(move || {
                                             let trigger_clone = expansion.trigger.clone();
-                                            let output_len = expansion.output.chars().count();
                                             let delete_count = expansion.delete_count;
-                                            let left_arrow_count = expansion.left_arrow_count;
 
-                                            injector::inject_payload(
-                                                expansion.output,
+                                            // Calculate output char count for metrics from text steps.
+                                            let output_len: usize = expansion
+                                                .steps
+                                                .iter()
+                                                .filter_map(|s| match s {
+                                                    taurine_core::engine::variables::ExpansionStep::Text(t) => {
+                                                        Some(t.chars().count())
+                                                    }
+                                                    _ => None,
+                                                })
+                                                .sum();
+
+                                            injector::inject_expansion(
+                                                expansion.steps,
                                                 expansion.delete_count,
-                                                expansion.left_arrow_count,
                                             );
 
                                             if expansion.is_calculation {
                                                 taurine_core::db::crud::record_calculation_usage(
                                                     output_len,
                                                     delete_count,
-                                                    left_arrow_count,
+                                                    0,
                                                 );
                                             } else {
                                                 taurine_core::db::crud::record_expansion_usage(
                                                     &trigger_clone,
                                                     output_len,
                                                     delete_count,
-                                                    left_arrow_count,
+                                                    0,
                                                 );
                                             }
                                         });

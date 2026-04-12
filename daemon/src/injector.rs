@@ -10,6 +10,8 @@ use std::time::Duration;
 use tracing::warn;
 use tracing::{debug, error};
 
+use taurine_core::engine::variables::ExpansionStep;
+
 /// Abstraction so clipboard ordering (read original → set payload → verify → restore) can be
 /// unit-tested without the OS clipboard or `simulate()`.
 impl crate::platform::ClipboardManager for Clipboard {
@@ -59,6 +61,9 @@ fn inject_mutex() -> &'static Mutex<()> {
 /// (backspaces, Ctrl+V) are invisible to the evaluator with zero race window.
 pub static IS_INJECTING: AtomicBool = AtomicBool::new(false);
 
+/// Implicit inter-step delay (ms) for OS reliability between sequential actions.
+const INTER_STEP_DELAY_MS: u64 = 10;
+
 /// Sends n Backspace keystrokes with inter-key sleeps so the OS registers
 /// each one individually.
 fn erase_trigger(delete_count: usize) {
@@ -98,20 +103,116 @@ fn simulate_paste() {
     }
 }
 
-/// Erases the typed trigger sequence and pastes the expansion payload via the
-/// OS clipboard, restoring the previous clipboard contents afterwards.
-///
-/// `IS_INJECTING` must already be `true` when this is called (the hook sets it
-/// before spawning this thread). We clear it when we are done.
-pub fn inject_payload(payload: String, delete_count: usize, left_arrow_count: usize) {
-    let _inject_guard = inject_mutex().lock().expect("inject mutex poisoned");
+/// **Pre-Release**: Explicitly release all modifier keys before starting an injection
+/// sequence. This ensures the OS modifier state is neutral, even if the user is still
+/// physically holding a key from the trigger typing process.
+#[cfg(not(target_os = "linux"))]
+fn pre_release_modifiers() {
+    let modifiers = [
+        Key::ShiftLeft,
+        Key::ShiftRight,
+        Key::ControlLeft,
+        Key::ControlRight,
+        Key::Alt,
+        Key::AltGr,
+        Key::MetaLeft,
+        Key::MetaRight,
+    ];
+    for key in &modifiers {
+        let _ = simulate(&EventType::KeyRelease(*key));
+    }
+}
 
-    // 1. Erase the trigger
-    erase_trigger(delete_count);
+/// **Pre-Release** for Linux via uinput.
+#[cfg(target_os = "linux")]
+fn pre_release_modifiers() {
+    let modifiers = [
+        evdev::KeyCode::KEY_LEFTSHIFT,
+        evdev::KeyCode::KEY_RIGHTSHIFT,
+        evdev::KeyCode::KEY_LEFTCTRL,
+        evdev::KeyCode::KEY_RIGHTCTRL,
+        evdev::KeyCode::KEY_LEFTALT,
+        evdev::KeyCode::KEY_RIGHTALT,
+        evdev::KeyCode::KEY_LEFTMETA,
+        evdev::KeyCode::KEY_RIGHTMETA,
+    ];
+    for key in &modifiers {
+        crate::platform::linux::uinput::simulate_key(*key, false);
+    }
+}
 
-    #[cfg(target_os = "linux")]
-    thread::sleep(Duration::from_millis(20));
+/// Simulates a single key press+release for a given alias string.
+/// Returns `true` if the key alias was recognized.
+#[cfg(not(target_os = "linux"))]
+fn simulate_key_alias(alias: &str) -> bool {
+    if let Some(key) = alias_to_rdev_key(alias) {
+        let _ = simulate(&EventType::KeyPress(key));
+        let _ = simulate(&EventType::KeyRelease(key));
+        true
+    } else {
+        false
+    }
+}
 
+/// Simulates a single key press+release for a given alias string (Linux).
+/// Returns `true` if the key alias was recognized.
+#[cfg(target_os = "linux")]
+fn simulate_key_alias(alias: &str) -> bool {
+    if let Some(key) = alias_to_evdev_key(alias) {
+        crate::platform::linux::uinput::simulate_keypress(key);
+        true
+    } else {
+        false
+    }
+}
+
+/// Maps a key alias string to an rdev Key.
+#[cfg(not(target_os = "linux"))]
+fn alias_to_rdev_key(alias: &str) -> Option<Key> {
+    match alias {
+        "tab" => Some(Key::Tab),
+        "enter" | "return" => Some(Key::Return),
+        "esc" | "escape" => Some(Key::Escape),
+        "up" => Some(Key::UpArrow),
+        "down" => Some(Key::DownArrow),
+        "left" => Some(Key::LeftArrow),
+        "right" => Some(Key::RightArrow),
+        "home" => Some(Key::Home),
+        "end" => Some(Key::End),
+        "pgup" | "pageup" => Some(Key::PageUp),
+        "pgdown" | "pagedown" => Some(Key::PageDown),
+        "backspace" => Some(Key::Backspace),
+        "delete" | "del" => Some(Key::Delete),
+        "space" => Some(Key::Space),
+        _ => None,
+    }
+}
+
+/// Maps a key alias string to an evdev KeyCode.
+#[cfg(target_os = "linux")]
+fn alias_to_evdev_key(alias: &str) -> Option<evdev::KeyCode> {
+    match alias {
+        "tab" => Some(evdev::KeyCode::KEY_TAB),
+        "enter" | "return" => Some(evdev::KeyCode::KEY_ENTER),
+        "esc" | "escape" => Some(evdev::KeyCode::KEY_ESC),
+        "up" => Some(evdev::KeyCode::KEY_UP),
+        "down" => Some(evdev::KeyCode::KEY_DOWN),
+        "left" => Some(evdev::KeyCode::KEY_LEFT),
+        "right" => Some(evdev::KeyCode::KEY_RIGHT),
+        "home" => Some(evdev::KeyCode::KEY_HOME),
+        "end" => Some(evdev::KeyCode::KEY_END),
+        "pgup" | "pageup" => Some(evdev::KeyCode::KEY_PAGEUP),
+        "pgdown" | "pagedown" => Some(evdev::KeyCode::KEY_PAGEDOWN),
+        "backspace" => Some(evdev::KeyCode::KEY_BACKSPACE),
+        "delete" | "del" => Some(evdev::KeyCode::KEY_DELETE),
+        "space" => Some(evdev::KeyCode::KEY_SPACE),
+        _ => None,
+    }
+}
+
+/// Injects a text segment via the platform clipboard.
+/// Returns the original clipboard content for later restoration.
+fn inject_text_segment(text: &str, original_clipboard: &Option<String>) -> Option<String> {
     let post_paste_wait = if cfg!(target_os = "windows") {
         Duration::from_millis(220)
     } else if cfg!(target_os = "linux") {
@@ -122,27 +223,34 @@ pub fn inject_payload(payload: String, delete_count: usize, left_arrow_count: us
 
     #[cfg(windows)]
     {
-        // Win32 UTF-16 + cloud-clipboard exclusion flags so expansion text does not land in
-        // Win+V history while keeping reliable paste for emoji and non-Latin scripts.
         let mut clip = crate::platform::windows::WindowsClipboard;
-        let original_clipboard = match prepare_clipboard_for_expansion(&mut clip, &payload) {
-            Ok(s) => s,
-            Err(e) => {
-                if e.starts_with("clipboard verify failed:") {
-                    warn!("Clipboard content mismatch before paste — {}. Skipping.", e);
-                } else {
-                    error!("Could not prepare clipboard before paste: {}", e);
+        if original_clipboard.is_none() {
+            // First text segment: save the original clipboard.
+            match prepare_clipboard_for_expansion(&mut clip, text) {
+                Ok(orig) => {
+                    simulate_paste();
+                    thread::sleep(post_paste_wait);
+                    Some(orig)
                 }
-                IS_INJECTING.store(false, Ordering::SeqCst);
-                return;
+                Err(e) => {
+                    if e.starts_with("clipboard verify failed:") {
+                        warn!("Clipboard content mismatch before paste — {}. Skipping.", e);
+                    } else {
+                        error!("Could not prepare clipboard before paste: {}", e);
+                    }
+                    None
+                }
             }
-        };
-
-        simulate_paste();
-        thread::sleep(post_paste_wait);
-
-        if let Err(e) = clip.set_text(&original_clipboard) {
-            error!("Failed to restore clipboard: {}", e);
+        } else {
+            // Subsequent text segments: clipboard was already saved.
+            if let Err(e) = clip.set_text(text) {
+                error!("Failed to set clipboard for text segment: {}", e);
+                return original_clipboard.clone();
+            }
+            thread::sleep(Duration::from_millis(25));
+            simulate_paste();
+            thread::sleep(post_paste_wait);
+            original_clipboard.clone()
         }
     }
 
@@ -150,38 +258,47 @@ pub fn inject_payload(payload: String, delete_count: usize, left_arrow_count: us
     {
         use crate::platform::linux;
 
-        // Detection: missing display variables usually means we are in a bare TTY.
         let has_display =
             std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok();
         let mut use_typing = !has_display;
 
         if !use_typing {
             let mut clipboard = linux::LinuxClipboard;
-            match prepare_clipboard_for_expansion(&mut clipboard, &payload) {
-                Ok(original_clipboard) => {
-                    simulate_paste();
-                    thread::sleep(post_paste_wait);
-                    if let Err(e) = clipboard.set_text(&original_clipboard) {
-                        error!("Failed to restore clipboard: {}", e);
+            if original_clipboard.is_none() {
+                match prepare_clipboard_for_expansion(&mut clipboard, text) {
+                    Ok(orig) => {
+                        simulate_paste();
+                        thread::sleep(post_paste_wait);
+                        return Some(orig);
+                    }
+                    Err(e) => {
+                        debug!(
+                            "Clipboard expansion failed ({}), falling back to direct typing",
+                            e
+                        );
+                        use_typing = true;
                     }
                 }
-                Err(e) => {
-                    // Fallback to typing if clipboard connection fails (common on some Wayland contexts or terminal types)
-                    debug!(
-                        "Clipboard expansion failed ({}), falling back to direct typing",
-                        e
-                    );
-                    use_typing = true;
+            } else {
+                if let Err(e) = clipboard.set_text(text) {
+                    error!("Failed to set clipboard for text segment: {}", e);
+                } else {
+                    thread::sleep(Duration::from_millis(25));
+                    simulate_paste();
+                    thread::sleep(post_paste_wait);
                 }
+                return original_clipboard.clone();
             }
         }
 
         if use_typing {
             if let Some(lookup) = linux::get_reverse_lookup() {
-                linux::uinput::simulate_type_string(&payload, lookup);
+                linux::uinput::simulate_type_string(text, lookup);
             } else {
                 error!("Direct typing failed: Linux XKB mapper not initialized");
             }
+            // No clipboard was touched in direct typing mode.
+            return original_clipboard.clone();
         }
     }
 
@@ -191,47 +308,135 @@ pub fn inject_payload(payload: String, delete_count: usize, left_arrow_count: us
             Ok(c) => c,
             Err(e) => {
                 error!("Failed to initialize clipboard: {}", e);
-                IS_INJECTING.store(false, Ordering::SeqCst);
-                return;
+                return None;
             }
         };
 
-        let original_clipboard = match prepare_clipboard_for_expansion(&mut clipboard, &payload) {
-            Ok(s) => s,
-            Err(e) => {
-                if e.starts_with("clipboard verify failed:") {
-                    warn!("Clipboard content mismatch before paste — {}. Skipping.", e);
-                } else {
-                    error!("Could not prepare clipboard before paste: {}", e);
+        if original_clipboard.is_none() {
+            match prepare_clipboard_for_expansion(&mut clipboard, text) {
+                Ok(orig) => {
+                    simulate_paste();
+                    thread::sleep(post_paste_wait);
+                    return Some(orig);
                 }
-                IS_INJECTING.store(false, Ordering::SeqCst);
-                return;
+                Err(e) => {
+                    if e.starts_with("clipboard verify failed:") {
+                        warn!("Clipboard content mismatch before paste — {}. Skipping.", e);
+                    } else {
+                        error!("Could not prepare clipboard before paste: {}", e);
+                    }
+                    return None;
+                }
             }
-        };
+        } else {
+            if let Err(e) = clipboard.set_text(text) {
+                error!("Failed to set clipboard for text segment: {}", e);
+                return original_clipboard.clone();
+            }
+            thread::sleep(Duration::from_millis(25));
+            simulate_paste();
+            thread::sleep(post_paste_wait);
+            return original_clipboard.clone();
+        }
+    }
+}
 
-        simulate_paste();
-        thread::sleep(post_paste_wait);
-
-        if let Err(e) = clipboard.set_text(&original_clipboard) {
+/// Restores the user's original clipboard content.
+fn restore_clipboard(original: &str) {
+    #[cfg(windows)]
+    {
+        let mut clip = crate::platform::windows::WindowsClipboard;
+        if let Err(e) = clip.set_text(original) {
             error!("Failed to restore clipboard: {}", e);
         }
     }
 
-    if left_arrow_count > 0 {
-        debug!("Moving cursor left {} times", left_arrow_count);
-        for _ in 0..left_arrow_count {
-            #[cfg(target_os = "linux")]
-            {
-                crate::platform::linux::uinput::simulate_keypress(evdev::KeyCode::KEY_LEFT);
-            }
-            #[cfg(not(target_os = "linux"))]
-            {
-                let _ = simulate(&EventType::KeyPress(Key::LeftArrow));
-                let _ = simulate(&EventType::KeyRelease(Key::LeftArrow));
-            }
-            thread::sleep(Duration::from_millis(2));
+    #[cfg(target_os = "linux")]
+    {
+        let mut clipboard = crate::platform::linux::LinuxClipboard;
+        if let Err(e) = clipboard.set_text(original) {
+            error!("Failed to restore clipboard: {}", e);
         }
     }
+
+    #[cfg(all(not(windows), not(target_os = "linux")))]
+    {
+        if let Ok(mut clipboard) = Clipboard::new() {
+            if let Err(e) = clipboard.set_text(original) {
+                error!("Failed to restore clipboard: {}", e);
+            }
+        }
+    }
+}
+
+/// Executes an ordered sequence of expansion steps.
+///
+/// This is the new sequence-aware injector entry point. It replaces the old
+/// `inject_payload` function. The sequence can contain text pastes, key presses,
+/// and explicit delays.
+///
+/// **Safety protocols**:
+/// - **Pre-Release**: All modifier keys are released before the sequence starts.
+/// - **Clipboard Dance**: The user's original clipboard is saved once at the start
+///   and restored once at the end.
+/// - **Panic Release**: All modifier keys are released at the end (success or failure).
+/// - **Implicit Delay**: A 10ms delay is inserted between every step.
+///
+/// `IS_INJECTING` must already be `true` when this is called (the hook sets it
+/// before spawning this thread). We clear it when we are done.
+pub fn inject_expansion(steps: Vec<ExpansionStep>, delete_count: usize) {
+    let _inject_guard = inject_mutex().lock().expect("inject mutex poisoned");
+
+    // Pre-Release: neutralize modifier state before any injection.
+    pre_release_modifiers();
+
+    // 1. Erase the trigger.
+    erase_trigger(delete_count);
+
+    #[cfg(target_os = "linux")]
+    thread::sleep(Duration::from_millis(20));
+
+    // 2. Execute each step in sequence.
+    let mut original_clipboard: Option<String> = None;
+
+    for (i, step) in steps.iter().enumerate() {
+        // Implicit inter-step delay (skip before the very first step).
+        if i > 0 {
+            thread::sleep(Duration::from_millis(INTER_STEP_DELAY_MS));
+        }
+
+        match step {
+            ExpansionStep::Text(text) => {
+                if let Some(orig) = inject_text_segment(text, &original_clipboard) {
+                    if original_clipboard.is_none() {
+                        original_clipboard = Some(orig);
+                    }
+                } else if original_clipboard.is_none() {
+                    // First text segment failed entirely — abort.
+                    IS_INJECTING.store(false, Ordering::SeqCst);
+                    // Panic Release on abort.
+                    pre_release_modifiers();
+                    return;
+                }
+            }
+            ExpansionStep::KeyPress(alias) => {
+                if !simulate_key_alias(alias) {
+                    debug!("Unknown key alias '{}', skipping", alias);
+                }
+            }
+            ExpansionStep::Delay(ms) => {
+                thread::sleep(Duration::from_millis(*ms));
+            }
+        }
+    }
+
+    // 3. Restore the user's original clipboard (if we touched it).
+    if let Some(ref original) = original_clipboard {
+        restore_clipboard(original);
+    }
+
+    // Panic Release: ensure all modifiers are logically released.
+    pre_release_modifiers();
 
     IS_INJECTING.store(false, Ordering::SeqCst);
 }

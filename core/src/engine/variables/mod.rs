@@ -6,4 +6,4 @@ pub mod types;
 pub use interpolate::interpolate;
 pub use parser::parse_args;
 pub use system::finalize;
-pub use types::{ArgMap, FinalExpansion};
+pub use types::{ArgMap, ExpansionStep, FinalExpansion};

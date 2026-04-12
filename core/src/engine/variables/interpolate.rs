@@ -292,17 +292,42 @@ mod tests {
 
     #[test]
     fn test_extract_cursor_offset() {
+        use super::super::types::ExpansionStep;
+
         let res = system::finalize("hello {cursor} world", None);
-        assert_eq!(res.text, "hello  world");
-        assert_eq!(res.left_arrow_count, 6);
+        assert_eq!(
+            res.steps,
+            vec![
+                ExpansionStep::Text("hello  world".to_string()),
+                ExpansionStep::KeyPress("left".to_string()),
+                ExpansionStep::KeyPress("left".to_string()),
+                ExpansionStep::KeyPress("left".to_string()),
+                ExpansionStep::KeyPress("left".to_string()),
+                ExpansionStep::KeyPress("left".to_string()),
+                ExpansionStep::KeyPress("left".to_string()),
+            ]
+        );
 
         let res2 = system::finalize("hello {cursor} world {cursor}", None);
-        assert_eq!(res2.text, "hello  world ");
-        assert_eq!(res2.left_arrow_count, 7);
+        assert_eq!(
+            res2.steps,
+            vec![
+                ExpansionStep::Text("hello  world ".to_string()),
+                ExpansionStep::KeyPress("left".to_string()),
+                ExpansionStep::KeyPress("left".to_string()),
+                ExpansionStep::KeyPress("left".to_string()),
+                ExpansionStep::KeyPress("left".to_string()),
+                ExpansionStep::KeyPress("left".to_string()),
+                ExpansionStep::KeyPress("left".to_string()),
+                ExpansionStep::KeyPress("left".to_string()),
+            ]
+        );
 
         let res3 = system::finalize(r#"Hello \{cursor\}"#, None);
-        assert_eq!(res3.text, "Hello {cursor}");
-        assert_eq!(res3.left_arrow_count, 0);
+        assert_eq!(
+            res3.steps,
+            vec![ExpansionStep::Text("Hello {cursor}".to_string())]
+        );
     }
 
     #[test]
