@@ -23,7 +23,7 @@ struct Cli {
     #[arg(long, global = true)]
     no_log_file: bool,
 
-    /// Disable tracking colors in console output
+    /// Disable showing colors in console output
     #[arg(long, global = true)]
     no_color: bool,
 
@@ -58,7 +58,7 @@ enum Commands {
     #[command(alias = "ls")]
     List {
         /// Sort the list by a specific criteria
-        #[arg(long, value_enum)]
+        #[arg(long, value_enum, hide_possible_values = true)]
         sort: Option<SortBy>,
 
         /// Sort in ascending order
