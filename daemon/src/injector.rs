@@ -541,15 +541,13 @@ fn inject_text_segment(text: &str, original_clipboard: &Option<String>) -> Optio
             }
         }
 
-        if use_typing {
-            if let Some(lookup) = linux::get_reverse_lookup() {
-                linux::uinput::simulate_type_string(text, lookup);
-            } else {
-                error!("Direct typing failed: Linux XKB mapper not initialized");
-            }
-            // No clipboard was touched in direct typing mode.
-            return original_clipboard.clone();
+        // At this point, we must use direct typing (either display-less or fallback).
+        if let Some(lookup) = linux::get_reverse_lookup() {
+            linux::uinput::simulate_type_string(text, lookup);
+        } else {
+            error!("Direct typing failed: Linux XKB mapper not initialized");
         }
+        original_clipboard.clone()
     }
 
     #[cfg(all(not(windows), not(target_os = "linux")))]
