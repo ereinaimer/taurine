@@ -3,7 +3,7 @@
 pub mod commands;
 pub mod service;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use tracing::{error, info};
 
 /// Taurine Command Line Interface
@@ -56,7 +56,19 @@ enum Commands {
     Delete { trigger: String },
     /// List all automations
     #[command(alias = "ls")]
-    List,
+    List {
+        /// Sort the list by a specific criteria
+        #[arg(long, value_enum)]
+        sort: Option<SortBy>,
+
+        /// Sort in ascending order
+        #[arg(long, conflicts_with = "desc")]
+        asc: bool,
+
+        /// Sort in descending order
+        #[arg(long, conflicts_with = "asc")]
+        desc: bool,
+    },
     /// Manage application settings
     Config {
         #[command(subcommand)]
@@ -79,6 +91,18 @@ enum ConfigAction {
         #[arg(long)]
         all: bool,
     },
+}
+
+#[derive(ValueEnum, Clone, Debug, PartialEq)]
+pub enum SortBy {
+    /// Sort by trigger alphabetically
+    Alpha,
+    /// Sort by usage count
+    Usage,
+    /// Sort by creation date
+    Created,
+    /// Sort by last used date
+    Recent,
 }
 
 fn main() -> std::process::ExitCode {
@@ -158,8 +182,8 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
         Some(Commands::Delete { trigger }) => {
             commands::delete::execute(trigger)?;
         }
-        Some(Commands::List) => {
-            commands::list::execute()?;
+        Some(Commands::List { sort, asc, desc }) => {
+            commands::list::execute(sort, asc, desc)?;
         }
         Some(Commands::Config { action }) => match action {
             ConfigAction::Set { key, value } => commands::config::execute_set(key, value)?,

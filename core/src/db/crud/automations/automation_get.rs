@@ -1,6 +1,6 @@
 use rusqlite::{Connection, Result};
 
-use super::{AutomationAction, AutomationRow, AutomationSummary};
+use super::{AutomationAction, AutomationListItem, AutomationRow, AutomationSummary};
 
 fn get_current_os_db_string() -> &'static str {
     match std::env::consts::OS {
@@ -125,6 +125,35 @@ pub fn get_all_active_automations(conn: &Connection) -> Result<Vec<(String, Auto
     }
 
     Ok(actions)
+}
+
+/// Fetches all active automations with enough metadata for sorting/listing in CLI.
+pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>> {
+    let os_str = get_current_os_db_string();
+    let mut stmt = conn.prepare_cached(
+        "SELECT trigger, output, usage_count, last_used_at, created_at
+         FROM   automations
+         WHERE  is_deleted = 0
+           AND  is_enabled = 1
+           AND  (target_os = 'all' OR target_os = ?1)",
+    )?;
+
+    let rows = stmt.query_map([os_str], |row| {
+        Ok(AutomationListItem {
+            trigger: row.get(0)?,
+            output: row.get(1)?,
+            usage_count: row.get(2)?,
+            last_used_at: row.get(3)?,
+            created_at: row.get(4)?,
+        })
+    })?;
+
+    let mut list = Vec::new();
+    for row in rows {
+        list.push(row?);
+    }
+
+    Ok(list)
 }
 
 /// Fuzzy-finder search over active automations by name and trigger.

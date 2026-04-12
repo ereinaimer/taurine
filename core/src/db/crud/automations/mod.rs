@@ -6,14 +6,17 @@ mod automation_types;
 
 pub use automation_delete::{delete_automation, delete_automation_by_trigger};
 pub use automation_get::{
-    get_action_by_trigger, get_all_active_automations, get_automation, search_automations,
+    get_action_by_trigger, get_all_active_automations, get_automation, get_automations_list,
+    search_automations,
 };
 pub use automation_set::{
     AddOutcome, add_automation_by_trigger, increment_usage_count_by_trigger,
     record_expansion_usage, upsert_automation,
 };
 pub use automation_sync::get_syncable_automations;
-pub use automation_types::{AutomationAction, AutomationRow, AutomationSummary};
+pub use automation_types::{
+    AutomationAction, AutomationListItem, AutomationRow, AutomationSummary,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests

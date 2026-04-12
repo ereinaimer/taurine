@@ -34,3 +34,13 @@ pub struct AutomationSummary {
     pub trigger: String,
     pub usage_count: i64,
 }
+
+/// Data structure for the CLI list view.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AutomationListItem {
+    pub trigger: String,
+    pub output: String,
+    pub usage_count: i64,
+    pub last_used_at: Option<i64>,
+    pub created_at: i64,
+}
