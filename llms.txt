@@ -92,6 +92,10 @@ Snippets can take arguments passed within double quotes after the trigger.
     *   >log -> [{time.full}] {env.USER}: {clipboard}
 *   Environment:
     *   >path -> Home: {env.HOME} (Unix) or Home: {env.USERPROFILE} (Windows)
+*   Keystroke Sequences:
+    *   >login -> admin{key.tab}password123{key.enter}
+    *   >select -> {key.ctrl+a}{key.backspace} (Use `mod` for cross-platform: `{key.mod+a}`)
+    *   >slow -> Start...{delay.500ms}End.
 
 ### 4.4 Inline Math (Instant Calculation)
 Math expansion works with any trigger character followed by a valid expression.
@@ -135,11 +139,20 @@ Contextual variables pull data from the active system state at the moment of exp
     *   Safety: The daemon captures the clipboard state *before* any expansion actions to ensure the data is preserved accurately.
 
 ### 5.3 Expansion Directives
-Directives are special placeholders that do not produce text themselves but control the behavior of the expansion process.
+Directives are special placeholders that do not produce text themselves but control the behavior of the expansion process (keystrokes, timing, and positioning).
 
+*   Keystroke ({key.*}):
+    *   Aliases: Single keys like `tab`, `enter`, `esc`, `up`, `down`, `home`, `end`, `backspace`, `space`.
+    *   Alphabets/Numbers: `key.a`..`key.z`, `key.0`..`key.9`, `key.f1`..`key.f12`.
+    *   Combinations: Supports `+` separator for modifier chords (e.g., `{key.ctrl+shift+t}`).
+    *   Platform Modifiers: `mod` (Cmd on macOS, Win/Ctrl elsewhere), `win`, `cmd`, `opt`.
+*   Delay ({delay.*}):
+    *   Usage: `{delay.Xms}` (e.g., `{delay.200ms}`) pauses the expansion sequence for exactly X milliseconds.
+    *   Utility: Essential for waiting for UI transitions or target applications to process field changes.
 *   Cursor ({cursor}):
     *   Action: Defines the final caret (cursor) position after expansion is complete.
-    *   Mechanism: The engine calculates the required left-arrow offset and automatically simulates the necessary back-arrow keystrokes to position the cursor exactly where the tag was placed.
+    *   Mechanism: The engine calculates the required left-arrow offset and automatically simulates the necessary back-arrow keystrokes.
+    *   **Conflict Rule**: If a snippet contains any `{key.*}` directives, the `{cursor}` tag is ignored as a directive (treated as literal text) to avoid ambiguous positioning in multi-action sequences.
 
 ---
 
