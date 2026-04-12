@@ -9,10 +9,7 @@ pub(crate) struct Placeholder<'a> {
     pub default_value: Option<&'a str>,
 }
 
-pub(crate) fn extract_placeholders<'a>(
-    template: &'a str,
-    trigger: Option<&str>,
-) -> IndexMap<&'a str, Placeholder<'a>> {
+pub(crate) fn extract_placeholders<'a>(template: &'a str) -> IndexMap<&'a str, Placeholder<'a>> {
     let mut placeholders = IndexMap::new();
     let bytes = template.as_bytes();
     let mut ptr = 0;
@@ -47,17 +44,6 @@ pub(crate) fn extract_placeholders<'a>(
                     (inner, None)
                 };
 
-                if system::is_reserved(key) && default_value.is_some() {
-                    let trigger_ctx = trigger
-                        .map(|t| format!(" for trigger '{}'", t))
-                        .unwrap_or_default();
-                    tracing::warn!(
-                        "System variable {{{}}} cannot have a default value. The default assignment will be ignored{}.",
-                        key,
-                        trigger_ctx
-                    );
-                }
-
                 if !system::is_reserved(key) && !placeholders.contains_key(key) {
                     placeholders.insert(key, Placeholder { key, default_value });
                 }
@@ -71,8 +57,8 @@ pub(crate) fn extract_placeholders<'a>(
     placeholders
 }
 
-pub fn interpolate(template: &str, args: &ArgMap, trigger: Option<&str>) -> String {
-    let placeholders = extract_placeholders(template, trigger);
+pub fn interpolate(template: &str, args: &ArgMap) -> String {
+    let placeholders = extract_placeholders(template);
     let mut resolutions = std::collections::HashMap::new();
     let mut pos_cursor = 0;
 
@@ -169,7 +155,7 @@ mod tests {
     #[test]
     fn test_extract_placeholders() {
         let text = "https://github.com/{username=ereinaimer}/{repo}";
-        let p = extract_placeholders(text, None);
+        let p = extract_placeholders(text);
         assert_eq!(p.len(), 2);
         assert_eq!(p.get("username").unwrap().default_value, Some("ereinaimer"));
         assert_eq!(p.get("repo").unwrap().default_value, None);
@@ -178,7 +164,7 @@ mod tests {
     #[test]
     fn test_extract_placeholders_deduplicate() {
         let text = "a {foo} b {foo=bar} c {foo}";
-        let p = extract_placeholders(text, None);
+        let p = extract_placeholders(text);
         assert_eq!(p.len(), 1);
         // Should keep the first appearance
         assert_eq!(p.get("foo").unwrap().default_value, None);
@@ -187,7 +173,7 @@ mod tests {
     #[test]
     fn test_extract_placeholders_ignore_system() {
         let text = "Hello {cursor} at {time.now}. My name is {name}";
-        let p = extract_placeholders(text, None);
+        let p = extract_placeholders(text);
         assert_eq!(p.len(), 1);
         assert!(p.contains_key("name"));
         assert!(!p.contains_key("cursor"));
@@ -197,7 +183,7 @@ mod tests {
     #[test]
     fn test_extract_placeholders_escapes() {
         let text = r#"function \{ return "{msg}"; \}"#;
-        let p = extract_placeholders(text, None);
+        let p = extract_placeholders(text);
         assert_eq!(p.len(), 1);
         assert!(p.contains_key("msg"));
     }
@@ -210,7 +196,7 @@ mod tests {
 
         let tpl = "https://github.com/{username}/{repo}";
         assert_eq!(
-            interpolate(tpl, &args, None),
+            interpolate(tpl, &args),
             "https://github.com/ereinaimer/taurine"
         );
     }
@@ -223,7 +209,7 @@ mod tests {
 
         let tpl = "https://github.com/{username}/{repo}";
         assert_eq!(
-            interpolate(tpl, &args, None),
+            interpolate(tpl, &args),
             "https://github.com/ereinaimer/taurine"
         );
     }
@@ -233,7 +219,7 @@ mod tests {
         let args = ArgMap::default();
         let tpl = "https://github.com/{username=ereinaimer}/{repo=taurine}";
         assert_eq!(
-            interpolate(tpl, &args, None),
+            interpolate(tpl, &args),
             "https://github.com/ereinaimer/taurine"
         );
     }
@@ -242,7 +228,7 @@ mod tests {
     fn test_interpolate_empty_default() {
         let args = ArgMap::default();
         let tpl = "git commit -m \"fix: {msg=}\"";
-        assert_eq!(interpolate(tpl, &args, None), "git commit -m \"fix: \"");
+        assert_eq!(interpolate(tpl, &args), "git commit -m \"fix: \"");
     }
 
     #[test]
@@ -250,7 +236,7 @@ mod tests {
         let args = ArgMap::default();
         let tpl = "https://github.com/{username}/{repo}";
         assert_eq!(
-            interpolate(tpl, &args, None),
+            interpolate(tpl, &args),
             "https://github.com/{username}/{repo}"
         );
     }
@@ -260,7 +246,7 @@ mod tests {
         let args = ArgMap::default();
         let tpl = r#"const x = \{ "key": "{value=123}" \}; // literal \\ path"#;
         assert_eq!(
-            interpolate(tpl, &args, None),
+            interpolate(tpl, &args),
             r#"const x = { "key": "123" }; // literal \ path"#
         );
     }
@@ -273,7 +259,7 @@ mod tests {
         system::clipboard::set_mock_clipboard(Some("clip_content".to_string()));
 
         let tpl = "{msg} {cursor} {time.now} {clipboard}";
-        let res = interpolate(tpl, &args, None);
+        let res = interpolate(tpl, &args);
 
         assert!(res.contains("hello {cursor} "));
         assert!(res.contains("clip_content"));
@@ -287,7 +273,7 @@ mod tests {
     fn test_interpolate_system_cursor_collision() {
         let args = ArgMap::default();
         let tpl = "Hello {cursor=invalid} world";
-        assert_eq!(interpolate(tpl, &args, None), "Hello {cursor} world");
+        assert_eq!(interpolate(tpl, &args), "Hello {cursor} world");
     }
 
     #[test]
@@ -335,6 +321,6 @@ mod tests {
         let mut args = ArgMap::default();
         args.positional.push("foo".to_string());
         let tpl = "https://{username}.github.io/{username}";
-        assert_eq!(interpolate(tpl, &args, None), "https://foo.github.io/foo");
+        assert_eq!(interpolate(tpl, &args), "https://foo.github.io/foo");
     }
 }

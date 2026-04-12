@@ -60,19 +60,9 @@ pub fn resolve(key: &str) -> Option<String> {
 /// **Conflict rule**: `{cursor}` and `{key.*}` directives cannot coexist.
 /// If any `{key.*}` directive is present, `{cursor}` is treated as literal text.
 pub fn finalize(interpolated: &str, trigger: Option<&str>) -> FinalExpansion {
-    let has_key_directives = contains_key_or_delay_directives(interpolated);
+    validate_output(interpolated, trigger);
 
-    // Warn on conflict: {cursor} is meaningless alongside {key.*}.
-    if has_key_directives && interpolated.contains("{cursor}") {
-        let trigger_ctx = trigger
-            .map(|t| format!(" for trigger '{}'", t))
-            .unwrap_or_default();
-        tracing::warn!(
-            "{{cursor}} directive ignored because {{key.*}} directives are present{}. \
-             Use {{key.left}} for precise navigation in multi-field snippets.",
-            trigger_ctx
-        );
-    }
+    let has_key_directives = contains_key_or_delay_directives(interpolated);
 
     // Unified pipeline: always split into steps.
     let mut steps = split_into_steps(interpolated);
@@ -82,7 +72,7 @@ pub fn finalize(interpolated: &str, trigger: Option<&str>) -> FinalExpansion {
         restore_cursor_sentinels(&mut steps);
     } else {
         // Resolve {cursor} positioning (also restores escaped sentinels).
-        apply_cursor_positioning(&mut steps, trigger);
+        apply_cursor_positioning(&mut steps);
     }
 
     FinalExpansion {
@@ -117,6 +107,65 @@ fn contains_key_or_delay_directives(text: &str) -> bool {
         ptr += 1;
     }
     false
+}
+
+/// Validates an expansion output for common mistakes like multiple cursors or conflicts.
+///
+/// This serves as an early-warning system during automation creation (CLI)
+/// and a failsafe during actual expansion.
+pub fn validate_output(output: &str, trigger: Option<&str>) {
+    let trigger_ctx = trigger
+        .map(|t| format!(" for trigger '{}'", t))
+        .unwrap_or_default();
+
+    // 1. Multi-cursor check
+    if output.matches("{cursor}").count() > 1 {
+        tracing::warn!(
+            "Multiple {{cursor}} tags found in output{}. Only the first occurrence will define the final caret position.",
+            trigger_ctx
+        );
+    }
+
+    // 2. Conflict check: {cursor} vs {key.*}/{delay.*}
+    if contains_key_or_delay_directives(output) && output.contains("{cursor}") {
+        tracing::warn!(
+            "{{cursor}} directive will be ignored because {{key.*}} or {{delay.*}} directives are present{}. \
+             Use {{key.left}} for precise navigation in multi-action snippets.",
+            trigger_ctx
+        );
+    }
+
+    // 3. Reserved variables with default values: {cursor=...}, {clipboard=...}, etc.
+    let bytes = output.as_bytes();
+    let mut ptr = 0;
+    while ptr < bytes.len() {
+        if bytes[ptr] == b'\\'
+            && ptr + 1 < bytes.len()
+            && (bytes[ptr + 1] == b'{' || bytes[ptr + 1] == b'}')
+        {
+            ptr += 2;
+            continue;
+        }
+
+        if bytes[ptr] == b'{' {
+            let start = ptr + 1;
+            if let Some(close) = output[start..].find('}') {
+                let inner = &output[start..start + close];
+                if let Some((key, _)) = inner.split_once('=')
+                    && is_reserved(key)
+                {
+                    tracing::warn!(
+                        "System variable {{{}}} cannot have a default value assignment and will be ignored{}.",
+                        key,
+                        trigger_ctx
+                    );
+                }
+                ptr = start + close + 1;
+                continue;
+            }
+        }
+        ptr += 1;
+    }
 }
 
 /// Splits an interpolated string into a sequence of [`ExpansionStep`] actions.
@@ -190,7 +239,7 @@ fn split_into_steps(text: &str) -> Vec<ExpansionStep> {
 /// Finds the first `{cursor}`, removes all occurrences, and appends
 /// `KeyPress("left")` steps to position the caret at the correct offset.
 /// Escaped cursor sentinels are restored to literal `{cursor}` afterwards.
-fn apply_cursor_positioning(steps: &mut Vec<ExpansionStep>, trigger: Option<&str>) {
+fn apply_cursor_positioning(steps: &mut Vec<ExpansionStep>) {
     // Concatenate all text content to compute cursor offset globally.
     let full_text: String = steps
         .iter()
@@ -201,16 +250,6 @@ fn apply_cursor_positioning(steps: &mut Vec<ExpansionStep>, trigger: Option<&str
         .collect();
 
     if full_text.contains("{cursor}") {
-        if full_text.matches("{cursor}").count() > 1 {
-            let trigger_ctx = trigger
-                .map(|t| format!(" for trigger '{}'", t))
-                .unwrap_or_default();
-            tracing::warn!(
-                "Multiple {{cursor}} tags found in output{}. Only the first occurrence will define the final caret position.",
-                trigger_ctx
-            );
-        }
-
         // Calculate left-arrow count from the first {cursor} position.
         let first_idx = full_text.find("{cursor}").unwrap();
         let char_idx = full_text[..first_idx].chars().count();
@@ -437,5 +476,16 @@ mod tests {
                 ExpansionStep::Text("Back".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn test_validate_output_logic_paths() {
+        // These calls shouldn't panic. We are primarily testing the path coverage.
+        validate_output("valid", None);
+        validate_output("{cursor} {cursor}", Some("multi"));
+        validate_output("{key.tab} {cursor}", Some("conflict"));
+        validate_output("{cursor=invalid}", Some("default"));
+        validate_output(r#"\{cursor\} {cursor}"#, Some("escaped"));
+        validate_output("{clipboard=invalid}", None);
     }
 }
