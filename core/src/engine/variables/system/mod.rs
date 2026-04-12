@@ -479,6 +479,19 @@ mod tests {
     }
 
     #[test]
+    fn test_finalize_standalone_modifier_directives() {
+        let res = finalize("{key.mod}{key.super}{key.ctrl}", None);
+        assert_eq!(
+            res.steps,
+            vec![
+                ExpansionStep::KeyPress("mod".to_string()),
+                ExpansionStep::KeyPress("super".to_string()),
+                ExpansionStep::KeyPress("ctrl".to_string()),
+            ]
+        );
+    }
+
+    #[test]
     fn test_validate_output_logic_paths() {
         // These calls shouldn't panic. We are primarily testing the path coverage.
         validate_output("valid", None);

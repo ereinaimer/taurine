@@ -69,6 +69,9 @@ pub fn simulate_type_string(s: &str, lookup: &std::collections::HashMap<char, (K
             }
             // Small pause between characters for reliability
             thread::sleep(Duration::from_millis(1));
+        } else if c == ' ' {
+            simulate_keypress(KeyCode::KEY_SPACE);
+            thread::sleep(Duration::from_millis(1));
         }
     }
 }

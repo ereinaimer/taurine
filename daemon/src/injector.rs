@@ -361,6 +361,11 @@ fn alias_to_rdev_key(alias: &str) -> Option<Key> {
         "scrolllock" => Some(Key::ScrollLock),
         "printscreen" | "prtsc" => Some(Key::PrintScreen),
         "pause" | "break" => Some(Key::Pause),
+        // Modifiers (as standalone keys)
+        "ctrl" | "control" => Some(Key::ControlLeft),
+        "alt" => Some(Key::Alt),
+        "shift" => Some(Key::ShiftLeft),
+        "win" | "mod" | "super" | "meta" => Some(Key::MetaLeft),
         _ => None,
     }
 }
@@ -456,6 +461,11 @@ fn alias_to_evdev_key(alias: &str) -> Option<evdev::KeyCode> {
         "scrolllock" => Some(evdev::KeyCode::KEY_SCROLLLOCK),
         "printscreen" | "prtsc" => Some(evdev::KeyCode::KEY_SYSRQ),
         "pause" | "break" => Some(evdev::KeyCode::KEY_PAUSE),
+        // Modifiers (as standalone keys)
+        "ctrl" | "control" => Some(evdev::KeyCode::KEY_LEFTCTRL),
+        "alt" => Some(evdev::KeyCode::KEY_LEFTALT),
+        "shift" => Some(evdev::KeyCode::KEY_LEFTSHIFT),
+        "win" | "mod" | "super" | "meta" => Some(evdev::KeyCode::KEY_LEFTMETA),
         _ => None,
     }
 }

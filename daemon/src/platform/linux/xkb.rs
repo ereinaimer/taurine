@@ -56,6 +56,11 @@ impl XkbMapper {
             }
         }
 
+        // Ensure space is explicitly mapped as a failsafe
+        reverse_map
+            .entry(' ')
+            .or_insert((KeyCode::KEY_SPACE, false));
+
         Ok(Self { state, reverse_map })
     }
 
