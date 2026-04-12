@@ -405,4 +405,37 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn test_finalize_modifier_combo_key() {
+        let res = finalize("{key.ctrl+a}", None);
+        assert_eq!(
+            res.steps,
+            vec![ExpansionStep::KeyPress("ctrl+a".to_string())]
+        );
+    }
+
+    #[test]
+    fn test_finalize_multi_modifier_combo_case_normalized() {
+        let res = finalize("{key.Ctrl+Shift+End}", None);
+        assert_eq!(
+            res.steps,
+            vec![ExpansionStep::KeyPress("ctrl+shift+end".to_string())]
+        );
+    }
+
+    #[test]
+    fn test_finalize_combo_between_text_segments() {
+        let res = finalize("Name{key.tab}Address{key.shift+tab}Back", None);
+        assert_eq!(
+            res.steps,
+            vec![
+                ExpansionStep::Text("Name".to_string()),
+                ExpansionStep::KeyPress("tab".to_string()),
+                ExpansionStep::Text("Address".to_string()),
+                ExpansionStep::KeyPress("shift+tab".to_string()),
+                ExpansionStep::Text("Back".to_string()),
+            ]
+        );
+    }
 }

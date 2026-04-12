@@ -154,28 +154,119 @@ fn pre_release_modifiers() {
     }
 }
 
-/// Simulates a single key press+release for a given alias string.
-/// Returns `true` if the key alias was recognized.
+/// Simulates a key press (optionally with modifier keys held).
+///
+/// Supports combo syntax via `+` separator: `ctrl+a`, `shift+tab`, `ctrl+shift+end`.
+/// Returns `true` if all parts were recognized and simulated.
 #[cfg(not(target_os = "linux"))]
 fn simulate_key_alias(alias: &str) -> bool {
-    if let Some(key) = alias_to_rdev_key(alias) {
-        let _ = simulate(&EventType::KeyPress(key));
-        let _ = simulate(&EventType::KeyRelease(key));
-        true
-    } else {
-        false
+    let parts: Vec<&str> = alias.split('+').collect();
+    if parts.is_empty() {
+        return false;
+    }
+
+    // Last part is the main key; everything before it is a modifier.
+    let main_key_alias = parts[parts.len() - 1];
+    let modifier_aliases = &parts[..parts.len() - 1];
+
+    let main_key = match alias_to_rdev_key(main_key_alias) {
+        Some(k) => k,
+        None => return false,
+    };
+
+    // Resolve modifier keys.
+    let mut modifiers = Vec::new();
+    for m in modifier_aliases {
+        match modifier_alias_to_rdev_key(m) {
+            Some(k) => modifiers.push(k),
+            None => return false,
+        }
+    }
+
+    // Press modifiers → press key → release key → release modifiers (reverse).
+    for m in &modifiers {
+        let _ = simulate(&EventType::KeyPress(*m));
+    }
+    let _ = simulate(&EventType::KeyPress(main_key));
+    let _ = simulate(&EventType::KeyRelease(main_key));
+    for m in modifiers.iter().rev() {
+        let _ = simulate(&EventType::KeyRelease(*m));
+    }
+    true
+}
+
+/// Simulates a key press (optionally with modifier keys held) on Linux.
+#[cfg(target_os = "linux")]
+fn simulate_key_alias(alias: &str) -> bool {
+    let parts: Vec<&str> = alias.split('+').collect();
+    if parts.is_empty() {
+        return false;
+    }
+
+    let main_key_alias = parts[parts.len() - 1];
+    let modifier_aliases = &parts[..parts.len() - 1];
+
+    let main_key = match alias_to_evdev_key(main_key_alias) {
+        Some(k) => k,
+        None => return false,
+    };
+
+    let mut modifiers = Vec::new();
+    for m in modifier_aliases {
+        match modifier_alias_to_evdev_key(m) {
+            Some(k) => modifiers.push(k),
+            None => return false,
+        }
+    }
+
+    for m in &modifiers {
+        crate::platform::linux::uinput::simulate_key(*m, true);
+    }
+    crate::platform::linux::uinput::simulate_keypress(main_key);
+    for m in modifiers.iter().rev() {
+        crate::platform::linux::uinput::simulate_key(*m, false);
+    }
+    true
+}
+
+/// Resolves a modifier alias to an rdev Key.
+#[cfg(not(target_os = "linux"))]
+fn modifier_alias_to_rdev_key(alias: &str) -> Option<Key> {
+    match alias {
+        "ctrl" | "control" => Some(Key::ControlLeft),
+        "lctrl" => Some(Key::ControlLeft),
+        "rctrl" => Some(Key::ControlRight),
+        "alt" => Some(Key::Alt),
+        "lalt" => Some(Key::Alt),
+        "ralt" => Some(Key::AltGr),
+        "shift" => Some(Key::ShiftLeft),
+        "lshift" => Some(Key::ShiftLeft),
+        "rshift" => Some(Key::ShiftRight),
+        "win" | "mod" | "super" | "meta" => Some(Key::MetaLeft),
+        // macOS aliases
+        "cmd" | "command" => Some(Key::MetaLeft),
+        "opt" | "option" => Some(Key::Alt),
+        _ => None,
     }
 }
 
-/// Simulates a single key press+release for a given alias string (Linux).
-/// Returns `true` if the key alias was recognized.
+/// Resolves a modifier alias to an evdev KeyCode.
 #[cfg(target_os = "linux")]
-fn simulate_key_alias(alias: &str) -> bool {
-    if let Some(key) = alias_to_evdev_key(alias) {
-        crate::platform::linux::uinput::simulate_keypress(key);
-        true
-    } else {
-        false
+fn modifier_alias_to_evdev_key(alias: &str) -> Option<evdev::KeyCode> {
+    match alias {
+        "ctrl" | "control" => Some(evdev::KeyCode::KEY_LEFTCTRL),
+        "lctrl" => Some(evdev::KeyCode::KEY_LEFTCTRL),
+        "rctrl" => Some(evdev::KeyCode::KEY_RIGHTCTRL),
+        "alt" => Some(evdev::KeyCode::KEY_LEFTALT),
+        "lalt" => Some(evdev::KeyCode::KEY_LEFTALT),
+        "ralt" => Some(evdev::KeyCode::KEY_RIGHTALT),
+        "shift" => Some(evdev::KeyCode::KEY_LEFTSHIFT),
+        "lshift" => Some(evdev::KeyCode::KEY_LEFTSHIFT),
+        "rshift" => Some(evdev::KeyCode::KEY_RIGHTSHIFT),
+        "win" | "mod" | "super" | "meta" => Some(evdev::KeyCode::KEY_LEFTMETA),
+        "cmd" | "command" => Some(evdev::KeyCode::KEY_LEFTMETA),
+        "opt" | "option" => Some(evdev::KeyCode::KEY_LEFTALT),
+        _ => None,
     }
 }
 
@@ -183,6 +274,7 @@ fn simulate_key_alias(alias: &str) -> bool {
 #[cfg(not(target_os = "linux"))]
 fn alias_to_rdev_key(alias: &str) -> Option<Key> {
     match alias {
+        // Navigation
         "tab" => Some(Key::Tab),
         "enter" | "return" => Some(Key::Return),
         "esc" | "escape" => Some(Key::Escape),
@@ -194,9 +286,81 @@ fn alias_to_rdev_key(alias: &str) -> Option<Key> {
         "end" => Some(Key::End),
         "pgup" | "pageup" => Some(Key::PageUp),
         "pgdown" | "pagedown" => Some(Key::PageDown),
+        "insert" | "ins" => Some(Key::Insert),
+        // Editing
         "backspace" => Some(Key::Backspace),
         "delete" | "del" => Some(Key::Delete),
         "space" => Some(Key::Space),
+        // Alphabets
+        "a" => Some(Key::KeyA),
+        "b" => Some(Key::KeyB),
+        "c" => Some(Key::KeyC),
+        "d" => Some(Key::KeyD),
+        "e" => Some(Key::KeyE),
+        "f" => Some(Key::KeyF),
+        "g" => Some(Key::KeyG),
+        "h" => Some(Key::KeyH),
+        "i" => Some(Key::KeyI),
+        "j" => Some(Key::KeyJ),
+        "k" => Some(Key::KeyK),
+        "l" => Some(Key::KeyL),
+        "m" => Some(Key::KeyM),
+        "n" => Some(Key::KeyN),
+        "o" => Some(Key::KeyO),
+        "p" => Some(Key::KeyP),
+        "q" => Some(Key::KeyQ),
+        "r" => Some(Key::KeyR),
+        "s" => Some(Key::KeyS),
+        "t" => Some(Key::KeyT),
+        "u" => Some(Key::KeyU),
+        "v" => Some(Key::KeyV),
+        "w" => Some(Key::KeyW),
+        "x" => Some(Key::KeyX),
+        "y" => Some(Key::KeyY),
+        "z" => Some(Key::KeyZ),
+        // Numbers
+        "0" => Some(Key::Num0),
+        "1" => Some(Key::Num1),
+        "2" => Some(Key::Num2),
+        "3" => Some(Key::Num3),
+        "4" => Some(Key::Num4),
+        "5" => Some(Key::Num5),
+        "6" => Some(Key::Num6),
+        "7" => Some(Key::Num7),
+        "8" => Some(Key::Num8),
+        "9" => Some(Key::Num9),
+        // Function keys
+        "f1" => Some(Key::F1),
+        "f2" => Some(Key::F2),
+        "f3" => Some(Key::F3),
+        "f4" => Some(Key::F4),
+        "f5" => Some(Key::F5),
+        "f6" => Some(Key::F6),
+        "f7" => Some(Key::F7),
+        "f8" => Some(Key::F8),
+        "f9" => Some(Key::F9),
+        "f10" => Some(Key::F10),
+        "f11" => Some(Key::F11),
+        "f12" => Some(Key::F12),
+        // Special characters
+        "backtick" | "grave" => Some(Key::BackQuote),
+        "tilde" => Some(Key::BackQuote), // tilde is shift+backtick, but maps to same physical key
+        "minus" | "dash" => Some(Key::Minus),
+        "equal" | "equals" => Some(Key::Equal),
+        "backslash" => Some(Key::BackSlash),
+        "semicolon" => Some(Key::SemiColon),
+        "quote" | "apostrophe" => Some(Key::Quote),
+        "comma" => Some(Key::Comma),
+        "dot" | "period" => Some(Key::Dot),
+        "slash" => Some(Key::Slash),
+        "lbracket" | "leftbracket" => Some(Key::LeftBracket),
+        "rbracket" | "rightbracket" => Some(Key::RightBracket),
+        // Lock keys
+        "capslock" => Some(Key::CapsLock),
+        "numlock" => Some(Key::NumLock),
+        "scrolllock" => Some(Key::ScrollLock),
+        "printscreen" | "prtsc" => Some(Key::PrintScreen),
+        "pause" | "break" => Some(Key::Pause),
         _ => None,
     }
 }
@@ -205,6 +369,7 @@ fn alias_to_rdev_key(alias: &str) -> Option<Key> {
 #[cfg(target_os = "linux")]
 fn alias_to_evdev_key(alias: &str) -> Option<evdev::KeyCode> {
     match alias {
+        // Navigation
         "tab" => Some(evdev::KeyCode::KEY_TAB),
         "enter" | "return" => Some(evdev::KeyCode::KEY_ENTER),
         "esc" | "escape" => Some(evdev::KeyCode::KEY_ESC),
@@ -216,9 +381,81 @@ fn alias_to_evdev_key(alias: &str) -> Option<evdev::KeyCode> {
         "end" => Some(evdev::KeyCode::KEY_END),
         "pgup" | "pageup" => Some(evdev::KeyCode::KEY_PAGEUP),
         "pgdown" | "pagedown" => Some(evdev::KeyCode::KEY_PAGEDOWN),
+        "insert" | "ins" => Some(evdev::KeyCode::KEY_INSERT),
+        // Editing
         "backspace" => Some(evdev::KeyCode::KEY_BACKSPACE),
         "delete" | "del" => Some(evdev::KeyCode::KEY_DELETE),
         "space" => Some(evdev::KeyCode::KEY_SPACE),
+        // Alphabets
+        "a" => Some(evdev::KeyCode::KEY_A),
+        "b" => Some(evdev::KeyCode::KEY_B),
+        "c" => Some(evdev::KeyCode::KEY_C),
+        "d" => Some(evdev::KeyCode::KEY_D),
+        "e" => Some(evdev::KeyCode::KEY_E),
+        "f" => Some(evdev::KeyCode::KEY_F),
+        "g" => Some(evdev::KeyCode::KEY_G),
+        "h" => Some(evdev::KeyCode::KEY_H),
+        "i" => Some(evdev::KeyCode::KEY_I),
+        "j" => Some(evdev::KeyCode::KEY_J),
+        "k" => Some(evdev::KeyCode::KEY_K),
+        "l" => Some(evdev::KeyCode::KEY_L),
+        "m" => Some(evdev::KeyCode::KEY_M),
+        "n" => Some(evdev::KeyCode::KEY_N),
+        "o" => Some(evdev::KeyCode::KEY_O),
+        "p" => Some(evdev::KeyCode::KEY_P),
+        "q" => Some(evdev::KeyCode::KEY_Q),
+        "r" => Some(evdev::KeyCode::KEY_R),
+        "s" => Some(evdev::KeyCode::KEY_S),
+        "t" => Some(evdev::KeyCode::KEY_T),
+        "u" => Some(evdev::KeyCode::KEY_U),
+        "v" => Some(evdev::KeyCode::KEY_V),
+        "w" => Some(evdev::KeyCode::KEY_W),
+        "x" => Some(evdev::KeyCode::KEY_X),
+        "y" => Some(evdev::KeyCode::KEY_Y),
+        "z" => Some(evdev::KeyCode::KEY_Z),
+        // Numbers
+        "0" => Some(evdev::KeyCode::KEY_0),
+        "1" => Some(evdev::KeyCode::KEY_1),
+        "2" => Some(evdev::KeyCode::KEY_2),
+        "3" => Some(evdev::KeyCode::KEY_3),
+        "4" => Some(evdev::KeyCode::KEY_4),
+        "5" => Some(evdev::KeyCode::KEY_5),
+        "6" => Some(evdev::KeyCode::KEY_6),
+        "7" => Some(evdev::KeyCode::KEY_7),
+        "8" => Some(evdev::KeyCode::KEY_8),
+        "9" => Some(evdev::KeyCode::KEY_9),
+        // Function keys
+        "f1" => Some(evdev::KeyCode::KEY_F1),
+        "f2" => Some(evdev::KeyCode::KEY_F2),
+        "f3" => Some(evdev::KeyCode::KEY_F3),
+        "f4" => Some(evdev::KeyCode::KEY_F4),
+        "f5" => Some(evdev::KeyCode::KEY_F5),
+        "f6" => Some(evdev::KeyCode::KEY_F6),
+        "f7" => Some(evdev::KeyCode::KEY_F7),
+        "f8" => Some(evdev::KeyCode::KEY_F8),
+        "f9" => Some(evdev::KeyCode::KEY_F9),
+        "f10" => Some(evdev::KeyCode::KEY_F10),
+        "f11" => Some(evdev::KeyCode::KEY_F11),
+        "f12" => Some(evdev::KeyCode::KEY_F12),
+        // Special characters
+        "backtick" | "grave" => Some(evdev::KeyCode::KEY_GRAVE),
+        "tilde" => Some(evdev::KeyCode::KEY_GRAVE),
+        "minus" | "dash" => Some(evdev::KeyCode::KEY_MINUS),
+        "equal" | "equals" => Some(evdev::KeyCode::KEY_EQUAL),
+        "backslash" => Some(evdev::KeyCode::KEY_BACKSLASH),
+        "semicolon" => Some(evdev::KeyCode::KEY_SEMICOLON),
+        "quote" | "apostrophe" => Some(evdev::KeyCode::KEY_APOSTROPHE),
+        "comma" => Some(evdev::KeyCode::KEY_COMMA),
+        "dot" | "period" => Some(evdev::KeyCode::KEY_DOT),
+        "slash" => Some(evdev::KeyCode::KEY_SLASH),
+        "lbracket" | "leftbracket" => Some(evdev::KeyCode::KEY_LEFTBRACE),
+        "rbracket" | "rightbracket" => Some(evdev::KeyCode::KEY_RIGHTBRACE),
+        // Lock keys
+        "capslock" => Some(evdev::KeyCode::KEY_CAPSLOCK),
+        "numlock" => Some(evdev::KeyCode::KEY_NUMLOCK),
+        "scrolllock" => Some(evdev::KeyCode::KEY_SCROLLLOCK),
+        "printscreen" | "prtsc" => Some(evdev::KeyCode::KEY_SYSRQ),
+        "pause" | "break" => Some(evdev::KeyCode::KEY_PAUSE),
         _ => None,
     }
 }
@@ -592,5 +829,113 @@ mod tests {
             vec!["get_text", "set_text", "get_text"],
             "must read original, write payload, read back to verify before any paste"
         );
+    }
+
+    // ----- Phase 3: Key alias and modifier resolution tests -----
+
+    #[test]
+    fn alias_resolves_alphabet_keys() {
+        for letter in 'a'..='z' {
+            let alias = letter.to_string();
+            assert!(
+                alias_to_rdev_key(&alias).is_some(),
+                "missing alias for key '{}'",
+                alias
+            );
+        }
+    }
+
+    #[test]
+    fn alias_resolves_number_keys() {
+        for digit in '0'..='9' {
+            let alias = digit.to_string();
+            assert!(
+                alias_to_rdev_key(&alias).is_some(),
+                "missing alias for key '{}'",
+                alias
+            );
+        }
+    }
+
+    #[test]
+    fn alias_resolves_function_keys() {
+        for n in 1..=12 {
+            let alias = format!("f{}", n);
+            assert!(
+                alias_to_rdev_key(&alias).is_some(),
+                "missing alias for key '{}'",
+                alias
+            );
+        }
+    }
+
+    #[test]
+    fn alias_resolves_special_characters() {
+        let specials = [
+            "backtick",
+            "grave",
+            "tilde",
+            "minus",
+            "dash",
+            "equal",
+            "equals",
+            "backslash",
+            "semicolon",
+            "quote",
+            "apostrophe",
+            "comma",
+            "dot",
+            "period",
+            "slash",
+            "lbracket",
+            "rbracket",
+            "capslock",
+            "numlock",
+            "scrolllock",
+            "printscreen",
+            "prtsc",
+            "pause",
+            "break",
+            "insert",
+            "ins",
+        ];
+        for alias in &specials {
+            assert!(
+                alias_to_rdev_key(alias).is_some(),
+                "missing alias for special key '{}'",
+                alias
+            );
+        }
+    }
+
+    #[test]
+    fn modifier_alias_resolves_all_variants() {
+        let modifiers = [
+            "ctrl", "control", "lctrl", "rctrl", "alt", "lalt", "ralt", "shift", "lshift",
+            "rshift", "win", "mod", "super", "meta", "cmd", "command", "opt", "option",
+        ];
+        for alias in &modifiers {
+            assert!(
+                modifier_alias_to_rdev_key(alias).is_some(),
+                "missing modifier alias '{}'",
+                alias
+            );
+        }
+    }
+
+    #[test]
+    fn modifier_alias_rejects_unknown() {
+        assert!(modifier_alias_to_rdev_key("hyper").is_none());
+        assert!(modifier_alias_to_rdev_key("fn").is_none());
+    }
+
+    #[test]
+    fn alias_rejects_unknown_keys() {
+        assert!(
+            alias_to_rdev_key("ctrl").is_none(),
+            "modifiers must not resolve as main keys"
+        );
+        assert!(alias_to_rdev_key("shift").is_none());
+        assert!(alias_to_rdev_key("unknown_key").is_none());
     }
 }
