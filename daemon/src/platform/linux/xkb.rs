@@ -91,8 +91,30 @@ impl XkbMapper {
                     }
                 }
                 KeyCode::KEY_SPACE => return Some(EngineEvent::Char(' ')),
+                // Structural keys — break any active typing sequence.
                 KeyCode::KEY_ENTER | KeyCode::KEY_KPENTER => return Some(EngineEvent::Interrupt),
+                KeyCode::KEY_TAB => return Some(EngineEvent::Interrupt),
+                // Navigation keys — cursor moved, buffer is now desynchronized.
+                KeyCode::KEY_UP
+                | KeyCode::KEY_DOWN
+                | KeyCode::KEY_LEFT
+                | KeyCode::KEY_RIGHT
+                | KeyCode::KEY_HOME
+                | KeyCode::KEY_END
+                | KeyCode::KEY_PAGEUP
+                | KeyCode::KEY_PAGEDOWN => return Some(EngineEvent::Interrupt),
                 _ => {}
+            }
+
+            // Any key pressed with a modifier (ctrl/alt) is a system chord — skip.
+            let ctrl_active = self
+                .state
+                .mod_name_is_active(xkb::MOD_NAME_CTRL, xkb::STATE_MODS_EFFECTIVE);
+            let alt_active = self
+                .state
+                .mod_name_is_active(xkb::MOD_NAME_ALT, xkb::STATE_MODS_EFFECTIVE);
+            if ctrl_active || alt_active {
+                return None;
             }
 
             let s = self.state.key_get_utf8(keycode.into());

@@ -81,7 +81,10 @@ pub fn start_listener(
                                     || key == KeyCode::BTN_MIDDLE
                                 {
                                     if is_press {
-                                        if !IS_INJECTING.load(Ordering::SeqCst) {
+                                        if IS_INJECTING.load(Ordering::SeqCst) {
+                                            // Mouse click — always physical. Abort active injection.
+                                            injector::abort_injection();
+                                        } else {
                                             let mut lock = evaluator.lock().unwrap();
                                             let _ = lock.process_event(EngineEvent::Interrupt);
                                         }

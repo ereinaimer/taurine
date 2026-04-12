@@ -61,6 +61,19 @@ fn inject_mutex() -> &'static Mutex<()> {
 /// (backspaces, Ctrl+V) are invisible to the evaluator with zero race window.
 pub static IS_INJECTING: AtomicBool = AtomicBool::new(false);
 
+/// Set by the hook thread when a physical keypress is detected during
+/// an active injection. The injection loop checks this between steps
+/// and aborts early if set, restoring the clipboard and releasing modifiers.
+pub static INJECTION_ABORT: AtomicBool = AtomicBool::new(false);
+
+/// Request an abort of the currently running injection.
+///
+/// Safe to call from any thread. The injection loop polls this flag between
+/// steps and will stop, restore the clipboard, and do a Panic Release.
+pub fn abort_injection() {
+    INJECTION_ABORT.store(true, Ordering::SeqCst);
+}
+
 /// Implicit inter-step delay (ms) for OS reliability between sequential actions.
 const INTER_STEP_DELAY_MS: u64 = 10;
 
@@ -387,6 +400,9 @@ fn restore_clipboard(original: &str) {
 pub fn inject_expansion(steps: Vec<ExpansionStep>, delete_count: usize) {
     let _inject_guard = inject_mutex().lock().expect("inject mutex poisoned");
 
+    // Clear any stale abort from a previous injection.
+    INJECTION_ABORT.store(false, Ordering::SeqCst);
+
     // Pre-Release: neutralize modifier state before any injection.
     pre_release_modifiers();
 
@@ -400,6 +416,12 @@ pub fn inject_expansion(steps: Vec<ExpansionStep>, delete_count: usize) {
     let mut original_clipboard: Option<String> = None;
 
     for (i, step) in steps.iter().enumerate() {
+        // Check for user-initiated abort before each step.
+        if INJECTION_ABORT.load(Ordering::SeqCst) {
+            debug!("Injection aborted by physical keypress at step {}", i);
+            break;
+        }
+
         // Implicit inter-step delay (skip before the very first step).
         if i > 0 {
             thread::sleep(Duration::from_millis(INTER_STEP_DELAY_MS));
@@ -413,10 +435,7 @@ pub fn inject_expansion(steps: Vec<ExpansionStep>, delete_count: usize) {
                     }
                 } else if original_clipboard.is_none() {
                     // First text segment failed entirely — abort.
-                    IS_INJECTING.store(false, Ordering::SeqCst);
-                    // Panic Release on abort.
-                    pre_release_modifiers();
-                    return;
+                    break;
                 }
             }
             ExpansionStep::KeyPress(alias) => {
@@ -425,7 +444,16 @@ pub fn inject_expansion(steps: Vec<ExpansionStep>, delete_count: usize) {
                 }
             }
             ExpansionStep::Delay(ms) => {
-                thread::sleep(Duration::from_millis(*ms));
+                // Split long delays into smaller chunks so abort is responsive.
+                let mut remaining = *ms;
+                while remaining > 0 {
+                    if INJECTION_ABORT.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    let chunk = remaining.min(50);
+                    thread::sleep(Duration::from_millis(chunk));
+                    remaining -= chunk;
+                }
             }
         }
     }
@@ -438,6 +466,7 @@ pub fn inject_expansion(steps: Vec<ExpansionStep>, delete_count: usize) {
     // Panic Release: ensure all modifiers are logically released.
     pre_release_modifiers();
 
+    INJECTION_ABORT.store(false, Ordering::SeqCst);
     IS_INJECTING.store(false, Ordering::SeqCst);
 }
 

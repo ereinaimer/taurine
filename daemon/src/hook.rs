@@ -83,8 +83,9 @@ pub fn start_listener(
 
         match event.event_type {
             EventType::ButtonPress(_) => {
-                // Mouse click — ignore if we're mid-injection; otherwise clear the buffer.
+                // Mouse click — always physical. If injection is active, abort it.
                 if IS_INJECTING.load(Ordering::SeqCst) {
+                    injector::abort_injection();
                     return Some(event);
                 }
                 let mut lock = evaluator.lock().unwrap();
@@ -92,7 +93,8 @@ pub fn start_listener(
             }
             EventType::KeyPress(key) => {
                 // All events during injection are synthetic (our own backspaces / Ctrl+V).
-                // Ignore them so they don't feed back into the evaluator.
+                // We cannot distinguish physical from synthetic in rdev::grab,
+                // so pass them through without feeding the evaluator.
                 if IS_INJECTING.load(Ordering::SeqCst) {
                     return Some(event);
                 }
@@ -107,9 +109,24 @@ pub fn start_listener(
                         }
                     }
                     Key::Space => Some(EngineEvent::Char(' ')),
-                    // Enter submits / moves to a new line — break any active sequence.
+                    // Structural keys — break any active typing sequence.
                     Key::Return => Some(EngineEvent::Interrupt),
+                    Key::Tab => Some(EngineEvent::Interrupt),
+                    // Navigation keys — cursor moved, buffer is now desynchronized.
+                    Key::UpArrow
+                    | Key::DownArrow
+                    | Key::LeftArrow
+                    | Key::RightArrow
+                    | Key::Home
+                    | Key::End
+                    | Key::PageUp
+                    | Key::PageDown => Some(EngineEvent::Interrupt),
                     _ => {
+                        // Any key pressed with a modifier (ctrl/alt) is a
+                        // system chord, not a character — reset the buffer.
+                        if alt_down.load(Ordering::Relaxed) || ctrl_down.load(Ordering::Relaxed) {
+                            return Some(event);
+                        }
                         // Use rdev's pre-decoded character for layout-awareness.
                         if let Some(ref text) = event.name {
                             if text.chars().count() == 1 {
