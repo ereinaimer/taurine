@@ -70,12 +70,7 @@ pub fn execute(sort: Option<SortBy>, asc: bool, desc: bool) -> taurine_core::err
                 row.push(auto.usage_count.to_string());
             }
             Some(SortBy::Created) => {
-                // Formatting timestamp as a human-readable string using the time crate
-                let dt = OffsetDateTime::from_unix_timestamp(auto.created_at)
-                    .unwrap_or(OffsetDateTime::UNIX_EPOCH);
-                // "2024-04-12" or similar
-                let date_str = format!("{}-{:02}-{:02}", dt.year(), u8::from(dt.month()), dt.day());
-                row.push(date_str);
+                row.push(format_relative_time(auto.created_at));
             }
             _ => {}
         }
@@ -84,4 +79,36 @@ pub fn execute(sort: Option<SortBy>, asc: bool, desc: bool) -> taurine_core::err
 
     println!("{table}");
     Ok(())
+}
+
+fn format_relative_time(timestamp: i64) -> String {
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let diff = now - timestamp;
+
+    if diff < 60 {
+        return "just now".to_string();
+    }
+
+    let mins = diff / 60;
+    if mins < 60 {
+        return format!("{}m ago", mins);
+    }
+
+    let hours = mins / 60;
+    if hours < 24 {
+        return format!("{}h ago", hours);
+    }
+
+    let days = hours / 24;
+    if days < 30 {
+        return format!("{}d ago", days);
+    }
+
+    let months = days / 30;
+    if months < 12 {
+        return format!("{}mo ago", months);
+    }
+
+    let years = days / 365;
+    format!("{}y ago", years)
 }
