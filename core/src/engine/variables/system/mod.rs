@@ -15,7 +15,7 @@ use crate::engine::variables::types::{ExpansionStep, FinalExpansion};
 
 /// Checks if a keyword is reserved by the system.
 pub fn is_reserved(key: &str) -> bool {
-    if split_transformer(key).is_some() {
+    if split_modifier(key).is_some() {
         return true;
     }
 
@@ -26,13 +26,13 @@ pub fn is_reserved(key: &str) -> bool {
         || key.contains('.')
 }
 
-/// Splits a key into a transformer prefix and its content if it matches a known transformer.
-/// Example: `upper.time.now` -> `Some(("upper", "time.now"))`
-pub fn split_transformer(key: &str) -> Option<(&str, &str)> {
-    if let Some((prefix, sub)) = key.split_once('.')
-        && format::TRANSFORMERS.contains(&prefix)
+/// Splits a key into its base and a modifier suffix if it matches a known transformer.
+/// Example: `time.now.upper` -> `Some(("time.now", "upper"))`
+pub fn split_modifier(key: &str) -> Option<(&str, &str)> {
+    if let Some((sub, suffix)) = key.rsplit_once('.')
+        && format::TRANSFORMERS.contains(&suffix)
     {
-        return Some((prefix, sub));
+        return Some((sub, suffix));
     }
     None
 }
@@ -48,7 +48,7 @@ pub fn is_directive(key: &str) -> bool {
 /// Resolves a content-producing system variable.
 pub fn resolve(key: &str) -> Option<String> {
     // 1. Handle Transformers first (Recursive)
-    if let Some((prefix, sub)) = split_transformer(key) {
+    if let Some((sub, suffix)) = split_modifier(key) {
         let content = if let Some(resolved) = resolve(sub) {
             resolved
         } else if let Some(unquoted) = strip_quotes(sub) {
@@ -58,7 +58,7 @@ pub fn resolve(key: &str) -> Option<String> {
             // But we return None here so interpolate can try user variables first.
             return None;
         };
-        return format::apply(prefix, &content);
+        return format::apply(suffix, &content);
     }
 
     // 2. Base System Variables

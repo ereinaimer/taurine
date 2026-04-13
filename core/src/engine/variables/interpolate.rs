@@ -52,14 +52,16 @@ pub(crate) fn extract_placeholders<'a>(template: &'a str) -> IndexMap<&'a str, P
                 let inner = &template[start..end];
                 let (mut key, default_value) = split_key_default(inner);
 
-                // Strip transformer prefixes to find the base user key
-                while let Some((_, sub)) = system::split_transformer(key) {
+                // Strip transformer suffixes to find the base user key
+                while let Some((sub, _)) = system::split_modifier(key) {
                     key = sub;
                 }
 
                 if !system::is_reserved(key)
                     && !placeholders.contains_key(key)
                     && system::strip_quotes(key).is_none()
+                    && !key.contains('{')
+                    && !key.contains('}')
                 {
                     placeholders.insert(key, Placeholder { key, default_value });
                 }
@@ -132,9 +134,9 @@ pub fn interpolate(template: &str, args: &ArgMap) -> String {
                 sys
             } else if let Some(user) = user_resolutions.get(key) {
                 user.clone()
-            } else if let Some((prefix, sub)) = system::split_transformer(key) {
-                // Flattened resolution (e.g. upper.msg)
-                if let Some(res) = resolve_prefixed(prefix, sub, &user_resolutions) {
+            } else if let Some((sub, suffix)) = system::split_modifier(key) {
+                // Flattened resolution (e.g. msg.upper)
+                if let Some(res) = resolve_modified(sub, suffix, &user_resolutions) {
                     res
                 } else {
                     format!("\x01{}\x02", inner)
@@ -158,17 +160,17 @@ pub fn interpolate(template: &str, args: &ArgMap) -> String {
     finalize_interpolation(output)
 }
 
-fn resolve_prefixed(
-    prefix: &str,
+fn resolve_modified(
     sub: &str,
+    suffix: &str,
     user_resolutions: &std::collections::HashMap<&str, String>,
 ) -> Option<String> {
     let content = if let Some(res) = system::resolve(sub) {
         res
     } else if let Some(user) = user_resolutions.get(sub) {
         user.clone()
-    } else if let Some((p2, s2)) = system::split_transformer(sub) {
-        resolve_prefixed(p2, s2, user_resolutions)?
+    } else if let Some((s2, p2)) = system::split_modifier(sub) {
+        resolve_modified(s2, p2, user_resolutions)?
     } else if let Some(unquoted) = system::strip_quotes(sub) {
         unquoted.to_string()
     } else {
@@ -177,12 +179,12 @@ fn resolve_prefixed(
     };
 
     // If the content is an unresolved sentinel, we don't transform it yet.
-    // This allows the transformer to stay intact: {upper.\x01msg\x02}
+    // This allows the transformer to stay intact: {\x01msg\x02.upper}
     if content.starts_with('\x01') && content.ends_with('\x02') {
         return None;
     }
 
-    system::format::apply(prefix, &content)
+    system::format::apply(suffix, &content)
 }
 
 fn find_innermost_tag(s: &str) -> Option<(usize, usize)> {
@@ -421,7 +423,7 @@ mod tests {
         let mut args = ArgMap::default();
         args.named
             .insert("val".to_string(), "MixedCase".to_string());
-        let tpl = "{upper.{lower.val}}";
+        let tpl = "{{val.lower}.upper}";
         assert_eq!(interpolate(tpl, &args), "MIXEDCASE");
     }
 
@@ -429,7 +431,7 @@ mod tests {
     fn test_interpolate_nested_user() {
         let mut args = ArgMap::default();
         args.named.insert("name".to_string(), "john".to_string());
-        let tpl = "{upper.{name}}";
+        let tpl = "{{name}.upper}";
         assert_eq!(interpolate(tpl, &args), "JOHN");
     }
 
@@ -446,15 +448,15 @@ mod tests {
     fn test_interpolate_balanced_with_escapes() {
         let args = ArgMap::default();
         // Use quotes to ensure it's treated as a literal and not an unresolved placeholder
-        let tpl = r#"{upper.'a\{b\}c'}"#;
+        let tpl = r#"{'a\{b\}c'.upper}"#;
         assert_eq!(interpolate(tpl, &args), "A{B}C");
     }
 
     #[test]
     fn test_interpolate_flattened_system() {
         let args = ArgMap::default();
-        // upper.time.now should resolve to the current time in uppercase
-        let res = interpolate("{upper.time.now}", &args);
+        // time.now.upper should resolve to the current time in uppercase
+        let res = interpolate("{time.now.upper}", &args);
         // We check if it resolved to SOMETHING that isn't the literal string or empty
         assert!(!res.is_empty());
         assert!(!res.contains("time.now"));
@@ -466,15 +468,15 @@ mod tests {
     fn test_interpolate_flattened_user() {
         let mut args = ArgMap::default();
         args.named.insert("name".to_string(), "john".to_string());
-        // upper.name should resolve to JOHN
-        assert_eq!(interpolate("{upper.name}", &args), "JOHN");
+        // name.upper should resolve to JOHN
+        assert_eq!(interpolate("{name.upper}", &args), "JOHN");
     }
 
     #[test]
     fn test_interpolate_quoted_literal() {
         let args = ArgMap::default();
-        assert_eq!(interpolate("{upper.'hello world'}", &args), "HELLO WORLD");
-        assert_eq!(interpolate("{upper.\"hello world\"}", &args), "HELLO WORLD");
+        assert_eq!(interpolate("{'hello world'.upper}", &args), "HELLO WORLD");
+        assert_eq!(interpolate("{\"hello world\".upper}", &args), "HELLO WORLD");
     }
 
     #[test]
@@ -482,12 +484,12 @@ mod tests {
         let mut args = ArgMap::default();
         args.named
             .insert("val".to_string(), "MixedCase".to_string());
-        assert_eq!(interpolate("{upper.lower.val}", &args), "MIXEDCASE");
+        assert_eq!(interpolate("{val.lower.upper}", &args), "MIXEDCASE");
     }
 
     #[test]
-    fn test_extract_placeholders_prefixed() {
-        let text = "Hello {upper.name} and {lower.email=DEFAULT@EMAIL.COM}";
+    fn test_extract_placeholders_suffixed() {
+        let text = "Hello {name.upper} and {email.lower=DEFAULT@EMAIL.COM}";
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 2);
         assert!(p.contains_key("name"));
@@ -496,5 +498,53 @@ mod tests {
             p.get("email").unwrap().default_value,
             Some("DEFAULT@EMAIL.COM")
         );
+    }
+
+    #[test]
+    fn test_interpolate_urlencode_nested() {
+        let mut args = ArgMap::default();
+        args.named
+            .insert("query".to_string(), "hello world!".to_string());
+
+        let tpl = "https://google.com/search?q={{query}.urlencode}";
+        assert_eq!(
+            interpolate(tpl, &args),
+            "https://google.com/search?q=hello%20world%21"
+        );
+    }
+
+    #[test]
+    fn test_interpolate_google_search_clipboard() {
+        let args = ArgMap::default();
+        system::clipboard::set_mock_clipboard(Some("customer error msg".to_string()));
+
+        let tpl = "https://google.com/search?q={{clipboard}.urlencode}";
+        assert_eq!(
+            interpolate(tpl, &args),
+            "https://google.com/search?q=customer%20error%20msg"
+        );
+
+        system::clipboard::set_mock_clipboard(None);
+    }
+
+    #[test]
+    fn test_interpolate_urlencode_repro() {
+        let mut args = ArgMap::default();
+        args.positional.push("banana".to_string());
+
+        let tpl = "https://google.com/search?q={{query}.urlencode}";
+        assert_eq!(
+            interpolate(tpl, &args),
+            "https://google.com/search?q=banana"
+        );
+    }
+
+    #[test]
+    fn test_interpolate_urlencode_flat() {
+        let mut args = ArgMap::default();
+        args.positional.push("apple".to_string());
+
+        let tpl = "https://google.com/search?q={query.urlencode}";
+        assert_eq!(interpolate(tpl, &args), "https://google.com/search?q=apple");
     }
 }
