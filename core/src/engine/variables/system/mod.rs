@@ -351,7 +351,7 @@ mod tests {
         assert!(is_reserved("clipboard"));
         assert!(is_reserved("uuid.v4"));
         assert!(is_reserved("time.now"));
-        assert!(is_reserved("crypto.price"));
+        assert!(is_reserved("lowercase.hello"));
         assert!(!is_reserved("username"));
     }
 
