@@ -36,19 +36,19 @@ cargo build --release
 
 | Command | Action | One-liner |
 |---------|--------|-----------|
-| **up** | Start the automation service | `taurine up` |
-| **add** | Create a new text expansion | `taurine add "trigger" "output"` |
-| **ls** | List expansions (supports `--sort`) | `taurine ls --sort usage --desc` |
-| **config** | Manage system settings | `taurine config ls` |
-| **status** | Check background daemon health | `taurine status` |
-| **down** | Stop the automation service | `taurine down` |
+| **up** | Start the automation service | taurine up |
+| **add** | Create a new text expansion | taurine add "trigger" "output" |
+| **ls** | List expansions (supports --sort) | taurine ls --sort usage --desc |
+| **config** | Manage system settings | taurine config ls |
+| **status** | Check background daemon health | taurine status |
+| **down** | Stop the automation service | taurine down |
 
 ---
 
 ## 3. Command Reference
 
 ### 3.1 Managing the Service
-*   taurine up: Installs and starts the background service. Use `taurine down` to stop it.
+*   taurine up: Installs and starts the background service. Use taurine down to stop it.
 *   taurine restart: Restarts the service to apply changes or refresh the engine.
 *   taurine status: Reports whether the engine is online and if it's currently paused.
 
@@ -56,12 +56,12 @@ cargo build --release
 *   taurine add <trigger> <output>: Adds a new snippet. Triggers are typically prefixed with a special character (default is `>`).
 *   taurine delete <trigger>: Removes an automation matching the specific trigger.
 *   taurine ls: Displays a formatted table of all active triggers.
-    *   **Sorting**: Use `--sort` with `alpha`, `usage`, `created`, or `recent`.
-    *   **Order**: Use `--asc` or `--desc` (default is ascending for alpha, descending for others).
+    *   **Sorting**: Use --sort with alpha, usage, created, or recent.
+    *   **Order**: Use --asc or --desc (default is ascending for alpha, descending for others).
 
 ### 3.3 Configuration
 *   taurine config set <key> <value>: Updates a specific setting.
-*   taurine config reset <key>: Resets a setting to factory defaults (use `--all` to reset everything).
+*   taurine config reset <key>: Resets a setting to factory defaults (use --all to reset everything).
 *   Key Settings: trigger_char, pause_hotkey, start_on_boot.
 
 ---
@@ -94,7 +94,7 @@ Snippets can take arguments passed within double quotes after the trigger.
     *   >path -> Home: {env.HOME} (Unix) or Home: {env.USERPROFILE} (Windows)
 *   Keystroke Sequences:
     *   >login -> admin{key.tab}password123{key.enter}
-    *   >select -> {key.ctrl+a}{key.backspace} (Use `mod` for cross-platform: `{key.mod+a}`)
+    *   >select -> {key.ctrl+a}{key.backspace} (Use `mod` for cross-platform: {key.mod+a})
     *   >slow -> Start...{delay.500ms}End.
 
 ### 4.4 Inline Math (Instant Calculation)
@@ -107,6 +107,12 @@ Math expansion works with any trigger character followed by a valid expression.
 ### 4.5 Hybrid Templates
 *   Commit Message: >cmt -> feat({env.PWD}): {clipboard}\n\nSigned-off-by: {env.USER}
 *   Daily Log: >day -> # {date.long}\n- Started at {time.now.12h} in {env.COMPUTERNAME}\n- {cursor}
+
+### 4.6 Text Transformers
+*   Basic Literal: >greet -> {upper.'welcome'} -> WELCOME
+*   Direct Variable: >user -> {title.name} (Formats the name argument in Title Case)
+*   System Variable: >now -> {upper.time.now} -> 12:00 PM (Uppercases the current time)
+*   Deep Chaining: >id -> {shoutysnake.uuid.v4} -> A1B2-C3D4... (Uppercases and snakes the UUID)
 
 ---
 
@@ -142,23 +148,33 @@ Contextual variables pull data from the active system state at the moment of exp
 Directives are special placeholders that do not produce text themselves but control the behavior of the expansion process (keystrokes, timing, and positioning).
 
 *   Keystroke ({key.*}):
-    *   Aliases: Single keys like `tab`, `enter`, `esc`, `up`, `down`, `home`, `end`, `backspace`, `space`.
-    *   Alphabets/Numbers: `key.a`..`key.z`, `key.0`..`key.9`, `key.f1`..`key.f12`.
-    *   Combinations: Supports `+` separator for modifier chords (e.g., `{key.ctrl+shift+t}`).
-    *   Platform Modifiers: `mod` (Cmd on macOS, Win/Ctrl elsewhere), `win`, `cmd`, `opt`.
+    *   Aliases: Single keys like tab, enter, esc, up, down, home, end, backspace, space.
+    *   Alphabets/Numbers: key.a..key.z, key.0..key.9, key.f1..key.f12.
+    *   Combinations: Supports + separator for modifier chords (e.g., {key.ctrl+shift+t}).
+    *   Platform Modifiers: mod (Cmd on macOS, Win/Ctrl elsewhere), win, cmd, opt.
 *   Delay ({delay.*}):
-    *   Usage: `{delay.Xms}` (e.g., `{delay.200ms}`) pauses the expansion sequence for exactly X milliseconds.
+    *   Usage: {delay.Xms} (e.g., {delay.200ms}) pauses the expansion sequence for exactly X milliseconds.
     *   Utility: Essential for waiting for UI transitions or target applications to process field changes.
 *   Cursor ({cursor}):
     *   Action: Defines the final caret (cursor) position after expansion is complete.
     *   Mechanism: The engine calculates the required left-arrow offset and automatically simulates the necessary back-arrow keystrokes.
-    *   **Conflict Rule**: If a snippet contains any `{key.*}` directives, the `{cursor}` tag is ignored as a directive (treated as literal text) to avoid ambiguous positioning in multi-action sequences.
+    *   Conflict Rule: If a snippet contains any {key.*} directives, the {cursor} tag is ignored as a directive (treated as literal text) to avoid ambiguous positioning in multi-action sequences.
+
+### 5.4 Text Transformers ({transformer.*})
+Transformers modify the casing and structure of provided content (literals or variables) using dot-notation.
+
+*   Flattened Resolution: Resolve content directly without nesting braces (e.g., {upper.msg} resolves msg first, then uppercases it).
+*   Literal Handling: Supports literal strings wrapped in single or double quotes (e.g., {upper.'hello'}).
+*   Recursive Chaining: Apply multiple modifiers in a single tag (e.g., {upper.lower.val}).
+*   Format List:
+    *   Case Styles: upper, lower, title, camel, pascal.
+    *   Delimiters: snake, kebab, shoutysnake, shoutykebab, train.
 
 ---
 
 ## 6. Inline Math Expansion
 
-Taurine can automatically evaluate mathematical expressions typed directly into any text field. Expansion occurs when the input buffer contains a valid math expression prefixed by the **trigger character** (e.g., `>5+5` -> `10`).
+Taurine can automatically evaluate mathematical expressions typed directly into any text field. Expansion occurs when the input buffer contains a valid math expression prefixed by the **trigger character** (e.g., >5+5 -> 10).
 
 ### 6.1 Math Parser Capabilities
 *   BEDMAS Compliance: Standard order of operations (Brackets, Exponents, Division/Multiplication, Addition/Subtraction).
