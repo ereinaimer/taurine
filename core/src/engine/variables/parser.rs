@@ -2,11 +2,14 @@ use super::types::ArgMap;
 
 fn strip_quotes(s: &str) -> &str {
     let s = s.trim();
-    if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
-        &s[1..s.len() - 1]
-    } else {
-        s
+    if s.len() >= 2 {
+        let first = s.chars().next().unwrap();
+        let last = s.chars().last().unwrap();
+        if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+            return &s[first.len_utf8()..s.len() - last.len_utf8()];
+        }
     }
+    s
 }
 
 pub(crate) fn tokenize_csv(raw: &str) -> Vec<String> {
@@ -16,13 +19,17 @@ pub(crate) fn tokenize_csv(raw: &str) -> Vec<String> {
 
     let mut tokens = Vec::new();
     let mut current_token = String::new();
-    let mut in_quote = false;
+    let mut active_quote: Option<char> = None;
 
     for c in raw.chars() {
-        if c == '"' {
-            in_quote = !in_quote;
+        if (c == '"' || c == '\'') && (active_quote.is_none() || active_quote == Some(c)) {
+            if active_quote.is_some() {
+                active_quote = None;
+            } else {
+                active_quote = Some(c);
+            }
             current_token.push(c);
-        } else if c == ',' && !in_quote {
+        } else if c == ',' && active_quote.is_none() {
             tokens.push(current_token.clone());
             current_token.clear();
         } else {
@@ -109,5 +116,13 @@ mod tests {
         assert_eq!(map.positional, vec!["first", "second arg"]);
         assert_eq!(map.named.get("key").unwrap(), "val");
         assert_eq!(map.named.get("another").unwrap(), "123");
+    }
+
+    #[test]
+    fn test_parse_args_single_quoted() {
+        let map = parse_args("name='Neil Armstrong',repo=taurine");
+        assert_eq!(map.named.get("name").unwrap(), "Neil Armstrong");
+        assert_eq!(map.named.get("repo").unwrap(), "taurine");
+        assert!(map.positional.is_empty());
     }
 }

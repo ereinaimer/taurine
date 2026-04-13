@@ -107,12 +107,12 @@ impl FastBuffer {
         let mut count = 0;
         let mut curr = (self.head + 64 - 1) % 64;
         let mut n = 0;
-        let mut in_quote = false;
+        let mut active_quote: Option<char> = None;
 
         while n < self.len {
             let c = self.data[curr];
 
-            let is_escaped = if c == '"' {
+            let is_escaped = if c == '"' || c == '\'' {
                 let prev_curr = (curr + 64 - 1) % 64;
                 let available = self.len - n - 1;
                 !self
@@ -122,11 +122,15 @@ impl FastBuffer {
                 false
             };
 
-            if c == '"' && !is_escaped {
-                in_quote = !in_quote;
-            } else if c.is_whitespace() && !in_quote {
+            if (c == '"' || c == '\'') && !is_escaped {
+                match active_quote {
+                    Some(q) if q == c => active_quote = None,
+                    None => active_quote = Some(c),
+                    _ => {}
+                }
+            } else if c.is_whitespace() && active_quote.is_none() {
                 break;
-            } else if c == trigger_char && !in_quote {
+            } else if c == trigger_char && active_quote.is_none() {
                 count += 1;
             }
 
@@ -153,12 +157,12 @@ impl FastBuffer {
         let mut collected = Vec::new();
         let mut curr = (self.head + 64 - 1) % 64;
         let mut n = 0;
-        let mut in_quote = false;
+        let mut active_quote: Option<char> = None;
 
         while n < self.len {
             let c = self.data[curr];
 
-            let is_escaped = if c == '"' {
+            let is_escaped = if c == '"' || c == '\'' {
                 let prev_curr = (curr + 64 - 1) % 64;
                 let available = self.len - n - 1;
                 !self
@@ -168,13 +172,24 @@ impl FastBuffer {
                 false
             };
 
-            if c == '"' && !is_escaped {
-                in_quote = !in_quote;
-                collected.push(c);
-            } else if c.is_whitespace() && !in_quote {
+            if (c == '"' || c == '\'') && !is_escaped {
+                match active_quote {
+                    Some(q) if q == c => {
+                        active_quote = None;
+                        collected.push(c);
+                    }
+                    None => {
+                        active_quote = Some(c);
+                        collected.push(c);
+                    }
+                    Some(_) => {
+                        collected.push(c);
+                    }
+                }
+            } else if c.is_whitespace() && active_quote.is_none() {
                 // Invalid sequence, space found before trigger char
                 return None;
-            } else if c == trigger_char && !in_quote {
+            } else if c == trigger_char && active_quote.is_none() {
                 // We've found the trigger char. The keyword is everything after it.
                 collected.reverse();
                 return Some(collected.into_iter().collect());
@@ -287,6 +302,16 @@ mod tests {
         assert_eq!(
             b.extract_trigger_word('>'),
             Some(r#"cmd-"ab\\""#.to_string())
+        );
+    }
+
+    #[test]
+    fn extract_trigger_word_single_quote_aware_whitespace() {
+        let mut b = FastBuffer::new();
+        type_str(&mut b, r#">search-'Neil Armstrong'"#);
+        assert_eq!(
+            b.extract_trigger_word('>'),
+            Some(r#"search-'Neil Armstrong'"#.to_string())
         );
     }
 
