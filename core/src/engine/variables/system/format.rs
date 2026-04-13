@@ -1,37 +1,39 @@
 use heck::*;
 
+pub const TRANSFORMERS: &[&str] = &[
+    "upper",
+    "lower",
+    "snake",
+    "kebab",
+    "pascal",
+    "camel",
+    "title",
+    "shoutysnake",
+    "shoutykebab",
+    "train",
+];
+
 pub fn resolve(key: &str) -> Option<String> {
-    if let Some(val) = key.strip_prefix("upper.") {
-        return Some(val.to_uppercase());
-    }
-    if let Some(val) = key.strip_prefix("lower.") {
-        return Some(val.to_lowercase());
-    }
-    if let Some(val) = key.strip_prefix("snake.") {
-        return Some(val.to_snake_case());
-    }
-    if let Some(val) = key.strip_prefix("kebab.") {
-        return Some(val.to_kebab_case());
-    }
-    if let Some(val) = key.strip_prefix("pascal.") {
-        return Some(val.to_upper_camel_case());
-    }
-    if let Some(val) = key.strip_prefix("camel.") {
-        return Some(val.to_lower_camel_case());
-    }
-    if let Some(val) = key.strip_prefix("title.") {
-        return Some(val.to_title_case());
-    }
-    if let Some(val) = key.strip_prefix("shoutysnake.") {
-        return Some(val.to_shouty_snake_case());
-    }
-    if let Some(val) = key.strip_prefix("shoutykebab.") {
-        return Some(val.to_shouty_kebab_case());
-    }
-    if let Some(val) = key.strip_prefix("train.") {
-        return Some(val.to_train_case());
+    if let Some((prefix, sub_key)) = key.split_once('.') {
+        return apply(prefix, sub_key);
     }
     None
+}
+
+pub fn apply(transformer: &str, content: &str) -> Option<String> {
+    match transformer {
+        "upper" => Some(content.to_uppercase()),
+        "lower" => Some(content.to_lowercase()),
+        "snake" => Some(content.to_snake_case()),
+        "kebab" => Some(content.to_kebab_case()),
+        "pascal" => Some(content.to_upper_camel_case()),
+        "camel" => Some(content.to_lower_camel_case()),
+        "title" => Some(content.to_title_case()),
+        "shoutysnake" => Some(content.to_shouty_snake_case()),
+        "shoutykebab" => Some(content.to_shouty_kebab_case()),
+        "train" => Some(content.to_train_case()),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

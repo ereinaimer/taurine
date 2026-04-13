@@ -50,11 +50,17 @@ pub(crate) fn extract_placeholders<'a>(template: &'a str) -> IndexMap<&'a str, P
 
             if depth == 0 {
                 let inner = &template[start..end];
-                // Check if this tag is a user variable (potentially with a default)
-                // We split at the FIRST '=' that is AT DEPTH 0 within this tag
-                let (key, default_value) = split_key_default(inner);
+                let (mut key, default_value) = split_key_default(inner);
 
-                if !system::is_reserved(key) && !placeholders.contains_key(key) {
+                // Strip transformer prefixes to find the base user key
+                while let Some((_, sub)) = system::split_transformer(key) {
+                    key = sub;
+                }
+
+                if !system::is_reserved(key)
+                    && !placeholders.contains_key(key)
+                    && system::strip_quotes(key).is_none()
+                {
                     placeholders.insert(key, Placeholder { key, default_value });
                 }
 
@@ -109,7 +115,7 @@ pub fn interpolate(template: &str, args: &ArgMap) -> String {
         } else if let Some(def) = placeholder.default_value {
             def.to_string()
         } else {
-            format!("{{{}}}", key)
+            format!("\x01{}\x02", key)
         };
         user_resolutions.insert(*key, resolved);
     }
@@ -122,11 +128,17 @@ pub fn interpolate(template: &str, args: &ArgMap) -> String {
         if let Some((start, end)) = find_innermost_tag(&output) {
             let inner = &output[start + 1..end];
             let (key, _) = split_key_default(inner);
-
             let resolved = if let Some(sys) = system::resolve(key) {
                 sys
             } else if let Some(user) = user_resolutions.get(key) {
                 user.clone()
+            } else if let Some((prefix, sub)) = system::split_transformer(key) {
+                // Flattened resolution (e.g. upper.msg)
+                if let Some(res) = resolve_prefixed(prefix, sub, &user_resolutions) {
+                    res
+                } else {
+                    format!("\x01{}\x02", inner)
+                }
             } else if system::is_directive(key) {
                 // Directive stays for finalization phase, use sentinel to avoid re-processing
                 format!("\x01{}\x02", key)
@@ -144,6 +156,33 @@ pub fn interpolate(template: &str, args: &ArgMap) -> String {
 
     // Restore sentinels and handle escapes
     finalize_interpolation(output)
+}
+
+fn resolve_prefixed(
+    prefix: &str,
+    sub: &str,
+    user_resolutions: &std::collections::HashMap<&str, String>,
+) -> Option<String> {
+    let content = if let Some(res) = system::resolve(sub) {
+        res
+    } else if let Some(user) = user_resolutions.get(sub) {
+        user.clone()
+    } else if let Some((p2, s2)) = system::split_transformer(sub) {
+        resolve_prefixed(p2, s2, user_resolutions)?
+    } else if let Some(unquoted) = system::strip_quotes(sub) {
+        unquoted.to_string()
+    } else {
+        // Fallback: literal
+        sub.to_string()
+    };
+
+    // If the content is an unresolved sentinel, we don't transform it yet.
+    // This allows the transformer to stay intact: {upper.\x01msg\x02}
+    if content.starts_with('\x01') && content.ends_with('\x02') {
+        return None;
+    }
+
+    system::format::apply(prefix, &content)
 }
 
 fn find_innermost_tag(s: &str) -> Option<(usize, usize)> {
@@ -379,10 +418,10 @@ mod tests {
 
     #[test]
     fn test_interpolate_nested_system() {
-        let args = ArgMap::default();
-        // Assuming time.now is mocked or reliable for testing
-        // For simplicity, let's use a nested structure that reduces to literals
-        let tpl = "{upper.{lower.MixedCase}}";
+        let mut args = ArgMap::default();
+        args.named
+            .insert("val".to_string(), "MixedCase".to_string());
+        let tpl = "{upper.{lower.val}}";
         assert_eq!(interpolate(tpl, &args), "MIXEDCASE");
     }
 
@@ -406,7 +445,56 @@ mod tests {
     #[test]
     fn test_interpolate_balanced_with_escapes() {
         let args = ArgMap::default();
-        let tpl = r#"{upper.a\{b\}c}"#;
+        // Use quotes to ensure it's treated as a literal and not an unresolved placeholder
+        let tpl = r#"{upper.'a\{b\}c'}"#;
         assert_eq!(interpolate(tpl, &args), "A{B}C");
+    }
+
+    #[test]
+    fn test_interpolate_flattened_system() {
+        let args = ArgMap::default();
+        // upper.time.now should resolve to the current time in uppercase
+        let res = interpolate("{upper.time.now}", &args);
+        // We check if it resolved to SOMETHING that isn't the literal string or empty
+        assert!(!res.is_empty());
+        assert!(!res.contains("time.now"));
+        // Check if it's uppercase
+        assert_eq!(res, res.to_uppercase());
+    }
+
+    #[test]
+    fn test_interpolate_flattened_user() {
+        let mut args = ArgMap::default();
+        args.named.insert("name".to_string(), "john".to_string());
+        // upper.name should resolve to JOHN
+        assert_eq!(interpolate("{upper.name}", &args), "JOHN");
+    }
+
+    #[test]
+    fn test_interpolate_quoted_literal() {
+        let args = ArgMap::default();
+        assert_eq!(interpolate("{upper.'hello world'}", &args), "HELLO WORLD");
+        assert_eq!(interpolate("{upper.\"hello world\"}", &args), "HELLO WORLD");
+    }
+
+    #[test]
+    fn test_interpolate_deep_flattened() {
+        let mut args = ArgMap::default();
+        args.named
+            .insert("val".to_string(), "MixedCase".to_string());
+        assert_eq!(interpolate("{upper.lower.val}", &args), "MIXEDCASE");
+    }
+
+    #[test]
+    fn test_extract_placeholders_prefixed() {
+        let text = "Hello {upper.name} and {lower.email=DEFAULT@EMAIL.COM}";
+        let p = extract_placeholders(text);
+        assert_eq!(p.len(), 2);
+        assert!(p.contains_key("name"));
+        assert!(p.contains_key("email"));
+        assert_eq!(
+            p.get("email").unwrap().default_value,
+            Some("DEFAULT@EMAIL.COM")
+        );
     }
 }

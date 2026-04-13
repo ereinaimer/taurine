@@ -15,11 +15,26 @@ use crate::engine::variables::types::{ExpansionStep, FinalExpansion};
 
 /// Checks if a keyword is reserved by the system.
 pub fn is_reserved(key: &str) -> bool {
+    if split_transformer(key).is_some() {
+        return true;
+    }
+
     key == "cursor"
         || key == "uuid"
         || key == "clipboard"
         || key.starts_with("uuid.")
         || key.contains('.')
+}
+
+/// Splits a key into a transformer prefix and its content if it matches a known transformer.
+/// Example: `upper.time.now` -> `Some(("upper", "time.now"))`
+pub fn split_transformer(key: &str) -> Option<(&str, &str)> {
+    if let Some((prefix, sub)) = key.split_once('.')
+        && format::TRANSFORMERS.contains(&prefix)
+    {
+        return Some((prefix, sub));
+    }
+    None
 }
 
 /// Checks if a keyword is a post-processing directive.
@@ -31,10 +46,22 @@ pub fn is_directive(key: &str) -> bool {
 }
 
 /// Resolves a content-producing system variable.
-///
-/// For example, `time.now` would be resolved to the current timestamp.
-/// Returns `None` for directives or unknown keys.
 pub fn resolve(key: &str) -> Option<String> {
+    // 1. Handle Transformers first (Recursive)
+    if let Some((prefix, sub)) = split_transformer(key) {
+        let content = if let Some(resolved) = resolve(sub) {
+            resolved
+        } else if let Some(unquoted) = strip_quotes(sub) {
+            unquoted.to_string()
+        } else {
+            // Fallback: literal string (if no dot or further nesting, it might be a literal)
+            // But we return None here so interpolate can try user variables first.
+            return None;
+        };
+        return format::apply(prefix, &content);
+    }
+
+    // 2. Base System Variables
     if key.starts_with("time.") {
         return time::resolve(key);
     }
@@ -50,8 +77,18 @@ pub fn resolve(key: &str) -> Option<String> {
     if key == "clipboard" {
         return clipboard::resolve(key);
     }
-    if let Some(res) = format::resolve(key) {
-        return Some(res);
+
+    None
+}
+
+pub fn strip_quotes(s: &str) -> Option<&str> {
+    if s.len() >= 2 {
+        let bytes = s.as_bytes();
+        let first = bytes[0];
+        let last = bytes[s.len() - 1];
+        if (first == b'\'' && last == b'\'') || (first == b'"' && last == b'"') {
+            return Some(&s[1..s.len() - 1]);
+        }
     }
     None
 }
