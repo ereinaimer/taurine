@@ -2461,6 +2461,7 @@ dependencies = [
  "ahash",
  "arboard",
  "directories",
+ "heck",
  "indexmap",
  "parking_lot",
  "prost",

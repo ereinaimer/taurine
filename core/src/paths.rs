@@ -123,9 +123,13 @@ pub fn get_startup_vbs_path() -> PathBuf {
 mod tests {
     use super::*;
     use std::env;
+    use std::sync::Mutex;
+
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_db_env_override() {
+        let _guard = TEST_LOCK.lock().unwrap();
         crate::testing::init_tracing_for_tests();
         // Skip this test via an env var override
         if env::var("TAURINE_SKIP_DB_ENV_OVERRIDE_TEST").unwrap_or_default() == "true" {
@@ -143,6 +147,7 @@ mod tests {
 
     #[test]
     fn test_data_dir_env_override() {
+        let _guard = TEST_LOCK.lock().unwrap();
         crate::testing::init_tracing_for_tests();
         let test_dir = "some/custom/app_dir";
         unsafe { env::set_var("TAURINE_DATA_DIR", test_dir) };
@@ -155,6 +160,7 @@ mod tests {
 
     #[test]
     fn test_default_desktop_path_resolution() {
+        let _guard = TEST_LOCK.lock().unwrap();
         crate::testing::init_tracing_for_tests();
         // Skip this test via an env var override
         if env::var("TAURINE_SKIP_DEFAULT_PATH_RESOLUTION_TEST").unwrap_or_default() == "true" {
@@ -186,6 +192,7 @@ mod tests {
 
     #[test]
     fn test_startup_vbs_path_creation() {
+        let _guard = TEST_LOCK.lock().unwrap();
         crate::testing::init_tracing_for_tests();
 
         let test_dir = std::env::temp_dir().join("taurine_vbs_test");

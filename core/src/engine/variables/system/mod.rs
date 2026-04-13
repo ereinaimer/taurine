@@ -7,6 +7,7 @@ pub mod clipboard;
 
 pub mod date;
 pub mod env;
+pub mod format;
 pub mod time;
 pub mod uuid;
 
@@ -48,6 +49,9 @@ pub fn resolve(key: &str) -> Option<String> {
     }
     if key == "clipboard" {
         return clipboard::resolve(key);
+    }
+    if let Some(res) = format::resolve(key) {
+        return Some(res);
     }
     None
 }

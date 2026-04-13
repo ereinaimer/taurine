@@ -24,31 +24,44 @@ pub(crate) fn extract_placeholders<'a>(template: &'a str) -> IndexMap<&'a str, P
         }
 
         if bytes[ptr] == b'{' {
+            // Find the MATCHING closing brace by counting depth
             let start = ptr + 1;
             let mut end = start;
-            let mut found_close = false;
+            let mut depth = 1;
 
             while end < bytes.len() {
-                if bytes[end] == b'}' {
-                    found_close = true;
-                    break;
+                if bytes[end] == b'\\'
+                    && end + 1 < bytes.len()
+                    && (bytes[end + 1] == b'{' || bytes[end + 1] == b'}')
+                {
+                    end += 2;
+                    continue;
+                }
+                if bytes[end] == b'{' {
+                    depth += 1;
+                } else if bytes[end] == b'}' {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
                 }
                 end += 1;
             }
 
-            if found_close {
+            if depth == 0 {
                 let inner = &template[start..end];
-                let (key, default_value) = if let Some((k, v)) = inner.split_once('=') {
-                    (k, Some(v))
-                } else {
-                    (inner, None)
-                };
+                // Check if this tag is a user variable (potentially with a default)
+                // We split at the FIRST '=' that is AT DEPTH 0 within this tag
+                let (key, default_value) = split_key_default(inner);
 
                 if !system::is_reserved(key) && !placeholders.contains_key(key) {
                     placeholders.insert(key, Placeholder { key, default_value });
                 }
 
-                ptr = end;
+                // Even if reserved, its children might contain placeholders
+                // So we continue scanning from start
+                ptr = start;
+                continue;
             }
         }
         ptr += 1;
@@ -57,9 +70,33 @@ pub(crate) fn extract_placeholders<'a>(template: &'a str) -> IndexMap<&'a str, P
     placeholders
 }
 
+fn split_key_default(inner: &str) -> (&str, Option<&str>) {
+    let bytes = inner.as_bytes();
+    let mut depth = 0;
+    let mut ptr = 0;
+    while ptr < bytes.len() {
+        if bytes[ptr] == b'\\'
+            && ptr + 1 < bytes.len()
+            && (bytes[ptr + 1] == b'{' || bytes[ptr + 1] == b'}')
+        {
+            ptr += 2;
+            continue;
+        }
+        if bytes[ptr] == b'{' {
+            depth += 1;
+        } else if bytes[ptr] == b'}' {
+            depth -= 1;
+        } else if bytes[ptr] == b'=' && depth == 0 {
+            return (&inner[..ptr], Some(&inner[ptr + 1..]));
+        }
+        ptr += 1;
+    }
+    (inner, None)
+}
+
 pub fn interpolate(template: &str, args: &ArgMap) -> String {
     let placeholders = extract_placeholders(template);
-    let mut resolutions = std::collections::HashMap::new();
+    let mut user_resolutions = std::collections::HashMap::new();
     let mut pos_cursor = 0;
 
     for (key, placeholder) in placeholders.iter() {
@@ -74,78 +111,94 @@ pub fn interpolate(template: &str, args: &ArgMap) -> String {
         } else {
             format!("{{{}}}", key)
         };
-        resolutions.insert(*key, resolved);
+        user_resolutions.insert(*key, resolved);
     }
 
-    let mut output = String::with_capacity(template.len());
-    let bytes = template.as_bytes();
+    let mut output = template.to_string();
+    let mut iterations = 0;
+    const MAX_ITERATIONS: usize = 128;
+
+    while iterations < MAX_ITERATIONS {
+        if let Some((start, end)) = find_innermost_tag(&output) {
+            let inner = &output[start + 1..end];
+            let (key, _) = split_key_default(inner);
+
+            let resolved = if let Some(sys) = system::resolve(key) {
+                sys
+            } else if let Some(user) = user_resolutions.get(key) {
+                user.clone()
+            } else if system::is_directive(key) {
+                // Directive stays for finalization phase, use sentinel to avoid re-processing
+                format!("\x01{}\x02", key)
+            } else {
+                // Unknown tag, keep as is
+                format!("\x01{}\x02", inner) // Sentinel to mark as "touched"
+            };
+
+            output.replace_range(start..end + 1, &resolved);
+            iterations += 1;
+        } else {
+            break;
+        }
+    }
+
+    // Restore sentinels and handle escapes
+    finalize_interpolation(output)
+}
+
+fn find_innermost_tag(s: &str) -> Option<(usize, usize)> {
+    let bytes = s.as_bytes();
+    for i in 0..bytes.len() {
+        if bytes[i] == b'}' {
+            // Check if escaped
+            if i > 0 && bytes[i - 1] == b'\\' {
+                continue;
+            }
+
+            // Look backwards for the first '{'
+            for j in (0..i).rev() {
+                if bytes[j] == b'{' {
+                    if j > 0 && bytes[j - 1] == b'\\' {
+                        continue;
+                    }
+                    return Some((j, i));
+                }
+            }
+        }
+    }
+    None
+}
+
+fn finalize_interpolation(mut s: String) -> String {
+    // 1. Remove sentinel markers
+    s = s.replace('\x01', "{").replace('\x02', "}");
+
+    // 2. Resolve escapes: \{, \}, \\
+    let mut result = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
     let mut ptr = 0;
-    let mut last_pushed = 0;
 
     while ptr < bytes.len() {
         if bytes[ptr] == b'\\' && ptr + 1 < bytes.len() {
             let next = bytes[ptr + 1];
             if next == b'{' || next == b'}' || next == b'\\' {
-                if template[ptr..].starts_with(r#"\{cursor\}"#) {
-                    output.push_str(&template[last_pushed..ptr + 9]);
-                    ptr += 9;
-                    last_pushed = ptr;
+                // Specialized \{cursor\} handling for finalizer
+                if s[ptr..].starts_with(r#"\{cursor\}"#) {
+                    result.push_str(r#"\{cursor\}"#);
+                    ptr += 10;
                     continue;
                 }
-                output.push_str(&template[last_pushed..ptr]);
-                output.push(next as char);
+                result.push(next as char);
                 ptr += 2;
-                last_pushed = ptr;
                 continue;
             }
         }
 
-        if bytes[ptr] == b'{' {
-            let start = ptr + 1;
-            let mut end = start;
-            let mut found_close = false;
-            while end < bytes.len() {
-                if bytes[end] == b'}' {
-                    found_close = true;
-                    break;
-                }
-                end += 1;
-            }
-
-            if found_close {
-                let inner = &template[start..end];
-                let key = inner.split_once('=').map(|(k, _)| k).unwrap_or(inner);
-
-                if let Some(resolved) = system::resolve(key) {
-                    output.push_str(&template[last_pushed..ptr]);
-                    output.push_str(&resolved);
-                    ptr = end + 1;
-                    last_pushed = ptr;
-                    continue;
-                } else if let Some(resolved) = resolutions.get(key) {
-                    output.push_str(&template[last_pushed..ptr]);
-                    output.push_str(resolved);
-                    ptr = end + 1;
-                    last_pushed = ptr;
-                    continue;
-                } else if system::is_directive(key) {
-                    output.push_str(&template[last_pushed..ptr]);
-                    output.push_str(&format!("{{{}}}", key));
-                    ptr = end + 1;
-                    last_pushed = ptr;
-                    continue;
-                }
-            }
-        }
-
-        ptr += 1;
+        let c = s[ptr..].chars().next().unwrap();
+        result.push(c);
+        ptr += c.len_utf8();
     }
-
-    if last_pushed < template.len() {
-        output.push_str(&template[last_pushed..template.len()]);
-    }
-
-    output
+    result
 }
 
 #[cfg(test)]
@@ -322,5 +375,38 @@ mod tests {
         args.positional.push("foo".to_string());
         let tpl = "https://{username}.github.io/{username}";
         assert_eq!(interpolate(tpl, &args), "https://foo.github.io/foo");
+    }
+
+    #[test]
+    fn test_interpolate_nested_system() {
+        let args = ArgMap::default();
+        // Assuming time.now is mocked or reliable for testing
+        // For simplicity, let's use a nested structure that reduces to literals
+        let tpl = "{upper.{lower.MixedCase}}";
+        assert_eq!(interpolate(tpl, &args), "MIXEDCASE");
+    }
+
+    #[test]
+    fn test_interpolate_nested_user() {
+        let mut args = ArgMap::default();
+        args.named.insert("name".to_string(), "john".to_string());
+        let tpl = "{upper.{name}}";
+        assert_eq!(interpolate(tpl, &args), "JOHN");
+    }
+
+    #[test]
+    fn test_interpolate_nested_default() {
+        let args = ArgMap::default();
+        // Template: {outer={inner=fallback}}
+        // inner resolves to fallback, then outer resolves to fallback
+        let tpl = "{outer={inner=fallback}}";
+        assert_eq!(interpolate(tpl, &args), "fallback");
+    }
+
+    #[test]
+    fn test_interpolate_balanced_with_escapes() {
+        let args = ArgMap::default();
+        let tpl = r#"{upper.a\{b\}c}"#;
+        assert_eq!(interpolate(tpl, &args), "A{B}C");
     }
 }

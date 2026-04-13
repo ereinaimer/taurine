@@ -938,12 +938,16 @@ mod tests {
     }
 
     #[test]
+    fn alias_resolves_standalone_modifiers() {
+        assert!(alias_to_rdev_key("ctrl").is_some());
+        assert!(alias_to_rdev_key("shift").is_some());
+        assert!(alias_to_rdev_key("alt").is_some());
+        assert!(alias_to_rdev_key("win").is_some());
+    }
+
+    #[test]
     fn alias_rejects_unknown_keys() {
-        assert!(
-            alias_to_rdev_key("ctrl").is_none(),
-            "modifiers must not resolve as main keys"
-        );
-        assert!(alias_to_rdev_key("shift").is_none());
         assert!(alias_to_rdev_key("unknown_key").is_none());
+        assert!(alias_to_rdev_key("hyper").is_none());
     }
 }
