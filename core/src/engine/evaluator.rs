@@ -320,7 +320,7 @@ mod tests {
         )]);
         let mut eval = Evaluator::new(state);
 
-        let input = r#"Hello >repo-"ereinaimer, taurine" "#;
+        let input = r#"Hello >repo:"ereinaimer":"taurine" "#;
         let mut last_result = None;
 
         for c in input.chars() {
@@ -336,7 +336,7 @@ mod tests {
                 "https://github.com/ereinaimer/taurine".to_string()
             )]
         );
-        assert_eq!(result.trigger, r#"repo-"ereinaimer, taurine""#);
+        assert_eq!(result.trigger, r#"repo:"ereinaimer":"taurine""#);
         // trigger_char + keyword + space
         assert_eq!(result.delete_count, 1 + result.trigger.len() + 1);
     }
@@ -350,7 +350,7 @@ mod tests {
         )]);
         let mut eval = Evaluator::new(state);
 
-        let input = r#">gh-"username=ereinaimer" "#;
+        let input = r#">gh:"username=ereinaimer" "#;
         let mut last_result = None;
 
         for c in input.chars() {
@@ -366,7 +366,7 @@ mod tests {
                 "https://github.com/ereinaimer/taurine".to_string()
             )]
         );
-        assert_eq!(result.trigger, r#"gh-"username=ereinaimer""#);
+        assert_eq!(result.trigger, r#"gh:"username=ereinaimer""#);
     }
     #[test]
     fn test_backspace_with_args_bug() {
@@ -377,7 +377,7 @@ mod tests {
         )]);
         let mut eval = Evaluator::new(state);
 
-        let input = ">gh-blah";
+        let input = ">gh:blah";
         for c in input.chars() {
             eval.process_event(EngineEvent::Char(c));
         }
@@ -385,7 +385,7 @@ mod tests {
         // Backspace blah (WordBackspace)
         eval.process_event(EngineEvent::WordBackspace);
 
-        let input2 = "randomguy,randomrepo";
+        let input2 = "randomguy:randomrepo";
         for c in input2.chars() {
             eval.process_event(EngineEvent::Char(c));
         }

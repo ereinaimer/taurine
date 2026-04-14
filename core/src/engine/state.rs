@@ -48,17 +48,18 @@ impl EngineState {
             ));
         }
 
-        // 2. Task 2.1: Add hyphen-split fallback logic
-        if let Some((base, raw_args)) = keyword.split_once('-')
-            && let Some(template) = self.get_raw_expansion(base)
-        {
-            // Task 2.2: Hook up interpolation
-            let args = crate::engine::variables::parse_args(raw_args);
-            let interpolated = crate::engine::variables::interpolate(&template, &args);
-            return Some(crate::engine::variables::finalize(
-                &interpolated,
-                Some(base),
-            ));
+        // 2. Chained colon tokenization
+        let tokens = crate::engine::variables::tokenize(keyword, ':');
+        if tokens.len() > 1 {
+            let base = &tokens[0];
+            if let Some(template) = self.get_raw_expansion(base) {
+                let args = crate::engine::variables::parse_tokens(&tokens[1..]);
+                let interpolated = crate::engine::variables::interpolate(&template, &args);
+                return Some(crate::engine::variables::finalize(
+                    &interpolated,
+                    Some(base),
+                ));
+            }
         }
         // 3. Fallback to inline math evaluation
         if let Some(math_result) = crate::engine::math::evaluate(keyword) {

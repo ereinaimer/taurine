@@ -12,7 +12,7 @@ fn strip_quotes(s: &str) -> &str {
     s
 }
 
-pub(crate) fn tokenize_csv(raw: &str) -> Vec<String> {
+pub fn tokenize(raw: &str, delimiter: char) -> Vec<String> {
     if raw.is_empty() {
         return Vec::new();
     }
@@ -29,7 +29,7 @@ pub(crate) fn tokenize_csv(raw: &str) -> Vec<String> {
                 active_quote = Some(c);
             }
             current_token.push(c);
-        } else if c == ',' && active_quote.is_none() {
+        } else if c == delimiter && active_quote.is_none() {
             tokens.push(current_token.clone());
             current_token.clear();
         } else {
@@ -41,24 +41,25 @@ pub(crate) fn tokenize_csv(raw: &str) -> Vec<String> {
     tokens
 }
 
-pub fn parse_args(raw: &str) -> ArgMap {
+pub fn parse_tokens(tokens: &[String]) -> ArgMap {
     let mut map = ArgMap::default();
 
-    if raw.trim().is_empty() {
-        return map;
-    }
-
-    let raw_stripped = strip_quotes(raw);
-    let tokens = tokenize_csv(raw_stripped);
-
     for token in tokens {
+        let token = token.trim();
+        if token.is_empty() {
+            map.positional.push(String::new());
+            continue;
+        }
+
+        let token = strip_quotes(token);
+
         if let Some((key, value)) = token.split_once('=') {
             map.named.insert(
                 strip_quotes(key).to_string(),
                 strip_quotes(value).to_string(),
             );
         } else {
-            map.positional.push(strip_quotes(&token).to_string());
+            map.positional.push(strip_quotes(token).to_string());
         }
     }
 
@@ -70,57 +71,65 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_tokenize_csv() {
+    fn test_tokenize() {
         assert_eq!(
-            tokenize_csv(r#"foo,bar,"baz,qux""#),
-            vec!["foo", "bar", "\"baz,qux\""]
+            tokenize(r#"foo:bar:"baz:qux""#, ':'),
+            vec!["foo", "bar", "\"baz:qux\""]
         );
-        assert_eq!(tokenize_csv("ereinaimer"), vec!["ereinaimer"]);
-        assert_eq!(tokenize_csv(""), Vec::<String>::new());
+        assert_eq!(tokenize("ereinaimer", ':'), vec!["ereinaimer"]);
+        assert_eq!(tokenize("", ':'), Vec::<String>::new());
     }
 
     #[test]
-    fn test_parse_args_positional() {
-        let map = parse_args("ereinaimer,taurine");
+    fn test_parse_tokens_positional() {
+        let tokens = vec!["ereinaimer".to_string(), "taurine".to_string()];
+        let map = parse_tokens(&tokens);
         assert_eq!(map.positional, vec!["ereinaimer", "taurine"]);
         assert!(map.named.is_empty());
     }
 
     #[test]
-    fn test_parse_args_named() {
-        let map = parse_args("username=ereinaimer,repo=taurine");
+    fn test_parse_tokens_named() {
+        let tokens = vec![
+            "username=ereinaimer".to_string(),
+            "repo=taurine".to_string(),
+        ];
+        let map = parse_tokens(&tokens);
         assert_eq!(map.named.get("username").unwrap(), "ereinaimer");
         assert_eq!(map.named.get("repo").unwrap(), "taurine");
         assert!(map.positional.is_empty());
     }
 
     #[test]
-    fn test_parse_args_quoted_entire() {
-        let map = parse_args(r#""username=ereinaimer,repo=taurine""#);
-        assert_eq!(map.named.get("username").unwrap(), "ereinaimer");
-        assert_eq!(map.named.get("repo").unwrap(), "taurine");
-        assert!(map.positional.is_empty());
-    }
-
-    #[test]
-    fn test_parse_args_quoted_values() {
-        let map = parse_args(r#"name="John Doe",repo=taurine"#);
+    fn test_parse_tokens_quoted_values() {
+        let tokens = vec!["name=\"John Doe\"".to_string(), "repo=taurine".to_string()];
+        let map = parse_tokens(&tokens);
         assert_eq!(map.named.get("name").unwrap(), "John Doe");
         assert_eq!(map.named.get("repo").unwrap(), "taurine");
         assert!(map.positional.is_empty());
     }
 
     #[test]
-    fn test_parse_args_mixed() {
-        let map = parse_args(r#"first,"second arg",key="val",another=123"#);
+    fn test_parse_tokens_mixed() {
+        let tokens = vec![
+            "first".to_string(),
+            "\"second arg\"".to_string(),
+            "key=\"val\"".to_string(),
+            "another=123".to_string(),
+        ];
+        let map = parse_tokens(&tokens);
         assert_eq!(map.positional, vec!["first", "second arg"]);
         assert_eq!(map.named.get("key").unwrap(), "val");
         assert_eq!(map.named.get("another").unwrap(), "123");
     }
 
     #[test]
-    fn test_parse_args_single_quoted() {
-        let map = parse_args("name='Neil Armstrong',repo=taurine");
+    fn test_parse_tokens_single_quoted() {
+        let tokens = vec![
+            "name='Neil Armstrong'".to_string(),
+            "repo=taurine".to_string(),
+        ];
+        let map = parse_tokens(&tokens);
         assert_eq!(map.named.get("name").unwrap(), "Neil Armstrong");
         assert_eq!(map.named.get("repo").unwrap(), "taurine");
         assert!(map.positional.is_empty());
