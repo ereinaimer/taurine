@@ -65,6 +65,9 @@ impl XkbMapper {
         reverse_map
             .entry('\n')
             .or_insert((KeyCode::KEY_ENTER, false));
+        reverse_map
+            .entry('\r')
+            .or_insert((KeyCode::KEY_ENTER, false));
 
         Ok(Self { state, reverse_map })
     }
