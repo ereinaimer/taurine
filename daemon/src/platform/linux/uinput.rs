@@ -1,5 +1,5 @@
 use evdev::uinput::VirtualDevice;
-use evdev::{AttributeSet, EventType, InputEvent, KeyCode};
+use evdev::{AttributeSet, BusType, EventType, InputEvent, InputId, KeyCode};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
@@ -22,8 +22,7 @@ pub fn init_uinput() -> Result<(), String> {
     let device = VirtualDevice::builder()
         .map_err(|e| format!("Uinput VirtualDeviceBuilder failed: {}", e))?
         .name(crate::platform::linux::VIRTUAL_DEVICE_NAME)
-        .vendor_id(0x1234)
-        .product_id(0x5678)
+        .input_id(InputId::new(BusType::BUS_USB, 0x1234, 0x5678, 0x0001))
         .with_keys(&keys)
         .map_err(|e| format!("Failed to set uinput keys: {}", e))?
         .build()

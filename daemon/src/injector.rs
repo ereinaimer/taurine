@@ -523,7 +523,7 @@ fn inject_text_segment(text: &str, original_clipboard: &Option<String>) -> Optio
 
         let has_display =
             std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok();
-        let mut use_typing = !has_display;
+        let use_typing = !has_display;
 
         if !use_typing {
             let mut clipboard = linux::LinuxClipboard;
@@ -539,7 +539,6 @@ fn inject_text_segment(text: &str, original_clipboard: &Option<String>) -> Optio
                             "Clipboard expansion failed (verify mismatch or permission issue: {}). Falling back to direct typing.",
                             e
                         );
-                        use_typing = true;
                     }
                 }
             } else {
