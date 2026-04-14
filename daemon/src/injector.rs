@@ -847,15 +847,29 @@ mod tests {
 
     // ----- Phase 3: Key alias and modifier resolution tests -----
 
+    #[cfg(target_os = "linux")]
+    fn resolve_alias(alias: &str) -> bool {
+        alias_to_evdev_key(alias).is_some()
+    }
+    #[cfg(not(target_os = "linux"))]
+    fn resolve_alias(alias: &str) -> bool {
+        alias_to_rdev_key(alias).is_some()
+    }
+
+    #[cfg(target_os = "linux")]
+    fn resolve_modifier(alias: &str) -> bool {
+        modifier_alias_to_evdev_key(alias).is_some()
+    }
+    #[cfg(not(target_os = "linux"))]
+    fn resolve_modifier(alias: &str) -> bool {
+        modifier_alias_to_rdev_key(alias).is_some()
+    }
+
     #[test]
     fn alias_resolves_alphabet_keys() {
         for letter in 'a'..='z' {
             let alias = letter.to_string();
-            assert!(
-                alias_to_rdev_key(&alias).is_some(),
-                "missing alias for key '{}'",
-                alias
-            );
+            assert!(resolve_alias(&alias), "missing alias for key '{}'", alias);
         }
     }
 
@@ -863,11 +877,7 @@ mod tests {
     fn alias_resolves_number_keys() {
         for digit in '0'..='9' {
             let alias = digit.to_string();
-            assert!(
-                alias_to_rdev_key(&alias).is_some(),
-                "missing alias for key '{}'",
-                alias
-            );
+            assert!(resolve_alias(&alias), "missing alias for key '{}'", alias);
         }
     }
 
@@ -875,11 +885,7 @@ mod tests {
     fn alias_resolves_function_keys() {
         for n in 1..=12 {
             let alias = format!("f{}", n);
-            assert!(
-                alias_to_rdev_key(&alias).is_some(),
-                "missing alias for key '{}'",
-                alias
-            );
+            assert!(resolve_alias(&alias), "missing alias for key '{}'", alias);
         }
     }
 
@@ -915,7 +921,7 @@ mod tests {
         ];
         for alias in &specials {
             assert!(
-                alias_to_rdev_key(alias).is_some(),
+                resolve_alias(alias),
                 "missing alias for special key '{}'",
                 alias
             );
@@ -930,7 +936,7 @@ mod tests {
         ];
         for alias in &modifiers {
             assert!(
-                modifier_alias_to_rdev_key(alias).is_some(),
+                resolve_modifier(alias),
                 "missing modifier alias '{}'",
                 alias
             );
@@ -939,21 +945,21 @@ mod tests {
 
     #[test]
     fn modifier_alias_rejects_unknown() {
-        assert!(modifier_alias_to_rdev_key("hyper").is_none());
-        assert!(modifier_alias_to_rdev_key("fn").is_none());
+        assert!(!resolve_modifier("hyper"));
+        assert!(!resolve_modifier("fn"));
     }
 
     #[test]
     fn alias_resolves_standalone_modifiers() {
-        assert!(alias_to_rdev_key("ctrl").is_some());
-        assert!(alias_to_rdev_key("shift").is_some());
-        assert!(alias_to_rdev_key("alt").is_some());
-        assert!(alias_to_rdev_key("win").is_some());
+        assert!(resolve_alias("ctrl"));
+        assert!(resolve_alias("shift"));
+        assert!(resolve_alias("alt"));
+        assert!(resolve_alias("win"));
     }
 
     #[test]
     fn alias_rejects_unknown_keys() {
-        assert!(alias_to_rdev_key("unknown_key").is_none());
-        assert!(alias_to_rdev_key("hyper").is_none());
+        assert!(!resolve_alias("unknown_key"));
+        assert!(!resolve_alias("hyper"));
     }
 }
