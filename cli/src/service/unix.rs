@@ -6,7 +6,7 @@ use std::env;
 use taurine_core::rpc::daemon_control_client::DaemonControlClient;
 use taurine_core::rpc::{ShutdownRequest, StatusRequest};
 use tokio::runtime::Runtime;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 const TAURINE_SERVICE_LABEL: &str = "com.ereinaimer.taurine";
 
@@ -24,35 +24,85 @@ fn get_manager() -> taurine_core::error::Result<Box<dyn ServiceManager>> {
 }
 
 #[cfg(target_os = "linux")]
-fn ensure_linux_capabilities() -> taurine_core::error::Result<()> {
+fn ensure_linux_permissions() -> taurine_core::error::Result<()> {
     let exe = env::current_exe()?;
-    let output = std::process::Command::new("getcap").arg(&exe).output();
+    let mut needs_fix = false;
+    let mut capability_missing = false;
+    let mut group_missing = false;
 
-    if let Ok(output) = output {
+    // 1. Check Capability
+    let cap_output = std::process::Command::new("getcap").arg(&exe).output();
+    if let Ok(output) = cap_output {
         let stdout = String::from_utf8_lossy(&output.stdout);
         if !stdout.contains("cap_dac_override") {
-            info!(
-                "Taurine needs kernel-level input permissions to work on Wayland. Granting permissions? (requires sudo)"
-            );
+            capability_missing = true;
+            needs_fix = true;
+        }
+    }
 
-            let setcap = std::process::Command::new("sudo")
-                .arg("setcap")
-                .arg("cap_dac_override+ep")
-                .arg(&exe)
-                .status();
+    // 2. Check Group Membership
+    let groups_output = std::process::Command::new("id").arg("-Gn").output();
+    if let Ok(output) = groups_output {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if !stdout.split_whitespace().any(|g| g == "input") {
+            group_missing = true;
+            needs_fix = true;
+        }
+    }
 
-            match setcap {
-                Ok(status) if status.success() => {
+    if needs_fix {
+        info!(
+            "Taurine requires additional kernel-level permissions to operate on Linux (Wayland/X11)."
+        );
+
+        let mut commands = Vec::new();
+        if capability_missing {
+            commands.push(format!("setcap cap_dac_override+ep \"{}\"", exe.display()));
+        }
+        if group_missing {
+            let user = std::process::Command::new("id")
+                .arg("-un")
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .unwrap_or_else(|_| "current user".to_string());
+            commands.push(format!("usermod -aG input \"{}\"", user));
+        }
+
+        let combined_cmd = commands.join(" && ");
+        info!(
+            "Requesting administrative access to configure: {}",
+            combined_cmd
+        );
+
+        let status = std::process::Command::new("sudo")
+            .arg("sh")
+            .arg("-c")
+            .arg(&combined_cmd)
+            .status();
+
+        match status {
+            Ok(s) if s.success() => {
+                if group_missing {
+                    warn!(
+                        "User added to 'input' group. You MUST log out and back in for these changes to take effect."
+                    );
+                } else {
                     info!("Hardware access permissions granted successfully.");
                 }
-                _ => {
-                    error!(
-                        "Failed to grant hardware access permissions. Taurine may not work under Wayland."
-                    );
-                }
+                // Even with success, we exit if group or cap changed because the current process env is stale.
+                return Err(taurine_core::Error::Service(
+                    "Permissions updated. Please re-run 'taurine up' after restarting your session.".to_string(),
+                ));
+            }
+            _ => {
+                return Err(taurine_core::Error::Service(
+                    "Failed to grant hardware access permissions. Taurine cannot start without these privileges.".to_string(),
+                ));
             }
         }
     }
+
+    debug!("Linux input permissions verified and active.");
     Ok(())
 }
 
@@ -102,7 +152,7 @@ pub fn sync_boot(enabled: bool) -> taurine_core::error::Result<()> {
 
 pub fn up(start_on_boot: bool) -> taurine_core::error::Result<()> {
     #[cfg(target_os = "linux")]
-    ensure_linux_capabilities()?;
+    ensure_linux_permissions()?;
 
     let manager = get_manager()?;
     let label: ServiceLabel =
@@ -235,6 +285,9 @@ pub fn down() -> taurine_core::error::Result<()> {
 }
 
 pub fn restart(start_on_boot: bool) -> taurine_core::error::Result<()> {
+    #[cfg(target_os = "linux")]
+    ensure_linux_permissions()?;
+
     let manager = get_manager()?;
     let label: ServiceLabel =
         TAURINE_SERVICE_LABEL
