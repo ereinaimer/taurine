@@ -56,10 +56,15 @@ impl XkbMapper {
             }
         }
 
-        // Ensure space is explicitly mapped as a failsafe
+        // Ensure whitespace characters are explicitly mapped as failsafes.
+        // These keys are universal across almost all keyboard layouts.
         reverse_map
             .entry(' ')
             .or_insert((KeyCode::KEY_SPACE, false));
+        reverse_map.entry('\t').or_insert((KeyCode::KEY_TAB, false));
+        reverse_map
+            .entry('\n')
+            .or_insert((KeyCode::KEY_ENTER, false));
 
         Ok(Self { state, reverse_map })
     }

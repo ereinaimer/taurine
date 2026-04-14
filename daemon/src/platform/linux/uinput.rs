@@ -22,6 +22,8 @@ pub fn init_uinput() -> Result<(), String> {
     let device = VirtualDevice::builder()
         .map_err(|e| format!("Uinput VirtualDeviceBuilder failed: {}", e))?
         .name("Taurine Virtual Keyboard")
+        .vendor_id(0x1234)
+        .product_id(0x5678)
         .with_keys(&keys)
         .map_err(|e| format!("Failed to set uinput keys: {}", e))?
         .build()
@@ -53,7 +55,8 @@ pub fn simulate_key(key: KeyCode, is_press: bool) {
 
 pub fn simulate_keypress(key: KeyCode) {
     simulate_key(key, true);
-    thread::sleep(Duration::from_millis(3));
+    // Increased hold duration for better reliability across different desktop environments.
+    thread::sleep(Duration::from_millis(12));
     simulate_key(key, false);
 }
 
@@ -62,16 +65,15 @@ pub fn simulate_type_string(s: &str, lookup: &std::collections::HashMap<char, (K
         if let Some((key, shift)) = lookup.get(&c) {
             if *shift {
                 simulate_key(KeyCode::KEY_LEFTSHIFT, true);
+                thread::sleep(Duration::from_millis(1));
             }
             simulate_keypress(*key);
             if *shift {
+                thread::sleep(Duration::from_millis(1));
                 simulate_key(KeyCode::KEY_LEFTSHIFT, false);
             }
-            // Small pause between characters for reliability
-            thread::sleep(Duration::from_millis(1));
-        } else if c == ' ' {
-            simulate_keypress(KeyCode::KEY_SPACE);
-            thread::sleep(Duration::from_millis(1));
+            // Increase delay between characters for better OS event synchronization.
+            thread::sleep(Duration::from_millis(8));
         }
     }
 }

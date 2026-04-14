@@ -75,6 +75,9 @@ pub fn abort_injection() {
 }
 
 /// Implicit inter-step delay (ms) for OS reliability between sequential actions.
+#[cfg(target_os = "linux")]
+const INTER_STEP_DELAY_MS: u64 = 15;
+#[cfg(not(target_os = "linux"))]
 const INTER_STEP_DELAY_MS: u64 = 10;
 
 /// Sends n Backspace keystrokes with inter-key sleeps so the OS registers
@@ -532,8 +535,8 @@ fn inject_text_segment(text: &str, original_clipboard: &Option<String>) -> Optio
                         return Some(orig);
                     }
                     Err(e) => {
-                        debug!(
-                            "Clipboard expansion failed ({}), falling back to direct typing",
+                        error!(
+                            "Clipboard expansion failed (verify mismatch or permission issue: {}). Falling back to direct typing.",
                             e
                         );
                         use_typing = true;
@@ -650,6 +653,10 @@ pub fn inject_expansion(steps: Vec<ExpansionStep>, delete_count: usize) {
 
     // Pre-Release: neutralize modifier state before any injection.
     pre_release_modifiers();
+
+    // On Linux, give the OS a moment to register the released modifiers before typing starts.
+    #[cfg(target_os = "linux")]
+    thread::sleep(Duration::from_millis(10));
 
     // 1. Erase the trigger.
     erase_trigger(delete_count);

@@ -114,6 +114,13 @@ pub fn start_listener(
                                 }
 
                                 if IS_INJECTING.load(Ordering::SeqCst) {
+                                    // Physical keypress during injection. Abort to prevent corruption
+                                    if is_press {
+                                        debug!(
+                                            "Physical keypress detected during injection. Aborting."
+                                        );
+                                        injector::abort_injection();
+                                    }
                                     continue;
                                 }
 
