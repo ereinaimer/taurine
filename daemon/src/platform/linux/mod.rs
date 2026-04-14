@@ -13,6 +13,8 @@ pub mod xkb;
 static CLIPBOARD: OnceLock<Mutex<Clipboard>> = OnceLock::new();
 static REVERSE_LOOKUP: OnceLock<HashMap<char, (KeyCode, bool)>> = OnceLock::new();
 
+pub const VIRTUAL_DEVICE_NAME: &str = "Taurine Virtual Keyboard";
+
 pub fn init() -> Result<(), String> {
     uinput::init_uinput()?;
     let mapper = XkbMapper::new().map_err(|e| format!("XKB init failed: {}", e))?;

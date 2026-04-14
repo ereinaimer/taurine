@@ -18,24 +18,56 @@ pub fn start_listener(
     pause_hotkey: Arc<RwLock<HotkeySpec>>,
 ) {
     let mut devices = vec![];
+    let input_dir = "/dev/input";
 
-    if let Ok(entries) = fs::read_dir("/dev/input") {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .starts_with("event")
-            {
-                if let Ok(device) = Device::open(&path) {
-                    if let Some(keys) = device.supported_keys() {
-                        if keys.contains(KeyCode::KEY_ENTER) && keys.contains(KeyCode::KEY_SPACE) {
-                            devices.push(device);
+    match fs::read_dir(input_dir) {
+        Ok(entries) => {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+
+                if file_name.starts_with("event") {
+                    match Device::open(&path) {
+                        Ok(device) => {
+                            let name = device.name().unwrap_or("Unknown Device");
+                            if name == crate::platform::linux::VIRTUAL_DEVICE_NAME {
+                                debug!("Ignoring Taurine virtual keyboard: {:?}", path);
+                                continue;
+                            }
+
+                            if let Some(keys) = device.supported_keys() {
+                                // Broadened keyboard detection: check for basic alphanumeric support.
+                                // Most physical keyboards will have ENTER, SPACE, and KeyA.
+                                if keys.contains(KeyCode::KEY_ENTER)
+                                    && keys.contains(KeyCode::KEY_SPACE)
+                                    && keys.contains(KeyCode::KEY_A)
+                                {
+                                    debug!(
+                                        "Found potential keyboard device: {} ({:?})",
+                                        name, path
+                                    );
+                                    devices.push(device);
+                                }
+                            }
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                            warn!(
+                                "Permission denied opening {:?}. You may need to add your user to the 'input' group.",
+                                path
+                            );
+                        }
+                        Err(e) => {
+                            debug!("Failed to open device {:?}: {}", path, e);
                         }
                     }
                 }
             }
+        }
+        Err(e) => {
+            error!(
+                "Failed to read {} directory: {}. Hook listener cannot start.",
+                input_dir, e
+            );
         }
     }
 

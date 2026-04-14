@@ -21,7 +21,7 @@ pub fn init_uinput() -> Result<(), String> {
 
     let device = VirtualDevice::builder()
         .map_err(|e| format!("Uinput VirtualDeviceBuilder failed: {}", e))?
-        .name("Taurine Virtual Keyboard")
+        .name(crate::platform::linux::VIRTUAL_DEVICE_NAME)
         .vendor_id(0x1234)
         .product_id(0x5678)
         .with_keys(&keys)
