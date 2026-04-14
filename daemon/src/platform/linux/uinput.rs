@@ -1,5 +1,5 @@
 use evdev::uinput::VirtualDevice;
-use evdev::{AttributeSet, BusType, EventType, InputEvent, InputId, KeyCode};
+use evdev::{AttributeSet, BusType, EventType, InputEvent, InputId, KeyCode, MiscCode};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
@@ -19,8 +19,8 @@ pub fn init_uinput() -> Result<(), String> {
         keys.insert(KeyCode::new(code as u16));
     }
 
-    let mut msc = AttributeSet::<MscType>::new();
-    msc.insert(MscType::MSC_SCAN);
+    let mut msc = AttributeSet::<MiscCode>::new();
+    msc.insert(MiscCode::MSC_SCAN);
 
     let device = VirtualDevice::builder()
         .map_err(|e| format!("Uinput VirtualDeviceBuilder failed: {}", e))?
@@ -28,7 +28,7 @@ pub fn init_uinput() -> Result<(), String> {
         .input_id(InputId::new(BusType::BUS_USB, 0x1234, 0x5678, 0x0001))
         .with_keys(&keys)
         .map_err(|e| format!("Failed to set uinput keys: {}", e))?
-        .with_msc_codes(&msc)
+        .with_msc(&msc)
         .map_err(|e| format!("Failed to set uinput msc codes: {}", e))?
         .build()
         .map_err(|e| format!("Failed to create uinput device: {}", e))?;
@@ -47,7 +47,7 @@ pub fn simulate_key(key: KeyCode, is_press: bool) {
             let value = if is_press { 1 } else { 0 };
             // Some apps (especially on Wayland) expect MSC_SCAN events alongside EV_KEY.
             let scancode =
-                InputEvent::new(EventType::MSC.0, MscType::MSC_SCAN.0, key.code() as i32);
+                InputEvent::new(EventType::MISC.0, MiscCode::MSC_SCAN.0, key.code() as i32);
             let event = InputEvent::new(EventType::KEY.0, key.code(), value);
             // Must emit EV_SYN after creating actual events.
             let syn = InputEvent::new(EventType::SYNCHRONIZATION.0, 0, 0);
