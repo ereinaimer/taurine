@@ -732,8 +732,12 @@ pub fn inject_expansion(steps: Vec<ExpansionStep>, delete_count: usize) {
                                 }
                             }
                             Err(e) => {
-                                let err_msg = format!(" [Error: {}] ", e);
-                                inject_text_segment(&err_msg, &original_clipboard);
+                                // Silent abort: if the user killed it, don't paste an error.
+                                let err_str = e.to_string();
+                                if !err_str.contains("aborted by user") {
+                                    let err_msg = format!(" [Error: {}] ", e);
+                                    inject_text_segment(&err_msg, &original_clipboard);
+                                }
                             }
                         }
                     }

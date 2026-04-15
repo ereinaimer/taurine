@@ -40,7 +40,8 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
 
     cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .stdin(Stdio::null());
+        .stdin(Stdio::null())
+        .kill_on_drop(true);
 
     let mut child = cmd.spawn().map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {

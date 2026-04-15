@@ -58,6 +58,18 @@ pub fn start() -> SpinnerHandle {
 
             idx += 1;
         }
+
+        // Final cleanup: ensure the last spinner char is backspaced if we exited early
+        #[cfg(not(target_os = "linux"))]
+        {
+            use rdev::{EventType, Key, simulate};
+            let _ = simulate(&EventType::KeyPress(Key::Backspace));
+            let _ = simulate(&EventType::KeyRelease(Key::Backspace));
+        }
+        #[cfg(target_os = "linux")]
+        {
+            crate::platform::linux::uinput::simulate_keypress(evdev::KeyCode::KEY_BACKSPACE);
+        }
     });
 
     SpinnerHandle {
