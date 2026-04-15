@@ -118,11 +118,16 @@ pub enum AddSubcommand {
         #[arg(short, long)]
         file: Option<std::path::PathBuf>,
         /// Interpreter to use (bash, powershell, python, cmd)
-        #[arg(short, long, value_enum, required_unless_present = "file")]
-        interpreter: Option<ScriptInterpreterCli>,
-        /// Execution behavior (inline, silent)
-        #[arg(short, long, value_enum, default_value = "inline")]
-        behavior: ScriptBehaviorCli,
+        #[arg(
+            short = 'l',
+            long = "lang",
+            value_enum,
+            required_unless_present = "file"
+        )]
+        lang: Option<ScriptInterpreterCli>,
+        /// Execution mode (inline, silent)
+        #[arg(short = 'm', long = "mode", value_enum, default_value = "inline")]
+        mode: ScriptBehaviorCli,
     },
 }
 
@@ -248,16 +253,16 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
                 trigger,
                 content,
                 file,
-                interpreter,
-                behavior,
+                lang,
+                mode,
             }) = args.sub
             {
                 commands::script::execute(
                     trigger,
                     content,
                     file,
-                    interpreter.map(Into::into),
-                    behavior.into(),
+                    lang.map(Into::into),
+                    mode.into(),
                 )?;
             } else if let (Some(t), Some(o)) = (args.trigger, args.output) {
                 commands::add::execute(t, o)?;

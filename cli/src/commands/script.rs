@@ -9,8 +9,8 @@ pub fn execute(
     trigger: String,
     content: Option<String>,
     file_path: Option<PathBuf>,
-    interpreter: Option<ScriptInterpreter>,
-    behavior: ScriptBehavior,
+    lang: Option<ScriptInterpreter>,
+    mode: ScriptBehavior,
 ) -> taurine_core::error::Result<()> {
     // 1. Resolve content and source description
     let (content, source_desc) = if let Some(ref path) = file_path {
@@ -34,11 +34,11 @@ pub fn execute(
     };
 
     // 2. Infer interpreter if not provided
-    let interpreter = match interpreter {
+    let lang = match lang {
         Some(i) => i,
         None => infer_interpreter(file_path.as_deref(), &content).ok_or_else(|| {
             taurine_core::error::Error::Service(
-                "Could not infer script interpreter. Please specify with --interpreter".to_string(),
+                "Could not infer script language. Please specify with --lang".to_string(),
             )
         })?,
     };
@@ -46,8 +46,8 @@ pub fn execute(
     info!(
         "Adding script automation: {} ({} via {})",
         trigger,
-        behavior_to_str(behavior),
-        interpreter_to_str(interpreter)
+        mode_to_str(mode),
+        lang_to_str(lang)
     );
 
     let conn = init::setup()?;
@@ -63,7 +63,7 @@ pub fn execute(
         &trigger,
         Some(&format!("Shell script ({})", source_desc)),
         &trigger,
-        &format!("[Script: {}]", interpreter_to_str(interpreter)),
+        &format!("[Script: {}]", lang_to_str(lang)),
         "script",
         "all",
         "[]",
@@ -72,7 +72,7 @@ pub fn execute(
     )?;
 
     // 5. Upsert script attachment
-    upsert_script(&conn, &id, interpreter, behavior, &compressed)?;
+    upsert_script(&conn, &id, lang, mode, &compressed)?;
 
     info!(
         "Successfully added script automation for trigger: {}",
@@ -109,7 +109,7 @@ fn infer_interpreter(path: Option<&std::path::Path>, content: &str) -> Option<Sc
     None
 }
 
-fn interpreter_to_str(i: ScriptInterpreter) -> &'static str {
+fn lang_to_str(i: ScriptInterpreter) -> &'static str {
     match i {
         ScriptInterpreter::Bash => "bash",
         ScriptInterpreter::PowerShell => "powershell",
@@ -118,7 +118,7 @@ fn interpreter_to_str(i: ScriptInterpreter) -> &'static str {
     }
 }
 
-fn behavior_to_str(b: ScriptBehavior) -> &'static str {
+fn mode_to_str(b: ScriptBehavior) -> &'static str {
     match b {
         ScriptBehavior::Inline => "inline",
         ScriptBehavior::Silent => "silent",
