@@ -7,25 +7,36 @@ use tracing::info;
 
 pub fn execute(
     trigger: String,
-    file_path: PathBuf,
+    content: Option<String>,
+    file_path: Option<PathBuf>,
     interpreter: Option<ScriptInterpreter>,
     behavior: ScriptBehavior,
 ) -> taurine_core::error::Result<()> {
-    if !file_path.exists() {
-        return Err(taurine_core::error::Error::NotFound(format!(
-            "Script file not found: {}",
-            file_path.display()
-        )));
-    }
+    // 1. Resolve content and source description
+    let (content, source_desc) = if let Some(ref path) = file_path {
+        if !path.exists() {
+            return Err(taurine_core::error::Error::NotFound(format!(
+                "Script file not found: {}",
+                path.display()
+            )));
+        }
+        let text = fs::read_to_string(path).map_err(|e| {
+            taurine_core::error::Error::Service(format!("Failed to read script file: {}", e))
+        })?;
+        (text, format!("File: {}", path.display()))
+    } else if let Some(text) = content {
+        (text, "CLI argument".to_string())
+    } else {
+        // unreachable due to clap constraints (required_unless_present)
+        return Err(taurine_core::error::Error::Service(
+            "Neither script file nor content provided".to_string(),
+        ));
+    };
 
-    let content = fs::read_to_string(&file_path).map_err(|e| {
-        taurine_core::error::Error::Service(format!("Failed to read script file: {}", e))
-    })?;
-
-    // 1. Infer interpreter if not provided
+    // 2. Infer interpreter if not provided
     let interpreter = match interpreter {
         Some(i) => i,
-        None => infer_interpreter(&file_path, &content).ok_or_else(|| {
+        None => infer_interpreter(file_path.as_deref(), &content).ok_or_else(|| {
             taurine_core::error::Error::Service(
                 "Could not infer script interpreter. Please specify with --interpreter".to_string(),
             )
@@ -42,15 +53,15 @@ pub fn execute(
     let conn = init::setup()?;
     let id = uuid::Uuid::new_v4().to_string();
 
-    // 2. Compress the script
+    // 3. Compress the script
     let compressed = compress(&content)?;
 
-    // 3. Upsert automation row (type = "script")
+    // 4. Upsert automation row (type = "script")
     upsert_automation(
         &conn,
         &id,
         &trigger,
-        Some(&format!("Shell script: {}", file_path.display())),
+        Some(&format!("Shell script ({})", source_desc)),
         &trigger,
         &format!("[Script: {}]", interpreter_to_str(interpreter)),
         "script",
@@ -60,7 +71,7 @@ pub fn execute(
         None,
     )?;
 
-    // 4. Upsert script attachment
+    // 5. Upsert script attachment
     upsert_script(&conn, &id, interpreter, behavior, &compressed)?;
 
     info!(
@@ -72,9 +83,9 @@ pub fn execute(
     Ok(())
 }
 
-fn infer_interpreter(path: &std::path::Path, content: &str) -> Option<ScriptInterpreter> {
-    // Check extension first
-    if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+fn infer_interpreter(path: Option<&std::path::Path>, content: &str) -> Option<ScriptInterpreter> {
+    // Check extension if path is available
+    if let Some(ext) = path.and_then(|p| p.extension()).and_then(|s| s.to_str()) {
         match ext.to_lowercase().as_str() {
             "sh" => return Some(ScriptInterpreter::Bash),
             "ps1" => return Some(ScriptInterpreter::PowerShell),
@@ -84,7 +95,7 @@ fn infer_interpreter(path: &std::path::Path, content: &str) -> Option<ScriptInte
         }
     }
 
-    // Check shebang
+    // Check shebang in content
     if content.starts_with("#!") {
         let first_line = content.lines().next().unwrap_or("");
         if first_line.contains("bash") || first_line.contains("sh") {

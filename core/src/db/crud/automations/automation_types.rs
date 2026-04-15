@@ -51,7 +51,11 @@ pub struct AutomationSummary {
 pub struct AutomationListItem {
     pub trigger: String,
     pub output: String,
+    pub action_type: String,
     pub usage_count: i64,
     pub last_used_at: Option<i64>,
     pub created_at: i64,
+
+    pub interpreter: Option<ScriptInterpreter>,
+    pub behavior: Option<ScriptBehavior>,
 }

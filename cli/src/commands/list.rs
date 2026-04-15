@@ -64,7 +64,25 @@ pub fn execute(sort: Option<SortBy>, asc: bool, desc: bool) -> taurine_core::err
     table.set_header(headers);
 
     for auto in automations {
-        let mut row = vec![auto.trigger, auto.output];
+        let display_output = if auto.action_type == "script" {
+            let interpreter = match auto.interpreter {
+                Some(taurine_core::engine::shell::ScriptInterpreter::Bash) => "Bash",
+                Some(taurine_core::engine::shell::ScriptInterpreter::PowerShell) => "PowerShell",
+                Some(taurine_core::engine::shell::ScriptInterpreter::Python) => "Python",
+                Some(taurine_core::engine::shell::ScriptInterpreter::Cmd) => "Cmd",
+                None => "Unknown",
+            };
+            let behavior = match auto.behavior {
+                Some(taurine_core::engine::shell::ScriptBehavior::Inline) => "Inline",
+                Some(taurine_core::engine::shell::ScriptBehavior::Silent) => "Silent",
+                None => "Unknown",
+            };
+            format!("{} {}", behavior, interpreter)
+        } else {
+            auto.output
+        };
+
+        let mut row = vec![auto.trigger, display_output];
         match sort {
             Some(SortBy::Usage) => {
                 row.push(auto.usage_count.to_string());

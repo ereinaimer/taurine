@@ -50,18 +50,7 @@ enum Commands {
     Status,
     /// Add a new automation
     #[command(alias = "set")]
-    Add {
-        #[command(subcommand)]
-        sub: Option<AddSubcommand>,
-
-        /// Trigger for standard text expansion
-        #[arg(required_unless_present = "sub")]
-        trigger: Option<String>,
-
-        /// Output for standard text expansion
-        #[arg(required_unless_present = "sub")]
-        output: Option<String>,
-    },
+    Add(AddArgs),
     /// Remove an existing automation by trigger
     #[command(aliases = ["rm", "remove"])]
     Delete { trigger: String },
@@ -104,17 +93,32 @@ enum ConfigAction {
     },
 }
 
+#[derive(Parser, Debug)]
+#[command(args_conflicts_with_subcommands = true)]
+pub struct AddArgs {
+    #[command(subcommand)]
+    pub sub: Option<AddSubcommand>,
+
+    /// Trigger for standard text expansion
+    pub trigger: Option<String>,
+    /// Output for standard text expansion
+    pub output: Option<String>,
+}
+
 #[derive(Subcommand, Debug)]
 pub enum AddSubcommand {
     /// Add a shell script automation
     Script {
         /// The trigger string
         trigger: String,
+        /// The script content (optional if --file is used)
+        #[arg(required_unless_present = "file")]
+        content: Option<String>,
         /// Path to the script file
         #[arg(short, long)]
-        file: std::path::PathBuf,
+        file: Option<std::path::PathBuf>,
         /// Interpreter to use (bash, powershell, python, cmd)
-        #[arg(short, long, value_enum)]
+        #[arg(short, long, value_enum, required_unless_present = "file")]
         interpreter: Option<ScriptInterpreterCli>,
         /// Execution behavior (inline, silent)
         #[arg(short, long, value_enum, default_value = "inline")]
@@ -239,29 +243,31 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
         }
         Some(Commands::Down) => service::down()?,
         Some(Commands::Status) => service::status()?,
-        Some(Commands::Add {
-            sub,
-            trigger,
-            output,
-        }) => {
+        Some(Commands::Add(args)) => {
             if let Some(AddSubcommand::Script {
                 trigger,
+                content,
                 file,
                 interpreter,
                 behavior,
-            }) = sub
+            }) = args.sub
             {
                 commands::script::execute(
                     trigger,
+                    content,
                     file,
                     interpreter.map(Into::into),
                     behavior.into(),
                 )?;
-            } else if let (Some(t), Some(o)) = (trigger, output) {
+            } else if let (Some(t), Some(o)) = (args.trigger, args.output) {
                 commands::add::execute(t, o)?;
             } else {
-                // This shouldn't happen with clap's required_unless_present
-                unreachable!("Add command called without sub or trigger/output");
+                // Show help for add command if neither subcommand nor positional args are valid
+                use clap::CommandFactory;
+                let mut cmd = Cli::command();
+                if let Some(add_cmd) = cmd.get_subcommands_mut().find(|c| c.get_name() == "add") {
+                    add_cmd.print_help()?;
+                }
             }
         }
         Some(Commands::Delete { trigger }) => {

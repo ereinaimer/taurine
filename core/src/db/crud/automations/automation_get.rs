@@ -171,20 +171,33 @@ pub fn get_all_active_automations(conn: &Connection) -> Result<Vec<(String, Auto
 pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>> {
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
-        "SELECT trigger, output, usage_count, last_used_at, created_at
-         FROM   automations
-         WHERE  is_deleted = 0
-           AND  is_enabled = 1
-           AND  (target_os = 'all' OR target_os = ?1)",
+        "SELECT a.trigger, a.output, a.action_type, a.usage_count, a.last_used_at, a.created_at,
+                s.interpreter, s.behavior
+         FROM   automations a
+         LEFT JOIN scripts s ON a.id = s.automation_id
+         WHERE  a.is_deleted = 0
+           AND  a.is_enabled = 1
+           AND  (a.target_os = 'all' OR a.target_os = ?1)",
     )?;
 
     let rows = stmt.query_map([os_str], |row| {
+        let interpreter_str: Option<String> = row.get(6)?;
+        let behavior_str: Option<String> = row.get(7)?;
+
+        let interpreter = interpreter_str
+            .and_then(|s| serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s)).ok());
+        let behavior = behavior_str
+            .and_then(|s| serde_json::from_str::<ScriptBehavior>(&format!("\"{}\"", s)).ok());
+
         Ok(AutomationListItem {
             trigger: row.get(0)?,
             output: row.get(1)?,
-            usage_count: row.get(2)?,
-            last_used_at: row.get(3)?,
-            created_at: row.get(4)?,
+            action_type: row.get(2)?,
+            usage_count: row.get(3)?,
+            last_used_at: row.get(4)?,
+            created_at: row.get(5)?,
+            interpreter,
+            behavior,
         })
     })?;
 
