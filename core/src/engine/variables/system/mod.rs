@@ -14,16 +14,23 @@ pub mod uuid;
 use crate::engine::variables::types::{ExpansionStep, FinalExpansion};
 
 /// Checks if a keyword is reserved by the system.
-pub fn is_reserved(key: &str) -> bool {
-    if split_modifier(key).is_some() {
-        return true;
+pub fn is_reserved(mut key: &str) -> bool {
+    // 1. Strip all valid format modifiers to find the base variable
+    while let Some((sub, _)) = split_modifier(key) {
+        key = sub;
     }
 
+    // 2. Check if the resulting base is a reserved system variable
     key == "cursor"
         || key == "uuid"
         || key == "clipboard"
         || key.starts_with("uuid.")
-        || key.contains('.')
+        || key.starts_with("time.")
+        || key.starts_with("date.")
+        || key.starts_with("env.")
+        || key.starts_with("key.")
+        || key.starts_with("delay.")
+        || key.contains('.') // Reserve all other dot-namespaces
 }
 
 /// Splits a key into its base and a modifier suffix if it matches a known transformer.
@@ -351,8 +358,13 @@ mod tests {
         assert!(is_reserved("clipboard"));
         assert!(is_reserved("uuid.v4"));
         assert!(is_reserved("time.now"));
+        assert!(is_reserved("time.now.upper"));
         assert!(is_reserved("lowercase.hello"));
+
+        // These are valid user variables and should not be reserved
         assert!(!is_reserved("username"));
+        assert!(!is_reserved("name.upper"));
+        assert!(!is_reserved("my_var.shoutysnake"));
     }
 
     #[test]
