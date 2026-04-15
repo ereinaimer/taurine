@@ -38,6 +38,7 @@ cargo build --release
 |---------|--------|-----------|
 | **up** | Start the automation service | taurine up |
 | **add** | Create a new text expansion | taurine add "trigger" "output" |
+| **add script** | Create a script automation | taurine add script "trigger" -f script.py |
 | **ls** | List expansions (supports --sort) | taurine ls --sort usage --desc |
 | **config** | Manage system settings | taurine config ls |
 | **status** | Check background daemon health | taurine status |
@@ -54,6 +55,9 @@ cargo build --release
 
 ### 3.2 Managing Automations
 *   taurine add <trigger> <output>: Adds a new snippet. Triggers are typically prefixed with a special character (default is `>`).
+*   taurine add script <trigger> [content] [-f file] [-l lang] [-m mode]: Adds a shell script automation.
+    *   **Auto-Inference**: Automatically detects language via file extension or shebang.
+    *   **Flags**: Use --lang (-l) to specify interpreter and --mode (-m) for execution behavior.
 *   taurine delete <trigger>: Removes an automation matching the specific trigger.
 *   taurine ls: Displays a formatted table of all active triggers.
     *   **Sorting**: Use --sort with alpha, usage, created, or recent.
@@ -114,6 +118,12 @@ Math expansion works with any trigger character followed by a valid expression.
 *   System Variable: >now -> {upper.time.now} -> 12:00 PM (Uppercases the current time)
 *   Deep Chaining: >id -> {shoutysnake.uuid.v4} -> A1B2-C3D4... (Uppercases and snakes the UUID)
 
+### 4.7 Shell Script Automations
+Execute arbitrary code and inject the `stdout` results into your active application.
+*   Python (Inline): >ip -> `taurine add script ip "print(requests.get('api.ipify.org').text)" -l python`
+*   Bash (System Info): >sys -> `taurine add script sys -f monitor.sh -l bash`
+*   Silent Background: >task -> (Runs a script without modifying the current focus area).
+
 ---
 
 ## 5. Dynamic Variables
@@ -172,11 +182,33 @@ Transformers modify the casing and structure of provided content (literals or va
 
 ---
 
-## 6. Inline Math Expansion
+## 7. Shell Script Automation
+
+Taurine integrates a background execution engine allowing triggers to run arbitrary scripts (Bash, Python, PowerShell, Cmd) and inject their output directly into your application.
+
+### 7.1 Architecture & Workflow
+*   **Encapsulated Storage**: Scripts are stored as `zstd` compressed BLOBs within the SQLite database. They are never exported as local files, ensuring isolation and persistence across hardware migrations.
+*   **Execution Pipeline**: Uses `tokio::process::Command` for non-blocking execution. The daemon remains responsive even during heavy computational script tasks.
+*   **Feedback System**: Employs an asynchronous Braille spinner thread (`⠋`, `⠙`, `⠹`...) to provide minimal visual feedback during execution without stealing window focus.
+*   **Fidelity Injection**: Leverages a "clipboard-first" approach. The engine saves the user's clipboard, pastes the script result via simulated `Ctrl+V`/`Cmd+V`, and restores the original clipboard.
+
+---
+
+## 8. Safety & Robustness
+
+As a background service with keyboard hook privileges, Taurine implements strict safety protocols:
+
+*   **Global Kill Switch**: Any physical user keystroke detected during a script's execution triggers an immediate hard-kill of the process tree and aborts the injection sequence.
+*   **Hanging Prevention**: All script `stdin` streams are explicitly dropped (`Stdio::null`) to prevent interactive prompts from causing background hangs.
+*   **Interpreters Check**: The engine proactively catches `ErrorKind::NotFound` to notify the user if an interpreter (like `python3` or `bash`) is missing from the system `$PATH`.
+
+---
+
+## 9. Inline Math Expansion
 
 Taurine can automatically evaluate mathematical expressions typed directly into any text field. Expansion occurs when the input buffer contains a valid math expression prefixed by the **trigger character** (e.g., >5+5 -> 10).
 
-### 6.1 Math Parser Capabilities
+### 9.1 Math Parser Capabilities
 *   BEDMAS Compliance: Standard order of operations (Brackets, Exponents, Division/Multiplication, Addition/Subtraction).
 *   Scientific Notation: Support for large/small numbers (e.g., 1.2e10 or 5E-3).
 *   Operators: Supports +, -, *, /, % (modulo), ^ (exponent).
@@ -187,7 +219,7 @@ Taurine can automatically evaluate mathematical expressions typed directly into 
 
 ---
 
-## 7. Hot Reload Support
+## 10. Hot Reload Support
 
 Taurine features a robust "Hot Reload" mechanism to ensure your productivity is never interrupted:
 *   Instant Sync: Every time an automation is added, updated, or deleted, the daemon automatically reloads its in-memory lookup cache.
@@ -195,7 +227,7 @@ Taurine features a robust "Hot Reload" mechanism to ensure your productivity is 
 
 ---
 
-## 8. Future Roadmap
+## 11. Future Roadmap
 
 We are committed to making Taurine the most accessible keyboard automation tool:
 *   Cross-Platform UI: A simple, unified interface built with Flutter for Windows, Linux, and macOS.
@@ -203,7 +235,7 @@ We are committed to making Taurine the most accessible keyboard automation tool:
 
 ---
 
-## 9. Project Architecture
+## 12. Project Architecture
 
 Taurine is a modular Rust workspace designed for absolute performance and safety.
 * core: Foundations, database layer (rusqlite storing JSON settings), and the custom interpolation/math engine.
@@ -216,7 +248,7 @@ Taurine is a modular Rust workspace designed for absolute performance and safety
 
 ---
 
-## 10. System Paths
+## 13. System Paths
 
 Taurine stores data and logs in platform-specific local directories:
 
@@ -231,7 +263,7 @@ Taurine stores data and logs in platform-specific local directories:
 
 ---
 
-## 11. AI Agent Best Practices & Coding Guidelines
+## 14. AI Agent Best Practices & Coding Guidelines
 
 When assisting with Taurine's codebase or usage, strictly adhere to these rules:
 1.  User Interaction: Use the taurine CLI commands directly for automation management. Do not suggest manual edits to taurine.db.
@@ -239,7 +271,7 @@ When assisting with Taurine's codebase or usage, strictly adhere to these rules:
 3.  Error Handling: Use color-eyre for application-level error reporting and tracing for all logging.
 4.  Performance: Prefer zero-copy string references (&str) over allocations (String) in the hot path of the FastBuffer keystroke evaluator.
 
-## 12. Project License
+## 15. Project License
 
 Taurine is Source-Available under the **Aimer Software License (ASL)**. It is free for non-commercial personal use; commercial rights and public redistribution are reserved.
 
