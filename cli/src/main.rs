@@ -50,7 +50,18 @@ enum Commands {
     Status,
     /// Add a new automation
     #[command(alias = "set")]
-    Add { trigger: String, output: String },
+    Add {
+        #[command(subcommand)]
+        sub: Option<AddSubcommand>,
+
+        /// Trigger for standard text expansion
+        #[arg(required_unless_present = "sub")]
+        trigger: Option<String>,
+
+        /// Output for standard text expansion
+        #[arg(required_unless_present = "sub")]
+        output: Option<String>,
+    },
     /// Remove an existing automation by trigger
     #[command(aliases = ["rm", "remove"])]
     Delete { trigger: String },
@@ -91,6 +102,58 @@ enum ConfigAction {
         #[arg(long)]
         all: bool,
     },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum AddSubcommand {
+    /// Add a shell script automation
+    Script {
+        /// The trigger string
+        trigger: String,
+        /// Path to the script file
+        #[arg(short, long)]
+        file: std::path::PathBuf,
+        /// Interpreter to use (bash, powershell, python, cmd)
+        #[arg(short, long, value_enum)]
+        interpreter: Option<ScriptInterpreterCli>,
+        /// Execution behavior (inline, silent)
+        #[arg(short, long, value_enum, default_value = "inline")]
+        behavior: ScriptBehaviorCli,
+    },
+}
+
+#[derive(ValueEnum, Clone, Debug, PartialEq)]
+pub enum ScriptInterpreterCli {
+    Bash,
+    Powershell,
+    Python,
+    Cmd,
+}
+
+impl From<ScriptInterpreterCli> for taurine_core::engine::shell::ScriptInterpreter {
+    fn from(val: ScriptInterpreterCli) -> Self {
+        match val {
+            ScriptInterpreterCli::Bash => Self::Bash,
+            ScriptInterpreterCli::Powershell => Self::PowerShell,
+            ScriptInterpreterCli::Python => Self::Python,
+            ScriptInterpreterCli::Cmd => Self::Cmd,
+        }
+    }
+}
+
+#[derive(ValueEnum, Clone, Debug, PartialEq)]
+pub enum ScriptBehaviorCli {
+    Inline,
+    Silent,
+}
+
+impl From<ScriptBehaviorCli> for taurine_core::engine::shell::ScriptBehavior {
+    fn from(val: ScriptBehaviorCli) -> Self {
+        match val {
+            ScriptBehaviorCli::Inline => Self::Inline,
+            ScriptBehaviorCli::Silent => Self::Silent,
+        }
+    }
 }
 
 #[derive(ValueEnum, Clone, Debug, PartialEq)]
@@ -176,8 +239,30 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
         }
         Some(Commands::Down) => service::down()?,
         Some(Commands::Status) => service::status()?,
-        Some(Commands::Add { trigger, output }) => {
-            commands::add::execute(trigger, output)?;
+        Some(Commands::Add {
+            sub,
+            trigger,
+            output,
+        }) => {
+            if let Some(AddSubcommand::Script {
+                trigger,
+                file,
+                interpreter,
+                behavior,
+            }) = sub
+            {
+                commands::script::execute(
+                    trigger,
+                    file,
+                    interpreter.map(Into::into),
+                    behavior.into(),
+                )?;
+            } else if let (Some(t), Some(o)) = (trigger, output) {
+                commands::add::execute(t, o)?;
+            } else {
+                // This shouldn't happen with clap's required_unless_present
+                unreachable!("Add command called without sub or trigger/output");
+            }
         }
         Some(Commands::Delete { trigger }) => {
             commands::delete::execute(trigger)?;
