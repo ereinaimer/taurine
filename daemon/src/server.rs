@@ -80,8 +80,8 @@ impl DaemonControl for DaemonService {
         let active = taurine_core::db::crud::get_all_active_automations(&conn)
             .map_err(|e| Status::internal(format!("Failed to retrieve automations: {}", e)))?;
 
-        let snippets = active.into_iter().map(|(t, a)| (t, a.output));
-        self.state.load_snippets(snippets);
+        let actions = active.into_iter().map(|(t, a)| (t, a));
+        self.state.load_actions(actions);
 
         // 2. Reload Settings
         use taurine_core::settings::SettingsManager;
@@ -154,7 +154,7 @@ mod tests {
         );
 
         // Initially state should be empty
-        assert_eq!(state.source.get_snippet("hello"), None);
+        assert_eq!(state.source.get_action("hello"), None);
 
         // Add a snippet to DB
         add_automation_by_trigger(&conn, "hello", "world").expect("Failed to add to DB");
@@ -169,7 +169,7 @@ mod tests {
         );
 
         // Now the in-memory cache should have the expansion
-        assert_eq!(state.source.get_snippet("hello").as_deref(), Some("world"));
+        assert_eq!(state.source.get_action("hello").map(|a| a.output).as_deref(), Some("world"));
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&test_dir);

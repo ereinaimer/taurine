@@ -25,12 +25,12 @@ impl EngineState {
         }
     }
 
-    pub fn load_snippets(&self, snippets: impl IntoIterator<Item = (String, String)>) {
-        self.source.load_snippets(snippets.into_iter().collect());
+    pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, crate::db::crud::AutomationAction)>) {
+        self.source.load_actions(actions.into_iter().collect());
     }
 
-    fn get_raw_expansion(&self, keyword: &str) -> Option<String> {
-        self.source.get_snippet(keyword)
+    fn get_raw_action(&self, keyword: &str) -> Option<crate::db::crud::AutomationAction> {
+        self.source.get_action(keyword)
     }
 
     pub fn fetch_expansion(
@@ -38,27 +38,42 @@ impl EngineState {
         keyword: &str,
     ) -> Option<crate::engine::variables::FinalExpansion> {
         // 1. Try exact match on `keyword` FIRST
-        if let Some(template) = self.get_raw_expansion(keyword) {
-            // Task 2.3: No-Argument Default Handling
-            let args = crate::engine::variables::ArgMap::default();
-            let interpolated = crate::engine::variables::interpolate(&template, &args);
-            return Some(crate::engine::variables::finalize(
-                &interpolated,
-                Some(keyword),
-            ));
+        if let Some(action) = self.get_raw_action(keyword) {
+            if action.action_type == "script" {
+                let md = crate::engine::shell::ScriptMetadata {
+                    interpreter: action.interpreter.unwrap(),
+                    behavior: action.behavior.unwrap(),
+                    compressed_content: action.script_binary.unwrap(),
+                };
+                return Some(crate::engine::variables::FinalExpansion {
+                    steps: vec![crate::engine::variables::ExpansionStep::Script(md)],
+                    is_calculation: false,
+                });
+            } else {
+                // Task 2.3: No-Argument Default Handling for Text Expanders
+                let args = crate::engine::variables::ArgMap::default();
+                let interpolated = crate::engine::variables::interpolate(&action.output, &args);
+                return Some(crate::engine::variables::finalize(
+                    &interpolated,
+                    Some(keyword),
+                ));
+            }
         }
 
         // 2. Chained colon tokenization
         let tokens = crate::engine::variables::tokenize(keyword, ':');
         if tokens.len() > 1 {
             let base = &tokens[0];
-            if let Some(template) = self.get_raw_expansion(base) {
-                let args = crate::engine::variables::parse_tokens(&tokens[1..]);
-                let interpolated = crate::engine::variables::interpolate(&template, &args);
-                return Some(crate::engine::variables::finalize(
-                    &interpolated,
-                    Some(base),
-                ));
+            if let Some(action) = self.get_raw_action(base) {
+                // Scripts don't currently support chained colon arguments
+                if action.action_type != "script" {
+                    let args = crate::engine::variables::parse_tokens(&tokens[1..]);
+                    let interpolated = crate::engine::variables::interpolate(&action.output, &args);
+                    return Some(crate::engine::variables::finalize(
+                        &interpolated,
+                        Some(base),
+                    ));
+                }
             }
         }
         // 3. Fallback to inline math evaluation

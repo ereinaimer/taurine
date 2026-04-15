@@ -7,16 +7,16 @@ use std::sync::Arc;
 /// This abstraction allows the engine to be decoupled from the data backend,
 /// enabling in-memory caching for performance or direct DB fetching for debugging.
 pub trait SnippetSource: Send + Sync {
-    fn get_snippet(&self, keyword: &str) -> Option<String>;
+    fn get_action(&self, keyword: &str) -> Option<crate::db::crud::AutomationAction>;
 
     /// Optional: Reloads the source with new snippets.
     /// Default implementation does nothing (for read-only sources).
-    fn load_snippets(&self, _snippets: Vec<(String, String)>) {}
+    fn load_actions(&self, _actions: Vec<(String, crate::db::crud::AutomationAction)>) {}
 }
 
 /// A source that stores snippets in an in-memory hash map.
 pub struct MemorySource {
-    map: RwLock<AHashMap<String, String>>,
+    map: RwLock<AHashMap<String, crate::db::crud::AutomationAction>>,
 }
 
 impl MemorySource {
@@ -27,10 +27,10 @@ impl MemorySource {
     }
 
     /// Reloads the in-memory cache with a new set of snippets.
-    pub fn load_snippets(&self, snippets: impl IntoIterator<Item = (String, String)>) {
+    pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, crate::db::crud::AutomationAction)>) {
         let mut write_guard = self.map.write();
         write_guard.clear();
-        for (k, v) in snippets {
+        for (k, v) in actions {
             write_guard.insert(k, v);
         }
     }
@@ -43,12 +43,12 @@ impl Default for MemorySource {
 }
 
 impl SnippetSource for MemorySource {
-    fn get_snippet(&self, keyword: &str) -> Option<String> {
+    fn get_action(&self, keyword: &str) -> Option<crate::db::crud::AutomationAction> {
         self.map.read().get(keyword).cloned()
     }
 
-    fn load_snippets(&self, snippets: Vec<(String, String)>) {
-        self.load_snippets(snippets);
+    fn load_actions(&self, actions: Vec<(String, crate::db::crud::AutomationAction)>) {
+        self.load_actions(actions);
     }
 }
 
@@ -56,12 +56,12 @@ impl SnippetSource for MemorySource {
 pub struct DatabaseSource;
 
 impl SnippetSource for DatabaseSource {
-    fn get_snippet(&self, keyword: &str) -> Option<String> {
+    fn get_action(&self, keyword: &str) -> Option<crate::db::crud::AutomationAction> {
         if let Ok(conn) = rusqlite::Connection::open(crate::paths::get_db_path())
             && let Ok(Some(action)) =
                 crate::db::crud::automations::get_action_by_trigger(&conn, keyword)
         {
-            return Some(action.output);
+            return Some(action);
         }
         None
     }
@@ -80,14 +80,14 @@ impl AdaptiveSource {
 }
 
 impl SnippetSource for AdaptiveSource {
-    fn get_snippet(&self, keyword: &str) -> Option<String> {
+    fn get_action(&self, keyword: &str) -> Option<crate::db::crud::AutomationAction> {
         if std::env::var("TAURINE_DB_PATH").is_ok() {
-            return DatabaseSource.get_snippet(keyword);
+            return DatabaseSource.get_action(keyword);
         }
-        self.fallback.get_snippet(keyword)
+        self.fallback.get_action(keyword)
     }
 
-    fn load_snippets(&self, snippets: Vec<(String, String)>) {
-        self.fallback.load_snippets(snippets);
+    fn load_actions(&self, actions: Vec<(String, crate::db::crud::AutomationAction)>) {
+        self.fallback.load_actions(actions);
     }
 }

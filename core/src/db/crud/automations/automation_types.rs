@@ -36,6 +36,18 @@ pub struct AutomationAction {
     pub script_binary: Option<Vec<u8>>,
 }
 
+impl AutomationAction {
+    pub fn text(output: &str) -> Self {
+        Self {
+            output: output.to_string(),
+            action_type: "text".to_string(),
+            interpreter: None,
+            behavior: None,
+            script_binary: None,
+        }
+    }
+}
+
 /// Lightweight summary used by the fuzzy finder / command palette.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AutomationSummary {
