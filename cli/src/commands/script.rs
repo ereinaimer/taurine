@@ -43,15 +43,37 @@ pub fn execute(
         })?,
     };
 
-    info!(
-        "Adding script automation: {} ({} via {})",
-        trigger,
-        mode_to_str(mode),
-        lang_to_str(lang)
-    );
-
     let conn = init::setup()?;
-    let id = uuid::Uuid::new_v4().to_string();
+
+    // Check for an existing active automation with the same trigger
+    let existing_record: Option<(String, i64, Option<i64>)> = conn.query_row(
+        "SELECT id, usage_count, last_used_at FROM automations WHERE trigger = ?1 AND is_deleted = 0 ORDER BY updated_at DESC LIMIT 1",
+        [trigger.as_str()],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+    ).ok();
+
+    let (id, usage_count, last_used_at, is_update) = match existing_record {
+        Some((existing_id, existing_usage, existing_last_used)) => {
+            (existing_id, existing_usage, existing_last_used, true)
+        }
+        None => (uuid::Uuid::new_v4().to_string(), 0, None, false),
+    };
+
+    if is_update {
+        tracing::info!(
+            "Updated script automation: {} ({} via {})",
+            trigger,
+            mode_to_str(mode),
+            lang_to_str(lang)
+        );
+    } else {
+        tracing::info!(
+            "Added script automation: {} ({} via {})",
+            trigger,
+            mode_to_str(mode),
+            lang_to_str(lang)
+        );
+    }
 
     // 3. Compress the script
     let compressed = compress(&content)?;
@@ -67,8 +89,8 @@ pub fn execute(
         "script",
         "all",
         "[]",
-        0,
-        None,
+        usage_count,
+        last_used_at,
     )?;
 
     // 5. Upsert script attachment
