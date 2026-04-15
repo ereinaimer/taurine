@@ -47,9 +47,12 @@ pub fn start() -> SpinnerHandle {
             // Backspace to clear frame
             #[cfg(not(target_os = "linux"))]
             {
-                use rdev::{EventType, Key, simulate};
-                let _ = simulate(&EventType::KeyPress(Key::Backspace));
-                let _ = simulate(&EventType::KeyRelease(Key::Backspace));
+                use rdev::EventType;
+                let _ =
+                    crate::injector::simulate_monitored(&EventType::KeyPress(rdev::Key::Backspace));
+                let _ = crate::injector::simulate_monitored(&EventType::KeyRelease(
+                    rdev::Key::Backspace,
+                ));
             }
             #[cfg(target_os = "linux")]
             {
@@ -62,9 +65,10 @@ pub fn start() -> SpinnerHandle {
         // Final cleanup: ensure the last spinner char is backspaced if we exited early
         #[cfg(not(target_os = "linux"))]
         {
-            use rdev::{EventType, Key, simulate};
-            let _ = simulate(&EventType::KeyPress(Key::Backspace));
-            let _ = simulate(&EventType::KeyRelease(Key::Backspace));
+            use rdev::EventType;
+            let _ = crate::injector::simulate_monitored(&EventType::KeyPress(rdev::Key::Backspace));
+            let _ =
+                crate::injector::simulate_monitored(&EventType::KeyRelease(rdev::Key::Backspace));
         }
         #[cfg(target_os = "linux")]
         {

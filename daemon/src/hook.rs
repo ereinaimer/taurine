@@ -10,7 +10,7 @@ use tracing::{debug, error};
 
 use crate::hotkey;
 #[cfg(not(target_os = "linux"))]
-use crate::injector::{self, IS_INJECTING};
+use crate::injector::{self, IS_INJECTING, IS_SIMULATING};
 #[cfg(not(target_os = "linux"))]
 use crate::notify;
 #[cfg(not(target_os = "linux"))]
@@ -96,6 +96,11 @@ pub fn start_listener(
                 // We cannot distinguish physical from synthetic in rdev::grab,
                 // so pass them through without feeding the evaluator.
                 if IS_INJECTING.load(Ordering::SeqCst) {
+                    // If this keyboard event is NOT synthetic (it occurred while IS_SIMULATING is false),
+                    // then it must be physical user input. Abort the injection.
+                    if !IS_SIMULATING.load(Ordering::SeqCst) {
+                        injector::abort_injection();
+                    }
                     return Some(event);
                 }
 

@@ -109,7 +109,7 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
                 if INJECTION_ABORT.load(Ordering::SeqCst) {
                     break;
                 }
-                tokio::time::sleep(Duration::from_millis(100)).await;
+                tokio::time::sleep(Duration::from_millis(50)).await;
             }
         } => {
             let _ = child.kill().await;

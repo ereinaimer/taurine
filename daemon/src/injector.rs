@@ -62,10 +62,23 @@ fn inject_mutex() -> &'static Mutex<()> {
 /// (backspaces, Ctrl+V) are invisible to the evaluator with zero race window.
 pub static IS_INJECTING: AtomicBool = AtomicBool::new(false);
 
-/// Set by the hook thread when a physical keypress is detected during
+/// Set to `true` by the hook thread when a physical keypress is detected during
 /// an active injection. The injection loop checks this between steps
 /// and aborts early if set, restoring the clipboard and releasing modifiers.
 pub static INJECTION_ABORT: AtomicBool = AtomicBool::new(false);
+
+/// Set to `true` momentarily while we are simulating a keystroke. The hook thread
+/// checks this to distinguish physical from synthetic keyboard events.
+pub static IS_SIMULATING: AtomicBool = AtomicBool::new(false);
+
+/// Wrapped version of `rdev::simulate` that maintains the `IS_SIMULATING` flag.
+#[cfg(not(target_os = "linux"))]
+pub fn simulate_monitored(event: &EventType) -> Result<(), rdev::SimulateError> {
+    IS_SIMULATING.store(true, Ordering::SeqCst);
+    let res = simulate(event);
+    IS_SIMULATING.store(false, Ordering::SeqCst);
+    res
+}
 
 /// Request an abort of the currently running injection.
 ///
@@ -92,8 +105,8 @@ fn erase_trigger(delete_count: usize) {
         }
         #[cfg(not(target_os = "linux"))]
         {
-            let _ = simulate(&EventType::KeyPress(Key::Backspace));
-            let _ = simulate(&EventType::KeyRelease(Key::Backspace));
+            let _ = simulate_monitored(&EventType::KeyPress(Key::Backspace));
+            let _ = simulate_monitored(&EventType::KeyRelease(Key::Backspace));
         }
         thread::sleep(Duration::from_millis(3));
     }
@@ -113,10 +126,10 @@ fn simulate_paste() {
         } else {
             Key::ControlLeft
         };
-        let _ = simulate(&EventType::KeyPress(modifier));
-        let _ = simulate(&EventType::KeyPress(Key::KeyV));
-        let _ = simulate(&EventType::KeyRelease(Key::KeyV));
-        let _ = simulate(&EventType::KeyRelease(modifier));
+        let _ = simulate_monitored(&EventType::KeyPress(modifier));
+        let _ = simulate_monitored(&EventType::KeyPress(Key::KeyV));
+        let _ = simulate_monitored(&EventType::KeyRelease(Key::KeyV));
+        let _ = simulate_monitored(&EventType::KeyRelease(modifier));
     }
 }
 
@@ -136,7 +149,7 @@ fn pre_release_modifiers() {
         Key::MetaRight,
     ];
     for key in &modifiers {
-        let _ = simulate(&EventType::KeyRelease(*key));
+        let _ = simulate_monitored(&EventType::KeyRelease(*key));
     }
 }
 
@@ -189,12 +202,12 @@ fn simulate_key_alias(alias: &str) -> bool {
 
     // Press modifiers → press key → release key → release modifiers (reverse).
     for m in &modifiers {
-        let _ = simulate(&EventType::KeyPress(*m));
+        let _ = simulate_monitored(&EventType::KeyPress(*m));
     }
-    let _ = simulate(&EventType::KeyPress(main_key));
-    let _ = simulate(&EventType::KeyRelease(main_key));
+    let _ = simulate_monitored(&EventType::KeyPress(main_key));
+    let _ = simulate_monitored(&EventType::KeyRelease(main_key));
     for m in modifiers.iter().rev() {
-        let _ = simulate(&EventType::KeyRelease(*m));
+        let _ = simulate_monitored(&EventType::KeyRelease(*m));
     }
     true
 }
