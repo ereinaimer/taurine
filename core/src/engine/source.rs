@@ -27,7 +27,10 @@ impl MemorySource {
     }
 
     /// Reloads the in-memory cache with a new set of snippets.
-    pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, crate::db::crud::AutomationAction)>) {
+    pub fn load_actions(
+        &self,
+        actions: impl IntoIterator<Item = (String, crate::db::crud::AutomationAction)>,
+    ) {
         let mut write_guard = self.map.write();
         write_guard.clear();
         for (k, v) in actions {

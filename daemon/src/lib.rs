@@ -57,10 +57,7 @@ pub fn start() -> taurine_core::error::Result<()> {
 
     // Load snippets efficiently!
     if let Ok(active) = get_all_active_automations(&conn) {
-        let actions = active
-            .into_iter()
-            .map(|(trigger, action)| (trigger, action));
-        state.load_actions(actions);
+        state.load_actions(active);
     }
 
     let evaluator = Arc::new(Mutex::new(Evaluator::new(state.clone())));

@@ -101,8 +101,14 @@ mod tests {
     fn setup() -> Evaluator {
         let state = Arc::new(EngineState::new('/'));
         state.load_actions(vec![
-            ("gm".to_string(), crate::db::crud::AutomationAction::text("Good morning!")),
-            ("shrug".to_string(), crate::db::crud::AutomationAction::text(r#"¯\_(ツ)_/¯"#)),
+            (
+                "gm".to_string(),
+                crate::db::crud::AutomationAction::text("Good morning!"),
+            ),
+            (
+                "shrug".to_string(),
+                crate::db::crud::AutomationAction::text(r#"¯\_(ツ)_/¯"#),
+            ),
         ]);
         Evaluator::new(state)
     }
@@ -205,8 +211,14 @@ mod tests {
     fn test_multiple_trigger_chars_rejects_ambiguous_sequence() {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![
-            ("brb".to_string(), crate::db::crud::AutomationAction::text("Be right back!")),
-            ("gm".to_string(), crate::db::crud::AutomationAction::text("Good morning!")),
+            (
+                "brb".to_string(),
+                crate::db::crud::AutomationAction::text("Be right back!"),
+            ),
+            (
+                "gm".to_string(),
+                crate::db::crud::AutomationAction::text("Good morning!"),
+            ),
         ]);
         let mut eval = Evaluator::new(state);
 
@@ -223,8 +235,14 @@ mod tests {
     fn test_back_to_back_separate_triggers_like_user_typing_brb_then_gm() {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![
-            ("brb".to_string(), crate::db::crud::AutomationAction::text("Be right back!")),
-            ("gm".to_string(), crate::db::crud::AutomationAction::text("Good morning!")),
+            (
+                "brb".to_string(),
+                crate::db::crud::AutomationAction::text("Be right back!"),
+            ),
+            (
+                "gm".to_string(),
+                crate::db::crud::AutomationAction::text("Good morning!"),
+            ),
         ]);
         let mut eval = Evaluator::new(state);
 
@@ -261,7 +279,10 @@ mod tests {
     #[test]
     fn test_same_trigger_twice_in_a_row_two_expansions() {
         let state = Arc::new(EngineState::new('>'));
-        state.load_actions(vec![("gm".to_string(), crate::db::crud::AutomationAction::text("Good morning!"))]);
+        state.load_actions(vec![(
+            "gm".to_string(),
+            crate::db::crud::AutomationAction::text("Good morning!"),
+        )]);
         let mut eval = Evaluator::new(state);
 
         for _ in 0..2 {
@@ -285,7 +306,10 @@ mod tests {
     #[test]
     fn test_unknown_keyword_then_valid_trigger_still_expands() {
         let state = Arc::new(EngineState::new('>'));
-        state.load_actions(vec![("gm".to_string(), crate::db::crud::AutomationAction::text("Good morning!"))]);
+        state.load_actions(vec![(
+            "gm".to_string(),
+            crate::db::crud::AutomationAction::text("Good morning!"),
+        )]);
         let mut eval = Evaluator::new(state);
 
         for c in ">nope ".chars() {

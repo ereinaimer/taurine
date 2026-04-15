@@ -713,7 +713,11 @@ pub fn inject_expansion(steps: Vec<ExpansionStep>, delete_count: usize) {
                         let spinner_handle = crate::spinner::start();
 
                         // Execute script and block until completion (or abort/timeout)
-                        let rt = tokio::runtime::Handle::current();
+                        let rt = tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .expect("Failed to initialize script runtime");
+
                         let script_result: taurine_core::Result<String> =
                             rt.block_on(crate::platform::executor::execute_script(metadata));
 
@@ -735,13 +739,17 @@ pub fn inject_expansion(steps: Vec<ExpansionStep>, delete_count: usize) {
                     }
                     ScriptBehavior::Silent => {
                         // Fire and forget in the background
-                        if let Ok(rt) = tokio::runtime::Handle::try_current() {
-                            let metadata_clone = metadata.clone();
-                            rt.spawn(async move {
-                                let _ = crate::platform::executor::execute_script(&metadata_clone)
-                                    .await;
-                            });
-                        }
+                        let metadata_clone = metadata.clone();
+                        thread::spawn(move || {
+                            if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                                .enable_all()
+                                .build()
+                            {
+                                let _ = rt.block_on(crate::platform::executor::execute_script(
+                                    &metadata_clone,
+                                ));
+                            }
+                        });
                     }
                 }
             }

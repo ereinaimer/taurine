@@ -46,10 +46,12 @@ pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRo
         let interpreter_str: Option<String> = row.get(16)?;
         let behavior_str: Option<String> = row.get(17)?;
 
-        let interpreter = interpreter_str
-            .and_then(|s| serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s)).ok());
-        let behavior = behavior_str
-            .and_then(|s| serde_json::from_str::<ScriptBehavior>(&format!("\"{}\"", s)).ok());
+        let interpreter = interpreter_str.and_then(|s| {
+            serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s.trim_matches('"'))).ok()
+        });
+        let behavior = behavior_str.and_then(|s| {
+            serde_json::from_str::<ScriptBehavior>(&format!("\"{}\"", s.trim_matches('"'))).ok()
+        });
 
         Ok(AutomationRow {
             id: row.get(0)?,
@@ -103,10 +105,12 @@ pub fn get_action_by_trigger(conn: &Connection, trigger: &str) -> Result<Option<
         let interpreter_str: Option<String> = row.get(2)?;
         let behavior_str: Option<String> = row.get(3)?;
 
-        let interpreter = interpreter_str
-            .and_then(|s| serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s)).ok());
-        let behavior = behavior_str
-            .and_then(|s| serde_json::from_str::<ScriptBehavior>(&format!("\"{}\"", s)).ok());
+        let interpreter = interpreter_str.and_then(|s| {
+            serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s.trim_matches('"'))).ok()
+        });
+        let behavior = behavior_str.and_then(|s| {
+            serde_json::from_str::<ScriptBehavior>(&format!("\"{}\"", s.trim_matches('"'))).ok()
+        });
 
         Ok(AutomationAction {
             output: row.get(0)?,
@@ -142,10 +146,12 @@ pub fn get_all_active_automations(conn: &Connection) -> Result<Vec<(String, Auto
         let interpreter_str: Option<String> = row.get(3)?;
         let behavior_str: Option<String> = row.get(4)?;
 
-        let interpreter = interpreter_str
-            .and_then(|s| serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s)).ok());
-        let behavior = behavior_str
-            .and_then(|s| serde_json::from_str::<ScriptBehavior>(&format!("\"{}\"", s)).ok());
+        let interpreter = interpreter_str.and_then(|s| {
+            serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s.trim_matches('"'))).ok()
+        });
+        let behavior = behavior_str.and_then(|s| {
+            serde_json::from_str::<ScriptBehavior>(&format!("\"{}\"", s.trim_matches('"'))).ok()
+        });
 
         Ok((
             row.get(0)?,
@@ -184,10 +190,12 @@ pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>
         let interpreter_str: Option<String> = row.get(6)?;
         let behavior_str: Option<String> = row.get(7)?;
 
-        let interpreter = interpreter_str
-            .and_then(|s| serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s)).ok());
-        let behavior = behavior_str
-            .and_then(|s| serde_json::from_str::<ScriptBehavior>(&format!("\"{}\"", s)).ok());
+        let interpreter = interpreter_str.and_then(|s| {
+            serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s.trim_matches('"'))).ok()
+        });
+        let behavior = behavior_str.and_then(|s| {
+            serde_json::from_str::<ScriptBehavior>(&format!("\"{}\"", s.trim_matches('"'))).ok()
+        });
 
         Ok(AutomationListItem {
             trigger: row.get(0)?,

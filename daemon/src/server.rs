@@ -80,7 +80,7 @@ impl DaemonControl for DaemonService {
         let active = taurine_core::db::crud::get_all_active_automations(&conn)
             .map_err(|e| Status::internal(format!("Failed to retrieve automations: {}", e)))?;
 
-        let actions = active.into_iter().map(|(t, a)| (t, a));
+        let actions = active;
         self.state.load_actions(actions);
 
         // 2. Reload Settings
@@ -169,7 +169,14 @@ mod tests {
         );
 
         // Now the in-memory cache should have the expansion
-        assert_eq!(state.source.get_action("hello").map(|a| a.output).as_deref(), Some("world"));
+        assert_eq!(
+            state
+                .source
+                .get_action("hello")
+                .map(|a| a.output)
+                .as_deref(),
+            Some("world")
+        );
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&test_dir);

@@ -25,7 +25,10 @@ impl EngineState {
         }
     }
 
-    pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, crate::db::crud::AutomationAction)>) {
+    pub fn load_actions(
+        &self,
+        actions: impl IntoIterator<Item = (String, crate::db::crud::AutomationAction)>,
+    ) {
         self.source.load_actions(actions.into_iter().collect());
     }
 
