@@ -38,7 +38,18 @@ impl EngineState {
     }
 
     fn get_raw_action(&self, keyword: &str) -> Option<crate::db::crud::AutomationAction> {
-        self.source.get_action(keyword)
+        // 1. Try exact case-sensitive match first
+        if let Some(action) = self.source.get_action(keyword) {
+            return Some(action);
+        }
+
+        // 2. Optimization: Only attempt a second lookup if the keyword actually contains uppercase letters
+        let lower_keyword = keyword.to_lowercase();
+        if lower_keyword != keyword {
+            return self.source.get_action(&lower_keyword);
+        }
+
+        None
     }
 
     fn interpolate_script(
@@ -203,5 +214,47 @@ mod tests {
         } else {
             panic!("Expected script expansion");
         }
+    }
+    #[test]
+    fn test_smart_match_fallback() {
+        let memory = Arc::new(MemorySource::new());
+        let state = EngineState::with_source('>', memory.clone());
+
+        memory.load_actions(vec![
+            ("gm".to_string(), AutomationAction::text("lowercase")),
+            ("GM".to_string(), AutomationAction::text("UPPERCASE")),
+            (
+                "only_low".to_string(),
+                AutomationAction::text("only lowercase"),
+            ),
+        ]);
+
+        // 1. Exact match (lowercase)
+        assert_eq!(
+            state.fetch_expansion("gm").unwrap().steps[0],
+            ExpansionStep::Text("lowercase".to_string())
+        );
+
+        // 2. Exact match (uppercase)
+        assert_eq!(
+            state.fetch_expansion("GM").unwrap().steps[0],
+            ExpansionStep::Text("UPPERCASE".to_string())
+        );
+
+        // 3. Fallback match (typed Mixed, falls back to lowercase)
+        assert_eq!(
+            state.fetch_expansion("Gm").unwrap().steps[0],
+            ExpansionStep::Text("lowercase".to_string())
+        );
+
+        // 4. Fallback match (typed Mixed, falls back to lowercase when only lowercase exists)
+        assert_eq!(
+            state.fetch_expansion("ONLY_LOW").unwrap().steps[0],
+            ExpansionStep::Text("only lowercase".to_string())
+        );
+
+        // 5. No match
+        assert!(state.fetch_expansion("unknown").is_none());
+        assert!(state.fetch_expansion("UNKNOWN").is_none());
     }
 }
