@@ -95,6 +95,16 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     updated_at       INTEGER NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS scripts (
+                    automation_id      TEXT    PRIMARY KEY,
+                    interpreter        TEXT    NOT NULL,
+                    behavior           TEXT    NOT NULL,
+                    compressed_content BLOB    NOT NULL,
+                    version            INTEGER DEFAULT 1,
+                    updated_at         INTEGER NOT NULL,
+                    FOREIGN KEY(automation_id) REFERENCES automations(id) ON DELETE CASCADE
+                );
+
                 -- Partial index: hot-path trigger lookup, tombstoned rows excluded.
                 CREATE INDEX IF NOT EXISTS idx_active_triggers
                     ON automations(trigger) WHERE is_deleted = 0;

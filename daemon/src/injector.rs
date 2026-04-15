@@ -706,6 +706,10 @@ pub fn inject_expansion(steps: Vec<ExpansionStep>, delete_count: usize) {
                     remaining -= chunk;
                 }
             }
+            ExpansionStep::Script(_) => {
+                // Phase 3: Implement script execution
+                debug!("Script execution not yet implemented in daemon");
+            }
         }
     }
 

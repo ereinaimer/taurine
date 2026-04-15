@@ -1,3 +1,4 @@
+use crate::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use rusqlite::{Connection, Result};
 
 use super::{AutomationAction, AutomationListItem, AutomationRow, AutomationSummary};
@@ -17,27 +18,39 @@ fn get_current_os_db_string() -> &'static str {
 pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRow>> {
     let mut stmt = conn.prepare_cached(
         "SELECT
-            id,
-            name,
-            description,
-            trigger,
-            output,
-            action_type,
-            target_os,
-            tags,
-            usage_count,
-            last_used_at,
-            created_at,
-            updated_at,
-            version,
-            is_deleted,
-            is_synced,
-            is_enabled
-         FROM automations
-         WHERE id = ?1",
+            a.id,
+            a.name,
+            a.description,
+            a.trigger,
+            a.output,
+            a.action_type,
+            a.target_os,
+            a.tags,
+            a.usage_count,
+            a.last_used_at,
+            a.created_at,
+            a.updated_at,
+            a.version,
+            a.is_deleted,
+            a.is_synced,
+            a.is_enabled,
+            s.interpreter,
+            s.behavior,
+            s.compressed_content
+         FROM automations a
+         LEFT JOIN scripts s ON a.id = s.automation_id
+         WHERE a.id = ?1",
     )?;
 
     let result = stmt.query_row([id], |row| {
+        let interpreter_str: Option<String> = row.get(16)?;
+        let behavior_str: Option<String> = row.get(17)?;
+
+        let interpreter = interpreter_str
+            .and_then(|s| serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s)).ok());
+        let behavior = behavior_str
+            .and_then(|s| serde_json::from_str::<ScriptBehavior>(&format!("\"{}\"", s)).ok());
+
         Ok(AutomationRow {
             id: row.get(0)?,
             name: row.get(1)?,
@@ -55,6 +68,9 @@ pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRo
             is_deleted: row.get(13)?,
             is_synced: row.get(14)?,
             is_enabled: row.get(15)?,
+            interpreter,
+            behavior,
+            script_binary: row.get(18)?,
         })
     });
 
@@ -72,20 +88,32 @@ pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRo
 pub fn get_action_by_trigger(conn: &Connection, trigger: &str) -> Result<Option<AutomationAction>> {
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
-        "SELECT output, action_type
-         FROM   automations
-         WHERE  trigger = ?1
-           AND  is_deleted = 0
-           AND  is_enabled = 1
-           AND  (target_os = 'all' OR target_os = ?2)
-         ORDER BY usage_count DESC
+        "SELECT a.output, a.action_type, s.interpreter, s.behavior, s.compressed_content
+         FROM   automations a
+         LEFT JOIN scripts s ON a.id = s.automation_id
+         WHERE  a.trigger = ?1
+           AND  a.is_deleted = 0
+           AND  a.is_enabled = 1
+           AND  (a.target_os = 'all' OR a.target_os = ?2)
+         ORDER BY a.usage_count DESC
          LIMIT 1",
     )?;
 
     let result = stmt.query_row(rusqlite::params![trigger, os_str], |row| {
+        let interpreter_str: Option<String> = row.get(2)?;
+        let behavior_str: Option<String> = row.get(3)?;
+
+        let interpreter = interpreter_str
+            .and_then(|s| serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s)).ok());
+        let behavior = behavior_str
+            .and_then(|s| serde_json::from_str::<ScriptBehavior>(&format!("\"{}\"", s)).ok());
+
         Ok(AutomationAction {
             output: row.get(0)?,
             action_type: row.get(1)?,
+            interpreter,
+            behavior,
+            script_binary: row.get(4)?,
         })
     });
 
@@ -102,19 +130,31 @@ pub fn get_action_by_trigger(conn: &Connection, trigger: &str) -> Result<Option<
 pub fn get_all_active_automations(conn: &Connection) -> Result<Vec<(String, AutomationAction)>> {
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
-        "SELECT trigger, output, action_type
-         FROM automations
-         WHERE is_deleted = 0
-           AND is_enabled = 1
-           AND (target_os = 'all' OR target_os = ?1)",
+        "SELECT a.trigger, a.output, a.action_type, s.interpreter, s.behavior, s.compressed_content
+         FROM automations a
+         LEFT JOIN scripts s ON a.id = s.automation_id
+         WHERE a.is_deleted = 0
+           AND a.is_enabled = 1
+           AND (a.target_os = 'all' OR a.target_os = ?1)",
     )?;
 
     let rows = stmt.query_map([os_str], |row| {
+        let interpreter_str: Option<String> = row.get(3)?;
+        let behavior_str: Option<String> = row.get(4)?;
+
+        let interpreter = interpreter_str
+            .and_then(|s| serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s)).ok());
+        let behavior = behavior_str
+            .and_then(|s| serde_json::from_str::<ScriptBehavior>(&format!("\"{}\"", s)).ok());
+
         Ok((
             row.get(0)?,
             AutomationAction {
                 output: row.get(1)?,
                 action_type: row.get(2)?,
+                interpreter,
+                behavior,
+                script_binary: row.get(5)?,
             },
         ))
     })?;

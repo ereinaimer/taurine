@@ -1,3 +1,5 @@
+use crate::engine::shell::{ScriptBehavior, ScriptInterpreter};
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct AutomationRow {
     pub id: String,
@@ -16,6 +18,11 @@ pub struct AutomationRow {
     pub is_deleted: bool,
     pub is_synced: bool,
     pub is_enabled: bool,
+
+    // Script Metadata from joined scripts table
+    pub interpreter: Option<ScriptInterpreter>,
+    pub behavior: Option<ScriptBehavior>,
+    pub script_binary: Option<Vec<u8>>,
 }
 
 /// Minimal data needed by the keystroke listener.
@@ -23,6 +30,10 @@ pub struct AutomationRow {
 pub struct AutomationAction {
     pub output: String,
     pub action_type: String,
+
+    pub interpreter: Option<ScriptInterpreter>,
+    pub behavior: Option<ScriptBehavior>,
+    pub script_binary: Option<Vec<u8>>,
 }
 
 /// Lightweight summary used by the fuzzy finder / command palette.

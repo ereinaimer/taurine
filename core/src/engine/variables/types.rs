@@ -1,3 +1,4 @@
+use crate::engine::shell::ScriptMetadata;
 use indexmap::IndexMap;
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -19,6 +20,8 @@ pub enum ExpansionStep {
     KeyPress(String),
     /// An explicit pause in milliseconds.
     Delay(u64),
+    /// A shell script to execute.
+    Script(ScriptMetadata),
 }
 
 #[derive(Debug, Clone, PartialEq)]

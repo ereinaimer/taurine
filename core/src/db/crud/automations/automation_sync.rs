@@ -1,3 +1,4 @@
+use crate::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use rusqlite::{Connection, Result};
 
 use super::AutomationRow;
@@ -10,28 +11,40 @@ use super::AutomationRow;
 pub fn get_syncable_automations(conn: &Connection) -> Result<Vec<AutomationRow>> {
     let mut stmt = conn.prepare_cached(
         "SELECT
-            id,
-            name,
-            description,
-            trigger,
-            output,
-            action_type,
-            target_os,
-            tags,
-            usage_count,
-            last_used_at,
-            created_at,
-            updated_at,
-            version,
-            is_deleted,
-            is_synced,
-            is_enabled
-         FROM automations
-         WHERE is_synced = 1
-         ORDER BY version, updated_at",
+            a.id,
+            a.name,
+            a.description,
+            a.trigger,
+            a.output,
+            a.action_type,
+            a.target_os,
+            a.tags,
+            a.usage_count,
+            a.last_used_at,
+            a.created_at,
+            a.updated_at,
+            a.version,
+            a.is_deleted,
+            a.is_synced,
+            a.is_enabled,
+            s.interpreter,
+            s.behavior,
+            s.compressed_content
+         FROM automations a
+         LEFT JOIN scripts s ON a.id = s.automation_id
+         WHERE a.is_synced = 1
+         ORDER BY a.version, a.updated_at",
     )?;
 
     let rows = stmt.query_map([], |row| {
+        let interpreter_str: Option<String> = row.get(16)?;
+        let behavior_str: Option<String> = row.get(17)?;
+
+        let interpreter = interpreter_str
+            .and_then(|s| serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s)).ok());
+        let behavior = behavior_str
+            .and_then(|s| serde_json::from_str::<ScriptBehavior>(&format!("\"{}\"", s)).ok());
+
         Ok(AutomationRow {
             id: row.get(0)?,
             name: row.get(1)?,
@@ -49,6 +62,9 @@ pub fn get_syncable_automations(conn: &Connection) -> Result<Vec<AutomationRow>>
             is_deleted: row.get(13)?,
             is_synced: row.get(14)?,
             is_enabled: row.get(15)?,
+            interpreter,
+            behavior,
+            script_binary: row.get(18)?,
         })
     })?;
 
