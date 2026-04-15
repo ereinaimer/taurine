@@ -1,4 +1,3 @@
-use crate::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use rusqlite::{Connection, Result};
 
 use super::{AutomationAction, AutomationListItem, AutomationRow, AutomationSummary};
@@ -12,6 +11,14 @@ fn get_current_os_db_string() -> &'static str {
         "ios" => "ios",
         _ => "unknown",
     }
+}
+
+/// Helper to parse JSON variants that might contain double-quotes from SQLite.
+fn parse_json_variant<T: serde::de::DeserializeOwned>(s: Option<String>) -> Option<T> {
+    s.and_then(|val| {
+        let trimmed = val.trim_matches('"');
+        serde_json::from_str::<T>(&format!("\"{}\"", trimmed)).ok()
+    })
 }
 
 /// Returns the full row for `id`, or `None` if it does not exist.
@@ -43,15 +50,8 @@ pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRo
     )?;
 
     let result = stmt.query_row([id], |row| {
-        let interpreter_str: Option<String> = row.get(16)?;
-        let behavior_str: Option<String> = row.get(17)?;
-
-        let interpreter = interpreter_str.and_then(|s| {
-            serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s.trim_matches('"'))).ok()
-        });
-        let behavior = behavior_str.and_then(|s| {
-            serde_json::from_str::<ScriptBehavior>(&format!("\"{}\"", s.trim_matches('"'))).ok()
-        });
+        let interpreter = parse_json_variant(row.get(16)?);
+        let behavior = parse_json_variant(row.get(17)?);
 
         Ok(AutomationRow {
             id: row.get(0)?,
@@ -102,15 +102,8 @@ pub fn get_action_by_trigger(conn: &Connection, trigger: &str) -> Result<Option<
     )?;
 
     let result = stmt.query_row(rusqlite::params![trigger, os_str], |row| {
-        let interpreter_str: Option<String> = row.get(2)?;
-        let behavior_str: Option<String> = row.get(3)?;
-
-        let interpreter = interpreter_str.and_then(|s| {
-            serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s.trim_matches('"'))).ok()
-        });
-        let behavior = behavior_str.and_then(|s| {
-            serde_json::from_str::<ScriptBehavior>(&format!("\"{}\"", s.trim_matches('"'))).ok()
-        });
+        let interpreter = parse_json_variant(row.get(2)?);
+        let behavior = parse_json_variant(row.get(3)?);
 
         Ok(AutomationAction {
             output: row.get(0)?,
@@ -143,15 +136,8 @@ pub fn get_all_active_automations(conn: &Connection) -> Result<Vec<(String, Auto
     )?;
 
     let rows = stmt.query_map([os_str], |row| {
-        let interpreter_str: Option<String> = row.get(3)?;
-        let behavior_str: Option<String> = row.get(4)?;
-
-        let interpreter = interpreter_str.and_then(|s| {
-            serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s.trim_matches('"'))).ok()
-        });
-        let behavior = behavior_str.and_then(|s| {
-            serde_json::from_str::<ScriptBehavior>(&format!("\"{}\"", s.trim_matches('"'))).ok()
-        });
+        let interpreter = parse_json_variant(row.get(3)?);
+        let behavior = parse_json_variant(row.get(4)?);
 
         Ok((
             row.get(0)?,
@@ -187,15 +173,8 @@ pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>
     )?;
 
     let rows = stmt.query_map([os_str], |row| {
-        let interpreter_str: Option<String> = row.get(6)?;
-        let behavior_str: Option<String> = row.get(7)?;
-
-        let interpreter = interpreter_str.and_then(|s| {
-            serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s.trim_matches('"'))).ok()
-        });
-        let behavior = behavior_str.and_then(|s| {
-            serde_json::from_str::<ScriptBehavior>(&format!("\"{}\"", s.trim_matches('"'))).ok()
-        });
+        let interpreter = parse_json_variant(row.get(6)?);
+        let behavior = parse_json_variant(row.get(7)?);
 
         Ok(AutomationListItem {
             trigger: row.get(0)?,
@@ -257,4 +236,39 @@ pub fn search_automations(
     }
 
     Ok(results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::shell::{ScriptBehavior, ScriptInterpreter};
+
+    #[test]
+    fn test_parse_json_variant_handles_double_quotes() {
+        // Normal case
+        let result: Option<ScriptInterpreter> = parse_json_variant(Some("python".to_string()));
+        assert_eq!(result, Some(ScriptInterpreter::Python));
+
+        // problematic double-quote case from SQLite
+        let result: Option<ScriptInterpreter> = parse_json_variant(Some("\"python\"".to_string()));
+        assert_eq!(result, Some(ScriptInterpreter::Python));
+
+        // Behavior case
+        let result: Option<ScriptBehavior> = parse_json_variant(Some("\"inline\"".to_string()));
+        assert_eq!(result, Some(ScriptBehavior::Inline));
+
+        // Mixed case (trimming matches any number of quotes at ends)
+        let result: Option<ScriptInterpreter> =
+            parse_json_variant(Some("\"\"bash\"\"".to_string()));
+        assert_eq!(result, Some(ScriptInterpreter::Bash));
+    }
+
+    #[test]
+    fn test_parse_json_variant_handles_none_and_invalid() {
+        assert_eq!(parse_json_variant::<ScriptInterpreter>(None), None);
+        assert_eq!(
+            parse_json_variant::<ScriptInterpreter>(Some("invalid".to_string())),
+            None
+        );
+    }
 }

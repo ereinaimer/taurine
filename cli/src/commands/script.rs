@@ -124,3 +124,67 @@ fn behavior_to_str(b: ScriptBehavior) -> &'static str {
         ScriptBehavior::Silent => "silent",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_inference_by_extension() {
+        assert_eq!(
+            infer_interpreter(Some(Path::new("test.sh")), ""),
+            Some(ScriptInterpreter::Bash)
+        );
+        assert_eq!(
+            infer_interpreter(Some(Path::new("test.ps1")), ""),
+            Some(ScriptInterpreter::PowerShell)
+        );
+        assert_eq!(
+            infer_interpreter(Some(Path::new("test.py")), ""),
+            Some(ScriptInterpreter::Python)
+        );
+        assert_eq!(
+            infer_interpreter(Some(Path::new("test.bat")), ""),
+            Some(ScriptInterpreter::Cmd)
+        );
+        assert_eq!(
+            infer_interpreter(Some(Path::new("test.cmd")), ""),
+            Some(ScriptInterpreter::Cmd)
+        );
+    }
+
+    #[test]
+    fn test_inference_by_shebang() {
+        assert_eq!(
+            infer_interpreter(None, "#!/bin/bash\necho hello"),
+            Some(ScriptInterpreter::Bash)
+        );
+        assert_eq!(
+            infer_interpreter(None, "#!/usr/bin/env python3\nprint(1)"),
+            Some(ScriptInterpreter::Python)
+        );
+        assert_eq!(
+            infer_interpreter(None, "#!/bin/sh\nls"),
+            Some(ScriptInterpreter::Bash)
+        );
+    }
+
+    #[test]
+    fn test_inference_extension_over_shebang() {
+        // Extension should be checked first or at least be high priority
+        assert_eq!(
+            infer_interpreter(Some(Path::new("test.py")), "#!/bin/bash"),
+            Some(ScriptInterpreter::Python)
+        );
+    }
+
+    #[test]
+    fn test_inference_fallback() {
+        assert_eq!(infer_interpreter(None, "just some text"), None);
+        assert_eq!(
+            infer_interpreter(Some(Path::new("test.unknown")), "no shebang"),
+            None
+        );
+    }
+}

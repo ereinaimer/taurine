@@ -42,9 +42,22 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
         .stderr(Stdio::piped())
         .stdin(Stdio::null());
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| taurine_core::Error::Service(format!("Failed to spawn interpreter: {}", e)))?;
+    let mut child = cmd.spawn().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            let interpreter_name = match metadata.interpreter {
+                ScriptInterpreter::Bash => "bash",
+                ScriptInterpreter::Python => "python",
+                ScriptInterpreter::PowerShell => "powershell",
+                ScriptInterpreter::Cmd => "cmd",
+            };
+            taurine_core::Error::Service(format!(
+                "[Taurine Error: '{}' is not installed or not in PATH]",
+                interpreter_name
+            ))
+        } else {
+            taurine_core::Error::Service(format!("Failed to spawn interpreter: {}", e))
+        }
+    })?;
 
     // We take the pipes from the child so we can read them concurrently with wait()
     let mut stdout_pipe = child
