@@ -11,7 +11,7 @@ pub use automation_get::{
 };
 pub use automation_set::{
     AddOutcome, add_automation_by_trigger, increment_usage_count_by_trigger,
-    record_expansion_usage, upsert_automation,
+    record_expansion_usage, upsert_automation, upsert_script,
 };
 pub use automation_sync::get_syncable_automations;
 pub use automation_types::{

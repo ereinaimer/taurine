@@ -1,4 +1,5 @@
-use rusqlite::{Connection, Result};
+use crate::Result;
+use rusqlite::Connection;
 
 use crate::db::now_unix_secs;
 
@@ -66,6 +67,36 @@ pub fn upsert_automation(
     Ok(())
 }
 
+/// Inserts or updates a script attachment for an automation.
+pub fn upsert_script(
+    conn: &Connection,
+    automation_id: &str,
+    interpreter: crate::engine::shell::ScriptInterpreter,
+    behavior: crate::engine::shell::ScriptBehavior,
+    compressed_content: &[u8],
+) -> Result<()> {
+    let now = now_unix_secs();
+    conn.execute(
+        "INSERT INTO scripts (automation_id, interpreter, behavior, compressed_content, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(automation_id) DO UPDATE SET
+            interpreter        = excluded.interpreter,
+            behavior           = excluded.behavior,
+            compressed_content = excluded.compressed_content,
+            updated_at         = excluded.updated_at,
+            version            = version + 1",
+        (
+            automation_id,
+            serde_json::to_string(&interpreter)?,
+            serde_json::to_string(&behavior)?,
+            compressed_content,
+            now,
+        ),
+    )?;
+
+    Ok(())
+}
+
 /// Increments the usage_count and updates last_used_at for the given trigger.
 pub fn increment_usage_count_by_trigger(conn: &Connection, trigger: &str) -> Result<()> {
     conn.execute(
@@ -91,8 +122,10 @@ pub fn record_expansion_usage(
 ) {
     match Connection::open(crate::paths::get_db_path()) {
         Ok(mut conn) => {
-            // Use a transaction to ensure both updates succeed or fail together.
-            let tx_result = conn.transaction().and_then(|tx| {
+            // Use a closure to handle the transaction and custom Result type.
+            let tx_result = (|| -> crate::Result<()> {
+                let tx = conn.transaction()?;
+
                 // 1. Update the automation-specific counter
                 increment_usage_count_by_trigger(&tx, trigger)?;
 
@@ -106,8 +139,9 @@ pub fn record_expansion_usage(
 
                 crate::db::crud::increment_metric(&tx, &date, 1, saved)?;
 
-                tx.commit()
-            });
+                tx.commit()?;
+                Ok(())
+            })();
 
             if let Err(e) = tx_result {
                 tracing::warn!(
