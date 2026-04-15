@@ -1,0 +1,105 @@
+// Script Executor
+use crate::injector::INJECTION_ABORT;
+use std::process::Stdio;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
+use taurine_core::engine::shell::{ScriptInterpreter, ScriptMetadata, decompress};
+use tokio::process::Command;
+
+const SCRIPT_TIMEOUT: Duration = Duration::from_secs(20);
+
+pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<String> {
+    let script_content = decompress(&metadata.compressed_content)?;
+
+    let mut cmd = match metadata.interpreter {
+        ScriptInterpreter::Bash => {
+            let mut c = Command::new("bash");
+            c.arg("-c").arg(&script_content);
+            c
+        }
+        ScriptInterpreter::Python => {
+            let mut c = Command::new("python");
+            c.arg("-c").arg(&script_content);
+            c
+        }
+        ScriptInterpreter::PowerShell => {
+            let mut c = Command::new("powershell");
+            c.arg("-NoProfile")
+                .arg("-ExecutionPolicy")
+                .arg("Bypass")
+                .arg("-Command")
+                .arg(&script_content);
+            c
+        }
+        ScriptInterpreter::Cmd => {
+            let mut c = Command::new("cmd");
+            c.arg("/C").arg(&script_content);
+            c
+        }
+    };
+
+    cmd.stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null());
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| taurine_core::Error::Service(format!("Failed to spawn interpreter: {}", e)))?;
+
+    // We take the pipes from the child so we can read them concurrently with wait()
+    let mut stdout_pipe = child
+        .stdout
+        .take()
+        .ok_or_else(|| taurine_core::Error::Service("Failed to capture stdout".to_string()))?;
+    let mut stderr_pipe = child
+        .stderr
+        .take()
+        .ok_or_else(|| taurine_core::Error::Service("Failed to capture stderr".to_string()))?;
+
+    let mut stdout_bytes = Vec::new();
+    let mut stderr_bytes = Vec::new();
+
+    tokio::select! {
+        res = async {
+            tokio::join!(
+                child.wait(),
+                tokio::io::copy(&mut stdout_pipe, &mut stdout_bytes),
+                tokio::io::copy(&mut stderr_pipe, &mut stderr_bytes)
+            )
+        } => {
+            let (status_res, _, _) = res;
+            let status = status_res.map_err(|e| {
+                taurine_core::Error::Service(format!("Failed to wait for script: {}", e))
+            })?;
+
+            let stdout_final = String::from_utf8_lossy(&stdout_bytes).trim().to_string();
+            let stderr_final = String::from_utf8_lossy(&stderr_bytes).trim().to_string();
+
+            if status.success() {
+                Ok(stdout_final)
+            } else {
+                let err_cleaned = if stderr_final.is_empty() {
+                    format!("Script failed with exit code {}", status)
+                } else {
+                    stderr_final
+                };
+                Err(taurine_core::Error::Service(err_cleaned))
+            }
+        }
+        _ = tokio::time::sleep(SCRIPT_TIMEOUT) => {
+            let _ = child.kill().await;
+            Err(taurine_core::Error::Service("Script timed out after 20s".to_string()))
+        }
+        _ = async {
+            loop {
+                if INJECTION_ABORT.load(Ordering::SeqCst) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        } => {
+            let _ = child.kill().await;
+            Err(taurine_core::Error::Service("Script aborted by user".to_string()))
+        }
+    }
+}

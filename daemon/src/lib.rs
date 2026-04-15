@@ -14,6 +14,7 @@ mod injector;
 mod notify;
 pub mod platform;
 mod server;
+mod spinner;
 
 pub use server::DaemonService;
 

@@ -10,6 +10,7 @@ use std::time::Duration;
 use tracing::warn;
 use tracing::{debug, error};
 
+use taurine_core::engine::shell::ScriptBehavior;
 use taurine_core::engine::variables::ExpansionStep;
 
 /// Abstraction so clipboard ordering (read original → set payload → verify → restore) can be
@@ -473,9 +474,8 @@ fn alias_to_evdev_key(alias: &str) -> Option<evdev::KeyCode> {
     }
 }
 
-/// Injects a text segment via the platform clipboard.
-/// Returns the original clipboard content for later restoration.
-fn inject_text_segment(text: &str, original_clipboard: &Option<String>) -> Option<String> {
+/// Injects a text segment into the active application.
+pub fn inject_text_segment(text: &str, original_clipboard: &Option<String>) -> Option<String> {
     let post_paste_wait = if cfg!(target_os = "windows") {
         Duration::from_millis(220)
     } else if cfg!(target_os = "linux") {
@@ -706,9 +706,44 @@ pub fn inject_expansion(steps: Vec<ExpansionStep>, delete_count: usize) {
                     remaining -= chunk;
                 }
             }
-            ExpansionStep::Script(_) => {
-                // Phase 3: Implement script execution
-                debug!("Script execution not yet implemented in daemon");
+            ExpansionStep::Script(metadata) => {
+                match metadata.behavior {
+                    ScriptBehavior::Inline => {
+                        // Start the modern Braille spinner in a dedicated module
+                        let spinner_handle = crate::spinner::start();
+
+                        // Execute script and block until completion (or abort/timeout)
+                        let rt = tokio::runtime::Handle::current();
+                        let script_result: taurine_core::Result<String> =
+                            rt.block_on(crate::platform::executor::execute_script(metadata));
+
+                        // Stop the spinner
+                        spinner_handle.stop();
+
+                        match script_result {
+                            Ok(output) => {
+                                let out: String = output;
+                                if !out.is_empty() {
+                                    inject_text_segment(&out, &original_clipboard);
+                                }
+                            }
+                            Err(e) => {
+                                let err_msg = format!(" [Error: {}] ", e);
+                                inject_text_segment(&err_msg, &original_clipboard);
+                            }
+                        }
+                    }
+                    ScriptBehavior::Silent => {
+                        // Fire and forget in the background
+                        if let Ok(rt) = tokio::runtime::Handle::try_current() {
+                            let metadata_clone = metadata.clone();
+                            rt.spawn(async move {
+                                let _ = crate::platform::executor::execute_script(&metadata_clone)
+                                    .await;
+                            });
+                        }
+                    }
+                }
             }
         }
     }
