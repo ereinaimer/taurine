@@ -68,6 +68,10 @@ enum Commands {
         /// Sort in descending order
         #[arg(long, conflicts_with = "asc")]
         desc: bool,
+
+        /// Disable table decorations and borders
+        #[arg(long)]
+        plain: bool,
     },
     /// Manage application settings
     Config {
@@ -278,8 +282,13 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
         Some(Commands::Delete { trigger }) => {
             commands::delete::execute(trigger)?;
         }
-        Some(Commands::List { sort, asc, desc }) => {
-            commands::list::execute(sort, asc, desc)?;
+        Some(Commands::List {
+            sort,
+            asc,
+            desc,
+            plain,
+        }) => {
+            commands::list::execute(sort, asc, desc, plain)?;
         }
         Some(Commands::Config { action }) => match action {
             ConfigAction::Set { key, value } => commands::config::execute_set(key, value)?,

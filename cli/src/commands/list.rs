@@ -3,7 +3,12 @@ use comfy_table::{Table, TableComponent, modifiers, presets};
 use taurine_core::db::init;
 use time::OffsetDateTime;
 
-pub fn execute(sort: Option<SortBy>, asc: bool, desc: bool) -> taurine_core::error::Result<()> {
+pub fn execute(
+    sort: Option<SortBy>,
+    asc: bool,
+    desc: bool,
+    plain: bool,
+) -> taurine_core::error::Result<()> {
     use taurine_core::db::crud::get_automations_list;
 
     let conn = init::setup()?;
@@ -43,16 +48,19 @@ pub fn execute(sort: Option<SortBy>, asc: bool, desc: bool) -> taurine_core::err
     });
 
     let mut table = Table::new();
+    if plain {
+        table.load_preset(presets::NOTHING);
+    } else {
+        table
+            .load_preset(presets::UTF8_FULL_CONDENSED)
+            .apply_modifier(modifiers::UTF8_ROUND_CORNERS);
 
-    table
-        .load_preset(presets::UTF8_FULL_CONDENSED)
-        .apply_modifier(modifiers::UTF8_ROUND_CORNERS);
-
-    table.set_style(TableComponent::HeaderLines, '─');
-    table.set_style(TableComponent::LeftHeaderIntersection, '├');
-    table.set_style(TableComponent::MiddleHeaderIntersections, '┼');
-    table.set_style(TableComponent::RightHeaderIntersection, '┤');
-    table.set_style(TableComponent::VerticalLines, '│');
+        table.set_style(TableComponent::HeaderLines, '─');
+        table.set_style(TableComponent::LeftHeaderIntersection, '├');
+        table.set_style(TableComponent::MiddleHeaderIntersections, '┼');
+        table.set_style(TableComponent::RightHeaderIntersection, '┤');
+        table.set_style(TableComponent::VerticalLines, '│');
+    }
 
     // Build headers based on sort option
     let mut headers = vec!["TRIGGER", "OUTPUT"];
@@ -129,4 +137,35 @@ fn format_relative_time(timestamp: i64) -> String {
 
     let years = days / 365;
     format!("{}y ago", years)
+}
+
+#[cfg(test)]
+mod tests {
+    use comfy_table::Table;
+
+    #[test]
+    fn test_table_output_with_plain_flag() {
+        // Simulating the logic used in execute() when plain is true
+        let mut table = Table::new();
+        table.load_preset(comfy_table::presets::NOTHING);
+
+        table.set_header(vec!["TRIGGER", "OUTPUT"]);
+        table.add_row(vec!["gs", "git status"]);
+
+        let output = table.to_string();
+
+        // Assertions: Ensure no box-drawing or decoration characters exist
+        let decoration_chars = ['│', '─', '┌', '┐', '└', '┘', '├', '┤', '┬', '┴', '┼', '═'];
+        for ch in decoration_chars {
+            assert!(
+                !output.contains(ch),
+                "Output should not contain decoration character '{}' when --plain is used",
+                ch
+            );
+        }
+
+        // Ensure data is still present and separated by whitespace
+        assert!(output.contains("gs"));
+        assert!(output.contains("git status"));
+    }
 }
