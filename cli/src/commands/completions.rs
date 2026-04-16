@@ -2,12 +2,12 @@ use crate::{Cli, ShellCompletionAction};
 use clap::CommandFactory;
 use clap_complete::shells::{Bash, Elvish, Fish, PowerShell, Zsh};
 use clap_complete::{Generator, generate};
-use colored::Colorize;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
 #[cfg(target_os = "windows")]
 use std::process::Command;
+use tracing::{debug, error, info};
 
 pub(crate) fn handle_completion(action: &ShellCompletionAction) -> taurine_core::error::Result<()> {
     let mut cmd = Cli::command();
@@ -59,30 +59,27 @@ fn install_windows(cmd: &mut clap::Command) {
         if let Some(policy) = powershell_execution_policy()
             && matches!(policy.as_str(), "Restricted" | "AllSigned")
         {
-            eprintln!(
-                "\nPowerShell execution policy is too restrictive ({policy})\n\
-                Completion scripts cannot be sourced.\n\n\
-                Fix:\n\
-                Run this once in PowerShell:\n\n\
-                Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned\n"
+            debug!("PowerShell execution policy is too restrictive ({policy})");
+            debug!(
+                "Fix: Run 'Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned' in PowerShell"
             );
             return;
         }
 
         let profile_paths = get_powershell_profiles();
         if profile_paths.is_empty() {
-            println!("Could not detect any PowerShell profile.");
+            debug!("Could not detect any PowerShell profile.");
             return;
         }
 
         let Some(config_dir) = taurine_config_dir() else {
-            eprintln!("Failed to determine Taurine config directory.");
+            debug!("Failed to determine Taurine config directory.");
             return;
         };
 
         let completions_dir = config_dir.join("Completions");
         if let Err(error) = fs::create_dir_all(&completions_dir) {
-            eprintln!("Failed to create completions directory: {error}");
+            error!("Failed to create completions directory: {error}");
             return;
         }
 
@@ -90,13 +87,13 @@ fn install_windows(cmd: &mut clap::Command) {
         let mut file = match fs::File::create(&ps_file) {
             Ok(file) => file,
             Err(error) => {
-                eprintln!("Failed to create completion file: {error}");
+                error!("Failed to create completion file: {error}");
                 return;
             }
         };
 
         generate(PowerShell, cmd, "taurine", &mut file);
-        println!("Installed PowerShell completion to: {}", ps_file.display());
+        debug!("Installed PowerShell completion to: {}", ps_file.display());
 
         for profile_path in profile_paths {
             if !profile_path.exists() {
@@ -124,28 +121,29 @@ fn install_windows(cmd: &mut clap::Command) {
                 };
 
                 if let Err(error) = writeln!(file, "\n{source_line}") {
-                    eprintln!(
+                    error!(
                         "Failed to append to profile {}: {error}",
                         profile_path.display()
                     );
                 } else {
-                    println!(
+                    debug!(
                         "Added sourcing line to PowerShell profile: {}",
-                        profile_path.display().to_string().cyan()
+                        profile_path.display()
                     );
                 }
             } else {
-                println!(
+                debug!(
                     "PowerShell profile already sources this file: {}",
-                    profile_path.display().to_string().cyan()
+                    profile_path.display()
                 );
             }
         }
 
-        println!("Restart PowerShell to activate completions!");
+        debug!("Restart PowerShell to activate completions!");
+        info!("PowerShell completion scripts were installed successfully.");
     } else if is_git_bash {
         let Some(home) = dirs::home_dir() else {
-            eprintln!("Failed to determine the home directory for Git Bash completions.");
+            debug!("Failed to determine the home directory for Git Bash completions.");
             return;
         };
 
@@ -156,19 +154,20 @@ fn install_windows(cmd: &mut clap::Command) {
         match fs::File::create(&bash_file) {
             Ok(mut file) => {
                 generate(Bash, cmd, "taurine", &mut file);
-                println!("Installed Bash completion to: {}", bash_file.display());
-                println!(
-                    "To enable it, ensure this line is sourced in your ~/.bashrc or ~/.bash_profile:"
+                debug!("Installed Bash completion to: {}", bash_file.display());
+                debug!(
+                    "Ensure this line is sourced in ~/.bashrc or ~/.bash_profile: source \"{}\"",
+                    bash_file.display()
                 );
-                println!("{}", format!("source \"{}\"", bash_file.display()).green());
+                info!("Bash completion scripts were installed successfully.");
             }
-            Err(error) => eprintln!("Failed to create completion file: {error}"),
+            Err(error) => error!("Failed to create completion file: {error}"),
         }
     } else {
-        println!(
+        debug!(
             "Could not detect a supported shell (PowerShell or Git Bash) for automatic installation."
         );
-        println!("Generate a script manually with 'taurine completions <shell> > <file>'.");
+        debug!("Generate a script manually with 'taurine completions <shell> > <file>'.");
     }
 }
 
@@ -180,13 +179,13 @@ fn install_unix(cmd: &mut clap::Command) {
     let shell = std::env::var("SHELL").unwrap_or_default();
 
     let Some(config_dir) = taurine_config_dir() else {
-        eprintln!("Failed to determine Taurine config directory.");
+        debug!("Failed to determine Taurine config directory.");
         return;
     };
 
     let completions_dir = config_dir.join("completions");
     if let Err(error) = fs::create_dir_all(&completions_dir) {
-        eprintln!("Failed to create completions directory: {error}");
+        error!("Failed to create completions directory: {error}");
         return;
     }
 
@@ -209,7 +208,7 @@ fn install_bash(cmd: &mut clap::Command, completions_dir: &std::path::Path) {
     match fs::File::create(&bash_file) {
         Ok(mut file) => {
             generate(Bash, cmd, "taurine", &mut file);
-            println!("Installed Bash completion to: {}", bash_file.display());
+            debug!("Installed Bash completion to: {}", bash_file.display());
 
             if let Some(home) = dirs::home_dir() {
                 let rc_file = if cfg!(target_os = "macos") {
@@ -220,8 +219,9 @@ fn install_bash(cmd: &mut clap::Command, completions_dir: &std::path::Path) {
 
                 append_to_rc_file(&rc_file, &format!("source \"{}\"", bash_file.display()));
             }
+            info!("Bash completion scripts were installed successfully.");
         }
-        Err(error) => eprintln!("Failed to create completion file: {error}"),
+        Err(error) => error!("Failed to create completion file: {error}"),
     }
 }
 
@@ -232,7 +232,7 @@ fn install_zsh(cmd: &mut clap::Command, completions_dir: &std::path::Path) {
     match fs::File::create(&zsh_file) {
         Ok(mut file) => {
             generate(Zsh, cmd, "taurine", &mut file);
-            println!("Installed Zsh completion to: {}", zsh_file.display());
+            debug!("Installed Zsh completion to: {}", zsh_file.display());
 
             if let Some(home) = dirs::home_dir() {
                 let rc_file = home.join(".zshrc");
@@ -242,21 +242,22 @@ fn install_zsh(cmd: &mut clap::Command, completions_dir: &std::path::Path) {
                 );
                 append_to_rc_file(&rc_file, &line);
             }
+            info!("Zsh completion scripts were installed successfully.");
         }
-        Err(error) => eprintln!("Failed to create completion file: {error}"),
+        Err(error) => error!("Failed to create completion file: {error}"),
     }
 }
 
 #[cfg(not(target_os = "windows"))]
 fn install_fish(cmd: &mut clap::Command) {
     let Some(home) = dirs::home_dir() else {
-        eprintln!("Failed to determine the home directory for Fish completions.");
+        debug!("Failed to determine the home directory for Fish completions.");
         return;
     };
 
     let completions_dir = home.join(".config/fish/completions");
     if let Err(error) = fs::create_dir_all(&completions_dir) {
-        eprintln!("Failed to create fish completions directory: {error}");
+        error!("Failed to create fish completions directory: {error}");
         return;
     }
 
@@ -264,9 +265,10 @@ fn install_fish(cmd: &mut clap::Command) {
     match fs::File::create(&fish_file) {
         Ok(mut file) => {
             generate(Fish, cmd, "taurine", &mut file);
-            println!("Installed Fish completion to: {}", fish_file.display());
+            debug!("Installed Fish completion to: {}", fish_file.display());
+            info!("Fish completion scripts were installed successfully.");
         }
-        Err(error) => eprintln!("Failed to create completion file: {error}"),
+        Err(error) => error!("Failed to create completion file: {error}"),
     }
 }
 
@@ -278,15 +280,12 @@ fn append_to_rc_file(path: &std::path::Path, content: &str) {
                 use std::io::Write;
 
                 if let Err(error) = writeln!(file, "\n{content}") {
-                    eprintln!("Failed to write to {}: {error}", path.display());
+                    error!("Failed to write to {}: {error}", path.display());
                 } else {
-                    println!(
-                        "Added sourcing line to: {}",
-                        path.display().to_string().cyan()
-                    );
+                    debug!("Added sourcing line to: {}", path.display());
                 }
             }
-            Err(error) => eprintln!("Failed to create {}: {error}", path.display()),
+            Err(error) => error!("Failed to create {}: {error}", path.display()),
         }
         return;
     }
@@ -303,9 +302,9 @@ fn append_to_rc_file(path: &std::path::Path, content: &str) {
                 || fpath_prefix.is_some_and(|prefix| existing_content.contains(prefix));
 
             if already_exists {
-                println!(
+                debug!(
                     "File {} already contains the sourcing line.",
-                    path.display().to_string().cyan()
+                    path.display()
                 );
                 return;
             }
@@ -315,28 +314,25 @@ fn append_to_rc_file(path: &std::path::Path, content: &str) {
             let mut file = match fs::OpenOptions::new().write(true).append(true).open(path) {
                 Ok(file) => file,
                 Err(error) => {
-                    eprintln!("Failed to open {} for appending: {error}", path.display());
+                    error!("Failed to open {} for appending: {error}", path.display());
                     return;
                 }
             };
 
             if let Err(error) = writeln!(file, "\n{content}") {
-                eprintln!("Failed to append to {}: {error}", path.display());
+                error!("Failed to append to {}: {error}", path.display());
             } else {
-                println!(
-                    "Added sourcing line to: {}",
-                    path.display().to_string().cyan()
-                );
+                debug!("Added sourcing line to: {}", path.display());
             }
         }
-        Err(error) => eprintln!("Failed to read {}: {error}", path.display()),
+        Err(error) => error!("Failed to read {}: {error}", path.display()),
     }
 }
 
 #[cfg(target_os = "windows")]
 fn uninstall_windows() {
     let Some(config_dir) = taurine_config_dir() else {
-        eprintln!("Failed to determine Taurine config directory.");
+        debug!("Failed to determine Taurine config directory.");
         return;
     };
 
@@ -345,26 +341,32 @@ fn uninstall_windows() {
 
     if ps_file.exists() {
         match fs::remove_file(&ps_file) {
-            Ok(_) => println!("Removed completion file: {}", ps_file.display()),
-            Err(error) => eprintln!("Failed to remove completion file: {error}"),
+            Ok(_) => {
+                debug!("Removed completion file: {}", ps_file.display());
+                info!("PowerShell completion scripts were uninstalled successfully.");
+            }
+            Err(error) => error!("Failed to remove completion file: {error}"),
         }
     } else {
-        println!("Completion file not found: {}", ps_file.display());
+        debug!("Completion file not found: {}", ps_file.display());
     }
 
     if let Some(home) = dirs::home_dir() {
         let bash_file = home.join(".bash_completions").join("taurine.bash");
         if bash_file.exists() {
             match fs::remove_file(&bash_file) {
-                Ok(_) => println!("Removed Git Bash completion file: {}", bash_file.display()),
-                Err(error) => eprintln!("Failed to remove Git Bash completion file: {error}"),
+                Ok(_) => {
+                    debug!("Removed Git Bash completion file: {}", bash_file.display());
+                    info!("Bash completion scripts were uninstalled successfully.");
+                }
+                Err(error) => error!("Failed to remove Git Bash completion file: {error}"),
             }
         }
     }
 
     let profile_paths = get_powershell_profiles();
     if profile_paths.is_empty() {
-        println!("Could not detect any PowerShell profile paths.");
+        debug!("Could not detect any PowerShell profile paths.");
         return;
     }
 
@@ -384,23 +386,23 @@ fn uninstall_windows() {
                         .join("\n");
 
                     match fs::write(&profile_path, new_content) {
-                        Ok(_) => println!(
+                        Ok(_) => debug!(
                             "Removed sourcing line from PowerShell profile: {}",
-                            profile_path.display().to_string().cyan()
+                            profile_path.display()
                         ),
-                        Err(error) => eprintln!(
+                        Err(error) => error!(
                             "Failed to write to profile {}: {error}",
                             profile_path.display()
                         ),
                     }
                 } else {
-                    println!(
+                    debug!(
                         "PowerShell profile does not contain the sourcing line: {}",
-                        profile_path.display().to_string().cyan()
+                        profile_path.display()
                     );
                 }
             }
-            Err(error) => eprintln!("Failed to read profile {}: {error}", profile_path.display()),
+            Err(error) => error!("Failed to read profile {}: {error}", profile_path.display()),
         }
     }
 }
@@ -411,7 +413,7 @@ fn uninstall_windows() {}
 #[cfg(not(target_os = "windows"))]
 fn uninstall_unix() {
     let Some(config_dir) = taurine_config_dir() else {
-        eprintln!("Failed to determine Taurine config directory.");
+        debug!("Failed to determine Taurine config directory.");
         return;
     };
 
@@ -419,20 +421,20 @@ fn uninstall_unix() {
     let bash_file = completions_dir.join("taurine.bash");
     if bash_file.exists() {
         let _ = fs::remove_file(&bash_file);
-        println!("Removed Bash completions.");
+        info!("Bash completion scripts were uninstalled successfully.");
     }
 
     let zsh_file = completions_dir.join("_taurine");
     if zsh_file.exists() {
         let _ = fs::remove_file(&zsh_file);
-        println!("Removed Zsh completions.");
+        info!("Zsh completion scripts were uninstalled successfully.");
     }
 
     if let Some(home) = dirs::home_dir() {
         let fish_file = home.join(".config/fish/completions/taurine.fish");
         if fish_file.exists() {
             let _ = fs::remove_file(&fish_file);
-            println!("Removed Fish completions.");
+            info!("Fish completion scripts were uninstalled successfully.");
         }
 
         let rc_file = if cfg!(target_os = "macos") {
@@ -467,15 +469,12 @@ fn remove_line_from_file(path: &std::path::Path, partial_content: &str) {
                     .join("\n");
 
                 match fs::write(path, new_content) {
-                    Ok(_) => println!(
-                        "Removed sourcing line from: {}",
-                        path.display().to_string().cyan()
-                    ),
-                    Err(error) => eprintln!("Failed to write to {}: {error}", path.display()),
+                    Ok(_) => debug!("Removed sourcing line from: {}", path.display()),
+                    Err(error) => error!("Failed to write to {}: {error}", path.display()),
                 }
             }
         }
-        Err(error) => eprintln!("Failed to read {}: {error}", path.display()),
+        Err(error) => error!("Failed to read {}: {error}", path.display()),
     }
 }
 
