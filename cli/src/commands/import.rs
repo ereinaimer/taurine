@@ -4,17 +4,19 @@ use inquire::{Password, PasswordDisplayMode, Select};
 use taurine_core::db::init;
 use taurine_core::exchange::{
     AutomationExport, ExchangeFormat, ExchangePayload, ExistingAutomationConflict,
-    ImportConflictAction, crypto, decode_plaintext_payload, deserialize_payload,
-    detect_exchange_format, import_automations,
+    ImportConflictAction, ImportMetricsMode, ImportOptions, crypto, decode_plaintext_payload,
+    deserialize_payload, detect_exchange_format, import_automations,
 };
 use tracing::info;
 use zeroize::Zeroize;
 
-use crate::ImportConflictCli;
+use crate::{ImportConflictCli, ImportMetricsCli};
 
 pub fn execute(
     path: PathBuf,
     on_conflict: Option<ImportConflictCli>,
+    include_settings: bool,
+    include_metrics: Option<ImportMetricsCli>,
 ) -> taurine_core::error::Result<()> {
     let bytes = std::fs::read(&path)?;
     let format = detect_exchange_format(&bytes)?;
@@ -28,7 +30,15 @@ pub fn execute(
         }
     };
     let mut conn = init::setup()?;
-    let imported = import_payload_transactionally(&mut conn, &payload, on_conflict)?;
+    let imported = import_payload_transactionally(
+        &mut conn,
+        &payload,
+        on_conflict,
+        ImportOptions {
+            include_settings,
+            metrics_mode: map_import_metrics_mode(include_metrics),
+        },
+    )?;
 
     if imported > 0 {
         taurine_core::rpc::notify_daemon_reload();
@@ -46,10 +56,11 @@ fn import_payload_transactionally(
     conn: &mut rusqlite::Connection,
     payload: &ExchangePayload,
     on_conflict: Option<ImportConflictCli>,
+    options: ImportOptions,
 ) -> taurine_core::error::Result<usize> {
     let mut remembered_choice = None;
     let tx = conn.transaction()?;
-    let result = import_automations(&tx, payload, |incoming, existing| {
+    let result = import_automations(&tx, payload, options, |incoming, existing| {
         resolve_conflict_action(incoming, existing, on_conflict, &mut remembered_choice)
     });
 
@@ -62,6 +73,14 @@ fn import_payload_transactionally(
             tx.rollback()?;
             Err(err)
         }
+    }
+}
+
+fn map_import_metrics_mode(include_metrics: Option<ImportMetricsCli>) -> ImportMetricsMode {
+    match include_metrics.unwrap_or(ImportMetricsCli::Ignore) {
+        ImportMetricsCli::Ignore => ImportMetricsMode::Ignore,
+        ImportMetricsCli::Merge => ImportMetricsMode::Merge,
+        ImportMetricsCli::Overwrite => ImportMetricsMode::Overwrite,
     }
 }
 
@@ -213,6 +232,8 @@ mod tests {
             is_enabled: true,
             target_os: "all".to_string(),
             tags: vec![],
+            usage_count: None,
+            last_used_at: None,
             script: None,
         }
     }
@@ -227,6 +248,8 @@ mod tests {
             action_type: "text".to_string(),
             target_os: "all".to_string(),
             is_enabled: true,
+            usage_count: 0,
+            last_used_at: None,
         }
     }
 
@@ -277,5 +300,14 @@ mod tests {
                 .unwrap();
 
         assert_eq!(action, ImportConflictAction::Overwrite);
+    }
+
+    #[test]
+    fn map_import_metrics_mode_defaults_to_ignore() {
+        assert_eq!(map_import_metrics_mode(None), ImportMetricsMode::Ignore);
+        assert_eq!(
+            map_import_metrics_mode(Some(ImportMetricsCli::Merge)),
+            ImportMetricsMode::Merge
+        );
     }
 }

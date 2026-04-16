@@ -1,5 +1,5 @@
-use super::{AutomationExport, ExchangePayload};
-use crate::db::crud::{upsert_automation, upsert_script};
+use super::{AutomationExport, ExchangePayload, MetricExport};
+use crate::db::crud::{increment_metric, upsert_automation, upsert_script, upsert_setting};
 use crate::engine::shell::compress;
 use rusqlite::Transaction;
 use uuid::Uuid;
@@ -8,6 +8,20 @@ use uuid::Uuid;
 pub enum ImportConflictAction {
     Overwrite,
     Skip,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ImportMetricsMode {
+    #[default]
+    Ignore,
+    Merge,
+    Overwrite,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ImportOptions {
+    pub include_settings: bool,
+    pub metrics_mode: ImportMetricsMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,11 +34,14 @@ pub struct ExistingAutomationConflict {
     pub action_type: String,
     pub target_os: String,
     pub is_enabled: bool,
+    pub usage_count: i64,
+    pub last_used_at: Option<i64>,
 }
 
 pub fn import_automations<F>(
     tx: &Transaction<'_>,
     payload: &ExchangePayload,
+    options: ImportOptions,
     mut resolve_conflict: F,
 ) -> crate::Result<usize>
 where
@@ -34,12 +51,14 @@ where
 
     let mut imported = 0usize;
     for automation in &payload.automations {
-        if let Some(existing) = find_conflicting_automation(
+        let existing = find_conflicting_automation(
             tx,
             automation.trigger.as_str(),
             automation.target_os.as_str(),
-        )? {
-            match resolve_conflict(automation, &existing)? {
+        )?;
+
+        if let Some(existing) = existing.as_ref() {
+            match resolve_conflict(automation, existing)? {
                 ImportConflictAction::Overwrite => {
                     tombstone_conflicting_automations(
                         tx,
@@ -51,9 +70,15 @@ where
             }
         }
 
-        insert_imported_automation(tx, automation)?;
+        insert_imported_automation(tx, automation, existing.as_ref(), options.metrics_mode)?;
         imported += 1;
     }
+
+    if options.include_settings {
+        import_settings(tx, payload)?;
+    }
+
+    import_global_metrics(tx, payload, options.metrics_mode)?;
 
     Ok(imported)
 }
@@ -61,9 +86,13 @@ where
 fn insert_imported_automation(
     tx: &Transaction<'_>,
     automation: &AutomationExport,
+    existing: Option<&ExistingAutomationConflict>,
+    metrics_mode: ImportMetricsMode,
 ) -> crate::Result<()> {
     let id = Uuid::new_v4().to_string();
     let tags_json = serde_json::to_string(&automation.tags)?;
+    let (usage_count, last_used_at) =
+        resolve_automation_metrics(automation, existing, metrics_mode);
 
     upsert_automation(
         tx,
@@ -75,8 +104,8 @@ fn insert_imported_automation(
         &automation.action_type,
         &automation.target_os,
         &tags_json,
-        0,
-        None,
+        usage_count,
+        last_used_at,
     )?;
 
     if !automation.is_enabled {
@@ -108,7 +137,8 @@ fn find_conflicting_automation(
     target_os: &str,
 ) -> crate::Result<Option<ExistingAutomationConflict>> {
     let mut stmt = tx.prepare_cached(
-        "SELECT id, name, description, trigger, output, action_type, target_os, is_enabled
+        "SELECT id, name, description, trigger, output, action_type, target_os, is_enabled,
+                usage_count, last_used_at
          FROM automations
          WHERE trigger = ?1
            AND target_os = ?2
@@ -127,6 +157,8 @@ fn find_conflicting_automation(
             action_type: row.get(5)?,
             target_os: row.get(6)?,
             is_enabled: row.get(7)?,
+            usage_count: row.get(8)?,
+            last_used_at: row.get(9)?,
         })
     });
 
@@ -156,6 +188,95 @@ fn tombstone_conflicting_automations(
     Ok(())
 }
 
+fn resolve_automation_metrics(
+    automation: &AutomationExport,
+    existing: Option<&ExistingAutomationConflict>,
+    metrics_mode: ImportMetricsMode,
+) -> (i64, Option<i64>) {
+    let imported_usage_count = automation.usage_count.unwrap_or(0);
+    let imported_last_used_at = automation.last_used_at;
+
+    match metrics_mode {
+        ImportMetricsMode::Ignore => (0, None),
+        ImportMetricsMode::Overwrite => (imported_usage_count, imported_last_used_at),
+        ImportMetricsMode::Merge => {
+            if let Some(existing) = existing {
+                (
+                    existing.usage_count + imported_usage_count,
+                    max_option_i64(existing.last_used_at, imported_last_used_at),
+                )
+            } else {
+                (imported_usage_count, imported_last_used_at)
+            }
+        }
+    }
+}
+
+fn import_settings(tx: &Transaction<'_>, payload: &ExchangePayload) -> crate::Result<()> {
+    if let Some(settings) = payload.settings.as_ref() {
+        for setting in settings {
+            upsert_setting(tx, &setting.key, &setting.value)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn import_global_metrics(
+    tx: &Transaction<'_>,
+    payload: &ExchangePayload,
+    metrics_mode: ImportMetricsMode,
+) -> crate::Result<()> {
+    let Some(metrics) = payload.metrics.as_ref() else {
+        return Ok(());
+    };
+
+    match metrics_mode {
+        ImportMetricsMode::Ignore => Ok(()),
+        ImportMetricsMode::Merge => {
+            for metric in metrics {
+                increment_metric(tx, &metric.date, metric.executions, metric.keystrokes_saved)?;
+            }
+            Ok(())
+        }
+        ImportMetricsMode::Overwrite => {
+            for metric in metrics {
+                overwrite_metric_row(tx, metric)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn overwrite_metric_row(tx: &Transaction<'_>, metric: &MetricExport) -> crate::Result<()> {
+    tx.execute(
+        "INSERT INTO metrics (date, executions, keystrokes_saved, version, updated_at)
+         VALUES (?1, ?2, ?3, 1, ?4)
+         ON CONFLICT(date) DO UPDATE SET
+             executions = excluded.executions,
+             keystrokes_saved = excluded.keystrokes_saved,
+             version = version + 1,
+             updated_at = excluded.updated_at",
+        (
+            &metric.date,
+            metric.executions,
+            metric.keystrokes_saved,
+            crate::db::now_unix_secs(),
+        ),
+    )?;
+
+    Ok(())
+}
+
+fn max_option_i64(left: Option<i64>, right: Option<i64>) -> Option<i64> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.max(right)),
+        (Some(left), None) => Some(left),
+        (None, Some(right)) => Some(right),
+        (None, None) => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,6 +294,8 @@ mod tests {
             is_enabled: true,
             target_os: target_os.to_string(),
             tags: vec!["imported".to_string()],
+            usage_count: None,
+            last_used_at: None,
             script: None,
         }
     }
@@ -199,8 +322,10 @@ mod tests {
 
         let payload = ExchangePayload::new(vec![text_export("gm", "all", "Imported output")]);
         let tx = conn.transaction().unwrap();
-        let imported =
-            import_automations(&tx, &payload, |_, _| Ok(ImportConflictAction::Skip)).unwrap();
+        let imported = import_automations(&tx, &payload, ImportOptions::default(), |_, _| {
+            Ok(ImportConflictAction::Skip)
+        })
+        .unwrap();
         tx.commit().unwrap();
 
         assert_eq!(imported, 0);
@@ -233,8 +358,10 @@ mod tests {
 
         let payload = ExchangePayload::new(vec![text_export("gm", "all", "Imported output")]);
         let tx = conn.transaction().unwrap();
-        let imported =
-            import_automations(&tx, &payload, |_, _| Ok(ImportConflictAction::Overwrite)).unwrap();
+        let imported = import_automations(&tx, &payload, ImportOptions::default(), |_, _| {
+            Ok(ImportConflictAction::Overwrite)
+        })
+        .unwrap();
         tx.commit().unwrap();
 
         assert_eq!(imported, 1);
@@ -287,6 +414,8 @@ mod tests {
             is_enabled: true,
             target_os: "all".to_string(),
             tags: vec![],
+            usage_count: None,
+            last_used_at: None,
             script: Some(super::super::ScriptExport {
                 interpreter: ScriptInterpreter::Bash,
                 behavior: ScriptBehavior::Inline,
@@ -302,14 +431,18 @@ mod tests {
             is_enabled: true,
             target_os: "all".to_string(),
             tags: vec![],
+            usage_count: None,
+            last_used_at: None,
             script: None,
         };
 
         let payload = ExchangePayload::new(vec![valid_script, invalid_script]);
         let tx = conn.transaction().unwrap();
 
-        let err = import_automations(&tx, &payload, |_, _| Ok(ImportConflictAction::Overwrite))
-            .unwrap_err();
+        let err = import_automations(&tx, &payload, ImportOptions::default(), |_, _| {
+            Ok(ImportConflictAction::Overwrite)
+        })
+        .unwrap_err();
         assert!(err.to_string().contains("missing script data"));
         tx.rollback().unwrap();
 
@@ -359,7 +492,10 @@ mod tests {
 
         let payload = ExchangePayload::new(vec![text_export("gm", "linux", "Imported linux")]);
         let tx = conn.transaction().unwrap();
-        import_automations(&tx, &payload, |_, _| Ok(ImportConflictAction::Overwrite)).unwrap();
+        import_automations(&tx, &payload, ImportOptions::default(), |_, _| {
+            Ok(ImportConflictAction::Overwrite)
+        })
+        .unwrap();
         tx.commit().unwrap();
 
         let local_all = get_automation(&conn, "local-all").unwrap().unwrap();
@@ -367,5 +503,282 @@ mod tests {
 
         let local_linux = get_automation(&conn, "local-linux").unwrap().unwrap();
         assert!(local_linux.is_deleted);
+    }
+
+    #[test]
+    fn merge_metrics_combines_local_and_imported_automation_stats() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        upsert_automation(
+            &conn,
+            "local-id",
+            "Local GM",
+            None,
+            "gm",
+            "Local output",
+            "text",
+            "all",
+            "[]",
+            20,
+            Some(200),
+        )
+        .unwrap();
+
+        let mut imported = text_export("gm", "all", "Imported output");
+        imported.usage_count = Some(50);
+        imported.last_used_at = Some(100);
+
+        let tx = conn.transaction().unwrap();
+        import_automations(
+            &tx,
+            &ExchangePayload::new(vec![imported]),
+            ImportOptions {
+                include_settings: false,
+                metrics_mode: ImportMetricsMode::Merge,
+            },
+            |_, _| Ok(ImportConflictAction::Overwrite),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        let (usage_count, last_used_at): (i64, Option<i64>) = conn
+            .query_row(
+                "SELECT usage_count, last_used_at
+                 FROM automations
+                 WHERE trigger = ?1 AND target_os = ?2 AND is_deleted = 0",
+                ["gm", "all"],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+
+        assert_eq!(usage_count, 70);
+        assert_eq!(last_used_at, Some(200));
+    }
+
+    #[test]
+    fn overwrite_metrics_replaces_local_automation_stats() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        upsert_automation(
+            &conn,
+            "local-id",
+            "Local GM",
+            None,
+            "gm",
+            "Local output",
+            "text",
+            "all",
+            "[]",
+            20,
+            Some(200),
+        )
+        .unwrap();
+
+        let mut imported = text_export("gm", "all", "Imported output");
+        imported.usage_count = Some(50);
+        imported.last_used_at = Some(100);
+
+        let tx = conn.transaction().unwrap();
+        import_automations(
+            &tx,
+            &ExchangePayload::new(vec![imported]),
+            ImportOptions {
+                include_settings: false,
+                metrics_mode: ImportMetricsMode::Overwrite,
+            },
+            |_, _| Ok(ImportConflictAction::Overwrite),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        let (usage_count, last_used_at): (i64, Option<i64>) = conn
+            .query_row(
+                "SELECT usage_count, last_used_at
+                 FROM automations
+                 WHERE trigger = ?1 AND target_os = ?2 AND is_deleted = 0",
+                ["gm", "all"],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+
+        assert_eq!(usage_count, 50);
+        assert_eq!(last_used_at, Some(100));
+    }
+
+    #[test]
+    fn skip_conflict_also_skips_imported_metrics() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        upsert_automation(
+            &conn,
+            "local-id",
+            "Local GM",
+            None,
+            "gm",
+            "Local output",
+            "text",
+            "all",
+            "[]",
+            20,
+            Some(200),
+        )
+        .unwrap();
+
+        let mut imported = text_export("gm", "all", "Imported output");
+        imported.usage_count = Some(50);
+        imported.last_used_at = Some(500);
+
+        let tx = conn.transaction().unwrap();
+        import_automations(
+            &tx,
+            &ExchangePayload::new(vec![imported]),
+            ImportOptions {
+                include_settings: false,
+                metrics_mode: ImportMetricsMode::Merge,
+            },
+            |_, _| Ok(ImportConflictAction::Skip),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        let row = get_automation(&conn, "local-id").unwrap().unwrap();
+        assert_eq!(row.usage_count, 20);
+        assert_eq!(row.last_used_at, Some(200));
+        assert!(!row.is_deleted);
+    }
+
+    #[test]
+    fn include_settings_overwrites_local_setting_values() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        let payload = ExchangePayload {
+            schema_version: super::super::EXCHANGE_SCHEMA_VERSION,
+            automations: vec![],
+            settings: Some(vec![super::super::SettingExport {
+                key: "trigger_char".to_string(),
+                value: r#"">""#.to_string(),
+            }]),
+            metrics: None,
+        };
+
+        let tx = conn.transaction().unwrap();
+        import_automations(
+            &tx,
+            &payload,
+            ImportOptions {
+                include_settings: true,
+                metrics_mode: ImportMetricsMode::Ignore,
+            },
+            |_, _| Ok(ImportConflictAction::Overwrite),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        let value: String = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'trigger_char'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(value, r#"">""#);
+    }
+
+    #[test]
+    fn merge_global_metrics_sums_rows_by_date() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        conn.execute(
+            "INSERT INTO metrics (date, executions, keystrokes_saved, updated_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            ("2026-04-01", 20_i64, 200_i64, 1_700_000_000_i64),
+        )
+        .unwrap();
+
+        let payload = ExchangePayload {
+            schema_version: super::super::EXCHANGE_SCHEMA_VERSION,
+            automations: vec![],
+            settings: None,
+            metrics: Some(vec![MetricExport {
+                date: "2026-04-01".to_string(),
+                executions: 50,
+                keystrokes_saved: 500,
+            }]),
+        };
+
+        let tx = conn.transaction().unwrap();
+        import_automations(
+            &tx,
+            &payload,
+            ImportOptions {
+                include_settings: false,
+                metrics_mode: ImportMetricsMode::Merge,
+            },
+            |_, _| Ok(ImportConflictAction::Overwrite),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        let (executions, saved): (i64, i64) = conn
+            .query_row(
+                "SELECT executions, keystrokes_saved FROM metrics WHERE date = ?1",
+                ["2026-04-01"],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(executions, 70);
+        assert_eq!(saved, 700);
+    }
+
+    #[test]
+    fn overwrite_global_metrics_replaces_rows_by_date() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        conn.execute(
+            "INSERT INTO metrics (date, executions, keystrokes_saved, updated_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            ("2026-04-01", 20_i64, 200_i64, 1_700_000_000_i64),
+        )
+        .unwrap();
+
+        let payload = ExchangePayload {
+            schema_version: super::super::EXCHANGE_SCHEMA_VERSION,
+            automations: vec![],
+            settings: None,
+            metrics: Some(vec![MetricExport {
+                date: "2026-04-01".to_string(),
+                executions: 50,
+                keystrokes_saved: 500,
+            }]),
+        };
+
+        let tx = conn.transaction().unwrap();
+        import_automations(
+            &tx,
+            &payload,
+            ImportOptions {
+                include_settings: false,
+                metrics_mode: ImportMetricsMode::Overwrite,
+            },
+            |_, _| Ok(ImportConflictAction::Overwrite),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        let (executions, saved): (i64, i64) = conn
+            .query_row(
+                "SELECT executions, keystrokes_saved FROM metrics WHERE date = ?1",
+                ["2026-04-01"],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(executions, 50);
+        assert_eq!(saved, 500);
     }
 }

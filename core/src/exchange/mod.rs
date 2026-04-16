@@ -5,8 +5,11 @@ mod import;
 use crate::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use serde::{Deserialize, Serialize};
 
-pub use export::export_automations;
-pub use import::{ExistingAutomationConflict, ImportConflictAction, import_automations};
+pub use export::{ExportOptions, export_automations};
+pub use import::{
+    ExistingAutomationConflict, ImportConflictAction, ImportMetricsMode, ImportOptions,
+    import_automations,
+};
 
 pub const PLAINTEXT_MAGIC_HEADER: [u8; 4] = *b"TAUP";
 pub const ENCRYPTED_MAGIC_HEADER: [u8; 4] = *b"TAU1";
@@ -63,6 +66,10 @@ pub struct AutomationExport {
     pub target_os: String,
     #[serde(default)]
     pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_count: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_used_at: Option<i64>,
     #[serde(default)]
     pub script: Option<ScriptExport>,
 }
@@ -203,7 +210,7 @@ mod tests {
 
         insert_script_automation(&conn);
 
-        let payload = export_automations(&conn).unwrap();
+        let payload = export_automations(&conn, ExportOptions::default()).unwrap();
         assert_eq!(payload.schema_version, EXCHANGE_SCHEMA_VERSION);
         assert_eq!(payload.settings, None);
         assert_eq!(payload.metrics, None);
@@ -259,6 +266,8 @@ mod tests {
             is_enabled: true,
             target_os: "all".to_string(),
             tags: vec!["daily".to_string()],
+            usage_count: None,
+            last_used_at: None,
             script: None,
         }]);
 
@@ -296,18 +305,20 @@ mod tests {
         insert_text_automation(&conn);
         insert_script_automation(&conn);
 
-        let payload = export_automations(&conn).unwrap();
+        let payload = export_automations(&conn, ExportOptions::default()).unwrap();
 
         conn.execute("DELETE FROM scripts", []).unwrap();
         conn.execute("DELETE FROM automations", []).unwrap();
 
         let tx = conn.transaction().unwrap();
-        let imported =
-            import_automations(&tx, &payload, |_, _| Ok(ImportConflictAction::Overwrite)).unwrap();
+        let imported = import_automations(&tx, &payload, ImportOptions::default(), |_, _| {
+            Ok(ImportConflictAction::Overwrite)
+        })
+        .unwrap();
         tx.commit().unwrap();
         assert_eq!(imported, 2);
 
-        let re_exported = export_automations(&conn).unwrap();
+        let re_exported = export_automations(&conn, ExportOptions::default()).unwrap();
         assert_eq!(re_exported, payload);
 
         let imported_text = conn
@@ -350,5 +361,50 @@ mod tests {
         assert_ne!(script_id, "uuid-script");
         assert!(!script_enabled);
         assert_eq!(decompress(&script_binary).unwrap(), "git pull --ff-only");
+    }
+
+    #[test]
+    fn export_with_settings_and_metrics_includes_requested_sections() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+
+        insert_text_automation(&conn);
+        conn.execute(
+            "INSERT INTO metrics (date, executions, keystrokes_saved, updated_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            ("2026-04-01", 5_i64, 50_i64, 1_700_000_000_i64),
+        )
+        .unwrap();
+
+        let payload = export_automations(
+            &conn,
+            ExportOptions {
+                include_settings: true,
+                include_metrics: true,
+                include_sensitive_settings: false,
+            },
+        )
+        .unwrap();
+
+        let automation = payload
+            .automations
+            .iter()
+            .find(|automation| automation.trigger == "gm")
+            .unwrap();
+        assert_eq!(automation.usage_count, Some(41));
+        assert_eq!(automation.last_used_at, Some(1_700_000_123));
+
+        let settings = payload.settings.unwrap();
+        assert!(settings.iter().any(|setting| setting.key == "trigger_char"));
+
+        let metrics = payload.metrics.unwrap();
+        assert_eq!(
+            metrics,
+            vec![MetricExport {
+                date: "2026-04-01".to_string(),
+                executions: 5,
+                keystrokes_saved: 50,
+            }]
+        );
     }
 }

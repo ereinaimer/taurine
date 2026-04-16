@@ -3,14 +3,27 @@ use std::path::PathBuf;
 use inquire::{Password, PasswordDisplayMode};
 use taurine_core::db::init;
 use taurine_core::exchange::{
-    ExchangePayload, crypto, encode_plaintext_payload, export_automations, serialize_payload,
+    ExchangePayload, ExportOptions, crypto, encode_plaintext_payload, export_automations,
+    serialize_payload,
 };
 use tracing::info;
 use zeroize::Zeroize;
 
-pub fn execute(path: PathBuf, no_encrypt: bool) -> taurine_core::error::Result<()> {
+pub fn execute(
+    path: PathBuf,
+    no_encrypt: bool,
+    with_settings: bool,
+    with_metrics: bool,
+) -> taurine_core::error::Result<()> {
     let conn = init::setup()?;
-    let payload = export_automations(&conn)?;
+    let payload = export_automations(
+        &conn,
+        ExportOptions {
+            include_settings: with_settings,
+            include_metrics: with_metrics,
+            include_sensitive_settings: false,
+        },
+    )?;
     let encoded = if no_encrypt {
         encode_plaintext_payload(&payload)?
     } else {
