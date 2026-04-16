@@ -182,23 +182,24 @@ pub fn add_automation_by_trigger(
     conn: &Connection,
     trigger: &str,
     output: &str,
+    target_os: &str,
 ) -> Result<AddOutcome> {
-    // Check for an existing active row with this trigger.
+    // Check for an existing active row with this trigger and target_os.
     let existing: Option<(String, String)> = conn
         .query_row(
-            "SELECT id, output FROM automations WHERE trigger = ?1 AND is_deleted = 0 ORDER BY updated_at DESC LIMIT 1",
-            [trigger],
+            "SELECT id, output FROM automations WHERE trigger = ?1 AND target_os = ?2 AND is_deleted = 0 ORDER BY updated_at DESC LIMIT 1",
+            [trigger, target_os],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .ok();
 
     match existing {
         Some((_, existing_output)) if existing_output == output => {
-            // Trigger and output are identical — nothing to do.
+            // Trigger, OS, and output are identical — nothing to do.
             Ok(AddOutcome::AlreadyExists)
         }
         Some((id, _)) => {
-            // Same trigger, different output — update only the output.
+            // Same trigger/OS, different output — update only the output.
             let now = now_unix_secs();
             conn.execute(
                 "UPDATE automations
@@ -214,7 +215,7 @@ pub fn add_automation_by_trigger(
             // No existing row — create a new one.
             let id = uuid::Uuid::new_v4().to_string();
             upsert_automation(
-                conn, &id, trigger, None, trigger, output, "text", "all", "[]", 0, None,
+                conn, &id, trigger, None, trigger, output, "text", target_os, "[]", 0, None,
             )?;
             Ok(AddOutcome::Created)
         }

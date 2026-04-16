@@ -11,6 +11,7 @@ pub fn execute(
     file_path: Option<PathBuf>,
     lang: Option<ScriptInterpreter>,
     mode: ScriptBehavior,
+    os: String,
 ) -> taurine_core::error::Result<()> {
     // 1. Resolve content and source description
     let (content, source_desc) = if let Some(ref path) = file_path {
@@ -87,7 +88,7 @@ pub fn execute(
         &trigger,
         &format!("[Script: {}]", lang_to_str(lang)),
         "script",
-        "all",
+        &os,
         "[]",
         usage_count,
         last_used_at,

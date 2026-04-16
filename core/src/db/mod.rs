@@ -2,8 +2,9 @@ pub mod crud;
 pub mod init;
 
 pub use crud::{
-    AutomationRow, MetricRow, delete_automation, delete_metric, get_automation, get_metric,
-    get_metric_counters, increment_metric, upsert_automation,
+    AutomationRow, MetricRow, delete_automation, delete_metric, get_automation,
+    get_current_os_db_string, get_metric, get_metric_counters, increment_metric, normalize_os,
+    upsert_automation,
 };
 pub use crud::{SettingRow, delete_setting, get_setting, get_setting_value, upsert_setting};
 

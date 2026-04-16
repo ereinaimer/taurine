@@ -157,7 +157,7 @@ mod tests {
         assert_eq!(state.source.get_action("hello"), None);
 
         // Add a snippet to DB
-        add_automation_by_trigger(&conn, "hello", "world").expect("Failed to add to DB");
+        add_automation_by_trigger(&conn, "hello", "world", "all").expect("Failed to add to DB");
 
         // trigger reload directly via gRPC service method
         let req = Request::new(taurine_core::rpc::ReloadRequest {});

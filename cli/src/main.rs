@@ -107,6 +107,9 @@ pub struct AddArgs {
     pub trigger: Option<String>,
     /// Output for standard text expansion
     pub output: Option<String>,
+    /// The target operating system (windows, linux, macos, all, android, ios)
+    #[arg(long, value_enum, default_value = "all")]
+    pub os: TargetOsCli,
 }
 
 #[derive(Subcommand, Debug)]
@@ -132,7 +135,35 @@ pub enum AddSubcommand {
         /// Execution mode (inline, silent)
         #[arg(short = 'm', long = "mode", value_enum, default_value = "inline")]
         mode: ScriptBehaviorCli,
+        /// The target operating system (windows, linux, macos, all, android, ios)
+        #[arg(long, value_enum, default_value = "current")]
+        os: TargetOsCli,
     },
+}
+
+#[derive(ValueEnum, Clone, Debug, PartialEq)]
+pub enum TargetOsCli {
+    Windows,
+    Linux,
+    Macos,
+    All,
+    Android,
+    Ios,
+    Current,
+}
+
+impl TargetOsCli {
+    fn to_db_str(&self) -> Option<&'static str> {
+        match self {
+            Self::Windows => Some("win"),
+            Self::Macos => Some("mac"),
+            Self::Linux => Some("linux"),
+            Self::All => Some("all"),
+            Self::Android => Some("android"),
+            Self::Ios => Some("ios"),
+            Self::Current => None,
+        }
+    }
 }
 
 #[derive(ValueEnum, Clone, Debug, PartialEq)]
@@ -259,6 +290,7 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
                 file,
                 lang,
                 mode,
+                os,
             }) = args.sub
             {
                 commands::script::execute(
@@ -267,9 +299,17 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
                     file,
                     lang.map(Into::into),
                     mode.into(),
+                    os.to_db_str().map(|s| s.to_string()).unwrap_or_else(|| {
+                        taurine_core::db::get_current_os_db_string().to_string()
+                    }),
                 )?;
             } else if let (Some(t), Some(o)) = (args.trigger, args.output) {
-                commands::add::execute(t, o)?;
+                let os = args
+                    .os
+                    .to_db_str()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| taurine_core::db::get_current_os_db_string().to_string());
+                commands::add::execute(t, o, os)?;
             } else {
                 // Show help for add command if neither subcommand nor positional args are valid
                 use clap::CommandFactory;

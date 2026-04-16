@@ -2,7 +2,7 @@ use taurine_core::db::crud::AddOutcome;
 use taurine_core::db::init;
 use tracing::info;
 
-pub fn execute(trigger: String, output: String) -> taurine_core::error::Result<()> {
+pub fn execute(trigger: String, output: String, os: String) -> taurine_core::error::Result<()> {
     use taurine_core::db::crud::add_automation_by_trigger;
     use taurine_core::engine::variables::system::validate_output;
 
@@ -11,7 +11,7 @@ pub fn execute(trigger: String, output: String) -> taurine_core::error::Result<(
     validate_output(&output, Some(&trigger));
 
     let conn = init::setup()?;
-    let outcome = add_automation_by_trigger(&conn, &trigger, &output)?;
+    let outcome = add_automation_by_trigger(&conn, &trigger, &output, &os)?;
 
     match outcome {
         AddOutcome::Created => {

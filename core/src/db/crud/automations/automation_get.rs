@@ -1,17 +1,7 @@
 use rusqlite::{Connection, Result};
 
 use super::{AutomationAction, AutomationListItem, AutomationRow, AutomationSummary};
-
-fn get_current_os_db_string() -> &'static str {
-    match std::env::consts::OS {
-        "windows" => "win",
-        "macos" => "mac",
-        "linux" => "linux",
-        "android" => "android",
-        "ios" => "ios",
-        _ => "unknown",
-    }
-}
+use crate::db::crud::get_current_os_db_string;
 
 /// Helper to parse JSON variants that might contain double-quotes from SQLite.
 fn parse_json_variant<T: serde::de::DeserializeOwned>(s: Option<String>) -> Option<T> {
@@ -97,7 +87,7 @@ pub fn get_action_by_trigger(conn: &Connection, trigger: &str) -> Result<Option<
            AND  a.is_deleted = 0
            AND  a.is_enabled = 1
            AND  (a.target_os = 'all' OR a.target_os = ?2)
-         ORDER BY a.usage_count DESC
+         ORDER BY (a.target_os != 'all') DESC, a.usage_count DESC
          LIMIT 1",
     )?;
 
@@ -216,7 +206,7 @@ pub fn search_automations(
            AND  (target_os = 'all' OR target_os = ?3)
            AND  (name    LIKE ?1
                  OR trigger LIKE ?1)
-         ORDER BY usage_count DESC, updated_at DESC
+         ORDER BY (target_os != 'all') DESC, usage_count DESC, updated_at DESC
          LIMIT  ?2",
     )?;
 
