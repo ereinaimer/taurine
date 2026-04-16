@@ -45,10 +45,6 @@ fn uninstall_completion() {
     }
 }
 
-fn taurine_config_dir() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join(taurine_core::constants::APP_NAME_SLUG))
-}
-
 #[cfg(target_os = "windows")]
 fn install_windows(cmd: &mut clap::Command) {
     let shell = std::env::var("SHELL").unwrap_or_default();
@@ -72,12 +68,8 @@ fn install_windows(cmd: &mut clap::Command) {
             return;
         }
 
-        let Some(config_dir) = taurine_config_dir() else {
-            debug!("Failed to determine Taurine config directory.");
-            return;
-        };
-
-        let completions_dir = config_dir.join("Completions");
+        let data_dir = taurine_core::paths::get_data_dir();
+        let completions_dir = data_dir.join("completions");
         if let Err(error) = fs::create_dir_all(&completions_dir) {
             error!("Failed to create completions directory: {error}");
             return;
@@ -178,12 +170,8 @@ fn install_windows(_cmd: &mut clap::Command) {}
 fn install_unix(cmd: &mut clap::Command) {
     let shell = std::env::var("SHELL").unwrap_or_default();
 
-    let Some(config_dir) = taurine_config_dir() else {
-        debug!("Failed to determine Taurine config directory.");
-        return;
-    };
-
-    let completions_dir = config_dir.join("completions");
+    let data_dir = taurine_core::paths::get_data_dir();
+    let completions_dir = data_dir.join("completions");
     if let Err(error) = fs::create_dir_all(&completions_dir) {
         error!("Failed to create completions directory: {error}");
         return;
@@ -331,12 +319,8 @@ fn append_to_rc_file(path: &std::path::Path, content: &str) {
 
 #[cfg(target_os = "windows")]
 fn uninstall_windows() {
-    let Some(config_dir) = taurine_config_dir() else {
-        debug!("Failed to determine Taurine config directory.");
-        return;
-    };
-
-    let completions_dir = config_dir.join("Completions");
+    let data_dir = taurine_core::paths::get_data_dir();
+    let completions_dir = data_dir.join("completions");
     let ps_file = completions_dir.join("_taurine.ps1");
 
     if ps_file.exists() {
@@ -412,12 +396,8 @@ fn uninstall_windows() {}
 
 #[cfg(not(target_os = "windows"))]
 fn uninstall_unix() {
-    let Some(config_dir) = taurine_config_dir() else {
-        debug!("Failed to determine Taurine config directory.");
-        return;
-    };
-
-    let completions_dir = config_dir.join("completions");
+    let data_dir = taurine_core::paths::get_data_dir();
+    let completions_dir = data_dir.join("completions");
     let bash_file = completions_dir.join("taurine.bash");
     if bash_file.exists() {
         let _ = fs::remove_file(&bash_file);
