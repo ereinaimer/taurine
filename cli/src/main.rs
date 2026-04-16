@@ -106,6 +106,11 @@ enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
+    /// Generate or install shell completions
+    Completions {
+        #[command(subcommand)]
+        action: ShellCompletionAction,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -123,6 +128,17 @@ enum ConfigAction {
         #[arg(long)]
         all: bool,
     },
+}
+
+#[derive(Subcommand, Debug)]
+enum ShellCompletionAction {
+    Bash,
+    Elvish,
+    Fish,
+    Powershell,
+    Zsh,
+    Install,
+    Uninstall,
 }
 
 #[derive(Parser, Debug)]
@@ -402,6 +418,9 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
                 }
             }
         },
+        Some(Commands::Completions { action }) => {
+            commands::completions::handle_completion(&action)?;
+        }
         None => {
             if !cli.daemon {
                 use clap::CommandFactory;

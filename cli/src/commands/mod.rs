@@ -1,4 +1,5 @@
 pub mod add;
+pub mod completions;
 pub mod config;
 pub mod delete;
 pub mod export;
