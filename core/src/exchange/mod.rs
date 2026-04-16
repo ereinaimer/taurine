@@ -1,3 +1,4 @@
+pub mod crypto;
 mod export;
 mod import;
 
@@ -8,7 +9,9 @@ pub use export::export_automations;
 pub use import::import_automations;
 
 pub const PLAINTEXT_MAGIC_HEADER: [u8; 4] = *b"TAUP";
+pub const ENCRYPTED_MAGIC_HEADER: [u8; 4] = *b"TAU1";
 pub const EXCHANGE_SCHEMA_VERSION: u32 = 1;
+const MAGIC_HEADER_LEN: usize = 4;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExchangePayload {
@@ -41,6 +44,12 @@ impl ExchangePayload {
 
         Ok(())
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExchangeFormat {
+    Plaintext,
+    Encrypted,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -79,25 +88,48 @@ pub struct MetricExport {
 }
 
 pub fn encode_plaintext_payload(payload: &ExchangePayload) -> crate::Result<Vec<u8>> {
-    payload.validate_schema_version()?;
-
-    let json = serde_json::to_vec(payload)?;
-    let mut encoded = Vec::with_capacity(PLAINTEXT_MAGIC_HEADER.len() + json.len());
+    let json = serialize_payload(payload)?;
+    let mut encoded = Vec::with_capacity(MAGIC_HEADER_LEN + json.len());
     encoded.extend_from_slice(&PLAINTEXT_MAGIC_HEADER);
     encoded.extend_from_slice(&json);
     Ok(encoded)
 }
 
 pub fn decode_plaintext_payload(bytes: &[u8]) -> crate::Result<ExchangePayload> {
-    if bytes.len() < PLAINTEXT_MAGIC_HEADER.len()
-        || bytes[..PLAINTEXT_MAGIC_HEADER.len()] != PLAINTEXT_MAGIC_HEADER
-    {
+    match detect_exchange_format(bytes)? {
+        ExchangeFormat::Plaintext => deserialize_payload(&bytes[MAGIC_HEADER_LEN..]),
+        ExchangeFormat::Encrypted => Err(crate::Error::Config(
+            "Expected TAUP plaintext data, but received TAU1 encrypted data".to_string(),
+        )),
+    }
+}
+
+pub fn detect_exchange_format(bytes: &[u8]) -> crate::Result<ExchangeFormat> {
+    if bytes.len() < MAGIC_HEADER_LEN {
         return Err(crate::Error::Config(
-            "Unsupported exchange file header; expected TAUP".to_string(),
+            "Exchange file is too short to contain a valid header".to_string(),
         ));
     }
 
-    let payload: ExchangePayload = serde_json::from_slice(&bytes[PLAINTEXT_MAGIC_HEADER.len()..])?;
+    let header = &bytes[..MAGIC_HEADER_LEN];
+    if header == PLAINTEXT_MAGIC_HEADER {
+        Ok(ExchangeFormat::Plaintext)
+    } else if header == ENCRYPTED_MAGIC_HEADER {
+        Ok(ExchangeFormat::Encrypted)
+    } else {
+        Err(crate::Error::Config(
+            "Unsupported exchange file header; expected TAUP or TAU1".to_string(),
+        ))
+    }
+}
+
+pub fn serialize_payload(payload: &ExchangePayload) -> crate::Result<Vec<u8>> {
+    payload.validate_schema_version()?;
+    Ok(serde_json::to_vec(payload)?)
+}
+
+pub fn deserialize_payload(bytes: &[u8]) -> crate::Result<ExchangePayload> {
+    let payload: ExchangePayload = serde_json::from_slice(bytes)?;
     payload.validate_schema_version()?;
     Ok(payload)
 }
@@ -238,7 +270,22 @@ mod tests {
         assert_eq!(decode_plaintext_payload(&encoded).unwrap(), payload);
 
         let err = decode_plaintext_payload(b"TAU1not-json").unwrap_err();
-        assert!(err.to_string().contains("TAUP"));
+        assert!(err.to_string().contains("TAU1"));
+    }
+
+    #[test]
+    fn detect_exchange_format_routes_taup_and_tau1_headers() {
+        assert_eq!(
+            detect_exchange_format(b"TAUP{}").unwrap(),
+            ExchangeFormat::Plaintext
+        );
+        assert_eq!(
+            detect_exchange_format(b"TAU1opaque").unwrap(),
+            ExchangeFormat::Encrypted
+        );
+
+        let err = detect_exchange_format(b"BADS").unwrap_err();
+        assert!(err.to_string().contains("TAUP or TAU1"));
     }
 
     #[test]

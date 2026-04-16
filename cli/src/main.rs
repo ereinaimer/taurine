@@ -77,8 +77,8 @@ enum Commands {
     Export {
         /// Destination file path
         path: std::path::PathBuf,
-        /// Write a plaintext export without encryption (Phase 1 default)
-        #[arg(long, default_value_t = true, hide_default_value = true)]
+        /// Write a plaintext export without encryption
+        #[arg(long)]
         no_encrypt: bool,
     },
     /// Import automations from a TAUP exchange file
