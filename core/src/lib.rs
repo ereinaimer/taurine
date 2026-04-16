@@ -15,6 +15,7 @@ pub mod constants;
 pub mod db;
 pub mod engine;
 pub mod error;
+pub mod exchange;
 pub mod metrics;
 
 pub use error::{Error, Result};

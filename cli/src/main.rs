@@ -73,6 +73,19 @@ enum Commands {
         #[arg(long)]
         plain: bool,
     },
+    /// Export automations to a TAUP exchange file
+    Export {
+        /// Destination file path
+        path: std::path::PathBuf,
+        /// Write a plaintext export without encryption (Phase 1 default)
+        #[arg(long, default_value_t = true, hide_default_value = true)]
+        no_encrypt: bool,
+    },
+    /// Import automations from a TAUP exchange file
+    Import {
+        /// Source file path
+        path: std::path::PathBuf,
+    },
     /// Manage application settings
     Config {
         #[command(subcommand)]
@@ -329,6 +342,12 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
             plain,
         }) => {
             commands::list::execute(sort, asc, desc, plain)?;
+        }
+        Some(Commands::Export { path, no_encrypt }) => {
+            commands::export::execute(path, no_encrypt)?;
+        }
+        Some(Commands::Import { path }) => {
+            commands::import::execute(path)?;
         }
         Some(Commands::Config { action }) => match action {
             ConfigAction::Set { key, value } => commands::config::execute_set(key, value)?,
