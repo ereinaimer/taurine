@@ -73,7 +73,7 @@ enum Commands {
         #[arg(long)]
         plain: bool,
     },
-    /// Export automations to a TAUP exchange file
+    /// Export automations to a file
     Export {
         /// Destination file path
         path: std::path::PathBuf,
@@ -81,10 +81,13 @@ enum Commands {
         #[arg(long)]
         no_encrypt: bool,
     },
-    /// Import automations from a TAUP exchange file
+    /// Import automations from a file
     Import {
         /// Source file path
         path: std::path::PathBuf,
+        /// How to resolve trigger + target_os collisions during import
+        #[arg(long, value_enum)]
+        on_conflict: Option<ImportConflictCli>,
     },
     /// Manage application settings
     Config {
@@ -225,6 +228,13 @@ pub enum SortBy {
     Recent,
 }
 
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ImportConflictCli {
+    Prompt,
+    Skip,
+    Overwrite,
+}
+
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
 
@@ -346,8 +356,8 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
         Some(Commands::Export { path, no_encrypt }) => {
             commands::export::execute(path, no_encrypt)?;
         }
-        Some(Commands::Import { path }) => {
-            commands::import::execute(path)?;
+        Some(Commands::Import { path, on_conflict }) => {
+            commands::import::execute(path, on_conflict)?;
         }
         Some(Commands::Config { action }) => match action {
             ConfigAction::Set { key, value } => commands::config::execute_set(key, value)?,

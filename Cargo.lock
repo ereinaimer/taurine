@@ -2789,6 +2789,7 @@ dependencies = [
  "color-eyre",
  "comfy-table",
  "inquire",
+ "rusqlite",
  "serde_json",
  "service-manager",
  "sysinfo",

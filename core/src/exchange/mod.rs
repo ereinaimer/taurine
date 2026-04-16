@@ -6,7 +6,7 @@ use crate::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use serde::{Deserialize, Serialize};
 
 pub use export::export_automations;
-pub use import::import_automations;
+pub use import::{ExistingAutomationConflict, ImportConflictAction, import_automations};
 
 pub const PLAINTEXT_MAGIC_HEADER: [u8; 4] = *b"TAUP";
 pub const ENCRYPTED_MAGIC_HEADER: [u8; 4] = *b"TAU1";
@@ -291,7 +291,7 @@ mod tests {
     #[test]
     fn export_then_import_round_trips_portable_fields_and_resets_local_state() {
         init_tracing_for_tests();
-        let (_dir, conn) = open_test_db();
+        let (_dir, mut conn) = open_test_db();
 
         insert_text_automation(&conn);
         insert_script_automation(&conn);
@@ -301,7 +301,10 @@ mod tests {
         conn.execute("DELETE FROM scripts", []).unwrap();
         conn.execute("DELETE FROM automations", []).unwrap();
 
-        let imported = import_automations(&conn, &payload).unwrap();
+        let tx = conn.transaction().unwrap();
+        let imported =
+            import_automations(&tx, &payload, |_, _| Ok(ImportConflictAction::Overwrite)).unwrap();
+        tx.commit().unwrap();
         assert_eq!(imported, 2);
 
         let re_exported = export_automations(&conn).unwrap();
