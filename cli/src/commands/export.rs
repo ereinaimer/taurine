@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use chrono::Local;
 use inquire::{Password, PasswordDisplayMode};
 use taurine_core::db::init;
 use taurine_core::exchange::{
@@ -10,11 +11,12 @@ use tracing::info;
 use zeroize::Zeroize;
 
 pub fn execute(
-    path: PathBuf,
+    path: Option<PathBuf>,
     no_encrypt: bool,
     with_settings: bool,
     with_metrics: bool,
 ) -> taurine_core::error::Result<()> {
+    let path = resolve_export_path(path)?;
     let conn = init::setup()?;
     let payload = export_automations(
         &conn,
@@ -42,6 +44,24 @@ pub fn execute(
     );
 
     Ok(())
+}
+
+fn resolve_export_path(path: Option<PathBuf>) -> taurine_core::error::Result<PathBuf> {
+    match path {
+        Some(path) => Ok(ensure_tau_extension(path)),
+        None => {
+            let date_string = Local::now().format("%Y-%m-%d").to_string();
+            let filename = format!("taurine-export-{}.tau", date_string);
+            Ok(std::env::current_dir()?.join(filename))
+        }
+    }
+}
+
+fn ensure_tau_extension(mut path: PathBuf) -> PathBuf {
+    if path.extension().is_none() {
+        path.set_extension("tau");
+    }
+    path
 }
 
 fn encode_exchange_blob(
@@ -101,5 +121,27 @@ mod tests {
                 .any(|window| window == b"schema_version"),
             "Encrypted export should be an opaque binary blob"
         );
+    }
+
+    #[test]
+    fn ensure_tau_extension_appends_when_missing() {
+        let resolved = ensure_tau_extension(PathBuf::from("my_scripts"));
+        assert_eq!(resolved, PathBuf::from("my_scripts.tau"));
+    }
+
+    #[test]
+    fn ensure_tau_extension_preserves_existing_extension() {
+        let resolved = ensure_tau_extension(PathBuf::from("custom-pack.tau"));
+        assert_eq!(resolved, PathBuf::from("custom-pack.tau"));
+    }
+
+    #[test]
+    fn resolve_export_path_defaults_to_timestamped_tau_file_in_cwd() {
+        let resolved = resolve_export_path(None).unwrap();
+        let filename = resolved.file_name().unwrap().to_string_lossy();
+
+        assert!(resolved.is_absolute());
+        assert!(filename.starts_with("taurine-export-"));
+        assert!(filename.ends_with(".tau"));
     }
 }

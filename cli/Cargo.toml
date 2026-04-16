@@ -26,6 +26,7 @@ uuid = { version = "1.23.0", features = ["v4"] }
 inquire = "0.7"
 zeroize = "1.8"
 rusqlite = { version = "0.39", features = ["bundled"] }
+chrono = "0.4"
 
 [target."cfg(windows)".dependencies]
 sysinfo = "0.38.4"

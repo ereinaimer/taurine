@@ -76,7 +76,7 @@ enum Commands {
     /// Export automations to a file
     Export {
         /// Destination file path
-        path: std::path::PathBuf,
+        path: Option<std::path::PathBuf>,
         /// Write a plaintext export without encryption
         #[arg(long)]
         no_encrypt: bool,
