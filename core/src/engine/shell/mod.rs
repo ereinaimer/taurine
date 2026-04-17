@@ -7,6 +7,7 @@ pub enum ScriptInterpreter {
     PowerShell,
     Python,
     Node,
+    NodeEsm,
     Cmd,
 }
 

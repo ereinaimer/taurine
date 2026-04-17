@@ -78,6 +78,7 @@ pub fn execute(
                 Some(taurine_core::engine::shell::ScriptInterpreter::PowerShell) => "PowerShell",
                 Some(taurine_core::engine::shell::ScriptInterpreter::Python) => "Python",
                 Some(taurine_core::engine::shell::ScriptInterpreter::Node) => "Node",
+                Some(taurine_core::engine::shell::ScriptInterpreter::NodeEsm) => "Node(ESM)",
                 Some(taurine_core::engine::shell::ScriptInterpreter::Cmd) => "Cmd",
                 None => "Unknown",
             };

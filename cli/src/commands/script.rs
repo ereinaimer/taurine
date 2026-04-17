@@ -113,7 +113,8 @@ fn infer_interpreter(path: Option<&std::path::Path>, content: &str) -> Option<Sc
             "sh" => return Some(ScriptInterpreter::Bash),
             "ps1" => return Some(ScriptInterpreter::PowerShell),
             "py" => return Some(ScriptInterpreter::Python),
-            "js" | "cjs" | "mjs" => return Some(ScriptInterpreter::Node),
+            "js" | "cjs" => return Some(ScriptInterpreter::Node),
+            "mjs" => return Some(ScriptInterpreter::NodeEsm),
             "bat" | "cmd" => return Some(ScriptInterpreter::Cmd),
             _ => {}
         }
@@ -129,8 +130,22 @@ fn infer_interpreter(path: Option<&std::path::Path>, content: &str) -> Option<Sc
             return Some(ScriptInterpreter::Python);
         }
         if first_line.contains("node") {
+            if content.contains("import ")
+                || content.contains("export ")
+                || content.contains("await ")
+            {
+                return Some(ScriptInterpreter::NodeEsm);
+            }
             return Some(ScriptInterpreter::Node);
         }
+    }
+
+    // No extension and no shebang, but maybe Node content?
+    if content.contains("import ") || content.contains("export ") || content.contains("await ") {
+        // This is a bit of a heuristic, but often people paste Node code without shebang.
+        // However, we should be conservative.
+        // For now, only use this if we are pretty sure it's Node.
+        // Let's stick with explicit for now if no extension/shebang.
     }
 
     None
@@ -142,6 +157,7 @@ fn lang_to_str(i: ScriptInterpreter) -> &'static str {
         ScriptInterpreter::PowerShell => "powershell",
         ScriptInterpreter::Python => "python",
         ScriptInterpreter::Node => "node",
+        ScriptInterpreter::NodeEsm => "node-esm",
         ScriptInterpreter::Cmd => "cmd",
     }
 }
@@ -182,7 +198,7 @@ mod tests {
         );
         assert_eq!(
             infer_interpreter(Some(Path::new("test.mjs")), ""),
-            Some(ScriptInterpreter::Node)
+            Some(ScriptInterpreter::NodeEsm)
         );
         assert_eq!(
             infer_interpreter(Some(Path::new("test.bat")), ""),
@@ -207,6 +223,10 @@ mod tests {
         assert_eq!(
             infer_interpreter(None, "#!/usr/bin/env node\nconsole.log(1)"),
             Some(ScriptInterpreter::Node)
+        );
+        assert_eq!(
+            infer_interpreter(None, "#!/usr/bin/env node\nimport fs from 'fs'"),
+            Some(ScriptInterpreter::NodeEsm)
         );
         assert_eq!(
             infer_interpreter(None, "#!/bin/sh\nls"),
