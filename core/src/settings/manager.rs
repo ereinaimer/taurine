@@ -42,6 +42,12 @@ impl<'a> SettingsManager<'a> {
             settings.start_on_boot = v;
         }
 
+        if let Ok(Some(val)) = get_setting_value(self.conn, "spinner_style")
+            && let Ok(v) = serde_json::from_str::<super::SpinnerStyle>(&val)
+        {
+            settings.spinner_style = v;
+        }
+
         settings
     }
 

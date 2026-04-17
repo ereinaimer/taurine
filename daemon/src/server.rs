@@ -17,6 +17,7 @@ pub struct DaemonService {
     pause_notifications_enabled: Arc<AtomicBool>,
     pause_hotkey_spec: Arc<RwLock<crate::hotkey::HotkeySpec>>,
     pause_hotkey_display: Arc<RwLock<String>>,
+    spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
 }
 
 impl DaemonService {
@@ -27,6 +28,7 @@ impl DaemonService {
         pause_notifications_enabled: Arc<AtomicBool>,
         pause_hotkey_spec: Arc<RwLock<crate::hotkey::HotkeySpec>>,
         pause_hotkey_display: Arc<RwLock<String>>,
+        spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     ) -> Self {
         Self {
             shutdown_sender,
@@ -35,6 +37,7 @@ impl DaemonService {
             pause_notifications_enabled,
             pause_hotkey_spec,
             pause_hotkey_display,
+            spinner_style,
         }
     }
 }
@@ -109,6 +112,11 @@ impl DaemonControl for DaemonService {
             *lock = settings.pause_hotkey;
         }
 
+        // Update spinner style (RwLock)
+        if let Ok(mut lock) = self.spinner_style.write() {
+            *lock = settings.spinner_style;
+        }
+
         info!("Successfully reloaded snippets and settings into daemon.");
         Ok(Response::new(ReloadResponse { success: true }))
     }
@@ -151,6 +159,9 @@ mod tests {
             Arc::new(AtomicBool::new(true)),
             pause_hotkey_spec,
             Arc::new(std::sync::RwLock::new(pause_hotkey)),
+            Arc::new(std::sync::RwLock::new(
+                taurine_core::settings::SpinnerStyle::default(),
+            )),
         );
 
         // Initially state should be empty

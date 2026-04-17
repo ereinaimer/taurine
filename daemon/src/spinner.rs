@@ -4,7 +4,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
-const FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+use taurine_core::settings::SpinnerStyle;
+
+const BRAILLE_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const ARC_FRAMES: &[&str] = &["◜", "◠", "◝", "◞", "◡", "◟"];
+const CLASSIC_FRAMES: &[&str] = &["|", "/", "-", "\\"];
 
 pub struct SpinnerHandle {
     abort: Arc<AtomicBool>,
@@ -20,15 +24,21 @@ impl SpinnerHandle {
     }
 }
 
-pub fn start() -> SpinnerHandle {
+pub fn start(style: SpinnerStyle) -> SpinnerHandle {
     let abort = Arc::new(AtomicBool::new(false));
     let abort_clone = abort.clone();
+
+    let frames = match style {
+        SpinnerStyle::Braille => BRAILLE_FRAMES,
+        SpinnerStyle::Arc => ARC_FRAMES,
+        SpinnerStyle::Classic => CLASSIC_FRAMES,
+    };
 
     let thread = thread::spawn(move || {
         let mut idx = 0;
 
         while !abort_clone.load(Ordering::SeqCst) && !INJECTION_ABORT.load(Ordering::SeqCst) {
-            let frame = FRAMES[idx % FRAMES.len()];
+            let frame = frames[idx % frames.len()];
 
             // To avoid flickering and clipboard mess, I'll use a direct injection
             // if we have one. For now, I'll use the existing injector::inject_text_segment
@@ -42,7 +52,7 @@ pub fn start() -> SpinnerHandle {
                 // Linux fallback
             }
 
-            thread::sleep(Duration::from_millis(80));
+            thread::sleep(Duration::from_millis(60));
 
             // Backspace to clear frame
             #[cfg(not(target_os = "linux"))]

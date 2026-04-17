@@ -23,12 +23,14 @@ pub fn start_listener(
     paused: Arc<std::sync::atomic::AtomicBool>,
     pause_notifications_enabled: Arc<std::sync::atomic::AtomicBool>,
     pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
+    spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
 ) {
     crate::platform::linux::evdev::start_listener(
         evaluator,
         paused,
         pause_notifications_enabled,
         pause_hotkey,
+        spinner_style,
     );
 }
 
@@ -38,6 +40,7 @@ pub fn start_listener(
     paused: Arc<std::sync::atomic::AtomicBool>,
     pause_notifications_enabled: Arc<std::sync::atomic::AtomicBool>,
     pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
+    spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
 ) {
     let alt_down = std::sync::atomic::AtomicBool::new(false);
     let ctrl_down = std::sync::atomic::AtomicBool::new(false);
@@ -158,6 +161,9 @@ pub fn start_listener(
                         // thread gets scheduled and sets the flag itself.
                         IS_INJECTING.store(true, Ordering::SeqCst);
 
+                        let spinner_style_inner =
+                            spinner_style.read().map(|s| *s).unwrap_or_default();
+
                         thread::spawn(move || {
                             let trigger_clone = expansion.trigger.clone();
                             let delete_count = expansion.delete_count;
@@ -174,7 +180,11 @@ pub fn start_listener(
                                 })
                                 .sum();
 
-                            injector::inject_expansion(expansion.steps, expansion.delete_count);
+                            injector::inject_expansion(
+                                expansion.steps,
+                                expansion.delete_count,
+                                spinner_style_inner,
+                            );
 
                             if expansion.is_calculation {
                                 taurine_core::db::crud::record_calculation_usage(

@@ -657,7 +657,11 @@ fn restore_clipboard(original: &str) {
 ///
 /// `IS_INJECTING` must already be `true` when this is called (the hook sets it
 /// before spawning this thread). We clear it when we are done.
-pub fn inject_expansion(steps: Vec<ExpansionStep>, delete_count: usize) {
+pub fn inject_expansion(
+    steps: Vec<ExpansionStep>,
+    delete_count: usize,
+    spinner_style: taurine_core::settings::SpinnerStyle,
+) {
     let _inject_guard = inject_mutex().lock().expect("inject mutex poisoned");
 
     // Clear any stale abort from a previous injection.
@@ -723,7 +727,7 @@ pub fn inject_expansion(steps: Vec<ExpansionStep>, delete_count: usize) {
                 match metadata.behavior {
                     ScriptBehavior::Inline => {
                         // Start the modern Braille spinner in a dedicated module
-                        let spinner_handle = crate::spinner::start();
+                        let spinner_handle = crate::spinner::start(spinner_style);
 
                         // Execute script and block until completion (or abort/timeout)
                         let rt = tokio::runtime::Builder::new_current_thread()

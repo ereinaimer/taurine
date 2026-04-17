@@ -54,6 +54,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     ));
 
     let pause_notifications_enabled = settings.pause_notifications_enabled;
+    let spinner_style = Arc::new(RwLock::new(settings.spinner_style));
 
     // Load snippets efficiently!
     if let Ok(active) = get_all_active_automations(&conn) {
@@ -72,6 +73,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     let paused_clone = paused.clone();
     let pause_notifications_enabled_clone = pause_notifications_enabled.clone();
     let pause_hotkey_spec_clone = pause_hotkey_spec.clone();
+    let spinner_style_clone = spinner_style.clone();
     std::thread::spawn(move || {
         info!("Starting OS keyboard hook listener...");
         hook::start_listener(
@@ -79,6 +81,7 @@ pub fn start() -> taurine_core::error::Result<()> {
             paused_clone,
             pause_notifications_enabled_clone,
             pause_hotkey_spec_clone,
+            spinner_style_clone,
         );
     });
 
@@ -96,6 +99,7 @@ pub fn start() -> taurine_core::error::Result<()> {
             pause_notifications_enabled.clone(),
             pause_hotkey_spec.clone(),
             pause_hotkey.clone(),
+            spinner_style.clone(),
         );
 
         info!("Starting gRPC server on {}", addr);

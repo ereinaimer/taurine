@@ -36,5 +36,12 @@ pub fn ensure_defaults(conn: &Connection) -> Result<()> {
         upsert_setting(conn, "pause_notifications_enabled", "true")?;
     }
 
+    let spinner_style_val = get_setting(conn, "spinner_style")?;
+    if spinner_style_val.is_none() {
+        debug!("Default 'spinner_style' missing. Seeding database with 'braille'.");
+        // Stored as a JSON string literal.
+        upsert_setting(conn, "spinner_style", r#""braille""#)?;
+    }
+
     Ok(())
 }

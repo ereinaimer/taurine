@@ -16,6 +16,7 @@ pub fn start_listener(
     paused: Arc<AtomicBool>,
     pause_notifications_enabled: Arc<AtomicBool>,
     pause_hotkey: Arc<RwLock<HotkeySpec>>,
+    spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
 ) {
     let mut devices = vec![];
     let input_dir = "/dev/input";
@@ -83,6 +84,7 @@ pub fn start_listener(
         let paused = paused.clone();
         let pause_notifications_enabled = pause_notifications_enabled.clone();
         let _pause_hotkey = pause_hotkey.clone();
+        let spinner_style = spinner_style.clone();
 
         thread::spawn(move || {
             let mut xkb = XkbMapper::default();
@@ -165,6 +167,9 @@ pub fn start_listener(
 
                                         IS_INJECTING.store(true, Ordering::SeqCst);
 
+                                        let spinner_style_inner =
+                                            spinner_style.read().map(|s| *s).unwrap_or_default();
+
                                         thread::spawn(move || {
                                             let trigger_clone = expansion.trigger.clone();
                                             let delete_count = expansion.delete_count;
@@ -184,6 +189,7 @@ pub fn start_listener(
                                             injector::inject_expansion(
                                                 expansion.steps,
                                                 expansion.delete_count,
+                                                spinner_style_inner,
                                             );
 
                                             if expansion.is_calculation {

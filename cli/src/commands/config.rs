@@ -28,6 +28,10 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
         &settings.pause_notifications_enabled.to_string(),
     ]);
     table.add_row(vec!["start_on_boot", &settings.start_on_boot.to_string()]);
+    table.add_row(vec![
+        "spinner_style",
+        &format!("{:?}", settings.spinner_style).to_lowercase(),
+    ]);
 
     println!("{}", table);
 
@@ -65,6 +69,22 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
             {
                 warn!("Failed to synchronize OS startup hook: {}", e);
             }
+        }
+        "spinner_style" => {
+            let s = match value.to_lowercase().as_str() {
+                "braille" => taurine_core::settings::SpinnerStyle::Braille,
+                "arc" => taurine_core::settings::SpinnerStyle::Arc,
+                "classic" => taurine_core::settings::SpinnerStyle::Classic,
+                _ => {
+                    warn!(
+                        "Invalid spinner style: {}. Supported: braille, arc, classic",
+                        value
+                    );
+                    return Ok(());
+                }
+            };
+            manager.update_setting(actual_key, s)?;
+            info!("Updated spinner_style to: {}", value);
         }
         _ => {
             warn!("Unknown setting key: {}", key);
@@ -106,6 +126,13 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
                 warn!("Failed to synchronize OS startup hook: {}", e);
             }
         }
+        "spinner_style" => {
+            manager.update_setting(actual_key, defaults.spinner_style)?;
+            info!(
+                "Reset spinner_style to default: {:?}",
+                defaults.spinner_style
+            );
+        }
         _ => {
             warn!("Unknown setting key: {}", key);
             return Ok(());
@@ -128,6 +155,7 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
         defaults.pause_notifications_enabled,
     )?;
     manager.update_setting("start_on_boot", defaults.start_on_boot)?;
+    manager.update_setting("spinner_style", defaults.spinner_style)?;
 
     info!("All settings have been reset to factory defaults.");
 
