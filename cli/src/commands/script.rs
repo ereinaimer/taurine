@@ -113,6 +113,7 @@ fn infer_interpreter(path: Option<&std::path::Path>, content: &str) -> Option<Sc
             "sh" => return Some(ScriptInterpreter::Bash),
             "ps1" => return Some(ScriptInterpreter::PowerShell),
             "py" => return Some(ScriptInterpreter::Python),
+            "js" | "cjs" | "mjs" => return Some(ScriptInterpreter::Node),
             "bat" | "cmd" => return Some(ScriptInterpreter::Cmd),
             _ => {}
         }
@@ -127,6 +128,9 @@ fn infer_interpreter(path: Option<&std::path::Path>, content: &str) -> Option<Sc
         if first_line.contains("python") {
             return Some(ScriptInterpreter::Python);
         }
+        if first_line.contains("node") {
+            return Some(ScriptInterpreter::Node);
+        }
     }
 
     None
@@ -137,6 +141,7 @@ fn lang_to_str(i: ScriptInterpreter) -> &'static str {
         ScriptInterpreter::Bash => "bash",
         ScriptInterpreter::PowerShell => "powershell",
         ScriptInterpreter::Python => "python",
+        ScriptInterpreter::Node => "node",
         ScriptInterpreter::Cmd => "cmd",
     }
 }
@@ -168,6 +173,18 @@ mod tests {
             Some(ScriptInterpreter::Python)
         );
         assert_eq!(
+            infer_interpreter(Some(Path::new("test.js")), ""),
+            Some(ScriptInterpreter::Node)
+        );
+        assert_eq!(
+            infer_interpreter(Some(Path::new("test.cjs")), ""),
+            Some(ScriptInterpreter::Node)
+        );
+        assert_eq!(
+            infer_interpreter(Some(Path::new("test.mjs")), ""),
+            Some(ScriptInterpreter::Node)
+        );
+        assert_eq!(
             infer_interpreter(Some(Path::new("test.bat")), ""),
             Some(ScriptInterpreter::Cmd)
         );
@@ -186,6 +203,10 @@ mod tests {
         assert_eq!(
             infer_interpreter(None, "#!/usr/bin/env python3\nprint(1)"),
             Some(ScriptInterpreter::Python)
+        );
+        assert_eq!(
+            infer_interpreter(None, "#!/usr/bin/env node\nconsole.log(1)"),
+            Some(ScriptInterpreter::Node)
         );
         assert_eq!(
             infer_interpreter(None, "#!/bin/sh\nls"),

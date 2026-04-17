@@ -22,6 +22,11 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
             c.arg("-c").arg(&script_content);
             c
         }
+        ScriptInterpreter::Node => {
+            let mut c = Command::new("node");
+            c.arg("-e").arg(&script_content);
+            c
+        }
         ScriptInterpreter::PowerShell => {
             let mut c = Command::new("powershell");
             c.arg("-NoProfile")
@@ -48,6 +53,7 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
             let interpreter_name = match metadata.interpreter {
                 ScriptInterpreter::Bash => "bash",
                 ScriptInterpreter::Python => "python",
+                ScriptInterpreter::Node => "node",
                 ScriptInterpreter::PowerShell => "powershell",
                 ScriptInterpreter::Cmd => "cmd",
             };

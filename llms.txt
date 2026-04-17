@@ -57,7 +57,7 @@ cargo build --release
 *   taurine add <trigger> <output>: Adds a new snippet. Triggers are typically prefixed with a special character (default is `>`).
 *   taurine add script <trigger> [content] [-f file] [-l lang] [-m mode]: Adds a shell script automation.
     *   **Auto-Inference**: Automatically detects language via file extension or shebang.
-    *   **Flags**: Use --lang (-l) to specify interpreter and --mode (-m) for execution behavior.
+    *   **Flags**: Use --lang (-l) to specify interpreter (`bash`, `powershell`, `python`, `node`, `cmd`) and --mode (-m) for execution behavior.
 *   taurine delete <trigger>: Removes an automation matching the specific trigger.
 *   taurine ls: Displays a formatted table of all active triggers.
     *   **Sorting**: Use --sort with alpha, usage, created, or recent.
@@ -184,7 +184,7 @@ Transformers modify the casing and structure of provided content (literals or va
 
 ## 7. Shell Script Automation
 
-Taurine integrates a background execution engine allowing triggers to run arbitrary scripts (Bash, Python, PowerShell, Cmd) and inject their output directly into your application.
+Taurine integrates a background execution engine allowing triggers to run arbitrary scripts (Bash, Python, PowerShell, Node, Cmd) and inject their output directly into your application.
 
 ### 7.1 Architecture & Workflow
 *   **Encapsulated Storage**: Scripts are stored as `zstd` compressed BLOBs within the SQLite database. They are never exported as local files, ensuring isolation and persistence across hardware migrations.

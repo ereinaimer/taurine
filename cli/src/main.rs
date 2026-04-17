@@ -168,7 +168,7 @@ pub enum AddSubcommand {
         /// Path to the script file
         #[arg(short, long)]
         file: Option<std::path::PathBuf>,
-        /// Interpreter to use (bash, powershell, python, cmd)
+        /// Interpreter to use (bash, powershell, python, node, cmd)
         #[arg(
             short = 'l',
             long = "lang",
@@ -215,6 +215,7 @@ pub enum ScriptInterpreterCli {
     Bash,
     Powershell,
     Python,
+    Node,
     Cmd,
 }
 
@@ -224,6 +225,7 @@ impl From<ScriptInterpreterCli> for taurine_core::engine::shell::ScriptInterpret
             ScriptInterpreterCli::Bash => Self::Bash,
             ScriptInterpreterCli::Powershell => Self::PowerShell,
             ScriptInterpreterCli::Python => Self::Python,
+            ScriptInterpreterCli::Node => Self::Node,
             ScriptInterpreterCli::Cmd => Self::Cmd,
         }
     }
