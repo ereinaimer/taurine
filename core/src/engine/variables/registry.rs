@@ -65,11 +65,10 @@ const KEY_MODIFIERS: &[&str] = &[
     "backspace",
     "delete",
     "ctrl",
+    "shift",
+    "alt",
     "super",
     "mod",
-    "shift+tab",
-    "ctrl+a",
-    "ctrl+shift+end",
 ];
 
 pub fn strip_global_transformers(mut key: &str) -> &str {
@@ -97,7 +96,10 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "date" => format!("Valid modifiers: {}", DATE_MODIFIERS.join(", ")),
         "uuid" => format!("Valid modifiers: uuid, {}", UUID_MODIFIERS.join(", ")),
         "env" => "Valid form: [env.VAR_NAME]".to_string(),
-        "key" => format!("Valid modifiers: {}", KEY_MODIFIERS.join(", ")),
+        "key" => format!(
+            "Valid key tokens: {}. You can combine them with `+`, and any single character token is also allowed.",
+            KEY_MODIFIERS.join(", ")
+        ),
         "delay" => "Valid form: [delay.<u64>ms]".to_string(),
         _ => "No modifier help available.".to_string(),
     }
@@ -174,17 +176,23 @@ fn validate_key_modifier(modifier: Option<&str>) -> Result<(), ValidationError> 
     let modifier =
         normalize_modifier(modifier.ok_or(ValidationError::MissingModifier { root: "key" })?)
             .ok_or(ValidationError::MissingModifier { root: "key" })?;
-    let normalized = modifier.to_ascii_lowercase();
 
-    if KEY_MODIFIERS.contains(&normalized.as_str()) {
-        Ok(())
-    } else {
-        Err(ValidationError::InvalidModifier {
-            root: "key",
-            modifier: modifier.to_string(),
-            allowed: KEY_MODIFIERS,
-        })
+    for token in modifier.split('+') {
+        let token = token.trim();
+        let normalized = token.to_ascii_lowercase();
+        let is_known_special = KEY_MODIFIERS.contains(&normalized.as_str());
+        let is_single_char = token.chars().count() == 1;
+
+        if token.is_empty() || (!is_known_special && !is_single_char) {
+            return Err(ValidationError::InvalidModifier {
+                root: "key",
+                modifier: modifier.to_string(),
+                allowed: KEY_MODIFIERS,
+            });
+        }
     }
+
+    Ok(())
 }
 
 fn validate_delay_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
@@ -313,6 +321,8 @@ mod tests {
             assert_eq!(validate_system_tag("key", Some(modifier)), Ok(()));
         }
         assert_eq!(validate_system_tag("key", Some("Ctrl+Shift+End")), Ok(()));
+        assert_eq!(validate_system_tag("key", Some("ctrl+a+p")), Ok(()));
+        assert_eq!(validate_system_tag("key", Some("shift+tab")), Ok(()));
         assert_eq!(
             validate_system_tag("key", Some("not_a_real_key")),
             Err(ValidationError::InvalidModifier {
