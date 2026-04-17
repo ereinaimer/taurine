@@ -81,44 +81,51 @@ impl EngineState {
         })
     }
 
+    fn expand_action(
+        &self,
+        action: crate::db::crud::AutomationAction,
+        args: &ArgMap,
+        matched_keyword: &str,
+    ) -> Option<FinalExpansion> {
+        if action.action_type == "script" {
+            self.interpolate_script(action, args)
+        } else {
+            let interpolated = interpolate(&action.output, args);
+            Some(finalize(&interpolated, Some(matched_keyword)))
+        }
+    }
+
+    fn fetch_exact_match(&self, keyword: &str) -> Option<FinalExpansion> {
+        let action = self.get_raw_action(keyword)?;
+        self.expand_action(action, &ArgMap::default(), keyword)
+    }
+
+    fn fetch_hybrid_arguments(&self, keyword: &str) -> Option<FinalExpansion> {
+        let tokens = tokenize(keyword, ':');
+        if tokens.len() <= 1 {
+            return None;
+        }
+
+        let base = tokens.first()?.trim();
+        let action = self.get_raw_action(base)?;
+        let args = parse_tokens(&tokens[1..]);
+        self.expand_action(action, &args, base)
+    }
+
+    fn fetch_math_fallback(&self, keyword: &str) -> Option<FinalExpansion> {
+        let math_result = crate::engine::math::evaluate(keyword)?;
+        let mut expansion = FinalExpansion::text(math_result);
+        expansion.is_calculation = true;
+        Some(expansion)
+    }
+
     pub fn fetch_expansion(
         &self,
         keyword: &str,
     ) -> Option<crate::engine::variables::FinalExpansion> {
-        // 1. Try exact match on `keyword` FIRST
-        if let Some(action) = self.get_raw_action(keyword) {
-            let args = ArgMap::default();
-            if action.action_type == "script" {
-                return self.interpolate_script(action, &args);
-            } else {
-                let interpolated = interpolate(&action.output, &args);
-                return Some(finalize(&interpolated, Some(keyword)));
-            }
-        }
-
-        // 2. Chained colon tokenization
-        let tokens = tokenize(keyword, ':');
-        if tokens.len() > 1 {
-            let base = &tokens[0];
-            if let Some(action) = self.get_raw_action(base) {
-                let args = parse_tokens(&tokens[1..]);
-                if action.action_type == "script" {
-                    return self.interpolate_script(action, &args);
-                } else {
-                    let interpolated = interpolate(&action.output, &args);
-                    return Some(finalize(&interpolated, Some(base)));
-                }
-            }
-        }
-
-        // 3. Fallback to inline math evaluation
-        if let Some(math_result) = crate::engine::math::evaluate(keyword) {
-            let mut fe = crate::engine::variables::FinalExpansion::text(math_result);
-            fe.is_calculation = true;
-            return Some(fe);
-        }
-
-        None
+        self.fetch_exact_match(keyword)
+            .or_else(|| self.fetch_hybrid_arguments(keyword))
+            .or_else(|| self.fetch_math_fallback(keyword))
     }
 }
 
@@ -215,6 +222,71 @@ mod tests {
             panic!("Expected script expansion");
         }
     }
+
+    #[test]
+    fn test_exact_match_tier_beats_hybrid_argument_parsing() {
+        let memory = Arc::new(MemorySource::new());
+        let state = EngineState::with_source('>', memory.clone());
+
+        memory.load_actions(vec![
+            (
+                "hi".to_string(),
+                AutomationAction::text("base {0} ({mood})"),
+            ),
+            (
+                "hi:erin".to_string(),
+                AutomationAction::text("exact trigger wins"),
+            ),
+        ]);
+
+        let expansion = state.fetch_expansion("hi:erin").unwrap();
+        assert_eq!(
+            expansion.steps[0],
+            ExpansionStep::Text("exact trigger wins".to_string())
+        );
+        assert!(!expansion.is_calculation);
+    }
+
+    #[test]
+    fn test_hybrid_arguments_preserve_positional_and_named_tokens() {
+        let memory = Arc::new(MemorySource::new());
+        let state = EngineState::with_source('>', memory.clone());
+
+        memory.load_actions(vec![(
+            "hi".to_string(),
+            AutomationAction::text("Hi {0}, mood {mood}"),
+        )]);
+
+        let expansion = state.fetch_expansion("hi:erein:mood=sad").unwrap();
+        assert_eq!(
+            expansion.steps[0],
+            ExpansionStep::Text("Hi erein, mood sad".to_string())
+        );
+        assert!(!expansion.is_calculation);
+    }
+
+    #[test]
+    fn test_math_fallback_only_runs_after_snippet_tiers_miss() {
+        let memory = Arc::new(MemorySource::new());
+        let state = EngineState::with_source('>', memory.clone());
+
+        memory.load_actions(vec![(
+            "5+2".to_string(),
+            AutomationAction::text("exact snippet"),
+        )]);
+
+        let expansion = state.fetch_expansion("5+2").unwrap();
+        assert_eq!(
+            expansion.steps[0],
+            ExpansionStep::Text("exact snippet".to_string())
+        );
+        assert!(!expansion.is_calculation);
+
+        let fallback = state.fetch_expansion("7*6").unwrap();
+        assert_eq!(fallback.steps[0], ExpansionStep::Text("42".to_string()));
+        assert!(fallback.is_calculation);
+    }
+
     #[test]
     fn test_smart_match_fallback() {
         let memory = Arc::new(MemorySource::new());

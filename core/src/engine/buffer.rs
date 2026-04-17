@@ -1,6 +1,8 @@
+const FAST_BUFFER_CAPACITY: usize = 512;
+
 #[derive(Debug, Clone)]
 pub struct FastBuffer {
-    pub(crate) data: [char; 64],
+    pub(crate) data: [char; FAST_BUFFER_CAPACITY],
     pub(crate) head: usize,
     pub(crate) len: usize,
 }
@@ -14,7 +16,7 @@ impl Default for FastBuffer {
 impl FastBuffer {
     pub fn new() -> Self {
         Self {
-            data: ['\0'; 64],
+            data: ['\0'; FAST_BUFFER_CAPACITY],
             head: 0,
             len: 0,
         }
@@ -22,15 +24,15 @@ impl FastBuffer {
 
     pub fn push(&mut self, c: char) {
         self.data[self.head] = c;
-        self.head = (self.head + 1) % 64;
-        if self.len < 64 {
+        self.head = (self.head + 1) % FAST_BUFFER_CAPACITY;
+        if self.len < FAST_BUFFER_CAPACITY {
             self.len += 1;
         }
     }
 
     pub fn pop(&mut self) {
         if self.len > 0 {
-            self.head = (self.head + 64 - 1) % 64;
+            self.head = (self.head + FAST_BUFFER_CAPACITY - 1) % FAST_BUFFER_CAPACITY;
             self.len -= 1;
         }
     }
@@ -42,7 +44,7 @@ impl FastBuffer {
 
         // 1. Pop trailing whitespace
         while self.len > 0 {
-            let curr = (self.head + 64 - 1) % 64;
+            let curr = (self.head + FAST_BUFFER_CAPACITY - 1) % FAST_BUFFER_CAPACITY;
             if self.data[curr].is_whitespace() {
                 self.pop();
             } else {
@@ -55,13 +57,13 @@ impl FastBuffer {
         }
 
         // 2. Determine class of the last character
-        let curr = (self.head + 64 - 1) % 64;
+        let curr = (self.head + FAST_BUFFER_CAPACITY - 1) % FAST_BUFFER_CAPACITY;
         let start_char = self.data[curr];
         let is_alphanumeric = start_char.is_alphanumeric();
 
         // 3. Pop all characters of the same class
         while self.len > 0 {
-            let curr = (self.head + 64 - 1) % 64;
+            let curr = (self.head + FAST_BUFFER_CAPACITY - 1) % FAST_BUFFER_CAPACITY;
             let c = self.data[curr];
 
             if c.is_whitespace() {
@@ -86,7 +88,7 @@ impl FastBuffer {
         while available > 0 {
             if self.data[curr] == '\\' {
                 count += 1;
-                curr = (curr + 64 - 1) % 64;
+                curr = (curr + FAST_BUFFER_CAPACITY - 1) % FAST_BUFFER_CAPACITY;
                 available -= 1;
             } else {
                 break;
@@ -105,7 +107,7 @@ impl FastBuffer {
             return 0;
         }
         let mut count = 0;
-        let mut curr = (self.head + 64 - 1) % 64;
+        let mut curr = (self.head + FAST_BUFFER_CAPACITY - 1) % FAST_BUFFER_CAPACITY;
         let mut n = 0;
         let mut active_quote: Option<char> = None;
 
@@ -113,7 +115,7 @@ impl FastBuffer {
             let c = self.data[curr];
 
             let is_escaped = if c == '"' || c == '\'' {
-                let prev_curr = (curr + 64 - 1) % 64;
+                let prev_curr = (curr + FAST_BUFFER_CAPACITY - 1) % FAST_BUFFER_CAPACITY;
                 let available = self.len - n - 1;
                 !self
                     .count_consecutive_backslashes_before(prev_curr, available)
@@ -134,7 +136,7 @@ impl FastBuffer {
                 count += 1;
             }
 
-            curr = (curr + 64 - 1) % 64;
+            curr = (curr + FAST_BUFFER_CAPACITY - 1) % FAST_BUFFER_CAPACITY;
             n += 1;
         }
         count
@@ -155,7 +157,7 @@ impl FastBuffer {
         }
 
         let mut collected = Vec::new();
-        let mut curr = (self.head + 64 - 1) % 64;
+        let mut curr = (self.head + FAST_BUFFER_CAPACITY - 1) % FAST_BUFFER_CAPACITY;
         let mut n = 0;
         let mut active_quote: Option<char> = None;
 
@@ -163,7 +165,7 @@ impl FastBuffer {
             let c = self.data[curr];
 
             let is_escaped = if c == '"' || c == '\'' {
-                let prev_curr = (curr + 64 - 1) % 64;
+                let prev_curr = (curr + FAST_BUFFER_CAPACITY - 1) % FAST_BUFFER_CAPACITY;
                 let available = self.len - n - 1;
                 !self
                     .count_consecutive_backslashes_before(prev_curr, available)
@@ -197,7 +199,7 @@ impl FastBuffer {
                 collected.push(c);
             }
 
-            curr = (curr + 64 - 1) % 64;
+            curr = (curr + FAST_BUFFER_CAPACITY - 1) % FAST_BUFFER_CAPACITY;
             n += 1;
         }
 
@@ -207,7 +209,7 @@ impl FastBuffer {
 
 #[cfg(test)]
 mod tests {
-    use super::FastBuffer;
+    use super::{FAST_BUFFER_CAPACITY, FastBuffer};
 
     fn type_str(buf: &mut FastBuffer, s: &str) {
         for c in s.chars() {
@@ -251,7 +253,7 @@ mod tests {
     #[test]
     fn two_triggers_in_suffix_still_rejected_after_ring_wrap() {
         let mut b = FastBuffer::new();
-        for _ in 0..62 {
+        for _ in 0..(FAST_BUFFER_CAPACITY - 2) {
             b.push('a');
         }
         type_str(&mut b, ">x>y");
