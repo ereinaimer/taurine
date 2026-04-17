@@ -6,6 +6,9 @@ pub mod types;
 
 pub use interpolate::interpolate;
 pub use parser::{parse_tokens, tokenize};
-pub use registry::{ValidationError, validate_system_tag};
+pub use registry::{
+    ValidationError, split_system_tag, strip_global_transformers, valid_modifier_hint,
+    validate_system_tag,
+};
 pub use system::finalize;
 pub use types::{ArgMap, ExpansionStep, FinalExpansion};

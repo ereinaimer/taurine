@@ -1,3 +1,4 @@
+use super::registry::{split_system_tag, strip_global_transformers, validate_system_tag};
 use super::system;
 use super::types::ArgMap;
 
@@ -88,6 +89,47 @@ pub(crate) fn extract_placeholders<'a>(template: &'a str) -> IndexMap<&'a str, P
     placeholders
 }
 
+fn is_valid_system_reference(key: &str) -> bool {
+    split_system_tag(key)
+        .map(|(root, modifier)| validate_system_tag(root, modifier).is_ok())
+        .unwrap_or(false)
+}
+
+fn is_valid_user_reference(key: &str, default_value: Option<&str>, args: &ArgMap) -> bool {
+    if split_system_tag(key).is_some() {
+        return false;
+    }
+
+    key.parse::<usize>().is_ok()
+        || args.named.contains_key(key)
+        || (default_value.is_some()
+            && system::strip_quotes(key).is_none()
+            && !system::is_reserved(key)
+            && !key.contains('[')
+            && !key.contains(']'))
+}
+
+fn resolve_user_placeholder(
+    key: &str,
+    default_value: Option<&str>,
+    args: &ArgMap,
+) -> Option<String> {
+    if !is_valid_user_reference(key, default_value, args) {
+        return None;
+    }
+
+    if let Ok(index) = key.parse::<usize>() {
+        args.positional
+            .get(index)
+            .cloned()
+            .or_else(|| default_value.map(str::to_string))
+    } else if let Some(value) = args.named.get(key) {
+        Some(value.clone())
+    } else {
+        default_value.map(str::to_string)
+    }
+}
+
 fn split_key_default(inner: &str) -> (&str, Option<&str>) {
     let inner = trim_slice(inner);
     let bytes = inner.as_bytes();
@@ -112,21 +154,11 @@ fn split_key_default(inner: &str) -> (&str, Option<&str>) {
 pub fn interpolate(template: &str, args: &ArgMap) -> String {
     let placeholders = extract_placeholders(template);
     let mut user_resolutions = std::collections::HashMap::new();
-    let mut pos_cursor = 0;
 
     for (key, placeholder) in placeholders.iter() {
-        let resolved = if let Some(val) = args.named.get(*key) {
-            val.clone()
-        } else if pos_cursor < args.positional.len() {
-            let val = args.positional[pos_cursor].clone();
-            pos_cursor += 1;
-            val
-        } else if let Some(def) = placeholder.default_value {
-            def.to_string()
-        } else {
-            format!("{SENTINEL_OPEN}{key}{SENTINEL_CLOSE}")
-        };
-        user_resolutions.insert(*key, resolved);
+        if let Some(resolved) = resolve_user_placeholder(key, placeholder.default_value, args) {
+            user_resolutions.insert(*key, resolved);
+        }
     }
 
     let mut output = template.to_string();
@@ -136,12 +168,20 @@ pub fn interpolate(template: &str, args: &ArgMap) -> String {
     while iterations < MAX_ITERATIONS {
         if let Some((start, end)) = find_innermost_tag(&output) {
             let inner = trim_slice(&output[start + 1..end]);
-            let (key, _) = split_key_default(inner);
-            let resolved = if let Some(sys) = system::resolve(key) {
+            let (key, default_value) = split_key_default(inner);
+            let base_key = strip_global_transformers(key);
+            let is_valid_system = is_valid_system_reference(base_key);
+            let is_valid_user = is_valid_user_reference(base_key, default_value, args);
+
+            let resolved = if !is_valid_system && !is_valid_user {
+                format!("{SENTINEL_OPEN}{inner}{SENTINEL_CLOSE}")
+            } else if let Some(sys) = system::resolve(key) {
                 sys
             } else if let Some(user) = user_resolutions.get(key) {
                 user.clone()
-            } else if let Some((sub, suffix)) = system::split_modifier(key) {
+            } else if let Some((sub, suffix)) = system::split_modifier(key)
+                && is_valid_user_reference(strip_global_transformers(sub), default_value, args)
+            {
                 // Flattened resolution (e.g. msg.upper)
                 if let Some(res) = resolve_modified(sub, suffix, &user_resolutions) {
                     res
@@ -288,7 +328,7 @@ mod tests {
         args.positional.push("ereinaimer".to_string());
         args.positional.push("taurine".to_string());
 
-        let tpl = "https://github.com/[username]/[repo]";
+        let tpl = "https://github.com/[0]/[1]";
         assert_eq!(
             interpolate(tpl, &args),
             "https://github.com/ereinaimer/taurine"
@@ -301,7 +341,7 @@ mod tests {
         args.named.insert("repo".to_string(), "taurine".to_string());
         args.positional.push("ereinaimer".to_string());
 
-        let tpl = "https://github.com/[username]/[repo]";
+        let tpl = "https://github.com/[0]/[repo]";
         assert_eq!(
             interpolate(tpl, &args),
             "https://github.com/ereinaimer/taurine"
@@ -414,7 +454,7 @@ mod tests {
     fn test_interpolate_repeated() {
         let mut args = ArgMap::default();
         args.positional.push("foo".to_string());
-        let tpl = "https://[username].github.io/[username]";
+        let tpl = "https://[0].github.io/[0]";
         assert_eq!(interpolate(tpl, &args), "https://foo.github.io/foo");
     }
 
@@ -541,7 +581,7 @@ mod tests {
         let mut args = ArgMap::default();
         args.positional.push("banana".to_string());
 
-        let tpl = "https://google.com/search?q=[[query].urlencode]";
+        let tpl = "https://google.com/search?q=[[0].urlencode]";
         assert_eq!(
             interpolate(tpl, &args),
             "https://google.com/search?q=banana"
@@ -553,7 +593,26 @@ mod tests {
         let mut args = ArgMap::default();
         args.positional.push("apple".to_string());
 
-        let tpl = "https://google.com/search?q=[query.urlencode]";
+        let tpl = "https://google.com/search?q=[0.urlencode]";
         assert_eq!(interpolate(tpl, &args), "https://google.com/search?q=apple");
+    }
+
+    #[test]
+    fn test_interpolate_unknown_transformed_tag_remains_literal() {
+        let args = ArgMap::default();
+        assert_eq!(interpolate("[foo.upper]", &args), "[foo.upper]");
+        assert_eq!(
+            interpolate("[time.india.upper]", &args),
+            "[time.india.upper]"
+        );
+    }
+
+    #[test]
+    fn test_interpolate_json_array_literal_remains_untouched() {
+        let args = ArgMap::default();
+        assert_eq!(
+            interpolate("payload = [1, 2, 3]", &args),
+            "payload = [1, 2, 3]"
+        );
     }
 }

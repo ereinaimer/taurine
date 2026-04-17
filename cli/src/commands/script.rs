@@ -1,3 +1,4 @@
+use crate::commands::validate::audit_payload_tags;
 use std::fs;
 use std::path::PathBuf;
 use taurine_core::db::crud::{upsert_automation, upsert_script};
@@ -33,6 +34,8 @@ pub fn execute(
             "Neither script file nor content provided".to_string(),
         ));
     };
+
+    audit_payload_tags(&content)?;
 
     // 2. Infer interpreter if not provided
     let lang = match lang {

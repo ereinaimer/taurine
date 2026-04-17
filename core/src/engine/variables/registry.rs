@@ -1,3 +1,5 @@
+use super::system;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationError {
     UnknownRoot(String),
@@ -14,6 +16,17 @@ pub enum ValidationError {
         allowed: &'static [&'static str],
     },
 }
+
+const SYSTEM_ROOTS: &[&str] = &[
+    "cursor",
+    "clipboard",
+    "time",
+    "date",
+    "uuid",
+    "env",
+    "key",
+    "delay",
+];
 
 const TIME_MODIFIERS: &[&str] = &[
     "greeting", "epoch", "unix", "utc", "tz", "12h", "24h", "now", "now.12h", "now.24h", "full",
@@ -40,6 +53,37 @@ const DATE_MODIFIERS: &[&str] = &[
 ];
 
 const UUID_MODIFIERS: &[&str] = &["v4", "v7", "simple"];
+
+pub fn strip_global_transformers(mut key: &str) -> &str {
+    while let Some((sub, _)) = system::split_modifier(key) {
+        key = sub;
+    }
+    key
+}
+
+pub fn split_system_tag(key: &str) -> Option<(&str, Option<&str>)> {
+    let base = strip_global_transformers(key);
+    let (root, modifier) = match base.split_once('.') {
+        Some((root, modifier)) => (root, Some(modifier.trim()).filter(|m| !m.is_empty())),
+        None => (base, None),
+    };
+
+    SYSTEM_ROOTS.contains(&root).then_some((root, modifier))
+}
+
+pub fn valid_modifier_hint(root: &str) -> String {
+    match root {
+        "cursor" => "Valid form: [cursor]".to_string(),
+        "clipboard" => "Valid form: [clipboard]".to_string(),
+        "time" => format!("Valid modifiers: {}", TIME_MODIFIERS.join(", ")),
+        "date" => format!("Valid modifiers: {}", DATE_MODIFIERS.join(", ")),
+        "uuid" => format!("Valid modifiers: uuid, {}", UUID_MODIFIERS.join(", ")),
+        "env" => "Valid form: [env.VAR_NAME]".to_string(),
+        "key" => "Valid form: [key.<alias>] with any non-empty key alias suffix.".to_string(),
+        "delay" => "Valid form: [delay.<u64>ms]".to_string(),
+        _ => "No modifier help available.".to_string(),
+    }
+}
 
 pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), ValidationError> {
     match root {
@@ -153,6 +197,22 @@ fn parse_delay_ms(s: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strips_global_transformers_before_system_validation() {
+        assert_eq!(strip_global_transformers("time.now.upper"), "time.now");
+        assert_eq!(strip_global_transformers("name.upper"), "name");
+    }
+
+    #[test]
+    fn splits_known_system_roots_only() {
+        assert_eq!(
+            split_system_tag("time.now.upper"),
+            Some(("time", Some("now")))
+        );
+        assert_eq!(split_system_tag("clipboard"), Some(("clipboard", None)));
+        assert_eq!(split_system_tag("query.upper"), None);
+    }
 
     #[test]
     fn validates_time_modifiers_from_resolver_match_arms() {
