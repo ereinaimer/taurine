@@ -19,7 +19,7 @@ pub fn audit_payload_tags(payload: &str) -> taurine_core::error::Result<()> {
         let (key, default_value) = split_key_default(inner);
 
         if let Some((root, modifier)) = split_system_tag(key) {
-            if default_value.is_some() {
+            if let Some(_default) = default_value {
                 return Err(taurine_core::error::Error::Config(format!(
                     "Invalid system tag [{}]: system tags cannot use default assignments. {}",
                     inner,
@@ -105,15 +105,13 @@ fn find_next_tag(text: &str, from: usize) -> Option<TagBounds> {
                 }
                 depth += 1;
             }
-            TAG_CLOSE if !is_escaped(bytes, ptr) => {
-                if depth > 0 {
-                    depth -= 1;
-                    if depth == 0 {
-                        return start.map(|tag_start| TagBounds {
-                            start: tag_start,
-                            end: ptr,
-                        });
-                    }
+            TAG_CLOSE if !is_escaped(bytes, ptr) && depth > 0 => {
+                depth -= 1;
+                if depth == 0 {
+                    return start.map(|tag_start| TagBounds {
+                        start: tag_start,
+                        end: ptr,
+                    });
                 }
             }
             _ => {}
