@@ -1,7 +1,7 @@
 //! System variables module.
 //!
-//! Centralizes logic for reserved keywords and system-wide markers like `{cursor}`,
-//! and future variables like `{time.now}`.
+//! Centralizes logic for reserved keywords and system-wide markers like `[cursor]`,
+//! and future variables like `[time.now]`.
 
 pub mod clipboard;
 
@@ -12,6 +12,17 @@ pub mod time;
 pub mod uuid;
 
 use crate::engine::variables::types::{ExpansionStep, FinalExpansion};
+
+const TAG_OPEN: u8 = b'[';
+const TAG_CLOSE: u8 = b']';
+const CURSOR_TAG: &str = "[cursor]";
+const ESCAPED_CURSOR_LITERAL: &str = r#"\[cursor\]"#;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TagBounds {
+    start: usize,
+    end: usize,
+}
 
 /// Checks if a keyword is reserved by the system.
 pub fn is_reserved(mut key: &str) -> bool {
@@ -47,7 +58,7 @@ pub fn split_modifier(key: &str) -> Option<(&str, &str)> {
 /// Checks if a keyword is a post-processing directive.
 ///
 /// Directives are not replaced during interpolation but are instead handled
-/// in the `finalize` phase (e.g., `{cursor}`, `{key.tab}`, `{delay.200ms}`).
+/// in the `finalize` phase (e.g., `[cursor]`, `[key.tab]`, `[delay.200ms]`).
 pub fn is_directive(key: &str) -> bool {
     key == "cursor" || key.starts_with("key.") || key.starts_with("delay.")
 }
@@ -102,11 +113,11 @@ pub fn strip_quotes(s: &str) -> Option<&str> {
 
 /// Performs final post-processing on the interpolated string.
 ///
-/// All directives (`{key.*}`, `{delay.*}`, `{cursor}`) are resolved into
+/// All directives (`[key.*]`, `[delay.*]`, `[cursor]`) are resolved into
 /// a unified `Vec<ExpansionStep>` sequence.
 ///
-/// **Conflict rule**: `{cursor}` and `{key.*}` directives cannot coexist.
-/// If any `{key.*}` directive is present, `{cursor}` is treated as literal text.
+/// **Conflict rule**: `[cursor]` and `[key.*]` directives cannot coexist.
+/// If any `[key.*]` directive is present, `[cursor]` is treated as literal text.
 pub fn finalize(interpolated: &str, trigger: Option<&str>) -> FinalExpansion {
     validate_output(interpolated, trigger);
 
@@ -116,10 +127,10 @@ pub fn finalize(interpolated: &str, trigger: Option<&str>) -> FinalExpansion {
     let mut steps = split_into_steps(interpolated);
 
     if has_key_directives {
-        // {cursor} stays as literal text; just restore escaped cursor sentinels.
+        // [cursor] stays as literal text; just restore escaped cursor sentinels.
         restore_cursor_sentinels(&mut steps);
     } else {
-        // Resolve {cursor} positioning (also restores escaped sentinels).
+        // Resolve [cursor] positioning (also restores escaped sentinels).
         apply_cursor_positioning(&mut steps);
     }
 
@@ -129,31 +140,98 @@ pub fn finalize(interpolated: &str, trigger: Option<&str>) -> FinalExpansion {
     }
 }
 
-/// Checks whether the interpolated string contains any `{key.*}` or `{delay.*}` directives.
-fn contains_key_or_delay_directives(text: &str) -> bool {
+fn is_escaped(bytes: &[u8], idx: usize) -> bool {
+    let mut backslashes = 0;
+    let mut cursor = idx;
+
+    while cursor > 0 && bytes[cursor - 1] == b'\\' {
+        backslashes += 1;
+        cursor -= 1;
+    }
+
+    backslashes % 2 == 1
+}
+
+fn trim_slice(s: &str) -> &str {
+    let trimmed = s.trim();
+    let start = s.len() - s.trim_start().len();
+    &s[start..start + trimmed.len()]
+}
+
+fn find_next_tag(text: &str, from: usize) -> Option<TagBounds> {
     let bytes = text.as_bytes();
-    let mut ptr = 0;
+    let mut ptr = from;
+    let mut start = None;
+    let mut depth = 0usize;
 
     while ptr < bytes.len() {
-        // Skip escaped braces.
-        if bytes[ptr] == b'\\' && ptr + 1 < bytes.len() && bytes[ptr + 1] == b'{' {
-            ptr += 2;
-            continue;
-        }
-
-        if bytes[ptr] == b'{' {
-            let start = ptr + 1;
-            if let Some(close) = text[start..].find('}') {
-                let inner = &text[start..start + close];
-                if inner.starts_with("key.") || inner.starts_with("delay.") {
-                    return true;
+        match bytes[ptr] {
+            TAG_OPEN if !is_escaped(bytes, ptr) => {
+                if depth == 0 {
+                    start = Some(ptr);
                 }
-                ptr = start + close + 1;
-                continue;
+                depth += 1;
             }
+            TAG_CLOSE if !is_escaped(bytes, ptr) => {
+                if depth > 0 {
+                    depth -= 1;
+                    if depth == 0 {
+                        return start.map(|tag_start| TagBounds {
+                            start: tag_start,
+                            end: ptr,
+                        });
+                    }
+                }
+            }
+            _ => {}
         }
         ptr += 1;
     }
+
+    None
+}
+
+fn tag_inner(text: &str, tag: TagBounds) -> &str {
+    trim_slice(&text[tag.start + 1..tag.end])
+}
+
+fn append_unescaped_segment(segment: &str, output: &mut String) {
+    let bytes = segment.as_bytes();
+    let mut ptr = 0;
+
+    while ptr < bytes.len() {
+        if bytes[ptr] == b'\\' && ptr + 1 < bytes.len() {
+            let next = bytes[ptr + 1];
+            if next == TAG_OPEN || next == TAG_CLOSE || next == b'\\' {
+                if segment[ptr..].starts_with(ESCAPED_CURSOR_LITERAL) {
+                    output.push_str(ESCAPED_CURSOR_SENTINEL);
+                    ptr += ESCAPED_CURSOR_LITERAL.len();
+                    continue;
+                }
+                output.push(next as char);
+                ptr += 2;
+                continue;
+            }
+        }
+
+        let c = segment[ptr..].chars().next().unwrap();
+        output.push(c);
+        ptr += c.len_utf8();
+    }
+}
+
+/// Checks whether the interpolated string contains any `[key.*]` or `[delay.*]` directives.
+fn contains_key_or_delay_directives(text: &str) -> bool {
+    let mut ptr = 0;
+
+    while let Some(tag) = find_next_tag(text, ptr) {
+        let inner = tag_inner(text, tag);
+        if inner.starts_with("key.") || inner.starts_with("delay.") {
+            return true;
+        }
+        ptr = tag.end + 1;
+    }
+
     false
 }
 
@@ -166,127 +244,91 @@ pub fn validate_output(output: &str, trigger: Option<&str>) {
         .map(|t| format!(" for trigger '{}'", t))
         .unwrap_or_default();
 
-    // 1. Multi-cursor check
-    if output.matches("{cursor}").count() > 1 {
-        tracing::warn!(
-            "Multiple {{cursor}} tags found in output{}. Only the first occurrence will define the final caret position.",
-            trigger_ctx
-        );
-    }
+    let mut cursor_count = 0usize;
+    let mut has_key_or_delay = false;
 
-    // 2. Conflict check: {cursor} vs {key.*}/{delay.*}
-    if contains_key_or_delay_directives(output) && output.contains("{cursor}") {
-        tracing::warn!(
-            "{{cursor}} directive will be ignored because {{key.*}} or {{delay.*}} directives are present{}. \
-             Use {{key.left}} for precise navigation in multi-action snippets.",
-            trigger_ctx
-        );
-    }
-
-    // 3. Reserved variables with default values: {cursor=...}, {clipboard=...}, etc.
-    let bytes = output.as_bytes();
     let mut ptr = 0;
-    while ptr < bytes.len() {
-        if bytes[ptr] == b'\\'
-            && ptr + 1 < bytes.len()
-            && (bytes[ptr + 1] == b'{' || bytes[ptr + 1] == b'}')
+    while let Some(tag) = find_next_tag(output, ptr) {
+        let inner = tag_inner(output, tag);
+
+        if inner == "cursor" {
+            cursor_count += 1;
+        }
+        if inner.starts_with("key.") || inner.starts_with("delay.") {
+            has_key_or_delay = true;
+        }
+        if let Some((key, _)) = inner.split_once('=')
+            && is_reserved(trim_slice(key))
         {
-            ptr += 2;
-            continue;
+            tracing::warn!(
+                "System variable [{}] cannot have a default value assignment and will be ignored{}.",
+                trim_slice(key),
+                trigger_ctx
+            );
         }
 
-        if bytes[ptr] == b'{' {
-            let start = ptr + 1;
-            if let Some(close) = output[start..].find('}') {
-                let inner = &output[start..start + close];
-                if let Some((key, _)) = inner.split_once('=')
-                    && is_reserved(key)
-                {
-                    tracing::warn!(
-                        "System variable {{{}}} cannot have a default value assignment and will be ignored{}.",
-                        key,
-                        trigger_ctx
-                    );
-                }
-                ptr = start + close + 1;
-                continue;
-            }
-        }
-        ptr += 1;
+        ptr = tag.end + 1;
+    }
+
+    // 1. Multi-cursor check
+    if cursor_count > 1 {
+        tracing::warn!(
+            "Multiple [cursor] tags found in output{}. Only the first occurrence will define the final caret position.",
+            trigger_ctx
+        );
+    }
+
+    // 2. Conflict check: [cursor] vs [key.*]/[delay.*]
+    if has_key_or_delay && cursor_count > 0 {
+        tracing::warn!(
+            "[cursor] directive will be ignored because [key.*] or [delay.*] directives are present{}. \
+             Use [key.left] for precise navigation in multi-action snippets.",
+            trigger_ctx
+        );
     }
 }
 
 /// Splits an interpolated string into a sequence of [`ExpansionStep`] actions.
 ///
-/// Handles `{key.*}`, `{delay.*}` directives and escape sequences (`\{`, `\}`).
+/// Handles `[key.*]`, `[delay.*]` directives and escape sequences (`\[`, `\]`).
 /// Text between directives becomes `ExpansionStep::Text`.
-/// `{cursor}` is preserved as-is for the `apply_cursor_positioning` post-pass.
-/// Escaped `\{cursor\}` is stored with a sentinel to avoid false matches.
+/// `[cursor]` is preserved as-is for the `apply_cursor_positioning` post-pass.
+/// Escaped `\[cursor\]` is stored with a sentinel to avoid false matches.
 const ESCAPED_CURSOR_SENTINEL: &str = "\x00ESC_CURSOR\x00";
 fn split_into_steps(text: &str) -> Vec<ExpansionStep> {
     let mut steps: Vec<ExpansionStep> = Vec::new();
     let mut current_text = String::new();
-    let bytes = text.as_bytes();
     let mut ptr = 0;
 
-    while ptr < bytes.len() {
-        // Handle escaped braces: \{ or \}
-        if bytes[ptr] == b'\\' && ptr + 1 < bytes.len() {
-            let next = bytes[ptr + 1];
-            if next == b'{' || next == b'}' {
-                // Escaped cursor tag: use sentinel so apply_cursor_positioning
-                // won't mistake it for a real {cursor} directive.
-                if text[ptr..].starts_with(r#"\{cursor\}"#) {
-                    current_text.push_str(ESCAPED_CURSOR_SENTINEL);
-                    ptr += 10; // length of \{cursor\}
-                    continue;
-                }
-                current_text.push(next as char);
-                ptr += 2;
-                continue;
-            }
+    while let Some(tag) = find_next_tag(text, ptr) {
+        append_unescaped_segment(&text[ptr..tag.start], &mut current_text);
+        let inner = tag_inner(text, tag);
+
+        if let Some(alias) = inner.strip_prefix("key.") {
+            flush_text(&mut steps, &mut current_text);
+            steps.push(ExpansionStep::KeyPress(alias.to_lowercase()));
+        } else if let Some(delay_str) = inner.strip_prefix("delay.")
+            && let Some(ms) = parse_delay_ms(delay_str)
+        {
+            flush_text(&mut steps, &mut current_text);
+            steps.push(ExpansionStep::Delay(ms));
+        } else {
+            current_text.push_str(&text[tag.start..tag.end + 1]);
         }
 
-        if bytes[ptr] == b'{' {
-            let start = ptr + 1;
-            if let Some(close) = text[start..].find('}') {
-                let inner = &text[start..start + close];
-
-                if let Some(alias) = inner.strip_prefix("key.") {
-                    flush_text(&mut steps, &mut current_text);
-                    steps.push(ExpansionStep::KeyPress(alias.to_lowercase()));
-                    ptr = start + close + 1;
-                    continue;
-                }
-
-                if let Some(delay_str) = inner.strip_prefix("delay.")
-                    && let Some(ms) = parse_delay_ms(delay_str)
-                {
-                    flush_text(&mut steps, &mut current_text);
-                    steps.push(ExpansionStep::Delay(ms));
-                    ptr = start + close + 1;
-                    continue;
-                    // Invalid delay format — treat as literal text.
-                }
-
-                // Not a key/delay directive — treat the whole `{...}` as literal
-                // (including `{cursor}`, which is resolved in the post-pass).
-            }
-        }
-
-        current_text.push(text[ptr..].chars().next().unwrap());
-        ptr += text[ptr..].chars().next().unwrap().len_utf8();
+        ptr = tag.end + 1;
     }
 
+    append_unescaped_segment(&text[ptr..], &mut current_text);
     flush_text(&mut steps, &mut current_text);
     steps
 }
 
-/// Resolves `{cursor}` directives inside `Text` steps.
+/// Resolves `[cursor]` directives inside `Text` steps.
 ///
-/// Finds the first `{cursor}`, removes all occurrences, and appends
+/// Finds the first `[cursor]`, removes all occurrences, and appends
 /// `KeyPress("left")` steps to position the caret at the correct offset.
-/// Escaped cursor sentinels are restored to literal `{cursor}` afterwards.
+/// Escaped cursor sentinels are restored to literal `[cursor]` afterwards.
 fn apply_cursor_positioning(steps: &mut Vec<ExpansionStep>) {
     // Concatenate all text content to compute cursor offset globally.
     let full_text: String = steps
@@ -297,17 +339,17 @@ fn apply_cursor_positioning(steps: &mut Vec<ExpansionStep>) {
         })
         .collect();
 
-    if full_text.contains("{cursor}") {
-        // Calculate left-arrow count from the first {cursor} position.
-        let first_idx = full_text.find("{cursor}").unwrap();
+    if full_text.contains(CURSOR_TAG) {
+        // Calculate left-arrow count from the first [cursor] position.
+        let first_idx = full_text.find(CURSOR_TAG).unwrap();
         let char_idx = full_text[..first_idx].chars().count();
-        let clean_text = full_text.replace("{cursor}", "");
+        let clean_text = full_text.replace(CURSOR_TAG, "");
         let left_arrow_count = clean_text.chars().count() - char_idx;
 
         // Replace all Text steps with the cleaned text (merged into one).
         steps.retain(|s| !matches!(s, ExpansionStep::Text(_)));
-        // Restore escaped cursor sentinels to literal {cursor}.
-        let final_text = clean_text.replace(ESCAPED_CURSOR_SENTINEL, "{cursor}");
+        // Restore escaped cursor sentinels to literal [cursor].
+        let final_text = clean_text.replace(ESCAPED_CURSOR_SENTINEL, CURSOR_TAG);
         if !final_text.is_empty() {
             steps.insert(0, ExpansionStep::Text(final_text));
         }
@@ -317,18 +359,18 @@ fn apply_cursor_positioning(steps: &mut Vec<ExpansionStep>) {
             steps.push(ExpansionStep::KeyPress("left".to_string()));
         }
     } else {
-        // No {cursor} directive — just restore any escaped cursor sentinels.
+        // No [cursor] directive — just restore any escaped cursor sentinels.
         restore_cursor_sentinels(steps);
     }
 }
 
-/// Replaces sentinel placeholders with literal `{cursor}` in all `Text` steps.
+/// Replaces sentinel placeholders with literal `[cursor]` in all `Text` steps.
 fn restore_cursor_sentinels(steps: &mut [ExpansionStep]) {
     for step in steps.iter_mut() {
         if let ExpansionStep::Text(t) = step
             && t.contains(ESCAPED_CURSOR_SENTINEL)
         {
-            *t = t.replace(ESCAPED_CURSOR_SENTINEL, "{cursor}");
+            *t = t.replace(ESCAPED_CURSOR_SENTINEL, CURSOR_TAG);
         }
     }
 }
@@ -378,7 +420,7 @@ mod tests {
 
     #[test]
     fn test_finalize_cursor_positioning() {
-        let res = finalize("hello {cursor} world", None);
+        let res = finalize("hello [cursor] world", None);
         assert_eq!(
             res.steps,
             vec![
@@ -406,7 +448,7 @@ mod tests {
 
     #[test]
     fn test_finalize_key_directive_splits_into_steps() {
-        let res = finalize("name{key.tab}email", None);
+        let res = finalize("name[key.tab]email", None);
         assert_eq!(
             res.steps,
             vec![
@@ -419,7 +461,7 @@ mod tests {
 
     #[test]
     fn test_finalize_delay_directive() {
-        let res = finalize("first{delay.200ms}second", None);
+        let res = finalize("first[delay.200ms]second", None);
         assert_eq!(
             res.steps,
             vec![
@@ -432,12 +474,12 @@ mod tests {
 
     #[test]
     fn test_finalize_cursor_suppressed_when_key_directives_present() {
-        let res = finalize("name{cursor}{key.tab}email", None);
-        // {cursor} should be kept as literal text, not processed as a directive.
+        let res = finalize("name[cursor][key.tab]email", None);
+        // [cursor] should be kept as literal text, not processed as a directive.
         assert_eq!(
             res.steps,
             vec![
-                ExpansionStep::Text("name{cursor}".to_string()),
+                ExpansionStep::Text("name[cursor]".to_string()),
                 ExpansionStep::KeyPress("tab".to_string()),
                 ExpansionStep::Text("email".to_string()),
             ]
@@ -446,7 +488,7 @@ mod tests {
 
     #[test]
     fn test_finalize_multiple_key_directives() {
-        let res = finalize("a{key.tab}b{key.enter}c", None);
+        let res = finalize("a[key.tab]b[key.enter]c", None);
         assert_eq!(
             res.steps,
             vec![
@@ -461,18 +503,18 @@ mod tests {
 
     #[test]
     fn test_finalize_key_alias_case_insensitive() {
-        let res = finalize("{key.TAB}", None);
+        let res = finalize("[key.TAB]", None);
         assert_eq!(res.steps, vec![ExpansionStep::KeyPress("tab".to_string())]);
     }
 
     #[test]
     fn test_contains_key_or_delay_directives() {
-        assert!(contains_key_or_delay_directives("hello {key.tab} world"));
-        assert!(contains_key_or_delay_directives("test {delay.100ms}"));
-        assert!(!contains_key_or_delay_directives("hello {cursor} world"));
+        assert!(contains_key_or_delay_directives("hello [key.tab] world"));
+        assert!(contains_key_or_delay_directives("test [delay.100ms]"));
+        assert!(!contains_key_or_delay_directives("hello [cursor] world"));
         assert!(!contains_key_or_delay_directives("just plain text"));
         // Escaped should not count.
-        assert!(!contains_key_or_delay_directives(r#"\{key.tab}"#));
+        assert!(!contains_key_or_delay_directives(r#"\[key.tab]"#));
     }
 
     #[test]
@@ -486,12 +528,12 @@ mod tests {
     }
 
     #[test]
-    fn test_finalize_escaped_braces_in_key_mode() {
-        let res = finalize(r#"\{literal\}{key.tab}after"#, None);
+    fn test_finalize_escaped_brackets_in_key_mode() {
+        let res = finalize(r#"\[literal\][key.tab]after"#, None);
         assert_eq!(
             res.steps,
             vec![
-                ExpansionStep::Text("{literal}".to_string()),
+                ExpansionStep::Text("[literal]".to_string()),
                 ExpansionStep::KeyPress("tab".to_string()),
                 ExpansionStep::Text("after".to_string()),
             ]
@@ -500,7 +542,7 @@ mod tests {
 
     #[test]
     fn test_finalize_modifier_combo_key() {
-        let res = finalize("{key.ctrl+a}", None);
+        let res = finalize("[key.ctrl+a]", None);
         assert_eq!(
             res.steps,
             vec![ExpansionStep::KeyPress("ctrl+a".to_string())]
@@ -509,7 +551,7 @@ mod tests {
 
     #[test]
     fn test_finalize_multi_modifier_combo_case_normalized() {
-        let res = finalize("{key.Ctrl+Shift+End}", None);
+        let res = finalize("[key.Ctrl+Shift+End]", None);
         assert_eq!(
             res.steps,
             vec![ExpansionStep::KeyPress("ctrl+shift+end".to_string())]
@@ -518,7 +560,7 @@ mod tests {
 
     #[test]
     fn test_finalize_combo_between_text_segments() {
-        let res = finalize("Name{key.tab}Address{key.shift+tab}Back", None);
+        let res = finalize("Name[key.tab]Address[key.shift+tab]Back", None);
         assert_eq!(
             res.steps,
             vec![
@@ -533,7 +575,7 @@ mod tests {
 
     #[test]
     fn test_finalize_standalone_modifier_directives() {
-        let res = finalize("{key.mod}{key.super}{key.ctrl}", None);
+        let res = finalize("[key.mod][key.super][key.ctrl]", None);
         assert_eq!(
             res.steps,
             vec![
@@ -548,10 +590,10 @@ mod tests {
     fn test_validate_output_logic_paths() {
         // These calls shouldn't panic. We are primarily testing the path coverage.
         validate_output("valid", None);
-        validate_output("{cursor} {cursor}", Some("multi"));
-        validate_output("{key.tab} {cursor}", Some("conflict"));
-        validate_output("{cursor=invalid}", Some("default"));
-        validate_output(r#"\{cursor\} {cursor}"#, Some("escaped"));
-        validate_output("{clipboard=invalid}", None);
+        validate_output("[cursor] [cursor]", Some("multi"));
+        validate_output("[key.tab] [cursor]", Some("conflict"));
+        validate_output("[cursor=invalid]", Some("default"));
+        validate_output(r#"\[cursor\] [cursor]"#, Some("escaped"));
+        validate_output("[clipboard=invalid]", None);
     }
 }

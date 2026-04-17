@@ -340,7 +340,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "repo".to_string(),
-            crate::db::crud::AutomationAction::text("https://github.com/{0}/{1}"),
+            crate::db::crud::AutomationAction::text("https://github.com/[0]/[1]"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -370,7 +370,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "gh".to_string(),
-            crate::db::crud::AutomationAction::text("https://github.com/{username}/{repo=taurine}"),
+            crate::db::crud::AutomationAction::text("https://github.com/[username]/[repo=taurine]"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -397,7 +397,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "gh".to_string(),
-            crate::db::crud::AutomationAction::text("https://github.com/{username}/{repo=taurine}"),
+            crate::db::crud::AutomationAction::text("https://github.com/[username]/[repo=taurine]"),
         )]);
         let mut eval = Evaluator::new(state);
 

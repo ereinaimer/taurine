@@ -3,99 +3,106 @@ use super::types::ArgMap;
 
 use indexmap::IndexMap;
 
+const TAG_OPEN: u8 = b'[';
+const TAG_CLOSE: u8 = b']';
+const SENTINEL_OPEN: char = '\x01';
+const SENTINEL_CLOSE: char = '\x02';
+
 #[derive(Debug, PartialEq)]
 pub(crate) struct Placeholder<'a> {
     pub key: &'a str,
     pub default_value: Option<&'a str>,
 }
 
-pub(crate) fn extract_placeholders<'a>(template: &'a str) -> IndexMap<&'a str, Placeholder<'a>> {
-    let mut placeholders = IndexMap::new();
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TagBounds {
+    start: usize,
+    end: usize,
+}
+
+fn is_escaped(bytes: &[u8], idx: usize) -> bool {
+    let mut backslashes = 0;
+    let mut cursor = idx;
+
+    while cursor > 0 && bytes[cursor - 1] == b'\\' {
+        backslashes += 1;
+        cursor -= 1;
+    }
+
+    backslashes % 2 == 1
+}
+
+fn trim_slice(s: &str) -> &str {
+    let trimmed = s.trim();
+    let start = s.len() - s.trim_start().len();
+    &s[start..start + trimmed.len()]
+}
+
+fn scan_tag_bounds(template: &str) -> Vec<TagBounds> {
     let bytes = template.as_bytes();
+    let mut stack = Vec::new();
+    let mut tags = Vec::new();
     let mut ptr = 0;
 
     while ptr < bytes.len() {
-        if bytes[ptr] == b'\\'
-            && ptr + 1 < bytes.len()
-            && (bytes[ptr + 1] == b'{' || bytes[ptr + 1] == b'}')
-        {
-            ptr += 2;
-            continue;
-        }
-
-        if bytes[ptr] == b'{' {
-            // Find the MATCHING closing brace by counting depth
-            let start = ptr + 1;
-            let mut end = start;
-            let mut depth = 1;
-
-            while end < bytes.len() {
-                if bytes[end] == b'\\'
-                    && end + 1 < bytes.len()
-                    && (bytes[end + 1] == b'{' || bytes[end + 1] == b'}')
-                {
-                    end += 2;
-                    continue;
+        match bytes[ptr] {
+            TAG_OPEN if !is_escaped(bytes, ptr) => stack.push(ptr),
+            TAG_CLOSE if !is_escaped(bytes, ptr) => {
+                if let Some(start) = stack.pop() {
+                    tags.push(TagBounds { start, end: ptr });
                 }
-                if bytes[end] == b'{' {
-                    depth += 1;
-                } else if bytes[end] == b'}' {
-                    depth -= 1;
-                    if depth == 0 {
-                        break;
-                    }
-                }
-                end += 1;
             }
-
-            if depth == 0 {
-                let inner = &template[start..end];
-                let (mut key, default_value) = split_key_default(inner);
-
-                // Strip transformer suffixes to find the base user key
-                while let Some((sub, _)) = system::split_modifier(key) {
-                    key = sub;
-                }
-
-                if !system::is_reserved(key)
-                    && !placeholders.contains_key(key)
-                    && system::strip_quotes(key).is_none()
-                    && !key.contains('{')
-                    && !key.contains('}')
-                {
-                    placeholders.insert(key, Placeholder { key, default_value });
-                }
-
-                // Even if reserved, its children might contain placeholders
-                // So we continue scanning from start
-                ptr = start;
-                continue;
-            }
+            _ => {}
         }
         ptr += 1;
+    }
+
+    tags
+}
+
+pub(crate) fn extract_placeholders<'a>(template: &'a str) -> IndexMap<&'a str, Placeholder<'a>> {
+    let mut placeholders = IndexMap::new();
+
+    let mut tags = scan_tag_bounds(template);
+    tags.sort_by_key(|tag| tag.start);
+
+    for tag in tags {
+        let inner = trim_slice(&template[tag.start + 1..tag.end]);
+        let (mut key, default_value) = split_key_default(inner);
+
+        // Strip transformer suffixes to find the base user key
+        while let Some((sub, _)) = system::split_modifier(key) {
+            key = sub;
+        }
+
+        if !system::is_reserved(key)
+            && !placeholders.contains_key(key)
+            && system::strip_quotes(key).is_none()
+            && !key.contains('[')
+            && !key.contains(']')
+        {
+            placeholders.insert(key, Placeholder { key, default_value });
+        }
     }
 
     placeholders
 }
 
 fn split_key_default(inner: &str) -> (&str, Option<&str>) {
+    let inner = trim_slice(inner);
     let bytes = inner.as_bytes();
     let mut depth = 0;
     let mut ptr = 0;
     while ptr < bytes.len() {
-        if bytes[ptr] == b'\\'
-            && ptr + 1 < bytes.len()
-            && (bytes[ptr + 1] == b'{' || bytes[ptr + 1] == b'}')
-        {
-            ptr += 2;
-            continue;
-        }
-        if bytes[ptr] == b'{' {
+        if bytes[ptr] == TAG_OPEN && !is_escaped(bytes, ptr) {
             depth += 1;
-        } else if bytes[ptr] == b'}' {
+        } else if bytes[ptr] == TAG_CLOSE && !is_escaped(bytes, ptr) {
             depth -= 1;
         } else if bytes[ptr] == b'=' && depth == 0 {
-            return (&inner[..ptr], Some(&inner[ptr + 1..]));
+            return (
+                trim_slice(&inner[..ptr]),
+                Some(trim_slice(&inner[ptr + 1..])),
+            );
         }
         ptr += 1;
     }
@@ -117,7 +124,7 @@ pub fn interpolate(template: &str, args: &ArgMap) -> String {
         } else if let Some(def) = placeholder.default_value {
             def.to_string()
         } else {
-            format!("\x01{}\x02", key)
+            format!("{SENTINEL_OPEN}{key}{SENTINEL_CLOSE}")
         };
         user_resolutions.insert(*key, resolved);
     }
@@ -128,7 +135,7 @@ pub fn interpolate(template: &str, args: &ArgMap) -> String {
 
     while iterations < MAX_ITERATIONS {
         if let Some((start, end)) = find_innermost_tag(&output) {
-            let inner = &output[start + 1..end];
+            let inner = trim_slice(&output[start + 1..end]);
             let (key, _) = split_key_default(inner);
             let resolved = if let Some(sys) = system::resolve(key) {
                 sys
@@ -139,14 +146,14 @@ pub fn interpolate(template: &str, args: &ArgMap) -> String {
                 if let Some(res) = resolve_modified(sub, suffix, &user_resolutions) {
                     res
                 } else {
-                    format!("\x01{}\x02", inner)
+                    format!("{SENTINEL_OPEN}{inner}{SENTINEL_CLOSE}")
                 }
             } else if system::is_directive(key) {
                 // Directive stays for finalization phase, use sentinel to avoid re-processing
-                format!("\x01{}\x02", key)
+                format!("{SENTINEL_OPEN}{key}{SENTINEL_CLOSE}")
             } else {
                 // Unknown tag, keep as is
-                format!("\x01{}\x02", inner) // Sentinel to mark as "touched"
+                format!("{SENTINEL_OPEN}{inner}{SENTINEL_CLOSE}") // Sentinel to mark as "touched"
             };
 
             output.replace_range(start..end + 1, &resolved);
@@ -179,8 +186,8 @@ fn resolve_modified(
     };
 
     // If the content is an unresolved sentinel, we don't transform it yet.
-    // This allows the transformer to stay intact: {\x01msg\x02.upper}
-    if content.starts_with('\x01') && content.ends_with('\x02') {
+    // This allows the transformer to stay intact: [\x01msg\x02.upper]
+    if content.starts_with(SENTINEL_OPEN) && content.ends_with(SENTINEL_CLOSE) {
         return None;
     }
 
@@ -188,33 +195,17 @@ fn resolve_modified(
 }
 
 fn find_innermost_tag(s: &str) -> Option<(usize, usize)> {
-    let bytes = s.as_bytes();
-    for i in 0..bytes.len() {
-        if bytes[i] == b'}' {
-            // Check if escaped
-            if i > 0 && bytes[i - 1] == b'\\' {
-                continue;
-            }
-
-            // Look backwards for the first '{'
-            for j in (0..i).rev() {
-                if bytes[j] == b'{' {
-                    if j > 0 && bytes[j - 1] == b'\\' {
-                        continue;
-                    }
-                    return Some((j, i));
-                }
-            }
-        }
-    }
-    None
+    scan_tag_bounds(s)
+        .into_iter()
+        .next()
+        .map(|tag| (tag.start, tag.end))
 }
 
 fn finalize_interpolation(mut s: String) -> String {
     // 1. Remove sentinel markers
-    s = s.replace('\x01', "{").replace('\x02', "}");
+    s = s.replace(SENTINEL_OPEN, "[").replace(SENTINEL_CLOSE, "]");
 
-    // 2. Resolve escapes: \{, \}, \\
+    // 2. Resolve escapes: \[, \], \\
     let mut result = String::with_capacity(s.len());
     let bytes = s.as_bytes();
     let mut ptr = 0;
@@ -222,10 +213,10 @@ fn finalize_interpolation(mut s: String) -> String {
     while ptr < bytes.len() {
         if bytes[ptr] == b'\\' && ptr + 1 < bytes.len() {
             let next = bytes[ptr + 1];
-            if next == b'{' || next == b'}' || next == b'\\' {
-                // Specialized \{cursor\} handling for finalizer
-                if s[ptr..].starts_with(r#"\{cursor\}"#) {
-                    result.push_str(r#"\{cursor\}"#);
+            if next == TAG_OPEN || next == TAG_CLOSE || next == b'\\' {
+                // Specialized \[cursor\] handling for finalizer
+                if s[ptr..].starts_with(r#"\[cursor\]"#) {
+                    result.push_str(r#"\[cursor\]"#);
                     ptr += 10;
                     continue;
                 }
@@ -248,7 +239,7 @@ mod tests {
 
     #[test]
     fn test_extract_placeholders() {
-        let text = "https://github.com/{username=ereinaimer}/{repo}";
+        let text = "https://github.com/[username=ereinaimer]/[repo]";
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 2);
         assert_eq!(p.get("username").unwrap().default_value, Some("ereinaimer"));
@@ -257,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_extract_placeholders_deduplicate() {
-        let text = "a {foo} b {foo=bar} c {foo}";
+        let text = "a [foo] b [foo=bar] c [foo]";
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 1);
         // Should keep the first appearance
@@ -266,7 +257,7 @@ mod tests {
 
     #[test]
     fn test_extract_placeholders_ignore_system() {
-        let text = "Hello {cursor} at {time.now}. My name is {name}";
+        let text = "Hello [cursor] at [time.now]. My name is [name]";
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 1);
         assert!(p.contains_key("name"));
@@ -276,10 +267,19 @@ mod tests {
 
     #[test]
     fn test_extract_placeholders_escapes() {
-        let text = r#"function \{ return "{msg}"; \}"#;
+        let text = r#"function \[ return "[msg]"; \]"#;
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 1);
         assert!(p.contains_key("msg"));
+    }
+
+    #[test]
+    fn test_extract_placeholders_trims_inner_whitespace() {
+        let text = "Hello [  name  ] and [ title = Captain ]";
+        let p = extract_placeholders(text);
+        assert_eq!(p.len(), 2);
+        assert!(p.contains_key("name"));
+        assert_eq!(p.get("title").unwrap().default_value, Some("Captain"));
     }
 
     #[test]
@@ -288,7 +288,7 @@ mod tests {
         args.positional.push("ereinaimer".to_string());
         args.positional.push("taurine".to_string());
 
-        let tpl = "https://github.com/{username}/{repo}";
+        let tpl = "https://github.com/[username]/[repo]";
         assert_eq!(
             interpolate(tpl, &args),
             "https://github.com/ereinaimer/taurine"
@@ -301,7 +301,7 @@ mod tests {
         args.named.insert("repo".to_string(), "taurine".to_string());
         args.positional.push("ereinaimer".to_string());
 
-        let tpl = "https://github.com/{username}/{repo}";
+        let tpl = "https://github.com/[username]/[repo]";
         assert_eq!(
             interpolate(tpl, &args),
             "https://github.com/ereinaimer/taurine"
@@ -311,7 +311,7 @@ mod tests {
     #[test]
     fn test_interpolate_defaults() {
         let args = ArgMap::default();
-        let tpl = "https://github.com/{username=ereinaimer}/{repo=taurine}";
+        let tpl = "https://github.com/[username=ereinaimer]/[repo=taurine]";
         assert_eq!(
             interpolate(tpl, &args),
             "https://github.com/ereinaimer/taurine"
@@ -321,27 +321,27 @@ mod tests {
     #[test]
     fn test_interpolate_empty_default() {
         let args = ArgMap::default();
-        let tpl = "git commit -m \"fix: {msg=}\"";
+        let tpl = "git commit -m \"fix: [msg=]\"";
         assert_eq!(interpolate(tpl, &args), "git commit -m \"fix: \"");
     }
 
     #[test]
     fn test_interpolate_missing_args() {
         let args = ArgMap::default();
-        let tpl = "https://github.com/{username}/{repo}";
+        let tpl = "https://github.com/[username]/[repo]";
         assert_eq!(
             interpolate(tpl, &args),
-            "https://github.com/{username}/{repo}"
+            "https://github.com/[username]/[repo]"
         );
     }
 
     #[test]
     fn test_interpolate_escapes() {
         let args = ArgMap::default();
-        let tpl = r#"const x = \{ "key": "{value=123}" \}; // literal \\ path"#;
+        let tpl = r#"const x = \[ "key": "[value=123]" \]; // literal \\ path"#;
         assert_eq!(
             interpolate(tpl, &args),
-            r#"const x = { "key": "123" }; // literal \ path"#
+            r#"const x = [ "key": "123" ]; // literal \ path"#
         );
     }
 
@@ -352,13 +352,13 @@ mod tests {
 
         system::clipboard::set_mock_clipboard(Some("clip_content".to_string()));
 
-        let tpl = "{msg} {cursor} {time.now} {clipboard}";
+        let tpl = "[msg] [cursor] [time.now] [clipboard]";
         let res = interpolate(tpl, &args);
 
-        assert!(res.contains("hello {cursor} "));
+        assert!(res.contains("hello [cursor] "));
         assert!(res.contains("clip_content"));
-        assert!(!res.contains("{time.now}"));
-        assert!(!res.contains("{clipboard}"));
+        assert!(!res.contains("[time.now]"));
+        assert!(!res.contains("[clipboard]"));
 
         system::clipboard::set_mock_clipboard(None);
     }
@@ -366,15 +366,15 @@ mod tests {
     #[test]
     fn test_interpolate_system_cursor_collision() {
         let args = ArgMap::default();
-        let tpl = "Hello {cursor=invalid} world";
-        assert_eq!(interpolate(tpl, &args), "Hello {cursor} world");
+        let tpl = "Hello [cursor=invalid] world";
+        assert_eq!(interpolate(tpl, &args), "Hello [cursor] world");
     }
 
     #[test]
     fn test_extract_cursor_offset() {
         use super::super::types::ExpansionStep;
 
-        let res = system::finalize("hello {cursor} world", None);
+        let res = system::finalize("hello [cursor] world", None);
         assert_eq!(
             res.steps,
             vec![
@@ -388,7 +388,7 @@ mod tests {
             ]
         );
 
-        let res2 = system::finalize("hello {cursor} world {cursor}", None);
+        let res2 = system::finalize("hello [cursor] world [cursor]", None);
         assert_eq!(
             res2.steps,
             vec![
@@ -403,10 +403,10 @@ mod tests {
             ]
         );
 
-        let res3 = system::finalize(r#"Hello \{cursor\}"#, None);
+        let res3 = system::finalize(r#"Hello \[cursor\]"#, None);
         assert_eq!(
             res3.steps,
-            vec![ExpansionStep::Text("Hello {cursor}".to_string())]
+            vec![ExpansionStep::Text("Hello [cursor]".to_string())]
         );
     }
 
@@ -414,7 +414,7 @@ mod tests {
     fn test_interpolate_repeated() {
         let mut args = ArgMap::default();
         args.positional.push("foo".to_string());
-        let tpl = "https://{username}.github.io/{username}";
+        let tpl = "https://[username].github.io/[username]";
         assert_eq!(interpolate(tpl, &args), "https://foo.github.io/foo");
     }
 
@@ -423,7 +423,7 @@ mod tests {
         let mut args = ArgMap::default();
         args.named
             .insert("val".to_string(), "MixedCase".to_string());
-        let tpl = "{{val.lower}.upper}";
+        let tpl = "[[val.lower].upper]";
         assert_eq!(interpolate(tpl, &args), "MIXEDCASE");
     }
 
@@ -431,32 +431,41 @@ mod tests {
     fn test_interpolate_nested_user() {
         let mut args = ArgMap::default();
         args.named.insert("name".to_string(), "john".to_string());
-        let tpl = "{{name}.upper}";
+        let tpl = "[[name].upper]";
         assert_eq!(interpolate(tpl, &args), "JOHN");
     }
 
     #[test]
     fn test_interpolate_nested_default() {
         let args = ArgMap::default();
-        // Template: {outer={inner=fallback}}
+        // Template: [outer=[inner=fallback]]
         // inner resolves to fallback, then outer resolves to fallback
-        let tpl = "{outer={inner=fallback}}";
+        let tpl = "[outer=[inner=fallback]]";
         assert_eq!(interpolate(tpl, &args), "fallback");
+    }
+
+    #[test]
+    fn test_interpolate_nested_variable_default() {
+        let mut args = ArgMap::default();
+        args.named
+            .insert("default".to_string(), "friend".to_string());
+
+        assert_eq!(interpolate("[name=[default]]", &args), "friend");
     }
 
     #[test]
     fn test_interpolate_balanced_with_escapes() {
         let args = ArgMap::default();
         // Use quotes to ensure it's treated as a literal and not an unresolved placeholder
-        let tpl = r#"{'a\{b\}c'.upper}"#;
-        assert_eq!(interpolate(tpl, &args), "A{B}C");
+        let tpl = r#"['a\[b\]c'.upper]"#;
+        assert_eq!(interpolate(tpl, &args), "A[B]C");
     }
 
     #[test]
     fn test_interpolate_flattened_system() {
         let args = ArgMap::default();
         // time.now.upper should resolve to the current time in uppercase
-        let res = interpolate("{time.now.upper}", &args);
+        let res = interpolate("[time.now.upper]", &args);
         // We check if it resolved to SOMETHING that isn't the literal string or empty
         assert!(!res.is_empty());
         assert!(!res.contains("time.now"));
@@ -469,14 +478,14 @@ mod tests {
         let mut args = ArgMap::default();
         args.named.insert("name".to_string(), "john".to_string());
         // name.upper should resolve to JOHN
-        assert_eq!(interpolate("{name.upper}", &args), "JOHN");
+        assert_eq!(interpolate("[name.upper]", &args), "JOHN");
     }
 
     #[test]
     fn test_interpolate_quoted_literal() {
         let args = ArgMap::default();
-        assert_eq!(interpolate("{'hello world'.upper}", &args), "HELLO WORLD");
-        assert_eq!(interpolate("{\"hello world\".upper}", &args), "HELLO WORLD");
+        assert_eq!(interpolate("['hello world'.upper]", &args), "HELLO WORLD");
+        assert_eq!(interpolate("[\"hello world\".upper]", &args), "HELLO WORLD");
     }
 
     #[test]
@@ -484,12 +493,12 @@ mod tests {
         let mut args = ArgMap::default();
         args.named
             .insert("val".to_string(), "MixedCase".to_string());
-        assert_eq!(interpolate("{val.lower.upper}", &args), "MIXEDCASE");
+        assert_eq!(interpolate("[val.lower.upper]", &args), "MIXEDCASE");
     }
 
     #[test]
     fn test_extract_placeholders_suffixed() {
-        let text = "Hello {name.upper} and {email.lower=DEFAULT@EMAIL.COM}";
+        let text = "Hello [name.upper] and [email.lower=DEFAULT@EMAIL.COM]";
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 2);
         assert!(p.contains_key("name"));
@@ -506,7 +515,7 @@ mod tests {
         args.named
             .insert("query".to_string(), "hello world!".to_string());
 
-        let tpl = "https://google.com/search?q={{query}.urlencode}";
+        let tpl = "https://google.com/search?q=[[query].urlencode]";
         assert_eq!(
             interpolate(tpl, &args),
             "https://google.com/search?q=hello%20world%21"
@@ -518,7 +527,7 @@ mod tests {
         let args = ArgMap::default();
         system::clipboard::set_mock_clipboard(Some("customer error msg".to_string()));
 
-        let tpl = "https://google.com/search?q={{clipboard}.urlencode}";
+        let tpl = "https://google.com/search?q=[[clipboard].urlencode]";
         assert_eq!(
             interpolate(tpl, &args),
             "https://google.com/search?q=customer%20error%20msg"
@@ -532,7 +541,7 @@ mod tests {
         let mut args = ArgMap::default();
         args.positional.push("banana".to_string());
 
-        let tpl = "https://google.com/search?q={{query}.urlencode}";
+        let tpl = "https://google.com/search?q=[[query].urlencode]";
         assert_eq!(
             interpolate(tpl, &args),
             "https://google.com/search?q=banana"
@@ -544,7 +553,7 @@ mod tests {
         let mut args = ArgMap::default();
         args.positional.push("apple".to_string());
 
-        let tpl = "https://google.com/search?q={query.urlencode}";
+        let tpl = "https://google.com/search?q=[query.urlencode]";
         assert_eq!(interpolate(tpl, &args), "https://google.com/search?q=apple");
     }
 }

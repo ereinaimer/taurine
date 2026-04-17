@@ -144,7 +144,7 @@ mod tests {
         let state = EngineState::with_source('>', memory.clone());
 
         // Script with a positional argument inside it
-        let script = "echo {0}";
+        let script = "echo [0]";
         let compressed = compress(script).unwrap();
 
         let action = AutomationAction {
@@ -157,11 +157,11 @@ mod tests {
 
         memory.load_actions(vec![("ip".to_string(), action)]);
 
-        // Exact match "ip" should NOT provide arguments, so {0} remains as is
+        // Exact match "ip" should NOT provide arguments, so [0] remains as is
         let expansion = state.fetch_expansion("ip").unwrap();
         if let ExpansionStep::Script(md) = &expansion.steps[0] {
             let decompressed = decompress(&md.compressed_content).unwrap();
-            assert_eq!(decompressed, "echo {0}");
+            assert_eq!(decompressed, "echo [0]");
         } else {
             panic!("Expected script expansion");
         }
@@ -172,7 +172,7 @@ mod tests {
         let memory = Arc::new(MemorySource::new());
         let state = EngineState::with_source('>', memory.clone());
 
-        let script = "explorer {0}";
+        let script = "explorer [0]";
         let compressed = compress(script).unwrap();
 
         let action = AutomationAction {
@@ -200,7 +200,7 @@ mod tests {
         let memory = Arc::new(MemorySource::new());
         let state = EngineState::with_source('>', memory.clone());
 
-        let script = "curl https://{env}.example.com";
+        let script = "curl https://[env].example.com";
         let compressed = compress(script).unwrap();
 
         let action = AutomationAction {
@@ -231,7 +231,7 @@ mod tests {
         memory.load_actions(vec![
             (
                 "hi".to_string(),
-                AutomationAction::text("base {0} ({mood})"),
+                AutomationAction::text("base [0] ([mood])"),
             ),
             (
                 "hi:erin".to_string(),
@@ -254,7 +254,7 @@ mod tests {
 
         memory.load_actions(vec![(
             "hi".to_string(),
-            AutomationAction::text("Hi {0}, mood {mood}"),
+            AutomationAction::text("Hi [0], mood [mood]"),
         )]);
 
         let expansion = state.fetch_expansion("hi:erein:mood=sad").unwrap();
