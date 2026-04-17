@@ -53,6 +53,24 @@ const DATE_MODIFIERS: &[&str] = &[
 ];
 
 const UUID_MODIFIERS: &[&str] = &["v4", "v7", "simple"];
+const KEY_MODIFIERS: &[&str] = &[
+    "enter",
+    "tab",
+    "space",
+    "esc",
+    "up",
+    "down",
+    "left",
+    "right",
+    "backspace",
+    "delete",
+    "ctrl",
+    "super",
+    "mod",
+    "shift+tab",
+    "ctrl+a",
+    "ctrl+shift+end",
+];
 
 pub fn strip_global_transformers(mut key: &str) -> &str {
     while let Some((sub, _)) = system::split_modifier(key) {
@@ -79,7 +97,7 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "date" => format!("Valid modifiers: {}", DATE_MODIFIERS.join(", ")),
         "uuid" => format!("Valid modifiers: uuid, {}", UUID_MODIFIERS.join(", ")),
         "env" => "Valid form: [env.VAR_NAME]".to_string(),
-        "key" => "Valid form: [key.<alias>] with any non-empty key alias suffix.".to_string(),
+        "key" => format!("Valid modifiers: {}", KEY_MODIFIERS.join(", ")),
         "delay" => "Valid form: [delay.<u64>ms]".to_string(),
         _ => "No modifier help available.".to_string(),
     }
@@ -93,7 +111,7 @@ pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), Val
         "date" => validate_known_modifier("date", modifier, DATE_MODIFIERS),
         "uuid" => validate_optional_known_modifier("uuid", modifier, UUID_MODIFIERS),
         "env" => validate_env_modifier(modifier),
-        "key" => validate_freeform_modifier("key", modifier),
+        "key" => validate_key_modifier(modifier),
         "delay" => validate_delay_modifier(modifier),
         _ => Err(ValidationError::UnknownRoot(root.to_string())),
     }
@@ -152,14 +170,20 @@ fn validate_env_modifier(modifier: Option<&str>) -> Result<(), ValidationError> 
     }
 }
 
-fn validate_freeform_modifier(
-    root: &'static str,
-    modifier: Option<&str>,
-) -> Result<(), ValidationError> {
-    if normalize_modifier(modifier.unwrap_or_default()).is_some() {
+fn validate_key_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
+    let modifier =
+        normalize_modifier(modifier.ok_or(ValidationError::MissingModifier { root: "key" })?)
+            .ok_or(ValidationError::MissingModifier { root: "key" })?;
+    let normalized = modifier.to_ascii_lowercase();
+
+    if KEY_MODIFIERS.contains(&normalized.as_str()) {
         Ok(())
     } else {
-        Err(ValidationError::MissingModifier { root })
+        Err(ValidationError::InvalidModifier {
+            root: "key",
+            modifier: modifier.to_string(),
+            allowed: KEY_MODIFIERS,
+        })
     }
 }
 
@@ -284,9 +308,19 @@ mod tests {
     }
 
     #[test]
-    fn validates_key_as_freeform_suffix_because_system_mod_has_no_alias_whitelist() {
-        assert_eq!(validate_system_tag("key", Some("enter")), Ok(()));
-        assert_eq!(validate_system_tag("key", Some("ctrl+shift+end")), Ok(()));
+    fn validates_key_against_explicit_whitelist() {
+        for modifier in KEY_MODIFIERS {
+            assert_eq!(validate_system_tag("key", Some(modifier)), Ok(()));
+        }
+        assert_eq!(validate_system_tag("key", Some("Ctrl+Shift+End")), Ok(()));
+        assert_eq!(
+            validate_system_tag("key", Some("not_a_real_key")),
+            Err(ValidationError::InvalidModifier {
+                root: "key",
+                modifier: "not_a_real_key".to_string(),
+                allowed: KEY_MODIFIERS,
+            })
+        );
         assert_eq!(
             validate_system_tag("key", None),
             Err(ValidationError::MissingModifier { root: "key" })

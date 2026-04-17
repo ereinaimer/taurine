@@ -8,6 +8,8 @@ const TAG_OPEN: u8 = b'[';
 const TAG_CLOSE: u8 = b']';
 const SENTINEL_OPEN: char = '\x01';
 const SENTINEL_CLOSE: char = '\x02';
+const MAX_INTERPOLATION_DEPTH: usize = 32;
+const MAX_ITERATIONS: usize = 128;
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct Placeholder<'a> {
@@ -113,6 +115,7 @@ fn resolve_user_placeholder(
     key: &str,
     default_value: Option<&str>,
     args: &ArgMap,
+    depth: usize,
 ) -> Option<String> {
     if !is_valid_user_reference(key, default_value, args) {
         return None;
@@ -122,11 +125,19 @@ fn resolve_user_placeholder(
         args.positional
             .get(index)
             .cloned()
-            .or_else(|| default_value.map(str::to_string))
+            .or_else(|| default_value.map(|value| resolve_default_value(value, args, depth)))
     } else if let Some(value) = args.named.get(key) {
         Some(value.clone())
     } else {
-        default_value.map(str::to_string)
+        default_value.map(|value| resolve_default_value(value, args, depth))
+    }
+}
+
+fn resolve_default_value(default_value: &str, args: &ArgMap, depth: usize) -> String {
+    if depth >= MAX_INTERPOLATION_DEPTH {
+        default_value.to_string()
+    } else {
+        interpolate_with_depth(default_value, args, depth + 1)
     }
 }
 
@@ -152,18 +163,27 @@ fn split_key_default(inner: &str) -> (&str, Option<&str>) {
 }
 
 pub fn interpolate(template: &str, args: &ArgMap) -> String {
+    interpolate_with_depth(template, args, 0)
+}
+
+fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String {
+    if depth >= MAX_INTERPOLATION_DEPTH {
+        return template.to_string();
+    }
+
     let placeholders = extract_placeholders(template);
     let mut user_resolutions = std::collections::HashMap::new();
 
     for (key, placeholder) in placeholders.iter() {
-        if let Some(resolved) = resolve_user_placeholder(key, placeholder.default_value, args) {
+        if let Some(resolved) =
+            resolve_user_placeholder(key, placeholder.default_value, args, depth)
+        {
             user_resolutions.insert(*key, resolved);
         }
     }
 
     let mut output = template.to_string();
     let mut iterations = 0;
-    const MAX_ITERATIONS: usize = 128;
 
     while iterations < MAX_ITERATIONS {
         if let Some((start, end)) = find_innermost_tag(&output) {
@@ -175,7 +195,7 @@ pub fn interpolate(template: &str, args: &ArgMap) -> String {
 
             let resolved = if !is_valid_system && !is_valid_user {
                 format!("{SENTINEL_OPEN}{inner}{SENTINEL_CLOSE}")
-            } else if let Some(sys) = system::resolve(key) {
+            } else if let Some(sys) = resolve_system_placeholder(key, default_value, args, depth) {
                 sys
             } else if let Some(user) = user_resolutions.get(key) {
                 user.clone()
@@ -183,7 +203,9 @@ pub fn interpolate(template: &str, args: &ArgMap) -> String {
                 && is_valid_user_reference(strip_global_transformers(sub), default_value, args)
             {
                 // Flattened resolution (e.g. msg.upper)
-                if let Some(res) = resolve_modified(sub, suffix, &user_resolutions) {
+                if let Some(res) =
+                    resolve_modified(sub, suffix, default_value, args, &user_resolutions, depth)
+                {
                     res
                 } else {
                     format!("{SENTINEL_OPEN}{inner}{SENTINEL_CLOSE}")
@@ -210,14 +232,19 @@ pub fn interpolate(template: &str, args: &ArgMap) -> String {
 fn resolve_modified(
     sub: &str,
     suffix: &str,
+    default_value: Option<&str>,
+    args: &ArgMap,
     user_resolutions: &std::collections::HashMap<&str, String>,
+    depth: usize,
 ) -> Option<String> {
     let content = if let Some(res) = system::resolve(sub) {
         res
     } else if let Some(user) = user_resolutions.get(sub) {
         user.clone()
     } else if let Some((s2, p2)) = system::split_modifier(sub) {
-        resolve_modified(s2, p2, user_resolutions)?
+        resolve_modified(s2, p2, default_value, args, user_resolutions, depth)?
+    } else if let Some(user) = resolve_user_placeholder(sub, default_value, args, depth) {
+        user
     } else if let Some(unquoted) = system::strip_quotes(sub) {
         unquoted.to_string()
     } else {
@@ -232,6 +259,34 @@ fn resolve_modified(
     }
 
     system::format::apply(suffix, &content)
+}
+
+fn resolve_system_placeholder(
+    key: &str,
+    default_value: Option<&str>,
+    args: &ArgMap,
+    depth: usize,
+) -> Option<String> {
+    if let Some(resolved) = system::resolve(key) {
+        return Some(resolved);
+    }
+
+    if system::is_directive(strip_global_transformers(key)) {
+        return None;
+    }
+
+    let default_value = default_value?;
+    let fallback = resolve_default_value(default_value, args, depth);
+    apply_transformers(key, fallback)
+}
+
+fn apply_transformers(key: &str, content: String) -> Option<String> {
+    if let Some((sub, suffix)) = system::split_modifier(key) {
+        let content = apply_transformers(sub, content)?;
+        system::format::apply(suffix, &content)
+    } else {
+        Some(content)
+    }
 }
 
 fn find_innermost_tag(s: &str) -> Option<(usize, usize)> {
@@ -491,6 +546,21 @@ mod tests {
             .insert("default".to_string(), "friend".to_string());
 
         assert_eq!(interpolate("[name=[default]]", &args), "friend");
+    }
+
+    #[test]
+    fn test_interpolate_nested_default_before_outer_modifier() {
+        let args = ArgMap::default();
+
+        unsafe { std::env::remove_var("TAURINE_NESTED_USER") };
+
+        assert_eq!(
+            interpolate(
+                "[user.title=[env.TAURINE_NESTED_USER.title=stranger]]",
+                &args
+            ),
+            "Stranger"
+        );
     }
 
     #[test]
