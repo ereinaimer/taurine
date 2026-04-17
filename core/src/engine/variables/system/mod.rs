@@ -172,15 +172,13 @@ fn find_next_tag(text: &str, from: usize) -> Option<TagBounds> {
                 }
                 depth += 1;
             }
-            TAG_CLOSE if !is_escaped(bytes, ptr) => {
-                if depth > 0 {
-                    depth -= 1;
-                    if depth == 0 {
-                        return start.map(|tag_start| TagBounds {
-                            start: tag_start,
-                            end: ptr,
-                        });
-                    }
+            TAG_CLOSE if !is_escaped(bytes, ptr) && depth > 0 => {
+                depth -= 1;
+                if depth == 0 {
+                    return start.map(|tag_start| TagBounds {
+                        start: tag_start,
+                        end: ptr,
+                    });
                 }
             }
             _ => {}

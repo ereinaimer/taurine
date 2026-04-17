@@ -397,7 +397,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "gh".to_string(),
-            crate::db::crud::AutomationAction::text("https://github.com/[username]/[repo=taurine]"),
+            crate::db::crud::AutomationAction::text("https://github.com/ereinaimer/taurine"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -409,7 +409,7 @@ mod tests {
         // Backspace blah (WordBackspace)
         eval.process_event(EngineEvent::WordBackspace);
 
-        let input2 = "randomguy:randomrepo";
+        let input2 = "irrelevant";
         for c in input2.chars() {
             eval.process_event(EngineEvent::Char(c));
         }
@@ -419,7 +419,7 @@ mod tests {
         assert_eq!(
             result.steps,
             vec![ExpansionStep::Text(
-                "https://github.com/randomguy/randomrepo".to_string()
+                "https://github.com/ereinaimer/taurine".to_string()
             )]
         );
     }

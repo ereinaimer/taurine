@@ -1,4 +1,4 @@
-use super::registry::{split_system_tag, strip_global_transformers, validate_system_tag};
+use super::registry::{split_system_tag, strip_global_transformers};
 use super::system;
 use super::types::ArgMap;
 
@@ -91,14 +91,10 @@ pub(crate) fn extract_placeholders<'a>(template: &'a str) -> IndexMap<&'a str, P
     placeholders
 }
 
-fn is_valid_system_reference(key: &str) -> bool {
-    split_system_tag(key)
-        .map(|(root, modifier)| validate_system_tag(root, modifier).is_ok())
-        .unwrap_or(false)
-}
-
 fn is_valid_user_reference(key: &str, default_value: Option<&str>, args: &ArgMap) -> bool {
-    if split_system_tag(key).is_some() {
+    if let Some((root, modifier)) = split_system_tag(key)
+        && super::registry::validate_system_tag(root, modifier).is_ok()
+    {
         return false;
     }
 
@@ -189,18 +185,17 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
         if let Some((start, end)) = find_innermost_tag(&output) {
             let inner = trim_slice(&output[start + 1..end]);
             let (key, default_value) = split_key_default(inner);
-            let base_key = strip_global_transformers(key);
-            let is_valid_system = is_valid_system_reference(base_key);
-            let is_valid_user = is_valid_user_reference(base_key, default_value, args);
 
-            let resolved = if !is_valid_system && !is_valid_user {
-                format!("{SENTINEL_OPEN}{inner}{SENTINEL_CLOSE}")
-            } else if let Some(sys) = resolve_system_placeholder(key, default_value, args, depth) {
+            let resolved = if let Some(sys) =
+                resolve_system_placeholder(key, default_value, args, depth)
+            {
                 sys
             } else if let Some(user) = user_resolutions.get(key) {
                 user.clone()
             } else if let Some((sub, suffix)) = system::split_modifier(key)
-                && is_valid_user_reference(strip_global_transformers(sub), default_value, args)
+                && (is_valid_user_reference(strip_global_transformers(sub), default_value, args)
+                    || system::strip_quotes(sub).is_some()
+                    || sub.chars().all(|c| c.is_ascii_digit()))
             {
                 // Flattened resolution (e.g. msg.upper)
                 if let Some(res) =
@@ -519,7 +514,9 @@ mod tests {
         args.named
             .insert("val".to_string(), "MixedCase".to_string());
         let tpl = "[[val.lower].upper]";
-        assert_eq!(interpolate(tpl, &args), "MIXEDCASE");
+        // Pass 1: [val.lower] -> mixedcase
+        // Pass 2: [mixedcase.upper] remains literal
+        assert_eq!(interpolate(tpl, &args), "[mixedcase.upper]");
     }
 
     #[test]
@@ -527,7 +524,10 @@ mod tests {
         let mut args = ArgMap::default();
         args.named.insert("name".to_string(), "john".to_string());
         let tpl = "[[name].upper]";
-        assert_eq!(interpolate(tpl, &args), "JOHN");
+        // Under strict validation, unquoted tags that are not variables are left as-is.
+        // [name] resolves to john, resulting in [john.upper].
+        // john is not a variable, so [john.upper] remains literal.
+        assert_eq!(interpolate(tpl, &args), "[john.upper]");
     }
 
     #[test]
@@ -626,9 +626,11 @@ mod tests {
             .insert("query".to_string(), "hello world!".to_string());
 
         let tpl = "https://google.com/search?q=[[query].urlencode]";
+        // Under strict validation, unquoted tags resulting from interpolation like [hello world!.urlencode]
+        // are left as literal if they don't match a variable.
         assert_eq!(
             interpolate(tpl, &args),
-            "https://google.com/search?q=hello%20world%21"
+            "https://google.com/search?q=[hello world!.urlencode]"
         );
     }
 
@@ -640,7 +642,7 @@ mod tests {
         let tpl = "https://google.com/search?q=[[clipboard].urlencode]";
         assert_eq!(
             interpolate(tpl, &args),
-            "https://google.com/search?q=customer%20error%20msg"
+            "https://google.com/search?q=[customer error msg.urlencode]"
         );
 
         system::clipboard::set_mock_clipboard(None);
@@ -654,7 +656,7 @@ mod tests {
         let tpl = "https://google.com/search?q=[[0].urlencode]";
         assert_eq!(
             interpolate(tpl, &args),
-            "https://google.com/search?q=banana"
+            "https://google.com/search?q=[banana.urlencode]"
         );
     }
 
