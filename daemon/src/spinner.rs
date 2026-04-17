@@ -38,6 +38,7 @@ pub fn start(style: SpinnerStyle) -> SpinnerHandle {
         let mut idx = 0;
 
         while !abort_clone.load(Ordering::SeqCst) && !INJECTION_ABORT.load(Ordering::SeqCst) {
+            #[cfg(not(target_os = "linux"))]
             let frame = frames[idx % frames.len()];
 
             // To avoid flickering and clipboard mess, I'll use a direct injection

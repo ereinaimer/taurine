@@ -38,20 +38,20 @@ impl XkbMapper {
             // Level 0: No Shift
             let syms0 = keymap.key_get_syms_by_level(keycode.into(), 0, 0);
             for sym in syms0 {
-                if let Some(c) = char::from_u32(xkb::keysym_to_utf32(*sym)) {
-                    if c.is_ascii() || !c.is_control() {
-                        reverse_map.entry(c).or_insert((key, false));
-                    }
+                if let Some(c) = char::from_u32(xkb::keysym_to_utf32(*sym))
+                    && (c.is_ascii() || !c.is_control())
+                {
+                    reverse_map.entry(c).or_insert((key, false));
                 }
             }
 
             // Level 1: Shift (usually)
             let syms1 = keymap.key_get_syms_by_level(keycode.into(), 0, 1);
             for sym in syms1 {
-                if let Some(c) = char::from_u32(xkb::keysym_to_utf32(*sym)) {
-                    if c.is_ascii() || !c.is_control() {
-                        reverse_map.entry(c).or_insert((key, true));
-                    }
+                if let Some(c) = char::from_u32(xkb::keysym_to_utf32(*sym))
+                    && (c.is_ascii() || !c.is_control())
+                {
+                    reverse_map.entry(c).or_insert((key, true));
                 }
             }
         }

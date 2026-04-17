@@ -1,3 +1,4 @@
+#[cfg(any(windows, target_os = "linux"))]
 use crate::platform::ClipboardManager;
 use arboard::Clipboard;
 #[cfg(not(target_os = "linux"))]
@@ -69,6 +70,7 @@ pub static INJECTION_ABORT: AtomicBool = AtomicBool::new(false);
 
 /// Set to `true` momentarily while we are simulating a keystroke. The hook thread
 /// checks this to distinguish physical from synthetic keyboard events.
+#[allow(dead_code)]
 pub static IS_SIMULATING: AtomicBool = AtomicBool::new(false);
 
 /// Wrapped version of `rdev::simulate` that maintains the `IS_SIMULATING` flag.
@@ -590,7 +592,7 @@ pub fn inject_text_segment(text: &str, original_clipboard: &Option<String>) -> O
                 Ok(orig) => {
                     simulate_paste();
                     thread::sleep(post_paste_wait);
-                    return Some(orig);
+                    Some(orig)
                 }
                 Err(e) => {
                     if e.starts_with("clipboard verify failed:") {
@@ -598,7 +600,7 @@ pub fn inject_text_segment(text: &str, original_clipboard: &Option<String>) -> O
                     } else {
                         error!("Could not prepare clipboard before paste: {}", e);
                     }
-                    return None;
+                    None
                 }
             }
         } else {
@@ -609,7 +611,7 @@ pub fn inject_text_segment(text: &str, original_clipboard: &Option<String>) -> O
             thread::sleep(Duration::from_millis(25));
             simulate_paste();
             thread::sleep(post_paste_wait);
-            return original_clipboard.clone();
+            original_clipboard.clone()
         }
     }
 }
@@ -634,10 +636,10 @@ fn restore_clipboard(original: &str) {
 
     #[cfg(all(not(windows), not(target_os = "linux")))]
     {
-        if let Ok(mut clipboard) = Clipboard::new() {
-            if let Err(e) = clipboard.set_text(original) {
-                error!("Failed to restore clipboard: {}", e);
-            }
+        if let Ok(mut clipboard) = Clipboard::new()
+            && let Err(e) = clipboard.set_text(original)
+        {
+            error!("Failed to restore clipboard: {}", e);
         }
     }
 }
