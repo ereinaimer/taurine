@@ -23,6 +23,7 @@ fn open_connection() -> Result<Connection> {
         let _ = OpenOptions::new()
             .write(true)
             .create(true)
+            .truncate(true)
             .mode(0o600)
             .open(&db_path);
     }
