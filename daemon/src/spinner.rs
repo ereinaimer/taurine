@@ -28,18 +28,18 @@ pub fn start(style: SpinnerStyle) -> SpinnerHandle {
     let abort = Arc::new(AtomicBool::new(false));
     let abort_clone = abort.clone();
 
-    let frames = match style {
+    let _frames = match style {
         SpinnerStyle::Braille => BRAILLE_FRAMES,
         SpinnerStyle::Arc => ARC_FRAMES,
         SpinnerStyle::Classic => CLASSIC_FRAMES,
     };
 
     let thread = thread::spawn(move || {
-        let mut idx = 0;
+        let mut _idx = 0;
 
         while !abort_clone.load(Ordering::SeqCst) && !INJECTION_ABORT.load(Ordering::SeqCst) {
             #[cfg(not(target_os = "linux"))]
-            let frame = frames[idx % frames.len()];
+            let frame = _frames[_idx % _frames.len()];
 
             // To avoid flickering and clipboard mess, I'll use a direct injection
             // if we have one. For now, I'll use the existing injector::inject_text_segment
@@ -70,7 +70,7 @@ pub fn start(style: SpinnerStyle) -> SpinnerHandle {
                 crate::platform::linux::uinput::simulate_keypress(evdev::KeyCode::KEY_BACKSPACE);
             }
 
-            idx += 1;
+            _idx += 1;
         }
 
         // Final cleanup: ensure the last spinner char is backspaced if we exited early

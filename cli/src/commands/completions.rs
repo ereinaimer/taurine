@@ -4,6 +4,7 @@ use clap_complete::shells::{Bash, Elvish, Fish, PowerShell, Zsh};
 use clap_complete::{Generator, generate};
 use std::fs;
 use std::io;
+#[cfg(target_os = "windows")]
 use std::path::PathBuf;
 #[cfg(target_os = "windows")]
 use std::process::Command;
@@ -299,7 +300,7 @@ fn append_to_rc_file(path: &std::path::Path, content: &str) {
 
             use std::io::Write;
 
-            let mut file = match fs::OpenOptions::new().write(true).append(true).open(path) {
+            let mut file = match fs::OpenOptions::new().append(true).open(path) {
                 Ok(file) => file,
                 Err(error) => {
                     error!("Failed to open {} for appending: {error}", path.display());

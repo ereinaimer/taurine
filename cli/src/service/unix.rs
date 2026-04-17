@@ -6,7 +6,9 @@ use std::env;
 use taurine_core::rpc::daemon_control_client::DaemonControlClient;
 use taurine_core::rpc::{ShutdownRequest, StatusRequest};
 use tokio::runtime::Runtime;
-use tracing::{debug, error, info, warn};
+#[cfg(target_os = "linux")]
+use tracing::warn;
+use tracing::{debug, error, info};
 
 const TAURINE_SERVICE_LABEL: &str = "com.ereinaimer.taurine";
 
