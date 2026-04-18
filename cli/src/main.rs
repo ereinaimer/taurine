@@ -53,7 +53,10 @@ enum Commands {
     Add(AddArgs),
     /// Remove an existing automation by trigger
     #[command(aliases = ["rm", "remove"])]
-    Delete { trigger: String },
+    Delete {
+        #[arg(required = true, num_args = 1..)]
+        triggers: Vec<String>,
+    },
     /// List all automations
     #[command(alias = "ls")]
     List {
@@ -381,8 +384,8 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
                 }
             }
         }
-        Some(Commands::Delete { trigger }) => {
-            commands::delete::execute(trigger)?;
+        Some(Commands::Delete { triggers }) => {
+            commands::delete::execute(triggers)?;
         }
         Some(Commands::List {
             sort,

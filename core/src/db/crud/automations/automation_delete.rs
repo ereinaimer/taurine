@@ -38,3 +38,32 @@ pub fn delete_automation_by_trigger(conn: &Connection, trigger: &str) -> Result<
 
     Ok(rows_changed)
 }
+/// Disables or tombstones all automations matching the specified triggers.
+/// Returns the number of affected rows.
+pub fn delete_automations_by_triggers(conn: &Connection, triggers: &[String]) -> Result<usize> {
+    if triggers.is_empty() {
+        return Ok(0);
+    }
+
+    let now = now_unix_secs();
+    let placeholders = vec!["?"; triggers.len()].join(", ");
+
+    let sql = format!(
+        "UPDATE automations
+            SET is_deleted = 1,
+                version    = version + 1,
+                updated_at = ?1
+         WHERE trigger IN ({}) AND is_deleted = 0",
+        placeholders
+    );
+
+    let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(triggers.len() + 1);
+    params.push(&now);
+    for t in triggers {
+        params.push(t);
+    }
+
+    let rows_changed = conn.execute(&sql, rusqlite::params_from_iter(params))?;
+
+    Ok(rows_changed)
+}

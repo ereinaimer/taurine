@@ -4,7 +4,9 @@ mod automation_set;
 mod automation_sync;
 mod automation_types;
 
-pub use automation_delete::{delete_automation, delete_automation_by_trigger};
+pub use automation_delete::{
+    delete_automation, delete_automation_by_trigger, delete_automations_by_triggers,
+};
 pub use automation_get::{
     get_action_by_trigger, get_all_active_automations, get_automation, get_automations_list,
     search_automations,
@@ -162,6 +164,37 @@ mod tests {
 
         let deleted = delete_automation(&conn, "ghost").unwrap();
         assert!(!deleted);
+    }
+
+    #[test]
+    fn delete_automations_by_triggers_tombstones_matches() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+
+        upsert_automation(
+            &conn, "uuid-1", "A", None, "t1", "out", "text", "all", "[]", 0, None,
+        )
+        .unwrap();
+        upsert_automation(
+            &conn, "uuid-2", "B", None, "t2", "out", "text", "all", "[]", 0, None,
+        )
+        .unwrap();
+        upsert_automation(
+            &conn, "uuid-3", "C", None, "t3", "out", "text", "all", "[]", 0, None,
+        )
+        .unwrap();
+
+        let triggers = vec!["t1".to_string(), "t3".to_string()];
+        let affected = crate::db::crud::delete_automations_by_triggers(&conn, &triggers).unwrap();
+        assert_eq!(affected, 2);
+
+        assert!(get_automation(&conn, "uuid-1").unwrap().unwrap().is_deleted);
+        assert!(!get_automation(&conn, "uuid-2").unwrap().unwrap().is_deleted);
+        assert!(get_automation(&conn, "uuid-3").unwrap().unwrap().is_deleted);
+
+        // Ensure returning 0 for empty triggers
+        let affected_empty = crate::db::crud::delete_automations_by_triggers(&conn, &[]).unwrap();
+        assert_eq!(affected_empty, 0);
     }
 
     #[test]
