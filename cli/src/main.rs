@@ -109,6 +109,11 @@ enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
+    /// Manage Inline AI Copilot credentials and provider metadata
+    Ai {
+        #[command(subcommand)]
+        action: AiAction,
+    },
     /// Generate or install shell completions
     Completions {
         #[command(subcommand)]
@@ -142,6 +147,44 @@ enum ShellCompletionAction {
     Zsh,
     Install,
     Uninstall,
+}
+
+#[derive(Subcommand, Debug)]
+enum AiAction {
+    /// Add or update a provider credential in the OS keyring
+    Add {
+        #[arg(long, value_enum)]
+        provider: AiProvider,
+    },
+    /// List configured AI providers
+    List,
+    /// List models known for a provider
+    Models {
+        #[arg(long, value_enum)]
+        provider: AiProvider,
+    },
+    /// Remove a provider credential from the OS keyring
+    Remove {
+        #[arg(long, value_enum)]
+        provider: AiProvider,
+    },
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum AiProvider {
+    Openai,
+    Claude,
+    Gemini,
+}
+
+impl AiProvider {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Openai => "openai",
+            Self::Claude => "claude",
+            Self::Gemini => "gemini",
+        }
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -425,6 +468,12 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
                 }
             }
         },
+        Some(Commands::Ai { action }) => match action {
+            AiAction::Add { provider } => commands::ai::execute_add(provider)?,
+            AiAction::List => commands::ai::execute_list()?,
+            AiAction::Models { provider } => commands::ai::execute_models(provider)?,
+            AiAction::Remove { provider } => commands::ai::execute_remove(provider)?,
+        },
         Some(Commands::Completions { action }) => {
             commands::completions::handle_completion(&action)?;
         }
@@ -438,4 +487,55 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_ai_add_provider() {
+        let cli = Cli::try_parse_from(["taurine", "ai", "add", "--provider", "openai"])
+            .expect("ai add should parse");
+
+        match cli.command {
+            Some(Commands::Ai {
+                action: AiAction::Add { provider },
+            }) => assert_eq!(provider, AiProvider::Openai),
+            other => panic!("unexpected command parse: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_ai_models_provider() {
+        let cli = Cli::try_parse_from(["taurine", "ai", "models", "--provider", "gemini"])
+            .expect("ai models should parse");
+
+        match cli.command {
+            Some(Commands::Ai {
+                action: AiAction::Models { provider },
+            }) => assert_eq!(provider, AiProvider::Gemini),
+            other => panic!("unexpected command parse: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_forbidden_ai_add_key_flag() {
+        let err = Cli::try_parse_from([
+            "taurine",
+            "ai",
+            "add",
+            "--provider",
+            "claude",
+            "--key",
+            "secret",
+        ])
+        .expect_err("--key must be rejected");
+
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("--key"),
+            "expected clap to mention the forbidden flag, got: {rendered}"
+        );
+    }
 }

@@ -13,7 +13,7 @@ pub use automation_get::{
 };
 pub use automation_set::{
     AddOutcome, add_automation_by_trigger, increment_usage_count_by_trigger,
-    record_expansion_usage, upsert_automation, upsert_script,
+    record_expansion_usage, upsert_automation, upsert_script, validate_trigger_not_reserved,
 };
 pub use automation_sync::get_syncable_automations;
 pub use automation_types::{
@@ -27,6 +27,7 @@ pub use automation_types::{
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settings::SettingsManager;
     use crate::testing::{init_tracing_for_tests, open_test_db};
 
     #[test]
@@ -547,5 +548,75 @@ mod tests {
 
         // Cleanup
         unsafe { std::env::remove_var("TAURINE_DB_PATH") };
+    }
+
+    #[test]
+    fn validate_trigger_not_reserved_rejects_ai_keyword() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+
+        let err = validate_trigger_not_reserved(&conn, "ai").unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("reserved for Taurine Inline AI Copilot"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_trigger_not_reserved_rejects_prefixed_ai_for_current_trigger_setting() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+        let manager = SettingsManager::new(&conn);
+        manager.update_setting("trigger_char", "/").unwrap();
+
+        let err = validate_trigger_not_reserved(&conn, "/ai").unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("reserved for Taurine Inline AI Copilot"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn upsert_automation_rejects_reserved_ai_trigger() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+
+        let err = upsert_automation(
+            &conn,
+            "uuid-ai-1",
+            "AI",
+            None,
+            "ai",
+            "payload",
+            "text",
+            "all",
+            "[]",
+            0,
+            None,
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("reserved for Taurine Inline AI Copilot"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn add_automation_by_trigger_rejects_reserved_prefixed_ai_trigger() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+        let manager = SettingsManager::new(&conn);
+        manager.update_setting("trigger_char", "#").unwrap();
+
+        let err = add_automation_by_trigger(&conn, "#ai", "payload", "all").unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("reserved for Taurine Inline AI Copilot"),
+            "unexpected error: {err}"
+        );
     }
 }

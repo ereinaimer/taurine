@@ -506,6 +506,35 @@ mod tests {
     }
 
     #[test]
+    fn import_rejects_reserved_inline_ai_trigger() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        let payload = ExchangePayload::new(vec![text_export("ai", "all", "Imported output")]);
+        let tx = conn.transaction().unwrap();
+
+        let err = import_automations(&tx, &payload, ImportOptions::default(), |_, _| {
+            Ok(ImportConflictAction::Overwrite)
+        })
+        .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("reserved for Taurine Inline AI Copilot")
+        );
+        tx.rollback().unwrap();
+
+        let active_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM automations WHERE is_deleted = 0",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(active_count, 0);
+    }
+
+    #[test]
     fn merge_metrics_combines_local_and_imported_automation_stats() {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();

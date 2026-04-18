@@ -1,7 +1,7 @@
 use crate::commands::validate::audit_payload_tags;
 use std::fs;
 use std::path::PathBuf;
-use taurine_core::db::crud::{upsert_automation, upsert_script};
+use taurine_core::db::crud::{upsert_automation, upsert_script, validate_trigger_not_reserved};
 use taurine_core::db::init;
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter, compress};
 use tracing::info;
@@ -48,6 +48,7 @@ pub fn execute(
     };
 
     let conn = init::setup()?;
+    validate_trigger_not_reserved(&conn, &trigger)?;
 
     // Check for an existing active automation with the same trigger
     let existing_record: Option<(String, i64, Option<i64>)> = conn.query_row(

@@ -8,7 +8,7 @@ pub use automations::{
     delete_automations_by_triggers, get_action_by_trigger, get_all_active_automations,
     get_automation, get_automations_list, get_syncable_automations,
     increment_usage_count_by_trigger, record_expansion_usage, search_automations,
-    upsert_automation, upsert_script,
+    upsert_automation, upsert_script, validate_trigger_not_reserved,
 };
 
 pub use metrics::{

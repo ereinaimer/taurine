@@ -1,7 +1,44 @@
 use crate::Result;
 use rusqlite::Connection;
 
-use crate::db::now_unix_secs;
+use crate::db::{crud::get_setting_value, now_unix_secs};
+
+const INLINE_AI_RESERVED_TRIGGER: &str = "ai";
+
+fn current_trigger_char(conn: &Connection) -> char {
+    if let Ok(Some(val)) = get_setting_value(conn, "trigger_char")
+        && let Ok(v) = serde_json::from_str::<String>(&val)
+        && let Some(c) = v.chars().next()
+    {
+        return c;
+    }
+
+    '>'
+}
+
+fn is_reserved_inline_ai_trigger(conn: &Connection, trigger: &str) -> bool {
+    if trigger == INLINE_AI_RESERVED_TRIGGER {
+        return true;
+    }
+
+    trigger
+        == format!(
+            "{}{}",
+            current_trigger_char(conn),
+            INLINE_AI_RESERVED_TRIGGER
+        )
+}
+
+pub fn validate_trigger_not_reserved(conn: &Connection, trigger: &str) -> Result<()> {
+    if is_reserved_inline_ai_trigger(conn, trigger) {
+        return Err(crate::Error::Config(format!(
+            "Trigger '{}' is reserved for Taurine Inline AI Copilot",
+            trigger
+        )));
+    }
+
+    Ok(())
+}
 
 /// Inserts a new automation or updates an existing one.
 ///
@@ -25,6 +62,8 @@ pub fn upsert_automation(
     usage_count: i64,
     last_used_at: Option<i64>,
 ) -> Result<()> {
+    validate_trigger_not_reserved(conn, trigger)?;
+
     let now = now_unix_secs();
 
     // Keep created_at stable across updates.
@@ -184,6 +223,8 @@ pub fn add_automation_by_trigger(
     output: &str,
     target_os: &str,
 ) -> Result<AddOutcome> {
+    validate_trigger_not_reserved(conn, trigger)?;
+
     // Check for an existing active row with this trigger and target_os.
     let existing: Option<(String, String)> = conn
         .query_row(
