@@ -3,11 +3,11 @@ use rdev::{Event, EventType, Key};
 #[cfg(not(target_os = "linux"))]
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, RwLock};
-#[cfg(not(target_os = "linux"))]
-use std::thread;
+use tokio::runtime::Handle;
 #[cfg(not(target_os = "linux"))]
 use tracing::{debug, error};
 
+use crate::engine::ai::InlineAiUiState;
 use crate::hotkey;
 #[cfg(not(target_os = "linux"))]
 use crate::injector::{self, IS_INJECTING, IS_SIMULATING};
@@ -24,6 +24,8 @@ pub fn start_listener(
     pause_notifications_enabled: Arc<std::sync::atomic::AtomicBool>,
     pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+    runtime_handle: Handle,
+    ai_ui_state: Arc<InlineAiUiState>,
 ) {
     crate::platform::linux::evdev::start_listener(
         evaluator,
@@ -31,6 +33,8 @@ pub fn start_listener(
         pause_notifications_enabled,
         pause_hotkey,
         spinner_style,
+        runtime_handle,
+        ai_ui_state,
     );
 }
 
@@ -41,6 +45,8 @@ pub fn start_listener(
     pause_notifications_enabled: Arc<std::sync::atomic::AtomicBool>,
     pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+    runtime_handle: Handle,
+    ai_ui_state: Arc<InlineAiUiState>,
 ) {
     let alt_down = std::sync::atomic::AtomicBool::new(false);
     let ctrl_down = std::sync::atomic::AtomicBool::new(false);
@@ -67,7 +73,31 @@ pub fn start_listener(
             .map(|lock| lock.state.engine_mode())
             .unwrap_or(EngineMode::Normal);
 
-        if should_block_ai_capture_chord(
+        if should_submit_ai_prompt(
+            &event.event_type,
+            alt_down.load(Ordering::Relaxed),
+            engine_mode,
+        ) {
+            let mut lock = evaluator.lock().unwrap();
+            if let Some(expansion) = lock.process_event(EngineEvent::SubmitAiPrompt) {
+                drop(lock);
+
+                debug!("Inline AI prompt submitted. Starting loading state.");
+
+                IS_INJECTING.store(true, Ordering::SeqCst);
+
+                let spinner_style_inner = spinner_style.read().map(|s| *s).unwrap_or_default();
+                spawn_expansion_dispatch(
+                    expansion,
+                    spinner_style_inner,
+                    runtime_handle.clone(),
+                    ai_ui_state.clone(),
+                );
+            }
+            return None;
+        }
+
+        if should_block_ai_session_chord(
             &event.event_type,
             alt_down.load(Ordering::Relaxed),
             engine_mode,
@@ -177,46 +207,12 @@ pub fn start_listener(
                         let spinner_style_inner =
                             spinner_style.read().map(|s| *s).unwrap_or_default();
 
-                        thread::spawn(move || {
-                            let trigger_clone = expansion.trigger.clone();
-                            let delete_count = expansion.delete_count;
-                            let track_usage = expansion.track_usage;
-
-                            // Calculate output char count for metrics from text steps.
-                            let output_len: usize = expansion
-                                .steps
-                                .iter()
-                                .filter_map(|s| match s {
-                                    taurine_core::engine::variables::ExpansionStep::Text(t) => {
-                                        Some(t.chars().count())
-                                    }
-                                    _ => None,
-                                })
-                                .sum();
-
-                            injector::inject_expansion(
-                                expansion.steps,
-                                expansion.delete_count,
-                                spinner_style_inner,
-                            );
-
-                            if track_usage {
-                                if expansion.is_calculation {
-                                    taurine_core::db::crud::record_calculation_usage(
-                                        output_len,
-                                        delete_count,
-                                        0,
-                                    );
-                                } else {
-                                    taurine_core::db::crud::record_expansion_usage(
-                                        &trigger_clone,
-                                        output_len,
-                                        delete_count,
-                                        0,
-                                    );
-                                }
-                            }
-                        });
+                        spawn_expansion_dispatch(
+                            expansion,
+                            spinner_style_inner,
+                            runtime_handle.clone(),
+                            ai_ui_state.clone(),
+                        );
                     }
                 }
             }
@@ -232,13 +228,26 @@ pub fn start_listener(
 }
 
 #[cfg(not(target_os = "linux"))]
-fn should_block_ai_capture_chord(
+fn should_submit_ai_prompt(
     event_type: &EventType,
     alt_down: bool,
     engine_mode: EngineMode,
 ) -> bool {
     engine_mode == EngineMode::AiCapture
         && alt_down
+        && matches!(event_type, EventType::KeyPress(Key::Return))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn should_block_ai_session_chord(
+    event_type: &EventType,
+    alt_down: bool,
+    engine_mode: EngineMode,
+) -> bool {
+    matches!(
+        engine_mode,
+        EngineMode::AiCapture | EngineMode::AiGenerating
+    ) && alt_down
         && matches!(
             event_type,
             EventType::KeyPress(Key::Return)
@@ -257,34 +266,101 @@ fn map_return_key(engine_mode: EngineMode) -> EngineEvent {
     }
 }
 
+pub(crate) fn spawn_expansion_dispatch(
+    expansion: taurine_core::engine::ExpansionResult,
+    spinner_style: taurine_core::settings::SpinnerStyle,
+    runtime_handle: Handle,
+    ai_ui_state: Arc<InlineAiUiState>,
+) {
+    std::thread::spawn(move || {
+        let trigger_clone = expansion.trigger.clone();
+        let delete_count = expansion.delete_count;
+        let track_usage = expansion.track_usage;
+        let should_start_ai_spinner = expansion.start_ai_spinner;
+
+        let output_len: usize = expansion
+            .steps
+            .iter()
+            .filter_map(|s| match s {
+                taurine_core::engine::variables::ExpansionStep::Text(t) => Some(t.chars().count()),
+                _ => None,
+            })
+            .sum();
+
+        crate::injector::inject_expansion(expansion.steps, expansion.delete_count, spinner_style);
+
+        if should_start_ai_spinner {
+            let spinner_handle = crate::engine::ai::spinner::spawn(&runtime_handle);
+            ai_ui_state.set_spinner(spinner_handle);
+        }
+
+        if track_usage {
+            if expansion.is_calculation {
+                taurine_core::db::crud::record_calculation_usage(output_len, delete_count, 0);
+            } else {
+                taurine_core::db::crud::record_expansion_usage(
+                    &trigger_clone,
+                    output_len,
+                    delete_count,
+                    0,
+                );
+            }
+        }
+    });
+}
+
 #[cfg(test)]
 #[cfg(not(target_os = "linux"))]
 mod tests {
     use super::*;
 
     #[test]
-    fn ai_capture_blocks_alt_enter_and_alt_escape_before_pass_through() {
-        assert!(should_block_ai_capture_chord(
+    fn ai_capture_submits_only_on_alt_enter_press() {
+        assert!(should_submit_ai_prompt(
             &EventType::KeyPress(Key::Return),
             true,
             EngineMode::AiCapture
         ));
-        assert!(should_block_ai_capture_chord(
-            &EventType::KeyPress(Key::Escape),
-            true,
-            EngineMode::AiCapture
-        ));
-        assert!(should_block_ai_capture_chord(
+        assert!(!should_submit_ai_prompt(
             &EventType::KeyRelease(Key::Return),
             true,
             EngineMode::AiCapture
         ));
-        assert!(!should_block_ai_capture_chord(
+        assert!(!should_submit_ai_prompt(
+            &EventType::KeyPress(Key::Return),
+            true,
+            EngineMode::AiGenerating
+        ));
+        assert!(!should_submit_ai_prompt(
+            &EventType::KeyPress(Key::Escape),
+            true,
+            EngineMode::AiCapture
+        ));
+    }
+
+    #[test]
+    fn ai_session_blocks_alt_enter_and_alt_escape_before_pass_through() {
+        assert!(should_block_ai_session_chord(
+            &EventType::KeyPress(Key::Return),
+            true,
+            EngineMode::AiCapture
+        ));
+        assert!(should_block_ai_session_chord(
+            &EventType::KeyPress(Key::Escape),
+            true,
+            EngineMode::AiCapture
+        ));
+        assert!(should_block_ai_session_chord(
+            &EventType::KeyRelease(Key::Return),
+            true,
+            EngineMode::AiGenerating
+        ));
+        assert!(!should_block_ai_session_chord(
             &EventType::KeyPress(Key::Return),
             false,
             EngineMode::AiCapture
         ));
-        assert!(!should_block_ai_capture_chord(
+        assert!(!should_block_ai_session_chord(
             &EventType::KeyPress(Key::Return),
             true,
             EngineMode::Normal

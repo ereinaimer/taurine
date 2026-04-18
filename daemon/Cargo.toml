@@ -10,7 +10,7 @@ license-file.workspace = true
 [dependencies]
 taurine_core = { path = "../core" }
 tracing = { workspace = true }
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.0", features = ["full", "test-util"] }
 tonic = "0.14"
 arboard = { version = "3.4.1", features = ["wayland-data-control"] }
 serde_json = "1.0.149"

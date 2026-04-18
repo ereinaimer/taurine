@@ -7,12 +7,14 @@ use crate::engine::state::{EngineMode, EngineState};
 
 const INLINE_AI_KEYWORD: &str = "ai";
 const INLINE_AI_TRIGGER_DELETE_COUNT: usize = 4;
+const INLINE_AI_THINKING_HEADER: &str = "\n\ntau:\n⠋ Thinking";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EngineEvent {
     Char(char),
     Backspace,
     WordBackspace,
+    SubmitAiPrompt,
     Interrupt, // Esc, Mouse clicks, or loss of focus
 }
 
@@ -33,6 +35,8 @@ pub struct ExpansionResult {
     pub is_calculation: bool,
     /// Whether the daemon should record snippet/calculation usage for this expansion.
     pub track_usage: bool,
+    /// Whether the daemon should start the async AI spinner after injection.
+    pub start_ai_spinner: bool,
 }
 
 pub struct Evaluator {
@@ -49,8 +53,10 @@ impl Evaluator {
     }
 
     pub fn process_event(&mut self, event: EngineEvent) -> Option<ExpansionResult> {
-        if self.state.engine_mode() == EngineMode::AiCapture {
-            return self.process_ai_capture_event(event);
+        match self.state.engine_mode() {
+            EngineMode::AiCapture => return self.process_ai_capture_event(event),
+            EngineMode::AiGenerating => return self.process_ai_generating_event(event),
+            EngineMode::Normal => {}
         }
 
         match event {
@@ -90,6 +96,7 @@ impl Evaluator {
                             trigger: keyword,
                             is_calculation: expansion.is_calculation,
                             track_usage: true,
+                            start_ai_spinner: false,
                         });
                     }
                 }
@@ -98,6 +105,7 @@ impl Evaluator {
                 self.buffer.push(' ');
                 None
             }
+            EngineEvent::SubmitAiPrompt => None,
             EngineEvent::Char(c) => {
                 // Normal typing tracking
                 self.buffer.push(c);
@@ -115,10 +123,23 @@ impl Evaluator {
             EngineEvent::Char(c) => self.state.append_ai_prompt_char(c),
             EngineEvent::Backspace => self.state.pop_ai_prompt_char(),
             EngineEvent::WordBackspace => self.state.pop_ai_prompt_word(),
+            EngineEvent::SubmitAiPrompt => return Some(self.start_inline_ai_generation()),
             EngineEvent::Interrupt => {}
         }
 
         None
+    }
+
+    fn process_ai_generating_event(&mut self, event: EngineEvent) -> Option<ExpansionResult> {
+        self.buffer.clear();
+
+        match event {
+            EngineEvent::Interrupt
+            | EngineEvent::Backspace
+            | EngineEvent::WordBackspace
+            | EngineEvent::SubmitAiPrompt
+            | EngineEvent::Char(_) => None,
+        }
     }
 
     fn start_inline_ai_capture(&mut self) -> ExpansionResult {
@@ -132,6 +153,21 @@ impl Evaluator {
             trigger: INLINE_AI_KEYWORD.to_string(),
             is_calculation: false,
             track_usage: false,
+            start_ai_spinner: false,
+        }
+    }
+
+    fn start_inline_ai_generation(&mut self) -> ExpansionResult {
+        self.buffer.clear();
+        self.state.set_engine_mode(EngineMode::AiGenerating);
+
+        ExpansionResult {
+            delete_count: 0,
+            steps: vec![ExpansionStep::Text(build_inline_ai_thinking_header())],
+            trigger: INLINE_AI_KEYWORD.to_string(),
+            is_calculation: false,
+            track_usage: false,
+            start_ai_spinner: true,
         }
     }
 }
@@ -142,6 +178,10 @@ fn build_inline_ai_header() -> String {
 
 fn build_inline_ai_header_for_username(username: &str) -> String {
     format!("// alt+enter send\n// alt+esc exit\n\n{}:\n\n", username)
+}
+
+fn build_inline_ai_thinking_header() -> String {
+    INLINE_AI_THINKING_HEADER.to_string()
 }
 
 fn resolve_inline_ai_username() -> String {
@@ -208,6 +248,7 @@ mod tests {
             vec![ExpansionStep::Text("Good morning!".to_string())]
         );
         assert!(result.track_usage);
+        assert!(!result.start_ai_spinner);
 
         // State machine buffer should reset upon expansion
         assert_eq!(eval.buffer.len, 0);
@@ -251,6 +292,7 @@ mod tests {
         );
         assert!(!result.is_calculation);
         assert!(result.track_usage);
+        assert!(!result.start_ai_spinner);
     }
 
     #[test]
@@ -267,6 +309,7 @@ mod tests {
             vec![ExpansionStep::Text(r#"¯\_(ツ)_/¯"#.to_string())]
         );
         assert!(result.track_usage);
+        assert!(!result.start_ai_spinner);
     }
 
     #[test]
@@ -515,6 +558,7 @@ mod tests {
         assert_eq!(result.trigger, "5+2");
         assert!(result.is_calculation);
         assert!(result.track_usage);
+        assert!(!result.start_ai_spinner);
     }
 
     #[test]
@@ -536,6 +580,7 @@ mod tests {
         assert_eq!(result.steps, vec![ExpansionStep::Text("2".to_string())]);
         assert_eq!(result.trigger, "((5+2)/7%2)*2");
         assert!(result.track_usage);
+        assert!(!result.start_ai_spinner);
     }
 
     #[test]
@@ -559,6 +604,7 @@ mod tests {
             vec![ExpansionStep::Text("1.1429".to_string())]
         );
         assert!(result.track_usage);
+        assert!(!result.start_ai_spinner);
     }
 
     #[test]
@@ -682,6 +728,7 @@ mod tests {
         );
         assert_eq!(result.trigger, INLINE_AI_KEYWORD);
         assert!(!result.track_usage);
+        assert!(!result.start_ai_spinner);
     }
 
     #[test]
@@ -690,6 +737,50 @@ mod tests {
             build_inline_ai_header_for_username("codex"),
             "// alt+enter send\n// alt+esc exit\n\ncodex:\n\n"
         );
+    }
+
+    #[test]
+    fn inline_ai_submit_enters_generating_mode_and_preserves_prompt_buffer() {
+        let state = Arc::new(EngineState::new('>'));
+        state.set_engine_mode(EngineMode::AiCapture);
+        state.append_ai_prompt_char('h');
+        state.append_ai_prompt_char('i');
+        let mut eval = Evaluator::new(state.clone());
+
+        let result = eval
+            .process_event(EngineEvent::SubmitAiPrompt)
+            .expect("submit should start AI generation");
+
+        assert_eq!(state.engine_mode(), EngineMode::AiGenerating);
+        assert_eq!(state.ai_prompt_buffer(), "hi");
+        assert_eq!(result.delete_count, 0);
+        assert_eq!(
+            result.steps,
+            vec![ExpansionStep::Text(build_inline_ai_thinking_header())]
+        );
+        assert!(result.start_ai_spinner);
+        assert!(!result.track_usage);
+    }
+
+    #[test]
+    fn ai_generating_mode_ignores_further_input_into_prompt_buffer() {
+        let state = Arc::new(EngineState::new('>'));
+        state.set_engine_mode(EngineMode::AiGenerating);
+        state.append_ai_prompt_char('x');
+        let mut eval = Evaluator::new(state.clone());
+
+        eval.process_event(EngineEvent::Char('y'));
+        eval.process_event(EngineEvent::Backspace);
+        eval.process_event(EngineEvent::WordBackspace);
+        eval.process_event(EngineEvent::SubmitAiPrompt);
+
+        assert_eq!(state.ai_prompt_buffer(), "x");
+        assert_eq!(eval.buffer.len, 0);
+    }
+
+    #[test]
+    fn inline_ai_thinking_header_matches_spec() {
+        assert_eq!(build_inline_ai_thinking_header(), "\n\ntau:\n⠋ Thinking");
     }
 
     #[test]

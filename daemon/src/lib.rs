@@ -8,6 +8,7 @@ use tokio::sync::mpsc;
 use tonic::transport::Server;
 use tracing::{debug, error, info};
 
+mod engine;
 mod hook;
 mod hotkey;
 mod injector;
@@ -68,12 +69,20 @@ pub fn start() -> taurine_core::error::Result<()> {
         pause_notifications_enabled,
     ));
 
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let runtime_handle = rt.handle().clone();
+    let ai_ui_state = Arc::new(engine::ai::InlineAiUiState::default());
+
     // Fire up listener in OS thread
     let eval_clone = evaluator.clone();
     let paused_clone = paused.clone();
     let pause_notifications_enabled_clone = pause_notifications_enabled.clone();
     let pause_hotkey_spec_clone = pause_hotkey_spec.clone();
     let spinner_style_clone = spinner_style.clone();
+    let runtime_handle_clone = runtime_handle.clone();
+    let ai_ui_state_clone = ai_ui_state.clone();
     std::thread::spawn(move || {
         info!("Starting OS keyboard hook listener...");
         hook::start_listener(
@@ -82,12 +91,10 @@ pub fn start() -> taurine_core::error::Result<()> {
             pause_notifications_enabled_clone,
             pause_hotkey_spec_clone,
             spinner_style_clone,
+            runtime_handle_clone,
+            ai_ui_state_clone,
         );
     });
-
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?;
 
     rt.block_on(async {
         let (tx, mut rx) = mpsc::channel(1);

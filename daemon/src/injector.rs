@@ -644,6 +644,10 @@ fn restore_clipboard(original: &str) {
     }
 }
 
+pub fn restore_clipboard_text(original: &str) {
+    restore_clipboard(original);
+}
+
 /// Executes an ordered sequence of expansion steps.
 ///
 /// This is the new sequence-aware injector entry point. It replaces the old

@@ -13,6 +13,7 @@ pub enum EngineMode {
     #[default]
     Normal,
     AiCapture,
+    AiGenerating,
 }
 
 pub struct EngineState {
