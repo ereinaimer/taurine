@@ -91,7 +91,12 @@ pub(crate) fn extract_placeholders<'a>(template: &'a str) -> IndexMap<&'a str, P
     placeholders
 }
 
-fn is_valid_user_reference(key: &str, default_value: Option<&str>, args: &ArgMap) -> bool {
+fn is_valid_user_reference(
+    key: &str,
+    default_value: Option<&str>,
+    args: &ArgMap,
+    pos_idx: usize,
+) -> bool {
     if let Some((root, modifier)) = split_system_tag(key)
         && super::registry::validate_system_tag(root, modifier).is_ok()
     {
@@ -100,6 +105,7 @@ fn is_valid_user_reference(key: &str, default_value: Option<&str>, args: &ArgMap
 
     key.parse::<usize>().is_ok()
         || args.named.contains_key(key)
+        || pos_idx < args.positional.len()
         || (default_value.is_some()
             && system::strip_quotes(key).is_none()
             && !system::is_reserved(key)
@@ -112,8 +118,9 @@ fn resolve_user_placeholder(
     default_value: Option<&str>,
     args: &ArgMap,
     depth: usize,
+    pos_idx: &mut usize,
 ) -> Option<String> {
-    if !is_valid_user_reference(key, default_value, args) {
+    if !is_valid_user_reference(key, default_value, args, *pos_idx) {
         return None;
     }
 
@@ -123,6 +130,9 @@ fn resolve_user_placeholder(
             .cloned()
             .or_else(|| default_value.map(|value| resolve_default_value(value, args, depth)))
     } else if let Some(value) = args.named.get(key) {
+        Some(value.clone())
+    } else if let Some(value) = args.positional.get(*pos_idx) {
+        *pos_idx += 1;
         Some(value.clone())
     } else {
         default_value.map(|value| resolve_default_value(value, args, depth))
@@ -170,9 +180,11 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
     let placeholders = extract_placeholders(template);
     let mut user_resolutions = std::collections::HashMap::new();
 
+    let mut pos_idx = 0;
+
     for (key, placeholder) in placeholders.iter() {
         if let Some(resolved) =
-            resolve_user_placeholder(key, placeholder.default_value, args, depth)
+            resolve_user_placeholder(key, placeholder.default_value, args, depth, &mut pos_idx)
         {
             user_resolutions.insert(*key, resolved);
         }
@@ -186,15 +198,17 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
             let inner = trim_slice(&output[start + 1..end]);
             let (key, default_value) = split_key_default(inner);
 
-            let resolved = if let Some(sys) =
-                resolve_system_placeholder(key, default_value, args, depth)
-            {
-                sys
-            } else if let Some(user) = user_resolutions.get(key) {
+            let resolved = if let Some(user) = user_resolutions.get(key) {
                 user.clone()
+            } else if let Some(sys) = resolve_system_placeholder(key, default_value, args, depth) {
+                sys
             } else if let Some((sub, suffix)) = system::split_modifier(key)
-                && (is_valid_user_reference(strip_global_transformers(sub), default_value, args)
-                    || system::strip_quotes(sub).is_some()
+                && (is_valid_user_reference(
+                    strip_global_transformers(sub),
+                    default_value,
+                    args,
+                    usize::MAX,
+                ) || system::strip_quotes(sub).is_some()
                     || sub.chars().all(|c| c.is_ascii_digit()))
             {
                 // Flattened resolution (e.g. msg.upper)
@@ -238,7 +252,10 @@ fn resolve_modified(
         user.clone()
     } else if let Some((s2, p2)) = system::split_modifier(sub) {
         resolve_modified(s2, p2, default_value, args, user_resolutions, depth)?
-    } else if let Some(user) = resolve_user_placeholder(sub, default_value, args, depth) {
+    } else if let Some(user) = {
+        let mut pos_idx_dummy = usize::MAX;
+        resolve_user_placeholder(sub, default_value, args, depth, &mut pos_idx_dummy)
+    } {
         user
     } else if let Some(unquoted) = system::strip_quotes(sub) {
         unquoted.to_string()
@@ -686,5 +703,37 @@ mod tests {
             interpolate("payload = [1, 2, 3]", &args),
             "payload = [1, 2, 3]"
         );
+    }
+
+    #[test]
+    fn test_interpolate_user_variable_mapping_to_positional() {
+        let mut args = ArgMap::default();
+        args.positional.push("monkeytype.com".to_string());
+
+        let tpl = "Start-Process https://[url=google.com]";
+        assert_eq!(
+            interpolate(tpl, &args),
+            "Start-Process https://monkeytype.com"
+        );
+
+        // Test fallback when argument is omitted
+        let args_empty = ArgMap::default();
+        assert_eq!(
+            interpolate(tpl, &args_empty),
+            "Start-Process https://google.com"
+        );
+    }
+
+    #[test]
+    fn test_interpolate_user_variable_without_default() {
+        let mut args = ArgMap::default();
+        args.positional.push("myarg".to_string());
+
+        let tpl = "Hello [var]";
+        assert_eq!(interpolate(tpl, &args), "Hello myarg");
+
+        // If no arg is passed and no default, it remains as literal
+        let args_empty = ArgMap::default();
+        assert_eq!(interpolate(tpl, &args_empty), "Hello [var]");
     }
 }
