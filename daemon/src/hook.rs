@@ -13,9 +13,9 @@ use crate::hotkey;
 use crate::injector::{self, IS_INJECTING, IS_SIMULATING};
 #[cfg(not(target_os = "linux"))]
 use crate::notify;
-#[cfg(not(target_os = "linux"))]
-use taurine_core::engine::EngineEvent;
 use taurine_core::engine::Evaluator;
+#[cfg(not(target_os = "linux"))]
+use taurine_core::engine::{EngineEvent, EngineMode};
 
 #[cfg(target_os = "linux")]
 pub fn start_listener(
@@ -60,6 +60,19 @@ pub fn start_listener(
                 ctrl_down.store(false, Ordering::Relaxed);
             }
             _ => {}
+        }
+
+        let engine_mode = evaluator
+            .lock()
+            .map(|lock| lock.state.engine_mode())
+            .unwrap_or(EngineMode::Normal);
+
+        if should_block_ai_capture_chord(
+            &event.event_type,
+            alt_down.load(Ordering::Relaxed),
+            engine_mode,
+        ) {
+            return None;
         }
 
         // Evaluate pause toggle before any typing buffer / expansion logic.
@@ -118,7 +131,7 @@ pub fn start_listener(
                     }
                     Key::Space => Some(EngineEvent::Char(' ')),
                     // Structural keys — break any active typing sequence.
-                    Key::Return => Some(EngineEvent::Interrupt),
+                    Key::Return => Some(map_return_key(engine_mode)),
                     Key::Tab => Some(EngineEvent::Interrupt),
                     // Navigation keys — cursor moved, buffer is now desynchronized.
                     Key::UpArrow
@@ -212,5 +225,75 @@ pub fn start_listener(
 
     if let Err(e) = rdev::grab(callback) {
         error!("Fatal OS global hook crash: {:?}", e);
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn should_block_ai_capture_chord(
+    event_type: &EventType,
+    alt_down: bool,
+    engine_mode: EngineMode,
+) -> bool {
+    engine_mode == EngineMode::AiCapture
+        && alt_down
+        && matches!(
+            event_type,
+            EventType::KeyPress(Key::Return)
+                | EventType::KeyRelease(Key::Return)
+                | EventType::KeyPress(Key::Escape)
+                | EventType::KeyRelease(Key::Escape)
+        )
+}
+
+#[cfg(not(target_os = "linux"))]
+fn map_return_key(engine_mode: EngineMode) -> EngineEvent {
+    if engine_mode == EngineMode::AiCapture {
+        EngineEvent::Char('\n')
+    } else {
+        EngineEvent::Interrupt
+    }
+}
+
+#[cfg(test)]
+#[cfg(not(target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ai_capture_blocks_alt_enter_and_alt_escape_before_pass_through() {
+        assert!(should_block_ai_capture_chord(
+            &EventType::KeyPress(Key::Return),
+            true,
+            EngineMode::AiCapture
+        ));
+        assert!(should_block_ai_capture_chord(
+            &EventType::KeyPress(Key::Escape),
+            true,
+            EngineMode::AiCapture
+        ));
+        assert!(should_block_ai_capture_chord(
+            &EventType::KeyRelease(Key::Return),
+            true,
+            EngineMode::AiCapture
+        ));
+        assert!(!should_block_ai_capture_chord(
+            &EventType::KeyPress(Key::Return),
+            false,
+            EngineMode::AiCapture
+        ));
+        assert!(!should_block_ai_capture_chord(
+            &EventType::KeyPress(Key::Return),
+            true,
+            EngineMode::Normal
+        ));
+    }
+
+    #[test]
+    fn return_key_maps_to_newline_only_in_ai_capture() {
+        assert_eq!(
+            map_return_key(EngineMode::AiCapture),
+            EngineEvent::Char('\n')
+        );
+        assert_eq!(map_return_key(EngineMode::Normal), EngineEvent::Interrupt);
     }
 }

@@ -9,7 +9,7 @@ use super::xkb::XkbMapper;
 use crate::hotkey::HotkeySpec;
 use crate::injector::{self, IS_INJECTING};
 use crate::notify;
-use taurine_core::engine::{EngineEvent, Evaluator};
+use taurine_core::engine::{EngineEvent, EngineMode, Evaluator};
 
 pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
@@ -127,7 +127,26 @@ pub fn start_listener(
                                 }
 
                                 // Process the key through XKB to maintain the layout state and get the char.
-                                let engine_event = xkb.process_key(key, is_press);
+                                let engine_mode = evaluator
+                                    .lock()
+                                    .map(|lock| lock.state.engine_mode())
+                                    .unwrap_or(EngineMode::Normal);
+                                let engine_event = xkb.process_key(key, is_press, engine_mode);
+
+                                // AI capture mode gets first priority for Alt+Enter / Alt+Esc,
+                                // before pause or generic modifier handling.
+                                if engine_mode == EngineMode::AiCapture
+                                    && is_press
+                                    && xkb.is_alt_down()
+                                    && matches!(
+                                        key,
+                                        KeyCode::KEY_ENTER
+                                            | KeyCode::KEY_KPENTER
+                                            | KeyCode::KEY_ESC
+                                    )
+                                {
+                                    continue;
+                                }
 
                                 // Check pause hotkey logic
                                 // Since we don't have rdev::Event, we check our xkb and the specific key.

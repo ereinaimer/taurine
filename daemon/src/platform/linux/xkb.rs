@@ -1,6 +1,6 @@
 use evdev::KeyCode;
 use std::collections::HashMap;
-use taurine_core::engine::EngineEvent;
+use taurine_core::engine::{EngineEvent, EngineMode};
 use xkbcommon::xkb;
 
 pub struct XkbMapper {
@@ -76,7 +76,12 @@ impl XkbMapper {
         &self.reverse_map
     }
 
-    pub fn process_key(&mut self, key: KeyCode, is_press: bool) -> Option<EngineEvent> {
+    pub fn process_key(
+        &mut self,
+        key: KeyCode,
+        is_press: bool,
+        engine_mode: EngineMode,
+    ) -> Option<EngineEvent> {
         // evdev keycodes map to XKB keycodes by adding 8.
         let keycode = key.code() as u32 + 8;
 
@@ -91,12 +96,31 @@ impl XkbMapper {
         );
 
         if is_press {
+            let ctrl_active = self
+                .state
+                .mod_name_is_active(xkb::MOD_NAME_CTRL, xkb::STATE_MODS_EFFECTIVE);
+            let alt_active = self
+                .state
+                .mod_name_is_active(xkb::MOD_NAME_ALT, xkb::STATE_MODS_EFFECTIVE);
+
+            if engine_mode == EngineMode::AiCapture {
+                if alt_active
+                    && matches!(
+                        key,
+                        KeyCode::KEY_ENTER | KeyCode::KEY_KPENTER | KeyCode::KEY_ESC
+                    )
+                {
+                    return None;
+                }
+
+                if matches!(key, KeyCode::KEY_ENTER | KeyCode::KEY_KPENTER) {
+                    return Some(EngineEvent::Char('\n'));
+                }
+            }
+
             match key {
                 KeyCode::KEY_ESC => return Some(EngineEvent::Interrupt),
                 KeyCode::KEY_BACKSPACE => {
-                    let ctrl_active = self
-                        .state
-                        .mod_name_is_active(xkb::MOD_NAME_CTRL, xkb::STATE_MODS_EFFECTIVE);
                     if ctrl_active {
                         return Some(EngineEvent::WordBackspace);
                     } else {
@@ -120,12 +144,6 @@ impl XkbMapper {
             }
 
             // Any key pressed with a modifier (ctrl/alt) is a system chord — skip.
-            let ctrl_active = self
-                .state
-                .mod_name_is_active(xkb::MOD_NAME_CTRL, xkb::STATE_MODS_EFFECTIVE);
-            let alt_active = self
-                .state
-                .mod_name_is_active(xkb::MOD_NAME_ALT, xkb::STATE_MODS_EFFECTIVE);
             if ctrl_active || alt_active {
                 return None;
             }
