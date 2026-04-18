@@ -103,21 +103,6 @@ impl XkbMapper {
                 .state
                 .mod_name_is_active(xkb::MOD_NAME_ALT, xkb::STATE_MODS_EFFECTIVE);
 
-            if engine_mode == EngineMode::AiCapture {
-                if alt_active
-                    && matches!(
-                        key,
-                        KeyCode::KEY_ENTER | KeyCode::KEY_KPENTER | KeyCode::KEY_ESC
-                    )
-                {
-                    return None;
-                }
-
-                if matches!(key, KeyCode::KEY_ENTER | KeyCode::KEY_KPENTER) {
-                    return Some(EngineEvent::Char('\n'));
-                }
-            }
-
             match key {
                 KeyCode::KEY_ESC => return Some(EngineEvent::Interrupt),
                 KeyCode::KEY_BACKSPACE => {
@@ -129,7 +114,12 @@ impl XkbMapper {
                 }
                 KeyCode::KEY_SPACE => return Some(EngineEvent::Char(' ')),
                 // Structural keys — break any active typing sequence.
-                KeyCode::KEY_ENTER | KeyCode::KEY_KPENTER => return Some(EngineEvent::Interrupt),
+                KeyCode::KEY_ENTER | KeyCode::KEY_KPENTER => {
+                    if engine_mode == EngineMode::AiCapture {
+                        return Some(EngineEvent::Char('\n'));
+                    }
+                    return Some(EngineEvent::Interrupt);
+                }
                 KeyCode::KEY_TAB => return Some(EngineEvent::Interrupt),
                 // Navigation keys — cursor moved, buffer is now desynchronized.
                 KeyCode::KEY_UP

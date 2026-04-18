@@ -1,60 +1,55 @@
-use std::sync::Arc;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
 use futures::StreamExt;
 use genai::adapter::AdapterKind;
-use genai::chat::{ChatRequest, ChatStreamEvent};
+use genai::chat::{ChatRequest, ChatStreamEvent, Tool};
 use genai::resolver::AuthData;
 use genai::{Client, ModelIden, ServiceTarget};
+use serde_json::json;
 use tokio::task;
 use tracing::error;
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::engine::ai::InlineAiUiState;
+use crate::engine::ai::InlineAiSpinnerHandle;
 use taurine_core::ai::{
     AiProvider, CredentialStore, OsKeyringStore, resolve_model_for_provider,
     resolve_provider_from_settings,
 };
-use taurine_core::engine::{EngineMode, EngineState};
 use taurine_core::settings::SettingsManager;
 
 const STREAM_BATCH_WINDOW_MS: u64 = 50;
 const STREAM_ERROR_PREFIX: &str = "Error: ";
+const INLINE_AI_SYSTEM_PROMPT: &str = "You are an inline text expander. Answer the user's prompt in a single, concise paragraph. DO NOT use markdown, bolding, bullet points, or newlines.";
 
-pub async fn run_inline_ai_stream(state: Arc<EngineState>, ai_ui_state: Arc<InlineAiUiState>) {
-    let result = run_inline_ai_stream_inner(state.clone(), ai_ui_state).await;
-
-    state.clear_ai_prompt_buffer();
-    state.set_engine_mode(EngineMode::AiCapture);
-
-    if let Err(err) = result {
+pub async fn run_inline_ai_stream(prompt: String, spinner_handle: InlineAiSpinnerHandle) {
+    if let Err(err) = run_inline_ai_stream_inner(prompt, spinner_handle).await {
         error!("Inline AI stream failed: {}", err);
     }
 }
 
 async fn run_inline_ai_stream_inner(
-    state: Arc<EngineState>,
-    ai_ui_state: Arc<InlineAiUiState>,
+    prompt: String,
+    spinner_handle: InlineAiSpinnerHandle,
 ) -> taurine_core::error::Result<()> {
-    let prompt = state.ai_prompt_buffer();
+    let prompt = Zeroizing::new(prompt);
+    let mut spinner = Some(spinner_handle);
     let mut spinner_cleared = false;
     let mut output: Option<LiveOutputHandle> = None;
-    let mut accumulated_response = String::new();
     let mut pending = String::new();
     let mut resolved = match resolve_inline_ai_request(&OsKeyringStore) {
         Ok(resolved) => resolved,
         Err(err) => {
             let message = inline_error_message(&err);
-            ensure_spinner_cleared(&ai_ui_state, &mut spinner_cleared).await;
+            ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
             inject_error_message(&mut output, false, &message).await?;
             finish_output(output).await;
             return Err(err);
         }
     };
     let client = build_chat_client(resolved.provider, resolved.secret.as_str());
-    let chat_request = ChatRequest::from_user(prompt);
+    let chat_request = build_chat_request(resolved.provider, prompt.as_str());
 
     let mut chat_stream = match client
         .exec_chat_stream(resolved.model.as_str(), chat_request, None)
@@ -64,7 +59,7 @@ async fn run_inline_ai_stream_inner(
         Err(err) => {
             let message =
                 inline_error_message(&taurine_core::error::Error::Service(err.to_string()));
-            ensure_spinner_cleared(&ai_ui_state, &mut spinner_cleared).await;
+            ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
             inject_error_message(&mut output, false, &message).await?;
             finish_output(output).await;
             resolved.secret.zeroize();
@@ -98,12 +93,11 @@ async fn run_inline_ai_stream_inner(
                     }
 
                     if !spinner_cleared {
-                        cancel_spinner_and_wait(&ai_ui_state).await;
+                        cancel_spinner_and_wait(&mut spinner).await;
                         spinner_cleared = true;
                         output = Some(LiveOutputHandle::spawn());
                     }
 
-                    accumulated_response.push_str(&chunk);
                     pending.push_str(&chunk);
 
                     if should_flush_pending(&pending) {
@@ -114,7 +108,7 @@ async fn run_inline_ai_stream_inner(
             Some(Err(err)) => {
                 let message =
                     inline_error_message(&taurine_core::error::Error::Service(err.to_string()));
-                ensure_spinner_cleared(&ai_ui_state, &mut spinner_cleared).await;
+                ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
                 flush_pending_batch(&mut output, &mut pending).await?;
                 inject_error_message(&mut output, spinner_cleared, &message).await?;
                 finish_output(output).await;
@@ -125,11 +119,10 @@ async fn run_inline_ai_stream_inner(
         }
     }
 
-    ensure_spinner_cleared(&ai_ui_state, &mut spinner_cleared).await;
+    ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
     flush_pending_batch(&mut output, &mut pending).await?;
     finish_output(output).await;
     resolved.secret.zeroize();
-    let _ = accumulated_response;
 
     Ok(())
 }
@@ -177,6 +170,15 @@ fn build_chat_client(provider: AiProvider, api_key: &str) -> Client {
             })
         })
         .build()
+}
+
+fn build_chat_request(provider: AiProvider, prompt: &str) -> ChatRequest {
+    let request = ChatRequest::from_user(prompt).with_system(INLINE_AI_SYSTEM_PROMPT);
+    if provider == AiProvider::Gemini {
+        request.append_tool(Tool::new("googleSearch").with_config(json!({})))
+    } else {
+        request
+    }
 }
 
 fn adapter_kind(provider: AiProvider) -> AdapterKind {
@@ -227,15 +229,18 @@ fn format_error_message(message: &str) -> String {
     }
 }
 
-async fn ensure_spinner_cleared(ai_ui_state: &InlineAiUiState, spinner_cleared: &mut bool) {
+async fn ensure_spinner_cleared(
+    spinner: &mut Option<InlineAiSpinnerHandle>,
+    spinner_cleared: &mut bool,
+) {
     if !*spinner_cleared {
-        cancel_spinner_and_wait(ai_ui_state).await;
+        cancel_spinner_and_wait(spinner).await;
         *spinner_cleared = true;
     }
 }
 
-async fn cancel_spinner_and_wait(ai_ui_state: &InlineAiUiState) {
-    if let Some(handle) = ai_ui_state.take_spinner() {
+async fn cancel_spinner_and_wait(spinner: &mut Option<InlineAiSpinnerHandle>) {
+    if let Some(handle) = spinner.take() {
         let _ = handle.cancel.send(());
         let _ = handle.task.await;
     }
@@ -270,7 +275,7 @@ async fn inject_error_message(
     }
 
     let payload = if output_started {
-        format!("\n\n{message}")
+        format!(" {message}")
     } else {
         message.to_string()
     };
@@ -387,6 +392,21 @@ mod tests {
                 .remove(&provider)
                 .is_some())
         }
+    }
+
+    #[test]
+    fn chat_request_uses_inline_system_prompt_and_gemini_search_only() {
+        let gemini = build_chat_request(AiProvider::Gemini, "latest rust release");
+        assert_eq!(gemini.system.as_deref(), Some(INLINE_AI_SYSTEM_PROMPT));
+        assert_eq!(gemini.tools.as_ref().map(|tools| tools.len()), Some(1));
+        assert_eq!(
+            gemini.tools.as_ref().unwrap()[0].name,
+            "googleSearch".to_string()
+        );
+
+        let openai = build_chat_request(AiProvider::Openai, "latest rust release");
+        assert_eq!(openai.system.as_deref(), Some(INLINE_AI_SYSTEM_PROMPT));
+        assert!(openai.tools.is_none());
     }
 
     #[test]

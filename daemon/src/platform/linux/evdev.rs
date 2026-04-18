@@ -7,7 +7,6 @@ use tokio::runtime::Handle;
 use tracing::{debug, error, info, warn};
 
 use super::xkb::XkbMapper;
-use crate::engine::ai::InlineAiUiState;
 use crate::hotkey::HotkeySpec;
 use crate::injector::{self, IS_INJECTING};
 use crate::notify;
@@ -20,7 +19,6 @@ pub fn start_listener(
     pause_hotkey: Arc<RwLock<HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     runtime_handle: Handle,
-    ai_ui_state: Arc<InlineAiUiState>,
 ) {
     let mut devices = vec![];
     let input_dir = "/dev/input";
@@ -90,7 +88,6 @@ pub fn start_listener(
         let _pause_hotkey = pause_hotkey.clone();
         let spinner_style = spinner_style.clone();
         let runtime_handle = runtime_handle.clone();
-        let ai_ui_state = ai_ui_state.clone();
 
         thread::spawn(move || {
             let mut xkb = XkbMapper::default();
@@ -139,53 +136,6 @@ pub fn start_listener(
                                     .unwrap_or(EngineMode::Normal);
                                 let engine_event = xkb.process_key(key, is_press, engine_mode);
 
-                                // AI session mode gets first priority for Alt+Enter / Alt+Esc,
-                                // before pause or generic modifier handling.
-                                if matches!(
-                                    engine_mode,
-                                    EngineMode::AiCapture | EngineMode::AiGenerating
-                                ) && xkb.is_alt_down()
-                                    && matches!(
-                                        key,
-                                        KeyCode::KEY_ENTER
-                                            | KeyCode::KEY_KPENTER
-                                            | KeyCode::KEY_ESC
-                                    )
-                                {
-                                    if is_press
-                                        && engine_mode == EngineMode::AiCapture
-                                        && matches!(key, KeyCode::KEY_ENTER | KeyCode::KEY_KPENTER)
-                                    {
-                                        let mut lock = evaluator.lock().unwrap();
-                                        if let Some(expansion) =
-                                            lock.process_event(EngineEvent::SubmitAiPrompt)
-                                        {
-                                            let engine_state = lock.state.clone();
-                                            drop(lock);
-
-                                            debug!(
-                                                "Inline AI prompt submitted. Starting loading state."
-                                            );
-
-                                            IS_INJECTING.store(true, Ordering::SeqCst);
-
-                                            let spinner_style_inner = spinner_style
-                                                .read()
-                                                .map(|s| *s)
-                                                .unwrap_or_default();
-
-                                            crate::hook::spawn_expansion_dispatch(
-                                                expansion,
-                                                spinner_style_inner,
-                                                runtime_handle.clone(),
-                                                ai_ui_state.clone(),
-                                                engine_state,
-                                            );
-                                        }
-                                    }
-                                    continue;
-                                }
-
                                 // Check pause hotkey logic
                                 // Since we don't have rdev::Event, we check our xkb and the specific key.
                                 // It's a simplification, we assume the pause hotkey is something like Alt+`
@@ -218,7 +168,6 @@ pub fn start_listener(
                                 if let Some(ev) = engine_event {
                                     let mut lock = evaluator.lock().unwrap();
                                     if let Some(expansion) = lock.process_event(ev) {
-                                        let engine_state = lock.state.clone();
                                         drop(lock);
 
                                         debug!("Trigger matched! Expanding: {:?}", expansion);
@@ -232,8 +181,6 @@ pub fn start_listener(
                                             expansion,
                                             spinner_style_inner,
                                             runtime_handle.clone(),
-                                            ai_ui_state.clone(),
-                                            engine_state,
                                         );
                                     }
                                 }

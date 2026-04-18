@@ -6,15 +6,16 @@ use crate::engine::buffer::FastBuffer;
 use crate::engine::state::{EngineMode, EngineState};
 
 const INLINE_AI_KEYWORD: &str = "ai";
-const INLINE_AI_TRIGGER_DELETE_COUNT: usize = 4;
-const INLINE_AI_THINKING_HEADER: &str = "\n\ntau:\n⠋ Thinking";
+const INLINE_AI_KEYWORD_PREFIX: &str = "ai:";
+const INLINE_AI_CAPTURE_TRIGGER_DELETE_COUNT: usize = 4;
+const INLINE_AI_CAPTURE_PREFIX: &str = "`";
+const INLINE_AI_THINKING_TEXT: &str = "⠋ Thinking...";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EngineEvent {
     Char(char),
     Backspace,
     WordBackspace,
-    SubmitAiPrompt,
     Interrupt, // Esc, Mouse clicks, or loss of focus
 }
 
@@ -37,6 +38,8 @@ pub struct ExpansionResult {
     pub track_usage: bool,
     /// Whether the daemon should start the async AI spinner after injection.
     pub start_ai_spinner: bool,
+    /// Inline AI prompt payload for stateless ghost-writer expansions.
+    pub inline_ai_prompt: Option<String>,
 }
 
 pub struct Evaluator {
@@ -53,10 +56,8 @@ impl Evaluator {
     }
 
     pub fn process_event(&mut self, event: EngineEvent) -> Option<ExpansionResult> {
-        match self.state.engine_mode() {
-            EngineMode::AiCapture => return self.process_ai_capture_event(event),
-            EngineMode::AiGenerating => return self.process_ai_generating_event(event),
-            EngineMode::Normal => {}
+        if self.state.engine_mode() == EngineMode::AiCapture {
+            return self.process_ai_capture_event(event);
         }
 
         match event {
@@ -86,6 +87,10 @@ impl Evaluator {
                         return Some(self.start_inline_ai_capture());
                     }
 
+                    if let Some(prompt) = parse_inline_ai_prompt(&keyword) {
+                        return Some(self.expand_inline_ai_prompt(&keyword, prompt));
+                    }
+
                     if let Some(expansion) = self.state.fetch_expansion(&keyword) {
                         // trigger_char + keyword + the space that fired the action
                         let delete_count = 1 + keyword.chars().count() + 1;
@@ -97,6 +102,7 @@ impl Evaluator {
                             is_calculation: expansion.is_calculation,
                             track_usage: true,
                             start_ai_spinner: false,
+                            inline_ai_prompt: None,
                         });
                     }
                 }
@@ -105,7 +111,6 @@ impl Evaluator {
                 self.buffer.push(' ');
                 None
             }
-            EngineEvent::SubmitAiPrompt => None,
             EngineEvent::Char(c) => {
                 // Normal typing tracking
                 self.buffer.push(c);
@@ -115,90 +120,151 @@ impl Evaluator {
     }
 
     fn process_ai_capture_event(&mut self, event: EngineEvent) -> Option<ExpansionResult> {
-        // AI capture bypasses the trigger matcher entirely and should not retain
-        // any stale snippet-matching history while the prompt is being typed.
         self.buffer.clear();
 
         match event {
-            EngineEvent::Char(c) => self.state.append_ai_prompt_char(c),
-            EngineEvent::Backspace => self.state.pop_ai_prompt_char(),
-            EngineEvent::WordBackspace => self.state.pop_ai_prompt_word(),
-            EngineEvent::SubmitAiPrompt => return Some(self.start_inline_ai_generation()),
-            EngineEvent::Interrupt => {}
-        }
+            EngineEvent::Interrupt => {
+                self.state.clear_ai_prompt_buffer();
+                self.state.set_engine_mode(EngineMode::Normal);
+                None
+            }
+            EngineEvent::Backspace => {
+                if self.state.is_ai_prompt_empty() {
+                    self.state.set_engine_mode(EngineMode::Normal);
+                    return None;
+                }
+                self.state.pop_ai_prompt_char();
+                None
+            }
+            EngineEvent::WordBackspace => {
+                if self.state.is_ai_prompt_empty() {
+                    self.state.set_engine_mode(EngineMode::Normal);
+                    return None;
+                }
+                self.state.pop_ai_prompt_word();
+                None
+            }
+            EngineEvent::Char(c) => {
+                if c == ' '
+                    && let Some(expansion) = self.finish_inline_ai_capture_if_ready()
+                {
+                    return Some(expansion);
+                }
 
-        None
-    }
+                self.state.append_ai_prompt_char(c);
 
-    fn process_ai_generating_event(&mut self, event: EngineEvent) -> Option<ExpansionResult> {
-        self.buffer.clear();
-
-        match event {
-            EngineEvent::Interrupt
-            | EngineEvent::Backspace
-            | EngineEvent::WordBackspace
-            | EngineEvent::SubmitAiPrompt
-            | EngineEvent::Char(_) => None,
+                None
+            }
         }
     }
 
     fn start_inline_ai_capture(&mut self) -> ExpansionResult {
+        self.buffer.clear();
         self.state.clear_ai_prompt_buffer();
         self.state.set_engine_mode(EngineMode::AiCapture);
-        self.buffer.clear();
 
         ExpansionResult {
-            delete_count: INLINE_AI_TRIGGER_DELETE_COUNT,
-            steps: vec![ExpansionStep::Text(build_inline_ai_header())],
+            delete_count: INLINE_AI_CAPTURE_TRIGGER_DELETE_COUNT,
+            steps: vec![ExpansionStep::Text(INLINE_AI_CAPTURE_PREFIX.to_string())],
             trigger: INLINE_AI_KEYWORD.to_string(),
             is_calculation: false,
             track_usage: false,
             start_ai_spinner: false,
+            inline_ai_prompt: None,
         }
     }
 
-    fn start_inline_ai_generation(&mut self) -> ExpansionResult {
+    fn expand_inline_ai_prompt(&mut self, keyword: &str, prompt: String) -> ExpansionResult {
         self.buffer.clear();
-        self.state.set_engine_mode(EngineMode::AiGenerating);
+        let delete_count = 1 + keyword.chars().count() + 1;
 
         ExpansionResult {
-            delete_count: 0,
-            steps: vec![ExpansionStep::Text(build_inline_ai_thinking_header())],
+            delete_count,
+            steps: vec![ExpansionStep::Text(INLINE_AI_THINKING_TEXT.to_string())],
             trigger: INLINE_AI_KEYWORD.to_string(),
             is_calculation: false,
             track_usage: false,
             start_ai_spinner: true,
+            inline_ai_prompt: Some(prompt),
         }
+    }
+
+    fn finish_inline_ai_capture_if_ready(&mut self) -> Option<ExpansionResult> {
+        let captured = self.state.ai_prompt_buffer();
+        if !captured.ends_with('`') {
+            return None;
+        }
+
+        let prompt = captured.strip_suffix('`')?;
+        if prompt.is_empty() {
+            return None;
+        }
+
+        let delete_count = captured.chars().count() + 2;
+        self.state.clear_ai_prompt_buffer();
+        self.state.set_engine_mode(EngineMode::Normal);
+        self.buffer.clear();
+
+        Some(ExpansionResult {
+            delete_count,
+            steps: vec![ExpansionStep::Text(INLINE_AI_THINKING_TEXT.to_string())],
+            trigger: INLINE_AI_KEYWORD.to_string(),
+            is_calculation: false,
+            track_usage: false,
+            start_ai_spinner: true,
+            inline_ai_prompt: Some(prompt.to_string()),
+        })
     }
 }
 
-fn build_inline_ai_header() -> String {
-    build_inline_ai_header_for_username(&resolve_inline_ai_username())
+fn parse_inline_ai_prompt(keyword: &str) -> Option<String> {
+    let raw_prompt = keyword.strip_prefix(INLINE_AI_KEYWORD_PREFIX)?;
+    parse_quoted_inline_ai_prompt(raw_prompt)
 }
 
-fn build_inline_ai_header_for_username(username: &str) -> String {
-    format!("// alt+enter send\n// alt+esc exit\n\n{}:\n\n", username)
-}
+fn parse_quoted_inline_ai_prompt(raw_prompt: &str) -> Option<String> {
+    let mut chars = raw_prompt.chars();
+    let quote = chars.next()?;
+    if !matches!(quote, '"' | '\'') || raw_prompt.chars().count() < 2 {
+        return None;
+    }
 
-fn build_inline_ai_thinking_header() -> String {
-    INLINE_AI_THINKING_HEADER.to_string()
-}
+    if raw_prompt.chars().last()? != quote {
+        return None;
+    }
 
-fn resolve_inline_ai_username() -> String {
-    resolve_inline_ai_username_from_values(
-        std::env::var("USERNAME").ok(),
-        std::env::var("USER").ok(),
-    )
-}
+    let inner = &raw_prompt[quote.len_utf8()..raw_prompt.len() - quote.len_utf8()];
+    let mut parsed = String::new();
+    let mut escaping = false;
 
-fn resolve_inline_ai_username_from_values(
-    username: Option<String>,
-    user: Option<String>,
-) -> String {
-    username
-        .or(user)
-        .unwrap_or_else(|| "user".to_string())
-        .to_lowercase()
+    for ch in inner.chars() {
+        if escaping {
+            let resolved = match ch {
+                '\\' => '\\',
+                '\'' => '\'',
+                '"' => '"',
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                _ => ch,
+            };
+            parsed.push(resolved);
+            escaping = false;
+            continue;
+        }
+
+        match ch {
+            '\\' => escaping = true,
+            current if current == quote => return None,
+            other => parsed.push(other),
+        }
+    }
+
+    if escaping {
+        return None;
+    }
+
+    Some(parsed)
 }
 
 #[cfg(test)]
@@ -656,146 +722,284 @@ mod tests {
     }
 
     #[test]
-    fn ai_capture_mode_bypasses_trigger_matching_and_records_prompt_text() {
+    fn inline_ai_quoted_trigger_expands_into_thinking_spinner_with_prompt_payload() {
         let state = Arc::new(EngineState::new('>'));
-        state.load_actions(vec![(
-            "gm".to_string(),
-            crate::db::crud::AutomationAction::text("Good morning!"),
-        )]);
-        state.set_engine_mode(EngineMode::AiCapture);
-        let mut eval = Evaluator::new(state.clone());
+        let mut eval = Evaluator::new(state);
 
-        for c in ">gm hello ".chars() {
-            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
-        }
-
-        assert_eq!(state.ai_prompt_buffer(), ">gm hello ");
-        assert_eq!(eval.buffer.len, 0);
-    }
-
-    #[test]
-    fn ai_capture_mode_tracks_backspace_without_using_fast_buffer_matching() {
-        let state = Arc::new(EngineState::new('>'));
-        state.set_engine_mode(EngineMode::AiCapture);
-        let mut eval = Evaluator::new(state.clone());
-
-        for c in "draft".chars() {
-            eval.process_event(EngineEvent::Char(c));
-        }
-        eval.process_event(EngineEvent::Backspace);
-        eval.process_event(EngineEvent::Char('!'));
-
-        assert_eq!(state.ai_prompt_buffer(), "draf!");
-        assert_eq!(eval.buffer.len, 0);
-    }
-
-    #[test]
-    fn ai_capture_mode_tracks_word_backspace_and_ignores_interrupts() {
-        let state = Arc::new(EngineState::new('>'));
-        state.set_engine_mode(EngineMode::AiCapture);
-        let mut eval = Evaluator::new(state.clone());
-
-        for c in "hello world".chars() {
-            eval.process_event(EngineEvent::Char(c));
-        }
-        eval.process_event(EngineEvent::WordBackspace);
-        eval.process_event(EngineEvent::Interrupt);
-
-        assert_eq!(state.ai_prompt_buffer(), "hello ");
-        assert_eq!(eval.buffer.len, 0);
-    }
-
-    #[test]
-    fn inline_ai_trigger_enters_capture_mode_and_uses_header_text_step() {
-        let state = Arc::new(EngineState::new('/'));
-        let mut eval = Evaluator::new(state.clone());
-
-        for c in "/ai".chars() {
+        let trigger = r#">ai:"What is the deadliest microbe?""#;
+        for c in trigger.chars() {
             assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
         }
 
         let result = eval
             .process_event(EngineEvent::Char(' '))
-            .expect("inline ai should trigger on space");
+            .expect("inline ai should trigger on the trailing space");
 
-        assert_eq!(state.engine_mode(), EngineMode::AiCapture);
-        assert_eq!(state.ai_prompt_buffer(), "");
         assert_eq!(eval.buffer.len, 0);
-        assert_eq!(result.delete_count, INLINE_AI_TRIGGER_DELETE_COUNT);
+        assert_eq!(result.delete_count, trigger.chars().count() + 1);
         assert_eq!(
             result.steps,
-            vec![ExpansionStep::Text(build_inline_ai_header())]
+            vec![ExpansionStep::Text(INLINE_AI_THINKING_TEXT.to_string())]
         );
         assert_eq!(result.trigger, INLINE_AI_KEYWORD);
         assert!(!result.track_usage);
-        assert!(!result.start_ai_spinner);
-    }
-
-    #[test]
-    fn inline_ai_header_format_matches_spec() {
+        assert!(result.start_ai_spinner);
         assert_eq!(
-            build_inline_ai_header_for_username("codex"),
-            "// alt+enter send\n// alt+esc exit\n\ncodex:\n\n"
+            result.inline_ai_prompt,
+            Some("What is the deadliest microbe?".to_string())
         );
     }
 
     #[test]
-    fn inline_ai_submit_enters_generating_mode_and_preserves_prompt_buffer() {
+    fn inline_ai_prompt_parser_decodes_json_escapes() {
+        assert_eq!(
+            parse_inline_ai_prompt(r#"ai:"Line one\n\"Rust\"""#),
+            Some("Line one\n\"Rust\"".to_string())
+        );
+    }
+
+    #[test]
+    fn inline_ai_single_quoted_trigger_expands_and_extracts_prompt() {
         let state = Arc::new(EngineState::new('>'));
-        state.set_engine_mode(EngineMode::AiCapture);
-        state.append_ai_prompt_char('h');
-        state.append_ai_prompt_char('i');
-        let mut eval = Evaluator::new(state.clone());
+        let mut eval = Evaluator::new(state);
+
+        let trigger = ">ai:'What is the deadliest microbe?'";
+        for c in trigger.chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
 
         let result = eval
-            .process_event(EngineEvent::SubmitAiPrompt)
-            .expect("submit should start AI generation");
+            .process_event(EngineEvent::Char(' '))
+            .expect("single-quoted inline ai should trigger on the trailing space");
 
-        assert_eq!(state.engine_mode(), EngineMode::AiGenerating);
-        assert_eq!(state.ai_prompt_buffer(), "hi");
-        assert_eq!(result.delete_count, 0);
+        assert_eq!(result.delete_count, trigger.chars().count() + 1);
         assert_eq!(
-            result.steps,
-            vec![ExpansionStep::Text(build_inline_ai_thinking_header())]
+            result.inline_ai_prompt,
+            Some("What is the deadliest microbe?".to_string())
         );
         assert!(result.start_ai_spinner);
-        assert!(!result.track_usage);
     }
 
     #[test]
-    fn ai_generating_mode_ignores_further_input_into_prompt_buffer() {
+    fn inline_ai_requires_matching_quotes() {
+        assert_eq!(
+            parse_inline_ai_prompt("ai:'hello'"),
+            Some("hello".to_string())
+        );
+        assert_eq!(parse_inline_ai_prompt(r#"ai:"unterminated"#), None);
+        assert_eq!(parse_inline_ai_prompt(r#"ai:"prompt'"#), None);
+        assert_eq!(parse_inline_ai_prompt("ai:'prompt\""), None);
+
         let state = Arc::new(EngineState::new('>'));
-        state.set_engine_mode(EngineMode::AiGenerating);
-        state.append_ai_prompt_char('x');
+        let mut eval = Evaluator::new(state);
+        let invalid_trigger = r#">ai:"hello'"#;
+        for c in invalid_trigger.chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        assert_eq!(eval.process_event(EngineEvent::Char(' ')), None);
+        assert_eq!(eval.buffer.len, invalid_trigger.chars().count() + 1);
+    }
+
+    #[test]
+    fn inline_ai_single_quote_parser_supports_escaped_quotes() {
+        assert_eq!(
+            parse_inline_ai_prompt(r#"ai:'It\'s still stateless'"#),
+            Some("It's still stateless".to_string())
+        );
+    }
+
+    #[test]
+    fn inline_ai_capture_trigger_enters_micro_state_and_paints_opening_backtick() {
+        let state = Arc::new(EngineState::new('>'));
         let mut eval = Evaluator::new(state.clone());
 
-        eval.process_event(EngineEvent::Char('y'));
-        eval.process_event(EngineEvent::Backspace);
-        eval.process_event(EngineEvent::WordBackspace);
-        eval.process_event(EngineEvent::SubmitAiPrompt);
+        for c in ">ai".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
 
-        assert_eq!(state.ai_prompt_buffer(), "x");
-        assert_eq!(eval.buffer.len, 0);
+        let result = eval
+            .process_event(EngineEvent::Char(' '))
+            .expect("inline ai capture should start on >ai<space>");
+
+        assert_eq!(state.engine_mode(), EngineMode::AiCapture);
+        assert_eq!(state.ai_prompt_buffer(), "");
+        assert_eq!(result.delete_count, INLINE_AI_CAPTURE_TRIGGER_DELETE_COUNT);
+        assert_eq!(
+            result.steps,
+            vec![ExpansionStep::Text(INLINE_AI_CAPTURE_PREFIX.to_string())]
+        );
+        assert!(!result.start_ai_spinner);
+        assert_eq!(result.inline_ai_prompt, None);
     }
 
     #[test]
-    fn inline_ai_thinking_header_matches_spec() {
-        assert_eq!(build_inline_ai_thinking_header(), "\n\ntau:\n⠋ Thinking");
+    fn inline_ai_capture_exits_on_backtick_then_space_and_hands_prompt_to_stream() {
+        let state = Arc::new(EngineState::new('>'));
+        let mut eval = Evaluator::new(state.clone());
+
+        for c in ">ai ".chars() {
+            let _ = eval.process_event(EngineEvent::Char(c));
+        }
+
+        for c in "What is Rust?`".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        let result = eval
+            .process_event(EngineEvent::Char(' '))
+            .expect("closing backtick plus space should submit captured prompt");
+
+        assert_eq!(state.engine_mode(), EngineMode::Normal);
+        assert_eq!(state.ai_prompt_buffer(), "");
+        assert_eq!(result.delete_count, "What is Rust?`".chars().count() + 2);
+        assert_eq!(
+            result.steps,
+            vec![ExpansionStep::Text(INLINE_AI_THINKING_TEXT.to_string())]
+        );
+        assert!(result.start_ai_spinner);
+        assert_eq!(result.inline_ai_prompt, Some("What is Rust?".to_string()));
     }
 
     #[test]
-    fn inline_ai_username_resolution_prefers_username_then_user_then_default() {
+    fn test_ai_capture_interrupted_by_esc_reverts_to_normal() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![(
+            "gm".to_string(),
+            crate::db::crud::AutomationAction::text("Good morning!"),
+        )]);
+        let mut eval = Evaluator::new(state.clone());
+
+        for c in ">ai ".chars() {
+            let _ = eval.process_event(EngineEvent::Char(c));
+        }
+        for c in "draft".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        assert_eq!(eval.process_event(EngineEvent::Interrupt), None);
+        assert_eq!(state.engine_mode(), EngineMode::Normal);
+        assert!(state.is_ai_prompt_empty());
+
+        for c in ">gm".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+        let result = eval
+            .process_event(EngineEvent::Char(' '))
+            .expect("normal trigger should work after interrupt exits capture");
         assert_eq!(
-            resolve_inline_ai_username_from_values(
-                Some("DeskUser".to_string()),
-                Some("ShellUser".to_string())
-            ),
-            "deskuser"
+            result.steps,
+            vec![ExpansionStep::Text("Good morning!".to_string())]
         );
+    }
+
+    #[test]
+    fn test_ai_capture_backspaced_to_empty_reverts_to_normal() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![(
+            "gm".to_string(),
+            crate::db::crud::AutomationAction::text("Good morning!"),
+        )]);
+        let mut eval = Evaluator::new(state.clone());
+
+        for c in ">ai ".chars() {
+            let _ = eval.process_event(EngineEvent::Char(c));
+        }
+
+        assert_eq!(state.engine_mode(), EngineMode::AiCapture);
+        assert!(state.is_ai_prompt_empty());
+        assert_eq!(eval.process_event(EngineEvent::Backspace), None);
+        assert_eq!(state.engine_mode(), EngineMode::Normal);
+        assert!(state.is_ai_prompt_empty());
+
+        for c in ">gm".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+        let result = eval
+            .process_event(EngineEvent::Char(' '))
+            .expect("normal trigger should work after empty-buffer backspace exits capture");
         assert_eq!(
-            resolve_inline_ai_username_from_values(None, Some("ShellUser".to_string())),
-            "shelluser"
+            result.steps,
+            vec![ExpansionStep::Text("Good morning!".to_string())]
         );
-        assert_eq!(resolve_inline_ai_username_from_values(None, None), "user");
+    }
+
+    #[test]
+    fn test_ai_capture_word_backspaced_to_empty_reverts_to_normal() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![(
+            "gm".to_string(),
+            crate::db::crud::AutomationAction::text("Good morning!"),
+        )]);
+        let mut eval = Evaluator::new(state.clone());
+
+        for c in ">ai ".chars() {
+            let _ = eval.process_event(EngineEvent::Char(c));
+        }
+
+        assert_eq!(state.engine_mode(), EngineMode::AiCapture);
+        assert!(state.is_ai_prompt_empty());
+        assert_eq!(eval.process_event(EngineEvent::WordBackspace), None);
+        assert_eq!(state.engine_mode(), EngineMode::Normal);
+
+        for c in ">gm".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+        let result = eval
+            .process_event(EngineEvent::Char(' '))
+            .expect("normal trigger should work after empty-buffer word-backspace exits capture");
+        assert_eq!(
+            result.steps,
+            vec![ExpansionStep::Text("Good morning!".to_string())]
+        );
+    }
+
+    #[test]
+    fn test_ai_capture_finish_with_backtick_and_space() {
+        let state = Arc::new(EngineState::new('>'));
+        let mut eval = Evaluator::new(state.clone());
+
+        for c in ">ai ".chars() {
+            let _ = eval.process_event(EngineEvent::Char(c));
+        }
+        for c in "prompt`".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        let result = eval
+            .process_event(EngineEvent::Char(' '))
+            .expect("closing backtick plus space should submit captured prompt");
+
+        assert_eq!(state.engine_mode(), EngineMode::Normal);
+        assert!(state.is_ai_prompt_empty());
+        assert_eq!(result.delete_count, "prompt`".chars().count() + 2);
+        assert_eq!(
+            result.steps,
+            vec![ExpansionStep::Text(INLINE_AI_THINKING_TEXT.to_string())]
+        );
+        assert_eq!(result.inline_ai_prompt, Some("prompt".to_string()));
+        assert!(result.start_ai_spinner);
+    }
+
+    #[test]
+    fn inline_ai_capture_keeps_collecting_without_closing_backtick_space() {
+        let state = Arc::new(EngineState::new('>'));
+        let mut eval = Evaluator::new(state.clone());
+
+        for c in ">ai ".chars() {
+            let _ = eval.process_event(EngineEvent::Char(c));
+        }
+
+        for c in "draft prompt ".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        assert_eq!(state.engine_mode(), EngineMode::AiCapture);
+        assert_eq!(state.ai_prompt_buffer(), "draft prompt ");
+    }
+
+    #[test]
+    fn inline_ai_thinking_text_matches_spec() {
+        assert_eq!(INLINE_AI_THINKING_TEXT, "⠋ Thinking...");
     }
 }

@@ -8,8 +8,8 @@ use crate::engine::ai::InlineAiSpinnerHandle;
 
 const BRAILLE_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const AI_SPINNER_TICK_MS: u64 = 80;
-const AI_SPINNER_SUFFIX_LEN: usize = 9;
-const AI_SPINNER_TOTAL_LEN: usize = 10;
+const AI_SPINNER_SUFFIX_LEN: usize = 12;
+const AI_SPINNER_TOTAL_LEN: usize = 13;
 
 trait SpinnerRenderer {
     fn move_left(&mut self, count: usize);
@@ -246,7 +246,7 @@ mod tests {
         assert_eq!(
             snapshot.snapshot(),
             vec![
-                "left:9".to_string(),
+                "left:12".to_string(),
                 "backspace:1".to_string(),
                 "frame:⠙".to_string(),
                 "backspace:1".to_string(),
@@ -268,9 +268,9 @@ mod tests {
         assert_eq!(
             snapshot.snapshot(),
             vec![
-                "left:9".to_string(),
-                "right:9".to_string(),
-                "backspace:10".to_string(),
+                "left:12".to_string(),
+                "right:12".to_string(),
+                "backspace:13".to_string(),
                 "finish".to_string()
             ]
         );

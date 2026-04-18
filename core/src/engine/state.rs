@@ -13,7 +13,6 @@ pub enum EngineMode {
     #[default]
     Normal,
     AiCapture,
-    AiGenerating,
 }
 
 pub struct EngineState {
@@ -84,6 +83,13 @@ impl EngineState {
             .lock()
             .map(|guard| guard.clone())
             .unwrap_or_default()
+    }
+
+    pub fn is_ai_prompt_empty(&self) -> bool {
+        self.ai_prompt_buffer
+            .lock()
+            .map(|guard| guard.is_empty())
+            .unwrap_or(true)
     }
 
     pub fn load_actions(
@@ -446,5 +452,6 @@ mod tests {
         state.clear_ai_prompt_buffer();
         assert_eq!(state.ai_prompt_buffer(), "");
         assert_eq!(state.engine_mode(), EngineMode::AiCapture);
+        assert!(state.is_ai_prompt_empty());
     }
 }
