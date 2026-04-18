@@ -192,6 +192,7 @@ pub fn start_listener(
                                         thread::spawn(move || {
                                             let trigger_clone = expansion.trigger.clone();
                                             let delete_count = expansion.delete_count;
+                                            let track_usage = expansion.track_usage;
 
                                             // Calculate output char count for metrics from text steps.
                                             let output_len: usize = expansion
@@ -211,19 +212,21 @@ pub fn start_listener(
                                                 spinner_style_inner,
                                             );
 
-                                            if expansion.is_calculation {
-                                                taurine_core::db::crud::record_calculation_usage(
-                                                    output_len,
-                                                    delete_count,
-                                                    0,
-                                                );
-                                            } else {
-                                                taurine_core::db::crud::record_expansion_usage(
-                                                    &trigger_clone,
-                                                    output_len,
-                                                    delete_count,
-                                                    0,
-                                                );
+                                            if track_usage {
+                                                if expansion.is_calculation {
+                                                    taurine_core::db::crud::record_calculation_usage(
+                                                        output_len,
+                                                        delete_count,
+                                                        0,
+                                                    );
+                                                } else {
+                                                    taurine_core::db::crud::record_expansion_usage(
+                                                        &trigger_clone,
+                                                        output_len,
+                                                        delete_count,
+                                                        0,
+                                                    );
+                                                }
                                             }
                                         });
                                     }

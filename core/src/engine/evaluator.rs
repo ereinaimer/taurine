@@ -5,6 +5,9 @@ use crate::engine::variables::ExpansionStep;
 use crate::engine::buffer::FastBuffer;
 use crate::engine::state::{EngineMode, EngineState};
 
+const INLINE_AI_KEYWORD: &str = "ai";
+const INLINE_AI_TRIGGER_DELETE_COUNT: usize = 4;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EngineEvent {
     Char(char),
@@ -28,6 +31,8 @@ pub struct ExpansionResult {
     pub trigger: String,
     /// Whether this expansion was a mathematical calculation.
     pub is_calculation: bool,
+    /// Whether the daemon should record snippet/calculation usage for this expansion.
+    pub track_usage: bool,
 }
 
 pub struct Evaluator {
@@ -70,18 +75,23 @@ impl Evaluator {
                 let trigger_char_u32 = self.state.trigger_char.load(Ordering::Relaxed);
                 let trigger_char = std::char::from_u32(trigger_char_u32).unwrap_or('>');
 
-                if let Some(keyword) = self.buffer.extract_trigger_word(trigger_char)
-                    && let Some(expansion) = self.state.fetch_expansion(&keyword)
-                {
-                    // trigger_char + keyword + the space that fired the action
-                    let delete_count = 1 + keyword.chars().count() + 1;
-                    self.buffer.clear();
-                    return Some(ExpansionResult {
-                        delete_count,
-                        steps: expansion.steps,
-                        trigger: keyword,
-                        is_calculation: expansion.is_calculation,
-                    });
+                if let Some(keyword) = self.buffer.extract_trigger_word(trigger_char) {
+                    if keyword == INLINE_AI_KEYWORD {
+                        return Some(self.start_inline_ai_capture());
+                    }
+
+                    if let Some(expansion) = self.state.fetch_expansion(&keyword) {
+                        // trigger_char + keyword + the space that fired the action
+                        let delete_count = 1 + keyword.chars().count() + 1;
+                        self.buffer.clear();
+                        return Some(ExpansionResult {
+                            delete_count,
+                            steps: expansion.steps,
+                            trigger: keyword,
+                            is_calculation: expansion.is_calculation,
+                            track_usage: true,
+                        });
+                    }
                 }
 
                 // Not a trigger — just record the space normally.
@@ -110,6 +120,45 @@ impl Evaluator {
 
         None
     }
+
+    fn start_inline_ai_capture(&mut self) -> ExpansionResult {
+        self.state.clear_ai_prompt_buffer();
+        self.state.set_engine_mode(EngineMode::AiCapture);
+        self.buffer.clear();
+
+        ExpansionResult {
+            delete_count: INLINE_AI_TRIGGER_DELETE_COUNT,
+            steps: vec![ExpansionStep::Text(build_inline_ai_header())],
+            trigger: INLINE_AI_KEYWORD.to_string(),
+            is_calculation: false,
+            track_usage: false,
+        }
+    }
+}
+
+fn build_inline_ai_header() -> String {
+    build_inline_ai_header_for_username(&resolve_inline_ai_username())
+}
+
+fn build_inline_ai_header_for_username(username: &str) -> String {
+    format!("// alt+enter send\n// alt+esc exit\n\n{}:\n\n", username)
+}
+
+fn resolve_inline_ai_username() -> String {
+    resolve_inline_ai_username_from_values(
+        std::env::var("USERNAME").ok(),
+        std::env::var("USER").ok(),
+    )
+}
+
+fn resolve_inline_ai_username_from_values(
+    username: Option<String>,
+    user: Option<String>,
+) -> String {
+    username
+        .or(user)
+        .unwrap_or_else(|| "user".to_string())
+        .to_lowercase()
 }
 
 #[cfg(test)]
@@ -158,6 +207,7 @@ mod tests {
             result.steps,
             vec![ExpansionStep::Text("Good morning!".to_string())]
         );
+        assert!(result.track_usage);
 
         // State machine buffer should reset upon expansion
         assert_eq!(eval.buffer.len, 0);
@@ -200,6 +250,7 @@ mod tests {
             vec![ExpansionStep::Text("Good morning!".to_string())]
         );
         assert!(!result.is_calculation);
+        assert!(result.track_usage);
     }
 
     #[test]
@@ -215,6 +266,7 @@ mod tests {
             result.steps,
             vec![ExpansionStep::Text(r#"¯\_(ツ)_/¯"#.to_string())]
         );
+        assert!(result.track_usage);
     }
 
     #[test]
@@ -462,6 +514,7 @@ mod tests {
         assert_eq!(result.steps, vec![ExpansionStep::Text("7".to_string())]);
         assert_eq!(result.trigger, "5+2");
         assert!(result.is_calculation);
+        assert!(result.track_usage);
     }
 
     #[test]
@@ -482,6 +535,7 @@ mod tests {
         // ((5+2) / 7 % 2) * 2 = (7 / 7 % 2) * 2 = (1 % 2) * 2 = 1 * 2 = 2
         assert_eq!(result.steps, vec![ExpansionStep::Text("2".to_string())]);
         assert_eq!(result.trigger, "((5+2)/7%2)*2");
+        assert!(result.track_usage);
     }
 
     #[test]
@@ -504,6 +558,7 @@ mod tests {
             result.steps,
             vec![ExpansionStep::Text("1.1429".to_string())]
         );
+        assert!(result.track_usage);
     }
 
     #[test]
@@ -602,5 +657,54 @@ mod tests {
 
         assert_eq!(state.ai_prompt_buffer(), "hello ");
         assert_eq!(eval.buffer.len, 0);
+    }
+
+    #[test]
+    fn inline_ai_trigger_enters_capture_mode_and_uses_header_text_step() {
+        let state = Arc::new(EngineState::new('/'));
+        let mut eval = Evaluator::new(state.clone());
+
+        for c in "/ai".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        let result = eval
+            .process_event(EngineEvent::Char(' '))
+            .expect("inline ai should trigger on space");
+
+        assert_eq!(state.engine_mode(), EngineMode::AiCapture);
+        assert_eq!(state.ai_prompt_buffer(), "");
+        assert_eq!(eval.buffer.len, 0);
+        assert_eq!(result.delete_count, INLINE_AI_TRIGGER_DELETE_COUNT);
+        assert_eq!(
+            result.steps,
+            vec![ExpansionStep::Text(build_inline_ai_header())]
+        );
+        assert_eq!(result.trigger, INLINE_AI_KEYWORD);
+        assert!(!result.track_usage);
+    }
+
+    #[test]
+    fn inline_ai_header_format_matches_spec() {
+        assert_eq!(
+            build_inline_ai_header_for_username("codex"),
+            "// alt+enter send\n// alt+esc exit\n\ncodex:\n\n"
+        );
+    }
+
+    #[test]
+    fn inline_ai_username_resolution_prefers_username_then_user_then_default() {
+        assert_eq!(
+            resolve_inline_ai_username_from_values(
+                Some("DeskUser".to_string()),
+                Some("ShellUser".to_string())
+            ),
+            "deskuser"
+        );
+        assert_eq!(
+            resolve_inline_ai_username_from_values(None, Some("ShellUser".to_string())),
+            "shelluser"
+        );
+        assert_eq!(resolve_inline_ai_username_from_values(None, None), "user");
     }
 }
