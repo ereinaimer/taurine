@@ -32,6 +32,14 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
         "spinner_style",
         &format!("{:?}", settings.spinner_style).to_lowercase(),
     ]);
+    table.add_row(vec![
+        "ai_provider",
+        render_optional_setting(settings.ai_provider.as_deref()),
+    ]);
+    table.add_row(vec![
+        "ai_model",
+        render_optional_setting(settings.ai_model.as_deref()),
+    ]);
 
     println!("{}", table);
 
@@ -86,6 +94,21 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
             manager.update_setting(actual_key, s)?;
             info!("Updated spinner_style to: {}", value);
         }
+        "ai_provider" => {
+            let provider = taurine_core::ai::AiProvider::try_from(value.as_str())?;
+            manager.update_setting(actual_key, Some(provider.as_str().to_string()))?;
+            info!("Updated ai_provider to: {}", provider.as_str());
+        }
+        "ai_model" => {
+            let model = value.trim();
+            if model.is_empty() {
+                return Err(taurine_core::error::Error::Config(
+                    "Invalid ai_model value: must not be empty".to_string(),
+                ));
+            }
+            manager.update_setting(actual_key, Some(model.to_string()))?;
+            info!("Updated ai_model to: {}", model);
+        }
         _ => {
             warn!("Unknown setting key: {}", key);
             return Ok(());
@@ -133,6 +156,14 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
                 defaults.spinner_style
             );
         }
+        "ai_provider" => {
+            manager.update_setting(actual_key, defaults.ai_provider.clone())?;
+            info!("Reset ai_provider to default: <unset>");
+        }
+        "ai_model" => {
+            manager.update_setting(actual_key, defaults.ai_model.clone())?;
+            info!("Reset ai_model to default: <unset>");
+        }
         _ => {
             warn!("Unknown setting key: {}", key);
             return Ok(());
@@ -156,6 +187,8 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
     )?;
     manager.update_setting("start_on_boot", defaults.start_on_boot)?;
     manager.update_setting("spinner_style", defaults.spinner_style)?;
+    manager.update_setting("ai_provider", defaults.ai_provider.clone())?;
+    manager.update_setting("ai_model", defaults.ai_model.clone())?;
 
     info!("All settings have been reset to factory defaults.");
 
@@ -165,4 +198,34 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
 
     taurine_core::rpc::notify_daemon_reload();
     Ok(())
+}
+
+fn render_optional_setting(value: Option<&str>) -> &str {
+    value.filter(|v| !v.is_empty()).unwrap_or("<unset>")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn render_optional_setting_uses_unset_placeholder() {
+        assert_eq!(render_optional_setting(None), "<unset>");
+        assert_eq!(render_optional_setting(Some("")), "<unset>");
+        assert_eq!(render_optional_setting(Some("openai")), "openai");
+    }
+
+    #[test]
+    fn core_ai_provider_parser_validates_config_value() {
+        assert_eq!(
+            taurine_core::ai::AiProvider::try_from("gemini")
+                .expect("gemini should parse")
+                .as_str(),
+            "gemini"
+        );
+        assert!(
+            taurine_core::ai::AiProvider::try_from("unknown").is_err(),
+            "invalid provider must be rejected"
+        );
+    }
 }

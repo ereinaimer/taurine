@@ -187,6 +187,16 @@ impl AiProvider {
     }
 }
 
+impl From<AiProvider> for taurine_core::ai::AiProvider {
+    fn from(value: AiProvider) -> Self {
+        match value {
+            AiProvider::Openai => Self::Openai,
+            AiProvider::Claude => Self::Claude,
+            AiProvider::Gemini => Self::Gemini,
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(args_conflicts_with_subcommands = true)]
 pub struct AddArgs {
@@ -469,10 +479,10 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
             }
         },
         Some(Commands::Ai { action }) => match action {
-            AiAction::Add { provider } => commands::ai::execute_add(provider)?,
+            AiAction::Add { provider } => commands::ai::execute_add(provider.into())?,
             AiAction::List => commands::ai::execute_list()?,
-            AiAction::Models { provider } => commands::ai::execute_models(provider)?,
-            AiAction::Remove { provider } => commands::ai::execute_remove(provider)?,
+            AiAction::Models { provider } => commands::ai::execute_models(provider.into())?,
+            AiAction::Remove { provider } => commands::ai::execute_remove(provider.into())?,
         },
         Some(Commands::Completions { action }) => {
             commands::completions::handle_completion(&action)?;

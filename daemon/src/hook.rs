@@ -80,6 +80,7 @@ pub fn start_listener(
         ) {
             let mut lock = evaluator.lock().unwrap();
             if let Some(expansion) = lock.process_event(EngineEvent::SubmitAiPrompt) {
+                let engine_state = lock.state.clone();
                 drop(lock);
 
                 debug!("Inline AI prompt submitted. Starting loading state.");
@@ -92,6 +93,7 @@ pub fn start_listener(
                     spinner_style_inner,
                     runtime_handle.clone(),
                     ai_ui_state.clone(),
+                    engine_state,
                 );
             }
             return None;
@@ -194,6 +196,7 @@ pub fn start_listener(
                 if let Some(ev) = engine_event {
                     let mut lock = evaluator.lock().unwrap();
                     if let Some(expansion) = lock.process_event(ev) {
+                        let engine_state = lock.state.clone();
                         drop(lock);
 
                         debug!("Trigger matched! Expanding: {:?}", expansion);
@@ -212,6 +215,7 @@ pub fn start_listener(
                             spinner_style_inner,
                             runtime_handle.clone(),
                             ai_ui_state.clone(),
+                            engine_state,
                         );
                     }
                 }
@@ -271,6 +275,7 @@ pub(crate) fn spawn_expansion_dispatch(
     spinner_style: taurine_core::settings::SpinnerStyle,
     runtime_handle: Handle,
     ai_ui_state: Arc<InlineAiUiState>,
+    engine_state: Arc<taurine_core::engine::EngineState>,
 ) {
     std::thread::spawn(move || {
         let trigger_clone = expansion.trigger.clone();
@@ -292,6 +297,10 @@ pub(crate) fn spawn_expansion_dispatch(
         if should_start_ai_spinner {
             let spinner_handle = crate::engine::ai::spinner::spawn(&runtime_handle);
             ai_ui_state.set_spinner(spinner_handle);
+            runtime_handle.spawn(crate::engine::ai::stream::run_inline_ai_stream(
+                engine_state,
+                ai_ui_state.clone(),
+            ));
         }
 
         if track_usage {

@@ -3813,6 +3813,7 @@ dependencies = [
  "directories",
  "heck",
  "indexmap 2.14.0",
+ "keyring",
  "parking_lot",
  "prost",
  "rand",
@@ -3842,6 +3843,8 @@ dependencies = [
  "arboard",
  "caps",
  "evdev",
+ "futures",
+ "genai",
  "notify-rust",
  "rdev",
  "serde_json",
@@ -3851,6 +3854,7 @@ dependencies = [
  "tracing",
  "windows-sys 0.61.2",
  "xkbcommon",
+ "zeroize",
 ]
 
 [[package]]

@@ -11,6 +11,7 @@
 //! - **Metrics**: Tracking usage statistics
 //! - **Error**: Centralized error handling.
 
+pub mod ai;
 pub mod constants;
 pub mod db;
 pub mod engine;

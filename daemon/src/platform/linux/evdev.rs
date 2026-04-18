@@ -160,6 +160,7 @@ pub fn start_listener(
                                         if let Some(expansion) =
                                             lock.process_event(EngineEvent::SubmitAiPrompt)
                                         {
+                                            let engine_state = lock.state.clone();
                                             drop(lock);
 
                                             debug!(
@@ -178,6 +179,7 @@ pub fn start_listener(
                                                 spinner_style_inner,
                                                 runtime_handle.clone(),
                                                 ai_ui_state.clone(),
+                                                engine_state,
                                             );
                                         }
                                     }
@@ -216,6 +218,7 @@ pub fn start_listener(
                                 if let Some(ev) = engine_event {
                                     let mut lock = evaluator.lock().unwrap();
                                     if let Some(expansion) = lock.process_event(ev) {
+                                        let engine_state = lock.state.clone();
                                         drop(lock);
 
                                         debug!("Trigger matched! Expanding: {:?}", expansion);
@@ -230,6 +233,7 @@ pub fn start_listener(
                                             spinner_style_inner,
                                             runtime_handle.clone(),
                                             ai_ui_state.clone(),
+                                            engine_state,
                                         );
                                     }
                                 }

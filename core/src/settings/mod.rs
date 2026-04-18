@@ -20,6 +20,8 @@ pub struct Settings {
     pub pause_notifications_enabled: bool,
     pub start_on_boot: bool,
     pub spinner_style: SpinnerStyle,
+    pub ai_provider: Option<String>,
+    pub ai_model: Option<String>,
 }
 
 impl Settings {
@@ -30,6 +32,8 @@ impl Settings {
             "notifications" => "pause_notifications_enabled",
             "boot" => "start_on_boot",
             "spinner" => "spinner_style",
+            "ai_provider" => "ai_provider",
+            "ai_model" => "ai_model",
             _ => key,
         }
     }
@@ -43,6 +47,8 @@ impl Default for Settings {
             pause_notifications_enabled: true,
             start_on_boot: true,
             spinner_style: SpinnerStyle::default(),
+            ai_provider: None,
+            ai_model: None,
         }
     }
 }

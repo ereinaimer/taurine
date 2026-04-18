@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use tokio::task::JoinHandle;
 
 pub mod spinner;
+pub mod stream;
 
 #[allow(dead_code)]
 pub struct InlineAiSpinnerHandle {

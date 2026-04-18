@@ -36,6 +36,7 @@ aes-gcm = "0.10"
 argon2 = "0.5"
 rand = "0.9"
 zeroize = "1.8"
+keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 
 [build-dependencies]
 tonic-prost-build = "0.14"

@@ -7,19 +7,10 @@ use genai::adapter::AdapterKind;
 use genai::resolver::AuthData;
 use genai::{Client, ServiceTarget};
 use inquire::{Password, PasswordDisplayMode};
-use keyring::Entry;
 use tokio::runtime::Builder;
 use zeroize::Zeroize;
 
-use crate::AiProvider;
-
-const AI_KEYRING_SERVICE: &str = "taurine.inline_ai";
-
-trait CredentialStore {
-    fn set_secret(&self, provider: AiProvider, secret: &str) -> taurine_core::error::Result<()>;
-    fn get_secret(&self, provider: AiProvider) -> taurine_core::error::Result<Option<String>>;
-    fn delete_secret(&self, provider: AiProvider) -> taurine_core::error::Result<bool>;
-}
+use taurine_core::ai::{AiProvider, CredentialStore, OsKeyringStore, configured_providers};
 
 trait ModelCatalog {
     fn list_models(
@@ -74,20 +65,6 @@ where
     store_provider_secret(store, provider, &mut secret)
 }
 
-fn configured_providers<S>(store: &S) -> taurine_core::error::Result<Vec<AiProvider>>
-where
-    S: CredentialStore,
-{
-    let mut configured = Vec::new();
-    for provider in supported_providers() {
-        if store.get_secret(provider)?.is_some() {
-            configured.push(provider);
-        }
-    }
-
-    Ok(configured)
-}
-
 fn models_for_provider<S, M>(
     store: &S,
     catalog: &M,
@@ -131,10 +108,6 @@ where
     result
 }
 
-fn supported_providers() -> [AiProvider; 3] {
-    [AiProvider::Openai, AiProvider::Claude, AiProvider::Gemini]
-}
-
 fn prompt_provider_secret(provider: AiProvider) -> taurine_core::error::Result<String> {
     Password::new(&format!("{} API key:", provider.as_str()))
         .with_display_mode(PasswordDisplayMode::Masked)
@@ -146,43 +119,6 @@ fn prompt_provider_secret(provider: AiProvider) -> taurine_core::error::Result<S
                 provider.as_str()
             ))
         })
-}
-
-struct OsKeyringStore;
-
-impl OsKeyringStore {
-    fn entry(provider: AiProvider) -> taurine_core::error::Result<Entry> {
-        Entry::new(AI_KEYRING_SERVICE, provider.as_str()).map_err(|e| {
-            taurine_core::error::Error::Service(format!(
-                "Failed to open OS keyring entry for '{}': {e}",
-                provider.as_str()
-            ))
-        })
-    }
-}
-
-impl CredentialStore for OsKeyringStore {
-    fn set_secret(&self, provider: AiProvider, secret: &str) -> taurine_core::error::Result<()> {
-        Self::entry(provider)?
-            .set_password(secret)
-            .map_err(|e| keyring_error(provider, "store", e))
-    }
-
-    fn get_secret(&self, provider: AiProvider) -> taurine_core::error::Result<Option<String>> {
-        match Self::entry(provider)?.get_password() {
-            Ok(secret) => Ok(Some(secret)),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(e) => Err(keyring_error(provider, "read", e)),
-        }
-    }
-
-    fn delete_secret(&self, provider: AiProvider) -> taurine_core::error::Result<bool> {
-        match Self::entry(provider)?.delete_credential() {
-            Ok(()) => Ok(true),
-            Err(keyring::Error::NoEntry) => Ok(false),
-            Err(e) => Err(keyring_error(provider, "delete", e)),
-        }
-    }
 }
 
 struct GenaiModelCatalog;
@@ -241,13 +177,6 @@ fn adapter_kind(provider: AiProvider) -> AdapterKind {
         AiProvider::Claude => AdapterKind::Anthropic,
         AiProvider::Gemini => AdapterKind::Gemini,
     }
-}
-
-fn keyring_error(provider: AiProvider, action: &str, err: keyring::Error) -> taurine_core::Error {
-    taurine_core::error::Error::Service(format!(
-        "Failed to {action} '{}' credential in the OS keyring: {err}",
-        provider.as_str()
-    ))
 }
 
 #[cfg(test)]

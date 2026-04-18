@@ -48,6 +48,18 @@ impl<'a> SettingsManager<'a> {
             settings.spinner_style = v;
         }
 
+        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_provider")
+            && let Ok(v) = serde_json::from_str::<Option<String>>(&val)
+        {
+            settings.ai_provider = v;
+        }
+
+        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_model")
+            && let Ok(v) = serde_json::from_str::<Option<String>>(&val)
+        {
+            settings.ai_model = v;
+        }
+
         settings
     }
 

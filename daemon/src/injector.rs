@@ -4,7 +4,7 @@ use arboard::Clipboard;
 #[cfg(not(target_os = "linux"))]
 use rdev::{EventType, Key, simulate};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::Duration;
 #[cfg(not(target_os = "linux"))]
@@ -646,6 +646,61 @@ fn restore_clipboard(original: &str) {
 
 pub fn restore_clipboard_text(original: &str) {
     restore_clipboard(original);
+}
+
+pub struct StreamingTextSession {
+    guard: Option<MutexGuard<'static, ()>>,
+    original_clipboard: Option<String>,
+}
+
+impl StreamingTextSession {
+    pub fn begin() -> Self {
+        let guard = inject_mutex().lock().expect("inject mutex poisoned");
+        INJECTION_ABORT.store(false, Ordering::SeqCst);
+        pre_release_modifiers();
+        IS_INJECTING.store(true, Ordering::SeqCst);
+
+        Self {
+            guard: Some(guard),
+            original_clipboard: None,
+        }
+    }
+
+    pub fn push_text(&mut self, text: &str) -> bool {
+        if text.is_empty() || INJECTION_ABORT.load(Ordering::SeqCst) {
+            return !INJECTION_ABORT.load(Ordering::SeqCst);
+        }
+
+        if let Some(original) = inject_text_segment(text, &self.original_clipboard)
+            && self.original_clipboard.is_none()
+        {
+            self.original_clipboard = Some(original);
+        }
+
+        !INJECTION_ABORT.load(Ordering::SeqCst)
+    }
+
+    pub fn abort_requested(&self) -> bool {
+        INJECTION_ABORT.load(Ordering::SeqCst)
+    }
+
+    pub fn finish(&mut self) {
+        if let Some(ref original) = self.original_clipboard {
+            restore_clipboard(original);
+        }
+
+        pre_release_modifiers();
+        self.original_clipboard = None;
+        INJECTION_ABORT.store(false, Ordering::SeqCst);
+        IS_INJECTING.store(false, Ordering::SeqCst);
+        self.guard.take();
+    }
+}
+
+impl Drop for StreamingTextSession {
+    fn drop(&mut self) {
+        self.finish();
+    }
 }
 
 /// Executes an ordered sequence of expansion steps.
