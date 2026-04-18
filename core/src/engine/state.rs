@@ -6,10 +6,20 @@ use crate::engine::variables::{
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
+use std::sync::{Mutex, RwLock};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EngineMode {
+    #[default]
+    Normal,
+    AiCapture,
+}
 
 pub struct EngineState {
     pub trigger_char: AtomicU32,
     pub source: Arc<dyn SnippetSource>,
+    pub mode: RwLock<EngineMode>,
+    pub ai_prompt_buffer: Mutex<String>,
 }
 
 impl EngineState {
@@ -19,6 +29,8 @@ impl EngineState {
         Self {
             trigger_char: AtomicU32::new(trigger_char as u32),
             source: adaptive,
+            mode: RwLock::new(EngineMode::Normal),
+            ai_prompt_buffer: Mutex::new(String::new()),
         }
     }
 
@@ -27,7 +39,50 @@ impl EngineState {
         Self {
             trigger_char: AtomicU32::new(trigger_char as u32),
             source,
+            mode: RwLock::new(EngineMode::Normal),
+            ai_prompt_buffer: Mutex::new(String::new()),
         }
+    }
+
+    pub fn engine_mode(&self) -> EngineMode {
+        self.mode.read().map(|guard| *guard).unwrap_or_default()
+    }
+
+    pub fn set_engine_mode(&self, mode: EngineMode) {
+        if let Ok(mut guard) = self.mode.write() {
+            *guard = mode;
+        }
+    }
+
+    pub fn append_ai_prompt_char(&self, c: char) {
+        if let Ok(mut prompt) = self.ai_prompt_buffer.lock() {
+            prompt.push(c);
+        }
+    }
+
+    pub fn pop_ai_prompt_char(&self) {
+        if let Ok(mut prompt) = self.ai_prompt_buffer.lock() {
+            prompt.pop();
+        }
+    }
+
+    pub fn pop_ai_prompt_word(&self) {
+        if let Ok(mut prompt) = self.ai_prompt_buffer.lock() {
+            pop_last_word_from_prompt(&mut prompt);
+        }
+    }
+
+    pub fn clear_ai_prompt_buffer(&self) {
+        if let Ok(mut prompt) = self.ai_prompt_buffer.lock() {
+            prompt.clear();
+        }
+    }
+
+    pub fn ai_prompt_buffer(&self) -> String {
+        self.ai_prompt_buffer
+            .lock()
+            .map(|guard| guard.clone())
+            .unwrap_or_default()
     }
 
     pub fn load_actions(
@@ -127,6 +182,37 @@ impl EngineState {
             .or_else(|| self.fetch_hybrid_arguments(keyword))
             .or_else(|| self.fetch_math_fallback(keyword))
     }
+}
+
+fn pop_last_word_from_prompt(prompt: &mut String) {
+    if prompt.is_empty() {
+        return;
+    }
+
+    let mut chars: Vec<char> = prompt.chars().collect();
+
+    while let Some(last) = chars.last() {
+        if last.is_whitespace() {
+            chars.pop();
+        } else {
+            break;
+        }
+    }
+
+    let Some(last) = chars.last().copied() else {
+        prompt.clear();
+        return;
+    };
+
+    let is_alphanumeric = last.is_alphanumeric();
+    while let Some(current) = chars.last().copied() {
+        if current.is_whitespace() || current.is_alphanumeric() != is_alphanumeric {
+            break;
+        }
+        chars.pop();
+    }
+
+    *prompt = chars.into_iter().collect();
 }
 
 #[cfg(test)]
@@ -328,5 +414,36 @@ mod tests {
         // 5. No match
         assert!(state.fetch_expansion("unknown").is_none());
         assert!(state.fetch_expansion("UNKNOWN").is_none());
+    }
+
+    #[test]
+    fn engine_state_defaults_to_normal_mode_with_empty_ai_prompt() {
+        let state = EngineState::new('>');
+
+        assert_eq!(state.engine_mode(), EngineMode::Normal);
+        assert_eq!(state.ai_prompt_buffer(), "");
+    }
+
+    #[test]
+    fn engine_state_ai_prompt_helpers_track_chars_and_words() {
+        let state = EngineState::new('>');
+
+        state.set_engine_mode(EngineMode::AiCapture);
+        state.append_ai_prompt_char('h');
+        state.append_ai_prompt_char('i');
+        state.append_ai_prompt_char(' ');
+        state.append_ai_prompt_char('世');
+        state.append_ai_prompt_char('界');
+        assert_eq!(state.ai_prompt_buffer(), "hi 世界");
+
+        state.pop_ai_prompt_char();
+        assert_eq!(state.ai_prompt_buffer(), "hi 世");
+
+        state.pop_ai_prompt_word();
+        assert_eq!(state.ai_prompt_buffer(), "hi ");
+
+        state.clear_ai_prompt_buffer();
+        assert_eq!(state.ai_prompt_buffer(), "");
+        assert_eq!(state.engine_mode(), EngineMode::AiCapture);
     }
 }

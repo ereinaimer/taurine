@@ -11,4 +11,4 @@ pub use source::SnippetSource;
 
 pub use buffer::FastBuffer;
 pub use evaluator::{EngineEvent, Evaluator, ExpansionResult};
-pub use state::EngineState;
+pub use state::{EngineMode, EngineState};

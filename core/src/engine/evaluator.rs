@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::engine::variables::ExpansionStep;
 
 use crate::engine::buffer::FastBuffer;
-use crate::engine::state::EngineState;
+use crate::engine::state::{EngineMode, EngineState};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EngineEvent {
@@ -44,6 +44,10 @@ impl Evaluator {
     }
 
     pub fn process_event(&mut self, event: EngineEvent) -> Option<ExpansionResult> {
+        if self.state.engine_mode() == EngineMode::AiCapture {
+            return self.process_ai_capture_event(event);
+        }
+
         match event {
             EngineEvent::Interrupt => {
                 // Severe interrupts ruin active sequences
@@ -90,6 +94,21 @@ impl Evaluator {
                 None
             }
         }
+    }
+
+    fn process_ai_capture_event(&mut self, event: EngineEvent) -> Option<ExpansionResult> {
+        // AI capture bypasses the trigger matcher entirely and should not retain
+        // any stale snippet-matching history while the prompt is being typed.
+        self.buffer.clear();
+
+        match event {
+            EngineEvent::Char(c) => self.state.append_ai_prompt_char(c),
+            EngineEvent::Backspace => self.state.pop_ai_prompt_char(),
+            EngineEvent::WordBackspace => self.state.pop_ai_prompt_word(),
+            EngineEvent::Interrupt => {}
+        }
+
+        None
     }
 }
 
@@ -533,5 +552,55 @@ mod tests {
                 input_str
             );
         }
+    }
+
+    #[test]
+    fn ai_capture_mode_bypasses_trigger_matching_and_records_prompt_text() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![(
+            "gm".to_string(),
+            crate::db::crud::AutomationAction::text("Good morning!"),
+        )]);
+        state.set_engine_mode(EngineMode::AiCapture);
+        let mut eval = Evaluator::new(state.clone());
+
+        for c in ">gm hello ".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        assert_eq!(state.ai_prompt_buffer(), ">gm hello ");
+        assert_eq!(eval.buffer.len, 0);
+    }
+
+    #[test]
+    fn ai_capture_mode_tracks_backspace_without_using_fast_buffer_matching() {
+        let state = Arc::new(EngineState::new('>'));
+        state.set_engine_mode(EngineMode::AiCapture);
+        let mut eval = Evaluator::new(state.clone());
+
+        for c in "draft".chars() {
+            eval.process_event(EngineEvent::Char(c));
+        }
+        eval.process_event(EngineEvent::Backspace);
+        eval.process_event(EngineEvent::Char('!'));
+
+        assert_eq!(state.ai_prompt_buffer(), "draf!");
+        assert_eq!(eval.buffer.len, 0);
+    }
+
+    #[test]
+    fn ai_capture_mode_tracks_word_backspace_and_ignores_interrupts() {
+        let state = Arc::new(EngineState::new('>'));
+        state.set_engine_mode(EngineMode::AiCapture);
+        let mut eval = Evaluator::new(state.clone());
+
+        for c in "hello world".chars() {
+            eval.process_event(EngineEvent::Char(c));
+        }
+        eval.process_event(EngineEvent::WordBackspace);
+        eval.process_event(EngineEvent::Interrupt);
+
+        assert_eq!(state.ai_prompt_buffer(), "hello ");
+        assert_eq!(eval.buffer.len, 0);
     }
 }
