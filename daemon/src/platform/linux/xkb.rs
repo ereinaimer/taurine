@@ -115,7 +115,7 @@ impl XkbMapper {
                 KeyCode::KEY_SPACE => return Some(EngineEvent::Char(' ')),
                 // Structural keys — break any active typing sequence.
                 KeyCode::KEY_ENTER | KeyCode::KEY_KPENTER => {
-                    if engine_mode == EngineMode::AiCapture {
+                    if matches!(engine_mode, EngineMode::AiCapture { .. }) {
                         return Some(EngineEvent::Char('\n'));
                     }
                     return Some(EngineEvent::Interrupt);
