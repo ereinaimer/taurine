@@ -15,6 +15,10 @@ pub enum AiProvider {
     Openai,
     Claude,
     Gemini,
+    Xai,
+    Groq,
+    Deepseek,
+    Cohere,
 }
 
 impl AiProvider {
@@ -23,6 +27,10 @@ impl AiProvider {
             Self::Openai => "openai",
             Self::Claude => "claude",
             Self::Gemini => "gemini",
+            Self::Xai => "xai",
+            Self::Groq => "groq",
+            Self::Deepseek => "deepseek",
+            Self::Cohere => "cohere",
         }
     }
 
@@ -30,7 +38,11 @@ impl AiProvider {
         match self {
             Self::Openai => "gpt-4o",
             Self::Claude => "claude-3-5-sonnet-latest",
-            Self::Gemini => "gemini-1.5-pro",
+            Self::Gemini => "gemini-2.5-flash",
+            Self::Xai => "grok-2-latest",
+            Self::Groq => "llama-3.3-70b-versatile",
+            Self::Deepseek => "deepseek-chat",
+            Self::Cohere => "command-r-plus",
         }
     }
 
@@ -39,6 +51,10 @@ impl AiProvider {
             "openai" => Some(Self::Openai),
             "claude" => Some(Self::Claude),
             "gemini" => Some(Self::Gemini),
+            "xai" => Some(Self::Xai),
+            "groq" => Some(Self::Groq),
+            "deepseek" => Some(Self::Deepseek),
+            "cohere" => Some(Self::Cohere),
             _ => None,
         }
     }
@@ -56,7 +72,7 @@ impl FromStr for AiProvider {
     fn from_str(s: &str) -> Result<Self> {
         Self::parse(s).ok_or_else(|| {
             Error::Config(format!(
-                "Invalid ai_provider setting '{s}'. Use openai, claude, or gemini."
+                "Invalid ai_provider setting '{s}'. Use openai, claude, gemini, xai, groq, deepseek, or cohere."
             ))
         })
     }
@@ -113,8 +129,16 @@ impl CredentialStore for OsKeyringStore {
     }
 }
 
-pub fn supported_providers() -> [AiProvider; 3] {
-    [AiProvider::Openai, AiProvider::Claude, AiProvider::Gemini]
+pub fn supported_providers() -> [AiProvider; 7] {
+    [
+        AiProvider::Openai,
+        AiProvider::Claude,
+        AiProvider::Gemini,
+        AiProvider::Xai,
+        AiProvider::Groq,
+        AiProvider::Deepseek,
+        AiProvider::Cohere,
+    ]
 }
 
 pub fn configured_providers<S>(store: &S) -> Result<Vec<AiProvider>>
@@ -275,7 +299,7 @@ mod tests {
         );
         assert_eq!(
             resolve_model_for_provider(AiProvider::Gemini, Some("   ")),
-            "gemini-1.5-pro"
+            "gemini-2.5-flash"
         );
     }
 }

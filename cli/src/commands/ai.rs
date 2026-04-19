@@ -241,6 +241,10 @@ fn adapter_kind(provider: AiProvider) -> AdapterKind {
         AiProvider::Openai => AdapterKind::OpenAI,
         AiProvider::Claude => AdapterKind::Anthropic,
         AiProvider::Gemini => AdapterKind::Gemini,
+        AiProvider::Xai => AdapterKind::Xai,
+        AiProvider::Groq => AdapterKind::Groq,
+        AiProvider::Deepseek => AdapterKind::DeepSeek,
+        AiProvider::Cohere => AdapterKind::Cohere,
     }
 }
 

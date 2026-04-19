@@ -199,6 +199,10 @@ pub enum AiProvider {
     Openai,
     Claude,
     Gemini,
+    Xai,
+    Groq,
+    Deepseek,
+    Cohere,
 }
 
 impl AiProvider {
@@ -207,6 +211,10 @@ impl AiProvider {
             Self::Openai => "openai",
             Self::Claude => "claude",
             Self::Gemini => "gemini",
+            Self::Xai => "xai",
+            Self::Groq => "groq",
+            Self::Deepseek => "deepseek",
+            Self::Cohere => "cohere",
         }
     }
 }
@@ -217,6 +225,10 @@ impl From<AiProvider> for taurine_core::ai::AiProvider {
             AiProvider::Openai => Self::Openai,
             AiProvider::Claude => Self::Claude,
             AiProvider::Gemini => Self::Gemini,
+            AiProvider::Xai => Self::Xai,
+            AiProvider::Groq => Self::Groq,
+            AiProvider::Deepseek => Self::Deepseek,
+            AiProvider::Cohere => Self::Cohere,
         }
     }
 }
