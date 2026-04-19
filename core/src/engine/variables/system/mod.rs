@@ -594,4 +594,66 @@ mod tests {
         validate_output(r#"\[cursor\] [cursor]"#, Some("escaped"));
         validate_output("[clipboard=invalid]", None);
     }
+
+    mod compatibility_finalize_tests {
+        use super::*;
+
+        #[test]
+        fn delay_directives_also_suppress_cursor_positioning() {
+            let res = finalize("start[cursor][delay.25ms]end", None);
+
+            assert_eq!(
+                res.steps,
+                vec![
+                    ExpansionStep::Text("start[cursor]".to_string()),
+                    ExpansionStep::Delay(25),
+                    ExpansionStep::Text("end".to_string()),
+                ]
+            );
+        }
+
+        #[test]
+        fn escaped_cursor_literal_stays_literal_when_key_directives_exist() {
+            let res = finalize(r#"\[cursor\][key.tab]after"#, None);
+
+            assert_eq!(
+                res.steps,
+                vec![
+                    ExpansionStep::Text("[cursor]".to_string()),
+                    ExpansionStep::KeyPress("tab".to_string()),
+                    ExpansionStep::Text("after".to_string()),
+                ]
+            );
+        }
+
+        #[test]
+        fn first_cursor_location_wins_when_multiple_cursors_exist() {
+            let res = finalize("[cursor]alpha[cursor]beta", None);
+
+            assert_eq!(res.steps[0], ExpansionStep::Text("alphabeta".to_string()));
+            assert_eq!(res.steps.len(), "alphabeta".chars().count() + 1);
+            assert!(
+                res.steps[1..]
+                    .iter()
+                    .all(|step| matches!(step, ExpansionStep::KeyPress(key) if key == "left"))
+            );
+        }
+
+        #[test]
+        fn key_and_delay_directives_preserve_current_execution_order() {
+            let res = finalize("a[key.tab]b[delay.10ms]c[key.enter]", None);
+
+            assert_eq!(
+                res.steps,
+                vec![
+                    ExpansionStep::Text("a".to_string()),
+                    ExpansionStep::KeyPress("tab".to_string()),
+                    ExpansionStep::Text("b".to_string()),
+                    ExpansionStep::Delay(10),
+                    ExpansionStep::Text("c".to_string()),
+                    ExpansionStep::KeyPress("enter".to_string()),
+                ]
+            );
+        }
+    }
 }

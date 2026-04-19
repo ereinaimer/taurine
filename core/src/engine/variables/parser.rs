@@ -134,4 +134,49 @@ mod tests {
         assert_eq!(map.named.get("repo").unwrap(), "taurine");
         assert!(map.positional.is_empty());
     }
+
+    mod compatibility_parser_tests {
+        use super::*;
+
+        #[test]
+        fn tokenize_keeps_colons_inside_single_and_double_quotes() {
+            assert_eq!(
+                tokenize(r#"alpha:'beta:gamma':"delta:epsilon":zeta"#, ':'),
+                vec!["alpha", "'beta:gamma'", "\"delta:epsilon\"", "zeta"]
+            );
+        }
+
+        #[test]
+        fn parse_tokens_preserves_empty_arguments() {
+            let tokens = tokenize("alpha::beta:", ':');
+            let map = parse_tokens(&tokens);
+
+            assert_eq!(map.positional, vec!["alpha", "", "beta", ""]);
+            assert!(map.named.is_empty());
+        }
+
+        #[test]
+        fn parse_tokens_uses_first_equals_for_named_values() {
+            let tokens = vec![
+                "query=foo=bar=baz".to_string(),
+                "formula=\"x=1:y=2\"".to_string(),
+            ];
+            let map = parse_tokens(&tokens);
+
+            assert_eq!(map.named.get("query").unwrap(), "foo=bar=baz");
+            assert_eq!(map.named.get("formula").unwrap(), "x=1:y=2");
+        }
+
+        #[test]
+        fn parse_tokens_strips_outer_quotes_from_whole_named_pair() {
+            let tokens = vec![
+                "\"name=Neil Armstrong\"".to_string(),
+                "'repo=taurine'".to_string(),
+            ];
+            let map = parse_tokens(&tokens);
+
+            assert_eq!(map.named.get("name").unwrap(), "Neil Armstrong");
+            assert_eq!(map.named.get("repo").unwrap(), "taurine");
+        }
+    }
 }

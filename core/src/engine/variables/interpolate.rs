@@ -736,4 +736,65 @@ mod tests {
         let args_empty = ArgMap::default();
         assert_eq!(interpolate(tpl, &args_empty), "Hello [var]");
     }
+
+    mod compatibility_interpolation_tests {
+        use super::*;
+
+        #[test]
+        fn directives_are_preserved_for_finalize_phase() {
+            let args = ArgMap::default();
+
+            assert_eq!(
+                interpolate("before [cursor] [key.tab] [delay.25ms] after", &args),
+                "before [cursor] [key.tab] [delay.25ms] after"
+            );
+        }
+
+        #[test]
+        fn named_placeholders_do_not_consume_sequential_positional_fallback() {
+            let mut args = ArgMap::default();
+            args.named
+                .insert("name".to_string(), "ereinaimer".to_string());
+            args.positional.push("taurine".to_string());
+
+            assert_eq!(
+                interpolate("[name] / [repo]", &args),
+                "ereinaimer / taurine"
+            );
+        }
+
+        #[test]
+        fn empty_positional_values_beat_defaults() {
+            let mut args = ArgMap::default();
+            args.positional.push(String::new());
+
+            assert_eq!(interpolate("numeric=[0=fallback]", &args), "numeric=");
+            assert_eq!(
+                interpolate("sequential=[value=fallback]", &args),
+                "sequential="
+            );
+        }
+
+        #[test]
+        fn escaped_cursor_literal_and_backslashes_survive_interpolation() {
+            let args = ArgMap::default();
+
+            assert_eq!(
+                interpolate(r#"Hello \[cursor\] and \\ path"#, &args),
+                r#"Hello \[cursor\] and \ path"#
+            );
+        }
+
+        #[test]
+        fn nested_transformer_forms_stay_literal_while_flat_form_resolves() {
+            let mut args = ArgMap::default();
+            args.positional.push("banana".to_string());
+
+            assert_eq!(
+                interpolate("nested=[[0].urlencode]", &args),
+                "nested=[banana.urlencode]"
+            );
+            assert_eq!(interpolate("flat=[0.urlencode]", &args), "flat=banana");
+        }
+    }
 }
