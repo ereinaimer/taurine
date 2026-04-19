@@ -40,6 +40,10 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
         "ai_model",
         render_optional_setting(settings.ai_model.as_deref()),
     ]);
+    table.add_row(vec![
+        "inline_ai_delimiter",
+        &settings.inline_ai_delimiter.to_string(),
+    ]);
 
     println!("{}", table);
 
@@ -109,6 +113,14 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
             manager.update_setting(actual_key, Some(model.to_string()))?;
             info!("Updated ai_model to: {}", model);
         }
+        "inline_ai_delimiter" => {
+            if let Some(c) = value.chars().next() {
+                manager.update_setting(actual_key, c)?;
+                info!("Updated inline_ai_delimiter to: {}", c);
+            } else {
+                warn!("Invalid delimiter character provided.");
+            }
+        }
         _ => {
             warn!("Unknown setting key: {}", key);
             return Ok(());
@@ -164,6 +176,13 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
             manager.update_setting(actual_key, defaults.ai_model.clone())?;
             info!("Reset ai_model to default: <unset>");
         }
+        "inline_ai_delimiter" => {
+            manager.update_setting(actual_key, defaults.inline_ai_delimiter)?;
+            info!(
+                "Reset inline_ai_delimiter to default: {}",
+                defaults.inline_ai_delimiter
+            );
+        }
         _ => {
             warn!("Unknown setting key: {}", key);
             return Ok(());
@@ -189,6 +208,7 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
     manager.update_setting("spinner_style", defaults.spinner_style)?;
     manager.update_setting("ai_provider", defaults.ai_provider.clone())?;
     manager.update_setting("ai_model", defaults.ai_model.clone())?;
+    manager.update_setting("inline_ai_delimiter", defaults.inline_ai_delimiter)?;
 
     info!("All settings have been reset to factory defaults.");
 

@@ -17,6 +17,7 @@ pub enum EngineMode {
 
 pub struct EngineState {
     pub trigger_char: AtomicU32,
+    pub inline_ai_delimiter: AtomicU32,
     pub source: Arc<dyn SnippetSource>,
     pub mode: RwLock<EngineMode>,
     pub ai_prompt_buffer: Mutex<String>,
@@ -28,6 +29,7 @@ impl EngineState {
         let adaptive = Arc::new(AdaptiveSource::new(memory));
         Self {
             trigger_char: AtomicU32::new(trigger_char as u32),
+            inline_ai_delimiter: AtomicU32::new('`' as u32),
             source: adaptive,
             mode: RwLock::new(EngineMode::Normal),
             ai_prompt_buffer: Mutex::new(String::new()),
@@ -38,6 +40,7 @@ impl EngineState {
     pub fn with_source(trigger_char: char, source: Arc<dyn SnippetSource>) -> Self {
         Self {
             trigger_char: AtomicU32::new(trigger_char as u32),
+            inline_ai_delimiter: AtomicU32::new('`' as u32),
             source,
             mode: RwLock::new(EngineMode::Normal),
             ai_prompt_buffer: Mutex::new(String::new()),

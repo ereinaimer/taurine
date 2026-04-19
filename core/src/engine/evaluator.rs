@@ -8,7 +8,6 @@ use crate::engine::state::{EngineMode, EngineState};
 const INLINE_AI_KEYWORD: &str = "ai";
 const INLINE_AI_KEYWORD_PREFIX: &str = "ai:";
 const INLINE_AI_CAPTURE_TRIGGER_DELETE_COUNT: usize = 4;
-const INLINE_AI_CAPTURE_PREFIX: &str = "`";
 const INLINE_AI_THINKING_TEXT: &str = "⠋ Thinking...";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -159,13 +158,17 @@ impl Evaluator {
     }
 
     fn start_inline_ai_capture(&mut self) -> ExpansionResult {
+        use std::sync::atomic::Ordering;
+        let delimiter_u32 = self.state.inline_ai_delimiter.load(Ordering::Relaxed);
+        let delimiter = std::char::from_u32(delimiter_u32).unwrap_or('`');
+
         self.buffer.clear();
         self.state.clear_ai_prompt_buffer();
         self.state.set_engine_mode(EngineMode::AiCapture);
 
         ExpansionResult {
             delete_count: INLINE_AI_CAPTURE_TRIGGER_DELETE_COUNT,
-            steps: vec![ExpansionStep::Text(INLINE_AI_CAPTURE_PREFIX.to_string())],
+            steps: vec![ExpansionStep::Text(delimiter.to_string())],
             trigger: INLINE_AI_KEYWORD.to_string(),
             is_calculation: false,
             track_usage: false,
@@ -190,12 +193,16 @@ impl Evaluator {
     }
 
     fn finish_inline_ai_capture_if_ready(&mut self) -> Option<ExpansionResult> {
+        use std::sync::atomic::Ordering;
+        let delimiter_u32 = self.state.inline_ai_delimiter.load(Ordering::Relaxed);
+        let delimiter = std::char::from_u32(delimiter_u32).unwrap_or('`');
+
         let captured = self.state.ai_prompt_buffer();
-        if !captured.ends_with('`') {
+        if !captured.ends_with(delimiter) {
             return None;
         }
 
-        let prompt = captured.strip_suffix('`')?;
+        let prompt = captured.strip_suffix(delimiter)?;
         if prompt.is_empty() {
             return None;
         }
@@ -810,7 +817,7 @@ mod tests {
     }
 
     #[test]
-    fn inline_ai_capture_trigger_enters_micro_state_and_paints_opening_backtick() {
+    fn inline_ai_capture_trigger_enters_micro_state_and_paints_opening_delimiter() {
         let state = Arc::new(EngineState::new('>'));
         let mut eval = Evaluator::new(state.clone());
 
@@ -825,10 +832,7 @@ mod tests {
         assert_eq!(state.engine_mode(), EngineMode::AiCapture);
         assert_eq!(state.ai_prompt_buffer(), "");
         assert_eq!(result.delete_count, INLINE_AI_CAPTURE_TRIGGER_DELETE_COUNT);
-        assert_eq!(
-            result.steps,
-            vec![ExpansionStep::Text(INLINE_AI_CAPTURE_PREFIX.to_string())]
-        );
+        assert_eq!(result.steps, vec![ExpansionStep::Text("`".to_string())]);
         assert!(!result.start_ai_spinner);
         assert_eq!(result.inline_ai_prompt, None);
     }
@@ -1001,5 +1005,38 @@ mod tests {
     #[test]
     fn inline_ai_thinking_text_matches_spec() {
         assert_eq!(INLINE_AI_THINKING_TEXT, "⠋ Thinking...");
+    }
+
+    #[test]
+    fn inline_ai_capture_works_with_custom_delimiter() {
+        use std::sync::atomic::Ordering;
+        let state = Arc::new(EngineState::new('>'));
+        state
+            .inline_ai_delimiter
+            .store('~' as u32, Ordering::Relaxed);
+        let mut eval = Evaluator::new(state.clone());
+
+        // 1. Enter capture
+        eval.process_event(EngineEvent::Char('>'));
+        eval.process_event(EngineEvent::Char('a'));
+        eval.process_event(EngineEvent::Char('i'));
+        let start_res = eval
+            .process_event(EngineEvent::Char(' '))
+            .expect("Should enter capture");
+
+        assert_eq!(state.engine_mode(), EngineMode::AiCapture);
+        assert_eq!(start_res.steps, vec![ExpansionStep::Text("~".to_string())]);
+
+        // 2. Type prompt
+        for c in "Hello AI~".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        // 3. Finish capture
+        let finish_res = eval
+            .process_event(EngineEvent::Char(' '))
+            .expect("Should finish capture");
+        assert_eq!(state.engine_mode(), EngineMode::Normal);
+        assert_eq!(finish_res.inline_ai_prompt, Some("Hello AI".to_string()));
     }
 }

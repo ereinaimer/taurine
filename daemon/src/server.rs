@@ -96,6 +96,11 @@ impl DaemonControl for DaemonService {
             .trigger_char
             .store(settings.trigger_char as u32, Ordering::Relaxed);
 
+        // Update inline AI delimiter (atomic)
+        self.state
+            .inline_ai_delimiter
+            .store(settings.inline_ai_delimiter as u32, Ordering::Relaxed);
+
         // Update pause notifications (atomic)
         self.pause_notifications_enabled
             .store(settings.pause_notifications_enabled, Ordering::Relaxed);
