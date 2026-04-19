@@ -168,6 +168,30 @@ enum AiAction {
         #[arg(long, value_enum)]
         provider: AiProvider,
     },
+    /// Manage AI presets
+    Preset {
+        #[command(subcommand)]
+        action: AiPresetAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum AiPresetAction {
+    /// Add or update an AI preset
+    Add {
+        /// The name used to trigger the preset (e.g., 'rewrite' for '>ai.rewrite')
+        name: String,
+        /// The system prompt associated with this preset
+        prompt: String,
+    },
+    /// Remove an AI preset
+    Rm {
+        /// The name of the preset to remove
+        name: String,
+    },
+    /// List all AI presets
+    #[command(alias = "ls")]
+    List,
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -483,6 +507,13 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
             AiAction::List => commands::ai::execute_list()?,
             AiAction::Models { provider } => commands::ai::execute_models(provider.into())?,
             AiAction::Remove { provider } => commands::ai::execute_remove(provider.into())?,
+            AiAction::Preset { action } => match action {
+                AiPresetAction::Add { name, prompt } => {
+                    commands::ai::execute_preset_add(name, prompt)?
+                }
+                AiPresetAction::Rm { name } => commands::ai::execute_preset_rm(name)?,
+                AiPresetAction::List => commands::ai::execute_preset_list()?,
+            },
         },
         Some(Commands::Completions { action }) => {
             commands::completions::handle_completion(&action)?;

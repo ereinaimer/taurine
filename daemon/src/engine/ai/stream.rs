@@ -21,16 +21,23 @@ use taurine_core::settings::SettingsManager;
 
 const STREAM_BATCH_WINDOW_MS: u64 = 50;
 const STREAM_ERROR_PREFIX: &str = "Error: ";
-const INLINE_AI_SYSTEM_PROMPT: &str = "You are an inline text expander. Answer the user's prompt in a single, concise paragraph. DO NOT use markdown, bolding, bullet points, or newlines.";
+const IMMUTABLE_FORMAT_RULE: &str = "STRICT INSTRUCTION: You are an inline text expander. Output your response in a single, concise paragraph. DO NOT use markdown formatting, bolding, code blocks, or newlines.";
 
-pub async fn run_inline_ai_stream(prompt: String, spinner_handle: InlineAiSpinnerHandle) {
-    if let Err(err) = run_inline_ai_stream_inner(prompt, spinner_handle).await {
+pub async fn run_inline_ai_stream(
+    prompt: String,
+    system_prompt_override: Option<String>,
+    spinner_handle: InlineAiSpinnerHandle,
+) {
+    if let Err(err) =
+        run_inline_ai_stream_inner(prompt, system_prompt_override, spinner_handle).await
+    {
         error!("Inline AI stream failed: {}", err);
     }
 }
 
 async fn run_inline_ai_stream_inner(
     prompt: String,
+    system_prompt_override: Option<String>,
     spinner_handle: InlineAiSpinnerHandle,
 ) -> taurine_core::error::Result<()> {
     let prompt = Zeroizing::new(prompt);
@@ -49,7 +56,8 @@ async fn run_inline_ai_stream_inner(
         }
     };
     let client = build_chat_client(resolved.provider, resolved.secret.as_str());
-    let chat_request = build_chat_request(resolved.provider, prompt.as_str());
+    let chat_request =
+        build_chat_request(resolved.provider, prompt.as_str(), system_prompt_override);
 
     let mut chat_stream = match client
         .exec_chat_stream(resolved.model.as_str(), chat_request, None)
@@ -172,8 +180,18 @@ fn build_chat_client(provider: AiProvider, api_key: &str) -> Client {
         .build()
 }
 
-fn build_chat_request(provider: AiProvider, prompt: &str) -> ChatRequest {
-    let request = ChatRequest::from_user(prompt).with_system(INLINE_AI_SYSTEM_PROMPT);
+fn build_chat_request(
+    provider: AiProvider,
+    prompt: &str,
+    system_prompt_override: Option<String>,
+) -> ChatRequest {
+    let system_prompt = if let Some(prompt_override) = system_prompt_override {
+        format!("{}\n\n{}", prompt_override, IMMUTABLE_FORMAT_RULE)
+    } else {
+        IMMUTABLE_FORMAT_RULE.to_string()
+    };
+
+    let request = ChatRequest::from_user(prompt).with_system(system_prompt);
     if provider == AiProvider::Gemini {
         request.append_tool(Tool::new("googleSearch").with_config(json!({})))
     } else {
@@ -396,16 +414,16 @@ mod tests {
 
     #[test]
     fn chat_request_uses_inline_system_prompt_and_gemini_search_only() {
-        let gemini = build_chat_request(AiProvider::Gemini, "latest rust release");
-        assert_eq!(gemini.system.as_deref(), Some(INLINE_AI_SYSTEM_PROMPT));
+        let gemini = build_chat_request(AiProvider::Gemini, "latest rust release", None);
+        assert_eq!(gemini.system.as_deref(), Some(IMMUTABLE_FORMAT_RULE));
         assert_eq!(gemini.tools.as_ref().map(|tools| tools.len()), Some(1));
         assert_eq!(
             gemini.tools.as_ref().unwrap()[0].name,
             "googleSearch".to_string()
         );
 
-        let openai = build_chat_request(AiProvider::Openai, "latest rust release");
-        assert_eq!(openai.system.as_deref(), Some(INLINE_AI_SYSTEM_PROMPT));
+        let openai = build_chat_request(AiProvider::Openai, "latest rust release", None);
+        assert_eq!(openai.system.as_deref(), Some(IMMUTABLE_FORMAT_RULE));
         assert!(openai.tools.is_none());
     }
 

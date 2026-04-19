@@ -39,6 +39,8 @@ pub struct ExpansionResult {
     pub start_ai_spinner: bool,
     /// Inline AI prompt payload for stateless ghost-writer expansions.
     pub inline_ai_prompt: Option<String>,
+    /// Optional system prompt override for the AI session.
+    pub ai_system_prompt_override: Option<String>,
 }
 
 pub struct Evaluator {
@@ -55,7 +57,7 @@ impl Evaluator {
     }
 
     pub fn process_event(&mut self, event: EngineEvent) -> Option<ExpansionResult> {
-        if self.state.engine_mode() == EngineMode::AiCapture {
+        if let EngineMode::AiCapture { .. } = self.state.engine_mode() {
             return self.process_ai_capture_event(event);
         }
 
@@ -83,7 +85,13 @@ impl Evaluator {
 
                 if let Some(keyword) = self.buffer.extract_trigger_word(trigger_char) {
                     if keyword == INLINE_AI_KEYWORD {
-                        return Some(self.start_inline_ai_capture());
+                        return Some(self.start_inline_ai_capture(None));
+                    }
+
+                    if let Some(preset_name) = keyword.strip_prefix("ai.")
+                        && let Some(prompt_override) = self.state.get_ai_preset(preset_name)
+                    {
+                        return Some(self.start_inline_ai_capture(Some(prompt_override)));
                     }
 
                     if let Some(prompt) = parse_inline_ai_prompt(&keyword) {
@@ -102,6 +110,7 @@ impl Evaluator {
                             track_usage: true,
                             start_ai_spinner: false,
                             inline_ai_prompt: None,
+                            ai_system_prompt_override: None,
                         });
                     }
                 }
@@ -157,14 +166,16 @@ impl Evaluator {
         }
     }
 
-    fn start_inline_ai_capture(&mut self) -> ExpansionResult {
+    fn start_inline_ai_capture(&mut self, prompt_override: Option<String>) -> ExpansionResult {
         use std::sync::atomic::Ordering;
         let delimiter_u32 = self.state.inline_ai_delimiter.load(Ordering::Relaxed);
         let delimiter = std::char::from_u32(delimiter_u32).unwrap_or('`');
 
         self.buffer.clear();
         self.state.clear_ai_prompt_buffer();
-        self.state.set_engine_mode(EngineMode::AiCapture);
+        self.state.set_engine_mode(EngineMode::AiCapture {
+            system_prompt_override: prompt_override.clone(),
+        });
 
         ExpansionResult {
             delete_count: INLINE_AI_CAPTURE_TRIGGER_DELETE_COUNT,
@@ -174,6 +185,7 @@ impl Evaluator {
             track_usage: false,
             start_ai_spinner: false,
             inline_ai_prompt: None,
+            ai_system_prompt_override: prompt_override,
         }
     }
 
@@ -189,6 +201,7 @@ impl Evaluator {
             track_usage: false,
             start_ai_spinner: true,
             inline_ai_prompt: Some(prompt),
+            ai_system_prompt_override: None,
         }
     }
 
@@ -208,6 +221,15 @@ impl Evaluator {
         }
 
         let delete_count = captured.chars().count() + 2;
+        let system_prompt_override = if let EngineMode::AiCapture {
+            system_prompt_override,
+        } = self.state.engine_mode()
+        {
+            system_prompt_override
+        } else {
+            None
+        };
+
         self.state.clear_ai_prompt_buffer();
         self.state.set_engine_mode(EngineMode::Normal);
         self.buffer.clear();
@@ -220,6 +242,7 @@ impl Evaluator {
             track_usage: false,
             start_ai_spinner: true,
             inline_ai_prompt: Some(prompt.to_string()),
+            ai_system_prompt_override: system_prompt_override,
         })
     }
 }
@@ -829,7 +852,7 @@ mod tests {
             .process_event(EngineEvent::Char(' '))
             .expect("inline ai capture should start on >ai<space>");
 
-        assert_eq!(state.engine_mode(), EngineMode::AiCapture);
+        assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
         assert_eq!(state.ai_prompt_buffer(), "");
         assert_eq!(result.delete_count, INLINE_AI_CAPTURE_TRIGGER_DELETE_COUNT);
         assert_eq!(result.steps, vec![ExpansionStep::Text("`".to_string())]);
@@ -910,7 +933,7 @@ mod tests {
             let _ = eval.process_event(EngineEvent::Char(c));
         }
 
-        assert_eq!(state.engine_mode(), EngineMode::AiCapture);
+        assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
         assert!(state.is_ai_prompt_empty());
         assert_eq!(eval.process_event(EngineEvent::Backspace), None);
         assert_eq!(state.engine_mode(), EngineMode::Normal);
@@ -941,7 +964,7 @@ mod tests {
             let _ = eval.process_event(EngineEvent::Char(c));
         }
 
-        assert_eq!(state.engine_mode(), EngineMode::AiCapture);
+        assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
         assert!(state.is_ai_prompt_empty());
         assert_eq!(eval.process_event(EngineEvent::WordBackspace), None);
         assert_eq!(state.engine_mode(), EngineMode::Normal);
@@ -998,7 +1021,7 @@ mod tests {
             assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
         }
 
-        assert_eq!(state.engine_mode(), EngineMode::AiCapture);
+        assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
         assert_eq!(state.ai_prompt_buffer(), "draft prompt ");
     }
 
@@ -1024,7 +1047,7 @@ mod tests {
             .process_event(EngineEvent::Char(' '))
             .expect("Should enter capture");
 
-        assert_eq!(state.engine_mode(), EngineMode::AiCapture);
+        assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
         assert_eq!(start_res.steps, vec![ExpansionStep::Text("~".to_string())]);
 
         // 2. Type prompt
@@ -1038,5 +1061,59 @@ mod tests {
             .expect("Should finish capture");
         assert_eq!(state.engine_mode(), EngineMode::Normal);
         assert_eq!(finish_res.inline_ai_prompt, Some("Hello AI".to_string()));
+    }
+
+    #[test]
+    fn test_ai_preset_trigger_enters_capture_mode_with_override() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_ai_presets(vec![("re".to_string(), "expert editor".to_string())]);
+        let mut eval = Evaluator::new(state);
+
+        let input = ">ai.re ";
+        let mut result = None;
+        for c in input.chars() {
+            if let Some(res) = eval.process_event(EngineEvent::Char(c)) {
+                result = Some(res);
+            }
+        }
+
+        let res = result.expect("AI preset should trigger");
+        assert_eq!(
+            res.ai_system_prompt_override,
+            Some("expert editor".to_string())
+        );
+        assert!(matches!(
+            eval.state.engine_mode(),
+            EngineMode::AiCapture {
+                system_prompt_override: Some(_)
+            }
+        ));
+    }
+
+    #[test]
+    fn test_finishing_ai_preset_capture_preserves_override() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_ai_presets(vec![("re".to_string(), "expert editor".to_string())]);
+        let mut eval = Evaluator::new(state);
+
+        // Start capture
+        for c in ">ai.re ".chars() {
+            eval.process_event(EngineEvent::Char(c));
+        }
+
+        // Type prompt + delimiter
+        for c in "fix grammar`".chars() {
+            eval.process_event(EngineEvent::Char(c));
+        }
+
+        // Finish capture with space
+        let result = eval
+            .process_event(EngineEvent::Char(' '))
+            .expect("Should finish prompt");
+        assert_eq!(
+            result.ai_system_prompt_override,
+            Some("expert editor".to_string())
+        );
+        assert_eq!(result.inline_ai_prompt, Some("fix grammar".to_string()));
     }
 }

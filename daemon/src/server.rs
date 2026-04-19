@@ -86,7 +86,14 @@ impl DaemonControl for DaemonService {
         let actions = active;
         self.state.load_actions(actions);
 
-        // 2. Reload Settings
+        // 2. Reload AI Presets
+        let presets = taurine_core::db::crud::ai_presets::list_presets(&conn)
+            .map_err(|e| Status::internal(format!("Failed to retrieve AI presets: {}", e)))?;
+        let presets_map: Vec<(String, String)> =
+            presets.into_iter().map(|p| (p.name, p.prompt)).collect();
+        self.state.load_ai_presets(presets_map);
+
+        // 3. Reload Settings
         use taurine_core::settings::SettingsManager;
         let settings_manager = SettingsManager::new(&conn);
         let settings = settings_manager.load_all();

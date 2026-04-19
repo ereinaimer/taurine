@@ -27,7 +27,7 @@ use tracing::{debug, error, info};
 /// 4. Bump `CURRENT_SCHEMA_VERSION` by one.
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Bump this whenever you add a new match arm below.
-    const CURRENT_SCHEMA_VERSION: u32 = 1;
+    const CURRENT_SCHEMA_VERSION: u32 = 2;
 
     // Read the stamp baked into the file header (0 for a fresh database).
     let version: u32 = conn
@@ -129,11 +129,27 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                 })?,
 
             // ----------------------------------------------------------------
+            // v1 → v2 : AI Presets logic
+            // ----------------------------------------------------------------
+            1 => conn
+                .execute_batch(
+                    "CREATE TABLE IF NOT EXISTS ai_presets (
+                    name   TEXT PRIMARY KEY,
+                    prompt TEXT NOT NULL
+                );
+                PRAGMA user_version = 2;",
+                )
+                .map_err(|e| {
+                    error!(error=%e, "Schema migration v1 -> v2 failed");
+                    e
+                })?,
+
+            // ----------------------------------------------------------------
             // Template for the next migration — copy, fill in, bump version.
             // ----------------------------------------------------------------
-            // 1 => conn.execute_batch(
-            //     "ALTER TABLE automations ADD COLUMN shortcut TEXT;
-            //      PRAGMA user_version = 3;",
+            // 2 => conn.execute_batch(
+            //     \"ALTER TABLE automations ADD COLUMN shortcut TEXT;
+            //      PRAGMA user_version = 3;\",
             // )?,
             _ => unreachable!("Unhandled migration version {v}"),
         }

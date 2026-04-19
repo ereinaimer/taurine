@@ -8,11 +8,13 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 use std::sync::{Mutex, RwLock};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum EngineMode {
     #[default]
     Normal,
-    AiCapture,
+    AiCapture {
+        system_prompt_override: Option<String>,
+    },
 }
 
 pub struct EngineState {
@@ -21,6 +23,7 @@ pub struct EngineState {
     pub source: Arc<dyn SnippetSource>,
     pub mode: RwLock<EngineMode>,
     pub ai_prompt_buffer: Mutex<String>,
+    pub ai_presets: RwLock<std::collections::HashMap<String, String>>,
 }
 
 impl EngineState {
@@ -33,6 +36,7 @@ impl EngineState {
             source: adaptive,
             mode: RwLock::new(EngineMode::Normal),
             ai_prompt_buffer: Mutex::new(String::new()),
+            ai_presets: RwLock::new(std::collections::HashMap::new()),
         }
     }
 
@@ -44,11 +48,15 @@ impl EngineState {
             source,
             mode: RwLock::new(EngineMode::Normal),
             ai_prompt_buffer: Mutex::new(String::new()),
+            ai_presets: RwLock::new(std::collections::HashMap::new()),
         }
     }
 
     pub fn engine_mode(&self) -> EngineMode {
-        self.mode.read().map(|guard| *guard).unwrap_or_default()
+        self.mode
+            .read()
+            .map(|guard| guard.clone())
+            .unwrap_or_default()
     }
 
     pub fn set_engine_mode(&self, mode: EngineMode) {
@@ -100,6 +108,19 @@ impl EngineState {
         actions: impl IntoIterator<Item = (String, crate::db::crud::AutomationAction)>,
     ) {
         self.source.load_actions(actions.into_iter().collect());
+    }
+
+    pub fn load_ai_presets(&self, presets: impl IntoIterator<Item = (String, String)>) {
+        if let Ok(mut guard) = self.ai_presets.write() {
+            *guard = presets.into_iter().collect();
+        }
+    }
+
+    pub fn get_ai_preset(&self, name: &str) -> Option<String> {
+        self.ai_presets
+            .read()
+            .ok()
+            .and_then(|guard| guard.get(name).cloned())
     }
 
     fn get_raw_action(&self, keyword: &str) -> Option<crate::db::crud::AutomationAction> {
@@ -438,7 +459,9 @@ mod tests {
     fn engine_state_ai_prompt_helpers_track_chars_and_words() {
         let state = EngineState::new('>');
 
-        state.set_engine_mode(EngineMode::AiCapture);
+        state.set_engine_mode(EngineMode::AiCapture {
+            system_prompt_override: None,
+        });
         state.append_ai_prompt_char('h');
         state.append_ai_prompt_char('i');
         state.append_ai_prompt_char(' ');
@@ -454,7 +477,7 @@ mod tests {
 
         state.clear_ai_prompt_buffer();
         assert_eq!(state.ai_prompt_buffer(), "");
-        assert_eq!(state.engine_mode(), EngineMode::AiCapture);
+        assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
         assert!(state.is_ai_prompt_empty());
     }
 }

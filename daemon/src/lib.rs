@@ -62,6 +62,11 @@ pub fn start() -> taurine_core::error::Result<()> {
         state.load_actions(active);
     }
 
+    // Load AI presets!
+    if let Ok(presets) = taurine_core::db::crud::ai_presets::list_presets(&conn) {
+        state.load_ai_presets(presets.into_iter().map(|p| (p.name, p.prompt)));
+    }
+
     let evaluator = Arc::new(Mutex::new(Evaluator::new(state.clone())));
 
     let paused = Arc::new(std::sync::atomic::AtomicBool::new(false));

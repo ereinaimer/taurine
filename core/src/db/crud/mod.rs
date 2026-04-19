@@ -1,3 +1,4 @@
+pub mod ai_presets;
 pub mod automations;
 pub mod metrics;
 pub mod settings;

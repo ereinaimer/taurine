@@ -1,7 +1,10 @@
-#[allow(unused_imports)]
+#[cfg(test)]
 use std::collections::BTreeMap;
-#[allow(unused_imports)]
+#[cfg(test)]
 use std::sync::Mutex;
+
+use comfy_table::{Table, TableComponent, modifiers, presets};
+use regex::Regex;
 
 use genai::adapter::AdapterKind;
 use genai::resolver::AuthData;
@@ -48,6 +51,67 @@ pub fn execute_remove(provider: AiProvider) -> taurine_core::error::Result<()> {
     } else {
         println!("{} not configured", provider.as_str());
     }
+
+    Ok(())
+}
+
+pub fn execute_preset_add(name: String, prompt: String) -> taurine_core::error::Result<()> {
+    // Validate name
+    let name_regex = Regex::new(r"^[a-z0-9_-]+$").unwrap();
+    if !name_regex.is_match(&name) {
+        return Err(taurine_core::error::Error::Config(
+            "Preset names cannot contain spaces or special characters.".to_string(),
+        ));
+    }
+
+    let conn = taurine_core::db::init::setup()?;
+    taurine_core::db::crud::ai_presets::add_preset(&conn, &name, &prompt)?;
+
+    println!("preset '{}' added", name);
+    taurine_core::rpc::notify_daemon_reload();
+
+    Ok(())
+}
+
+pub fn execute_preset_rm(name: String) -> taurine_core::error::Result<()> {
+    let conn = taurine_core::db::init::setup()?;
+    if taurine_core::db::crud::ai_presets::remove_preset(&conn, &name)? {
+        println!("preset '{}' removed", name);
+        taurine_core::rpc::notify_daemon_reload();
+    } else {
+        println!("preset '{}' not found", name);
+    }
+
+    Ok(())
+}
+
+pub fn execute_preset_list() -> taurine_core::error::Result<()> {
+    let conn = taurine_core::db::init::setup()?;
+    let presets_list = taurine_core::db::crud::ai_presets::list_presets(&conn)?;
+
+    if presets_list.is_empty() {
+        println!("No AI presets configured.");
+        return Ok(());
+    }
+
+    let mut table = Table::new();
+    table
+        .load_preset(presets::UTF8_FULL_CONDENSED)
+        .apply_modifier(modifiers::UTF8_ROUND_CORNERS);
+
+    table.set_style(TableComponent::HeaderLines, '─');
+    table.set_style(TableComponent::LeftHeaderIntersection, '├');
+    table.set_style(TableComponent::MiddleHeaderIntersections, '┼');
+    table.set_style(TableComponent::RightHeaderIntersection, '┤');
+    table.set_style(TableComponent::VerticalLines, '│');
+
+    table.set_header(vec!["NAME", "SYSTEM PROMPT"]);
+
+    for preset in presets_list {
+        table.add_row(vec![preset.name, preset.prompt]);
+    }
+
+    println!("{}", table);
 
     Ok(())
 }

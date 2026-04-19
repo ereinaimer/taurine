@@ -3784,6 +3784,7 @@ dependencies = [
  "genai",
  "inquire",
  "keyring",
+ "regex",
  "rusqlite",
  "serde_json",
  "service-manager",

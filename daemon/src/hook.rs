@@ -174,7 +174,7 @@ pub fn start_listener(
 
 #[cfg(not(target_os = "linux"))]
 fn map_return_key(engine_mode: EngineMode) -> EngineEvent {
-    if engine_mode == EngineMode::AiCapture {
+    if matches!(engine_mode, EngineMode::AiCapture { .. }) {
         EngineEvent::Char('\n')
     } else {
         EngineEvent::Interrupt
@@ -195,6 +195,7 @@ pub(crate) fn spawn_expansion_dispatch(
             track_usage,
             start_ai_spinner,
             inline_ai_prompt,
+            ai_system_prompt_override,
         } = expansion;
 
         let output_len: usize = steps
@@ -212,7 +213,12 @@ pub(crate) fn spawn_expansion_dispatch(
         if start_ai_spinner && let Some(prompt) = inline_ai_prompt {
             let spinner_handle = crate::engine::ai::spinner::spawn(&runtime_handle);
             runtime_handle.spawn(async move {
-                crate::engine::ai::stream::run_inline_ai_stream(prompt, spinner_handle).await;
+                crate::engine::ai::stream::run_inline_ai_stream(
+                    prompt,
+                    ai_system_prompt_override,
+                    spinner_handle,
+                )
+                .await;
             });
         }
 
