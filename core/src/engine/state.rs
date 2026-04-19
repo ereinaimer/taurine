@@ -1,27 +1,19 @@
 use crate::db::crud::AutomationAction;
+pub use crate::engine::ai_session::EngineMode;
+use crate::engine::ai_session::InlineAiSession;
 use crate::engine::catalog::ExpansionCatalog;
 use crate::engine::source::SnippetSource;
 use crate::engine::variables::FinalExpansion;
 
 use std::sync::Arc;
+use std::sync::RwLock;
 use std::sync::atomic::AtomicU32;
-use std::sync::{Mutex, RwLock};
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub enum EngineMode {
-    #[default]
-    Normal,
-    AiCapture {
-        system_prompt_override: Option<String>,
-    },
-}
 
 pub struct EngineState {
     pub trigger_char: AtomicU32,
     pub inline_ai_delimiter: AtomicU32,
-    pub mode: RwLock<EngineMode>,
-    pub ai_prompt_buffer: Mutex<String>,
     pub ai_presets: RwLock<std::collections::HashMap<String, String>>,
+    ai_session: InlineAiSession,
     catalog: ExpansionCatalog,
 }
 
@@ -30,9 +22,8 @@ impl EngineState {
         Self {
             trigger_char: AtomicU32::new(trigger_char as u32),
             inline_ai_delimiter: AtomicU32::new('`' as u32),
-            mode: RwLock::new(EngineMode::Normal),
-            ai_prompt_buffer: Mutex::new(String::new()),
             ai_presets: RwLock::new(std::collections::HashMap::new()),
+            ai_session: InlineAiSession::new(),
             catalog: ExpansionCatalog::new(),
         }
     }
@@ -42,62 +33,42 @@ impl EngineState {
         Self {
             trigger_char: AtomicU32::new(trigger_char as u32),
             inline_ai_delimiter: AtomicU32::new('`' as u32),
-            mode: RwLock::new(EngineMode::Normal),
-            ai_prompt_buffer: Mutex::new(String::new()),
             ai_presets: RwLock::new(std::collections::HashMap::new()),
+            ai_session: InlineAiSession::new(),
             catalog: ExpansionCatalog::with_source(source),
         }
     }
 
     pub fn engine_mode(&self) -> EngineMode {
-        self.mode
-            .read()
-            .map(|guard| guard.clone())
-            .unwrap_or_default()
+        self.ai_session.engine_mode()
     }
 
     pub fn set_engine_mode(&self, mode: EngineMode) {
-        if let Ok(mut guard) = self.mode.write() {
-            *guard = mode;
-        }
+        self.ai_session.set_engine_mode(mode);
     }
 
     pub fn append_ai_prompt_char(&self, c: char) {
-        if let Ok(mut prompt) = self.ai_prompt_buffer.lock() {
-            prompt.push(c);
-        }
+        self.ai_session.append_prompt_char(c);
     }
 
     pub fn pop_ai_prompt_char(&self) {
-        if let Ok(mut prompt) = self.ai_prompt_buffer.lock() {
-            prompt.pop();
-        }
+        self.ai_session.pop_prompt_char();
     }
 
     pub fn pop_ai_prompt_word(&self) {
-        if let Ok(mut prompt) = self.ai_prompt_buffer.lock() {
-            pop_last_word_from_prompt(&mut prompt);
-        }
+        self.ai_session.pop_prompt_word();
     }
 
     pub fn clear_ai_prompt_buffer(&self) {
-        if let Ok(mut prompt) = self.ai_prompt_buffer.lock() {
-            prompt.clear();
-        }
+        self.ai_session.clear_prompt_buffer();
     }
 
     pub fn ai_prompt_buffer(&self) -> String {
-        self.ai_prompt_buffer
-            .lock()
-            .map(|guard| guard.clone())
-            .unwrap_or_default()
+        self.ai_session.prompt_buffer()
     }
 
     pub fn is_ai_prompt_empty(&self) -> bool {
-        self.ai_prompt_buffer
-            .lock()
-            .map(|guard| guard.is_empty())
-            .unwrap_or(true)
+        self.ai_session.is_prompt_empty()
     }
 
     pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, AutomationAction)>) {
@@ -120,37 +91,6 @@ impl EngineState {
     pub fn fetch_expansion(&self, keyword: &str) -> Option<FinalExpansion> {
         self.catalog.fetch_expansion(keyword)
     }
-}
-
-fn pop_last_word_from_prompt(prompt: &mut String) {
-    if prompt.is_empty() {
-        return;
-    }
-
-    let mut chars: Vec<char> = prompt.chars().collect();
-
-    while let Some(last) = chars.last() {
-        if last.is_whitespace() {
-            chars.pop();
-        } else {
-            break;
-        }
-    }
-
-    let Some(last) = chars.last().copied() else {
-        prompt.clear();
-        return;
-    };
-
-    let is_alphanumeric = last.is_alphanumeric();
-    while let Some(current) = chars.last().copied() {
-        if current.is_whitespace() || current.is_alphanumeric() != is_alphanumeric {
-            break;
-        }
-        chars.pop();
-    }
-
-    *prompt = chars.into_iter().collect();
 }
 
 #[cfg(test)]
