@@ -7,7 +7,6 @@ use crate::engine::state::{EngineMode, EngineState};
 
 const INLINE_AI_KEYWORD: &str = "ai";
 const INLINE_AI_KEYWORD_PREFIX: &str = "ai:";
-const INLINE_AI_CAPTURE_TRIGGER_DELETE_COUNT: usize = 4;
 const INLINE_AI_THINKING_TEXT: &str = "⠋ Thinking...";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -89,13 +88,13 @@ impl Evaluator {
 
                 if let Some(keyword) = self.buffer.extract_trigger_word(trigger_char) {
                     if keyword == INLINE_AI_KEYWORD {
-                        return Some(self.start_inline_ai_capture(None));
+                        return Some(self.start_inline_ai_capture(&keyword, None));
                     }
 
                     if let Some(preset_name) = keyword.strip_prefix("ai.")
                         && let Some(prompt_override) = self.state.get_ai_preset(preset_name)
                     {
-                        return Some(self.start_inline_ai_capture(Some(prompt_override)));
+                        return Some(self.start_inline_ai_capture(&keyword, Some(prompt_override)));
                     }
 
                     if let Some(prompt) = parse_inline_ai_prompt(&keyword) {
@@ -168,7 +167,11 @@ impl Evaluator {
         }
     }
 
-    fn start_inline_ai_capture(&mut self, prompt_override: Option<String>) -> ExpansionResult {
+    fn start_inline_ai_capture(
+        &mut self,
+        keyword: &str,
+        prompt_override: Option<String>,
+    ) -> ExpansionResult {
         use std::sync::atomic::Ordering;
         let delimiter_u32 = self.state.inline_ai_delimiter.load(Ordering::Relaxed);
         let delimiter = std::char::from_u32(delimiter_u32).unwrap_or('`');
@@ -180,9 +183,9 @@ impl Evaluator {
         });
 
         ExpansionResult {
-            delete_count: INLINE_AI_CAPTURE_TRIGGER_DELETE_COUNT,
+            delete_count: 1 + keyword.chars().count() + 1,
             steps: vec![ExpansionStep::Text(delimiter.to_string())],
-            trigger: INLINE_AI_KEYWORD.to_string(),
+            trigger: keyword.to_string(),
             is_calculation: false,
             track_usage: false,
             follow_up: None,
@@ -866,7 +869,7 @@ mod tests {
 
         assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
         assert_eq!(state.ai_prompt_buffer(), "");
-        assert_eq!(result.delete_count, INLINE_AI_CAPTURE_TRIGGER_DELETE_COUNT);
+        assert_eq!(result.delete_count, 4);
         assert_eq!(result.steps, vec![ExpansionStep::Text("`".to_string())]);
         assert_no_follow_up(&result);
     }
