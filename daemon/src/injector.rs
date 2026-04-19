@@ -787,8 +787,11 @@ pub fn inject_expansion(
             ExpansionStep::Script(metadata) => {
                 match metadata.behavior {
                     ScriptBehavior::Inline => {
-                        // Start the modern Braille spinner in a dedicated module
-                        let spinner_handle = crate::spinner::start(spinner_style);
+                        // Start the modern Braille spinner from core
+                        let spinner_handle = taurine_core::utils::spinner::spawn_threaded(
+                            spinner_style,
+                            crate::platform::spinner_renderer::OsSpinnerRenderer::default(),
+                        );
 
                         // Execute script and block until completion (or abort/timeout)
                         let rt = tokio::runtime::Builder::new_current_thread()

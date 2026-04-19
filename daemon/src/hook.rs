@@ -211,7 +211,11 @@ pub(crate) fn spawn_expansion_dispatch(
         crate::injector::inject_expansion(steps, delete_count, spinner_style);
 
         if start_ai_spinner && let Some(prompt) = inline_ai_prompt {
-            let spinner_handle = crate::engine::ai::spinner::spawn(&runtime_handle);
+            let spinner_handle = taurine_core::utils::spinner::spawn_async(
+                spinner_style,
+                crate::platform::spinner_renderer::OsSpinnerRenderer::default(),
+                &runtime_handle,
+            );
             runtime_handle.spawn(async move {
                 crate::engine::ai::stream::run_inline_ai_stream(
                     prompt,

@@ -7,6 +7,7 @@ pub mod windows;
 pub mod linux;
 
 pub mod executor;
+pub mod spinner_renderer;
 
 pub trait ClipboardManager {
     fn get_text(&mut self) -> Result<String, String>;
