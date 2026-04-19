@@ -21,7 +21,7 @@ use taurine_core::settings::SettingsManager;
 
 const STREAM_BATCH_WINDOW_MS: u64 = 50;
 const STREAM_ERROR_PREFIX: &str = "Error: ";
-const IMMUTABLE_FORMAT_RULE: &str = "STRICT INSTRUCTION: You are an inline text expander. Output your response in a single, concise paragraph. DO NOT use markdown formatting, bolding, code blocks, or newlines.";
+const IMMUTABLE_FORMAT_RULE: &str = "You are Tau. Use the fewest possible words. One word if enough. Plain text only. No markdown, lists, code fences, or newlines. No filler, greetings, explanations, or extra context unless asked. Output only the answer as one continuous string.";
 
 pub async fn run_inline_ai_stream(
     prompt: String,
