@@ -27,7 +27,7 @@ use tracing::{debug, error, info};
 /// 4. Bump `CURRENT_SCHEMA_VERSION` by one.
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Bump this whenever you add a new match arm below.
-    const CURRENT_SCHEMA_VERSION: u32 = 2;
+    const CURRENT_SCHEMA_VERSION: u32 = 1;
 
     // Read the stamp baked into the file header (0 for a fresh database).
     let version: u32 = conn
@@ -121,26 +121,15 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                 CREATE INDEX IF NOT EXISTS idx_metrics_sync
                     ON metrics(version, updated_at);
 
+                CREATE TABLE IF NOT EXISTS ai_presets (
+                    name   TEXT PRIMARY KEY,
+                    prompt TEXT NOT NULL
+                );
+
                 PRAGMA user_version = 1;",
                 )
                 .map_err(|e| {
                     error!(error=%e, "Schema migration v0 -> v1 failed");
-                    e
-                })?,
-
-            // ----------------------------------------------------------------
-            // v1 → v2 : AI Presets logic
-            // ----------------------------------------------------------------
-            1 => conn
-                .execute_batch(
-                    "CREATE TABLE IF NOT EXISTS ai_presets (
-                    name   TEXT PRIMARY KEY,
-                    prompt TEXT NOT NULL
-                );
-                PRAGMA user_version = 2;",
-                )
-                .map_err(|e| {
-                    error!(error=%e, "Schema migration v1 -> v2 failed");
                     e
                 })?,
 
