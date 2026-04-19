@@ -11,6 +11,7 @@ use genai::resolver::AuthData;
 use genai::{Client, ServiceTarget};
 use inquire::{Password, PasswordDisplayMode};
 use tokio::runtime::Builder;
+use tracing::{info, warn};
 use zeroize::Zeroize;
 
 use taurine_core::ai::{AiProvider, CredentialStore, OsKeyringStore, configured_providers};
@@ -25,7 +26,7 @@ trait ModelCatalog {
 
 pub fn execute_add(provider: AiProvider) -> taurine_core::error::Result<()> {
     add_provider_with_prompt(&OsKeyringStore, provider, prompt_provider_secret)?;
-    println!("configured {}", provider.as_str());
+    info!("configured {}", provider.as_str());
     Ok(())
 }
 
@@ -47,9 +48,9 @@ pub fn execute_models(provider: AiProvider) -> taurine_core::error::Result<()> {
 
 pub fn execute_remove(provider: AiProvider) -> taurine_core::error::Result<()> {
     if remove_provider_credential(&OsKeyringStore, provider)? {
-        println!("removed {}", provider.as_str());
+        info!("removed {}", provider.as_str());
     } else {
-        println!("{} not configured", provider.as_str());
+        info!("{} not configured", provider.as_str());
     }
 
     Ok(())
@@ -67,7 +68,7 @@ pub fn execute_preset_add(name: String, prompt: String) -> taurine_core::error::
     let conn = taurine_core::db::init::setup()?;
     taurine_core::db::crud::ai_presets::add_preset(&conn, &name, &prompt)?;
 
-    println!("preset '{}' added", name);
+    info!("preset '{}' added", name);
     taurine_core::rpc::notify_daemon_reload();
 
     Ok(())
@@ -76,10 +77,10 @@ pub fn execute_preset_add(name: String, prompt: String) -> taurine_core::error::
 pub fn execute_preset_rm(name: String) -> taurine_core::error::Result<()> {
     let conn = taurine_core::db::init::setup()?;
     if taurine_core::db::crud::ai_presets::remove_preset(&conn, &name)? {
-        println!("preset '{}' removed", name);
+        info!("preset '{}' removed", name);
         taurine_core::rpc::notify_daemon_reload();
     } else {
-        println!("preset '{}' not found", name);
+        info!("preset '{}' not found", name);
     }
 
     Ok(())
@@ -90,7 +91,7 @@ pub fn execute_preset_list() -> taurine_core::error::Result<()> {
     let presets_list = taurine_core::db::crud::ai_presets::list_presets(&conn)?;
 
     if presets_list.is_empty() {
-        println!("No AI presets configured.");
+        warn!("No AI presets configured.");
         return Ok(());
     }
 

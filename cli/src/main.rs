@@ -497,7 +497,7 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
                 } else if let Some(k) = key {
                     commands::config::execute_reset(k)?;
                 } else {
-                    eprintln!("error: provide a key to reset or use --all to reset everything");
+                    error!("error: provide a key to reset or use --all to reset everything");
                     std::process::exit(1);
                 }
             }

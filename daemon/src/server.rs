@@ -177,7 +177,7 @@ mod tests {
         );
 
         // Initially state should be empty
-        assert_eq!(state.source.get_action("hello"), None);
+        assert_eq!(state.fetch_expansion("hello"), None);
 
         // Add a snippet to DB
         add_automation_by_trigger(&conn, "hello", "world", "all").expect("Failed to add to DB");
@@ -192,13 +192,14 @@ mod tests {
         );
 
         // Now the in-memory cache should have the expansion
+        let expansion = state
+            .fetch_expansion("hello")
+            .expect("reload should repopulate cache");
         assert_eq!(
-            state
-                .source
-                .get_action("hello")
-                .map(|a| a.output)
-                .as_deref(),
-            Some("world")
+            expansion.steps,
+            vec![taurine_core::engine::variables::ExpansionStep::Text(
+                "world".to_string()
+            )]
         );
 
         // Cleanup

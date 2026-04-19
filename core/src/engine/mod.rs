@@ -1,4 +1,5 @@
 pub mod buffer;
+pub mod catalog;
 pub mod evaluator;
 pub mod math;
 pub mod shell;
@@ -10,5 +11,6 @@ pub use shell::{ScriptBehavior, ScriptInterpreter, ScriptMetadata};
 pub use source::SnippetSource;
 
 pub use buffer::FastBuffer;
+pub use catalog::ExpansionCatalog;
 pub use evaluator::{EngineEvent, Evaluator, ExpansionResult};
 pub use state::{EngineMode, EngineState};
