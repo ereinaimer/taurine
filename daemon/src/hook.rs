@@ -187,56 +187,149 @@ pub(crate) fn spawn_expansion_dispatch(
     runtime_handle: Handle,
 ) {
     std::thread::spawn(move || {
-        let taurine_core::engine::ExpansionResult {
-            delete_count,
-            steps,
-            trigger,
-            is_calculation,
-            track_usage,
-            start_ai_spinner,
-            inline_ai_prompt,
-            ai_system_prompt_override,
-        } = expansion;
-
-        let output_len: usize = steps
-            .iter()
-            .filter_map(|step| match step {
-                taurine_core::engine::variables::ExpansionStep::Text(text) => {
-                    Some(text.chars().count())
-                }
-                _ => None,
-            })
-            .sum();
-
-        crate::injector::inject_expansion(steps, delete_count, spinner_style);
-
-        if start_ai_spinner && let Some(prompt) = inline_ai_prompt {
-            let spinner_handle = taurine_core::utils::spinner::spawn_async(
-                spinner_style,
-                crate::platform::spinner_renderer::OsSpinnerRenderer::default(),
-                &runtime_handle,
-            );
-            runtime_handle.spawn(async move {
-                crate::engine::ai::stream::run_inline_ai_stream(
-                    prompt,
-                    ai_system_prompt_override,
-                    spinner_handle,
-                )
-                .await;
-            });
-        }
-
-        if track_usage {
-            if is_calculation {
-                taurine_core::db::crud::record_calculation_usage(output_len, delete_count, 0);
-            } else {
-                taurine_core::db::crud::record_expansion_usage(
-                    &trigger,
-                    output_len,
-                    delete_count,
-                    0,
-                );
-            }
-        }
+        dispatch_expansion_with(
+            expansion,
+            spinner_style,
+            runtime_handle,
+            crate::injector::inject_expansion,
+            launch_follow_up,
+        );
     });
+}
+
+fn dispatch_expansion_with<I, L>(
+    expansion: taurine_core::engine::ExpansionResult,
+    spinner_style: taurine_core::settings::SpinnerStyle,
+    runtime_handle: Handle,
+    inject_expansion: I,
+    launch_follow_up_fn: L,
+) where
+    I: FnOnce(
+        Vec<taurine_core::engine::variables::ExpansionStep>,
+        usize,
+        taurine_core::settings::SpinnerStyle,
+    ),
+    L: FnOnce(
+        Option<taurine_core::engine::ExpansionFollowUp>,
+        taurine_core::settings::SpinnerStyle,
+        Handle,
+    ),
+{
+    let taurine_core::engine::ExpansionResult {
+        delete_count,
+        steps,
+        trigger,
+        is_calculation,
+        track_usage,
+        follow_up,
+    } = expansion;
+
+    let output_len: usize = steps
+        .iter()
+        .filter_map(|step| match step {
+            taurine_core::engine::variables::ExpansionStep::Text(text) => {
+                Some(text.chars().count())
+            }
+            _ => None,
+        })
+        .sum();
+
+    inject_expansion(steps, delete_count, spinner_style);
+    launch_follow_up_fn(follow_up, spinner_style, runtime_handle);
+
+    if track_usage {
+        if is_calculation {
+            taurine_core::db::crud::record_calculation_usage(output_len, delete_count, 0);
+        } else {
+            taurine_core::db::crud::record_expansion_usage(&trigger, output_len, delete_count, 0);
+        }
+    }
+}
+
+fn launch_follow_up(
+    follow_up: Option<taurine_core::engine::ExpansionFollowUp>,
+    spinner_style: taurine_core::settings::SpinnerStyle,
+    runtime_handle: Handle,
+) {
+    if let Some(taurine_core::engine::ExpansionFollowUp::InlineAi {
+        prompt,
+        system_prompt_override,
+    }) = follow_up
+    {
+        let spinner_handle = taurine_core::utils::spinner::spawn_async(
+            spinner_style,
+            crate::platform::spinner_renderer::OsSpinnerRenderer::default(),
+            &runtime_handle,
+        );
+        runtime_handle.spawn(async move {
+            crate::engine::ai::stream::run_inline_ai_stream(
+                prompt,
+                system_prompt_override,
+                spinner_handle,
+            )
+            .await;
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn dispatch_expansion_runs_injection_before_follow_up_consumption() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let inject_events = events.clone();
+        let follow_up_events = events.clone();
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime should build");
+
+        let expansion = taurine_core::engine::ExpansionResult {
+            delete_count: 4,
+            steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
+                "thinking".to_string(),
+            )],
+            trigger: "ai".to_string(),
+            is_calculation: false,
+            track_usage: false,
+            follow_up: Some(taurine_core::engine::ExpansionFollowUp::InlineAi {
+                prompt: "prompt".to_string(),
+                system_prompt_override: Some("expert editor".to_string()),
+            }),
+        };
+
+        dispatch_expansion_with(
+            expansion,
+            taurine_core::settings::SpinnerStyle::default(),
+            rt.handle().clone(),
+            move |_, _, _| {
+                inject_events
+                    .lock()
+                    .expect("inject events poisoned")
+                    .push("inject")
+            },
+            move |follow_up, _, _| {
+                follow_up_events
+                    .lock()
+                    .expect("follow-up events poisoned")
+                    .push("follow_up");
+                assert_eq!(
+                    follow_up,
+                    Some(taurine_core::engine::ExpansionFollowUp::InlineAi {
+                        prompt: "prompt".to_string(),
+                        system_prompt_override: Some("expert editor".to_string()),
+                    })
+                );
+            },
+        );
+
+        assert_eq!(
+            &*events.lock().expect("events poisoned"),
+            &["inject", "follow_up"]
+        );
+    }
 }

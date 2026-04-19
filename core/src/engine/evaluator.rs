@@ -18,6 +18,14 @@ pub enum EngineEvent {
     Interrupt, // Esc, Mouse clicks, or loss of focus
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExpansionFollowUp {
+    InlineAi {
+        prompt: String,
+        system_prompt_override: Option<String>,
+    },
+}
+
 /// Instructions the daemon must execute to perform a text expansion.
 ///
 /// The daemon's only job is to relay these instructions to the OS:
@@ -35,12 +43,8 @@ pub struct ExpansionResult {
     pub is_calculation: bool,
     /// Whether the daemon should record snippet/calculation usage for this expansion.
     pub track_usage: bool,
-    /// Whether the daemon should start the async AI spinner after injection.
-    pub start_ai_spinner: bool,
-    /// Inline AI prompt payload for stateless ghost-writer expansions.
-    pub inline_ai_prompt: Option<String>,
-    /// Optional system prompt override for the AI session.
-    pub ai_system_prompt_override: Option<String>,
+    /// Optional daemon-side follow-up that should run after expansion injection.
+    pub follow_up: Option<ExpansionFollowUp>,
 }
 
 pub struct Evaluator {
@@ -108,9 +112,7 @@ impl Evaluator {
                             trigger: keyword,
                             is_calculation: expansion.is_calculation,
                             track_usage: true,
-                            start_ai_spinner: false,
-                            inline_ai_prompt: None,
-                            ai_system_prompt_override: None,
+                            follow_up: None,
                         });
                     }
                 }
@@ -183,9 +185,7 @@ impl Evaluator {
             trigger: INLINE_AI_KEYWORD.to_string(),
             is_calculation: false,
             track_usage: false,
-            start_ai_spinner: false,
-            inline_ai_prompt: None,
-            ai_system_prompt_override: prompt_override,
+            follow_up: None,
         }
     }
 
@@ -199,9 +199,10 @@ impl Evaluator {
             trigger: INLINE_AI_KEYWORD.to_string(),
             is_calculation: false,
             track_usage: false,
-            start_ai_spinner: true,
-            inline_ai_prompt: Some(prompt),
-            ai_system_prompt_override: None,
+            follow_up: Some(ExpansionFollowUp::InlineAi {
+                prompt,
+                system_prompt_override: None,
+            }),
         }
     }
 
@@ -240,9 +241,10 @@ impl Evaluator {
             trigger: INLINE_AI_KEYWORD.to_string(),
             is_calculation: false,
             track_usage: false,
-            start_ai_spinner: true,
-            inline_ai_prompt: Some(prompt.to_string()),
-            ai_system_prompt_override: system_prompt_override,
+            follow_up: Some(ExpansionFollowUp::InlineAi {
+                prompt: prompt.to_string(),
+                system_prompt_override,
+            }),
         })
     }
 }
@@ -302,6 +304,24 @@ mod tests {
     use super::*;
     use tracing::error;
 
+    fn assert_no_follow_up(result: &ExpansionResult) {
+        assert_eq!(result.follow_up, None);
+    }
+
+    fn assert_inline_ai_follow_up(
+        result: &ExpansionResult,
+        prompt: &str,
+        system_prompt_override: Option<&str>,
+    ) {
+        assert_eq!(
+            result.follow_up,
+            Some(ExpansionFollowUp::InlineAi {
+                prompt: prompt.to_string(),
+                system_prompt_override: system_prompt_override.map(str::to_string),
+            })
+        );
+    }
+
     fn setup() -> Evaluator {
         let state = Arc::new(EngineState::new('/'));
         state.load_actions(vec![
@@ -344,7 +364,7 @@ mod tests {
             vec![ExpansionStep::Text("Good morning!".to_string())]
         );
         assert!(result.track_usage);
-        assert!(!result.start_ai_spinner);
+        assert_no_follow_up(&result);
 
         // State machine buffer should reset upon expansion
         assert_eq!(eval.buffer.len, 0);
@@ -388,7 +408,7 @@ mod tests {
         );
         assert!(!result.is_calculation);
         assert!(result.track_usage);
-        assert!(!result.start_ai_spinner);
+        assert_no_follow_up(&result);
     }
 
     #[test]
@@ -405,7 +425,7 @@ mod tests {
             vec![ExpansionStep::Text(r#"¯\_(ツ)_/¯"#.to_string())]
         );
         assert!(result.track_usage);
-        assert!(!result.start_ai_spinner);
+        assert_no_follow_up(&result);
     }
 
     #[test]
@@ -654,7 +674,7 @@ mod tests {
         assert_eq!(result.trigger, "5+2");
         assert!(result.is_calculation);
         assert!(result.track_usage);
-        assert!(!result.start_ai_spinner);
+        assert_no_follow_up(&result);
     }
 
     #[test]
@@ -676,7 +696,7 @@ mod tests {
         assert_eq!(result.steps, vec![ExpansionStep::Text("2".to_string())]);
         assert_eq!(result.trigger, "((5+2)/7%2)*2");
         assert!(result.track_usage);
-        assert!(!result.start_ai_spinner);
+        assert_no_follow_up(&result);
     }
 
     #[test]
@@ -700,7 +720,7 @@ mod tests {
             vec![ExpansionStep::Text("1.1429".to_string())]
         );
         assert!(result.track_usage);
-        assert!(!result.start_ai_spinner);
+        assert_no_follow_up(&result);
     }
 
     #[test]
@@ -773,11 +793,7 @@ mod tests {
         );
         assert_eq!(result.trigger, INLINE_AI_KEYWORD);
         assert!(!result.track_usage);
-        assert!(result.start_ai_spinner);
-        assert_eq!(
-            result.inline_ai_prompt,
-            Some("What is the deadliest microbe?".to_string())
-        );
+        assert_inline_ai_follow_up(&result, "What is the deadliest microbe?", None);
     }
 
     #[test]
@@ -803,11 +819,7 @@ mod tests {
             .expect("single-quoted inline ai should trigger on the trailing space");
 
         assert_eq!(result.delete_count, trigger.chars().count() + 1);
-        assert_eq!(
-            result.inline_ai_prompt,
-            Some("What is the deadliest microbe?".to_string())
-        );
-        assert!(result.start_ai_spinner);
+        assert_inline_ai_follow_up(&result, "What is the deadliest microbe?", None);
     }
 
     #[test]
@@ -856,8 +868,7 @@ mod tests {
         assert_eq!(state.ai_prompt_buffer(), "");
         assert_eq!(result.delete_count, INLINE_AI_CAPTURE_TRIGGER_DELETE_COUNT);
         assert_eq!(result.steps, vec![ExpansionStep::Text("`".to_string())]);
-        assert!(!result.start_ai_spinner);
-        assert_eq!(result.inline_ai_prompt, None);
+        assert_no_follow_up(&result);
     }
 
     #[test]
@@ -884,8 +895,7 @@ mod tests {
             result.steps,
             vec![ExpansionStep::Text(INLINE_AI_THINKING_TEXT.to_string())]
         );
-        assert!(result.start_ai_spinner);
-        assert_eq!(result.inline_ai_prompt, Some("What is Rust?".to_string()));
+        assert_inline_ai_follow_up(&result, "What is Rust?", None);
     }
 
     #[test]
@@ -1004,8 +1014,7 @@ mod tests {
             result.steps,
             vec![ExpansionStep::Text(INLINE_AI_THINKING_TEXT.to_string())]
         );
-        assert_eq!(result.inline_ai_prompt, Some("prompt".to_string()));
-        assert!(result.start_ai_spinner);
+        assert_inline_ai_follow_up(&result, "prompt", None);
     }
 
     #[test]
@@ -1060,7 +1069,7 @@ mod tests {
             .process_event(EngineEvent::Char(' '))
             .expect("Should finish capture");
         assert_eq!(state.engine_mode(), EngineMode::Normal);
-        assert_eq!(finish_res.inline_ai_prompt, Some("Hello AI".to_string()));
+        assert_inline_ai_follow_up(&finish_res, "Hello AI", None);
     }
 
     #[test]
@@ -1078,10 +1087,7 @@ mod tests {
         }
 
         let res = result.expect("AI preset should trigger");
-        assert_eq!(
-            res.ai_system_prompt_override,
-            Some("expert editor".to_string())
-        );
+        assert_no_follow_up(&res);
         assert!(matches!(
             eval.state.engine_mode(),
             EngineMode::AiCapture {
@@ -1110,10 +1116,6 @@ mod tests {
         let result = eval
             .process_event(EngineEvent::Char(' '))
             .expect("Should finish prompt");
-        assert_eq!(
-            result.ai_system_prompt_override,
-            Some("expert editor".to_string())
-        );
-        assert_eq!(result.inline_ai_prompt, Some("fix grammar".to_string()));
+        assert_inline_ai_follow_up(&result, "fix grammar", Some("expert editor"));
     }
 }

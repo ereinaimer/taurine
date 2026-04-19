@@ -14,5 +14,5 @@ pub use source::SnippetSource;
 pub use ai_session::{EngineMode, InlineAiSession};
 pub use buffer::FastBuffer;
 pub use catalog::ExpansionCatalog;
-pub use evaluator::{EngineEvent, Evaluator, ExpansionResult};
+pub use evaluator::{EngineEvent, Evaluator, ExpansionFollowUp, ExpansionResult};
 pub use state::EngineState;
