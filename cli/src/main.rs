@@ -210,6 +210,7 @@ pub enum AiProvider {
     Zai,
     BigModel,
     GithubCopilot,
+    Custom,
 }
 
 impl AiProvider {
@@ -229,6 +230,7 @@ impl AiProvider {
             Self::Zai => "zai",
             Self::BigModel => "bigmodel",
             Self::GithubCopilot => "github_copilot",
+            Self::Custom => "custom",
         }
     }
 }
@@ -250,6 +252,7 @@ impl From<AiProvider> for taurine_core::ai::AiProvider {
             AiProvider::Zai => Self::Zai,
             AiProvider::BigModel => Self::BigModel,
             AiProvider::GithubCopilot => Self::GithubCopilot,
+            AiProvider::Custom => Self::Custom,
         }
     }
 }

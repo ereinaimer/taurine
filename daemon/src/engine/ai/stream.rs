@@ -55,7 +55,11 @@ async fn run_inline_ai_stream_inner(
             return Err(err);
         }
     };
-    let client = build_chat_client(resolved.provider, resolved.secret.as_str());
+    let client = build_chat_client(
+        resolved.provider,
+        resolved.secret.as_str(),
+        resolved.custom_endpoint,
+    );
     let chat_request =
         build_chat_request(resolved.provider, prompt.as_str(), system_prompt_override);
 
@@ -139,6 +143,7 @@ struct ResolvedInlineAiRequest {
     provider: AiProvider,
     model: String,
     secret: String,
+    custom_endpoint: Option<String>,
 }
 
 fn resolve_inline_ai_request<S>(store: &S) -> taurine_core::error::Result<ResolvedInlineAiRequest>
@@ -157,22 +162,39 @@ where
         ))
     })?;
 
+    if provider == AiProvider::Custom && settings.ai_custom_endpoint.is_none() {
+        return Err(taurine_core::error::Error::Config(
+            "Error: Custom provider requires an endpoint. Run 'taurine config set ai_custom_endpoint <URL>'.".to_string(),
+        ));
+    }
+
     Ok(ResolvedInlineAiRequest {
         provider,
         model,
         secret,
+        custom_endpoint: settings.ai_custom_endpoint,
     })
 }
 
-fn build_chat_client(provider: AiProvider, api_key: &str) -> Client {
+fn build_chat_client(
+    provider: AiProvider,
+    api_key: &str,
+    custom_endpoint: Option<String>,
+) -> Client {
     let api_key = Zeroizing::new(api_key.to_string());
     Client::builder()
         .with_service_target_resolver_fn(move |service_target: ServiceTarget| {
             let ServiceTarget {
                 endpoint, model, ..
             } = service_target;
+
+            let mut endpoint_url = endpoint;
+            if let Some(custom_url) = custom_endpoint.clone() {
+                endpoint_url = genai::resolver::Endpoint::from_owned(custom_url);
+            }
+
             Ok(ServiceTarget {
-                endpoint,
+                endpoint: endpoint_url,
                 auth: AuthData::from_single((*api_key).clone()),
                 model: ModelIden::new(adapter_kind(provider), model.model_name),
             })
@@ -215,6 +237,7 @@ fn adapter_kind(provider: AiProvider) -> AdapterKind {
         AiProvider::Zai => AdapterKind::Zai,
         AiProvider::BigModel => AdapterKind::BigModel,
         AiProvider::GithubCopilot => AdapterKind::OpenAI,
+        AiProvider::Custom => AdapterKind::OpenAI,
     }
 }
 

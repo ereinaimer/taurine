@@ -27,6 +27,11 @@ trait ModelCatalog {
 pub fn execute_add(provider: AiProvider) -> taurine_core::error::Result<()> {
     add_provider_with_prompt(&OsKeyringStore, provider, prompt_provider_secret)?;
     info!("configured {}", provider.as_str());
+
+    if provider == AiProvider::Custom {
+        info!("Remember to set your endpoint: taurine config set ai_custom_endpoint <URL>");
+    }
+
     Ok(())
 }
 
@@ -252,6 +257,7 @@ fn adapter_kind(provider: AiProvider) -> AdapterKind {
         AiProvider::Zai => AdapterKind::Zai,
         AiProvider::BigModel => AdapterKind::BigModel,
         AiProvider::GithubCopilot => AdapterKind::OpenAI,
+        AiProvider::Custom => AdapterKind::OpenAI,
     }
 }
 

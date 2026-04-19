@@ -26,6 +26,7 @@ pub enum AiProvider {
     Zai,
     BigModel,
     GithubCopilot,
+    Custom,
 }
 
 impl AiProvider {
@@ -45,6 +46,7 @@ impl AiProvider {
             Self::Zai => "zai",
             Self::BigModel => "bigmodel",
             Self::GithubCopilot => "github_copilot",
+            Self::Custom => "custom",
         }
     }
 
@@ -64,6 +66,7 @@ impl AiProvider {
             Self::Zai => "glm-4",
             Self::BigModel => "glm-4",
             Self::GithubCopilot => "gpt-4o",
+            Self::Custom => "gpt-3.5-turbo",
         }
     }
 
@@ -83,6 +86,7 @@ impl AiProvider {
             "zai" => Some(Self::Zai),
             "bigmodel" => Some(Self::BigModel),
             "github_copilot" => Some(Self::GithubCopilot),
+            "custom" => Some(Self::Custom),
             _ => None,
         }
     }
@@ -100,7 +104,7 @@ impl FromStr for AiProvider {
     fn from_str(s: &str) -> Result<Self> {
         Self::parse(s).ok_or_else(|| {
             Error::Config(format!(
-                "Invalid ai_provider setting '{s}'. Use openai, claude, gemini, xai, groq, deepseek, cohere, together, fireworks, nebius, mimo, zai, bigmodel, or github_copilot."
+                "Invalid ai_provider setting '{s}'. Use openai, claude, gemini, xai, groq, deepseek, cohere, together, fireworks, nebius, mimo, zai, bigmodel, github_copilot, or custom."
             ))
         })
     }
@@ -157,7 +161,7 @@ impl CredentialStore for OsKeyringStore {
     }
 }
 
-pub fn supported_providers() -> [AiProvider; 14] {
+pub fn supported_providers() -> [AiProvider; 15] {
     [
         AiProvider::Openai,
         AiProvider::Claude,
@@ -173,6 +177,7 @@ pub fn supported_providers() -> [AiProvider; 14] {
         AiProvider::Zai,
         AiProvider::BigModel,
         AiProvider::GithubCopilot,
+        AiProvider::Custom,
     ]
 }
 

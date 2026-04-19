@@ -22,6 +22,7 @@ pub struct Settings {
     pub spinner_style: SpinnerStyle,
     pub ai_provider: Option<String>,
     pub ai_model: Option<String>,
+    pub ai_custom_endpoint: Option<String>,
     pub inline_ai_delimiter: char,
 }
 
@@ -37,6 +38,9 @@ impl Settings {
             "ai_model" => "ai_model",
             "inline_ai_delimiter" => "inline_ai_delimiter",
             "delimiter" => "inline_ai_delimiter",
+            "endpoint" => "ai_custom_endpoint",
+            "custom_endpoint" => "ai_custom_endpoint",
+            "ai_custom_endpoint" => "ai_custom_endpoint",
             _ => key,
         }
     }
@@ -52,6 +56,7 @@ impl Default for Settings {
             spinner_style: SpinnerStyle::default(),
             ai_provider: None,
             ai_model: None,
+            ai_custom_endpoint: None,
             inline_ai_delimiter: '`',
         }
     }

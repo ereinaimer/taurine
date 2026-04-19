@@ -41,6 +41,10 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
         render_optional_setting(settings.ai_model.as_deref()),
     ]);
     table.add_row(vec![
+        "ai_custom_endpoint",
+        render_optional_setting(settings.ai_custom_endpoint.as_deref()),
+    ]);
+    table.add_row(vec![
         "inline_ai_delimiter",
         &settings.inline_ai_delimiter.to_string(),
     ]);
@@ -103,15 +107,15 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
             manager.update_setting(actual_key, Some(provider.as_str().to_string()))?;
             info!("Updated ai_provider to: {}", provider.as_str());
         }
-        "ai_model" => {
-            let model = value.trim();
-            if model.is_empty() {
-                return Err(taurine_core::error::Error::Config(
-                    "Invalid ai_model value: must not be empty".to_string(),
-                ));
+        "ai_model" | "ai_custom_endpoint" => {
+            let val = value.trim();
+            if val.is_empty() {
+                return Err(taurine_core::error::Error::Config(format!(
+                    "Invalid {actual_key} value: must not be empty"
+                )));
             }
-            manager.update_setting(actual_key, Some(model.to_string()))?;
-            info!("Updated ai_model to: {}", model);
+            manager.update_setting(actual_key, Some(val.to_string()))?;
+            info!("Updated {actual_key} to: {val}");
         }
         "inline_ai_delimiter" => {
             if let Some(c) = value.chars().next() {
@@ -176,6 +180,10 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
             manager.update_setting(actual_key, defaults.ai_model.clone())?;
             info!("Reset ai_model to default: <unset>");
         }
+        "ai_custom_endpoint" => {
+            manager.update_setting(actual_key, defaults.ai_custom_endpoint.clone())?;
+            info!("Reset ai_custom_endpoint to default: <unset>");
+        }
         "inline_ai_delimiter" => {
             manager.update_setting(actual_key, defaults.inline_ai_delimiter)?;
             info!(
@@ -208,6 +216,7 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
     manager.update_setting("spinner_style", defaults.spinner_style)?;
     manager.update_setting("ai_provider", defaults.ai_provider.clone())?;
     manager.update_setting("ai_model", defaults.ai_model.clone())?;
+    manager.update_setting("ai_custom_endpoint", defaults.ai_custom_endpoint.clone())?;
     manager.update_setting("inline_ai_delimiter", defaults.inline_ai_delimiter)?;
 
     info!("All settings have been reset to factory defaults.");

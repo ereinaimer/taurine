@@ -60,6 +60,12 @@ impl<'a> SettingsManager<'a> {
             settings.ai_model = v;
         }
 
+        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_custom_endpoint")
+            && let Ok(v) = serde_json::from_str::<Option<String>>(&val)
+        {
+            settings.ai_custom_endpoint = v;
+        }
+
         if let Ok(Some(val)) = get_setting_value(self.conn, "inline_ai_delimiter")
             && let Ok(v) = serde_json::from_str::<String>(&val)
             && let Some(c) = v.chars().next()
