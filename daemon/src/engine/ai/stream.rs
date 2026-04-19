@@ -208,6 +208,13 @@ fn adapter_kind(provider: AiProvider) -> AdapterKind {
         AiProvider::Groq => AdapterKind::Groq,
         AiProvider::Deepseek => AdapterKind::DeepSeek,
         AiProvider::Cohere => AdapterKind::Cohere,
+        AiProvider::Together => AdapterKind::Together,
+        AiProvider::Fireworks => AdapterKind::Fireworks,
+        AiProvider::Nebius => AdapterKind::Nebius,
+        AiProvider::Mimo => AdapterKind::Mimo,
+        AiProvider::Zai => AdapterKind::Zai,
+        AiProvider::BigModel => AdapterKind::BigModel,
+        AiProvider::GithubCopilot => AdapterKind::OpenAI,
     }
 }
 

@@ -203,6 +203,13 @@ pub enum AiProvider {
     Groq,
     Deepseek,
     Cohere,
+    Together,
+    Fireworks,
+    Nebius,
+    Mimo,
+    Zai,
+    BigModel,
+    GithubCopilot,
 }
 
 impl AiProvider {
@@ -215,6 +222,13 @@ impl AiProvider {
             Self::Groq => "groq",
             Self::Deepseek => "deepseek",
             Self::Cohere => "cohere",
+            Self::Together => "together",
+            Self::Fireworks => "fireworks",
+            Self::Nebius => "nebius",
+            Self::Mimo => "mimo",
+            Self::Zai => "zai",
+            Self::BigModel => "bigmodel",
+            Self::GithubCopilot => "github_copilot",
         }
     }
 }
@@ -229,6 +243,13 @@ impl From<AiProvider> for taurine_core::ai::AiProvider {
             AiProvider::Groq => Self::Groq,
             AiProvider::Deepseek => Self::Deepseek,
             AiProvider::Cohere => Self::Cohere,
+            AiProvider::Together => Self::Together,
+            AiProvider::Fireworks => Self::Fireworks,
+            AiProvider::Nebius => Self::Nebius,
+            AiProvider::Mimo => Self::Mimo,
+            AiProvider::Zai => Self::Zai,
+            AiProvider::BigModel => Self::BigModel,
+            AiProvider::GithubCopilot => Self::GithubCopilot,
         }
     }
 }

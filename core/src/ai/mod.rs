@@ -19,6 +19,13 @@ pub enum AiProvider {
     Groq,
     Deepseek,
     Cohere,
+    Together,
+    Fireworks,
+    Nebius,
+    Mimo,
+    Zai,
+    BigModel,
+    GithubCopilot,
 }
 
 impl AiProvider {
@@ -31,6 +38,13 @@ impl AiProvider {
             Self::Groq => "groq",
             Self::Deepseek => "deepseek",
             Self::Cohere => "cohere",
+            Self::Together => "together",
+            Self::Fireworks => "fireworks",
+            Self::Nebius => "nebius",
+            Self::Mimo => "mimo",
+            Self::Zai => "zai",
+            Self::BigModel => "bigmodel",
+            Self::GithubCopilot => "github_copilot",
         }
     }
 
@@ -43,6 +57,13 @@ impl AiProvider {
             Self::Groq => "llama-3.3-70b-versatile",
             Self::Deepseek => "deepseek-chat",
             Self::Cohere => "command-r-plus",
+            Self::Together => "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+            Self::Fireworks => "accounts/fireworks/models/llama-v3p3-70b-instruct",
+            Self::Nebius => "meta-llama/Meta-Llama-3.1-70B-Instruct",
+            Self::Mimo => "mimo-2",
+            Self::Zai => "glm-4",
+            Self::BigModel => "glm-4",
+            Self::GithubCopilot => "gpt-4o",
         }
     }
 
@@ -55,6 +76,13 @@ impl AiProvider {
             "groq" => Some(Self::Groq),
             "deepseek" => Some(Self::Deepseek),
             "cohere" => Some(Self::Cohere),
+            "together" => Some(Self::Together),
+            "fireworks" => Some(Self::Fireworks),
+            "nebius" => Some(Self::Nebius),
+            "mimo" => Some(Self::Mimo),
+            "zai" => Some(Self::Zai),
+            "bigmodel" => Some(Self::BigModel),
+            "github_copilot" => Some(Self::GithubCopilot),
             _ => None,
         }
     }
@@ -72,7 +100,7 @@ impl FromStr for AiProvider {
     fn from_str(s: &str) -> Result<Self> {
         Self::parse(s).ok_or_else(|| {
             Error::Config(format!(
-                "Invalid ai_provider setting '{s}'. Use openai, claude, gemini, xai, groq, deepseek, or cohere."
+                "Invalid ai_provider setting '{s}'. Use openai, claude, gemini, xai, groq, deepseek, cohere, together, fireworks, nebius, mimo, zai, bigmodel, or github_copilot."
             ))
         })
     }
@@ -129,7 +157,7 @@ impl CredentialStore for OsKeyringStore {
     }
 }
 
-pub fn supported_providers() -> [AiProvider; 7] {
+pub fn supported_providers() -> [AiProvider; 14] {
     [
         AiProvider::Openai,
         AiProvider::Claude,
@@ -138,6 +166,13 @@ pub fn supported_providers() -> [AiProvider; 7] {
         AiProvider::Groq,
         AiProvider::Deepseek,
         AiProvider::Cohere,
+        AiProvider::Together,
+        AiProvider::Fireworks,
+        AiProvider::Nebius,
+        AiProvider::Mimo,
+        AiProvider::Zai,
+        AiProvider::BigModel,
+        AiProvider::GithubCopilot,
     ]
 }
 
