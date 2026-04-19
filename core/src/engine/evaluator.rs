@@ -7,7 +7,6 @@ use crate::engine::state::{EngineMode, EngineState};
 
 const INLINE_AI_KEYWORD: &str = "ai";
 const INLINE_AI_KEYWORD_PREFIX: &str = "ai:";
-const INLINE_AI_THINKING_TEXT: &str = "⠋ Thinking...";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EngineEvent {
@@ -56,6 +55,20 @@ impl Evaluator {
         Self {
             buffer: FastBuffer::new(),
             state,
+        }
+    }
+
+    fn get_thinking_text(&self) -> String {
+        let style = self
+            .state
+            .spinner_style
+            .read()
+            .map(|s| *s)
+            .unwrap_or_default();
+        match style {
+            crate::settings::SpinnerStyle::Braille => "⠋ Thinking...".to_string(),
+            crate::settings::SpinnerStyle::Arc => "◜ Thinking...".to_string(),
+            crate::settings::SpinnerStyle::Classic => "| Thinking...".to_string(),
         }
     }
 
@@ -198,7 +211,7 @@ impl Evaluator {
 
         ExpansionResult {
             delete_count,
-            steps: vec![ExpansionStep::Text(INLINE_AI_THINKING_TEXT.to_string())],
+            steps: vec![ExpansionStep::Text(self.get_thinking_text())],
             trigger: INLINE_AI_KEYWORD.to_string(),
             is_calculation: false,
             track_usage: false,
@@ -240,7 +253,7 @@ impl Evaluator {
 
         Some(ExpansionResult {
             delete_count,
-            steps: vec![ExpansionStep::Text(INLINE_AI_THINKING_TEXT.to_string())],
+            steps: vec![ExpansionStep::Text(self.get_thinking_text())],
             trigger: INLINE_AI_KEYWORD.to_string(),
             is_calculation: false,
             track_usage: false,
@@ -792,7 +805,7 @@ mod tests {
         assert_eq!(result.delete_count, trigger.chars().count() + 1);
         assert_eq!(
             result.steps,
-            vec![ExpansionStep::Text(INLINE_AI_THINKING_TEXT.to_string())]
+            vec![ExpansionStep::Text(eval.get_thinking_text())]
         );
         assert_eq!(result.trigger, INLINE_AI_KEYWORD);
         assert!(!result.track_usage);
@@ -896,7 +909,7 @@ mod tests {
         assert_eq!(result.delete_count, "What is Rust?`".chars().count() + 2);
         assert_eq!(
             result.steps,
-            vec![ExpansionStep::Text(INLINE_AI_THINKING_TEXT.to_string())]
+            vec![ExpansionStep::Text(eval.get_thinking_text())]
         );
         assert_inline_ai_follow_up(&result, "What is Rust?", None);
     }
@@ -1015,7 +1028,7 @@ mod tests {
         assert_eq!(result.delete_count, "prompt`".chars().count() + 2);
         assert_eq!(
             result.steps,
-            vec![ExpansionStep::Text(INLINE_AI_THINKING_TEXT.to_string())]
+            vec![ExpansionStep::Text(eval.get_thinking_text())]
         );
         assert_inline_ai_follow_up(&result, "prompt", None);
     }
@@ -1039,7 +1052,9 @@ mod tests {
 
     #[test]
     fn inline_ai_thinking_text_matches_spec() {
-        assert_eq!(INLINE_AI_THINKING_TEXT, "⠋ Thinking...");
+        let state = Arc::new(EngineState::new('>'));
+        let eval = Evaluator::new(state);
+        assert_eq!(eval.get_thinking_text(), "⠋ Thinking...");
     }
 
     #[test]

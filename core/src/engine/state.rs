@@ -13,6 +13,7 @@ pub struct EngineState {
     pub trigger_char: AtomicU32,
     pub inline_ai_delimiter: AtomicU32,
     pub ai_presets: RwLock<std::collections::HashMap<String, String>>,
+    pub spinner_style: RwLock<crate::settings::SpinnerStyle>,
     ai_session: InlineAiSession,
     catalog: ExpansionCatalog,
 }
@@ -23,6 +24,7 @@ impl EngineState {
             trigger_char: AtomicU32::new(trigger_char as u32),
             inline_ai_delimiter: AtomicU32::new('`' as u32),
             ai_presets: RwLock::new(std::collections::HashMap::new()),
+            spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
             ai_session: InlineAiSession::new(),
             catalog: ExpansionCatalog::new(),
         }
@@ -34,6 +36,7 @@ impl EngineState {
             trigger_char: AtomicU32::new(trigger_char as u32),
             inline_ai_delimiter: AtomicU32::new('`' as u32),
             ai_presets: RwLock::new(std::collections::HashMap::new()),
+            spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
             ai_session: InlineAiSession::new(),
             catalog: ExpansionCatalog::with_source(source),
         }
