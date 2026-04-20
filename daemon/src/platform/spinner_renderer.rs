@@ -40,9 +40,10 @@ impl SpinnerRenderer for OsSpinnerRenderer {
 }
 
 fn with_hidden_spinner_input<T>(action: impl FnOnce() -> T) -> T {
+    let was_injecting = crate::injector::IS_INJECTING.load(Ordering::SeqCst);
     crate::injector::IS_INJECTING.store(true, Ordering::SeqCst);
     let result = action();
-    crate::injector::IS_INJECTING.store(false, Ordering::SeqCst);
+    crate::injector::IS_INJECTING.store(was_injecting, Ordering::SeqCst);
     result
 }
 

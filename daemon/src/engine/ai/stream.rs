@@ -63,37 +63,52 @@ async fn run_inline_ai_stream_inner(
     let chat_request =
         build_chat_request(resolved.provider, prompt.as_str(), system_prompt_override);
 
-    let mut chat_stream = match client
-        .exec_chat_stream(resolved.model.as_str(), chat_request, None)
-        .await
-    {
-        Ok(stream) => stream,
-        Err(err) => {
-            let message =
-                inline_error_message(&taurine_core::error::Error::Service(err.to_string()));
+    let chat_stream_future = client.exec_chat_stream(resolved.model.as_str(), chat_request, None);
+    tokio::pin!(chat_stream_future);
+
+    let mut chat_stream = loop {
+        if crate::injector::INJECTION_ABORT.load(std::sync::atomic::Ordering::SeqCst) {
             ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
-            inject_error_message(&mut output, false, &message).await?;
-            finish_output(output).await;
             resolved.secret.zeroize();
-            return Err(taurine_core::error::Error::Service(message));
+            return Ok(());
+        }
+
+        tokio::select! {
+            res = &mut chat_stream_future => {
+                match res {
+                    Ok(stream) => break stream,
+                    Err(err) => {
+                        let message = inline_error_message(&taurine_core::error::Error::Service(err.to_string()));
+                        ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
+                        inject_error_message(&mut output, false, &message).await?;
+                        finish_output(output).await;
+                        resolved.secret.zeroize();
+                        return Err(taurine_core::error::Error::Service(message));
+                    }
+                }
+            }
+            _ = tokio::time::sleep(Duration::from_millis(50)) => continue,
         }
     };
 
     loop {
-        let next_event = if pending.is_empty() {
-            chat_stream.stream.next().await
-        } else {
-            match tokio::time::timeout(
-                Duration::from_millis(STREAM_BATCH_WINDOW_MS),
-                chat_stream.stream.next(),
-            )
-            .await
-            {
-                Ok(event) => event,
-                Err(_) => {
+        let next_event = match tokio::time::timeout(
+            Duration::from_millis(STREAM_BATCH_WINDOW_MS),
+            chat_stream.stream.next(),
+        )
+        .await
+        {
+            Ok(event) => event,
+            Err(_) => {
+                if crate::injector::INJECTION_ABORT.load(std::sync::atomic::Ordering::SeqCst) {
+                    ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
                     flush_pending_batch(&mut output, &mut pending).await?;
-                    continue;
+                    finish_output(output).await;
+                    resolved.secret.zeroize();
+                    return Ok(());
                 }
+                flush_pending_batch(&mut output, &mut pending).await?;
+                continue;
             }
         };
 

@@ -256,6 +256,9 @@ fn launch_follow_up(
         system_prompt_override,
     }) = follow_up
     {
+        crate::injector::IS_INJECTING.store(true, std::sync::atomic::Ordering::SeqCst);
+        crate::injector::INJECTION_ABORT.store(false, std::sync::atomic::Ordering::SeqCst);
+
         let spinner_handle = taurine_core::utils::spinner::spawn_async(
             spinner_style,
             crate::platform::spinner_renderer::OsSpinnerRenderer::default(),
@@ -268,6 +271,9 @@ fn launch_follow_up(
                 spinner_handle,
             )
             .await;
+
+            crate::injector::IS_INJECTING.store(false, std::sync::atomic::Ordering::SeqCst);
+            crate::injector::INJECTION_ABORT.store(false, std::sync::atomic::Ordering::SeqCst);
         });
     }
 }
