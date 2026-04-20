@@ -280,12 +280,40 @@ fn should_flush_pending(pending: &str) -> bool {
         || pending.chars().count() >= 48
 }
 
-fn inline_error_message(err: &taurine_core::error::Error) -> String {
-    match err {
-        taurine_core::error::Error::Config(message)
-        | taurine_core::error::Error::Service(message) => format_error_message(message),
-        _ => format_error_message(&err.to_string()),
+fn sanitize_error_message(raw: &str) -> String {
+    if raw.contains("Body: {") || raw.contains("Error event in stream") || raw.contains("http") {
+        let lower = raw.to_lowercase();
+        if lower.contains("401")
+            || lower.contains("unauthorized")
+            || lower.contains("invalid api key")
+        {
+            return "Invalid API key.".to_string();
+        }
+        if lower.contains("429") || lower.contains("quota") || lower.contains("rate limit") {
+            return "API rate limit exceeded.".to_string();
+        }
+        if lower.contains("503")
+            || lower.contains("502")
+            || lower.contains("overloaded")
+            || lower.contains("high demand")
+        {
+            return "AI provider is currently overloaded.".to_string();
+        }
+        if lower.contains("timeout") {
+            return "Request timed out.".to_string();
+        }
+        return "An upstream API error occurred.".to_string();
     }
+    raw.to_string()
+}
+
+fn inline_error_message(err: &taurine_core::error::Error) -> String {
+    let raw_msg = match err {
+        taurine_core::error::Error::Config(message)
+        | taurine_core::error::Error::Service(message) => message.clone(),
+        _ => err.to_string(),
+    };
+    format_error_message(&sanitize_error_message(&raw_msg))
 }
 
 fn format_error_message(message: &str) -> String {
