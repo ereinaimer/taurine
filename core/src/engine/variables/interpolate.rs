@@ -200,7 +200,7 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
 
             let resolved = if let Some(user) = user_resolutions.get(key) {
                 user.clone()
-            } else if let Some(sys) = resolve_system_placeholder(key, default_value, args, depth) {
+            } else if let Some(sys) = resolve_system_placeholder(key) {
                 sys
             } else if let Some((sub, suffix)) = system::split_modifier(key)
                 && (is_valid_user_reference(
@@ -273,32 +273,8 @@ fn resolve_modified(
     system::format::apply(suffix, &content)
 }
 
-fn resolve_system_placeholder(
-    key: &str,
-    default_value: Option<&str>,
-    args: &ArgMap,
-    depth: usize,
-) -> Option<String> {
-    if let Some(resolved) = system::resolve(key) {
-        return Some(resolved);
-    }
-
-    if system::is_directive(strip_global_transformers(key)) {
-        return None;
-    }
-
-    let default_value = default_value?;
-    let fallback = resolve_default_value(default_value, args, depth);
-    apply_transformers(key, fallback)
-}
-
-fn apply_transformers(key: &str, content: String) -> Option<String> {
-    if let Some((sub, suffix)) = system::split_modifier(key) {
-        let content = apply_transformers(sub, content)?;
-        system::format::apply(suffix, &content)
-    } else {
-        Some(content)
-    }
+fn resolve_system_placeholder(key: &str) -> Option<String> {
+    super::system::resolve(key)
 }
 
 fn find_innermost_tag(s: &str) -> Option<(usize, usize)> {
@@ -566,17 +542,14 @@ mod tests {
     }
 
     #[test]
-    fn test_interpolate_nested_default_before_outer_modifier() {
-        let args = ArgMap::default();
+    fn test_interpolate_modified_default_prefers_positional_arg() {
+        let mut args = ArgMap::default();
+        args.positional.push("aimer".to_string());
 
-        unsafe { std::env::remove_var("TAURINE_NESTED_USER") };
-
+        assert_eq!(interpolate("[name.title=erein]", &args), "Aimer");
         assert_eq!(
-            interpolate(
-                "[user.title=[env.TAURINE_NESTED_USER.title=stranger]]",
-                &args
-            ),
-            "Stranger"
+            interpolate("[name.title=erein]", &ArgMap::default()),
+            "Erein"
         );
     }
 
