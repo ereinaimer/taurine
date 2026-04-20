@@ -1,0 +1,58 @@
+---
+title: Shell Script Automations
+description: Add script-based automations with interpreter inference, execution modes, and arguments.
+---
+
+## Add A Script Inline
+
+```bash
+taurine add script openrepo "explorer [0]" --lang powershell
+```
+
+## Add A Script From A File
+
+```bash
+taurine add script deploy --file ./deploy.sh
+```
+
+## Supported Interpreters
+
+- `bash`
+- `powershell`
+- `python`
+- `node`
+- `node-esm`
+- `cmd`
+
+## Interpreter Inference
+
+If you do not pass `--lang`, Taurine tries to infer the interpreter from:
+
+- the file extension, like `.sh`, `.ps1`, `.py`, `.js`, `.mjs`, `.cmd`
+- the script shebang, like `#!/bin/bash` or `#!/usr/bin/env python3`
+
+If Taurine cannot infer the language, it asks you to provide `--lang`.
+
+## Execution Mode
+
+```bash
+taurine add script greet "echo hello" --lang bash --mode inline
+taurine add script clean "rm -f temp.txt" --lang bash --mode silent
+```
+
+- `inline`: output is used as part of the expansion flow
+- `silent`: run the script without showing script output as expanded text
+
+## OS Targeting
+
+```bash
+taurine add script openrepo "explorer [0]" --lang powershell --os windows
+taurine add script openrepo "xdg-open [0]" --lang bash --os linux
+```
+
+## Good To Know
+
+- Script content is compressed before storage.
+- Script content still supports Taurine variable interpolation.
+- Script execution times out after 20 seconds.
+- If the interpreter is missing from `PATH`, Taurine returns a clear error.

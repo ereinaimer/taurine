@@ -1,0 +1,61 @@
+---
+title: Service Management
+description: How to start, stop, and monitor the Taurine background service.
+---
+
+## Lifecycle Commands
+
+You can control the background daemon using these core commands:
+
+<Steps>
+### Start the Service
+```bash
+taurine up
+```
+This boots the engine and starts listening for your text expansion triggers.
+
+### Check the Status
+```bash
+taurine status
+```
+Verify if the daemon is running and check if the engine is currently paused.
+
+### Restart the Service
+```bash
+taurine restart
+```
+Useful for picking up configuration changes or resetting the engine state.
+
+### Stop the Service
+```bash
+taurine down
+```
+Gracefully shuts down the background daemon.
+</Steps>
+
+### Aliases
+If you prefer more traditional naming, these aliases are also available:
+- `taurine start` → `taurine up`
+- `taurine stop` → `taurine down`
+- `taurine reboot` → `taurine restart`
+
+## Windows
+
+- `taurine up` starts the background daemon if it is not already running.
+- If `start_on_boot` is enabled, Taurine creates a startup hook in the Windows Run registry key and uses a small VBS launcher to start `taurine --daemon` silently.
+- `taurine down` tries a graceful shutdown first, then falls back to killing the process if needed.
+
+## Linux And macOS
+
+- Taurine uses a user-level service manager.
+- `taurine up` installs the service if needed, then starts it.
+- `start_on_boot` controls whether the service is installed with autostart enabled.
+
+<Callout title="Linux permission note" type="warn">
+  On Linux, Taurine may ask for extra permissions so it can listen for input events. If it adds
+  your user to the `input` group, you must log out and back in before the change takes effect.
+</Callout>
+
+## Status Output
+
+`taurine status` tells you whether Taurine is running. If the engine is paused, it also shows the current pause hotkey.

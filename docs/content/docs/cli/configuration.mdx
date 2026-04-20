@@ -1,0 +1,60 @@
+---
+title: Configuration
+description: View and change Taurine settings from the command line.
+---
+
+## List Current Settings
+
+```bash
+taurine config list
+taurine config ls
+```
+
+## Set A Value
+
+```bash
+taurine config set trigger_char /
+taurine config set start_on_boot true
+taurine config set inline_ai_delimiter ~
+```
+
+## Reset A Value
+
+```bash
+taurine config reset trigger_char
+```
+
+Reset everything:
+
+```bash
+taurine config reset --all
+```
+
+## Common Settings
+
+- `trigger_char`: character used before a trigger, default `>`
+- `pause_hotkey`: hotkey that pauses Taurine, default `Alt + \``
+- `pause_notifications_enabled`: show pause notifications, default `true`
+- `start_on_boot`: start Taurine automatically, default `true`
+- `spinner_style`: `braille`, `arc`, or `classic`
+- `ai_provider`: selected AI provider
+- `ai_model`: selected AI model
+- `ai_custom_endpoint`: custom OpenAI-compatible endpoint
+- `inline_ai_delimiter`: capture-mode delimiter, default `` ` ``
+
+## Helpful Aliases
+
+These keys resolve to the same real setting:
+
+- `trigger` -> `trigger_char`
+- `hotkey` -> `pause_hotkey`
+- `notifications` -> `pause_notifications_enabled`
+- `boot` -> `start_on_boot`
+- `spinner` -> `spinner_style`
+- `delimiter` -> `inline_ai_delimiter`
+- `endpoint` and `custom_endpoint` -> `ai_custom_endpoint`
+
+<Callout title="Startup setting" type="info">
+  Changing `start_on_boot` also tries to update the OS startup hook right away, so the setting and
+  the actual startup behavior stay in sync.
+</Callout>

@@ -4,7 +4,24 @@
   "root": true,
   "icon": "Terminal",
   "pages": [
-    "---Introduction---",
-    "index"
+    "---Getting Started---",
+    "index",
+    "---Core Features---",
+    "service-management",
+    "automation-management",
+    "configuration",
+    "---Variable Engine---",
+    "system-variables",
+    "dynamic-variables",
+    "inline-math",
+    "---Integrations & Tools---",
+    "inline-ai-copilot",
+    "shell-script-automations",
+    "completions",
+    "---Technical Reference---",
+    "import-export",
+    "reference/cli-reference",
+    "reference/settings-reference",
+    "reference/system-variable-modifiers"
   ]
 }

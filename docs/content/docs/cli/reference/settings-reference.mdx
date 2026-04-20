@@ -1,0 +1,37 @@
+---
+title: Settings Reference
+description: Compact reference for Taurine configuration keys, aliases, defaults, and accepted values.
+---
+
+## Settings
+
+| Key | Aliases | Default | Notes |
+| --- | --- | --- | --- |
+| `trigger_char` | `trigger` | `>` | First character before a trigger |
+| `pause_hotkey` | `hotkey` | `Alt + \`` | Global pause toggle |
+| `pause_notifications_enabled` | `notifications` | `true` | Show pause notifications |
+| `start_on_boot` | `boot` | `true` | Syncs startup behavior with the OS |
+| `spinner_style` | `spinner` | `braille` | `braille`, `arc`, `classic` |
+| `ai_provider` | none | unset | Selected AI provider |
+| `ai_model` | none | unset | Selected model name |
+| `ai_custom_endpoint` | `endpoint`, `custom_endpoint` | unset | Required for `custom` provider |
+| `inline_ai_delimiter` | `delimiter` | `` ` `` | Used in Inline AI capture mode |
+
+## Examples
+
+```bash
+taurine config set trigger_char /
+taurine config set spinner_style arc
+taurine config set ai_provider openai
+taurine config set ai_model gpt-4o
+taurine config set ai_custom_endpoint https://example.com/v1
+taurine config set inline_ai_delimiter ~
+```
+
+## Reset Examples
+
+```bash
+taurine config reset trigger_char
+taurine config reset ai_model
+taurine config reset --all
+```

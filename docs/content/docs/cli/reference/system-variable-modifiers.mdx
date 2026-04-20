@@ -1,0 +1,137 @@
+---
+title: System Variable Modifiers
+description: Exact reserved roots, modifiers, and text transformers supported by Taurine.
+---
+
+## Reserved Roots
+
+- `cursor`
+- `clipboard`
+- `time`
+- `date`
+- `uuid`
+- `env`
+- `key`
+- `delay`
+
+## Time Modifiers
+
+- `greeting`
+- `epoch`
+- `unix`
+- `utc`
+- `tz`
+- `12h`
+- `24h`
+- `now`
+- `now.12h`
+- `now.24h`
+- `full`
+- `full.12h`
+- `full.24h`
+
+## Date Modifiers
+
+- `iso`
+- `short`
+- `long`
+- `tomorrow`
+- `tomorrow.iso`
+- `tomorrow.short`
+- `tomorrow.long`
+- `yesterday`
+- `yesterday.iso`
+- `yesterday.short`
+- `yesterday.long`
+- `weekday`
+- `year`
+- `month`
+- `month_name`
+- `day`
+
+## UUID Modifiers
+
+- default `uuid`
+- `v4`
+- `v7`
+- `simple`
+
+## Key Modifiers
+
+- `enter`
+- `tab`
+- `space`
+- `esc`
+- `up`
+- `down`
+- `left`
+- `right`
+- `home`
+- `end`
+- `pgup`
+- `pageup`
+- `pgdown`
+- `pagedown`
+- `insert`
+- `ins`
+- `backspace`
+- `delete`
+- `ctrl`
+- `shift`
+- `alt`
+- `super`
+- `mod`
+- `f1` through `f12`
+- `printscreen`
+- `prtsc`
+- `pause`
+- `break`
+- `capslock`
+- `numlock`
+- `scrolllock`
+
+You can combine key tokens with `+`, and any single character token is also allowed.
+
+Examples:
+
+```text
+[key.tab]
+[key.ctrl+a]
+[key.shift+tab]
+```
+
+## Delay Modifier
+
+```text
+[delay.<u64>ms]
+```
+
+Example:
+
+```text
+[delay.200ms]
+```
+
+## Text Transformers
+
+- `upper`
+- `uppercase`
+- `lower`
+- `lowercase`
+- `snake`
+- `snakecase`
+- `kebab`
+- `kebabcase`
+- `pascal`
+- `pascalcase`
+- `camel`
+- `camelcase`
+- `title`
+- `titlecase`
+- `shoutysnake`
+- `shoutysnakecase`
+- `shoutykebab`
+- `shoutykebabcase`
+- `train`
+- `traincase`
+- `urlencode`

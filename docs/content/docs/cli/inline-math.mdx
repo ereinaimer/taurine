@@ -1,0 +1,66 @@
+---
+title: Inline Math
+description: Use Taurine as a quick inline calculator when no snippet matches your trigger.
+---
+
+## Basic Example
+
+Type:
+
+```text
+>3+2 Space
+```
+
+Taurine expands it to:
+
+```text
+5
+```
+
+## Supported Operators
+
+- `+`
+- `-`
+- `*`
+- `/`
+- `%`
+- `^`
+
+Taurine also supports parentheses:
+
+```text
+>(2+3)*4 Space
+```
+
+## Constants
+
+- `pi`
+- `e`
+
+Examples:
+
+```text
+>2pi Space
+>1.5e3+100 Space
+```
+
+## Functions
+
+- `sqrt()`
+- `abs()`
+- `floor()`
+- `ceil()`
+- `round()`
+
+Examples:
+
+```text
+>sqrt(16) Space
+>floor(4.9) Space
+```
+
+## Notes
+
+- Taurine supports implicit multiplication like `2(3+4)`.
+- Results are formatted to at most 4 decimal places.
+- Math only runs after normal snippet lookup misses, so real snippets win first.

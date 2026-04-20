@@ -1,0 +1,55 @@
+---
+title: Managing Automations
+description: How to add, list, and remove your Taurine text snippets.
+---
+
+## Adding Automations
+
+To create a new text expansion, use the `add` or `set` command:
+
+```bash
+taurine add brb "Be right back"
+```
+
+If you add a trigger that already exists, Taurine will automatically update it with the new content.
+
+### Multi-OS Support
+You can restrict automations to specific operating systems, or make them universal:
+
+```bash
+taurine add sig "Sent from Taurine" --os all      # Works everywhere
+taurine add sig "Sent from Windows" --os windows  # Windows only
+```
+
+## How to Trigger
+
+By default, Taurine triggers an expansion when you type your **trigger character** followed by the **word** and a **space**.
+
+```text
+>brb[Space]
+```
+
+<Callout title="Configuring Triggers" type="info">
+  You can change the default `>` trigger character in the [Configuration](/docs/cli/configuration) page.
+</Callout>
+
+## Viewing Your Automations
+
+List all configured automations with `taurine list`. You can sort them to find your most used snippets:
+
+```bash
+taurine list --sort usage --desc  # See your most used triggers first
+taurine list --sort recent        # See what you added lately
+```
+
+## Deleting Automations
+
+Remove one or more triggers using the `rm` command:
+
+```bash
+taurine rm brb gm sig
+```
+
+<Callout title="Reserved Triggers" type="warn">
+  The trigger `ai` is reserved for the **Inline AI Copilot**. Taurine will prevent you from creating custom automations that conflict with this system trigger.
+</Callout>

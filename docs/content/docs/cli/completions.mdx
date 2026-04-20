@@ -1,0 +1,49 @@
+---
+title: Completions
+description: Generate and install shell completions for Taurine on supported shells.
+---
+
+## Generate A Completion Script
+
+```bash
+taurine completions bash
+taurine completions elvish
+taurine completions fish
+taurine completions powershell
+taurine completions zsh
+```
+
+## Install Automatically
+
+```bash
+taurine completions install
+```
+
+## Uninstall
+
+```bash
+taurine completions uninstall
+```
+
+## Notes By Shell
+
+### PowerShell
+
+- Taurine can install a PowerShell completion file and update your PowerShell profile.
+- If your execution policy is too restrictive, Taurine will tell you instead of silently failing.
+
+### Git Bash On Windows
+
+- Taurine writes a Bash completion file under your home directory and tells you what to source.
+
+### Bash On Linux Or macOS
+
+- Taurine writes a completion file and appends a `source` line to `.bashrc` or `.bash_profile`.
+
+### Zsh
+
+- Taurine installs `_taurine` and updates `~/.zshrc`.
+
+### Fish
+
+- Taurine writes `taurine.fish` into your Fish completions directory.

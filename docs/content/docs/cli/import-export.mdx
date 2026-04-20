@@ -1,0 +1,72 @@
+---
+title: Import And Export
+description: Move Taurine automations between machines with encrypted or plaintext export files.
+---
+
+## Export
+
+Encrypted export is the default:
+
+```bash
+taurine export
+taurine export backup.tau
+```
+
+If you do not provide a file name, Taurine creates a dated `.tau` file in the current directory.
+
+Optional flags:
+
+```bash
+taurine export backup.tau --with-settings
+taurine export backup.tau --with-metrics
+taurine export backup.tau --no-encrypt
+```
+
+Formats:
+
+- `TAU1`: encrypted export
+- `TAUP`: plaintext export
+
+## Import
+
+```bash
+taurine import backup.tau
+```
+
+If the file is encrypted, Taurine prompts for the decryption password.
+
+Optional flags:
+
+```bash
+taurine import backup.tau --include-settings
+taurine import backup.tau --include-metrics
+taurine import backup.tau --include-metrics=merge
+taurine import backup.tau --include-metrics=overwrite
+taurine import backup.tau --on-conflict prompt
+taurine import backup.tau --on-conflict skip
+taurine import backup.tau --on-conflict overwrite
+```
+
+## Conflict Handling
+
+Conflicts are based on:
+
+- `trigger`
+- `target_os`
+
+Prompt mode lets you choose:
+
+- overwrite this one
+- skip this one
+- overwrite all remaining
+- skip all remaining
+
+## Metrics Behavior
+
+- no flag: ignore imported metrics
+- `--include-metrics`: merge
+- `--include-metrics=overwrite`: replace local metrics with imported metrics
+
+<Callout title="Reserved triggers" type="warn">
+  Import will reject automations that try to use Taurine's reserved Inline AI trigger.
+</Callout>

@@ -1,0 +1,94 @@
+---
+title: Dynamic Variables
+description: Use placeholders, defaults, arguments, and text transformers inside Taurine automations.
+---
+
+## Basic Placeholder
+
+```text
+[name]
+```
+
+If you use a trigger like `>hello:aimer`, Taurine can fill `[name]` from the arguments you typed.
+
+## Default Value
+
+```text
+[name=erein]
+```
+
+If no value is provided, Taurine uses `erein`.
+
+## Positional Arguments
+
+Use numbered placeholders:
+
+```text
+[0]
+[1]
+```
+
+Example:
+
+```text
+Template: https://github.com/[0]/[1]
+Trigger: >repo:aimer:taurine Space
+Result:  https://github.com/aimer/taurine
+```
+
+## Named Arguments
+
+```text
+[name]
+[repo=taurine]
+```
+
+Example:
+
+```text
+Trigger: >gh:name=aimer:repo=taurine Space
+```
+
+## Quoted Arguments
+
+Quotes let arguments contain spaces or colons:
+
+```text
+>msg:"hello world" Space
+>person:'Neil Armstrong' Space
+```
+
+## Sequential Positional Fallback
+
+If a placeholder is not numbered and does not match a named argument, Taurine can fill it from the next positional value.
+
+## Transformers
+
+Flat transformer syntax is the form that resolves today:
+
+```text
+[name.upper]
+[name.lower]
+[name.snake]
+[name.kebab]
+[name.pascal]
+[name.camel]
+[name.title]
+[name.shoutysnake]
+[name.shoutykebab]
+[name.train]
+[name.urlencode]
+```
+
+Examples:
+
+```text
+[name.upper]      -> JOHN
+[name.title]      -> John Doe
+[query.urlencode] -> hello%20world
+```
+
+<Callout title="Keep it flat" type="info">
+  Prefer flat forms like `[query.urlencode]`. Nested transformer patterns may remain literal instead
+  of resolving.
+</Callout>

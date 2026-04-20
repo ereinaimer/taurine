@@ -1,0 +1,95 @@
+---
+title: Inline AI Copilot
+description: Set up AI providers, use quoted prompts, and run interactive AI capture directly from Taurine.
+---
+
+## Add An AI Provider
+
+```bash
+taurine ai add --provider <name>
+```
+
+Taurine currently supports `openai`, `claude`, `gemini`, and `custom` providers.
+
+<Callout title="Security" type="info">
+  Taurine stores your provider secrets (API keys) securely in the OS keyring. They are never saved as plain text in your configuration files.
+</Callout>
+
+### Provider Management
+- **List providers**: `taurine ai list`
+- **List models**: `taurine ai models --provider <name>`
+- **Remove provider**: `taurine ai remove --provider <name>`
+
+## Usage Modes
+
+Taurine provides multiple ways to interact with AI directly from your text area.
+
+<Tabs items={['Quoted Prompt', 'Interactive Capture']}>
+  <Tab value="Quoted Prompt">
+    The fastest way for short instructions. Type your trigger, then the prompt in quotes:
+    
+    ```text
+    >ai:'hello' Space
+    >ai:"Rewrite this politely" Space
+    ```
+    This immediately starts the AI request and replaces the trigger with the response.
+  </Tab>
+  <Tab value="Interactive Capture">
+    Best for longer prompts. Type `>ai` followed by a space to open the capture delimiter:
+    
+    ```text
+    >ai Space
+    ```
+    Taurine inserts the opening delimiter (default: `` ` ``). Type your prompt, close the delimiter, and press `Space` again:
+    
+    ```text
+    >ai Space`write a haiku about rust` Space
+    ```
+  </Tab>
+</Tabs>
+
+## AI Presets
+
+Add a preset:
+
+```bash
+taurine ai preset add re "expert editor"
+```
+
+Use it with:
+
+```text
+>ai.re Space
+```
+
+Manage presets:
+
+```bash
+taurine ai preset list
+taurine ai preset rm re
+```
+
+## Custom Endpoint And Delimiter
+
+Set a custom OpenAI-compatible endpoint:
+
+```bash
+taurine config set ai_custom_endpoint https://your-endpoint.example/v1
+```
+
+Change the capture delimiter:
+
+```bash
+taurine config set inline_ai_delimiter ~
+```
+
+<Callout title="Custom provider" type="warn">
+  If you choose the `custom` provider, you must also set `ai_custom_endpoint` before Inline AI can
+  run.
+</Callout>
+
+## Provider Selection
+
+- If `ai_provider` is set, Taurine uses it.
+- If only one provider is configured, Taurine can pick it automatically.
+- If multiple providers are configured, set one explicitly with `taurine config set ai_provider <name>`.

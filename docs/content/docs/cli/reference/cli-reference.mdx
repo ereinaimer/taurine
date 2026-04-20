@@ -1,0 +1,153 @@
+---
+title: CLI Reference
+description: Exact command, alias, and flag reference for the Taurine command line interface.
+---
+
+## Global Flags
+
+```text
+-v, --verbose
+-q, --quiet
+--no-log-file
+--no-color
+```
+
+## Top-Level Commands
+
+- `up`
+  Alias: `start`
+- `down`
+  Alias: `stop`
+- `restart`
+  Alias: `reboot`
+- `status`
+- `add`
+  Alias: `set`
+- `delete`
+  Aliases: `rm`, `remove`
+- `list`
+  Alias: `ls`
+- `export`
+- `import`
+- `config`
+- `ai`
+- `completions`
+
+## add
+
+Text automation:
+
+```text
+taurine add <trigger> <output> [--os <target>]
+```
+
+Script automation:
+
+```text
+taurine add script <trigger> <content>
+taurine add script <trigger> --file <path>
+```
+
+Script flags:
+
+```text
+-f, --file <path>
+-l, --lang <bash|powershell|python|node|node-esm|cmd>
+-m, --mode <inline|silent>
+--os <windows|linux|macos|all|android|ios|current>
+```
+
+## list
+
+```text
+taurine list [--sort <alpha|usage|created|recent>] [--asc|--desc] [--plain]
+```
+
+## delete
+
+```text
+taurine delete <trigger>...
+```
+
+Takes one or more triggers.
+
+## export
+
+```text
+taurine export [path]
+  --no-encrypt
+  --with-settings
+  --with-metrics
+```
+
+## import
+
+```text
+taurine import <path>
+  --on-conflict <prompt|skip|overwrite>
+  --include-settings
+  --include-metrics
+  --include-metrics=<ignore|merge|overwrite>
+```
+
+## config
+
+```text
+taurine config set <key> <value>
+taurine config list
+taurine config reset <key>
+taurine config reset --all
+```
+
+`list` alias: `ls`
+
+## ai
+
+```text
+taurine ai add --provider <provider>
+taurine ai list
+taurine ai models --provider <provider>
+taurine ai remove --provider <provider>
+```
+
+Providers:
+
+```text
+openai
+claude
+gemini
+xai
+groq
+deepseek
+cohere
+together
+fireworks
+nebius
+mimo
+zai
+bigmodel
+github_copilot
+custom
+```
+
+Preset commands:
+
+```text
+taurine ai preset add <name> <prompt>
+taurine ai preset rm <name>
+taurine ai preset list
+```
+
+`list` alias: `ls`
+
+## completions
+
+```text
+taurine completions bash
+taurine completions elvish
+taurine completions fish
+taurine completions powershell
+taurine completions zsh
+taurine completions install
+taurine completions uninstall
+```
