@@ -12,7 +12,7 @@ You can control the background daemon using these core commands:
 ```bash
 taurine up
 ```
-This boots the engine and starts listening for your text expansion triggers.
+This boots the engine and starts listening for your automation triggers.
 
 ### Check the Status
 ```bash
@@ -26,6 +26,10 @@ taurine restart
 ```
 Useful for picking up configuration changes or resetting the engine state.
 
+<Callout title="Hot Reload" type="info">
+  You won't need to restart manually very often! Taurine automatically reloads its memory whenever you add, update, or delete an automation.
+</Callout>
+
 ### Stop the Service
 ```bash
 taurine down
@@ -34,10 +38,14 @@ Gracefully shuts down the background daemon.
 </Steps>
 
 ### Aliases
+
 If you prefer more traditional naming, these aliases are also available:
-- `taurine start` → `taurine up`
-- `taurine stop` → `taurine down`
-- `taurine reboot` → `taurine restart`
+
+| Alias | Core Command |
+| :--- | :--- |
+| `taurine start` | `taurine up` |
+| `taurine stop` | `taurine down` |
+| `taurine reboot` | `taurine restart` |
 
 ## Windows
 
