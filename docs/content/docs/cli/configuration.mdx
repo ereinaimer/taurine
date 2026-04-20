@@ -32,27 +32,32 @@ taurine config reset --all
 
 ## Common Settings
 
-- `trigger_char`: character used before a trigger, default `>`
-- `pause_hotkey`: hotkey that pauses Taurine, default `Alt + \``
-- `pause_notifications_enabled`: show pause notifications, default `true`
-- `start_on_boot`: start Taurine automatically, default `true`
-- `spinner_style`: `braille`, `arc`, or `classic`
-- `ai_provider`: selected AI provider
-- `ai_model`: selected AI model
-- `ai_custom_endpoint`: custom OpenAI-compatible endpoint
-- `inline_ai_delimiter`: capture-mode delimiter, default `` ` ``
+| Setting | Default | Description |
+| :--- | :--- | :--- |
+| `trigger_char` | `>` | The character typed before an automation trigger word. |
+| `pause_hotkey` | ``Alt + ` `` | Global hotkey to pause/resume the Taurine engine. |
+| `pause_notifications_enabled` | `true` | Whether to show system notifications when pausing. |
+| `start_on_boot` | `true` | Enables/disables automatic startup on login. |
+| `spinner_style` | `braille` | Style of the thinking spinner (`braille`, `arc`, `classic`). |
+| `ai_provider` | - | The default AI provider for Inline AI commands. |
+| `ai_model` | - | The default model for the selected AI provider. |
+| `ai_custom_endpoint` | - | Custom OpenAI-compatible URL for the `custom` provider. |
+| `inline_ai_delimiter` | `` ` `` | The character used to enclose interactive AI prompts. |
 
 ## Helpful Aliases
 
-These keys resolve to the same real setting:
+You can use these shorter aliases when running `taurine config set`:
 
-- `trigger` -> `trigger_char`
-- `hotkey` -> `pause_hotkey`
-- `notifications` -> `pause_notifications_enabled`
-- `boot` -> `start_on_boot`
-- `spinner` -> `spinner_style`
-- `delimiter` -> `inline_ai_delimiter`
-- `endpoint` and `custom_endpoint` -> `ai_custom_endpoint`
+| Alias | Real Setting |
+| :--- | :--- |
+| `trigger` | `trigger_char` |
+| `hotkey` | `pause_hotkey` |
+| `notifications` | `pause_notifications_enabled` |
+| `boot` | `start_on_boot` |
+| `spinner` | `spinner_style` |
+| `delimiter` | `inline_ai_delimiter` |
+| `endpoint` | `ai_custom_endpoint` |
+| `custom_endpoint` | `ai_custom_endpoint` |
 
 <Callout title="Startup setting" type="info">
   Changing `start_on_boot` also tries to update the OS startup hook right away, so the setting and
