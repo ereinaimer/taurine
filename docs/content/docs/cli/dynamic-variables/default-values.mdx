@@ -1,0 +1,21 @@
+---
+title: Default Values
+description: Provide fallbacks in case an argument isn't specified.
+---
+
+import { Playground } from '@/components/playgrounds/playground';
+
+## Default Value Syntax
+
+To ensure your snippet still works even if you forget to pass an argument, use the `=` symbol inside the placeholder:
+
+```text
+Message: [content=No content provided]
+```
+
+If no value is provided via terminal input, Taurine will use the assigned default.
+
+<Playground 
+  initialTemplate="Message: [content=No content provided]" 
+  initialInput=">msg " 
+/>

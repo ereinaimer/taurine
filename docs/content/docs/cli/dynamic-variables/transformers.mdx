@@ -1,0 +1,36 @@
+---
+title: Text Transformers
+description: Manipulate the casing and formatting of your text dynamically.
+---
+
+import { Playground } from '@/components/playgrounds/playground';
+import { Callout } from 'fumadocs-ui/components/callout';
+
+## Using Transformers
+
+Taurine can apply text transformers directly to your arguments before expansion. Use the dot notation `.modifier` next to your variable tag.
+
+### Available Transformers
+
+```text
+[name.upper]       -> UPPERCASE
+[name.lower]       -> lowercase
+[name.title]       -> Title Case
+[name.snake]       -> snake_case
+[name.kebab]       -> kebab-case
+[name.pascal]      -> PascalCase
+[name.camel]       -> camelCase
+[name.shoutysnake] -> SHOUTY_SNAKE
+[name.shoutykebab] -> SHOUTY-KEBAB
+[name.train]       -> Train-Case
+[name.urlencode]   -> hello%20world
+```
+
+<Playground 
+  initialTemplate="Upper: [0.upper]\nCamel: [0.camel]\nURL: [0.urlencode]" 
+  initialInput=">format:'hello world from taurine' " 
+/>
+
+<Callout title="Keep it flat" type="info">
+  Prefer flat forms like `[query.urlencode]`. While some nested transformers might resolve depending on string parsing, it's safer to keep them straightforward.
+</Callout>

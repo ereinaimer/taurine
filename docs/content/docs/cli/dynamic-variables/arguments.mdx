@@ -1,0 +1,57 @@
+---
+title: Arguments
+description: Group positional and named inputs effectively.
+---
+
+import { Playground } from '@/components/playgrounds/playground';
+
+## Positional Arguments
+
+Use numbered placeholders `[0]`, `[1]`, etc., to reference arguments strictly by the order you type them:
+
+```text
+Template: https://github.com/[0]/[1]
+Trigger: >repo:erein:taurine Space
+Result:  https://github.com/erein/taurine
+```
+
+<Playground 
+  initialTemplate="https://github.com/[0]/[1]" 
+  initialInput=">repo:erein:taurine " 
+/>
+
+## Named Arguments
+
+Explicitly assign a value to a label using `key=value` format when typing your trigger.
+
+```text
+Trigger: >gh:name=aimer:repo=taurine Space
+```
+
+<Playground 
+  initialTemplate="Repo: [repo] by [name]" 
+  initialInput=">gh:name=aimer:repo=taurine " 
+/>
+
+## Quoted Arguments
+
+Quotes let arguments contain spaces or colons:
+
+```text
+>msg:"hello world" Space
+>person:'Neil Armstrong' Space
+```
+
+<Playground 
+  initialTemplate="Quote of the day: [0]" 
+  initialInput='>quote:"One small step for man" '
+/>
+
+## Sequential Positional Fallback
+
+If a placeholder is not numbered and does not match a named argument, Taurine will fill it from the next available positional value.
+
+<Playground 
+  initialTemplate="Player 1: [p1], Player 2: [p2]" 
+  initialInput=">match:Mario:Luigi " 
+/>

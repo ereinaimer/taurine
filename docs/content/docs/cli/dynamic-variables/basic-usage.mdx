@@ -1,0 +1,21 @@
+---
+title: Basic Variables
+description: Use simple placeholders to drop values directly into your text.
+---
+
+import { Playground } from '@/components/playgrounds/playground';
+
+## Basic Variable
+
+You can define variables in your snippets using square brackets `[name]`.
+
+```text
+Hello, [name]!
+```
+
+If you use a trigger like `>hello:erein`, Taurine will fill `[name]` from the arguments you typed.
+
+<Playground 
+  initialTemplate="Hello, [name]!" 
+  initialInput=">hello:erein " 
+/>

@@ -1,0 +1,10 @@
+{
+  "title": "Dynamic Variables",
+  "pages": [
+    "index",
+    "basic-usage",
+    "default-values",
+    "arguments",
+    "transformers"
+  ]
+}
