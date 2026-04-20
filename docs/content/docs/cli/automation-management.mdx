@@ -35,19 +35,20 @@ By default, Taurine triggers an expansion when you type your **trigger character
 
 ## Viewing Your Automations
 
-List all configured automations with `taurine list`. You can sort them to find your most used snippets:
+List all configured automations with `taurine list` (alias: `ls`). You can sort them to find your most used snippets:
 
 ```bash
 taurine list --sort usage --desc  # See your most used triggers first
-taurine list --sort recent        # See what you added lately
+taurine ls --sort recent          # Alias 'ls' also works
 ```
 
 ## Deleting Automations
 
-Remove one or more triggers using the `rm` command:
+Remove one or more triggers using the `rm` command (aliases: `remove`, `delete`):
 
 ```bash
 taurine rm brb gm sig
+taurine delete obsolete_trigger
 ```
 
 <Callout title="Reserved Triggers" type="warn">
