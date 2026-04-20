@@ -60,3 +60,11 @@ build/
 *.swp
 .DS_Store
 Thumbs.db
+
+# AI Coding Assistants & Memory
+graphify-out/
+.graphify/
+.cursor/
+.gemini/
+.agent/
+GEMINI.md
