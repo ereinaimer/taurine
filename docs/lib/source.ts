@@ -1,12 +1,17 @@
 import { docs } from 'collections/server';
 import { loader } from 'fumadocs-core/source';
+import { createElement } from 'react';
+import { Rocket, Terminal } from 'lucide-react';
 import { docsContentRoute, docsImageRoute, docsRoute } from './shared';
 
 // See https://fumadocs.dev/docs/headless/source-api for more info
 export const source = loader({
   baseUrl: docsRoute,
   source: docs.toFumadocsSource(),
-  plugins: [],
+  icon(icon) {
+    if (icon === 'Rocket') return createElement(Rocket);
+    if (icon === 'Terminal') return createElement(Terminal);
+  },
 });
 
 export function getPageImage(page: (typeof source)['$inferPage']) {

@@ -1,0 +1,10 @@
+{
+  "title": "Taurine CLI",
+  "description": "CLI tool documentation",
+  "root": true,
+  "icon": "Terminal",
+  "pages": [
+    "---Introduction---",
+    "index"
+  ]
+}
