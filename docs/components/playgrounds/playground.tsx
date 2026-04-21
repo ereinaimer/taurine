@@ -7,10 +7,15 @@ import { resolveTemplate } from './resolver';
 interface PlaygroundProps {
   initialTemplate: string;
   initialInput?: string;
+  showToggle?: boolean;
 }
 
-export function Playground({ initialTemplate, initialInput }: PlaygroundProps) {
-  const [isOpen, setIsOpen] = useState(false);
+export function Playground({ 
+  initialTemplate, 
+  initialInput, 
+  showToggle = true 
+}: PlaygroundProps) {
+  const [isOpen, setIsOpen] = useState(!showToggle);
   const [template, setTemplate] = useState(initialTemplate);
   const [input, setInput] = useState(initialInput || '');
   const [output, setOutput] = useState(initialTemplate);
