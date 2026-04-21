@@ -1,58 +1,117 @@
 ---
 title: Shell Script Automations
-description: Add script-based automations with interpreter inference, execution modes, and arguments.
+description: Unlock infinite possibilities by connecting Taurine triggers to your local system's interpreters.
 ---
 
-## Add A Script Inline
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
+
+Shell Script Automations are the most powerful feature in Taurine. They allow you to bridge the gap between simple text expansion and full system automation. By mapping a trigger to a script, you can open applications, manage files, fetch data from APIs, or trigger complex devops pipelines—all without leaving your text editor.
+
+<Callout title="Infinite Possibilities" type="info">
+  While standard snippets are for text, scripts are for **actions**. This feature opens the door to infinite possibilities for customizing your OS and workflow.
+</Callout>
+
+## Adding Scripts
+
+You can add scripts directly from the command line or by pointing to an existing file on your disk.
+
+### Inline Scripts
+Use for quick, one-line commands.
 
 ```bash
-taurine add script openrepo "explorer [0]" --lang powershell
+taurine add script url 'start https://[url=google.com]' --lang powershell --os windows
 ```
 
-## Add A Script From A File
+### Script Files
+Use for complex logic. Taurine will read the file, compress it, and store it in its internal database.
 
 ```bash
-taurine add script deploy --file ./deploy.sh
+taurine add script deploy -f ./scripts/deploy.py
 ```
 
-## Supported Interpreters
+<Callout title="File Persistence" type="warn">
+  When you add a script via `-f`, Taurine copies and compresses the content into its database. You do **not** need to keep the original file on your disk for the automation to work.
+</Callout>
 
-- `bash`
-- `powershell`
-- `python`
-- `node`
-- `node-esm`
-- `cmd`
+## Language Support & Inference
 
-## Interpreter Inference
+Taurine supports all major system interpreters. If you don't specify a language with `--lang`, Taurine will attempt to infer it.
 
-If you do not pass `--lang`, Taurine tries to infer the interpreter from:
+| Language | Identifier | Inference Extensions |
+| :--- | :--- | :--- |
+| **Bash** | `bash` | `.sh` |
+| **PowerShell** | `powershell` | `.ps1` |
+| **Python** | `python` | `.py` |
+| **Node.js (CommonJS)** | `node` | `.js`, `.cjs` |
+| **Node.js (ESM)** | `node-esm` | `.mjs` |
+| **Windows CMD** | `cmd` | `.bat`, `.cmd` |
 
-- the file extension, like `.sh`, `.ps1`, `.py`, `.js`, `.mjs`, `.cmd`
-- the script shebang, like `#!/bin/bash` or `#!/usr/bin/env python3`
+### How Inference Works
+1. **Extension**: Taurine first looks at the file extension if added via `-f`.
+2. **Shebang**: If no extension is found (or it's an inline script), Taurine inspects the first line for a shebang (e.g., `#!/bin/bash`).
+3. **Fallback**: If both fail, you must provide the `--lang` flag explicitly.
 
-If Taurine cannot infer the language, it asks you to provide `--lang`.
+## Execution Modes
 
-## Execution Mode
+The `--mode` (or `-m`) flag determines how the script's output interacts with your text field.
+
+- **`inline` (Default)**: The standard output (`stdout`) of the script is captured and injected into your text field as if it were a snippet.
+- **`silent`**: The script runs in the background. No text is injected, even if the script prints to the console. This is ideal for background tasks like triggering a notification or starting a build.
 
 ```bash
-taurine add script greet "echo hello" --lang bash --mode inline
-taurine add script clean "rm -f temp.txt" --lang bash --mode silent
+# Inline: Injects "Hello, World" into your text
+taurine add script hi "echo 'Hello, World'" -m inline
+
+# Silent: Deletes a file quietly without typing anything
+taurine add script cleanup "rm temp.log" -m silent
 ```
 
-- `inline`: output is used as part of the expansion flow
-- `silent`: run the script without showing script output as expanded text
+## Powering Scripts with Variables
 
-## OS Targeting
+The true power of scripting comes from combining it with [Dynamic Variables](/docs/cli/dynamic-variables) and [System Variables](/docs/cli/system-variables/index).
+
+### Example: Smart URL Opener
+This script uses a dynamic variable with a default value. If you type `>url Space`, it opens Google. If you type `>url:youtube.com Space`, it opens YouTube.
 
 ```bash
-taurine add script openrepo "explorer [0]" --lang powershell --os windows
-taurine add script openrepo "xdg-open [0]" --lang bash --os linux
+taurine add script url 'start https://[url=google.com]' --lang powershell --os windows
 ```
 
-## Good To Know
+### Example: Environment-Aware Script
+Access system metadata like your current user or home directory using `[env.*]`.
 
-- Script content is compressed before storage.
-- Script content still supports Taurine variable interpolation.
-- Script execution times out after 20 seconds.
-- If the interpreter is missing from `PATH`, Taurine returns a clear error.
+```bash
+# Greets the currently logged-in user
+taurine add script whoami "echo 'Hello, [env.USERNAME]!'" --lang bash
+```
+
+## Advanced Use Cases
+
+<Tabs items={['System Navigation', 'Developer Tools', 'Notifications']}>
+  <Tab value="System Navigation">
+    **Open a Projects Folder (Windows)**
+    ```bash
+    taurine add script pro 'explorer C:\Users\[env.USERNAME]\Projects' --lang powershell --os windows
+    ```
+  </Tab>
+  <Tab value="Developer Tools">
+    **Quick Git Commit & Push**
+    ```bash
+    taurine add script gpp 'git add . && git commit -m "[0=update]" && git push' --lang bash
+    ```
+  </Tab>
+  <Tab value="Notifications">
+    **Silent Timer (MacOS)**
+    ```bash
+    taurine add script timer 'sleep [0=60] && osascript -e "display notification \"Timer Up!\""' --lang bash --mode silent
+    ```
+  </Tab>
+</Tabs>
+
+## Technical Details
+
+- **Timeouts**: Every script expansion has a maximum execution time of **20 seconds**. If it takes longer, Taurine will terminate the process and return an error.
+- **Environment**: Scripts are executed with the same environment as the Taurine daemon. Ensure your interpreters (`python`, `node`, etc.) are available in your system's `PATH`.
+- **CWD**: Scripts are executed in a temporary directory. Always use absolute paths (via variables like `[env.USERPROFILE]`) when interacting with specific files on your system.
+- **Cross-Platform**: Use the `--os` flag to define different versions of a trigger for `windows`, `linux`, or `macos`.
