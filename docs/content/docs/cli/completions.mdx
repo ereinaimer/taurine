@@ -1,49 +1,70 @@
 ---
 title: Completions
-description: Generate and install shell completions for Taurine on supported shells.
+description: Set up command-line completions for Taurine to enjoy a better terminal experience.
 ---
 
-## Generate A Completion Script
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 
-```bash
-taurine completions bash
-taurine completions elvish
-taurine completions fish
-taurine completions powershell
-taurine completions zsh
-```
+Taurine provides shell completion scripts that enable tab-completion for its commands and flags. This makes the CLI much faster and easier to use. You can either install them automatically or generate them manually for custom setups.
 
-## Install Automatically
+## Automatic Installation
+
+The simplest way to set up completions is to use the built-in install command. Taurine will detect your active shell and platform, install the necessary script, and update your shell profile.
 
 ```bash
 taurine completions install
 ```
 
-## Uninstall
+### What happens during installation?
+
+<Tabs items={['Windows', 'MacOS / Linux']}>
+  <Tab value="Windows">
+    - **PowerShell**: Taurine writes `_taurine.ps1` to its data directory and adds a sourcing line to your `$PROFILE` (e.g., `Microsoft.PowerShell_profile.ps1`).
+    - **Git Bash**: Taurine writes `taurine.bash` to `~/.bash_completions`. You should ensure this directory is sourced in your `.bashrc`.
+  </Tab>
+  <Tab value="MacOS / Linux">
+    - **Zsh**: Taurine installs `_taurine` into its private completions folder and updates your `fpath` in `~/.zshrc`.
+    - **Fish**: Taurine writes `taurine.fish` directly into `~/.config/fish/completions/`.
+    - **Bash**: Taurine writes `taurine.bash` and appends a `source` command to your `.bashrc` (Linux) or `.bash_profile` (MacOS).
+  </Tab>
+</Tabs>
+
+## Manual Generation
+
+If you prefer to manage your shell configuration manually, you can generate the raw completion script for any supported shell and pipe it to a file.
+
+```bash
+taurine completions [shell] > my-completion-file
+```
+
+### Supported Shells
+- `bash`
+- `elvish`
+- `fish`
+- `powershell`
+- `zsh`
+
+## Troubleshooting
+
+### PowerShell Execution Policy
+If you are on Windows and completions aren't loading, your execution policy might be preventing the script from running.
+
+<Callout title="Fixing Execution Policy" type="warn">
+  Run the following command in an Administrator PowerShell window to allow local scripts to run:
+  
+  ```powershell
+  Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+  ```
+</Callout>
+
+### Profile Not Loading
+If you've run the install command but don't see completions after a terminal restart, check that the "source" line was correctly added to your profile (`~/.zshrc`, `~/.bashrc`, or `$PROFILE`).
+
+## Uninstallation
+
+To remove all installed scripts and clean up your shell profile, run:
 
 ```bash
 taurine completions uninstall
 ```
-
-## Notes By Shell
-
-### PowerShell
-
-- Taurine can install a PowerShell completion file and update your PowerShell profile.
-- If your execution policy is too restrictive, Taurine will tell you instead of silently failing.
-
-### Git Bash On Windows
-
-- Taurine writes a Bash completion file under your home directory and tells you what to source.
-
-### Bash On Linux Or macOS
-
-- Taurine writes a completion file and appends a `source` line to `.bashrc` or `.bash_profile`.
-
-### Zsh
-
-- Taurine installs `_taurine` and updates `~/.zshrc`.
-
-### Fish
-
-- Taurine writes `taurine.fish` into your Fish completions directory.
