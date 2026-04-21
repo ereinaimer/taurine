@@ -3,151 +3,216 @@ title: CLI Reference
 description: Exact command, alias, and flag reference for the Taurine command line interface.
 ---
 
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
+
+This reference provides a comprehensive list of all commands, flags, and aliases available in the Taurine CLI.
+
 ## Global Flags
 
-```text
--v, --verbose
--q, --quiet
---no-log-file
---no-color
-```
+These flags can be used with any command to modify the CLI's behavior.
 
-## Top-Level Commands
+| Flag | Description |
+| :--- | :--- |
+| `-v, --verbose` | Increase console verbosity (can be used multiple times). |
+| `-q, --quiet` | Disable all console logging output. |
+| `--no-log-file` | Disable writing logs to the daily log file. |
+| `--no-color` | Disable colorized output in the terminal. |
 
-- `up`
-  Alias: `start`
-- `down`
-  Alias: `stop`
-- `restart`
-  Alias: `reboot`
-- `status`
-- `add`
-  Alias: `set`
-- `delete`
-  Aliases: `rm`, `remove`
-- `list`
-  Alias: `ls`
-- `export`
-- `import`
-- `config`
-- `ai`
-- `completions`
+---
 
-## add
+## Service Management
 
-Text automation:
+Commands for managing the Taurine background daemon.
 
-```text
-taurine add <trigger> <output> [--os <target>]
-```
+<Accordions>
+<Accordion title="up / start">
+  Starts the Taurine background service.
+  ```bash
+  taurine up
+  ```
+</Accordion>
 
-Script automation:
+<Accordion title="down / stop">
+  Stops the Taurine background service.
+  ```bash
+  taurine down
+  ```
+</Accordion>
 
-```text
-taurine add script <trigger> <content>
-taurine add script <trigger> --file <path>
-```
+<Accordion title="restart / reboot">
+  Restarts the Taurine background service.
+  ```bash
+  taurine restart
+  ```
+</Accordion>
 
-Script flags:
+<Accordion title="status">
+  Checks if the Taurine daemon is currently running.
+  ```bash
+  taurine status
+  ```
+</Accordion>
+</Accordions>
 
-```text
--f, --file <path>
--l, --lang <bash|powershell|python|node|node-esm|cmd>
--m, --mode <inline|silent>
---os <windows|linux|macos|all|android|ios|current>
-```
+---
 
-## list
+## Automation Management
 
-```text
-taurine list [--sort <alpha|usage|created|recent>] [--asc|--desc] [--plain]
-```
+Commands for creating, viewing, and deleting your snippets and scripts.
 
-## delete
+<Accordions>
+<Accordion title="add / set">
+  Adds a new text or script automation.
+  
+  **Standard Text:**
+  ```bash
+  taurine add <trigger> <output> [--os <target>]
+  ```
+  
+  **Shell Script:**
+  ```bash
+  taurine add script <trigger> <body> [-l <lang>] [-m <mode>]
+  taurine add script <trigger> -f <path>
+  ```
+  
+  **Optional Flags:**
+  - `-f, --file <path>`: Load script content from a file.
+  - `-l, --lang <bash|powershell|python|node|node-esm|cmd>`: Specify the interpreter.
+  - `-m, --mode <inline|silent>`: Choose execution mode.
+  - `--os <windows|linux|macos|all|android|ios|current>`: Target specific platforms.
+</Accordion>
 
-```text
-taurine delete <trigger>...
-```
+<Accordion title="list / ls">
+  Lists all active automations.
+  ```bash
+  taurine list [--sort <alpha|usage|created|recent>] [--asc|--desc] [--plain]
+  ```
+</Accordion>
 
-Takes one or more triggers.
+<Accordion title="delete / rm / remove">
+  Removes one or more automations by their trigger.
+  ```bash
+  taurine delete <trigger>...
+  ```
+</Accordion>
+</Accordions>
 
-## export
+---
 
-```text
-taurine export [path]
-  --no-encrypt
-  --with-settings
-  --with-metrics
-```
+## Data Exchange
 
-## import
+Commands for backing up and restoring your Taurine environment.
 
-```text
-taurine import <path>
-  --on-conflict <prompt|skip|overwrite>
-  --include-settings
-  --include-metrics
-  --include-metrics=<ignore|merge|overwrite>
-```
+<Accordions>
+<Accordion title="export">
+  Exports automations, settings, and metrics to a encrypted or plaintext file.
+  ```bash
+  taurine export [path] [--no-encrypt] [--with-settings] [--with-metrics]
+  ```
+</Accordion>
 
-## config
+<Accordion title="import">
+  Imports data from a Taurine exchange file.
+  ```bash
+  taurine import <path> [--on-conflict <prompt|skip|overwrite>] [--include-settings] [--include-metrics <ignore|merge|overwrite>]
+  ```
+</Accordion>
+</Accordions>
 
-```text
-taurine config set <key> <value>
-taurine config list
-taurine config reset <key>
-taurine config reset --all
-```
+---
 
-`list` alias: `ls`
+## Configuration
 
-## ai
+Manage internal application settings.
 
-```text
-taurine ai add --provider <provider>
-taurine ai list
-taurine ai models --provider <provider>
-taurine ai remove --provider <provider>
-```
+<Accordions>
+<Accordion title="config set">
+  Sets a configuration value.
+  ```bash
+  taurine config set <key> <value>
+  ```
+</Accordion>
 
-Providers:
+<Accordion title="config list / ls">
+  Lists all current settings and their values.
+  ```bash
+  taurine config list
+  ```
+</Accordion>
 
-```text
-openai
-claude
-gemini
-xai
-groq
-deepseek
-cohere
-together
-fireworks
-nebius
-mimo
-zai
-bigmodel
-github_copilot
-custom
-```
+<Accordion title="config reset">
+  Resets a setting to factory defaults.
+  ```bash
+  taurine config reset <key>
+  taurine config reset --all
+  ```
+</Accordion>
+</Accordions>
 
-Preset commands:
+---
 
-```text
-taurine ai preset add <name> <prompt>
-taurine ai preset rm <name>
-taurine ai preset list
-```
+## AI Copilot
 
-`list` alias: `ls`
+Manage AI providers and presets.
 
-## completions
+<Accordions>
+<Accordion title="ai add">
+  Adds a provider credential. You will be prompted for the API key.
+  ```bash
+  taurine ai add --provider <name>
+  ```
+</Accordion>
 
-```text
-taurine completions bash
-taurine completions elvish
-taurine completions fish
-taurine completions powershell
-taurine completions zsh
-taurine completions install
-taurine completions uninstall
-```
+<Accordion title="ai models">
+  Lists models supported by a specific provider.
+  ```bash
+  taurine ai models --provider <name>
+  ```
+</Accordion>
+
+<Accordion title="ai list / ls">
+  Lists all configured AI providers.
+  ```bash
+  taurine ai list
+  ```
+</Accordion>
+
+<Accordion title="ai remove">
+  Removes a provider's credentials from the OS keyring.
+  ```bash
+  taurine ai remove --provider <name>
+  ```
+</Accordion>
+
+<Accordion title="ai preset">
+  Manage shortcuts for specific AI personas or tasks.
+  ```bash
+  taurine ai preset add <name> <prompt>
+  taurine ai preset rm <name>
+  taurine ai preset list
+  ```
+</Accordion>
+</Accordions>
+
+---
+
+## Shell Completions
+
+Generate or install shell completion scripts.
+
+<Accordions>
+<Accordion title="Manual Generation">
+  Prints the completion script for your shell to stdout.
+  ```bash
+  taurine completions <bash|elvish|fish|powershell|zsh>
+  ```
+</Accordion>
+
+<Accordion title="Automatic Installation">
+  Installs completions for your current shell and platform automatically.
+  ```bash
+  taurine completions install
+  taurine completions uninstall
+  ```
+</Accordion>
+</Accordions>
