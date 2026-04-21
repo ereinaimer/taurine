@@ -7,11 +7,18 @@ description: Provide fallbacks in case an argument isn't specified.
 
 To ensure your snippet still works even if you forget to pass an argument, use the `=` symbol inside the placeholder:
 
-```text trigger=">msg "
+**Example Template:**
+```text
 Message: [content=No content provided]
 ```
 
-If no value is provided via input, Taurine will use the assigned default.
+**Input:** `>msg`  
+**Result:** `Message: No content provided`
+
+**Input:** `>msg:"Hello World"`  
+**Result:** `Message: Hello World`
+
+If no value is provided via input, Taurine will use the assigned default. 
 
 ## Real-World Examples
 Default values turn templates into smart tools that work out of the box while remaining fully customizable. 
