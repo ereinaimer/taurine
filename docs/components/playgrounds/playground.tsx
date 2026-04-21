@@ -9,9 +9,9 @@ interface PlaygroundProps {
   initialInput?: string;
 }
 
-export function Playground({ 
-  initialTemplate, 
-  initialInput 
+export function Playground({
+  initialTemplate,
+  initialInput
 }: PlaygroundProps) {
   const [template, setTemplate] = useState(initialTemplate);
   const [input, setInput] = useState(initialInput || '');
@@ -21,11 +21,11 @@ export function Playground({
     // When input changes, resolve the template
     const firstSpaceOrColon = input.match(/[ :]/);
     const prefix = firstSpaceOrColon ? input.slice(0, firstSpaceOrColon.index) : input;
-    
+
     if (input.endsWith(' ')) {
       setOutput(resolveTemplate(template, input, prefix));
     } else {
-      setOutput('Waiting for space...\n(Type space to trigger)');
+      setOutput('Waiting for space...');
     }
   }, [template, input]);
 
