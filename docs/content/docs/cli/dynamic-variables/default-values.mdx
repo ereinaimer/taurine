@@ -11,4 +11,42 @@ To ensure your snippet still works even if you forget to pass an argument, use t
 Message: [content=No content provided]
 ```
 
-If no value is provided via terminal input, Taurine will use the assigned default.
+If no value is provided via input, Taurine will use the assigned default.
+
+## Real-World Examples
+Default values turn templates into smart tools that work out of the box while remaining fully customizable. 
+
+<Accordions>
+  <Accordion title="Show Productivity Examples">
+    <div className="text-lg font-bold mt-4 mb-1">Friendly Greetings</div>
+    Keep your communications professional even when you're in a rush by using a fallback for names.
+    
+    **Trigger:** `>hi`
+    
+    ```text trigger=">hi "
+    Hi [name=there], thanks for reaching out!
+    ```
+
+    <Callout type="info">
+      **Try it:** Type `>hi` for the default greeting, or `>hi:Erein` to personalize it.
+    </Callout>
+  </Accordion>
+  <Accordion title="Show Developer Examples">
+    <div className="text-lg font-bold mt-4 mb-1">Standardized Git Commits</div>
+    Maintain a consistent commit style by defaulting to your most common commit type.
+    
+    **Trigger:** `>gc:::'Initial commit'`
+    
+    <Callout type="info">
+      **Pro Tip:** Use double colons `::` to skip a placeholder and use its default value. In this example, we skip `type` and `scope` to use their defaults.
+    </Callout>
+    
+    ```text trigger=">gc:::'Initial commit' "
+    [type=feat]([scope=cli]): [message]
+    ```
+  </Accordion>
+</Accordions>
+
+<Callout type="info" title="Experiment!">
+  Click the **Play** button on any of the code blocks above to test these out. Defaults are especially powerful when combined with multiple variables—try skipping arguments with `::` to see the logic in action!
+</Callout>
