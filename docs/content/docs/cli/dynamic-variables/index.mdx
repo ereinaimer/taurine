@@ -1,15 +1,38 @@
 ---
-title: Introduction
+title: Definition
 description: Overview of Dynamic Variables in Taurine
 ---
 
 Dynamic variables allow you to insert user input, arguments, and transformations directly into your text snippets. 
 They let you create sophisticated templates that adapt based on the inputs you provide when triggering them.
 
-This section covers:
-- **Basic Usage**: Simple placeholders for user data.
-- **Default Values**: Fallbacks for omitted arguments.
-- **Arguments**: Using positional and named inputs.
-- **Transformers**: Changing the casing and formatting of your text on the fly.
+import { Type, Zap, Hash, Wand2 } from 'lucide-react';
 
-Navigate through this section using the sidebar to learn how to unlock the full power of Taurine's variable engine!
+This section covers:
+
+<Cards>
+  <Card 
+    title="Basic Usage" 
+    icon={<Type />}
+    href="/docs/cli/dynamic-variables/basic-usage" 
+    description="Simple placeholders for user data." 
+  />
+  <Card 
+    title="Default Values" 
+    icon={<Zap />}
+    href="/docs/cli/dynamic-variables/default-values" 
+    description="Fallbacks for omitted arguments." 
+  />
+  <Card 
+    title="Arguments" 
+    icon={<Hash />}
+    href="/docs/cli/dynamic-variables/arguments" 
+    description="Using positional and named inputs." 
+  />
+  <Card 
+    title="Transformers" 
+    icon={<Wand2 />}
+    href="/docs/cli/dynamic-variables/transformers" 
+    description="Changing the casing and formatting of your text on the fly." 
+  />
+</Cards>
