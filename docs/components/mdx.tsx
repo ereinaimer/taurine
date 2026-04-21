@@ -4,6 +4,7 @@ import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 import { PlayableCodeBlock } from './playgrounds/playable-code-block';
+import { Transformation } from './transformation';
 import type { MDXComponents } from 'mdx/types';
 
 export function getMDXComponents(components?: MDXComponents) {
@@ -17,6 +18,7 @@ export function getMDXComponents(components?: MDXComponents) {
     Accordion,
     Accordions,
     Callout,
+    Transformation,
     ...components,
   } satisfies MDXComponents;
 }

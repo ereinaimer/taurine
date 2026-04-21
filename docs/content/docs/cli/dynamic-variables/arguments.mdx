@@ -7,13 +7,11 @@ description: Group positional and named inputs effectively.
 
 Use numbered placeholders `[0]`, `[1]`, etc., to reference arguments strictly by the order you type them. This allows you to reorder inputs in your final output.
 
-**Example Template:**
-```text
-https://github.com/[1]/[0]
-```
-
-**Input:** `>gh:taurine:ereinaimer`  
-**Result:** `https://github.com/ereinaimer/taurine`
+<Transformation
+  template="https://github.com/[1]/[0]"
+  input=">gh:taurine:ereinaimer"
+  result="https://github.com/ereinaimer/taurine"
+/>
 
 By using `[1]` before `[0]`, Taurine swapped the order of the organization and the repository name. You have complete control over where each input goes, regardless of the order you typed them.
 
@@ -21,13 +19,11 @@ By using `[1]` before `[0]`, Taurine swapped the order of the organization and t
 
 Explicitly assign a value to a label using the `key=value` format when typing your trigger. This is useful when you want to ignore the order of arguments entirely.
 
-**Example Template:**
-```text
-Repo: [repo] by [name]
-```
-
-**Input:** `>gh:name=ereinaimer:repo=taurine`  
-**Result:** `Repo: taurine by ereinaimer`
+<Transformation
+  template="Repo: [repo] by [name]"
+  input=">gh:name=ereinaimer:repo=taurine"
+  result="Repo: taurine by ereinaimer"
+/>
 
 Named arguments override their position. Even though `name` was typed first, it correctly filled the `[name]` placeholder at the end of the template.
 
@@ -35,16 +31,13 @@ Named arguments override their position. Even though `name` was typed first, it 
 
 Quotes allow arguments to contain spaces or colons without breaking the trigger parsing. Taurine supports both double quotes (`"`) and single quotes (`'`), which allows you to nest quotes or include apostrophes easily.
 
-**Example Template:**
-```text
-Quote: [0]
-```
-
-**Input:** `>quote:'"One small step for man"'`  
-**Result:** `Quote: "One small step for man"`
-
-**Input:** `>quote:"How're you?"`  
-**Result:** `Quote: How're you?`
+<Transformation
+  template="Quote: [0]"
+  cases={[
+    { input: ">quote:'\"One small step for man\"'", result: 'Quote: "One small step for man"' },
+    { input: ">quote:\"How're you?\"", result: "Quote: How're you?" },
+  ]}
+/>
 
 By wrapping the text in quotes, you can preserve complex strings, including those that contain other quote characters or punctuation, as a single argument.
 
@@ -52,13 +45,11 @@ By wrapping the text in quotes, you can preserve complex strings, including thos
 
 If a placeholder is not numbered and does not match a named argument, Taurine will fill it from the next available positional value.
 
-**Example Template:**
-```text
-Player 1: [p1], Player 2: [p2]
-```
-
-**Input:** `>match:Mario:Luigi`  
-**Result:** `Player 1: Mario, Player 2: Luigi`
+<Transformation
+  template="Player 1: [p1], Player 2: [p2]"
+  input=">match:Mario:Luigi"
+  result="Player 1: Mario, Player 2: Luigi"
+/>
 
 Taurine automatically maps `Mario` to the first unassigned placeholder (`p1`) and `Luigi` to the second (`p2`). This keeps your templates readable without needing to manage index numbers manually.
 

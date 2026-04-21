@@ -7,16 +7,13 @@ description: Provide fallbacks in case an argument isn't specified.
 
 To ensure your snippet still works even if you forget to pass an argument, use the `=` symbol inside the placeholder:
 
-**Example Template:**
-```text
-Message: [content=No content provided]
-```
-
-**Input:** `>msg`  
-**Result:** `Message: No content provided`
-
-**Input:** `>msg:"Hello World"`  
-**Result:** `Message: Hello World`
+<Transformation
+  template="Message: [content=No content provided]"
+  cases={[
+    { input: ">msg", result: "Message: No content provided" },
+    { input: ">msg:\"Hello World\"", result: "Message: Hello World" },
+  ]}
+/>
 
 If no value is provided via input, Taurine will use the assigned default. 
 

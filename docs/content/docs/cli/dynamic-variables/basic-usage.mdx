@@ -17,24 +17,20 @@ When Taurine encounters a bracketed word, it converts it into an **input mapping
 ### Basic Mapping
 If your snippet has a single variable, Taurine maps the entirety of your terminal argument to that specific placeholder.
 
-**Example Template:**
-```text
-Hello, [name]!
-```
-
-**Input:** `>hello:Erein`  
-**Result:** `Hello, Erein!`
+<Transformation
+  template="Hello, [name]!"
+  input=">hello:Erein"
+  result="Hello, Erein!"
+/>
 
 ### Multi-Variable Snippets
 You aren't limited to just one variable. You can scatter placeholders throughout your text to build sophisticated templates.
 
-**Example Template:**
-```text
-GRANT ACCESS TO [user] ON [environment]
-```
-
-**Input:** `>access:admin:staging`  
-**Result:** `GRANT ACCESS TO admin ON staging`
+<Transformation
+  template="GRANT ACCESS TO [user] ON [environment]"
+  input=">access:admin:staging"
+  result="GRANT ACCESS TO admin ON staging"
+/>
 
 By adding more colons to your trigger, you can pipe multiple arguments into your snippet in one go.
 
