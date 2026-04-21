@@ -1,37 +1,105 @@
 ---
 title: Settings Reference
-description: Compact reference for Taurine configuration keys, aliases, defaults, and accepted values.
+description: Comprehensive reference for Taurine configuration keys, aliases, and defaults.
 ---
 
-## Settings
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 
-| Key | Aliases | Default | Notes |
-| --- | --- | --- | --- |
-| `trigger_char` | `trigger` | `>` | First character before a trigger |
-| `pause_hotkey` | `hotkey` | `Alt + \`` | Global pause toggle |
-| `pause_notifications_enabled` | `notifications` | `true` | Show pause notifications |
-| `start_on_boot` | `boot` | `true` | Syncs startup behavior with the OS |
-| `spinner_style` | `spinner` | `braille` | `braille`, `arc`, `classic` |
-| `ai_provider` | none | unset | Selected AI provider |
-| `ai_model` | none | unset | Selected model name |
-| `ai_custom_endpoint` | `endpoint`, `custom_endpoint` | unset | Required for `custom` provider |
-| `inline_ai_delimiter` | `delimiter` | `` ` `` | Used in Inline AI capture mode |
+Taurine provides a set of configuration keys to customize its behavior. You can manage these settings using the [`taurine config`](/docs/cli/reference/cli-reference#configuration) command.
 
-## Examples
+## Core Settings
 
-```bash
-taurine config set trigger_char /
-taurine config set spinner_style arc
-taurine config set ai_provider openai
-taurine config set ai_model gpt-4o
-taurine config set ai_custom_endpoint https://example.com/v1
-taurine config set inline_ai_delimiter ~
-```
+Manage the basic behavior and interaction of the Taurine engine.
 
-## Reset Examples
+<Accordions>
+<Accordion title="trigger_char">
+  The character that must precede a trigger word to activate expansion.
+  
+  - **Key**: `trigger_char`
+  - **Alias**: `trigger`
+  - **Default**: `>`
+  - **Example**: `taurine config set trigger /`
+</Accordion>
 
-```bash
-taurine config reset trigger_char
-taurine config reset ai_model
-taurine config reset --all
-```
+<Accordion title="pause_hotkey">
+  The global keyboard shortcut used to toggle the Taurine daemon on and off.
+  
+  - **Key**: `pause_hotkey`
+  - **Alias**: `hotkey`
+  - **Default**: `Alt + \``
+  - **Example**: `taurine config set hotkey "Ctrl + Alt + P"`
+</Accordion>
+
+<Accordion title="start_on_boot">
+  Determines if Taurine should automatically start when your operating system boots.
+  
+  - **Key**: `start_on_boot`
+  - **Alias**: `boot`
+  - **Default**: `true`
+  - **Values**: `true`, `false`
+</Accordion>
+</Accordions>
+
+## User Interface
+
+Customize how Taurine interacts with your system's UI and notifications.
+
+<Accordions>
+<Accordion title="spinner_style">
+  The visual style of the loading indicator shown during AI generating or long script executions.
+  
+  - **Key**: `spinner_style`
+  - **Alias**: `spinner`
+  - **Default**: `braille`
+  - **Values**: `braille`, `arc`, `classic`
+</Accordion>
+
+<Accordion title="pause_notifications_enabled">
+  Whether to show a system notification when Taurine is paused or resumed.
+  
+  - **Key**: `pause_notifications_enabled`
+  - **Alias**: `notifications`
+  - **Default**: `true`
+  - **Values**: `true`, `false`
+</Accordion>
+</Accordions>
+
+## AI Copilot
+
+Configure your AI provider integrations and capture behavior.
+
+<Accordions>
+<Accordion title="ai_provider">
+  The primary AI service used for the Inline AI Copilot.
+  
+  - **Key**: `ai_provider`
+  - **Default**: `unset`
+  - **Values**: `openai`, `claude`, `gemini`, `deepseek`, etc. (See [AI Copilot](/docs/cli/inline-ai-copilot) for full list)
+</Accordion>
+
+<Accordion title="ai_model">
+  The specific LLM used for requests. If unset, Taurine uses the provider's default model.
+  
+  - **Key**: `ai_model`
+  - **Default**: `unset`
+  - **Example**: `taurine config set ai_model gpt-4o`
+</Accordion>
+
+<Accordion title="ai_custom_endpoint">
+  The base URL for the `custom` (OpenAI-compatible) provider.
+  
+  - **Key**: `ai_custom_endpoint`
+  - **Aliases**: `endpoint`, `custom_endpoint`
+  - **Default**: `unset`
+  - **Example**: `taurine config set endpoint http://localhost:11434/v1`
+</Accordion>
+
+<Accordion title="inline_ai_delimiter">
+  The character used to wrap interactive AI prompts.
+  
+  - **Key**: `inline_ai_delimiter`
+  - **Alias**: `delimiter`
+  - **Default**: `` ` ``
+  - **Example**: `taurine config set delimiter ~`
+</Accordion>
+</Accordions>
