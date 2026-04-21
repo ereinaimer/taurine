@@ -3,16 +3,42 @@ title: Inline AI Copilot
 description: Set up AI providers, use quoted prompts, and run interactive AI capture directly from Taurine.
 ---
 
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
+
+Taurine's **Inline AI Copilot** brings powerful Large Language Models directly to your cursor. Whether you need to rewrite a sentence, generate a function, or brainstorm ideas, you can trigger AI assistance without leaving your active window.
+
 ## Add An AI Provider
+
+Taurine supports a vast range of top-tier AI providers, including specialized platforms for performance and low latency
 
 ```bash
 taurine ai add --provider <name>
 ```
 
-Taurine currently supports `openai`, `claude`, `gemini`, and `custom` providers.
+### Supported Providers & Default Models
+
+When you add a provider, Taurine uses the following default models (which you can override in your configuration).
+
+| Provider | Key Name | Default Model |
+| :--- | :--- | :--- |
+| **OpenAI** | `openai` | `gpt-4o` |
+| **Anthropic** | `claude` | `claude-3-5-sonnet-latest` |
+| **Google** | `gemini` | `gemini-2.5-flash` |
+| **xAI** | `xai` | `grok-2-latest` |
+| **DeepSeek** | `deepseek` | `deepseek-chat` |
+| **Groq** | `groq` | `llama-3.3-70b-versatile` |
+| **Cohere** | `cohere` | `command-r-plus` |
+| **Together AI** | `together` | `meta-llama/Llama-3.3-70B-Instruct-Turbo` |
+| **Fireworks AI** | `fireworks` | `llama-v3p3-70b-instruct` |
+| **Nebius AI** | `nebius` | `Meta-Llama-3.1-70B-Instruct` |
+| **GitHub Copilot** | `github_copilot` | `gpt-4o` |
+| **Mimo** | `mimo` | `mimo-2` |
+| **Zhipu / Zai** | `zai` | `glm-4` |
+| **Custom** | `custom` | `gpt-3.5-turbo` |
 
 <Callout title="Security" type="info">
-  Taurine stores your provider secrets (API keys) securely in the OS keyring. They are never saved as plain text in your configuration files.
+  Taurine stores your API keys securely in the OS keyring. They are never saved as plain text.
 </Callout>
 
 ### Provider Management
@@ -29,8 +55,8 @@ Taurine provides multiple ways to interact with AI directly from your text area.
     The fastest way for short instructions. Type your trigger, then the prompt in quotes:
     
     ```text
-    >ai:'hello' Space
-    >ai:"Rewrite this politely" Space
+    >ai:'hello'
+    >ai:"Rewrite this politely"
     ```
     This immediately starts the AI request and replaces the trigger with the response.
   </Tab>
@@ -38,58 +64,56 @@ Taurine provides multiple ways to interact with AI directly from your text area.
     Best for longer prompts. Type `>ai` followed by a space to open the capture delimiter:
     
     ```text
-    >ai Space
+    >ai
     ```
     Taurine inserts the opening delimiter (default: `` ` ``). Type your prompt, close the delimiter, and press `Space` again:
     
     ```text
-    >ai Space`write a haiku about rust` Space
+    `write a haiku about rust`
     ```
   </Tab>
 </Tabs>
 
 ## AI Presets
 
-Add a preset:
+Presets allow you to save complex system instructions or specific personas under short aliases.
 
+### Management
 ```bash
+# Add a preset for an editor persona
 taurine ai preset add re "expert editor"
+
+# Add a preset for code documentation
+taurine ai preset add doc "generate rust documentation for the following code"
 ```
 
-Use it with:
+### Usage
+Trigger any preset using the format `>ai.[alias]`:
 
 ```text
 >ai.re Space
 ```
 
-Manage presets:
+## Advanced Configuration
+
+### Custom Endpoints
+If you are using the `custom` provider (e.g., Local LLMs via Ollama or LM Studio), set your endpoint:
 
 ```bash
-taurine ai preset list
-taurine ai preset rm re
+taurine config set ai_custom_endpoint http://localhost:11434/v1
 ```
 
-## Custom Endpoint And Delimiter
-
-Set a custom OpenAI-compatible endpoint:
-
-```bash
-taurine config set ai_custom_endpoint https://your-endpoint.example/v1
-```
-
-Change the capture delimiter:
+### Custom Delimiter
+If the default backtick (`` ` ``) conflicts with your workflow, change the capture delimiter:
 
 ```bash
 taurine config set inline_ai_delimiter ~
 ```
 
-<Callout title="Custom provider" type="warn">
-  If you choose the `custom` provider, you must also set `ai_custom_endpoint` before Inline AI can
-  run.
-</Callout>
-
 ## Provider Selection
 
-- If `ai_provider` is set, Taurine uses it.
-- If only one provider is configured, Taurine can pick it automatically.
-- If multiple providers are configured, set one explicitly with `taurine config set ai_provider <name>`.
+Taurine determines which provider to use based on your active configuration:
+
+1. **Explicit Setting**: If `ai_provider` is set via `taurine config set ai_provider <name>`, that provider is always used.
+2. **Auto-Selection**: If `ai_provider` is not set but you have exactly **one** provider configured (via `taurine ai add`), Taurine will use it automatically.
+3. **Manual Conflict**: If multiple providers are configured but no default is set, Taurine will prompt you to set an `ai_provider` before it can execute a request.
