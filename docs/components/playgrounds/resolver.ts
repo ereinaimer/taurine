@@ -6,8 +6,15 @@
 // Basic text transformers
 const transformers: Record<string, (val: string) => string> = {
   upper: (val) => val.toUpperCase(),
+  uppercase: (val) => val.toUpperCase(),
   lower: (val) => val.toLowerCase(),
+  lowercase: (val) => val.toLowerCase(),
   title: (val) =>
+    val.replace(
+      /\w\S*/g,
+      (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase()
+    ),
+  titlecase: (val) =>
     val.replace(
       /\w\S*/g,
       (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase()
@@ -18,12 +25,27 @@ const transformers: Record<string, (val: string) => string> = {
       .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
       ?.map((x) => x.toLowerCase())
       .join('_') || val,
+  snakecase: (val) =>
+    val
+      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
+      ?.map((x) => x.toLowerCase())
+      .join('_') || val,
   kebab: (val) =>
     val
       .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
       ?.map((x) => x.toLowerCase())
       .join('-') || val,
+  kebabcase: (val) =>
+    val
+      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
+      ?.map((x) => x.toLowerCase())
+      .join('-') || val,
   pascal: (val) =>
+    val
+      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
+      ?.map((x) => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase())
+      .join('') || val,
+  pascalcase: (val) =>
     val
       .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
       ?.map((x) => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase())
@@ -36,7 +58,20 @@ const transformers: Record<string, (val: string) => string> = {
         .join('') || val;
     return p ? p.charAt(0).toLowerCase() + p.slice(1) : p;
   },
+  camelcase: (val) => {
+    const p =
+      val
+        .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
+        ?.map((x) => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase())
+        .join('') || val;
+    return p ? p.charAt(0).toLowerCase() + p.slice(1) : p;
+  },
   shoutysnake: (val) =>
+    val
+      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
+      ?.map((x) => x.toUpperCase())
+      .join('_') || val,
+  shoutysnakecase: (val) =>
     val
       .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
       ?.map((x) => x.toUpperCase())
@@ -46,7 +81,17 @@ const transformers: Record<string, (val: string) => string> = {
       .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
       ?.map((x) => x.toUpperCase())
       .join('-') || val,
+  shoutykebabcase: (val) =>
+    val
+      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
+      ?.map((x) => x.toUpperCase())
+      .join('-') || val,
   train: (val) =>
+    val
+      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
+      ?.map((x) => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase())
+      .join('-') || val,
+  traincase: (val) =>
     val
       .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
       ?.map((x) => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase())

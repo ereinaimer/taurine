@@ -3,21 +3,50 @@ title: Text Transformers
 description: Manipulate the casing and formatting of your text dynamically.
 ---
 
----
 import { Callout } from 'fumadocs-ui/components/callout';
 
-## Using Transformers
+Taurine can apply text transformers directly to your arguments before expansion. Use the dot notation `.modifier` next to your variable tag to change its formatting.
 
-Taurine can apply text transformers directly to your arguments before expansion. Use the dot notation `.modifier` next to your variable tag.
+## Available Transformers
 
-### Available Transformers
+The following table lists all transformers supported by the Taurine template engine. Each modifier also has a `*case` alias (e.g., `.snake` or `.snakecase`) for better readability.
 
-```text trigger=">format:'hello world from taurine' "
-Upper: [0.upper]
-Camel: [0.camel]
-URL: [0.urlencode]
-```
+| Modifier | Description | Example |
+| :--- | :--- | :--- |
+| `.upper` | Converts text to ALL UPPERCASE | `hello` → `HELLO` |
+| `.lower` | Converts text to all lowercase | `HELLO` → `hello` |
+| `.title` | Converts text to Title Case | `hello world` → `Hello World` |
+| `.snake` | Converts text to snake_case | `HelloWorld` → `hello_world` |
+| `.kebab` | Converts text to kebab-case | `HelloWorld` → `hello-world` |
+| `.pascal`| Converts text to PascalCase | `hello_world` → `HelloWorld` |
+| `.camel` | Converts text to camelCase | `hello_world` → `helloWorld` |
+| `.shoutysnake` | Converts text to SHOUTY_SNAKE_CASE | `hello world` → `HELLO_WORLD` |
+| `.shoutykebab` | Converts text to SHOUTY-KEBAB-CASE | `hello world` → `HELLO-WORLD` |
+| `.train` | Converts text to Train-Case | `hello_world` → `Hello-World` |
+| `.urlencode` | URL encodes special characters | `hello world!` → `hello%20world%21` |
+
+## Practical Examples
+
+Transformers are essential for making your snippets adapt to their context—like ensuring a commit message is lowercase or a filename is in kebab-case.
+
+### Mixed Formatting
+You can use different transformers for different variables in the same snippet.
+
+<Transformation
+  template="Title: [0.title] | Slug: [0.kebab]"
+  input=">format:'Hello World From Taurine'"
+  result="Title: Hello World From Taurine | Slug: hello-world-from-taurine"
+/>
+
+### Case Variations
+Every modifier supports a full `*case` alias if you prefer more explicit naming.
+
+<Transformation
+  template="SNAKE: [0.snakecase] | CAMEL: [0.camelcase]"
+  input=">cases:HelloWorld"
+  result="SNAKE: hello_world | CAMEL: helloWorld"
+/>
 
 <Callout title="Keep it flat" type="info">
-  Prefer flat forms like `[query.urlencode]`. While some nested transformers might resolve depending on string parsing, it's safer to keep them straightforward.
+  While you can technically chain modifiers in some contexts, we recommend keeping them flat (e.g., `[0.upper]`) to ensure maximum compatibility and readability.
 </Callout>
