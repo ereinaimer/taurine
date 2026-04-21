@@ -9,46 +9,46 @@ const transformers: Record<string, (val: string) => string> = {
   lower: (val) => val.toLowerCase(),
   title: (val) =>
     val.replace(
-      /\\w\\S*/g,
+      /\w\S*/g,
       (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase()
     ),
   urlencode: (val) => encodeURIComponent(val),
   snake: (val) =>
     val
-      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
+      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
       ?.map((x) => x.toLowerCase())
       .join('_') || val,
   kebab: (val) =>
     val
-      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
+      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
       ?.map((x) => x.toLowerCase())
       .join('-') || val,
   pascal: (val) =>
     val
-      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
+      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
       ?.map((x) => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase())
       .join('') || val,
   camel: (val) => {
     const p =
       val
-        .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
+        .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
         ?.map((x) => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase())
         .join('') || val;
     return p ? p.charAt(0).toLowerCase() + p.slice(1) : p;
   },
   shoutysnake: (val) =>
     val
-      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
+      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
       ?.map((x) => x.toUpperCase())
       .join('_') || val,
   shoutykebab: (val) =>
     val
-      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
+      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
       ?.map((x) => x.toUpperCase())
       .join('-') || val,
   train: (val) =>
     val
-      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
+      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
       ?.map((x) => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase())
       .join('-') || val,
 };
@@ -123,17 +123,15 @@ export function resolveTemplate(template: string, input: string, prefix: string)
       resolvedValue = named[key];
     }
     // 2. Try positional index if key is a number
-    else if (!isNaN(Number(key)) && positional[Number(key)] !== undefined) {
-      resolvedValue = positional[Number(key)];
+    else if (!isNaN(Number(key))) {
+      const val = positional[Number(key)];
+      resolvedValue = (val === '' || val === undefined) && defaultValue !== undefined ? defaultValue : val;
     }
     // 3. Fallback to sequence of positionals if not a number
-    else if (isNaN(Number(key)) && positional[positionalIndex] !== undefined) {
-      resolvedValue = positional[positionalIndex];
-      positionalIndex++;
-    }
-    // 4. Try default value
-    else if (defaultValue !== undefined) {
-      resolvedValue = defaultValue;
+    else {
+      const val = positional[positionalIndex];
+      resolvedValue = (val === '' || val === undefined) && defaultValue !== undefined ? defaultValue : val;
+      if (val !== undefined) positionalIndex++;
     }
     
     if (resolvedValue === undefined) {
