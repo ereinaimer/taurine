@@ -15,23 +15,25 @@ The `[date.*]` namespace allows you to insert the current, previous, or next day
 
 ## Relative Dates
 
-Taurine can automatically calculate yesterday and tomorrow, supporting all standard formats through nested modifiers.
+Taurine can automatically calculate yesterday and tomorrow. If no format modifier is provided, **ISO** (`YYYY-MM-DD`) is used by default.
 
-- `[date.tomorrow]` / `[date.tomorrow.iso]`
-- `[date.yesterday.short]`
+- `[date.tomorrow]` (Defaut: ISO)
+- `[date.tomorrow.short]`
 - `[date.tomorrow.long]`
+- `[date.yesterday]` (Default: ISO)
+- `[date.yesterday.iso]`
 
 ## Component Variables
 
-Extract specific parts of the current date for use in filenames or metadata.
+Extract specific parts of the current date for use in filenames, metadata, or custom formatting.
 
 | Variable | Description | Example Output |
 | :--- | :--- | :--- |
-| `[date.weekday]` | The day of the week | `Tuesday` |
-| `[date.year]` | Current year | `2026` |
-| `[date.month]` | Numerical month (01-12) | `04` |
+| `[date.weekday]` | Full name of the day | `Tuesday` |
+| `[date.year]` | 4-digit year | `2026` |
+| `[date.month]` | 2-digit month (01-12) | `04` |
 | `[date.month_name]` | Full month name | `April` |
-| `[date.day]` | Numerical day (01-31) | `21` |
+| `[date.day]` | 2-digit day of month | `21` |
 
 ## Examples
 

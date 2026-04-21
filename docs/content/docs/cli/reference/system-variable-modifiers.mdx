@@ -3,135 +3,122 @@ title: System Variable Modifiers
 description: Exact reserved roots, modifiers, and text transformers supported by Taurine.
 ---
 
-## Reserved Roots
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 
-- `cursor`
-- `clipboard`
-- `time`
-- `date`
-- `uuid`
-- `env`
-- `key`
-- `delay`
+System variables in Taurine use the format `[root.modifier]`. This reference covers all available reserved roots and their associated modifiers.
 
-## Time Modifiers
+## Variable Roots
 
-- `greeting`
-- `epoch`
-- `unix`
-- `utc`
-- `tz`
-- `12h`
-- `24h`
-- `now`
-- `now.12h`
-- `now.24h`
-- `full`
-- `full.12h`
-- `full.24h`
+The following roots are reserved by the Taurine engine and cannot be used as custom variable names.
 
-## Date Modifiers
+| Root | Description |
+| :--- | :--- |
+| `time` | Current system time in various formats. |
+| `date` | Current system date in various formats. |
+| `clipboard` | Content of the system clipboard. |
+| `cursor` | Directs the final cursor position (placeholder). |
+| `uuid` | Unique identifier generation. |
+| `env` | System environment variables. |
+| `key` | Keyboard automation (simulating key presses). |
+| `delay` | Timing delays in execution sequences. |
 
-- `iso`
-- `short`
-- `long`
-- `tomorrow`
-- `tomorrow.iso`
-- `tomorrow.short`
-- `tomorrow.long`
-- `yesterday`
-- `yesterday.iso`
-- `yesterday.short`
-- `yesterday.long`
-- `weekday`
-- `year`
-- `month`
-- `month_name`
-- `day`
+---
 
-## UUID Modifiers
+## Time & Date
 
-- default `uuid`
-- `v4`
-- `v7`
-- `simple`
+Modifiers for inserting timestamps and relative dates.
 
-## Key Modifiers
+<Accordions>
+<Accordion title="time">
+  - `greeting`: Inserts "Good morning", "Good afternoon", or "Good evening".
+  - `unix` / `epoch`: Current Unix timestamp in seconds.
+  - `utc`: Current time in UTC (HH:mm). For seconds, use `utc.full`.
+  - `tz`: Current local timezone offset (e.g., `+05:30`).
+  - `now`: Current time (HH:mm).
+  - `full`: Current time with seconds (HH:mm:ss).
+</Accordion>
 
-- `enter`
-- `tab`
-- `space`
-- `esc`
-- `up`
-- `down`
-- `left`
-- `right`
-- `home`
-- `end`
-- `pgup`
-- `pageup`
-- `pgdown`
-- `pagedown`
-- `insert`
-- `ins`
-- `backspace`
-- `delete`
-- `ctrl`
-- `shift`
-- `alt`
-- `super`
-- `mod`
-- `f1` through `f12`
-- `printscreen`
-- `prtsc`
-- `pause`
-- `break`
-- `capslock`
-- `numlock`
-- `scrolllock`
+<Accordion title="date">
+  - `iso`: YYYY-MM-DD format.
+  - `short`: MM/DD/YYYY.
+  - `long`: Month name, Day, Year.
+  - `tomorrow` / `yesterday`: Following/Previous day's date (**Default: ISO**).
+  - `tomorrow.short` / `tomorrow.long`: Relative dates with specific formatting.
+  - `weekday`: Full name of the current day.
+  - `year` / `month` / `day`: Numeric components of the current date.
+</Accordion>
+</Accordions>
 
-You can combine key tokens with `+`, and any single character token is also allowed.
+---
 
-Examples:
+## Environment & Clipboard
 
-```text
-[key.tab]
-[key.ctrl+a]
-[key.shift+tab]
-```
+Interact with your local system state and shell environment.
 
-## Delay Modifier
+<Accordions>
+<Accordion title="clipboard">
+  - `[clipboard]`: Standard text content of the clipboard.
+</Accordion>
 
-```text
-[delay.<u64>ms]
-```
+<Accordion title="env">
+  Access any environment variable reachable by the Taurine daemon.
+  - `[env.USER]` / `[env.USERNAME]`
+  - `[env.PATH]`
+  - `[env.HOME]` / `[env.USERPROFILE]`
+</Accordion>
+</Accordions>
 
-Example:
+---
 
-```text
-[delay.200ms]
-```
+## Automation & Identity
+
+Modifiers for generating IDs or simulating hardware interaction.
+
+<Accordions>
+<Accordion title="uuid">
+  - `[uuid]`: Standard v4 UUID.
+  - `[uuid.v4]`: Explicit version 4 UUID.
+  - `[uuid.v7]`: Time-sorted version 7 UUID.
+  - `[uuid.simple]`: v4 UUID without dashes (32 characters).
+</Accordion>
+
+<Accordion title="key">
+  Simulate non-printing keys or keyboard combinations.
+  - `[key.enter]`, `[key.tab]`, `[key.esc]`, `[key.space]`
+  - `[key.up]`, `[key.down]`, `[key.left]`, `[key.right]`
+  - `[key.ctrl+v]`, `[key.alt+tab]`, `[key.shift+p]`
+  - **See [Keyboard Automation](/docs/cli/system-variables/keyboard-automation) for a full list of aliases.**
+</Accordion>
+
+<Accordion title="delay">
+  Pause execution for a specific duration (milliseconds).
+  - `[delay.100ms]`
+</Accordion>
+</Accordions>
+
+---
 
 ## Text Transformers
 
-- `upper`
-- `uppercase`
-- `lower`
-- `lowercase`
-- `snake`
-- `snakecase`
-- `kebab`
-- `kebabcase`
-- `pascal`
-- `pascalcase`
-- `camel`
-- `camelcase`
-- `title`
-- `titlecase`
-- `shoutysnake`
-- `shoutysnakecase`
-- `shoutykebab`
-- `shoutykebabcase`
-- `train`
-- `traincase`
-- `urlencode`
+These can be appended to **any** variable (system or custom) to transform the string output.
+
+<Accordions>
+<Accordion title="Casing Transformers">
+  - `upper` / `uppercase`: `HELLO WORLD`
+  - `lower` / `lowercase`: `hello world`
+  - `title` / `titlecase`: `Hello World`
+</Accordion>
+
+<Accordion title="Programming Transformers">
+  - `snake` / `snakecase`: `hello_world`
+  - `kebab` / `kebabcase`: `hello-world`
+  - `pascal` / `pascalcase`: `HelloWorld`
+  - `camel` / `camelcase`: `helloWorld`
+  - `shoutysnake`: `HELLO_WORLD`
+  - `train`: `Hello-World`
+</Accordion>
+
+<Accordion title="Web & Utilities">
+  - `urlencode`: Percent-encodes characters for use in URLs.
+</Accordion>
+</Accordions>

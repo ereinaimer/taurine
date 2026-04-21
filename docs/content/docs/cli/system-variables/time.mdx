@@ -9,12 +9,16 @@ The `[time.*]` namespace provides access to the current system time in various f
 
 | Variable | Description | Example Output |
 | :--- | :--- | :--- |
-| `[time.now]` | Current time (HH:MM) | `14:30` |
-| `[time.full]` | Current time with seconds (HH:MM:SS) | `14:30:45` |
-| `[time.greeting]` | Contextual greeting (Morning/Afternoon/Evening) | `Good afternoon` |
-| `[time.utc]` | Current time in UTC (HH:MM) | `09:00` |
-| `[time.tz]` | Current timezone offset | `+05:30` |
-| `[time.unix]` | Unix timestamp (seconds since epoch) | `1713709845` |
+| `[time.now]` | Current time (HH:mm) | `14:30` |
+| `[time.full]` | Current time with seconds (HH:mm:ss) | `14:30:45` |
+| `[time.greeting]` | Contextual greeting based on hour | `Good afternoon` |
+| `[time.utc]` | Current UTC time (HH:mm) | `09:00` |
+| `[time.tz]` | Current local timezone offset | `+05:30` |
+| `[time.unix]` / `[time.epoch]` | Unix timestamp (seconds) | `1713709845` |
+
+<Callout title="Precision Note" type="info">
+  By default, `now` and `utc` hide seconds for a cleaner look. If you need exact second-precision, always use the `full` variants or append the `.24h` modifier.
+</Callout>
 
 ## Formatting Modifiers
 

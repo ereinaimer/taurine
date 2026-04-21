@@ -55,3 +55,11 @@ These variables are divided into two categories: **Content Variables** (which in
     description="Simulate key presses and insert delays." 
   />
 </Cards>
+
+## Syntax Rules
+
+To ensure future compatibility and prevent collisions with built-in features, Taurine enforces the following naming rules for variables:
+
+- **Reserved Dot-Namespaces**: Any variable name containing a dot (`.`) is reserved for system use. You cannot create a custom variable named `user.name`; instead, use `user_name`.
+- **Case Insensitivity**: System variable roots and modifiers are case-insensitive. `[TIME.NOW]` and `[time.now]` will produce the same result.
+- **Modifier Chaining**: You can chain [modifiers](/docs/cli/reference/system-variable-modifiers) to any system variable. For example, `[clipboard.upper]` or `[env.USER.pascal]`.

@@ -13,18 +13,21 @@ The `[key.*]` variable simulates a hardware key press. You can use standard key 
 
 ### Supported Keys
 
-- **Standard Keys**: `[key.tab]`, `[key.enter]`, `[key.space]`, `[key.backspace]`
-- **Navigation**: `[key.up]`, `[key.down]`, `[key.left]`, `[key.right]`, `[key.pageup]`, `[key.pagedown]`
-- **Modifiers**: `[key.ctrl]`, `[key.shift]`, `[key.alt]`, `[key.mod]` (Cmd on Mac, Windows key on Windows)
+- **Navigation**: `tab`, `enter`/`return`, `esc`/`escape`, `up`, `down`, `left`, `right`, `home`, `end`, `pgup`/`pageup`, `pgdown`/`pagedown`, `insert`/`ins`, `delete`/`del`.
+- **Modifiers**: `ctrl`/`control`, `alt`/`option`/`opt`, `shift`, `win`/`mod`/`super`/`meta`/`cmd`/`command`.
+- **Special Characters**: `backtick`, `grave`, `tilde`, `minus`, `dash`, `equal`, `equals`, `backslash`, `semicolon`, `quote`, `apostrophe`, `comma`, `dot`, `period`, `slash`, `lbracket`, `rbracket`.
+- **Function Keys**: `f1` through `f12`.
+- **Alphanumeric**: Any single letter (`a`-`z`) or number (`0`-`9`).
 
 ### Key Combinations
 
-Combine keys using the `+` symbol. Modifiers should come first.
+Combine keys using the `+` symbol. Modifiers should come first. You can chain multiple modifiers for complex shortcuts.
 
 ```text
 [key.ctrl+a]            // Select All
 [key.ctrl+shift+end]    // Select to end of document
-[key.mod+space]         // Open Spotlight/Search
+[key.mod+space]         // Open Launcher (Spotlight/Start Menu)
+[key.alt+f4]            // Close Window (Windows/Linux)
 ```
 
 ## Delay Directives
