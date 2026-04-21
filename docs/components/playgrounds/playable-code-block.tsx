@@ -33,20 +33,18 @@ function extractText(node: ReactNode): string {
   return '';
 }
 
-export function PlayableCodeBlock({ 
-  children, 
-  trigger, 
+export function PlayableCodeBlock({
+  children,
+  trigger,
   'data-trigger': dataTrigger,
-  title, 
-  className, 
-  ...props 
+  title,
+  className,
+  ...props
 }: PlayableCodeBlockProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const resolvedTrigger = trigger ?? dataTrigger;
   const rawContent = extractText(children).trim();
 
-  // We always wrap in CodeBlock to ensure titles and Copy buttons appear
-  // This matches Fumadocs' default MDX behavior for the 'pre' tag
   return (
     <div className={cn("relative group/playable my-6", isPlaying && "is-playing")}>
       <CodeBlock
@@ -81,13 +79,10 @@ export function PlayableCodeBlock({
             exit={{ opacity: 0, height: 0 }}
             className="overflow-hidden border-x border-b border-fd-border rounded-b-xl bg-fd-card/30 backdrop-blur-md"
           >
-            <div className="p-1 pt-0">
-              <Playground 
-                initialTemplate={rawContent} 
-                initialInput={resolvedTrigger} 
-                showToggle={false} 
-              />
-            </div>
+            <Playground
+              initialTemplate={rawContent}
+              initialInput={resolvedTrigger}
+            />
           </motion.div>
         )}
       </AnimatePresence>
