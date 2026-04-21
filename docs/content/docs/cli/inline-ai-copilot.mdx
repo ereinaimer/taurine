@@ -80,8 +80,8 @@ Presets allow you to save complex system instructions or specific personas under
 
 ### Management
 ```bash
-# Add a preset for an editor persona
-taurine ai preset add re "expert editor"
+# Add a preset for simple explanations
+taurine ai preset add eli5 "explain this like I'm five"
 
 # Add a preset for code documentation
 taurine ai preset add doc "generate rust documentation for the following code"
@@ -91,7 +91,7 @@ taurine ai preset add doc "generate rust documentation for the following code"
 Trigger any preset using the format `>ai.[alias]`:
 
 ```text
->ai.re Space
+>ai.eli5 Space
 ```
 
 ## Advanced Configuration
