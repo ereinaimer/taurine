@@ -5,32 +5,89 @@ description: Group positional and named inputs effectively.
 
 ## Positional Arguments
 
-Use numbered placeholders `[0]`, `[1]`, etc., to reference arguments strictly by the order you type them:
+Use numbered placeholders `[0]`, `[1]`, etc., to reference arguments strictly by the order you type them. This allows you to reorder inputs in your final output.
 
-```text trigger=">repo:erein:taurine "
-https://github.com/[0]/[1]
+**Example Template:**
+```text
+https://github.com/[1]/[0]
 ```
+
+**Input:** `>gh:taurine:ereinaimer`  
+**Result:** `https://github.com/ereinaimer/taurine`
+
+By using `[1]` before `[0]`, Taurine swapped the order of the organization and the repository name. You have complete control over where each input goes, regardless of the order you typed them.
 
 ## Named Arguments
 
-Explicitly assign a value to a label using `key=value` format when typing your trigger.
+Explicitly assign a value to a label using the `key=value` format when typing your trigger. This is useful when you want to ignore the order of arguments entirely.
 
-```text trigger=">gh:name=aimer:repo=taurine "
+**Example Template:**
+```text
 Repo: [repo] by [name]
 ```
 
+**Input:** `>gh:name=ereinaimer:repo=taurine`  
+**Result:** `Repo: taurine by ereinaimer`
+
+Named arguments override their position. Even though `name` was typed first, it correctly filled the `[name]` placeholder at the end of the template.
+
 ## Quoted Arguments
 
-Quotes let arguments contain spaces or colons:
+Quotes allow arguments to contain spaces or colons without breaking the trigger parsing. Taurine supports both double quotes (`"`) and single quotes (`'`), which allows you to nest quotes or include apostrophes easily.
 
-```text trigger='>quote:"One small step for man" '
-Quote of the day: [0]
+**Example Template:**
+```text
+Quote: [0]
 ```
+
+**Input:** `>quote:'"One small step for man"'`  
+**Result:** `Quote: "One small step for man"`
+
+**Input:** `>quote:"How're you?"`  
+**Result:** `Quote: How're you?`
+
+By wrapping the text in quotes, you can preserve complex strings, including those that contain other quote characters or punctuation, as a single argument.
 
 ## Sequential Positional Fallback
 
 If a placeholder is not numbered and does not match a named argument, Taurine will fill it from the next available positional value.
 
-```text trigger=">match:Mario:Luigi "
+**Example Template:**
+```text
 Player 1: [p1], Player 2: [p2]
 ```
+
+**Input:** `>match:Mario:Luigi`  
+**Result:** `Player 1: Mario, Player 2: Luigi`
+
+Taurine automatically maps `Mario` to the first unassigned placeholder (`p1`) and `Luigi` to the second (`p2`). This keeps your templates readable without needing to manage index numbers manually.
+
+## Real-World Examples
+Mastering arguments allows you to build templates that are both structured and highly reusable.
+
+<Accordions>
+  <Accordion title="Show Productivity Examples">
+    <div className="text-lg font-bold mt-4 mb-1">Appointment Details</div>
+    Quickly fill out a meeting reminder by passing the time and the place as arguments.
+    
+    **Trigger:** `>meet:2pm:the lobby`
+    
+    ```text trigger=">meet:2pm:the lobby "
+    Let's meet at [0] in [1]. See you then!
+    ```
+  </Accordion>
+  <Accordion title="Show Developer Examples">
+    <div className="text-lg font-bold mt-4 mb-1">GitHub Quick Links</div>
+    Navigate to repos within a specific organization by using positional mapping.
+    
+    **Trigger:** `>gh:ereinaimer:taurine`
+    
+    ```text trigger=">gh:ereinaimer:taurine "
+    https://github.com/[0]/[1]
+    ```
+  </Accordion>
+</Accordions>
+
+<Callout type="info" title="Take Note!">
+  Position indexing starts at **0**. If you have three arguments, they will be mapped to `[0]`, `[1]`, and `[2]` in the order they appear in your trigger.
+</Callout>
