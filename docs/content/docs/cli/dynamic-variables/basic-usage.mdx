@@ -3,12 +3,32 @@ title: Basic Variables
 description: Use simple placeholders to drop values directly into your text.
 ---
 
-## Basic Variables
+Dynamic variables are the secret sauce that makes your Taurine snippets truly flexible. Instead of static text, they allow you to create templates that react to the context of your input—turning simple macros into powerful automation tools.
 
-You can define variables in your snippets using square brackets `[name]`.  
-If you use a trigger like `>hello:erein`, Taurine will fill `[name]` from the arguments you typed.
+## The Syntax
+The core of the system is the square bracket syntax: `[variable_name]`. 
+
+When Taurine encounters a bracketed word, it converts it into an **input mapping**. Anything you type after the colon (`:`) in your trigger is captured and injected directly into that placeholder at the moment of expansion.
+
+### Basic Mapping
+If your snippet has a single variable, Taurine maps the entirety of your terminal argument to that specific placeholder.
 
 ```text trigger=">hello:erein "
 Hello, [name]!
 ```
 
+In this example, typing `>hello:erein` followed by a space will instantly expand to:
+> Hello, erein!
+
+## Multi-Variable Snippets
+You aren't limited to just one variable. You can scatter placeholders throughout your text to build sophisticated templates.
+
+```text trigger=">access:admin:staging "
+GRANT ACCESS TO [user] ON [environment]
+```
+
+By adding more colons to your trigger, you can pipe multiple arguments into your snippet in one go.
+
+<Callout type="info" title="Try it out!">
+  Click the **Play** button on any of the code blocks above to test these out. Try changing the input from `>hello:erein` to `>hello:world` to see how the output changes instantly!
+</Callout>
