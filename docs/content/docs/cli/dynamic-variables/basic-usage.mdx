@@ -29,6 +29,36 @@ GRANT ACCESS TO [user] ON [environment]
 
 By adding more colons to your trigger, you can pipe multiple arguments into your snippet in one go.
 
+## Real-World Examples
+Dynamic variables are perfect for structural templates that you use every day—whether you are writing code or managing your inbox. 
+
+<Accordions>
+  <Accordion title="Show Productivity Examples">
+    <div className="text-lg font-bold mt-4 mb-1">Quick Email Replies</div>
+    Speed up your correspondence with snippets that adapt to the recipient and topic.
+    
+    **Trigger:** `>reply:Erein:the redesign project`
+    
+    <Callout type="info">
+      **Pro Tip:** You can skip an argument by leaving it empty between colons: `>reply::the redesign project`. This is useful when you want to leave the placeholder blank or fill it in manually later.
+    </Callout>
+    
+    ```text trigger=">reply:Erein:the redesign project "
+    Hi [name], thanks for the update! I'll take a look at [subject] today and get back to you.
+    ```
+  </Accordion>
+  <Accordion title="Show Developer Examples">
+    <div className="text-lg font-bold mt-4 mb-1">GitHub Repository Shortcuts</div>
+    Quickly navigate to any repository by mapping the organization and project name into a URL.
+    
+    **Trigger:** `>gh:ereinaimer:taurine`
+    
+    ```text trigger=">gh:ereinaimer:taurine "
+    https://github.com/[org]/[repo]
+    ```
+  </Accordion>
+</Accordions>
+
 <Callout type="info" title="Try it out!">
   Click the **Play** button on any of the code blocks above to test these out. Try changing the input from `>hello:erein` to `>hello:world` to see how the output changes instantly!
 </Callout>
