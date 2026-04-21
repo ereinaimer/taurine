@@ -1,0 +1,34 @@
+---
+title: Cursor
+description: Positioning the text caret dynamically.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The `[cursor]` variable is a special directive that controls where the text caret (cursor) should be placed after the snippet is expanded. This allows you to position the cursor exactly inside a function call, between quotes, or at any point where you need to continue typing.
+
+## Usage
+
+Place `[cursor]` at the exact spot where you want to start typing after the expansion.
+
+```text
+console.log("[cursor]");
+```
+
+When you trigger this snippet, Taurine will output `console.log("");` and immediately place your cursor between the double quotes.
+
+## The Cursor Rule
+
+<Callout title="Important Conflict Rule" type="warning">
+  If a snippet contains any `[key.*]` or `[delay.*]` directives, the `[cursor]` tag is **ignored** and treated as literal text.
+</Callout>
+
+This rule exists because `[key.*]` directives (like `[key.tab]`) simulate real hardware input that and can't be combined with post-expansion caret offsets. If you need to navigate in a multi-action snippet, use explicit navigation keys like `[key.left]` or `[key.right]`.
+
+## Escaping
+
+If you need to output the literal text `[cursor]` without it being treated as a directive, escape it with a backslash:
+
+```text
+This documentation covers the \[cursor\] tag.
+```

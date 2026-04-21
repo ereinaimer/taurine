@@ -1,0 +1,36 @@
+---
+title: Clipboard
+description: Inject system clipboard content into your snippets.
+---
+
+The `[clipboard]` variable is one of the most powerful system variables in Taurine. It allows you to take whatever text you've just copied and immediately use it inside a template, with full support for [transformers](/docs/cli/dynamic-variables/transformers).
+
+## Usage
+
+Simply insert `[clipboard]` into your snippet. When the snippet expands, Taurine will read the current system clipboard and replace the tag with its text content.
+
+```text
+The selected text was: "[clipboard]"
+```
+
+## Transforming Clipboard Data
+
+You can sanitize or reformat copied text on the fly. This is extremely useful for generating branch names from jira titles or slugs from blog post titles.
+
+### Examples
+
+#### Branch Generator
+Converts a copied task title into a clean git-ready branch slug.
+
+<Transformation
+  template="git checkout -b feature/[clipboard.kebab]"
+  input=">branch "
+  result="git checkout -b feature/update-documentation-resolver"
+/>
+
+#### Clean Link
+Encodes a copied URL to ensure it's safe for use in other identifiers.
+
+```text
+https://example.com/api/search?q=[clipboard.urlencode]
+```

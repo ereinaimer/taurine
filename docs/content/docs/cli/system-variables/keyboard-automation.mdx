@@ -1,0 +1,52 @@
+---
+title: Keyboard Automation
+description: Simulating key presses and pauses in your snippets.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Taurine can do more than just expand text; it can automate your keyboard. By using `[key.*]` and `[delay.*]` directives, you can create powerful sequences that navigate forms, trigger IDE shortcuts, or wait for UI transitions.
+
+## Key Directives
+
+The `[key.*]` variable simulates a hardware key press. You can use standard key names or complex combinations.
+
+### Supported Keys
+
+- **Standard Keys**: `[key.tab]`, `[key.enter]`, `[key.space]`, `[key.backspace]`
+- **Navigation**: `[key.up]`, `[key.down]`, `[key.left]`, `[key.right]`, `[key.pageup]`, `[key.pagedown]`
+- **Modifiers**: `[key.ctrl]`, `[key.shift]`, `[key.alt]`, `[key.mod]` (Cmd on Mac, Windows key on Windows)
+
+### Key Combinations
+
+Combine keys using the `+` symbol. Modifiers should come first.
+
+```text
+[key.ctrl+a]            // Select All
+[key.ctrl+shift+end]    // Select to end of document
+[key.mod+space]         // Open Spotlight/Search
+```
+
+## Delay Directives
+
+Use `[delay.*]` to pause the execution of a snippet for a specific number of milliseconds. This is essential when a snippet performs an action (like tabbing) that requires the UI to catch up.
+
+```text
+[key.tab][delay.100ms][key.tab]
+```
+
+## Advanced Example: Form Auto-Fill
+
+Combine text, keys, and delays to fill out a structured form with a single trigger.
+
+<Transformation
+  template="[0][key.tab][delay.50ms][1][key.tab][delay.50ms][2][key.enter]"
+  input=">fill:erein:Aimer:admin "
+  result="erein[TAB]aimer[TAB]admin[ENTER]"
+/>
+
+---
+
+<Callout title="Note on Cursor Interaction" type="info">
+  Remember that adding keys or delays to a snippet will disable the `[cursor]` directive. See the [Cursor](/docs/cli/system-variables/cursor) section for details.
+</Callout>

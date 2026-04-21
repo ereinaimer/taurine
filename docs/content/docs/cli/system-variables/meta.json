@@ -1,0 +1,13 @@
+{
+  "title": "System Variables",
+  "pages": [
+    "index",
+    "time",
+    "date",
+    "clipboard",
+    "env",
+    "uuid",
+    "cursor",
+    "keyboard-automation"
+  ]
+}

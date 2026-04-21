@@ -1,0 +1,57 @@
+---
+title: Introduction
+description: Overview of System Variables in Taurine
+---
+
+import { Clock, Calendar, Clipboard, Folder, Fingerprint, MousePointer2, Keyboard } from 'lucide-react';
+
+Taurine provides a comprehensive suite of **System Variables** that allow you to inject dynamic data and control your machine without writing complex shell scripts. 
+
+These variables are divided into two categories: **Content Variables** (which inject text like the date or clipboard) and **Directives** (which perform actions like pressing keys or moving the cursor).
+
+### Available Categories
+
+<Cards>
+  <Card 
+    title="Time" 
+    icon={<Clock />}
+    href="/docs/cli/system-variables/time" 
+    description="Current time, greetings, and epoch timestamps." 
+  />
+  <Card 
+    title="Date" 
+    icon={<Calendar />}
+    href="/docs/cli/system-variables/date" 
+    description="ISO, short, long, and specific date parts." 
+  />
+  <Card 
+    title="Clipboard" 
+    icon={<Clipboard />}
+    href="/docs/cli/system-variables/clipboard" 
+    description="Inject content directly from your system clipboard." 
+  />
+  <Card 
+    title="Environment" 
+    icon={<Folder />}
+    href="/docs/cli/system-variables/env" 
+    description="Access system environment variables." 
+  />
+  <Card 
+    title="UUID" 
+    icon={<Fingerprint />}
+    href="/docs/cli/system-variables/uuid" 
+    description="Generate unique v4 and v7 identifiers." 
+  />
+  <Card 
+    title="Cursor" 
+    icon={<MousePointer2 />}
+    href="/docs/cli/system-variables/cursor" 
+    description="Control the final position of the text caret." 
+  />
+  <Card 
+    title="Keyboard Automation" 
+    icon={<Keyboard />}
+    href="/docs/cli/system-variables/keyboard-automation" 
+    description="Simulate key presses and insert delays." 
+  />
+</Cards>

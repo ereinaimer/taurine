@@ -1,0 +1,37 @@
+---
+title: UUID
+description: Generate unique identifiers in Taurine.
+---
+
+The `[uuid.*]` namespace provides built-in generation of Universally Unique Identifiers (UUIDs). This is useful for creating unique log entries, database keys, or temporary filenames without needing external tools.
+
+## Available Variants
+
+| Variable | Description | Example Output |
+| :--- | :--- | :--- |
+| `[uuid]` | Standard v4 UUID | `f47ac10b-58cc-4372-a567-0e02b2c3d479` |
+| `[uuid.v4]` | Explicit v4 UUID | `f47ac10b-58cc-4372-a567-0e02b2c3d479` |
+| `[uuid.v7]` | Time-ordered v7 UUID | `018f0a5f-fdfc-7af6-a21c-208a65c71c1b` |
+| `[uuid.simple]` | v4 UUID without dashes | `f47ac10b58cc4372a5670e02b2c3d479` |
+
+## Why use v7?
+
+`[uuid.v7]` is **time-ordered**, meaning that even though it is globally unique, it sorts chronologically. This makes it ideal for logs, database primary keys, and other sequences where time-based ordering is important for performance or clarity.
+
+## Examples
+
+### Unique Filename
+Generate a unique name for a temporary file using the `simple` variant.
+
+```text
+TMP_FILE=[uuid.simple].tmp
+```
+
+### Log Record
+Create a traceable log entry with an ordered UUID.
+
+<Transformation
+  template="[uuid.v7] | User: [env.USERNAME] | event: LOGIN"
+  input=">log "
+  result="018f0a5f-fdfc-7af6-b21c-208a65c71c1b | User: Erein | event: LOGIN"
+/>

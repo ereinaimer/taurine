@@ -1,0 +1,43 @@
+---
+title: Time
+description: Using time-based system variables in Taurine.
+---
+
+The `[time.*]` namespace provides access to the current system time in various formats, as well as contextual strings like greetings.
+
+## Reference Table
+
+| Variable | Description | Example Output |
+| :--- | :--- | :--- |
+| `[time.now]` | Current time (HH:MM) | `14:30` |
+| `[time.full]` | Current time with seconds (HH:MM:SS) | `14:30:45` |
+| `[time.greeting]` | Contextual greeting (Morning/Afternoon/Evening) | `Good afternoon` |
+| `[time.utc]` | Current time in UTC (HH:MM) | `09:00` |
+| `[time.tz]` | Current timezone offset | `+05:30` |
+| `[time.unix]` | Unix timestamp (seconds since epoch) | `1713709845` |
+
+## Formatting Modifiers
+
+You can specifically request 12-hour or 24-hour formats by appending `.12h` or `.24h` to the `now` and `full` variables.
+
+- `[time.now.12h]`: `02:30 PM`
+- `[time.full.12h]`: `02:30:45 PM`
+- `[time.now.24h]`: `14:30`
+
+## Examples
+
+### Dynamic Greeting
+Use `[time.greeting]` to make your snippets feel more personal.
+
+```text
+[time.greeting], Erein! How can I help you today?
+```
+
+### Timestamps
+Combine time with [transformers](/docs/cli/dynamic-variables/transformers) for log-ready formats.
+
+<Transformation
+  template="LOG [[time.full]]: Starting process..."
+  input=">log "
+  result="LOG [14:30:45]: Starting process..."
+/>
