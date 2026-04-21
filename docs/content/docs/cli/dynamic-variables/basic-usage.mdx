@@ -8,6 +8,11 @@ Dynamic variables are the secret sauce that makes your Taurine snippets truly fl
 ## The Syntax
 The core of the system is the square bracket syntax: `[variable_name]`. 
 
+### Escaping Brackets
+If you want to use literal square brackets without treating the inner text as a variable, escape them with a backslash: `\[name\]`. 
+
+This is useful when writing code snippets or documentation where you want the brackets to remain visible in the expanded text instead of being replaced.
+
 When Taurine encounters a bracketed word, it converts it into an **input mapping**. Anything you type after the colon (`:`) in your trigger is captured and injected directly into that placeholder at the moment of expansion.
 
 ### Basic Mapping
