@@ -838,6 +838,52 @@ pub fn inject_expansion(
                     }
                 }
             }
+            ExpansionStep::InlineRun(metadata) => match metadata.behavior {
+                ScriptBehavior::Inline => {
+                    let spinner_handle = taurine_core::utils::spinner::spawn_threaded(
+                        spinner_style,
+                        crate::platform::spinner_renderer::OsSpinnerRenderer::default(),
+                    );
+
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .expect("Failed to initialize inline run runtime");
+
+                    let script_result: taurine_core::Result<String> =
+                        rt.block_on(crate::platform::executor::execute_script(metadata));
+
+                    spinner_handle.stop();
+
+                    match script_result {
+                        Ok(output) => {
+                            if !output.is_empty() {
+                                inject_text_segment(&output, &original_clipboard);
+                            }
+                        }
+                        Err(e) => {
+                            let err_str = e.to_string();
+                            if !err_str.contains("aborted by user") {
+                                let err_msg = format!("[Error: {}]", e);
+                                inject_text_segment(&err_msg, &original_clipboard);
+                            }
+                        }
+                    }
+                }
+                ScriptBehavior::Silent => {
+                    let metadata_clone = metadata.clone();
+                    thread::spawn(move || {
+                        if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                        {
+                            let _ = rt.block_on(crate::platform::executor::execute_script(
+                                &metadata_clone,
+                            ));
+                        }
+                    });
+                }
+            },
         }
     }
 

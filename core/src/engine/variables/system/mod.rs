@@ -91,9 +91,6 @@ pub fn resolve(key: &str) -> Option<String> {
     if key.starts_with("env.") {
         return env::resolve(key);
     }
-    if key.starts_with("run.") {
-        return run::resolve(key);
-    }
     if key == "uuid" || key.starts_with("uuid.") {
         return uuid::resolve(key);
     }
@@ -307,7 +304,13 @@ fn split_into_steps(text: &str) -> Vec<ExpansionStep> {
         append_unescaped_segment(&text[ptr..tag.start], &mut current_text);
         let inner = tag_inner(text, tag);
 
-        if let Some(alias) = inner.strip_prefix("key.") {
+        if inner.starts_with("run.") {
+            flush_text(&mut steps, &mut current_text);
+            match run::to_script_metadata(inner) {
+                Ok(metadata) => steps.push(ExpansionStep::InlineRun(metadata)),
+                Err(error) => steps.push(ExpansionStep::Text(format_run_error(error))),
+            }
+        } else if let Some(alias) = inner.strip_prefix("key.") {
             flush_text(&mut steps, &mut current_text);
             steps.push(ExpansionStep::KeyPress(alias.to_lowercase()));
         } else if let Some(delay_str) = inner.strip_prefix("delay.")
@@ -382,6 +385,14 @@ fn restore_cursor_sentinels(steps: &mut [ExpansionStep]) {
 fn flush_text(steps: &mut Vec<ExpansionStep>, buf: &mut String) {
     if !buf.is_empty() {
         steps.push(ExpansionStep::Text(std::mem::take(buf)));
+    }
+}
+
+fn format_run_error(error: String) -> String {
+    if error.starts_with("[Error:") {
+        error
+    } else {
+        format!("[Error: {error}]")
     }
 }
 
@@ -474,6 +485,53 @@ mod tests {
                 ExpansionStep::Delay(200),
                 ExpansionStep::Text("second".to_string()),
             ]
+        );
+    }
+
+    #[test]
+    fn test_finalize_inline_run_splits_progressive_steps() {
+        let res = finalize("Wait for it... [run.bash(echo Done!)]", None);
+
+        assert_eq!(
+            res.steps[0],
+            ExpansionStep::Text("Wait for it... ".to_string())
+        );
+        match &res.steps[1] {
+            ExpansionStep::InlineRun(metadata) => {
+                assert_eq!(
+                    crate::engine::shell::decompress(&metadata.compressed_content).unwrap(),
+                    "echo Done!"
+                );
+            }
+            other => panic!("expected InlineRun step, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_finalize_silent_inline_run_uses_silent_metadata() {
+        let res = finalize("start[run.silent.bash(echo background)]end", None);
+
+        assert_eq!(res.steps.len(), 3);
+        match &res.steps[1] {
+            ExpansionStep::InlineRun(metadata) => {
+                assert_eq!(
+                    metadata.behavior,
+                    crate::engine::shell::ScriptBehavior::Silent
+                );
+            }
+            other => panic!("expected InlineRun step, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_finalize_missing_run_file_emits_error_text() {
+        let res = finalize("[run.bash.file(C:\\definitely\\missing.sh)]", None);
+
+        assert_eq!(
+            res.steps,
+            vec![ExpansionStep::Text(
+                "[Error: path to script not found!]".to_string()
+            )]
         );
     }
 

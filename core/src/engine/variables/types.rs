@@ -22,6 +22,8 @@ pub enum ExpansionStep {
     Delay(u64),
     /// A shell script to execute.
     Script(ScriptMetadata),
+    /// A shell script to execute inline while preserving preceding injected text.
+    InlineRun(ScriptMetadata),
 }
 
 #[derive(Debug, Clone, PartialEq)]

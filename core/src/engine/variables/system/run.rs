@@ -4,7 +4,7 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
-use crate::engine::shell::ScriptInterpreter;
+use crate::engine::shell::{ScriptBehavior, ScriptInterpreter, ScriptMetadata, compress};
 use wait_timeout::ChildExt;
 
 const RUN_TIMEOUT: Duration = Duration::from_secs(20);
@@ -78,6 +78,28 @@ pub fn resolve(key: &str) -> Option<String> {
     }
 
     Some(execute_inline(&invocation).unwrap_or_else(format_error))
+}
+
+pub(crate) fn to_script_metadata(key: &str) -> Result<ScriptMetadata, String> {
+    let invocation = parse_invocation(key).map_err(|_| "invalid run syntax".to_string())?;
+
+    if invocation.file && !Path::new(invocation.subject.trim()).exists() {
+        return Err(SCRIPT_NOT_FOUND.to_string());
+    }
+
+    let content = invocation_script_content(&invocation);
+    let compressed_content =
+        compress(&content).map_err(|e| format!("failed to prepare run script: {e}"))?;
+
+    Ok(ScriptMetadata {
+        interpreter: invocation.interpreter,
+        behavior: if invocation.silent {
+            ScriptBehavior::Silent
+        } else {
+            ScriptBehavior::Inline
+        },
+        compressed_content,
+    })
 }
 
 fn parse_language(input: &str) -> Result<(ScriptInterpreter, &str), RunParseError> {
@@ -160,6 +182,99 @@ fn push_arg(args: &mut Vec<String>, raw: &str) {
     if !trimmed.is_empty() {
         args.push(trimmed.to_string());
     }
+}
+
+fn invocation_script_content(invocation: &RunInvocation) -> String {
+    if !invocation.file {
+        return invocation.subject.clone();
+    }
+
+    match invocation.interpreter {
+        ScriptInterpreter::Bash => shell_command_line(
+            &bash_file_path_arg(invocation.subject.trim()),
+            &invocation.args,
+            quote_posix,
+        ),
+        ScriptInterpreter::PowerShell => {
+            let mut command = format!("& {}", quote_powershell(invocation.subject.trim()));
+            for arg in &invocation.args {
+                command.push(' ');
+                command.push_str(&quote_powershell(arg));
+            }
+            command
+        }
+        ScriptInterpreter::Python => {
+            let path = quote_python(invocation.subject.trim());
+            let args = python_list(&invocation.args);
+            format!(
+                "import runpy, sys\nsys.argv = [{path}, *{args}]\nrunpy.run_path({path}, run_name='__main__')"
+            )
+        }
+        ScriptInterpreter::Node => {
+            let path = quote_js(invocation.subject.trim());
+            let args = js_array(&invocation.args);
+            format!("process.argv = [process.argv[0], {path}, ...{args}]; require({path});")
+        }
+        ScriptInterpreter::NodeEsm => {
+            let path = quote_js(invocation.subject.trim());
+            let args = js_array(&invocation.args);
+            format!(
+                "import {{ pathToFileURL }} from 'url'; process.argv = [process.argv[0], {path}, ...{args}]; await import(pathToFileURL({path}).href);"
+            )
+        }
+        ScriptInterpreter::Cmd => {
+            shell_command_line(invocation.subject.trim(), &invocation.args, quote_cmd)
+        }
+    }
+}
+
+fn shell_command_line(path: &str, args: &[String], quote: impl Fn(&str) -> String) -> String {
+    let mut command = quote(path);
+    for arg in args {
+        command.push(' ');
+        command.push_str(&quote(arg));
+    }
+    command
+}
+
+fn quote_posix(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r#"'\''"#))
+}
+
+fn quote_powershell(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+fn quote_cmd(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
+}
+
+fn quote_python(value: &str) -> String {
+    format!("{value:?}")
+}
+
+fn quote_js(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+}
+
+fn python_list(args: &[String]) -> String {
+    format!(
+        "[{}]",
+        args.iter()
+            .map(|arg| quote_python(arg))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn js_array(args: &[String]) -> String {
+    format!(
+        "[{}]",
+        args.iter()
+            .map(|arg| quote_js(arg))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
 }
 
 fn execute_inline(invocation: &RunInvocation) -> Result<String, String> {
@@ -347,8 +462,6 @@ fn format_error(error: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::variables::interpolate::interpolate;
-    use crate::engine::variables::types::ArgMap;
     use std::time::Instant;
 
     fn bash_available() -> bool {
@@ -443,6 +556,35 @@ mod tests {
     }
 
     #[test]
+    fn converts_inline_run_to_script_metadata() {
+        let metadata = to_script_metadata("run.bash(echo 42)").unwrap();
+        assert_eq!(metadata.interpreter, ScriptInterpreter::Bash);
+        assert_eq!(metadata.behavior, ScriptBehavior::Inline);
+        assert_eq!(
+            crate::engine::shell::decompress(&metadata.compressed_content).unwrap(),
+            "echo 42"
+        );
+    }
+
+    #[test]
+    fn converts_silent_file_run_to_wrapper_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.sh");
+        std::fs::write(&path, "echo file:$1\n").unwrap();
+
+        let metadata = to_script_metadata(&format!(
+            "run.silent.bash.file({}).args(ok)",
+            path.display()
+        ))
+        .unwrap();
+        let content = crate::engine::shell::decompress(&metadata.compressed_content).unwrap();
+
+        assert_eq!(metadata.behavior, ScriptBehavior::Silent);
+        assert!(content.contains("test.sh"));
+        assert!(content.contains("'ok'"));
+    }
+
+    #[test]
     fn run_silent_bash_returns_immediately() {
         if !bash_available() {
             eprintln!("skipping silent bash test because bash is unavailable");
@@ -457,15 +599,13 @@ mod tests {
     }
 
     #[test]
-    fn transformer_applies_to_run_output() {
-        if !bash_available() {
-            eprintln!("skipping transformer execution test because bash is unavailable");
-            return;
-        }
-
+    fn interpolation_keeps_run_tags_for_finalization() {
         assert_eq!(
-            interpolate("[run.bash(echo hi).upper]", &ArgMap::default()),
-            "HI"
+            crate::engine::variables::interpolate::interpolate(
+                "[run.bash(echo hi)]",
+                &crate::engine::variables::types::ArgMap::default()
+            ),
+            "[run.bash(echo hi)]"
         );
     }
 }
