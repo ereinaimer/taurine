@@ -1,0 +1,136 @@
+---
+title: Run
+description: Execute shell commands and script files directly inside your automation templates.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
+
+The `[run.*]` namespace lets you embed shell commands directly inside any automation template. When the snippet expands, Taurine executes the command live and injects its output at that exact position — no separate script automation required.
+
+<Callout title="Progressive Injection" type="info">
+  Taurine does not wait for the script to finish before typing. It immediately injects all preceding text, then shows a live spinner at the `[run.*]` position, and replaces it with the output when execution completes.
+</Callout>
+
+## Syntax
+
+All `run` variables follow a parenthesized syntax. The command or file path lives inside `(...)`, which prevents any collision with dot-notation transformers or default value assignments.
+
+```text
+[run.<lang>(<command>)]
+```
+
+### Supported Languages
+
+| Identifier | Interpreter |
+| :--- | :--- |
+| `bash` | Bash shell |
+| `powershell` | PowerShell |
+| `python` | Python |
+| `node` | Node.js (CommonJS) |
+| `node_esm` | Node.js (ESM) |
+| `cmd` | Windows CMD |
+
+## Modes
+
+### Inline (Default)
+
+Captures the `stdout` of the command and injects it as text.
+
+```text
+Branch: [run.bash(git rev-parse --abbrev-ref HEAD)]
+Host:   [run.powershell($env:COMPUTERNAME)]
+```
+
+### Silent
+
+Executes the command in the background and injects nothing. Ideal for fire-and-forget side effects.
+
+```text
+[run.silent.bash(open ~/Documents/report.pdf)]
+```
+
+The snippet resolves to the surrounding text immediately. The command runs detached.
+
+## Script Files
+
+Use the `.file(...)` variant to run an external script from disk instead of an inline command.
+
+```text
+[run.bash.file(/absolute/path/to/script.sh)]
+```
+
+<Callout title="File Not Found" type="warn">
+  If the path does not exist at expansion time, Taurine injects an inline error instead of failing silently: `[Error: path to script not found!]`
+</Callout>
+
+### Passing Arguments to a File
+
+Chain `.args(...)` after the file path to pass positional arguments to the script.
+
+```text
+[run.bash.file(/path/to/template.sh).args(arg1, arg2)]
+[run.python.file(~/scripts/gen.py).args(--format, json, --count, 5)]
+```
+
+Arguments are split on commas. Whitespace around each argument is trimmed.
+
+### Silent File Execution
+
+Combine `.silent` and `.file` to run a script in the background.
+
+```text
+[run.silent.bash.file(/path/to/cleanup.sh)]
+```
+
+## Transformer Chaining
+
+You can chain any [format modifier](/docs/cli/dynamic-variables/transformers) after the closing parenthesis, just like with any other system variable.
+
+```text
+[run.bash(whoami).upper]
+[run.bash(git rev-parse --abbrev-ref HEAD).kebab]
+```
+
+The script executes first, then the transformer is applied to its output.
+
+## Examples
+
+### Live System Info Header
+
+<Transformation
+  template="Machine: [run.bash(hostname)] | User: [run.bash(whoami).upper] | [date.iso]"
+  input=">sysinfo "
+  result="Machine: dev-box | User: EREIN | 2026-04-22"
+/>
+
+### Current Git Branch
+
+<Transformation
+  template="Resolves: [run.bash(git rev-parse --abbrev-ref HEAD).upper]"
+  input=">branch "
+  result="Resolves: FEAT/RUN-SYSTEM-VARIABLE"
+/>
+
+### Background Side Effect with Text
+
+Triggers a system notification silently and still injects the surrounding text.
+
+```text
+Deployment triggered.[run.silent.powershell(New-BurntToastNotification -Text 'Deployed!')]
+```
+
+The snippet injects `Deployment triggered.` and exits. The notification fires independently.
+
+---
+
+## Technical Details
+
+- **Timeout**: Every `run` command has a maximum execution time of **20 seconds**. If it exceeds this limit, Taurine terminates the process and injects `[Error: script timed out after 20s]`.
+- **Environment**: Commands run with the same environment as the Taurine daemon. Ensure your interpreter (`python`, `node`, etc.) is available in your system's `PATH`.
+- **Abort**: If you click the mouse while the spinner is active, Taurine will kill the running process and stop injection immediately.
+- **Transformers come last**: When chaining transformers, they must always appear after the closing `)` of the command or `.args(...)`. For example, `[run.bash(whoami).upper]` is valid; `[run.bash(whoami).upper.args(...)]` is not.
+
+<Callout title="Security Warning on Import" type="warn">
+  When importing automations that contain `[run.*]` variables, Taurine will display a security warning and ask for confirmation. Only import automations from sources you trust.
+</Callout>

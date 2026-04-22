@@ -3,11 +3,11 @@ title: Introduction
 description: Overview of System Variables in Taurine
 ---
 
-import { Clock, Calendar, Clipboard, Folder, Fingerprint, MousePointer2, Keyboard } from 'lucide-react';
+import { Clock, Calendar, Clipboard, Folder, Fingerprint, MousePointer2, Keyboard, Terminal } from 'lucide-react';
 
-Taurine provides a comprehensive suite of **System Variables** that allow you to inject dynamic data and control your machine without writing complex shell scripts. 
+Taurine provides a comprehensive suite of **System Variables** that allow you to inject dynamic data, execute shell commands, and control your machine directly from any automation template.
 
-These variables are divided into two categories: **Content Variables** (which inject text like the date or clipboard) and **Directives** (which perform actions like pressing keys or moving the cursor).
+These variables are divided into two categories: **Content Variables** (which inject text like the date, clipboard, or command output) and **Directives** (which perform actions like pressing keys or moving the cursor).
 
 ### Available Categories
 
@@ -53,6 +53,12 @@ These variables are divided into two categories: **Content Variables** (which in
     icon={<Keyboard />}
     href="/docs/cli/system-variables/keyboard-automation" 
     description="Simulate key presses and insert delays." 
+  />
+  <Card 
+    title="Run" 
+    icon={<Terminal />}
+    href="/docs/cli/system-variables/run" 
+    description="Execute shell commands and script files inline within any template." 
   />
 </Cards>
 
