@@ -31,8 +31,8 @@ const SYSTEM_ROOTS: &[&str] = &[
 ];
 
 const TIME_MODIFIERS: &[&str] = &[
-    "greeting", "epoch", "unix", "utc", "tz", "12h", "24h", "now", "now.12h", "now.24h", "full",
-    "full.12h", "full.24h",
+    "greeting", "epoch", "unix", "millis", "ms", "utc", "tz", "12h", "24h", "now", "now.12h",
+    "now.24h", "full", "full.12h", "full.24h", "hour", "hour.12h", "minute", "second", "am_pm",
 ];
 
 const DATE_MODIFIERS: &[&str] = &[
@@ -47,11 +47,34 @@ const DATE_MODIFIERS: &[&str] = &[
     "yesterday.iso",
     "yesterday.short",
     "yesterday.long",
+    "next_week",
+    "next_week.iso",
+    "next_week.short",
+    "next_week.long",
+    "last_week",
+    "last_week.iso",
+    "last_week.short",
+    "last_week.long",
+    "next_month",
+    "next_month.iso",
+    "next_month.short",
+    "next_month.long",
+    "last_month",
+    "last_month.iso",
+    "last_month.short",
+    "last_month.long",
     "weekday",
     "year",
     "month",
     "month_name",
     "day",
+    "week",
+    "quarter",
+    "day_of_year",
+    "days_in_month",
+    "ordinal",
+    "is_leap_year",
+    "century",
 ];
 
 const UUID_MODIFIERS: &[&str] = &["v4", "v7", "simple"];
