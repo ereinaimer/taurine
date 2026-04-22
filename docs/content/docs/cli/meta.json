@@ -6,6 +6,8 @@
   "pages": [
     "---Getting Started---",
     "index",
+    "architecture",
+    "roadmap",
     "---Core Features---",
     "service-management",
     "automation-management",

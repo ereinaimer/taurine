@@ -1,0 +1,30 @@
+---
+title: Roadmap
+description: Upcoming features and the future of Taurine.
+---
+
+Taurine is an evolving ecosystem. While the CLI is the primary way to interact with the engine today, we are actively developing new ways to manage your automations and expanding the core capabilities.
+
+## User Interfaces
+
+We are building high-performance interfaces to complement the CLI, ensuring you can manage your automations in whichever environment you prefer.
+
+- **TUI (Terminal User Interface)**: A high-performance terminal interface built with `ratatui` for managing triggers without typing full commands. This will include state monitoring, and interactive trigger management.
+- **Desktop GUI**: A beautiful, easy-to-use cross-platform graphical interface built with **Flutter**. This will be the preferred interface for users who want a visual way to manage complex templates and script triggers.
+- **Mobile Support**: We are planning to bring the Taurine engine to **Android**, enabling cross-device synchronization and mobile-specific automation triggers.
+
+## Planned Features
+
+Beyond new interfaces, we are working on several core engine enhancements:
+
+- **Template Gallery**: A community-driven central repository for downloading and sharing expansion templates and plugins. This will allow you to discover and import powerful automations created by the community with a single command.
+- **Encrypted Synchronization**: Securely sync your triggers across multiple machines with end-to-end encryption. (Note: This will be a **paid premium feature** to support infrastructure costs).
+- **Extensible Plugin System**: We are designing a robust plugin architecture that allows the community to extend Taurine's capabilities.
+    - **Language Agnostic**: Write plugins in any language (Rust, Go, C++, etc.).
+    - **Binary-Based**: Plugins are compiled to standalone binaries for maximum performance.
+    - **JSON-RPC**: Communication between the Taurine engine and plugins happens via standard JSON-RPC over stdin/stdout.
+
+## Get Involved
+
+Taurine's source code is available on GitHub and we welcome contributions! Whether it's reporting a bug, suggesting a feature, or contributing code, your input helps shape the future of the project.
+
