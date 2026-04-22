@@ -8,6 +8,7 @@
     "env",
     "uuid",
     "cursor",
+    "sys",
     "run",
     "keyboard-automation"
   ]
