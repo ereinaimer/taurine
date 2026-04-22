@@ -1,0 +1,8 @@
+# Force GitHub Linguist to count the documentation website source code in repository language stats
+docs/** -linguist-documentation
+
+# Explicitly make web development extensions inside docs detectable
+docs/**/*.ts -linguist-documentation linguist-detectable=true
+docs/**/*.tsx -linguist-documentation linguist-detectable=true
+docs/**/*.js -linguist-documentation linguist-detectable=true
+docs/**/*.jsx -linguist-documentation linguist-detectable=true
