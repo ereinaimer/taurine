@@ -23,6 +23,9 @@ Use for quick, one-line commands.
 taurine add script url 'start https://[url=google.com]' --lang powershell --os windows
 ```
 
+- Typing `>url ` opens **google.com** in your default browser.
+- Typing `>url:youtube.com ` opens **youtube.com** in your default browser.
+
 ### Script Files
 Use for complex logic. Taurine will read the file, compress it, and store it in its internal database.
 
@@ -71,20 +74,55 @@ taurine add script cleanup "rm temp.log" -m silent
 
 The true power of scripting comes from combining it with [Dynamic Variables](/docs/cli/dynamic-variables) and [System Variables](/docs/cli/system-variables/index).
 
-### Example: Smart URL Opener
-This script uses a dynamic variable with a default value. If you type `>url Space`, it opens Google. If you type `>url:youtube.com Space`, it opens YouTube.
+### The "Interpolation First" Rule
 
-```bash
-taurine add script url 'start https://[url=google.com]' --lang powershell --os windows
+Before your script is passed to the system interpreter (like PowerShell or Bash), Taurine runs its expansion engine over the entire script body. This means any variable like `[var]` or `[sys.user]` is replaced with its actual value **before** the script starts executing.
+
+This allows you to pass user input or system metadata directly into your script logic without writing complex argument-parsing code.
+
+### Using Variables in Script Files
+
+Variable interpolation is **not** limited to inline scripts. When you add a script using a file (`-f`), Taurine will still search for and replace variables inside that file every time it is triggered.
+
+**Example: `hi.ps1`**
+```powershell
+# Content of the file on your disk
+Write-Host "Hello, [var.upper=friend]!"
 ```
 
-### Example: Environment-Aware Script
-Access system metadata like your current user or home directory using `[env.*]`.
-
+**Adding it to Taurine:**
 ```bash
-# Greets the currently logged-in user
-taurine add script whoami "echo 'Hello, [env.USERNAME]!'" --lang bash
+taurine add script hi -f ./hi.ps1 --lang powershell
 ```
+
+- Typing `>hi ` results in: `Hello, FRIEND!`
+- Typing `>hi:world ` results in: `Hello, WORLD!`
+
+### Contextual Examples
+
+<Tabs items={['Smart URL', 'Env Aware', 'Dynamic Logic']}>
+  <Tab value="Smart URL">
+    **Smart URL Opener**
+    Uses a dynamic variable with a default value.
+    ```bash
+    taurine add script url 'start https://[url=google.com]' --lang powershell
+    ```
+  </Tab>
+  <Tab value="Env Aware">
+    **System Metadata**
+    Access metadata like your current user using `[sys.user]`.
+    ```bash
+    taurine add script whoami "echo 'Hello, [sys.user.title]!'" --lang bash
+    ```
+  </Tab>
+  <Tab value="Dynamic Logic">
+    **Transformation in Script**
+    You can even chain transformers within your script body.
+    ```bash
+    taurine add script shout "echo '[0.upper]!!!'" --lang bash
+    ```
+  </Tab>
+</Tabs>
 
 ## Advanced Use Cases
 
