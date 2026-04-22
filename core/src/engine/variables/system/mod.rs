@@ -9,6 +9,7 @@ pub mod date;
 pub mod env;
 pub mod format;
 pub mod run;
+pub mod sys;
 pub mod time;
 pub mod uuid;
 
@@ -36,7 +37,9 @@ pub fn is_reserved(mut key: &str) -> bool {
     key == "cursor"
         || key == "uuid"
         || key == "clipboard"
+        || key == "sys"
         || key.starts_with("uuid.")
+        || key.starts_with("sys.")
         || key.starts_with("time.")
         || key.starts_with("date.")
         || key.starts_with("env.")
@@ -90,6 +93,9 @@ pub fn resolve(key: &str) -> Option<String> {
     }
     if key.starts_with("env.") {
         return env::resolve(key);
+    }
+    if key.starts_with("sys.") {
+        return sys::resolve(key);
     }
     if key == "uuid" || key.starts_with("uuid.") {
         return uuid::resolve(key);
@@ -417,6 +423,9 @@ mod tests {
         assert!(is_reserved("time.now.upper"));
         assert!(is_reserved("run.bash(echo hi)"));
         assert!(is_reserved("run.bash(echo hi).upper"));
+        assert!(is_reserved("sys"));
+        assert!(is_reserved("sys.os"));
+        assert!(is_reserved("sys.os.upper"));
         assert!(is_reserved("lowercase.hello"));
 
         // These are valid user variables and should not be reserved

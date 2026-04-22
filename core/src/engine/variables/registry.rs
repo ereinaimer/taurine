@@ -24,6 +24,7 @@ const SYSTEM_ROOTS: &[&str] = &[
     "date",
     "uuid",
     "env",
+    "sys",
     "run",
     "key",
     "delay",
@@ -54,6 +55,7 @@ const DATE_MODIFIERS: &[&str] = &[
 ];
 
 const UUID_MODIFIERS: &[&str] = &["v4", "v7", "simple"];
+const SYS_MODIFIERS: &[&str] = &["os", "osversion", "arch", "hostname", "user"];
 const RUN_LANGUAGES: &[&str] = &["bash", "powershell", "python", "node", "node_esm", "cmd"];
 const RUN_MODIFIERS: &[&str] = &[
     "run.<lang>(...)",
@@ -130,6 +132,7 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "date" => format!("Valid modifiers: {}", DATE_MODIFIERS.join(", ")),
         "uuid" => format!("Valid modifiers: uuid, {}", UUID_MODIFIERS.join(", ")),
         "env" => "Valid form: [env.VAR_NAME]".to_string(),
+        "sys" => format!("Valid modifiers: {}", SYS_MODIFIERS.join(", ")),
         "run" => "Valid form: [run.<lang>(...)] or [run.<lang>.file(...).args(...)]. Languages: bash, powershell, python, node, node_esm, cmd".to_string(),
         "key" => format!(
             "Valid key tokens: {}. You can combine them with `+`, and any single character token is also allowed.",
@@ -148,6 +151,7 @@ pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), Val
         "date" => validate_known_modifier("date", modifier, DATE_MODIFIERS),
         "uuid" => validate_optional_known_modifier("uuid", modifier, UUID_MODIFIERS),
         "env" => validate_env_modifier(modifier),
+        "sys" => validate_known_modifier("sys", modifier, SYS_MODIFIERS),
         "run" => validate_run_modifier(modifier),
         "key" => validate_key_modifier(modifier),
         "delay" => validate_delay_modifier(modifier),
@@ -450,6 +454,29 @@ mod tests {
         assert_eq!(
             validate_system_tag("env", None),
             Err(ValidationError::MissingModifier { root: "env" })
+        );
+    }
+
+    #[test]
+    fn test_validate_sys_known_modifier() {
+        for modifier in SYS_MODIFIERS {
+            assert_eq!(validate_system_tag("sys", Some(modifier)), Ok(()));
+        }
+    }
+
+    #[test]
+    fn test_validate_sys_unknown_modifier() {
+        assert_eq!(
+            validate_system_tag("sys", Some("home")),
+            Err(ValidationError::InvalidModifier {
+                root: "sys",
+                modifier: "home".to_string(),
+                allowed: SYS_MODIFIERS,
+            })
+        );
+        assert_eq!(
+            validate_system_tag("sys", None),
+            Err(ValidationError::MissingModifier { root: "sys" })
         );
     }
 
