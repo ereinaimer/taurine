@@ -1,0 +1,87 @@
+---
+title: Random
+description: Generate dynamic data and random values in your automation templates.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The `[random.*]` namespace allows you to inject randomized data directly into your snippets. This is ideal for generating test data, passwords, unique identifiers, or making probabilistic choices within a template.
+
+All `random` variables follow a function-call syntax. Arguments are passed inside `(...)` and are optional for most variants.
+
+## Available Variants
+
+### Numbers & Logic
+
+| Variable | Description | Default | Example |
+| :--- | :--- | :--- | :--- |
+| `[random.int(min, max)]` | Random integer between min and max. | `0..99` | `42` |
+| `[random.float(min, max)]` | Random float between min and max. | `0.0..1.0` | `0.742` |
+| `[random.bool]` | Random true or false value. | - | `true` |
+
+### Strings & Identifiers
+
+| Variable | Description | Default | Example |
+| :--- | :--- | :--- | :--- |
+| `[random.string(len)]` | Alphanumeric string (A-Z, a-z, 0-9). | `10` | `aB3k9Lp2Qx` |
+| `[random.alpha(len)]` | Alphabetic string (A-Z, a-z). | `10` | `kLmNpQrStU` |
+| `[random.numeric(len)]` | Numeric string (0-9). | `10` | `8472910532` |
+| `[random.hex(len)]` | Lowercase hexadecimal string. | `10` | `f4a7c1b2e8` |
+| `[random.password(len)]` | Secure string with symbols. | `20` | `kL9!pQ#zR2*j` |
+
+### Special Formats
+
+| Variable | Description | Example Output |
+| :--- | :--- | :--- |
+| `[random.choice(a, b, ...)]` | Pick one item from a comma-separated list. | `one` |
+| `[random.color]` | Random hexadecimal color code. | `#f4a7c1` |
+| `[random.ip]` | Random IPv4 address. | `192.168.4.12` |
+| `[random.mac]` | Random MAC address. | `0A:1B:2C:3D:4E:5F` |
+
+## Usage Details
+
+### Range Invalidation
+For `random.int` and `random.float`, if `min` is greater than `max`, the variable will fail to resolve. Ensure your ranges are valid.
+
+### Nested Choices
+The `random.choice` variant supports nested structures and commas within options if they are enclosed in parentheses.
+
+```text
+[random.choice(alpha(1, 2), beta, gamma)]
+```
+
+### Transformer Chaining
+You can chain any [format modifier](/docs/cli/dynamic-variables/transformers) after the closing parenthesis.
+
+```text
+[random.alpha(8).upper] -> "KLMNPQRST"
+[random.choice(apple, banana).kebab]
+```
+
+## Examples
+
+### Mock User Data
+Generate a fake user profile for testing or registration forms.
+
+<Transformation
+  template="User: [random.alpha(8).title] | Pass: [random.password(12)] | IP: [random.ip]"
+  input=">mockuser "
+  result="User: KjlmNpqr | Pass: kL9!pQ#zR2*j | IP: 172.16.254.1"
+/>
+
+### Randomized Colors
+Quickly generate a random CSS color variable.
+
+<Transformation
+  template="--primary-color: [random.color];"
+  input=">randcolor "
+  result="--primary-color: #3b82f6;"
+/>
+
+---
+
+## Technical Constraints
+
+- **Length Limit**: Any generated string (alpha, numeric, password, etc.) is capped at **4096 characters** to prevent memory exhaustion.
+- **Precision**: `random.float` provides up to 15 decimal places of precision, though typically you'll want to chain a `.round(n)` transformer for cleaner output.
+- **Synchronous Resolution**: Unlike the `run` namespace, `random` variables resolve instantly and do not trigger a loading spinner.

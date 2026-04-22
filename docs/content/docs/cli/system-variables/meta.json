@@ -10,6 +10,7 @@
     "cursor",
     "sys",
     "run",
+    "random",
     "keyboard-automation"
   ]
 }
