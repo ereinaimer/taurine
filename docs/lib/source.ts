@@ -1,7 +1,7 @@
 import { docs } from 'collections/server';
 import { loader } from 'fumadocs-core/source';
 import { createElement } from 'react';
-import { Rocket, Terminal } from 'lucide-react';
+import { Rocket, Terminal, Cpu, Compass } from 'lucide-react';
 import { docsContentRoute, docsImageRoute, docsRoute } from './shared';
 
 // See https://fumadocs.dev/docs/headless/source-api for more info
@@ -11,6 +11,8 @@ export const source = loader({
   icon(icon) {
     if (icon === 'Rocket') return createElement(Rocket);
     if (icon === 'Terminal') return createElement(Terminal);
+    if (icon === 'Cpu') return createElement(Cpu);
+    if (icon === 'Compass') return createElement(Compass);
   },
 });
 
