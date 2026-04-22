@@ -17,11 +17,14 @@ The `[date.*]` namespace allows you to insert the current, previous, or next day
 
 Taurine can automatically calculate yesterday and tomorrow. If no format modifier is provided, **ISO** (`YYYY-MM-DD`) is used by default.
 
-- `[date.tomorrow]` (Defaut: ISO)
+- `[date.tomorrow]` (Default: ISO)
 - `[date.tomorrow.short]`
 - `[date.tomorrow.long]`
 - `[date.yesterday]` (Default: ISO)
-- `[date.yesterday.iso]`
+- `[date.next_week]` / `[date.last_week]`
+- `[date.next_month]` / `[date.last_month]`
+
+Relative windows support the same format modifiers (`.iso`, `.short`, `.long`) as the base date variables.
 
 ## Component Variables
 
@@ -34,6 +37,13 @@ Extract specific parts of the current date for use in filenames, metadata, or cu
 | `[date.month]` | 2-digit month (01-12) | `04` |
 | `[date.month_name]` | Full month name | `April` |
 | `[date.day]` | 2-digit day of month | `21` |
+| `[date.ordinal]` | Day with ordinal suffix | `21st` |
+| `[date.week]` | ISO week number (1-53) | `16` |
+| `[date.quarter]` | Current quarter (Q1-Q4) | `Q2` |
+| `[date.day_of_year]` | Day of the year (1-366) | `111` |
+| `[date.days_in_month]` | Total days in current month | `30` |
+| `[date.century]` | Current century | `21` |
+| `[date.is_leap_year]` | Boolean check | `false` |
 
 ## Examples
 

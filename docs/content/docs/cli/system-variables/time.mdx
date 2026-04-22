@@ -15,6 +15,7 @@ The `[time.*]` namespace provides access to the current system time in various f
 | `[time.utc]` | Current UTC time (HH:mm) | `09:00` |
 | `[time.tz]` | Current local timezone offset | `+05:30` |
 | `[time.unix]` / `[time.epoch]` | Unix timestamp (seconds) | `1713709845` |
+| `[time.millis]` / `[time.ms]` | Unix timestamp (milliseconds) | `1713709845000` |
 
 <Callout title="Precision Note" type="info">
   By default, `now` and `utc` hide seconds for a cleaner look. If you need exact second-precision, always use the `full` variants or append the `.24h` modifier.
@@ -22,11 +23,23 @@ The `[time.*]` namespace provides access to the current system time in various f
 
 ## Formatting Modifiers
 
-You can specifically request 12-hour or 24-hour formats by appending `.12h` or `.24h` to the `now` and `full` variables.
+You can specifically request 12-hour or 24-hour formats by appending `.12h` or `.24h` to time variables.
 
 - `[time.now.12h]`: `02:30 PM`
 - `[time.full.12h]`: `02:30:45 PM`
+- `[time.hour.12h]`: `02`
 - `[time.now.24h]`: `14:30`
+
+## Component Variables
+
+Extract specific parts of the current time.
+
+| Variable | Description | Example Output |
+| :--- | :--- | :--- |
+| `[time.hour]` | 2-digit hour (24h default) | `14` |
+| `[time.minute]` | 2-digit minute (00-59) | `30` |
+| `[time.second]` | 2-digit second (00-59) | `45` |
+| `[time.am_pm]` | Meridian indicator (AM/PM) | `PM` |
 
 ## Examples
 
