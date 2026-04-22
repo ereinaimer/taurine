@@ -8,6 +8,7 @@ pub mod clipboard;
 pub mod date;
 pub mod env;
 pub mod format;
+pub mod random;
 pub mod run;
 pub mod sys;
 pub mod time;
@@ -44,6 +45,7 @@ pub fn is_reserved(mut key: &str) -> bool {
         || key.starts_with("date.")
         || key.starts_with("env.")
         || key.starts_with("run.")
+        || key.starts_with("random.")
         || key.starts_with("key.")
         || key.starts_with("delay.")
         || key.contains('.') // Reserve all other dot-namespaces
@@ -96,6 +98,9 @@ pub fn resolve(key: &str) -> Option<String> {
     }
     if key.starts_with("sys.") {
         return sys::resolve(key);
+    }
+    if key.starts_with("random.") {
+        return random::resolve(key);
     }
     if key == "uuid" || key.starts_with("uuid.") {
         return uuid::resolve(key);
@@ -423,6 +428,8 @@ mod tests {
         assert!(is_reserved("time.now.upper"));
         assert!(is_reserved("run.bash(echo hi)"));
         assert!(is_reserved("run.bash(echo hi).upper"));
+        assert!(is_reserved("random.int(1, 9)"));
+        assert!(is_reserved("random.int(1, 9).upper"));
         assert!(is_reserved("sys"));
         assert!(is_reserved("sys.os"));
         assert!(is_reserved("sys.os.upper"));
@@ -441,6 +448,17 @@ mod tests {
         assert!(is_directive("key.ctrl+a"));
         assert!(is_directive("delay.200ms"));
         assert!(!is_directive("time.now"));
+    }
+
+    #[test]
+    fn test_resolve_random_int_interpolation() {
+        assert_eq!(
+            crate::engine::variables::interpolate::interpolate(
+                "[random.int(5, 5)]",
+                &crate::engine::variables::types::ArgMap::default()
+            ),
+            "5"
+        );
     }
 
     #[test]

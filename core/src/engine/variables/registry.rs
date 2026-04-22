@@ -26,6 +26,7 @@ const SYSTEM_ROOTS: &[&str] = &[
     "env",
     "sys",
     "run",
+    "random",
     "key",
     "delay",
 ];
@@ -84,6 +85,20 @@ const RUN_MODIFIERS: &[&str] = &[
     "run.<lang>(...)",
     "run.silent.<lang>(...)",
     "run.<lang>.file(...).args(...)",
+];
+const RANDOM_MODIFIERS: &[&str] = &[
+    "int(min, max)",
+    "float(min, max)",
+    "bool",
+    "choice(a, b, ...)",
+    "string(len)",
+    "alpha(len)",
+    "numeric(len)",
+    "hex(len)",
+    "password(len)",
+    "color",
+    "ip",
+    "mac",
 ];
 const KEY_MODIFIERS: &[&str] = &[
     "enter",
@@ -157,6 +172,7 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "env" => "Valid form: [env.VAR_NAME]".to_string(),
         "sys" => format!("Valid modifiers: {}", SYS_MODIFIERS.join(", ")),
         "run" => "Valid form: [run.<lang>(...)] or [run.<lang>.file(...).args(...)]. Languages: bash, powershell, python, node, node_esm, cmd".to_string(),
+        "random" => format!("Valid modifiers: {}", RANDOM_MODIFIERS.join(", ")),
         "key" => format!(
             "Valid key tokens: {}. You can combine them with `+`, and any single character token is also allowed.",
             KEY_MODIFIERS.join(", ")
@@ -176,6 +192,7 @@ pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), Val
         "env" => validate_env_modifier(modifier),
         "sys" => validate_known_modifier("sys", modifier, SYS_MODIFIERS),
         "run" => validate_run_modifier(modifier),
+        "random" => validate_random_modifier(modifier),
         "key" => validate_key_modifier(modifier),
         "delay" => validate_delay_modifier(modifier),
         _ => Err(ValidationError::UnknownRoot(root.to_string())),
@@ -335,6 +352,90 @@ fn scan_run_parenthesized(input: &str) -> Option<(&str, &str)> {
     }
 
     None
+}
+
+fn validate_random_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
+    let modifier =
+        normalize_modifier(modifier.ok_or(ValidationError::MissingModifier { root: "random" })?)
+            .ok_or(ValidationError::MissingModifier { root: "random" })?;
+
+    let Some((variant, args)) = parse_random_modifier(modifier) else {
+        return Err(ValidationError::InvalidModifier {
+            root: "random",
+            modifier: modifier.to_string(),
+            allowed: RANDOM_MODIFIERS,
+        });
+    };
+
+    let valid = match variant {
+        "int" | "float" => args.is_none_or(|args| {
+            let args = split_random_args(args);
+            args.is_empty() || args.len() == 2
+        }),
+        "string" | "alpha" | "numeric" | "hex" | "password" => args.is_none_or(|args| {
+            let args = split_random_args(args);
+            args.is_empty() || args.len() == 1
+        }),
+        "choice" => args.is_some_and(|args| !split_random_args(args).is_empty()),
+        "bool" | "color" | "ip" | "mac" => {
+            args.is_none_or(|args| split_random_args(args).is_empty())
+        }
+        _ => false,
+    };
+
+    if valid {
+        Ok(())
+    } else {
+        Err(ValidationError::InvalidModifier {
+            root: "random",
+            modifier: modifier.to_string(),
+            allowed: RANDOM_MODIFIERS,
+        })
+    }
+}
+
+fn parse_random_modifier(input: &str) -> Option<(&str, Option<&str>)> {
+    if let Some(paren_idx) = input.find('(') {
+        let variant = input[..paren_idx].trim();
+        let (args, trailing) = scan_run_parenthesized(&input[paren_idx..])?;
+        if !variant.is_empty() && trailing.trim().is_empty() {
+            Some((variant, Some(args)))
+        } else {
+            None
+        }
+    } else if input.contains(')') {
+        None
+    } else {
+        Some((input.trim(), None)).filter(|(variant, _)| !variant.is_empty())
+    }
+}
+
+fn split_random_args(input: &str) -> Vec<&str> {
+    let mut args = Vec::new();
+    let mut start = 0usize;
+    let mut depth = 0usize;
+
+    for (idx, ch) in input.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' if depth > 0 => depth -= 1,
+            ',' if depth == 0 => {
+                push_random_arg(&mut args, &input[start..idx]);
+                start = idx + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+
+    push_random_arg(&mut args, &input[start..]);
+    args
+}
+
+fn push_random_arg<'a>(args: &mut Vec<&'a str>, raw: &'a str) {
+    let trimmed = raw.trim();
+    if !trimmed.is_empty() {
+        args.push(trimmed);
+    }
 }
 
 fn validate_key_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
@@ -532,6 +633,56 @@ mod tests {
                 root: "run",
                 modifier: "bash(echo 1".to_string(),
                 allowed: RUN_MODIFIERS,
+            })
+        );
+    }
+
+    #[test]
+    fn validates_random_modifier_syntax() {
+        assert_eq!(validate_system_tag("random", Some("int")), Ok(()));
+        assert_eq!(validate_system_tag("random", Some("int()")), Ok(()));
+        assert_eq!(validate_system_tag("random", Some("int(1, 2)")), Ok(()));
+        assert_eq!(
+            validate_system_tag("random", Some("float(0.1, 9.9)")),
+            Ok(())
+        );
+        assert_eq!(validate_system_tag("random", Some("bool")), Ok(()));
+        assert_eq!(validate_system_tag("random", Some("bool()")), Ok(()));
+        assert_eq!(
+            validate_system_tag("random", Some("choice(alpha(one, two), beta)")),
+            Ok(())
+        );
+        assert_eq!(validate_system_tag("random", Some("string(8)")), Ok(()));
+        assert_eq!(validate_system_tag("random", Some("alpha(8)")), Ok(()));
+        assert_eq!(validate_system_tag("random", Some("numeric(8)")), Ok(()));
+        assert_eq!(validate_system_tag("random", Some("hex(8)")), Ok(()));
+        assert_eq!(validate_system_tag("random", Some("password(8)")), Ok(()));
+        assert_eq!(validate_system_tag("random", Some("color")), Ok(()));
+        assert_eq!(validate_system_tag("random", Some("ip")), Ok(()));
+        assert_eq!(validate_system_tag("random", Some("mac")), Ok(()));
+
+        assert_eq!(
+            validate_system_tag("random", Some("int(1)")),
+            Err(ValidationError::InvalidModifier {
+                root: "random",
+                modifier: "int(1)".to_string(),
+                allowed: RANDOM_MODIFIERS,
+            })
+        );
+        assert_eq!(
+            validate_system_tag("random", Some("choice")),
+            Err(ValidationError::InvalidModifier {
+                root: "random",
+                modifier: "choice".to_string(),
+                allowed: RANDOM_MODIFIERS,
+            })
+        );
+        assert_eq!(
+            validate_system_tag("random", Some("uuid")),
+            Err(ValidationError::InvalidModifier {
+                root: "random",
+                modifier: "uuid".to_string(),
+                allowed: RANDOM_MODIFIERS,
             })
         );
     }
