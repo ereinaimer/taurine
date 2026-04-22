@@ -8,6 +8,7 @@ pub mod clipboard;
 pub mod date;
 pub mod env;
 pub mod format;
+pub mod run;
 pub mod time;
 pub mod uuid;
 
@@ -39,6 +40,7 @@ pub fn is_reserved(mut key: &str) -> bool {
         || key.starts_with("time.")
         || key.starts_with("date.")
         || key.starts_with("env.")
+        || key.starts_with("run.")
         || key.starts_with("key.")
         || key.starts_with("delay.")
         || key.contains('.') // Reserve all other dot-namespaces
@@ -88,6 +90,9 @@ pub fn resolve(key: &str) -> Option<String> {
     }
     if key.starts_with("env.") {
         return env::resolve(key);
+    }
+    if key.starts_with("run.") {
+        return run::resolve(key);
     }
     if key == "uuid" || key.starts_with("uuid.") {
         return uuid::resolve(key);
@@ -399,6 +404,8 @@ mod tests {
         assert!(is_reserved("uuid.v4"));
         assert!(is_reserved("time.now"));
         assert!(is_reserved("time.now.upper"));
+        assert!(is_reserved("run.bash(echo hi)"));
+        assert!(is_reserved("run.bash(echo hi).upper"));
         assert!(is_reserved("lowercase.hello"));
 
         // These are valid user variables and should not be reserved

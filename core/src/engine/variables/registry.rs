@@ -24,6 +24,7 @@ const SYSTEM_ROOTS: &[&str] = &[
     "date",
     "uuid",
     "env",
+    "run",
     "key",
     "delay",
 ];
@@ -53,6 +54,12 @@ const DATE_MODIFIERS: &[&str] = &[
 ];
 
 const UUID_MODIFIERS: &[&str] = &["v4", "v7", "simple"];
+const RUN_LANGUAGES: &[&str] = &["bash", "powershell", "python", "node", "node_esm", "cmd"];
+const RUN_MODIFIERS: &[&str] = &[
+    "run.<lang>(...)",
+    "run.silent.<lang>(...)",
+    "run.<lang>.file(...).args(...)",
+];
 const KEY_MODIFIERS: &[&str] = &[
     "enter",
     "tab",
@@ -123,6 +130,7 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "date" => format!("Valid modifiers: {}", DATE_MODIFIERS.join(", ")),
         "uuid" => format!("Valid modifiers: uuid, {}", UUID_MODIFIERS.join(", ")),
         "env" => "Valid form: [env.VAR_NAME]".to_string(),
+        "run" => "Valid form: [run.<lang>(...)] or [run.<lang>.file(...).args(...)]. Languages: bash, powershell, python, node, node_esm, cmd".to_string(),
         "key" => format!(
             "Valid key tokens: {}. You can combine them with `+`, and any single character token is also allowed.",
             KEY_MODIFIERS.join(", ")
@@ -140,6 +148,7 @@ pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), Val
         "date" => validate_known_modifier("date", modifier, DATE_MODIFIERS),
         "uuid" => validate_optional_known_modifier("uuid", modifier, UUID_MODIFIERS),
         "env" => validate_env_modifier(modifier),
+        "run" => validate_run_modifier(modifier),
         "key" => validate_key_modifier(modifier),
         "delay" => validate_delay_modifier(modifier),
         _ => Err(ValidationError::UnknownRoot(root.to_string())),
@@ -197,6 +206,108 @@ fn validate_env_modifier(modifier: Option<&str>) -> Result<(), ValidationError> 
     } else {
         Err(ValidationError::MissingModifier { root: "env" })
     }
+}
+
+fn validate_run_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
+    let modifier =
+        normalize_modifier(modifier.ok_or(ValidationError::MissingModifier { root: "run" })?)
+            .ok_or(ValidationError::MissingModifier { root: "run" })?;
+
+    let mut rest = modifier;
+    if let Some(suffix) = rest.strip_prefix("silent.") {
+        rest = suffix;
+    }
+
+    let (language, after_language) =
+        parse_run_language(rest).ok_or_else(|| ValidationError::InvalidModifier {
+            root: "run",
+            modifier: modifier.to_string(),
+            allowed: RUN_MODIFIERS,
+        })?;
+
+    if !RUN_LANGUAGES.contains(&language) {
+        return Err(ValidationError::InvalidModifier {
+            root: "run",
+            modifier: modifier.to_string(),
+            allowed: RUN_MODIFIERS,
+        });
+    }
+
+    let after_file = after_language
+        .strip_prefix(".file")
+        .unwrap_or(after_language);
+    let (_, trailing) =
+        scan_run_parenthesized(after_file).ok_or_else(|| ValidationError::InvalidModifier {
+            root: "run",
+            modifier: modifier.to_string(),
+            allowed: RUN_MODIFIERS,
+        })?;
+
+    let trailing = if let Some(args) = trailing.strip_prefix(".args") {
+        let (_, trailing) =
+            scan_run_parenthesized(args).ok_or_else(|| ValidationError::InvalidModifier {
+                root: "run",
+                modifier: modifier.to_string(),
+                allowed: RUN_MODIFIERS,
+            })?;
+        trailing
+    } else {
+        trailing
+    };
+
+    if trailing.trim().is_empty() {
+        Ok(())
+    } else {
+        Err(ValidationError::InvalidModifier {
+            root: "run",
+            modifier: modifier.to_string(),
+            allowed: RUN_MODIFIERS,
+        })
+    }
+}
+
+fn parse_run_language(input: &str) -> Option<(&str, &str)> {
+    for language in RUN_LANGUAGES {
+        if let Some(rest) = input.strip_prefix(language)
+            && (rest.starts_with('(') || rest.starts_with(".file"))
+        {
+            return Some((language, rest));
+        }
+    }
+    None
+}
+
+fn scan_run_parenthesized(input: &str) -> Option<(&str, &str)> {
+    if !input.starts_with('(') {
+        return None;
+    }
+
+    let mut depth = 0usize;
+    let mut start = None;
+
+    for (idx, ch) in input.char_indices() {
+        match ch {
+            '(' => {
+                if depth == 0 {
+                    start = Some(idx + ch.len_utf8());
+                }
+                depth += 1;
+            }
+            ')' => {
+                if depth == 0 {
+                    return None;
+                }
+                depth -= 1;
+                if depth == 0 {
+                    let start = start?;
+                    return Some((&input[start..idx], &input[idx + 1..]));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
 }
 
 fn validate_key_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
@@ -339,6 +450,39 @@ mod tests {
         assert_eq!(
             validate_system_tag("env", None),
             Err(ValidationError::MissingModifier { root: "env" })
+        );
+    }
+
+    #[test]
+    fn validates_run_modifier_syntax() {
+        assert_eq!(validate_system_tag("run", Some("bash(echo 42)")), Ok(()));
+        assert_eq!(
+            validate_system_tag("run", Some("silent.bash(echo start)")),
+            Ok(())
+        );
+        assert_eq!(
+            validate_system_tag("run", Some("bash.file(/tmp/test.sh).args(arg1, arg2)")),
+            Ok(())
+        );
+        assert_eq!(
+            validate_system_tag("run", Some("node_esm(console.log((1 + 2)))")),
+            Ok(())
+        );
+        assert_eq!(
+            validate_system_tag("run", Some("ruby(puts 1)")),
+            Err(ValidationError::InvalidModifier {
+                root: "run",
+                modifier: "ruby(puts 1)".to_string(),
+                allowed: RUN_MODIFIERS,
+            })
+        );
+        assert_eq!(
+            validate_system_tag("run", Some("bash(echo 1")),
+            Err(ValidationError::InvalidModifier {
+                root: "run",
+                modifier: "bash(echo 1".to_string(),
+                allowed: RUN_MODIFIERS,
+            })
         );
     }
 

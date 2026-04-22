@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use inquire::{Password, PasswordDisplayMode, Select};
+use inquire::{Confirm, Password, PasswordDisplayMode, Select};
 use taurine_core::db::init;
 use taurine_core::exchange::{
     AutomationExport, ExchangeFormat, ExchangePayload, ExistingAutomationConflict,
@@ -29,6 +29,7 @@ pub fn execute(
             result?
         }
     };
+    confirm_run_variable_import(&payload)?;
     let mut conn = init::setup()?;
     let imported = import_payload_transactionally(
         &mut conn,
@@ -102,6 +103,46 @@ fn decode_exchange_blob(
             payload
         }
     }
+}
+
+fn confirm_run_variable_import(payload: &ExchangePayload) -> taurine_core::error::Result<()> {
+    if !payload_contains_run_variables(payload) {
+        return Ok(());
+    }
+
+    let confirmed = Confirm::new(
+        "**CAUTION**: This import contains [run] variables that execute shell commands.\n\
+Untrusted scripts can damage your system. Continue? [y/N]",
+    )
+    .with_default(false)
+    .prompt()
+    .map_err(|e| {
+        taurine_core::error::Error::Service(format!(
+            "Failed to read run variable import confirmation: {e}"
+        ))
+    })?;
+
+    if confirmed {
+        Ok(())
+    } else {
+        Err(taurine_core::error::Error::Config(
+            "Import cancelled because it contains [run] variables".to_string(),
+        ))
+    }
+}
+
+fn payload_contains_run_variables(payload: &ExchangePayload) -> bool {
+    payload.automations.iter().any(|automation| {
+        contains_run_variable(&automation.output)
+            || automation
+                .script
+                .as_ref()
+                .is_some_and(|script| contains_run_variable(&script.content))
+    })
+}
+
+fn contains_run_variable(content: &str) -> bool {
+    content.to_ascii_lowercase().contains("[run.")
 }
 
 fn resolve_conflict_action(
@@ -309,5 +350,38 @@ mod tests {
             map_import_metrics_mode(Some(ImportMetricsCli::Merge)),
             ImportMetricsMode::Merge
         );
+    }
+
+    #[test]
+    fn detects_run_variables_case_insensitively() {
+        let mut payload = sample_payload();
+        payload.automations.push(AutomationExport {
+            output: "before [RUN.bash(echo hi)] after".to_string(),
+            ..sample_automation()
+        });
+
+        assert!(payload_contains_run_variables(&payload));
+    }
+
+    #[test]
+    fn detects_run_variables_in_script_content() {
+        let mut payload = sample_payload();
+        let mut automation = sample_automation();
+        automation.script = Some(taurine_core::exchange::ScriptExport {
+            interpreter: taurine_core::engine::shell::ScriptInterpreter::Bash,
+            behavior: taurine_core::engine::shell::ScriptBehavior::Inline,
+            content: "echo [run.bash(echo nested)]".to_string(),
+        });
+        payload.automations.push(automation);
+
+        assert!(payload_contains_run_variables(&payload));
+    }
+
+    #[test]
+    fn ignores_content_without_run_variables() {
+        let mut payload = sample_payload();
+        payload.automations.push(sample_automation());
+
+        assert!(!payload_contains_run_variables(&payload));
     }
 }
