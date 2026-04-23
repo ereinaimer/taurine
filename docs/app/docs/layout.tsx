@@ -6,23 +6,25 @@ import { gitConfig } from '@/lib/shared';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <DocsLayout 
-      tree={source.getPageTree()} 
-      {...baseOptions()}
-      links={[
-        {
-          type: 'custom',
-          children: (
-            <GithubInfo 
-              owner={gitConfig.user} 
-              repo={gitConfig.repo} 
-              className="mt-auto"
-            />
-          ),
-        },
-      ]}
-    >
-      {children}
-    </DocsLayout>
+    <div suppressHydrationWarning>
+      <DocsLayout 
+        tree={source.getPageTree()} 
+        {...baseOptions()}
+        links={[
+          {
+            type: 'custom',
+            children: (
+              <GithubInfo 
+                owner={gitConfig.user} 
+                repo={gitConfig.repo} 
+                className="mt-auto"
+              />
+            ),
+          },
+        ]}
+      >
+        {children}
+      </DocsLayout>
+    </div>
   );
 }
