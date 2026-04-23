@@ -55,10 +55,10 @@ pub fn emit_batch(events: &[InputEvent]) {
     }
 
     if let Some(mutex) = UINPUT_DEVICE.get() {
-        if let Ok(mut device) = mutex.lock() {
-            if let Err(e) = device.emit(events) {
-                error!("Failed to emit uinput event: {}", e);
-            }
+        if let Ok(mut device) = mutex.lock()
+            && let Err(e) = device.emit(events)
+        {
+            error!("Failed to emit uinput event: {}", e);
         }
     } else {
         error!("uinput simulate called before initialization");
