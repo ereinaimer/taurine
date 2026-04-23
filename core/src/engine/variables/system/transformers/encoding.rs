@@ -10,11 +10,11 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
         "urldecode" => urldecode_string(content),
         "base64encode" => Some(STANDARD.encode(content)),
         "base64decode" => STANDARD
-            .decode(content)
+            .decode(content.trim())
             .ok()
             .and_then(|bytes| String::from_utf8(bytes).ok()),
         "hexencode" => Some(hex::encode(content.as_bytes())),
-        "hexdecode" => hex::decode(content)
+        "hexdecode" => hex::decode(content.trim())
             .ok()
             .and_then(|bytes| String::from_utf8(bytes).ok()),
         _ => None,
@@ -102,6 +102,14 @@ mod tests {
         );
         assert_eq!(
             apply("hexdecode", &[], "68656c6c6f"),
+            Some("hello".to_string())
+        );
+        assert_eq!(
+            apply("base64decode", &[], "  aGVsbG8=\n"),
+            Some("hello".to_string())
+        );
+        assert_eq!(
+            apply("hexdecode", &[], "\t68656c6c6f "),
             Some("hello".to_string())
         );
         assert_eq!(apply("urldecode", &[], "%ZZ"), None);
