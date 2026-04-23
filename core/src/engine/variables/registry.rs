@@ -29,6 +29,7 @@ const SYSTEM_ROOTS: &[&str] = &[
     "random",
     "key",
     "delay",
+    "lorem",
 ];
 
 const TIME_MODIFIERS: &[&str] = &[
@@ -100,6 +101,7 @@ const RANDOM_MODIFIERS: &[&str] = &[
     "ip",
     "mac",
 ];
+const LOREM_MODIFIERS: &[&str] = &["words(n)", "sentence(n)", "paragraph(n)"];
 const KEY_MODIFIERS: &[&str] = &[
     "enter",
     "tab",
@@ -173,6 +175,7 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "sys" => format!("Valid modifiers: {}", SYS_MODIFIERS.join(", ")),
         "run" => "Valid form: [run.<lang>(...)] or [run.<lang>.file(...).args(...)]. Languages: bash, powershell, python, node, node_esm, cmd".to_string(),
         "random" => format!("Valid modifiers: {}", RANDOM_MODIFIERS.join(", ")),
+        "lorem" => format!("Valid modifiers: lorem, {}", LOREM_MODIFIERS.join(", ")),
         "key" => format!(
             "Valid key tokens: {}. You can combine them with `+`, and any single character token is also allowed.",
             KEY_MODIFIERS.join(", ")
@@ -193,6 +196,7 @@ pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), Val
         "sys" => validate_known_modifier("sys", modifier, SYS_MODIFIERS),
         "run" => validate_run_modifier(modifier),
         "random" => validate_random_modifier(modifier),
+        "lorem" => validate_lorem_modifier(modifier),
         "key" => validate_key_modifier(modifier),
         "delay" => validate_delay_modifier(modifier),
         _ => Err(ValidationError::UnknownRoot(root.to_string())),
@@ -394,6 +398,34 @@ fn validate_random_modifier(modifier: Option<&str>) -> Result<(), ValidationErro
     }
 }
 
+fn validate_lorem_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
+    match modifier.and_then(normalize_modifier) {
+        None => Ok(()),
+        Some(modifier) => {
+            let Some((variant, args)) = parse_lorem_modifier(modifier) else {
+                return Err(ValidationError::InvalidModifier {
+                    root: "lorem",
+                    modifier: modifier.to_string(),
+                    allowed: LOREM_MODIFIERS,
+                });
+            };
+
+            let args = split_modifier_args(args);
+            let valid = matches!(variant, "words" | "sentence" | "paragraph") && args.len() <= 1;
+
+            if valid {
+                Ok(())
+            } else {
+                Err(ValidationError::InvalidModifier {
+                    root: "lorem",
+                    modifier: modifier.to_string(),
+                    allowed: LOREM_MODIFIERS,
+                })
+            }
+        }
+    }
+}
+
 fn parse_random_modifier(input: &str) -> Option<(&str, Option<&str>)> {
     if let Some(paren_idx) = input.find('(') {
         let variant = input[..paren_idx].trim();
@@ -410,16 +442,35 @@ fn parse_random_modifier(input: &str) -> Option<(&str, Option<&str>)> {
     }
 }
 
+fn parse_lorem_modifier(input: &str) -> Option<(&str, &str)> {
+    let paren_idx = input.find('(')?;
+    let variant = input[..paren_idx].trim();
+    let (args, trailing) = scan_run_parenthesized(&input[paren_idx..])?;
+
+    if variant.is_empty() || !trailing.trim().is_empty() {
+        None
+    } else {
+        Some((variant, args))
+    }
+}
+
 fn split_random_args(input: &str) -> Vec<&str> {
+    split_modifier_args(input)
+}
+
+fn split_modifier_args(input: &str) -> Vec<&str> {
     let mut args = Vec::new();
     let mut start = 0usize;
-    let mut depth = 0usize;
+    let mut paren_depth = 0usize;
+    let mut bracket_depth = 0usize;
 
     for (idx, ch) in input.char_indices() {
         match ch {
-            '(' => depth += 1,
-            ')' if depth > 0 => depth -= 1,
-            ',' if depth == 0 => {
+            '(' => paren_depth += 1,
+            ')' if paren_depth > 0 => paren_depth -= 1,
+            '[' => bracket_depth += 1,
+            ']' if bracket_depth > 0 => bracket_depth -= 1,
+            ',' if paren_depth == 0 && bracket_depth == 0 => {
                 push_random_arg(&mut args, &input[start..idx]);
                 start = idx + ch.len_utf8();
             }
@@ -683,6 +734,41 @@ mod tests {
                 root: "random",
                 modifier: "uuid".to_string(),
                 allowed: RANDOM_MODIFIERS,
+            })
+        );
+    }
+
+    #[test]
+    fn validates_lorem_modifier_syntax() {
+        assert_eq!(validate_system_tag("lorem", None), Ok(()));
+        assert_eq!(validate_system_tag("lorem", Some("words(3)")), Ok(()));
+        assert_eq!(validate_system_tag("lorem", Some("words()")), Ok(()));
+        assert_eq!(validate_system_tag("lorem", Some("sentence(2)")), Ok(()));
+        assert_eq!(validate_system_tag("lorem", Some("paragraph(1)")), Ok(()));
+        assert_eq!(validate_system_tag("lorem", Some("words([num=5])")), Ok(()));
+        assert_eq!(
+            validate_system_tag("lorem", Some("words([random.int(3, 3)])")),
+            Ok(())
+        );
+        assert_eq!(
+            validate_system_tag("lorem", Some("paragraph(nope)")),
+            Ok(())
+        );
+
+        assert_eq!(
+            validate_system_tag("lorem", Some("words")),
+            Err(ValidationError::InvalidModifier {
+                root: "lorem",
+                modifier: "words".to_string(),
+                allowed: LOREM_MODIFIERS,
+            })
+        );
+        assert_eq!(
+            validate_system_tag("lorem", Some("words(1, 2)")),
+            Err(ValidationError::InvalidModifier {
+                root: "lorem",
+                modifier: "words(1, 2)".to_string(),
+                allowed: LOREM_MODIFIERS,
             })
         );
     }

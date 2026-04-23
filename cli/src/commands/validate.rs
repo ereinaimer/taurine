@@ -174,4 +174,10 @@ mod tests {
         let error = audit_payload_tags("[env]").unwrap_err();
         assert!(error.to_string().contains("requires a modifier"));
     }
+
+    #[test]
+    fn accepts_lorem_with_nested_dynamic_arg() {
+        assert!(audit_payload_tags("[lorem.words([num=5])]").is_ok());
+        assert!(audit_payload_tags("[lorem.words([random.int(3, 3)])]").is_ok());
+    }
 }

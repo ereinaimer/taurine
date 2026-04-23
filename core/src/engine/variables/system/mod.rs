@@ -8,6 +8,7 @@ pub mod clipboard;
 pub mod date;
 pub mod env;
 pub mod format;
+pub mod lorem;
 pub mod random;
 pub mod run;
 pub mod sys;
@@ -39,6 +40,7 @@ pub fn is_reserved(mut key: &str) -> bool {
         || key == "uuid"
         || key == "clipboard"
         || key == "sys"
+        || key == "lorem"
         || key.starts_with("uuid.")
         || key.starts_with("sys.")
         || key.starts_with("time.")
@@ -46,6 +48,7 @@ pub fn is_reserved(mut key: &str) -> bool {
         || key.starts_with("env.")
         || key.starts_with("run.")
         || key.starts_with("random.")
+        || key.starts_with("lorem.")
         || key.starts_with("key.")
         || key.starts_with("delay.")
         || key.contains('.') // Reserve all other dot-namespaces
@@ -101,6 +104,9 @@ pub fn resolve(key: &str) -> Option<String> {
     }
     if key.starts_with("random.") {
         return random::resolve(key);
+    }
+    if key == "lorem" || key.starts_with("lorem.") {
+        return lorem::resolve(key);
     }
     if key == "uuid" || key.starts_with("uuid.") {
         return uuid::resolve(key);
@@ -169,6 +175,29 @@ fn trim_slice(s: &str) -> &str {
     let trimmed = s.trim();
     let start = s.len() - s.trim_start().len();
     &s[start..start + trimmed.len()]
+}
+
+fn split_key_default(inner: &str) -> (&str, Option<&str>) {
+    let inner = trim_slice(inner);
+    let bytes = inner.as_bytes();
+    let mut depth = 0usize;
+    let mut ptr = 0usize;
+
+    while ptr < bytes.len() {
+        if bytes[ptr] == TAG_OPEN && !is_escaped(bytes, ptr) {
+            depth += 1;
+        } else if bytes[ptr] == TAG_CLOSE && !is_escaped(bytes, ptr) {
+            depth -= 1;
+        } else if bytes[ptr] == b'=' && depth == 0 {
+            return (
+                trim_slice(&inner[..ptr]),
+                Some(trim_slice(&inner[ptr + 1..])),
+            );
+        }
+        ptr += 1;
+    }
+
+    (inner, None)
 }
 
 fn find_next_tag(text: &str, from: usize) -> Option<TagBounds> {
@@ -268,9 +297,8 @@ pub fn validate_output(output: &str, trigger: Option<&str>) {
         if inner.starts_with("key.") || inner.starts_with("delay.") {
             has_key_or_delay = true;
         }
-        if let Some((key, _)) = inner.split_once('=')
-            && is_reserved(trim_slice(key))
-        {
+        let (key, default_value) = split_key_default(inner);
+        if default_value.is_some() && is_reserved(trim_slice(key)) {
             tracing::warn!(
                 "System variable [{}] cannot have a default value assignment and will be ignored{}.",
                 trim_slice(key),
@@ -430,6 +458,9 @@ mod tests {
         assert!(is_reserved("run.bash(echo hi).upper"));
         assert!(is_reserved("random.int(1, 9)"));
         assert!(is_reserved("random.int(1, 9).upper"));
+        assert!(is_reserved("lorem"));
+        assert!(is_reserved("lorem.words(3)"));
+        assert!(is_reserved("lorem.words(3).upper"));
         assert!(is_reserved("sys"));
         assert!(is_reserved("sys.os"));
         assert!(is_reserved("sys.os.upper"));
@@ -459,6 +490,16 @@ mod tests {
             ),
             "5"
         );
+    }
+
+    #[test]
+    fn test_resolve_lorem_words_interpolation_count() {
+        let resolved = crate::engine::variables::interpolate::interpolate(
+            "[lorem.words(3)]",
+            &crate::engine::variables::types::ArgMap::default(),
+        );
+
+        assert_eq!(resolved.split_whitespace().count(), 3);
     }
 
     #[test]
@@ -683,8 +724,21 @@ mod tests {
         validate_output("[cursor] [cursor]", Some("multi"));
         validate_output("[key.tab] [cursor]", Some("conflict"));
         validate_output("[cursor=invalid]", Some("default"));
+        validate_output("[lorem.words([num=5])]", Some("nested"));
         validate_output(r#"\[cursor\] [cursor]"#, Some("escaped"));
         validate_output("[clipboard=invalid]", None);
+    }
+
+    #[test]
+    fn test_split_key_default_respects_nested_placeholders() {
+        assert_eq!(
+            split_key_default("lorem.words([num=5])"),
+            ("lorem.words([num=5])", None)
+        );
+        assert_eq!(
+            split_key_default("cursor=invalid"),
+            ("cursor", Some("invalid"))
+        );
     }
 
     mod compatibility_finalize_tests {
