@@ -4,6 +4,7 @@
     "index",
     "casing",
     "text-manipulation",
+    "formatting",
     "encoding",
     "hashing",
     "lines"

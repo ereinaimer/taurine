@@ -14,33 +14,42 @@ These transformers allow you to modify the content of a string beyond simple cas
 | `.reverse` | Reverses the string at char-level | `"cafe"` → `"efac"` |
 | `.truncate(n)` | Limits text to `n` characters | `"abcdef"` → `"abc..."` |
 | `.replace(old, new)` | Replaces all occurrences of `old` with `new` | `"a,b,c"` → `"a;b;c"` |
+| `.remove(str)` | Strips all occurrences of `str` | `"banana"` → `"ba"` |
+| `.substring(s, e)` | Precise char-aware slicing | `"naïve"` → `"ïve"` |
+| `.stripall` | Removes ALL whitespace | `" a b c "` → `"abc"` |
+| `.onlydigits` | Keeps only `0-9` | `"A-10-9"` → `"109"` |
+| `.onlyalphanumeric` | Keeps only letters and numbers | `"a-b_1!"` → `"ab1"` |
 
-### Truncation
+### Advanced Manipulation
 
-The `.truncate` modifier takes a single integer argument. It counts characters, not bytes.
+#### Regex Replacement
+The `.regexreplace(pattern, replacement)` transformer uses the Rust [regex](https://docs.rs/regex/) crate. It supports Perl-like syntax and captures groups. If the pattern is invalid, the transformer fails gracefully and returns the original text.
 
 <Transformation
-  template="[clipboard.truncate(10)]"
-  input=">clip:'This is a very long string'"
-  result="This is a "
+  template='[0.regexreplace("([a-z]),([A-Z])", "$1 $2")]'
+  input=">text:'a,B c,D'"
+  result="a B c D"
 />
 
-### String Replacement
-
-The `.replace` modifier requires two arguments. To include literal commas or whitespace in your search/replace strings, use quotes.
+#### Precise Slicing
+Unlike byte-based slicing in many languages, `.substring(start, end)` is fully UTF-8 char-aware. Indices are 0-based.
 
 <Transformation
-  template='[0.replace(",", " | ")]'
-  input=">tags:'rust,cli,taurine'"
-  result="rust | cli | taurine"
+  template="[0.substring(1, 3)]"
+  input=">text:'aßc'"
+  result="ßc"
 />
 
-### Reversing Emojis
+### Data Extraction
+Extraction transformers are designed to pull specific patterns out of a larger block of text (like a webpage or log file). They return matches separated by newlines.
 
-Because Taurine is UTF-8 aware, reversing strings with complex characters works as expected.
+| Modifier | Description |
+| :--- | :--- |
+| `.extracturls` | Pulls all valid `http/https` URLs |
+| `.extractemails` | Pulls all valid email addresses |
 
 <Transformation
-  template="[0.reverse]"
-  input=">text:'Hello 🦀'"
-  result="🦀 olleH"
+  template="[clipboard.extracturls]"
+  input=">clip:'Check https://taurine.in and https://github.com'"
+  result="https://taurine.in\nhttps://github.com"
 />

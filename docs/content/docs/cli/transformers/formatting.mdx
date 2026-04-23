@@ -1,0 +1,36 @@
+---
+title: Formatting
+description: Wrap, unwrap, and quote your text for consistent documentation and code output.
+---
+
+Formatting transformers help you manage quotes and other wrapping characters around your variables.
+
+### Quote Management
+
+These modifiers are essential for ensuring that user input is correctly escaped or quoted when inserted into code snippets or JSON payloads.
+
+| Modifier | Alias | Description | Example |
+| :--- | :--- | :--- | :--- |
+| `.quote` | `.doublequote` | Wraps in `"` | `hi` → `"hi"` |
+| `.singlequote` | — | Wraps in `'` | `hi` → `'hi'` |
+| `.unquote` | — | Removes leading/trailing quotes | `"hi"` → `hi` |
+
+### Practical Examples
+
+#### Quoting for JSON
+Ensure a variable is safely wrapped in double quotes for a JSON structure.
+
+<Transformation
+  template='{ "value": [0.quote] }'
+  input=">text:'hello world'"
+  result='{ "value": "hello world" }'
+/>
+
+#### Safely Unquoting
+If you are passing a variable that might already be quoted (like a clipboard item), use `.unquote` to normalize it before processing.
+
+<Transformation
+  template="[clipboard.unquote.upper]"
+  input='>clip:"taurine"'
+  result="TAURINE"
+/>

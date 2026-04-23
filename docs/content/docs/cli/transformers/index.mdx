@@ -18,7 +18,7 @@ Transformers are a powerful feature of the Taurine engine that allow you to mani
 
 ### Chaining Transformers
 
-Taurine supports recursive transformation chaining. This allows you to perform complex cleanup and formatting in a single tag.
+Taurine supports recursive transformation chaining. This allows you to perform complex cleanup and formatting in a single tag. The implementation is fully recursive; while there is no hard limit on the number of chained modifiers, depth is technically limited only by your system's stack and available memory.
 
 <Transformation
   template="[0.trim.upper.reverse]"
@@ -44,21 +44,21 @@ Explore the different categories of transformers:
   <Card 
     title="Casing" 
     href="/docs/cli/transformers/casing" 
-    description="Upper, lower, snake, camel, and more." 
+    description="Upper, lower, snake, camel, mocking, and leet." 
   />
   <Card 
     title="Text Manipulation" 
     href="/docs/cli/transformers/text-manipulation" 
-    description="Truncate, reverse, trim, and length." 
+    description="Truncate, replace, regex, and extraction." 
+  />
+  <Card 
+    title="Formatting" 
+    href="/docs/cli/transformers/formatting" 
+    description="Quotes, unquoting, and wrapping." 
   />
   <Card 
     title="Encoding" 
     href="/docs/cli/transformers/encoding" 
-    description="URL and Base64 encoding/decoding." 
-  />
-  <Card 
-    title="Hashing" 
-    href="/docs/cli/transformers/hashing" 
-    description="MD5 and SHA-256 cryptographic helpers." 
+    description="URL, Base64, and Hex encoding." 
   />
 </Cards>

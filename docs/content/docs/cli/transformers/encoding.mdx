@@ -34,3 +34,18 @@ Base64 modifiers allow you to convert text to and from the standard Base64 encod
   input=">creds:'admin:password'"
   result="Authorization: Basic YWRtaW46cGFzc3dvcmQ="
 />
+
+### Hexadecimal
+
+Hex modifiers convert text to and from their hexadecimal representation.
+
+| Modifier | Example |
+| :--- | :--- |
+| `.hexencode` | `hello` → `68656c6c6f` |
+| `.hexdecode` | `68656c6c6f` → `hello` |
+
+<Transformation
+  template="0x[0.hexencode]"
+  input=">text:'abc'"
+  result="0x616263"
+/>
