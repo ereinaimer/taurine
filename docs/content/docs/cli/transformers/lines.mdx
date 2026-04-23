@@ -1,0 +1,23 @@
+---
+title: Line Manipulation
+description: Extract specific lines from multi-line text content.
+---
+
+Line transformers are helpful when processing multi-line data from the clipboard or shell command outputs. They automatically handle both `\n` (Unix) and `\r\n` (Windows) line endings.
+
+### Available Modifiers
+
+| Modifier | Description |
+| :--- | :--- |
+| `.firstline` | Extracts only the first line of the text |
+| `.lastline` | Extracts only the last line of the text |
+
+### Practical Example
+
+If you have a multi-line list in your clipboard and only want to use the first item as a title:
+
+<Transformation
+  template="Title: [clipboard.firstline]"
+  input=">clip:'First Line\nSecond Line\nThird Line'"
+  result="Title: First Line"
+/>

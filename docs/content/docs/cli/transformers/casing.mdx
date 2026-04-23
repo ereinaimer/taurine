@@ -1,0 +1,43 @@
+---
+title: Casing
+description: Transform text between different naming conventions and capitalization styles.
+---
+
+Casing transformers are the most common way to ensure that user-provided arguments fit the requirements of your code, commit messages, or documentation.
+
+Every casing modifier has a `*case` alias (e.g., `.snake` or `.snakecase`) for better readability in complex templates.
+
+### Reference Table
+
+| Modifier | Alias | Description | Example |
+| :--- | :--- | :--- | :--- |
+| `.upper` | `.uppercase` | ALL UPPERCASE | `hello` → `HELLO` |
+| `.lower` | `.lowercase` | all lowercase | `HELLO` → `hello` |
+| `.sentence` | `.sentencecase` | Capitalize first char | `hello world` → `Hello world` |
+| `.title` | `.titlecase` | Title Case | `hello world` → `Hello World` |
+| `.snake` | `.snakecase` | snake_case | `HelloWorld` → `hello_world` |
+| `.kebab` | `.kebabcase` | kebab-case | `HelloWorld` → `hello-world` |
+| `.pascal` | `.pascalcase` | PascalCase | `hello_world` → `HelloWorld` |
+| `.camel` | `.camelcase` | camelCase | `hello_world` → `helloWorld` |
+| `.shoutysnake` | `.shoutysnakecase` | SHOUTY_SNAKE_CASE | `hello world` → `HELLO_WORLD` |
+| `.train` | `.traincase` | Train-Case | `hello_world` → `Hello-World` |
+
+### Sentence Case
+
+Unlike `.title`, `.sentencecase` only capitalizes the very first character of the string, leaving the rest of the text as-is.
+
+<Transformation
+  template="[0.sentence]"
+  input=">text:'hello from taurine'"
+  result="Hello from taurine"
+/>
+
+### Consistency in Code
+
+Use `.camel` for variables and `.pascal` for classes or types when generating code snippets.
+
+<Transformation
+  template="class [0.pascal] { const [0.camel] = true; }"
+  input=">name:'user_service'"
+  result="class UserService { const userService = true; }"
+/>

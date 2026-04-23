@@ -1,0 +1,64 @@
+---
+title: Introduction
+description: Elevate your snippets with powerful, global text transformers.
+---
+
+Transformers are a powerful feature of the Taurine engine that allow you to manipulate the casing, encoding, and structure of your text dynamically. They are applied using **dot notation** (e.g., `.upper`) immediately following a variable name.
+
+```
+[clipboard.upper]
+[0.snake]
+```
+
+### Key Concepts
+
+*   **Global Availability**: Transformers can be applied to any variable, whether it is a user-defined argument, a system variable, or even a literal string inside a tag.
+*   **Recursive Chaining**: You can chain multiple transformers together. They are processed from left to right.
+*   **UTF-8 Awareness**: All text-based transformers (like `reverse` or `truncate`) are fully UTF-8 aware, ensuring safe manipulation of emojis and special characters.
+
+### Chaining Transformers
+
+Taurine supports recursive transformation chaining. This allows you to perform complex cleanup and formatting in a single tag.
+
+<Transformation
+  template="[0.trim.upper.reverse]"
+  input=">text:'  taurine  '"
+  result="ENIRUAT"
+/>
+
+### Quoted Literals
+
+You can apply transformers directly to quoted strings. This is useful for formatting static text without defining a variable.
+
+<Transformation
+  template="['hello world'.title]"
+  input=""
+  result="Hello World"
+/>
+
+### Category Overview
+
+Explore the different categories of transformers:
+
+<Cards>
+  <Card 
+    title="Casing" 
+    href="/docs/cli/transformers/casing" 
+    description="Upper, lower, snake, camel, and more." 
+  />
+  <Card 
+    title="Text Manipulation" 
+    href="/docs/cli/transformers/text-manipulation" 
+    description="Truncate, reverse, trim, and length." 
+  />
+  <Card 
+    title="Encoding" 
+    href="/docs/cli/transformers/encoding" 
+    description="URL and Base64 encoding/decoding." 
+  />
+  <Card 
+    title="Hashing" 
+    href="/docs/cli/transformers/hashing" 
+    description="MD5 and SHA-256 cryptographic helpers." 
+  />
+</Cards>

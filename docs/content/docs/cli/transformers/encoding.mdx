@@ -1,0 +1,36 @@
+---
+title: Encoding
+description: Encode and decode text for URLs and binary-safe transfers.
+---
+
+Encoding transformers are essential for generating safe URLs, handling API payloads, or processing Base64 data.
+
+### URL Encoding
+
+Use `.urlencode` and `.urldecode` to handle URI components. Space characters are encoded as `%20`.
+
+| Modifier | Example |
+| :--- | :--- |
+| `.urlencode` | `hello world!` → `hello%20world%21` |
+| `.urldecode` | `hello%20world%21` → `hello world!` |
+
+<Transformation
+  template="https://google.com/search?q=[0.urlencode]"
+  input=">query:'rust programming'"
+  result="https://google.com/search?q=rust%20programming"
+/>
+
+### Base64
+
+Base64 modifiers allow you to convert text to and from the standard Base64 encoding.
+
+| Modifier | Example |
+| :--- | :--- |
+| `.base64encode` | `hello` → `aGVsbG8=` |
+| `.base64decode` | `aGVsbG8=` → `hello` |
+
+<Transformation
+  template="Authorization: Basic [0.base64encode]"
+  input=">creds:'admin:password'"
+  result="Authorization: Basic YWRtaW46cGFzc3dvcmQ="
+/>

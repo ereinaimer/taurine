@@ -1,0 +1,46 @@
+---
+title: Text Manipulation
+description: Perform powerful string operations like truncation, replacement, and reversal.
+---
+
+These transformers allow you to modify the content of a string beyond simple casing changes. All operations are **UTF-8 char-aware**, meaning they correctly handle multi-byte characters like emojis.
+
+### Available Modifiers
+
+| Modifier | Description | Example |
+| :--- | :--- | :--- |
+| `.trim` | Removes leading and trailing whitespace | `"  hi  "` → `"hi"` |
+| `.length` | Returns the number of characters | `"aßc"` → `3` |
+| `.reverse` | Reverses the string at char-level | `"cafe"` → `"efac"` |
+| `.truncate(n)` | Limits text to `n` characters | `"abcdef"` → `"abc..."` |
+| `.replace(old, new)` | Replaces all occurrences of `old` with `new` | `"a,b,c"` → `"a;b;c"` |
+
+### Truncation
+
+The `.truncate` modifier takes a single integer argument. It counts characters, not bytes.
+
+<Transformation
+  template="[clipboard.truncate(10)]"
+  input=">clip:'This is a very long string'"
+  result="This is a "
+/>
+
+### String Replacement
+
+The `.replace` modifier requires two arguments. To include literal commas or whitespace in your search/replace strings, use quotes.
+
+<Transformation
+  template='[0.replace(",", " | ")]'
+  input=">tags:'rust,cli,taurine'"
+  result="rust | cli | taurine"
+/>
+
+### Reversing Emojis
+
+Because Taurine is UTF-8 aware, reversing strings with complex characters works as expected.
+
+<Transformation
+  template="[0.reverse]"
+  input=">text:'Hello 🦀'"
+  result="🦀 olleH"
+/>

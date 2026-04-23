@@ -15,6 +15,7 @@
     "---Variable Engine---",
     "dynamic-variables",
     "system-variables",
+    "transformers",
     "inline-math",
     "---Integrations & Tools---",
     "inline-ai-copilot",

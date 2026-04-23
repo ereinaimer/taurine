@@ -1,0 +1,23 @@
+---
+title: Hashing
+description: Generate cryptographic hashes for data integrity and fingerprinting.
+---
+
+Hashing transformers provide quick access to common cryptographic hash functions. These are "one-way" transformations and cannot be reversed.
+
+### Available Modifiers
+
+| Modifier | Description | Example (Input: "hello") |
+| :--- | :--- | :--- |
+| `.md5` | 128-bit MD5 hash (hex) | `5d41402abc4b2a76b9719d911017c592` |
+| `.sha256` | 256-bit SHA-2 hash (hex) | `2cf24dba5fb0a30e26e83b2ac5b9e29e1b...` |
+
+### Use Cases
+
+Hashing is useful for generating unique identifiers for files, passwords (for non-secure display), or API keys.
+
+<Transformation
+  template="Fingerprint: [0.sha256]"
+  input=">data:'sensitive information'"
+  result="Fingerprint: 3e839e... (truncated)"
+/>
