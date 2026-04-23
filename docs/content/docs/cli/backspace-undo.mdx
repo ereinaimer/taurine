@@ -42,3 +42,22 @@ Using **Shift + Backspace** functions exactly like a normal Undo. This is useful
 
 ### Native Word-Delete
 Taurine respects your OS-level shortcuts. Pressing **Ctrl + Backspace** (Windows/Linux) or **Alt + Backspace** (macOS) will **not** trigger a Taurine Undo. Instead, it will perform a standard native word-delete, allowing you to delete blocks of text as you normally would.
+
+## Fail-Safes & Exclusions
+
+To protect your active document from accidental corruption or unintended side effects, Taurine "fails safe" by disabling the Backspace Undo for complex or unpredictable expansions. In these cases, you can still rely on your operating system's native undo command (**Ctrl+Z** or **Cmd+Z**).
+
+The 2.5-second undo window is bypassed in the following scenarios:
+
+### Structural Templates
+If an expansion uses a `[cursor]` marker or simulated arrow keys to reposition the caret inside a block (for example, placing you inside a `<div>` tag or a function body), a blind backspace would delete the wrong characters. Taurine detects these structural changes and disables the automatic undo to keep your code safe.
+
+### AI Text Generation
+AI-generated content can be massive and unpredictable. To avoid the visual jarring of hundreds of rapid backspaces flooding your screen and to keep your system responsive, AI expansions are locked in immediately upon generation.
+
+### Massive Clipboard Pastes
+If you expand a snippet that pastes a particularly large amount of text (anything over 64KB), Taurine skips the undo registration. This prevents the operating system's keyboard buffer from freezing while attempting to "replay" thousands of backspaces.
+
+### Scripts & Commands
+When an expansion triggers an external script or a shell command, Taurine cannot undo the actions performed by those external systems. To prevent confusion between what can be undone (text) and what cannot (script actions), the undo window is disabled for these sequences.
+
