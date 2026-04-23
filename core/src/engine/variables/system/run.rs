@@ -191,7 +191,7 @@ fn invocation_script_content(invocation: &RunInvocation) -> String {
 
     match invocation.interpreter {
         ScriptInterpreter::Bash => shell_command_line(
-            &bash_file_path_arg(invocation.subject.trim()),
+            bash_file_path_arg(invocation.subject.trim()),
             &invocation.args,
             quote_posix,
         ),
@@ -228,8 +228,12 @@ fn invocation_script_content(invocation: &RunInvocation) -> String {
     }
 }
 
-fn shell_command_line(path: &str, args: &[String], quote: impl Fn(&str) -> String) -> String {
-    let mut command = quote(path);
+fn shell_command_line(
+    path: impl AsRef<str>,
+    args: &[String],
+    quote: impl Fn(&str) -> String,
+) -> String {
+    let mut command = quote(path.as_ref());
     for arg in args {
         command.push(' ');
         command.push_str(&quote(arg));
