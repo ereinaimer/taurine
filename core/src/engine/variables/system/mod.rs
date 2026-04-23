@@ -39,7 +39,7 @@ pub fn is_reserved(mut key: &str) -> bool {
     // 2. Check if the resulting base is a reserved system variable
     key == "cursor"
         || key == "uuid"
-        || key == "clipboard"
+        || clipboard::is_clipboard_key(key)
         || key == "sys"
         || key == "lorem"
         || key == "mock"
@@ -103,7 +103,7 @@ pub fn resolve(key: &str) -> Option<String> {
     if key == "uuid" || key.starts_with("uuid.") {
         return uuid::resolve(key);
     }
-    if key == "clipboard" {
+    if clipboard::is_clipboard_key(key) {
         return clipboard::resolve(key);
     }
 
@@ -443,7 +443,9 @@ mod tests {
         assert!(is_reserved("cursor"));
         assert!(is_reserved("uuid"));
         assert!(is_reserved("clipboard"));
+        assert!(is_reserved("clipboard(1)"));
         assert!(is_reserved("clipboard.truncate(5)"));
+        assert!(is_reserved("clipboard(2).upper"));
         assert!(is_reserved("uuid.v4"));
         assert!(is_reserved("time.now"));
         assert!(is_reserved("time.now.upper"));

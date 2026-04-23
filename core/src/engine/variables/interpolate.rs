@@ -741,6 +741,22 @@ mod tests {
     }
 
     #[test]
+    fn test_interpolate_clipboard_history_function_syntax() {
+        let args = ArgMap::default();
+        system::clipboard::set_mock_clipboard_history(vec![
+            "current".to_string(),
+            "previous".to_string(),
+        ]);
+
+        assert_eq!(interpolate("[clipboard]", &args), "current");
+        assert_eq!(interpolate("[clipboard(0)]", &args), "current");
+        assert_eq!(interpolate("[clipboard(1).upper]", &args), "PREVIOUS");
+        assert_eq!(interpolate("[clipboard(2)]", &args), "");
+
+        system::clipboard::set_mock_clipboard(None);
+    }
+
+    #[test]
     fn test_interpolate_replace_handles_literal_commas() {
         let args = ArgMap::default();
         assert_eq!(

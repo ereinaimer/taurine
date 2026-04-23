@@ -187,6 +187,10 @@ pub fn strip_global_transformers(mut key: &str) -> &str {
 
 pub fn split_system_tag(key: &str) -> Option<(&str, Option<&str>)> {
     let base = strip_global_transformers(key);
+    if system::clipboard::is_clipboard_key(base) {
+        return Some(("clipboard", None));
+    }
+
     let (root, modifier) = match base.split_once('.') {
         Some((root, modifier)) => (root, Some(modifier.trim()).filter(|m| !m.is_empty())),
         None => (base, None),
@@ -198,7 +202,8 @@ pub fn split_system_tag(key: &str) -> Option<(&str, Option<&str>)> {
 pub fn valid_modifier_hint(root: &str) -> String {
     match root {
         "cursor" => "Valid form: [cursor]".to_string(),
-        "clipboard" => "Valid form: [clipboard]".to_string(),
+        "clipboard" => "Valid forms: [clipboard], [clipboard(0)], [clipboard(1)], [clipboard(2)]"
+            .to_string(),
         "time" => format!("Valid modifiers: {}", TIME_MODIFIERS.join(", ")),
         "date" => format!("Valid modifiers: {}", DATE_MODIFIERS.join(", ")),
         "uuid" => format!("Valid modifiers: uuid, {}", UUID_MODIFIERS.join(", ")),
@@ -640,6 +645,11 @@ mod tests {
             Some(("time", Some("now")))
         );
         assert_eq!(split_system_tag("clipboard"), Some(("clipboard", None)));
+        assert_eq!(split_system_tag("clipboard(1)"), Some(("clipboard", None)));
+        assert_eq!(
+            split_system_tag("clipboard(2).upper"),
+            Some(("clipboard", None))
+        );
         assert_eq!(split_system_tag("query.upper"), None);
     }
 

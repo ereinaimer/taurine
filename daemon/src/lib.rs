@@ -8,6 +8,7 @@ use tokio::sync::mpsc;
 use tonic::transport::Server;
 use tracing::{debug, error, info};
 
+mod clipboard_history;
 mod engine;
 mod hook;
 mod hotkey;
@@ -77,6 +78,11 @@ pub fn start() -> taurine_core::error::Result<()> {
         .enable_all()
         .build()?;
     let runtime_handle = rt.handle().clone();
+
+    std::thread::spawn(|| {
+        info!("Starting clipboard history listener...");
+        clipboard_history::start_listener();
+    });
 
     // Fire up listener in OS thread
     let eval_clone = evaluator.clone();
