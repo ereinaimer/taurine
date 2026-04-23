@@ -270,7 +270,7 @@ fn resolve_modified(
         return None;
     }
 
-    system::format::apply(suffix, &content)
+    system::transformers::apply(suffix, &content)
 }
 
 fn resolve_system_placeholder(key: &str) -> Option<String> {
@@ -610,6 +610,16 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_placeholders_parameterized_transformers() {
+        let text = "Hello [name.truncate(3)] and [email.replace(\"@\", \"+\")=DEFAULT]";
+        let p = extract_placeholders(text);
+        assert_eq!(p.len(), 2);
+        assert!(p.contains_key("name"));
+        assert!(p.contains_key("email"));
+        assert_eq!(p.get("email").unwrap().default_value, Some("DEFAULT"));
+    }
+
+    #[test]
     fn test_interpolate_urlencode_nested() {
         let mut args = ArgMap::default();
         args.named
@@ -682,6 +692,41 @@ mod tests {
         assert_eq!(
             interpolate("[time.india.upper]", &args),
             "[time.india.upper]"
+        );
+    }
+
+    #[test]
+    fn test_interpolate_parameterized_transformers_for_user_values() {
+        let mut args = ArgMap::default();
+        args.named.insert("name".to_string(), "john".to_string());
+
+        assert_eq!(interpolate("[name.truncate(2)]", &args), "jo");
+        assert_eq!(
+            interpolate("[name.replace(\"o\", \"0\").upper]", &args),
+            "J0HN"
+        );
+    }
+
+    #[test]
+    fn test_interpolate_parameterized_transformers_for_system_values() {
+        let args = ArgMap::default();
+        system::clipboard::set_mock_clipboard(Some("alpha,beta".to_string()));
+
+        assert_eq!(interpolate("[clipboard.truncate(5)]", &args), "alpha");
+        assert_eq!(
+            interpolate("[clipboard.replace(\",\", \";\")]", &args),
+            "alpha;beta"
+        );
+
+        system::clipboard::set_mock_clipboard(None);
+    }
+
+    #[test]
+    fn test_interpolate_replace_handles_literal_commas() {
+        let args = ArgMap::default();
+        assert_eq!(
+            interpolate(r#"['a,b,c'.replace(",", ";")]"#, &args),
+            "a;b;c"
         );
     }
 

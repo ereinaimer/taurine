@@ -7,13 +7,13 @@ pub mod clipboard;
 
 pub mod date;
 pub mod env;
-pub mod format;
 pub mod lorem;
 pub mod mock;
 pub mod random;
 pub mod run;
 pub mod sys;
 pub mod time;
+pub mod transformers;
 pub mod uuid;
 
 use crate::engine::variables::types::{ExpansionStep, FinalExpansion};
@@ -60,12 +60,7 @@ pub fn is_reserved(mut key: &str) -> bool {
 /// Splits a key into its base and a modifier suffix if it matches a known transformer.
 /// Example: `time.now.upper` -> `Some(("time.now", "upper"))`
 pub fn split_modifier(key: &str) -> Option<(&str, &str)> {
-    if let Some((sub, suffix)) = key.rsplit_once('.')
-        && format::TRANSFORMERS.contains(&suffix)
-    {
-        return Some((sub, suffix));
-    }
-    None
+    transformers::split_suffix(key)
 }
 
 /// Checks if a keyword is a post-processing directive.
@@ -79,17 +74,8 @@ pub fn is_directive(key: &str) -> bool {
 /// Resolves a content-producing system variable.
 pub fn resolve(key: &str) -> Option<String> {
     // 1. Handle Transformers first (Recursive)
-    if let Some((sub, suffix)) = split_modifier(key) {
-        let content = if let Some(resolved) = resolve(sub) {
-            resolved
-        } else if let Some(unquoted) = strip_quotes(sub) {
-            unquoted.to_string()
-        } else {
-            // Fallback: literal string (if no dot or further nesting, it might be a literal)
-            // But we return None here so interpolate can try user variables first.
-            return None;
-        };
-        return format::apply(suffix, &content);
+    if let Some(resolved) = transformers::resolve(key, resolve) {
+        return Some(resolved);
     }
 
     // 2. Base System Variables
@@ -457,6 +443,7 @@ mod tests {
         assert!(is_reserved("cursor"));
         assert!(is_reserved("uuid"));
         assert!(is_reserved("clipboard"));
+        assert!(is_reserved("clipboard.truncate(5)"));
         assert!(is_reserved("uuid.v4"));
         assert!(is_reserved("time.now"));
         assert!(is_reserved("time.now.upper"));
@@ -478,7 +465,24 @@ mod tests {
         // These are valid user variables and should not be reserved
         assert!(!is_reserved("username"));
         assert!(!is_reserved("name.upper"));
+        assert!(!is_reserved("name.truncate(5)"));
         assert!(!is_reserved("my_var.shoutysnake"));
+    }
+
+    #[test]
+    fn test_split_modifier_supports_parenthesized_transformers() {
+        assert_eq!(
+            split_modifier("clipboard.truncate(5)"),
+            Some(("clipboard", "truncate(5)"))
+        );
+        assert_eq!(
+            split_modifier("clipboard.replace(\",\", \";\").upper"),
+            Some(("clipboard.replace(\",\", \";\")", "upper"))
+        );
+        assert_eq!(
+            split_modifier("'a.b'.replace(\".\", \"-\")"),
+            Some(("'a.b'", "replace(\".\", \"-\")"))
+        );
     }
 
     #[test]
