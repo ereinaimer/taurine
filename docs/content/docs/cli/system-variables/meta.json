@@ -12,6 +12,7 @@
     "run",
     "random",
     "lorem",
+    "mock",
     "keyboard-automation"
   ]
 }

@@ -3,7 +3,7 @@ title: Introduction
 description: Overview of System Variables in Taurine
 ---
 
-import { Clock, Calendar, Clipboard, Folder, Fingerprint, Monitor, MousePointer2, Keyboard, Terminal, Dices, Type } from 'lucide-react';
+import { Clock, Calendar, Clipboard, Folder, Fingerprint, Monitor, MousePointer2, Keyboard, Terminal, Dices, Type, Database } from 'lucide-react';
 
 Taurine provides a comprehensive suite of **System Variables** that allow you to inject dynamic data, execute shell commands, and control your machine directly from any automation template.
 
@@ -77,6 +77,12 @@ These variables are divided into two categories: **Content Variables** (which in
     icon={<Type />}
     href="/docs/cli/system-variables/lorem" 
     description="Generate placeholder text and mock content." 
+  />
+  <Card 
+    title="Mock Data" 
+    icon={<Database />}
+    href="/docs/cli/system-variables/mock" 
+    description="Generate realistic names, addresses, and profiles." 
   />
 </Cards>
 

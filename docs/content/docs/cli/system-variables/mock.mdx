@@ -1,0 +1,118 @@
+---
+title: Realistic Mock Data
+description: Generate high-quality realistic placeholder data for multiple domains.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The `[mock.*]` namespace provides a comprehensive suite of realistic data generation tools. It allows you to populate templates with authentic-looking names, addresses, internet profiles, and professional data.
+
+## Available Variants
+
+### Identity
+| Variable | Description | Example Output |
+| :--- | :--- | :--- |
+| `[mock.name]` | Full name (First + Last) | `John Doe` |
+| `[mock.first_name]` | A single first name | `Jane` |
+| `[mock.last_name]` | A single last name | `Smith` |
+| `[mock.title]` | Professional or formal title | `Dr.` |
+| `[mock.suffix]` | Name suffix | `Jr.` |
+
+### Geography
+| Variable | Description | Example Output |
+| :--- | :--- | :--- |
+| `[mock.address]` | Full street address | `123 Main St, Springfield, IL 62704` |
+| `[mock.city]` | City name | `New York` |
+| `[mock.state]` | State or province | `California` |
+| `[mock.zip_code]` | Postal code | `90210` |
+| `[mock.country]` | Country name | `United States` |
+| `[mock.latitude]` | Geographic latitude | `40.7128` |
+| `[mock.longitude]` | Geographic longitude | `-74.0060` |
+
+### Web & Internet
+| Variable | Description | Example Output |
+| :--- | :--- | :--- |
+| `[mock.email]` | Free-provider email address | `jane.doe@gmail.com` |
+| `[mock.username]` | Internet username | `jdoe99` |
+| `[mock.domain]` | Domain name | `example.com` |
+| `[mock.password(n)]` | Secure password of length `n` | `aB3!dE6#gH1*` |
+| `[mock.user_agent]` | Web browser user agent string | `Mozilla/5.0...` |
+
+### Professional
+| Variable | Description | Example Output |
+| :--- | :--- | :--- |
+| `[mock.company]` | Company name | `Acme Corp` |
+| `[mock.job_title]` | Professional job title | `Software Engineer` |
+| `[mock.catch_phrase]` | Corporate catchphrase | `Revolutionizing synergy` |
+| `[mock.bs]` | Corporate buzzwords | `dynamic paradigm shift` |
+
+### Financial & Communication
+| Variable | Description | Example Output |
+| :--- | :--- | :--- |
+| `[mock.credit_card]` | Formatted credit card number | `1234-5678-9012-3456` |
+| `[mock.currency_name]` | Full currency name | `US Dollar` |
+| `[mock.currency_code]` | ISO currency code | `USD` |
+| `[mock.phone_number]` | Formatted phone number | `555-010-9988` |
+| `[mock.cell_number]` | Mobile phone number | `1-555-010-9988` |
+
+### Development
+| Variable | Description | Example Output |
+| :--- | :--- | :--- |
+| `[mock.status_code]` | HTTP status code | `200` |
+| `[mock.method]` | HTTP request method | `POST` |
+
+## Usage Details
+
+### Parameterized Password
+The `[mock.password(n)]` variant requires a numeric argument `n` to specify the length of the generated password.
+
+```text
+[mock.password(12)] -> "pA55w0rd!#$%"
+[mock.password(32)] -> "zX9!vB2@mN5#kL8$jH1*gD4^sA7&qW0(..."
+```
+
+### Dynamic Parameters
+Like other system variables, you can use [nested placeholders](/docs/cli/dynamic-variables/nested-placeholders) to control parameters dynamically.
+
+```text
+[mock.password([len=16])]
+[mock.password([random.int(10, 20)])]
+```
+
+### Transformer Chaining
+All generated mock data can be piped through [Transformers](/docs/cli/dynamic-variables/transformers) for final formatting.
+
+```text
+[mock.name.upper] -> "JOHN DOE"
+[mock.city.lower] -> "new york"
+[mock.job_title.slugify] -> "software-engineer"
+```
+
+## Examples
+
+### Populating a Contact Form
+Use a combination of identity and geography variants to fill out form fields realistically.
+
+<Transformation
+  template="Name: [mock.name]\nEmail: [mock.email]\nCity: [mock.city]"
+  input=">contact "
+  result="Name: Eleanor Rigby\nEmail: e.rigby@gmail.com\nCity: Liverpool"
+/>
+
+### Generating Test Credentials
+Create unique usernames and passwords for testing sign-up flows.
+
+<Transformation
+  template="Username: [mock.username]\nPassword: [mock.password(12)]"
+  input=">creds "
+  result="Username: coder_alpha\nPassword: tR9!vN4@kM7#"
+/>
+
+---
+
+## Technical Constraints
+
+- **English Locale**: The `mock` namespace uses the `en` (English) locale for all generated data (names, addresses, titles, etc.).
+- **Synchronous Resolution**: Data is generated instantly during the interpolation phase and does not require external API calls or internet connectivity.
+- **Randomization**: Each call to a `mock` variable produces a new random value. If you need the same value twice in a single expansion, consider using [User Variables](/docs/cli/dynamic-variables/placeholders) to store the result.
+- **Formatting**: Coordinates (latitude/longitude) and status codes are returned as strings for maximum compatibility with text templates.
