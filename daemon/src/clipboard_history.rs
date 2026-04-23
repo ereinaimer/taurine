@@ -1,11 +1,15 @@
 use std::thread;
 use std::time::{Duration, Instant};
-use taurine_core::engine::variables::system::clipboard::{MAX_PAYLOAD_BYTES, clipboard_manager};
+#[cfg(windows)]
+use taurine_core::engine::variables::system::clipboard::MAX_PAYLOAD_BYTES;
+use taurine_core::engine::variables::system::clipboard::clipboard_manager;
 
 use crate::injector::IS_INJECTING;
 
 const DEBOUNCE_WINDOW: Duration = Duration::from_millis(50);
+#[cfg(windows)]
 const OPEN_CLIPBOARD_RETRY_DELAY: Duration = Duration::from_millis(10);
+#[cfg(windows)]
 const OPEN_CLIPBOARD_RETRIES: usize = 3;
 const POLL_INTERVAL: Duration = Duration::from_millis(150);
 const INIT_RETRY_INTERVAL: Duration = Duration::from_secs(1);
