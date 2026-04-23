@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::engine::variables::ExpansionStep;
+use crate::engine::variables::system::clipboard::MAX_PAYLOAD_BYTES;
 
 use crate::engine::buffer::FastBuffer;
 use crate::engine::state::{EngineMode, EngineState};
@@ -84,6 +85,32 @@ impl Evaluator {
         format!("{}{}", self.trigger_prefix(), keyword)
     }
 
+    fn allows_blind_undo(&self, steps: &[ExpansionStep]) -> bool {
+        let mut text_bytes = 0usize;
+
+        for step in steps {
+            match step {
+                ExpansionStep::Text(text) => {
+                    text_bytes = text_bytes.saturating_add(text.len());
+                }
+                // Structural templates move the caret away from the absolute tail, so a blind
+                // backspace replay would corrupt surrounding text instead of the expansion.
+                ExpansionStep::KeyPress(_) | ExpansionStep::Delay(_) => return false,
+                // Shell/script side effects are not reversible through text deletion alone.
+                ExpansionStep::Script(_) | ExpansionStep::InlineRun(_) => return false,
+            }
+        }
+
+        // Clipboard history can legally hold a full 64 KiB payload. Treat that ceiling as unsafe
+        // for blind undo so Taurine never floods the OS with a huge backspace replay.
+        text_bytes < MAX_PAYLOAD_BYTES
+    }
+
+    fn undo_trigger_for_steps(&self, keyword: &str, steps: &[ExpansionStep]) -> Option<String> {
+        self.allows_blind_undo(steps)
+            .then(|| self.full_trigger_text(keyword))
+    }
+
     pub fn process_event(&mut self, event: EngineEvent) -> Option<ExpansionResult> {
         if let EngineMode::AiCapture { .. } = self.state.engine_mode() {
             return self.process_ai_capture_event(event);
@@ -127,13 +154,13 @@ impl Evaluator {
                     if let Some(expansion) = self.state.fetch_expansion(&keyword) {
                         // trigger_char + keyword + the space that fired the action
                         let delete_count = 1 + keyword.chars().count() + 1;
-                        let undo_trigger = self.full_trigger_text(&keyword);
+                        let undo_trigger = self.undo_trigger_for_steps(&keyword, &expansion.steps);
                         self.buffer.clear();
                         return Some(ExpansionResult {
                             delete_count,
                             steps: expansion.steps,
                             trigger: keyword,
-                            undo_trigger: Some(undo_trigger),
+                            undo_trigger,
                             is_calculation: expansion.is_calculation,
                             track_usage: true,
                             follow_up: None,
@@ -211,7 +238,7 @@ impl Evaluator {
             delete_count: 1 + keyword.chars().count() + 1,
             steps: vec![ExpansionStep::Text(delimiter.to_string())],
             trigger: keyword.to_string(),
-            undo_trigger: Some(self.full_trigger_text(keyword)),
+            undo_trigger: None,
             is_calculation: false,
             track_usage: false,
             follow_up: None,
@@ -226,7 +253,7 @@ impl Evaluator {
             delete_count,
             steps: vec![ExpansionStep::Text(self.get_thinking_text())],
             trigger: INLINE_AI_KEYWORD.to_string(),
-            undo_trigger: Some(self.full_trigger_text(keyword)),
+            undo_trigger: None,
             is_calculation: false,
             track_usage: false,
             follow_up: Some(ExpansionFollowUp::InlineAi {
@@ -269,7 +296,7 @@ impl Evaluator {
             delete_count,
             steps: vec![ExpansionStep::Text(self.get_thinking_text())],
             trigger: INLINE_AI_KEYWORD.to_string(),
-            undo_trigger: Some(self.full_trigger_text(INLINE_AI_KEYWORD)),
+            undo_trigger: None,
             is_calculation: false,
             track_usage: false,
             follow_up: Some(ExpansionFollowUp::InlineAi {
@@ -441,6 +468,81 @@ mod tests {
         assert!(!result.is_calculation);
         assert!(result.track_usage);
         assert_no_follow_up(&result);
+    }
+
+    #[test]
+    fn cursor_templates_skip_blind_undo_registration() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![(
+            "sig".to_string(),
+            crate::db::crud::AutomationAction::text("Best,\n[cursor]\nErin"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">sig".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        let result = eval
+            .process_event(EngineEvent::Char(' '))
+            .expect("cursor template should expand");
+        assert_eq!(result.undo_trigger, None);
+        assert!(
+            result
+                .steps
+                .iter()
+                .any(|step| matches!(step, ExpansionStep::KeyPress(alias) if alias == "left"))
+        );
+    }
+
+    #[test]
+    fn inline_run_templates_skip_blind_undo_registration() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![(
+            "runme".to_string(),
+            crate::db::crud::AutomationAction::text("before [run.bash(echo hi)] after"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">runme".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        let result = eval
+            .process_event(EngineEvent::Char(' '))
+            .expect("run template should expand");
+        assert_eq!(result.undo_trigger, None);
+        assert!(
+            result
+                .steps
+                .iter()
+                .any(|step| matches!(step, ExpansionStep::InlineRun(_)))
+        );
+    }
+
+    #[test]
+    fn clipboard_payload_at_history_ceiling_skips_blind_undo_registration() {
+        crate::engine::variables::system::clipboard::set_mock_clipboard(Some(
+            "x".repeat(MAX_PAYLOAD_BYTES),
+        ));
+
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![(
+            "clip".to_string(),
+            crate::db::crud::AutomationAction::text("[clipboard]"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">clip".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        let result = eval
+            .process_event(EngineEvent::Char(' '))
+            .expect("clipboard template should expand");
+        assert_eq!(result.undo_trigger, None);
+
+        crate::engine::variables::system::clipboard::set_mock_clipboard(None);
     }
 
     #[test]
@@ -825,6 +927,7 @@ mod tests {
             vec![ExpansionStep::Text(eval.get_thinking_text())]
         );
         assert_eq!(result.trigger, INLINE_AI_KEYWORD);
+        assert_eq!(result.undo_trigger, None);
         assert!(!result.track_usage);
         assert_inline_ai_follow_up(&result, "What is the deadliest microbe?", None);
     }
@@ -901,6 +1004,7 @@ mod tests {
         assert_eq!(state.ai_prompt_buffer(), "");
         assert_eq!(result.delete_count, 4);
         assert_eq!(result.steps, vec![ExpansionStep::Text("`".to_string())]);
+        assert_eq!(result.undo_trigger, None);
         assert_no_follow_up(&result);
     }
 
@@ -928,6 +1032,7 @@ mod tests {
             result.steps,
             vec![ExpansionStep::Text(eval.get_thinking_text())]
         );
+        assert_eq!(result.undo_trigger, None);
         assert_inline_ai_follow_up(&result, "What is Rust?", None);
     }
 
