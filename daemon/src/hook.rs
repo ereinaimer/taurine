@@ -46,6 +46,8 @@ pub fn start_listener(
 ) {
     let alt_down = std::sync::atomic::AtomicBool::new(false);
     let ctrl_down = std::sync::atomic::AtomicBool::new(false);
+    let shift_down = std::sync::atomic::AtomicBool::new(false);
+    let meta_down = std::sync::atomic::AtomicBool::new(false);
 
     let callback = move |event: Event| -> Option<Event> {
         match event.event_type {
@@ -61,6 +63,18 @@ pub fn start_listener(
             EventType::KeyRelease(Key::ControlLeft) | EventType::KeyRelease(Key::ControlRight) => {
                 ctrl_down.store(false, Ordering::Relaxed);
             }
+            EventType::KeyPress(Key::ShiftLeft) | EventType::KeyPress(Key::ShiftRight) => {
+                shift_down.store(true, Ordering::Relaxed);
+            }
+            EventType::KeyRelease(Key::ShiftLeft) | EventType::KeyRelease(Key::ShiftRight) => {
+                shift_down.store(false, Ordering::Relaxed);
+            }
+            EventType::KeyPress(Key::MetaLeft) | EventType::KeyPress(Key::MetaRight) => {
+                meta_down.store(true, Ordering::Relaxed);
+            }
+            EventType::KeyRelease(Key::MetaLeft) | EventType::KeyRelease(Key::MetaRight) => {
+                meta_down.store(false, Ordering::Relaxed);
+            }
             _ => {}
         }
 
@@ -71,6 +85,7 @@ pub fn start_listener(
         };
 
         if is_chord {
+            clear_undo_state(&evaluator);
             let now_paused = !paused.load(Ordering::Relaxed);
             paused.store(now_paused, Ordering::Relaxed);
             if pause_notifications_enabled.load(Ordering::Relaxed) {
@@ -79,12 +94,13 @@ pub fn start_listener(
             return None;
         }
 
-        if paused.load(Ordering::Relaxed) {
-            return Some(event);
-        }
-
         match event.event_type {
             EventType::ButtonPress(_) => {
+                clear_undo_state(&evaluator);
+                if paused.load(Ordering::Relaxed) {
+                    return Some(event);
+                }
+
                 if IS_INJECTING.load(Ordering::SeqCst) {
                     injector::abort_injection();
                     return Some(event);
@@ -93,6 +109,49 @@ pub fn start_listener(
                 let _ = lock.process_event(EngineEvent::Interrupt);
             }
             EventType::KeyPress(key) => {
+                let shift_active = shift_down.load(Ordering::Relaxed);
+                let ctrl_active = ctrl_down.load(Ordering::Relaxed);
+                let alt_active = alt_down.load(Ordering::Relaxed);
+                let meta_active = meta_down.load(Ordering::Relaxed);
+
+                if key == Key::Backspace {
+                    if ctrl_active || alt_active {
+                        clear_undo_state(&evaluator);
+                        return Some(event);
+                    }
+
+                    if meta_active {
+                        clear_undo_state(&evaluator);
+                        return Some(event);
+                    }
+
+                    if let Some((trigger_string, output_length)) =
+                        take_active_undo_state(&evaluator)
+                    {
+                        // Win32/macOS can swallow directly in the global hook callback by
+                        // returning `None` here. Linux cannot do that with a passive reader, so
+                        // it uses EVIOCGRAB + uinput proxying instead.
+                        IS_INJECTING.store(true, Ordering::SeqCst);
+                        spawn_undo_dispatch(trigger_string, output_length);
+                        return None;
+                    }
+                } else if is_solo_modifier_press(
+                    key,
+                    shift_active,
+                    ctrl_active,
+                    alt_active,
+                    meta_active,
+                ) {
+                    // Naked modifier presses should not expire the undo window.
+                } else {
+                    // Invalidate on any non-modifier or combo before normal evaluator handling.
+                    clear_undo_state(&evaluator);
+                }
+
+                if paused.load(Ordering::Relaxed) {
+                    return Some(event);
+                }
+
                 if IS_INJECTING.load(Ordering::SeqCst) {
                     if !IS_SIMULATING.load(Ordering::SeqCst) {
                         injector::abort_injection();
@@ -108,7 +167,7 @@ pub fn start_listener(
                 let engine_event = match key {
                     Key::Escape => Some(EngineEvent::Interrupt),
                     Key::Backspace => {
-                        if ctrl_down.load(Ordering::Relaxed) {
+                        if ctrl_active {
                             Some(EngineEvent::WordBackspace)
                         } else {
                             Some(EngineEvent::Backspace)
@@ -126,7 +185,7 @@ pub fn start_listener(
                     | Key::PageUp
                     | Key::PageDown => Some(EngineEvent::Interrupt),
                     _ => {
-                        if alt_down.load(Ordering::Relaxed) || ctrl_down.load(Ordering::Relaxed) {
+                        if alt_active || ctrl_active || meta_active {
                             return Some(event);
                         }
 
@@ -145,6 +204,7 @@ pub fn start_listener(
                 if let Some(ev) = engine_event {
                     let mut lock = evaluator.lock().unwrap();
                     if let Some(expansion) = lock.process_event(ev) {
+                        let state = lock.state.clone();
                         drop(lock);
 
                         debug!("Trigger matched! Expanding: {:?}", expansion);
@@ -157,6 +217,7 @@ pub fn start_listener(
                             expansion,
                             spinner_style_inner,
                             runtime_handle.clone(),
+                            state,
                         );
                     }
                 }
@@ -181,16 +242,71 @@ fn map_return_key(engine_mode: EngineMode) -> EngineEvent {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
+fn clear_undo_state(evaluator: &Arc<Mutex<Evaluator>>) {
+    if let Ok(lock) = evaluator.lock() {
+        lock.state.clear_undo_state();
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn take_active_undo_state(evaluator: &Arc<Mutex<Evaluator>>) -> Option<(String, usize)> {
+    evaluator.lock().ok().and_then(|lock| {
+        lock.state
+            .take_active_undo_state()
+            .map(|undo| (undo.trigger_string, undo.output_length))
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn spawn_undo_dispatch(trigger_string: String, output_length: usize) {
+    std::thread::spawn(move || injector::inject_undo(trigger_string, output_length));
+}
+
+#[cfg(not(target_os = "linux"))]
+fn is_modifier_key(key: Key) -> bool {
+    matches!(
+        key,
+        Key::ShiftLeft
+            | Key::ShiftRight
+            | Key::ControlLeft
+            | Key::ControlRight
+            | Key::Alt
+            | Key::AltGr
+            | Key::MetaLeft
+            | Key::MetaRight
+    )
+}
+
+#[cfg(not(target_os = "linux"))]
+fn is_solo_modifier_press(
+    key: Key,
+    shift_active: bool,
+    ctrl_active: bool,
+    alt_active: bool,
+    meta_active: bool,
+) -> bool {
+    match key {
+        Key::ShiftLeft | Key::ShiftRight => !ctrl_active && !alt_active && !meta_active,
+        Key::ControlLeft | Key::ControlRight => !shift_active && !alt_active && !meta_active,
+        Key::Alt | Key::AltGr => !shift_active && !ctrl_active && !meta_active,
+        Key::MetaLeft | Key::MetaRight => !shift_active && !ctrl_active && !alt_active,
+        _ => is_modifier_key(key) && !shift_active && !ctrl_active && !alt_active && !meta_active,
+    }
+}
+
 pub(crate) fn spawn_expansion_dispatch(
     expansion: taurine_core::engine::ExpansionResult,
     spinner_style: taurine_core::settings::SpinnerStyle,
     runtime_handle: Handle,
+    state: Arc<taurine_core::engine::EngineState>,
 ) {
     std::thread::spawn(move || {
         dispatch_expansion_with(
             expansion,
             spinner_style,
             runtime_handle,
+            state,
             crate::injector::inject_expansion,
             launch_follow_up,
         );
@@ -201,6 +317,7 @@ fn dispatch_expansion_with<I, L>(
     expansion: taurine_core::engine::ExpansionResult,
     spinner_style: taurine_core::settings::SpinnerStyle,
     runtime_handle: Handle,
+    state: Arc<taurine_core::engine::EngineState>,
     inject_expansion: I,
     launch_follow_up_fn: L,
 ) where
@@ -219,6 +336,7 @@ fn dispatch_expansion_with<I, L>(
         delete_count,
         steps,
         trigger,
+        undo_trigger,
         is_calculation,
         track_usage,
         follow_up,
@@ -234,7 +352,12 @@ fn dispatch_expansion_with<I, L>(
         })
         .sum();
 
+    let should_record_undo = follow_up.is_none() && output_len > 0;
+    state.clear_undo_state();
     inject_expansion(steps, delete_count, spinner_style);
+    if should_record_undo && let Some(undo_trigger) = undo_trigger {
+        state.set_undo_state(undo_trigger, output_len);
+    }
     launch_follow_up_fn(follow_up, spinner_style, runtime_handle);
 
     if track_usage {
@@ -288,6 +411,7 @@ mod tests {
         let events = Arc::new(Mutex::new(Vec::new()));
         let inject_events = events.clone();
         let follow_up_events = events.clone();
+        let state = Arc::new(taurine_core::engine::EngineState::new('>'));
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -300,6 +424,7 @@ mod tests {
                 "thinking".to_string(),
             )],
             trigger: "ai".to_string(),
+            undo_trigger: Some(">ai".to_string()),
             is_calculation: false,
             track_usage: false,
             follow_up: Some(taurine_core::engine::ExpansionFollowUp::InlineAi {
@@ -312,6 +437,7 @@ mod tests {
             expansion,
             taurine_core::settings::SpinnerStyle::default(),
             rt.handle().clone(),
+            state,
             move |_, _, _| {
                 inject_events
                     .lock()
@@ -337,5 +463,42 @@ mod tests {
             &*events.lock().expect("events poisoned"),
             &["inject", "follow_up"]
         );
+    }
+
+    #[test]
+    fn dispatch_expansion_records_undo_state_for_plain_text_output() {
+        let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime should build");
+
+        let expansion = taurine_core::engine::ExpansionResult {
+            delete_count: 4,
+            steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
+                "Good Morning".to_string(),
+            )],
+            trigger: "gm".to_string(),
+            undo_trigger: Some(">gm".to_string()),
+            is_calculation: false,
+            track_usage: false,
+            follow_up: None,
+        };
+
+        dispatch_expansion_with(
+            expansion,
+            taurine_core::settings::SpinnerStyle::default(),
+            rt.handle().clone(),
+            state.clone(),
+            move |_, _, _| {},
+            move |_, _, _| {},
+        );
+
+        let undo = state
+            .take_active_undo_state()
+            .expect("undo state should be recorded");
+        assert!(undo.trigger_string.starts_with('>'));
+        assert_eq!(undo.trigger_string, ">gm");
+        assert_eq!(undo.output_length, "Good Morning".chars().count());
     }
 }

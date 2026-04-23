@@ -37,6 +37,8 @@ pub struct ExpansionResult {
     pub steps: Vec<ExpansionStep>,
     /// The trigger keyword that was matched.
     pub trigger: String,
+    /// Exact trigger text to restore during Backspace Undo, including the prefix character.
+    pub undo_trigger: Option<String>,
     /// Whether this expansion was a mathematical calculation.
     pub is_calculation: bool,
     /// Whether the daemon should record snippet/calculation usage for this expansion.
@@ -72,6 +74,16 @@ impl Evaluator {
         }
     }
 
+    fn trigger_prefix(&self) -> char {
+        use std::sync::atomic::Ordering;
+        let trigger_char_u32 = self.state.trigger_char.load(Ordering::Relaxed);
+        std::char::from_u32(trigger_char_u32).unwrap_or('>')
+    }
+
+    fn full_trigger_text(&self, keyword: &str) -> String {
+        format!("{}{}", self.trigger_prefix(), keyword)
+    }
+
     pub fn process_event(&mut self, event: EngineEvent) -> Option<ExpansionResult> {
         if let EngineMode::AiCapture { .. } = self.state.engine_mode() {
             return self.process_ai_capture_event(event);
@@ -95,9 +107,7 @@ impl Evaluator {
             }
             EngineEvent::Char(' ') => {
                 // Action character — evaluate trigger extraction
-                use std::sync::atomic::Ordering;
-                let trigger_char_u32 = self.state.trigger_char.load(Ordering::Relaxed);
-                let trigger_char = std::char::from_u32(trigger_char_u32).unwrap_or('>');
+                let trigger_char = self.trigger_prefix();
 
                 if let Some(keyword) = self.buffer.extract_trigger_word(trigger_char) {
                     if keyword == INLINE_AI_KEYWORD {
@@ -117,11 +127,13 @@ impl Evaluator {
                     if let Some(expansion) = self.state.fetch_expansion(&keyword) {
                         // trigger_char + keyword + the space that fired the action
                         let delete_count = 1 + keyword.chars().count() + 1;
+                        let undo_trigger = self.full_trigger_text(&keyword);
                         self.buffer.clear();
                         return Some(ExpansionResult {
                             delete_count,
                             steps: expansion.steps,
                             trigger: keyword,
+                            undo_trigger: Some(undo_trigger),
                             is_calculation: expansion.is_calculation,
                             track_usage: true,
                             follow_up: None,
@@ -199,6 +211,7 @@ impl Evaluator {
             delete_count: 1 + keyword.chars().count() + 1,
             steps: vec![ExpansionStep::Text(delimiter.to_string())],
             trigger: keyword.to_string(),
+            undo_trigger: Some(self.full_trigger_text(keyword)),
             is_calculation: false,
             track_usage: false,
             follow_up: None,
@@ -213,6 +226,7 @@ impl Evaluator {
             delete_count,
             steps: vec![ExpansionStep::Text(self.get_thinking_text())],
             trigger: INLINE_AI_KEYWORD.to_string(),
+            undo_trigger: Some(self.full_trigger_text(keyword)),
             is_calculation: false,
             track_usage: false,
             follow_up: Some(ExpansionFollowUp::InlineAi {
@@ -255,6 +269,7 @@ impl Evaluator {
             delete_count,
             steps: vec![ExpansionStep::Text(self.get_thinking_text())],
             trigger: INLINE_AI_KEYWORD.to_string(),
+            undo_trigger: Some(self.full_trigger_text(INLINE_AI_KEYWORD)),
             is_calculation: false,
             track_usage: false,
             follow_up: Some(ExpansionFollowUp::InlineAi {
@@ -422,6 +437,7 @@ mod tests {
             result.steps,
             vec![ExpansionStep::Text("Good morning!".to_string())]
         );
+        assert_eq!(result.undo_trigger.as_deref(), Some("/gm"));
         assert!(!result.is_calculation);
         assert!(result.track_usage);
         assert_no_follow_up(&result);
@@ -688,6 +704,7 @@ mod tests {
         let result = last_result.expect("Math expansion should have triggered");
         assert_eq!(result.steps, vec![ExpansionStep::Text("7".to_string())]);
         assert_eq!(result.trigger, "5+2");
+        assert_eq!(result.undo_trigger.as_deref(), Some(">5+2"));
         assert!(result.is_calculation);
         assert!(result.track_usage);
         assert_no_follow_up(&result);

@@ -114,6 +114,36 @@ fn erase_trigger(delete_count: usize) {
     }
 }
 
+/// Reverts a just-inserted expansion back into its original trigger text.
+///
+/// The triggering Backspace is now swallowed by the hook state machine on every
+/// platform, so Taurine must erase the full expanded output before retyping the
+/// original trigger.
+pub fn inject_undo(trigger_string: String, output_length: usize) {
+    let _inject_guard = inject_mutex().lock().expect("inject mutex poisoned");
+
+    INJECTION_ABORT.store(false, Ordering::SeqCst);
+    pre_release_modifiers();
+
+    #[cfg(target_os = "linux")]
+    thread::sleep(Duration::from_millis(10));
+
+    erase_trigger(output_length);
+
+    #[cfg(target_os = "linux")]
+    thread::sleep(Duration::from_millis(20));
+
+    let original_clipboard = inject_text_segment(&trigger_string, &None);
+
+    if let Some(ref original) = original_clipboard {
+        restore_clipboard(original);
+    }
+
+    pre_release_modifiers();
+    INJECTION_ABORT.store(false, Ordering::SeqCst);
+    IS_INJECTING.store(false, Ordering::SeqCst);
+}
+
 fn simulate_paste() {
     #[cfg(target_os = "linux")]
     {

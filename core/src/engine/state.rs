@@ -8,12 +8,37 @@ use crate::engine::variables::FinalExpansion;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::sync::atomic::AtomicU32;
+use std::time::{Duration, Instant};
+
+const UNDO_WINDOW: Duration = Duration::from_millis(2500);
+
+#[derive(Clone, Debug)]
+pub struct UndoState {
+    pub trigger_string: String,
+    pub output_length: usize,
+    pub timestamp: Instant,
+}
+
+impl UndoState {
+    fn new(trigger_string: String, output_length: usize) -> Self {
+        Self {
+            trigger_string,
+            output_length,
+            timestamp: Instant::now(),
+        }
+    }
+
+    fn is_active(&self) -> bool {
+        self.timestamp.elapsed() < UNDO_WINDOW
+    }
+}
 
 pub struct EngineState {
     pub trigger_char: AtomicU32,
     pub inline_ai_delimiter: AtomicU32,
     pub ai_presets: RwLock<std::collections::HashMap<String, String>>,
     pub spinner_style: RwLock<crate::settings::SpinnerStyle>,
+    undo_state: RwLock<Option<UndoState>>,
     ai_session: InlineAiSession,
     catalog: ExpansionCatalog,
 }
@@ -25,6 +50,7 @@ impl EngineState {
             inline_ai_delimiter: AtomicU32::new('`' as u32),
             ai_presets: RwLock::new(std::collections::HashMap::new()),
             spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
+            undo_state: RwLock::new(None),
             ai_session: InlineAiSession::new(),
             catalog: ExpansionCatalog::new(),
         }
@@ -37,6 +63,7 @@ impl EngineState {
             inline_ai_delimiter: AtomicU32::new('`' as u32),
             ai_presets: RwLock::new(std::collections::HashMap::new()),
             spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
+            undo_state: RwLock::new(None),
             ai_session: InlineAiSession::new(),
             catalog: ExpansionCatalog::with_source(source),
         }
@@ -94,6 +121,35 @@ impl EngineState {
     pub fn fetch_expansion(&self, keyword: &str) -> Option<FinalExpansion> {
         self.catalog.fetch_expansion(keyword)
     }
+
+    pub fn set_undo_state(&self, trigger_string: String, output_length: usize) {
+        if trigger_string.is_empty() || output_length == 0 {
+            self.clear_undo_state();
+            return;
+        }
+
+        if let Ok(mut guard) = self.undo_state.write() {
+            *guard = Some(UndoState::new(trigger_string, output_length));
+        }
+    }
+
+    pub fn clear_undo_state(&self) {
+        if let Ok(mut guard) = self.undo_state.write() {
+            *guard = None;
+        }
+    }
+
+    pub fn take_active_undo_state(&self) -> Option<UndoState> {
+        let mut guard = self.undo_state.write().ok()?;
+        match guard.as_ref() {
+            Some(state) if state.is_active() => guard.take(),
+            Some(_) => {
+                *guard = None;
+                None
+            }
+            None => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -131,5 +187,34 @@ mod tests {
         assert_eq!(state.ai_prompt_buffer(), "");
         assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
         assert!(state.is_ai_prompt_empty());
+    }
+
+    #[test]
+    fn undo_state_round_trips_while_active() {
+        let state = EngineState::new('>');
+
+        state.set_undo_state(">gm".to_string(), 12);
+        let undo = state
+            .take_active_undo_state()
+            .expect("undo state should exist");
+
+        assert_eq!(undo.trigger_string, ">gm");
+        assert_eq!(undo.output_length, 12);
+        assert!(state.take_active_undo_state().is_none());
+    }
+
+    #[test]
+    fn expired_undo_state_is_cleared_on_access() {
+        let state = EngineState::new('>');
+        let expired = UndoState {
+            trigger_string: ">gm".to_string(),
+            output_length: 12,
+            timestamp: Instant::now() - Duration::from_millis(2600),
+        };
+
+        *state.undo_state.write().expect("undo lock") = Some(expired);
+
+        assert!(state.take_active_undo_state().is_none());
+        assert!(state.undo_state.read().expect("undo lock").is_none());
     }
 }

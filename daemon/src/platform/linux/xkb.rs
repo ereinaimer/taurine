@@ -15,6 +15,11 @@ impl Default for XkbMapper {
 }
 
 impl XkbMapper {
+    fn modifier_is_active(&self, modifier: &str) -> bool {
+        self.state
+            .mod_name_is_active(modifier, xkb::STATE_MODS_EFFECTIVE)
+    }
+
     pub fn new() -> Result<Self, String> {
         let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
         let keymap = xkb::Keymap::new_from_names(
@@ -96,12 +101,8 @@ impl XkbMapper {
         );
 
         if is_press {
-            let ctrl_active = self
-                .state
-                .mod_name_is_active(xkb::MOD_NAME_CTRL, xkb::STATE_MODS_EFFECTIVE);
-            let alt_active = self
-                .state
-                .mod_name_is_active(xkb::MOD_NAME_ALT, xkb::STATE_MODS_EFFECTIVE);
+            let ctrl_active = self.is_ctrl_down();
+            let alt_active = self.is_alt_down();
 
             match key {
                 KeyCode::KEY_ESC => return Some(EngineEvent::Interrupt),
@@ -147,7 +148,18 @@ impl XkbMapper {
     }
 
     pub fn is_alt_down(&self) -> bool {
-        self.state
-            .mod_name_is_active(xkb::MOD_NAME_ALT, xkb::STATE_MODS_EFFECTIVE)
+        self.modifier_is_active(xkb::MOD_NAME_ALT)
+    }
+
+    pub fn is_ctrl_down(&self) -> bool {
+        self.modifier_is_active(xkb::MOD_NAME_CTRL)
+    }
+
+    pub fn is_shift_down(&self) -> bool {
+        self.modifier_is_active(xkb::MOD_NAME_SHIFT)
+    }
+
+    pub fn is_meta_down(&self) -> bool {
+        self.modifier_is_active(xkb::MOD_NAME_LOGO)
     }
 }

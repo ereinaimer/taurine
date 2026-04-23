@@ -42,17 +42,21 @@ pub fn init_uinput() -> Result<(), String> {
 }
 
 pub fn simulate_key(key: KeyCode, is_press: bool) {
+    let events = [
+        InputEvent::new(EventType::MISC.0, MiscCode::MSC_SCAN.0, key.code() as i32),
+        InputEvent::new(EventType::KEY.0, key.code(), if is_press { 1 } else { 0 }),
+    ];
+    emit_batch(&events);
+}
+
+pub fn emit_batch(events: &[InputEvent]) {
+    if events.is_empty() {
+        return;
+    }
+
     if let Some(mutex) = UINPUT_DEVICE.get() {
         if let Ok(mut device) = mutex.lock() {
-            let value = if is_press { 1 } else { 0 };
-            // Some apps (especially on Wayland) expect MSC_SCAN events alongside EV_KEY.
-            let scancode =
-                InputEvent::new(EventType::MISC.0, MiscCode::MSC_SCAN.0, key.code() as i32);
-            let event = InputEvent::new(EventType::KEY.0, key.code(), value);
-            // Must emit EV_SYN after creating actual events.
-            let syn = InputEvent::new(EventType::SYNCHRONIZATION.0, 0, 0);
-
-            if let Err(e) = device.emit(&[scancode, event, syn]) {
+            if let Err(e) = device.emit(events) {
                 error!("Failed to emit uinput event: {}", e);
             }
         }
