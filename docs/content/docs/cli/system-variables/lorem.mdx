@@ -1,0 +1,75 @@
+---
+title: Lorem Ipsum
+description: Generate placeholder text for your automation templates.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The `[lorem.*]` namespace allows you to quickly generate placeholder text directly within your templates. This is perfect for mockups, testing layout constraints, or filling out forms during automation development.
+
+## Available Variants
+
+| Variable | Description | Default | Example Output |
+| :--- | :--- | :--- | :--- |
+| `[lorem]` | Generates a single paragraph of text. | - | `Lorem ipsum dolor sit amet...` |
+| `[lorem.words(n)]` | Generates a specific number of words. | `15` | `consectetur adipiscing elit` |
+| `[lorem.sentence(n)]` | Generates a specific number of sentences. | `1` | `Sed do eiusmod tempor incididunt.` |
+| `[lorem.paragraph(n)]` | Generates a specific number of paragraphs. | `1` | `(Multiple paragraphs separated by \n\n)` |
+
+## Usage Details
+
+### Numeric Arguments
+All `lorem` variants (except the root `[lorem]` tag) accept an optional numeric argument `n` to control the amount of text generated.
+
+```text
+[lorem.words(3)] -> "lorem ipsum dolor"
+[lorem.sentence(2)] -> "Lorem ipsum dolor sit amet. Consectetur adipiscing elit."
+```
+
+### Dynamic Count
+The `lorem` namespace supports Taurine's [Dynamic Variables](/docs/cli/dynamic-variables/nested-placeholders) feature. You can pass nested tags or variables to control the generation count dynamically.
+
+```text
+[lorem.words([count=10])]
+[lorem.sentence([random.int(1, 3)])]
+```
+
+### Transformer Chaining
+You can chain [format modifiers](/docs/cli/dynamic-variables/transformers) after the closing parenthesis to transform the generated text.
+
+```text
+[lorem.words(3).upper] -> "LOREM IPSUM DOLOR"
+[lorem.sentence(1).title] -> "Lorem Ipsum Dolor Sit Amet."
+```
+
+## Examples
+
+### Placeholder Content
+Quickly fill out a field with a sentence of placeholder text.
+
+<Transformation
+  template="Comment: [lorem.sentence(1)]"
+  input=">mock "
+  result="Comment: Pellentesque habitant morbi tristique senectus et netus."
+/>
+
+### Multiline Mocking
+For larger content blocks like email bodies or documentation drafts, use `[lorem.paragraph(n)]`.
+
+```text
+Subject: Weekly Update
+Hi Team,
+
+[lorem.paragraph(2)]
+
+Best,
+Automation
+```
+
+---
+
+## Technical Constraints
+
+- **Synchronous Resolution**: Like the `random` namespace, `lorem` variables resolve instantly without blocking the automation pipeline.
+- **English Locale**: The placeholder text currently uses the standard Latin-derived English locale for generation.
+- **Formatting**: Words and sentences are joined by a single space, while paragraphs are separated by a double newline (`\n\n`).
