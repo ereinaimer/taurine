@@ -757,6 +757,22 @@ mod tests {
     }
 
     #[test]
+    fn test_interpolate_clipboard_history_malformed_and_out_of_bounds_requests() {
+        let args = ArgMap::default();
+        system::clipboard::set_mock_clipboard_history(vec!["current".to_string()]);
+
+        assert_eq!(interpolate("[clipboard(4)]", &args), "");
+        assert_eq!(interpolate("[clipboard(abc)]", &args), "[clipboard(abc)]");
+        assert_eq!(interpolate("[clipboard(-1)]", &args), "[clipboard(-1)]");
+        assert_eq!(
+            interpolate("[clipboard(abc).upper]", &args),
+            "[clipboard(abc).upper]"
+        );
+
+        system::clipboard::set_mock_clipboard(None);
+    }
+
+    #[test]
     fn test_interpolate_replace_handles_literal_commas() {
         let args = ArgMap::default();
         assert_eq!(

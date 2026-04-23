@@ -66,22 +66,42 @@ pub fn clipboard_manager() -> &'static ClipboardManager {
     CLIPBOARD_MANAGER.get_or_init(ClipboardManager::new)
 }
 
-pub fn clipboard_index(key: &str) -> Option<usize> {
-    match key {
-        "clipboard" | "clipboard(0)" => Some(0),
-        "clipboard(1)" => Some(1),
-        "clipboard(2)" => Some(2),
-        _ => None,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClipboardKey {
+    Valid(usize),
+    OutOfBounds,
+    Malformed,
+}
+
+fn parse_clipboard_key(key: &str) -> Option<ClipboardKey> {
+    if matches!(key, "clipboard" | "clipboard(0)") {
+        return Some(ClipboardKey::Valid(0));
+    }
+
+    let inner = key
+        .strip_prefix("clipboard(")
+        .and_then(|rest| rest.strip_suffix(')'))?;
+
+    // Malformed arguments stay literal at the interpolation layer instead of panicking or
+    // accidentally flowing into transformer fallback paths.
+    match inner.parse::<usize>() {
+        Ok(index) if index < HISTORY_CAPACITY => Some(ClipboardKey::Valid(index)),
+        Ok(_) => Some(ClipboardKey::OutOfBounds),
+        Err(_) => Some(ClipboardKey::Malformed),
     }
 }
 
 pub fn is_clipboard_key(key: &str) -> bool {
-    clipboard_index(key).is_some()
+    parse_clipboard_key(key).is_some()
 }
 
 /// Resolves the `[clipboard]` system variable family from the in-memory history buffer.
 pub fn resolve(key: &str) -> Option<String> {
-    let index = clipboard_index(key)?;
+    let index = match parse_clipboard_key(key)? {
+        ClipboardKey::Valid(index) => index,
+        ClipboardKey::OutOfBounds => return Some(String::new()),
+        ClipboardKey::Malformed => return None,
+    };
 
     if let Some(mocked) = MOCK_CLIPBOARD.with(|m| m.borrow().clone()) {
         return Some(mocked.get(index).cloned().unwrap_or_default());
@@ -137,7 +157,9 @@ mod tests {
         assert_eq!(resolve("clipboard(0)"), Some("current".to_string()));
         assert_eq!(resolve("clipboard(1)"), Some("previous".to_string()));
         assert_eq!(resolve("clipboard(2)"), Some("oldest".to_string()));
-        assert_eq!(resolve("clipboard(9)"), None);
+        assert_eq!(resolve("clipboard(9)"), Some(String::new()));
+        assert_eq!(resolve("clipboard(abc)"), None);
+        assert_eq!(resolve("clipboard(-1)"), None);
 
         set_mock_clipboard(None);
     }
