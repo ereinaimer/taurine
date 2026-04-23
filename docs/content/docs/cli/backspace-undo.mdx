@@ -1,0 +1,44 @@
+---
+title: Backspace Undo
+description: Instantly revert an expansion if you change your mind.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Taurine is designed to be invisible and intuitive. Sometimes, an expansion happens when you didn't mean it to, or you realize you need to tweak the trigger. Instead of manually deleting the expansion and re-typing the trigger, Taurine features a reactive **Backspace Undo** mechanism.
+
+## The Core Mechanic
+
+When Taurine expands a trigger (e.g., `>gm` becoming `Good Morning`), a **2.5-second undo window** opens. If you press **Backspace** within this window, Taurine instantly:
+
+1.  Erases the expanded text.
+2.  Restores your original trigger (e.g., `>gm`) exactly where it was.
+
+This allows for a "Zero-Latency Workflow"—you can fix accidental expansions or refine your triggers without missing a beat.
+
+<Callout title="Timing is Everything" type="info">
+  The undo window is strictly 2.5 seconds. Once this timer expires, your Backspace key returns to its normal function of deleting a single character.
+</Callout>
+
+## Smart Invalidation
+
+Taurine is smart enough to know when you are happy with an expansion. The undo window **instantly closes** (locking in the expansion) if you perform any of the following actions:
+
+*   **Typing:** Pressing any other alphanumeric or symbol key.
+*   **Navigation:** Using arrow keys, `Home`, `End`, `Page Up`, or `Page Down`.
+*   **Mouse Interaction:** Clicking anywhere with your mouse.
+
+Once the expansion is "locked in," Backspace will function as a standard delete key.
+
+## Power-User Exceptions
+
+We've refined the undo logic to respect existing muscle memory and fast typing habits:
+
+### Modifiers
+If you are a fast typist and preemptively hold **Shift** or **Control** immediately after an expansion occurs, the undo window **will not** break. You can still trigger the undo as long as you hit Backspace within the time limit.
+
+### Capitalization
+Using **Shift + Backspace** functions exactly like a normal Undo. This is useful for users who might still be holding Shift from a previous character.
+
+### Native Word-Delete
+Taurine respects your OS-level shortcuts. Pressing **Ctrl + Backspace** (Windows/Linux) or **Alt + Backspace** (macOS) will **not** trigger a Taurine Undo. Instead, it will perform a standard native word-delete, allowing you to delete blocks of text as you normally would.

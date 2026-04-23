@@ -11,6 +11,7 @@
     "---Core Features---",
     "service-management",
     "automation-management",
+    "backspace-undo",
     "configuration",
     "---Variable Engine---",
     "dynamic-variables",
