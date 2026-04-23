@@ -1,4 +1,5 @@
 use heck::*;
+use rand::Rng;
 
 pub fn apply(transformer: &str, content: &str) -> Option<String> {
     match transformer {
@@ -13,6 +14,8 @@ pub fn apply(transformer: &str, content: &str) -> Option<String> {
         "shoutysnake" | "shoutysnakecase" => Some(content.to_shouty_snake_case()),
         "shoutykebab" | "shoutykebabcase" => Some(content.to_shouty_kebab_case()),
         "train" | "traincase" => Some(content.to_train_case()),
+        "mockingcase" | "spongebobcase" => Some(mocking_case(content)),
+        "leet" | "leetspeak" => Some(leet_speak(content)),
         _ => None,
     }
 }
@@ -29,9 +32,48 @@ fn sentence_case(content: &str) -> String {
     out
 }
 
+fn mocking_case(content: &str) -> String {
+    let mut rng = rand::rng();
+    mocking_case_with_rng(content, &mut rng)
+}
+
+fn mocking_case_with_rng<R: Rng + ?Sized>(content: &str, rng: &mut R) -> String {
+    let mut output = String::with_capacity(content.len());
+
+    for ch in content.chars() {
+        if ch.is_alphabetic() {
+            if rng.random::<bool>() {
+                output.extend(ch.to_uppercase());
+            } else {
+                output.extend(ch.to_lowercase());
+            }
+        } else {
+            output.push(ch);
+        }
+    }
+
+    output
+}
+
+fn leet_speak(content: &str) -> String {
+    content
+        .chars()
+        .map(|ch| match ch.to_ascii_lowercase() {
+            'a' => '4',
+            'e' => '3',
+            'i' | 'l' => '1',
+            'o' => '0',
+            's' => '5',
+            't' => '7',
+            _ => ch,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::{SeedableRng, rngs::StdRng};
 
     #[test]
     fn test_case_transformers() {
@@ -73,5 +115,19 @@ mod tests {
             apply("train", "hello_world"),
             Some("Hello-World".to_string())
         );
+        assert_eq!(
+            apply("leet", "Elite Salsa Lot"),
+            Some("31173 54154 107".to_string())
+        );
+    }
+
+    #[test]
+    fn test_mocking_case_preserves_text_shape() {
+        let mut rng = StdRng::seed_from_u64(7);
+        let mocked = mocking_case_with_rng("Hello, World!", &mut rng);
+
+        assert_eq!(mocked.chars().count(), "Hello, World!".chars().count());
+        assert_eq!(mocked.to_lowercase(), "hello, world!");
+        assert_eq!(mocked.chars().nth(5), Some(','));
     }
 }

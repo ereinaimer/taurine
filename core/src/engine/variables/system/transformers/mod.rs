@@ -1,6 +1,7 @@
 mod case;
 mod crypto;
 mod encoding;
+mod formatting;
 mod lines;
 mod text;
 
@@ -26,19 +27,49 @@ pub const TRANSFORMERS: &[&str] = &[
     "shoutykebabcase",
     "train",
     "traincase",
+    "mockingcase",
+    "spongebobcase",
+    "leet",
+    "leetspeak",
     "reverse",
     "length",
     "trim",
     "truncate",
     "replace",
+    "remove",
+    "regexreplace",
+    "substring",
+    "extracturls",
+    "extractemails",
+    "onlydigits",
+    "onlyalphanumeric",
+    "stripall",
     "urlencode",
     "urldecode",
     "base64encode",
     "base64decode",
+    "hexencode",
+    "hexdecode",
     "md5",
+    "sha1",
     "sha256",
+    "sha512",
+    "crc32",
+    "rot13",
     "firstline",
     "lastline",
+    "reverselines",
+    "prefixlines",
+    "suffixlines",
+    "joinlines",
+    "splitlines",
+    "removeemptylines",
+    "compactlines",
+    "shufflelines",
+    "quote",
+    "doublequote",
+    "singlequote",
+    "unquote",
 ];
 
 #[derive(Debug)]
@@ -110,6 +141,7 @@ pub fn apply(transformer: &str, content: &str) -> Option<String> {
         .or_else(|| encoding::apply(parsed.name, &parsed.args, content))
         .or_else(|| crypto::apply(parsed.name, &parsed.args, content))
         .or_else(|| lines::apply(parsed.name, &parsed.args, content))
+        .or_else(|| formatting::apply(parsed.name, &parsed.args, content))
 }
 
 pub(crate) fn strip_argument_quotes(arg: &str) -> &str {
@@ -237,6 +269,13 @@ mod tests {
             split_suffix("'a.b'.replace(\".\", \"-\")"),
             Some(("'a.b'", "replace(\".\", \"-\")"))
         );
+        assert_eq!(
+            split_suffix("clipboard.regexreplace(\"([a-z]),([A-Z])\", \"$1 $2\").upper"),
+            Some((
+                "clipboard.regexreplace(\"([a-z]),([A-Z])\", \"$1 $2\")",
+                "upper"
+            ))
+        );
         assert_eq!(split_suffix("clipboard.unknown(5)"), None);
     }
 
@@ -247,6 +286,11 @@ mod tests {
             apply("replace(\",\", \";\")", "a,b,c"),
             Some("a;b;c".to_string())
         );
+        assert_eq!(
+            apply("regexreplace(\"([a-z]),([A-Z])\", \"$1 $2\")", "a,B"),
+            Some("a B".to_string())
+        );
+        assert_eq!(apply("substring(1, 3)", "aßc"), Some("ßc".to_string()));
         assert_eq!(apply("length", "aßc"), Some("3".to_string()));
     }
 }

@@ -46,9 +46,21 @@ fn scan_tag_bounds(template: &str) -> Vec<TagBounds> {
     let mut stack = Vec::new();
     let mut tags = Vec::new();
     let mut ptr = 0;
+    let mut quote = None;
 
     while ptr < bytes.len() {
+        if let Some(active_quote) = quote {
+            if bytes[ptr] == active_quote && !is_escaped(bytes, ptr) {
+                quote = None;
+            }
+            ptr += 1;
+            continue;
+        }
+
         match bytes[ptr] {
+            b'\'' | b'"' if !stack.is_empty() && !is_escaped(bytes, ptr) => {
+                quote = Some(bytes[ptr])
+            }
             TAG_OPEN if !is_escaped(bytes, ptr) => stack.push(ptr),
             TAG_CLOSE if !is_escaped(bytes, ptr) => {
                 if let Some(start) = stack.pop() {
@@ -152,8 +164,15 @@ fn split_key_default(inner: &str) -> (&str, Option<&str>) {
     let bytes = inner.as_bytes();
     let mut depth = 0;
     let mut ptr = 0;
+    let mut quote = None;
     while ptr < bytes.len() {
-        if bytes[ptr] == TAG_OPEN && !is_escaped(bytes, ptr) {
+        if let Some(active_quote) = quote {
+            if bytes[ptr] == active_quote && !is_escaped(bytes, ptr) {
+                quote = None;
+            }
+        } else if (bytes[ptr] == b'\'' || bytes[ptr] == b'"') && !is_escaped(bytes, ptr) {
+            quote = Some(bytes[ptr]);
+        } else if bytes[ptr] == TAG_OPEN && !is_escaped(bytes, ptr) {
             depth += 1;
         } else if bytes[ptr] == TAG_CLOSE && !is_escaped(bytes, ptr) {
             depth -= 1;
@@ -728,6 +747,24 @@ mod tests {
             interpolate(r#"['a,b,c'.replace(",", ";")]"#, &args),
             "a;b;c"
         );
+    }
+
+    #[test]
+    fn test_interpolate_regexreplace_handles_commas_in_quoted_args() {
+        let args = ArgMap::default();
+        assert_eq!(
+            interpolate(
+                r#"['a,B,c,D'.regexreplace("([a-z]),([A-Z])", "$1 $2")]"#,
+                &args
+            ),
+            "a B,c D"
+        );
+    }
+
+    #[test]
+    fn test_interpolate_substring_is_utf8_safe() {
+        let args = ArgMap::default();
+        assert_eq!(interpolate(r#"['aßç'.substring(1, 3)]"#, &args), "ßç");
     }
 
     #[test]
