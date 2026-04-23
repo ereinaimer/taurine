@@ -668,6 +668,14 @@ mod tests {
     }
 
     #[test]
+    fn test_interpolate_mock_password_accepts_nested_dynamic_count() {
+        let args = ArgMap::default();
+        let resolved = interpolate("[mock.password([len=12])]", &args);
+
+        assert_eq!(resolved.chars().count(), 12);
+    }
+
+    #[test]
     fn test_interpolate_unknown_transformed_tag_remains_literal() {
         let args = ArgMap::default();
         assert_eq!(interpolate("[foo.upper]", &args), "[foo.upper]");

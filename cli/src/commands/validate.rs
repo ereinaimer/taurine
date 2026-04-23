@@ -180,4 +180,9 @@ mod tests {
         assert!(audit_payload_tags("[lorem.words([num=5])]").is_ok());
         assert!(audit_payload_tags("[lorem.words([random.int(3, 3)])]").is_ok());
     }
+
+    #[test]
+    fn accepts_mock_with_nested_dynamic_arg() {
+        assert!(audit_payload_tags("[mock.password([len=12])]").is_ok());
+    }
 }

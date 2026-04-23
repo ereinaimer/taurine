@@ -9,6 +9,7 @@ pub mod date;
 pub mod env;
 pub mod format;
 pub mod lorem;
+pub mod mock;
 pub mod random;
 pub mod run;
 pub mod sys;
@@ -41,6 +42,7 @@ pub fn is_reserved(mut key: &str) -> bool {
         || key == "clipboard"
         || key == "sys"
         || key == "lorem"
+        || key == "mock"
         || key.starts_with("uuid.")
         || key.starts_with("sys.")
         || key.starts_with("time.")
@@ -49,6 +51,7 @@ pub fn is_reserved(mut key: &str) -> bool {
         || key.starts_with("run.")
         || key.starts_with("random.")
         || key.starts_with("lorem.")
+        || key.starts_with("mock.")
         || key.starts_with("key.")
         || key.starts_with("delay.")
         || key.contains('.') // Reserve all other dot-namespaces
@@ -107,6 +110,9 @@ pub fn resolve(key: &str) -> Option<String> {
     }
     if key == "lorem" || key.starts_with("lorem.") {
         return lorem::resolve(key);
+    }
+    if key.starts_with("mock.") {
+        return mock::resolve(key);
     }
     if key == "uuid" || key.starts_with("uuid.") {
         return uuid::resolve(key);
@@ -461,6 +467,9 @@ mod tests {
         assert!(is_reserved("lorem"));
         assert!(is_reserved("lorem.words(3)"));
         assert!(is_reserved("lorem.words(3).upper"));
+        assert!(is_reserved("mock"));
+        assert!(is_reserved("mock.email"));
+        assert!(is_reserved("mock.password(12).upper"));
         assert!(is_reserved("sys"));
         assert!(is_reserved("sys.os"));
         assert!(is_reserved("sys.os.upper"));
@@ -500,6 +509,26 @@ mod tests {
         );
 
         assert_eq!(resolved.split_whitespace().count(), 3);
+    }
+
+    #[test]
+    fn test_resolve_mock_email_interpolation() {
+        let resolved = crate::engine::variables::interpolate::interpolate(
+            "[mock.email]",
+            &crate::engine::variables::types::ArgMap::default(),
+        );
+
+        assert!(resolved.contains('@'));
+    }
+
+    #[test]
+    fn test_resolve_mock_password_interpolation() {
+        let resolved = crate::engine::variables::interpolate::interpolate(
+            "[mock.password(12)]",
+            &crate::engine::variables::types::ArgMap::default(),
+        );
+
+        assert_eq!(resolved.chars().count(), 12);
     }
 
     #[test]

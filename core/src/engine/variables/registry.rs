@@ -30,6 +30,7 @@ const SYSTEM_ROOTS: &[&str] = &[
     "key",
     "delay",
     "lorem",
+    "mock",
 ];
 
 const TIME_MODIFIERS: &[&str] = &[
@@ -102,6 +103,36 @@ const RANDOM_MODIFIERS: &[&str] = &[
     "mac",
 ];
 const LOREM_MODIFIERS: &[&str] = &["words(n)", "sentence(n)", "paragraph(n)"];
+const MOCK_MODIFIERS: &[&str] = &[
+    "name",
+    "first_name",
+    "last_name",
+    "title",
+    "suffix",
+    "address",
+    "city",
+    "state",
+    "zip_code",
+    "country",
+    "latitude",
+    "longitude",
+    "email",
+    "domain",
+    "user_agent",
+    "password(n)",
+    "username",
+    "company",
+    "job_title",
+    "catch_phrase",
+    "bs",
+    "credit_card",
+    "currency_name",
+    "currency_code",
+    "phone_number",
+    "cell_number",
+    "status_code",
+    "method",
+];
 const KEY_MODIFIERS: &[&str] = &[
     "enter",
     "tab",
@@ -176,6 +207,7 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "run" => "Valid form: [run.<lang>(...)] or [run.<lang>.file(...).args(...)]. Languages: bash, powershell, python, node, node_esm, cmd".to_string(),
         "random" => format!("Valid modifiers: {}", RANDOM_MODIFIERS.join(", ")),
         "lorem" => format!("Valid modifiers: lorem, {}", LOREM_MODIFIERS.join(", ")),
+        "mock" => format!("Valid modifiers: {}", MOCK_MODIFIERS.join(", ")),
         "key" => format!(
             "Valid key tokens: {}. You can combine them with `+`, and any single character token is also allowed.",
             KEY_MODIFIERS.join(", ")
@@ -197,6 +229,7 @@ pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), Val
         "run" => validate_run_modifier(modifier),
         "random" => validate_random_modifier(modifier),
         "lorem" => validate_lorem_modifier(modifier),
+        "mock" => validate_mock_modifier(modifier),
         "key" => validate_key_modifier(modifier),
         "delay" => validate_delay_modifier(modifier),
         _ => Err(ValidationError::UnknownRoot(root.to_string())),
@@ -426,7 +459,54 @@ fn validate_lorem_modifier(modifier: Option<&str>) -> Result<(), ValidationError
     }
 }
 
+fn validate_mock_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
+    let modifier =
+        normalize_modifier(modifier.ok_or(ValidationError::MissingModifier { root: "mock" })?)
+            .ok_or(ValidationError::MissingModifier { root: "mock" })?;
+
+    let Some((variant, args)) = parse_mock_modifier(modifier) else {
+        return Err(ValidationError::InvalidModifier {
+            root: "mock",
+            modifier: modifier.to_string(),
+            allowed: MOCK_MODIFIERS,
+        });
+    };
+
+    let valid = match (variant, args) {
+        ("password", Some(args)) => split_modifier_args(args).len() == 1,
+        ("password", None) => false,
+        (_, None) => MOCK_MODIFIERS.contains(&variant),
+        _ => false,
+    };
+
+    if valid {
+        Ok(())
+    } else {
+        Err(ValidationError::InvalidModifier {
+            root: "mock",
+            modifier: modifier.to_string(),
+            allowed: MOCK_MODIFIERS,
+        })
+    }
+}
+
 fn parse_random_modifier(input: &str) -> Option<(&str, Option<&str>)> {
+    if let Some(paren_idx) = input.find('(') {
+        let variant = input[..paren_idx].trim();
+        let (args, trailing) = scan_run_parenthesized(&input[paren_idx..])?;
+        if !variant.is_empty() && trailing.trim().is_empty() {
+            Some((variant, Some(args)))
+        } else {
+            None
+        }
+    } else if input.contains(')') {
+        None
+    } else {
+        Some((input.trim(), None)).filter(|(variant, _)| !variant.is_empty())
+    }
+}
+
+fn parse_mock_modifier(input: &str) -> Option<(&str, Option<&str>)> {
     if let Some(paren_idx) = input.find('(') {
         let variant = input[..paren_idx].trim();
         let (args, trailing) = scan_run_parenthesized(&input[paren_idx..])?;
@@ -769,6 +849,55 @@ mod tests {
                 root: "lorem",
                 modifier: "words(1, 2)".to_string(),
                 allowed: LOREM_MODIFIERS,
+            })
+        );
+    }
+
+    #[test]
+    fn validates_mock_modifier_syntax() {
+        assert_eq!(validate_system_tag("mock", Some("name")), Ok(()));
+        assert_eq!(validate_system_tag("mock", Some("email")), Ok(()));
+        assert_eq!(validate_system_tag("mock", Some("status_code")), Ok(()));
+        assert_eq!(validate_system_tag("mock", Some("password(12)")), Ok(()));
+        assert_eq!(
+            validate_system_tag("mock", Some("password([len=12])")),
+            Ok(())
+        );
+
+        assert_eq!(
+            validate_system_tag("mock", None),
+            Err(ValidationError::MissingModifier { root: "mock" })
+        );
+        assert_eq!(
+            validate_system_tag("mock", Some("password")),
+            Err(ValidationError::InvalidModifier {
+                root: "mock",
+                modifier: "password".to_string(),
+                allowed: MOCK_MODIFIERS,
+            })
+        );
+        assert_eq!(
+            validate_system_tag("mock", Some("password()")),
+            Err(ValidationError::InvalidModifier {
+                root: "mock",
+                modifier: "password()".to_string(),
+                allowed: MOCK_MODIFIERS,
+            })
+        );
+        assert_eq!(
+            validate_system_tag("mock", Some("password(12, 16)")),
+            Err(ValidationError::InvalidModifier {
+                root: "mock",
+                modifier: "password(12, 16)".to_string(),
+                allowed: MOCK_MODIFIERS,
+            })
+        );
+        assert_eq!(
+            validate_system_tag("mock", Some("unknown")),
+            Err(ValidationError::InvalidModifier {
+                root: "mock",
+                modifier: "unknown".to_string(),
+                allowed: MOCK_MODIFIERS,
             })
         );
     }
