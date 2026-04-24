@@ -1,6 +1,8 @@
 use super::{AutomationExport, ExchangePayload, MetricExport, ScriptExport, SettingExport};
+use crate::db::crud::TriggerType;
 use crate::engine::shell::{ScriptBehavior, ScriptInterpreter, decompress};
 use rusqlite::Connection;
+use rusqlite::types::Type;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ExportOptions {
@@ -12,6 +14,7 @@ pub struct ExportOptions {
 struct RawAutomationExport {
     name: String,
     description: Option<String>,
+    trigger_type: TriggerType,
     trigger: String,
     output: String,
     action_type: String,
@@ -33,6 +36,7 @@ pub fn export_automations(
         "SELECT
             a.name,
             a.description,
+            a.trigger_type,
             a.trigger,
             a.output,
             a.action_type,
@@ -54,17 +58,20 @@ pub fn export_automations(
         Ok(RawAutomationExport {
             name: row.get(0)?,
             description: row.get(1)?,
-            trigger: row.get(2)?,
-            output: row.get(3)?,
-            action_type: row.get(4)?,
-            is_enabled: row.get(5)?,
-            target_os: row.get(6)?,
-            tags: row.get(7)?,
-            usage_count: row.get(8)?,
-            last_used_at: row.get(9)?,
-            interpreter: row.get(10)?,
-            behavior: row.get(11)?,
-            script_binary: row.get(12)?,
+            trigger_type: TriggerType::parse_db(&row.get::<_, String>(2)?).map_err(|err| {
+                rusqlite::Error::FromSqlConversionFailure(2, Type::Text, Box::new(err))
+            })?,
+            trigger: row.get(3)?,
+            output: row.get(4)?,
+            action_type: row.get(5)?,
+            is_enabled: row.get(6)?,
+            target_os: row.get(7)?,
+            tags: row.get(8)?,
+            usage_count: row.get(9)?,
+            last_used_at: row.get(10)?,
+            interpreter: row.get(11)?,
+            behavior: row.get(12)?,
+            script_binary: row.get(13)?,
         })
     })?;
 
@@ -132,6 +139,7 @@ fn to_automation_export(
     Ok(AutomationExport {
         name: row.name,
         description: row.description,
+        trigger_type: row.trigger_type,
         trigger: row.trigger,
         output: row.output,
         action_type: row.action_type,

@@ -1,7 +1,7 @@
 use crate::db::crud::AutomationAction;
 pub use crate::engine::ai_session::EngineMode;
 use crate::engine::ai_session::InlineAiSession;
-use crate::engine::catalog::ExpansionCatalog;
+use crate::engine::catalog::{ExpansionCatalog, HotkeyCatalog};
 use crate::engine::source::SnippetSource;
 use crate::engine::variables::FinalExpansion;
 
@@ -40,7 +40,8 @@ pub struct EngineState {
     pub spinner_style: RwLock<crate::settings::SpinnerStyle>,
     undo_state: RwLock<Option<UndoState>>,
     ai_session: InlineAiSession,
-    catalog: ExpansionCatalog,
+    word_catalog: ExpansionCatalog,
+    hotkey_catalog: HotkeyCatalog,
 }
 
 impl EngineState {
@@ -52,7 +53,8 @@ impl EngineState {
             spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
             undo_state: RwLock::new(None),
             ai_session: InlineAiSession::new(),
-            catalog: ExpansionCatalog::new(),
+            word_catalog: ExpansionCatalog::new(),
+            hotkey_catalog: HotkeyCatalog::new(),
         }
     }
 
@@ -65,7 +67,8 @@ impl EngineState {
             spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
             undo_state: RwLock::new(None),
             ai_session: InlineAiSession::new(),
-            catalog: ExpansionCatalog::with_source(source),
+            word_catalog: ExpansionCatalog::with_source(source),
+            hotkey_catalog: HotkeyCatalog::new(),
         }
     }
 
@@ -102,7 +105,14 @@ impl EngineState {
     }
 
     pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, AutomationAction)>) {
-        self.catalog.load_actions(actions);
+        self.word_catalog.load_actions(actions);
+    }
+
+    pub fn load_hotkey_actions(
+        &self,
+        actions: impl IntoIterator<Item = (String, AutomationAction)>,
+    ) {
+        self.hotkey_catalog.load_actions(actions);
     }
 
     pub fn load_ai_presets(&self, presets: impl IntoIterator<Item = (String, String)>) {
@@ -119,7 +129,11 @@ impl EngineState {
     }
 
     pub fn fetch_expansion(&self, keyword: &str) -> Option<FinalExpansion> {
-        self.catalog.fetch_expansion(keyword)
+        self.word_catalog.fetch_expansion(keyword)
+    }
+
+    pub fn get_hotkey_action(&self, trigger: &str) -> Option<AutomationAction> {
+        self.hotkey_catalog.get_action(trigger)
     }
 
     pub fn set_undo_state(&self, trigger_string: String, output_length: usize) {
@@ -216,5 +230,26 @@ mod tests {
 
         assert!(state.take_active_undo_state().is_none());
         assert!(state.undo_state.read().expect("undo lock").is_none());
+    }
+
+    #[test]
+    fn hotkey_actions_load_into_separate_catalog_from_word_actions() {
+        let state = EngineState::new('>');
+
+        state.load_actions(vec![(
+            "gm".to_string(),
+            AutomationAction::text("good morning"),
+        )]);
+        state.load_hotkey_actions(vec![(
+            "ctrl+shift+g".to_string(),
+            AutomationAction::text("git status"),
+        )]);
+
+        assert!(state.fetch_expansion("ctrl+shift+g").is_none());
+        assert_eq!(
+            state.get_hotkey_action("ctrl+shift+g").unwrap().output,
+            "git status"
+        );
+        assert!(state.get_hotkey_action("gm").is_none());
     }
 }

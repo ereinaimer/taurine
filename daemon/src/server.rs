@@ -82,9 +82,13 @@ impl DaemonControl for DaemonService {
         // 1. Reload Snippets
         let active = taurine_core::db::crud::get_all_active_automations(&conn)
             .map_err(|e| Status::internal(format!("Failed to retrieve automations: {}", e)))?;
+        let hotkeys =
+            taurine_core::db::crud::get_all_active_hotkey_automations(&conn).map_err(|e| {
+                Status::internal(format!("Failed to retrieve hotkey automations: {}", e))
+            })?;
 
-        let actions = active;
-        self.state.load_actions(actions);
+        self.state.load_actions(active);
+        self.state.load_hotkey_actions(hotkeys);
 
         // 2. Reload AI Presets
         let presets = taurine_core::db::crud::ai_presets::list_presets(&conn)
@@ -139,7 +143,9 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
-    use taurine_core::db::crud::add_automation_by_trigger;
+    use taurine_core::db::crud::{
+        TriggerType, add_automation_by_trigger, upsert_automation_with_trigger_type,
+    };
     use taurine_core::db::init;
     use taurine_core::engine::EngineState;
     use tokio::sync::mpsc;
@@ -201,6 +207,32 @@ mod tests {
                 "world".to_string()
             )]
         );
+        assert!(state.get_hotkey_action("ctrl+shift+g").is_none());
+
+        upsert_automation_with_trigger_type(
+            &conn,
+            "hotkey-id",
+            "Hotkey",
+            None,
+            TriggerType::Hotkey,
+            "ctrl+shift+g",
+            "git status",
+            "text",
+            "all",
+            "[]",
+            0,
+            None,
+        )
+        .unwrap();
+
+        let req = Request::new(taurine_core::rpc::ReloadRequest {});
+        service.reload(req).await.expect("Reload failed");
+
+        assert_eq!(
+            state.get_hotkey_action("ctrl+shift+g").unwrap().output,
+            "git status"
+        );
+        assert!(state.fetch_expansion("ctrl+shift+g").is_none());
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&test_dir);

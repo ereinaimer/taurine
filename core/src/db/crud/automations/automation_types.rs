@@ -1,6 +1,8 @@
 use crate::engine::shell::{ScriptBehavior, ScriptInterpreter};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum TriggerType {
     #[default]
     Word,

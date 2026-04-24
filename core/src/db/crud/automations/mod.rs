@@ -8,14 +8,14 @@ pub use automation_delete::{
     delete_automation, delete_automation_by_trigger, delete_automations_by_triggers,
 };
 pub use automation_get::{
-    get_action_by_trigger, get_all_active_automations, get_automation, get_automations_list,
-    search_automations,
+    get_action_by_trigger, get_all_active_automations, get_all_active_hotkey_automations,
+    get_automation, get_automations_list, search_automations,
 };
 pub use automation_set::{
     AddOutcome, add_automation_by_trigger, add_automation_by_trigger_type,
     find_trigger_overlap_conflict, increment_usage_count_by_trigger, record_expansion_usage,
-    upsert_automation, upsert_automation_with_trigger_type, upsert_script,
-    validate_trigger_not_reserved, validate_trigger_target_os_conflict,
+    target_os_values_overlap, upsert_automation, upsert_automation_with_trigger_type,
+    upsert_script, validate_trigger_not_reserved, validate_trigger_target_os_conflict,
 };
 pub use automation_sync::get_syncable_automations;
 pub use automation_types::{
@@ -355,6 +355,88 @@ mod tests {
             triggers,
             vec!["gm_all".to_string(), "gm_native".to_string()]
         );
+    }
+
+    #[test]
+    fn get_all_active_automations_excludes_hotkey_triggers() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+        conn.execute("DELETE FROM automations", []).unwrap();
+
+        upsert_automation(
+            &conn,
+            "uuid-word",
+            "Word",
+            None,
+            "gm",
+            "payload_word",
+            "text",
+            "all",
+            "[]",
+            0,
+            None,
+        )
+        .unwrap();
+        upsert_automation_with_trigger_type(
+            &conn,
+            "uuid-hotkey",
+            "Hotkey",
+            None,
+            TriggerType::Hotkey,
+            "ctrl+shift+g",
+            "payload_hotkey",
+            "text",
+            "all",
+            "[]",
+            0,
+            None,
+        )
+        .unwrap();
+
+        let rows = get_all_active_automations(&conn).unwrap();
+        let triggers: Vec<String> = rows.into_iter().map(|(trigger, _)| trigger).collect();
+        assert_eq!(triggers, vec!["gm".to_string()]);
+    }
+
+    #[test]
+    fn get_all_active_hotkey_automations_loads_only_hotkeys() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+        conn.execute("DELETE FROM automations", []).unwrap();
+
+        upsert_automation(
+            &conn,
+            "uuid-word",
+            "Word",
+            None,
+            "gm",
+            "payload_word",
+            "text",
+            "all",
+            "[]",
+            0,
+            None,
+        )
+        .unwrap();
+        upsert_automation_with_trigger_type(
+            &conn,
+            "uuid-hotkey",
+            "Hotkey",
+            None,
+            TriggerType::Hotkey,
+            "ctrl+shift+g",
+            "payload_hotkey",
+            "text",
+            "all",
+            "[]",
+            0,
+            None,
+        )
+        .unwrap();
+
+        let rows = get_all_active_hotkey_automations(&conn).unwrap();
+        let triggers: Vec<String> = rows.into_iter().map(|(trigger, _)| trigger).collect();
+        assert_eq!(triggers, vec!["ctrl+shift+g".to_string()]);
     }
 
     #[test]

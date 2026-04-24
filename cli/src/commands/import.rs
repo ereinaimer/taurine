@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use inquire::{Confirm, Password, PasswordDisplayMode, Select};
+use taurine_core::db::crud::TriggerType;
 use taurine_core::db::init;
 use taurine_core::exchange::{
     AutomationExport, ExchangeFormat, ExchangePayload, ExistingAutomationConflict,
@@ -169,15 +170,7 @@ fn prompt_conflict_action(
         return Ok(choice.to_action());
     }
 
-    let prompt = format!(
-        "Conflict for trigger '{}' on target_os '{}': local '{}' -> '{}' vs imported '{}' -> '{}'. How should Taurine proceed?",
-        existing.trigger,
-        existing.target_os,
-        existing.name,
-        existing.output,
-        incoming.name,
-        incoming.output
-    );
+    let prompt = format_conflict_prompt(incoming, existing);
 
     let selection = Select::new(
         &prompt,
@@ -206,6 +199,29 @@ fn prompt_conflict_action(
             *remembered_choice = Some(RememberedConflictChoice::SkipAll);
             Ok(ImportConflictAction::Skip)
         }
+    }
+}
+
+fn format_conflict_prompt(
+    incoming: &AutomationExport,
+    existing: &ExistingAutomationConflict,
+) -> String {
+    format!(
+        "Conflict for {} trigger '{}' on target_os '{}': local '{}' -> '{}' vs imported '{}' -> '{}'. How should Taurine proceed?",
+        format_trigger_kind(existing.trigger_type),
+        existing.trigger,
+        existing.target_os,
+        existing.name,
+        existing.output,
+        incoming.name,
+        incoming.output
+    )
+}
+
+fn format_trigger_kind(trigger_type: TriggerType) -> &'static str {
+    match trigger_type {
+        TriggerType::Word => "word",
+        TriggerType::Hotkey => "hotkey",
     }
 }
 
@@ -267,6 +283,7 @@ mod tests {
         AutomationExport {
             name: "Imported".to_string(),
             description: None,
+            trigger_type: TriggerType::Word,
             trigger: "gm".to_string(),
             output: "Imported output".to_string(),
             action_type: "text".to_string(),
@@ -284,6 +301,7 @@ mod tests {
             id: "local-id".to_string(),
             name: "Local".to_string(),
             description: None,
+            trigger_type: TriggerType::Word,
             trigger: "gm".to_string(),
             output: "Local output".to_string(),
             action_type: "text".to_string(),
@@ -356,6 +374,7 @@ mod tests {
     fn detects_run_variables_case_insensitively() {
         let mut payload = sample_payload();
         payload.automations.push(AutomationExport {
+            trigger_type: TriggerType::Word,
             output: "before [RUN.bash(echo hi)] after".to_string(),
             ..sample_automation()
         });
@@ -383,5 +402,24 @@ mod tests {
         payload.automations.push(sample_automation());
 
         assert!(!payload_contains_run_variables(&payload));
+    }
+
+    #[test]
+    fn conflict_prompt_mentions_trigger_type_trigger_and_target_os() {
+        let mut incoming = sample_automation();
+        incoming.trigger_type = TriggerType::Hotkey;
+        incoming.trigger = "ctrl+shift+g".to_string();
+        incoming.output = "git push".to_string();
+
+        let mut existing = sample_existing();
+        existing.trigger_type = TriggerType::Hotkey;
+        existing.trigger = "ctrl+shift+g".to_string();
+        existing.target_os = "all".to_string();
+        existing.output = "git status".to_string();
+
+        let prompt = format_conflict_prompt(&incoming, &existing);
+
+        assert!(prompt.contains("hotkey trigger 'ctrl+shift+g'"));
+        assert!(prompt.contains("target_os 'all'"));
     }
 }

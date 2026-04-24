@@ -2,6 +2,7 @@ pub mod crypto;
 mod export;
 mod import;
 
+use crate::db::crud::TriggerType;
 use crate::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use serde::{Deserialize, Serialize};
 
@@ -59,6 +60,8 @@ pub enum ExchangeFormat {
 pub struct AutomationExport {
     pub name: String,
     pub description: Option<String>,
+    #[serde(default)]
+    pub trigger_type: TriggerType,
     pub trigger: String,
     pub output: String,
     pub action_type: String,
@@ -144,7 +147,7 @@ pub fn deserialize_payload(bytes: &[u8]) -> crate::Result<ExchangePayload> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::crud::{upsert_automation, upsert_script};
+    use crate::db::crud::{upsert_automation, upsert_automation_with_trigger_type, upsert_script};
     use crate::engine::shell::{ScriptBehavior, ScriptInterpreter, compress, decompress};
     use crate::testing::{init_tracing_for_tests, open_test_db};
     use rusqlite::Connection;
@@ -203,6 +206,24 @@ mod tests {
         .unwrap();
     }
 
+    fn insert_hotkey_automation(conn: &Connection) {
+        upsert_automation_with_trigger_type(
+            conn,
+            "uuid-hotkey",
+            "Open Git Status",
+            Some("Hotkey example"),
+            TriggerType::Hotkey,
+            "ctrl+shift+g",
+            "git status",
+            "text",
+            "win",
+            r#"["git","hotkey"]"#,
+            7,
+            Some(1_700_000_789),
+        )
+        .unwrap();
+    }
+
     #[test]
     fn export_strips_local_state_and_decompresses_scripts() {
         init_tracing_for_tests();
@@ -219,6 +240,7 @@ mod tests {
         let automation = &payload.automations[0];
         assert_eq!(automation.name, "Refresh Repo");
         assert_eq!(automation.description.as_deref(), Some("Runs git pull"));
+        assert_eq!(automation.trigger_type, TriggerType::Word);
         assert_eq!(automation.trigger, "repo");
         assert_eq!(automation.output, "[Script: bash]");
         assert_eq!(automation.action_type, "script");
@@ -256,10 +278,29 @@ mod tests {
     }
 
     #[test]
+    fn export_includes_trigger_type_for_hotkey_automations() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+
+        insert_hotkey_automation(&conn);
+
+        let payload = export_automations(&conn, ExportOptions::default()).unwrap();
+        let automation = payload
+            .automations
+            .iter()
+            .find(|automation| automation.trigger == "ctrl+shift+g")
+            .unwrap();
+
+        assert_eq!(automation.trigger_type, TriggerType::Hotkey);
+        assert_eq!(automation.target_os, "win");
+    }
+
+    #[test]
     fn taup_plaintext_codec_round_trips_and_rejects_invalid_headers() {
         let payload = ExchangePayload::new(vec![AutomationExport {
             name: "Greeting".to_string(),
             description: None,
+            trigger_type: TriggerType::Word,
             trigger: "gm".to_string(),
             output: "Good morning!".to_string(),
             action_type: "text".to_string(),
@@ -304,6 +345,7 @@ mod tests {
 
         insert_text_automation(&conn);
         insert_script_automation(&conn);
+        insert_hotkey_automation(&conn);
 
         let payload = export_automations(&conn, ExportOptions::default()).unwrap();
 
@@ -316,7 +358,7 @@ mod tests {
         })
         .unwrap();
         tx.commit().unwrap();
-        assert_eq!(imported, 2);
+        assert_eq!(imported, 3);
 
         let re_exported = export_automations(&conn, ExportOptions::default()).unwrap();
         assert_eq!(re_exported, payload);
@@ -361,6 +403,18 @@ mod tests {
         assert_ne!(script_id, "uuid-script");
         assert!(!script_enabled);
         assert_eq!(decompress(&script_binary).unwrap(), "git pull --ff-only");
+
+        let (hotkey_trigger_type, hotkey_target_os): (String, String) = conn
+            .query_row(
+                "SELECT trigger_type, target_os
+                 FROM automations
+                 WHERE trigger = ?1",
+                ["ctrl+shift+g"],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(hotkey_trigger_type, "hotkey");
+        assert_eq!(hotkey_target_os, "win");
     }
 
     #[test]
@@ -391,6 +445,7 @@ mod tests {
             .iter()
             .find(|automation| automation.trigger == "gm")
             .unwrap();
+        assert_eq!(automation.trigger_type, TriggerType::Word);
         assert_eq!(automation.usage_count, Some(41));
         assert_eq!(automation.last_used_at, Some(1_700_000_123));
 
@@ -406,5 +461,50 @@ mod tests {
                 keystrokes_saved: 50,
             }]
         );
+    }
+
+    #[test]
+    fn deserialize_defaults_missing_trigger_type_to_word() {
+        let payload = deserialize_payload(
+            br#"{
+                "schema_version": 1,
+                "automations": [{
+                    "name": "Greeting",
+                    "description": null,
+                    "trigger": "gm",
+                    "output": "Good morning!",
+                    "action_type": "text",
+                    "is_enabled": true,
+                    "target_os": "all",
+                    "tags": []
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(payload.automations[0].trigger_type, TriggerType::Word);
+    }
+
+    #[test]
+    fn deserialize_rejects_invalid_trigger_type() {
+        let err = deserialize_payload(
+            br#"{
+                "schema_version": 1,
+                "automations": [{
+                    "name": "Greeting",
+                    "description": null,
+                    "trigger_type": "gesture",
+                    "trigger": "gm",
+                    "output": "Good morning!",
+                    "action_type": "text",
+                    "is_enabled": true,
+                    "target_os": "all",
+                    "tags": []
+                }]
+            }"#,
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("gesture"));
     }
 }

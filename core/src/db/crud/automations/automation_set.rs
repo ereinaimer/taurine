@@ -53,7 +53,7 @@ fn validate_trigger_type(trigger_type: TriggerType, target_os: &str) -> Result<(
     Ok(())
 }
 
-fn target_os_values_overlap(left: &str, right: &str) -> bool {
+pub fn target_os_values_overlap(left: &str, right: &str) -> bool {
     left == right || left == "all" || right == "all"
 }
 

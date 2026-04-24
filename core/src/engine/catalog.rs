@@ -6,9 +6,36 @@ use crate::engine::variables::{
 };
 
 use std::sync::Arc;
+use std::sync::RwLock;
 
 pub struct ExpansionCatalog {
     source: Arc<dyn SnippetSource>,
+}
+
+#[derive(Default)]
+pub struct HotkeyCatalog {
+    actions: RwLock<std::collections::HashMap<String, AutomationAction>>,
+}
+
+impl HotkeyCatalog {
+    pub fn new() -> Self {
+        Self {
+            actions: RwLock::new(std::collections::HashMap::new()),
+        }
+    }
+
+    pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, AutomationAction)>) {
+        if let Ok(mut guard) = self.actions.write() {
+            *guard = actions.into_iter().collect();
+        }
+    }
+
+    pub fn get_action(&self, trigger: &str) -> Option<AutomationAction> {
+        self.actions
+            .read()
+            .ok()
+            .and_then(|guard| guard.get(trigger).cloned())
+    }
 }
 
 impl ExpansionCatalog {
@@ -252,5 +279,20 @@ mod tests {
         let fallback = catalog.fetch_expansion("7*6").unwrap();
         assert_eq!(fallback.steps[0], ExpansionStep::Text("42".to_string()));
         assert!(fallback.is_calculation);
+    }
+
+    #[test]
+    fn hotkey_catalog_loads_actions_without_affecting_word_expansion_lookup() {
+        let hotkeys = HotkeyCatalog::new();
+        hotkeys.load_actions(vec![(
+            "ctrl+shift+g".to_string(),
+            AutomationAction::text("git status"),
+        )]);
+
+        let action = hotkeys.get_action("ctrl+shift+g").unwrap();
+        assert_eq!(action.output, "git status");
+
+        let word_catalog = ExpansionCatalog::new();
+        assert!(word_catalog.fetch_expansion("ctrl+shift+g").is_none());
     }
 }

@@ -1,5 +1,8 @@
 use super::{AutomationExport, ExchangePayload, MetricExport};
-use crate::db::crud::{increment_metric, upsert_automation, upsert_script, upsert_setting};
+use crate::db::crud::{
+    TriggerType, increment_metric, target_os_values_overlap, upsert_automation_with_trigger_type,
+    upsert_script, upsert_setting,
+};
 use crate::engine::shell::compress;
 use rusqlite::Transaction;
 use uuid::Uuid;
@@ -29,6 +32,7 @@ pub struct ExistingAutomationConflict {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
+    pub trigger_type: TriggerType,
     pub trigger: String,
     pub output: String,
     pub action_type: String,
@@ -53,6 +57,7 @@ where
     for automation in &payload.automations {
         let existing = find_conflicting_automation(
             tx,
+            automation.trigger_type,
             automation.trigger.as_str(),
             automation.target_os.as_str(),
         )?;
@@ -62,6 +67,7 @@ where
                 ImportConflictAction::Overwrite => {
                     tombstone_conflicting_automations(
                         tx,
+                        automation.trigger_type,
                         automation.trigger.as_str(),
                         automation.target_os.as_str(),
                     )?;
@@ -94,11 +100,12 @@ fn insert_imported_automation(
     let (usage_count, last_used_at) =
         resolve_automation_metrics(automation, existing, metrics_mode);
 
-    upsert_automation(
+    upsert_automation_with_trigger_type(
         tx,
         &id,
         &automation.name,
         automation.description.as_deref(),
+        automation.trigger_type,
         &automation.trigger,
         &automation.output,
         &automation.action_type,
@@ -133,57 +140,84 @@ fn insert_imported_automation(
 
 fn find_conflicting_automation(
     tx: &Transaction<'_>,
+    trigger_type: TriggerType,
     trigger: &str,
     target_os: &str,
 ) -> crate::Result<Option<ExistingAutomationConflict>> {
     let mut stmt = tx.prepare_cached(
-        "SELECT id, name, description, trigger, output, action_type, target_os, is_enabled,
+        "SELECT id, name, description, trigger_type, trigger, output, action_type, target_os, is_enabled,
                 usage_count, last_used_at
          FROM automations
-         WHERE trigger = ?1
-           AND target_os = ?2
+         WHERE trigger_type = ?1
+           AND trigger = ?2
            AND is_deleted = 0
-         ORDER BY updated_at DESC
-         LIMIT 1",
+         ORDER BY updated_at DESC",
     )?;
 
-    let result = stmt.query_row([trigger, target_os], |row| {
+    let rows = stmt.query_map([trigger_type.as_db_str(), trigger], |row| {
+        let trigger_type_raw: String = row.get(3)?;
         Ok(ExistingAutomationConflict {
             id: row.get(0)?,
             name: row.get(1)?,
             description: row.get(2)?,
-            trigger: row.get(3)?,
-            output: row.get(4)?,
-            action_type: row.get(5)?,
-            target_os: row.get(6)?,
-            is_enabled: row.get(7)?,
-            usage_count: row.get(8)?,
-            last_used_at: row.get(9)?,
+            trigger_type: TriggerType::parse_db(&trigger_type_raw).map_err(|err| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    3,
+                    rusqlite::types::Type::Text,
+                    Box::new(err),
+                )
+            })?,
+            trigger: row.get(4)?,
+            output: row.get(5)?,
+            action_type: row.get(6)?,
+            target_os: row.get(7)?,
+            is_enabled: row.get(8)?,
+            usage_count: row.get(9)?,
+            last_used_at: row.get(10)?,
         })
-    });
+    })?;
 
-    match result {
-        Ok(row) => Ok(Some(row)),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(err) => Err(err.into()),
+    for row in rows {
+        let row = row?;
+        if target_os_values_overlap(&row.target_os, target_os) {
+            return Ok(Some(row));
+        }
     }
+
+    Ok(None)
 }
 
 fn tombstone_conflicting_automations(
     tx: &Transaction<'_>,
+    trigger_type: TriggerType,
     trigger: &str,
     target_os: &str,
 ) -> crate::Result<()> {
-    tx.execute(
-        "UPDATE automations
-         SET is_deleted = 1,
-             version = version + 1,
-             updated_at = ?1
-         WHERE trigger = ?2
-           AND target_os = ?3
+    let mut stmt = tx.prepare_cached(
+        "SELECT id, target_os
+         FROM automations
+         WHERE trigger_type = ?1
+           AND trigger = ?2
            AND is_deleted = 0",
-        rusqlite::params![crate::db::now_unix_secs(), trigger, target_os],
     )?;
+    let rows = stmt.query_map([trigger_type.as_db_str(), trigger], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+
+    let now = crate::db::now_unix_secs();
+    for row in rows {
+        let (id, existing_target_os) = row?;
+        if target_os_values_overlap(&existing_target_os, target_os) {
+            tx.execute(
+                "UPDATE automations
+                 SET is_deleted = 1,
+                     version = version + 1,
+                     updated_at = ?1
+                 WHERE id = ?2",
+                rusqlite::params![now, id],
+            )?;
+        }
+    }
 
     Ok(())
 }
@@ -280,7 +314,9 @@ fn max_option_i64(left: Option<i64>, right: Option<i64>) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::crud::{get_automation, upsert_automation};
+    use crate::db::crud::{
+        TriggerType, get_automation, upsert_automation, upsert_automation_with_trigger_type,
+    };
     use crate::engine::shell::{ScriptBehavior, ScriptInterpreter};
     use crate::testing::{init_tracing_for_tests, open_test_db};
 
@@ -309,10 +345,16 @@ mod tests {
         .unwrap();
     }
 
-    fn text_export(trigger: &str, target_os: &str, output: &str) -> AutomationExport {
+    fn text_export(
+        trigger_type: TriggerType,
+        trigger: &str,
+        target_os: &str,
+        output: &str,
+    ) -> AutomationExport {
         AutomationExport {
             name: format!("Imported {trigger}"),
             description: Some("Imported automation".to_string()),
+            trigger_type,
             trigger: trigger.to_string(),
             output: output.to_string(),
             action_type: "text".to_string(),
@@ -345,7 +387,12 @@ mod tests {
         )
         .unwrap();
 
-        let payload = ExchangePayload::new(vec![text_export("gm", "all", "Imported output")]);
+        let payload = ExchangePayload::new(vec![text_export(
+            TriggerType::Word,
+            "gm",
+            "all",
+            "Imported output",
+        )]);
         let tx = conn.transaction().unwrap();
         let imported = import_automations(&tx, &payload, ImportOptions::default(), |_, _| {
             Ok(ImportConflictAction::Skip)
@@ -381,7 +428,12 @@ mod tests {
         )
         .unwrap();
 
-        let payload = ExchangePayload::new(vec![text_export("gm", "all", "Imported output")]);
+        let payload = ExchangePayload::new(vec![text_export(
+            TriggerType::Word,
+            "gm",
+            "all",
+            "Imported output",
+        )]);
         let tx = conn.transaction().unwrap();
         let imported = import_automations(&tx, &payload, ImportOptions::default(), |_, _| {
             Ok(ImportConflictAction::Overwrite)
@@ -426,6 +478,84 @@ mod tests {
     }
 
     #[test]
+    fn import_restores_hotkey_trigger_type() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        let payload = ExchangePayload::new(vec![text_export(
+            TriggerType::Hotkey,
+            "ctrl+shift+g",
+            "win",
+            "git status",
+        )]);
+        let tx = conn.transaction().unwrap();
+        let imported = import_automations(&tx, &payload, ImportOptions::default(), |_, _| {
+            Ok(ImportConflictAction::Overwrite)
+        })
+        .unwrap();
+        tx.commit().unwrap();
+
+        assert_eq!(imported, 1);
+
+        let row = conn
+            .query_row(
+                "SELECT trigger_type, trigger
+                 FROM automations
+                 WHERE is_deleted = 0",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .unwrap();
+        assert_eq!(row.0, "hotkey");
+        assert_eq!(row.1, "ctrl+shift+g");
+    }
+
+    #[test]
+    fn import_conflict_identity_keeps_word_and_hotkey_triggers_independent() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        upsert_automation(
+            &conn,
+            "local-word",
+            "Word",
+            None,
+            "tab",
+            "local",
+            "text",
+            "all",
+            "[]",
+            0,
+            None,
+        )
+        .unwrap();
+
+        let payload = ExchangePayload::new(vec![text_export(
+            TriggerType::Hotkey,
+            "tab",
+            "all",
+            "imported hotkey",
+        )]);
+        let tx = conn.transaction().unwrap();
+        let imported = import_automations(&tx, &payload, ImportOptions::default(), |_, _| {
+            Ok(ImportConflictAction::Overwrite)
+        })
+        .unwrap();
+        tx.commit().unwrap();
+
+        assert_eq!(imported, 1);
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM automations WHERE trigger = 'tab' AND is_deleted = 0",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
     fn failed_import_can_be_rolled_back_atomically() {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
@@ -433,6 +563,7 @@ mod tests {
         let valid_script = AutomationExport {
             name: "Valid Script".to_string(),
             description: Some("script".to_string()),
+            trigger_type: TriggerType::Word,
             trigger: "script_ok".to_string(),
             output: "[Script: bash]".to_string(),
             action_type: "script".to_string(),
@@ -450,6 +581,7 @@ mod tests {
         let invalid_script = AutomationExport {
             name: "Broken Script".to_string(),
             description: Some("broken".to_string()),
+            trigger_type: TriggerType::Word,
             trigger: "script_bad".to_string(),
             output: "[Script: bash]".to_string(),
             action_type: "script".to_string(),
@@ -482,7 +614,7 @@ mod tests {
     }
 
     #[test]
-    fn overwrite_import_still_rejects_target_os_overlap_until_phase_4() {
+    fn overwrite_conflict_respects_target_os_overlap_for_same_trigger_type() {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
@@ -497,23 +629,75 @@ mod tests {
             2,
         );
 
-        let payload = ExchangePayload::new(vec![text_export("gm", "linux", "Imported linux")]);
+        let payload = ExchangePayload::new(vec![text_export(
+            TriggerType::Word,
+            "gm",
+            "linux",
+            "Imported linux",
+        )]);
         let tx = conn.transaction().unwrap();
 
-        let err = import_automations(&tx, &payload, ImportOptions::default(), |_, _| {
+        let imported = import_automations(&tx, &payload, ImportOptions::default(), |_, _| {
             Ok(ImportConflictAction::Overwrite)
         })
-        .unwrap_err();
-        assert!(err.to_string().contains(
-            "Trigger conflict for word 'gm' on target_os 'linux': overlaps existing target_os 'all'"
-        ));
-        tx.rollback().unwrap();
+        .unwrap();
+        tx.commit().unwrap();
+        assert_eq!(imported, 1);
 
         let local_all = get_automation(&conn, "local-all").unwrap().unwrap();
-        assert!(!local_all.is_deleted);
+        assert!(local_all.is_deleted);
 
         let local_linux = get_automation(&conn, "local-linux").unwrap().unwrap();
-        assert!(!local_linux.is_deleted);
+        assert!(local_linux.is_deleted);
+    }
+
+    #[test]
+    fn non_overlapping_target_os_values_do_not_conflict_for_same_trigger_type() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        upsert_automation_with_trigger_type(
+            &conn,
+            "local-hotkey",
+            "Windows hotkey",
+            None,
+            TriggerType::Hotkey,
+            "ctrl+shift+g",
+            "local",
+            "text",
+            "win",
+            "[]",
+            0,
+            None,
+        )
+        .unwrap();
+
+        let payload = ExchangePayload::new(vec![text_export(
+            TriggerType::Hotkey,
+            "ctrl+shift+g",
+            "linux",
+            "imported",
+        )]);
+        let tx = conn.transaction().unwrap();
+        let imported = import_automations(&tx, &payload, ImportOptions::default(), |_, _| {
+            Ok(ImportConflictAction::Overwrite)
+        })
+        .unwrap();
+        tx.commit().unwrap();
+
+        assert_eq!(imported, 1);
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM automations
+                 WHERE trigger_type = 'hotkey'
+                   AND trigger = 'ctrl+shift+g'
+                   AND is_deleted = 0",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 2);
     }
 
     #[test]
@@ -521,7 +705,12 @@ mod tests {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
-        let payload = ExchangePayload::new(vec![text_export("ai", "all", "Imported output")]);
+        let payload = ExchangePayload::new(vec![text_export(
+            TriggerType::Word,
+            "ai",
+            "all",
+            "Imported output",
+        )]);
         let tx = conn.transaction().unwrap();
 
         let err = import_automations(&tx, &payload, ImportOptions::default(), |_, _| {
@@ -565,7 +754,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut imported = text_export("gm", "all", "Imported output");
+        let mut imported = text_export(TriggerType::Word, "gm", "all", "Imported output");
         imported.usage_count = Some(50);
         imported.last_used_at = Some(100);
 
@@ -616,7 +805,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut imported = text_export("gm", "all", "Imported output");
+        let mut imported = text_export(TriggerType::Word, "gm", "all", "Imported output");
         imported.usage_count = Some(50);
         imported.last_used_at = Some(100);
 
@@ -667,7 +856,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut imported = text_export("gm", "all", "Imported output");
+        let mut imported = text_export(TriggerType::Word, "gm", "all", "Imported output");
         imported.usage_count = Some(50);
         imported.last_used_at = Some(500);
 

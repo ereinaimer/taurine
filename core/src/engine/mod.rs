@@ -13,6 +13,6 @@ pub use source::SnippetSource;
 
 pub use ai_session::{EngineMode, InlineAiSession};
 pub use buffer::FastBuffer;
-pub use catalog::ExpansionCatalog;
+pub use catalog::{ExpansionCatalog, HotkeyCatalog};
 pub use evaluator::{EngineEvent, Evaluator, ExpansionFollowUp, ExpansionResult};
 pub use state::EngineState;

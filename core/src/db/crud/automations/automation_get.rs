@@ -159,6 +159,49 @@ pub fn get_all_active_automations(conn: &Connection) -> Result<Vec<(String, Auto
     Ok(actions)
 }
 
+/// Fetches all active hotkey automations for the current desktop target.
+///
+/// This is a future-facing load path for daemon hotkey matching. The text
+/// evaluator must continue to use `get_all_active_automations`, which is
+/// intentionally word-only.
+pub fn get_all_active_hotkey_automations(
+    conn: &Connection,
+) -> Result<Vec<(String, AutomationAction)>> {
+    let os_str = get_current_os_db_string();
+    let mut stmt = conn.prepare_cached(
+        "SELECT a.trigger, a.output, a.action_type, s.interpreter, s.behavior, s.compressed_content
+         FROM automations a
+         LEFT JOIN scripts s ON a.id = s.automation_id
+         WHERE a.trigger_type = 'hotkey'
+           AND a.is_deleted = 0
+           AND a.is_enabled = 1
+           AND (a.target_os = 'all' OR a.target_os = ?1)",
+    )?;
+
+    let rows = stmt.query_map([os_str], |row| {
+        let interpreter = parse_json_variant(row.get(3)?);
+        let behavior = parse_json_variant(row.get(4)?);
+
+        Ok((
+            row.get(0)?,
+            AutomationAction {
+                output: row.get(1)?,
+                action_type: row.get(2)?,
+                interpreter,
+                behavior,
+                script_binary: row.get(5)?,
+            },
+        ))
+    })?;
+
+    let mut actions = Vec::new();
+    for action in rows {
+        actions.push(action?);
+    }
+
+    Ok(actions)
+}
+
 /// Fetches all active automations with enough metadata for sorting/listing in CLI.
 pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>> {
     let os_str = get_current_os_db_string();
