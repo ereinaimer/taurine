@@ -66,16 +66,17 @@ Commands for creating, viewing, and deleting your snippets and scripts.
   
   **Standard Text:**
   ```bash
-  taurine add <trigger> <output> [--os <target>]
+  taurine add <trigger> <output> [--hotkey] [--os <target>]
   ```
   
   **Shell Script:**
   ```bash
-  taurine add script <trigger> <body> [-l <lang>] [-m <mode>]
-  taurine add script <trigger> -f <path>
+  taurine add script <trigger> <body> [--hotkey] [-l <lang>] [-m <mode>]
+  taurine add script <trigger> -f <path> [--hotkey]
   ```
   
   **Optional Flags:**
+  - `--hotkey`: Interpret the trigger as a global keyboard shortcut instead of a word.
   - `-f, --file <path>`: Load script content from a file.
   - `-l, --lang <bash|powershell|python|node|node-esm|cmd>`: Specify the interpreter.
   - `-m, --mode <inline|silent>`: Choose execution mode.

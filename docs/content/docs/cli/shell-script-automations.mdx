@@ -26,6 +26,17 @@ taurine add script url 'start https://[url=google.com]' --lang powershell --os w
 - Typing `>url ` opens **google.com** in your default browser.
 - Typing `>url:youtube.com ` opens **youtube.com** in your default browser.
 
+### Hotkey Scripts
+Trigger complex system actions with a keyboard shortcut.
+
+```bash
+taurine add script --hotkey "ctrl+shift+w" winget-install -l powershell "winget install [0]"
+```
+
+<Callout title="No Arguments for Hotkeys" type="warn">
+  Hotkey triggers do **not** support typed positional arguments. Variables like `[0]` will use their default values or remain empty when triggered via hotkey.
+</Callout>
+
 ### Script Files
 Use for complex logic. Taurine will read the file, compress it, and store it in its internal database.
 

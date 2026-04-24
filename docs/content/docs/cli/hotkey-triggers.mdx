@@ -1,0 +1,116 @@
+---
+title: Hotkey Triggers
+description: Learn how to trigger automations using global keyboard shortcuts instead of typed words.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
+
+Taurine supports two distinct automation trigger types: **Word Triggers** and **Hotkey Triggers**. 
+
+While Word Triggers are activated by typing a trigger character followed by a word (e.g., `>gs `), **Hotkey Triggers** are global keyboard shortcuts that execute an automation immediately when pressed, regardless of your current text state.
+
+<Callout title="Global Shortcuts" type="info">
+  Hotkey triggers are global while the Taurine daemon is running. They do not require a trigger character and do not use the "Backspace Undo" mechanism because no trigger text was typed.
+</Callout>
+
+## Creating Hotkey Automations
+
+To create a hotkey-triggered automation, use the `--hotkey` flag with the `add` command.
+
+### Standard Text Expansion
+Map a keyboard shortcut to a text snippet.
+
+```bash
+taurine add --hotkey "ctrl+shift+g" "git status[key.enter]"
+```
+
+### Script Automations
+Trigger a shell script with a hotkey.
+
+```bash
+taurine add script --hotkey "ctrl+shift+w" winget-install -l powershell "winget install [0]"
+```
+
+## Hotkey Syntax & Canonicalization
+
+Taurine automatically normalizes (canonicalizes) your hotkey strings before storing them. This ensures that different ways of writing the same shortcut are treated as identical.
+
+These are all equivalent and will be stored as `ctrl+shift+g`:
+- `Ctrl + ShIFT + G`
+- `Shift+Ctrl+G`
+- `control + shift + g`
+
+### Modifier Order
+Taurine enforces a canonical order for modifiers:
+1. `ctrl`
+2. `shift`
+3. `alt`
+4. `meta`
+
+Example: `meta+alt+ctrl+shift+g` becomes `ctrl+shift+alt+meta+g`.
+
+## Supported Keys & Aliases
+
+### Modifiers
+| Key | Supported Aliases |
+| :--- | :--- |
+| **Ctrl** | `ctrl`, `control` |
+| **Shift** | `shift` |
+| **Alt** | `alt`, `opt`, `option` |
+| **Meta** | `meta`, `cmd`, `command`, `win`, `super`, `mod` |
+
+### Special Keys
+| Key | Aliases |
+| :--- | :--- |
+| **Enter** | `enter`, `return` |
+| **Escape** | `esc`, `escape` |
+| **Delete** | `delete`, `del` |
+| **Arrows** | `up`, `down`, `left`, `right`, `arrowup`, etc. |
+| **Backtick** | `` ` ``, `backtick`, `grave`, `~`, `tilde` |
+
+### Numpad vs. Top-Row
+Taurine distinguishes between the top-row number keys and the numeric keypad.
+- `ctrl+1`: Top-row digit 1.
+- `ctrl+num1`: Numpad digit 1.
+
+## Validation & Safety
+
+To prevent accidental system lockouts or conflicts, Taurine validates every hotkey against several safety rules.
+
+### Rejected Hotkeys
+Taurine will reject the following shortcuts:
+- **Modifier-only**: e.g., `ctrl+shift` (must include a base key).
+- **Multi-base chords**: e.g., `ctrl+k+p` (only one non-modifier key allowed).
+- **Unknown keys**: Any key not recognized by the parser.
+- **Dangerous OS Shortcuts**: 
+  - `ctrl+c`, `ctrl+v`, `ctrl+x`, `ctrl+z`, `ctrl+a`, `ctrl+s` (Windows/Linux)
+  - `cmd+c`, `cmd+v`, `cmd+x`, etc. (macOS)
+  - `alt+tab`, `alt+f4` (Windows/Linux)
+  - `cmd+tab`, `cmd+q` (macOS)
+- **Taurine Reserved**: `alt+` ` is reserved for Taurine's global pause hotkey.
+
+## Duplicate & Update Behavior
+
+Taurine identifies an automation by its **Trigger Identity**:
+`Trigger Type` + `Normalized Trigger` + `Target OS`
+
+- **Update**: Adding an identical hotkey to the same `target_os` will update the existing automation.
+- **Independence**: A word trigger and a hotkey trigger can share the same text (e.g., `tab` as a word and `tab` as a hotkey) without conflicting.
+
+## Important Limitations
+
+### Positional Variables
+Unlike word triggers, hotkeys **do not support typed positional arguments**. 
+- Typing `>gs:argument ` passes `argument` to `[0]`.
+- Pressing `ctrl+shift+g` has no way to accept an argument at runtime.
+
+Positional variables like `[0]` will use their default values (if defined) or remain empty when triggered via hotkey.
+
+### Target OS
+Hotkey triggers are **desktop-only**. They are not supported for `android` or `ios` target operating systems. You can, however, bind the same hotkey to different actions on different desktop platforms:
+
+```bash
+taurine add --hotkey "ctrl+shift+p" "Windows Project" --os windows
+taurine add --hotkey "ctrl+shift+p" "Linux Project" --os linux
+```

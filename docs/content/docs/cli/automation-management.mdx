@@ -3,15 +3,34 @@ title: Managing Automations
 description: How to add, list, and remove your Taurine automations
 ---
 
+## Trigger Types
+
+Taurine supports two ways to trigger an automation:
+
+1. **Word Triggers**: Typed words preceded by a trigger character (e.g., `>brb`).
+2. **Hotkey Triggers**: Global keyboard shortcuts (e.g., `ctrl+shift+g`).
+
 ## Adding Automations
 
-To create a new text expansion, use the `add` or `set` command:
+### Word Triggers (Default)
+
+To create a new text expansion triggered by a typed word, use the `add` or `set` command:
 
 ```bash
 taurine add brb "Be right back"
 ```
 
 If you add a trigger that already exists, Taurine will automatically update it with the new content.
+
+### Hotkey Triggers
+
+To create an automation triggered by a keyboard shortcut, use the `--hotkey` flag:
+
+```bash
+taurine add --hotkey "ctrl+shift+g" "git status[key.enter]"
+```
+
+For more details on hotkey syntax and validation, see the [Hotkey Triggers](/docs/cli/hotkey-triggers) page.
 
 ### Multi-OS Support
 You can restrict automations to specific operating systems, or make them universal:
@@ -23,7 +42,8 @@ taurine add sig "Sent from Windows" --os windows  # Windows only
 
 ## How to Trigger
 
-By default, Taurine triggers an expansion when you type your **trigger character** followed by the **word** and a **space**.
+### Word Triggers
+By default, Taurine triggers a word expansion when you type your **trigger character** followed by the **word** and a **space**.
 
 ```text
 >brb[Space]
@@ -32,6 +52,9 @@ By default, Taurine triggers an expansion when you type your **trigger character
 <Callout title="Configuring Triggers" type="info">
   You can change the default `>` trigger character in the [Configuration](/docs/cli/configuration) page.
 </Callout>
+
+### Hotkey Triggers
+Hotkey triggers execute immediately when the keyboard shortcut is pressed. They do not require a trigger character or a trailing space.
 
 ## Viewing Your Automations
 
