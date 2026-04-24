@@ -82,6 +82,7 @@ impl HotkeyEvaluator {
     }
 }
 
+#[cfg(any(test, not(target_os = "linux")))]
 pub fn modifiers_from_flags(ctrl: bool, shift: bool, alt: bool, meta: bool) -> Modifiers {
     let mut modifiers = Modifiers::new();
     if ctrl {

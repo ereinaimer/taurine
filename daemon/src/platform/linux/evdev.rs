@@ -11,7 +11,7 @@ use crate::hotkey::HotkeySpec;
 use crate::hotkey_evaluator::{HotkeyEvaluation, HotkeyEvaluator, logical_key_from_evdev};
 use crate::injector::{self, IS_INJECTING};
 use crate::notify;
-use taurine_core::engine::{EngineEvent, EngineMode, Evaluator};
+use taurine_core::engine::{EngineEvent, Evaluator};
 
 pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
@@ -422,19 +422,10 @@ mod tests {
     fn process_frame_bypasses_hotkey_evaluation_when_is_injecting_is_true() {
         let state = Arc::new(EngineState::new('>'));
         // Mock a basic hotkey to ensure it WOULD match if not bypassing
-        state.load_hotkey_actions(vec![taurine_core::db::models::Automation {
-            id: 1,
-            name: "test".into(),
-            trigger: "ctrl+shift+g".into(),
-            trigger_type: "hotkey".into(),
-            replacement: "test".into(),
-            is_active: true,
-            target_os: "linux".into(),
-            tags: None,
-            run_as_script: false,
-            is_ai_prompt: false,
-            use_clipboard: false,
-        }]);
+        state.load_hotkey_actions(vec![(
+            "ctrl+shift+g".to_string(),
+            taurine_core::db::crud::AutomationAction::text("test"),
+        )]);
 
         let evaluator = Arc::new(Mutex::new(Evaluator::new(state.clone())));
         let paused = Arc::new(AtomicBool::new(false));
@@ -447,7 +438,7 @@ mod tests {
             .unwrap();
         let handle = rt.handle().clone();
 
-        let mut xkb = crate::platform::linux::xkb::XkbState::new();
+        let mut xkb = crate::platform::linux::xkb::XkbMapper::default();
         let mut hotkey_evaluator = HotkeyEvaluator::new();
         let mut swallow = false;
 
