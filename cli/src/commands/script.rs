@@ -3,11 +3,10 @@ use std::fs;
 use std::path::PathBuf;
 use taurine_core::db::crud::{
     TriggerType, upsert_automation, upsert_automation_with_trigger_type, upsert_script,
-    validate_trigger_not_reserved, validate_trigger_target_os_conflict,
+    validate_trigger_not_reserved,
 };
 use taurine_core::db::init;
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter, compress};
-use tracing::info;
 
 pub fn execute(
     trigger: String,
@@ -55,15 +54,6 @@ pub fn execute(
 
     let conn = init::setup()?;
     validate_trigger_not_reserved(&conn, &stored_trigger)?;
-    if prepared.trigger_type == TriggerType::Hotkey {
-        validate_trigger_target_os_conflict(
-            &conn,
-            TriggerType::Hotkey,
-            &stored_trigger,
-            &os,
-            None,
-        )?;
-    }
 
     // Check for an existing active automation with the same trigger tuple.
     let existing_record: Option<(String, i64, Option<i64>)> = conn
@@ -149,10 +139,6 @@ pub fn execute(
     // 5. Upsert script attachment
     upsert_script(&conn, &id, lang, mode, &compressed)?;
 
-    info!(
-        "Successfully added script automation for trigger: {}",
-        stored_trigger
-    );
     taurine_core::rpc::notify_daemon_reload();
 
     Ok(())
@@ -394,6 +380,273 @@ mod tests {
                 .unwrap();
             assert_eq!(stored.0, "hotkey");
             assert_eq!(stored.1, "ctrl+shift+w");
+        });
+    }
+
+    #[test]
+    fn script_word_trigger_duplicate_updates_existing_row() {
+        init_tracing_for_tests();
+
+        with_test_db(|db_path| {
+            // First add
+            execute(
+                "deploy".to_string(),
+                false,
+                Some("echo first".to_string()),
+                None,
+                Some(ScriptInterpreter::Bash),
+                ScriptBehavior::Inline,
+                "linux".to_string(),
+            )
+            .unwrap();
+
+            // Second add with same trigger identity, new script content
+            execute(
+                "deploy".to_string(),
+                false,
+                Some("echo second".to_string()),
+                None,
+                Some(ScriptInterpreter::Bash),
+                ScriptBehavior::Inline,
+                "linux".to_string(),
+            )
+            .unwrap();
+
+            let conn = rusqlite::Connection::open(db_path).unwrap();
+
+            // Exactly one active row
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM automations WHERE trigger_type = 'word' AND trigger = 'deploy' AND is_deleted = 0",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 1, "Should have exactly one automation row");
+
+            // The script attachment also has exactly one row
+            let script_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM scripts WHERE automation_id = (SELECT id FROM automations WHERE trigger = 'deploy' AND is_deleted = 0 LIMIT 1)",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(script_count, 1, "Should have exactly one script row");
+        });
+    }
+
+    #[test]
+    fn script_hotkey_trigger_canonicalization_updates_existing_row() {
+        init_tracing_for_tests();
+
+        with_test_db(|db_path| {
+            // First add with lowercase canonical form
+            execute(
+                "ctrl+shift+g".to_string(),
+                true,
+                Some("echo first".to_string()),
+                None,
+                Some(ScriptInterpreter::Bash),
+                ScriptBehavior::Inline,
+                "linux".to_string(),
+            )
+            .unwrap();
+
+            // Second add with mixed-case non-canonical form (should normalize to same key)
+            execute(
+                "Shift + Ctrl + G".to_string(),
+                true,
+                Some("echo second".to_string()),
+                None,
+                Some(ScriptInterpreter::Bash),
+                ScriptBehavior::Inline,
+                "linux".to_string(),
+            )
+            .unwrap();
+
+            let conn = rusqlite::Connection::open(db_path).unwrap();
+
+            // Exactly one active row for the canonical hotkey
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM automations WHERE trigger_type = 'hotkey' AND trigger = 'ctrl+shift+g' AND is_deleted = 0",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                count, 1,
+                "Should have exactly one automation row after canonicalized update"
+            );
+        });
+    }
+
+    #[test]
+    fn script_to_text_update_clears_stale_script_row() {
+        init_tracing_for_tests();
+
+        with_test_db(|db_path| {
+            // Step 1: create a script automation
+            execute(
+                "gs".to_string(),
+                false,
+                Some("echo git status".to_string()),
+                None,
+                Some(ScriptInterpreter::Bash),
+                ScriptBehavior::Inline,
+                "all".to_string(),
+            )
+            .unwrap();
+
+            // Confirm the script row exists
+            let conn = rusqlite::Connection::open(db_path).unwrap();
+            let script_count_before: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM scripts WHERE automation_id = (SELECT id FROM automations WHERE trigger = 'gs' AND is_deleted = 0 LIMIT 1)",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                script_count_before, 1,
+                "Script row should exist after script add"
+            );
+            drop(conn);
+
+            // Step 2: switch to a plain text automation for the same trigger identity
+            crate::commands::add::execute(
+                "gs".to_string(),
+                "git status".to_string(),
+                "all".to_string(),
+                false,
+            )
+            .unwrap();
+
+            let conn = rusqlite::Connection::open(db_path).unwrap();
+
+            // Only one active automation row
+            let auto_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM automations WHERE trigger_type = 'word' AND trigger = 'gs' AND is_deleted = 0",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                auto_count, 1,
+                "Should still have exactly one automation row"
+            );
+
+            // action_type must now be 'text'
+            let action_type: String = conn
+                .query_row(
+                    "SELECT action_type FROM automations WHERE trigger = 'gs' AND is_deleted = 0 LIMIT 1",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                action_type, "text",
+                "action_type should be 'text' after text update"
+            );
+
+            // Stale script row must be gone
+            let script_count_after: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM scripts WHERE automation_id = (SELECT id FROM automations WHERE trigger = 'gs' AND is_deleted = 0 LIMIT 1)",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                script_count_after, 0,
+                "Stale script row should be deleted after text update"
+            );
+        });
+    }
+
+    #[test]
+    fn text_to_script_update_creates_script_attachment() {
+        init_tracing_for_tests();
+
+        with_test_db(|db_path| {
+            // Step 1: create a plain text automation
+            crate::commands::add::execute(
+                "gs".to_string(),
+                "git status".to_string(),
+                "all".to_string(),
+                false,
+            )
+            .unwrap();
+
+            // Confirm no script row yet
+            let conn = rusqlite::Connection::open(db_path).unwrap();
+            let script_count_before: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM scripts WHERE automation_id = (SELECT id FROM automations WHERE trigger = 'gs' AND is_deleted = 0 LIMIT 1)",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                script_count_before, 0,
+                "No script row should exist for a text automation"
+            );
+            drop(conn);
+
+            // Step 2: switch to a script automation for the same trigger identity
+            execute(
+                "gs".to_string(),
+                false,
+                Some("echo git status".to_string()),
+                None,
+                Some(ScriptInterpreter::Bash),
+                ScriptBehavior::Inline,
+                "all".to_string(),
+            )
+            .unwrap();
+
+            let conn = rusqlite::Connection::open(db_path).unwrap();
+
+            // Only one active automation row
+            let auto_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM automations WHERE trigger_type = 'word' AND trigger = 'gs' AND is_deleted = 0",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                auto_count, 1,
+                "Should still have exactly one automation row"
+            );
+
+            // action_type must now be 'script'
+            let action_type: String = conn
+                .query_row(
+                    "SELECT action_type FROM automations WHERE trigger = 'gs' AND is_deleted = 0 LIMIT 1",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                action_type, "script",
+                "action_type should be 'script' after script update"
+            );
+
+            // Script attachment must exist
+            let script_count_after: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM scripts WHERE automation_id = (SELECT id FROM automations WHERE trigger = 'gs' AND is_deleted = 0 LIMIT 1)",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                script_count_after, 1,
+                "Script row should be created after script update"
+            );
         });
     }
 }

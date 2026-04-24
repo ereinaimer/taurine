@@ -356,9 +356,9 @@ pub fn add_automation_by_trigger_type(
     validate_trigger_not_reserved(conn, trigger)?;
 
     // Check for an existing active row with this trigger and target_os.
-    let existing: Option<(String, String)> = conn
+    let existing: Option<(String, String, String)> = conn
         .query_row(
-            "SELECT id, output
+            "SELECT id, output, action_type
              FROM automations
              WHERE trigger_type = ?1
                AND trigger = ?2
@@ -367,25 +367,33 @@ pub fn add_automation_by_trigger_type(
              ORDER BY updated_at DESC
              LIMIT 1",
             [trigger_type.as_db_str(), trigger, target_os],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .ok();
 
     match existing {
-        Some((_, existing_output)) if existing_output == output => {
-            // Trigger, OS, and output are identical — nothing to do.
+        Some((_, existing_output, existing_action))
+            if existing_output == output && existing_action == "text" =>
+        {
+            // Trigger, OS, output, and action_type are identical — nothing to do.
             Ok(AddOutcome::AlreadyExists)
         }
-        Some((id, _)) => {
-            // Same trigger/OS, different output — update only the output.
+        Some((id, _, _)) => {
+            // Same trigger/OS, different output or action_type — update it.
             let now = now_unix_secs();
             conn.execute(
                 "UPDATE automations
-                 SET output     = ?1,
-                     updated_at = ?2,
-                     version    = version + 1
+                 SET output      = ?1,
+                     action_type = 'text',
+                     updated_at  = ?2,
+                     version     = version + 1
                  WHERE id = ?3",
                 rusqlite::params![output, now, id],
+            )?;
+            // Clean up any script attachments if it was previously a script.
+            conn.execute(
+                "DELETE FROM scripts WHERE automation_id = ?1",
+                rusqlite::params![id],
             )?;
             Ok(AddOutcome::Updated)
         }

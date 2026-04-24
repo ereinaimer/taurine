@@ -11,7 +11,7 @@ pub fn execute(
     use crate::commands::validate::{audit_payload_tags, prepare_trigger};
     use taurine_core::db::crud::{
         TriggerType, add_automation_by_trigger, add_automation_by_trigger_type,
-        validate_trigger_not_reserved, validate_trigger_target_os_conflict,
+        validate_trigger_not_reserved,
     };
     use taurine_core::engine::variables::system::validate_output;
 
@@ -25,15 +25,6 @@ pub fn execute(
 
     let conn = init::setup()?;
     validate_trigger_not_reserved(&conn, &stored_trigger)?;
-    if prepared.trigger_type == TriggerType::Hotkey {
-        validate_trigger_target_os_conflict(
-            &conn,
-            TriggerType::Hotkey,
-            &stored_trigger,
-            &os,
-            None,
-        )?;
-    }
     let outcome = match prepared.trigger_type {
         TriggerType::Word => add_automation_by_trigger(&conn, &stored_trigger, &output, &os)?,
         TriggerType::Hotkey => add_automation_by_trigger_type(
@@ -208,10 +199,10 @@ mod tests {
     }
 
     #[test]
-    fn add_hotkey_rejects_exact_duplicate_registration() {
+    fn add_hotkey_updates_exact_duplicate_registration() {
         init_tracing_for_tests();
 
-        with_test_db(|_db_path| {
+        with_test_db(|db_path| {
             execute(
                 "ctrl+shift+g".to_string(),
                 "one".to_string(),
@@ -220,14 +211,94 @@ mod tests {
             )
             .unwrap();
 
-            let error = execute(
+            // Adding same trigger + target_os but different output should update
+            execute(
+                "ctrl+shift+g".to_string(),
+                "two".to_string(),
+                "win".to_string(),
+                true,
+            )
+            .unwrap();
+
+            let conn = rusqlite::Connection::open(db_path).unwrap();
+            let mut stmt = conn.prepare("SELECT output FROM automations WHERE trigger_type = 'hotkey' AND trigger = 'ctrl+shift+g' AND is_deleted = 0").unwrap();
+            let mut rows = stmt.query([]).unwrap();
+
+            let row = rows.next().unwrap().unwrap();
+            assert_eq!(row.get::<_, String>(0).unwrap(), "two");
+            assert!(
+                rows.next().unwrap().is_none(),
+                "Should not create duplicate rows"
+            );
+        });
+    }
+
+    #[test]
+    fn add_word_updates_exact_duplicate_registration() {
+        init_tracing_for_tests();
+
+        with_test_db(|db_path| {
+            execute(
+                "gs".to_string(),
+                "one".to_string(),
+                "all".to_string(),
+                false,
+            )
+            .unwrap();
+
+            execute(
+                "gs".to_string(),
+                "two".to_string(),
+                "all".to_string(),
+                false,
+            )
+            .unwrap();
+
+            let conn = rusqlite::Connection::open(db_path).unwrap();
+            let mut stmt = conn.prepare("SELECT output FROM automations WHERE trigger_type = 'word' AND trigger = 'gs' AND is_deleted = 0").unwrap();
+            let mut rows = stmt.query([]).unwrap();
+
+            let row = rows.next().unwrap().unwrap();
+            assert_eq!(row.get::<_, String>(0).unwrap(), "two");
+            assert!(
+                rows.next().unwrap().is_none(),
+                "Should not create duplicate rows"
+            );
+        });
+    }
+
+    #[test]
+    fn hotkey_canonicalization_update_path_works() {
+        init_tracing_for_tests();
+
+        with_test_db(|db_path| {
+            execute(
                 "ctrl+shift+g".to_string(),
                 "one".to_string(),
                 "win".to_string(),
                 true,
             )
-            .unwrap_err();
-            assert!(error.to_string().contains("Trigger conflict"));
+            .unwrap();
+
+            // Should canonicalize to 'ctrl+shift+g' and update
+            execute(
+                "Shift + Ctrl + G".to_string(),
+                "two".to_string(),
+                "win".to_string(),
+                true,
+            )
+            .unwrap();
+
+            let conn = rusqlite::Connection::open(db_path).unwrap();
+            let mut stmt = conn.prepare("SELECT output FROM automations WHERE trigger_type = 'hotkey' AND trigger = 'ctrl+shift+g' AND is_deleted = 0").unwrap();
+            let mut rows = stmt.query([]).unwrap();
+
+            let row = rows.next().unwrap().unwrap();
+            assert_eq!(row.get::<_, String>(0).unwrap(), "two");
+            assert!(
+                rows.next().unwrap().is_none(),
+                "Should not create duplicate rows"
+            );
         });
     }
 
