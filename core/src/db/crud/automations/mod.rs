@@ -12,12 +12,15 @@ pub use automation_get::{
     search_automations,
 };
 pub use automation_set::{
-    AddOutcome, add_automation_by_trigger, increment_usage_count_by_trigger,
-    record_expansion_usage, upsert_automation, upsert_script, validate_trigger_not_reserved,
+    AddOutcome, add_automation_by_trigger, add_automation_by_trigger_type,
+    find_trigger_overlap_conflict, increment_usage_count_by_trigger, record_expansion_usage,
+    upsert_automation, upsert_automation_with_trigger_type, upsert_script,
+    validate_trigger_not_reserved, validate_trigger_target_os_conflict,
 };
 pub use automation_sync::get_syncable_automations;
 pub use automation_types::{
-    AutomationAction, AutomationListItem, AutomationRow, AutomationSummary,
+    AutomationAction, AutomationListItem, AutomationRow, AutomationSummary, TriggerConflict,
+    TriggerType,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -29,6 +32,31 @@ mod tests {
     use super::*;
     use crate::settings::SettingsManager;
     use crate::testing::{init_tracing_for_tests, open_test_db};
+    use rusqlite::ErrorCode;
+
+    fn insert_raw_automation(
+        conn: &rusqlite::Connection,
+        id: &str,
+        trigger_type: &str,
+        trigger: &str,
+        target_os: &str,
+    ) -> rusqlite::Result<usize> {
+        conn.execute(
+            "INSERT INTO automations
+                (id, name, trigger_type, trigger, output, target_os, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            (
+                id,
+                format!("Automation {id}"),
+                trigger_type,
+                trigger,
+                format!("payload-{id}"),
+                target_os,
+                1_700_000_000_i64,
+                1_700_000_000_i64,
+            ),
+        )
+    }
 
     #[test]
     fn get_automation_returns_none_for_missing_id() {
@@ -63,6 +91,7 @@ mod tests {
         assert_eq!(row.id, "uuid-1");
         assert_eq!(row.name, "Good Morning");
         assert_eq!(row.description, None);
+        assert_eq!(row.trigger_type, TriggerType::Word);
         assert_eq!(row.trigger, "gm");
         assert_eq!(row.output, "Good morning!");
         assert_eq!(row.action_type, "text");
@@ -115,6 +144,7 @@ mod tests {
         let row = get_automation(&conn, "uuid-1").unwrap().unwrap();
         assert_eq!(row.version, 2);
         assert_eq!(row.description.as_deref(), Some("description"));
+        assert_eq!(row.trigger_type, TriggerType::Word);
         assert_eq!(row.output, "Good morning!!");
         assert_eq!(row.tags, r#"["morning","bright"]"#);
         assert_eq!(row.usage_count, 7);
@@ -328,44 +358,156 @@ mod tests {
     }
 
     #[test]
-    fn get_action_by_trigger_picks_active_most_used_automation() {
+    fn upsert_automation_with_trigger_type_round_trips_hotkey() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        // Two automations with the same trigger; the one with higher usage_count should win.
-        upsert_automation(
+        upsert_automation_with_trigger_type(
             &conn,
-            "uuid-1",
-            "GM One",
+            "uuid-hotkey-1",
+            "Command Palette",
             None,
-            "gm",
-            "Good morning one!",
+            TriggerType::Hotkey,
+            "ctrl+shift+p",
+            "Open palette",
             "text",
-            "all",
-            r#"[]"#,
-            1,
+            "win",
+            "[]",
+            0,
             None,
         )
         .unwrap();
 
+        let row = get_automation(&conn, "uuid-hotkey-1").unwrap().unwrap();
+        assert_eq!(row.trigger_type, TriggerType::Hotkey);
+        assert_eq!(row.trigger, "ctrl+shift+p");
+        assert_eq!(row.target_os, "win");
+    }
+
+    #[test]
+    fn active_unique_index_enforces_trigger_type_trigger_and_target_os() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+
+        insert_raw_automation(&conn, "uuid-1", "word", "gm", "all").unwrap();
+        let err = insert_raw_automation(&conn, "uuid-2", "word", "gm", "all").unwrap_err();
+
+        assert!(matches!(
+            err,
+            rusqlite::Error::SqliteFailure(ref failure, _)
+                if failure.code == ErrorCode::ConstraintViolation
+        ));
+
+        insert_raw_automation(&conn, "uuid-3", "hotkey", "gm", "all")
+            .expect("different trigger_type should not hit the unique index");
+    }
+
+    #[test]
+    fn validate_trigger_target_os_conflict_rejects_all_vs_specific_overlap() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+
+        upsert_automation(
+            &conn, "uuid-1", "Greeting", None, "gm", "hello", "text", "all", "[]", 0, None,
+        )
+        .unwrap();
+
+        let err = validate_trigger_target_os_conflict(&conn, TriggerType::Word, "gm", "win", None)
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("overlaps existing target_os 'all'")
+        );
+    }
+
+    #[test]
+    fn different_trigger_types_do_not_conflict_for_same_trigger_and_target_os() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+
         upsert_automation(
             &conn,
-            "uuid-2",
-            "GM Two",
+            "uuid-word",
+            "Greeting",
             None,
             "gm",
-            "Good morning two!",
+            "hello",
             "text",
             "all",
-            r#"[]"#,
-            10,
+            "[]",
+            0,
             None,
         )
         .unwrap();
 
-        let action = get_action_by_trigger(&conn, "gm").unwrap().unwrap();
-        assert_eq!(action.output, "Good morning two!");
-        assert_eq!(action.action_type, "text");
+        upsert_automation_with_trigger_type(
+            &conn,
+            "uuid-hotkey",
+            "Hotkey Greeting",
+            None,
+            TriggerType::Hotkey,
+            "gm",
+            "hello hotkey",
+            "text",
+            "all",
+            "[]",
+            0,
+            None,
+        )
+        .unwrap();
+
+        let hotkey_row = get_automation(&conn, "uuid-hotkey").unwrap().unwrap();
+        assert_eq!(hotkey_row.trigger_type, TriggerType::Hotkey);
+    }
+
+    #[test]
+    fn same_trigger_type_allows_distinct_desktop_os_variants() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+
+        upsert_automation_with_trigger_type(
+            &conn,
+            "uuid-win",
+            "Windows Hotkey",
+            None,
+            TriggerType::Hotkey,
+            "ctrl+shift+g",
+            "git win",
+            "text",
+            "win",
+            "[]",
+            0,
+            None,
+        )
+        .unwrap();
+
+        upsert_automation_with_trigger_type(
+            &conn,
+            "uuid-linux",
+            "Linux Hotkey",
+            None,
+            TriggerType::Hotkey,
+            "ctrl+shift+g",
+            "git linux",
+            "text",
+            "linux",
+            "[]",
+            0,
+            None,
+        )
+        .unwrap();
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT COUNT(*)
+                 FROM automations
+                 WHERE trigger_type = 'hotkey'
+                   AND trigger = 'ctrl+shift+g'
+                   AND is_deleted = 0",
+            )
+            .unwrap();
+        let count: i64 = stmt.query_row([], |row| row.get(0)).unwrap();
+        assert_eq!(count, 2);
     }
 
     #[test]

@@ -1,6 +1,7 @@
+use rusqlite::types::Type;
 use rusqlite::{Connection, Result};
 
-use super::{AutomationAction, AutomationListItem, AutomationRow, AutomationSummary};
+use super::{AutomationAction, AutomationListItem, AutomationRow, AutomationSummary, TriggerType};
 use crate::db::crud::get_current_os_db_string;
 
 /// Helper to parse JSON variants that might contain double-quotes from SQLite.
@@ -11,6 +12,11 @@ fn parse_json_variant<T: serde::de::DeserializeOwned>(s: Option<String>) -> Opti
     })
 }
 
+fn parse_trigger_type_row(value: String) -> rusqlite::Result<TriggerType> {
+    TriggerType::parse_db(&value)
+        .map_err(|err| rusqlite::Error::FromSqlConversionFailure(0, Type::Text, Box::new(err)))
+}
+
 /// Returns the full row for `id`, or `None` if it does not exist.
 pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRow>> {
     let mut stmt = conn.prepare_cached(
@@ -18,6 +24,7 @@ pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRo
             a.id,
             a.name,
             a.description,
+            a.trigger_type,
             a.trigger,
             a.output,
             a.action_type,
@@ -40,29 +47,30 @@ pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRo
     )?;
 
     let result = stmt.query_row([id], |row| {
-        let interpreter = parse_json_variant(row.get(16)?);
-        let behavior = parse_json_variant(row.get(17)?);
+        let interpreter = parse_json_variant(row.get(17)?);
+        let behavior = parse_json_variant(row.get(18)?);
 
         Ok(AutomationRow {
             id: row.get(0)?,
             name: row.get(1)?,
             description: row.get(2)?,
-            trigger: row.get(3)?,
-            output: row.get(4)?,
-            action_type: row.get(5)?,
-            target_os: row.get(6)?,
-            tags: row.get(7)?,
-            usage_count: row.get(8)?,
-            last_used_at: row.get(9)?,
-            created_at: row.get(10)?,
-            updated_at: row.get(11)?,
-            version: row.get(12)?,
-            is_deleted: row.get(13)?,
-            is_synced: row.get(14)?,
-            is_enabled: row.get(15)?,
+            trigger_type: parse_trigger_type_row(row.get(3)?)?,
+            trigger: row.get(4)?,
+            output: row.get(5)?,
+            action_type: row.get(6)?,
+            target_os: row.get(7)?,
+            tags: row.get(8)?,
+            usage_count: row.get(9)?,
+            last_used_at: row.get(10)?,
+            created_at: row.get(11)?,
+            updated_at: row.get(12)?,
+            version: row.get(13)?,
+            is_deleted: row.get(14)?,
+            is_synced: row.get(15)?,
+            is_enabled: row.get(16)?,
             interpreter,
             behavior,
-            script_binary: row.get(18)?,
+            script_binary: row.get(19)?,
         })
     });
 
@@ -76,14 +84,15 @@ pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRo
 /// Hot-path lookup: returns just `(payload, action_type)` for an active trigger.
 ///
 /// Uses the `idx_active_triggers` partial index by matching its predicate:
-/// `WHERE is_deleted = 0 AND trigger = ?`.
+/// `WHERE is_deleted = 0 AND is_enabled = 1 AND trigger_type = 'word' AND trigger = ?`.
 pub fn get_action_by_trigger(conn: &Connection, trigger: &str) -> Result<Option<AutomationAction>> {
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
         "SELECT a.output, a.action_type, s.interpreter, s.behavior, s.compressed_content
          FROM   automations a
          LEFT JOIN scripts s ON a.id = s.automation_id
-         WHERE  a.trigger = ?1
+         WHERE  a.trigger_type = 'word'
+           AND  a.trigger = ?1
            AND  a.is_deleted = 0
            AND  a.is_enabled = 1
            AND  (a.target_os = 'all' OR a.target_os = ?2)
@@ -120,7 +129,8 @@ pub fn get_all_active_automations(conn: &Connection) -> Result<Vec<(String, Auto
         "SELECT a.trigger, a.output, a.action_type, s.interpreter, s.behavior, s.compressed_content
          FROM automations a
          LEFT JOIN scripts s ON a.id = s.automation_id
-         WHERE a.is_deleted = 0
+         WHERE a.trigger_type = 'word'
+           AND a.is_deleted = 0
            AND a.is_enabled = 1
            AND (a.target_os = 'all' OR a.target_os = ?1)",
     )?;
@@ -154,7 +164,7 @@ pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
         "SELECT a.trigger, a.output, a.action_type, a.usage_count, a.last_used_at, a.created_at,
-                s.interpreter, s.behavior
+                a.trigger_type, s.interpreter, s.behavior
          FROM   automations a
          LEFT JOIN scripts s ON a.id = s.automation_id
          WHERE  a.is_deleted = 0
@@ -163,10 +173,12 @@ pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>
     )?;
 
     let rows = stmt.query_map([os_str], |row| {
-        let interpreter = parse_json_variant(row.get(6)?);
-        let behavior = parse_json_variant(row.get(7)?);
+        let trigger_type = parse_trigger_type_row(row.get(6)?)?;
+        let interpreter = parse_json_variant(row.get(7)?);
+        let behavior = parse_json_variant(row.get(8)?);
 
         Ok(AutomationListItem {
+            trigger_type,
             trigger: row.get(0)?,
             output: row.get(1)?,
             action_type: row.get(2)?,
@@ -199,7 +211,7 @@ pub fn search_automations(
 
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
-        "SELECT id, name, description, trigger, usage_count
+        "SELECT id, name, description, trigger_type, trigger, usage_count
          FROM   automations
          WHERE  is_deleted = 0
            AND  is_enabled = 1
@@ -207,7 +219,7 @@ pub fn search_automations(
            AND  (name    LIKE ?1
                  OR trigger LIKE ?1)
          ORDER BY (target_os != 'all') DESC, usage_count DESC, updated_at DESC
-         LIMIT  ?2",
+        LIMIT  ?2",
     )?;
 
     let rows = stmt.query_map((pattern, limit, os_str), |row| {
@@ -215,8 +227,9 @@ pub fn search_automations(
             id: row.get(0)?,
             name: row.get(1)?,
             description: row.get(2)?,
-            trigger: row.get(3)?,
-            usage_count: row.get(4)?,
+            trigger_type: parse_trigger_type_row(row.get(3)?)?,
+            trigger: row.get(4)?,
+            usage_count: row.get(5)?,
         })
     })?;
 

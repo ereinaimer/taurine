@@ -1,7 +1,13 @@
 use crate::engine::shell::{ScriptBehavior, ScriptInterpreter};
+use rusqlite::types::Type;
 use rusqlite::{Connection, Result};
 
-use super::AutomationRow;
+use super::{AutomationRow, TriggerType};
+
+fn parse_trigger_type_row(value: String) -> rusqlite::Result<TriggerType> {
+    TriggerType::parse_db(&value)
+        .map_err(|err| rusqlite::Error::FromSqlConversionFailure(0, Type::Text, Box::new(err)))
+}
 
 /// Returns all automations that are configured by the user to be synced to the cloud.
 ///
@@ -14,6 +20,7 @@ pub fn get_syncable_automations(conn: &Connection) -> Result<Vec<AutomationRow>>
             a.id,
             a.name,
             a.description,
+            a.trigger_type,
             a.trigger,
             a.output,
             a.action_type,
@@ -37,8 +44,8 @@ pub fn get_syncable_automations(conn: &Connection) -> Result<Vec<AutomationRow>>
     )?;
 
     let rows = stmt.query_map([], |row| {
-        let interpreter_str: Option<String> = row.get(16)?;
-        let behavior_str: Option<String> = row.get(17)?;
+        let interpreter_str: Option<String> = row.get(17)?;
+        let behavior_str: Option<String> = row.get(18)?;
 
         let interpreter = interpreter_str
             .and_then(|s| serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s)).ok());
@@ -49,22 +56,23 @@ pub fn get_syncable_automations(conn: &Connection) -> Result<Vec<AutomationRow>>
             id: row.get(0)?,
             name: row.get(1)?,
             description: row.get(2)?,
-            trigger: row.get(3)?,
-            output: row.get(4)?,
-            action_type: row.get(5)?,
-            target_os: row.get(6)?,
-            tags: row.get(7)?,
-            usage_count: row.get(8)?,
-            last_used_at: row.get(9)?,
-            created_at: row.get(10)?,
-            updated_at: row.get(11)?,
-            version: row.get(12)?,
-            is_deleted: row.get(13)?,
-            is_synced: row.get(14)?,
-            is_enabled: row.get(15)?,
+            trigger_type: parse_trigger_type_row(row.get(3)?)?,
+            trigger: row.get(4)?,
+            output: row.get(5)?,
+            action_type: row.get(6)?,
+            target_os: row.get(7)?,
+            tags: row.get(8)?,
+            usage_count: row.get(9)?,
+            last_used_at: row.get(10)?,
+            created_at: row.get(11)?,
+            updated_at: row.get(12)?,
+            version: row.get(13)?,
+            is_deleted: row.get(14)?,
+            is_synced: row.get(15)?,
+            is_enabled: row.get(16)?,
             interpreter,
             behavior,
-            script_binary: row.get(18)?,
+            script_binary: row.get(19)?,
         })
     })?;
 

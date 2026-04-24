@@ -3,6 +3,8 @@ use rusqlite::Connection;
 
 use crate::db::{crud::get_setting_value, now_unix_secs};
 
+use super::{TriggerConflict, TriggerType};
+
 const INLINE_AI_RESERVED_TRIGGER: &str = "ai";
 
 fn current_trigger_char(conn: &Connection) -> char {
@@ -40,6 +42,89 @@ pub fn validate_trigger_not_reserved(conn: &Connection, trigger: &str) -> Result
     Ok(())
 }
 
+fn validate_trigger_type(trigger_type: TriggerType, target_os: &str) -> Result<()> {
+    if matches!(trigger_type, TriggerType::Hotkey) && matches!(target_os, "android" | "ios") {
+        return Err(crate::Error::Config(format!(
+            "Hotkey triggers are only supported for desktop target_os values; got '{}'",
+            target_os
+        )));
+    }
+
+    Ok(())
+}
+
+fn target_os_values_overlap(left: &str, right: &str) -> bool {
+    left == right || left == "all" || right == "all"
+}
+
+pub fn find_trigger_overlap_conflict(
+    conn: &Connection,
+    trigger_type: TriggerType,
+    trigger: &str,
+    target_os: &str,
+    exclude_id: Option<&str>,
+) -> Result<Option<TriggerConflict>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT id, trigger_type, trigger, target_os
+         FROM automations
+         WHERE trigger_type = ?1
+           AND trigger = ?2
+           AND is_deleted = 0
+         ORDER BY updated_at DESC",
+    )?;
+
+    let rows = stmt.query_map([trigger_type.as_db_str(), trigger], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+        ))
+    })?;
+
+    for row in rows {
+        let (id, trigger_type_raw, trigger, existing_target_os) = row?;
+        if exclude_id.is_some_and(|excluded| excluded == id) {
+            continue;
+        }
+
+        if target_os_values_overlap(&existing_target_os, target_os) {
+            return Ok(Some(TriggerConflict {
+                id,
+                trigger_type: TriggerType::parse_db(&trigger_type_raw)?,
+                trigger,
+                target_os: existing_target_os,
+            }));
+        }
+    }
+
+    Ok(None)
+}
+
+pub fn validate_trigger_target_os_conflict(
+    conn: &Connection,
+    trigger_type: TriggerType,
+    trigger: &str,
+    target_os: &str,
+    exclude_id: Option<&str>,
+) -> Result<()> {
+    validate_trigger_type(trigger_type, target_os)?;
+
+    if let Some(conflict) =
+        find_trigger_overlap_conflict(conn, trigger_type, trigger, target_os, exclude_id)?
+    {
+        return Err(crate::Error::Config(format!(
+            "Trigger conflict for {} '{}' on target_os '{}': overlaps existing target_os '{}'",
+            trigger_type.as_db_str(),
+            trigger,
+            target_os,
+            conflict.target_os
+        )));
+    }
+
+    Ok(())
+}
+
 /// Inserts a new automation or updates an existing one.
 ///
 /// Semantics:
@@ -62,21 +147,55 @@ pub fn upsert_automation(
     usage_count: i64,
     last_used_at: Option<i64>,
 ) -> Result<()> {
+    upsert_automation_with_trigger_type(
+        conn,
+        id,
+        name,
+        description,
+        TriggerType::Word,
+        trigger,
+        output,
+        action_type,
+        target_os,
+        tags_json,
+        usage_count,
+        last_used_at,
+    )
+}
+
+/// Inserts a new automation or updates an existing one with an explicit trigger type.
+#[allow(clippy::too_many_arguments)]
+pub fn upsert_automation_with_trigger_type(
+    conn: &Connection,
+    id: &str,
+    name: &str,
+    description: Option<&str>,
+    trigger_type: TriggerType,
+    trigger: &str,
+    output: &str,
+    action_type: &str,
+    target_os: &str,
+    tags_json: &str, // JSON string
+    usage_count: i64,
+    last_used_at: Option<i64>,
+) -> Result<()> {
     validate_trigger_not_reserved(conn, trigger)?;
+    validate_trigger_target_os_conflict(conn, trigger_type, trigger, target_os, Some(id))?;
 
     let now = now_unix_secs();
 
     // Keep created_at stable across updates.
     conn.execute(
         "INSERT INTO automations
-            (id, name, description, trigger, output, action_type, target_os, tags,
+            (id, name, description, trigger_type, trigger, output, action_type, target_os, tags,
              usage_count, last_used_at, created_at, updated_at, version, is_deleted)
          VALUES
-            (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
-             ?9, ?10, ?11, ?12, 1, 0)
+            (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
+             ?10, ?11, ?12, ?13, 1, 0)
          ON CONFLICT(id) DO UPDATE SET
             name         = excluded.name,
             description  = excluded.description,
+            trigger_type = excluded.trigger_type,
             trigger      = excluded.trigger,
             output       = excluded.output,
             action_type  = excluded.action_type,
@@ -91,6 +210,7 @@ pub fn upsert_automation(
             id,
             name,
             description,
+            trigger_type.as_db_str(),
             trigger,
             output,
             action_type,
@@ -223,13 +343,30 @@ pub fn add_automation_by_trigger(
     output: &str,
     target_os: &str,
 ) -> Result<AddOutcome> {
+    add_automation_by_trigger_type(conn, TriggerType::Word, trigger, output, target_os)
+}
+
+pub fn add_automation_by_trigger_type(
+    conn: &Connection,
+    trigger_type: TriggerType,
+    trigger: &str,
+    output: &str,
+    target_os: &str,
+) -> Result<AddOutcome> {
     validate_trigger_not_reserved(conn, trigger)?;
 
     // Check for an existing active row with this trigger and target_os.
     let existing: Option<(String, String)> = conn
         .query_row(
-            "SELECT id, output FROM automations WHERE trigger = ?1 AND target_os = ?2 AND is_deleted = 0 ORDER BY updated_at DESC LIMIT 1",
-            [trigger, target_os],
+            "SELECT id, output
+             FROM automations
+             WHERE trigger_type = ?1
+               AND trigger = ?2
+               AND target_os = ?3
+               AND is_deleted = 0
+             ORDER BY updated_at DESC
+             LIMIT 1",
+            [trigger_type.as_db_str(), trigger, target_os],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .ok();
@@ -253,10 +390,23 @@ pub fn add_automation_by_trigger(
             Ok(AddOutcome::Updated)
         }
         None => {
+            validate_trigger_target_os_conflict(conn, trigger_type, trigger, target_os, None)?;
+
             // No existing row — create a new one.
             let id = uuid::Uuid::new_v4().to_string();
-            upsert_automation(
-                conn, &id, trigger, None, trigger, output, "text", target_os, "[]", 0, None,
+            upsert_automation_with_trigger_type(
+                conn,
+                &id,
+                trigger,
+                None,
+                trigger_type,
+                trigger,
+                output,
+                "text",
+                target_os,
+                "[]",
+                0,
+                None,
             )?;
             Ok(AddOutcome::Created)
         }

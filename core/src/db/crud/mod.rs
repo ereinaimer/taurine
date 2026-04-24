@@ -5,11 +5,13 @@ pub mod settings;
 
 pub use automations::{
     AddOutcome, AutomationAction, AutomationListItem, AutomationRow, AutomationSummary,
-    add_automation_by_trigger, delete_automation, delete_automation_by_trigger,
-    delete_automations_by_triggers, get_action_by_trigger, get_all_active_automations,
+    TriggerConflict, TriggerType, add_automation_by_trigger, add_automation_by_trigger_type,
+    delete_automation, delete_automation_by_trigger, delete_automations_by_triggers,
+    find_trigger_overlap_conflict, get_action_by_trigger, get_all_active_automations,
     get_automation, get_automations_list, get_syncable_automations,
     increment_usage_count_by_trigger, record_expansion_usage, search_automations,
-    upsert_automation, upsert_script, validate_trigger_not_reserved,
+    upsert_automation, upsert_automation_with_trigger_type, upsert_script,
+    validate_trigger_not_reserved, validate_trigger_target_os_conflict,
 };
 
 pub use metrics::{

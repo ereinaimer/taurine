@@ -1,10 +1,37 @@
 use crate::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TriggerType {
+    #[default]
+    Word,
+    Hotkey,
+}
+
+impl TriggerType {
+    pub const fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Word => "word",
+            Self::Hotkey => "hotkey",
+        }
+    }
+
+    pub fn parse_db(value: &str) -> crate::Result<Self> {
+        match value {
+            "word" => Ok(Self::Word),
+            "hotkey" => Ok(Self::Hotkey),
+            other => Err(crate::Error::Config(format!(
+                "Invalid trigger_type '{other}'. Expected 'word' or 'hotkey'."
+            ))),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct AutomationRow {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
+    pub trigger_type: TriggerType,
     pub trigger: String,
     pub output: String,
     pub action_type: String,
@@ -54,6 +81,7 @@ pub struct AutomationSummary {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
+    pub trigger_type: TriggerType,
     pub trigger: String,
     pub usage_count: i64,
 }
@@ -61,6 +89,7 @@ pub struct AutomationSummary {
 /// Data structure for the CLI list view.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AutomationListItem {
+    pub trigger_type: TriggerType,
     pub trigger: String,
     pub output: String,
     pub action_type: String,
@@ -70,4 +99,12 @@ pub struct AutomationListItem {
 
     pub interpreter: Option<ScriptInterpreter>,
     pub behavior: Option<ScriptBehavior>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TriggerConflict {
+    pub id: String,
+    pub trigger_type: TriggerType,
+    pub trigger: String,
+    pub target_os: String,
 }

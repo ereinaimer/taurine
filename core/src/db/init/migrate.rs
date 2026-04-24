@@ -37,31 +37,26 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             e
         })?;
 
-    // Fast exit: nothing to do on the vast majority of startups.
-    if version >= CURRENT_SCHEMA_VERSION {
-        debug!(current_schema_version = version, "Schema is up to date");
-        return Ok(());
-    }
+    if version < CURRENT_SCHEMA_VERSION {
+        info!(
+            from_schema_version = version,
+            to_schema_version = CURRENT_SCHEMA_VERSION,
+            "Running database migrations"
+        );
 
-    info!(
-        from_schema_version = version,
-        to_schema_version = CURRENT_SCHEMA_VERSION,
-        "Running database migrations"
-    );
-
-    // Walk every missing migration in order.
-    for v in version..CURRENT_SCHEMA_VERSION {
-        match v {
-            // ----------------------------------------------------------------
-            // v0 → v1 : Initial production schema
-            // ----------------------------------------------------------------
-            // settings     — domain-keyed JSON config store
-            // automations  — trigger rules with sync/tombstone metadata
-            // metrics      — daily usage counters
-            // ----------------------------------------------------------------
-            0 => conn
-                .execute_batch(
-                    "CREATE TABLE IF NOT EXISTS settings (
+        // Walk every missing migration in order.
+        for v in version..CURRENT_SCHEMA_VERSION {
+            match v {
+                // ----------------------------------------------------------------
+                // v0 → v1 : Initial production schema
+                // ----------------------------------------------------------------
+                // settings     — domain-keyed JSON config store
+                // automations  — trigger rules with sync/tombstone metadata
+                // metrics      — daily usage counters
+                // ----------------------------------------------------------------
+                0 => conn
+                    .execute_batch(
+                        "CREATE TABLE IF NOT EXISTS settings (
                     key        TEXT    PRIMARY KEY,
                     value      JSON    NOT NULL,
                     version    INTEGER DEFAULT 1,
@@ -72,6 +67,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     id           TEXT    PRIMARY KEY,
                     name         TEXT    NOT NULL,
                     description  TEXT,
+                    trigger_type TEXT    NOT NULL DEFAULT 'word',
                     trigger      TEXT    NOT NULL,
                     output       TEXT    NOT NULL,
                     action_type  TEXT    DEFAULT 'text',
@@ -105,9 +101,15 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     FOREIGN KEY(automation_id) REFERENCES automations(id) ON DELETE CASCADE
                 );
 
-                -- Partial index: hot-path trigger lookup, tombstoned rows excluded.
+                -- Partial index: hot-path word-trigger lookup, tombstoned rows excluded.
                 CREATE INDEX IF NOT EXISTS idx_active_triggers
-                    ON automations(trigger) WHERE is_deleted = 0;
+                    ON automations(trigger_type, trigger)
+                 WHERE is_deleted = 0 AND is_enabled = 1;
+
+                -- Exact duplicate guard for active rows only.
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_active_trigger_uniqueness
+                    ON automations(trigger_type, trigger, target_os)
+                 WHERE is_deleted = 0;
 
                 -- Sync index: version is the LWW arbiter; updated_at breaks clock-drift ties.
                 CREATE INDEX IF NOT EXISTS idx_sync_queue
@@ -127,21 +129,118 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                 );
 
                 PRAGMA user_version = 1;",
-                )
-                .map_err(|e| {
-                    error!(error=%e, "Schema migration v0 -> v1 failed");
-                    e
-                })?,
+                    )
+                    .map_err(|e| {
+                        error!(error=%e, "Schema migration v0 -> v1 failed");
+                        e
+                    })?,
 
-            // ----------------------------------------------------------------
-            // Template for the next migration — copy, fill in, bump version.
-            // ----------------------------------------------------------------
-            // 2 => conn.execute_batch(
-            //     \"ALTER TABLE automations ADD COLUMN shortcut TEXT;
-            //      PRAGMA user_version = 3;\",
-            // )?,
-            _ => unreachable!("Unhandled migration version {v}"),
+                // ----------------------------------------------------------------
+                // Template for the next migration — copy, fill in, bump version.
+                // ----------------------------------------------------------------
+                // 2 => conn.execute_batch(
+                //     \"ALTER TABLE automations ADD COLUMN shortcut TEXT;
+                //      PRAGMA user_version = 3;\",
+                // )?,
+                _ => unreachable!("Unhandled migration version {v}"),
+            }
         }
+    }
+
+    reconcile_schema_v1(conn)?;
+    debug!(
+        current_schema_version = CURRENT_SCHEMA_VERSION,
+        "Schema is up to date"
+    );
+
+    Ok(())
+}
+
+fn reconcile_schema_v1(conn: &Connection) -> Result<()> {
+    if !column_exists(conn, "automations", "trigger_type")? {
+        conn.execute_batch(
+            "ALTER TABLE automations
+                 ADD COLUMN trigger_type TEXT NOT NULL DEFAULT 'word';",
+        )
+        .map_err(|e| {
+            error!(error=%e, "Failed to reconcile automations.trigger_type into schema v1");
+            e
+        })?;
+    }
+
+    validate_active_trigger_type_values(conn)?;
+    validate_no_exact_active_duplicates(conn)?;
+
+    conn.execute_batch(
+        "DROP INDEX IF EXISTS idx_active_triggers;
+         CREATE INDEX IF NOT EXISTS idx_active_triggers
+             ON automations(trigger_type, trigger)
+          WHERE is_deleted = 0 AND is_enabled = 1;
+         CREATE UNIQUE INDEX IF NOT EXISTS idx_active_trigger_uniqueness
+             ON automations(trigger_type, trigger, target_os)
+          WHERE is_deleted = 0;",
+    )
+    .map_err(|e| {
+        error!(error=%e, "Failed to reconcile schema v1 indexes for trigger types");
+        e
+    })?;
+
+    Ok(())
+}
+
+fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool> {
+    let pragma = format!("PRAGMA table_info({table})");
+    let mut stmt = conn.prepare(&pragma)?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+
+    for row in rows {
+        if row? == column {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+fn validate_active_trigger_type_values(conn: &Connection) -> Result<()> {
+    let invalid: Option<String> = conn
+        .query_row(
+            "SELECT trigger_type
+             FROM automations
+             WHERE trigger_type NOT IN ('word', 'hotkey')
+             LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .ok();
+
+    if let Some(trigger_type) = invalid {
+        return Err(rusqlite::Error::InvalidParameterName(format!(
+            "Invalid trigger_type found in automations table: {trigger_type}"
+        )));
+    }
+
+    Ok(())
+}
+
+fn validate_no_exact_active_duplicates(conn: &Connection) -> Result<()> {
+    let duplicate: Option<(String, String, String, i64)> = conn
+        .query_row(
+            "SELECT trigger_type, trigger, target_os, COUNT(*)
+             FROM automations
+             WHERE is_deleted = 0
+             GROUP BY trigger_type, trigger, target_os
+             HAVING COUNT(*) > 1
+             LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .ok();
+
+    if let Some((trigger_type, trigger, target_os, count)) = duplicate {
+        return Err(rusqlite::Error::InvalidParameterName(format!(
+            "Cannot reconcile schema v1 with {count} active duplicate automation(s) for {trigger_type}:{trigger}@{target_os}"
+        )));
     }
 
     Ok(())

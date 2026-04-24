@@ -284,6 +284,31 @@ mod tests {
     use crate::engine::shell::{ScriptBehavior, ScriptInterpreter};
     use crate::testing::{init_tracing_for_tests, open_test_db};
 
+    fn insert_raw_word_automation(
+        conn: &rusqlite::Connection,
+        id: &str,
+        name: &str,
+        trigger: &str,
+        output: &str,
+        target_os: &str,
+        version: i64,
+    ) {
+        let now = crate::db::now_unix_secs();
+        conn.execute(
+            "INSERT INTO automations (
+                id, name, description, trigger_type, trigger, output, action_type,
+                is_enabled, target_os, tags, usage_count, last_used_at,
+                created_at, updated_at, version, is_deleted, is_synced
+             ) VALUES (
+                ?1, ?2, NULL, 'word', ?3, ?4, 'text',
+                1, ?5, '[]', 0, NULL,
+                ?6, ?6, ?7, 0, 1
+             )",
+            rusqlite::params![id, name, trigger, output, target_os, now, version],
+        )
+        .unwrap();
+    }
+
     fn text_export(trigger: &str, target_os: &str, output: &str) -> AutomationExport {
         AutomationExport {
             name: format!("Imported {trigger}"),
@@ -457,52 +482,38 @@ mod tests {
     }
 
     #[test]
-    fn overwrite_remains_exact_to_trigger_and_target_os() {
+    fn overwrite_import_still_rejects_target_os_overlap_until_phase_4() {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
-        upsert_automation(
-            &conn,
-            "local-all",
-            "All OS",
-            None,
-            "gm",
-            "all output",
-            "text",
-            "all",
-            "[]",
-            1,
-            None,
-        )
-        .unwrap();
-        upsert_automation(
+        insert_raw_word_automation(&conn, "local-all", "All OS", "gm", "all output", "all", 1);
+        insert_raw_word_automation(
             &conn,
             "local-linux",
             "Linux only",
-            None,
             "gm",
             "linux output",
-            "text",
             "linux",
-            "[]",
             2,
-            None,
-        )
-        .unwrap();
+        );
 
         let payload = ExchangePayload::new(vec![text_export("gm", "linux", "Imported linux")]);
         let tx = conn.transaction().unwrap();
-        import_automations(&tx, &payload, ImportOptions::default(), |_, _| {
+
+        let err = import_automations(&tx, &payload, ImportOptions::default(), |_, _| {
             Ok(ImportConflictAction::Overwrite)
         })
-        .unwrap();
-        tx.commit().unwrap();
+        .unwrap_err();
+        assert!(err.to_string().contains(
+            "Trigger conflict for word 'gm' on target_os 'linux': overlaps existing target_os 'all'"
+        ));
+        tx.rollback().unwrap();
 
         let local_all = get_automation(&conn, "local-all").unwrap().unwrap();
         assert!(!local_all.is_deleted);
 
         let local_linux = get_automation(&conn, "local-linux").unwrap().unwrap();
-        assert!(local_linux.is_deleted);
+        assert!(!local_linux.is_deleted);
     }
 
     #[test]
