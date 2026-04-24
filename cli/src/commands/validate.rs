@@ -1,5 +1,9 @@
+use taurine_core::db::crud::TriggerType;
 use taurine_core::engine::variables::{
     ValidationError, split_system_tag, valid_modifier_hint, validate_system_tag,
+};
+use taurine_core::keys::{
+    HotkeyPlatform, conflicts_with_taurine_global_hotkey, danger_for_platform, parse_hotkey,
 };
 
 const TAG_OPEN: u8 = b'[';
@@ -38,6 +42,91 @@ pub fn audit_payload_tags(payload: &str) -> taurine_core::error::Result<()> {
     }
 
     Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrigger {
+    pub trigger_type: TriggerType,
+    pub stored_trigger: String,
+}
+
+pub fn prepare_trigger(
+    trigger: &str,
+    use_hotkey: bool,
+    target_os: &str,
+) -> taurine_core::Result<PreparedTrigger> {
+    if !use_hotkey {
+        return Ok(PreparedTrigger {
+            trigger_type: TriggerType::Word,
+            stored_trigger: trigger.to_string(),
+        });
+    }
+
+    let hotkey = parse_hotkey(trigger).map_err(|error| {
+        taurine_core::error::Error::Config(format!("Invalid hotkey '{}': {}", trigger, error))
+    })?;
+    let canonical = hotkey.canonical_string();
+
+    if conflicts_with_taurine_global_hotkey(hotkey).is_some() {
+        return Err(taurine_core::error::Error::Config(format!(
+            "Hotkey '{}' conflicts with Taurine's global pause hotkey alt+`",
+            canonical
+        )));
+    }
+
+    for platform in desktop_platforms_for_target_os(target_os)? {
+        if let Some(danger) = danger_for_platform(hotkey, *platform) {
+            return Err(taurine_core::error::Error::Config(format!(
+                "Hotkey '{}' is not allowed for target_os '{}': conflicts with the {} on {}",
+                canonical,
+                target_os,
+                danger.description(),
+                platform.as_label(),
+            )));
+        }
+    }
+
+    Ok(PreparedTrigger {
+        trigger_type: TriggerType::Hotkey,
+        stored_trigger: canonical,
+    })
+}
+
+fn desktop_platforms_for_target_os(
+    target_os: &str,
+) -> taurine_core::Result<&'static [HotkeyPlatform]> {
+    match target_os {
+        "all" => Ok(&[
+            HotkeyPlatform::Windows,
+            HotkeyPlatform::Linux,
+            HotkeyPlatform::Mac,
+        ]),
+        "win" => Ok(&[HotkeyPlatform::Windows]),
+        "linux" => Ok(&[HotkeyPlatform::Linux]),
+        "mac" => Ok(&[HotkeyPlatform::Mac]),
+        "android" | "ios" => Err(taurine_core::error::Error::Config(format!(
+            "Hotkey triggers are only supported for desktop target_os values; got '{}'",
+            target_os
+        ))),
+        other => Err(taurine_core::error::Error::Config(format!(
+            "Unsupported target_os '{}' for hotkey validation",
+            other
+        ))),
+    }
+}
+
+trait PlatformLabel {
+    fn as_label(&self) -> &'static str;
+}
+
+impl PlatformLabel for HotkeyPlatform {
+    fn as_label(&self) -> &'static str {
+        match self {
+            HotkeyPlatform::Windows => "windows",
+            HotkeyPlatform::Linux => "linux",
+            HotkeyPlatform::Mac => "mac",
+        }
+    }
 }
 
 fn format_validation_error(
@@ -184,5 +273,64 @@ mod tests {
     #[test]
     fn accepts_mock_with_nested_dynamic_arg() {
         assert!(audit_payload_tags("[mock.password([len=12])]").is_ok());
+    }
+
+    #[test]
+    fn prepare_trigger_defaults_to_word_when_hotkey_flag_is_absent() {
+        let prepared = prepare_trigger("gs", false, "all").unwrap();
+        assert_eq!(prepared.trigger_type, TriggerType::Word);
+        assert_eq!(prepared.stored_trigger, "gs");
+    }
+
+    #[test]
+    fn prepare_trigger_canonicalizes_hotkeys() {
+        let prepared = prepare_trigger("Shift + Ctrl + G", true, "win").unwrap();
+        assert_eq!(prepared.trigger_type, TriggerType::Hotkey);
+        assert_eq!(prepared.stored_trigger, "ctrl+shift+g");
+    }
+
+    #[test]
+    fn prepare_trigger_rejects_malformed_hotkeys() {
+        let error = prepare_trigger("ctrl+k+p", true, "linux").unwrap_err();
+        assert!(error.to_string().contains("multiple base keys"));
+
+        let error = prepare_trigger("ctrl+shift", true, "linux").unwrap_err();
+        assert!(
+            error.to_string().contains("missing a base key")
+                || error.to_string().contains("exactly one base key")
+                || error.to_string().contains("modifier")
+        );
+    }
+
+    #[test]
+    fn prepare_trigger_rejects_dangerous_hotkeys_for_target_os() {
+        let error = prepare_trigger("ctrl+c", true, "win").unwrap_err();
+        assert!(error.to_string().contains("copy shortcut"));
+        assert!(error.to_string().contains("windows"));
+    }
+
+    #[test]
+    fn prepare_trigger_treats_all_as_all_desktop_platforms() {
+        let error = prepare_trigger("meta+q", true, "all").unwrap_err();
+        assert!(error.to_string().contains("quit-application shortcut"));
+        assert!(error.to_string().contains("mac"));
+    }
+
+    #[test]
+    fn prepare_trigger_rejects_taurine_pause_hotkey_only() {
+        let error = prepare_trigger("alt+`", true, "all").unwrap_err();
+        assert!(error.to_string().contains("global pause hotkey"));
+
+        assert!(prepare_trigger("alt+enter", true, "all").is_ok());
+        assert!(prepare_trigger("alt+esc", true, "all").is_ok());
+    }
+
+    #[test]
+    fn prepare_trigger_rejects_mobile_hotkey_targets() {
+        let error = prepare_trigger("ctrl+shift+g", true, "android").unwrap_err();
+        assert!(error.to_string().contains("desktop target_os"));
+
+        let error = prepare_trigger("ctrl+shift+g", true, "ios").unwrap_err();
+        assert!(error.to_string().contains("desktop target_os"));
     }
 }

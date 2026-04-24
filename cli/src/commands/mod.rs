@@ -8,3 +8,6 @@ pub mod import;
 pub mod list;
 pub mod script;
 pub mod validate;
+
+#[cfg(test)]
+pub(crate) static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

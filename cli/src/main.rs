@@ -263,6 +263,10 @@ pub struct AddArgs {
     #[command(subcommand)]
     pub sub: Option<AddSubcommand>,
 
+    /// Interpret the trigger positional as a hotkey trigger
+    #[arg(long)]
+    pub hotkey: bool,
+
     /// Trigger for standard text expansion
     pub trigger: Option<String>,
     /// Output for standard text expansion
@@ -278,6 +282,9 @@ pub enum AddSubcommand {
     Script {
         /// The trigger string
         trigger: String,
+        /// Interpret the trigger positional as a hotkey trigger
+        #[arg(long)]
+        hotkey: bool,
         /// The script content (optional if --file is used)
         #[arg(required_unless_present = "file")]
         content: Option<String>,
@@ -464,6 +471,7 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
         Some(Commands::Add(args)) => {
             if let Some(AddSubcommand::Script {
                 trigger,
+                hotkey,
                 content,
                 file,
                 lang,
@@ -473,6 +481,7 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
             {
                 commands::script::execute(
                     trigger,
+                    hotkey,
                     content,
                     file,
                     lang.map(Into::into),
@@ -487,7 +496,7 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
                     .to_db_str()
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| taurine_core::db::get_current_os_db_string().to_string());
-                commands::add::execute(t, o, os)?;
+                commands::add::execute(t, o, os, args.hotkey)?;
             } else {
                 // Show help for add command if neither subcommand nor positional args are valid
                 use clap::CommandFactory;
@@ -614,5 +623,53 @@ mod tests {
             rendered.contains("--key"),
             "expected clap to mention the forbidden flag, got: {rendered}"
         );
+    }
+
+    #[test]
+    fn parses_add_hotkey_flag_as_boolean_mode() {
+        let cli = Cli::try_parse_from(["taurine", "add", "--hotkey", "Ctrl+Shift+G", "git status"])
+            .expect("add --hotkey should parse");
+
+        match cli.command {
+            Some(Commands::Add(args)) => {
+                assert!(args.hotkey);
+                assert_eq!(args.trigger.as_deref(), Some("Ctrl+Shift+G"));
+                assert_eq!(args.output.as_deref(), Some("git status"));
+            }
+            other => panic!("unexpected command parse: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_add_script_hotkey_flag() {
+        let cli = Cli::try_parse_from([
+            "taurine",
+            "add",
+            "script",
+            "--hotkey",
+            "ctrl+shift+w",
+            "-l",
+            "powershell",
+            "winget install [0]",
+        ])
+        .expect("add script --hotkey should parse");
+
+        match cli.command {
+            Some(Commands::Add(AddArgs {
+                sub:
+                    Some(AddSubcommand::Script {
+                        trigger,
+                        hotkey,
+                        content,
+                        ..
+                    }),
+                ..
+            })) => {
+                assert!(hotkey);
+                assert_eq!(trigger, "ctrl+shift+w");
+                assert_eq!(content.as_deref(), Some("winget install [0]"));
+            }
+            other => panic!("unexpected command parse: {other:?}"),
+        }
     }
 }
