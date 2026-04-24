@@ -90,6 +90,7 @@ pub fn start() -> taurine_core::error::Result<()> {
 
     // Fire up listener in OS thread
     let eval_clone = evaluator.clone();
+    let state_clone = state.clone();
     let paused_clone = paused.clone();
     let pause_notifications_enabled_clone = pause_notifications_enabled.clone();
     let pause_hotkey_spec_clone = pause_hotkey_spec.clone();
@@ -99,6 +100,7 @@ pub fn start() -> taurine_core::error::Result<()> {
         info!("Starting OS keyboard hook listener...");
         hook::start_listener(
             eval_clone,
+            state_clone,
             paused_clone,
             pause_notifications_enabled_clone,
             pause_hotkey_spec_clone,

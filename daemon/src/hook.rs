@@ -23,6 +23,7 @@ use taurine_core::engine::{EngineEvent, EngineMode};
 #[cfg(target_os = "linux")]
 pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
+    state: Arc<taurine_core::engine::EngineState>,
     paused: Arc<std::sync::atomic::AtomicBool>,
     pause_notifications_enabled: Arc<std::sync::atomic::AtomicBool>,
     pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
@@ -31,6 +32,7 @@ pub fn start_listener(
 ) {
     crate::platform::linux::evdev::start_listener(
         evaluator,
+        state,
         paused,
         pause_notifications_enabled,
         pause_hotkey,
@@ -42,6 +44,7 @@ pub fn start_listener(
 #[cfg(not(target_os = "linux"))]
 pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
+    state: Arc<taurine_core::engine::EngineState>,
     paused: Arc<std::sync::atomic::AtomicBool>,
     pause_notifications_enabled: Arc<std::sync::atomic::AtomicBool>,
     pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
@@ -145,30 +148,27 @@ pub fn start_listener(
                     return Some(event);
                 }
 
-                if let Some(logical_key) = logical_key_from_rdev(key) {
-                    let state = evaluator.lock().map(|lock| lock.state.clone()).ok();
-                    if let Some(state) = state
-                        && let Ok(mut lock) = hotkey_evaluator.lock()
-                    {
-                        match lock.on_key_event(state.as_ref(), true, modifiers, logical_key) {
-                            HotkeyEvaluation::Matched(expansion) => {
-                                debug!("Hotkey matched! Expanding: {:?}", expansion);
-                                IS_INJECTING.store(true, Ordering::SeqCst);
+                if let Some(logical_key) = logical_key_from_rdev(key)
+                    && let Ok(mut lock) = hotkey_evaluator.lock()
+                {
+                    match lock.on_key_event(state.as_ref(), true, modifiers, logical_key) {
+                        HotkeyEvaluation::Matched(expansion) => {
+                            debug!("Hotkey matched! Expanding: {:?}", expansion);
+                            IS_INJECTING.store(true, Ordering::SeqCst);
 
-                                let spinner_style_inner =
-                                    spinner_style.read().map(|s| *s).unwrap_or_default();
+                            let spinner_style_inner =
+                                spinner_style.read().map(|s| *s).unwrap_or_default();
 
-                                spawn_expansion_dispatch(
-                                    expansion,
-                                    spinner_style_inner,
-                                    runtime_handle.clone(),
-                                    state,
-                                );
-                                return None;
-                            }
-                            HotkeyEvaluation::Swallow => return None,
-                            HotkeyEvaluation::NoMatch => {}
+                            spawn_expansion_dispatch(
+                                expansion,
+                                spinner_style_inner,
+                                runtime_handle.clone(),
+                                state.clone(),
+                            );
+                            return None;
                         }
+                        HotkeyEvaluation::Swallow => return None,
+                        HotkeyEvaluation::NoMatch => {}
                     }
                 }
 
@@ -201,10 +201,7 @@ pub fn start_listener(
                     clear_undo_state(&evaluator);
                 }
 
-                let engine_mode = evaluator
-                    .lock()
-                    .map(|lock| lock.state.engine_mode())
-                    .unwrap_or(EngineMode::Normal);
+                let engine_mode = state.engine_mode();
 
                 let engine_event = match key {
                     Key::Escape => Some(EngineEvent::Interrupt),

@@ -15,6 +15,7 @@ use taurine_core::engine::{EngineEvent, EngineMode, Evaluator};
 
 pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
+    state: Arc<taurine_core::engine::EngineState>,
     paused: Arc<AtomicBool>,
     pause_notifications_enabled: Arc<AtomicBool>,
     pause_hotkey: Arc<RwLock<HotkeySpec>>,
@@ -84,6 +85,7 @@ pub fn start_listener(
 
     for mut device in devices {
         let evaluator = evaluator.clone();
+        let state = state.clone();
         let paused = paused.clone();
         let pause_notifications_enabled = pause_notifications_enabled.clone();
         let _pause_hotkey = pause_hotkey.clone();
@@ -122,6 +124,7 @@ pub fn start_listener(
                                     &frame,
                                     grab_enabled,
                                     &evaluator,
+                                    &state,
                                     &paused,
                                     &pause_notifications_enabled,
                                     &spinner_style,
@@ -142,6 +145,7 @@ pub fn start_listener(
                                 &frame,
                                 grab_enabled,
                                 &evaluator,
+                                &state,
                                 &paused,
                                 &pause_notifications_enabled,
                                 &spinner_style,
@@ -167,6 +171,7 @@ fn process_frame(
     frame: &[InputEvent],
     grab_enabled: bool,
     evaluator: &Arc<Mutex<Evaluator>>,
+    state: &Arc<taurine_core::engine::EngineState>,
     paused: &Arc<AtomicBool>,
     pause_notifications_enabled: &Arc<AtomicBool>,
     spinner_style: &Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
@@ -208,10 +213,7 @@ fn process_frame(
         }
 
         let logical_key = logical_key_from_evdev(key);
-        let engine_mode = evaluator
-            .lock()
-            .map(|lock| lock.state.engine_mode())
-            .unwrap_or(EngineMode::Normal);
+        let engine_mode = state.engine_mode();
         let engine_event = xkb.process_key(key, is_press, engine_mode);
         let modifiers = xkb.current_modifiers();
 
@@ -248,36 +250,28 @@ fn process_frame(
             let meta_active = modifiers.contains(taurine_core::keys::Modifier::Meta);
 
             if grab_enabled && let Some(logical_key) = logical_key {
-                let state = evaluator.lock().map(|lock| lock.state.clone()).ok();
-                if let Some(state) = state {
-                    match hotkey_evaluator.on_key_event(
-                        state.as_ref(),
-                        true,
-                        modifiers,
-                        logical_key,
-                    ) {
-                        HotkeyEvaluation::Matched(expansion) => {
-                            debug!("Hotkey matched! Expanding: {:?}", expansion);
-                            IS_INJECTING.store(true, Ordering::SeqCst);
-                            swallow_frame = true;
+                match hotkey_evaluator.on_key_event(state.as_ref(), true, modifiers, logical_key) {
+                    HotkeyEvaluation::Matched(expansion) => {
+                        debug!("Hotkey matched! Expanding: {:?}", expansion);
+                        IS_INJECTING.store(true, Ordering::SeqCst);
+                        swallow_frame = true;
 
-                            let spinner_style_inner =
-                                spinner_style.read().map(|s| *s).unwrap_or_default();
+                        let spinner_style_inner =
+                            spinner_style.read().map(|s| *s).unwrap_or_default();
 
-                            crate::hook::spawn_expansion_dispatch(
-                                expansion,
-                                spinner_style_inner,
-                                runtime_handle.clone(),
-                                state,
-                            );
-                            continue;
-                        }
-                        HotkeyEvaluation::Swallow => {
-                            swallow_frame = true;
-                            continue;
-                        }
-                        HotkeyEvaluation::NoMatch => {}
+                        crate::hook::spawn_expansion_dispatch(
+                            expansion,
+                            spinner_style_inner,
+                            runtime_handle.clone(),
+                            state.clone(),
+                        );
+                        continue;
                     }
+                    HotkeyEvaluation::Swallow => {
+                        swallow_frame = true;
+                        continue;
+                    }
+                    HotkeyEvaluation::NoMatch => {}
                 }
             }
 
@@ -411,5 +405,85 @@ fn is_solo_modifier_press(
             !shift_active && !ctrl_active && !alt_active
         }
         _ => is_modifier_key(key) && !shift_active && !ctrl_active && !alt_active && !meta_active,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hotkey_evaluator::HotkeyEvaluator;
+    use crate::injector::{INJECTION_ABORT, IS_INJECTING};
+    use std::sync::RwLock;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+    use taurine_core::engine::{EngineState, Evaluator};
+
+    #[test]
+    fn process_frame_bypasses_hotkey_evaluation_when_is_injecting_is_true() {
+        let state = Arc::new(EngineState::new('>'));
+        // Mock a basic hotkey to ensure it WOULD match if not bypassing
+        state.load_hotkey_actions(vec![taurine_core::db::models::Automation {
+            id: 1,
+            name: "test".into(),
+            trigger: "ctrl+shift+g".into(),
+            trigger_type: "hotkey".into(),
+            replacement: "test".into(),
+            is_active: true,
+            target_os: "linux".into(),
+            tags: None,
+            run_as_script: false,
+            is_ai_prompt: false,
+            use_clipboard: false,
+        }]);
+
+        let evaluator = Arc::new(Mutex::new(Evaluator::new(state.clone())));
+        let paused = Arc::new(AtomicBool::new(false));
+        let pause_notifications = Arc::new(AtomicBool::new(false));
+        let spinner_style = Arc::new(RwLock::new(taurine_core::settings::SpinnerStyle::default()));
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let handle = rt.handle().clone();
+
+        let mut xkb = crate::platform::linux::xkb::XkbState::new();
+        let mut hotkey_evaluator = HotkeyEvaluator::new();
+        let mut swallow = false;
+
+        let frame = vec![
+            InputEvent::new(EventType::KEY.0, KeyCode::KEY_LEFTCTRL.code(), 1),
+            InputEvent::new(EventType::KEY.0, KeyCode::KEY_LEFTSHIFT.code(), 1),
+            InputEvent::new(EventType::KEY.0, KeyCode::KEY_G.code(), 1),
+        ];
+
+        // Ensure clean state
+        IS_INJECTING.store(true, Ordering::SeqCst);
+        INJECTION_ABORT.store(false, Ordering::SeqCst);
+
+        // Process the frame while IS_INJECTING is true
+        process_frame(
+            &frame,
+            true, // grab_enabled
+            &evaluator,
+            &state,
+            &paused,
+            &pause_notifications,
+            &spinner_style,
+            &handle,
+            &mut xkb,
+            &mut hotkey_evaluator,
+            &mut swallow,
+        );
+
+        // Verification 1: We aborted the injection because a physical key was pressed
+        assert!(
+            INJECTION_ABORT.load(Ordering::SeqCst),
+            "Physical key press during injection must set INJECTION_ABORT"
+        );
+
+        // Clean up
+        IS_INJECTING.store(false, Ordering::SeqCst);
+        INJECTION_ABORT.store(false, Ordering::SeqCst);
     }
 }
