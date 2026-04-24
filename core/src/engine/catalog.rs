@@ -66,41 +66,13 @@ impl ExpansionCatalog {
         None
     }
 
-    fn interpolate_script(
-        &self,
-        action: AutomationAction,
-        args: &ArgMap,
-    ) -> Option<FinalExpansion> {
-        let compressed = action.script_binary?;
-
-        let decompressed = decompress(&compressed).unwrap_or_default();
-        let interpolated = interpolate(&decompressed, args);
-        let recompressed = compress(&interpolated).unwrap_or(compressed);
-
-        let md = ScriptMetadata {
-            interpreter: action.interpreter.unwrap(),
-            behavior: action.behavior.unwrap(),
-            compressed_content: recompressed,
-        };
-
-        Some(FinalExpansion {
-            steps: vec![ExpansionStep::Script(md)],
-            is_calculation: false,
-        })
-    }
-
     fn expand_action(
         &self,
         action: AutomationAction,
         args: &ArgMap,
         matched_keyword: &str,
     ) -> Option<FinalExpansion> {
-        if action.action_type == "script" {
-            self.interpolate_script(action, args)
-        } else {
-            let interpolated = interpolate(&action.output, args);
-            Some(finalize(&interpolated, Some(matched_keyword)))
-        }
+        expand_automation_action_with_args(action, args, matched_keyword)
     }
 
     fn fetch_exact_match(&self, keyword: &str) -> Option<FinalExpansion> {
@@ -138,6 +110,45 @@ impl Default for ExpansionCatalog {
     fn default() -> Self {
         Self::new()
     }
+}
+
+pub(crate) fn expand_automation_action(
+    action: AutomationAction,
+    matched_keyword: &str,
+) -> Option<FinalExpansion> {
+    expand_automation_action_with_args(action, &ArgMap::default(), matched_keyword)
+}
+
+fn expand_automation_action_with_args(
+    action: AutomationAction,
+    args: &ArgMap,
+    matched_keyword: &str,
+) -> Option<FinalExpansion> {
+    if action.action_type == "script" {
+        return interpolate_script_action(action, args);
+    }
+
+    let interpolated = interpolate(&action.output, args);
+    Some(finalize(&interpolated, Some(matched_keyword)))
+}
+
+fn interpolate_script_action(action: AutomationAction, args: &ArgMap) -> Option<FinalExpansion> {
+    let compressed = action.script_binary?;
+
+    let decompressed = decompress(&compressed).unwrap_or_default();
+    let interpolated = interpolate(&decompressed, args);
+    let recompressed = compress(&interpolated).unwrap_or(compressed);
+
+    let md = ScriptMetadata {
+        interpreter: action.interpreter.unwrap(),
+        behavior: action.behavior.unwrap(),
+        compressed_content: recompressed,
+    };
+
+    Some(FinalExpansion {
+        steps: vec![ExpansionStep::Script(md)],
+        is_calculation: false,
+    })
 }
 
 #[cfg(test)]

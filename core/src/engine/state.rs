@@ -1,9 +1,10 @@
 use crate::db::crud::AutomationAction;
 pub use crate::engine::ai_session::EngineMode;
 use crate::engine::ai_session::InlineAiSession;
-use crate::engine::catalog::{ExpansionCatalog, HotkeyCatalog};
+use crate::engine::catalog::{ExpansionCatalog, HotkeyCatalog, expand_automation_action};
 use crate::engine::source::SnippetSource;
 use crate::engine::variables::FinalExpansion;
+use crate::keys::Hotkey;
 
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -136,6 +137,13 @@ impl EngineState {
         self.hotkey_catalog.get_action(trigger)
     }
 
+    pub fn fetch_hotkey_expansion(&self, hotkey: Hotkey) -> Option<(String, FinalExpansion)> {
+        let trigger = hotkey.canonical_string();
+        let action = self.hotkey_catalog.get_action(&trigger)?;
+        let expansion = expand_automation_action(action, &trigger)?;
+        Some((trigger, expansion))
+    }
+
     pub fn set_undo_state(&self, trigger_string: String, output_length: usize) {
         if trigger_string.is_empty() || output_length == 0 {
             self.clear_undo_state();
@@ -169,6 +177,16 @@ impl EngineState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::keys::{KeyPress, LogicalKey, Modifier, Modifiers};
+
+    fn modifiers_with(modifiers: &[Modifier]) -> Modifiers {
+        let mut bitset = Modifiers::new();
+        for modifier in modifiers {
+            let _ = bitset.insert(*modifier);
+        }
+        bitset
+    }
+
     #[test]
     fn engine_state_defaults_to_normal_mode_with_empty_ai_prompt() {
         let state = EngineState::new('>');
@@ -251,5 +269,34 @@ mod tests {
             "git status"
         );
         assert!(state.get_hotkey_action("gm").is_none());
+    }
+
+    #[test]
+    fn fetch_hotkey_expansion_builds_steps_without_entering_word_catalog() {
+        let state = EngineState::new('>');
+
+        state.load_actions(vec![(
+            "gm".to_string(),
+            AutomationAction::text("good morning"),
+        )]);
+        state.load_hotkey_actions(vec![(
+            "ctrl+shift+g".to_string(),
+            AutomationAction::text("git [key.enter]status"),
+        )]);
+
+        let (trigger, expansion) = state
+            .fetch_hotkey_expansion(KeyPress {
+                modifiers: modifiers_with(&[Modifier::Ctrl, Modifier::Shift]),
+                key: LogicalKey::Letter('g'),
+            })
+            .expect("hotkey expansion should resolve");
+
+        assert_eq!(trigger, "ctrl+shift+g");
+        assert!(state.fetch_expansion("ctrl+shift+g").is_none());
+        assert!(
+            expansion.steps.iter().any(
+                |step| matches!(step, crate::engine::variables::ExpansionStep::KeyPress(alias) if alias == "enter")
+            )
+        );
     }
 }

@@ -9,6 +9,10 @@ use tracing::{debug, error};
 
 use crate::hotkey;
 #[cfg(not(target_os = "linux"))]
+use crate::hotkey_evaluator::{
+    HotkeyEvaluation, HotkeyEvaluator, logical_key_from_rdev, modifiers_from_flags,
+};
+#[cfg(not(target_os = "linux"))]
 use crate::injector::{self, IS_INJECTING, IS_SIMULATING};
 #[cfg(not(target_os = "linux"))]
 use crate::notify;
@@ -48,8 +52,13 @@ pub fn start_listener(
     let ctrl_down = std::sync::atomic::AtomicBool::new(false);
     let shift_down = std::sync::atomic::AtomicBool::new(false);
     let meta_down = std::sync::atomic::AtomicBool::new(false);
+    let hotkey_evaluator = Mutex::new(HotkeyEvaluator::new());
 
     let callback = move |event: Event| -> Option<Event> {
+        if IS_INJECTING.load(Ordering::SeqCst) && IS_SIMULATING.load(Ordering::SeqCst) {
+            return Some(event);
+        }
+
         match event.event_type {
             EventType::KeyPress(Key::Alt) | EventType::KeyPress(Key::AltGr) => {
                 alt_down.store(true, Ordering::Relaxed);
@@ -78,6 +87,24 @@ pub fn start_listener(
             _ => {}
         }
 
+        if IS_INJECTING.load(Ordering::SeqCst) {
+            match event.event_type {
+                EventType::KeyRelease(key) => {
+                    if let Some(logical_key) = logical_key_from_rdev(key)
+                        && let Ok(mut lock) = hotkey_evaluator.lock()
+                    {
+                        let _ = lock.on_key_release(logical_key);
+                    }
+                }
+                EventType::KeyPress(_) => {
+                    injector::abort_injection();
+                }
+                _ => {}
+            }
+
+            return Some(event);
+        }
+
         let is_chord = if let Ok(spec) = pause_hotkey.read() {
             hotkey::is_pause_chord(&event, alt_down.load(Ordering::Relaxed), &spec)
         } else {
@@ -97,12 +124,10 @@ pub fn start_listener(
         match event.event_type {
             EventType::ButtonPress(_) => {
                 clear_undo_state(&evaluator);
-                if paused.load(Ordering::Relaxed) {
-                    return Some(event);
+                if let Ok(mut lock) = hotkey_evaluator.lock() {
+                    lock.clear();
                 }
-
-                if IS_INJECTING.load(Ordering::SeqCst) {
-                    injector::abort_injection();
+                if paused.load(Ordering::Relaxed) {
                     return Some(event);
                 }
                 let mut lock = evaluator.lock().unwrap();
@@ -113,14 +138,42 @@ pub fn start_listener(
                 let ctrl_active = ctrl_down.load(Ordering::Relaxed);
                 let alt_active = alt_down.load(Ordering::Relaxed);
                 let meta_active = meta_down.load(Ordering::Relaxed);
+                let modifiers =
+                    modifiers_from_flags(ctrl_active, shift_active, alt_active, meta_active);
+
+                if paused.load(Ordering::Relaxed) {
+                    return Some(event);
+                }
+
+                if let Some(logical_key) = logical_key_from_rdev(key) {
+                    let state = evaluator.lock().map(|lock| lock.state.clone()).ok();
+                    if let Some(state) = state
+                        && let Ok(mut lock) = hotkey_evaluator.lock()
+                    {
+                        match lock.on_key_event(state.as_ref(), true, modifiers, logical_key) {
+                            HotkeyEvaluation::Matched(expansion) => {
+                                debug!("Hotkey matched! Expanding: {:?}", expansion);
+                                IS_INJECTING.store(true, Ordering::SeqCst);
+
+                                let spinner_style_inner =
+                                    spinner_style.read().map(|s| *s).unwrap_or_default();
+
+                                spawn_expansion_dispatch(
+                                    expansion,
+                                    spinner_style_inner,
+                                    runtime_handle.clone(),
+                                    state,
+                                );
+                                return None;
+                            }
+                            HotkeyEvaluation::Swallow => return None,
+                            HotkeyEvaluation::NoMatch => {}
+                        }
+                    }
+                }
 
                 if key == Key::Backspace {
-                    if ctrl_active || alt_active {
-                        clear_undo_state(&evaluator);
-                        return Some(event);
-                    }
-
-                    if meta_active {
+                    if ctrl_active || alt_active || meta_active {
                         clear_undo_state(&evaluator);
                         return Some(event);
                     }
@@ -146,17 +199,6 @@ pub fn start_listener(
                 } else {
                     // Invalidate on any non-modifier or combo before normal evaluator handling.
                     clear_undo_state(&evaluator);
-                }
-
-                if paused.load(Ordering::Relaxed) {
-                    return Some(event);
-                }
-
-                if IS_INJECTING.load(Ordering::SeqCst) {
-                    if !IS_SIMULATING.load(Ordering::SeqCst) {
-                        injector::abort_injection();
-                    }
-                    return Some(event);
                 }
 
                 let engine_mode = evaluator
@@ -220,6 +262,14 @@ pub fn start_listener(
                             state,
                         );
                     }
+                }
+            }
+            EventType::KeyRelease(key) => {
+                if let Some(logical_key) = logical_key_from_rdev(key)
+                    && let Ok(mut lock) = hotkey_evaluator.lock()
+                    && matches!(lock.on_key_release(logical_key), HotkeyEvaluation::Swallow)
+                {
+                    return None;
                 }
             }
             _ => {}
@@ -500,5 +550,37 @@ mod tests {
         assert!(undo.trigger_string.starts_with('>'));
         assert_eq!(undo.trigger_string, ">gm");
         assert_eq!(undo.output_length, "Good Morning".chars().count());
+    }
+
+    #[test]
+    fn dispatch_expansion_skips_undo_registration_for_hotkey_results() {
+        let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime should build");
+
+        let expansion = taurine_core::engine::ExpansionResult {
+            delete_count: 0,
+            steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
+                "git status".to_string(),
+            )],
+            trigger: "ctrl+shift+g".to_string(),
+            undo_trigger: None,
+            is_calculation: false,
+            track_usage: false,
+            follow_up: None,
+        };
+
+        dispatch_expansion_with(
+            expansion,
+            taurine_core::settings::SpinnerStyle::default(),
+            rt.handle().clone(),
+            state.clone(),
+            move |_, _, _| {},
+            move |_, _, _| {},
+        );
+
+        assert!(state.take_active_undo_state().is_none());
     }
 }

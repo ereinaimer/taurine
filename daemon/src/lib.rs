@@ -12,6 +12,7 @@ mod clipboard_history;
 mod engine;
 mod hook;
 mod hotkey;
+mod hotkey_evaluator;
 mod injector;
 mod notify;
 pub mod platform;

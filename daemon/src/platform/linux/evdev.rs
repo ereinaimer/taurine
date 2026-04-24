@@ -8,6 +8,7 @@ use tracing::{debug, error, info, warn};
 
 use super::xkb::XkbMapper;
 use crate::hotkey::HotkeySpec;
+use crate::hotkey_evaluator::{HotkeyEvaluation, HotkeyEvaluator, logical_key_from_evdev};
 use crate::injector::{self, IS_INJECTING};
 use crate::notify;
 use taurine_core::engine::{EngineEvent, EngineMode, Evaluator};
@@ -91,6 +92,7 @@ pub fn start_listener(
 
         thread::spawn(move || {
             let mut xkb = XkbMapper::default();
+            let mut hotkey_evaluator = HotkeyEvaluator::new();
             let device_name = device.name().map(|s| s.to_string());
             let grab_enabled = match device.grab() {
                 Ok(()) => {
@@ -125,6 +127,7 @@ pub fn start_listener(
                                     &spinner_style,
                                     &runtime_handle,
                                     &mut xkb,
+                                    &mut hotkey_evaluator,
                                     &mut swallow_next_backspace_release,
                                 );
                                 frame.clear();
@@ -144,6 +147,7 @@ pub fn start_listener(
                                 &spinner_style,
                                 &runtime_handle,
                                 &mut xkb,
+                                &mut hotkey_evaluator,
                                 &mut swallow_next_backspace_release,
                             );
                         }
@@ -168,6 +172,7 @@ fn process_frame(
     spinner_style: &Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     runtime_handle: &Handle,
     xkb: &mut XkbMapper,
+    hotkey_evaluator: &mut HotkeyEvaluator,
     swallow_next_backspace_release: &mut bool,
 ) {
     let mut swallow_frame = false;
@@ -193,27 +198,37 @@ fn process_frame(
         }
 
         if is_mouse_button(key) {
-            if is_press {
+            if is_press && !IS_INJECTING.load(Ordering::SeqCst) {
                 clear_undo_state(evaluator);
-
-                if IS_INJECTING.load(Ordering::SeqCst) {
-                    injector::abort_injection();
-                } else {
-                    let mut lock = evaluator.lock().unwrap();
-                    let _ = lock.process_event(EngineEvent::Interrupt);
-                }
+                hotkey_evaluator.clear();
+                let mut lock = evaluator.lock().unwrap();
+                let _ = lock.process_event(EngineEvent::Interrupt);
             }
             continue;
         }
 
+        let logical_key = logical_key_from_evdev(key);
         let engine_mode = evaluator
             .lock()
             .map(|lock| lock.state.engine_mode())
             .unwrap_or(EngineMode::Normal);
         let engine_event = xkb.process_key(key, is_press, engine_mode);
+        let modifiers = xkb.current_modifiers();
+
+        if IS_INJECTING.load(Ordering::SeqCst) {
+            if is_release {
+                if let Some(logical_key) = logical_key {
+                    let _ = hotkey_evaluator.on_key_release(logical_key);
+                }
+            } else if is_press {
+                injector::abort_injection();
+            }
+            continue;
+        }
 
         if is_press && xkb.is_alt_down() && key == KeyCode::KEY_GRAVE {
             clear_undo_state(evaluator);
+            hotkey_evaluator.clear();
             let now_paused = !paused.load(Ordering::Relaxed);
             paused.store(now_paused, Ordering::Relaxed);
             if pause_notifications_enabled.load(Ordering::Relaxed) {
@@ -222,11 +237,49 @@ fn process_frame(
             continue;
         }
 
+        if is_press && paused.load(Ordering::Relaxed) {
+            continue;
+        }
+
         if is_press {
-            let shift_active = xkb.is_shift_down();
-            let ctrl_active = xkb.is_ctrl_down();
-            let alt_active = xkb.is_alt_down();
-            let meta_active = xkb.is_meta_down();
+            let shift_active = modifiers.contains(taurine_core::keys::Modifier::Shift);
+            let ctrl_active = modifiers.contains(taurine_core::keys::Modifier::Ctrl);
+            let alt_active = modifiers.contains(taurine_core::keys::Modifier::Alt);
+            let meta_active = modifiers.contains(taurine_core::keys::Modifier::Meta);
+
+            if grab_enabled && let Some(logical_key) = logical_key {
+                let state = evaluator.lock().map(|lock| lock.state.clone()).ok();
+                if let Some(state) = state {
+                    match hotkey_evaluator.on_key_event(
+                        state.as_ref(),
+                        true,
+                        modifiers,
+                        logical_key,
+                    ) {
+                        HotkeyEvaluation::Matched(expansion) => {
+                            debug!("Hotkey matched! Expanding: {:?}", expansion);
+                            IS_INJECTING.store(true, Ordering::SeqCst);
+                            swallow_frame = true;
+
+                            let spinner_style_inner =
+                                spinner_style.read().map(|s| *s).unwrap_or_default();
+
+                            crate::hook::spawn_expansion_dispatch(
+                                expansion,
+                                spinner_style_inner,
+                                runtime_handle.clone(),
+                                state,
+                            );
+                            continue;
+                        }
+                        HotkeyEvaluation::Swallow => {
+                            swallow_frame = true;
+                            continue;
+                        }
+                        HotkeyEvaluation::NoMatch => {}
+                    }
+                }
+            }
 
             if key == KeyCode::KEY_BACKSPACE {
                 if ctrl_active || alt_active || meta_active {
@@ -254,17 +307,18 @@ fn process_frame(
                 // Invalidate on any non-modifier or combo.
                 clear_undo_state(evaluator);
             }
-        }
-
-        if paused.load(Ordering::Relaxed) {
+        } else if grab_enabled
+            && let Some(logical_key) = logical_key
+            && matches!(
+                hotkey_evaluator.on_key_release(logical_key),
+                HotkeyEvaluation::Swallow
+            )
+        {
+            swallow_frame = true;
             continue;
         }
 
-        if IS_INJECTING.load(Ordering::SeqCst) {
-            if is_press {
-                debug!("Physical keypress detected during injection. Aborting.");
-                injector::abort_injection();
-            }
+        if paused.load(Ordering::Relaxed) {
             continue;
         }
 

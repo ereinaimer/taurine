@@ -1,6 +1,7 @@
 use evdev::KeyCode;
 use std::collections::HashMap;
 use taurine_core::engine::{EngineEvent, EngineMode};
+use taurine_core::keys::{Modifier, Modifiers};
 use xkbcommon::xkb;
 
 pub struct XkbMapper {
@@ -161,5 +162,22 @@ impl XkbMapper {
 
     pub fn is_meta_down(&self) -> bool {
         self.modifier_is_active(xkb::MOD_NAME_LOGO)
+    }
+
+    pub fn current_modifiers(&self) -> Modifiers {
+        let mut modifiers = Modifiers::new();
+        if self.is_ctrl_down() {
+            let _ = modifiers.insert(Modifier::Ctrl);
+        }
+        if self.is_shift_down() {
+            let _ = modifiers.insert(Modifier::Shift);
+        }
+        if self.is_alt_down() {
+            let _ = modifiers.insert(Modifier::Alt);
+        }
+        if self.is_meta_down() {
+            let _ = modifiers.insert(Modifier::Meta);
+        }
+        modifiers
     }
 }
