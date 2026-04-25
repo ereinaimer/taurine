@@ -512,7 +512,7 @@ mod tests {
             "uuid-word",
             "Greeting",
             None,
-            "gm",
+            "f12",
             "hello",
             "text",
             "all",
@@ -528,7 +528,7 @@ mod tests {
             "Hotkey Greeting",
             None,
             TriggerType::Hotkey,
-            "gm",
+            "f12",
             "hello hotkey",
             "text",
             "all",
@@ -590,6 +590,108 @@ mod tests {
             .unwrap();
         let count: i64 = stmt.query_row([], |row| row.get(0)).unwrap();
         assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn hotkey_overlap_validation_treats_generic_and_side_specific_modifiers_as_conflicts() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+
+        upsert_automation_with_trigger_type(
+            &conn,
+            "uuid-alt",
+            "Generic Alt",
+            None,
+            TriggerType::Hotkey,
+            "alt+m",
+            "generic",
+            "text",
+            "all",
+            "[]",
+            0,
+            None,
+        )
+        .unwrap();
+
+        let err =
+            validate_trigger_target_os_conflict(&conn, TriggerType::Hotkey, "ralt+m", "win", None)
+                .unwrap_err();
+        assert!(
+            err.to_string().contains("Trigger conflict"),
+            "unexpected error: {err}"
+        );
+
+        let err = validate_trigger_target_os_conflict(
+            &conn,
+            TriggerType::Hotkey,
+            "lalt+m",
+            "linux",
+            None,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("Trigger conflict"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn hotkey_overlap_validation_allows_distinct_modifier_sides() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+
+        upsert_automation_with_trigger_type(
+            &conn,
+            "uuid-left-alt",
+            "Left Alt",
+            None,
+            TriggerType::Hotkey,
+            "lalt+m",
+            "left",
+            "text",
+            "all",
+            "[]",
+            0,
+            None,
+        )
+        .unwrap();
+
+        validate_trigger_target_os_conflict(&conn, TriggerType::Hotkey, "ralt+m", "all", None)
+            .unwrap();
+    }
+
+    #[test]
+    fn hotkey_overlap_validation_preserves_target_os_overlap_rules() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+
+        upsert_automation_with_trigger_type(
+            &conn,
+            "uuid-right-alt-win",
+            "Right Alt Windows",
+            None,
+            TriggerType::Hotkey,
+            "ralt+m",
+            "windows",
+            "text",
+            "win",
+            "[]",
+            0,
+            None,
+        )
+        .unwrap();
+
+        validate_trigger_target_os_conflict(&conn, TriggerType::Hotkey, "ralt+m", "linux", None)
+            .unwrap();
+
+        let err =
+            validate_trigger_target_os_conflict(&conn, TriggerType::Hotkey, "ralt+m", "all", None)
+                .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("overlaps existing target_os 'win'"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

@@ -10,6 +10,11 @@ pub enum KeyParseError {
     UnknownAlias { alias: String },
     #[error("duplicate modifier '{modifier}'")]
     DuplicateModifier { modifier: &'static str },
+    #[error("conflicting modifier requirements '{first}' and '{second}'")]
+    ConflictingModifiers {
+        first: &'static str,
+        second: &'static str,
+    },
     #[error("hotkey is missing a base key")]
     MissingBaseKey,
     #[error("hotkey must include exactly one base key")]

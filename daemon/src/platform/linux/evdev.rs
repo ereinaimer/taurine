@@ -8,10 +8,77 @@ use tracing::{debug, error, info, warn};
 
 use super::xkb::XkbMapper;
 use crate::hotkey::HotkeySpec;
-use crate::hotkey_evaluator::{HotkeyEvaluation, HotkeyEvaluator, logical_key_from_evdev};
+use crate::hotkey_evaluator::{
+    HotkeyEvaluation, HotkeyEvaluator, logical_key_from_evdev, modifiers_from_sides,
+};
 use crate::injector::{self, IS_INJECTING};
 use crate::notify;
 use taurine_core::engine::{EngineEvent, Evaluator};
+
+#[derive(Default)]
+struct ModifierSides {
+    left_ctrl: bool,
+    right_ctrl: bool,
+    left_shift: bool,
+    right_shift: bool,
+    left_alt: bool,
+    right_alt: bool,
+    left_meta: bool,
+    right_meta: bool,
+}
+
+impl ModifierSides {
+    fn update(&mut self, key: KeyCode, is_press: bool, is_release: bool) {
+        match key {
+            KeyCode::KEY_LEFTCTRL => update_flag(&mut self.left_ctrl, is_press, is_release),
+            KeyCode::KEY_RIGHTCTRL => update_flag(&mut self.right_ctrl, is_press, is_release),
+            KeyCode::KEY_LEFTSHIFT => update_flag(&mut self.left_shift, is_press, is_release),
+            KeyCode::KEY_RIGHTSHIFT => update_flag(&mut self.right_shift, is_press, is_release),
+            KeyCode::KEY_LEFTALT => update_flag(&mut self.left_alt, is_press, is_release),
+            KeyCode::KEY_RIGHTALT => update_flag(&mut self.right_alt, is_press, is_release),
+            KeyCode::KEY_LEFTMETA => update_flag(&mut self.left_meta, is_press, is_release),
+            KeyCode::KEY_RIGHTMETA => update_flag(&mut self.right_meta, is_press, is_release),
+            _ => {}
+        }
+    }
+
+    fn ctrl_active(&self) -> bool {
+        self.left_ctrl || self.right_ctrl
+    }
+
+    fn shift_active(&self) -> bool {
+        self.left_shift || self.right_shift
+    }
+
+    fn alt_active(&self) -> bool {
+        self.left_alt || self.right_alt
+    }
+
+    fn meta_active(&self) -> bool {
+        self.left_meta || self.right_meta
+    }
+
+    fn current_modifiers(&self) -> taurine_core::keys::Modifiers {
+        modifiers_from_sides(
+            self.left_ctrl,
+            self.right_ctrl,
+            self.left_shift,
+            self.right_shift,
+            self.left_alt,
+            self.right_alt,
+            self.left_meta,
+            self.right_meta,
+        )
+    }
+}
+
+fn update_flag(flag: &mut bool, is_press: bool, is_release: bool) {
+    if is_press {
+        *flag = true;
+    } else if is_release {
+        *flag = false;
+    }
+}
 
 pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
@@ -94,6 +161,7 @@ pub fn start_listener(
 
         thread::spawn(move || {
             let mut xkb = XkbMapper::default();
+            let mut modifier_sides = ModifierSides::default();
             let mut hotkey_evaluator = HotkeyEvaluator::new();
             let device_name = device.name().map(|s| s.to_string());
             let grab_enabled = match device.grab() {
@@ -130,6 +198,7 @@ pub fn start_listener(
                                     &spinner_style,
                                     &runtime_handle,
                                     &mut xkb,
+                                    &mut modifier_sides,
                                     &mut hotkey_evaluator,
                                     &mut swallow_next_backspace_release,
                                 );
@@ -151,6 +220,7 @@ pub fn start_listener(
                                 &spinner_style,
                                 &runtime_handle,
                                 &mut xkb,
+                                &mut modifier_sides,
                                 &mut hotkey_evaluator,
                                 &mut swallow_next_backspace_release,
                             );
@@ -177,6 +247,7 @@ fn process_frame(
     spinner_style: &Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     runtime_handle: &Handle,
     xkb: &mut XkbMapper,
+    modifier_sides: &mut ModifierSides,
     hotkey_evaluator: &mut HotkeyEvaluator,
     swallow_next_backspace_release: &mut bool,
 ) {
@@ -195,6 +266,8 @@ fn process_frame(
         if value == 2 {
             continue;
         }
+
+        modifier_sides.update(key, is_press, is_release);
 
         if *swallow_next_backspace_release && is_release && key == KeyCode::KEY_BACKSPACE {
             swallow_frame = true;
@@ -215,7 +288,7 @@ fn process_frame(
         let logical_key = logical_key_from_evdev(key);
         let engine_mode = state.engine_mode();
         let engine_event = xkb.process_key(key, is_press, engine_mode);
-        let modifiers = xkb.current_modifiers();
+        let modifiers = modifier_sides.current_modifiers();
 
         if IS_INJECTING.load(Ordering::SeqCst) {
             if is_release {
@@ -228,7 +301,7 @@ fn process_frame(
             continue;
         }
 
-        if is_press && xkb.is_alt_down() && key == KeyCode::KEY_GRAVE {
+        if is_press && modifier_sides.alt_active() && key == KeyCode::KEY_GRAVE {
             clear_undo_state(evaluator);
             hotkey_evaluator.clear();
             let now_paused = !paused.load(Ordering::Relaxed);
@@ -244,10 +317,10 @@ fn process_frame(
         }
 
         if is_press {
-            let shift_active = modifiers.contains(taurine_core::keys::Modifier::Shift);
-            let ctrl_active = modifiers.contains(taurine_core::keys::Modifier::Ctrl);
-            let alt_active = modifiers.contains(taurine_core::keys::Modifier::Alt);
-            let meta_active = modifiers.contains(taurine_core::keys::Modifier::Meta);
+            let shift_active = modifier_sides.shift_active();
+            let ctrl_active = modifier_sides.ctrl_active();
+            let alt_active = modifier_sides.alt_active();
+            let meta_active = modifier_sides.meta_active();
 
             if grab_enabled && let Some(logical_key) = logical_key {
                 match hotkey_evaluator.on_key_event(state.as_ref(), true, modifiers, logical_key) {
@@ -439,6 +512,7 @@ mod tests {
         let handle = rt.handle().clone();
 
         let mut xkb = crate::platform::linux::xkb::XkbMapper::default();
+        let mut modifier_sides = ModifierSides::default();
         let mut hotkey_evaluator = HotkeyEvaluator::new();
         let mut swallow = false;
 
@@ -463,6 +537,7 @@ mod tests {
             &spinner_style,
             &handle,
             &mut xkb,
+            &mut modifier_sides,
             &mut hotkey_evaluator,
             &mut swallow,
         );

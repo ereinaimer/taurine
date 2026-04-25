@@ -4,6 +4,7 @@ use crate::engine::source::{AdaptiveSource, MemorySource, SnippetSource};
 use crate::engine::variables::{
     ArgMap, ExpansionStep, FinalExpansion, finalize, interpolate, parse_tokens, tokenize,
 };
+use crate::keys::{Hotkey, hotkey_matches, parse_hotkey};
 
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -15,18 +16,44 @@ pub struct ExpansionCatalog {
 #[derive(Default)]
 pub struct HotkeyCatalog {
     actions: RwLock<std::collections::HashMap<String, AutomationAction>>,
+    parsed_actions: RwLock<Vec<ParsedHotkeyAction>>,
+}
+
+#[derive(Clone)]
+struct ParsedHotkeyAction {
+    trigger: String,
+    hotkey: Hotkey,
+    action: AutomationAction,
 }
 
 impl HotkeyCatalog {
     pub fn new() -> Self {
         Self {
             actions: RwLock::new(std::collections::HashMap::new()),
+            parsed_actions: RwLock::new(Vec::new()),
         }
     }
 
     pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, AutomationAction)>) {
+        let mut exact = std::collections::HashMap::new();
+        let mut parsed = Vec::new();
+
+        for (trigger, action) in actions {
+            if let Ok(hotkey) = parse_hotkey(&trigger) {
+                parsed.push(ParsedHotkeyAction {
+                    trigger: trigger.clone(),
+                    hotkey,
+                    action: action.clone(),
+                });
+            }
+            exact.insert(trigger, action);
+        }
+
         if let Ok(mut guard) = self.actions.write() {
-            *guard = actions.into_iter().collect();
+            *guard = exact;
+        }
+        if let Ok(mut guard) = self.parsed_actions.write() {
+            *guard = parsed;
         }
     }
 
@@ -35,6 +62,20 @@ impl HotkeyCatalog {
             .read()
             .ok()
             .and_then(|guard| guard.get(trigger).cloned())
+    }
+
+    pub fn match_action(&self, pressed: Hotkey) -> Option<(String, AutomationAction)> {
+        let exact_trigger = pressed.canonical_string();
+        if let Some(action) = self.get_action(&exact_trigger) {
+            return Some((exact_trigger, action));
+        }
+
+        self.parsed_actions.read().ok().and_then(|guard| {
+            guard
+                .iter()
+                .find(|entry| hotkey_matches(entry.hotkey, pressed))
+                .map(|entry| (entry.trigger.clone(), entry.action.clone()))
+        })
     }
 }
 
@@ -305,5 +346,35 @@ mod tests {
 
         let word_catalog = ExpansionCatalog::new();
         assert!(word_catalog.fetch_expansion("ctrl+shift+g").is_none());
+    }
+
+    #[test]
+    fn hotkey_catalog_matches_generic_fallback_after_exact_side_miss() {
+        let hotkeys = HotkeyCatalog::new();
+        hotkeys.load_actions(vec![(
+            "alt+m".to_string(),
+            AutomationAction::text("generic alt"),
+        )]);
+
+        let (trigger, action) = hotkeys
+            .match_action(parse_hotkey("ralt+m").unwrap())
+            .unwrap();
+        assert_eq!(trigger, "alt+m");
+        assert_eq!(action.output, "generic alt");
+    }
+
+    #[test]
+    fn hotkey_catalog_prefers_exact_side_specific_match() {
+        let hotkeys = HotkeyCatalog::new();
+        hotkeys.load_actions(vec![
+            ("alt+m".to_string(), AutomationAction::text("generic alt")),
+            ("ralt+m".to_string(), AutomationAction::text("right alt")),
+        ]);
+
+        let (trigger, action) = hotkeys
+            .match_action(parse_hotkey("ralt+m").unwrap())
+            .unwrap();
+        assert_eq!(trigger, "ralt+m");
+        assert_eq!(action.output, "right alt");
     }
 }

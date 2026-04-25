@@ -2,6 +2,7 @@ use crate::Result;
 use rusqlite::Connection;
 
 use crate::db::{crud::get_setting_value, now_unix_secs};
+use crate::keys::hotkey_strings_overlap;
 
 use super::{TriggerConflict, TriggerType};
 
@@ -64,16 +65,24 @@ pub fn find_trigger_overlap_conflict(
     target_os: &str,
     exclude_id: Option<&str>,
 ) -> Result<Option<TriggerConflict>> {
+    if matches!(trigger_type, TriggerType::Hotkey) {
+        crate::keys::parse_hotkey(trigger).map_err(|error| {
+            crate::Error::Config(format!(
+                "Invalid hotkey '{}' during overlap validation: {}",
+                trigger, error
+            ))
+        })?;
+    }
+
     let mut stmt = conn.prepare_cached(
         "SELECT id, trigger_type, trigger, target_os
          FROM automations
          WHERE trigger_type = ?1
-           AND trigger = ?2
            AND is_deleted = 0
          ORDER BY updated_at DESC",
     )?;
 
-    let rows = stmt.query_map([trigger_type.as_db_str(), trigger], |row| {
+    let rows = stmt.query_map([trigger_type.as_db_str()], |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
@@ -83,16 +92,27 @@ pub fn find_trigger_overlap_conflict(
     })?;
 
     for row in rows {
-        let (id, trigger_type_raw, trigger, existing_target_os) = row?;
+        let (id, trigger_type_raw, existing_trigger, existing_target_os) = row?;
         if exclude_id.is_some_and(|excluded| excluded == id) {
             continue;
         }
 
-        if target_os_values_overlap(&existing_target_os, target_os) {
+        let overlaps = if matches!(trigger_type, TriggerType::Hotkey) {
+            hotkey_strings_overlap(trigger, &existing_trigger).map_err(|error| {
+                crate::Error::Config(format!(
+                    "Invalid stored hotkey '{}' during overlap validation: {}",
+                    existing_trigger, error
+                ))
+            })?
+        } else {
+            trigger == existing_trigger
+        };
+
+        if overlaps && target_os_values_overlap(&existing_target_os, target_os) {
             return Ok(Some(TriggerConflict {
                 id,
                 trigger_type: TriggerType::parse_db(&trigger_type_raw)?,
-                trigger,
+                trigger: existing_trigger,
                 target_os: existing_target_os,
             }));
         }

@@ -138,8 +138,7 @@ impl EngineState {
     }
 
     pub fn fetch_hotkey_expansion(&self, hotkey: Hotkey) -> Option<(String, FinalExpansion)> {
-        let trigger = hotkey.canonical_string();
-        let action = self.hotkey_catalog.get_action(&trigger)?;
+        let (trigger, action) = self.hotkey_catalog.match_action(hotkey)?;
         let expansion = expand_automation_action(action, &trigger)?;
         Some((trigger, expansion))
     }
@@ -297,6 +296,50 @@ mod tests {
             expansion.steps.iter().any(
                 |step| matches!(step, crate::engine::variables::ExpansionStep::KeyPress(alias) if alias == "enter")
             )
+        );
+    }
+
+    #[test]
+    fn fetch_hotkey_expansion_matches_generic_hotkeys_from_side_specific_runtime_state() {
+        let state = EngineState::new('>');
+        state.load_hotkey_actions(vec![(
+            "alt+m".to_string(),
+            AutomationAction::text("monkeytype"),
+        )]);
+
+        let (trigger, expansion) = state
+            .fetch_hotkey_expansion(KeyPress {
+                modifiers: modifiers_with(&[Modifier::RightAlt]),
+                key: LogicalKey::Letter('m'),
+            })
+            .expect("generic alt hotkey should match right alt");
+
+        assert_eq!(trigger, "alt+m");
+        assert_eq!(
+            expansion.steps[0],
+            crate::engine::variables::ExpansionStep::Text("monkeytype".to_string())
+        );
+    }
+
+    #[test]
+    fn fetch_hotkey_expansion_prefers_exact_side_specific_trigger() {
+        let state = EngineState::new('>');
+        state.load_hotkey_actions(vec![
+            ("alt+m".to_string(), AutomationAction::text("generic")),
+            ("ralt+m".to_string(), AutomationAction::text("right")),
+        ]);
+
+        let (trigger, expansion) = state
+            .fetch_hotkey_expansion(KeyPress {
+                modifiers: modifiers_with(&[Modifier::RightAlt]),
+                key: LogicalKey::Letter('m'),
+            })
+            .expect("side-specific hotkey should resolve");
+
+        assert_eq!(trigger, "ralt+m");
+        assert_eq!(
+            expansion.steps[0],
+            crate::engine::variables::ExpansionStep::Text("right".to_string())
         );
     }
 }

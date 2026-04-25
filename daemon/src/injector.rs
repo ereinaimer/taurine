@@ -283,15 +283,20 @@ fn simulate_key_alias(alias: &str) -> bool {
 fn modifier_alias_to_rdev_key(alias: &str) -> Option<Key> {
     match alias {
         "ctrl" | "control" => Some(Key::ControlLeft),
-        "lctrl" => Some(Key::ControlLeft),
-        "rctrl" => Some(Key::ControlRight),
+        "lctrl" | "leftctrl" | "leftcontrol" => Some(Key::ControlLeft),
+        "rctrl" | "rightctrl" | "rightcontrol" => Some(Key::ControlRight),
         "alt" => Some(Key::Alt),
-        "lalt" => Some(Key::Alt),
-        "ralt" => Some(Key::AltGr),
+        "lalt" | "leftalt" | "leftoption" => Some(Key::Alt),
+        "ralt" | "rightalt" | "rightoption" | "altgr" => Some(Key::AltGr),
         "shift" => Some(Key::ShiftLeft),
-        "lshift" => Some(Key::ShiftLeft),
-        "rshift" => Some(Key::ShiftRight),
+        "lshift" | "leftshift" => Some(Key::ShiftLeft),
+        "rshift" | "rightshift" => Some(Key::ShiftRight),
         "win" | "mod" | "super" | "meta" => Some(Key::MetaLeft),
+        "lmeta" | "leftmeta" | "lwin" | "leftwin" | "leftsuper" | "leftcmd" | "leftcommand" => {
+            Some(Key::MetaLeft)
+        }
+        "rmeta" | "rightmeta" | "rwin" | "rightwin" | "rightsuper" | "rightcmd"
+        | "rightcommand" => Some(Key::MetaRight),
         // macOS aliases
         "cmd" | "command" => Some(Key::MetaLeft),
         "opt" | "option" => Some(Key::Alt),
@@ -304,15 +309,20 @@ fn modifier_alias_to_rdev_key(alias: &str) -> Option<Key> {
 fn modifier_alias_to_evdev_key(alias: &str) -> Option<evdev::KeyCode> {
     match alias {
         "ctrl" | "control" => Some(evdev::KeyCode::KEY_LEFTCTRL),
-        "lctrl" => Some(evdev::KeyCode::KEY_LEFTCTRL),
-        "rctrl" => Some(evdev::KeyCode::KEY_RIGHTCTRL),
+        "lctrl" | "leftctrl" | "leftcontrol" => Some(evdev::KeyCode::KEY_LEFTCTRL),
+        "rctrl" | "rightctrl" | "rightcontrol" => Some(evdev::KeyCode::KEY_RIGHTCTRL),
         "alt" => Some(evdev::KeyCode::KEY_LEFTALT),
-        "lalt" => Some(evdev::KeyCode::KEY_LEFTALT),
-        "ralt" => Some(evdev::KeyCode::KEY_RIGHTALT),
+        "lalt" | "leftalt" | "leftoption" => Some(evdev::KeyCode::KEY_LEFTALT),
+        "ralt" | "rightalt" | "rightoption" | "altgr" => Some(evdev::KeyCode::KEY_RIGHTALT),
         "shift" => Some(evdev::KeyCode::KEY_LEFTSHIFT),
-        "lshift" => Some(evdev::KeyCode::KEY_LEFTSHIFT),
-        "rshift" => Some(evdev::KeyCode::KEY_RIGHTSHIFT),
+        "lshift" | "leftshift" => Some(evdev::KeyCode::KEY_LEFTSHIFT),
+        "rshift" | "rightshift" => Some(evdev::KeyCode::KEY_RIGHTSHIFT),
         "win" | "mod" | "super" | "meta" => Some(evdev::KeyCode::KEY_LEFTMETA),
+        "lmeta" | "leftmeta" | "lwin" | "leftwin" | "leftsuper" | "leftcmd" | "leftcommand" => {
+            Some(evdev::KeyCode::KEY_LEFTMETA)
+        }
+        "rmeta" | "rightmeta" | "rwin" | "rightwin" | "rightsuper" | "rightcmd"
+        | "rightcommand" => Some(evdev::KeyCode::KEY_RIGHTMETA),
         "cmd" | "command" => Some(evdev::KeyCode::KEY_LEFTMETA),
         "opt" | "option" => Some(evdev::KeyCode::KEY_LEFTALT),
         _ => None,
@@ -1139,8 +1149,47 @@ mod tests {
     #[test]
     fn modifier_alias_resolves_all_variants() {
         let modifiers = [
-            "ctrl", "control", "lctrl", "rctrl", "alt", "lalt", "ralt", "shift", "lshift",
-            "rshift", "win", "mod", "super", "meta", "cmd", "command", "opt", "option",
+            "ctrl",
+            "control",
+            "lctrl",
+            "leftctrl",
+            "leftcontrol",
+            "rctrl",
+            "rightctrl",
+            "rightcontrol",
+            "alt",
+            "lalt",
+            "leftalt",
+            "leftoption",
+            "ralt",
+            "rightalt",
+            "rightoption",
+            "altgr",
+            "shift",
+            "lshift",
+            "leftshift",
+            "rshift",
+            "rightshift",
+            "win",
+            "mod",
+            "super",
+            "meta",
+            "lmeta",
+            "leftmeta",
+            "leftwin",
+            "leftsuper",
+            "leftcmd",
+            "leftcommand",
+            "rmeta",
+            "rightmeta",
+            "rightwin",
+            "rightsuper",
+            "rightcmd",
+            "rightcommand",
+            "cmd",
+            "command",
+            "opt",
+            "option",
         ];
         for alias in &modifiers {
             assert!(

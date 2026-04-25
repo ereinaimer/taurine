@@ -199,6 +199,57 @@ mod tests {
     }
 
     #[test]
+    fn add_hotkey_rejects_generic_vs_side_specific_overlap_and_allows_distinct_sides() {
+        init_tracing_for_tests();
+
+        with_test_db(|_db_path| {
+            execute(
+                "alt+m".to_string(),
+                "one".to_string(),
+                "all".to_string(),
+                true,
+            )
+            .unwrap();
+
+            let error = execute(
+                "ralt+m".to_string(),
+                "two".to_string(),
+                "win".to_string(),
+                true,
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("Trigger conflict"));
+        });
+
+        with_test_db(|db_path| {
+            execute(
+                "lalt+m".to_string(),
+                "left".to_string(),
+                "all".to_string(),
+                true,
+            )
+            .unwrap();
+            execute(
+                "ralt+m".to_string(),
+                "right".to_string(),
+                "all".to_string(),
+                true,
+            )
+            .unwrap();
+
+            let count: i64 = rusqlite::Connection::open(db_path)
+                .unwrap()
+                .query_row(
+                    "SELECT COUNT(*) FROM automations WHERE trigger_type = 'hotkey' AND is_deleted = 0",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 2);
+        });
+    }
+
+    #[test]
     fn add_hotkey_updates_exact_duplicate_registration() {
         init_tracing_for_tests();
 

@@ -1,14 +1,14 @@
 use std::borrow::Cow;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Modifier {
+pub enum ModifierFamily {
     Ctrl,
     Shift,
     Alt,
     Meta,
 }
 
-impl Modifier {
+impl ModifierFamily {
     pub const fn canonical_name(self) -> &'static str {
         match self {
             Self::Ctrl => "ctrl",
@@ -18,28 +18,153 @@ impl Modifier {
         }
     }
 
-    pub const fn bit(self) -> u8 {
+    pub const fn ordered() -> [Self; 4] {
+        [Self::Ctrl, Self::Shift, Self::Alt, Self::Meta]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ModifierSide {
+    Left,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ModifierState {
+    Absent,
+    Generic,
+    Left,
+    Right,
+    Both,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Modifier {
+    Ctrl,
+    LeftCtrl,
+    RightCtrl,
+    Shift,
+    LeftShift,
+    RightShift,
+    Alt,
+    LeftAlt,
+    RightAlt,
+    Meta,
+    LeftMeta,
+    RightMeta,
+}
+
+impl Modifier {
+    pub const fn canonical_name(self) -> &'static str {
+        match self {
+            Self::Ctrl => "ctrl",
+            Self::LeftCtrl => "lctrl",
+            Self::RightCtrl => "rctrl",
+            Self::Shift => "shift",
+            Self::LeftShift => "lshift",
+            Self::RightShift => "rshift",
+            Self::Alt => "alt",
+            Self::LeftAlt => "lalt",
+            Self::RightAlt => "ralt",
+            Self::Meta => "meta",
+            Self::LeftMeta => "lmeta",
+            Self::RightMeta => "rmeta",
+        }
+    }
+
+    pub const fn family(self) -> ModifierFamily {
+        match self {
+            Self::Ctrl | Self::LeftCtrl | Self::RightCtrl => ModifierFamily::Ctrl,
+            Self::Shift | Self::LeftShift | Self::RightShift => ModifierFamily::Shift,
+            Self::Alt | Self::LeftAlt | Self::RightAlt => ModifierFamily::Alt,
+            Self::Meta | Self::LeftMeta | Self::RightMeta => ModifierFamily::Meta,
+        }
+    }
+
+    pub const fn side(self) -> Option<ModifierSide> {
+        match self {
+            Self::LeftCtrl | Self::LeftShift | Self::LeftAlt | Self::LeftMeta => {
+                Some(ModifierSide::Left)
+            }
+            Self::RightCtrl | Self::RightShift | Self::RightAlt | Self::RightMeta => {
+                Some(ModifierSide::Right)
+            }
+            Self::Ctrl | Self::Shift | Self::Alt | Self::Meta => None,
+        }
+    }
+
+    pub const fn generic_for_family(family: ModifierFamily) -> Self {
+        match family {
+            ModifierFamily::Ctrl => Self::Ctrl,
+            ModifierFamily::Shift => Self::Shift,
+            ModifierFamily::Alt => Self::Alt,
+            ModifierFamily::Meta => Self::Meta,
+        }
+    }
+
+    pub const fn sided_for_family(family: ModifierFamily, side: ModifierSide) -> Self {
+        match (family, side) {
+            (ModifierFamily::Ctrl, ModifierSide::Left) => Self::LeftCtrl,
+            (ModifierFamily::Ctrl, ModifierSide::Right) => Self::RightCtrl,
+            (ModifierFamily::Shift, ModifierSide::Left) => Self::LeftShift,
+            (ModifierFamily::Shift, ModifierSide::Right) => Self::RightShift,
+            (ModifierFamily::Alt, ModifierSide::Left) => Self::LeftAlt,
+            (ModifierFamily::Alt, ModifierSide::Right) => Self::RightAlt,
+            (ModifierFamily::Meta, ModifierSide::Left) => Self::LeftMeta,
+            (ModifierFamily::Meta, ModifierSide::Right) => Self::RightMeta,
+        }
+    }
+
+    pub const fn bit(self) -> u16 {
         match self {
             Self::Ctrl => 1 << 0,
-            Self::Shift => 1 << 1,
-            Self::Alt => 1 << 2,
-            Self::Meta => 1 << 3,
+            Self::LeftCtrl => 1 << 1,
+            Self::RightCtrl => 1 << 2,
+            Self::Shift => 1 << 3,
+            Self::LeftShift => 1 << 4,
+            Self::RightShift => 1 << 5,
+            Self::Alt => 1 << 6,
+            Self::LeftAlt => 1 << 7,
+            Self::RightAlt => 1 << 8,
+            Self::Meta => 1 << 9,
+            Self::LeftMeta => 1 << 10,
+            Self::RightMeta => 1 << 11,
         }
     }
 
     pub fn from_alias(alias: &str) -> Option<Self> {
         match alias {
             "ctrl" | "control" => Some(Self::Ctrl),
+            "lctrl" | "leftctrl" | "leftcontrol" => Some(Self::LeftCtrl),
+            "rctrl" | "rightctrl" | "rightcontrol" => Some(Self::RightCtrl),
             "shift" => Some(Self::Shift),
+            "lshift" | "leftshift" => Some(Self::LeftShift),
+            "rshift" | "rightshift" => Some(Self::RightShift),
             "alt" | "opt" | "option" => Some(Self::Alt),
+            "lalt" | "leftalt" | "leftoption" => Some(Self::LeftAlt),
+            "ralt" | "rightalt" | "rightoption" | "altgr" => Some(Self::RightAlt),
             "meta" | "cmd" | "command" | "win" | "super" | "mod" => Some(Self::Meta),
+            "lmeta" | "leftmeta" | "lwin" | "leftwin" | "leftsuper" | "leftcmd" | "leftcommand" => {
+                Some(Self::LeftMeta)
+            }
+            "rmeta" | "rightmeta" | "rwin" | "rightwin" | "rightsuper" | "rightcmd"
+            | "rightcommand" => Some(Self::RightMeta),
             _ => None,
         }
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModifierInsertError {
+    Duplicate(Modifier),
+    Conflict {
+        existing: Modifier,
+        incoming: Modifier,
+    },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct Modifiers(pub(crate) u8);
+pub struct Modifiers(pub(crate) u16);
 
 impl Modifiers {
     pub const NONE: Self = Self(0);
@@ -52,25 +177,124 @@ impl Modifiers {
         self.0 == 0
     }
 
-    pub const fn contains(self, modifier: Modifier) -> bool {
+    fn contains_exact(self, modifier: Modifier) -> bool {
         self.0 & modifier.bit() != 0
     }
 
-    pub fn insert(&mut self, modifier: Modifier) -> bool {
-        let existed = self.contains(modifier);
+    pub const fn contains(self, modifier: Modifier) -> bool {
+        match modifier.side() {
+            Some(_) => self.0 & modifier.bit() != 0,
+            None => !matches!(self.family_state(modifier.family()), ModifierState::Absent),
+        }
+    }
+
+    pub fn insert(&mut self, modifier: Modifier) -> Result<(), ModifierInsertError> {
+        let family = modifier.family();
+        let existing_state = self.family_state(family);
+
+        if matches!(existing_state, ModifierState::Absent) {
+            self.0 |= modifier.bit();
+            return Ok(());
+        }
+
+        let existing = self
+            .canonical_modifier_for_family(family)
+            .unwrap_or_else(|| Modifier::generic_for_family(family));
+
+        if self.contains_exact(modifier) {
+            return Err(ModifierInsertError::Duplicate(existing));
+        }
+
+        Err(ModifierInsertError::Conflict {
+            existing,
+            incoming: modifier,
+        })
+    }
+
+    pub fn insert_active(&mut self, modifier: Modifier) {
         self.0 |= modifier.bit();
-        !existed
+    }
+
+    pub const fn family_state(self, family: ModifierFamily) -> ModifierState {
+        let generic = self.0 & Modifier::generic_for_family(family).bit() != 0;
+        let left = self.0 & Modifier::sided_for_family(family, ModifierSide::Left).bit() != 0;
+        let right = self.0 & Modifier::sided_for_family(family, ModifierSide::Right).bit() != 0;
+
+        if generic {
+            ModifierState::Generic
+        } else if left && right {
+            ModifierState::Both
+        } else if left {
+            ModifierState::Left
+        } else if right {
+            ModifierState::Right
+        } else {
+            ModifierState::Absent
+        }
     }
 
     pub fn ordered(self) -> impl Iterator<Item = Modifier> {
-        [
-            Modifier::Ctrl,
-            Modifier::Shift,
-            Modifier::Alt,
-            Modifier::Meta,
-        ]
-        .into_iter()
-        .filter(move |modifier| self.contains(*modifier))
+        ModifierFamily::ordered()
+            .into_iter()
+            .filter_map(move |family| self.canonical_modifier_for_family(family))
+    }
+
+    pub fn overlaps(self, other: Self) -> bool {
+        ModifierFamily::ordered().into_iter().all(|family| {
+            family_states_overlap(self.family_state(family), other.family_state(family))
+        })
+    }
+
+    pub fn matches_active(self, active: Self) -> bool {
+        ModifierFamily::ordered().into_iter().all(|family| {
+            family_requirement_matches(self.family_state(family), active.family_state(family))
+        })
+    }
+
+    fn canonical_modifier_for_family(self, family: ModifierFamily) -> Option<Modifier> {
+        match self.family_state(family) {
+            ModifierState::Absent => None,
+            ModifierState::Generic => Some(Modifier::generic_for_family(family)),
+            ModifierState::Left => Some(Modifier::sided_for_family(family, ModifierSide::Left)),
+            ModifierState::Right => Some(Modifier::sided_for_family(family, ModifierSide::Right)),
+            ModifierState::Both => Some(Modifier::generic_for_family(family)),
+        }
+    }
+}
+
+const fn family_states_overlap(left: ModifierState, right: ModifierState) -> bool {
+    match left {
+        ModifierState::Absent => matches!(right, ModifierState::Absent),
+        ModifierState::Generic => {
+            matches!(
+                right,
+                ModifierState::Generic
+                    | ModifierState::Left
+                    | ModifierState::Right
+                    | ModifierState::Both
+            )
+        }
+        ModifierState::Left => matches!(right, ModifierState::Generic | ModifierState::Left),
+        ModifierState::Right => matches!(right, ModifierState::Generic | ModifierState::Right),
+        ModifierState::Both => matches!(right, ModifierState::Generic | ModifierState::Both),
+    }
+}
+
+const fn family_requirement_matches(required: ModifierState, active: ModifierState) -> bool {
+    match required {
+        ModifierState::Absent => matches!(active, ModifierState::Absent),
+        ModifierState::Generic => {
+            matches!(
+                active,
+                ModifierState::Generic
+                    | ModifierState::Left
+                    | ModifierState::Right
+                    | ModifierState::Both
+            )
+        }
+        ModifierState::Left => matches!(active, ModifierState::Left),
+        ModifierState::Right => matches!(active, ModifierState::Right),
+        ModifierState::Both => matches!(active, ModifierState::Both),
     }
 }
 
@@ -179,13 +403,7 @@ impl LogicalKey {
             "scrolllock" => Some(Self::ScrollLock),
             "printscreen" | "prtsc" => Some(Self::PrintScreen),
             "pause" | "break" => Some(Self::Pause),
-            "ctrl" | "control" => Some(Self::Modifier(Modifier::Ctrl)),
-            "shift" => Some(Self::Modifier(Modifier::Shift)),
-            "alt" | "opt" | "option" => Some(Self::Modifier(Modifier::Alt)),
-            "meta" | "cmd" | "command" | "win" | "super" | "mod" => {
-                Some(Self::Modifier(Modifier::Meta))
-            }
-            _ => None,
+            _ => Modifier::from_alias(alias).map(Self::Modifier),
         }
     }
 

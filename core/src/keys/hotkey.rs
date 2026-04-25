@@ -1,5 +1,5 @@
 use super::error::KeyParseError;
-use super::key::{LogicalKey, Modifier, Modifiers};
+use super::key::{LogicalKey, Modifier, ModifierInsertError, Modifiers};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KeyPress {
@@ -74,11 +74,7 @@ pub fn parse_hotkey(input: &str) -> Result<Hotkey, KeyParseError> {
 
     for token in tokens {
         if let Some(modifier) = Modifier::from_alias(&token) {
-            if !modifiers.insert(modifier) {
-                return Err(KeyParseError::DuplicateModifier {
-                    modifier: modifier.canonical_name(),
-                });
-            }
+            insert_modifier(&mut modifiers, modifier)?;
             continue;
         }
 
@@ -129,11 +125,7 @@ pub fn parse_keypress_alias(input: &str) -> Result<KeyPress, KeyParseError> {
                 alias: alias.clone(),
             });
         };
-        if !modifiers.insert(modifier) {
-            return Err(KeyParseError::DuplicateModifier {
-                modifier: modifier.canonical_name(),
-            });
-        }
+        insert_modifier(&mut modifiers, modifier)?;
     }
 
     let Some(key) = LogicalKey::from_alias(main_key_alias) else {
@@ -149,6 +141,18 @@ pub fn normalize_keypress_alias(input: &str) -> Result<String, KeyParseError> {
     Ok(parse_keypress_alias(input)?.canonical_string())
 }
 
+pub fn hotkey_matches(required: Hotkey, active: Hotkey) -> bool {
+    required.key == active.key && required.modifiers.matches_active(active.modifiers)
+}
+
+pub fn hotkeys_overlap(left: Hotkey, right: Hotkey) -> bool {
+    left.key == right.key && left.modifiers.overlaps(right.modifiers)
+}
+
+pub fn hotkey_strings_overlap(left: &str, right: &str) -> Result<bool, KeyParseError> {
+    Ok(hotkeys_overlap(parse_hotkey(left)?, parse_hotkey(right)?))
+}
+
 pub fn danger_for_platform(hotkey: Hotkey, platform: HotkeyPlatform) -> Option<DangerousHotkey> {
     match platform {
         HotkeyPlatform::Windows | HotkeyPlatform::Linux => windows_linux_danger(hotkey),
@@ -157,19 +161,25 @@ pub fn danger_for_platform(hotkey: Hotkey, platform: HotkeyPlatform) -> Option<D
 }
 
 pub fn conflicts_with_taurine_global_hotkey(hotkey: Hotkey) -> Option<TaurineReservedHotkey> {
-    if hotkey == taurine_pause_hotkey() {
-        Some(TaurineReservedHotkey::PauseToggle)
-    } else {
-        None
-    }
+    hotkeys_overlap(hotkey, taurine_pause_hotkey()).then_some(TaurineReservedHotkey::PauseToggle)
 }
 
 pub fn taurine_pause_hotkey() -> Hotkey {
-    let mut modifiers = Modifiers::new();
-    let _ = modifiers.insert(Modifier::Alt);
-    Hotkey {
-        modifiers,
-        key: LogicalKey::Backquote,
+    hotkey_with(&[Modifier::Alt], LogicalKey::Backquote)
+}
+
+fn insert_modifier(modifiers: &mut Modifiers, modifier: Modifier) -> Result<(), KeyParseError> {
+    match modifiers.insert(modifier) {
+        Ok(()) => Ok(()),
+        Err(ModifierInsertError::Duplicate(existing)) => Err(KeyParseError::DuplicateModifier {
+            modifier: existing.canonical_name(),
+        }),
+        Err(ModifierInsertError::Conflict { existing, incoming }) => {
+            Err(KeyParseError::ConflictingModifiers {
+                first: existing.canonical_name(),
+                second: incoming.canonical_name(),
+            })
+        }
     }
 }
 
@@ -202,88 +212,169 @@ fn canonical_string(modifiers: Modifiers, key: LogicalKey) -> String {
 }
 
 fn windows_linux_danger(hotkey: Hotkey) -> Option<DangerousHotkey> {
-    if is_ctrl_hotkey(hotkey, LogicalKey::Letter('c')) {
-        return Some(DangerousHotkey::Copy);
-    }
-    if is_ctrl_hotkey(hotkey, LogicalKey::Letter('v')) {
-        return Some(DangerousHotkey::Paste);
-    }
-    if is_ctrl_hotkey(hotkey, LogicalKey::Letter('x')) {
-        return Some(DangerousHotkey::Cut);
-    }
-    if is_ctrl_hotkey(hotkey, LogicalKey::Letter('z')) {
-        return Some(DangerousHotkey::Undo);
-    }
-    if is_ctrl_hotkey(hotkey, LogicalKey::Letter('a')) {
-        return Some(DangerousHotkey::SelectAll);
-    }
-    if is_ctrl_hotkey(hotkey, LogicalKey::Letter('s')) {
-        return Some(DangerousHotkey::Save);
-    }
-    if hotkey.modifiers == modifiers_with(&[Modifier::Alt]) && hotkey.key == LogicalKey::Tab {
-        return Some(DangerousHotkey::AppSwitcher);
-    }
-    if hotkey.modifiers == modifiers_with(&[Modifier::Alt]) && hotkey.key == LogicalKey::Function(4)
-    {
-        return Some(DangerousHotkey::CloseWindow);
-    }
-    if hotkey.modifiers == modifiers_with(&[Modifier::Ctrl, Modifier::Alt])
-        && hotkey.key == LogicalKey::Delete
-    {
-        return Some(DangerousHotkey::SecureAttention);
-    }
-    None
+    danger_match(
+        hotkey,
+        DangerousHotkey::Copy,
+        &[Modifier::Ctrl],
+        LogicalKey::Letter('c'),
+    )
+    .or_else(|| {
+        danger_match(
+            hotkey,
+            DangerousHotkey::Paste,
+            &[Modifier::Ctrl],
+            LogicalKey::Letter('v'),
+        )
+    })
+    .or_else(|| {
+        danger_match(
+            hotkey,
+            DangerousHotkey::Cut,
+            &[Modifier::Ctrl],
+            LogicalKey::Letter('x'),
+        )
+    })
+    .or_else(|| {
+        danger_match(
+            hotkey,
+            DangerousHotkey::Undo,
+            &[Modifier::Ctrl],
+            LogicalKey::Letter('z'),
+        )
+    })
+    .or_else(|| {
+        danger_match(
+            hotkey,
+            DangerousHotkey::SelectAll,
+            &[Modifier::Ctrl],
+            LogicalKey::Letter('a'),
+        )
+    })
+    .or_else(|| {
+        danger_match(
+            hotkey,
+            DangerousHotkey::Save,
+            &[Modifier::Ctrl],
+            LogicalKey::Letter('s'),
+        )
+    })
+    .or_else(|| {
+        danger_match(
+            hotkey,
+            DangerousHotkey::AppSwitcher,
+            &[Modifier::Alt],
+            LogicalKey::Tab,
+        )
+    })
+    .or_else(|| {
+        danger_match(
+            hotkey,
+            DangerousHotkey::CloseWindow,
+            &[Modifier::Alt],
+            LogicalKey::Function(4),
+        )
+    })
+    .or_else(|| {
+        danger_match(
+            hotkey,
+            DangerousHotkey::SecureAttention,
+            &[Modifier::Ctrl, Modifier::Alt],
+            LogicalKey::Delete,
+        )
+    })
 }
 
 fn mac_danger(hotkey: Hotkey) -> Option<DangerousHotkey> {
-    if is_meta_hotkey(hotkey, LogicalKey::Letter('c')) {
-        return Some(DangerousHotkey::Copy);
-    }
-    if is_meta_hotkey(hotkey, LogicalKey::Letter('v')) {
-        return Some(DangerousHotkey::Paste);
-    }
-    if is_meta_hotkey(hotkey, LogicalKey::Letter('x')) {
-        return Some(DangerousHotkey::Cut);
-    }
-    if is_meta_hotkey(hotkey, LogicalKey::Letter('z')) {
-        return Some(DangerousHotkey::Undo);
-    }
-    if is_meta_hotkey(hotkey, LogicalKey::Letter('a')) {
-        return Some(DangerousHotkey::SelectAll);
-    }
-    if is_meta_hotkey(hotkey, LogicalKey::Letter('s')) {
-        return Some(DangerousHotkey::Save);
-    }
-    if hotkey.modifiers == modifiers_with(&[Modifier::Meta]) && hotkey.key == LogicalKey::Tab {
-        return Some(DangerousHotkey::AppSwitcher);
-    }
-    if hotkey.modifiers == modifiers_with(&[Modifier::Meta])
-        && hotkey.key == LogicalKey::Letter('q')
-    {
-        return Some(DangerousHotkey::QuitApplication);
-    }
-    None
+    danger_match(
+        hotkey,
+        DangerousHotkey::Copy,
+        &[Modifier::Meta],
+        LogicalKey::Letter('c'),
+    )
+    .or_else(|| {
+        danger_match(
+            hotkey,
+            DangerousHotkey::Paste,
+            &[Modifier::Meta],
+            LogicalKey::Letter('v'),
+        )
+    })
+    .or_else(|| {
+        danger_match(
+            hotkey,
+            DangerousHotkey::Cut,
+            &[Modifier::Meta],
+            LogicalKey::Letter('x'),
+        )
+    })
+    .or_else(|| {
+        danger_match(
+            hotkey,
+            DangerousHotkey::Undo,
+            &[Modifier::Meta],
+            LogicalKey::Letter('z'),
+        )
+    })
+    .or_else(|| {
+        danger_match(
+            hotkey,
+            DangerousHotkey::SelectAll,
+            &[Modifier::Meta],
+            LogicalKey::Letter('a'),
+        )
+    })
+    .or_else(|| {
+        danger_match(
+            hotkey,
+            DangerousHotkey::Save,
+            &[Modifier::Meta],
+            LogicalKey::Letter('s'),
+        )
+    })
+    .or_else(|| {
+        danger_match(
+            hotkey,
+            DangerousHotkey::AppSwitcher,
+            &[Modifier::Meta],
+            LogicalKey::Tab,
+        )
+    })
+    .or_else(|| {
+        danger_match(
+            hotkey,
+            DangerousHotkey::QuitApplication,
+            &[Modifier::Meta],
+            LogicalKey::Letter('q'),
+        )
+    })
 }
 
-fn modifiers_with(modifiers: &[Modifier]) -> Modifiers {
+fn danger_match(
+    hotkey: Hotkey,
+    dangerous: DangerousHotkey,
+    modifiers: &[Modifier],
+    key: LogicalKey,
+) -> Option<DangerousHotkey> {
+    hotkeys_overlap(hotkey, hotkey_with(modifiers, key)).then_some(dangerous)
+}
+
+fn hotkey_with(modifiers: &[Modifier], key: LogicalKey) -> Hotkey {
     let mut bitset = Modifiers::new();
     for modifier in modifiers {
-        let _ = bitset.insert(*modifier);
+        bitset
+            .insert(*modifier)
+            .expect("hotkey helper should only build valid modifier families");
     }
-    bitset
-}
-
-fn is_ctrl_hotkey(hotkey: Hotkey, key: LogicalKey) -> bool {
-    hotkey.modifiers == modifiers_with(&[Modifier::Ctrl]) && hotkey.key == key
-}
-
-fn is_meta_hotkey(hotkey: Hotkey, key: LogicalKey) -> bool {
-    hotkey.modifiers == modifiers_with(&[Modifier::Meta]) && hotkey.key == key
+    Hotkey {
+        modifiers: bitset,
+        key,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::keys::ModifierFamily;
 
     #[test]
     fn normalizes_ctrl_shift_g_variants() {
@@ -310,10 +401,54 @@ mod tests {
     }
 
     #[test]
-    fn rejects_duplicate_modifiers() {
+    fn normalizes_side_specific_modifier_aliases() {
+        assert_eq!(normalize_hotkey("ralt+m").unwrap(), "ralt+m");
+        assert_eq!(normalize_hotkey("lalt+m").unwrap(), "lalt+m");
+        assert_eq!(normalize_hotkey("rightalt+m").unwrap(), "ralt+m");
+        assert_eq!(normalize_hotkey("altgr+m").unwrap(), "ralt+m");
+        assert_eq!(
+            normalize_hotkey("leftcontrol+rightalt+k").unwrap(),
+            "lctrl+ralt+k"
+        );
+        assert_eq!(
+            normalize_hotkey("leftshift+rightmeta+space").unwrap(),
+            "lshift+rmeta+space"
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_and_conflicting_modifiers() {
         assert_eq!(
             parse_hotkey("ctrl+control+k").unwrap_err(),
             KeyParseError::DuplicateModifier { modifier: "ctrl" }
+        );
+        assert_eq!(
+            parse_hotkey("alt+ralt+m").unwrap_err(),
+            KeyParseError::ConflictingModifiers {
+                first: "alt",
+                second: "ralt",
+            }
+        );
+        assert_eq!(
+            parse_hotkey("lalt+ralt+m").unwrap_err(),
+            KeyParseError::ConflictingModifiers {
+                first: "lalt",
+                second: "ralt",
+            }
+        );
+        assert_eq!(
+            parse_hotkey("ctrl+lctrl+k").unwrap_err(),
+            KeyParseError::ConflictingModifiers {
+                first: "ctrl",
+                second: "lctrl",
+            }
+        );
+        assert_eq!(
+            parse_hotkey("lctrl+rctrl+k").unwrap_err(),
+            KeyParseError::ConflictingModifiers {
+                first: "lctrl",
+                second: "rctrl",
+            }
         );
     }
 
@@ -362,9 +497,35 @@ mod tests {
     }
 
     #[test]
-    fn flags_platform_specific_dangerous_hotkeys() {
+    fn semantic_overlap_is_side_aware() {
+        assert!(hotkey_strings_overlap("alt+m", "lalt+m").unwrap());
+        assert!(hotkey_strings_overlap("alt+m", "ralt+m").unwrap());
+        assert!(!hotkey_strings_overlap("lalt+m", "ralt+m").unwrap());
+        assert!(hotkey_strings_overlap("ctrl+alt+m", "lctrl+ralt+m").unwrap());
+        assert!(hotkey_strings_overlap("lctrl+alt+m", "lctrl+ralt+m").unwrap());
+        assert!(!hotkey_strings_overlap("lctrl+alt+m", "rctrl+alt+m").unwrap());
+        assert!(!hotkey_strings_overlap("ctrl+m", "ctrl+alt+m").unwrap());
+    }
+
+    #[test]
+    fn runtime_matching_is_strict_about_sides_and_extra_families() {
+        let generic_alt = parse_hotkey("alt+m").unwrap();
+        let left_alt = parse_hotkey("lalt+m").unwrap();
+        let right_alt = parse_hotkey("ralt+m").unwrap();
+        let ctrl_right_alt = parse_hotkey("ctrl+ralt+m").unwrap();
+
+        assert!(hotkey_matches(generic_alt, left_alt));
+        assert!(hotkey_matches(generic_alt, right_alt));
+        assert!(hotkey_matches(right_alt, right_alt));
+        assert!(!hotkey_matches(right_alt, left_alt));
+        assert!(!hotkey_matches(right_alt, ctrl_right_alt));
+    }
+
+    #[test]
+    fn flags_platform_specific_dangerous_hotkeys_including_side_specific_variants() {
         let windows_copy = parse_hotkey("ctrl+c").unwrap();
-        let windows_switch = parse_hotkey("alt+tab").unwrap();
+        let windows_left_copy = parse_hotkey("lctrl+c").unwrap();
+        let windows_right_switch = parse_hotkey("ralt+tab").unwrap();
         let mac_copy = parse_hotkey("cmd+c").unwrap();
         let mac_quit = parse_hotkey("meta+q").unwrap();
 
@@ -373,7 +534,11 @@ mod tests {
             Some(DangerousHotkey::Copy)
         );
         assert_eq!(
-            danger_for_platform(windows_switch, HotkeyPlatform::Linux),
+            danger_for_platform(windows_left_copy, HotkeyPlatform::Linux),
+            Some(DangerousHotkey::Copy)
+        );
+        assert_eq!(
+            danger_for_platform(windows_right_switch, HotkeyPlatform::Linux),
             Some(DangerousHotkey::AppSwitcher)
         );
         assert_eq!(
@@ -388,13 +553,23 @@ mod tests {
     }
 
     #[test]
-    fn detects_taurine_pause_hotkey_conflicts_only_for_alt_backtick() {
+    fn detects_taurine_pause_hotkey_conflicts_for_generic_and_side_specific_alt() {
         let pause = parse_hotkey("alt+`").unwrap();
+        let left_pause = parse_hotkey("lalt+`").unwrap();
+        let right_pause = parse_hotkey("ralt+`").unwrap();
         let alt_enter = parse_hotkey("alt+enter").unwrap();
         let alt_escape = parse_hotkey("alt+esc").unwrap();
 
         assert_eq!(
             conflicts_with_taurine_global_hotkey(pause),
+            Some(TaurineReservedHotkey::PauseToggle)
+        );
+        assert_eq!(
+            conflicts_with_taurine_global_hotkey(left_pause),
+            Some(TaurineReservedHotkey::PauseToggle)
+        );
+        assert_eq!(
+            conflicts_with_taurine_global_hotkey(right_pause),
             Some(TaurineReservedHotkey::PauseToggle)
         );
         assert_eq!(conflicts_with_taurine_global_hotkey(alt_enter), None);
@@ -409,5 +584,14 @@ mod tests {
             "ctrl+shift"
         );
         assert_eq!(normalize_keypress_alias("mod").unwrap(), "meta");
+        assert_eq!(normalize_keypress_alias("rightcommand").unwrap(), "rmeta");
+    }
+
+    #[test]
+    fn modifier_helpers_preserve_family_order() {
+        let hotkey = parse_hotkey("rctrl+lalt+k").unwrap();
+        let ordered: Vec<ModifierFamily> =
+            hotkey.modifiers.ordered().map(Modifier::family).collect();
+        assert_eq!(ordered, vec![ModifierFamily::Ctrl, ModifierFamily::Alt]);
     }
 }

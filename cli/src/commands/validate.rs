@@ -290,6 +290,13 @@ mod tests {
     }
 
     #[test]
+    fn prepare_trigger_canonicalizes_side_specific_hotkeys() {
+        let prepared = prepare_trigger("leftcontrol+altgr+k", true, "win").unwrap();
+        assert_eq!(prepared.trigger_type, TriggerType::Hotkey);
+        assert_eq!(prepared.stored_trigger, "lctrl+ralt+k");
+    }
+
+    #[test]
     fn prepare_trigger_rejects_malformed_hotkeys() {
         let error = prepare_trigger("ctrl+k+p", true, "linux").unwrap_err();
         assert!(error.to_string().contains("multiple base keys"));
@@ -310,6 +317,15 @@ mod tests {
     }
 
     #[test]
+    fn prepare_trigger_rejects_side_specific_variants_of_dangerous_hotkeys() {
+        let error = prepare_trigger("lctrl+c", true, "linux").unwrap_err();
+        assert!(error.to_string().contains("copy shortcut"));
+
+        let error = prepare_trigger("ralt+tab", true, "linux").unwrap_err();
+        assert!(error.to_string().contains("application switcher"));
+    }
+
+    #[test]
     fn prepare_trigger_treats_all_as_all_desktop_platforms() {
         let error = prepare_trigger("meta+q", true, "all").unwrap_err();
         assert!(error.to_string().contains("quit-application shortcut"));
@@ -319,6 +335,12 @@ mod tests {
     #[test]
     fn prepare_trigger_rejects_taurine_pause_hotkey_only() {
         let error = prepare_trigger("alt+`", true, "all").unwrap_err();
+        assert!(error.to_string().contains("global pause hotkey"));
+
+        let error = prepare_trigger("lalt+`", true, "all").unwrap_err();
+        assert!(error.to_string().contains("global pause hotkey"));
+
+        let error = prepare_trigger("ralt+`", true, "all").unwrap_err();
         assert!(error.to_string().contains("global pause hotkey"));
 
         assert!(prepare_trigger("alt+enter", true, "all").is_ok());

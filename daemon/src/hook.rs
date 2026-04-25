@@ -10,7 +10,7 @@ use tracing::{debug, error};
 use crate::hotkey;
 #[cfg(not(target_os = "linux"))]
 use crate::hotkey_evaluator::{
-    HotkeyEvaluation, HotkeyEvaluator, logical_key_from_rdev, modifiers_from_flags,
+    HotkeyEvaluation, HotkeyEvaluator, logical_key_from_rdev, modifiers_from_sides,
 };
 #[cfg(not(target_os = "linux"))]
 use crate::injector::{self, IS_INJECTING, IS_SIMULATING};
@@ -51,10 +51,14 @@ pub fn start_listener(
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     runtime_handle: Handle,
 ) {
-    let alt_down = std::sync::atomic::AtomicBool::new(false);
-    let ctrl_down = std::sync::atomic::AtomicBool::new(false);
-    let shift_down = std::sync::atomic::AtomicBool::new(false);
-    let meta_down = std::sync::atomic::AtomicBool::new(false);
+    let left_alt_down = std::sync::atomic::AtomicBool::new(false);
+    let right_alt_down = std::sync::atomic::AtomicBool::new(false);
+    let left_ctrl_down = std::sync::atomic::AtomicBool::new(false);
+    let right_ctrl_down = std::sync::atomic::AtomicBool::new(false);
+    let left_shift_down = std::sync::atomic::AtomicBool::new(false);
+    let right_shift_down = std::sync::atomic::AtomicBool::new(false);
+    let left_meta_down = std::sync::atomic::AtomicBool::new(false);
+    let right_meta_down = std::sync::atomic::AtomicBool::new(false);
     let hotkey_evaluator = Mutex::new(HotkeyEvaluator::new());
 
     let callback = move |event: Event| -> Option<Event> {
@@ -63,29 +67,45 @@ pub fn start_listener(
         }
 
         match event.event_type {
-            EventType::KeyPress(Key::Alt) | EventType::KeyPress(Key::AltGr) => {
-                alt_down.store(true, Ordering::Relaxed);
+            EventType::KeyPress(Key::Alt) => left_alt_down.store(true, Ordering::Relaxed),
+            EventType::KeyRelease(Key::Alt) => left_alt_down.store(false, Ordering::Relaxed),
+            EventType::KeyPress(Key::AltGr) => right_alt_down.store(true, Ordering::Relaxed),
+            EventType::KeyRelease(Key::AltGr) => right_alt_down.store(false, Ordering::Relaxed),
+            EventType::KeyPress(Key::ControlLeft) => {
+                left_ctrl_down.store(true, Ordering::Relaxed);
             }
-            EventType::KeyRelease(Key::Alt) | EventType::KeyRelease(Key::AltGr) => {
-                alt_down.store(false, Ordering::Relaxed);
+            EventType::KeyRelease(Key::ControlLeft) => {
+                left_ctrl_down.store(false, Ordering::Relaxed);
             }
-            EventType::KeyPress(Key::ControlLeft) | EventType::KeyPress(Key::ControlRight) => {
-                ctrl_down.store(true, Ordering::Relaxed);
+            EventType::KeyPress(Key::ControlRight) => {
+                right_ctrl_down.store(true, Ordering::Relaxed);
             }
-            EventType::KeyRelease(Key::ControlLeft) | EventType::KeyRelease(Key::ControlRight) => {
-                ctrl_down.store(false, Ordering::Relaxed);
+            EventType::KeyRelease(Key::ControlRight) => {
+                right_ctrl_down.store(false, Ordering::Relaxed);
             }
-            EventType::KeyPress(Key::ShiftLeft) | EventType::KeyPress(Key::ShiftRight) => {
-                shift_down.store(true, Ordering::Relaxed);
+            EventType::KeyPress(Key::ShiftLeft) => {
+                left_shift_down.store(true, Ordering::Relaxed);
             }
-            EventType::KeyRelease(Key::ShiftLeft) | EventType::KeyRelease(Key::ShiftRight) => {
-                shift_down.store(false, Ordering::Relaxed);
+            EventType::KeyRelease(Key::ShiftLeft) => {
+                left_shift_down.store(false, Ordering::Relaxed);
             }
-            EventType::KeyPress(Key::MetaLeft) | EventType::KeyPress(Key::MetaRight) => {
-                meta_down.store(true, Ordering::Relaxed);
+            EventType::KeyPress(Key::ShiftRight) => {
+                right_shift_down.store(true, Ordering::Relaxed);
             }
-            EventType::KeyRelease(Key::MetaLeft) | EventType::KeyRelease(Key::MetaRight) => {
-                meta_down.store(false, Ordering::Relaxed);
+            EventType::KeyRelease(Key::ShiftRight) => {
+                right_shift_down.store(false, Ordering::Relaxed);
+            }
+            EventType::KeyPress(Key::MetaLeft) => {
+                left_meta_down.store(true, Ordering::Relaxed);
+            }
+            EventType::KeyRelease(Key::MetaLeft) => {
+                left_meta_down.store(false, Ordering::Relaxed);
+            }
+            EventType::KeyPress(Key::MetaRight) => {
+                right_meta_down.store(true, Ordering::Relaxed);
+            }
+            EventType::KeyRelease(Key::MetaRight) => {
+                right_meta_down.store(false, Ordering::Relaxed);
             }
             _ => {}
         }
@@ -109,7 +129,11 @@ pub fn start_listener(
         }
 
         let is_chord = if let Ok(spec) = pause_hotkey.read() {
-            hotkey::is_pause_chord(&event, alt_down.load(Ordering::Relaxed), &spec)
+            hotkey::is_pause_chord(
+                &event,
+                left_alt_down.load(Ordering::Relaxed) || right_alt_down.load(Ordering::Relaxed),
+                &spec,
+            )
         } else {
             false
         };
@@ -137,12 +161,28 @@ pub fn start_listener(
                 let _ = lock.process_event(EngineEvent::Interrupt);
             }
             EventType::KeyPress(key) => {
-                let shift_active = shift_down.load(Ordering::Relaxed);
-                let ctrl_active = ctrl_down.load(Ordering::Relaxed);
-                let alt_active = alt_down.load(Ordering::Relaxed);
-                let meta_active = meta_down.load(Ordering::Relaxed);
-                let modifiers =
-                    modifiers_from_flags(ctrl_active, shift_active, alt_active, meta_active);
+                let left_ctrl_active = left_ctrl_down.load(Ordering::Relaxed);
+                let right_ctrl_active = right_ctrl_down.load(Ordering::Relaxed);
+                let left_shift_active = left_shift_down.load(Ordering::Relaxed);
+                let right_shift_active = right_shift_down.load(Ordering::Relaxed);
+                let left_alt_active = left_alt_down.load(Ordering::Relaxed);
+                let right_alt_active = right_alt_down.load(Ordering::Relaxed);
+                let left_meta_active = left_meta_down.load(Ordering::Relaxed);
+                let right_meta_active = right_meta_down.load(Ordering::Relaxed);
+                let ctrl_active = left_ctrl_active || right_ctrl_active;
+                let shift_active = left_shift_active || right_shift_active;
+                let alt_active = left_alt_active || right_alt_active;
+                let meta_active = left_meta_active || right_meta_active;
+                let modifiers = modifiers_from_sides(
+                    left_ctrl_active,
+                    right_ctrl_active,
+                    left_shift_active,
+                    right_shift_active,
+                    left_alt_active,
+                    right_alt_active,
+                    left_meta_active,
+                    right_meta_active,
+                );
 
                 if paused.load(Ordering::Relaxed) {
                     return Some(event);

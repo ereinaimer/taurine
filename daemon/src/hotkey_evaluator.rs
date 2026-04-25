@@ -82,7 +82,7 @@ impl HotkeyEvaluator {
     }
 }
 
-#[cfg(any(test, not(target_os = "linux")))]
+#[cfg(test)]
 pub fn modifiers_from_flags(ctrl: bool, shift: bool, alt: bool, meta: bool) -> Modifiers {
     let mut modifiers = Modifiers::new();
     if ctrl {
@@ -100,15 +100,56 @@ pub fn modifiers_from_flags(ctrl: bool, shift: bool, alt: bool, meta: bool) -> M
     modifiers
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn modifiers_from_sides(
+    left_ctrl: bool,
+    right_ctrl: bool,
+    left_shift: bool,
+    right_shift: bool,
+    left_alt: bool,
+    right_alt: bool,
+    left_meta: bool,
+    right_meta: bool,
+) -> Modifiers {
+    let mut modifiers = Modifiers::new();
+    if left_ctrl {
+        modifiers.insert_active(Modifier::LeftCtrl);
+    }
+    if right_ctrl {
+        modifiers.insert_active(Modifier::RightCtrl);
+    }
+    if left_shift {
+        modifiers.insert_active(Modifier::LeftShift);
+    }
+    if right_shift {
+        modifiers.insert_active(Modifier::RightShift);
+    }
+    if left_alt {
+        modifiers.insert_active(Modifier::LeftAlt);
+    }
+    if right_alt {
+        modifiers.insert_active(Modifier::RightAlt);
+    }
+    if left_meta {
+        modifiers.insert_active(Modifier::LeftMeta);
+    }
+    if right_meta {
+        modifiers.insert_active(Modifier::RightMeta);
+    }
+    modifiers
+}
+
 #[cfg(not(target_os = "linux"))]
 pub fn logical_key_from_rdev(key: rdev::Key) -> Option<LogicalKey> {
     use rdev::Key;
 
     match key {
-        Key::Alt | Key::AltGr => Some(LogicalKey::Modifier(Modifier::Alt)),
+        Key::Alt => Some(LogicalKey::Modifier(Modifier::LeftAlt)),
+        Key::AltGr => Some(LogicalKey::Modifier(Modifier::RightAlt)),
         Key::Backspace => Some(LogicalKey::Backspace),
         Key::CapsLock => Some(LogicalKey::CapsLock),
-        Key::ControlLeft | Key::ControlRight => Some(LogicalKey::Modifier(Modifier::Ctrl)),
+        Key::ControlLeft => Some(LogicalKey::Modifier(Modifier::LeftCtrl)),
+        Key::ControlRight => Some(LogicalKey::Modifier(Modifier::RightCtrl)),
         Key::Delete | Key::KpDelete => Some(LogicalKey::Delete),
         Key::DownArrow => Some(LogicalKey::Down),
         Key::End => Some(LogicalKey::End),
@@ -139,7 +180,8 @@ pub fn logical_key_from_rdev(key: rdev::Key) -> Option<LogicalKey> {
         Key::Kp9 => Some(LogicalKey::NumpadDigit(9)),
         Key::KpReturn | Key::Return => Some(LogicalKey::Enter),
         Key::LeftArrow => Some(LogicalKey::Left),
-        Key::MetaLeft | Key::MetaRight => Some(LogicalKey::Modifier(Modifier::Meta)),
+        Key::MetaLeft => Some(LogicalKey::Modifier(Modifier::LeftMeta)),
+        Key::MetaRight => Some(LogicalKey::Modifier(Modifier::RightMeta)),
         Key::Minus | Key::KpMinus => Some(LogicalKey::Minus),
         Key::Num0 => Some(LogicalKey::Digit(0)),
         Key::Num1 => Some(LogicalKey::Digit(1)),
@@ -158,7 +200,8 @@ pub fn logical_key_from_rdev(key: rdev::Key) -> Option<LogicalKey> {
         Key::PrintScreen => Some(LogicalKey::PrintScreen),
         Key::RightArrow => Some(LogicalKey::Right),
         Key::ScrollLock => Some(LogicalKey::ScrollLock),
-        Key::ShiftLeft | Key::ShiftRight => Some(LogicalKey::Modifier(Modifier::Shift)),
+        Key::ShiftLeft => Some(LogicalKey::Modifier(Modifier::LeftShift)),
+        Key::ShiftRight => Some(LogicalKey::Modifier(Modifier::RightShift)),
         Key::Space => Some(LogicalKey::Space),
         Key::Tab => Some(LogicalKey::Tab),
         Key::UpArrow => Some(LogicalKey::Up),
@@ -207,12 +250,12 @@ pub fn logical_key_from_evdev(key: evdev::KeyCode) -> Option<LogicalKey> {
     use evdev::KeyCode;
 
     match key {
-        KeyCode::KEY_LEFTALT | KeyCode::KEY_RIGHTALT => Some(LogicalKey::Modifier(Modifier::Alt)),
+        KeyCode::KEY_LEFTALT => Some(LogicalKey::Modifier(Modifier::LeftAlt)),
+        KeyCode::KEY_RIGHTALT => Some(LogicalKey::Modifier(Modifier::RightAlt)),
         KeyCode::KEY_BACKSPACE => Some(LogicalKey::Backspace),
         KeyCode::KEY_CAPSLOCK => Some(LogicalKey::CapsLock),
-        KeyCode::KEY_LEFTCTRL | KeyCode::KEY_RIGHTCTRL => {
-            Some(LogicalKey::Modifier(Modifier::Ctrl))
-        }
+        KeyCode::KEY_LEFTCTRL => Some(LogicalKey::Modifier(Modifier::LeftCtrl)),
+        KeyCode::KEY_RIGHTCTRL => Some(LogicalKey::Modifier(Modifier::RightCtrl)),
         KeyCode::KEY_DELETE => Some(LogicalKey::Delete),
         KeyCode::KEY_DOWN => Some(LogicalKey::Down),
         KeyCode::KEY_END => Some(LogicalKey::End),
@@ -243,9 +286,8 @@ pub fn logical_key_from_evdev(key: evdev::KeyCode) -> Option<LogicalKey> {
         KeyCode::KEY_KP9 => Some(LogicalKey::NumpadDigit(9)),
         KeyCode::KEY_KPENTER | KeyCode::KEY_ENTER => Some(LogicalKey::Enter),
         KeyCode::KEY_LEFT => Some(LogicalKey::Left),
-        KeyCode::KEY_LEFTMETA | KeyCode::KEY_RIGHTMETA => {
-            Some(LogicalKey::Modifier(Modifier::Meta))
-        }
+        KeyCode::KEY_LEFTMETA => Some(LogicalKey::Modifier(Modifier::LeftMeta)),
+        KeyCode::KEY_RIGHTMETA => Some(LogicalKey::Modifier(Modifier::RightMeta)),
         KeyCode::KEY_MINUS | KeyCode::KEY_KPMINUS => Some(LogicalKey::Minus),
         KeyCode::KEY_0 => Some(LogicalKey::Digit(0)),
         KeyCode::KEY_1 => Some(LogicalKey::Digit(1)),
@@ -264,9 +306,8 @@ pub fn logical_key_from_evdev(key: evdev::KeyCode) -> Option<LogicalKey> {
         KeyCode::KEY_PRINT => Some(LogicalKey::PrintScreen),
         KeyCode::KEY_RIGHT => Some(LogicalKey::Right),
         KeyCode::KEY_SCROLLLOCK => Some(LogicalKey::ScrollLock),
-        KeyCode::KEY_LEFTSHIFT | KeyCode::KEY_RIGHTSHIFT => {
-            Some(LogicalKey::Modifier(Modifier::Shift))
-        }
+        KeyCode::KEY_LEFTSHIFT => Some(LogicalKey::Modifier(Modifier::LeftShift)),
+        KeyCode::KEY_RIGHTSHIFT => Some(LogicalKey::Modifier(Modifier::RightShift)),
         KeyCode::KEY_SPACE => Some(LogicalKey::Space),
         KeyCode::KEY_TAB => Some(LogicalKey::Tab),
         KeyCode::KEY_UP => Some(LogicalKey::Up),
@@ -434,6 +475,66 @@ mod tests {
     }
 
     #[test]
+    fn side_specific_alt_hotkeys_only_match_the_requested_side() {
+        let state = EngineState::new('>');
+        state.load_hotkey_actions(vec![
+            ("lalt+m".to_string(), AutomationAction::text("left alt")),
+            ("ralt+m".to_string(), AutomationAction::text("right alt")),
+        ]);
+        let mut evaluator = HotkeyEvaluator::new();
+
+        let left_alt = modifiers_from_sides(false, false, false, false, true, false, false, false);
+        let right_alt = modifiers_from_sides(false, false, false, false, false, true, false, false);
+
+        match evaluator.on_key_event(&state, true, left_alt, LogicalKey::Letter('m')) {
+            HotkeyEvaluation::Matched(expansion) => assert_eq!(expansion.trigger, "lalt+m"),
+            other => panic!("expected left alt match, got {other:?}"),
+        }
+        assert_eq!(
+            evaluator.on_key_event(&state, false, left_alt, LogicalKey::Letter('m')),
+            HotkeyEvaluation::Swallow
+        );
+
+        match evaluator.on_key_event(&state, true, right_alt, LogicalKey::Letter('m')) {
+            HotkeyEvaluation::Matched(expansion) => assert_eq!(expansion.trigger, "ralt+m"),
+            other => panic!("expected right alt match, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn generic_alt_hotkey_matches_either_side_without_matching_extra_families() {
+        let state = EngineState::new('>');
+        load_hotkey(&state, "alt+m", "generic alt");
+        let mut evaluator = HotkeyEvaluator::new();
+
+        let left_alt = modifiers_from_sides(false, false, false, false, true, false, false, false);
+        let right_alt = modifiers_from_sides(false, false, false, false, false, true, false, false);
+        let ctrl_right_alt =
+            modifiers_from_sides(true, false, false, false, false, true, false, false);
+
+        assert!(matches!(
+            evaluator.on_key_event(&state, true, left_alt, LogicalKey::Letter('m')),
+            HotkeyEvaluation::Matched(_)
+        ));
+        assert_eq!(
+            evaluator.on_key_event(&state, false, left_alt, LogicalKey::Letter('m')),
+            HotkeyEvaluation::Swallow
+        );
+        assert!(matches!(
+            evaluator.on_key_event(&state, true, right_alt, LogicalKey::Letter('m')),
+            HotkeyEvaluation::Matched(_)
+        ));
+        assert_eq!(
+            evaluator.on_key_event(&state, false, right_alt, LogicalKey::Letter('m')),
+            HotkeyEvaluation::Swallow
+        );
+        assert_eq!(
+            evaluator.on_key_event(&state, true, ctrl_right_alt, LogicalKey::Letter('m')),
+            HotkeyEvaluation::NoMatch
+        );
+    }
+
+    #[test]
     fn modifier_only_keypresses_do_not_match_hotkeys() {
         let state = EngineState::new('>');
         load_hotkey(&state, "ctrl+shift+g", "git status");
@@ -477,6 +578,16 @@ mod tests {
         );
     }
 
+    #[test]
+    fn modifiers_from_sides_preserves_side_specific_order() {
+        let modifiers = modifiers_from_sides(true, false, false, false, false, true, false, true);
+        let ordered: Vec<Modifier> = modifiers.ordered().collect();
+        assert_eq!(
+            ordered,
+            vec![Modifier::LeftCtrl, Modifier::RightAlt, Modifier::RightMeta]
+        );
+    }
+
     #[cfg(not(target_os = "linux"))]
     #[test]
     fn rdev_mapping_keeps_top_row_and_numpad_digits_distinct() {
@@ -487,6 +598,14 @@ mod tests {
         assert_eq!(
             logical_key_from_rdev(rdev::Key::Kp1),
             Some(LogicalKey::NumpadDigit(1))
+        );
+        assert_eq!(
+            logical_key_from_rdev(rdev::Key::AltGr),
+            Some(LogicalKey::Modifier(Modifier::RightAlt))
+        );
+        assert_eq!(
+            logical_key_from_rdev(rdev::Key::ControlLeft),
+            Some(LogicalKey::Modifier(Modifier::LeftCtrl))
         );
     }
 
@@ -500,6 +619,14 @@ mod tests {
         assert_eq!(
             logical_key_from_evdev(evdev::KeyCode::KEY_KP1),
             Some(LogicalKey::NumpadDigit(1))
+        );
+        assert_eq!(
+            logical_key_from_evdev(evdev::KeyCode::KEY_RIGHTALT),
+            Some(LogicalKey::Modifier(Modifier::RightAlt))
+        );
+        assert_eq!(
+            logical_key_from_evdev(evdev::KeyCode::KEY_LEFTCTRL),
+            Some(LogicalKey::Modifier(Modifier::LeftCtrl))
         );
     }
 }
