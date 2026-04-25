@@ -15,13 +15,18 @@ pub struct ExpansionCatalog {
 
 #[derive(Default)]
 pub struct HotkeyCatalog {
-    actions: RwLock<std::collections::HashMap<String, AutomationAction>>,
-    parsed_actions: RwLock<std::collections::HashMap<LogicalKey, Vec<ParsedHotkeyAction>>>,
+    snapshot: RwLock<CatalogSnapshot>,
+}
+
+#[derive(Default)]
+struct CatalogSnapshot {
+    actions: std::collections::HashMap<String, ParsedHotkeyAction>,
+    parsed_actions: std::collections::HashMap<LogicalKey, Vec<ParsedHotkeyAction>>,
 }
 
 #[derive(Clone)]
 struct ParsedHotkeyAction {
-    trigger: String,
+    configured_trigger: String,
     hotkey: Hotkey,
     action: AutomationAction,
 }
@@ -29,59 +34,58 @@ struct ParsedHotkeyAction {
 impl HotkeyCatalog {
     pub fn new() -> Self {
         Self {
-            actions: RwLock::new(std::collections::HashMap::new()),
-            parsed_actions: RwLock::new(std::collections::HashMap::new()),
+            snapshot: RwLock::new(CatalogSnapshot::default()),
         }
     }
 
     pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, AutomationAction)>) {
-        let mut exact = std::collections::HashMap::new();
-        let mut parsed = std::collections::HashMap::<LogicalKey, Vec<ParsedHotkeyAction>>::new();
+        let mut snapshot = CatalogSnapshot::default();
 
         for (trigger, action) in actions {
             if let Ok(hotkey) = parse_hotkey(&trigger) {
-                parsed
+                let entry = ParsedHotkeyAction {
+                    configured_trigger: trigger.clone(),
+                    hotkey,
+                    action: action.clone(),
+                };
+
+                snapshot
+                    .actions
+                    .insert(hotkey.canonical_string(), entry.clone());
+                snapshot.actions.insert(trigger.clone(), entry.clone());
+                snapshot
+                    .parsed_actions
                     .entry(hotkey.logical_key())
                     .or_default()
-                    .push(ParsedHotkeyAction {
-                        trigger: trigger.clone(),
-                        hotkey,
-                        action: action.clone(),
-                    });
-                // Store in exact map using canonical form for consistent lookups
-                exact.insert(hotkey.canonical_string(), action.clone());
+                    .push(entry);
             }
-            exact.insert(trigger, action);
         }
 
-        if let Ok(mut guard) = self.actions.write() {
-            *guard = exact;
-        }
-        if let Ok(mut guard) = self.parsed_actions.write() {
-            *guard = parsed;
+        if let Ok(mut guard) = self.snapshot.write() {
+            *guard = snapshot;
         }
     }
 
     pub fn get_action(&self, trigger: &str) -> Option<AutomationAction> {
-        self.actions
+        self.snapshot
             .read()
             .ok()
-            .and_then(|guard| guard.get(trigger).cloned())
+            .and_then(|guard| guard.actions.get(trigger).map(|entry| entry.action.clone()))
     }
 
     pub fn match_action(&self, pressed: Hotkey) -> Option<(String, AutomationAction)> {
         let exact_trigger = pressed.canonical_string();
-        if let Some(action) = self.get_action(&exact_trigger) {
-            return Some((exact_trigger, action));
-        }
-
         let base_key = pressed.logical_key();
-        self.parsed_actions.read().ok().and_then(|guard| {
-            guard.get(&base_key).and_then(|bucket| {
+        self.snapshot.read().ok().and_then(|guard| {
+            if let Some(entry) = guard.actions.get(&exact_trigger) {
+                return Some((entry.configured_trigger.clone(), entry.action.clone()));
+            }
+
+            guard.parsed_actions.get(&base_key).and_then(|bucket| {
                 bucket
                     .iter()
                     .find(|entry| hotkey_matches(entry.hotkey, pressed))
-                    .map(|entry| (entry.trigger.clone(), entry.action.clone()))
+                    .map(|entry| (entry.configured_trigger.clone(), entry.action.clone()))
             })
         })
     }
@@ -384,5 +388,20 @@ mod tests {
             .unwrap();
         assert_eq!(trigger, "ralt+m");
         assert_eq!(action.output, "right alt");
+    }
+
+    #[test]
+    fn hotkey_catalog_exact_match_returns_configured_alias_not_canonical_trigger() {
+        let hotkeys = HotkeyCatalog::new();
+        hotkeys.load_actions(vec![(
+            "altgr+m".to_string(),
+            AutomationAction::text("configured alias"),
+        )]);
+
+        let (trigger, action) = hotkeys
+            .match_action(parse_hotkey("ralt+m").unwrap())
+            .unwrap();
+        assert_eq!(trigger, "altgr+m");
+        assert_eq!(action.output, "configured alias");
     }
 }
