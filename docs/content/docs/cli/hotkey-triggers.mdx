@@ -14,6 +14,22 @@ While Word Triggers are activated by typing a trigger character followed by a wo
   Hotkey triggers are global while the Taurine daemon is running. They do not require a trigger character and do not use the "Backspace Undo" mechanism because no trigger text was typed.
 </Callout>
 
+## Side-Specific Modifiers
+
+Taurine supports **side-specific modifier** triggers, allowing you to bind different automations to the left and right physical keys (e.g., Left Shift vs. Right Shift).
+
+### Generic vs. Specific Matching
+
+*   **Generic Modifiers** (`ctrl`, `shift`, `alt`, `meta`): Match the requirement if **either** the left or right physical key is pressed.
+*   **Side-Specific Modifiers** (`lctrl`, `ralt`, etc.): Match **only** if that specific physical key is pressed.
+
+### Conflict & Overlap Rules
+
+Taurine prevents ambiguous triggers by checking for overlaps:
+*   **Overlap**: `alt+m` conflicts with `lalt+m` because the generic `alt` requirement overlaps with the specific `lalt`.
+*   **Independence**: `lalt+m` and `ralt+m` are considered separate identities and can coexist.
+*   **Invalid Combinations**: You cannot combine a generic and side-specific version of the same family (e.g., `ctrl+lctrl+k` is rejected).
+
 ## Creating Hotkey Automations
 
 To create a hotkey-triggered automation, use the `--hotkey` flag with the `add` command.
@@ -30,6 +46,17 @@ Trigger a shell script with a hotkey.
 
 ```bash
 taurine add script --hotkey "ctrl+shift+w" winget-install -l powershell "winget install [0]"
+```
+
+### Side-Specific Examples
+Bind different productivity tools to the same base key using different sides:
+
+```bash
+# Bind Right Alt + M to open a typing test
+taurine add script --hotkey "ralt+m" "Start-Process https://monkeytype.com" -l powershell -m silent
+
+# Bind Left Alt + M to open Gmail
+taurine add script --hotkey "lalt+m" "Start-Process https://mail.google.com" -l powershell -m silent
 ```
 
 ## Hotkey Syntax & Canonicalization
@@ -53,12 +80,19 @@ Example: `meta+alt+ctrl+shift+g` becomes `ctrl+shift+alt+meta+g`.
 ## Supported Keys & Aliases
 
 ### Modifiers
-| Key | Supported Aliases |
-| :--- | :--- |
-| **Ctrl** | `ctrl`, `control` |
-| **Shift** | `shift` |
-| **Alt** | `alt`, `opt`, `option` |
-| **Meta** | `meta`, `cmd`, `command`, `win`, `super`, `mod` |
+
+Taurine recognizes generic modifiers and their side-specific variants.
+
+| Family | Generic | Left Side Aliases | Right Side Aliases |
+| :--- | :--- | :--- | :--- |
+| **Ctrl** | `ctrl`, `control` | `lctrl`, `leftctrl`, `leftcontrol` | `rctrl`, `rightctrl`, `rightcontrol` |
+| **Shift** | `shift` | `lshift`, `leftshift` | `rshift`, `rightshift` |
+| **Alt** | `alt`, `opt`, `option` | `lalt`, `leftalt`, `leftoption` | `ralt`, `rightalt`, `rightoption`, `altgr` |
+| **Meta** | `meta`, `cmd`, `win`, `super`, `mod` | `lmeta`, `lwin`, `leftsuper`, `leftcmd` | `rmeta`, `rwin`, `rightsuper`, `rightcmd` |
+
+<Callout title="Platform Implementation" type="info">
+  On Linux, Taurine uses `evdev` to track physical hardware scan codes directly. On Windows and macOS, it uses system-level hooks (`rdev`) to distinguish between virtual key codes for left/right variants.
+</Callout>
 
 ### Special Keys
 | Key | Aliases |
@@ -79,6 +113,7 @@ Taurine distinguishes between the top-row number keys and the numeric keypad.
 To prevent accidental system lockouts or conflicts, Taurine validates every hotkey against several safety rules.
 
 ### Rejected Hotkeys
+
 Taurine will reject the following shortcuts:
 - **Modifier-only**: e.g., `ctrl+shift` (must include a base key).
 - **Multi-base chords**: e.g., `ctrl+k+p` (only one non-modifier key allowed).
@@ -89,6 +124,10 @@ Taurine will reject the following shortcuts:
   - `alt+tab`, `alt+f4` (Windows/Linux)
   - `cmd+tab`, `cmd+q` (macOS)
 - **Taurine Reserved**: `alt+` ` is reserved for Taurine's global pause hotkey.
+
+<Callout title="Side-Specific Safety" type="warning">
+  Safety rules and reservations apply to **both generic and side-specific variants**. For example, both `ctrl+c` and `lctrl+c` are rejected to prevent interfering with your system's copy command. Similarly, `lalt+` ` and `ralt+` ` are also reserved.
+</Callout>
 
 ## Duplicate & Update Behavior
 

@@ -27,10 +27,21 @@ taurine add script url 'start https://[url=google.com]' --lang powershell --os w
 - Typing `>url:youtube.com ` opens **youtube.com** in your default browser.
 
 ### Hotkey Scripts
+
 Trigger complex system actions with a keyboard shortcut.
 
 ```bash
 taurine add script --hotkey "ctrl+shift+w" winget-install -l powershell "winget install [0]"
+```
+
+You can also use **side-specific modifiers** to distinguish between left and right keys:
+
+```bash
+# Right Alt + M opens monkeytype
+taurine add script --hotkey "ralt+m" "Start-Process https://monkeytype.com" -l powershell -m silent
+
+# Left Alt + M opens Gmail
+taurine add script --hotkey "lalt+m" "Start-Process https://mail.google.com" -l powershell -m silent
 ```
 
 <Callout title="No Arguments for Hotkeys" type="warn">
