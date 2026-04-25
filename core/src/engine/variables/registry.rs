@@ -24,6 +24,7 @@ const SYSTEM_ROOTS: &[&str] = &[
     "date",
     "uuid",
     "env",
+    "net",
     "sys",
     "run",
     "random",
@@ -81,6 +82,7 @@ const DATE_MODIFIERS: &[&str] = &[
 ];
 
 const UUID_MODIFIERS: &[&str] = &["v4", "v7", "simple"];
+const NET_MODIFIERS: &[&str] = &["hostname", "localip", "mac"];
 const SYS_MODIFIERS: &[&str] = &["os", "osversion", "arch", "hostname", "user"];
 const RUN_LANGUAGES: &[&str] = &["bash", "powershell", "python", "node", "node_esm", "cmd"];
 const RUN_MODIFIERS: &[&str] = &[
@@ -208,6 +210,7 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "date" => format!("Valid modifiers: {}", DATE_MODIFIERS.join(", ")),
         "uuid" => format!("Valid modifiers: uuid, {}", UUID_MODIFIERS.join(", ")),
         "env" => "Valid form: [env.VAR_NAME]".to_string(),
+        "net" => format!("Valid modifiers: {}", NET_MODIFIERS.join(", ")),
         "sys" => format!("Valid modifiers: {}", SYS_MODIFIERS.join(", ")),
         "run" => "Valid form: [run.<lang>(...)] or [run.<lang>.file(...).args(...)]. Languages: bash, powershell, python, node, node_esm, cmd".to_string(),
         "random" => format!("Valid modifiers: {}", RANDOM_MODIFIERS.join(", ")),
@@ -230,6 +233,7 @@ pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), Val
         "date" => validate_known_modifier("date", modifier, DATE_MODIFIERS),
         "uuid" => validate_optional_known_modifier("uuid", modifier, UUID_MODIFIERS),
         "env" => validate_env_modifier(modifier),
+        "net" => validate_known_modifier("net", modifier, NET_MODIFIERS),
         "sys" => validate_known_modifier("sys", modifier, SYS_MODIFIERS),
         "run" => validate_run_modifier(modifier),
         "random" => validate_random_modifier(modifier),
@@ -644,6 +648,10 @@ mod tests {
             split_system_tag("time.now.upper"),
             Some(("time", Some("now")))
         );
+        assert_eq!(
+            split_system_tag("net.hostname.upper"),
+            Some(("net", Some("hostname")))
+        );
         assert_eq!(split_system_tag("clipboard"), Some(("clipboard", None)));
         assert_eq!(split_system_tag("clipboard(1)"), Some(("clipboard", None)));
         assert_eq!(
@@ -695,6 +703,26 @@ mod tests {
                 root: "uuid",
                 modifier: "v1".to_string(),
                 allowed: UUID_MODIFIERS,
+            })
+        );
+    }
+
+    #[test]
+    fn validates_net_modifiers() {
+        for modifier in NET_MODIFIERS {
+            assert_eq!(validate_system_tag("net", Some(modifier)), Ok(()));
+        }
+
+        assert_eq!(
+            validate_system_tag("net", None),
+            Err(ValidationError::MissingModifier { root: "net" })
+        );
+        assert_eq!(
+            validate_system_tag("net", Some("publicip")),
+            Err(ValidationError::InvalidModifier {
+                root: "net",
+                modifier: "publicip".to_string(),
+                allowed: NET_MODIFIERS,
             })
         );
     }

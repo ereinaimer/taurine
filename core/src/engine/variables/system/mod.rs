@@ -9,6 +9,7 @@ pub mod date;
 pub mod env;
 pub mod lorem;
 pub mod mock;
+pub mod net;
 pub mod random;
 pub mod run;
 pub mod sys;
@@ -48,6 +49,7 @@ pub fn is_reserved(mut key: &str) -> bool {
         || key.starts_with("time.")
         || key.starts_with("date.")
         || key.starts_with("env.")
+        || key.starts_with("net.")
         || key.starts_with("run.")
         || key.starts_with("random.")
         || key.starts_with("lorem.")
@@ -87,6 +89,9 @@ pub fn resolve(key: &str) -> Option<String> {
     }
     if key.starts_with("env.") {
         return env::resolve(key);
+    }
+    if key.starts_with("net.") {
+        return net::resolve(key);
     }
     if key.starts_with("sys.") {
         return sys::resolve(key);
@@ -449,6 +454,8 @@ mod tests {
         assert!(is_reserved("uuid.v4"));
         assert!(is_reserved("time.now"));
         assert!(is_reserved("time.now.upper"));
+        assert!(is_reserved("net.localip"));
+        assert!(is_reserved("net.mac.upper"));
         assert!(is_reserved("run.bash(echo hi)"));
         assert!(is_reserved("run.bash(echo hi).upper"));
         assert!(is_reserved("random.int(1, 9)"));

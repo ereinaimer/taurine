@@ -241,6 +241,7 @@ mod tests {
     #[test]
     fn accepts_valid_system_tags_and_literals() {
         assert!(audit_payload_tags("[time.now.upper] [env.USERPROFILE]").is_ok());
+        assert!(audit_payload_tags("[net.hostname] [net.localip] [net.mac]").is_ok());
         assert!(audit_payload_tags("json = [1, 2, 3]").is_ok());
         assert!(audit_payload_tags("[name.upper]").is_ok());
     }
@@ -250,6 +251,13 @@ mod tests {
         let error = audit_payload_tags("[time.india]").unwrap_err();
         assert!(error.to_string().contains("time.india"));
         assert!(error.to_string().contains("Valid modifiers"));
+    }
+
+    #[test]
+    fn rejects_unknown_net_modifier() {
+        let error = audit_payload_tags("[net.publicip]").unwrap_err();
+        assert!(error.to_string().contains("net.publicip"));
+        assert!(error.to_string().contains("hostname"));
     }
 
     #[test]
