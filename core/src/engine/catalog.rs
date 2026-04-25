@@ -4,7 +4,7 @@ use crate::engine::source::{AdaptiveSource, MemorySource, SnippetSource};
 use crate::engine::variables::{
     ArgMap, ExpansionStep, FinalExpansion, finalize, interpolate, parse_tokens, tokenize,
 };
-use crate::keys::{Hotkey, hotkey_matches, parse_hotkey};
+use crate::keys::{Hotkey, LogicalKey, hotkey_matches, parse_hotkey};
 
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -16,7 +16,7 @@ pub struct ExpansionCatalog {
 #[derive(Default)]
 pub struct HotkeyCatalog {
     actions: RwLock<std::collections::HashMap<String, AutomationAction>>,
-    parsed_actions: RwLock<Vec<ParsedHotkeyAction>>,
+    parsed_actions: RwLock<std::collections::HashMap<LogicalKey, Vec<ParsedHotkeyAction>>>,
 }
 
 #[derive(Clone)]
@@ -30,21 +30,24 @@ impl HotkeyCatalog {
     pub fn new() -> Self {
         Self {
             actions: RwLock::new(std::collections::HashMap::new()),
-            parsed_actions: RwLock::new(Vec::new()),
+            parsed_actions: RwLock::new(std::collections::HashMap::new()),
         }
     }
 
     pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, AutomationAction)>) {
         let mut exact = std::collections::HashMap::new();
-        let mut parsed = Vec::new();
+        let mut parsed = std::collections::HashMap::<LogicalKey, Vec<ParsedHotkeyAction>>::new();
 
         for (trigger, action) in actions {
             if let Ok(hotkey) = parse_hotkey(&trigger) {
-                parsed.push(ParsedHotkeyAction {
-                    trigger: trigger.clone(),
-                    hotkey,
-                    action: action.clone(),
-                });
+                parsed
+                    .entry(hotkey.logical_key())
+                    .or_default()
+                    .push(ParsedHotkeyAction {
+                        trigger: trigger.clone(),
+                        hotkey,
+                        action: action.clone(),
+                    });
             }
             exact.insert(trigger, action);
         }
@@ -70,11 +73,14 @@ impl HotkeyCatalog {
             return Some((exact_trigger, action));
         }
 
+        let base_key = pressed.logical_key();
         self.parsed_actions.read().ok().and_then(|guard| {
-            guard
-                .iter()
-                .find(|entry| hotkey_matches(entry.hotkey, pressed))
-                .map(|entry| (entry.trigger.clone(), entry.action.clone()))
+            guard.get(&base_key).and_then(|bucket| {
+                bucket
+                    .iter()
+                    .find(|entry| hotkey_matches(entry.hotkey, pressed))
+                    .map(|entry| (entry.trigger.clone(), entry.action.clone()))
+            })
         })
     }
 }

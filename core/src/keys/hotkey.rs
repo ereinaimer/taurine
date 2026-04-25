@@ -11,6 +11,10 @@ impl KeyPress {
     pub fn canonical_string(self) -> String {
         canonical_string(self.modifiers, self.key)
     }
+
+    pub const fn logical_key(self) -> LogicalKey {
+        self.key
+    }
 }
 
 pub type Hotkey = KeyPress;

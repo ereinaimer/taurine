@@ -7,7 +7,7 @@ use tokio::runtime::Handle;
 use tracing::{debug, error, info, warn};
 
 use super::xkb::XkbMapper;
-use crate::hotkey::HotkeySpec;
+use crate::hotkey::{HotkeySpec, is_pause_chord_evdev};
 use crate::hotkey_evaluator::{
     HotkeyEvaluation, HotkeyEvaluator, logical_key_from_evdev, modifiers_from_sides,
 };
@@ -155,7 +155,7 @@ pub fn start_listener(
         let state = state.clone();
         let paused = paused.clone();
         let pause_notifications_enabled = pause_notifications_enabled.clone();
-        let _pause_hotkey = pause_hotkey.clone();
+        let pause_hotkey = pause_hotkey.clone();
         let spinner_style = spinner_style.clone();
         let runtime_handle = runtime_handle.clone();
 
@@ -195,6 +195,7 @@ pub fn start_listener(
                                     &state,
                                     &paused,
                                     &pause_notifications_enabled,
+                                    &pause_hotkey,
                                     &spinner_style,
                                     &runtime_handle,
                                     &mut xkb,
@@ -217,6 +218,7 @@ pub fn start_listener(
                                 &state,
                                 &paused,
                                 &pause_notifications_enabled,
+                                &pause_hotkey,
                                 &spinner_style,
                                 &runtime_handle,
                                 &mut xkb,
@@ -244,6 +246,7 @@ fn process_frame(
     state: &Arc<taurine_core::engine::EngineState>,
     paused: &Arc<AtomicBool>,
     pause_notifications_enabled: &Arc<AtomicBool>,
+    pause_hotkey: &Arc<RwLock<HotkeySpec>>,
     spinner_style: &Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     runtime_handle: &Handle,
     xkb: &mut XkbMapper,
@@ -301,7 +304,11 @@ fn process_frame(
             continue;
         }
 
-        if is_press && modifier_sides.alt_active() && key == KeyCode::KEY_GRAVE {
+        let is_pause_chord = pause_hotkey.read().ok().is_some_and(|spec| {
+            is_pause_chord_evdev(key, is_press, modifier_sides.alt_active(), &spec)
+        });
+
+        if is_pause_chord {
             clear_undo_state(evaluator);
             hotkey_evaluator.clear();
             let now_paused = !paused.load(Ordering::Relaxed);
@@ -503,6 +510,9 @@ mod tests {
         let evaluator = Arc::new(Mutex::new(Evaluator::new(state.clone())));
         let paused = Arc::new(AtomicBool::new(false));
         let pause_notifications = Arc::new(AtomicBool::new(false));
+        let pause_hotkey = Arc::new(RwLock::new(
+            crate::hotkey::parse_pause_hotkey_setting("Alt + `").unwrap(),
+        ));
         let spinner_style = Arc::new(RwLock::new(taurine_core::settings::SpinnerStyle::default()));
 
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -534,6 +544,7 @@ mod tests {
             &state,
             &paused,
             &pause_notifications,
+            &pause_hotkey,
             &spinner_style,
             &handle,
             &mut xkb,
