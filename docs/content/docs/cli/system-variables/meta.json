@@ -6,6 +6,7 @@
     "date",
     "clipboard",
     "env",
+    "net",
     "uuid",
     "cursor",
     "sys",

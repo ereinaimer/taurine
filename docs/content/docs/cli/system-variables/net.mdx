@@ -1,0 +1,77 @@
+---
+title: Network
+description: Access machine identity and local network information in Taurine.
+---
+
+The `[net.*]` namespace provides read-only access to local machine identity and primary network interface information. These variables resolve information locally and do not perform external network requests.
+
+## Reference Table
+
+| Variable | Resolves To | Example Output |
+| :--- | :--- | :--- |
+| `[net.hostname]` | Machine hostname (trimmed) | `dev-workstation` |
+| `[net.localip]` | Primary local IP address | `192.168.1.15` |
+| `[net.mac]` | Primary interface MAC address | `a4:5e:60:12:ab:cd` |
+
+## Usage
+
+### Hostname
+`[net.hostname]` returns the machine's configured hostname. The output is automatically trimmed of leading and trailing whitespace.
+
+```text
+Host: [net.hostname]
+```
+
+Example automation:
+```bash
+taurine add host "Host: [net.hostname]"
+```
+
+### Local IP
+`[net.localip]` returns the primary non-loopback local IP address. 
+
+- **IPv4 Preference**: Taurine prefers IPv4 addresses when multiple families are available on an interface.
+- **Filtering**: It ignores loopback addresses (like `127.0.0.1`) and unspecified addresses (like `0.0.0.0`).
+- **Deterministic**: If multiple valid local addresses are found across different interfaces, Taurine chooses a primary candidate deterministically.
+- **No External Calls**: This variable does not call any external public-IP services; it only queries local network interfaces.
+
+Example automation:
+```bash
+taurine add myip "Local IP: [net.localip]"
+```
+
+### MAC Address
+`[net.mac]` returns the hardware (MAC) address for the selected primary interface.
+
+- **Formatting**: The address is returned in lowercase, colon-separated format (e.g., `aa:bb:cc:dd:ee:ff`).
+- **Validation**: Rejects all-zero MAC addresses.
+- **Selection**: Prefers the MAC address of the interface corresponding to the primary local IP.
+
+Example automation:
+```bash
+taurine add mymac "MAC: [net.mac]"
+```
+
+## Combined Example
+
+You can combine these variables to create detailed machine identity strings:
+
+```bash
+taurine add netinfo "Host: [net.hostname] | IP: [net.localip] | MAC: [net.mac]"
+```
+
+## Advanced Usage
+
+### Transformers
+Like all system variables, `net.*` variables are compatible with [transformers](/docs/cli/reference/system-variable-modifiers).
+
+```text
+[net.hostname.upper]
+```
+
+### Error Behavior
+If Taurine cannot resolve a network value (e.g., no active network interfaces are found), it will return an error string following the standard system variable error format: `[Error: message]`.
+
+<Callout title="Public IP Note" type="info">
+  `[net.publicip]` is not currently available because it would require an external network request, which conflicts with Taurine's "local-first" resolution policy for system variables.
+</Callout>
