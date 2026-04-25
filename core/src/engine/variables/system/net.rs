@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 
 use network_interface::{Addr, NetworkInterface, NetworkInterfaceConfig};
 
@@ -50,16 +50,18 @@ fn resolve_hostname() -> String {
 }
 
 fn resolve_local_ip() -> String {
+    let preferred_ip = routed_local_ip();
     load_interfaces()
-        .and_then(|interfaces| select_primary_address(&interfaces))
+        .and_then(|interfaces| select_primary_address(&interfaces, preferred_ip))
         .map(|candidate| candidate.ip.to_string())
         .unwrap_or_else(|| format_error("no valid local IP found"))
 }
 
 fn resolve_mac() -> String {
+    let preferred_ip = routed_local_ip();
     load_interfaces()
         .and_then(|interfaces| {
-            let preferred = select_primary_address(&interfaces);
+            let preferred = select_primary_address(&interfaces, preferred_ip);
             select_mac(&interfaces, preferred.as_ref())
         })
         .unwrap_or_else(|| format_error("no valid MAC address found"))
@@ -94,7 +96,35 @@ fn normalize_hostname(hostname: &str) -> Option<&str> {
     (!trimmed.is_empty()).then_some(trimmed)
 }
 
-fn select_primary_address(interfaces: &[InterfaceSnapshot]) -> Option<AddressCandidate> {
+fn routed_local_ip() -> Option<IpAddr> {
+    routed_local_ipv4().or_else(routed_local_ipv6)
+}
+
+fn routed_local_ipv4() -> Option<IpAddr> {
+    let socket = UdpSocket::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))).ok()?;
+    socket
+        .connect(SocketAddr::from((Ipv4Addr::new(192, 0, 2, 1), 9)))
+        .ok()?;
+    let ip = socket.local_addr().ok()?.ip();
+    is_valid_local_ip(ip).then_some(ip)
+}
+
+fn routed_local_ipv6() -> Option<IpAddr> {
+    let socket = UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, 0))).ok()?;
+    socket
+        .connect(SocketAddr::from((
+            Ipv6Addr::new(0x2001, 0x0db8, 0, 0, 0, 0, 0, 1),
+            9,
+        )))
+        .ok()?;
+    let ip = socket.local_addr().ok()?.ip();
+    is_valid_local_ip(ip).then_some(ip)
+}
+
+fn select_primary_address(
+    interfaces: &[InterfaceSnapshot],
+    preferred_ip: Option<IpAddr>,
+) -> Option<AddressCandidate> {
     let mut candidates: Vec<_> = interfaces
         .iter()
         .flat_map(|interface| {
@@ -111,6 +141,14 @@ fn select_primary_address(interfaces: &[InterfaceSnapshot]) -> Option<AddressCan
                 })
         })
         .collect();
+
+    if let Some(preferred_ip) = preferred_ip
+        && let Some(candidate) = candidates
+            .iter()
+            .find(|candidate| candidate.ip == preferred_ip)
+    {
+        return Some(candidate.clone());
+    }
 
     candidates.sort_by(compare_address_candidates);
     candidates.into_iter().next()
@@ -154,8 +192,13 @@ fn is_valid_local_ip(ip: IpAddr) -> bool {
 }
 
 fn compare_address_candidates(left: &AddressCandidate, right: &AddressCandidate) -> Ordering {
-    ip_family_rank(left.ip)
-        .cmp(&ip_family_rank(right.ip))
+    ip_scope_rank(left.ip)
+        .cmp(&ip_scope_rank(right.ip))
+        .then_with(|| ip_family_rank(left.ip).cmp(&ip_family_rank(right.ip)))
+        .then_with(|| {
+            interface_kind_rank(&left.interface_name)
+                .cmp(&interface_kind_rank(&right.interface_name))
+        })
         .then_with(|| left.internal.cmp(&right.internal))
         .then_with(|| left.interface_index.cmp(&right.interface_index))
         .then_with(|| {
@@ -169,6 +212,10 @@ fn compare_address_candidates(left: &AddressCandidate, right: &AddressCandidate)
 fn compare_mac_candidates(left: &MacCandidate, right: &MacCandidate) -> Ordering {
     left.internal
         .cmp(&right.internal)
+        .then_with(|| {
+            interface_kind_rank(&left.interface_name)
+                .cmp(&interface_kind_rank(&right.interface_name))
+        })
         .then_with(|| left.interface_index.cmp(&right.interface_index))
         .then_with(|| {
             left.interface_name
@@ -183,6 +230,61 @@ fn ip_family_rank(ip: IpAddr) -> u8 {
         IpAddr::V4(_) => 0,
         IpAddr::V6(_) => 1,
     }
+}
+
+fn ip_scope_rank(ip: IpAddr) -> u8 {
+    match ip {
+        IpAddr::V4(addr) if addr.is_link_local() => 2,
+        IpAddr::V6(addr) if addr.is_unicast_link_local() => 2,
+        IpAddr::V4(_) => 0,
+        IpAddr::V6(_) => 1,
+    }
+}
+
+fn interface_kind_rank(name: &str) -> u8 {
+    let name = name.to_ascii_lowercase();
+
+    if is_virtualish_interface(&name) {
+        2
+    } else if is_physicalish_interface(&name) {
+        0
+    } else {
+        1
+    }
+}
+
+fn is_virtualish_interface(name: &str) -> bool {
+    const VIRTUAL_HINTS: &[&str] = &[
+        "virtual",
+        "vethernet",
+        "hyper-v",
+        "wsl",
+        "docker",
+        "vmware",
+        "virtualbox",
+        "vpn",
+        "tun",
+        "tap",
+        "tailscale",
+        "zerotier",
+        "loopback",
+        "bridge",
+        "host-only",
+    ];
+
+    VIRTUAL_HINTS.iter().any(|hint| name.contains(hint))
+}
+
+fn is_physicalish_interface(name: &str) -> bool {
+    name.contains("wi-fi")
+        || name.contains("wifi")
+        || name.contains("wireless")
+        || name.contains("ethernet")
+        || name.starts_with("wlan")
+        || name.starts_with("wifi")
+        || name.starts_with("wl")
+        || name.starts_with("eth")
+        || name.starts_with("en")
 }
 
 fn compare_ip(left: IpAddr, right: IpAddr) -> Ordering {
@@ -253,7 +355,7 @@ mod tests {
         }];
 
         assert_eq!(
-            select_primary_address(&interfaces).map(|candidate| candidate.ip.to_string()),
+            select_primary_address(&interfaces, None).map(|candidate| candidate.ip.to_string()),
             Some("192.168.1.24".to_string())
         );
     }
@@ -280,7 +382,7 @@ mod tests {
         ];
 
         assert_eq!(
-            select_primary_address(&interfaces).map(|candidate| candidate.ip.to_string()),
+            select_primary_address(&interfaces, None).map(|candidate| candidate.ip.to_string()),
             Some("10.0.0.17".to_string())
         );
     }
@@ -307,7 +409,7 @@ mod tests {
         ];
 
         assert_eq!(
-            select_primary_address(&interfaces).map(|candidate| candidate.ip.to_string()),
+            select_primary_address(&interfaces, None).map(|candidate| candidate.ip.to_string()),
             Some("fe80::5a6f:22ff:fe11:3344".to_string())
         );
     }
@@ -335,7 +437,7 @@ mod tests {
         ];
 
         assert_eq!(
-            select_primary_address(&interfaces),
+            select_primary_address(&interfaces, None),
             Some(AddressCandidate {
                 interface_name: "ethernet0".to_string(),
                 interface_index: 10,
@@ -382,7 +484,7 @@ mod tests {
             },
         ];
 
-        let preferred = select_primary_address(&interfaces);
+        let preferred = select_primary_address(&interfaces, None);
         assert_eq!(
             select_mac(&interfaces, preferred.as_ref()),
             Some("11:22:33:44:55:66".to_string())
@@ -408,10 +510,91 @@ mod tests {
             },
         ];
 
-        let preferred = select_primary_address(&interfaces);
+        let preferred = select_primary_address(&interfaces, None);
         assert_eq!(
             select_mac(&interfaces, preferred.as_ref()),
             Some("aa:bb:cc:dd:ee:ff".to_string())
+        );
+    }
+
+    #[test]
+    fn localip_prefers_routed_ip_over_interface_index() {
+        let wifi_ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 4));
+        let interfaces = vec![
+            InterfaceSnapshot {
+                name: "vEthernet (WSL)".to_string(),
+                index: 7,
+                internal: false,
+                mac: Some("AA-BB-CC-DD-EE-FF".to_string()),
+                addrs: vec![IpAddr::V4(Ipv4Addr::new(172, 29, 64, 1))],
+            },
+            InterfaceSnapshot {
+                name: "Wi-Fi".to_string(),
+                index: 25,
+                internal: false,
+                mac: Some("11-22-33-44-55-66".to_string()),
+                addrs: vec![wifi_ip],
+            },
+        ];
+
+        assert_eq!(
+            select_primary_address(&interfaces, Some(wifi_ip)),
+            Some(AddressCandidate {
+                interface_name: "Wi-Fi".to_string(),
+                interface_index: 25,
+                internal: false,
+                ip: wifi_ip,
+            })
+        );
+    }
+
+    #[test]
+    fn localip_fallback_deprioritizes_virtual_interfaces() {
+        let interfaces = vec![
+            InterfaceSnapshot {
+                name: "vEthernet (WSL)".to_string(),
+                index: 7,
+                internal: false,
+                mac: Some("AA-BB-CC-DD-EE-FF".to_string()),
+                addrs: vec![IpAddr::V4(Ipv4Addr::new(172, 29, 64, 1))],
+            },
+            InterfaceSnapshot {
+                name: "Wi-Fi".to_string(),
+                index: 25,
+                internal: false,
+                mac: Some("11-22-33-44-55-66".to_string()),
+                addrs: vec![IpAddr::V4(Ipv4Addr::new(192, 168, 1, 4))],
+            },
+        ];
+
+        assert_eq!(
+            select_primary_address(&interfaces, None).map(|candidate| candidate.ip.to_string()),
+            Some("192.168.1.4".to_string())
+        );
+    }
+
+    #[test]
+    fn localip_fallback_prefers_non_link_local_ipv4() {
+        let interfaces = vec![
+            InterfaceSnapshot {
+                name: "Ethernet".to_string(),
+                index: 3,
+                internal: false,
+                mac: Some("AA-BB-CC-DD-EE-FF".to_string()),
+                addrs: vec![IpAddr::V4(Ipv4Addr::new(169, 254, 10, 20))],
+            },
+            InterfaceSnapshot {
+                name: "Wi-Fi".to_string(),
+                index: 30,
+                internal: false,
+                mac: Some("11-22-33-44-55-66".to_string()),
+                addrs: vec![IpAddr::V4(Ipv4Addr::new(192, 168, 1, 4))],
+            },
+        ];
+
+        assert_eq!(
+            select_primary_address(&interfaces, None).map(|candidate| candidate.ip.to_string()),
+            Some("192.168.1.4".to_string())
         );
     }
 }
