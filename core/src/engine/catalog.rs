@@ -48,6 +48,8 @@ impl HotkeyCatalog {
                         hotkey,
                         action: action.clone(),
                     });
+                // Store in exact map using canonical form for consistent lookups
+                exact.insert(hotkey.canonical_string(), action.clone());
             }
             exact.insert(trigger, action);
         }
