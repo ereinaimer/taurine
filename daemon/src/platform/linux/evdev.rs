@@ -304,9 +304,10 @@ fn process_frame(
             continue;
         }
 
-        let is_pause_chord = pause_hotkey.read().ok().is_some_and(|spec| {
-            is_pause_chord_evdev(key, is_press, modifier_sides.alt_active(), &spec)
-        });
+        let is_pause_chord = pause_hotkey
+            .read()
+            .ok()
+            .is_some_and(|spec| is_pause_chord_evdev(key, is_press, modifiers, &spec));
 
         if is_pause_chord {
             clear_undo_state(evaluator);

@@ -535,6 +535,78 @@ mod tests {
     }
 
     #[test]
+    fn alt_hotkey_does_not_match_shift_ctrl_or_plain_same_base_key() {
+        let state = EngineState::new('>');
+        load_hotkey(&state, "alt+g", "generic alt");
+        let mut evaluator = HotkeyEvaluator::new();
+
+        let left_alt = modifiers_from_sides(false, false, false, false, true, false, false, false);
+        let left_shift =
+            modifiers_from_sides(false, false, true, false, false, false, false, false);
+        let left_ctrl = modifiers_from_sides(true, false, false, false, false, false, false, false);
+
+        assert!(matches!(
+            evaluator.on_key_event(&state, true, left_alt, LogicalKey::Letter('g')),
+            HotkeyEvaluation::Matched(_)
+        ));
+        assert_eq!(
+            evaluator.on_key_event(&state, false, left_alt, LogicalKey::Letter('g')),
+            HotkeyEvaluation::Swallow
+        );
+        assert_eq!(
+            evaluator.on_key_event(&state, true, left_shift, LogicalKey::Letter('g')),
+            HotkeyEvaluation::NoMatch
+        );
+        assert_eq!(
+            evaluator.on_key_event(&state, true, left_ctrl, LogicalKey::Letter('g')),
+            HotkeyEvaluation::NoMatch
+        );
+        assert_eq!(
+            evaluator.on_key_event(&state, true, Modifiers::new(), LogicalKey::Letter('g')),
+            HotkeyEvaluation::NoMatch
+        );
+    }
+
+    #[test]
+    fn same_base_key_hotkeys_remain_distinct_by_modifier_identity() {
+        let state = EngineState::new('>');
+        state.load_hotkey_actions(vec![
+            ("alt+g".to_string(), AutomationAction::text("alt")),
+            ("ctrl+g".to_string(), AutomationAction::text("ctrl")),
+            ("shift+g".to_string(), AutomationAction::text("shift")),
+        ]);
+        let mut evaluator = HotkeyEvaluator::new();
+
+        let left_alt = modifiers_from_sides(false, false, false, false, true, false, false, false);
+        let left_ctrl = modifiers_from_sides(true, false, false, false, false, false, false, false);
+        let left_shift =
+            modifiers_from_sides(false, false, true, false, false, false, false, false);
+
+        match evaluator.on_key_event(&state, true, left_alt, LogicalKey::Letter('g')) {
+            HotkeyEvaluation::Matched(expansion) => assert_eq!(expansion.trigger, "alt+g"),
+            other => panic!("expected alt+g match, got {other:?}"),
+        }
+        assert_eq!(
+            evaluator.on_key_event(&state, false, left_alt, LogicalKey::Letter('g')),
+            HotkeyEvaluation::Swallow
+        );
+
+        match evaluator.on_key_event(&state, true, left_ctrl, LogicalKey::Letter('g')) {
+            HotkeyEvaluation::Matched(expansion) => assert_eq!(expansion.trigger, "ctrl+g"),
+            other => panic!("expected ctrl+g match, got {other:?}"),
+        }
+        assert_eq!(
+            evaluator.on_key_event(&state, false, left_ctrl, LogicalKey::Letter('g')),
+            HotkeyEvaluation::Swallow
+        );
+
+        match evaluator.on_key_event(&state, true, left_shift, LogicalKey::Letter('g')) {
+            HotkeyEvaluation::Matched(expansion) => assert_eq!(expansion.trigger, "shift+g"),
+            other => panic!("expected shift+g match, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn modifier_only_keypresses_do_not_match_hotkeys() {
         let state = EngineState::new('>');
         load_hotkey(&state, "ctrl+shift+g", "git status");

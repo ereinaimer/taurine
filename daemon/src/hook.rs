@@ -13,7 +13,7 @@ use crate::hotkey_evaluator::{
     HotkeyEvaluation, HotkeyEvaluator, logical_key_from_rdev, modifiers_from_sides,
 };
 #[cfg(not(target_os = "linux"))]
-use crate::injector::{self, IS_INJECTING, IS_SIMULATING};
+use crate::injector::{self, IS_INJECTING, consume_simulated_event};
 #[cfg(not(target_os = "linux"))]
 use crate::notify;
 use taurine_core::engine::Evaluator;
@@ -62,7 +62,7 @@ pub fn start_listener(
     let hotkey_evaluator = Mutex::new(HotkeyEvaluator::new());
 
     let callback = move |event: Event| -> Option<Event> {
-        if IS_INJECTING.load(Ordering::SeqCst) && IS_SIMULATING.load(Ordering::SeqCst) {
+        if consume_simulated_event(&event.event_type) {
             return Some(event);
         }
 
@@ -110,6 +110,25 @@ pub fn start_listener(
             _ => {}
         }
 
+        let left_ctrl_active = left_ctrl_down.load(Ordering::Relaxed);
+        let right_ctrl_active = right_ctrl_down.load(Ordering::Relaxed);
+        let left_shift_active = left_shift_down.load(Ordering::Relaxed);
+        let right_shift_active = right_shift_down.load(Ordering::Relaxed);
+        let left_alt_active = left_alt_down.load(Ordering::Relaxed);
+        let right_alt_active = right_alt_down.load(Ordering::Relaxed);
+        let left_meta_active = left_meta_down.load(Ordering::Relaxed);
+        let right_meta_active = right_meta_down.load(Ordering::Relaxed);
+        let modifiers = modifiers_from_sides(
+            left_ctrl_active,
+            right_ctrl_active,
+            left_shift_active,
+            right_shift_active,
+            left_alt_active,
+            right_alt_active,
+            left_meta_active,
+            right_meta_active,
+        );
+
         if IS_INJECTING.load(Ordering::SeqCst) {
             match event.event_type {
                 EventType::KeyRelease(key) => {
@@ -129,11 +148,7 @@ pub fn start_listener(
         }
 
         let is_chord = if let Ok(spec) = pause_hotkey.read() {
-            hotkey::is_pause_chord(
-                &event,
-                left_alt_down.load(Ordering::Relaxed) || right_alt_down.load(Ordering::Relaxed),
-                &spec,
-            )
+            hotkey::is_pause_chord(&event, modifiers, &spec)
         } else {
             false
         };
@@ -161,28 +176,10 @@ pub fn start_listener(
                 let _ = lock.process_event(EngineEvent::Interrupt);
             }
             EventType::KeyPress(key) => {
-                let left_ctrl_active = left_ctrl_down.load(Ordering::Relaxed);
-                let right_ctrl_active = right_ctrl_down.load(Ordering::Relaxed);
-                let left_shift_active = left_shift_down.load(Ordering::Relaxed);
-                let right_shift_active = right_shift_down.load(Ordering::Relaxed);
-                let left_alt_active = left_alt_down.load(Ordering::Relaxed);
-                let right_alt_active = right_alt_down.load(Ordering::Relaxed);
-                let left_meta_active = left_meta_down.load(Ordering::Relaxed);
-                let right_meta_active = right_meta_down.load(Ordering::Relaxed);
                 let ctrl_active = left_ctrl_active || right_ctrl_active;
                 let shift_active = left_shift_active || right_shift_active;
                 let alt_active = left_alt_active || right_alt_active;
                 let meta_active = left_meta_active || right_meta_active;
-                let modifiers = modifiers_from_sides(
-                    left_ctrl_active,
-                    right_ctrl_active,
-                    left_shift_active,
-                    right_shift_active,
-                    left_alt_active,
-                    right_alt_active,
-                    left_meta_active,
-                    right_meta_active,
-                );
 
                 if paused.load(Ordering::Relaxed) {
                     return Some(event);

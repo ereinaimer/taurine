@@ -3,10 +3,14 @@ use crate::platform::ClipboardManager;
 use arboard::Clipboard;
 #[cfg(not(target_os = "linux"))]
 use rdev::{EventType, Key, simulate};
+#[cfg(not(target_os = "linux"))]
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::Duration;
+#[cfg(not(target_os = "linux"))]
+use std::time::Instant;
 #[cfg(not(target_os = "linux"))]
 use tracing::warn;
 use tracing::{debug, error};
@@ -73,12 +77,72 @@ pub static INJECTION_ABORT: AtomicBool = AtomicBool::new(false);
 #[allow(dead_code)]
 pub static IS_SIMULATING: AtomicBool = AtomicBool::new(false);
 
+#[cfg(not(target_os = "linux"))]
+#[derive(Clone)]
+struct SimulatedEvent {
+    event: EventType,
+    queued_at: Instant,
+}
+
+#[cfg(not(target_os = "linux"))]
+const SIMULATED_EVENT_TTL: Duration = Duration::from_millis(100);
+
+#[cfg(not(target_os = "linux"))]
+fn simulated_events() -> &'static Mutex<VecDeque<SimulatedEvent>> {
+    static Q: OnceLock<Mutex<VecDeque<SimulatedEvent>>> = OnceLock::new();
+    Q.get_or_init(|| Mutex::new(VecDeque::new()))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn prune_expired_simulated_events(queue: &mut VecDeque<SimulatedEvent>) {
+    while queue
+        .front()
+        .is_some_and(|entry| entry.queued_at.elapsed() > SIMULATED_EVENT_TTL)
+    {
+        queue.pop_front();
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn consume_simulated_event(event: &EventType) -> bool {
+    let Ok(mut queue) = simulated_events().lock() else {
+        return false;
+    };
+
+    prune_expired_simulated_events(&mut queue);
+
+    if queue.front().is_some_and(|entry| entry.event == *event) {
+        queue.pop_front();
+        true
+    } else {
+        false
+    }
+}
+
 /// Wrapped version of `rdev::simulate` that maintains the `IS_SIMULATING` flag.
 #[cfg(not(target_os = "linux"))]
 pub fn simulate_monitored(event: &EventType) -> Result<(), rdev::SimulateError> {
+    if let Ok(mut queue) = simulated_events().lock() {
+        prune_expired_simulated_events(&mut queue);
+        queue.push_back(SimulatedEvent {
+            event: *event,
+            queued_at: Instant::now(),
+        });
+    }
+
     IS_SIMULATING.store(true, Ordering::SeqCst);
     let res = simulate(event);
     IS_SIMULATING.store(false, Ordering::SeqCst);
+
+    if res.is_err()
+        && let Ok(mut queue) = simulated_events().lock()
+    {
+        prune_expired_simulated_events(&mut queue);
+        if queue.front().is_some_and(|entry| entry.event == *event) {
+            queue.pop_front();
+        }
+    }
+
     res
 }
 
@@ -993,6 +1057,37 @@ mod tests {
             self.text = text.to_string();
             Ok(())
         }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn simulated_event_filter_consumes_only_the_expected_event() {
+        let key_a_press = EventType::KeyPress(Key::KeyA);
+        let key_b_press = EventType::KeyPress(Key::KeyB);
+
+        {
+            let mut queue = simulated_events()
+                .lock()
+                .expect("queue lock should succeed");
+            queue.clear();
+            queue.push_back(SimulatedEvent {
+                event: key_a_press,
+                queued_at: Instant::now(),
+            });
+        }
+
+        assert!(
+            !consume_simulated_event(&key_b_press),
+            "different physical events must not be swallowed as synthetic"
+        );
+        assert!(
+            consume_simulated_event(&key_a_press),
+            "the exact synthetic event should be swallowed"
+        );
+        assert!(
+            !consume_simulated_event(&key_a_press),
+            "a consumed synthetic event should not match twice"
+        );
     }
 
     #[test]
