@@ -19,6 +19,7 @@ pub struct Settings {
     pub pause_hotkey: String,
     pub pause_notifications_enabled: bool,
     pub start_on_boot: bool,
+    pub wpm: u32,
     pub spinner_style: SpinnerStyle,
     pub ai_provider: Option<String>,
     pub ai_model: Option<String>,
@@ -33,6 +34,7 @@ impl Settings {
             "hotkey" => "pause_hotkey",
             "notifications" => "pause_notifications_enabled",
             "boot" => "start_on_boot",
+            "wpm" => "wpm",
             "spinner" => "spinner_style",
             "ai_provider" => "ai_provider",
             "ai_model" => "ai_model",
@@ -44,6 +46,14 @@ impl Settings {
             _ => key,
         }
     }
+
+    pub const fn default_wpm() -> u32 {
+        60
+    }
+
+    pub const fn sanitize_wpm(wpm: u32) -> u32 {
+        if wpm == 0 { Self::default_wpm() } else { wpm }
+    }
 }
 
 impl Default for Settings {
@@ -53,6 +63,7 @@ impl Default for Settings {
             pause_hotkey: "Alt + `".to_string(),
             pause_notifications_enabled: true,
             start_on_boot: true,
+            wpm: Self::default_wpm(),
             spinner_style: SpinnerStyle::default(),
             ai_provider: None,
             ai_model: None,

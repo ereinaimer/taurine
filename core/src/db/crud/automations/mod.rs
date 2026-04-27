@@ -866,11 +866,14 @@ mod tests {
 
         // 4. Verify metrics
         let date = crate::metrics::get_current_date_string();
-        let (executions, saved) = crate::db::crud::get_metric_counters(&conn, &date)
-            .unwrap()
-            .unwrap();
+        let (executions, ai_executions, saved, time_saved_ms) =
+            crate::db::crud::get_metric_counters(&conn, &date)
+                .unwrap()
+                .unwrap();
         assert_eq!(executions, 1);
-        assert_eq!(saved, 14); // (15 + 2) - 3 = 14
+        assert_eq!(ai_executions, 0);
+        assert_eq!(saved, 14);
+        assert!(time_saved_ms > 0);
 
         // Cleanup
         unsafe { std::env::remove_var("TAURINE_DB_PATH") };

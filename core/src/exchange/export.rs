@@ -175,7 +175,7 @@ fn export_settings(
     include_sensitive_settings: bool,
 ) -> crate::Result<Vec<SettingExport>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT key, value
+        "SELECT key, CAST(value AS TEXT)
          FROM settings
          ORDER BY key ASC",
     )?;
@@ -200,7 +200,7 @@ fn export_settings(
 
 fn export_metrics(conn: &Connection) -> crate::Result<Vec<MetricExport>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT date, executions, keystrokes_saved
+        "SELECT date, executions, ai_executions, keystrokes_saved, time_saved_ms
          FROM metrics
          ORDER BY date ASC",
     )?;
@@ -209,7 +209,9 @@ fn export_metrics(conn: &Connection) -> crate::Result<Vec<MetricExport>> {
         Ok(MetricExport {
             date: row.get(0)?,
             executions: row.get(1)?,
-            keystrokes_saved: row.get(2)?,
+            ai_executions: row.get(2)?,
+            keystrokes_saved: row.get(3)?,
+            time_saved_ms: row.get(4)?,
         })
     })?;
 

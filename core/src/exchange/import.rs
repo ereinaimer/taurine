@@ -269,7 +269,14 @@ fn import_global_metrics(
         ImportMetricsMode::Ignore => Ok(()),
         ImportMetricsMode::Merge => {
             for metric in metrics {
-                increment_metric(tx, &metric.date, metric.executions, metric.keystrokes_saved)?;
+                increment_metric(
+                    tx,
+                    &metric.date,
+                    metric.executions,
+                    metric.ai_executions,
+                    metric.keystrokes_saved,
+                    metric.time_saved_ms,
+                )?;
             }
             Ok(())
         }
@@ -284,17 +291,29 @@ fn import_global_metrics(
 
 fn overwrite_metric_row(tx: &Transaction<'_>, metric: &MetricExport) -> crate::Result<()> {
     tx.execute(
-        "INSERT INTO metrics (date, executions, keystrokes_saved, version, updated_at)
-         VALUES (?1, ?2, ?3, 1, ?4)
+        "INSERT INTO metrics (
+             date,
+             executions,
+             ai_executions,
+             keystrokes_saved,
+             time_saved_ms,
+             version,
+             updated_at
+         )
+         VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6)
          ON CONFLICT(date) DO UPDATE SET
              executions = excluded.executions,
+             ai_executions = excluded.ai_executions,
              keystrokes_saved = excluded.keystrokes_saved,
+             time_saved_ms = excluded.time_saved_ms,
              version = version + 1,
              updated_at = excluded.updated_at",
         (
             &metric.date,
             metric.executions,
+            metric.ai_executions,
             metric.keystrokes_saved,
+            metric.time_saved_ms,
             crate::db::now_unix_secs(),
         ),
     )?;
@@ -923,9 +942,17 @@ mod tests {
         let (_dir, mut conn) = open_test_db();
 
         conn.execute(
-            "INSERT INTO metrics (date, executions, keystrokes_saved, updated_at)
-             VALUES (?1, ?2, ?3, ?4)",
-            ("2026-04-01", 20_i64, 200_i64, 1_700_000_000_i64),
+            "INSERT INTO metrics (
+                date, executions, ai_executions, keystrokes_saved, time_saved_ms, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            (
+                "2026-04-01",
+                20_i64,
+                4_i64,
+                200_i64,
+                20_000_i64,
+                1_700_000_000_i64,
+            ),
         )
         .unwrap();
 
@@ -936,7 +963,9 @@ mod tests {
             metrics: Some(vec![MetricExport {
                 date: "2026-04-01".to_string(),
                 executions: 50,
+                ai_executions: 5,
                 keystrokes_saved: 500,
+                time_saved_ms: 50_000,
             }]),
         };
 
@@ -953,15 +982,19 @@ mod tests {
         .unwrap();
         tx.commit().unwrap();
 
-        let (executions, saved): (i64, i64) = conn
+        let (executions, ai_executions, saved, time_saved_ms): (i64, i64, i64, i64) = conn
             .query_row(
-                "SELECT executions, keystrokes_saved FROM metrics WHERE date = ?1",
+                "SELECT executions, ai_executions, keystrokes_saved, time_saved_ms
+                 FROM metrics
+                 WHERE date = ?1",
                 ["2026-04-01"],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .unwrap();
         assert_eq!(executions, 70);
+        assert_eq!(ai_executions, 9);
         assert_eq!(saved, 700);
+        assert_eq!(time_saved_ms, 70_000);
     }
 
     #[test]
@@ -970,9 +1003,17 @@ mod tests {
         let (_dir, mut conn) = open_test_db();
 
         conn.execute(
-            "INSERT INTO metrics (date, executions, keystrokes_saved, updated_at)
-             VALUES (?1, ?2, ?3, ?4)",
-            ("2026-04-01", 20_i64, 200_i64, 1_700_000_000_i64),
+            "INSERT INTO metrics (
+                date, executions, ai_executions, keystrokes_saved, time_saved_ms, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            (
+                "2026-04-01",
+                20_i64,
+                4_i64,
+                200_i64,
+                20_000_i64,
+                1_700_000_000_i64,
+            ),
         )
         .unwrap();
 
@@ -983,7 +1024,9 @@ mod tests {
             metrics: Some(vec![MetricExport {
                 date: "2026-04-01".to_string(),
                 executions: 50,
+                ai_executions: 5,
                 keystrokes_saved: 500,
+                time_saved_ms: 50_000,
             }]),
         };
 
@@ -1000,14 +1043,18 @@ mod tests {
         .unwrap();
         tx.commit().unwrap();
 
-        let (executions, saved): (i64, i64) = conn
+        let (executions, ai_executions, saved, time_saved_ms): (i64, i64, i64, i64) = conn
             .query_row(
-                "SELECT executions, keystrokes_saved FROM metrics WHERE date = ?1",
+                "SELECT executions, ai_executions, keystrokes_saved, time_saved_ms
+                 FROM metrics
+                 WHERE date = ?1",
                 ["2026-04-01"],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .unwrap();
         assert_eq!(executions, 50);
+        assert_eq!(ai_executions, 5);
         assert_eq!(saved, 500);
+        assert_eq!(time_saved_ms, 50_000);
     }
 }

@@ -94,7 +94,11 @@ pub struct SettingExport {
 pub struct MetricExport {
     pub date: String,
     pub executions: i64,
+    #[serde(default)]
+    pub ai_executions: i64,
     pub keystrokes_saved: i64,
+    #[serde(default)]
+    pub time_saved_ms: i64,
 }
 
 pub fn encode_plaintext_payload(payload: &ExchangePayload) -> crate::Result<Vec<u8>> {
@@ -424,9 +428,17 @@ mod tests {
 
         insert_text_automation(&conn);
         conn.execute(
-            "INSERT INTO metrics (date, executions, keystrokes_saved, updated_at)
-             VALUES (?1, ?2, ?3, ?4)",
-            ("2026-04-01", 5_i64, 50_i64, 1_700_000_000_i64),
+            "INSERT INTO metrics (
+                date, executions, ai_executions, keystrokes_saved, time_saved_ms, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            (
+                "2026-04-01",
+                5_i64,
+                2_i64,
+                50_i64,
+                10_000_i64,
+                1_700_000_000_i64,
+            ),
         )
         .unwrap();
 
@@ -458,7 +470,9 @@ mod tests {
             vec![MetricExport {
                 date: "2026-04-01".to_string(),
                 executions: 5,
+                ai_executions: 2,
                 keystrokes_saved: 50,
+                time_saved_ms: 10_000,
             }]
         );
     }

@@ -51,7 +51,7 @@ async fn run_inline_ai_stream_inner(
             let message = inline_error_message(&err);
             ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
             inject_error_message(&mut output, false, &message).await?;
-            finish_output(output).await;
+            record_inline_ai_completion(finish_output(output).await);
             return Err(err);
         }
     };
@@ -81,7 +81,7 @@ async fn run_inline_ai_stream_inner(
                         let message = inline_error_message(&taurine_core::error::Error::Service(err.to_string()));
                         ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
                         inject_error_message(&mut output, false, &message).await?;
-                        finish_output(output).await;
+                        record_inline_ai_completion(finish_output(output).await);
                         resolved.secret.zeroize();
                         return Err(taurine_core::error::Error::Service(message));
                     }
@@ -103,7 +103,7 @@ async fn run_inline_ai_stream_inner(
                 if crate::injector::INJECTION_ABORT.load(std::sync::atomic::Ordering::SeqCst) {
                     ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
                     flush_pending_batch(&mut output, &mut pending).await?;
-                    finish_output(output).await;
+                    record_inline_ai_completion(finish_output(output).await);
                     resolved.secret.zeroize();
                     return Ok(());
                 }
@@ -138,7 +138,7 @@ async fn run_inline_ai_stream_inner(
                 ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
                 flush_pending_batch(&mut output, &mut pending).await?;
                 inject_error_message(&mut output, spinner_cleared, &message).await?;
-                finish_output(output).await;
+                record_inline_ai_completion(finish_output(output).await);
                 resolved.secret.zeroize();
                 return Err(taurine_core::error::Error::Service(message));
             }
@@ -148,7 +148,7 @@ async fn run_inline_ai_stream_inner(
 
     ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
     flush_pending_batch(&mut output, &mut pending).await?;
-    finish_output(output).await;
+    record_inline_ai_completion(finish_output(output).await);
     resolved.secret.zeroize();
 
     Ok(())
@@ -355,7 +355,7 @@ async fn flush_pending_batch(
 
     let batch = std::mem::take(pending);
     if let Some(handle) = output.as_ref() {
-        handle.send_text(batch)?;
+        handle.send_text(batch, true)?;
     }
     Ok(())
 }
@@ -376,26 +376,45 @@ async fn inject_error_message(
     };
 
     if let Some(handle) = output.as_ref() {
-        handle.send_text(payload)?;
+        handle.send_text(payload, false)?;
     }
 
     Ok(())
 }
 
-async fn finish_output(output: Option<LiveOutputHandle>) {
+async fn finish_output(output: Option<LiveOutputHandle>) -> usize {
     if let Some(handle) = output {
-        handle.finish().await;
+        handle.finish().await
+    } else {
+        0
     }
 }
 
+fn record_inline_ai_completion(output_chars: usize) {
+    if output_chars == 0 {
+        return;
+    }
+
+    taurine_core::db::crud::record_automation_metric(
+        taurine_core::db::crud::AutomationMetricEvent {
+            automation_trigger: None,
+            trigger_chars: 0,
+            success: true,
+            output_chars,
+            kind: taurine_core::db::crud::AutomationMetricKind::InlineAi,
+            wpm: None,
+        },
+    );
+}
+
 enum LiveOutputCommand {
-    Text(String),
+    Text { text: String, track_metrics: bool },
     Finish,
 }
 
 struct LiveOutputHandle {
     tx: mpsc::Sender<LiveOutputCommand>,
-    join: Option<thread::JoinHandle<()>>,
+    join: Option<thread::JoinHandle<usize>>,
 }
 
 impl LiveOutputHandle {
@@ -406,8 +425,11 @@ impl LiveOutputHandle {
 
             while let Ok(command) = rx.recv() {
                 match command {
-                    LiveOutputCommand::Text(text) => {
-                        if !session.push_text(&text) {
+                    LiveOutputCommand::Text {
+                        text,
+                        track_metrics,
+                    } => {
+                        if !session.push_text(&text, track_metrics) {
                             break;
                         }
                     }
@@ -419,7 +441,7 @@ impl LiveOutputHandle {
                 }
             }
 
-            session.finish();
+            session.finish()
         });
 
         Self {
@@ -428,19 +450,25 @@ impl LiveOutputHandle {
         }
     }
 
-    fn send_text(&self, text: String) -> taurine_core::error::Result<()> {
-        self.tx.send(LiveOutputCommand::Text(text)).map_err(|_| {
-            taurine_core::error::Error::Service("Error: AI output interrupted.".to_string())
-        })
+    fn send_text(&self, text: String, track_metrics: bool) -> taurine_core::error::Result<()> {
+        self.tx
+            .send(LiveOutputCommand::Text {
+                text,
+                track_metrics,
+            })
+            .map_err(|_| {
+                taurine_core::error::Error::Service("Error: AI output interrupted.".to_string())
+            })
     }
 
-    async fn finish(mut self) {
+    async fn finish(mut self) -> usize {
         let _ = self.tx.send(LiveOutputCommand::Finish);
         if let Some(join) = self.join.take() {
-            let _ = task::spawn_blocking(move || {
-                let _ = join.join();
-            })
-            .await;
+            task::spawn_blocking(move || join.join().unwrap_or_default())
+                .await
+                .unwrap_or_default()
+        } else {
+            0
         }
     }
 }

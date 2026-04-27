@@ -28,7 +28,7 @@ impl SpinnerRenderer for OsSpinnerRenderer {
             crate::injector::inject_text_segment(frame, &self.original_clipboard)
         });
         if self.original_clipboard.is_none() {
-            self.original_clipboard = original;
+            self.original_clipboard = original.original_clipboard;
         }
     }
 

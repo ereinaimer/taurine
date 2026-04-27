@@ -409,7 +409,7 @@ fn dispatch_expansion_with<I, L>(
         Vec<taurine_core::engine::variables::ExpansionStep>,
         usize,
         taurine_core::settings::SpinnerStyle,
-    ),
+    ) -> crate::injector::InjectionReport,
     L: FnOnce(
         Option<taurine_core::engine::ExpansionFollowUp>,
         taurine_core::settings::SpinnerStyle,
@@ -422,34 +422,36 @@ fn dispatch_expansion_with<I, L>(
         trigger,
         undo_trigger,
         is_calculation,
+        metric_kind,
         track_usage,
         follow_up,
     } = expansion;
 
-    let output_len: usize = steps
-        .iter()
-        .filter_map(|step| match step {
-            taurine_core::engine::variables::ExpansionStep::Text(text) => {
-                Some(text.chars().count())
-            }
-            _ => None,
-        })
-        .sum();
-
-    let should_record_undo = follow_up.is_none() && output_len > 0;
     state.clear_undo_state();
-    inject_expansion(steps, delete_count, spinner_style);
-    if should_record_undo && let Some(undo_trigger) = undo_trigger {
-        state.set_undo_state(undo_trigger, output_len);
+    let injection = inject_expansion(steps, delete_count, spinner_style);
+    if follow_up.is_none()
+        && injection.successful_chars > 0
+        && let Some(undo_trigger) = undo_trigger
+    {
+        state.set_undo_state(undo_trigger, injection.successful_chars);
     }
     launch_follow_up_fn(follow_up, spinner_style, runtime_handle);
 
     if track_usage {
-        if is_calculation {
-            taurine_core::db::crud::record_calculation_usage(output_len, delete_count, 0);
-        } else {
-            taurine_core::db::crud::record_expansion_usage(&trigger, output_len, delete_count, 0);
-        }
+        taurine_core::db::crud::record_automation_metric(
+            taurine_core::db::crud::AutomationMetricEvent {
+                automation_trigger: Some(trigger.clone()),
+                trigger_chars: trigger.chars().count(),
+                success: injection.completed,
+                output_chars: injection.successful_chars,
+                kind: if is_calculation {
+                    taurine_core::db::crud::AutomationMetricKind::Calculation
+                } else {
+                    metric_kind
+                },
+                wpm: None,
+            },
+        );
     }
 }
 
@@ -510,6 +512,7 @@ mod tests {
             trigger: "ai".to_string(),
             undo_trigger: Some(">ai".to_string()),
             is_calculation: false,
+            metric_kind: taurine_core::db::crud::AutomationMetricKind::InlineAi,
             track_usage: false,
             follow_up: Some(taurine_core::engine::ExpansionFollowUp::InlineAi {
                 prompt: "prompt".to_string(),
@@ -526,7 +529,8 @@ mod tests {
                 inject_events
                     .lock()
                     .expect("inject events poisoned")
-                    .push("inject")
+                    .push("inject");
+                crate::injector::InjectionReport::default()
             },
             move |follow_up, _, _| {
                 follow_up_events
@@ -565,6 +569,7 @@ mod tests {
             trigger: "gm".to_string(),
             undo_trigger: Some(">gm".to_string()),
             is_calculation: false,
+            metric_kind: taurine_core::db::crud::AutomationMetricKind::Snippet,
             track_usage: false,
             follow_up: None,
         };
@@ -574,7 +579,10 @@ mod tests {
             taurine_core::settings::SpinnerStyle::default(),
             rt.handle().clone(),
             state.clone(),
-            move |_, _, _| {},
+            move |_, _, _| crate::injector::InjectionReport {
+                successful_chars: "Good Morning".chars().count(),
+                completed: true,
+            },
             move |_, _, _| {},
         );
 
@@ -602,6 +610,7 @@ mod tests {
             trigger: "ctrl+shift+g".to_string(),
             undo_trigger: None,
             is_calculation: false,
+            metric_kind: taurine_core::db::crud::AutomationMetricKind::Hotkey,
             track_usage: false,
             follow_up: None,
         };
@@ -611,7 +620,10 @@ mod tests {
             taurine_core::settings::SpinnerStyle::default(),
             rt.handle().clone(),
             state.clone(),
-            move |_, _, _| {},
+            move |_, _, _| crate::injector::InjectionReport {
+                successful_chars: "git status".chars().count(),
+                completed: true,
+            },
             move |_, _, _| {},
         );
 

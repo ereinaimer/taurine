@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::engine::variables::ExpansionStep;
 use crate::engine::variables::system::clipboard::MAX_PAYLOAD_BYTES;
+use crate::metrics::AutomationMetricKind;
 
 use crate::engine::buffer::FastBuffer;
 use crate::engine::state::{EngineMode, EngineState};
@@ -42,6 +43,8 @@ pub struct ExpansionResult {
     pub undo_trigger: Option<String>,
     /// Whether this expansion was a mathematical calculation.
     pub is_calculation: bool,
+    /// Metric policy classification for this expansion.
+    pub metric_kind: AutomationMetricKind,
     /// Whether the daemon should record snippet/calculation usage for this expansion.
     pub track_usage: bool,
     /// Optional daemon-side follow-up that should run after expansion injection.
@@ -155,6 +158,8 @@ impl Evaluator {
                         // trigger_char + keyword + the space that fired the action
                         let delete_count = 1 + keyword.chars().count() + 1;
                         let undo_trigger = self.undo_trigger_for_steps(&keyword, &expansion.steps);
+                        let metric_kind =
+                            metric_kind_for_steps(expansion.is_calculation, &expansion.steps);
                         self.buffer.clear();
                         return Some(ExpansionResult {
                             delete_count,
@@ -162,6 +167,7 @@ impl Evaluator {
                             trigger: keyword,
                             undo_trigger,
                             is_calculation: expansion.is_calculation,
+                            metric_kind,
                             track_usage: true,
                             follow_up: None,
                         });
@@ -240,6 +246,7 @@ impl Evaluator {
             trigger: keyword.to_string(),
             undo_trigger: None,
             is_calculation: false,
+            metric_kind: AutomationMetricKind::InlineAi,
             track_usage: false,
             follow_up: None,
         }
@@ -255,6 +262,7 @@ impl Evaluator {
             trigger: INLINE_AI_KEYWORD.to_string(),
             undo_trigger: None,
             is_calculation: false,
+            metric_kind: AutomationMetricKind::InlineAi,
             track_usage: false,
             follow_up: Some(ExpansionFollowUp::InlineAi {
                 prompt,
@@ -298,6 +306,7 @@ impl Evaluator {
             trigger: INLINE_AI_KEYWORD.to_string(),
             undo_trigger: None,
             is_calculation: false,
+            metric_kind: AutomationMetricKind::InlineAi,
             track_usage: false,
             follow_up: Some(ExpansionFollowUp::InlineAi {
                 prompt: prompt.to_string(),
@@ -305,6 +314,18 @@ impl Evaluator {
             }),
         })
     }
+}
+
+fn metric_kind_for_steps(is_calculation: bool, steps: &[ExpansionStep]) -> AutomationMetricKind {
+    if is_calculation {
+        return AutomationMetricKind::Calculation;
+    }
+
+    if matches!(steps, [ExpansionStep::Script(_)]) {
+        return AutomationMetricKind::Script;
+    }
+
+    AutomationMetricKind::Snippet
 }
 
 fn parse_inline_ai_prompt(keyword: &str) -> Option<String> {

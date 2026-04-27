@@ -5,7 +5,7 @@ use super::MetricRow;
 /// Returns the full row for `date`, or `None` if it does not exist.
 pub fn get_metric(conn: &Connection, date: &str) -> Result<Option<MetricRow>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT date, executions, keystrokes_saved, version, updated_at
+        "SELECT date, executions, ai_executions, keystrokes_saved, time_saved_ms, version, updated_at
          FROM   metrics
          WHERE  date = ?1",
     )?;
@@ -14,9 +14,11 @@ pub fn get_metric(conn: &Connection, date: &str) -> Result<Option<MetricRow>> {
         Ok(MetricRow {
             date: row.get(0)?,
             executions: row.get(1)?,
-            keystrokes_saved: row.get(2)?,
-            version: row.get(3)?,
-            updated_at: row.get(4)?,
+            ai_executions: row.get(2)?,
+            keystrokes_saved: row.get(3)?,
+            time_saved_ms: row.get(4)?,
+            version: row.get(5)?,
+            updated_at: row.get(6)?,
         })
     });
 
@@ -27,8 +29,15 @@ pub fn get_metric(conn: &Connection, date: &str) -> Result<Option<MetricRow>> {
     }
 }
 
-/// Convenience wrapper: returns `(executions, keystrokes_saved)` for `date`,
+/// Convenience wrapper: returns `(executions, ai_executions, keystrokes_saved, time_saved_ms)` for `date`,
 /// or `None` if the row does not exist.
-pub fn get_metric_counters(conn: &Connection, date: &str) -> Result<Option<(i64, i64)>> {
-    Ok(get_metric(conn, date)?.map(|row| (row.executions, row.keystrokes_saved)))
+pub fn get_metric_counters(conn: &Connection, date: &str) -> Result<Option<(i64, i64, i64, i64)>> {
+    Ok(get_metric(conn, date)?.map(|row| {
+        (
+            row.executions,
+            row.ai_executions,
+            row.keystrokes_saved,
+            row.time_saved_ms,
+        )
+    }))
 }

@@ -15,8 +15,10 @@ pub use automations::{
     validate_trigger_target_os_conflict,
 };
 
+pub use crate::metrics::AutomationMetricKind;
 pub use metrics::{
-    MetricRow, delete_metric, get_metric, get_metric_counters, increment_metric,
+    AutomationMetricEvent, MetricRow, delete_metric, get_metric, get_metric_counters,
+    increment_metric, record_automation_metric, record_automation_metric_with_conn,
     record_calculation_usage,
 };
 pub use settings::{SettingRow, delete_setting, get_setting, get_setting_value, upsert_setting};

@@ -296,44 +296,17 @@ pub fn increment_usage_count_by_trigger(conn: &Connection, trigger: &str) -> Res
 pub fn record_expansion_usage(
     trigger: &str,
     output_len: usize,
-    delete_count: usize,
-    left_arrow_count: usize,
+    _delete_count: usize,
+    _left_arrow_count: usize,
 ) {
-    match Connection::open(crate::paths::get_db_path()) {
-        Ok(mut conn) => {
-            // Use a closure to handle the transaction and custom Result type.
-            let tx_result = (|| -> crate::Result<()> {
-                let tx = conn.transaction()?;
-
-                // 1. Update the automation-specific counter
-                increment_usage_count_by_trigger(&tx, trigger)?;
-
-                // 2. Update the global daily metrics
-                let date = crate::metrics::get_current_date_string();
-                let saved = crate::metrics::calculate_saved_keystrokes(
-                    output_len,
-                    delete_count,
-                    left_arrow_count,
-                );
-
-                crate::db::crud::increment_metric(&tx, &date, 1, saved)?;
-
-                tx.commit()?;
-                Ok(())
-            })();
-
-            if let Err(e) = tx_result {
-                tracing::warn!(
-                    trigger,
-                    error = %e,
-                    "Failed to record expansion usage transactionally"
-                );
-            }
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "record_expansion_usage: could not open DB");
-        }
-    }
+    crate::db::crud::record_automation_metric(crate::db::crud::AutomationMetricEvent {
+        automation_trigger: Some(trigger.to_string()),
+        trigger_chars: trigger.chars().count(),
+        success: output_len > 0,
+        output_chars: output_len,
+        kind: crate::db::crud::AutomationMetricKind::Snippet,
+        wpm: None,
+    });
 }
 
 /// Result of an `add_automation_by_trigger` call.

@@ -199,7 +199,7 @@ pub fn inject_undo(trigger_string: String, output_length: usize) {
 
     let original_clipboard = inject_text_segment(&trigger_string, &None);
 
-    if let Some(ref original) = original_clipboard {
+    if let Some(ref original) = original_clipboard.original_clipboard {
         restore_clipboard(original);
     }
 
@@ -594,7 +594,24 @@ fn alias_to_evdev_key(alias: &str) -> Option<evdev::KeyCode> {
 }
 
 /// Injects a text segment into the active application.
-pub fn inject_text_segment(text: &str, original_clipboard: &Option<String>) -> Option<String> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct InjectionReport {
+    pub successful_chars: usize,
+    pub completed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TextSegmentInjection {
+    pub original_clipboard: Option<String>,
+    pub injected_chars: usize,
+    pub success: bool,
+}
+
+pub fn inject_text_segment(
+    text: &str,
+    original_clipboard: &Option<String>,
+) -> TextSegmentInjection {
+    let injected_chars = text.chars().count();
     let post_paste_wait = if cfg!(target_os = "windows") {
         Duration::from_millis(220)
     } else if cfg!(target_os = "linux") {
@@ -612,7 +629,11 @@ pub fn inject_text_segment(text: &str, original_clipboard: &Option<String>) -> O
                 Ok(orig) => {
                     simulate_paste();
                     thread::sleep(post_paste_wait);
-                    Some(orig)
+                    TextSegmentInjection {
+                        original_clipboard: Some(orig),
+                        injected_chars,
+                        success: true,
+                    }
                 }
                 Err(e) => {
                     if e.starts_with("clipboard verify failed:") {
@@ -620,19 +641,27 @@ pub fn inject_text_segment(text: &str, original_clipboard: &Option<String>) -> O
                     } else {
                         error!("Could not prepare clipboard before paste: {}", e);
                     }
-                    None
+                    TextSegmentInjection::default()
                 }
             }
         } else {
             // Subsequent text segments: clipboard was already saved.
             if let Err(e) = clip.set_text(text) {
                 error!("Failed to set clipboard for text segment: {}", e);
-                return original_clipboard.clone();
+                return TextSegmentInjection {
+                    original_clipboard: original_clipboard.clone(),
+                    injected_chars: 0,
+                    success: false,
+                };
             }
             thread::sleep(Duration::from_millis(25));
             simulate_paste();
             thread::sleep(post_paste_wait);
-            original_clipboard.clone()
+            TextSegmentInjection {
+                original_clipboard: original_clipboard.clone(),
+                injected_chars,
+                success: true,
+            }
         }
     }
 
@@ -651,7 +680,11 @@ pub fn inject_text_segment(text: &str, original_clipboard: &Option<String>) -> O
                     Ok(orig) => {
                         simulate_paste();
                         thread::sleep(post_paste_wait);
-                        return Some(orig);
+                        return TextSegmentInjection {
+                            original_clipboard: Some(orig),
+                            injected_chars,
+                            success: true,
+                        };
                     }
                     Err(e) => {
                         error!(
@@ -663,22 +696,40 @@ pub fn inject_text_segment(text: &str, original_clipboard: &Option<String>) -> O
             } else {
                 if let Err(e) = clipboard.set_text(text) {
                     error!("Failed to set clipboard for text segment: {}", e);
+                    return TextSegmentInjection {
+                        original_clipboard: original_clipboard.clone(),
+                        injected_chars: 0,
+                        success: false,
+                    };
                 } else {
                     thread::sleep(Duration::from_millis(25));
                     simulate_paste();
                     thread::sleep(post_paste_wait);
                 }
-                return original_clipboard.clone();
+                return TextSegmentInjection {
+                    original_clipboard: original_clipboard.clone(),
+                    injected_chars,
+                    success: true,
+                };
             }
         }
 
         // At this point, we must use direct typing (either display-less or fallback).
         if let Some(lookup) = linux::get_reverse_lookup() {
             linux::uinput::simulate_type_string(text, lookup);
+            return TextSegmentInjection {
+                original_clipboard: original_clipboard.clone(),
+                injected_chars,
+                success: true,
+            };
         } else {
             error!("Direct typing failed: Linux XKB mapper not initialized");
         }
-        original_clipboard.clone()
+        TextSegmentInjection {
+            original_clipboard: original_clipboard.clone(),
+            injected_chars: 0,
+            success: false,
+        }
     }
 
     #[cfg(all(not(windows), not(target_os = "linux")))]
@@ -687,7 +738,7 @@ pub fn inject_text_segment(text: &str, original_clipboard: &Option<String>) -> O
             Ok(c) => c,
             Err(e) => {
                 error!("Failed to initialize clipboard: {}", e);
-                return None;
+                return TextSegmentInjection::default();
             }
         };
 
@@ -696,7 +747,11 @@ pub fn inject_text_segment(text: &str, original_clipboard: &Option<String>) -> O
                 Ok(orig) => {
                     simulate_paste();
                     thread::sleep(post_paste_wait);
-                    Some(orig)
+                    TextSegmentInjection {
+                        original_clipboard: Some(orig),
+                        injected_chars,
+                        success: true,
+                    }
                 }
                 Err(e) => {
                     if e.starts_with("clipboard verify failed:") {
@@ -704,18 +759,26 @@ pub fn inject_text_segment(text: &str, original_clipboard: &Option<String>) -> O
                     } else {
                         error!("Could not prepare clipboard before paste: {}", e);
                     }
-                    None
+                    TextSegmentInjection::default()
                 }
             }
         } else {
             if let Err(e) = clipboard.set_text(text) {
                 error!("Failed to set clipboard for text segment: {}", e);
-                return original_clipboard.clone();
+                return TextSegmentInjection {
+                    original_clipboard: original_clipboard.clone(),
+                    injected_chars: 0,
+                    success: false,
+                };
             }
             thread::sleep(Duration::from_millis(25));
             simulate_paste();
             thread::sleep(post_paste_wait);
-            original_clipboard.clone()
+            TextSegmentInjection {
+                original_clipboard: original_clipboard.clone(),
+                injected_chars,
+                success: true,
+            }
         }
     }
 }
@@ -755,6 +818,7 @@ pub fn restore_clipboard_text(original: &str) {
 pub struct StreamingTextSession {
     guard: Option<MutexGuard<'static, ()>>,
     original_clipboard: Option<String>,
+    tracked_chars: usize,
 }
 
 impl StreamingTextSession {
@@ -767,18 +831,21 @@ impl StreamingTextSession {
         Self {
             guard: Some(guard),
             original_clipboard: None,
+            tracked_chars: 0,
         }
     }
 
-    pub fn push_text(&mut self, text: &str) -> bool {
+    pub fn push_text(&mut self, text: &str, track_metrics: bool) -> bool {
         if text.is_empty() || INJECTION_ABORT.load(Ordering::SeqCst) {
             return !INJECTION_ABORT.load(Ordering::SeqCst);
         }
 
-        if let Some(original) = inject_text_segment(text, &self.original_clipboard)
-            && self.original_clipboard.is_none()
-        {
-            self.original_clipboard = Some(original);
+        let injection = inject_text_segment(text, &self.original_clipboard);
+        if self.original_clipboard.is_none() {
+            self.original_clipboard = injection.original_clipboard;
+        }
+        if track_metrics {
+            self.tracked_chars = self.tracked_chars.saturating_add(injection.injected_chars);
         }
 
         !INJECTION_ABORT.load(Ordering::SeqCst)
@@ -788,22 +855,25 @@ impl StreamingTextSession {
         INJECTION_ABORT.load(Ordering::SeqCst)
     }
 
-    pub fn finish(&mut self) {
+    pub fn finish(&mut self) -> usize {
+        let tracked_chars = self.tracked_chars;
         if let Some(ref original) = self.original_clipboard {
             restore_clipboard(original);
         }
 
         pre_release_modifiers();
         self.original_clipboard = None;
+        self.tracked_chars = 0;
         INJECTION_ABORT.store(false, Ordering::SeqCst);
         IS_INJECTING.store(false, Ordering::SeqCst);
         self.guard.take();
+        tracked_chars
     }
 }
 
 impl Drop for StreamingTextSession {
     fn drop(&mut self) {
-        self.finish();
+        let _ = self.finish();
     }
 }
 
@@ -826,7 +896,7 @@ pub fn inject_expansion(
     steps: Vec<ExpansionStep>,
     delete_count: usize,
     spinner_style: taurine_core::settings::SpinnerStyle,
-) {
+) -> InjectionReport {
     let _inject_guard = inject_mutex().lock().expect("inject mutex poisoned");
 
     // Clear any stale abort from a previous injection.
@@ -847,11 +917,16 @@ pub fn inject_expansion(
 
     // 2. Execute each step in sequence.
     let mut original_clipboard: Option<String> = None;
+    let mut report = InjectionReport {
+        successful_chars: 0,
+        completed: true,
+    };
 
     for (i, step) in steps.iter().enumerate() {
         // Check for user-initiated abort before each step.
         if INJECTION_ABORT.load(Ordering::SeqCst) {
             debug!("Injection aborted by physical keypress at step {}", i);
+            report.completed = false;
             break;
         }
 
@@ -862,13 +937,20 @@ pub fn inject_expansion(
 
         match step {
             ExpansionStep::Text(text) => {
-                if let Some(orig) = inject_text_segment(text, &original_clipboard) {
-                    if original_clipboard.is_none() {
-                        original_clipboard = Some(orig);
-                    }
-                } else if original_clipboard.is_none() {
+                let injection = inject_text_segment(text, &original_clipboard);
+                report.successful_chars = report
+                    .successful_chars
+                    .saturating_add(injection.injected_chars);
+                if original_clipboard.is_none() {
+                    original_clipboard = injection.original_clipboard;
+                }
+                if !injection.success && original_clipboard.is_none() {
                     // First text segment failed entirely — abort.
+                    report.completed = false;
                     break;
+                }
+                if !injection.success {
+                    report.completed = false;
                 }
             }
             ExpansionStep::KeyPress(alias) => {
@@ -881,6 +963,7 @@ pub fn inject_expansion(
                 let mut remaining = *ms;
                 while remaining > 0 {
                     if INJECTION_ABORT.load(Ordering::SeqCst) {
+                        report.completed = false;
                         break;
                     }
                     let chunk = remaining.min(50);
@@ -913,15 +996,29 @@ pub fn inject_expansion(
                             Ok(output) => {
                                 let out: String = output;
                                 if !out.is_empty() {
-                                    inject_text_segment(&out, &original_clipboard);
+                                    let injection = inject_text_segment(&out, &original_clipboard);
+                                    report.successful_chars = report
+                                        .successful_chars
+                                        .saturating_add(injection.injected_chars);
+                                    if original_clipboard.is_none() {
+                                        original_clipboard = injection.original_clipboard;
+                                    }
+                                    if !injection.success {
+                                        report.completed = false;
+                                    }
                                 }
                             }
                             Err(e) => {
+                                report.completed = false;
                                 // Silent abort: if the user killed it, don't paste an error.
                                 let err_str = e.to_string();
                                 if !err_str.contains("aborted by user") {
                                     let err_msg = format!(" [Error: {}] ", e);
-                                    inject_text_segment(&err_msg, &original_clipboard);
+                                    let injection =
+                                        inject_text_segment(&err_msg, &original_clipboard);
+                                    if original_clipboard.is_none() {
+                                        original_clipboard = injection.original_clipboard;
+                                    }
                                 }
                             }
                         }
@@ -962,14 +1059,27 @@ pub fn inject_expansion(
                     match script_result {
                         Ok(output) => {
                             if !output.is_empty() {
-                                inject_text_segment(&output, &original_clipboard);
+                                let injection = inject_text_segment(&output, &original_clipboard);
+                                report.successful_chars = report
+                                    .successful_chars
+                                    .saturating_add(injection.injected_chars);
+                                if original_clipboard.is_none() {
+                                    original_clipboard = injection.original_clipboard;
+                                }
+                                if !injection.success {
+                                    report.completed = false;
+                                }
                             }
                         }
                         Err(e) => {
+                            report.completed = false;
                             let err_str = e.to_string();
                             if !err_str.contains("aborted by user") {
                                 let err_msg = format!("[Error: {}]", e);
-                                inject_text_segment(&err_msg, &original_clipboard);
+                                let injection = inject_text_segment(&err_msg, &original_clipboard);
+                                if original_clipboard.is_none() {
+                                    original_clipboard = injection.original_clipboard;
+                                }
                             }
                         }
                     }
@@ -1001,6 +1111,7 @@ pub fn inject_expansion(
 
     INJECTION_ABORT.store(false, Ordering::SeqCst);
     IS_INJECTING.store(false, Ordering::SeqCst);
+    report
 }
 
 #[cfg(test)]

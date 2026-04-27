@@ -28,6 +28,7 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
         &settings.pause_notifications_enabled.to_string(),
     ]);
     table.add_row(vec!["start_on_boot", &settings.start_on_boot.to_string()]);
+    table.add_row(vec!["wpm", &settings.wpm.to_string()]);
     table.add_row(vec![
         "spinner_style",
         &format!("{:?}", settings.spinner_style).to_lowercase(),
@@ -85,6 +86,14 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
             {
                 warn!("Failed to synchronize OS startup hook: {}", e);
             }
+        }
+        "wpm" => {
+            let parsed = value.parse::<u32>().map_err(|_| {
+                taurine_core::error::Error::Config(format!("Invalid WPM value: {}", value))
+            })?;
+            let wpm = Settings::sanitize_wpm(parsed);
+            manager.update_setting(actual_key, wpm)?;
+            info!("Updated wpm to: {}", wpm);
         }
         "spinner_style" => {
             let s = match value.to_lowercase().as_str() {
@@ -165,6 +174,10 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
                 warn!("Failed to synchronize OS startup hook: {}", e);
             }
         }
+        "wpm" => {
+            manager.update_setting(actual_key, defaults.wpm)?;
+            info!("Reset wpm to default: {}", defaults.wpm);
+        }
         "spinner_style" => {
             manager.update_setting(actual_key, defaults.spinner_style)?;
             info!(
@@ -213,6 +226,7 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
         defaults.pause_notifications_enabled,
     )?;
     manager.update_setting("start_on_boot", defaults.start_on_boot)?;
+    manager.update_setting("wpm", defaults.wpm)?;
     manager.update_setting("spinner_style", defaults.spinner_style)?;
     manager.update_setting("ai_provider", defaults.ai_provider.clone())?;
     manager.update_setting("ai_model", defaults.ai_model.clone())?;

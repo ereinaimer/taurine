@@ -86,7 +86,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                 CREATE TABLE IF NOT EXISTS metrics (
                     date             TEXT    PRIMARY KEY,
                     executions       INTEGER DEFAULT 0,
+                    ai_executions    INTEGER DEFAULT 0,
                     keystrokes_saved INTEGER DEFAULT 0,
+                    time_saved_ms    INTEGER DEFAULT 0,
                     version          INTEGER DEFAULT 1,
                     updated_at       INTEGER NOT NULL
                 );
@@ -164,6 +166,28 @@ fn reconcile_schema_v1(conn: &Connection) -> Result<()> {
         )
         .map_err(|e| {
             error!(error=%e, "Failed to reconcile automations.trigger_type into schema v1");
+            e
+        })?;
+    }
+
+    if !column_exists(conn, "metrics", "ai_executions")? {
+        conn.execute_batch(
+            "ALTER TABLE metrics
+                 ADD COLUMN ai_executions INTEGER DEFAULT 0;",
+        )
+        .map_err(|e| {
+            error!(error=%e, "Failed to reconcile metrics.ai_executions into schema v1");
+            e
+        })?;
+    }
+
+    if !column_exists(conn, "metrics", "time_saved_ms")? {
+        conn.execute_batch(
+            "ALTER TABLE metrics
+                 ADD COLUMN time_saved_ms INTEGER DEFAULT 0;",
+        )
+        .map_err(|e| {
+            error!(error=%e, "Failed to reconcile metrics.time_saved_ms into schema v1");
             e
         })?;
     }

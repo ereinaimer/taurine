@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use taurine_core::db::crud::AutomationMetricKind;
 use taurine_core::engine::{EngineState, ExpansionResult};
 use taurine_core::keys::{KeyPress, LogicalKey, Modifier, Modifiers};
 
@@ -56,6 +57,14 @@ impl HotkeyEvaluator {
         let Some((trigger, expansion)) = state.fetch_hotkey_expansion(hotkey) else {
             return HotkeyEvaluation::NoMatch;
         };
+        let metric_kind = if matches!(
+            expansion.steps.as_slice(),
+            [taurine_core::engine::variables::ExpansionStep::Script(_)]
+        ) {
+            AutomationMetricKind::Script
+        } else {
+            AutomationMetricKind::Hotkey
+        };
 
         self.swallowed_keys.insert(key);
         HotkeyEvaluation::Matched(ExpansionResult {
@@ -64,6 +73,7 @@ impl HotkeyEvaluator {
             trigger,
             undo_trigger: None,
             is_calculation: expansion.is_calculation,
+            metric_kind,
             track_usage: true,
             follow_up: None,
         })

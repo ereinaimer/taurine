@@ -1,24 +1,81 @@
 /// Logic for calculating metrics based on expansion events.
 pub struct ExpansionMetrics {
     pub keystrokes_saved: i64,
+    pub time_saved_ms: i64,
 }
 
-/// Calculates the net keystrokes saved from an expansion.
-///
-/// Formula: `(output_char_count + bonus_keystrokes) - delete_count`
-///
-/// - `output_char_count`: The number of characters in the expansion result.
-/// - `delete_count`: The number of backspaces sent to erase the trigger (and suffix).
-/// - `bonus_keystrokes`: Extra manual effort saved (e.g., arrow keys for cursor positioning).
-pub fn calculate_saved_keystrokes(
-    output_char_count: usize,
-    delete_count: usize,
-    bonus_keystrokes: usize,
-) -> i64 {
-    let total_gained = (output_char_count + bonus_keystrokes) as i64;
-    let total_spent = delete_count as i64;
+/// Calculates net keystrokes saved using character counts.
+pub fn calculate_saved_keystrokes(output_char_count: usize, trigger_char_count: usize) -> i64 {
+    output_char_count.saturating_sub(trigger_char_count) as i64
+}
 
-    // Never record negative savings to avoid confusing the user;
-    // at worst, it was an even trade (0 saved).
-    (total_gained - total_spent).max(0)
+/// Calculates time saved using a five-characters-per-word model.
+pub fn calculate_time_saved_ms(keystrokes_saved: i64, wpm: u32) -> i64 {
+    if keystrokes_saved <= 0 {
+        return 0;
+    }
+
+    let chars_per_minute =
+        u64::from(crate::settings::Settings::sanitize_wpm(wpm)).saturating_mul(5);
+    if chars_per_minute == 0 {
+        return 0;
+    }
+
+    let saved = keystrokes_saved as u64;
+    ((saved.saturating_mul(60_000)) / chars_per_minute) as i64
+}
+
+pub fn calculate_expansion_metrics(
+    output_char_count: usize,
+    trigger_char_count: usize,
+    wpm: u32,
+) -> ExpansionMetrics {
+    let keystrokes_saved = calculate_saved_keystrokes(output_char_count, trigger_char_count);
+    let time_saved_ms = calculate_time_saved_ms(keystrokes_saved, wpm);
+
+    ExpansionMetrics {
+        keystrokes_saved,
+        time_saved_ms,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snippet_metric_subtracts_trigger_chars() {
+        assert_eq!(calculate_saved_keystrokes(100, 5), 95);
+    }
+
+    #[test]
+    fn saved_keystrokes_saturate_at_zero() {
+        assert_eq!(calculate_saved_keystrokes(3, 10), 0);
+    }
+
+    #[test]
+    fn triggerless_expansion_counts_full_output() {
+        assert_eq!(calculate_saved_keystrokes(50, 0), 50);
+    }
+
+    #[test]
+    fn time_saved_uses_wpm() {
+        let fast = calculate_time_saved_ms(120, 60);
+        let slow = calculate_time_saved_ms(120, 30);
+        assert!(slow > fast);
+    }
+
+    #[test]
+    fn zero_or_negative_savings_have_zero_time_saved() {
+        assert_eq!(calculate_time_saved_ms(0, 60), 0);
+        assert_eq!(calculate_time_saved_ms(-5, 60), 0);
+    }
+
+    #[test]
+    fn zero_wpm_falls_back_to_default() {
+        assert_eq!(
+            calculate_time_saved_ms(60, 0),
+            calculate_time_saved_ms(60, crate::settings::Settings::default_wpm())
+        );
+    }
 }

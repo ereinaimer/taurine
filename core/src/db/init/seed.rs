@@ -21,6 +21,12 @@ pub fn ensure_defaults(conn: &Connection) -> Result<()> {
         upsert_setting(conn, "start_on_boot", "true")?;
     }
 
+    let wpm_val = get_setting(conn, "wpm")?;
+    if wpm_val.is_none() {
+        debug!("Default 'wpm' missing. Seeding database with '60'.");
+        upsert_setting(conn, "wpm", "60")?;
+    }
+
     // Global daemon pause toggle hotkey.
     // Stored as a JSON string literal. Default: Alt + ` (Alt + Backtick).
     let pause_hotkey_val = get_setting(conn, "pause_hotkey")?;

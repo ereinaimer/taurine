@@ -115,23 +115,35 @@ mod tests {
 
         let now = 1_700_000_000_i64;
         conn.execute(
-            "INSERT INTO metrics (date, executions, keystrokes_saved, updated_at)
-             VALUES (?1, ?2, ?3, ?4)",
-            ("2026-03-30", 42_i64, 500_i64, now),
+            "INSERT INTO metrics (
+                date, executions, ai_executions, keystrokes_saved, time_saved_ms, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            ("2026-03-30", 42_i64, 4_i64, 500_i64, 60_000_i64, now),
         )
         .unwrap();
 
         let mut stmt = conn
-            .prepare("SELECT executions, keystrokes_saved FROM metrics WHERE date = ?1")
+            .prepare(
+                "SELECT executions, ai_executions, keystrokes_saved, time_saved_ms
+                 FROM metrics
+                 WHERE date = ?1",
+            )
             .unwrap();
-        let (executions, keystrokes): (i64, i64) = stmt
+        let (executions, ai_executions, keystrokes, time_saved_ms): (i64, i64, i64, i64) = stmt
             .query_row(["2026-03-30"], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
             })
             .unwrap();
 
         assert_eq!(executions, 42);
+        assert_eq!(ai_executions, 4);
         assert_eq!(keystrokes, 500);
+        assert_eq!(time_saved_ms, 60_000);
     }
 
     #[test]
