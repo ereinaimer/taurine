@@ -1,5 +1,5 @@
 use super::strip_argument_quotes;
-use rand::Rng;
+use rand::{Rng, RngExt};
 
 pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> {
     match transformer {
