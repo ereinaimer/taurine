@@ -151,6 +151,10 @@ impl Evaluator {
 
     pub fn is_completion_active(&self) -> bool {
         self.completion.active
+            && self
+                .buffer
+                .extract_trigger_word(self.trigger_prefix())
+                .is_some()
     }
 
     pub fn cancel_completion(&mut self) {
@@ -211,6 +215,15 @@ impl Evaluator {
     }
 
     fn cycle_completion(&mut self, forward: bool) -> Option<CompletionRewrite> {
+        if self
+            .buffer
+            .extract_trigger_word(self.trigger_prefix())
+            .is_none()
+        {
+            self.completion.deactivate();
+            return None;
+        }
+
         if !self.completion.active || self.completion.original_query.is_empty() {
             return None;
         }
@@ -793,6 +806,7 @@ mod tests {
         assert_eq!(eval.process_event(EngineEvent::Backspace), None);
         assert!(!eval.is_completion_active());
         assert_eq!(eval.buffer.extract_trigger_word('>'), None);
+        assert_eq!(eval.cycle_completion_next(), None);
     }
 
     #[test]

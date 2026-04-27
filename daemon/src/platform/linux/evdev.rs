@@ -336,15 +336,23 @@ fn process_frame(
                     .map(|lock| lock.is_completion_active())
                     .unwrap_or(false)
             {
-                match key {
-                    KeyCode::KEY_TAB => {
-                        let rewrite = evaluator.lock().ok().and_then(|mut lock| {
-                            if shift_active {
-                                lock.cycle_completion_prev()
-                            } else {
-                                lock.cycle_completion_next()
-                            }
-                        });
+                match crate::hook::completion_key_action(
+                    crate::hook::completion_key_kind_from_tab_like(
+                        key == KeyCode::KEY_TAB,
+                        key == KeyCode::KEY_ESC,
+                        key == KeyCode::KEY_UP,
+                        key == KeyCode::KEY_DOWN,
+                    ),
+                    shift_active,
+                    ctrl_active,
+                    alt_active,
+                    meta_active,
+                ) {
+                    crate::hook::CompletionKeyAction::CycleForward => {
+                        let rewrite = evaluator
+                            .lock()
+                            .ok()
+                            .and_then(|mut lock| lock.cycle_completion_next());
 
                         if let Some(rewrite) = rewrite {
                             IS_INJECTING.store(true, Ordering::SeqCst);
@@ -359,18 +367,42 @@ fn process_frame(
                         swallow_frame = true;
                         continue;
                     }
-                    KeyCode::KEY_ESC => {
+                    crate::hook::CompletionKeyAction::CycleBackward => {
+                        let rewrite = evaluator
+                            .lock()
+                            .ok()
+                            .and_then(|mut lock| lock.cycle_completion_prev());
+
+                        if let Some(rewrite) = rewrite {
+                            IS_INJECTING.store(true, Ordering::SeqCst);
+                            let spinner_style_inner =
+                                spinner_style.read().map(|s| *s).unwrap_or_default();
+                            crate::hook::spawn_completion_rewrite_dispatch(
+                                rewrite,
+                                spinner_style_inner,
+                            );
+                        }
+
+                        swallow_frame = true;
+                        continue;
+                    }
+                    crate::hook::CompletionKeyAction::CancelAndSwallow => {
                         if let Ok(mut lock) = evaluator.lock() {
                             lock.cancel_completion();
                         }
                         swallow_frame = true;
                         continue;
                     }
-                    KeyCode::KEY_UP | KeyCode::KEY_DOWN => {
+                    crate::hook::CompletionKeyAction::Swallow => {
                         swallow_frame = true;
                         continue;
                     }
-                    _ => {}
+                    crate::hook::CompletionKeyAction::CancelAndPassThrough => {
+                        if let Ok(mut lock) = evaluator.lock() {
+                            lock.cancel_completion();
+                        }
+                    }
+                    crate::hook::CompletionKeyAction::PassThrough => {}
                 }
             }
 
@@ -426,6 +458,15 @@ fn process_frame(
                 // Invalidate on any non-modifier or combo.
                 clear_undo_state(evaluator);
             }
+        } else if grab_enabled
+            && evaluator
+                .lock()
+                .map(|lock| lock.is_completion_active())
+                .unwrap_or(false)
+            && key == KeyCode::KEY_TAB
+        {
+            swallow_frame = true;
+            continue;
         } else if grab_enabled
             && let Some(logical_key) = logical_key
             && matches!(

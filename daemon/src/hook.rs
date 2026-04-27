@@ -20,6 +20,67 @@ use taurine_core::engine::Evaluator;
 #[cfg(not(target_os = "linux"))]
 use taurine_core::engine::{EngineEvent, EngineMode};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CompletionKeyKind {
+    Tab,
+    Escape,
+    Up,
+    Down,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CompletionKeyAction {
+    CycleForward,
+    CycleBackward,
+    Swallow,
+    CancelAndSwallow,
+    CancelAndPassThrough,
+    PassThrough,
+}
+
+pub(crate) fn completion_key_action(
+    key: CompletionKeyKind,
+    shift_active: bool,
+    ctrl_active: bool,
+    alt_active: bool,
+    meta_active: bool,
+) -> CompletionKeyAction {
+    match key {
+        CompletionKeyKind::Tab => {
+            if ctrl_active || alt_active || meta_active {
+                CompletionKeyAction::CancelAndPassThrough
+            } else if shift_active {
+                CompletionKeyAction::CycleBackward
+            } else {
+                CompletionKeyAction::CycleForward
+            }
+        }
+        CompletionKeyKind::Escape => CompletionKeyAction::CancelAndSwallow,
+        CompletionKeyKind::Up | CompletionKeyKind::Down => CompletionKeyAction::Swallow,
+        CompletionKeyKind::Other => CompletionKeyAction::PassThrough,
+    }
+}
+
+pub(crate) fn completion_key_kind_from_tab_like(
+    is_tab: bool,
+    is_escape: bool,
+    is_up: bool,
+    is_down: bool,
+) -> CompletionKeyKind {
+    if is_tab {
+        CompletionKeyKind::Tab
+    } else if is_escape {
+        CompletionKeyKind::Escape
+    } else if is_up {
+        CompletionKeyKind::Up
+    } else if is_down {
+        CompletionKeyKind::Down
+    } else {
+        CompletionKeyKind::Other
+    }
+}
+
 #[cfg(target_os = "linux")]
 pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
@@ -186,15 +247,23 @@ pub fn start_listener(
                 }
 
                 if completion_is_active(&evaluator) {
-                    match key {
-                        Key::Tab => {
-                            let rewrite = evaluator.lock().ok().and_then(|mut lock| {
-                                if shift_active {
-                                    lock.cycle_completion_prev()
-                                } else {
-                                    lock.cycle_completion_next()
-                                }
-                            });
+                    match completion_key_action(
+                        completion_key_kind_from_tab_like(
+                            key == Key::Tab,
+                            key == Key::Escape,
+                            key == Key::UpArrow,
+                            key == Key::DownArrow,
+                        ),
+                        shift_active,
+                        ctrl_active,
+                        alt_active,
+                        meta_active,
+                    ) {
+                        CompletionKeyAction::CycleForward => {
+                            let rewrite = evaluator
+                                .lock()
+                                .ok()
+                                .and_then(|mut lock| lock.cycle_completion_next());
 
                             if let Some(rewrite) = rewrite {
                                 IS_INJECTING.store(true, Ordering::SeqCst);
@@ -205,14 +274,34 @@ pub fn start_listener(
 
                             return None;
                         }
-                        Key::Escape => {
+                        CompletionKeyAction::CycleBackward => {
+                            let rewrite = evaluator
+                                .lock()
+                                .ok()
+                                .and_then(|mut lock| lock.cycle_completion_prev());
+
+                            if let Some(rewrite) = rewrite {
+                                IS_INJECTING.store(true, Ordering::SeqCst);
+                                let spinner_style_inner =
+                                    spinner_style.read().map(|s| *s).unwrap_or_default();
+                                spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
+                            }
+
+                            return None;
+                        }
+                        CompletionKeyAction::CancelAndSwallow => {
                             if let Ok(mut lock) = evaluator.lock() {
                                 lock.cancel_completion();
                             }
                             return None;
                         }
-                        Key::UpArrow | Key::DownArrow => return None,
-                        _ => {}
+                        CompletionKeyAction::Swallow => return None,
+                        CompletionKeyAction::CancelAndPassThrough => {
+                            if let Ok(mut lock) = evaluator.lock() {
+                                lock.cancel_completion();
+                            }
+                        }
+                        CompletionKeyAction::PassThrough => {}
                     }
                 }
 
@@ -330,6 +419,10 @@ pub fn start_listener(
                 }
             }
             EventType::KeyRelease(key) => {
+                if completion_is_active(&evaluator) && key == Key::Tab {
+                    return None;
+                }
+
                 if let Some(logical_key) = logical_key_from_rdev(key)
                     && let Ok(mut lock) = hotkey_evaluator.lock()
                     && matches!(lock.on_key_release(logical_key), HotkeyEvaluation::Swallow)
@@ -428,7 +521,6 @@ pub(crate) fn spawn_expansion_dispatch(
     });
 }
 
-#[cfg(not(target_os = "linux"))]
 fn completion_is_active(evaluator: &Arc<Mutex<Evaluator>>) -> bool {
     evaluator
         .lock()
@@ -730,6 +822,104 @@ mod tests {
             vec![taurine_core::engine::variables::ExpansionStep::Text(
                 "gco".to_string()
             )]
+        );
+    }
+
+    #[test]
+    fn completion_key_action_wraps_plain_and_shift_tab_into_cycle_actions() {
+        assert_eq!(
+            completion_key_action(CompletionKeyKind::Tab, false, false, false, false),
+            CompletionKeyAction::CycleForward
+        );
+        assert_eq!(
+            completion_key_action(CompletionKeyKind::Tab, true, false, false, false),
+            CompletionKeyAction::CycleBackward
+        );
+    }
+
+    #[test]
+    fn completion_key_action_treats_modified_tabs_as_pass_through_cancels() {
+        assert_eq!(
+            completion_key_action(CompletionKeyKind::Tab, false, false, true, false),
+            CompletionKeyAction::CancelAndPassThrough
+        );
+        assert_eq!(
+            completion_key_action(CompletionKeyKind::Tab, false, true, false, false),
+            CompletionKeyAction::CancelAndPassThrough
+        );
+        assert_eq!(
+            completion_key_action(CompletionKeyKind::Tab, true, true, false, false),
+            CompletionKeyAction::CancelAndPassThrough
+        );
+        assert_eq!(
+            completion_key_action(CompletionKeyKind::Tab, false, false, false, true),
+            CompletionKeyAction::CancelAndPassThrough
+        );
+    }
+
+    #[test]
+    fn completion_key_action_swallows_escape_and_vertical_navigation() {
+        assert_eq!(
+            completion_key_action(CompletionKeyKind::Escape, false, false, false, false),
+            CompletionKeyAction::CancelAndSwallow
+        );
+        assert_eq!(
+            completion_key_action(CompletionKeyKind::Up, false, false, false, false),
+            CompletionKeyAction::Swallow
+        );
+        assert_eq!(
+            completion_key_action(CompletionKeyKind::Down, false, false, false, false),
+            CompletionKeyAction::Swallow
+        );
+    }
+
+    #[test]
+    fn completion_key_kind_from_tab_like_maps_expected_keys() {
+        assert_eq!(
+            completion_key_kind_from_tab_like(true, false, false, false),
+            CompletionKeyKind::Tab
+        );
+        assert_eq!(
+            completion_key_kind_from_tab_like(false, true, false, false),
+            CompletionKeyKind::Escape
+        );
+        assert_eq!(
+            completion_key_kind_from_tab_like(false, false, true, false),
+            CompletionKeyKind::Up
+        );
+        assert_eq!(
+            completion_key_kind_from_tab_like(false, false, false, true),
+            CompletionKeyKind::Down
+        );
+        assert_eq!(
+            completion_key_kind_from_tab_like(false, false, false, false),
+            CompletionKeyKind::Other
+        );
+    }
+
+    #[test]
+    fn completion_is_inactive_after_trigger_character_is_deleted() {
+        let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+        let mut evaluator = taurine_core::engine::Evaluator::new(state);
+        for ch in ">g".chars() {
+            assert_eq!(
+                evaluator.process_event(taurine_core::engine::EngineEvent::Char(ch)),
+                None
+            );
+        }
+        assert_eq!(
+            evaluator.process_event(taurine_core::engine::EngineEvent::Backspace),
+            None
+        );
+        assert_eq!(
+            evaluator.process_event(taurine_core::engine::EngineEvent::Backspace),
+            None
+        );
+
+        let evaluator = Arc::new(Mutex::new(evaluator));
+        assert!(
+            !completion_is_active(&evaluator),
+            "hook gating must not treat deleted-trigger state as active completion"
         );
     }
 }
