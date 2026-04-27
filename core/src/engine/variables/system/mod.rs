@@ -7,6 +7,7 @@ pub mod clipboard;
 
 pub mod date;
 pub mod env;
+pub mod file;
 pub mod lorem;
 pub mod mock;
 pub mod net;
@@ -49,6 +50,7 @@ pub fn is_reserved(mut key: &str) -> bool {
         || key.starts_with("time.")
         || key.starts_with("date.")
         || key.starts_with("env.")
+        || key.starts_with("file.")
         || key.starts_with("net.")
         || key.starts_with("run.")
         || key.starts_with("random.")
@@ -89,6 +91,9 @@ pub fn resolve(key: &str) -> Option<String> {
     }
     if key.starts_with("env.") {
         return env::resolve(key);
+    }
+    if key.starts_with("file.") {
+        return file::resolve(key);
     }
     if key.starts_with("net.") {
         return net::resolve(key);

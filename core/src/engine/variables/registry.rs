@@ -32,6 +32,7 @@ const SYSTEM_ROOTS: &[&str] = &[
     "delay",
     "lorem",
     "mock",
+    "file",
 ];
 
 const TIME_MODIFIERS: &[&str] = &[
@@ -135,6 +136,11 @@ const MOCK_MODIFIERS: &[&str] = &[
     "status_code",
     "method",
 ];
+const FILE_MODIFIERS: &[&str] = &[
+    "read(path)",
+    "random_line(path)",
+    "read_line(path, start, [end])",
+];
 const KEY_MODIFIERS: &[&str] = &[
     "enter",
     "tab",
@@ -216,6 +222,7 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "random" => format!("Valid modifiers: {}", RANDOM_MODIFIERS.join(", ")),
         "lorem" => format!("Valid modifiers: lorem, {}", LOREM_MODIFIERS.join(", ")),
         "mock" => format!("Valid modifiers: {}", MOCK_MODIFIERS.join(", ")),
+        "file" => format!("Valid modifiers: {}", FILE_MODIFIERS.join(", ")),
         "key" => format!(
             "Valid key tokens: {}. You can combine them with `+`, and any single character token is also allowed.",
             KEY_MODIFIERS.join(", ")
@@ -239,6 +246,7 @@ pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), Val
         "random" => validate_random_modifier(modifier),
         "lorem" => validate_lorem_modifier(modifier),
         "mock" => validate_mock_modifier(modifier),
+        "file" => validate_file_modifier(modifier),
         "key" => validate_key_modifier(modifier),
         "delay" => validate_delay_modifier(modifier),
         _ => Err(ValidationError::UnknownRoot(root.to_string())),
@@ -499,7 +507,56 @@ fn validate_mock_modifier(modifier: Option<&str>) -> Result<(), ValidationError>
     }
 }
 
+fn validate_file_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
+    let modifier =
+        normalize_modifier(modifier.ok_or(ValidationError::MissingModifier { root: "file" })?)
+            .ok_or(ValidationError::MissingModifier { root: "file" })?;
+
+    let Some((variant, args)) = parse_file_modifier(modifier) else {
+        return Err(ValidationError::InvalidModifier {
+            root: "file",
+            modifier: modifier.to_string(),
+            allowed: FILE_MODIFIERS,
+        });
+    };
+
+    let valid = match variant {
+        "read" | "random_line" => args.is_some_and(|args| split_modifier_args(args).len() == 1),
+        "read_line" => args.is_some_and(|args| {
+            let num_args = split_modifier_args(args).len();
+            num_args == 2 || num_args == 3
+        }),
+        _ => false,
+    };
+
+    if valid {
+        Ok(())
+    } else {
+        Err(ValidationError::InvalidModifier {
+            root: "file",
+            modifier: modifier.to_string(),
+            allowed: FILE_MODIFIERS,
+        })
+    }
+}
+
 fn parse_random_modifier(input: &str) -> Option<(&str, Option<&str>)> {
+    if let Some(paren_idx) = input.find('(') {
+        let variant = input[..paren_idx].trim();
+        let (args, trailing) = scan_run_parenthesized(&input[paren_idx..])?;
+        if !variant.is_empty() && trailing.trim().is_empty() {
+            Some((variant, Some(args)))
+        } else {
+            None
+        }
+    } else if input.contains(')') {
+        None
+    } else {
+        Some((input.trim(), None)).filter(|(variant, _)| !variant.is_empty())
+    }
+}
+
+fn parse_file_modifier(input: &str) -> Option<(&str, Option<&str>)> {
     if let Some(paren_idx) = input.find('(') {
         let variant = input[..paren_idx].trim();
         let (args, trailing) = scan_run_parenthesized(&input[paren_idx..])?;

@@ -154,7 +154,7 @@ pub fn down() -> taurine_core::error::Result<()> {
                 let request = tonic::Request::new(ShutdownRequest {});
                 match client.shutdown(request).await {
                     Ok(_) => {
-                        info!("Shutdown signal sent successfully.");
+                        debug!("Shutdown signal sent successfully.");
                         grpc_success = true;
                     }
                     Err(e) => error!("Failed to send graceful shutdown signal: {}", e),
