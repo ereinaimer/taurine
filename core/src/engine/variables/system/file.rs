@@ -1,5 +1,5 @@
 use directories::UserDirs;
-use rand::Rng;
+use rand::RngExt;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
