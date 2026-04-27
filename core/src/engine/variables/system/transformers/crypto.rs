@@ -9,9 +9,9 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
 
     match transformer {
         "md5" => Some(format!("{:x}", md5::compute(content.as_bytes()))),
-        "sha1" => Some(format!("{:x}", Sha1::digest(content.as_bytes()))),
-        "sha256" => Some(format!("{:x}", Sha256::digest(content.as_bytes()))),
-        "sha512" => Some(format!("{:x}", Sha512::digest(content.as_bytes()))),
+        "sha1" => Some(hex::encode(Sha1::digest(content.as_bytes()))),
+        "sha256" => Some(hex::encode(Sha256::digest(content.as_bytes()))),
+        "sha512" => Some(hex::encode(Sha512::digest(content.as_bytes()))),
         "crc32" => Some(crc32(content)),
         "rot13" => Some(rot13(content)),
         _ => None,

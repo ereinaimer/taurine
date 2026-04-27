@@ -1,5 +1,5 @@
 use heck::*;
-use rand::Rng;
+use rand::{Rng, RngExt};
 
 pub fn apply(transformer: &str, content: &str) -> Option<String> {
     match transformer {
