@@ -340,4 +340,24 @@ mod tests {
         let key_range = format!("file.read_line({}, 1, 2)", path);
         assert_eq!(resolve(&key_range).unwrap(), "one\ntwo");
     }
+
+    #[test]
+    fn file_size_limit() {
+        let file = NamedTempFile::new().unwrap();
+        file.as_file().set_len(MAX_FILE_SIZE + 1).unwrap();
+        let path = file.path().to_str().unwrap();
+        let result = read_file(path);
+        assert_eq!(result, "[Error: File exceeds 5MB limit]");
+    }
+
+    #[test]
+    fn expand_tilde() {
+        let path = expand_path("~/test.txt").unwrap();
+        let home = directories::UserDirs::new()
+            .unwrap()
+            .home_dir()
+            .to_path_buf();
+        assert!(path.starts_with(&home));
+        assert!(path.ends_with("test.txt"));
+    }
 }
