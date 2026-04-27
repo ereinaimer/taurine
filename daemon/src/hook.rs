@@ -185,6 +185,37 @@ pub fn start_listener(
                     return Some(event);
                 }
 
+                if completion_is_active(&evaluator) {
+                    match key {
+                        Key::Tab => {
+                            let rewrite = evaluator.lock().ok().and_then(|mut lock| {
+                                if shift_active {
+                                    lock.cycle_completion_prev()
+                                } else {
+                                    lock.cycle_completion_next()
+                                }
+                            });
+
+                            if let Some(rewrite) = rewrite {
+                                IS_INJECTING.store(true, Ordering::SeqCst);
+                                let spinner_style_inner =
+                                    spinner_style.read().map(|s| *s).unwrap_or_default();
+                                spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
+                            }
+
+                            return None;
+                        }
+                        Key::Escape => {
+                            if let Ok(mut lock) = evaluator.lock() {
+                                lock.cancel_completion();
+                            }
+                            return None;
+                        }
+                        Key::UpArrow | Key::DownArrow => return None,
+                        _ => {}
+                    }
+                }
+
                 if let Some(logical_key) = logical_key_from_rdev(key)
                     && let Ok(mut lock) = hotkey_evaluator.lock()
                 {
@@ -395,6 +426,47 @@ pub(crate) fn spawn_expansion_dispatch(
             launch_follow_up,
         );
     });
+}
+
+#[cfg(not(target_os = "linux"))]
+fn completion_is_active(evaluator: &Arc<Mutex<Evaluator>>) -> bool {
+    evaluator
+        .lock()
+        .map(|lock| lock.is_completion_active())
+        .unwrap_or(false)
+}
+
+pub(crate) fn spawn_completion_rewrite_dispatch(
+    rewrite: taurine_core::engine::CompletionRewrite,
+    spinner_style: taurine_core::settings::SpinnerStyle,
+) {
+    std::thread::spawn(move || {
+        dispatch_completion_rewrite_with(rewrite, spinner_style, crate::injector::inject_expansion);
+    });
+}
+
+fn dispatch_completion_rewrite_with<I>(
+    rewrite: taurine_core::engine::CompletionRewrite,
+    spinner_style: taurine_core::settings::SpinnerStyle,
+    inject: I,
+) where
+    I: FnOnce(
+        Vec<taurine_core::engine::variables::ExpansionStep>,
+        usize,
+        taurine_core::settings::SpinnerStyle,
+    ) -> crate::injector::InjectionReport,
+{
+    let taurine_core::engine::CompletionRewrite {
+        delete_count,
+        replacement,
+    } = rewrite;
+    let _ = inject(
+        vec![taurine_core::engine::variables::ExpansionStep::Text(
+            replacement,
+        )],
+        delete_count,
+        spinner_style,
+    );
 }
 
 fn dispatch_expansion_with<I, L>(
@@ -628,5 +700,36 @@ mod tests {
         );
 
         assert!(state.take_active_undo_state().is_none());
+    }
+
+    #[test]
+    fn completion_rewrite_dispatch_uses_single_bulk_text_step() {
+        let captured = Arc::new(Mutex::new(None));
+        let captured_clone = captured.clone();
+
+        dispatch_completion_rewrite_with(
+            taurine_core::engine::CompletionRewrite {
+                delete_count: 5,
+                replacement: "gco".to_string(),
+            },
+            taurine_core::settings::SpinnerStyle::default(),
+            move |steps, delete_count, _| {
+                *captured_clone.lock().expect("capture poisoned") = Some((steps, delete_count));
+                crate::injector::InjectionReport::default()
+            },
+        );
+
+        let (steps, delete_count) = captured
+            .lock()
+            .expect("capture poisoned")
+            .clone()
+            .expect("rewrite should be captured");
+        assert_eq!(delete_count, 5);
+        assert_eq!(
+            steps,
+            vec![taurine_core::engine::variables::ExpansionStep::Text(
+                "gco".to_string()
+            )]
+        );
     }
 }

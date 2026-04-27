@@ -133,6 +133,10 @@ impl EngineState {
         self.word_catalog.fetch_expansion(keyword)
     }
 
+    pub fn matching_word_triggers(&self, prefix: &str) -> Vec<String> {
+        self.word_catalog.matching_triggers(prefix)
+    }
+
     pub fn get_hotkey_action(&self, trigger: &str) -> Option<AutomationAction> {
         self.hotkey_catalog.get_action(trigger)
     }
@@ -340,6 +344,24 @@ mod tests {
         assert_eq!(
             expansion.steps[0],
             crate::engine::variables::ExpansionStep::Text("right".to_string())
+        );
+    }
+
+    #[test]
+    fn matching_word_triggers_reads_only_the_word_catalog() {
+        let state = EngineState::new('>');
+        state.load_actions(vec![
+            ("gpush".to_string(), AutomationAction::text("git push")),
+            ("gs".to_string(), AutomationAction::text("git status")),
+        ]);
+        state.load_hotkey_actions(vec![(
+            "ctrl+g".to_string(),
+            AutomationAction::text("hotkey"),
+        )]);
+
+        assert_eq!(
+            state.matching_word_triggers("g"),
+            vec!["gpush".to_string(), "gs".to_string()]
         );
     }
 }

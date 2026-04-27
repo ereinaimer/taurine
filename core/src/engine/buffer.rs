@@ -37,6 +37,12 @@ impl FastBuffer {
         }
     }
 
+    pub fn pop_n(&mut self, count: usize) {
+        for _ in 0..count {
+            self.pop();
+        }
+    }
+
     pub fn pop_word(&mut self) {
         if self.len == 0 {
             return;

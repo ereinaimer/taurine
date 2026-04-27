@@ -51,9 +51,43 @@ pub struct ExpansionResult {
     pub follow_up: Option<ExpansionFollowUp>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompletionRewrite {
+    pub delete_count: usize,
+    pub replacement: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct TriggerCompletionState {
+    active: bool,
+    original_query: String,
+    current_text: String,
+    suggestions: Vec<String>,
+    selected_index: Option<usize>,
+}
+
+impl TriggerCompletionState {
+    fn activate(&mut self) {
+        self.active = true;
+        self.original_query.clear();
+        self.current_text.clear();
+        self.suggestions.clear();
+        self.selected_index = None;
+    }
+
+    fn deactivate(&mut self) {
+        self.active = false;
+        self.original_query.clear();
+        self.current_text.clear();
+        self.suggestions.clear();
+        self.selected_index = None;
+    }
+}
+
 pub struct Evaluator {
     pub buffer: FastBuffer,
     pub state: Arc<EngineState>,
+    completion: TriggerCompletionState,
 }
 
 impl Evaluator {
@@ -61,6 +95,7 @@ impl Evaluator {
         Self {
             buffer: FastBuffer::new(),
             state,
+            completion: TriggerCompletionState::default(),
         }
     }
 
@@ -114,6 +149,145 @@ impl Evaluator {
             .then(|| self.full_trigger_text(keyword))
     }
 
+    pub fn is_completion_active(&self) -> bool {
+        self.completion.active
+    }
+
+    pub fn cancel_completion(&mut self) {
+        self.completion.deactivate();
+    }
+
+    pub fn cycle_completion_next(&mut self) -> Option<CompletionRewrite> {
+        self.cycle_completion(true)
+    }
+
+    pub fn cycle_completion_prev(&mut self) -> Option<CompletionRewrite> {
+        self.cycle_completion(false)
+    }
+
+    fn update_completion_after_char(&mut self, c: char) {
+        let trigger_char = self.trigger_prefix();
+        if c == trigger_char && !self.completion.active {
+            self.completion.activate();
+            return;
+        }
+
+        if !self.completion.active {
+            return;
+        }
+
+        self.completion.current_text.push(c);
+        self.completion.original_query = self.completion.current_text.clone();
+        self.completion.selected_index = None;
+        let query = self.completion.current_text.clone();
+        self.rebuild_completion_suggestions(&query);
+    }
+
+    fn sync_completion_from_buffer(&mut self) {
+        if !self.completion.active {
+            return;
+        }
+
+        let trigger_char = self.trigger_prefix();
+        let Some(query) = self.buffer.extract_trigger_word(trigger_char) else {
+            self.completion.deactivate();
+            return;
+        };
+
+        self.completion.current_text = query.clone();
+        self.completion.original_query = query;
+        self.completion.selected_index = None;
+        let query = self.completion.current_text.clone();
+        self.rebuild_completion_suggestions(&query);
+    }
+
+    fn rebuild_completion_suggestions(&mut self, query: &str) {
+        if !self.completion.active || query.is_empty() {
+            self.completion.suggestions.clear();
+            return;
+        }
+
+        self.completion.suggestions = self.state.matching_word_triggers(query);
+    }
+
+    fn cycle_completion(&mut self, forward: bool) -> Option<CompletionRewrite> {
+        if !self.completion.active || self.completion.original_query.is_empty() {
+            return None;
+        }
+
+        let base_query = self.completion.original_query.clone();
+        let suggestions = self.state.matching_word_triggers(&base_query);
+        if suggestions.is_empty() {
+            self.completion.suggestions.clear();
+            self.completion.selected_index = None;
+            return None;
+        }
+
+        self.completion.suggestions = suggestions;
+        let suggestion_count = self.completion.suggestions.len();
+        let next_index = match (self.completion.selected_index, forward) {
+            (Some(index), true) => (index + 1) % suggestion_count,
+            (Some(index), false) => (index + suggestion_count - 1) % suggestion_count,
+            (None, true) => 0,
+            (None, false) => suggestion_count - 1,
+        };
+
+        let replacement = self.completion.suggestions[next_index].clone();
+        let delete_count = self.completion.current_text.chars().count();
+        self.buffer.pop_n(delete_count);
+        for c in replacement.chars() {
+            self.buffer.push(c);
+        }
+
+        self.completion.current_text = replacement.clone();
+        self.completion.selected_index = Some(next_index);
+
+        Some(CompletionRewrite {
+            delete_count,
+            replacement,
+        })
+    }
+
+    fn process_space_event(&mut self) -> Option<ExpansionResult> {
+        let trigger_char = self.trigger_prefix();
+
+        if let Some(keyword) = self.buffer.extract_trigger_word(trigger_char) {
+            if keyword == INLINE_AI_KEYWORD {
+                return Some(self.start_inline_ai_capture(&keyword, None));
+            }
+
+            if let Some(preset_name) = keyword.strip_prefix("ai.")
+                && let Some(prompt_override) = self.state.get_ai_preset(preset_name)
+            {
+                return Some(self.start_inline_ai_capture(&keyword, Some(prompt_override)));
+            }
+
+            if let Some(prompt) = parse_inline_ai_prompt(&keyword) {
+                return Some(self.expand_inline_ai_prompt(&keyword, prompt));
+            }
+
+            if let Some(expansion) = self.state.fetch_expansion(&keyword) {
+                let delete_count = 1 + keyword.chars().count() + 1;
+                let undo_trigger = self.undo_trigger_for_steps(&keyword, &expansion.steps);
+                let metric_kind = metric_kind_for_steps(expansion.is_calculation, &expansion.steps);
+                self.buffer.clear();
+                return Some(ExpansionResult {
+                    delete_count,
+                    steps: expansion.steps,
+                    trigger: keyword,
+                    undo_trigger,
+                    is_calculation: expansion.is_calculation,
+                    metric_kind,
+                    track_usage: true,
+                    follow_up: None,
+                });
+            }
+        }
+
+        self.buffer.push(' ');
+        None
+    }
+
     pub fn process_event(&mut self, event: EngineEvent) -> Option<ExpansionResult> {
         if let EngineMode::AiCapture { .. } = self.state.engine_mode() {
             return self.process_ai_capture_event(event);
@@ -123,64 +297,33 @@ impl Evaluator {
             EngineEvent::Interrupt => {
                 // Severe interrupts ruin active sequences
                 self.buffer.clear();
+                self.completion.deactivate();
                 None
             }
             EngineEvent::Backspace => {
                 // Backtrack buffer safely
                 self.buffer.pop();
+                self.sync_completion_from_buffer();
                 None
             }
             EngineEvent::WordBackspace => {
                 // Backtrack a whole word
                 self.buffer.pop_word();
+                self.sync_completion_from_buffer();
                 None
             }
             EngineEvent::Char(' ') => {
-                // Action character — evaluate trigger extraction
-                let trigger_char = self.trigger_prefix();
-
-                if let Some(keyword) = self.buffer.extract_trigger_word(trigger_char) {
-                    if keyword == INLINE_AI_KEYWORD {
-                        return Some(self.start_inline_ai_capture(&keyword, None));
-                    }
-
-                    if let Some(preset_name) = keyword.strip_prefix("ai.")
-                        && let Some(prompt_override) = self.state.get_ai_preset(preset_name)
-                    {
-                        return Some(self.start_inline_ai_capture(&keyword, Some(prompt_override)));
-                    }
-
-                    if let Some(prompt) = parse_inline_ai_prompt(&keyword) {
-                        return Some(self.expand_inline_ai_prompt(&keyword, prompt));
-                    }
-
-                    if let Some(expansion) = self.state.fetch_expansion(&keyword) {
-                        // trigger_char + keyword + the space that fired the action
-                        let delete_count = 1 + keyword.chars().count() + 1;
-                        let undo_trigger = self.undo_trigger_for_steps(&keyword, &expansion.steps);
-                        let metric_kind =
-                            metric_kind_for_steps(expansion.is_calculation, &expansion.steps);
-                        self.buffer.clear();
-                        return Some(ExpansionResult {
-                            delete_count,
-                            steps: expansion.steps,
-                            trigger: keyword,
-                            undo_trigger,
-                            is_calculation: expansion.is_calculation,
-                            metric_kind,
-                            track_usage: true,
-                            follow_up: None,
-                        });
-                    }
+                let was_completion_active = self.completion.active;
+                let result = self.process_space_event();
+                if was_completion_active {
+                    self.completion.deactivate();
                 }
-
-                // Not a trigger — just record the space normally.
-                self.buffer.push(' ');
-                None
+                result
             }
             EngineEvent::Char(c) => {
                 // Normal typing tracking
                 self.buffer.push(c);
+                self.update_completion_after_char(c);
                 None
             }
         }
@@ -414,6 +557,293 @@ mod tests {
             ),
         ]);
         Evaluator::new(state)
+    }
+
+    fn assert_completion_rewrite(
+        rewrite: Option<CompletionRewrite>,
+        delete_count: usize,
+        replacement: &str,
+    ) {
+        assert_eq!(
+            rewrite,
+            Some(CompletionRewrite {
+                delete_count,
+                replacement: replacement.to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn typing_trigger_char_enters_completion_state() {
+        let state = Arc::new(EngineState::new('>'));
+        let mut eval = Evaluator::new(state);
+
+        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+
+        assert!(eval.is_completion_active());
+        assert_eq!(eval.completion.original_query, "");
+        assert_eq!(eval.completion.current_text, "");
+        assert!(eval.completion.suggestions.is_empty());
+    }
+
+    #[test]
+    fn completion_query_tracks_typed_chars_and_ignores_hotkeys() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![
+            (
+                "gpush".to_string(),
+                crate::db::crud::AutomationAction::text("git push"),
+            ),
+            (
+                "gs".to_string(),
+                crate::db::crud::AutomationAction::text("git status"),
+            ),
+            (
+                "gco".to_string(),
+                crate::db::crud::AutomationAction::text("git checkout"),
+            ),
+        ]);
+        state.load_hotkey_actions(vec![(
+            "ctrl+shift+g".to_string(),
+            crate::db::crud::AutomationAction::text("hotkey"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">g".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        assert!(eval.is_completion_active());
+        assert_eq!(eval.completion.original_query, "g");
+        assert_eq!(eval.completion.current_text, "g");
+        assert_eq!(
+            eval.completion.suggestions,
+            vec!["gco".to_string(), "gpush".to_string(), "gs".to_string()]
+        );
+    }
+
+    #[test]
+    fn completion_tab_with_empty_query_is_swallowed_without_rewrite() {
+        let state = Arc::new(EngineState::new('>'));
+        let mut eval = Evaluator::new(state);
+
+        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+        assert_eq!(eval.cycle_completion_next(), None);
+        assert!(eval.is_completion_active());
+        assert_eq!(eval.completion.current_text, "");
+        assert!(eval.completion.selected_index.is_none());
+    }
+
+    #[test]
+    fn completion_tab_cycles_sorted_matches_and_wraps() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![
+            (
+                "gs".to_string(),
+                crate::db::crud::AutomationAction::text("git status"),
+            ),
+            (
+                "gpush".to_string(),
+                crate::db::crud::AutomationAction::text("git push"),
+            ),
+            (
+                "gco".to_string(),
+                crate::db::crud::AutomationAction::text("git checkout"),
+            ),
+        ]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">g".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        assert_completion_rewrite(eval.cycle_completion_next(), 1, "gco");
+        assert_eq!(
+            eval.buffer.extract_trigger_word('>'),
+            Some("gco".to_string())
+        );
+        assert_eq!(eval.completion.current_text, "gco");
+        assert_eq!(eval.completion.selected_index, Some(0));
+
+        assert_completion_rewrite(eval.cycle_completion_next(), 3, "gpush");
+        assert_eq!(
+            eval.buffer.extract_trigger_word('>'),
+            Some("gpush".to_string())
+        );
+        assert_eq!(eval.completion.selected_index, Some(1));
+
+        assert_completion_rewrite(eval.cycle_completion_next(), 5, "gs");
+        assert_eq!(
+            eval.buffer.extract_trigger_word('>'),
+            Some("gs".to_string())
+        );
+        assert_eq!(eval.completion.selected_index, Some(2));
+
+        assert_completion_rewrite(eval.cycle_completion_next(), 2, "gco");
+        assert_eq!(
+            eval.buffer.extract_trigger_word('>'),
+            Some("gco".to_string())
+        );
+        assert_eq!(eval.completion.selected_index, Some(0));
+    }
+
+    #[test]
+    fn completion_shift_tab_cycles_backward_and_wraps() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![
+            (
+                "gs".to_string(),
+                crate::db::crud::AutomationAction::text("git status"),
+            ),
+            (
+                "gpush".to_string(),
+                crate::db::crud::AutomationAction::text("git push"),
+            ),
+            (
+                "gco".to_string(),
+                crate::db::crud::AutomationAction::text("git checkout"),
+            ),
+        ]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">g".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        assert_completion_rewrite(eval.cycle_completion_prev(), 1, "gs");
+        assert_eq!(eval.completion.selected_index, Some(2));
+
+        assert_completion_rewrite(eval.cycle_completion_prev(), 2, "gpush");
+        assert_eq!(eval.completion.selected_index, Some(1));
+
+        assert_completion_rewrite(eval.cycle_completion_prev(), 5, "gco");
+        assert_eq!(eval.completion.selected_index, Some(0));
+    }
+
+    #[test]
+    fn completion_tab_with_no_matches_is_swallowed_without_rewrite() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![(
+            "gs".to_string(),
+            crate::db::crud::AutomationAction::text("git status"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">z".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        assert_eq!(eval.cycle_completion_next(), None);
+        assert!(eval.is_completion_active());
+        assert_eq!(eval.completion.current_text, "z");
+        assert!(eval.completion.selected_index.is_none());
+    }
+
+    #[test]
+    fn completion_cancel_leaves_buffer_text_untouched() {
+        let state = Arc::new(EngineState::new('>'));
+        let mut eval = Evaluator::new(state);
+
+        for c in ">gs".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        eval.cancel_completion();
+
+        assert!(!eval.is_completion_active());
+        assert_eq!(
+            eval.buffer.extract_trigger_word('>'),
+            Some("gs".to_string())
+        );
+    }
+
+    #[test]
+    fn completion_backspace_updates_query_and_exits_after_trigger_is_removed() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![
+            (
+                "gs".to_string(),
+                crate::db::crud::AutomationAction::text("git status"),
+            ),
+            (
+                "gpush".to_string(),
+                crate::db::crud::AutomationAction::text("git push"),
+            ),
+        ]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">gs".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        assert_eq!(eval.process_event(EngineEvent::Backspace), None);
+        assert!(eval.is_completion_active());
+        assert_eq!(eval.completion.current_text, "g");
+        assert_eq!(eval.completion.original_query, "g");
+        assert_eq!(
+            eval.completion.suggestions,
+            vec!["gpush".to_string(), "gs".to_string()]
+        );
+
+        assert_eq!(eval.process_event(EngineEvent::Backspace), None);
+        assert!(eval.is_completion_active());
+        assert_eq!(eval.completion.current_text, "");
+        assert_eq!(eval.buffer.extract_trigger_word('>'), Some(String::new()));
+
+        assert_eq!(eval.process_event(EngineEvent::Backspace), None);
+        assert!(!eval.is_completion_active());
+        assert_eq!(eval.buffer.extract_trigger_word('>'), None);
+    }
+
+    #[test]
+    fn completion_space_after_rewrite_uses_existing_word_expansion_path() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![
+            (
+                "gco".to_string(),
+                crate::db::crud::AutomationAction::text("git checkout"),
+            ),
+            (
+                "gs".to_string(),
+                crate::db::crud::AutomationAction::text("git status"),
+            ),
+        ]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">g".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        assert_completion_rewrite(eval.cycle_completion_next(), 1, "gco");
+        let result = eval
+            .process_event(EngineEvent::Char(' '))
+            .expect("space should expand the selected completion");
+
+        assert_eq!(result.trigger, "gco");
+        assert_eq!(
+            result.steps,
+            vec![ExpansionStep::Text("git checkout".to_string())]
+        );
+        assert!(!eval.is_completion_active());
+    }
+
+    #[test]
+    fn completion_does_not_break_inline_ai_capture_priority() {
+        let state = Arc::new(EngineState::new('>'));
+        let mut eval = Evaluator::new(state.clone());
+
+        for c in ">ai".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        assert!(eval.is_completion_active());
+        let result = eval
+            .process_event(EngineEvent::Char(' '))
+            .expect("inline ai capture should still start");
+
+        assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
+        assert_eq!(result.trigger, INLINE_AI_KEYWORD);
+        assert!(!eval.is_completion_active());
     }
 
     #[test]

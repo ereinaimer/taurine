@@ -330,6 +330,50 @@ fn process_frame(
             let alt_active = modifier_sides.alt_active();
             let meta_active = modifier_sides.meta_active();
 
+            if grab_enabled
+                && evaluator
+                    .lock()
+                    .map(|lock| lock.is_completion_active())
+                    .unwrap_or(false)
+            {
+                match key {
+                    KeyCode::KEY_TAB => {
+                        let rewrite = evaluator.lock().ok().and_then(|mut lock| {
+                            if shift_active {
+                                lock.cycle_completion_prev()
+                            } else {
+                                lock.cycle_completion_next()
+                            }
+                        });
+
+                        if let Some(rewrite) = rewrite {
+                            IS_INJECTING.store(true, Ordering::SeqCst);
+                            let spinner_style_inner =
+                                spinner_style.read().map(|s| *s).unwrap_or_default();
+                            crate::hook::spawn_completion_rewrite_dispatch(
+                                rewrite,
+                                spinner_style_inner,
+                            );
+                        }
+
+                        swallow_frame = true;
+                        continue;
+                    }
+                    KeyCode::KEY_ESC => {
+                        if let Ok(mut lock) = evaluator.lock() {
+                            lock.cancel_completion();
+                        }
+                        swallow_frame = true;
+                        continue;
+                    }
+                    KeyCode::KEY_UP | KeyCode::KEY_DOWN => {
+                        swallow_frame = true;
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
+
             if grab_enabled && let Some(logical_key) = logical_key {
                 match hotkey_evaluator.on_key_event(state.as_ref(), true, modifiers, logical_key) {
                     HotkeyEvaluation::Matched(expansion) => {

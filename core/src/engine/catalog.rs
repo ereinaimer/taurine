@@ -11,6 +11,7 @@ use std::sync::RwLock;
 
 pub struct ExpansionCatalog {
     source: Arc<dyn SnippetSource>,
+    triggers: RwLock<Vec<String>>,
 }
 
 #[derive(Default)]
@@ -95,15 +96,48 @@ impl ExpansionCatalog {
     pub fn new() -> Self {
         let memory = Arc::new(MemorySource::new());
         let adaptive = Arc::new(AdaptiveSource::new(memory));
-        Self { source: adaptive }
+        Self {
+            source: adaptive,
+            triggers: RwLock::new(Vec::new()),
+        }
     }
 
     pub fn with_source(source: Arc<dyn SnippetSource>) -> Self {
-        Self { source }
+        Self {
+            source,
+            triggers: RwLock::new(Vec::new()),
+        }
     }
 
     pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, AutomationAction)>) {
-        self.source.load_actions(actions.into_iter().collect());
+        let actions: Vec<_> = actions.into_iter().collect();
+        let mut triggers: Vec<String> =
+            actions.iter().map(|(trigger, _)| trigger.clone()).collect();
+        sort_completion_triggers(&mut triggers);
+
+        self.source.load_actions(actions);
+
+        if let Ok(mut guard) = self.triggers.write() {
+            *guard = triggers;
+        }
+    }
+
+    pub fn matching_triggers(&self, prefix: &str) -> Vec<String> {
+        if prefix.is_empty() {
+            return Vec::new();
+        }
+
+        let normalized_prefix = prefix.to_lowercase();
+        self.triggers
+            .read()
+            .map(|guard| {
+                guard
+                    .iter()
+                    .filter(|trigger| trigger.to_lowercase().starts_with(&normalized_prefix))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     fn get_raw_action(&self, keyword: &str) -> Option<AutomationAction> {
@@ -163,6 +197,15 @@ impl Default for ExpansionCatalog {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn sort_completion_triggers(triggers: &mut Vec<String>) {
+    triggers.sort_by(|left, right| {
+        left.to_lowercase()
+            .cmp(&right.to_lowercase())
+            .then_with(|| left.cmp(right))
+    });
+    triggers.dedup();
 }
 
 pub(crate) fn expand_automation_action(
@@ -343,6 +386,39 @@ mod tests {
         let fallback = catalog.fetch_expansion("7*6").unwrap();
         assert_eq!(fallback.steps[0], ExpansionStep::Text("42".to_string()));
         assert!(fallback.is_calculation);
+    }
+
+    #[test]
+    fn matching_triggers_returns_sorted_prefix_matches() {
+        let catalog = ExpansionCatalog::new();
+        catalog.load_actions(vec![
+            ("gpush".to_string(), AutomationAction::text("git push")),
+            ("gs".to_string(), AutomationAction::text("git status")),
+            ("gco".to_string(), AutomationAction::text("git checkout")),
+            (
+                "note".to_string(),
+                AutomationAction::text("not a g trigger"),
+            ),
+        ]);
+
+        assert_eq!(
+            catalog.matching_triggers("g"),
+            vec!["gco".to_string(), "gpush".to_string(), "gs".to_string()]
+        );
+    }
+
+    #[test]
+    fn matching_triggers_uses_case_insensitive_prefix_matching() {
+        let catalog = ExpansionCatalog::new();
+        catalog.load_actions(vec![
+            ("gm".to_string(), AutomationAction::text("good morning")),
+            ("GitHub".to_string(), AutomationAction::text("github")),
+        ]);
+
+        assert_eq!(
+            catalog.matching_triggers("G"),
+            vec!["GitHub".to_string(), "gm".to_string()]
+        );
     }
 
     #[test]
