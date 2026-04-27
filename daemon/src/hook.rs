@@ -33,7 +33,8 @@ pub(crate) enum CompletionKeyKind {
 pub(crate) enum CompletionKeyAction {
     CycleForward,
     CycleBackward,
-    Swallow,
+    HistoryOlder,
+    HistoryNewer,
     CancelAndSwallow,
     CancelAndPassThrough,
     PassThrough,
@@ -57,7 +58,8 @@ pub(crate) fn completion_key_action(
             }
         }
         CompletionKeyKind::Escape => CompletionKeyAction::CancelAndSwallow,
-        CompletionKeyKind::Up | CompletionKeyKind::Down => CompletionKeyAction::Swallow,
+        CompletionKeyKind::Up => CompletionKeyAction::HistoryOlder,
+        CompletionKeyKind::Down => CompletionKeyAction::HistoryNewer,
         CompletionKeyKind::Other => CompletionKeyAction::PassThrough,
     }
 }
@@ -246,7 +248,27 @@ pub fn start_listener(
                     return Some(event);
                 }
 
-                if completion_is_active(&evaluator) {
+                if trigger_assist_is_active(&evaluator, state.as_ref()) {
+                    clear_undo_state(&evaluator);
+
+                    if key == Key::Backspace && !alt_active && !meta_active {
+                        let rewrite = evaluator.lock().ok().and_then(|mut lock| {
+                            if ctrl_active {
+                                lock.rewrite_word_backspace_query()
+                            } else {
+                                lock.rewrite_backspace_query()
+                            }
+                        });
+
+                        if let Some(rewrite) = rewrite {
+                            IS_INJECTING.store(true, Ordering::SeqCst);
+                            let spinner_style_inner =
+                                spinner_style.read().map(|s| *s).unwrap_or_default();
+                            spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
+                            return None;
+                        }
+                    }
+
                     match completion_key_action(
                         completion_key_kind_from_tab_like(
                             key == Key::Tab,
@@ -289,13 +311,42 @@ pub fn start_listener(
 
                             return None;
                         }
+                        CompletionKeyAction::HistoryOlder => {
+                            let rewrite = evaluator
+                                .lock()
+                                .ok()
+                                .and_then(|mut lock| lock.navigate_history_older());
+
+                            if let Some(rewrite) = rewrite {
+                                IS_INJECTING.store(true, Ordering::SeqCst);
+                                let spinner_style_inner =
+                                    spinner_style.read().map(|s| *s).unwrap_or_default();
+                                spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
+                            }
+
+                            return None;
+                        }
+                        CompletionKeyAction::HistoryNewer => {
+                            let rewrite = evaluator
+                                .lock()
+                                .ok()
+                                .and_then(|mut lock| lock.navigate_history_newer());
+
+                            if let Some(rewrite) = rewrite {
+                                IS_INJECTING.store(true, Ordering::SeqCst);
+                                let spinner_style_inner =
+                                    spinner_style.read().map(|s| *s).unwrap_or_default();
+                                spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
+                            }
+
+                            return None;
+                        }
                         CompletionKeyAction::CancelAndSwallow => {
                             if let Ok(mut lock) = evaluator.lock() {
                                 lock.cancel_completion();
                             }
                             return None;
                         }
-                        CompletionKeyAction::Swallow => return None,
                         CompletionKeyAction::CancelAndPassThrough => {
                             if let Ok(mut lock) = evaluator.lock() {
                                 lock.cancel_completion();
@@ -419,7 +470,9 @@ pub fn start_listener(
                 }
             }
             EventType::KeyRelease(key) => {
-                if completion_is_active(&evaluator) && key == Key::Tab {
+                if trigger_assist_is_active(&evaluator, state.as_ref())
+                    && matches!(key, Key::Tab | Key::UpArrow | Key::DownArrow)
+                {
                     return None;
                 }
 
@@ -528,6 +581,16 @@ fn completion_is_active(evaluator: &Arc<Mutex<Evaluator>>) -> bool {
         .unwrap_or(false)
 }
 
+pub(crate) fn trigger_assist_is_active(
+    evaluator: &Arc<Mutex<Evaluator>>,
+    state: &taurine_core::engine::EngineState,
+) -> bool {
+    !matches!(
+        state.engine_mode(),
+        taurine_core::engine::EngineMode::AiCapture { .. }
+    ) && completion_is_active(evaluator)
+}
+
 pub(crate) fn spawn_completion_rewrite_dispatch(
     rewrite: taurine_core::engine::CompletionRewrite,
     spinner_style: taurine_core::settings::SpinnerStyle,
@@ -593,6 +656,9 @@ fn dispatch_expansion_with<I, L>(
 
     state.clear_undo_state();
     let injection = inject_expansion(steps, delete_count, spinner_style);
+    if track_usage && delete_count > 0 && (injection.completed || injection.successful_chars > 0) {
+        state.record_word_trigger_usage(&trigger);
+    }
     if follow_up.is_none()
         && injection.successful_chars > 0
         && let Some(undo_trigger) = undo_trigger
@@ -865,11 +931,11 @@ mod tests {
         );
         assert_eq!(
             completion_key_action(CompletionKeyKind::Up, false, false, false, false),
-            CompletionKeyAction::Swallow
+            CompletionKeyAction::HistoryOlder
         );
         assert_eq!(
             completion_key_action(CompletionKeyKind::Down, false, false, false, false),
-            CompletionKeyAction::Swallow
+            CompletionKeyAction::HistoryNewer
         );
     }
 
@@ -920,6 +986,80 @@ mod tests {
         assert!(
             !completion_is_active(&evaluator),
             "hook gating must not treat deleted-trigger state as active completion"
+        );
+    }
+
+    #[test]
+    fn dispatch_expansion_promotes_word_trigger_history_on_success() {
+        let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+        state.load_actions(vec![
+            (
+                "email".to_string(),
+                taurine_core::db::crud::AutomationAction::text("team update"),
+            ),
+            (
+                "gs".to_string(),
+                taurine_core::db::crud::AutomationAction::text("git status"),
+            ),
+        ]);
+        state.load_word_trigger_history(vec!["email".to_string(), "gs".to_string()]);
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime should build");
+
+        let expansion = taurine_core::engine::ExpansionResult {
+            delete_count: 4,
+            steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
+                "git status".to_string(),
+            )],
+            trigger: "gs".to_string(),
+            undo_trigger: Some(">gs".to_string()),
+            is_calculation: false,
+            metric_kind: taurine_core::db::crud::AutomationMetricKind::Snippet,
+            track_usage: true,
+            follow_up: None,
+        };
+
+        dispatch_expansion_with(
+            expansion,
+            taurine_core::settings::SpinnerStyle::default(),
+            rt.handle().clone(),
+            state.clone(),
+            move |_, _, _| crate::injector::InjectionReport {
+                successful_chars: "git status".chars().count(),
+                completed: true,
+            },
+            move |_, _, _| {},
+        );
+
+        assert_eq!(
+            state.matching_word_trigger_history(""),
+            vec!["gs".to_string(), "email".to_string()]
+        );
+    }
+
+    #[test]
+    fn trigger_assist_is_inactive_while_inline_ai_capture_mode_is_active() {
+        let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+        let mut evaluator = taurine_core::engine::Evaluator::new(state.clone());
+
+        for ch in ">ai".chars() {
+            assert_eq!(
+                evaluator.process_event(taurine_core::engine::EngineEvent::Char(ch)),
+                None
+            );
+        }
+
+        let expansion = evaluator
+            .process_event(taurine_core::engine::EngineEvent::Char(' '))
+            .expect("inline ai capture should start");
+        assert_eq!(expansion.trigger, "ai");
+
+        let evaluator = Arc::new(Mutex::new(evaluator));
+        assert!(
+            !trigger_assist_is_active(&evaluator, state.as_ref()),
+            "history and completion keys must not be hijacked once AI capture is active"
         );
     }
 }

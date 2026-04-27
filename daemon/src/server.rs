@@ -82,12 +82,15 @@ impl DaemonControl for DaemonService {
         // 1. Reload Snippets
         let active = taurine_core::db::crud::get_all_active_automations(&conn)
             .map_err(|e| Status::internal(format!("Failed to retrieve automations: {}", e)))?;
+        let history = taurine_core::db::crud::get_active_word_trigger_history(&conn)
+            .map_err(|e| Status::internal(format!("Failed to retrieve trigger history: {}", e)))?;
         let hotkeys =
             taurine_core::db::crud::get_all_active_hotkey_automations(&conn).map_err(|e| {
                 Status::internal(format!("Failed to retrieve hotkey automations: {}", e))
             })?;
 
         self.state.load_actions(active);
+        self.state.load_word_trigger_history(history);
         self.state.load_hotkey_actions(hotkeys);
 
         // 2. Reload AI Presets
@@ -206,6 +209,10 @@ mod tests {
             vec![taurine_core::engine::variables::ExpansionStep::Text(
                 "world".to_string()
             )]
+        );
+        assert_eq!(
+            state.matching_word_trigger_history(""),
+            vec!["hello".to_string()]
         );
         assert!(state.get_hotkey_action("ctrl+shift+g").is_none());
 

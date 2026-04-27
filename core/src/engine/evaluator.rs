@@ -64,6 +64,15 @@ struct TriggerCompletionState {
     current_text: String,
     suggestions: Vec<String>,
     selected_index: Option<usize>,
+    history_items: Vec<String>,
+    history_index: Option<usize>,
+    selection_mode: Option<TriggerAssistSelectionMode>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TriggerAssistSelectionMode {
+    Completion,
+    History,
 }
 
 impl TriggerCompletionState {
@@ -73,6 +82,9 @@ impl TriggerCompletionState {
         self.current_text.clear();
         self.suggestions.clear();
         self.selected_index = None;
+        self.history_items.clear();
+        self.history_index = None;
+        self.selection_mode = None;
     }
 
     fn deactivate(&mut self) {
@@ -81,6 +93,19 @@ impl TriggerCompletionState {
         self.current_text.clear();
         self.suggestions.clear();
         self.selected_index = None;
+        self.history_items.clear();
+        self.history_index = None;
+        self.selection_mode = None;
+    }
+
+    fn clear_selection(&mut self) {
+        self.selected_index = None;
+        self.history_index = None;
+        self.selection_mode = None;
+    }
+
+    fn has_selection(&self) -> bool {
+        self.selection_mode.is_some()
     }
 }
 
@@ -161,6 +186,10 @@ impl Evaluator {
         self.completion.deactivate();
     }
 
+    pub fn has_active_selection(&self) -> bool {
+        self.is_completion_active() && self.completion.has_selection()
+    }
+
     pub fn cycle_completion_next(&mut self) -> Option<CompletionRewrite> {
         self.cycle_completion(true)
     }
@@ -169,10 +198,27 @@ impl Evaluator {
         self.cycle_completion(false)
     }
 
+    pub fn navigate_history_older(&mut self) -> Option<CompletionRewrite> {
+        self.navigate_history(true)
+    }
+
+    pub fn navigate_history_newer(&mut self) -> Option<CompletionRewrite> {
+        self.navigate_history(false)
+    }
+
+    pub fn rewrite_backspace_query(&mut self) -> Option<CompletionRewrite> {
+        self.rewrite_selected_query(false)
+    }
+
+    pub fn rewrite_word_backspace_query(&mut self) -> Option<CompletionRewrite> {
+        self.rewrite_selected_query(true)
+    }
+
     fn update_completion_after_char(&mut self, c: char) {
         let trigger_char = self.trigger_prefix();
         if c == trigger_char && !self.completion.active {
             self.completion.activate();
+            self.rebuild_history_items("");
             return;
         }
 
@@ -180,11 +226,9 @@ impl Evaluator {
             return;
         }
 
-        self.completion.current_text.push(c);
-        self.completion.original_query = self.completion.current_text.clone();
-        self.completion.selected_index = None;
-        let query = self.completion.current_text.clone();
-        self.rebuild_completion_suggestions(&query);
+        let mut query = self.completion.current_text.clone();
+        query.push(c);
+        self.apply_user_query(query);
     }
 
     fn sync_completion_from_buffer(&mut self) {
@@ -198,11 +242,45 @@ impl Evaluator {
             return;
         };
 
+        self.apply_user_query(query);
+    }
+
+    fn apply_user_query(&mut self, query: String) {
         self.completion.current_text = query.clone();
-        self.completion.original_query = query;
-        self.completion.selected_index = None;
-        let query = self.completion.current_text.clone();
+        self.completion.original_query = query.clone();
+        self.completion.clear_selection();
         self.rebuild_completion_suggestions(&query);
+        self.rebuild_history_items(&query);
+    }
+
+    fn lookup_query(&self) -> &str {
+        &self.completion.original_query
+    }
+
+    fn visible_text(&self) -> &str {
+        &self.completion.current_text
+    }
+
+    fn reset_history_selection_for_completion_lookup(&mut self) {
+        if matches!(
+            self.completion.selection_mode,
+            Some(TriggerAssistSelectionMode::History)
+        ) {
+            self.completion.clear_selection();
+        } else {
+            self.completion.history_index = None;
+        }
+    }
+
+    fn reset_completion_selection_for_history_lookup(&mut self) {
+        if matches!(
+            self.completion.selection_mode,
+            Some(TriggerAssistSelectionMode::Completion)
+        ) {
+            self.completion.clear_selection();
+        } else {
+            self.completion.selected_index = None;
+        }
     }
 
     fn rebuild_completion_suggestions(&mut self, query: &str) {
@@ -212,6 +290,54 @@ impl Evaluator {
         }
 
         self.completion.suggestions = self.state.matching_word_triggers(query);
+    }
+
+    fn rebuild_history_items(&mut self, query: &str) {
+        if !self.completion.active {
+            self.completion.history_items.clear();
+            return;
+        }
+
+        self.completion.history_items = self.state.matching_word_trigger_history(query);
+    }
+
+    fn rewrite_current_text(&mut self, replacement: String) -> CompletionRewrite {
+        let delete_count = self.visible_text().chars().count();
+        self.buffer.pop_n(delete_count);
+        for c in replacement.chars() {
+            self.buffer.push(c);
+        }
+
+        self.completion.current_text = replacement.clone();
+
+        CompletionRewrite {
+            delete_count,
+            replacement,
+        }
+    }
+
+    fn rewrite_selected_query(&mut self, word: bool) -> Option<CompletionRewrite> {
+        if self
+            .buffer
+            .extract_trigger_word(self.trigger_prefix())
+            .is_none()
+        {
+            self.completion.deactivate();
+            return None;
+        }
+
+        if !self.completion.active || !self.completion.has_selection() {
+            return None;
+        }
+
+        let next_query = if word {
+            pop_word_from_query(self.lookup_query())
+        } else {
+            pop_char_from_query(self.lookup_query())
+        };
+        let rewrite = self.rewrite_current_text(next_query.clone());
+        self.apply_user_query(next_query);
+        Some(rewrite)
     }
 
     fn cycle_completion(&mut self, forward: bool) -> Option<CompletionRewrite> {
@@ -228,7 +354,8 @@ impl Evaluator {
             return None;
         }
 
-        let base_query = self.completion.original_query.clone();
+        self.reset_history_selection_for_completion_lookup();
+        let base_query = self.lookup_query().to_string();
         let suggestions = self.state.matching_word_triggers(&base_query);
         if suggestions.is_empty() {
             self.completion.suggestions.clear();
@@ -237,6 +364,8 @@ impl Evaluator {
         }
 
         self.completion.suggestions = suggestions;
+        self.rebuild_history_items(&base_query);
+        self.completion.history_index = None;
         let suggestion_count = self.completion.suggestions.len();
         let next_index = match (self.completion.selected_index, forward) {
             (Some(index), true) => (index + 1) % suggestion_count,
@@ -246,19 +375,68 @@ impl Evaluator {
         };
 
         let replacement = self.completion.suggestions[next_index].clone();
-        let delete_count = self.completion.current_text.chars().count();
-        self.buffer.pop_n(delete_count);
-        for c in replacement.chars() {
-            self.buffer.push(c);
+        let rewrite = self.rewrite_current_text(replacement);
+        self.completion.selected_index = Some(next_index);
+        self.completion.selection_mode = Some(TriggerAssistSelectionMode::Completion);
+
+        Some(rewrite)
+    }
+
+    fn navigate_history(&mut self, older: bool) -> Option<CompletionRewrite> {
+        if self
+            .buffer
+            .extract_trigger_word(self.trigger_prefix())
+            .is_none()
+        {
+            self.completion.deactivate();
+            return None;
         }
 
-        self.completion.current_text = replacement.clone();
-        self.completion.selected_index = Some(next_index);
+        if !self.completion.active {
+            return None;
+        }
 
-        Some(CompletionRewrite {
-            delete_count,
-            replacement,
-        })
+        self.reset_completion_selection_for_history_lookup();
+        let base_query = self.lookup_query().to_string();
+        let history_items = self.state.matching_word_trigger_history(&base_query);
+        if history_items.is_empty() {
+            self.completion.history_items.clear();
+            self.completion.history_index = None;
+            return None;
+        }
+
+        self.completion.history_items = history_items;
+        self.completion.suggestions = self.state.matching_word_triggers(&base_query);
+        self.completion.selected_index = None;
+
+        if older {
+            let next_index = match self.completion.history_index {
+                Some(index) if index + 1 >= self.completion.history_items.len() => return None,
+                Some(index) => index + 1,
+                None => 0,
+            };
+            let replacement = self.completion.history_items[next_index].clone();
+            let rewrite = self.rewrite_current_text(replacement);
+            self.completion.history_index = Some(next_index);
+            self.completion.selection_mode = Some(TriggerAssistSelectionMode::History);
+            return Some(rewrite);
+        }
+
+        let current_index = self.completion.history_index?;
+        if current_index == 0 {
+            self.completion.clear_selection();
+            if self.visible_text() == base_query {
+                return None;
+            }
+            return Some(self.rewrite_current_text(base_query));
+        }
+
+        let next_index = current_index - 1;
+        let replacement = self.completion.history_items[next_index].clone();
+        let rewrite = self.rewrite_current_text(replacement);
+        self.completion.history_index = Some(next_index);
+        self.completion.selection_mode = Some(TriggerAssistSelectionMode::History);
+        Some(rewrite)
     }
 
     fn process_space_event(&mut self) -> Option<ExpansionResult> {
@@ -314,15 +492,23 @@ impl Evaluator {
                 None
             }
             EngineEvent::Backspace => {
-                // Backtrack buffer safely
-                self.buffer.pop();
-                self.sync_completion_from_buffer();
+                if self.completion.has_selection() {
+                    let _ = self.rewrite_backspace_query();
+                } else {
+                    // Backtrack buffer safely
+                    self.buffer.pop();
+                    self.sync_completion_from_buffer();
+                }
                 None
             }
             EngineEvent::WordBackspace => {
-                // Backtrack a whole word
-                self.buffer.pop_word();
-                self.sync_completion_from_buffer();
+                if self.completion.has_selection() {
+                    let _ = self.rewrite_word_backspace_query();
+                } else {
+                    // Backtrack a whole word
+                    self.buffer.pop_word();
+                    self.sync_completion_from_buffer();
+                }
                 None
             }
             EngineEvent::Char(' ') => {
@@ -482,6 +668,39 @@ fn metric_kind_for_steps(is_calculation: bool, steps: &[ExpansionStep]) -> Autom
     }
 
     AutomationMetricKind::Snippet
+}
+
+fn pop_char_from_query(query: &str) -> String {
+    let mut next = query.to_string();
+    let _ = next.pop();
+    next
+}
+
+fn pop_word_from_query(query: &str) -> String {
+    let mut chars: Vec<char> = query.chars().collect();
+
+    while chars.last().is_some_and(|ch| ch.is_whitespace()) {
+        chars.pop();
+    }
+
+    let Some(last_char) = chars.last().copied() else {
+        return String::new();
+    };
+    let is_alphanumeric = last_char.is_alphanumeric();
+
+    while let Some(ch) = chars.last() {
+        if ch.is_whitespace() {
+            break;
+        }
+
+        if ch.is_alphanumeric() == is_alphanumeric {
+            chars.pop();
+        } else {
+            break;
+        }
+    }
+
+    chars.into_iter().collect()
 }
 
 fn parse_inline_ai_prompt(keyword: &str) -> Option<String> {
@@ -858,6 +1077,362 @@ mod tests {
         assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
         assert_eq!(result.trigger, INLINE_AI_KEYWORD);
         assert!(!eval.is_completion_active());
+        assert_eq!(eval.completion.selection_mode, None);
+        assert_eq!(eval.navigate_history_older(), None);
+    }
+
+    #[test]
+    fn history_up_selects_most_recent_trigger_and_stops_at_oldest() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![
+            (
+                "email".to_string(),
+                crate::db::crud::AutomationAction::text("team update"),
+            ),
+            (
+                "gs".to_string(),
+                crate::db::crud::AutomationAction::text("git status"),
+            ),
+            (
+                "uuid".to_string(),
+                crate::db::crud::AutomationAction::text("1234"),
+            ),
+        ]);
+        state.load_word_trigger_history(vec![
+            "gs".to_string(),
+            "email".to_string(),
+            "uuid".to_string(),
+        ]);
+        let mut eval = Evaluator::new(state);
+
+        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+
+        assert_completion_rewrite(eval.navigate_history_older(), 0, "gs");
+        assert_eq!(eval.completion.history_index, Some(0));
+        assert_eq!(eval.completion.current_text, "gs");
+
+        assert_completion_rewrite(eval.navigate_history_older(), 2, "email");
+        assert_eq!(eval.completion.history_index, Some(1));
+        assert_eq!(eval.completion.current_text, "email");
+
+        assert_completion_rewrite(eval.navigate_history_older(), 5, "uuid");
+        assert_eq!(eval.completion.history_index, Some(2));
+        assert_eq!(eval.completion.current_text, "uuid");
+
+        assert_eq!(eval.navigate_history_older(), None);
+        assert_eq!(eval.completion.history_index, Some(2));
+        assert_eq!(eval.completion.current_text, "uuid");
+    }
+
+    #[test]
+    fn history_down_restores_original_query_after_prefix_filtered_navigation() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![
+            (
+                "email".to_string(),
+                crate::db::crud::AutomationAction::text("team update"),
+            ),
+            (
+                "gpush".to_string(),
+                crate::db::crud::AutomationAction::text("git push"),
+            ),
+            (
+                "gs".to_string(),
+                crate::db::crud::AutomationAction::text("git status"),
+            ),
+            (
+                "uuid".to_string(),
+                crate::db::crud::AutomationAction::text("1234"),
+            ),
+        ]);
+        state.load_word_trigger_history(vec![
+            "gs".to_string(),
+            "email".to_string(),
+            "gpush".to_string(),
+            "uuid".to_string(),
+        ]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">g".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        assert_completion_rewrite(eval.navigate_history_older(), 1, "gs");
+        assert_eq!(
+            eval.completion.history_items,
+            vec!["gs".to_string(), "gpush".to_string()]
+        );
+        assert_eq!(eval.completion.history_index, Some(0));
+
+        assert_completion_rewrite(eval.navigate_history_older(), 2, "gpush");
+        assert_eq!(eval.completion.history_index, Some(1));
+
+        assert_completion_rewrite(eval.navigate_history_newer(), 5, "gs");
+        assert_eq!(eval.completion.history_index, Some(0));
+
+        assert_completion_rewrite(eval.navigate_history_newer(), 2, "g");
+        assert_eq!(eval.completion.history_index, None);
+        assert_eq!(eval.completion.current_text, "g");
+        assert_eq!(eval.completion.original_query, "g");
+
+        assert_eq!(eval.navigate_history_newer(), None);
+    }
+
+    #[test]
+    fn history_backspace_after_selection_clears_history_selection_and_treats_buffer_as_query() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![
+            (
+                "gpush".to_string(),
+                crate::db::crud::AutomationAction::text("git push"),
+            ),
+            (
+                "gs".to_string(),
+                crate::db::crud::AutomationAction::text("git status"),
+            ),
+        ]);
+        state.load_word_trigger_history(vec!["gs".to_string(), "gpush".to_string()]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">g".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        assert_completion_rewrite(eval.navigate_history_older(), 1, "gs");
+        assert_eq!(eval.completion.history_index, Some(0));
+
+        assert_eq!(eval.process_event(EngineEvent::Backspace), None);
+        assert_eq!(eval.completion.current_text, "");
+        assert_eq!(eval.completion.original_query, "");
+        assert_eq!(eval.completion.history_index, None);
+        assert_eq!(eval.completion.selection_mode, None);
+        assert_eq!(
+            eval.completion.history_items,
+            vec!["gs".to_string(), "gpush".to_string()]
+        );
+        assert_eq!(eval.buffer.extract_trigger_word('>'), Some(String::new()));
+    }
+
+    #[test]
+    fn history_backspace_edits_original_query_not_selected_history_item() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![(
+            "gitstatus".to_string(),
+            crate::db::crud::AutomationAction::text("git status"),
+        )]);
+        state.load_word_trigger_history(vec!["gitstatus".to_string()]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">git".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        assert_completion_rewrite(eval.navigate_history_older(), 3, "gitstatus");
+        assert_eq!(eval.completion.current_text, "gitstatus");
+
+        assert_eq!(eval.process_event(EngineEvent::Backspace), None);
+        assert_eq!(eval.completion.original_query, "gi");
+        assert_eq!(eval.completion.current_text, "gi");
+        assert_eq!(
+            eval.buffer.extract_trigger_word('>'),
+            Some("gi".to_string())
+        );
+        assert_eq!(eval.completion.history_index, None);
+        assert_eq!(eval.completion.selection_mode, None);
+    }
+
+    #[test]
+    fn completion_backspace_edits_original_query_not_selected_completion() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![
+            (
+                "gpush".to_string(),
+                crate::db::crud::AutomationAction::text("git push"),
+            ),
+            (
+                "gs".to_string(),
+                crate::db::crud::AutomationAction::text("git status"),
+            ),
+        ]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">g".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        let _ = eval
+            .cycle_completion_next()
+            .expect("completion should select");
+        assert_eq!(eval.process_event(EngineEvent::Backspace), None);
+        assert_eq!(eval.completion.original_query, "");
+        assert_eq!(eval.completion.current_text, "");
+        assert_eq!(eval.completion.selected_index, None);
+        assert_eq!(eval.completion.selection_mode, None);
+        assert_eq!(eval.buffer.extract_trigger_word('>'), Some(String::new()));
+    }
+
+    #[test]
+    fn history_space_after_selection_uses_existing_word_expansion_path() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![(
+            "gs".to_string(),
+            crate::db::crud::AutomationAction::text("git status"),
+        )]);
+        state.load_word_trigger_history(vec!["gs".to_string()]);
+        let mut eval = Evaluator::new(state);
+
+        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+        assert_completion_rewrite(eval.navigate_history_older(), 0, "gs");
+
+        let result = eval
+            .process_event(EngineEvent::Char(' '))
+            .expect("space should expand the selected history entry");
+
+        assert_eq!(result.trigger, "gs");
+        assert_eq!(
+            result.steps,
+            vec![ExpansionStep::Text("git status".to_string())]
+        );
+        assert!(!eval.is_completion_active());
+    }
+
+    #[test]
+    fn history_navigation_uses_original_query_even_after_tab_completion_rewrite() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![
+            (
+                "gpush".to_string(),
+                crate::db::crud::AutomationAction::text("git push"),
+            ),
+            (
+                "gs".to_string(),
+                crate::db::crud::AutomationAction::text("git status"),
+            ),
+            (
+                "gaa".to_string(),
+                crate::db::crud::AutomationAction::text("git add --all"),
+            ),
+        ]);
+        state.load_word_trigger_history(vec!["gs".to_string(), "gpush".to_string()]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">g".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        assert_completion_rewrite(eval.cycle_completion_next(), 1, "gaa");
+        assert_eq!(eval.completion.original_query, "g");
+
+        assert_completion_rewrite(eval.navigate_history_older(), 3, "gs");
+        assert_eq!(eval.completion.original_query, "g");
+        assert_eq!(eval.completion.history_index, Some(0));
+        assert_eq!(
+            eval.completion.selection_mode,
+            Some(TriggerAssistSelectionMode::History)
+        );
+    }
+
+    #[test]
+    fn history_to_completion_mode_switch_uses_original_query_prefix() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![
+            (
+                "gaa".to_string(),
+                crate::db::crud::AutomationAction::text("git add --all"),
+            ),
+            (
+                "gpm".to_string(),
+                crate::db::crud::AutomationAction::text("git push master"),
+            ),
+            (
+                "gs".to_string(),
+                crate::db::crud::AutomationAction::text("git status"),
+            ),
+        ]);
+        state.load_word_trigger_history(vec!["gs".to_string(), "gpm".to_string()]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">g".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        assert_completion_rewrite(eval.navigate_history_older(), 1, "gs");
+        assert_eq!(eval.completion.original_query, "g");
+
+        assert_completion_rewrite(eval.cycle_completion_next(), 2, "gaa");
+        assert_eq!(eval.completion.original_query, "g");
+        assert_eq!(eval.completion.selected_index, Some(0));
+        assert_eq!(
+            eval.completion.selection_mode,
+            Some(TriggerAssistSelectionMode::Completion)
+        );
+    }
+
+    #[test]
+    fn completion_to_history_mode_switch_uses_original_query_prefix() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![
+            (
+                "gaa".to_string(),
+                crate::db::crud::AutomationAction::text("git add --all"),
+            ),
+            (
+                "gpm".to_string(),
+                crate::db::crud::AutomationAction::text("git push master"),
+            ),
+            (
+                "gs".to_string(),
+                crate::db::crud::AutomationAction::text("git status"),
+            ),
+        ]);
+        state.load_word_trigger_history(vec!["gs".to_string(), "gpm".to_string()]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">g".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        assert_completion_rewrite(eval.cycle_completion_next(), 1, "gaa");
+        assert_eq!(eval.completion.original_query, "g");
+
+        assert_completion_rewrite(eval.navigate_history_older(), 3, "gs");
+        assert_eq!(eval.completion.original_query, "g");
+        assert_eq!(eval.completion.history_index, Some(0));
+        assert_eq!(eval.completion.selected_index, None);
+    }
+
+    #[test]
+    fn history_then_completion_then_space_expands_visible_trigger() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![
+            (
+                "gaa".to_string(),
+                crate::db::crud::AutomationAction::text("git add --all"),
+            ),
+            (
+                "gs".to_string(),
+                crate::db::crud::AutomationAction::text("git status"),
+            ),
+        ]);
+        state.load_word_trigger_history(vec!["gs".to_string()]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">g".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        assert_completion_rewrite(eval.navigate_history_older(), 1, "gs");
+        assert_completion_rewrite(eval.cycle_completion_next(), 2, "gaa");
+
+        let result = eval
+            .process_event(EngineEvent::Char(' '))
+            .expect("space should expand the currently visible completion");
+
+        assert_eq!(result.trigger, "gaa");
+        assert_eq!(
+            result.steps,
+            vec![ExpansionStep::Text("git add --all".to_string())]
+        );
     }
 
     #[test]

@@ -35,7 +35,10 @@ pub fn start() -> taurine_core::error::Result<()> {
 
     // Instantiate the Core Engine State
     use std::sync::{Arc, Mutex, RwLock};
-    use taurine_core::db::crud::{get_all_active_automations, get_all_active_hotkey_automations};
+    use taurine_core::db::crud::{
+        get_active_word_trigger_history, get_all_active_automations,
+        get_all_active_hotkey_automations,
+    };
     use taurine_core::engine::{EngineState, Evaluator};
     use taurine_core::settings::SettingsManager;
 
@@ -61,6 +64,9 @@ pub fn start() -> taurine_core::error::Result<()> {
     // Load snippets efficiently!
     if let Ok(active) = get_all_active_automations(&conn) {
         state.load_actions(active);
+    }
+    if let Ok(history) = get_active_word_trigger_history(&conn) {
+        state.load_word_trigger_history(history);
     }
     if let Ok(active_hotkeys) = get_all_active_hotkey_automations(&conn) {
         state.load_hotkey_actions(active_hotkeys);

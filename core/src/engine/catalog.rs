@@ -6,12 +6,14 @@ use crate::engine::variables::{
 };
 use crate::keys::{Hotkey, LogicalKey, hotkey_matches, parse_hotkey};
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::RwLock;
 
 pub struct ExpansionCatalog {
     source: Arc<dyn SnippetSource>,
     triggers: RwLock<Vec<String>>,
+    history_triggers: RwLock<Vec<String>>,
 }
 
 #[derive(Default)]
@@ -99,6 +101,7 @@ impl ExpansionCatalog {
         Self {
             source: adaptive,
             triggers: RwLock::new(Vec::new()),
+            history_triggers: RwLock::new(Vec::new()),
         }
     }
 
@@ -106,6 +109,7 @@ impl ExpansionCatalog {
         Self {
             source,
             triggers: RwLock::new(Vec::new()),
+            history_triggers: RwLock::new(Vec::new()),
         }
     }
 
@@ -120,6 +124,8 @@ impl ExpansionCatalog {
         if let Ok(mut guard) = self.triggers.write() {
             *guard = triggers;
         }
+
+        self.load_history_triggers(Vec::<String>::new());
     }
 
     pub fn matching_triggers(&self, prefix: &str) -> Vec<String> {
@@ -138,6 +144,71 @@ impl ExpansionCatalog {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    pub fn load_history_triggers(&self, triggers: impl IntoIterator<Item = String>) {
+        let known_triggers = self
+            .triggers
+            .read()
+            .map(|guard| guard.clone())
+            .unwrap_or_default();
+        let known_lookup: HashSet<String> = known_triggers.iter().cloned().collect();
+        let mut seen = HashSet::new();
+        let mut ordered_history = Vec::new();
+
+        for trigger in triggers {
+            if known_lookup.contains(&trigger) && seen.insert(trigger.clone()) {
+                ordered_history.push(trigger);
+            }
+        }
+
+        for trigger in known_triggers {
+            if seen.insert(trigger.clone()) {
+                ordered_history.push(trigger);
+            }
+        }
+
+        if let Ok(mut guard) = self.history_triggers.write() {
+            *guard = ordered_history;
+        }
+    }
+
+    pub fn matching_history_triggers(&self, prefix: &str) -> Vec<String> {
+        let normalized_prefix = prefix.to_lowercase();
+        self.history_triggers
+            .read()
+            .map(|guard| {
+                guard
+                    .iter()
+                    .filter(|trigger| {
+                        normalized_prefix.is_empty()
+                            || trigger.to_lowercase().starts_with(&normalized_prefix)
+                    })
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn promote_history_trigger(&self, trigger: &str) {
+        let known = self
+            .triggers
+            .read()
+            .ok()
+            .is_some_and(|guard| guard.iter().any(|candidate| candidate == trigger));
+
+        if !known {
+            return;
+        }
+
+        if let Ok(mut guard) = self.history_triggers.write() {
+            if let Some(index) = guard.iter().position(|candidate| candidate == trigger) {
+                let entry = guard.remove(index);
+                guard.insert(0, entry);
+            } else {
+                guard.insert(0, trigger.to_string());
+            }
+        }
     }
 
     fn get_raw_action(&self, keyword: &str) -> Option<AutomationAction> {
@@ -418,6 +489,70 @@ mod tests {
         assert_eq!(
             catalog.matching_triggers("G"),
             vec!["GitHub".to_string(), "gm".to_string()]
+        );
+    }
+
+    #[test]
+    fn matching_history_triggers_preserves_loaded_recency_order() {
+        let catalog = ExpansionCatalog::new();
+        catalog.load_actions(vec![
+            ("gs".to_string(), AutomationAction::text("git status")),
+            ("email".to_string(), AutomationAction::text("team update")),
+            ("uuid".to_string(), AutomationAction::text("1234")),
+        ]);
+        catalog.load_history_triggers(vec![
+            "gs".to_string(),
+            "email".to_string(),
+            "uuid".to_string(),
+        ]);
+
+        assert_eq!(
+            catalog.matching_history_triggers(""),
+            vec!["gs".to_string(), "email".to_string(), "uuid".to_string()]
+        );
+    }
+
+    #[test]
+    fn matching_history_triggers_filters_by_prefix_without_reordering() {
+        let catalog = ExpansionCatalog::new();
+        catalog.load_actions(vec![
+            ("gpush".to_string(), AutomationAction::text("git push")),
+            ("gs".to_string(), AutomationAction::text("git status")),
+            ("email".to_string(), AutomationAction::text("team update")),
+            ("gco".to_string(), AutomationAction::text("git checkout")),
+        ]);
+        catalog.load_history_triggers(vec![
+            "gs".to_string(),
+            "email".to_string(),
+            "gpush".to_string(),
+            "gco".to_string(),
+        ]);
+
+        assert_eq!(
+            catalog.matching_history_triggers("g"),
+            vec!["gs".to_string(), "gpush".to_string(), "gco".to_string()]
+        );
+    }
+
+    #[test]
+    fn promote_history_trigger_moves_existing_word_trigger_to_front() {
+        let catalog = ExpansionCatalog::new();
+        catalog.load_actions(vec![
+            ("gs".to_string(), AutomationAction::text("git status")),
+            ("email".to_string(), AutomationAction::text("team update")),
+            ("uuid".to_string(), AutomationAction::text("1234")),
+        ]);
+        catalog.load_history_triggers(vec![
+            "gs".to_string(),
+            "email".to_string(),
+            "uuid".to_string(),
+        ]);
+
+        catalog.promote_history_trigger("uuid");
+
+        assert_eq!(
+            catalog.matching_history_triggers(""),
+            vec!["uuid".to_string(), "gs".to_string(), "email".to_string()]
         );
     }
 

@@ -330,12 +330,32 @@ fn process_frame(
             let alt_active = modifier_sides.alt_active();
             let meta_active = modifier_sides.meta_active();
 
-            if grab_enabled
-                && evaluator
-                    .lock()
-                    .map(|lock| lock.is_completion_active())
-                    .unwrap_or(false)
-            {
+            if grab_enabled && crate::hook::trigger_assist_is_active(evaluator, state.as_ref()) {
+                clear_undo_state(evaluator);
+
+                if key == KeyCode::KEY_BACKSPACE && !alt_active && !meta_active {
+                    let rewrite = evaluator.lock().ok().and_then(|mut lock| {
+                        if ctrl_active {
+                            lock.rewrite_word_backspace_query()
+                        } else {
+                            lock.rewrite_backspace_query()
+                        }
+                    });
+
+                    if let Some(rewrite) = rewrite {
+                        IS_INJECTING.store(true, Ordering::SeqCst);
+                        let spinner_style_inner =
+                            spinner_style.read().map(|s| *s).unwrap_or_default();
+                        crate::hook::spawn_completion_rewrite_dispatch(
+                            rewrite,
+                            spinner_style_inner,
+                        );
+                        swallow_frame = true;
+                        *swallow_next_backspace_release = true;
+                        continue;
+                    }
+                }
+
                 match crate::hook::completion_key_action(
                     crate::hook::completion_key_kind_from_tab_like(
                         key == KeyCode::KEY_TAB,
@@ -386,14 +406,48 @@ fn process_frame(
                         swallow_frame = true;
                         continue;
                     }
+                    crate::hook::CompletionKeyAction::HistoryOlder => {
+                        let rewrite = evaluator
+                            .lock()
+                            .ok()
+                            .and_then(|mut lock| lock.navigate_history_older());
+
+                        if let Some(rewrite) = rewrite {
+                            IS_INJECTING.store(true, Ordering::SeqCst);
+                            let spinner_style_inner =
+                                spinner_style.read().map(|s| *s).unwrap_or_default();
+                            crate::hook::spawn_completion_rewrite_dispatch(
+                                rewrite,
+                                spinner_style_inner,
+                            );
+                        }
+
+                        swallow_frame = true;
+                        continue;
+                    }
+                    crate::hook::CompletionKeyAction::HistoryNewer => {
+                        let rewrite = evaluator
+                            .lock()
+                            .ok()
+                            .and_then(|mut lock| lock.navigate_history_newer());
+
+                        if let Some(rewrite) = rewrite {
+                            IS_INJECTING.store(true, Ordering::SeqCst);
+                            let spinner_style_inner =
+                                spinner_style.read().map(|s| *s).unwrap_or_default();
+                            crate::hook::spawn_completion_rewrite_dispatch(
+                                rewrite,
+                                spinner_style_inner,
+                            );
+                        }
+
+                        swallow_frame = true;
+                        continue;
+                    }
                     crate::hook::CompletionKeyAction::CancelAndSwallow => {
                         if let Ok(mut lock) = evaluator.lock() {
                             lock.cancel_completion();
                         }
-                        swallow_frame = true;
-                        continue;
-                    }
-                    crate::hook::CompletionKeyAction::Swallow => {
                         swallow_frame = true;
                         continue;
                     }
@@ -459,11 +513,8 @@ fn process_frame(
                 clear_undo_state(evaluator);
             }
         } else if grab_enabled
-            && evaluator
-                .lock()
-                .map(|lock| lock.is_completion_active())
-                .unwrap_or(false)
-            && key == KeyCode::KEY_TAB
+            && crate::hook::trigger_assist_is_active(evaluator, state.as_ref())
+            && matches!(key, KeyCode::KEY_TAB | KeyCode::KEY_UP | KeyCode::KEY_DOWN)
         {
             swallow_frame = true;
             continue;

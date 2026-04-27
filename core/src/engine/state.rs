@@ -109,6 +109,10 @@ impl EngineState {
         self.word_catalog.load_actions(actions);
     }
 
+    pub fn load_word_trigger_history(&self, triggers: impl IntoIterator<Item = String>) {
+        self.word_catalog.load_history_triggers(triggers);
+    }
+
     pub fn load_hotkey_actions(
         &self,
         actions: impl IntoIterator<Item = (String, AutomationAction)>,
@@ -135,6 +139,14 @@ impl EngineState {
 
     pub fn matching_word_triggers(&self, prefix: &str) -> Vec<String> {
         self.word_catalog.matching_triggers(prefix)
+    }
+
+    pub fn matching_word_trigger_history(&self, prefix: &str) -> Vec<String> {
+        self.word_catalog.matching_history_triggers(prefix)
+    }
+
+    pub fn record_word_trigger_usage(&self, trigger: &str) {
+        self.word_catalog.promote_history_trigger(trigger);
     }
 
     pub fn get_hotkey_action(&self, trigger: &str) -> Option<AutomationAction> {
@@ -362,6 +374,52 @@ mod tests {
         assert_eq!(
             state.matching_word_triggers("g"),
             vec!["gpush".to_string(), "gs".to_string()]
+        );
+    }
+
+    #[test]
+    fn matching_word_trigger_history_reads_only_the_word_catalog() {
+        let state = EngineState::new('>');
+        state.load_actions(vec![
+            ("gpush".to_string(), AutomationAction::text("git push")),
+            ("gs".to_string(), AutomationAction::text("git status")),
+        ]);
+        state.load_word_trigger_history(vec!["gs".to_string(), "gpush".to_string()]);
+        state.load_hotkey_actions(vec![(
+            "ctrl+g".to_string(),
+            AutomationAction::text("hotkey"),
+        )]);
+
+        assert_eq!(
+            state.matching_word_trigger_history("g"),
+            vec!["gs".to_string(), "gpush".to_string()]
+        );
+    }
+
+    #[test]
+    fn record_word_trigger_usage_promotes_history_without_touching_hotkeys() {
+        let state = EngineState::new('>');
+        state.load_actions(vec![
+            ("email".to_string(), AutomationAction::text("team update")),
+            ("gs".to_string(), AutomationAction::text("git status")),
+            ("uuid".to_string(), AutomationAction::text("1234")),
+        ]);
+        state.load_word_trigger_history(vec![
+            "gs".to_string(),
+            "email".to_string(),
+            "uuid".to_string(),
+        ]);
+        state.load_hotkey_actions(vec![(
+            "ctrl+shift+g".to_string(),
+            AutomationAction::text("hotkey"),
+        )]);
+
+        state.record_word_trigger_usage("uuid");
+        state.record_word_trigger_usage("ctrl+shift+g");
+
+        assert_eq!(
+            state.matching_word_trigger_history(""),
+            vec!["uuid".to_string(), "gs".to_string(), "email".to_string()]
         );
     }
 }
