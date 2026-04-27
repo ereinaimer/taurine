@@ -19,6 +19,7 @@ The following roots are reserved by the Taurine engine and cannot be used as cus
 | `cursor` | Directs the final cursor position (placeholder). |
 | `uuid` | Unique identifier generation. |
 | `env` | System environment variables. |
+| `file` | Read local file contents. |
 | `key` | Keyboard automation (simulating key presses). |
 | `delay` | Timing delays in execution sequences. |
 
@@ -65,6 +66,13 @@ Interact with your local system state and shell environment.
   - `[env.USER]` / `[env.USERNAME]`
   - `[env.PATH]`
   - `[env.HOME]` / `[env.USERPROFILE]`
+</Accordion>
+
+<Accordion title="file">
+  Read and inject local file contents natively.
+  - `[file.read(path)]`: Reads the entire contents of a file (up to 5MB).
+  - `[file.random_line(path)]`: Extracts a random non-empty line from a file.
+  - `[file.read_line(path, start, [end])]`: Extracts specific lines using a 1-indexed range.
 </Accordion>
 </Accordions>
 

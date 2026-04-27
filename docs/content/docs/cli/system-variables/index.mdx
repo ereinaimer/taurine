@@ -3,7 +3,7 @@ title: Introduction
 description: Overview of System Variables in Taurine
 ---
 
-import { Clock, Calendar, Clipboard, Folder, Fingerprint, Monitor, MousePointer2, Keyboard, Terminal, Dices, Type, Database, Network } from 'lucide-react';
+import { Clock, Calendar, Clipboard, Folder, Fingerprint, Monitor, MousePointer2, Keyboard, Terminal, Dices, Type, Database, Network, FileText } from 'lucide-react';
 
 Taurine provides a comprehensive suite of **System Variables** that allow you to inject dynamic data, execute shell commands, and control your machine directly from any automation template.
 
@@ -35,6 +35,12 @@ These variables are divided into two categories: **Content Variables** (which in
     icon={<Folder />}
     href="/docs/cli/system-variables/env" 
     description="Access system environment variables." 
+  />
+  <Card 
+    title="File System" 
+    icon={<FileText />}
+    href="/docs/cli/system-variables/file" 
+    description="Read and inject local file contents directly." 
   />
   <Card 
     title="UUID" 

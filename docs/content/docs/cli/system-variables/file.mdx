@@ -1,0 +1,67 @@
+---
+title: File System
+description: Read and inject local file contents directly into your automation templates.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The `file.*` namespace allows you to seamlessly read data from files stored on your local machine and inject them into any text field. This is highly useful for dynamically loading email signatures, pulling random quotes from a text file, or reading log outputs.
+
+---
+
+## Available Variants
+
+You can use the following variants to read data from a file. 
+
+| Syntax | Description |
+| :--- | :--- |
+| `[file.read(path)]` | Reads the entire contents of the file as plain text. |
+| `[file.random_line(path)]` | Randomly selects a single non-empty line from the file. |
+| `[file.read_line(path, start, [end])]` | Extracts specific lines based on a 1-indexed numbering system. |
+
+**Important Note for `read_line`:**
+- **Lines are 1-indexed.** The first line of the file is `1`.
+- If the `end` argument is omitted (e.g., `[file.read_line(path, 5)]`), Taurine will extract exactly that single line.
+- If the `end` argument is provided, Taurine extracts all lines inclusively between `start` and `end`, joined by standard newlines.
+
+---
+
+## Path Resolution
+
+When specifying file paths, you can use the `~` symbol. Taurine will automatically expand `~` to your native OS home directory. 
+
+For example, `~/Documents/signature.txt` will safely resolve to `C:\Users\Username\Documents\signature.txt` on Windows, or `/Users/Username/Documents/signature.txt` on macOS.
+
+---
+
+## Technical Constraints
+
+<Callout type="warn" title="5MB Size Limit">
+To prevent memory exhaustion on the daemon thread and ensure zero-latency execution, **all file reads are strictly limited to 5MB.** 
+</Callout>
+
+Taurine is designed for stability. If a file cannot be found, permissions are denied, or the file size exceeds the 5MB limit, the engine **will not crash**. Instead, it intercepts the error and returns a formatted inline text string.
+
+For example, if the file is missing, the engine will expand to `[Error: The system cannot find the file specified.]` directly in your text field, allowing you to easily identify and fix the issue.
+
+---
+
+## Examples
+
+### Injecting a Signature
+You can store your email signature in a `.txt` file and inject it effortlessly.
+
+<Transformation
+  trigger=";sig"
+  template="Best regards,\n\n[file.read(~/Documents/signature.txt)]"
+  output="Best regards,\n\nJohn Doe\nSenior Engineer | Taurine Inc.\njohn@taurine.app"
+/>
+
+### Pulling a Random Quote
+If you have a file named `quotes.txt` with one quote per line, you can configure an automation to randomly pull a single quote.
+
+<Transformation
+  trigger=";quote"
+  template="Here is your quote for the day:\n[file.random_line(~/Documents/quotes.txt)]"
+  output="Here is your quote for the day:\nThe only way to do great work is to love what you do."
+/>
