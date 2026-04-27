@@ -56,6 +56,46 @@ By default, Taurine triggers a word expansion when you type your **trigger chara
 ### Hotkey Triggers
 Hotkey triggers execute immediately when the keyboard shortcut is pressed. They do not require a trigger character or a trailing space.
 
+## Inline Tab Completion
+
+Taurine provides **inline Tab completion** to help you quickly find and select your word triggers as you type. This feature is optional and does not replace the standard `[Space]` expansion workflow.
+
+### Usage
+
+1. Type your **trigger character** (default: `>`).
+2. Type a few characters of a **word trigger**.
+3. Press `Tab` to cycle through matching suggestions.
+4. Press `Space` to expand the currently selected trigger.
+
+```text
+>g + Tab
+```
+
+If you have multiple triggers starting with `g` (e.g., `gs`, `gpush`, `gco`), Taurine will cycle through them directly in your text area.
+
+### Cycling and Wrapping
+
+* **Tab**: Cycle forward through matching word triggers.
+* **Shift + Tab**: Cycle backward through matching word triggers.
+* **Wraparound**: Cycling is infinite; reaching the end of the list wraps back to the beginning (and vice-versa).
+
+### Control Keys
+
+While completion is active, Taurine manages several control keys to ensure a smooth experience:
+
+* **Esc**: Cancels the completion state and leaves your typed text as-is.
+* **Backspace**: Edits your query normally. If you delete the trigger character, completion deactivates immediately.
+* **Up / Down**: These keys are currently swallowed to prevent unwanted cursor movement while you are selecting a suggestion.
+* **Modified Tabs**: Shortcuts like `Alt + Tab`, `Ctrl + Tab`, or `Meta + Tab` will cancel the completion state and pass through to the system normally, preventing accidental pastes.
+
+<Callout title="Word Triggers Only" type="info">
+  Inline Tab completion only suggests **word triggers**. Hotkey triggers are not included in completions because they are triggered by global shortcuts rather than typed text.
+</Callout>
+
+<Callout title="Empty Query Behavior" type="warn">
+  If you press `Tab` immediately after the trigger character without typing any search text, Taurine will swallow the keypress and do nothing.
+</Callout>
+
 ## Viewing Your Automations
 
 List all configured automations with `taurine list` (alias: `ls`). You can sort them to find your most used snippets:
