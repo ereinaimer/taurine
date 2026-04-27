@@ -33,6 +33,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -43,6 +48,7 @@ jobs:
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          version: '23.4'
 
       - name: Install Linux Dependencies
         if: runner.os == 'Linux'
