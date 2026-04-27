@@ -56,44 +56,53 @@ By default, Taurine triggers a word expansion when you type your **trigger chara
 ### Hotkey Triggers
 Hotkey triggers execute immediately when the keyboard shortcut is pressed. They do not require a trigger character or a trailing space.
 
-## Inline Tab Completion
+## Inline Trigger Assist
 
-Taurine provides **inline Tab completion** to help you quickly find and select your word triggers as you type. This feature is optional and does not replace the standard `[Space]` expansion workflow.
+Taurine provides a headless **inline trigger assist** to help you quickly find and select your word triggers as you type. This feature works directly inside your active text field—no popups, overlays, or command palettes are required. It includes both **Tab completion** for matches and **Up/Down history navigation** for recently used triggers.
 
 ### Usage
 
 1. Type your **trigger character** (default: `>`).
-2. Type a few characters of a **word trigger**.
-3. Press `Tab` to cycle through matching suggestions.
-4. Press `Space` to expand the currently selected trigger.
+2. Type a few characters of a **word trigger** (optional for history).
+3. Use the following keys to navigate:
 
-```text
->g + Tab
-```
+| Key | Action |
+| :--- | :--- |
+| **Tab** | Cycle forward through matching word triggers. |
+| **Shift + Tab** | Cycle backward through matching word triggers. |
+| **Up Arrow** | Move backward through recently used triggers (History). |
+| **Down Arrow** | Move forward through history. |
 
-If you have multiple triggers starting with `g` (e.g., `gs`, `gpush`, `gco`), Taurine will cycle through them directly in your text area.
+### Tab Completion
 
-### Cycling and Wrapping
+After typing at least one character of a trigger (e.g., `>g`), press `Tab` to cycle through all triggers that start with that prefix. Suggestions are sorted alphabetically.
 
-* **Tab**: Cycle forward through matching word triggers.
-* **Shift + Tab**: Cycle backward through matching word triggers.
-* **Wraparound**: Cycling is infinite; reaching the end of the list wraps back to the beginning (and vice-versa).
+* **Wraparound**: Cycling is infinite; reaching the end of the list wraps back to the beginning.
+* **Word Triggers Only**: Completion only suggests word triggers. Hotkey triggers are never suggested.
+
+### History Navigation
+
+History allows you to access your most frequently and recently used triggers.
+
+* **Prefix Search**: If you type a prefix (e.g., `>g`) and press `Up`, Taurine cycles through recently used triggers starting with `g`.
+* **Global History**: Pressing `Up` immediately after the trigger character (`>`) cycles through your entire trigger history.
+* **Restore Query**: Pressing `Down` while the newest history item is selected will restore your original typed query.
 
 ### Control Keys
 
-While completion is active, Taurine manages several control keys to ensure a smooth experience:
+While assist is active, Taurine manages several keys to ensure a smooth experience:
 
-* **Esc**: Cancels the completion state and leaves your typed text as-is.
-* **Backspace**: Edits your query normally. If you delete the trigger character, completion deactivates immediately.
-* **Up / Down**: These keys are currently swallowed to prevent unwanted cursor movement while you are selecting a suggestion.
-* **Modified Tabs**: Shortcuts like `Alt + Tab`, `Ctrl + Tab`, or `Meta + Tab` will cancel the completion state and pass through to the system normally, preventing accidental pastes.
+* **Esc**: Cancels assist and leaves your typed text as-is.
+* **Backspace**: Edits your **original query**. If you have a suggestion selected, Backspace erases the suggestion and deletes the last character of your typed input, allowing you to refine your search instantly.
+* **Space**: Expands the currently visible trigger.
+* **Modified Tabs**: Shortcuts like `Alt + Tab` or `Ctrl + Tab` will cancel assist and pass through to the system normally.
 
-<Callout title="Word Triggers Only" type="info">
-  Inline Tab completion only suggests **word triggers**. Hotkey triggers are not included in completions because they are triggered by global shortcuts rather than typed text.
+<Callout title="AI Mode Priority" type="info">
+  Inline trigger assist is automatically disabled when you are in **Interactive AI Capture** mode. This ensures that arrow keys and Tab function normally while you are drafting a prompt for the AI.
 </Callout>
 
-<Callout title="Empty Query Behavior" type="warn">
-  If you press `Tab` immediately after the trigger character without typing any search text, Taurine will swallow the keypress and do nothing.
+<Callout title="Word Triggers Only" type="info">
+  Trigger assist only suggests **word triggers**. Hotkey triggers are not included because they are triggered by global shortcuts rather than typed text.
 </Callout>
 
 ## Viewing Your Automations
