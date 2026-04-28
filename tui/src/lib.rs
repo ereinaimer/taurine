@@ -2,6 +2,7 @@
 // See LICENSE for details.
 
 mod app;
+mod control;
 mod event;
 mod status;
 mod ui;
@@ -9,7 +10,8 @@ mod ui;
 use std::io;
 use std::time::{Duration, Instant};
 
-use app::App;
+use app::{App, Page};
+use control::{DaemonController, SystemDaemonController, toggle_daemon};
 use crossterm::{
     cursor::Show,
     execute,
@@ -17,6 +19,7 @@ use crossterm::{
 };
 use event::{Event, EventHandler};
 use ratatui::{Terminal, backend::CrosstermBackend};
+use tracing::error;
 
 const EVENT_TICK_RATE: Duration = Duration::from_millis(250);
 const STATUS_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
@@ -24,6 +27,7 @@ const STATUS_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
 pub fn run() -> taurine_core::Result<()> {
     let mut app = App::default();
     app.set_daemon_status(status::probe_daemon_status());
+    let daemon_controller = SystemDaemonController;
 
     let mut terminal = TerminalGuard::new()?;
     let mut events = EventHandler::new(EVENT_TICK_RATE);
@@ -33,7 +37,7 @@ pub fn run() -> taurine_core::Result<()> {
         terminal.terminal.draw(|frame| ui::render(frame, &app))?;
 
         match events.next()? {
-            Event::Key(key) => app.handle_key_event(key),
+            Event::Key(key) => handle_tui_key_event(&mut app, key, &daemon_controller),
             Event::Tick => {
                 if last_status_refresh.elapsed() >= STATUS_REFRESH_INTERVAL {
                     app.set_daemon_status(status::probe_daemon_status());
@@ -48,6 +52,24 @@ pub fn run() -> taurine_core::Result<()> {
     }
 
     Ok(())
+}
+
+fn handle_tui_key_event<C: DaemonController>(
+    app: &mut App,
+    key: crossterm::event::KeyEvent,
+    daemon_controller: &C,
+) {
+    app.handle_key_event(key);
+
+    if key.code == crossterm::event::KeyCode::Char('x')
+        && key.modifiers == crossterm::event::KeyModifiers::NONE
+        && app.active_page() == Page::Home
+    {
+        match toggle_daemon(daemon_controller, app.daemon_status()) {
+            Ok(outcome) => app.set_daemon_status(outcome.status),
+            Err(err) => error!(error = %err, "Failed to toggle daemon lifecycle from the TUI"),
+        }
+    }
 }
 
 struct TerminalGuard {
@@ -97,4 +119,95 @@ impl Drop for TerminalGuard {
 fn restore_terminal() {
     let _ = disable_raw_mode();
     let _ = execute!(io::stdout(), LeaveAlternateScreen, Show);
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    use super::*;
+
+    #[derive(Default)]
+    struct MockController {
+        start_calls: Cell<usize>,
+        stop_calls: Cell<usize>,
+    }
+
+    impl DaemonController for MockController {
+        fn start(&self) -> taurine_core::Result<()> {
+            self.start_calls.set(self.start_calls.get() + 1);
+            Ok(())
+        }
+
+        fn stop(&self) -> taurine_core::Result<()> {
+            self.stop_calls.set(self.stop_calls.get() + 1);
+            Ok(())
+        }
+    }
+
+    fn plain_key(ch: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn pressing_x_on_home_calls_start_when_stopped() {
+        let mut app = App::default();
+        app.set_daemon_status(status::DaemonStatus::Stopped);
+        let controller = MockController::default();
+
+        handle_tui_key_event(&mut app, plain_key('x'), &controller);
+
+        assert_eq!(controller.start_calls.get(), 1);
+        assert_eq!(controller.stop_calls.get(), 0);
+    }
+
+    #[test]
+    fn pressing_x_on_home_calls_stop_when_running() {
+        let mut app = App::default();
+        app.set_daemon_status(status::DaemonStatus::Running);
+        let controller = MockController::default();
+
+        handle_tui_key_event(&mut app, plain_key('x'), &controller);
+
+        assert_eq!(controller.start_calls.get(), 0);
+        assert_eq!(controller.stop_calls.get(), 1);
+    }
+
+    #[test]
+    fn pressing_x_on_home_calls_stop_when_paused() {
+        let mut app = App::default();
+        app.set_daemon_status(status::DaemonStatus::Paused);
+        let controller = MockController::default();
+
+        handle_tui_key_event(&mut app, plain_key('x'), &controller);
+
+        assert_eq!(controller.start_calls.get(), 0);
+        assert_eq!(controller.stop_calls.get(), 1);
+    }
+
+    #[test]
+    fn pressing_x_on_library_does_not_call_lifecycle() {
+        let mut app = App::default();
+        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        let controller = MockController::default();
+
+        handle_tui_key_event(&mut app, plain_key('x'), &controller);
+
+        assert_eq!(controller.start_calls.get(), 0);
+        assert_eq!(controller.stop_calls.get(), 0);
+    }
+
+    #[test]
+    fn pressing_x_on_settings_does_not_call_lifecycle() {
+        let mut app = App::default();
+        app.handle_key(KeyCode::Char('3'), KeyModifiers::NONE);
+        let controller = MockController::default();
+
+        handle_tui_key_event(&mut app, plain_key('x'), &controller);
+
+        assert_eq!(controller.start_calls.get(), 0);
+        assert_eq!(controller.stop_calls.get(), 0);
+    }
 }

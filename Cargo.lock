@@ -4258,8 +4258,10 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "service-manager",
  "sha1",
  "sha2",
+ "sysinfo",
  "tempfile",
  "thiserror 2.0.18",
  "time",
@@ -4273,6 +4275,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "wait-timeout",
+ "winreg",
  "zeroize",
  "zstd",
 ]

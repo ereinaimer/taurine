@@ -22,6 +22,19 @@ static QUIET_CONSOLE: OnceLock<bool> = OnceLock::new();
 static NO_LOG_FILE: OnceLock<bool> = OnceLock::new();
 static ACTIVE_COMPONENT: OnceLock<LogComponent> = OnceLock::new();
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LoggingPlan {
+    console_enabled: bool,
+    file_enabled: bool,
+}
+
+const fn logging_plan(quiet: bool, no_log_file: bool, suppress_console: bool) -> LoggingPlan {
+    LoggingPlan {
+        console_enabled: !quiet && !suppress_console,
+        file_enabled: !quiet && !no_log_file,
+    }
+}
+
 /// Initialize tracing for normal application runtime.
 ///
 /// - Console verbosity is controlled by CLI `-v/-vv/-vvv` unless `RUST_LOG` is set.
@@ -36,6 +49,7 @@ pub fn init_tracing_for_app(
     no_log_file: bool,
     no_color: bool,
     component: LogComponent,
+    suppress_console: bool,
 ) -> Option<tracing_appender::non_blocking::WorkerGuard> {
     let mut returned_guard = None;
 
@@ -48,8 +62,9 @@ pub fn init_tracing_for_app(
         let retention_days = DEFAULT_RETENTION_DAYS;
 
         let env_filter = EnvFilter::try_from_default_env().ok();
+        let plan = logging_plan(quiet, no_log_file, suppress_console);
 
-        if quiet && no_log_file {
+        if !plan.console_enabled && !plan.file_enabled {
             // Silent mode: no console layer and no file layer.
 
             // Tracing is initialized here because the tracing crate allows global subscriber
@@ -59,8 +74,8 @@ pub fn init_tracing_for_app(
 
             let subscriber = tracing_subscriber::registry();
             let _ = tracing::subscriber::set_global_default(subscriber);
-        } else if quiet {
-            // Quiet mode: only file logging.
+        } else if !plan.console_enabled {
+            // File-only mode.
             let file_filter = env_filter.clone().unwrap_or_else(|| {
                 EnvFilter::new("debug,h2=warn,hyper=warn,tower=warn,tonic=warn")
             });
@@ -86,7 +101,7 @@ pub fn init_tracing_for_app(
                 .with(file_layer)
                 .with(ErrorLayer::default());
             let _ = tracing::subscriber::set_global_default(subscriber);
-        } else if no_log_file {
+        } else if !plan.file_enabled {
             // No log file: only console logging.
             let console_level = match verbosity {
                 0 => "info,h2=error,hyper=error,tower=error,tonic=error",
@@ -313,4 +328,43 @@ fn write_panic_to_log_file(payload: &str, location: &str, backtrace: &Backtrace)
     writeln!(file, "================================================")?;
     file.flush()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tui_mode_disables_console_and_keeps_file_logging() {
+        let plan = logging_plan(false, false, true);
+        assert!(!plan.console_enabled);
+        assert!(plan.file_enabled);
+    }
+
+    #[test]
+    fn tui_mode_with_no_log_file_disables_both_outputs() {
+        let plan = logging_plan(false, true, true);
+        assert!(!plan.console_enabled);
+        assert!(!plan.file_enabled);
+    }
+
+    #[test]
+    fn quiet_mode_disables_console_and_file_logging() {
+        let plan = logging_plan(true, false, false);
+        assert!(!plan.console_enabled);
+        assert!(!plan.file_enabled);
+    }
+
+    #[test]
+    fn non_tui_mode_preserves_console_and_file_logging() {
+        let plan = logging_plan(false, false, false);
+        assert!(plan.console_enabled);
+        assert!(plan.file_enabled);
+    }
+
+    #[test]
+    fn verbose_tui_mode_still_disables_console() {
+        let plan = logging_plan(false, false, true);
+        assert!(!plan.console_enabled);
+    }
 }
