@@ -94,6 +94,14 @@ fn apply_settings_interaction(app: &mut App, interaction: settings::SettingsInte
         return;
     }
 
+    if let Some(pending_reset) = interaction.pending_reset() {
+        match pending_reset.apply() {
+            Ok(()) => refresh_settings_page(app),
+            Err(error) => app.settings_page_mut().set_save_error(error.to_string()),
+        }
+        return;
+    }
+
     let Some(pending_save) = interaction.pending_save() else {
         return;
     };

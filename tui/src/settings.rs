@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use taurine_core::{
     ai::supported_providers,
-    settings::{Settings, SpinnerStyle, apply_setting_input},
+    settings::{Settings, SpinnerStyle, apply_setting_input, reset_setting_to_default},
 };
 
 const SPINNER_STYLE_OPTIONS: [&str; 3] = ["classic", "braille", "arc"];
@@ -236,6 +236,9 @@ impl SettingsPageState {
                 SettingsInteraction::handled()
             }
             (KeyCode::Char(' '), KeyModifiers::NONE) => self.toggle_selected_setting(),
+            (KeyCode::Char('r'), KeyModifiers::NONE) => {
+                SettingsInteraction::reset(self.selected_key())
+            }
             (KeyCode::Enter, KeyModifiers::NONE) => {
                 self.open_editor_for_selected();
                 SettingsInteraction::handled()
@@ -248,7 +251,7 @@ impl SettingsPageState {
         match self.modal.as_ref() {
             Some(SettingsModal::Select(_)) => "j/k Move   ↑/↓ Move   Enter Save   Esc Cancel",
             Some(SettingsModal::Input(_)) => "Type Edit   Enter Save   Esc Cancel",
-            None => "j/k Move   ↑/↓ Move   Space Toggle   Enter Edit   q Quit",
+            None => "j/k Move   ↑/↓ Move   Space Toggle   Enter Edit   r Reset   q Quit",
         }
     }
 
@@ -498,15 +501,31 @@ impl PendingSettingSave {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PendingSettingReset {
+    key: SettingKey,
+}
+
+impl PendingSettingReset {
+    pub(crate) fn apply(&self) -> taurine_core::Result<()> {
+        reset_setting_to_default(self.key.storage_key())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct SettingsInteraction {
     pending_save: Option<PendingSettingSave>,
+    pending_reset: Option<PendingSettingReset>,
     close_modal: bool,
 }
 
 impl SettingsInteraction {
     pub(crate) const fn pending_save(&self) -> Option<&PendingSettingSave> {
         self.pending_save.as_ref()
+    }
+
+    pub(crate) const fn pending_reset(&self) -> Option<&PendingSettingReset> {
+        self.pending_reset.as_ref()
     }
 
     pub(crate) const fn should_close_modal(&self) -> bool {
@@ -516,6 +535,7 @@ impl SettingsInteraction {
     fn handled() -> Self {
         Self {
             pending_save: None,
+            pending_reset: None,
             close_modal: false,
         }
     }
@@ -523,6 +543,7 @@ impl SettingsInteraction {
     fn cancel() -> Self {
         Self {
             pending_save: None,
+            pending_reset: None,
             close_modal: true,
         }
     }
@@ -530,6 +551,15 @@ impl SettingsInteraction {
     fn save(key: SettingKey, value: Option<String>) -> Self {
         Self {
             pending_save: Some(PendingSettingSave { key, value }),
+            pending_reset: None,
+            close_modal: false,
+        }
+    }
+
+    fn reset(key: SettingKey) -> Self {
+        Self {
+            pending_save: None,
+            pending_reset: Some(PendingSettingReset { key }),
             close_modal: false,
         }
     }
@@ -687,5 +717,29 @@ mod tests {
         let interaction = state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(interaction.should_close_modal());
         assert!(interaction.pending_save().is_none());
+    }
+
+    #[test]
+    fn pressing_r_creates_reset_action_for_selected_setting() {
+        let mut state = SettingsPageState {
+            selected: 4,
+            ..Default::default()
+        };
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+
+        assert!(interaction.pending_save().is_none());
+        assert_eq!(
+            interaction.pending_reset().map(|reset| reset.key),
+            Some(SettingKey::InlineTabCompletionEnabled)
+        );
+    }
+
+    #[test]
+    fn settings_footer_includes_reset_hint() {
+        assert!(
+            SettingsPageState::default()
+                .footer_text()
+                .contains("r Reset")
+        );
     }
 }
