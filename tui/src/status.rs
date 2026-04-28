@@ -8,7 +8,7 @@ pub(crate) enum DaemonStatus {
     Running,
     #[default]
     Stopped,
-    Idle,
+    Paused,
 }
 
 impl DaemonStatus {
@@ -16,7 +16,7 @@ impl DaemonStatus {
         if !online {
             Self::Stopped
         } else if paused {
-            Self::Idle
+            Self::Paused
         } else {
             Self::Running
         }
@@ -26,7 +26,7 @@ impl DaemonStatus {
         match self {
             Self::Running => "running",
             Self::Stopped => "stopped",
-            Self::Idle => "idle",
+            Self::Paused => "paused",
         }
     }
 
@@ -34,7 +34,7 @@ impl DaemonStatus {
         match self {
             Self::Running => Color::Green,
             Self::Stopped => Color::Red,
-            Self::Idle => Color::Yellow,
+            Self::Paused => Color::Yellow,
         }
     }
 
@@ -81,21 +81,21 @@ mod tests {
     }
 
     #[test]
-    fn idle_label_is_lowercase_idle() {
-        assert_eq!(DaemonStatus::Idle.label(), "idle");
+    fn paused_label_is_lowercase_paused() {
+        assert_eq!(DaemonStatus::Paused.label(), "paused");
     }
 
     #[test]
     fn status_color_mapping_matches_design() {
         assert_eq!(DaemonStatus::Running.color(), Color::Green);
         assert_eq!(DaemonStatus::Stopped.color(), Color::Red);
-        assert_eq!(DaemonStatus::Idle.color(), Color::Yellow);
+        assert_eq!(DaemonStatus::Paused.color(), Color::Yellow);
     }
 
     #[test]
-    fn status_flags_map_to_running_idle_and_stopped() {
+    fn status_flags_map_to_running_paused_and_stopped() {
         assert_eq!(DaemonStatus::from_flags(true, false), DaemonStatus::Running);
-        assert_eq!(DaemonStatus::from_flags(true, true), DaemonStatus::Idle);
+        assert_eq!(DaemonStatus::from_flags(true, true), DaemonStatus::Paused);
         assert_eq!(
             DaemonStatus::from_flags(false, false),
             DaemonStatus::Stopped

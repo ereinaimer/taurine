@@ -7,7 +7,10 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Padding, Paragraph},
 };
 
-use crate::app::{App, Page};
+use crate::{
+    app::{App, Page},
+    control,
+};
 
 const OUTER_HORIZONTAL_PADDING: u16 = 2;
 const OUTER_VERTICAL_PADDING: u16 = 1;
@@ -156,9 +159,14 @@ fn render_content(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(Paragraph::new("").block(content_block), area);
 }
 
-fn render_footer(frame: &mut Frame, area: Rect, _app: &App) {
+fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
+    let footer_text = match app.active_page() {
+        Page::Home => control::home_footer_label(app.daemon_status()),
+        Page::Library | Page::Settings => "q Quit",
+    };
+
     let footer_line = Line::from(vec![Span::styled(
-        "q Quit",
+        footer_text,
         Style::default()
             .fg(MUTED_TEXT_COLOR)
             .add_modifier(Modifier::DIM),

@@ -25,6 +25,7 @@ pub use error::{Error, Result};
 pub mod logs;
 pub mod paths;
 pub mod rpc;
+pub mod service;
 pub mod settings;
 pub mod utils;
 

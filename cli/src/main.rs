@@ -406,6 +406,7 @@ enum LaunchTarget {
 
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
+    let launch_target = launch_target(&cli);
 
     let component = if cli.daemon {
         taurine_core::logs::LogComponent::Daemon
@@ -419,6 +420,7 @@ fn main() -> std::process::ExitCode {
         cli.no_log_file,
         cli.no_color,
         component,
+        launch_target == LaunchTarget::Tui,
     );
 
     // Install a panic hook that:
@@ -431,7 +433,7 @@ fn main() -> std::process::ExitCode {
         color_eyre_panic(panic_info);
     }));
 
-    if let Err(e) = run(cli) {
+    if let Err(e) = run(cli, launch_target) {
         error!(error=%e, "Taurine exited with an error");
         return std::process::ExitCode::from(1);
     }
@@ -439,8 +441,8 @@ fn main() -> std::process::ExitCode {
     std::process::ExitCode::SUCCESS
 }
 
-fn run(cli: Cli) -> taurine_core::error::Result<()> {
-    match launch_target(&cli) {
+fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()> {
+    match launch_target {
         LaunchTarget::Daemon => {
             info!("Initializing Taurine v{}", env!("CARGO_PKG_VERSION"));
 
@@ -587,12 +589,7 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
 fn launch_target(cli: &Cli) -> LaunchTarget {
     if cli.daemon {
         LaunchTarget::Daemon
-    } else if cli.command.is_none()
-        && cli.verbose == 0
-        && !cli.quiet
-        && !cli.no_log_file
-        && !cli.no_color
-    {
+    } else if cli.command.is_none() {
         LaunchTarget::Tui
     } else {
         LaunchTarget::Command
@@ -716,9 +713,23 @@ mod tests {
     }
 
     #[test]
-    fn flag_only_invocation_does_not_route_to_tui() {
+    fn verbose_flag_only_invocation_routes_to_tui() {
         let cli = Cli::try_parse_from(["taurine", "--verbose"])
             .expect("flag-only invocation should parse");
-        assert_eq!(launch_target(&cli), LaunchTarget::Command);
+        assert_eq!(launch_target(&cli), LaunchTarget::Tui);
+    }
+
+    #[test]
+    fn no_log_file_flag_only_invocation_routes_to_tui() {
+        let cli = Cli::try_parse_from(["taurine", "--no-log-file"])
+            .expect("flag-only invocation should parse");
+        assert_eq!(launch_target(&cli), LaunchTarget::Tui);
+    }
+
+    #[test]
+    fn quiet_flag_only_invocation_routes_to_tui() {
+        let cli =
+            Cli::try_parse_from(["taurine", "-q"]).expect("flag-only invocation should parse");
+        assert_eq!(launch_target(&cli), LaunchTarget::Tui);
     }
 }
