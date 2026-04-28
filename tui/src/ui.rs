@@ -4,8 +4,9 @@ use ratatui::{
     style::{Color, Modifier, Style},
     symbols::border,
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Padding, Paragraph},
+    widgets::{Block, Borders, Cell, List, ListItem, ListState, Padding, Paragraph, Row, Table},
 };
+use taurine_core::metrics::{HomeMetrics, MostUsedAutomation};
 
 use crate::{
     app::{App, Page},
@@ -156,7 +157,13 @@ fn render_content(frame: &mut Frame, area: Rect, app: &App) {
             PANEL_PADDING,
         ));
 
-    frame.render_widget(Paragraph::new("").block(content_block), area);
+    let inner = content_block.inner(area);
+    frame.render_widget(content_block, area);
+
+    match app.active_page() {
+        Page::Home => render_home_content(frame, inner, app.home_metrics()),
+        Page::Library | Page::Settings => {}
+    }
 }
 
 fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
@@ -173,4 +180,242 @@ fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
     )]);
 
     frame.render_widget(Paragraph::new(footer_line).alignment(Alignment::Left), area);
+}
+
+fn render_home_content(frame: &mut Frame, area: Rect, metrics: &HomeMetrics) {
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(5),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
+        ])
+        .split(area);
+
+    frame.render_widget(
+        Paragraph::new("All-time usage").style(
+            Style::default()
+                .fg(ACCENT_COLOR)
+                .add_modifier(Modifier::BOLD),
+        ),
+        sections[0],
+    );
+
+    render_metric_cards(frame, sections[2], metrics);
+
+    frame.render_widget(
+        Paragraph::new("Most used automations").style(
+            Style::default()
+                .fg(ACCENT_COLOR)
+                .add_modifier(Modifier::BOLD),
+        ),
+        sections[4],
+    );
+
+    render_most_used_table(frame, sections[6], &metrics.most_used);
+}
+
+fn render_metric_cards(frame: &mut Frame, area: Rect, metrics: &HomeMetrics) {
+    let sections = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(33),
+            Constraint::Length(2),
+            Constraint::Percentage(34),
+            Constraint::Length(2),
+            Constraint::Percentage(33),
+        ])
+        .split(area);
+
+    render_metric_card(
+        frame,
+        sections[0],
+        "Keystrokes saved",
+        &format_number(metrics.keystrokes_saved),
+    );
+    render_metric_card(
+        frame,
+        sections[2],
+        "Time saved",
+        &format_time_saved(metrics.time_saved_ms),
+    );
+    render_metric_card(
+        frame,
+        sections[4],
+        "Expansions run",
+        &format_number(metrics.expansions_run),
+    );
+}
+
+fn render_metric_card(frame: &mut Frame, area: Rect, label: &str, value: &str) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(border::ROUNDED)
+        .border_style(Style::default().fg(PANEL_BORDER_COLOR))
+        .padding(Padding::new(1, 1, 0, 0));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(0)])
+        .split(inner);
+
+    frame.render_widget(
+        Paragraph::new(label).style(Style::default().fg(MUTED_TEXT_COLOR)),
+        sections[0],
+    );
+    frame.render_widget(
+        Paragraph::new(value).style(
+            Style::default()
+                .fg(ACCENT_COLOR)
+                .add_modifier(Modifier::BOLD),
+        ),
+        sections[1],
+    );
+}
+
+fn render_most_used_table(frame: &mut Frame, area: Rect, rows: &[MostUsedAutomation]) {
+    if rows.is_empty() {
+        frame.render_widget(
+            Paragraph::new("No automation usage recorded yet.\nCreate an automation and use it to see stats here.")
+                .style(Style::default().fg(MUTED_TEXT_COLOR)),
+            area,
+        );
+        return;
+    }
+
+    let header = Row::new([
+        Cell::from("Trigger"),
+        Cell::from("Type"),
+        Cell::from("Uses"),
+        Cell::from("Preview"),
+    ])
+    .style(
+        Style::default()
+            .fg(MUTED_TEXT_COLOR)
+            .add_modifier(Modifier::BOLD),
+    );
+
+    let table_rows = rows.iter().map(|automation| {
+        Row::new([
+            Cell::from(automation.trigger.clone()),
+            Cell::from(trigger_type_label(automation)),
+            Cell::from(format_number(automation.uses)),
+            Cell::from(truncate_preview(&automation.preview, 48)),
+        ])
+    });
+
+    let table = Table::new(
+        table_rows,
+        [
+            Constraint::Length(14),
+            Constraint::Length(8),
+            Constraint::Length(8),
+            Constraint::Min(12),
+        ],
+    )
+    .header(header)
+    .column_spacing(2);
+
+    frame.render_widget(table, area);
+}
+
+fn trigger_type_label(automation: &MostUsedAutomation) -> &'static str {
+    match automation.trigger_type {
+        taurine_core::db::crud::TriggerType::Word => "word",
+        taurine_core::db::crud::TriggerType::Hotkey => "hotkey",
+    }
+}
+
+fn format_number(value: u64) -> String {
+    let digits = value.to_string();
+    let mut formatted = String::with_capacity(digits.len() + digits.len() / 3);
+
+    for (index, ch) in digits.chars().rev().enumerate() {
+        if index > 0 && index % 3 == 0 {
+            formatted.push(',');
+        }
+        formatted.push(ch);
+    }
+
+    formatted.chars().rev().collect()
+}
+
+fn format_time_saved(time_saved_ms: u64) -> String {
+    let total_minutes = time_saved_ms / 60_000;
+    let total_hours = total_minutes / 60;
+    let total_days = total_hours / 24;
+
+    if total_days > 0 {
+        let remaining_hours = total_hours % 24;
+        if remaining_hours > 0 {
+            format!("{total_days}d {remaining_hours}h")
+        } else {
+            format!("{total_days}d")
+        }
+    } else if total_hours > 0 {
+        let remaining_minutes = total_minutes % 60;
+        if remaining_minutes > 0 {
+            format!("{total_hours}h {remaining_minutes}m")
+        } else {
+            format!("{total_hours}h")
+        }
+    } else {
+        format!("{total_minutes}m")
+    }
+}
+
+fn truncate_preview(value: &str, max_chars: usize) -> String {
+    let trimmed = value.trim();
+    let char_count = trimmed.chars().count();
+    if char_count <= max_chars {
+        return trimmed.to_string();
+    }
+
+    let keep = max_chars.saturating_sub(3);
+    let truncated: String = trimmed.chars().take(keep).collect();
+    format!("{truncated}...")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn formats_zero_time_saved_as_zero_minutes() {
+        assert_eq!(format_time_saved(0), "0m");
+    }
+
+    #[test]
+    fn formats_one_hour_without_trailing_minutes() {
+        assert_eq!(format_time_saved(3_600_000), "1h");
+    }
+
+    #[test]
+    fn formats_one_minute() {
+        assert_eq!(format_time_saved(60_000), "1m");
+    }
+
+    #[test]
+    fn formats_hours_and_minutes() {
+        assert_eq!(format_time_saved(3_660_000), "1h 1m");
+    }
+
+    #[test]
+    fn truncates_long_preview_safely() {
+        assert_eq!(
+            truncate_preview("abcdefghijklmnopqrstuvwxyz", 10),
+            "abcdefg..."
+        );
+    }
+
+    #[test]
+    fn leaves_short_preview_unchanged() {
+        assert_eq!(truncate_preview("git status", 20), "git status");
+    }
 }

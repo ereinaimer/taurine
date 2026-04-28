@@ -1,4 +1,5 @@
 pub mod calculator;
+mod home;
 
 use time::OffsetDateTime;
 
@@ -27,3 +28,4 @@ pub use calculator::{
     ExpansionMetrics, calculate_expansion_metrics, calculate_saved_keystrokes,
     calculate_time_saved_ms,
 };
+pub use home::{HomeMetrics, MostUsedAutomation, load_home_metrics, load_home_metrics_with_limit};
