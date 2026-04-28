@@ -141,6 +141,7 @@ fn render_navigation(frame: &mut Frame, area: Rect, app: &App) {
 
 fn render_content(frame: &mut Frame, area: Rect, app: &App) {
     let content_block = Block::default()
+        .title_alignment(Alignment::Right)
         .title(Span::styled(
             format!(" {} ", app.active_page().title()),
             Style::default()
@@ -321,7 +322,7 @@ fn render_most_used_table(frame: &mut Frame, area: Rect, title: &str, rows: &[Mo
             .add_modifier(Modifier::BOLD),
     );
 
-    let table_rows = rows.iter().map(|automation| {
+    let table_rows = rows.iter().take(3).map(|automation| {
         Row::new([
             Cell::from(automation.trigger.clone()),
             Cell::from(format_number(automation.uses)),
