@@ -1,31 +1,41 @@
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
     style::{Color, Modifier, Style},
-    text::{Line, Span, Text},
-    widgets::{List, ListItem, ListState, Paragraph},
+    symbols::border,
+    text::{Line, Span},
+    widgets::{Block, Borders, List, ListItem, ListState, Padding, Paragraph},
 };
 
 use crate::app::{App, Page};
 
-const NAV_WIDTH: u16 = 16;
+const OUTER_HORIZONTAL_PADDING: u16 = 2;
+const OUTER_VERTICAL_PADDING: u16 = 1;
+const HEADER_GAP_HEIGHT: u16 = 1;
+const FOOTER_GAP_HEIGHT: u16 = 1;
+const FOOTER_HEIGHT: u16 = 2;
+const NAV_WIDTH: u16 = 20;
+const CONTENT_LEFT_PADDING: u16 = 2;
 
 pub(crate) fn render(frame: &mut Frame, app: &App) {
-    let area = frame.area();
+    let area = frame.area().inner(Margin {
+        vertical: OUTER_VERTICAL_PADDING,
+        horizontal: OUTER_HORIZONTAL_PADDING,
+    });
     let sections = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1),
+            Constraint::Length(HEADER_GAP_HEIGHT),
             Constraint::Min(0),
-            Constraint::Length(1),
-            Constraint::Length(1),
+            Constraint::Length(FOOTER_GAP_HEIGHT),
+            Constraint::Length(FOOTER_HEIGHT),
         ])
         .split(area);
 
     render_header(frame, sections[0], app);
-    render_body(frame, sections[1], app);
-    render_footer_divider(frame, sections[2]);
-    render_footer(frame, sections[3]);
+    render_body(frame, sections[2], app);
+    render_footer(frame, sections[4]);
 }
 
 fn render_header(frame: &mut Frame, area: Rect, app: &App) {
@@ -51,16 +61,11 @@ fn render_header(frame: &mut Frame, area: Rect, app: &App) {
 fn render_body(frame: &mut Frame, area: Rect, app: &App) {
     let sections = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length(NAV_WIDTH),
-            Constraint::Length(1),
-            Constraint::Min(0),
-        ])
+        .constraints([Constraint::Length(NAV_WIDTH), Constraint::Min(0)])
         .split(area);
 
     render_navigation(frame, sections[0], app);
-    render_vertical_divider(frame, sections[1]);
-    frame.render_widget(Paragraph::new(app.active_page().title()), sections[2]);
+    render_content(frame, sections[1], app);
 }
 
 fn render_navigation(frame: &mut Frame, area: Rect, app: &App) {
@@ -90,25 +95,29 @@ fn render_navigation(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_stateful_widget(navigation, area, &mut state);
 }
 
-fn render_vertical_divider(frame: &mut Frame, area: Rect) {
-    let lines = vec![Line::raw("|"); area.height as usize];
-    frame.render_widget(
-        Paragraph::new(Text::from(lines)).style(Style::default().fg(Color::DarkGray)),
-        area,
-    );
-}
+fn render_content(frame: &mut Frame, area: Rect, app: &App) {
+    let content_block = Block::default()
+        .borders(Borders::LEFT)
+        .border_set(border::PLAIN)
+        .border_style(Style::default().fg(Color::DarkGray))
+        .padding(Padding::new(CONTENT_LEFT_PADDING, 0, 0, 0));
 
-fn render_footer_divider(frame: &mut Frame, area: Rect) {
-    let divider = "-".repeat(area.width as usize);
     frame.render_widget(
-        Paragraph::new(divider).style(Style::default().fg(Color::DarkGray)),
+        Paragraph::new(app.active_page().title()).block(content_block),
         area,
     );
 }
 
 fn render_footer(frame: &mut Frame, area: Rect) {
+    let footer_block = Block::default()
+        .borders(Borders::TOP)
+        .border_set(border::PLAIN)
+        .border_style(Style::default().fg(Color::DarkGray));
+
     frame.render_widget(
-        Paragraph::new("q Quit").style(Style::default().add_modifier(Modifier::DIM)),
+        Paragraph::new("q Quit")
+            .block(footer_block)
+            .style(Style::default().add_modifier(Modifier::DIM)),
         area,
     );
 }
