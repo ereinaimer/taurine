@@ -28,6 +28,38 @@ pub fn apply_setting_input(key: &str, value: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+pub fn reset_setting_to_default(key: &str) -> Result<()> {
+    let default_value = default_setting_input(key)?;
+    apply_setting_input(key, default_value.as_deref())
+}
+
+pub fn default_setting_input(key: &str) -> Result<Option<String>> {
+    let actual_key = Settings::resolve_key(key);
+    let defaults = Settings::default();
+
+    match actual_key {
+        "trigger_char" => Ok(Some(defaults.trigger_char.to_string())),
+        "pause_hotkey" => Ok(Some(defaults.pause_hotkey)),
+        "pause_notifications_enabled" => Ok(Some(defaults.pause_notifications_enabled.to_string())),
+        "start_on_boot" => Ok(Some(defaults.start_on_boot.to_string())),
+        "inline_tab_completion_enabled" => {
+            Ok(Some(defaults.inline_tab_completion_enabled.to_string()))
+        }
+        "inline_history_enabled" => Ok(Some(defaults.inline_history_enabled.to_string())),
+        "wpm" => Ok(Some(defaults.wpm.to_string())),
+        "spinner_style" => Ok(Some(match defaults.spinner_style {
+            SpinnerStyle::Classic => "classic".to_string(),
+            SpinnerStyle::Braille => "braille".to_string(),
+            SpinnerStyle::Arc => "arc".to_string(),
+        })),
+        "ai_provider" => Ok(defaults.ai_provider),
+        "ai_model" => Ok(defaults.ai_model),
+        "ai_custom_endpoint" => Ok(defaults.ai_custom_endpoint),
+        "inline_ai_delimiter" => Ok(Some(defaults.inline_ai_delimiter.to_string())),
+        _ => Err(Error::Config(format!("Unknown setting key: {actual_key}"))),
+    }
+}
+
 pub fn apply_setting_input_with_manager(
     manager: &SettingsManager<'_>,
     key: &str,
@@ -205,6 +237,54 @@ mod tests {
         assert!(
             apply_setting_input_with_manager(&manager, "pause_hotkey", Some("not+a+hotkey+???"))
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn default_setting_input_uses_canonical_defaults() {
+        assert_eq!(
+            default_setting_input("trigger_char").unwrap(),
+            Some(">".to_string())
+        );
+        assert_eq!(
+            default_setting_input("inline_tab_completion_enabled").unwrap(),
+            Some("true".to_string())
+        );
+        assert_eq!(default_setting_input("ai_custom_endpoint").unwrap(), None);
+    }
+
+    #[test]
+    fn resetting_inline_tab_completion_restores_default() {
+        let (_dir, conn) = open_test_db();
+        let manager = SettingsManager::new(&conn);
+        manager
+            .update_setting("inline_tab_completion_enabled", false)
+            .unwrap();
+
+        let default_value = default_setting_input("inline_tab_completion_enabled").unwrap();
+        apply_setting_input_with_manager(
+            &manager,
+            "inline_tab_completion_enabled",
+            default_value.as_deref(),
+        )
+        .unwrap();
+
+        assert!(manager.load_all().inline_tab_completion_enabled);
+    }
+
+    #[test]
+    fn resetting_trigger_char_restores_default() {
+        let (_dir, conn) = open_test_db();
+        let manager = SettingsManager::new(&conn);
+        manager.update_setting("trigger_char", ';').unwrap();
+
+        let default_value = default_setting_input("trigger_char").unwrap();
+        apply_setting_input_with_manager(&manager, "trigger_char", default_value.as_deref())
+            .unwrap();
+
+        assert_eq!(
+            manager.load_all().trigger_char,
+            Settings::default().trigger_char
         );
     }
 }
