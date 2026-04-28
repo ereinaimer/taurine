@@ -13,9 +13,13 @@ const OUTER_HORIZONTAL_PADDING: u16 = 2;
 const OUTER_VERTICAL_PADDING: u16 = 1;
 const HEADER_GAP_HEIGHT: u16 = 1;
 const FOOTER_GAP_HEIGHT: u16 = 1;
-const FOOTER_HEIGHT: u16 = 2;
-const NAV_WIDTH: u16 = 20;
-const CONTENT_LEFT_PADDING: u16 = 2;
+const FOOTER_HEIGHT: u16 = 1;
+const PANEL_GAP_WIDTH: u16 = 2;
+const NAV_WIDTH: u16 = 22;
+const PANEL_PADDING: u16 = 1;
+const ACCENT_COLOR: Color = Color::Cyan;
+const PANEL_BORDER_COLOR: Color = Color::DarkGray;
+const MUTED_TEXT_COLOR: Color = Color::Gray;
 
 pub(crate) fn render(frame: &mut Frame, app: &App) {
     let area = frame.area().inner(Margin {
@@ -35,7 +39,7 @@ pub(crate) fn render(frame: &mut Frame, app: &App) {
 
     render_header(frame, sections[0], app);
     render_body(frame, sections[2], app);
-    render_footer(frame, sections[4]);
+    render_footer(frame, sections[4], app);
 }
 
 fn render_header(frame: &mut Frame, area: Rect, app: &App) {
@@ -46,14 +50,27 @@ fn render_header(frame: &mut Frame, area: Rect, app: &App) {
         .split(area);
 
     frame.render_widget(
-        Paragraph::new(format!("taurine v{}", env!("CARGO_PKG_VERSION")))
-            .style(Style::default().add_modifier(Modifier::BOLD)),
+        Paragraph::new(Line::from(vec![
+            Span::styled(
+                "taurine",
+                Style::default()
+                    .fg(ACCENT_COLOR)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                format!("v{}", env!("CARGO_PKG_VERSION")),
+                Style::default()
+                    .fg(MUTED_TEXT_COLOR)
+                    .add_modifier(Modifier::DIM),
+            ),
+        ])),
         sections[0],
     );
     frame.render_widget(
         Paragraph::new(app.daemon_status().label())
             .alignment(Alignment::Right)
-            .style(app.daemon_status().style()),
+            .style(app.daemon_status().style().add_modifier(Modifier::BOLD)),
         sections[1],
     );
 }
@@ -61,11 +78,15 @@ fn render_header(frame: &mut Frame, area: Rect, app: &App) {
 fn render_body(frame: &mut Frame, area: Rect, app: &App) {
     let sections = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(NAV_WIDTH), Constraint::Min(0)])
+        .constraints([
+            Constraint::Length(NAV_WIDTH),
+            Constraint::Length(PANEL_GAP_WIDTH),
+            Constraint::Min(0),
+        ])
         .split(area);
 
     render_navigation(frame, sections[0], app);
-    render_content(frame, sections[1], app);
+    render_content(frame, sections[2], app);
 }
 
 fn render_navigation(frame: &mut Frame, area: Rect, app: &App) {
@@ -77,7 +98,9 @@ fn render_navigation(frame: &mut Frame, area: Rect, app: &App) {
             let line = Line::from(vec![
                 Span::styled(
                     shortcut.to_string(),
-                    Style::default().fg(Color::Gray).add_modifier(Modifier::DIM),
+                    Style::default()
+                        .fg(MUTED_TEXT_COLOR)
+                        .add_modifier(Modifier::DIM),
                 ),
                 Span::raw(" "),
                 Span::raw(page.title()),
@@ -87,9 +110,26 @@ fn render_navigation(frame: &mut Frame, area: Rect, app: &App) {
         })
         .collect();
 
+    let navigation_block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(border::ROUNDED)
+        .border_style(Style::default().fg(PANEL_BORDER_COLOR))
+        .padding(Padding::new(
+            PANEL_PADDING,
+            PANEL_PADDING,
+            PANEL_PADDING,
+            PANEL_PADDING,
+        ));
+
     let navigation = List::new(items)
+        .block(navigation_block)
         .highlight_symbol("")
-        .highlight_style(Style::default().bg(Color::DarkGray));
+        .highlight_style(
+            Style::default()
+                .bg(PANEL_BORDER_COLOR)
+                .fg(ACCENT_COLOR)
+                .add_modifier(Modifier::BOLD),
+        );
     let mut state = ListState::default();
     state.select(Some(app.active_page().nav_index()));
     frame.render_stateful_widget(navigation, area, &mut state);
@@ -97,27 +137,32 @@ fn render_navigation(frame: &mut Frame, area: Rect, app: &App) {
 
 fn render_content(frame: &mut Frame, area: Rect, app: &App) {
     let content_block = Block::default()
-        .borders(Borders::LEFT)
-        .border_set(border::PLAIN)
-        .border_style(Style::default().fg(Color::DarkGray))
-        .padding(Padding::new(CONTENT_LEFT_PADDING, 0, 0, 0));
+        .title(Span::styled(
+            format!(" {} ", app.active_page().title()),
+            Style::default()
+                .fg(ACCENT_COLOR)
+                .add_modifier(Modifier::BOLD),
+        ))
+        .borders(Borders::ALL)
+        .border_set(border::ROUNDED)
+        .border_style(Style::default().fg(PANEL_BORDER_COLOR))
+        .padding(Padding::new(
+            PANEL_PADDING,
+            PANEL_PADDING,
+            PANEL_PADDING,
+            PANEL_PADDING,
+        ));
 
-    frame.render_widget(
-        Paragraph::new(app.active_page().title()).block(content_block),
-        area,
-    );
+    frame.render_widget(Paragraph::new("").block(content_block), area);
 }
 
-fn render_footer(frame: &mut Frame, area: Rect) {
-    let footer_block = Block::default()
-        .borders(Borders::TOP)
-        .border_set(border::PLAIN)
-        .border_style(Style::default().fg(Color::DarkGray));
+fn render_footer(frame: &mut Frame, area: Rect, _app: &App) {
+    let footer_line = Line::from(vec![Span::styled(
+        "q Quit",
+        Style::default()
+            .fg(MUTED_TEXT_COLOR)
+            .add_modifier(Modifier::DIM),
+    )]);
 
-    frame.render_widget(
-        Paragraph::new("q Quit")
-            .block(footer_block)
-            .style(Style::default().add_modifier(Modifier::DIM)),
-        area,
-    );
+    frame.render_widget(Paragraph::new(footer_line).alignment(Alignment::Left), area);
 }
