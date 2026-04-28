@@ -43,6 +43,8 @@ taurine config reset --all
 | `ai_model` | - | The default model for the selected AI provider. |
 | `ai_custom_endpoint` | - | Custom OpenAI-compatible URL for the `custom` provider. |
 | `inline_ai_delimiter` | `` ` `` | The character used to enclose interactive AI prompts. |
+| `inline_tab_completion_enabled` | `true` | Enables or disables inline `Tab` / `Shift+Tab` completion. |
+| `inline_history_enabled` | `true` | Enables or disables inline `Up Arrow` / `Down Arrow` trigger history. |
 
 ## Helpful Aliases
 
@@ -58,6 +60,8 @@ You can use these shorter aliases when running `taurine config set`:
 | `delimiter` | `inline_ai_delimiter` |
 | `endpoint` | `ai_custom_endpoint` |
 | `custom_endpoint` | `ai_custom_endpoint` |
+| `inline_tab_completion` | `inline_tab_completion_enabled` |
+| `inline_history` | `inline_history_enabled` |
 
 <Callout title="Startup setting" type="info">
   Changing `start_on_boot` also tries to update the OS startup hook right away, so the setting and

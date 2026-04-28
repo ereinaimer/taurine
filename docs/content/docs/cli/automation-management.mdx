@@ -105,6 +105,20 @@ While assist is active, Taurine manages several keys to ensure a smooth experien
   Trigger assist only suggests **word triggers**. Hotkey triggers are not included because they are triggered by global shortcuts rather than typed text.
 </Callout>
 
+### Configuration
+
+Both Tab completion and History navigation are enabled by default. If you prefer to disable either feature (e.g., to prevent conflicts with terminal shells or specific applications), you can do so using the CLI:
+
+```bash
+# Disable Tab completion
+taurine config set inline_tab_completion false
+
+# Disable History navigation
+taurine config set inline_history false
+```
+
+When disabled, the relevant keys (`Tab`, `Up`, `Down`) are passed through to the system normally. Disabling these assist features does not affect your ability to expand word triggers using `Space` or use the `>ai` copilot.
+
 ## Viewing Your Automations
 
 List all configured automations with `taurine list` (alias: `ls`). You can sort them to find your most used snippets:
