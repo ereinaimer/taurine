@@ -71,8 +71,8 @@ fn fetch_most_used(
            AND a.usage_count > 0
            AND a.trigger_type = ?1
            AND (a.target_os = 'all' OR a.target_os = ?2)
-         ORDER BY (a.target_os != 'all') DESC,
-                  a.usage_count DESC,
+         ORDER BY a.usage_count DESC,
+                  (a.target_os != 'all') DESC,
                   a.updated_at DESC,
                   LOWER(a.trigger) ASC,
                   a.trigger ASC
