@@ -237,7 +237,10 @@ impl SettingsPageState {
             }
             (KeyCode::Char(' '), KeyModifiers::NONE) => self.toggle_selected_setting(),
             (KeyCode::Char('r'), KeyModifiers::NONE) => {
-                SettingsInteraction::reset(self.selected_key())
+                self.modal = Some(SettingsModal::ConfirmReset(ConfirmResetModalState::new(
+                    self.selected_key(),
+                )));
+                SettingsInteraction::handled()
             }
             (KeyCode::Enter, KeyModifiers::NONE) => {
                 self.open_editor_for_selected();
@@ -251,6 +254,9 @@ impl SettingsPageState {
         match self.modal.as_ref() {
             Some(SettingsModal::Select(_)) => "j/k Move   ↑/↓ Move   Enter Save   Esc Cancel",
             Some(SettingsModal::Input(_)) => "Type Edit   Enter Save   Esc Cancel",
+            Some(SettingsModal::ConfirmReset(_)) => {
+                "j/k Move   ↑/↓ Move   Space Toggle   Enter Edit   r Reset   q Quit"
+            }
             None => "j/k Move   ↑/↓ Move   Space Toggle   Enter Edit   r Reset   q Quit",
         }
     }
@@ -315,6 +321,7 @@ impl SettingsPageState {
         match modal {
             SettingsModal::Input(state) => state.handle_key(key),
             SettingsModal::Select(state) => state.handle_key(key),
+            SettingsModal::ConfirmReset(state) => state.handle_key(key),
         }
     }
 }
@@ -323,6 +330,7 @@ impl SettingsPageState {
 pub(crate) enum SettingsModal {
     Input(InputModalState),
     Select(SelectModalState),
+    ConfirmReset(ConfirmResetModalState),
 }
 
 impl SettingsModal {
@@ -330,6 +338,72 @@ impl SettingsModal {
         match self {
             Self::Input(state) => state.error = Some(error),
             Self::Select(state) => state.error = Some(error),
+            Self::ConfirmReset(state) => state.error = Some(error),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ConfirmResetModalState {
+    key: SettingKey,
+    default_display_value: String,
+    selected_yes: bool,
+    error: Option<String>,
+}
+
+impl ConfirmResetModalState {
+    fn new(key: SettingKey) -> Self {
+        let defaults = Settings::default();
+        Self {
+            key,
+            default_display_value: key.display_value(&defaults),
+            selected_yes: true,
+            error: None,
+        }
+    }
+
+    pub(crate) const fn key(&self) -> SettingKey {
+        self.key
+    }
+
+    pub(crate) fn default_display_value(&self) -> &str {
+        &self.default_display_value
+    }
+
+    pub(crate) fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub(crate) const fn selected_yes(&self) -> bool {
+        self.selected_yes
+    }
+
+    fn handle_key(&mut self, key: KeyEvent) -> SettingsInteraction {
+        self.error = None;
+
+        match (key.code, key.modifiers) {
+            (KeyCode::Left, KeyModifiers::NONE) | (KeyCode::Char('h'), KeyModifiers::NONE) => {
+                self.selected_yes = true;
+                SettingsInteraction::handled()
+            }
+            (KeyCode::Right, KeyModifiers::NONE) | (KeyCode::Char('l'), KeyModifiers::NONE) => {
+                self.selected_yes = false;
+                SettingsInteraction::handled()
+            }
+            (KeyCode::Enter, KeyModifiers::NONE) => {
+                if self.selected_yes {
+                    SettingsInteraction::reset(self.key)
+                } else {
+                    SettingsInteraction::cancel()
+                }
+            }
+            (KeyCode::Char('y'), KeyModifiers::NONE) | (KeyCode::Char('Y'), KeyModifiers::NONE) => {
+                SettingsInteraction::reset(self.key)
+            }
+            (KeyCode::Char('n'), KeyModifiers::NONE)
+            | (KeyCode::Char('N'), KeyModifiers::NONE)
+            | (KeyCode::Esc, KeyModifiers::NONE) => SettingsInteraction::cancel(),
+            _ => SettingsInteraction::handled(),
         }
     }
 }
@@ -728,10 +802,11 @@ mod tests {
         let interaction = state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
 
         assert!(interaction.pending_save().is_none());
-        assert_eq!(
-            interaction.pending_reset().map(|reset| reset.key),
-            Some(SettingKey::InlineTabCompletionEnabled)
-        );
+        assert!(interaction.pending_reset().is_none());
+        assert!(matches!(
+            state.modal(),
+            Some(SettingsModal::ConfirmReset(_))
+        ));
     }
 
     #[test]
@@ -741,5 +816,104 @@ mod tests {
                 .footer_text()
                 .contains("r Reset")
         );
+    }
+
+    #[test]
+    fn pressing_n_cancels_reset_confirmation() {
+        let mut state = SettingsPageState::default();
+        state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+
+        assert!(interaction.should_close_modal());
+        assert!(interaction.pending_reset().is_none());
+    }
+
+    #[test]
+    fn pressing_escape_cancels_reset_confirmation() {
+        let mut state = SettingsPageState::default();
+        state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+        assert!(interaction.should_close_modal());
+        assert!(interaction.pending_reset().is_none());
+    }
+
+    #[test]
+    fn pressing_y_confirms_reset_after_modal_opens() {
+        let mut state = SettingsPageState {
+            selected: 4,
+            ..Default::default()
+        };
+        state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+
+        assert_eq!(
+            interaction.pending_reset().map(|reset| reset.key),
+            Some(SettingKey::InlineTabCompletionEnabled)
+        );
+    }
+
+    #[test]
+    fn unrelated_keys_are_ignored_while_reset_modal_is_open() {
+        let mut state = SettingsPageState {
+            selected: 3,
+            ..Default::default()
+        };
+        state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+
+        assert_eq!(state.selected_index(), 3);
+        assert!(interaction.pending_reset().is_none());
+        assert!(!interaction.should_close_modal());
+        assert!(matches!(
+            state.modal(),
+            Some(SettingsModal::ConfirmReset(_))
+        ));
+    }
+
+    #[test]
+    fn reset_modal_uses_selected_setting_and_default_value() {
+        let mut state = SettingsPageState {
+            selected: 10,
+            ..Default::default()
+        };
+        state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+
+        let Some(SettingsModal::ConfirmReset(modal)) = state.modal() else {
+            panic!("expected reset confirmation modal");
+        };
+
+        assert_eq!(modal.key(), SettingKey::AiCustomEndpoint);
+        assert_eq!(modal.default_display_value(), "<unset>");
+        assert!(modal.selected_yes());
+    }
+
+    #[test]
+    fn pressing_right_selects_no_in_reset_modal() {
+        let mut state = SettingsPageState::default();
+        state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+
+        state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+
+        let Some(SettingsModal::ConfirmReset(modal)) = state.modal() else {
+            panic!("expected reset confirmation modal");
+        };
+        assert!(!modal.selected_yes());
+    }
+
+    #[test]
+    fn pressing_enter_on_no_cancels_reset() {
+        let mut state = SettingsPageState::default();
+        state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+        state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)); // Select No
+
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert!(interaction.should_close_modal());
+        assert!(interaction.pending_reset().is_none());
     }
 }
