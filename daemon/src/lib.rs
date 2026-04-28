@@ -2,6 +2,7 @@
 // See LICENSE for details.
 
 use std::net::SocketAddr;
+use std::sync::atomic::Ordering;
 use taurine_core::db::init;
 use taurine_core::rpc::daemon_control_server::DaemonControlServer;
 use tokio::sync::mpsc;
@@ -47,6 +48,12 @@ pub fn start() -> taurine_core::error::Result<()> {
 
     let trigger_char = settings.trigger_char;
     let state = Arc::new(EngineState::new(trigger_char));
+    state
+        .inline_tab_completion_enabled
+        .store(settings.inline_tab_completion_enabled, Ordering::Relaxed);
+    state
+        .inline_history_enabled
+        .store(settings.inline_history_enabled, Ordering::Relaxed);
 
     // Global pause toggle hotkey (display + parse).
     let pause_hotkey = Arc::new(RwLock::new(settings.pause_hotkey.clone()));

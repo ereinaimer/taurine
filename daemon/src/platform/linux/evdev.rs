@@ -356,7 +356,8 @@ fn process_frame(
                     }
                 }
 
-                match crate::hook::completion_key_action(
+                match crate::hook::trigger_assist_key_action(
+                    state.as_ref(),
                     crate::hook::completion_key_kind_from_tab_like(
                         key == KeyCode::KEY_TAB,
                         key == KeyCode::KEY_ESC,
@@ -514,7 +515,15 @@ fn process_frame(
             }
         } else if grab_enabled
             && crate::hook::trigger_assist_is_active(evaluator, state.as_ref())
-            && matches!(key, KeyCode::KEY_TAB | KeyCode::KEY_UP | KeyCode::KEY_DOWN)
+            && crate::hook::should_swallow_trigger_assist_key_release(
+                state.as_ref(),
+                crate::hook::completion_key_kind_from_tab_like(
+                    key == KeyCode::KEY_TAB,
+                    false,
+                    key == KeyCode::KEY_UP,
+                    key == KeyCode::KEY_DOWN,
+                ),
+            )
         {
             swallow_frame = true;
             continue;

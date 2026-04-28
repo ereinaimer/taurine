@@ -64,6 +64,29 @@ pub(crate) fn completion_key_action(
     }
 }
 
+pub(crate) fn trigger_assist_key_action(
+    state: &taurine_core::engine::EngineState,
+    key: CompletionKeyKind,
+    shift_active: bool,
+    ctrl_active: bool,
+    alt_active: bool,
+    meta_active: bool,
+) -> CompletionKeyAction {
+    match completion_key_action(key, shift_active, ctrl_active, alt_active, meta_active) {
+        CompletionKeyAction::CycleForward | CompletionKeyAction::CycleBackward
+            if !state.inline_tab_completion_enabled() =>
+        {
+            CompletionKeyAction::PassThrough
+        }
+        CompletionKeyAction::HistoryOlder | CompletionKeyAction::HistoryNewer
+            if !state.inline_history_enabled() =>
+        {
+            CompletionKeyAction::PassThrough
+        }
+        action => action,
+    }
+}
+
 pub(crate) fn completion_key_kind_from_tab_like(
     is_tab: bool,
     is_escape: bool,
@@ -80,6 +103,17 @@ pub(crate) fn completion_key_kind_from_tab_like(
         CompletionKeyKind::Down
     } else {
         CompletionKeyKind::Other
+    }
+}
+
+pub(crate) fn should_swallow_trigger_assist_key_release(
+    state: &taurine_core::engine::EngineState,
+    key: CompletionKeyKind,
+) -> bool {
+    match key {
+        CompletionKeyKind::Tab => state.inline_tab_completion_enabled(),
+        CompletionKeyKind::Up | CompletionKeyKind::Down => state.inline_history_enabled(),
+        CompletionKeyKind::Escape | CompletionKeyKind::Other => false,
     }
 }
 
@@ -269,7 +303,8 @@ pub fn start_listener(
                         }
                     }
 
-                    match completion_key_action(
+                    match trigger_assist_key_action(
+                        state.as_ref(),
                         completion_key_kind_from_tab_like(
                             key == Key::Tab,
                             key == Key::Escape,
@@ -471,7 +506,15 @@ pub fn start_listener(
             }
             EventType::KeyRelease(key) => {
                 if trigger_assist_is_active(&evaluator, state.as_ref())
-                    && matches!(key, Key::Tab | Key::UpArrow | Key::DownArrow)
+                    && should_swallow_trigger_assist_key_release(
+                        state.as_ref(),
+                        completion_key_kind_from_tab_like(
+                            key == Key::Tab,
+                            false,
+                            key == Key::UpArrow,
+                            key == Key::DownArrow,
+                        ),
+                    )
                 {
                     return None;
                 }
@@ -961,6 +1004,67 @@ mod tests {
             completion_key_kind_from_tab_like(false, false, false, false),
             CompletionKeyKind::Other
         );
+    }
+
+    #[test]
+    fn trigger_assist_key_action_passes_tab_through_when_tab_completion_is_disabled() {
+        use std::sync::atomic::Ordering;
+
+        let state = taurine_core::engine::EngineState::new('>');
+        state
+            .inline_tab_completion_enabled
+            .store(false, Ordering::Relaxed);
+
+        assert_eq!(
+            trigger_assist_key_action(&state, CompletionKeyKind::Tab, false, false, false, false),
+            CompletionKeyAction::PassThrough
+        );
+    }
+
+    #[test]
+    fn trigger_assist_key_action_passes_history_through_when_history_is_disabled() {
+        use std::sync::atomic::Ordering;
+
+        let state = taurine_core::engine::EngineState::new('>');
+        state.inline_history_enabled.store(false, Ordering::Relaxed);
+
+        assert_eq!(
+            trigger_assist_key_action(&state, CompletionKeyKind::Up, false, false, false, false),
+            CompletionKeyAction::PassThrough
+        );
+        assert_eq!(
+            trigger_assist_key_action(&state, CompletionKeyKind::Down, false, false, false, false),
+            CompletionKeyAction::PassThrough
+        );
+    }
+
+    #[test]
+    fn trigger_assist_key_release_swallowing_respects_feature_settings() {
+        use std::sync::atomic::Ordering;
+
+        let state = taurine_core::engine::EngineState::new('>');
+        assert!(should_swallow_trigger_assist_key_release(
+            &state,
+            CompletionKeyKind::Tab
+        ));
+        assert!(should_swallow_trigger_assist_key_release(
+            &state,
+            CompletionKeyKind::Up
+        ));
+
+        state
+            .inline_tab_completion_enabled
+            .store(false, Ordering::Relaxed);
+        state.inline_history_enabled.store(false, Ordering::Relaxed);
+
+        assert!(!should_swallow_trigger_assist_key_release(
+            &state,
+            CompletionKeyKind::Tab
+        ));
+        assert!(!should_swallow_trigger_assist_key_release(
+            &state,
+            CompletionKeyKind::Down
+        ));
     }
 
     #[test]

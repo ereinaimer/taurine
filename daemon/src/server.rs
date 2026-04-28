@@ -115,6 +115,13 @@ impl DaemonControl for DaemonService {
             .inline_ai_delimiter
             .store(settings.inline_ai_delimiter as u32, Ordering::Relaxed);
 
+        self.state
+            .inline_tab_completion_enabled
+            .store(settings.inline_tab_completion_enabled, Ordering::Relaxed);
+        self.state
+            .inline_history_enabled
+            .store(settings.inline_history_enabled, Ordering::Relaxed);
+
         // Update pause notifications (atomic)
         self.pause_notifications_enabled
             .store(settings.pause_notifications_enabled, Ordering::Relaxed);
@@ -214,6 +221,8 @@ mod tests {
             state.matching_word_trigger_history(""),
             vec!["hello".to_string()]
         );
+        assert!(state.inline_tab_completion_enabled.load(Ordering::Relaxed));
+        assert!(state.inline_history_enabled.load(Ordering::Relaxed));
         assert!(state.get_hotkey_action("ctrl+shift+g").is_none());
 
         upsert_automation_with_trigger_type(
@@ -240,6 +249,19 @@ mod tests {
             "git status"
         );
         assert!(state.fetch_expansion("ctrl+shift+g").is_none());
+
+        taurine_core::settings::SettingsManager::new(&conn)
+            .update_setting("inline_tab_completion_enabled", false)
+            .unwrap();
+        taurine_core::settings::SettingsManager::new(&conn)
+            .update_setting("inline_history_enabled", false)
+            .unwrap();
+
+        let req = Request::new(taurine_core::rpc::ReloadRequest {});
+        service.reload(req).await.expect("Reload failed");
+
+        assert!(!state.inline_tab_completion_enabled.load(Ordering::Relaxed));
+        assert!(!state.inline_history_enabled.load(Ordering::Relaxed));
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&test_dir);

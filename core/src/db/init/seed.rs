@@ -21,6 +21,18 @@ pub fn ensure_defaults(conn: &Connection) -> Result<()> {
         upsert_setting(conn, "start_on_boot", "true")?;
     }
 
+    let inline_tab_completion_enabled_val = get_setting(conn, "inline_tab_completion_enabled")?;
+    if inline_tab_completion_enabled_val.is_none() {
+        debug!("Default 'inline_tab_completion_enabled' missing. Seeding database with 'true'.");
+        upsert_setting(conn, "inline_tab_completion_enabled", "true")?;
+    }
+
+    let inline_history_enabled_val = get_setting(conn, "inline_history_enabled")?;
+    if inline_history_enabled_val.is_none() {
+        debug!("Default 'inline_history_enabled' missing. Seeding database with 'true'.");
+        upsert_setting(conn, "inline_history_enabled", "true")?;
+    }
+
     let wpm_val = get_setting(conn, "wpm")?;
     if wpm_val.is_none() {
         debug!("Default 'wpm' missing. Seeding database with '60'.");
@@ -50,4 +62,44 @@ pub fn ensure_defaults(conn: &Connection) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::crud::{delete_setting, get_setting_value};
+    use crate::testing::open_test_db;
+
+    #[test]
+    fn ensure_defaults_seeds_inline_trigger_assist_settings_for_new_databases() {
+        let (_dir, conn) = open_test_db();
+
+        assert_eq!(
+            get_setting_value(&conn, "inline_tab_completion_enabled").unwrap(),
+            Some("true".to_string())
+        );
+        assert_eq!(
+            get_setting_value(&conn, "inline_history_enabled").unwrap(),
+            Some("true".to_string())
+        );
+    }
+
+    #[test]
+    fn ensure_defaults_reconciles_missing_inline_trigger_assist_settings() {
+        let (_dir, conn) = open_test_db();
+
+        delete_setting(&conn, "inline_tab_completion_enabled").unwrap();
+        delete_setting(&conn, "inline_history_enabled").unwrap();
+
+        ensure_defaults(&conn).unwrap();
+
+        assert_eq!(
+            get_setting_value(&conn, "inline_tab_completion_enabled").unwrap(),
+            Some("true".to_string())
+        );
+        assert_eq!(
+            get_setting_value(&conn, "inline_history_enabled").unwrap(),
+            Some("true".to_string())
+        );
+    }
 }

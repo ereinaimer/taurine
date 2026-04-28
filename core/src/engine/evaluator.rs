@@ -284,7 +284,10 @@ impl Evaluator {
     }
 
     fn rebuild_completion_suggestions(&mut self, query: &str) {
-        if !self.completion.active || query.is_empty() {
+        if !self.completion.active
+            || !self.state.inline_tab_completion_enabled()
+            || query.is_empty()
+        {
             self.completion.suggestions.clear();
             return;
         }
@@ -293,7 +296,7 @@ impl Evaluator {
     }
 
     fn rebuild_history_items(&mut self, query: &str) {
-        if !self.completion.active {
+        if !self.completion.active || !self.state.inline_history_enabled() {
             self.completion.history_items.clear();
             return;
         }
@@ -341,6 +344,18 @@ impl Evaluator {
     }
 
     fn cycle_completion(&mut self, forward: bool) -> Option<CompletionRewrite> {
+        if !self.state.inline_tab_completion_enabled() {
+            self.completion.suggestions.clear();
+            self.completion.selected_index = None;
+            if matches!(
+                self.completion.selection_mode,
+                Some(TriggerAssistSelectionMode::Completion)
+            ) {
+                self.completion.selection_mode = None;
+            }
+            return None;
+        }
+
         if self
             .buffer
             .extract_trigger_word(self.trigger_prefix())
@@ -383,6 +398,18 @@ impl Evaluator {
     }
 
     fn navigate_history(&mut self, older: bool) -> Option<CompletionRewrite> {
+        if !self.state.inline_history_enabled() {
+            self.completion.history_items.clear();
+            self.completion.history_index = None;
+            if matches!(
+                self.completion.selection_mode,
+                Some(TriggerAssistSelectionMode::History)
+            ) {
+                self.completion.selection_mode = None;
+            }
+            return None;
+        }
+
         if self
             .buffer
             .extract_trigger_word(self.trigger_prefix())
@@ -1433,6 +1460,136 @@ mod tests {
             result.steps,
             vec![ExpansionStep::Text("git add --all".to_string())]
         );
+    }
+
+    #[test]
+    fn inline_tab_completion_setting_disables_completion_rewrites() {
+        use std::sync::atomic::Ordering;
+
+        let state = Arc::new(EngineState::new('>'));
+        state
+            .inline_tab_completion_enabled
+            .store(false, Ordering::Relaxed);
+        state.load_actions(vec![(
+            "gs".to_string(),
+            crate::db::crud::AutomationAction::text("git status"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">g".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        assert_eq!(eval.cycle_completion_next(), None);
+        assert_eq!(eval.cycle_completion_prev(), None);
+        assert_eq!(eval.completion.current_text, "g");
+        assert_eq!(eval.completion.original_query, "g");
+        assert!(eval.completion.suggestions.is_empty());
+        assert_eq!(eval.buffer.extract_trigger_word('>'), Some("g".to_string()));
+    }
+
+    #[test]
+    fn inline_history_setting_disables_history_rewrites() {
+        use std::sync::atomic::Ordering;
+
+        let state = Arc::new(EngineState::new('>'));
+        state.inline_history_enabled.store(false, Ordering::Relaxed);
+        state.load_actions(vec![(
+            "gs".to_string(),
+            crate::db::crud::AutomationAction::text("git status"),
+        )]);
+        state.load_word_trigger_history(vec!["gs".to_string()]);
+        let mut eval = Evaluator::new(state);
+
+        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+
+        assert_eq!(eval.navigate_history_older(), None);
+        assert_eq!(eval.navigate_history_newer(), None);
+        assert_eq!(eval.completion.current_text, "");
+        assert_eq!(eval.completion.original_query, "");
+        assert!(eval.completion.history_items.is_empty());
+        assert_eq!(eval.buffer.extract_trigger_word('>'), Some(String::new()));
+    }
+
+    #[test]
+    fn tab_completion_still_works_when_history_is_disabled() {
+        use std::sync::atomic::Ordering;
+
+        let state = Arc::new(EngineState::new('>'));
+        state.inline_history_enabled.store(false, Ordering::Relaxed);
+        state.load_actions(vec![
+            (
+                "gco".to_string(),
+                crate::db::crud::AutomationAction::text("git checkout"),
+            ),
+            (
+                "gs".to_string(),
+                crate::db::crud::AutomationAction::text("git status"),
+            ),
+        ]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">g".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        assert_completion_rewrite(eval.cycle_completion_next(), 1, "gco");
+    }
+
+    #[test]
+    fn history_still_works_when_tab_completion_is_disabled() {
+        use std::sync::atomic::Ordering;
+
+        let state = Arc::new(EngineState::new('>'));
+        state
+            .inline_tab_completion_enabled
+            .store(false, Ordering::Relaxed);
+        state.load_actions(vec![(
+            "gs".to_string(),
+            crate::db::crud::AutomationAction::text("git status"),
+        )]);
+        state.load_word_trigger_history(vec!["gs".to_string()]);
+        let mut eval = Evaluator::new(state);
+
+        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+
+        assert_completion_rewrite(eval.navigate_history_older(), 0, "gs");
+    }
+
+    #[test]
+    fn disabling_inline_assist_does_not_break_word_expansion_or_inline_ai() {
+        use std::sync::atomic::Ordering;
+
+        let state = Arc::new(EngineState::new('>'));
+        state
+            .inline_tab_completion_enabled
+            .store(false, Ordering::Relaxed);
+        state.inline_history_enabled.store(false, Ordering::Relaxed);
+        state.load_actions(vec![(
+            "gs".to_string(),
+            crate::db::crud::AutomationAction::text("git status"),
+        )]);
+
+        let mut eval = Evaluator::new(state.clone());
+        for c in ">gs".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        let expansion = eval
+            .process_event(EngineEvent::Char(' '))
+            .expect("word trigger expansion should still work");
+        assert_eq!(expansion.trigger, "gs");
+
+        let mut ai_eval = Evaluator::new(state.clone());
+        for c in ">ai".chars() {
+            assert_eq!(ai_eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        let ai_result = ai_eval
+            .process_event(EngineEvent::Char(' '))
+            .expect("inline ai should still start");
+        assert_eq!(ai_result.trigger, INLINE_AI_KEYWORD);
+        assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
     }
 
     #[test]

@@ -28,6 +28,14 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
         &settings.pause_notifications_enabled.to_string(),
     ]);
     table.add_row(vec!["start_on_boot", &settings.start_on_boot.to_string()]);
+    table.add_row(vec![
+        "inline_tab_completion_enabled",
+        &settings.inline_tab_completion_enabled.to_string(),
+    ]);
+    table.add_row(vec![
+        "inline_history_enabled",
+        &settings.inline_history_enabled.to_string(),
+    ]);
     table.add_row(vec!["wpm", &settings.wpm.to_string()]);
     table.add_row(vec![
         "spinner_style",
@@ -74,10 +82,11 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
             manager.update_setting(actual_key, value.clone())?;
             info!("Updated pause_hotkey to: {}", value);
         }
-        "pause_notifications_enabled" | "start_on_boot" => {
-            let b = value.to_lowercase().parse::<bool>().map_err(|_| {
-                taurine_core::error::Error::Config(format!("Invalid boolean value: {}", value))
-            })?;
+        "pause_notifications_enabled"
+        | "start_on_boot"
+        | "inline_tab_completion_enabled"
+        | "inline_history_enabled" => {
+            let b = parse_boolean_setting_value(&value)?;
             manager.update_setting(actual_key, b)?;
             info!("Updated {} to: {}", actual_key, b);
 
@@ -174,6 +183,20 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
                 warn!("Failed to synchronize OS startup hook: {}", e);
             }
         }
+        "inline_tab_completion_enabled" => {
+            manager.update_setting(actual_key, defaults.inline_tab_completion_enabled)?;
+            info!(
+                "Reset inline_tab_completion_enabled to default: {}",
+                defaults.inline_tab_completion_enabled
+            );
+        }
+        "inline_history_enabled" => {
+            manager.update_setting(actual_key, defaults.inline_history_enabled)?;
+            info!(
+                "Reset inline_history_enabled to default: {}",
+                defaults.inline_history_enabled
+            );
+        }
         "wpm" => {
             manager.update_setting(actual_key, defaults.wpm)?;
             info!("Reset wpm to default: {}", defaults.wpm);
@@ -226,6 +249,11 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
         defaults.pause_notifications_enabled,
     )?;
     manager.update_setting("start_on_boot", defaults.start_on_boot)?;
+    manager.update_setting(
+        "inline_tab_completion_enabled",
+        defaults.inline_tab_completion_enabled,
+    )?;
+    manager.update_setting("inline_history_enabled", defaults.inline_history_enabled)?;
     manager.update_setting("wpm", defaults.wpm)?;
     manager.update_setting("spinner_style", defaults.spinner_style)?;
     manager.update_setting("ai_provider", defaults.ai_provider.clone())?;
@@ -245,6 +273,12 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
 
 fn render_optional_setting(value: Option<&str>) -> &str {
     value.filter(|v| !v.is_empty()).unwrap_or("<unset>")
+}
+
+fn parse_boolean_setting_value(value: &str) -> taurine_core::error::Result<bool> {
+    value.to_lowercase().parse::<bool>().map_err(|_| {
+        taurine_core::error::Error::Config(format!("Invalid boolean value: {}", value))
+    })
 }
 
 #[cfg(test)]
@@ -270,5 +304,16 @@ mod tests {
             taurine_core::ai::AiProvider::try_from("unknown").is_err(),
             "invalid provider must be rejected"
         );
+    }
+
+    #[test]
+    fn parse_boolean_setting_value_accepts_trigger_assist_booleans() {
+        assert!(parse_boolean_setting_value("true").unwrap());
+        assert!(!parse_boolean_setting_value("false").unwrap());
+    }
+
+    #[test]
+    fn parse_boolean_setting_value_rejects_invalid_trigger_assist_boolean() {
+        assert!(parse_boolean_setting_value("definitely").is_err());
     }
 }

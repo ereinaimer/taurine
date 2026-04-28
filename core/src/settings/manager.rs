@@ -42,6 +42,18 @@ impl<'a> SettingsManager<'a> {
             settings.start_on_boot = v;
         }
 
+        if let Ok(Some(val)) = get_setting_value(self.conn, "inline_tab_completion_enabled")
+            && let Ok(v) = serde_json::from_str::<bool>(&val)
+        {
+            settings.inline_tab_completion_enabled = v;
+        }
+
+        if let Ok(Some(val)) = get_setting_value(self.conn, "inline_history_enabled")
+            && let Ok(v) = serde_json::from_str::<bool>(&val)
+        {
+            settings.inline_history_enabled = v;
+        }
+
         if let Ok(Some(val)) = get_setting_value(self.conn, "wpm")
             && let Ok(v) = serde_json::from_str::<u32>(&val)
         {
@@ -88,5 +100,28 @@ impl<'a> SettingsManager<'a> {
         let json_val = serde_json::to_string(&value)?;
         upsert_setting(self.conn, key, &json_val)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::open_test_db;
+
+    #[test]
+    fn load_all_reads_inline_trigger_assist_settings_from_db() {
+        let (_dir, conn) = open_test_db();
+        let manager = SettingsManager::new(&conn);
+
+        manager
+            .update_setting("inline_tab_completion_enabled", false)
+            .unwrap();
+        manager
+            .update_setting("inline_history_enabled", false)
+            .unwrap();
+
+        let settings = manager.load_all();
+        assert!(!settings.inline_tab_completion_enabled);
+        assert!(!settings.inline_history_enabled);
     }
 }

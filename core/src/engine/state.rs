@@ -8,6 +8,7 @@ use crate::keys::Hotkey;
 
 use std::sync::Arc;
 use std::sync::RwLock;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU32;
 use std::time::{Duration, Instant};
 
@@ -37,6 +38,8 @@ impl UndoState {
 pub struct EngineState {
     pub trigger_char: AtomicU32,
     pub inline_ai_delimiter: AtomicU32,
+    pub inline_tab_completion_enabled: AtomicBool,
+    pub inline_history_enabled: AtomicBool,
     pub ai_presets: RwLock<std::collections::HashMap<String, String>>,
     pub spinner_style: RwLock<crate::settings::SpinnerStyle>,
     undo_state: RwLock<Option<UndoState>>,
@@ -50,6 +53,8 @@ impl EngineState {
         Self {
             trigger_char: AtomicU32::new(trigger_char as u32),
             inline_ai_delimiter: AtomicU32::new('`' as u32),
+            inline_tab_completion_enabled: AtomicBool::new(true),
+            inline_history_enabled: AtomicBool::new(true),
             ai_presets: RwLock::new(std::collections::HashMap::new()),
             spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
             undo_state: RwLock::new(None),
@@ -64,6 +69,8 @@ impl EngineState {
         Self {
             trigger_char: AtomicU32::new(trigger_char as u32),
             inline_ai_delimiter: AtomicU32::new('`' as u32),
+            inline_tab_completion_enabled: AtomicBool::new(true),
+            inline_history_enabled: AtomicBool::new(true),
             ai_presets: RwLock::new(std::collections::HashMap::new()),
             spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
             undo_state: RwLock::new(None),
@@ -99,6 +106,16 @@ impl EngineState {
 
     pub fn ai_prompt_buffer(&self) -> String {
         self.ai_session.prompt_buffer()
+    }
+
+    pub fn inline_tab_completion_enabled(&self) -> bool {
+        self.inline_tab_completion_enabled
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn inline_history_enabled(&self) -> bool {
+        self.inline_history_enabled
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn is_ai_prompt_empty(&self) -> bool {
@@ -208,6 +225,8 @@ mod tests {
 
         assert_eq!(state.engine_mode(), EngineMode::Normal);
         assert_eq!(state.ai_prompt_buffer(), "");
+        assert!(state.inline_tab_completion_enabled());
+        assert!(state.inline_history_enabled());
     }
 
     #[test]
