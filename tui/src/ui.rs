@@ -141,7 +141,6 @@ fn render_navigation(frame: &mut Frame, area: Rect, app: &App) {
 
 fn render_content(frame: &mut Frame, area: Rect, app: &App) {
     let content_block = Block::default()
-        .title_alignment(Alignment::Right)
         .title(Span::styled(
             format!(" {} ", app.active_page().title()),
             Style::default()
@@ -189,21 +188,11 @@ fn render_home_content(frame: &mut Frame, area: Rect, metrics: &HomeMetrics) {
         .constraints([
             Constraint::Length(4), // Inset metric cards
             Constraint::Length(1), // Gap
-            Constraint::Length(1), // Separator
-            Constraint::Length(2), // Gap
             Constraint::Min(0),    // Activity
         ])
         .split(area);
 
     render_metric_cards(frame, sections[0], metrics);
-
-    // Horizontal separator line
-    frame.render_widget(
-        Block::default()
-            .borders(Borders::TOP)
-            .border_style(Style::default().fg(PANEL_BORDER_COLOR)),
-        sections[2],
-    );
 
     let activity_sections = Layout::default()
         .direction(Direction::Horizontal)
@@ -212,7 +201,7 @@ fn render_home_content(frame: &mut Frame, area: Rect, metrics: &HomeMetrics) {
             Constraint::Length(PANEL_GAP_WIDTH),
             Constraint::Percentage(50),
         ])
-        .split(sections[4]);
+        .split(sections[2]);
 
     render_most_used_list(
         frame,
