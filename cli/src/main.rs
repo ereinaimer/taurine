@@ -397,6 +397,13 @@ pub enum ImportMetricsCli {
     Overwrite,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LaunchTarget {
+    Daemon,
+    Tui,
+    Command,
+}
+
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
 
@@ -433,17 +440,21 @@ fn main() -> std::process::ExitCode {
 }
 
 fn run(cli: Cli) -> taurine_core::error::Result<()> {
-    if cli.daemon {
-        info!("Initializing Taurine v{}", env!("CARGO_PKG_VERSION"));
+    match launch_target(&cli) {
+        LaunchTarget::Daemon => {
+            info!("Initializing Taurine v{}", env!("CARGO_PKG_VERSION"));
 
-        // Execute the startup sequence (database init, seed, etc.)
-        taurine_daemon::start()?;
+            // Execute the startup sequence (database init, seed, etc.)
+            taurine_daemon::start()?;
 
-        info!("Taurine is alive. Idling...");
+            info!("Taurine is alive. Idling...");
 
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(60));
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(60));
+            }
         }
+        LaunchTarget::Tui => return taurine_tui::run(),
+        LaunchTarget::Command => {}
     }
 
     match cli.command {
@@ -564,15 +575,28 @@ fn run(cli: Cli) -> taurine_core::error::Result<()> {
             commands::completions::handle_completion(&action)?;
         }
         None => {
-            if !cli.daemon {
-                use clap::CommandFactory;
-                let mut cmd = Cli::command();
-                cmd.print_help()?;
-            }
+            use clap::CommandFactory;
+            let mut cmd = Cli::command();
+            cmd.print_help()?;
         }
     }
 
     Ok(())
+}
+
+fn launch_target(cli: &Cli) -> LaunchTarget {
+    if cli.daemon {
+        LaunchTarget::Daemon
+    } else if cli.command.is_none()
+        && cli.verbose == 0
+        && !cli.quiet
+        && !cli.no_log_file
+        && !cli.no_color
+    {
+        LaunchTarget::Tui
+    } else {
+        LaunchTarget::Command
+    }
 }
 
 #[cfg(test)]
@@ -671,5 +695,30 @@ mod tests {
             }
             other => panic!("unexpected command parse: {other:?}"),
         }
+    }
+
+    #[test]
+    fn no_args_route_to_tui() {
+        let cli = Cli::try_parse_from(["taurine"]).expect("no-args invocation should parse");
+        assert_eq!(launch_target(&cli), LaunchTarget::Tui);
+    }
+
+    #[test]
+    fn subcommands_continue_to_route_to_cli_handlers() {
+        let cli = Cli::try_parse_from(["taurine", "ls"]).expect("list alias should parse");
+        assert_eq!(launch_target(&cli), LaunchTarget::Command);
+    }
+
+    #[test]
+    fn daemon_flag_keeps_daemon_launch_path() {
+        let cli = Cli::try_parse_from(["taurine", "--daemon"]).expect("--daemon should parse");
+        assert_eq!(launch_target(&cli), LaunchTarget::Daemon);
+    }
+
+    #[test]
+    fn flag_only_invocation_does_not_route_to_tui() {
+        let cli = Cli::try_parse_from(["taurine", "--verbose"])
+            .expect("flag-only invocation should parse");
+        assert_eq!(launch_target(&cli), LaunchTarget::Command);
     }
 }
