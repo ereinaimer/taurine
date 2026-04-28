@@ -18,7 +18,7 @@ const OUTER_VERTICAL_PADDING: u16 = 1;
 const HEADER_GAP_HEIGHT: u16 = 1;
 const FOOTER_GAP_HEIGHT: u16 = 1;
 const FOOTER_HEIGHT: u16 = 1;
-const PANEL_GAP_WIDTH: u16 = 2;
+const PANEL_GAP_WIDTH: u16 = 1;
 const NAV_WIDTH: u16 = 22;
 const PANEL_PADDING: u16 = 1;
 const ACCENT_COLOR: Color = Color::White;
@@ -56,7 +56,7 @@ fn render_header(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(
-                "taurine",
+                "Taurine",
                 Style::default()
                     .fg(ACCENT_COLOR)
                     .add_modifier(Modifier::BOLD),
@@ -187,26 +187,25 @@ fn render_home_content(frame: &mut Frame, area: Rect, metrics: &HomeMetrics) {
     let sections = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(5),
-            Constraint::Length(2),
-            Constraint::Min(0),
+            Constraint::Length(4), // Inset metric cards
+            Constraint::Length(1), // Gap
+            Constraint::Length(1), // Separator
+            Constraint::Length(2), // Gap
+            Constraint::Min(0),    // Activity
         ])
         .split(area);
 
+    render_metric_cards(frame, sections[0], metrics);
+
+    // Horizontal separator line
     frame.render_widget(
-        Paragraph::new("All-time usage").style(
-            Style::default()
-                .fg(ACCENT_COLOR)
-                .add_modifier(Modifier::BOLD),
-        ),
-        sections[0],
+        Block::default()
+            .borders(Borders::TOP)
+            .border_style(Style::default().fg(PANEL_BORDER_COLOR)),
+        sections[2],
     );
 
-    render_metric_cards(frame, sections[2], metrics);
-
-    let tables_layout = Layout::default()
+    let activity_sections = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
             Constraint::Percentage(50),
@@ -215,16 +214,16 @@ fn render_home_content(frame: &mut Frame, area: Rect, metrics: &HomeMetrics) {
         ])
         .split(sections[4]);
 
-    render_most_used_table(
+    render_most_used_list(
         frame,
-        tables_layout[0],
-        "Most used automations",
+        activity_sections[0],
+        "TOP AUTOMATIONS",
         &metrics.most_used_words,
     );
-    render_most_used_table(
+    render_most_used_list(
         frame,
-        tables_layout[2],
-        "Most used hotkeys",
+        activity_sections[2],
+        "TOP HOTKEYS",
         &metrics.most_used_hotkeys,
     );
 }
@@ -244,65 +243,65 @@ fn render_metric_cards(frame: &mut Frame, area: Rect, metrics: &HomeMetrics) {
     render_metric_card(
         frame,
         sections[0],
-        "Keystrokes saved",
+        "keystrokes saved",
         &format_number(metrics.keystrokes_saved),
     );
     render_metric_card(
         frame,
         sections[2],
-        "Time saved",
+        "time saved",
         &format_time_saved(metrics.time_saved_ms),
     );
     render_metric_card(
         frame,
         sections[4],
-        "Expansions run",
+        "expansions run",
         &format_number(metrics.expansions_run),
     );
 }
 
 fn render_metric_card(frame: &mut Frame, area: Rect, label: &str, value: &str) {
+    // Inset look: Background color instead of borders
     let block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(border::ROUNDED)
-        .border_style(Style::default().fg(PANEL_BORDER_COLOR))
-        .padding(Padding::new(1, 1, 0, 0));
+        .style(Style::default().bg(Color::Indexed(235))) // Subtle dark gray
+        .padding(Padding::new(2, 2, 1, 1));
+
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(0)])
+        .constraints([Constraint::Length(1), Constraint::Length(1)])
         .split(inner);
 
-    frame.render_widget(
-        Paragraph::new(label).style(Style::default().fg(MUTED_TEXT_COLOR)),
-        sections[0],
-    );
     frame.render_widget(
         Paragraph::new(value).style(
             Style::default()
                 .fg(ACCENT_COLOR)
                 .add_modifier(Modifier::BOLD),
         ),
+        sections[0],
+    );
+    frame.render_widget(
+        Paragraph::new(label).style(Style::default().fg(MUTED_TEXT_COLOR)),
         sections[1],
     );
 }
 
-fn render_most_used_table(frame: &mut Frame, area: Rect, title: &str, rows: &[MostUsedAutomation]) {
+fn render_most_used_list(frame: &mut Frame, area: Rect, title: &str, rows: &[MostUsedAutomation]) {
     let sections = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(0),
+            Constraint::Length(1), // Title
+            Constraint::Length(1), // Gap
+            Constraint::Min(0),    // List
         ])
         .split(area);
 
     frame.render_widget(
         Paragraph::new(title).style(
             Style::default()
-                .fg(ACCENT_COLOR)
+                .fg(MUTED_TEXT_COLOR)
                 .add_modifier(Modifier::BOLD),
         ),
         sections[0],
@@ -310,28 +309,25 @@ fn render_most_used_table(frame: &mut Frame, area: Rect, title: &str, rows: &[Mo
 
     if rows.is_empty() {
         frame.render_widget(
-            Paragraph::new("No usage recorded yet.").style(Style::default().fg(MUTED_TEXT_COLOR)),
+            Paragraph::new("No activity recorded yet.").style(
+                Style::default()
+                    .fg(MUTED_TEXT_COLOR)
+                    .add_modifier(Modifier::DIM),
+            ),
             sections[2],
         );
         return;
     }
 
-    let header = Row::new([Cell::from("Trigger"), Cell::from("Uses")]).style(
-        Style::default()
-            .fg(MUTED_TEXT_COLOR)
-            .add_modifier(Modifier::BOLD),
-    );
-
-    let table_rows = rows.iter().take(3).map(|automation| {
+    let table_rows = rows.iter().take(8).map(|automation| {
         Row::new([
-            Cell::from(automation.trigger.clone()),
-            Cell::from(format_number(automation.uses)),
+            Cell::from(automation.trigger.clone()).style(Style::default().fg(ACCENT_COLOR)),
+            Cell::from(format_number(automation.uses)).style(Style::default().fg(MUTED_TEXT_COLOR)),
         ])
     });
 
-    let table = Table::new(table_rows, [Constraint::Min(10), Constraint::Length(8)])
-        .header(header)
-        .column_spacing(2);
+    let table =
+        Table::new(table_rows, [Constraint::Min(15), Constraint::Length(8)]).column_spacing(2);
 
     frame.render_widget(table, sections[2]);
 }
