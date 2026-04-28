@@ -27,7 +27,7 @@ pub fn load_home_metrics(conn: &Connection) -> crate::Result<HomeMetrics> {
 pub fn load_home_metrics_with_limit(conn: &Connection, limit: usize) -> crate::Result<HomeMetrics> {
     let (expansions_run, keystrokes_saved, time_saved_ms) = conn.query_row(
         "SELECT
-            COALESCE(SUM(executions), 0),
+            COALESCE(SUM(executions + ai_executions), 0),
             COALESCE(SUM(keystrokes_saved), 0),
             COALESCE(SUM(time_saved_ms), 0)
          FROM metrics",
@@ -177,7 +177,7 @@ mod tests {
 
         let metrics = load_home_metrics(&conn).unwrap();
 
-        assert_eq!(metrics.expansions_run, 6);
+        assert_eq!(metrics.expansions_run, 7);
         assert_eq!(metrics.keystrokes_saved, 150);
         assert_eq!(metrics.time_saved_ms, 240_000);
         assert_eq!(metrics.most_used_words.len(), 1);
