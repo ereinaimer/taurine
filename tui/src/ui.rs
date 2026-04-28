@@ -4,13 +4,16 @@ use ratatui::{
     style::{Color, Modifier, Style},
     symbols::border,
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, List, ListItem, ListState, Padding, Paragraph, Row, Table},
+    widgets::{
+        Block, Borders, Cell, Clear, List, ListItem, ListState, Padding, Paragraph, Row, Table,
+    },
 };
 use taurine_core::metrics::{HomeMetrics, MostUsedAutomation};
 
 use crate::{
     app::{App, Page},
     control,
+    settings::{InputModalState, SelectModalState, SettingKey, SettingsModal},
 };
 
 const OUTER_HORIZONTAL_PADDING: u16 = 2;
@@ -24,6 +27,9 @@ const PANEL_PADDING: u16 = 1;
 const ACCENT_COLOR: Color = Color::White;
 const PANEL_BORDER_COLOR: Color = Color::DarkGray;
 const MUTED_TEXT_COLOR: Color = Color::Gray;
+const ERROR_COLOR: Color = Color::Red;
+const INPUT_BG_COLOR: Color = Color::Indexed(235);
+const SELECTED_ROW_BG_COLOR: Color = Color::Indexed(236);
 
 pub(crate) fn render(frame: &mut Frame, app: &App) {
     let area = frame.area().inner(Margin {
@@ -162,14 +168,21 @@ fn render_content(frame: &mut Frame, area: Rect, app: &App) {
 
     match app.active_page() {
         Page::Home => render_home_content(frame, inner, app.home_metrics()),
-        Page::Library | Page::Settings => {}
+        Page::Library => {}
+        Page::Settings => {
+            render_settings_content(frame, inner, app);
+            if let Some(modal) = app.settings_page().modal() {
+                render_settings_modal(frame, inner, modal);
+            }
+        }
     }
 }
 
 fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
     let footer_text = match app.active_page() {
         Page::Home => control::home_footer_label(app.daemon_status()),
-        Page::Library | Page::Settings => "q Quit",
+        Page::Library => "q Quit",
+        Page::Settings => app.settings_page().footer_text(),
     };
 
     let footer_line = Line::from(vec![Span::styled(
@@ -186,9 +199,9 @@ fn render_home_content(frame: &mut Frame, area: Rect, metrics: &HomeMetrics) {
     let sections = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(4), // Inset metric cards
-            Constraint::Length(1), // Gap
-            Constraint::Min(0),    // Activity
+            Constraint::Length(4),
+            Constraint::Length(1),
+            Constraint::Min(0),
         ])
         .split(area);
 
@@ -250,9 +263,8 @@ fn render_metric_cards(frame: &mut Frame, area: Rect, metrics: &HomeMetrics) {
 }
 
 fn render_metric_card(frame: &mut Frame, area: Rect, label: &str, value: &str) {
-    // Inset look: Background color instead of borders
     let block = Block::default()
-        .style(Style::default().bg(Color::Indexed(235))) // Subtle dark gray
+        .style(Style::default().bg(INPUT_BG_COLOR))
         .padding(Padding::new(2, 2, 1, 1));
 
     let inner = block.inner(area);
@@ -281,9 +293,9 @@ fn render_most_used_list(frame: &mut Frame, area: Rect, title: &str, rows: &[Mos
     let sections = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // Title
-            Constraint::Length(1), // Gap
-            Constraint::Min(0),    // Table
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
         ])
         .split(area);
 
@@ -308,12 +320,11 @@ fn render_most_used_list(frame: &mut Frame, area: Rect, title: &str, rows: &[Mos
         return;
     }
 
-    // Proper table decoration: Styled header with background
     let header = Row::new([Cell::from(" TRIGGER"), Cell::from("USES ")])
         .style(
             Style::default()
                 .fg(ACCENT_COLOR)
-                .bg(Color::Indexed(236))
+                .bg(SELECTED_ROW_BG_COLOR)
                 .add_modifier(Modifier::BOLD),
         )
         .height(1);
@@ -331,6 +342,420 @@ fn render_most_used_list(frame: &mut Frame, area: Rect, title: &str, rows: &[Mos
         .column_spacing(1);
 
     frame.render_widget(table, sections[2]);
+}
+
+fn render_settings_content(frame: &mut Frame, area: Rect, app: &App) {
+    let settings_page = app.settings_page();
+    if let Some(message) = settings_page.load_error() {
+        frame.render_widget(
+            Paragraph::new(message).style(
+                Style::default()
+                    .fg(ERROR_COLOR)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            area,
+        );
+        return;
+    }
+
+    let status_message = settings_page.status_message();
+    let has_status = status_message.is_some();
+
+    let sections = if has_status {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Min(0),
+            ])
+            .split(area)
+    } else {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(0)])
+            .split(area)
+    };
+
+    if let Some(message) = status_message {
+        frame.render_widget(
+            Paragraph::new(message).style(
+                Style::default()
+                    .fg(ERROR_COLOR)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            sections[0],
+        );
+    }
+
+    let list_area = sections[sections.len() - 1];
+    if list_area.height == 0 {
+        return;
+    }
+
+    let spacious = use_spacious_settings_layout(list_area.height, SettingKey::ALL.len(), 0);
+    let row_height = if spacious { 2 } else { 1 };
+    let visible_count = usize::from((list_area.height / row_height).max(1));
+    let (start, end) = visible_setting_range(
+        SettingKey::ALL.len(),
+        settings_page.selected_index(),
+        visible_count,
+    );
+    let control_width = control_column_width(settings_page.settings(), list_area.width);
+
+    for (visible_index, key) in SettingKey::ALL[start..end].iter().enumerate() {
+        let row_area = Rect {
+            x: list_area.x,
+            y: list_area.y + (visible_index as u16 * row_height),
+            width: list_area.width,
+            height: row_height,
+        };
+
+        render_setting_row(
+            frame,
+            row_area,
+            *key,
+            settings_page.settings(),
+            settings_page.selected_key() == *key,
+            spacious,
+            control_width,
+        );
+    }
+}
+
+fn render_setting_row(
+    frame: &mut Frame,
+    area: Rect,
+    key: SettingKey,
+    settings: &taurine_core::settings::Settings,
+    selected: bool,
+    spacious: bool,
+    control_width: u16,
+) {
+    let row_style = if selected {
+        Style::default().bg(SELECTED_ROW_BG_COLOR)
+    } else {
+        Style::default()
+    };
+    frame.render_widget(Block::default().style(row_style), area);
+
+    let sections = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(0), Constraint::Length(control_width)])
+        .split(area);
+
+    let label_style = if selected {
+        Style::default()
+            .fg(ACCENT_COLOR)
+            .bg(SELECTED_ROW_BG_COLOR)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(ACCENT_COLOR)
+    };
+    let value_style = if selected {
+        Style::default()
+            .fg(ACCENT_COLOR)
+            .bg(SELECTED_ROW_BG_COLOR)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(MUTED_TEXT_COLOR)
+    };
+
+    frame.render_widget(
+        Paragraph::new(key.display_name()).style(label_style),
+        sections[0],
+    );
+    frame.render_widget(
+        Paragraph::new(format!(
+            "[ {} ]",
+            truncate_to_width(
+                &key.display_value(settings),
+                control_width.saturating_sub(4)
+            )
+        ))
+        .alignment(Alignment::Right)
+        .style(value_style),
+        sections[1],
+    );
+
+    if spacious && area.height > 1 {
+        let description_area = Rect {
+            x: sections[0].x,
+            y: area.y + 1,
+            width: sections[0].width,
+            height: 1,
+        };
+        frame.render_widget(
+            Paragraph::new(key.description()).style(
+                Style::default()
+                    .fg(MUTED_TEXT_COLOR)
+                    .bg(if selected {
+                        SELECTED_ROW_BG_COLOR
+                    } else {
+                        Color::Reset
+                    })
+                    .add_modifier(Modifier::DIM),
+            ),
+            description_area,
+        );
+    }
+}
+
+fn render_settings_modal(frame: &mut Frame, area: Rect, modal: &SettingsModal) {
+    match modal {
+        SettingsModal::Input(state) => render_input_modal(frame, area, state),
+        SettingsModal::Select(state) => render_select_modal(frame, area, state),
+    }
+}
+
+fn render_input_modal(frame: &mut Frame, area: Rect, state: &InputModalState) {
+    let width = if area.width > 32 {
+        area.width.saturating_sub(4).min(64)
+    } else {
+        area.width.max(1)
+    };
+    let height = if area.height >= 8 {
+        8
+    } else {
+        area.height.max(1)
+    };
+    let popup = centered_rect(width, height, area);
+    frame.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .title(Span::styled(
+            format!(" {} ", state.key().display_name()),
+            Style::default()
+                .fg(ACCENT_COLOR)
+                .add_modifier(Modifier::BOLD),
+        ))
+        .borders(Borders::ALL)
+        .border_set(border::ROUNDED)
+        .border_style(Style::default().fg(PANEL_BORDER_COLOR))
+        .padding(Padding::new(1, 1, 1, 1));
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
+        ])
+        .split(inner);
+
+    frame.render_widget(
+        Paragraph::new(state.key().description()).style(
+            Style::default()
+                .fg(MUTED_TEXT_COLOR)
+                .add_modifier(Modifier::DIM),
+        ),
+        sections[0],
+    );
+    frame.render_widget(
+        Paragraph::new(input_cursor_line(state.value(), state.cursor()))
+            .style(Style::default().fg(ACCENT_COLOR).bg(INPUT_BG_COLOR)),
+        sections[1],
+    );
+
+    let feedback = state.error().unwrap_or("Enter Save   Esc Cancel");
+    let feedback_style = if state.error().is_some() {
+        Style::default()
+            .fg(ERROR_COLOR)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(MUTED_TEXT_COLOR)
+            .add_modifier(Modifier::DIM)
+    };
+    frame.render_widget(Paragraph::new(feedback).style(feedback_style), sections[2]);
+}
+
+fn render_select_modal(frame: &mut Frame, area: Rect, state: &SelectModalState) {
+    let width = if area.width > 24 {
+        area.width.saturating_sub(4).min(44)
+    } else {
+        area.width.max(1)
+    };
+    let body_height = state.options().len().min(8) as u16;
+    let desired_height = body_height + 5;
+    let height = if area.height >= 6 {
+        desired_height.min(area.height.saturating_sub(2).max(6))
+    } else {
+        area.height.max(1)
+    };
+    let popup = centered_rect(width, height, area);
+    frame.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .title(Span::styled(
+            format!(" {} ", state.key().display_name()),
+            Style::default()
+                .fg(ACCENT_COLOR)
+                .add_modifier(Modifier::BOLD),
+        ))
+        .borders(Borders::ALL)
+        .border_set(border::ROUNDED)
+        .border_style(Style::default().fg(PANEL_BORDER_COLOR))
+        .padding(Padding::new(1, 1, 1, 1));
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(1)])
+        .split(inner);
+
+    let visible_rows = usize::from(sections[0].height.max(1));
+    let (start, end) =
+        visible_setting_range(state.options().len(), state.selected_index(), visible_rows);
+    let items: Vec<ListItem> = state.options()[start..end]
+        .iter()
+        .map(|option| ListItem::new(option.as_str()))
+        .collect();
+    let mut list_state = ListState::default();
+    list_state.select(Some(state.selected_index().saturating_sub(start)));
+
+    let list = List::new(items).highlight_symbol("").highlight_style(
+        Style::default()
+            .bg(SELECTED_ROW_BG_COLOR)
+            .fg(ACCENT_COLOR)
+            .add_modifier(Modifier::BOLD),
+    );
+    frame.render_stateful_widget(list, sections[0], &mut list_state);
+
+    let feedback = state.error().unwrap_or("Enter Save   Esc Cancel");
+    let feedback_style = if state.error().is_some() {
+        Style::default()
+            .fg(ERROR_COLOR)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(MUTED_TEXT_COLOR)
+            .add_modifier(Modifier::DIM)
+    };
+    frame.render_widget(Paragraph::new(feedback).style(feedback_style), sections[1]);
+}
+
+fn use_spacious_settings_layout(
+    available_height: u16,
+    settings_count: usize,
+    reserved_rows: u16,
+) -> bool {
+    let required_height = settings_count as u16 * 2 + reserved_rows;
+    available_height >= required_height
+}
+
+fn visible_setting_range(total: usize, selected: usize, visible_count: usize) -> (usize, usize) {
+    if total <= visible_count {
+        return (0, total);
+    }
+
+    let mut start = selected.saturating_sub(visible_count.saturating_sub(1));
+    let mut end = (start + visible_count).min(total);
+    if end - start < visible_count {
+        start = end.saturating_sub(visible_count);
+        end = total.min(start + visible_count);
+    }
+    (start, end)
+}
+
+fn control_column_width(settings: &taurine_core::settings::Settings, area_width: u16) -> u16 {
+    let longest_value = SettingKey::ALL
+        .iter()
+        .map(|key| key.display_value(settings).chars().count())
+        .max()
+        .unwrap_or(10) as u16;
+
+    let desired = (longest_value + 4).min(28);
+    let max_width = area_width.saturating_sub(8);
+    if max_width >= 10 {
+        desired.min(max_width).max(10)
+    } else {
+        area_width.saturating_sub(2).max(1)
+    }
+}
+
+fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
+    let width = width.min(area.width).max(1);
+    let height = height.min(area.height).max(1);
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(area.height.saturating_sub(height) / 2),
+            Constraint::Length(height),
+            Constraint::Min(0),
+        ])
+        .split(area);
+    let horizontal = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(area.width.saturating_sub(width) / 2),
+            Constraint::Length(width),
+            Constraint::Min(0),
+        ])
+        .split(vertical[1]);
+    horizontal[1]
+}
+
+fn input_cursor_line(value: &str, cursor: usize) -> Line<'static> {
+    let total_chars = value.chars().count();
+    if total_chars == 0 {
+        return Line::from(vec![Span::styled(
+            " ",
+            Style::default()
+                .fg(ACCENT_COLOR)
+                .bg(SELECTED_ROW_BG_COLOR)
+                .add_modifier(Modifier::BOLD),
+        )]);
+    }
+
+    let safe_cursor = cursor.min(total_chars);
+    let chars: Vec<char> = value.chars().collect();
+    let before: String = chars.iter().take(safe_cursor).collect();
+
+    if safe_cursor == total_chars {
+        return Line::from(vec![
+            Span::raw(before),
+            Span::styled(
+                " ",
+                Style::default()
+                    .fg(ACCENT_COLOR)
+                    .bg(SELECTED_ROW_BG_COLOR)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]);
+    }
+
+    let current = chars[safe_cursor];
+    let after: String = chars.iter().skip(safe_cursor + 1).collect();
+    Line::from(vec![
+        Span::raw(before),
+        Span::styled(
+            current.to_string(),
+            Style::default()
+                .fg(ACCENT_COLOR)
+                .bg(SELECTED_ROW_BG_COLOR)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(after),
+    ])
+}
+
+fn truncate_to_width(value: &str, max_chars: u16) -> String {
+    let limit = usize::from(max_chars);
+    let chars: Vec<char> = value.chars().collect();
+    if chars.len() <= limit {
+        return value.to_string();
+    }
+    if limit <= 3 {
+        return chars.into_iter().take(limit).collect();
+    }
+
+    let truncated: String = chars.into_iter().take(limit - 3).collect();
+    format!("{truncated}...")
 }
 
 fn format_number(value: u64) -> String {
@@ -393,5 +818,15 @@ mod tests {
     #[test]
     fn formats_hours_and_minutes() {
         assert_eq!(format_time_saved(3_660_000), "1h 1m");
+    }
+
+    #[test]
+    fn compact_layout_hides_descriptions_when_height_is_small() {
+        assert!(!use_spacious_settings_layout(10, SettingKey::ALL.len(), 0));
+    }
+
+    #[test]
+    fn spacious_layout_shows_descriptions_when_height_is_sufficient() {
+        assert!(use_spacious_settings_layout(30, SettingKey::ALL.len(), 0));
     }
 }

@@ -1,7 +1,12 @@
 use serde::{Deserialize, Serialize};
 
+mod apply;
 pub mod manager;
 
+pub use apply::{
+    ApplySettingOutcome, apply_setting_input, apply_setting_input_with_manager,
+    parse_boolean_setting_value, parse_spinner_style,
+};
 pub use manager::SettingsManager;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -13,7 +18,7 @@ pub enum SpinnerStyle {
     Classic,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Settings {
     pub trigger_char: char,
     pub pause_hotkey: String,

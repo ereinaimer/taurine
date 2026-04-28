@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use taurine_core::metrics::HomeMetrics;
 
+use crate::settings::SettingsPageState;
 use crate::status::DaemonStatus;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -36,6 +37,7 @@ pub(crate) struct App {
     active_page: Page,
     daemon_status: DaemonStatus,
     home_metrics: HomeMetrics,
+    settings_page: SettingsPageState,
     should_quit: bool,
 }
 
@@ -45,6 +47,7 @@ impl Default for App {
             active_page: Page::Home,
             daemon_status: DaemonStatus::Stopped,
             home_metrics: HomeMetrics::default(),
+            settings_page: SettingsPageState::default(),
             should_quit: false,
         }
     }
@@ -61,6 +64,14 @@ impl App {
 
     pub(crate) const fn home_metrics(&self) -> &HomeMetrics {
         &self.home_metrics
+    }
+
+    pub(crate) const fn settings_page(&self) -> &SettingsPageState {
+        &self.settings_page
+    }
+
+    pub(crate) fn settings_page_mut(&mut self) -> &mut SettingsPageState {
+        &mut self.settings_page
     }
 
     pub(crate) const fn should_quit(&self) -> bool {
@@ -149,5 +160,11 @@ mod tests {
     fn defaults_home_metrics_to_empty_state() {
         let app = App::default();
         assert_eq!(app.home_metrics(), &HomeMetrics::default());
+    }
+
+    #[test]
+    fn defaults_settings_page_to_first_row() {
+        let app = App::default();
+        assert_eq!(app.settings_page().selected_index(), 0);
     }
 }

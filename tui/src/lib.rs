@@ -4,6 +4,7 @@
 mod app;
 mod control;
 mod event;
+mod settings;
 mod status;
 mod ui;
 
@@ -28,6 +29,7 @@ pub fn run() -> taurine_core::Result<()> {
     let mut app = App::default();
     app.set_daemon_status(status::probe_daemon_status());
     refresh_home_metrics(&mut app);
+    refresh_settings_page(&mut app);
     let daemon_controller = SystemDaemonController;
 
     let mut terminal = TerminalGuard::new()?;
@@ -61,7 +63,19 @@ fn handle_tui_key_event<C: DaemonController>(
     key: crossterm::event::KeyEvent,
     daemon_controller: &C,
 ) {
+    if app.active_page() == Page::Settings && app.settings_page().is_modal_open() {
+        let interaction = app.settings_page_mut().handle_key(key);
+        apply_settings_interaction(app, interaction);
+        return;
+    }
+
     app.handle_key_event(key);
+
+    if app.active_page() == Page::Settings {
+        let interaction = app.settings_page_mut().handle_key(key);
+        apply_settings_interaction(app, interaction);
+        return;
+    }
 
     if key.code == crossterm::event::KeyCode::Char('x')
         && key.modifiers == crossterm::event::KeyModifiers::NONE
@@ -74,12 +88,41 @@ fn handle_tui_key_event<C: DaemonController>(
     }
 }
 
+fn apply_settings_interaction(app: &mut App, interaction: settings::SettingsInteraction) {
+    if interaction.should_close_modal() {
+        app.settings_page_mut().clear_modal();
+        return;
+    }
+
+    let Some(pending_save) = interaction.pending_save() else {
+        return;
+    };
+
+    match pending_save.apply() {
+        Ok(()) => refresh_settings_page(app),
+        Err(error) => app.settings_page_mut().set_save_error(error.to_string()),
+    }
+}
+
 fn refresh_home_metrics(app: &mut App) {
     match taurine_core::db::init::setup()
         .and_then(|conn| taurine_core::metrics::load_home_metrics(&conn))
     {
         Ok(home_metrics) => app.set_home_metrics(home_metrics),
         Err(err) => error!(error = %err, "Failed to refresh TUI home metrics"),
+    }
+}
+
+fn refresh_settings_page(app: &mut App) {
+    match taurine_core::db::init::setup() {
+        Ok(conn) => {
+            let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
+            app.settings_page_mut().replace_settings(settings);
+        }
+        Err(error) => {
+            error!(error = %error, "Failed to refresh TUI settings state");
+            app.settings_page_mut().set_load_error(error.to_string());
+        }
     }
 }
 
