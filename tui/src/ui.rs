@@ -189,9 +189,7 @@ fn render_home_content(frame: &mut Frame, area: Rect, metrics: &HomeMetrics) {
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(5),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
+            Constraint::Length(2),
             Constraint::Min(0),
         ])
         .split(area);
@@ -207,16 +205,27 @@ fn render_home_content(frame: &mut Frame, area: Rect, metrics: &HomeMetrics) {
 
     render_metric_cards(frame, sections[2], metrics);
 
-    frame.render_widget(
-        Paragraph::new("Most used automations").style(
-            Style::default()
-                .fg(ACCENT_COLOR)
-                .add_modifier(Modifier::BOLD),
-        ),
-        sections[4],
-    );
+    let tables_layout = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(50),
+            Constraint::Length(PANEL_GAP_WIDTH),
+            Constraint::Percentage(50),
+        ])
+        .split(sections[4]);
 
-    render_most_used_table(frame, sections[6], &metrics.most_used);
+    render_most_used_table(
+        frame,
+        tables_layout[0],
+        "Most used automations",
+        &metrics.most_used_words,
+    );
+    render_most_used_table(
+        frame,
+        tables_layout[2],
+        "Most used hotkeys",
+        &metrics.most_used_hotkeys,
+    );
 }
 
 fn render_metric_cards(frame: &mut Frame, area: Rect, metrics: &HomeMetrics) {
@@ -279,23 +288,34 @@ fn render_metric_card(frame: &mut Frame, area: Rect, label: &str, value: &str) {
     );
 }
 
-fn render_most_used_table(frame: &mut Frame, area: Rect, rows: &[MostUsedAutomation]) {
+fn render_most_used_table(frame: &mut Frame, area: Rect, title: &str, rows: &[MostUsedAutomation]) {
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
+        ])
+        .split(area);
+
+    frame.render_widget(
+        Paragraph::new(title).style(
+            Style::default()
+                .fg(ACCENT_COLOR)
+                .add_modifier(Modifier::BOLD),
+        ),
+        sections[0],
+    );
+
     if rows.is_empty() {
         frame.render_widget(
-            Paragraph::new("No automation usage recorded yet.\nCreate an automation and use it to see stats here.")
-                .style(Style::default().fg(MUTED_TEXT_COLOR)),
-            area,
+            Paragraph::new("No usage recorded yet.").style(Style::default().fg(MUTED_TEXT_COLOR)),
+            sections[2],
         );
         return;
     }
 
-    let header = Row::new([
-        Cell::from("Trigger"),
-        Cell::from("Type"),
-        Cell::from("Uses"),
-        Cell::from("Preview"),
-    ])
-    .style(
+    let header = Row::new([Cell::from("Trigger"), Cell::from("Uses")]).style(
         Style::default()
             .fg(MUTED_TEXT_COLOR)
             .add_modifier(Modifier::BOLD),
@@ -304,32 +324,15 @@ fn render_most_used_table(frame: &mut Frame, area: Rect, rows: &[MostUsedAutomat
     let table_rows = rows.iter().map(|automation| {
         Row::new([
             Cell::from(automation.trigger.clone()),
-            Cell::from(trigger_type_label(automation)),
             Cell::from(format_number(automation.uses)),
-            Cell::from(truncate_preview(&automation.preview, 48)),
         ])
     });
 
-    let table = Table::new(
-        table_rows,
-        [
-            Constraint::Length(14),
-            Constraint::Length(8),
-            Constraint::Length(8),
-            Constraint::Min(12),
-        ],
-    )
-    .header(header)
-    .column_spacing(2);
+    let table = Table::new(table_rows, [Constraint::Min(10), Constraint::Length(8)])
+        .header(header)
+        .column_spacing(2);
 
-    frame.render_widget(table, area);
-}
-
-fn trigger_type_label(automation: &MostUsedAutomation) -> &'static str {
-    match automation.trigger_type {
-        taurine_core::db::crud::TriggerType::Word => "word",
-        taurine_core::db::crud::TriggerType::Hotkey => "hotkey",
-    }
+    frame.render_widget(table, sections[2]);
 }
 
 fn format_number(value: u64) -> String {
@@ -370,18 +373,6 @@ fn format_time_saved(time_saved_ms: u64) -> String {
     }
 }
 
-fn truncate_preview(value: &str, max_chars: usize) -> String {
-    let trimmed = value.trim();
-    let char_count = trimmed.chars().count();
-    if char_count <= max_chars {
-        return trimmed.to_string();
-    }
-
-    let keep = max_chars.saturating_sub(3);
-    let truncated: String = trimmed.chars().take(keep).collect();
-    format!("{truncated}...")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -404,18 +395,5 @@ mod tests {
     #[test]
     fn formats_hours_and_minutes() {
         assert_eq!(format_time_saved(3_660_000), "1h 1m");
-    }
-
-    #[test]
-    fn truncates_long_preview_safely() {
-        assert_eq!(
-            truncate_preview("abcdefghijklmnopqrstuvwxyz", 10),
-            "abcdefg..."
-        );
-    }
-
-    #[test]
-    fn leaves_short_preview_unchanged() {
-        assert_eq!(truncate_preview("git status", 20), "git status");
     }
 }

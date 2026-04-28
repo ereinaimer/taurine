@@ -9,7 +9,8 @@ pub struct HomeMetrics {
     pub keystrokes_saved: u64,
     pub time_saved_ms: u64,
     pub expansions_run: u64,
-    pub most_used: Vec<MostUsedAutomation>,
+    pub most_used_words: Vec<MostUsedAutomation>,
+    pub most_used_hotkeys: Vec<MostUsedAutomation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,7 +18,6 @@ pub struct MostUsedAutomation {
     pub trigger: String,
     pub trigger_type: TriggerType,
     pub uses: u64,
-    pub preview: String,
 }
 
 pub fn load_home_metrics(conn: &Connection) -> crate::Result<HomeMetrics> {
@@ -42,29 +42,44 @@ pub fn load_home_metrics_with_limit(conn: &Connection, limit: usize) -> crate::R
     )?;
 
     let os_str = get_current_os_db_string();
+    let most_used_words = fetch_most_used(conn, os_str, TriggerType::Word, limit)?;
+    let most_used_hotkeys = fetch_most_used(conn, os_str, TriggerType::Hotkey, limit)?;
+
+    Ok(HomeMetrics {
+        keystrokes_saved: keystrokes_saved.max(0) as u64,
+        time_saved_ms: time_saved_ms.max(0) as u64,
+        expansions_run: expansions_run.max(0) as u64,
+        most_used_words,
+        most_used_hotkeys,
+    })
+}
+
+fn fetch_most_used(
+    conn: &Connection,
+    os_str: &str,
+    trigger_type: TriggerType,
+    limit: usize,
+) -> crate::Result<Vec<MostUsedAutomation>> {
     let mut stmt = conn.prepare_cached(
         "SELECT
             a.trigger,
             a.trigger_type,
-            a.usage_count,
-            a.output,
-            a.action_type,
-            a.name,
-            a.description
+            a.usage_count
          FROM automations a
          WHERE a.is_deleted = 0
            AND a.is_enabled = 1
            AND a.usage_count > 0
-           AND (a.target_os = 'all' OR a.target_os = ?1)
+           AND a.trigger_type = ?1
+           AND (a.target_os = 'all' OR a.target_os = ?2)
          ORDER BY (a.target_os != 'all') DESC,
                   a.usage_count DESC,
                   a.updated_at DESC,
                   LOWER(a.trigger) ASC,
                   a.trigger ASC
-         LIMIT ?2",
+         LIMIT ?3",
     )?;
 
-    let rows = stmt.query_map((os_str, limit as i64), |row| {
+    let rows = stmt.query_map((trigger_type.as_db_str(), os_str, limit as i64), |row| {
         let trigger_type = TriggerType::parse_db(&row.get::<_, String>(1)?).map_err(|err| {
             rusqlite::Error::FromSqlConversionFailure(1, Type::Text, Box::new(err))
         })?;
@@ -73,49 +88,15 @@ pub fn load_home_metrics_with_limit(conn: &Connection, limit: usize) -> crate::R
             trigger: row.get(0)?,
             trigger_type,
             uses: row.get::<_, i64>(2)?.max(0) as u64,
-            preview: preview_for_row(
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, Option<String>>(6)?,
-            ),
         })
     })?;
 
-    let mut most_used = Vec::new();
+    let mut result = Vec::new();
     for row in rows {
-        most_used.push(row?);
+        result.push(row?);
     }
 
-    Ok(HomeMetrics {
-        keystrokes_saved: keystrokes_saved.max(0) as u64,
-        time_saved_ms: time_saved_ms.max(0) as u64,
-        expansions_run: expansions_run.max(0) as u64,
-        most_used,
-    })
-}
-
-fn preview_for_row(
-    output: String,
-    action_type: String,
-    name: String,
-    description: Option<String>,
-) -> String {
-    let description = description.unwrap_or_default();
-    let preview = match action_type.as_str() {
-        "script" => first_non_empty([description.as_str(), output.as_str(), name.as_str()]),
-        _ => first_non_empty([output.as_str(), description.as_str(), name.as_str()]),
-    };
-
-    preview.to_string()
-}
-
-fn first_non_empty<'a>(values: impl IntoIterator<Item = &'a str>) -> &'a str {
-    values
-        .into_iter()
-        .map(str::trim)
-        .find(|value| !value.is_empty())
-        .unwrap_or("")
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -137,7 +118,8 @@ mod tests {
         assert_eq!(metrics.keystrokes_saved, 0);
         assert_eq!(metrics.time_saved_ms, 0);
         assert_eq!(metrics.expansions_run, 0);
-        assert!(metrics.most_used.is_empty());
+        assert!(metrics.most_used_words.is_empty());
+        assert!(metrics.most_used_hotkeys.is_empty());
     }
 
     #[test]
@@ -192,37 +174,18 @@ mod tests {
         )
         .unwrap();
         delete_automation(&conn, "uuid-deleted").unwrap();
-        upsert_automation(
-            &conn,
-            "uuid-disabled",
-            "Disabled Trigger",
-            None,
-            "disabled",
-            "should not render",
-            "text",
-            "all",
-            "[]",
-            77,
-            None,
-        )
-        .unwrap();
-        conn.execute(
-            "UPDATE automations SET is_enabled = 0 WHERE id = 'uuid-disabled'",
-            [],
-        )
-        .unwrap();
 
         let metrics = load_home_metrics(&conn).unwrap();
 
         assert_eq!(metrics.expansions_run, 6);
         assert_eq!(metrics.keystrokes_saved, 150);
         assert_eq!(metrics.time_saved_ms, 240_000);
-        assert_eq!(metrics.most_used.len(), 2);
-        assert_eq!(metrics.most_used[0].trigger, "ralt+m");
-        assert_eq!(metrics.most_used[0].trigger_type, TriggerType::Hotkey);
-        assert_eq!(metrics.most_used[0].uses, 20);
-        assert_eq!(metrics.most_used[0].preview, "personal email signature");
-        assert_eq!(metrics.most_used[1].trigger, "gs");
+        assert_eq!(metrics.most_used_words.len(), 1);
+        assert_eq!(metrics.most_used_words[0].trigger, "gs");
+        assert_eq!(metrics.most_used_words[0].uses, 12);
+        assert_eq!(metrics.most_used_hotkeys.len(), 1);
+        assert_eq!(metrics.most_used_hotkeys[0].trigger, "ralt+m");
+        assert_eq!(metrics.most_used_hotkeys[0].uses, 20);
     }
 
     #[test]
@@ -251,8 +214,8 @@ mod tests {
 
         let metrics = load_home_metrics_with_limit(&conn, 5).unwrap();
 
-        assert_eq!(metrics.most_used.len(), 5);
-        assert_eq!(metrics.most_used[0].uses, 10);
-        assert_eq!(metrics.most_used[4].uses, 6);
+        assert_eq!(metrics.most_used_words.len(), 5);
+        assert_eq!(metrics.most_used_words[0].uses, 10);
+        assert_eq!(metrics.most_used_words[4].uses, 6);
     }
 }
