@@ -13,7 +13,9 @@ use taurine_core::metrics::{HomeMetrics, MostUsedAutomation};
 use crate::{
     app::{App, Page},
     control,
-    settings::{InputModalState, SelectModalState, SettingKey, SettingsModal},
+    settings::{
+        ConfirmResetModalState, InputModalState, SelectModalState, SettingKey, SettingsModal,
+    },
 };
 
 const OUTER_HORIZONTAL_PADDING: u16 = 2;
@@ -179,20 +181,22 @@ fn render_content(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
-    let footer_text = match app.active_page() {
-        Page::Home => control::home_footer_label(app.daemon_status()),
-        Page::Library => "q Quit",
-        Page::Settings => app.settings_page().footer_text(),
-    };
-
     let footer_line = Line::from(vec![Span::styled(
-        footer_text,
+        footer_text(app),
         Style::default()
             .fg(MUTED_TEXT_COLOR)
             .add_modifier(Modifier::DIM),
     )]);
 
     frame.render_widget(Paragraph::new(footer_line).alignment(Alignment::Left), area);
+}
+
+fn footer_text(app: &App) -> &str {
+    match app.active_page() {
+        Page::Home => control::home_footer_label(app.daemon_status()),
+        Page::Library => "q Quit",
+        Page::Settings => app.settings_page().footer_text(),
+    }
 }
 
 fn render_home_content(frame: &mut Frame, area: Rect, metrics: &HomeMetrics) {
@@ -505,6 +509,7 @@ fn render_settings_modal(frame: &mut Frame, area: Rect, modal: &SettingsModal) {
     match modal {
         SettingsModal::Input(state) => render_input_modal(frame, area, state),
         SettingsModal::Select(state) => render_select_modal(frame, area, state),
+        SettingsModal::ConfirmReset(state) => render_confirm_reset_modal(frame, area, state),
     }
 }
 
@@ -521,20 +526,7 @@ fn render_input_modal(frame: &mut Frame, area: Rect, state: &InputModalState) {
     };
     let popup = centered_rect(width, height, area);
     frame.render_widget(Clear, popup);
-
-    let block = Block::default()
-        .title(Span::styled(
-            format!(" {} ", state.key().display_name()),
-            Style::default()
-                .fg(ACCENT_COLOR)
-                .add_modifier(Modifier::BOLD),
-        ))
-        .borders(Borders::ALL)
-        .border_set(border::ROUNDED)
-        .border_style(Style::default().fg(PANEL_BORDER_COLOR))
-        .padding(Padding::new(1, 1, 1, 1));
-    let inner = block.inner(popup);
-    frame.render_widget(block, popup);
+    let inner = render_modal_block(frame, popup, state.key().display_name());
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
@@ -588,20 +580,7 @@ fn render_select_modal(frame: &mut Frame, area: Rect, state: &SelectModalState) 
     };
     let popup = centered_rect(width, height, area);
     frame.render_widget(Clear, popup);
-
-    let block = Block::default()
-        .title(Span::styled(
-            format!(" {} ", state.key().display_name()),
-            Style::default()
-                .fg(ACCENT_COLOR)
-                .add_modifier(Modifier::BOLD),
-        ))
-        .borders(Borders::ALL)
-        .border_set(border::ROUNDED)
-        .border_style(Style::default().fg(PANEL_BORDER_COLOR))
-        .padding(Padding::new(1, 1, 1, 1));
-    let inner = block.inner(popup);
-    frame.render_widget(block, popup);
+    let inner = render_modal_block(frame, popup, state.key().display_name());
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
@@ -637,6 +616,102 @@ fn render_select_modal(frame: &mut Frame, area: Rect, state: &SelectModalState) 
             .add_modifier(Modifier::DIM)
     };
     frame.render_widget(Paragraph::new(feedback).style(feedback_style), sections[1]);
+}
+
+fn render_confirm_reset_modal(frame: &mut Frame, area: Rect, state: &ConfirmResetModalState) {
+    let width = if area.width > 44 {
+        area.width.saturating_sub(4).min(64)
+    } else {
+        area.width.max(1)
+    };
+    let height = if area.height >= 8 {
+        8
+    } else {
+        area.height.max(1)
+    };
+    let popup = centered_rect(width, height, area);
+    frame.render_widget(Clear, popup);
+    let inner = render_modal_block(frame, popup, "Reset Setting");
+
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
+        ])
+        .split(inner);
+
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(format!(
+                "{} will be reset to its default value ({}).",
+                state.key().display_name(),
+                state.default_display_value()
+            )),
+            Line::from("Do you want to continue?"),
+        ])
+        .style(Style::default().fg(MUTED_TEXT_COLOR)),
+        sections[0],
+    );
+
+    let yes_style = if state.selected_yes() {
+        Style::default()
+            .fg(ACCENT_COLOR)
+            .bg(SELECTED_ROW_BG_COLOR)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(MUTED_TEXT_COLOR)
+    };
+    let no_style = if !state.selected_yes() {
+        Style::default()
+            .fg(ACCENT_COLOR)
+            .bg(SELECTED_ROW_BG_COLOR)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(MUTED_TEXT_COLOR)
+    };
+
+    let buttons = Line::from(vec![
+        Span::styled("  Yes  ", yes_style),
+        Span::raw("    "),
+        Span::styled("  No  ", no_style),
+    ]);
+
+    let feedback = state.error().unwrap_or("");
+    if !feedback.is_empty() {
+        frame.render_widget(
+            Paragraph::new(feedback).style(
+                Style::default()
+                    .fg(ERROR_COLOR)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            sections[1],
+        );
+    }
+
+    frame.render_widget(
+        Paragraph::new(buttons).alignment(Alignment::Center),
+        sections[2],
+    );
+}
+
+fn render_modal_block(frame: &mut Frame, popup: Rect, title: &str) -> Rect {
+    let block = Block::default()
+        .title(Span::styled(
+            format!(" {title} "),
+            Style::default()
+                .fg(ACCENT_COLOR)
+                .add_modifier(Modifier::BOLD),
+        ))
+        .borders(Borders::ALL)
+        .border_set(border::ROUNDED)
+        .border_style(Style::default().fg(PANEL_BORDER_COLOR))
+        .padding(Padding::new(1, 1, 1, 1));
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+    inner
 }
 
 fn use_spacious_settings_layout(
@@ -828,5 +903,21 @@ mod tests {
     #[test]
     fn spacious_layout_shows_descriptions_when_height_is_sufficient() {
         assert!(use_spacious_settings_layout(30, SettingKey::ALL.len(), 0));
+    }
+
+    #[test]
+    fn settings_footer_includes_reset_without_changing_library_footer() {
+        let mut app = App::default();
+        app.handle_key(
+            crossterm::event::KeyCode::Char('3'),
+            crossterm::event::KeyModifiers::NONE,
+        );
+        assert!(footer_text(&app).contains("r Reset"));
+
+        app.handle_key(
+            crossterm::event::KeyCode::Char('2'),
+            crossterm::event::KeyModifiers::NONE,
+        );
+        assert_eq!(footer_text(&app), "q Quit");
     }
 }
