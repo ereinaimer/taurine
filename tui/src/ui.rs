@@ -17,7 +17,7 @@ const FOOTER_HEIGHT: u16 = 1;
 const PANEL_GAP_WIDTH: u16 = 2;
 const NAV_WIDTH: u16 = 22;
 const PANEL_PADDING: u16 = 1;
-const ACCENT_COLOR: Color = Color::Cyan;
+const ACCENT_COLOR: Color = Color::White;
 const PANEL_BORDER_COLOR: Color = Color::DarkGray;
 const MUTED_TEXT_COLOR: Color = Color::Gray;
 
