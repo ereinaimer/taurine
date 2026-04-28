@@ -27,6 +27,7 @@ const STATUS_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
 pub fn run() -> taurine_core::Result<()> {
     let mut app = App::default();
     app.set_daemon_status(status::probe_daemon_status());
+    refresh_home_metrics(&mut app);
     let daemon_controller = SystemDaemonController;
 
     let mut terminal = TerminalGuard::new()?;
@@ -41,6 +42,7 @@ pub fn run() -> taurine_core::Result<()> {
             Event::Tick => {
                 if last_status_refresh.elapsed() >= STATUS_REFRESH_INTERVAL {
                     app.set_daemon_status(status::probe_daemon_status());
+                    refresh_home_metrics(&mut app);
                     last_status_refresh = Instant::now();
                 }
             }
@@ -69,6 +71,15 @@ fn handle_tui_key_event<C: DaemonController>(
             Ok(outcome) => app.set_daemon_status(outcome.status),
             Err(err) => error!(error = %err, "Failed to toggle daemon lifecycle from the TUI"),
         }
+    }
+}
+
+fn refresh_home_metrics(app: &mut App) {
+    match taurine_core::db::init::setup()
+        .and_then(|conn| taurine_core::metrics::load_home_metrics(&conn))
+    {
+        Ok(home_metrics) => app.set_home_metrics(home_metrics),
+        Err(err) => error!(error = %err, "Failed to refresh TUI home metrics"),
     }
 }
 

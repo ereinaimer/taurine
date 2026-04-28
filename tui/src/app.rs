@@ -1,4 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use taurine_core::metrics::HomeMetrics;
 
 use crate::status::DaemonStatus;
 
@@ -30,10 +31,11 @@ impl Page {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct App {
     active_page: Page,
     daemon_status: DaemonStatus,
+    home_metrics: HomeMetrics,
     should_quit: bool,
 }
 
@@ -42,6 +44,7 @@ impl Default for App {
         Self {
             active_page: Page::Home,
             daemon_status: DaemonStatus::Stopped,
+            home_metrics: HomeMetrics::default(),
             should_quit: false,
         }
     }
@@ -56,12 +59,20 @@ impl App {
         self.daemon_status
     }
 
+    pub(crate) const fn home_metrics(&self) -> &HomeMetrics {
+        &self.home_metrics
+    }
+
     pub(crate) const fn should_quit(&self) -> bool {
         self.should_quit
     }
 
     pub(crate) fn set_daemon_status(&mut self, daemon_status: DaemonStatus) {
         self.daemon_status = daemon_status;
+    }
+
+    pub(crate) fn set_home_metrics(&mut self, home_metrics: HomeMetrics) {
+        self.home_metrics = home_metrics;
     }
 
     pub(crate) fn handle_key_event(&mut self, key: KeyEvent) {
@@ -132,5 +143,11 @@ mod tests {
         let mut app = App::default();
         app.handle_key(KeyCode::Char('c'), KeyModifiers::CONTROL);
         assert!(!app.should_quit());
+    }
+
+    #[test]
+    fn defaults_home_metrics_to_empty_state() {
+        let app = App::default();
+        assert_eq!(app.home_metrics(), &HomeMetrics::default());
     }
 }
