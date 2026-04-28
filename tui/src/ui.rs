@@ -294,7 +294,7 @@ fn render_most_used_list(frame: &mut Frame, area: Rect, title: &str, rows: &[Mos
         .constraints([
             Constraint::Length(1), // Title
             Constraint::Length(1), // Gap
-            Constraint::Min(0),    // List
+            Constraint::Min(0),    // Table
         ])
         .split(area);
 
@@ -319,15 +319,27 @@ fn render_most_used_list(frame: &mut Frame, area: Rect, title: &str, rows: &[Mos
         return;
     }
 
+    // Proper table decoration: Styled header with background
+    let header = Row::new([Cell::from(" TRIGGER"), Cell::from("USES ")])
+        .style(
+            Style::default()
+                .fg(ACCENT_COLOR)
+                .bg(Color::Indexed(236))
+                .add_modifier(Modifier::BOLD),
+        )
+        .height(1);
+
     let table_rows = rows.iter().take(8).map(|automation| {
         Row::new([
-            Cell::from(automation.trigger.clone()).style(Style::default().fg(ACCENT_COLOR)),
-            Cell::from(format_number(automation.uses)).style(Style::default().fg(MUTED_TEXT_COLOR)),
+            Cell::from(format!(" {}", automation.trigger)).style(Style::default().fg(ACCENT_COLOR)),
+            Cell::from(format!("{} ", format_number(automation.uses)))
+                .style(Style::default().fg(MUTED_TEXT_COLOR)),
         ])
     });
 
-    let table =
-        Table::new(table_rows, [Constraint::Min(15), Constraint::Length(8)]).column_spacing(2);
+    let table = Table::new(table_rows, [Constraint::Min(15), Constraint::Length(8)])
+        .header(header)
+        .column_spacing(1);
 
     frame.render_widget(table, sections[2]);
 }
