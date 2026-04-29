@@ -294,11 +294,12 @@ mod tests {
 
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use taurine_core::{
-        db::crud::{AutomationRow, TriggerType},
+        db::crud::{AutomationListItem, AutomationRow, TriggerType},
         engine::shell::{ScriptBehavior, ScriptInterpreter, compress},
     };
 
     use super::*;
+    use crate::library::LibraryAutomation;
 
     #[derive(Default)]
     struct MockController {
@@ -502,6 +503,23 @@ mod tests {
         let mut app = App::default();
         let controller = MockController::default();
         app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.library_page_mut()
+            .replace_items(vec![LibraryAutomation::from(AutomationListItem {
+                id: "test".to_string(),
+                name: "Test".to_string(),
+                description: None,
+                trigger_type: TriggerType::Hotkey,
+                trigger: "alt+t".to_string(),
+                output: "test".to_string(),
+                action_type: "text".to_string(),
+                target_os: "win".to_string(),
+                usage_count: 0,
+                last_used_at: None,
+                created_at: 0,
+                script_content: None,
+                interpreter: None,
+                behavior: None,
+            })]);
 
         handle_tui_key_event(&mut app, plain_key('d'), &controller);
         handle_tui_key_event(&mut app, plain_key('q'), &controller);
@@ -515,6 +533,23 @@ mod tests {
         let mut app = App::default();
         let controller = MockController::default();
         app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.library_page_mut()
+            .replace_items(vec![LibraryAutomation::from(AutomationListItem {
+                id: "test".to_string(),
+                name: "Test".to_string(),
+                description: None,
+                trigger_type: TriggerType::Hotkey,
+                trigger: "alt+t".to_string(),
+                output: "test".to_string(),
+                action_type: "text".to_string(),
+                target_os: "win".to_string(),
+                usage_count: 0,
+                last_used_at: None,
+                created_at: 0,
+                script_content: None,
+                interpreter: None,
+                behavior: None,
+            })]);
 
         handle_tui_key_event(&mut app, plain_key('d'), &controller);
         handle_tui_key_event(&mut app, plain_key('/'), &controller);

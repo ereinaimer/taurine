@@ -312,6 +312,7 @@ mod tests {
 
     #[test]
     fn test_vbs_launcher_lifecycle() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
         crate::logs::init_tracing_for_tests();
         let test_dir = std::env::temp_dir().join("taurine_vbs_lifecycle_test");
         unsafe { std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
