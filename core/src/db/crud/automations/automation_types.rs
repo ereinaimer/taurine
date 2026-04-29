@@ -91,6 +91,7 @@ pub struct AutomationSummary {
 /// Data structure for the CLI list view.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AutomationListItem {
+    pub description: Option<String>,
     pub trigger_type: TriggerType,
     pub trigger: String,
     pub output: String,
@@ -99,6 +100,7 @@ pub struct AutomationListItem {
     pub usage_count: i64,
     pub last_used_at: Option<i64>,
     pub created_at: i64,
+    pub script_content: Option<String>,
 
     pub interpreter: Option<ScriptInterpreter>,
     pub behavior: Option<ScriptBehavior>,

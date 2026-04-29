@@ -3,6 +3,7 @@ use rusqlite::{Connection, Result};
 
 use super::{AutomationAction, AutomationListItem, AutomationRow, AutomationSummary, TriggerType};
 use crate::db::crud::get_current_os_db_string;
+use crate::engine::shell::decompress;
 
 /// Helper to parse JSON variants that might contain double-quotes from SQLite.
 fn parse_json_variant<T: serde::de::DeserializeOwned>(s: Option<String>) -> Option<T> {
@@ -239,8 +240,9 @@ pub fn get_all_active_hotkey_automations(
 pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>> {
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
-        "SELECT a.trigger, a.output, a.action_type, a.target_os, a.usage_count, a.last_used_at,
-                a.created_at, a.trigger_type, s.interpreter, s.behavior
+        "SELECT a.description, a.trigger, a.output, a.action_type, a.target_os, a.usage_count,
+                a.last_used_at, a.created_at, a.trigger_type, s.interpreter, s.behavior,
+                s.compressed_content
          FROM   automations a
          LEFT JOIN scripts s ON a.id = s.automation_id
          WHERE  a.is_deleted = 0
@@ -249,19 +251,24 @@ pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>
     )?;
 
     let rows = stmt.query_map([os_str], |row| {
-        let trigger_type = parse_trigger_type_row(row.get(7)?)?;
-        let interpreter = parse_json_variant(row.get(8)?);
-        let behavior = parse_json_variant(row.get(9)?);
+        let trigger_type = parse_trigger_type_row(row.get(8)?)?;
+        let interpreter = parse_json_variant(row.get(9)?);
+        let behavior = parse_json_variant(row.get(10)?);
+        let script_content = row
+            .get::<_, Option<Vec<u8>>>(11)?
+            .and_then(|compressed| decompress(&compressed).ok());
 
         Ok(AutomationListItem {
+            description: row.get(0)?,
             trigger_type,
-            trigger: row.get(0)?,
-            output: row.get(1)?,
-            action_type: row.get(2)?,
-            target_os: row.get(3)?,
-            usage_count: row.get(4)?,
-            last_used_at: row.get(5)?,
-            created_at: row.get(6)?,
+            trigger: row.get(1)?,
+            output: row.get(2)?,
+            action_type: row.get(3)?,
+            target_os: row.get(4)?,
+            usage_count: row.get(5)?,
+            last_used_at: row.get(6)?,
+            created_at: row.get(7)?,
+            script_content,
             interpreter,
             behavior,
         })

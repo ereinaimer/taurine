@@ -1189,9 +1189,9 @@ mod tests {
             &conn,
             "uuid-list-1",
             "Windows Opener",
-            None,
+            Some("Open Reddit"),
             "ralt+r",
-            "Start-Process https://reddit.com",
+            "[Script: powershell]",
             "script",
             "all",
             r#"[]"#,
@@ -1199,10 +1199,23 @@ mod tests {
             None,
         )
         .unwrap();
+        upsert_script(
+            &conn,
+            "uuid-list-1",
+            ScriptInterpreter::PowerShell,
+            ScriptBehavior::Silent,
+            &compress("Start-Process https://reddit.com").unwrap(),
+        )
+        .unwrap();
 
         let items = get_automations_list(&conn).unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].target_os, "all");
+        assert_eq!(items[0].description.as_deref(), Some("Open Reddit"));
+        assert_eq!(
+            items[0].script_content.as_deref(),
+            Some("Start-Process https://reddit.com")
+        );
     }
 
     #[test]
