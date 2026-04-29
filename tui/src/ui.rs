@@ -226,8 +226,8 @@ fn home_footer_with_nav(home_footer: &str) -> &str {
 
 fn library_footer_with_nav(library_footer: &str) -> &str {
     match library_footer {
-        "/ Search   n New   e Edit   d Delete   Enter Details   q Quit" => {
-            "Ctrl+B Nav   / Search   n New   e Edit   d Delete   Enter Details   q Quit"
+        "/ Search   n New   d Delete   Enter Edit   q Quit" => {
+            "Ctrl+B Nav   / Search   n New   d Delete   Enter Edit   q Quit"
         }
         "Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev" => {
             "Ctrl+B Nav   Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev"
@@ -546,6 +546,21 @@ fn render_library_editor_modal(frame: &mut Frame, area: Rect, state: &LibraryEdi
 
     render_modal_metadata(frame, sections[4], state, state.metadata_rows());
     render_library_editor_feedback(frame, sections[5], state);
+
+    if state.focus() == LibraryModalField::Trigger {
+        frame.set_cursor_position((
+            sections[1].x + 1 + state.trigger_cursor() as u16,
+            sections[1].y,
+        ));
+    } else if state.focus() == LibraryModalField::Content {
+        let (cursor_line, cursor_col) =
+            crate::library::line_col_for_char_index(state.content(), state.content_cursor());
+        let scroll = state.effective_content_scroll(sections[3].height);
+        frame.set_cursor_position((
+            sections[3].x + 1 + cursor_col as u16,
+            sections[3].y + cursor_line.saturating_sub(scroll) as u16,
+        ));
+    }
 }
 
 fn render_modal_field_label(
@@ -707,7 +722,7 @@ fn render_library_editor_feedback(frame: &mut Frame, area: Rect, state: &Library
         )
     } else {
         (
-            "Ctrl+S Save   Esc Cancel",
+            "",
             Style::default()
                 .fg(MUTED_TEXT_COLOR)
                 .add_modifier(Modifier::DIM),
@@ -1514,7 +1529,7 @@ mod tests {
         );
         assert_eq!(
             footer_text(&app),
-            "Ctrl+B Nav   / Search   n New   e Edit   d Delete   Enter Details   q Quit"
+            "Ctrl+B Nav   / Search   n New   d Delete   Enter Edit   q Quit"
         );
     }
 

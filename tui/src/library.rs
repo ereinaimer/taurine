@@ -9,7 +9,7 @@ use taurine_core::{
     engine::shell::{ScriptBehavior, ScriptInterpreter, decompress},
 };
 
-const LIBRARY_FOOTER: &str = "/ Search   n New   e Edit   d Delete   Enter Details   q Quit";
+const LIBRARY_FOOTER: &str = "/ Search   n New   d Delete   Enter Edit   q Quit";
 const LIBRARY_MODAL_FOOTER: &str = "Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev";
 const DEFAULT_SCRIPT_FALLBACK: &str = "Script content unavailable.";
 const DEFAULT_OUTPUT_FALLBACK: &str = "No output available.";
@@ -913,7 +913,7 @@ impl LibraryPageState {
                 self.move_selection(-1);
                 LibraryInteraction::handled()
             }
-            (KeyCode::Enter, KeyModifiers::NONE) | (KeyCode::Char('e'), KeyModifiers::NONE) => self
+            (KeyCode::Enter, KeyModifiers::NONE) => self
                 .selected_item()
                 .map(|item| LibraryInteraction::open_selected(item.id().to_string()))
                 .unwrap_or_default(),
@@ -1754,20 +1754,6 @@ mod tests {
             .map(|item| item.id().to_string());
 
         let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-        assert_eq!(interaction.into_open_selected_id(), expected_id);
-    }
-
-    #[test]
-    fn pressing_e_requests_modal_for_selected_automation() {
-        let mut state = sample_state();
-        state.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
-        let expected_id = state
-            .selected_index()
-            .and_then(|index| state.item_at_filtered(index))
-            .map(|item| item.id().to_string());
-
-        let interaction = state.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
 
         assert_eq!(interaction.into_open_selected_id(), expected_id);
     }
