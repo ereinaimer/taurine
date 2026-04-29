@@ -1699,7 +1699,7 @@ mod tests {
 
         assert_eq!(
             footer_text(&app),
-            "Ctrl+B Nav   Ctrl+S Save   d Delete   Esc Cancel   Tab Next   Shift+Tab Prev"
+            "Ctrl+B Nav   Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev"
         );
     }
 }

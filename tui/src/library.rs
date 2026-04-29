@@ -11,8 +11,7 @@ use taurine_core::{
 };
 
 const LIBRARY_FOOTER: &str = "/ Search   n New   d Delete   Enter Edit   q Quit";
-const LIBRARY_EDIT_MODAL_FOOTER: &str =
-    "Ctrl+S Save   d Delete   Esc Cancel   Tab Next   Shift+Tab Prev";
+const LIBRARY_EDIT_MODAL_FOOTER: &str = "Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev";
 const LIBRARY_CREATE_MODAL_FOOTER: &str = "Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev";
 const LIBRARY_DELETE_MODAL_FOOTER: &str = "Esc Cancel";
 const DEFAULT_SCRIPT_FALLBACK: &str = "Script content unavailable.";
@@ -828,18 +827,6 @@ impl LibraryDeleteModalState {
         }
     }
 
-    fn from_editor(editor: LibraryEditorModalState, restore_index: usize) -> Option<Self> {
-        let original = editor.original.as_ref()?;
-        Some(Self {
-            automation_id: original.id().to_string(),
-            name: original.name().to_string(),
-            selected_yes: true,
-            restore_index,
-            return_to_editor: Some(editor),
-            error: None,
-        })
-    }
-
     pub(crate) fn automation_id(&self) -> &str {
         &self.automation_id
     }
@@ -1254,31 +1241,6 @@ impl LibraryPageState {
 
         match modal {
             LibraryModal::Editor(mut state) => {
-                if state.selector().is_none()
-                    && matches!(
-                        (key.code, key.modifiers),
-                        (KeyCode::Char('d'), KeyModifiers::NONE)
-                    )
-                {
-                    if state.mode == LibraryEditorMode::Create {
-                        state.set_error("Cannot delete unsaved automation.".to_string());
-                        self.modal = Some(LibraryModal::Editor(state));
-                        return LibraryInteraction::handled();
-                    }
-
-                    if let Some(selected_index) = self.selected_index()
-                        && let Some(confirm) =
-                            LibraryDeleteModalState::from_editor(state.clone(), selected_index)
-                    {
-                        self.modal = Some(LibraryModal::ConfirmDelete(confirm));
-                        return LibraryInteraction::handled();
-                    }
-
-                    self.modal = Some(LibraryModal::Editor(state));
-                    self.load_error = Some("No automation selected.".to_string());
-                    return LibraryInteraction::handled();
-                }
-
                 let interaction = state.handle_key(key);
                 if !interaction.should_close_modal() {
                     self.modal = Some(LibraryModal::Editor(state));
@@ -2285,7 +2247,7 @@ mod tests {
     }
 
     #[test]
-    fn pressing_d_from_editor_edit_mode_opens_delete_confirmation_modal() {
+    fn pressing_d_from_editor_edit_mode_keeps_editor_open() {
         let mut state = sample_state();
         let detail = LibraryAutomationDetail::from_row(automation_row(
             TriggerType::Word,
@@ -2301,14 +2263,11 @@ mod tests {
 
         state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
 
-        assert!(matches!(
-            state.modal(),
-            Some(LibraryModal::ConfirmDelete(_))
-        ));
+        assert!(matches!(state.modal(), Some(LibraryModal::Editor(_))));
     }
 
     #[test]
-    fn pressing_d_from_create_mode_keeps_editor_open_and_shows_error() {
+    fn typing_d_in_create_modal_trigger_field_inserts_text() {
         let mut state = sample_state();
         state.open_create_modal();
 
@@ -2317,7 +2276,102 @@ mod tests {
         let Some(LibraryModal::Editor(modal)) = state.modal() else {
             panic!("expected editor modal");
         };
-        assert_eq!(modal.error(), Some("Cannot delete unsaved automation."));
+        assert_eq!(modal.trigger(), "d");
+        assert!(modal.error().is_none());
+    }
+
+    #[test]
+    fn typing_d_in_create_modal_content_field_inserts_text() {
+        let mut state = sample_state();
+        state.open_create_modal();
+        state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+
+        state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+
+        let Some(LibraryModal::Editor(modal)) = state.modal() else {
+            panic!("expected editor modal");
+        };
+        assert_eq!(modal.content(), "d");
+        assert!(modal.error().is_none());
+    }
+
+    #[test]
+    fn typing_d_in_edit_modal_trigger_field_inserts_text() {
+        let mut state = sample_state();
+        let detail = LibraryAutomationDetail::from_row(automation_row(
+            TriggerType::Word,
+            "gm",
+            "Good Morning",
+            "text",
+            "all",
+            9,
+            None,
+        ))
+        .unwrap();
+        state.open_editor_modal(detail);
+
+        state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+
+        let Some(LibraryModal::Editor(modal)) = state.modal() else {
+            panic!("expected editor modal");
+        };
+        assert_eq!(modal.trigger(), "gmd");
+        assert!(modal.error().is_none());
+    }
+
+    #[test]
+    fn typing_d_in_edit_modal_content_field_inserts_text() {
+        let mut state = sample_state();
+        let detail = LibraryAutomationDetail::from_row(automation_row(
+            TriggerType::Word,
+            "gm",
+            "Good Morning",
+            "text",
+            "all",
+            9,
+            None,
+        ))
+        .unwrap();
+        state.open_editor_modal(detail);
+        state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+
+        state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+
+        let Some(LibraryModal::Editor(modal)) = state.modal() else {
+            panic!("expected editor modal");
+        };
+        assert_eq!(modal.content(), "Good Morningd");
+        assert!(modal.error().is_none());
+    }
+
+    #[test]
+    fn pressing_d_from_create_mode_does_not_open_delete_confirmation() {
+        let mut state = sample_state();
+        state.open_create_modal();
+
+        state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+
+        assert!(matches!(state.modal(), Some(LibraryModal::Editor(_))));
+    }
+
+    #[test]
+    fn pressing_d_from_edit_mode_with_text_focus_does_not_open_delete_confirmation() {
+        let mut state = sample_state();
+        let detail = LibraryAutomationDetail::from_row(automation_row(
+            TriggerType::Word,
+            "gm",
+            "Good Morning",
+            "text",
+            "all",
+            9,
+            None,
+        ))
+        .unwrap();
+        state.open_editor_modal(detail);
+
+        state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+
+        assert!(matches!(state.modal(), Some(LibraryModal::Editor(_))));
     }
 
     #[test]
