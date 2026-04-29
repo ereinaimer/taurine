@@ -63,6 +63,15 @@ fn handle_tui_key_event<C: DaemonController>(
     key: crossterm::event::KeyEvent,
     daemon_controller: &C,
 ) {
+    if matches!(key.code, crossterm::event::KeyCode::Char('b' | 'B'))
+        && key
+            .modifiers
+            .contains(crossterm::event::KeyModifiers::CONTROL)
+    {
+        app.toggle_nav_visibility();
+        return;
+    }
+
     if app.active_page() == Page::Settings && app.settings_page().is_modal_open() {
         let interaction = app.settings_page_mut().handle_key(key);
         apply_settings_interaction(app, interaction);
@@ -271,5 +280,40 @@ mod tests {
 
         assert_eq!(controller.start_calls.get(), 0);
         assert_eq!(controller.stop_calls.get(), 0);
+    }
+
+    #[test]
+    fn pressing_ctrl_b_toggles_navigation_visibility() {
+        let mut app = App::default();
+        let controller = MockController::default();
+
+        handle_tui_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL),
+            &controller,
+        );
+        assert!(!app.nav_visible());
+
+        handle_tui_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL),
+            &controller,
+        );
+        assert!(app.nav_visible());
+    }
+
+    #[test]
+    fn pressing_ctrl_b_does_not_change_active_page() {
+        let mut app = App::default();
+        app.handle_key(KeyCode::Char('3'), KeyModifiers::NONE);
+        let controller = MockController::default();
+
+        handle_tui_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL),
+            &controller,
+        );
+
+        assert_eq!(app.active_page(), Page::Settings);
     }
 }

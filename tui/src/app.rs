@@ -35,6 +35,7 @@ impl Page {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct App {
     active_page: Page,
+    nav_visible: bool,
     daemon_status: DaemonStatus,
     home_metrics: HomeMetrics,
     settings_page: SettingsPageState,
@@ -45,6 +46,7 @@ impl Default for App {
     fn default() -> Self {
         Self {
             active_page: Page::Home,
+            nav_visible: true,
             daemon_status: DaemonStatus::Stopped,
             home_metrics: HomeMetrics::default(),
             settings_page: SettingsPageState::default(),
@@ -60,6 +62,10 @@ impl App {
 
     pub(crate) const fn daemon_status(&self) -> DaemonStatus {
         self.daemon_status
+    }
+
+    pub(crate) const fn nav_visible(&self) -> bool {
+        self.nav_visible
     }
 
     pub(crate) const fn home_metrics(&self) -> &HomeMetrics {
@@ -84,6 +90,10 @@ impl App {
 
     pub(crate) fn set_home_metrics(&mut self, home_metrics: HomeMetrics) {
         self.home_metrics = home_metrics;
+    }
+
+    pub(crate) fn toggle_nav_visibility(&mut self) {
+        self.nav_visible = !self.nav_visible;
     }
 
     pub(crate) fn handle_key_event(&mut self, key: KeyEvent) {
@@ -160,6 +170,22 @@ mod tests {
     fn defaults_home_metrics_to_empty_state() {
         let app = App::default();
         assert_eq!(app.home_metrics(), &HomeMetrics::default());
+    }
+
+    #[test]
+    fn nav_is_visible_by_default() {
+        let app = App::default();
+        assert!(app.nav_visible());
+    }
+
+    #[test]
+    fn toggling_nav_visibility_hides_and_restores_rail() {
+        let mut app = App::default();
+        app.toggle_nav_visibility();
+        assert!(!app.nav_visible());
+
+        app.toggle_nav_visibility();
+        assert!(app.nav_visible());
     }
 
     #[test]
