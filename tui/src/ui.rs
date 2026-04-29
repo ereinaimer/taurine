@@ -634,7 +634,8 @@ fn render_library_delete_modal(frame: &mut Frame, area: Rect, state: &LibraryDel
             Span::styled("  Yes  ", yes_style),
             Span::raw("    "),
             Span::styled("  No  ", no_style),
-        ])),
+        ]))
+        .alignment(Alignment::Center),
         sections[2],
     );
 
