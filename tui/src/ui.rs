@@ -34,6 +34,8 @@ const MUTED_TEXT_COLOR: Color = Color::Gray;
 const ERROR_COLOR: Color = Color::Red;
 const INPUT_BG_COLOR: Color = Color::Indexed(235);
 const SELECTED_ROW_BG_COLOR: Color = Color::Indexed(236);
+const LIBRARY_ITEM_HEIGHT: u16 = 2;
+const LIBRARY_ITEM_GAP: u16 = 1;
 
 pub(crate) fn render(frame: &mut Frame, app: &App) {
     let area = frame.area().inner(Margin {
@@ -314,11 +316,11 @@ fn render_library_content(frame: &mut Frame, area: Rect, library_page: &LibraryP
         return;
     }
 
-    if list_area.height < 2 {
+    let visible_count = visible_library_item_capacity(list_area.height);
+    if visible_count == 0 {
         return;
     }
 
-    let visible_count = usize::from((list_area.height / 2).max(1));
     let selected_index = library_page.selected_index().unwrap_or(0);
     let (start, end) =
         visible_library_range(library_page.filtered_len(), selected_index, visible_count);
@@ -326,9 +328,9 @@ fn render_library_content(frame: &mut Frame, area: Rect, library_page: &LibraryP
     for (visible_index, filtered_index) in (start..end).enumerate() {
         let row_area = Rect {
             x: list_area.x,
-            y: list_area.y + (visible_index as u16 * 2),
+            y: list_area.y + (visible_index as u16 * (LIBRARY_ITEM_HEIGHT + LIBRARY_ITEM_GAP)),
             width: list_area.width,
-            height: 2,
+            height: LIBRARY_ITEM_HEIGHT,
         };
 
         let Some(item) = library_page.item_at_filtered(filtered_index) else {
@@ -424,40 +426,52 @@ fn render_library_item(frame: &mut Frame, area: Rect, item: &LibraryAutomation, 
         .constraints([Constraint::Min(0), Constraint::Length(metadata_width)])
         .split(bottom_area);
 
-    let primary_style = if selected {
+    let trigger_style = if selected {
         Style::default()
             .fg(ACCENT_COLOR)
             .bg(row_bg)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(ACCENT_COLOR)
+        Style::default()
+            .fg(ACCENT_COLOR)
+            .add_modifier(Modifier::BOLD)
     };
-    let secondary_style = if selected {
-        Style::default().fg(ACCENT_COLOR).bg(row_bg)
+    let kind_style = if selected {
+        Style::default().fg(MUTED_TEXT_COLOR).bg(row_bg)
     } else {
         Style::default().fg(MUTED_TEXT_COLOR)
+    };
+    let preview_style = if selected {
+        Style::default()
+            .fg(MUTED_TEXT_COLOR)
+            .bg(row_bg)
+            .add_modifier(Modifier::DIM)
+    } else {
+        Style::default()
+            .fg(MUTED_TEXT_COLOR)
+            .add_modifier(Modifier::DIM)
     };
 
     frame.render_widget(
         Paragraph::new(truncate_to_width(item.trigger(), top_sections[0].width))
-            .style(primary_style),
+            .style(trigger_style),
         top_sections[0],
     );
     frame.render_widget(
         Paragraph::new(truncate_to_width(item.kind_label(), top_sections[1].width))
             .alignment(Alignment::Right)
-            .style(secondary_style),
+            .style(kind_style),
         top_sections[1],
     );
     frame.render_widget(
         Paragraph::new(truncate_to_width(item.preview(), bottom_sections[0].width))
-            .style(secondary_style),
+            .style(preview_style),
         bottom_sections[0],
     );
     frame.render_widget(
         Paragraph::new(truncate_to_width(&metadata, bottom_sections[1].width))
             .alignment(Alignment::Right)
-            .style(secondary_style),
+            .style(preview_style),
         bottom_sections[1],
     );
 }
@@ -979,6 +993,14 @@ fn visible_library_range(total: usize, selected: usize, visible_count: usize) ->
     (start, end)
 }
 
+fn visible_library_item_capacity(available_height: u16) -> usize {
+    if available_height < LIBRARY_ITEM_HEIGHT {
+        return 0;
+    }
+
+    usize::from((available_height + LIBRARY_ITEM_GAP) / (LIBRARY_ITEM_HEIGHT + LIBRARY_ITEM_GAP))
+}
+
 fn control_column_width(settings: &taurine_core::settings::Settings, area_width: u16) -> u16 {
     let longest_value = SettingKey::ALL
         .iter()
@@ -1145,6 +1167,14 @@ mod tests {
     #[test]
     fn spacious_layout_shows_descriptions_when_height_is_sufficient() {
         assert!(use_spacious_settings_layout(30, SettingKey::ALL.len(), 0));
+    }
+
+    #[test]
+    fn library_item_capacity_avoids_rendering_half_items() {
+        assert_eq!(visible_library_item_capacity(1), 0);
+        assert_eq!(visible_library_item_capacity(2), 1);
+        assert_eq!(visible_library_item_capacity(4), 1);
+        assert_eq!(visible_library_item_capacity(5), 2);
     }
 
     #[test]

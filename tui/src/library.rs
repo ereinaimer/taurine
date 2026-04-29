@@ -40,6 +40,7 @@ pub(crate) struct LibraryAutomation {
     kind: LibraryKind,
     target_os: String,
     raw_target_os: String,
+    search_text: String,
     uses: u64,
 }
 
@@ -66,25 +67,24 @@ impl LibraryAutomation {
         }
 
         let needle = query.to_ascii_lowercase();
-        self.trigger.to_ascii_lowercase().contains(&needle)
-            || self.preview.to_ascii_lowercase().contains(&needle)
-            || self.kind_label().contains(&needle)
-            || self.target_os.to_ascii_lowercase().contains(&needle)
-            || self.raw_target_os.to_ascii_lowercase().contains(&needle)
+        self.search_text.contains(&needle)
     }
 }
 
 impl From<AutomationListItem> for LibraryAutomation {
     fn from(item: AutomationListItem) -> Self {
         let kind = LibraryKind::from_parts(item.trigger_type, item.action_type.as_str());
-        let preview = preview_from_output(&item.output, item.action_type.as_str());
+        let preview = preview_from_item(&item);
+        let target_os = display_target_os(&item.target_os).to_string();
+        let search_text = build_search_text(&item, kind.label(), &target_os);
 
         Self {
             trigger: item.trigger,
             preview,
             kind,
-            target_os: display_target_os(&item.target_os).to_string(),
+            target_os,
             raw_target_os: item.target_os,
+            search_text,
             uses: item.usage_count.max(0) as u64,
         }
     }
@@ -252,15 +252,82 @@ fn sort_items(items: &mut [LibraryAutomation]) {
     });
 }
 
-fn preview_from_output(output: &str, action_type: &str) -> String {
-    let collapsed = output.split_whitespace().collect::<Vec<_>>().join(" ");
-    if !collapsed.is_empty() {
-        collapsed
-    } else if action_type.eq_ignore_ascii_case("script") {
-        "Script preview unavailable.".to_string()
-    } else {
-        "No preview available.".to_string()
+fn preview_from_item(item: &AutomationListItem) -> String {
+    if let Some(description) = normalized_preview_text(item.description.as_deref()) {
+        return description;
     }
+
+    if item.action_type.eq_ignore_ascii_case("script") {
+        if let Some(script_content) = normalized_preview_text(item.script_content.as_deref()) {
+            return script_content;
+        }
+
+        if let Some(output) = normalized_preview_text(Some(item.output.as_str()))
+            && !is_script_placeholder(&output)
+        {
+            return output;
+        }
+
+        return "Script preview unavailable.".to_string();
+    }
+
+    if let Some(output) = normalized_preview_text(Some(item.output.as_str())) {
+        return output;
+    }
+
+    if let Some(script_content) = normalized_preview_text(item.script_content.as_deref()) {
+        return script_content;
+    }
+
+    "No preview available.".to_string()
+}
+
+fn build_search_text(
+    item: &AutomationListItem,
+    kind_label: &str,
+    display_target_os: &str,
+) -> String {
+    let mut parts = vec![
+        item.trigger.as_str(),
+        item.output.as_str(),
+        kind_label,
+        display_target_os,
+        item.target_os.as_str(),
+    ];
+
+    if let Some(description) = item.description.as_deref() {
+        parts.push(description);
+    }
+
+    if let Some(script_content) = item.script_content.as_deref() {
+        parts.push(script_content);
+    }
+
+    parts
+        .into_iter()
+        .filter_map(|part| normalized_preview_text(Some(part)))
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase()
+}
+
+fn normalized_preview_text(value: Option<&str>) -> Option<String> {
+    let value = value?;
+    let first_non_empty = value
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or(value.trim());
+
+    let collapsed = first_non_empty
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    (!collapsed.is_empty()).then_some(collapsed)
+}
+
+fn is_script_placeholder(value: &str) -> bool {
+    value.starts_with("[Script:") && value.ends_with(']')
 }
 
 fn display_target_os(target_os: &str) -> &str {
@@ -279,15 +346,19 @@ fn display_target_os(target_os: &str) -> &str {
 mod tests {
     use super::*;
 
+    #[allow(clippy::too_many_arguments)]
     fn list_item(
+        description: Option<&str>,
         trigger_type: TriggerType,
         trigger: &str,
         output: &str,
         action_type: &str,
         target_os: &str,
         usage_count: i64,
+        script_content: Option<&str>,
     ) -> AutomationListItem {
         AutomationListItem {
+            description: description.map(str::to_string),
             trigger_type,
             trigger: trigger.to_string(),
             output: output.to_string(),
@@ -296,6 +367,7 @@ mod tests {
             usage_count,
             last_used_at: None,
             created_at: 0,
+            script_content: script_content.map(str::to_string),
             interpreter: None,
             behavior: None,
         }
@@ -305,28 +377,34 @@ mod tests {
         let mut state = LibraryPageState::default();
         state.replace_items(vec![
             LibraryAutomation::from(list_item(
+                None,
                 TriggerType::Word,
                 "gm",
                 "Good Morning",
                 "text",
                 "all",
                 9,
+                None,
             )),
             LibraryAutomation::from(list_item(
+                None,
                 TriggerType::Word,
                 "deploy",
-                "npm run build && npm publish",
+                "[Script: bash]",
                 "script",
                 "linux",
                 4,
+                Some("npm run build && npm publish"),
             )),
             LibraryAutomation::from(list_item(
+                Some("Open Reddit"),
                 TriggerType::Hotkey,
                 "alt+r",
-                "Start-Process https://reddit.com",
+                "[Script: powershell]",
                 "script",
                 "win",
                 6,
+                Some("Start-Process https://reddit.com"),
             )),
         ]);
         state
@@ -335,12 +413,14 @@ mod tests {
     #[test]
     fn word_text_maps_to_snippet() {
         let item = LibraryAutomation::from(list_item(
+            None,
             TriggerType::Word,
             "gm",
             "Good Morning",
             "text",
             "all",
             9,
+            None,
         ));
         assert_eq!(item.kind_label(), "snippet");
     }
@@ -348,12 +428,14 @@ mod tests {
     #[test]
     fn word_script_maps_to_script() {
         let item = LibraryAutomation::from(list_item(
+            None,
             TriggerType::Word,
             "deploy",
-            "npm publish",
+            "[Script: bash]",
             "script",
             "all",
             4,
+            Some("npm publish"),
         ));
         assert_eq!(item.kind_label(), "script");
     }
@@ -361,12 +443,14 @@ mod tests {
     #[test]
     fn hotkey_text_maps_to_hotkey_snippet() {
         let item = LibraryAutomation::from(list_item(
+            None,
             TriggerType::Hotkey,
             "alt+t",
             "Thanks!",
             "text",
             "all",
             12,
+            None,
         ));
         assert_eq!(item.kind_label(), "hotkey snippet");
     }
@@ -374,14 +458,81 @@ mod tests {
     #[test]
     fn hotkey_script_maps_to_hotkey_script() {
         let item = LibraryAutomation::from(list_item(
+            None,
             TriggerType::Hotkey,
             "alt+r",
-            "Start-Process https://reddit.com",
+            "[Script: powershell]",
             "script",
             "win",
             6,
+            Some("Start-Process https://reddit.com"),
         ));
         assert_eq!(item.kind_label(), "hotkey script");
+    }
+
+    #[test]
+    fn preview_prefers_description_before_other_content() {
+        let item = LibraryAutomation::from(list_item(
+            Some("Open Reddit"),
+            TriggerType::Hotkey,
+            "alt+r",
+            "[Script: powershell]",
+            "script",
+            "win",
+            6,
+            Some("Start-Process https://reddit.com"),
+        ));
+
+        assert_eq!(item.preview(), "Open Reddit");
+    }
+
+    #[test]
+    fn preview_falls_back_to_text_output_when_description_is_empty() {
+        let item = LibraryAutomation::from(list_item(
+            Some("   "),
+            TriggerType::Word,
+            "gm",
+            "Good Morning",
+            "text",
+            "all",
+            9,
+            None,
+        ));
+
+        assert_eq!(item.preview(), "Good Morning");
+    }
+
+    #[test]
+    fn preview_falls_back_to_script_content_when_description_is_empty() {
+        let item = LibraryAutomation::from(list_item(
+            None,
+            TriggerType::Hotkey,
+            "alt+r",
+            "[Script: powershell]",
+            "script",
+            "win",
+            6,
+            Some("Start-Process https://reddit.com"),
+        ));
+
+        assert_eq!(item.preview(), "Start-Process https://reddit.com");
+    }
+
+    #[test]
+    fn script_preview_does_not_use_script_language_placeholder() {
+        let item = LibraryAutomation::from(list_item(
+            None,
+            TriggerType::Word,
+            "deploy",
+            "[Script: bash]",
+            "script",
+            "all",
+            4,
+            Some("npm run build && npm publish"),
+        ));
+
+        assert_ne!(item.preview(), "[Script: bash]");
+        assert_eq!(item.preview(), "npm run build && npm publish");
     }
 
     #[test]
@@ -399,12 +550,36 @@ mod tests {
     fn search_matches_preview() {
         let mut state = sample_state();
         state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
-        for ch in "morning".chars() {
+        for ch in "publish".chars() {
             state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
         }
 
         assert_eq!(state.filtered_len(), 1);
-        assert_eq!(state.item_at_filtered(0).unwrap().trigger(), "gm");
+        assert_eq!(state.item_at_filtered(0).unwrap().trigger(), "deploy");
+    }
+
+    #[test]
+    fn search_matches_description_when_available() {
+        let mut state = sample_state();
+        state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+        for ch in "open".chars() {
+            state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+        }
+
+        assert_eq!(state.filtered_len(), 1);
+        assert_eq!(state.item_at_filtered(0).unwrap().trigger(), "alt+r");
+    }
+
+    #[test]
+    fn search_matches_script_content_even_when_description_is_visible() {
+        let mut state = sample_state();
+        state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+        for ch in "start-process".chars() {
+            state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+        }
+
+        assert_eq!(state.filtered_len(), 1);
+        assert_eq!(state.item_at_filtered(0).unwrap().trigger(), "alt+r");
     }
 
     #[test]
@@ -492,12 +667,14 @@ mod tests {
     #[test]
     fn metadata_uses_double_slash_separator() {
         let item = LibraryAutomation::from(list_item(
+            None,
             TriggerType::Word,
             "gm",
             "Good Morning",
             "text",
             "all",
             9,
+            None,
         ));
 
         assert_eq!(item.metadata_label(), "all // 9 uses");
