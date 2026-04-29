@@ -206,8 +206,15 @@ pub(crate) struct LibraryDeleteModalState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LibrarySelectState {
+    title: &'static str,
     pub(crate) options: Vec<String>,
     pub(crate) selected: usize,
+}
+
+impl LibrarySelectState {
+    pub(crate) const fn title(&self) -> &'static str {
+        self.title
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -623,7 +630,11 @@ impl LibraryEditorModalState {
                     .iter()
                     .position(|&k| k == self.kind)
                     .unwrap_or(0);
-                self.selector = Some(LibrarySelectState { options, selected });
+                self.selector = Some(LibrarySelectState {
+                    title: "Select Kind",
+                    options,
+                    selected,
+                });
                 LibraryInteraction::handled()
             }
             _ => LibraryInteraction::handled(),
@@ -673,7 +684,11 @@ impl LibraryEditorModalState {
                     .iter()
                     .position(|&v| v == self.target_os)
                     .unwrap_or(0);
-                self.selector = Some(LibrarySelectState { options, selected });
+                self.selector = Some(LibrarySelectState {
+                    title: "Select Target OS",
+                    options,
+                    selected,
+                });
                 LibraryInteraction::handled()
             }
             _ => LibraryInteraction::handled(),
@@ -1559,6 +1574,7 @@ fn build_search_text(
     display_target_os: &str,
 ) -> String {
     let mut parts = vec![
+        item.name.as_str(),
         item.trigger.as_str(),
         item.output.as_str(),
         kind_label,
@@ -1598,9 +1614,8 @@ fn normalized_preview_text(value: Option<&str>) -> Option<String> {
 }
 
 fn normalized_modal_text(value: Option<&str>) -> Option<String> {
-    let trimmed = value?.replace("\r\n", "\n");
-    let trimmed = trimmed.trim();
-    (!trimmed.is_empty()).then_some(trimmed.to_string())
+    let value = value?.replace("\r\n", "\n");
+    (!value.is_empty()).then_some(value)
 }
 
 fn is_script_placeholder(value: &str) -> bool {
@@ -2022,6 +2037,34 @@ mod tests {
     }
 
     #[test]
+    fn search_matches_name_when_it_differs_from_trigger() {
+        let mut state = LibraryPageState::default();
+        state.replace_items(vec![LibraryAutomation::from(AutomationListItem {
+            id: "id-alt+r".to_string(),
+            name: "Reddit opener".to_string(),
+            description: Some("Open Reddit".to_string()),
+            trigger_type: TriggerType::Hotkey,
+            trigger: "alt+r".to_string(),
+            output: "[Script: powershell]".to_string(),
+            action_type: "script".to_string(),
+            target_os: "win".to_string(),
+            usage_count: 6,
+            last_used_at: None,
+            created_at: 0,
+            script_content: Some("Start-Process https://reddit.com".to_string()),
+            interpreter: None,
+            behavior: None,
+        })]);
+        state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+        for ch in "reddit opener".chars() {
+            state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+        }
+
+        assert_eq!(state.filtered_len(), 1);
+        assert_eq!(state.item_at_filtered(0).unwrap().trigger(), "alt+r");
+    }
+
+    #[test]
     fn search_matches_script_content_even_when_description_is_visible() {
         let mut state = sample_state();
         state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
@@ -2130,6 +2173,75 @@ mod tests {
         ));
 
         assert_eq!(item.metadata_label(), "all // 9 uses");
+    }
+
+    #[test]
+    fn normalized_modal_text_preserves_meaningful_outer_whitespace() {
+        assert_eq!(
+            normalized_modal_text(Some("  padded body  ")).as_deref(),
+            Some("  padded body  ")
+        );
+        assert_eq!(
+            normalized_modal_text(Some("first\r\nsecond")).as_deref(),
+            Some("first\nsecond")
+        );
+    }
+
+    #[test]
+    fn kind_selector_uses_kind_title() {
+        let detail = LibraryAutomationDetail::from_row(automation_row(
+            TriggerType::Word,
+            "gm",
+            "Good Morning",
+            "text",
+            "all",
+            9,
+            None,
+        ))
+        .unwrap();
+        let mut state = sample_state();
+        state.open_editor_modal(detail);
+
+        state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        let Some(LibraryModal::Editor(modal)) = state.modal() else {
+            panic!("expected editor modal");
+        };
+        assert_eq!(
+            modal.selector().map(LibrarySelectState::title),
+            Some("Select Kind")
+        );
+    }
+
+    #[test]
+    fn target_os_selector_uses_target_os_title() {
+        let detail = LibraryAutomationDetail::from_row(automation_row(
+            TriggerType::Word,
+            "gm",
+            "Good Morning",
+            "text",
+            "all",
+            9,
+            None,
+        ))
+        .unwrap();
+        let mut state = sample_state();
+        state.open_editor_modal(detail);
+
+        state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        let Some(LibraryModal::Editor(modal)) = state.modal() else {
+            panic!("expected editor modal");
+        };
+        assert_eq!(
+            modal.selector().map(LibrarySelectState::title),
+            Some("Select Target OS")
+        );
     }
 
     #[test]

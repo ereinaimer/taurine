@@ -43,7 +43,19 @@ pub fn infer_interpreter(
 
     if content.starts_with("#!") {
         let first_line = content.lines().next().unwrap_or("");
-        if first_line.contains("bash") || first_line.contains("sh") {
+        let shebang = first_line
+            .trim_start_matches("#!")
+            .trim()
+            .replace('\\', "/")
+            .to_ascii_lowercase();
+        let shebang_words: Vec<&str> = shebang.split_whitespace().collect();
+
+        if shebang.contains("pwsh") || shebang.contains("powershell") {
+            return Some(ScriptInterpreter::PowerShell);
+        }
+        if shebang_words.iter().any(|word| {
+            *word == "bash" || *word == "sh" || word.ends_with("/bash") || word.ends_with("/sh")
+        }) {
             return Some(ScriptInterpreter::Bash);
         }
         if first_line.contains("python") {
@@ -106,6 +118,10 @@ mod tests {
     fn infer_interpreter_prefers_extension_then_shebang() {
         assert_eq!(
             infer_interpreter(Some(std::path::Path::new("test.ps1")), "#!/bin/bash"),
+            Some(ScriptInterpreter::PowerShell)
+        );
+        assert_eq!(
+            infer_interpreter(None, "#!/usr/bin/env pwsh\nWrite-Host 'hello'"),
             Some(ScriptInterpreter::PowerShell)
         );
         assert_eq!(

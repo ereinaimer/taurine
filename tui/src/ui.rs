@@ -224,6 +224,8 @@ fn home_footer_with_nav(home_footer: &str) -> &str {
     match home_footer {
         "x Start   q Quit" => "Ctrl+B Nav   x Start   q Quit",
         "x Stop   q Quit" => "Ctrl+B Nav   x Stop   q Quit",
+        "Starting...   q Quit" => "Ctrl+B Nav   Starting...   q Quit",
+        "Stopping...   q Quit" => "Ctrl+B Nav   Stopping...   q Quit",
         "" => NAV_TOGGLE_HINT,
         _ => "Ctrl+B Nav",
     }
@@ -1219,7 +1221,7 @@ fn render_library_select_modal(frame: &mut Frame, area: Rect, state: &LibrarySel
     };
     let popup = centered_rect(width, height, area);
     frame.render_widget(Clear, popup);
-    let inner = render_modal_block(frame, popup, "Select Kind");
+    let inner = render_modal_block(frame, popup, state.title());
 
     let items: Vec<ListItem> = state
         .options
