@@ -23,6 +23,13 @@ pub(crate) enum LibraryKind {
 }
 
 impl LibraryKind {
+    pub(crate) const ALL: [Self; 4] = [
+        Self::Snippet,
+        Self::Script,
+        Self::HotkeySnippet,
+        Self::HotkeyScript,
+    ];
+
     pub(crate) fn from_parts(trigger_type: TriggerType, action_type: &str) -> Self {
         let is_script = action_type.eq_ignore_ascii_case("script");
 
@@ -52,15 +59,6 @@ impl LibraryKind {
 
     fn is_script(self) -> bool {
         matches!(self, Self::Script | Self::HotkeyScript)
-    }
-
-    fn next(self) -> Self {
-        match self {
-            Self::Snippet => Self::Script,
-            Self::Script => Self::HotkeySnippet,
-            Self::HotkeySnippet => Self::HotkeyScript,
-            Self::HotkeyScript => Self::Snippet,
-        }
     }
 
     fn trigger_type(self) -> TriggerType {
@@ -185,6 +183,12 @@ impl LibraryMetadataRow {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LibrarySelectState {
+    pub(crate) options: Vec<String>,
+    pub(crate) selected: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LibraryAutomationDetail {
     id: String,
     name: String,
@@ -295,6 +299,7 @@ pub(crate) struct LibraryEditorModalState {
     focus: LibraryModalField,
     content_scroll: usize,
     error: Option<String>,
+    selector: Option<LibrarySelectState>,
 }
 
 impl LibraryEditorModalState {
@@ -314,6 +319,7 @@ impl LibraryEditorModalState {
             content_scroll: 0,
             error: None,
             original: automation,
+            selector: None,
         }
     }
 
@@ -382,6 +388,10 @@ impl LibraryEditorModalState {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        if self.selector.is_some() {
+            return self.handle_selector_key(key);
+        }
+
         self.error = None;
 
         if matches!(key.code, KeyCode::Char('s' | 'S'))
@@ -548,7 +558,47 @@ impl LibraryEditorModalState {
     fn handle_kind_key(&mut self, key: KeyEvent) -> LibraryInteraction {
         match (key.code, key.modifiers) {
             (KeyCode::Char(' '), KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
-                self.kind = self.kind.next();
+                let options = LibraryKind::ALL
+                    .iter()
+                    .map(|k| k.label().to_string())
+                    .collect();
+                let selected = LibraryKind::ALL
+                    .iter()
+                    .position(|&k| k == self.kind)
+                    .unwrap_or(0);
+                self.selector = Some(LibrarySelectState { options, selected });
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    fn handle_selector_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        let Some(selector) = self.selector.as_mut() else {
+            return LibraryInteraction::handled();
+        };
+
+        match (key.code, key.modifiers) {
+            (KeyCode::Esc, KeyModifiers::NONE) => {
+                self.selector = None;
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Enter, KeyModifiers::NONE) => {
+                if self.focus == LibraryModalField::Kind {
+                    self.kind = LibraryKind::ALL[selector.selected];
+                } else if self.focus == LibraryModalField::TargetOs {
+                    self.target_os = SUPPORTED_TARGET_OS_VALUES[selector.selected].to_string();
+                }
+                self.selector = None;
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Char('j'), KeyModifiers::NONE) | (KeyCode::Down, KeyModifiers::NONE) => {
+                selector.selected =
+                    (selector.selected + 1).min(selector.options.len().saturating_sub(1));
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Char('k'), KeyModifiers::NONE) | (KeyCode::Up, KeyModifiers::NONE) => {
+                selector.selected = selector.selected.saturating_sub(1);
                 LibraryInteraction::handled()
             }
             _ => LibraryInteraction::handled(),
@@ -558,7 +608,15 @@ impl LibraryEditorModalState {
     fn handle_target_os_key(&mut self, key: KeyEvent) -> LibraryInteraction {
         match (key.code, key.modifiers) {
             (KeyCode::Char(' '), KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
-                self.target_os = next_target_os_value(&self.target_os).to_string();
+                let options = SUPPORTED_TARGET_OS_VALUES
+                    .iter()
+                    .map(|v| display_target_os(v).to_string())
+                    .collect();
+                let selected = SUPPORTED_TARGET_OS_VALUES
+                    .iter()
+                    .position(|&v| v == self.target_os)
+                    .unwrap_or(0);
+                self.selector = Some(LibrarySelectState { options, selected });
                 LibraryInteraction::handled()
             }
             _ => LibraryInteraction::handled(),
@@ -669,6 +727,18 @@ impl LibraryEditorModalState {
 
     fn follow_content_cursor(&mut self) {
         self.content_scroll = self.current_content_line().saturating_sub(2);
+    }
+
+    pub(crate) fn footer_text(&self) -> &'static str {
+        if self.selector.is_some() {
+            "j/k Move   ↑/↓ Move   Enter Save   Esc Cancel"
+        } else {
+            LIBRARY_MODAL_FOOTER
+        }
+    }
+
+    pub(crate) fn selector(&self) -> Option<&LibrarySelectState> {
+        self.selector.as_ref()
     }
 }
 
@@ -816,8 +886,10 @@ impl LibraryPageState {
     }
 
     pub(crate) fn footer_text(&self) -> &'static str {
-        if self.modal.is_some() {
-            LIBRARY_MODAL_FOOTER
+        if let Some(LibraryModal::Editor(state)) = &self.modal {
+            state.footer_text()
+        } else if self.search_mode {
+            "Type Search   Enter Finish   Esc Cancel"
         } else {
             LIBRARY_FOOTER
         }
@@ -1004,14 +1076,6 @@ fn sort_items(items: &mut [LibraryAutomation]) {
             .then_with(|| left.target_os.cmp(&right.target_os))
             .then_with(|| left.preview.cmp(&right.preview))
     });
-}
-
-fn next_target_os_value(current: &str) -> &'static str {
-    SUPPORTED_TARGET_OS_VALUES
-        .iter()
-        .position(|value| *value == current)
-        .map(|index| SUPPORTED_TARGET_OS_VALUES[(index + 1) % SUPPORTED_TARGET_OS_VALUES.len()])
-        .unwrap_or(SUPPORTED_TARGET_OS_VALUES[0])
 }
 
 fn char_index_to_byte_index(value: &str, char_index: usize) -> usize {
@@ -1962,7 +2026,7 @@ mod tests {
     }
 
     #[test]
-    fn kind_cycles_through_all_user_facing_labels() {
+    fn kind_selector_updates_kind_on_enter() {
         let mut modal = LibraryEditorModalState::new(
             LibraryAutomationDetail::from_row(automation_row(
                 TriggerType::Word,
@@ -1979,21 +2043,16 @@ mod tests {
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
 
         modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(modal.selector().is_some());
+        modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
         assert_eq!(modal.kind_label(), "script");
         assert_eq!(modal.content_label(), "Script");
-
-        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert_eq!(modal.kind_label(), "hotkey snippet");
-
-        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert_eq!(modal.kind_label(), "hotkey script");
-
-        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert_eq!(modal.kind_label(), "snippet");
     }
 
     #[test]
-    fn target_os_cycles_through_supported_values() {
+    fn target_os_selector_updates_target_os_on_enter() {
         let mut modal = LibraryEditorModalState::new(
             LibraryAutomationDetail::from_row(automation_row(
                 TriggerType::Word,
@@ -2011,6 +2070,10 @@ mod tests {
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
 
         modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(modal.selector().is_some());
+        modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
         assert_eq!(modal.target_os(), "windows");
     }
 
