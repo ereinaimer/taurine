@@ -32,10 +32,11 @@ const SCRIPT_LANGUAGE_OPTIONS: [ScriptInterpreter; 6] = [
     ScriptInterpreter::Cmd,
 ];
 const SCRIPT_MODE_OPTIONS: [ScriptBehavior; 2] = [ScriptBehavior::Inline, ScriptBehavior::Silent];
-const EXPORT_ENCRYPTION_OPTIONS: [LibraryExportModalField; 5] = [
+const EXPORT_ENCRYPTION_OPTIONS: [LibraryExportModalField; 6] = [
     LibraryExportModalField::Path,
     LibraryExportModalField::Encrypt,
     LibraryExportModalField::Password,
+    LibraryExportModalField::PasswordToggle,
     LibraryExportModalField::IncludeSettings,
     LibraryExportModalField::IncludeMetrics,
 ];
@@ -183,6 +184,7 @@ pub(crate) enum LibraryExportModalField {
     Path,
     Encrypt,
     Password,
+    PasswordToggle,
     IncludeSettings,
     IncludeMetrics,
 }
@@ -351,7 +353,7 @@ impl LibraryExportModalState {
     }
 
     pub(crate) fn footer_text(&self) -> &'static str {
-        if self.encrypt && self.focus == LibraryExportModalField::Password {
+        if self.encrypt && self.focus == LibraryExportModalField::PasswordToggle {
             LIBRARY_EXPORT_PASSWORD_FOOTER
         } else {
             LIBRARY_EXPORT_MODAL_FOOTER
@@ -414,6 +416,7 @@ impl LibraryExportModalState {
             LibraryExportModalField::Path => self.handle_path_key(key),
             LibraryExportModalField::Encrypt => self.handle_encrypt_key(key),
             LibraryExportModalField::Password => self.handle_password_key(key),
+            LibraryExportModalField::PasswordToggle => self.handle_password_toggle_key(key),
             LibraryExportModalField::IncludeSettings => self.handle_include_settings_key(key),
             LibraryExportModalField::IncludeMetrics => self.handle_include_metrics_key(key),
         }
@@ -471,10 +474,6 @@ impl LibraryExportModalState {
 
     fn handle_password_key(&mut self, key: KeyEvent) -> LibraryInteraction {
         match (key.code, key.modifiers) {
-            (KeyCode::Enter, KeyModifiers::NONE) => {
-                self.show_password = !self.show_password;
-                LibraryInteraction::handled()
-            }
             (KeyCode::Left, KeyModifiers::NONE) => {
                 self.password_cursor = self.password_cursor.saturating_sub(1);
                 LibraryInteraction::handled()
@@ -504,6 +503,16 @@ impl LibraryExportModalState {
                 if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
                 self.insert_password_char(ch);
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    fn handle_password_toggle_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Char(' '), KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
+                self.show_password = !self.show_password;
                 LibraryInteraction::handled()
             }
             _ => LibraryInteraction::handled(),
@@ -2916,11 +2925,14 @@ mod tests {
         let Some(LibraryModal::Export(modal)) = state.modal.as_mut() else {
             panic!("expected export modal");
         };
+        // Tab to Password, type, then Tab to PasswordToggle
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         for ch in "secret".chars() {
             modal.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
         }
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(modal.focus(), LibraryExportModalField::PasswordToggle);
 
         modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(modal.show_password());
@@ -2934,16 +2946,28 @@ mod tests {
     }
 
     #[test]
-    fn export_modal_password_footer_includes_show_hide_hint_when_focused() {
+    fn export_modal_password_footer_includes_show_hide_hint_when_toggle_focused() {
         let mut state = sample_state();
         state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
 
-        let Some(LibraryModal::Export(modal)) = state.modal.as_mut() else {
-            panic!("expected export modal");
-        };
-        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        // Tab to Password, then Tab to PasswordToggle
+        {
+            let Some(LibraryModal::Export(modal)) = state.modal.as_mut() else {
+                panic!("expected export modal");
+            };
+            modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+            modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+            assert_eq!(modal.focus(), LibraryExportModalField::Password);
+        }
+        assert_eq!(state.footer_text(), LIBRARY_EXPORT_MODAL_FOOTER);
 
+        {
+            let Some(LibraryModal::Export(modal)) = state.modal.as_mut() else {
+                panic!("expected export modal");
+            };
+            modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+            assert_eq!(modal.focus(), LibraryExportModalField::PasswordToggle);
+        }
         assert_eq!(state.footer_text(), LIBRARY_EXPORT_PASSWORD_FOOTER);
     }
 
@@ -2955,14 +2979,18 @@ mod tests {
         let Some(LibraryModal::Export(modal)) = state.modal.as_mut() else {
             panic!("expected export modal");
         };
+        // Tab to Password, type, Tab to PasswordToggle, toggle show
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         for ch in "secret".chars() {
             modal.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
         }
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(modal.show_password());
 
+        // BackTab twice: PasswordToggle -> Password -> Encrypt
+        modal.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
         modal.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
         modal.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
 

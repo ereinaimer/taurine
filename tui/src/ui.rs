@@ -524,37 +524,22 @@ fn render_library_export_modal(frame: &mut Frame, area: Rect, state: &LibraryExp
     } else {
         area.width.max(1)
     };
-    let height = if state.encrypt() { 11 } else { 9 };
+    let height = if state.encrypt() { 11 } else { 10 };
     let popup = centered_rect(width, height, area);
     frame.render_widget(Clear, popup);
     let inner = render_modal_block(frame, popup, "Export Automations");
 
-    let constraints = if state.encrypt() {
-        vec![
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(0),
-        ]
-    } else {
-        vec![
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(0),
-        ]
-    };
     let sections = Layout::default()
         .direction(Direction::Vertical)
-        .constraints(constraints)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
+        ])
         .split(inner);
 
     render_modal_field_label(
@@ -582,24 +567,20 @@ fn render_library_export_modal(frame: &mut Frame, area: Rect, state: &LibraryExp
     );
 
     let mut next_row = 3usize;
-    let mut password_text_area = None;
     if state.encrypt() {
-        render_modal_field_label(
+        render_modal_password_row(
             frame,
             sections[3],
             "Password",
-            state.focus() == LibraryExportModalField::Password,
-            None,
-        );
-        password_text_area = Some(render_modal_password_field(
-            frame,
-            sections[4],
             &state.password_display_value(),
             state.password_cursor(),
             state.password_toggle_label(),
-            state.focus() == LibraryExportModalField::Password,
-        ));
-        next_row = 5;
+            PasswordRowFocus {
+                password: state.focus() == LibraryExportModalField::Password,
+                toggle: state.focus() == LibraryExportModalField::PasswordToggle,
+            },
+        );
+        next_row = 4;
     }
 
     render_modal_key_value_row(
@@ -645,12 +626,10 @@ fn render_library_export_modal(frame: &mut Frame, area: Rect, state: &LibraryExp
             ));
         }
         LibraryExportModalField::Password if state.encrypt() => {
-            let Some(password_text_area) = password_text_area else {
-                return;
-            };
+            let label_width = sections[3].width.min(12);
             frame.set_cursor_position((
-                password_text_area.x + state.password_cursor() as u16,
-                password_text_area.y,
+                sections[3].x + label_width + state.password_cursor() as u16,
+                sections[3].y,
             ));
         }
         _ => {}
@@ -887,67 +866,89 @@ fn render_modal_input_field(
     frame.render_widget(text.style(text_style), inner);
 }
 
-fn render_modal_password_field(
+struct PasswordRowFocus {
+    password: bool,
+    toggle: bool,
+}
+
+fn render_modal_password_row(
     frame: &mut Frame,
     area: Rect,
+    label: &str,
     value: &str,
     cursor: usize,
     toggle_label: &str,
-    focused: bool,
-) -> Rect {
-    let bg = if focused {
+    focus: PasswordRowFocus,
+) {
+    let password_focused = focus.password;
+    let toggle_focused = focus.toggle;
+    let selected = password_focused || toggle_focused;
+    let bg = if selected {
         SELECTED_ROW_BG_COLOR
     } else {
-        INPUT_BG_COLOR
+        Color::Reset
     };
-    let text_style = if focused {
+    frame.render_widget(Block::default().style(Style::default().bg(bg)), area);
+
+    let label_width = area.width.min(12);
+    let toggle_width = (toggle_label.chars().count() as u16)
+        .saturating_add(1)
+        .min(area.width.saturating_sub(label_width));
+    let sections = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(label_width),
+            Constraint::Min(0),
+            Constraint::Length(toggle_width),
+        ])
+        .split(area);
+
+    let label_style = if selected {
         Style::default()
             .fg(ACCENT_COLOR)
             .bg(bg)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(ACCENT_COLOR).bg(bg)
+        Style::default().fg(MUTED_TEXT_COLOR)
     };
-    let toggle_style = if focused {
+    let value_style = if password_focused {
         Style::default()
-            .fg(MUTED_TEXT_COLOR)
+            .fg(ACCENT_COLOR)
             .bg(bg)
             .add_modifier(Modifier::BOLD)
+    } else if selected {
+        Style::default().fg(ACCENT_COLOR).bg(bg)
+    } else {
+        Style::default().fg(ACCENT_COLOR)
+    };
+    let toggle_style = if toggle_focused {
+        Style::default()
+            .fg(ACCENT_COLOR)
+            .bg(bg)
+            .add_modifier(Modifier::BOLD)
+    } else if selected {
+        Style::default().fg(MUTED_TEXT_COLOR).bg(bg)
     } else {
         Style::default()
             .fg(MUTED_TEXT_COLOR)
-            .bg(bg)
             .add_modifier(Modifier::DIM)
     };
 
-    let block = Block::default()
-        .style(Style::default().bg(bg))
-        .padding(Padding::new(1, 1, 0, 0));
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    frame.render_widget(Paragraph::new(label).style(label_style), sections[0]);
 
-    let toggle_width = (toggle_label.chars().count() as u16)
-        .saturating_add(1)
-        .min(inner.width);
-    let sections = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(0), Constraint::Length(toggle_width)])
-        .split(inner);
-
-    let text = if focused {
+    let text = if password_focused {
         Paragraph::new(input_cursor_line(value, cursor))
     } else {
-        Paragraph::new(value.to_string())
+        Paragraph::new(truncate_to_width(value, sections[1].width))
     };
-    frame.render_widget(text.style(text_style), sections[0]);
+    frame.render_widget(text.style(value_style), sections[1]);
+
     frame.render_widget(
         Paragraph::new(toggle_label)
             .alignment(Alignment::Right)
             .style(toggle_style),
-        sections[1],
+        sections[2],
     );
-
-    sections[0]
 }
 
 fn render_modal_content_field(frame: &mut Frame, area: Rect, state: &LibraryEditorModalState) {
