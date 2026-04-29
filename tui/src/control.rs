@@ -1,3 +1,6 @@
+use std::thread;
+use std::time::Duration;
+
 use crate::status::{DaemonStatus, probe_daemon_status};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,15 +43,28 @@ impl DaemonController for SystemDaemonController {
 
 pub(crate) const fn action_for_status(status: DaemonStatus) -> LifecycleAction {
     match status {
-        DaemonStatus::Stopped => LifecycleAction::Start,
-        DaemonStatus::Running | DaemonStatus::Paused => LifecycleAction::Stop,
+        DaemonStatus::Stopped | DaemonStatus::Stopping => LifecycleAction::Start,
+        DaemonStatus::Running | DaemonStatus::Paused | DaemonStatus::Starting => {
+            LifecycleAction::Stop
+        }
     }
 }
 
 pub(crate) const fn home_footer_label(status: DaemonStatus) -> &'static str {
-    match action_for_status(status) {
-        LifecycleAction::Start => "x Start   q Quit",
-        LifecycleAction::Stop => "x Stop   q Quit",
+    match status {
+        DaemonStatus::Starting => "Starting...   q Quit",
+        DaemonStatus::Stopping => "Stopping...   q Quit",
+        _ => match action_for_status(status) {
+            LifecycleAction::Start => "x Start   q Quit",
+            LifecycleAction::Stop => "x Stop   q Quit",
+        },
+    }
+}
+
+pub(crate) const fn transition_status_for_action(action: LifecycleAction) -> DaemonStatus {
+    match action {
+        LifecycleAction::Start => DaemonStatus::Starting,
+        LifecycleAction::Stop => DaemonStatus::Stopping,
     }
 }
 
@@ -58,15 +74,45 @@ pub(crate) fn toggle_daemon<C: DaemonController>(
 ) -> taurine_core::Result<LifecycleOutcome> {
     let action = action_for_status(current_status);
 
-    match action {
-        LifecycleAction::Start => controller.start()?,
-        LifecycleAction::Stop => controller.stop()?,
-    }
+    let status = match action {
+        LifecycleAction::Start => {
+            controller.start()?;
+            wait_for_started_status()
+        }
+        LifecycleAction::Stop => {
+            controller.stop()?;
+            None
+        }
+    };
 
     Ok(LifecycleOutcome {
         action,
-        status: probe_daemon_status(),
+        status: status.unwrap_or_else(probe_daemon_status),
     })
+}
+
+fn wait_for_started_status() -> Option<DaemonStatus> {
+    #[cfg(test)]
+    const STARTUP_PROBE_ATTEMPTS: usize = 1;
+    #[cfg(not(test))]
+    const STARTUP_PROBE_ATTEMPTS: usize = 6;
+    #[cfg(test)]
+    const STARTUP_PROBE_DELAY: Duration = Duration::from_millis(0);
+    #[cfg(not(test))]
+    const STARTUP_PROBE_DELAY: Duration = Duration::from_millis(200);
+
+    for attempt in 0..STARTUP_PROBE_ATTEMPTS {
+        let status = probe_daemon_status();
+        if status != DaemonStatus::Stopped {
+            return Some(status);
+        }
+
+        if attempt + 1 < STARTUP_PROBE_ATTEMPTS {
+            thread::sleep(STARTUP_PROBE_DELAY);
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]
@@ -130,6 +176,22 @@ mod tests {
     #[test]
     fn home_footer_is_start_for_stopped() {
         assert_eq!(home_footer_label(DaemonStatus::Stopped), "x Start   q Quit");
+    }
+
+    #[test]
+    fn home_footer_shows_transition_message_while_starting() {
+        assert_eq!(
+            home_footer_label(DaemonStatus::Starting),
+            "Starting...   q Quit"
+        );
+    }
+
+    #[test]
+    fn home_footer_shows_transition_message_while_stopping() {
+        assert_eq!(
+            home_footer_label(DaemonStatus::Stopping),
+            "Stopping...   q Quit"
+        );
     }
 
     #[test]

@@ -13,7 +13,10 @@ use std::io;
 use std::time::{Duration, Instant};
 
 use app::{App, Page};
-use control::{DaemonController, SystemDaemonController, toggle_daemon};
+use control::{
+    DaemonController, SystemDaemonController, action_for_status, toggle_daemon,
+    transition_status_for_action,
+};
 use crossterm::{
     cursor::Show,
     execute,
@@ -106,9 +109,20 @@ fn handle_tui_key_event<C: DaemonController>(
         && key.modifiers == crossterm::event::KeyModifiers::NONE
         && app.active_page() == Page::Home
     {
-        match toggle_daemon(daemon_controller, app.daemon_status()) {
+        let current_status = app.daemon_status();
+        if current_status.is_transitioning() {
+            return;
+        }
+
+        let action = action_for_status(current_status);
+        app.set_daemon_status(transition_status_for_action(action));
+
+        match toggle_daemon(daemon_controller, current_status) {
             Ok(outcome) => app.set_daemon_status(outcome.status),
-            Err(err) => error!(error = %err, "Failed to toggle daemon lifecycle from the TUI"),
+            Err(err) => {
+                app.set_daemon_status(status::probe_daemon_status());
+                error!(error = %err, "Failed to toggle daemon lifecycle from the TUI");
+            }
         }
     }
 }
@@ -222,6 +236,9 @@ fn load_library_automation_detail(
     let Some(automation) = taurine_core::db::crud::get_automation(&conn, id)? else {
         return Ok(None);
     };
+    if automation.is_deleted || !automation.is_enabled {
+        return Ok(None);
+    }
 
     library::LibraryAutomationDetail::from_row(automation).map(Some)
 }
@@ -383,6 +400,19 @@ mod tests {
 
         assert_eq!(controller.start_calls.get(), 0);
         assert_eq!(controller.stop_calls.get(), 1);
+    }
+
+    #[test]
+    fn pressing_x_on_home_ignores_duplicate_requests_while_starting() {
+        let mut app = App::default();
+        app.set_daemon_status(status::DaemonStatus::Starting);
+        let controller = MockController::default();
+
+        handle_tui_key_event(&mut app, plain_key('x'), &controller);
+
+        assert_eq!(controller.start_calls.get(), 0);
+        assert_eq!(controller.stop_calls.get(), 0);
+        assert_eq!(app.daemon_status(), status::DaemonStatus::Starting);
     }
 
     #[test]

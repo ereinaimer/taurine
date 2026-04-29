@@ -703,7 +703,7 @@ fn split_key_default(inner: &str) -> (&str, Option<&str>) {
         if bytes[ptr] == TAG_OPEN && !is_escaped(bytes, ptr) {
             depth += 1;
         } else if bytes[ptr] == TAG_CLOSE && !is_escaped(bytes, ptr) {
-            depth -= 1;
+            depth = depth.saturating_sub(1);
         } else if bytes[ptr] == b'=' && depth == 0 {
             return (
                 trim_slice(&inner[..ptr]),

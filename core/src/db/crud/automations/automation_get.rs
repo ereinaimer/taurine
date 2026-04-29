@@ -256,7 +256,12 @@ pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>
         let behavior = parse_json_variant(row.get(12)?);
         let script_content = row
             .get::<_, Option<Vec<u8>>>(13)?
-            .and_then(|compressed| decompress(&compressed).ok());
+            .map(|compressed| {
+                decompress(&compressed).map_err(|err| {
+                    rusqlite::Error::FromSqlConversionFailure(13, Type::Blob, Box::new(err))
+                })
+            })
+            .transpose()?;
 
         Ok(AutomationListItem {
             id: row.get(0)?,

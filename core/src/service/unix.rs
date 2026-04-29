@@ -35,18 +35,32 @@ fn ensure_linux_permissions() -> crate::error::Result<()> {
     let mut group_missing = false;
 
     let cap_output = std::process::Command::new("getcap").arg(&exe).output();
-    if let Ok(output) = cap_output {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if !stdout.contains("cap_dac_override") {
+    match cap_output {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if !stdout.contains("cap_dac_override") {
+                capability_missing = true;
+                needs_fix = true;
+            }
+        }
+        Err(err) => {
+            warn!("Failed to probe Linux capabilities with getcap: {}", err);
             capability_missing = true;
             needs_fix = true;
         }
     }
 
     let groups_output = std::process::Command::new("id").arg("-Gn").output();
-    if let Ok(output) = groups_output {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if !stdout.split_whitespace().any(|g| g == "input") {
+    match groups_output {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if !stdout.split_whitespace().any(|g| g == "input") {
+                group_missing = true;
+                needs_fix = true;
+            }
+        }
+        Err(err) => {
+            warn!("Failed to probe Linux groups with id -Gn: {}", err);
             group_missing = true;
             needs_fix = true;
         }
@@ -57,51 +71,80 @@ fn ensure_linux_permissions() -> crate::error::Result<()> {
             "Taurine requires additional kernel-level permissions to operate on Linux (Wayland/X11)."
         );
 
-        let mut commands = Vec::new();
         if capability_missing {
-            commands.push(format!("setcap cap_dac_override+ep \"{}\"", exe.display()));
-        }
-        if group_missing {
-            let user = std::process::Command::new("id")
-                .arg("-un")
-                .output()
-                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-                .unwrap_or_else(|_| "current user".to_string());
-            commands.push(format!("usermod -aG input \"{}\"", user));
-        }
-
-        let combined_cmd = commands.join(" && ");
-        info!(
-            "Requesting administrative access to configure: {}",
-            combined_cmd
-        );
-
-        let status = std::process::Command::new("sudo")
-            .arg("sh")
-            .arg("-c")
-            .arg(&combined_cmd)
-            .status();
-
-        match status {
-            Ok(s) if s.success() => {
-                if group_missing {
-                    warn!(
-                        "User added to 'input' group. You MUST log out and back in for these changes to take effect."
-                    );
-                } else {
-                    info!("Hardware access permissions granted successfully.");
-                }
-                return Err(crate::Error::Service(
-                    "Permissions updated. Please re-run 'taurine up' after restarting your session."
-                        .to_string(),
-                ));
-            }
-            _ => {
+            info!(
+                "Requesting administrative access to grant cap_dac_override to {}",
+                exe.display()
+            );
+            let status = std::process::Command::new("sudo")
+                .arg("setcap")
+                .arg("cap_dac_override+ep")
+                .arg(&exe)
+                .status()
+                .map_err(|err| {
+                    crate::Error::Service(format!(
+                        "Failed to invoke sudo setcap for {}: {}",
+                        exe.display(),
+                        err
+                    ))
+                })?;
+            if !status.success() {
                 return Err(crate::Error::Service(
                     "Failed to grant hardware access permissions. Taurine cannot start without these privileges.".to_string(),
                 ));
             }
         }
+        if group_missing {
+            let user = std::process::Command::new("id")
+                .arg("-un")
+                .output()
+                .map_err(|err| {
+                    crate::Error::Service(format!(
+                        "Failed to resolve the current user for Linux input-group setup: {}",
+                        err
+                    ))
+                })?;
+            let user = String::from_utf8_lossy(&user.stdout).trim().to_string();
+            if user.is_empty() {
+                return Err(crate::Error::Service(
+                    "Failed to resolve the current user for Linux input-group setup.".to_string(),
+                ));
+            }
+
+            info!(
+                "Requesting administrative access to add {} to the Linux input group",
+                user
+            );
+            let status = std::process::Command::new("sudo")
+                .arg("usermod")
+                .arg("-aG")
+                .arg("input")
+                .arg(&user)
+                .status()
+                .map_err(|err| {
+                    crate::Error::Service(format!(
+                        "Failed to invoke sudo usermod for {}: {}",
+                        user, err
+                    ))
+                })?;
+            if !status.success() {
+                return Err(crate::Error::Service(
+                    "Failed to grant hardware access permissions. Taurine cannot start without these privileges.".to_string(),
+                ));
+            }
+        }
+
+        if group_missing {
+            warn!(
+                "User added to 'input' group. You MUST log out and back in for these changes to take effect."
+            );
+        } else {
+            info!("Hardware access permissions granted successfully.");
+        }
+        return Err(crate::Error::Service(
+            "Permissions updated. Please re-run 'taurine up' after restarting your session."
+                .to_string(),
+        ));
     }
 
     debug!("Linux input permissions verified and active.");
@@ -274,7 +317,10 @@ pub fn down() -> crate::error::Result<()> {
         label: label.clone(),
     }) {
         Ok(_) => info!("Taurine has been stopped (fallback)."),
-        Err(e) => error!("Failed to stop service: {}", e),
+        Err(e) => {
+            error!("Failed to stop service: {}", e);
+            return Err(crate::Error::Service(e.to_string()));
+        }
     }
 
     Ok(())

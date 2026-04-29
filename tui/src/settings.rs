@@ -254,9 +254,7 @@ impl SettingsPageState {
         match self.modal.as_ref() {
             Some(SettingsModal::Select(_)) => "j/k Move   ↑/↓ Move   Enter Save   Esc Cancel",
             Some(SettingsModal::Input(_)) => "Type Edit   Enter Save   Esc Cancel",
-            Some(SettingsModal::ConfirmReset(_)) => {
-                "j/k Move   ↑/↓ Move   Space Toggle   Enter Edit   r Reset   q Quit"
-            }
+            Some(SettingsModal::ConfirmReset(_)) => "←/h Yes   →/l No   y Confirm   n/Esc Cancel",
             None => "j/k Move   ↑/↓ Move   Space Toggle   Enter Edit   r Reset   q Quit",
         }
     }
@@ -815,6 +813,17 @@ mod tests {
             SettingsPageState::default()
                 .footer_text()
                 .contains("r Reset")
+        );
+    }
+
+    #[test]
+    fn reset_confirmation_footer_matches_confirmation_keys() {
+        let mut state = SettingsPageState::default();
+        state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+
+        assert_eq!(
+            state.footer_text(),
+            "←/h Yes   →/l No   y Confirm   n/Esc Cancel"
         );
     }
 
