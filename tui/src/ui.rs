@@ -13,6 +13,7 @@ use taurine_core::metrics::{HomeMetrics, MostUsedAutomation};
 use crate::{
     app::{App, Page},
     control,
+    library::{LibraryAutomation, LibraryPageState},
     settings::{
         ConfirmResetModalState, InputModalState, SelectModalState, SettingKey, SettingsModal,
     },
@@ -175,7 +176,7 @@ fn render_content(frame: &mut Frame, area: Rect, app: &App) {
 
     match app.active_page() {
         Page::Home => render_home_content(frame, inner, app.home_metrics()),
-        Page::Library => {}
+        Page::Library => render_library_content(frame, inner, app.library_page()),
         Page::Settings => {
             render_settings_content(frame, inner, app);
             if let Some(modal) = app.settings_page().modal() {
@@ -197,26 +198,29 @@ fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn footer_text(app: &App) -> &str {
-    let page_footer = match app.active_page() {
-        Page::Home => control::home_footer_label(app.daemon_status()),
-        Page::Library => "q Quit",
-        Page::Settings => app.settings_page().footer_text(),
-    };
+    match app.active_page() {
+        Page::Home => home_footer_with_nav(control::home_footer_label(app.daemon_status())),
+        Page::Library => library_footer_with_nav(app.library_page().footer_text()),
+        Page::Settings => settings_footer_with_nav(app.settings_page().footer_text()),
+    }
+}
 
-    if page_footer.is_empty() {
-        NAV_TOGGLE_HINT
-    } else {
-        // This string table is small and static, so we can rely on fixed combinations.
-        match app.active_page() {
-            Page::Home => match app.daemon_status() {
-                crate::status::DaemonStatus::Stopped => "Ctrl+B Nav   x Start   q Quit",
-                crate::status::DaemonStatus::Running | crate::status::DaemonStatus::Paused => {
-                    "Ctrl+B Nav   x Stop   q Quit"
-                }
-            },
-            Page::Library => "Ctrl+B Nav   q Quit",
-            Page::Settings => settings_footer_with_nav(app.settings_page().footer_text()),
+fn home_footer_with_nav(home_footer: &str) -> &str {
+    match home_footer {
+        "x Start   q Quit" => "Ctrl+B Nav   x Start   q Quit",
+        "x Stop   q Quit" => "Ctrl+B Nav   x Stop   q Quit",
+        "" => NAV_TOGGLE_HINT,
+        _ => "Ctrl+B Nav",
+    }
+}
+
+fn library_footer_with_nav(library_footer: &str) -> &str {
+    match library_footer {
+        "/ Search   n New   e Edit   d Delete   Enter Details   q Quit" => {
+            "Ctrl+B Nav   / Search   n New   e Edit   d Delete   Enter Details   q Quit"
         }
+        "" => NAV_TOGGLE_HINT,
+        _ => "Ctrl+B Nav",
     }
 }
 
@@ -266,6 +270,195 @@ fn render_home_content(frame: &mut Frame, area: Rect, metrics: &HomeMetrics) {
         activity_sections[2],
         "TOP HOTKEYS",
         &metrics.most_used_hotkeys,
+    );
+}
+
+fn render_library_content(frame: &mut Frame, area: Rect, library_page: &LibraryPageState) {
+    if let Some(message) = library_page.load_error() {
+        frame.render_widget(
+            Paragraph::new(message).style(
+                Style::default()
+                    .fg(ERROR_COLOR)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            area,
+        );
+        return;
+    }
+
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
+        ])
+        .split(area);
+
+    render_library_search_bar(frame, sections[0], library_page);
+
+    let list_area = sections[2];
+    if list_area.height == 0 {
+        return;
+    }
+
+    if let Some(message) = library_page.empty_state_message() {
+        frame.render_widget(
+            Paragraph::new(message).style(
+                Style::default()
+                    .fg(MUTED_TEXT_COLOR)
+                    .add_modifier(Modifier::DIM),
+            ),
+            list_area,
+        );
+        return;
+    }
+
+    if list_area.height < 2 {
+        return;
+    }
+
+    let visible_count = usize::from((list_area.height / 2).max(1));
+    let selected_index = library_page.selected_index().unwrap_or(0);
+    let (start, end) =
+        visible_library_range(library_page.filtered_len(), selected_index, visible_count);
+
+    for (visible_index, filtered_index) in (start..end).enumerate() {
+        let row_area = Rect {
+            x: list_area.x,
+            y: list_area.y + (visible_index as u16 * 2),
+            width: list_area.width,
+            height: 2,
+        };
+
+        let Some(item) = library_page.item_at_filtered(filtered_index) else {
+            continue;
+        };
+
+        render_library_item(
+            frame,
+            row_area,
+            item,
+            library_page.selected_index() == Some(filtered_index),
+        );
+    }
+}
+
+fn render_library_search_bar(frame: &mut Frame, area: Rect, library_page: &LibraryPageState) {
+    frame.render_widget(
+        Block::default().style(Style::default().bg(INPUT_BG_COLOR)),
+        area,
+    );
+
+    let sections = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Length(8), Constraint::Min(0)])
+        .split(area);
+
+    let label_style = if library_page.is_search_active() {
+        Style::default()
+            .fg(ACCENT_COLOR)
+            .bg(INPUT_BG_COLOR)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(MUTED_TEXT_COLOR)
+            .bg(INPUT_BG_COLOR)
+            .add_modifier(Modifier::BOLD)
+    };
+    frame.render_widget(Paragraph::new("Search").style(label_style), sections[0]);
+
+    let query_style = if library_page.search_query().is_empty() && !library_page.is_search_active()
+    {
+        Style::default()
+            .fg(MUTED_TEXT_COLOR)
+            .bg(INPUT_BG_COLOR)
+            .add_modifier(Modifier::DIM)
+    } else {
+        Style::default().fg(ACCENT_COLOR).bg(INPUT_BG_COLOR)
+    };
+    let query = if library_page.is_search_active() {
+        input_cursor_line(
+            library_page.search_query(),
+            library_page.search_query().chars().count(),
+        )
+    } else if library_page.search_query().is_empty() {
+        Line::from(" ")
+    } else {
+        Line::from(library_page.search_query().to_string())
+    };
+    frame.render_widget(Paragraph::new(query).style(query_style), sections[1]);
+}
+
+fn render_library_item(frame: &mut Frame, area: Rect, item: &LibraryAutomation, selected: bool) {
+    let row_bg = if selected {
+        SELECTED_ROW_BG_COLOR
+    } else {
+        Color::Reset
+    };
+    frame.render_widget(Block::default().style(Style::default().bg(row_bg)), area);
+
+    let kind_width = (item.kind_label().chars().count() as u16).min(area.width.saturating_sub(2));
+    let metadata = item.metadata_label();
+    let metadata_width = (metadata.chars().count() as u16).min(area.width.saturating_sub(2));
+
+    let top_area = Rect {
+        x: area.x,
+        y: area.y,
+        width: area.width,
+        height: 1,
+    };
+    let bottom_area = Rect {
+        x: area.x,
+        y: area.y + 1,
+        width: area.width,
+        height: 1,
+    };
+
+    let top_sections = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(0), Constraint::Length(kind_width)])
+        .split(top_area);
+    let bottom_sections = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(0), Constraint::Length(metadata_width)])
+        .split(bottom_area);
+
+    let primary_style = if selected {
+        Style::default()
+            .fg(ACCENT_COLOR)
+            .bg(row_bg)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(ACCENT_COLOR)
+    };
+    let secondary_style = if selected {
+        Style::default().fg(ACCENT_COLOR).bg(row_bg)
+    } else {
+        Style::default().fg(MUTED_TEXT_COLOR)
+    };
+
+    frame.render_widget(
+        Paragraph::new(truncate_to_width(item.trigger(), top_sections[0].width))
+            .style(primary_style),
+        top_sections[0],
+    );
+    frame.render_widget(
+        Paragraph::new(truncate_to_width(item.kind_label(), top_sections[1].width))
+            .alignment(Alignment::Right)
+            .style(secondary_style),
+        top_sections[1],
+    );
+    frame.render_widget(
+        Paragraph::new(truncate_to_width(item.preview(), bottom_sections[0].width))
+            .style(secondary_style),
+        bottom_sections[0],
+    );
+    frame.render_widget(
+        Paragraph::new(truncate_to_width(&metadata, bottom_sections[1].width))
+            .alignment(Alignment::Right)
+            .style(secondary_style),
+        bottom_sections[1],
     );
 }
 
@@ -772,6 +965,20 @@ fn visible_setting_range(total: usize, selected: usize, visible_count: usize) ->
     (start, end)
 }
 
+fn visible_library_range(total: usize, selected: usize, visible_count: usize) -> (usize, usize) {
+    if total <= visible_count {
+        return (0, total);
+    }
+
+    let mut start = selected.saturating_sub(visible_count.saturating_sub(1));
+    let mut end = (start + visible_count).min(total);
+    if end - start < visible_count {
+        start = end.saturating_sub(visible_count);
+        end = total.min(start + visible_count);
+    }
+    (start, end)
+}
+
 fn control_column_width(settings: &taurine_core::settings::Settings, area_width: u16) -> u16 {
     let longest_value = SettingKey::ALL
         .iter()
@@ -954,7 +1161,10 @@ mod tests {
             crossterm::event::KeyCode::Char('2'),
             crossterm::event::KeyModifiers::NONE,
         );
-        assert_eq!(footer_text(&app), "Ctrl+B Nav   q Quit");
+        assert_eq!(
+            footer_text(&app),
+            "Ctrl+B Nav   / Search   n New   e Edit   d Delete   Enter Details   q Quit"
+        );
     }
 
     #[test]
@@ -962,6 +1172,21 @@ mod tests {
         let app = App::default();
         let footer = footer_text(&app);
         assert!(footer.contains("Ctrl+B Nav"));
+        assert!(!footer.contains("1 Home"));
+        assert!(!footer.contains("2 Library"));
+        assert!(!footer.contains("3 Settings"));
+    }
+
+    #[test]
+    fn library_footer_does_not_include_page_navigation_shortcuts() {
+        let mut app = App::default();
+        app.handle_key(
+            crossterm::event::KeyCode::Char('2'),
+            crossterm::event::KeyModifiers::NONE,
+        );
+
+        let footer = footer_text(&app);
+        assert!(footer.contains("/ Search"));
         assert!(!footer.contains("1 Home"));
         assert!(!footer.contains("2 Library"));
         assert!(!footer.contains("3 Settings"));

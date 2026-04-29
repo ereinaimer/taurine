@@ -4,6 +4,7 @@
 mod app;
 mod control;
 mod event;
+mod library;
 mod settings;
 mod status;
 mod ui;
@@ -29,6 +30,7 @@ pub fn run() -> taurine_core::Result<()> {
     let mut app = App::default();
     app.set_daemon_status(status::probe_daemon_status());
     refresh_home_metrics(&mut app);
+    refresh_library_page(&mut app);
     refresh_settings_page(&mut app);
     let daemon_controller = SystemDaemonController;
 
@@ -78,7 +80,17 @@ fn handle_tui_key_event<C: DaemonController>(
         return;
     }
 
+    if app.active_page() == Page::Library && app.library_page().is_search_active() {
+        app.library_page_mut().handle_key(key);
+        return;
+    }
+
     app.handle_key_event(key);
+
+    if app.active_page() == Page::Library {
+        app.library_page_mut().handle_key(key);
+        return;
+    }
 
     if app.active_page() == Page::Settings {
         let interaction = app.settings_page_mut().handle_key(key);
@@ -127,6 +139,24 @@ fn refresh_home_metrics(app: &mut App) {
     {
         Ok(home_metrics) => app.set_home_metrics(home_metrics),
         Err(err) => error!(error = %err, "Failed to refresh TUI home metrics"),
+    }
+}
+
+fn refresh_library_page(app: &mut App) {
+    match taurine_core::db::init::setup()
+        .and_then(|conn| taurine_core::db::crud::get_automations_list(&conn).map_err(Into::into))
+    {
+        Ok(items) => {
+            let items = items
+                .into_iter()
+                .map(library::LibraryAutomation::from)
+                .collect();
+            app.library_page_mut().replace_items(items);
+        }
+        Err(error) => {
+            error!(error = %error, "Failed to refresh TUI library state");
+            app.library_page_mut().set_load_error(error.to_string());
+        }
     }
 }
 
@@ -315,5 +345,31 @@ mod tests {
         );
 
         assert_eq!(app.active_page(), Page::Settings);
+    }
+
+    #[test]
+    fn typing_q_while_library_search_is_active_does_not_quit() {
+        let mut app = App::default();
+        let controller = MockController::default();
+        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+
+        handle_tui_key_event(&mut app, plain_key('/'), &controller);
+        handle_tui_key_event(&mut app, plain_key('q'), &controller);
+
+        assert!(!app.should_quit());
+        assert_eq!(app.library_page().search_query(), "q");
+    }
+
+    #[test]
+    fn typing_one_while_library_search_is_active_does_not_change_page() {
+        let mut app = App::default();
+        let controller = MockController::default();
+        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+
+        handle_tui_key_event(&mut app, plain_key('/'), &controller);
+        handle_tui_key_event(&mut app, plain_key('1'), &controller);
+
+        assert_eq!(app.active_page(), Page::Library);
+        assert_eq!(app.library_page().search_query(), "1");
     }
 }

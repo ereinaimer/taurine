@@ -1180,6 +1180,32 @@ mod tests {
     }
 
     #[test]
+    fn get_automations_list_includes_target_os() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+        conn.execute("DELETE FROM automations", []).unwrap();
+
+        upsert_automation(
+            &conn,
+            "uuid-list-1",
+            "Windows Opener",
+            None,
+            "ralt+r",
+            "Start-Process https://reddit.com",
+            "script",
+            "all",
+            r#"[]"#,
+            6,
+            None,
+        )
+        .unwrap();
+
+        let items = get_automations_list(&conn).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].target_os, "all");
+    }
+
+    #[test]
     fn get_syncable_automations_returns_only_sync_enabled_rows() {
         crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();

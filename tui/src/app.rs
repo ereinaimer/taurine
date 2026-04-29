@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use taurine_core::metrics::HomeMetrics;
 
+use crate::library::LibraryPageState;
 use crate::settings::SettingsPageState;
 use crate::status::DaemonStatus;
 
@@ -38,6 +39,7 @@ pub(crate) struct App {
     nav_visible: bool,
     daemon_status: DaemonStatus,
     home_metrics: HomeMetrics,
+    library_page: LibraryPageState,
     settings_page: SettingsPageState,
     should_quit: bool,
 }
@@ -49,6 +51,7 @@ impl Default for App {
             nav_visible: true,
             daemon_status: DaemonStatus::Stopped,
             home_metrics: HomeMetrics::default(),
+            library_page: LibraryPageState::default(),
             settings_page: SettingsPageState::default(),
             should_quit: false,
         }
@@ -70,6 +73,14 @@ impl App {
 
     pub(crate) const fn home_metrics(&self) -> &HomeMetrics {
         &self.home_metrics
+    }
+
+    pub(crate) const fn library_page(&self) -> &LibraryPageState {
+        &self.library_page
+    }
+
+    pub(crate) fn library_page_mut(&mut self) -> &mut LibraryPageState {
+        &mut self.library_page
     }
 
     pub(crate) const fn settings_page(&self) -> &SettingsPageState {
@@ -192,5 +203,15 @@ mod tests {
     fn defaults_settings_page_to_first_row() {
         let app = App::default();
         assert_eq!(app.settings_page().selected_index(), 0);
+    }
+
+    #[test]
+    fn defaults_library_page_to_empty_state() {
+        let app = App::default();
+        assert_eq!(app.library_page().filtered_len(), 0);
+        assert_eq!(
+            app.library_page().empty_state_message(),
+            Some("No automations yet.")
+        );
     }
 }

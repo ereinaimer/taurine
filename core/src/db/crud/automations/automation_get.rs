@@ -239,8 +239,8 @@ pub fn get_all_active_hotkey_automations(
 pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>> {
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
-        "SELECT a.trigger, a.output, a.action_type, a.usage_count, a.last_used_at, a.created_at,
-                a.trigger_type, s.interpreter, s.behavior
+        "SELECT a.trigger, a.output, a.action_type, a.target_os, a.usage_count, a.last_used_at,
+                a.created_at, a.trigger_type, s.interpreter, s.behavior
          FROM   automations a
          LEFT JOIN scripts s ON a.id = s.automation_id
          WHERE  a.is_deleted = 0
@@ -249,18 +249,19 @@ pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>
     )?;
 
     let rows = stmt.query_map([os_str], |row| {
-        let trigger_type = parse_trigger_type_row(row.get(6)?)?;
-        let interpreter = parse_json_variant(row.get(7)?);
-        let behavior = parse_json_variant(row.get(8)?);
+        let trigger_type = parse_trigger_type_row(row.get(7)?)?;
+        let interpreter = parse_json_variant(row.get(8)?);
+        let behavior = parse_json_variant(row.get(9)?);
 
         Ok(AutomationListItem {
             trigger_type,
             trigger: row.get(0)?,
             output: row.get(1)?,
             action_type: row.get(2)?,
-            usage_count: row.get(3)?,
-            last_used_at: row.get(4)?,
-            created_at: row.get(5)?,
+            target_os: row.get(3)?,
+            usage_count: row.get(4)?,
+            last_used_at: row.get(5)?,
+            created_at: row.get(6)?,
             interpreter,
             behavior,
         })
