@@ -578,11 +578,11 @@ impl LibraryEditorModalState {
                 self.move_content_horizontal(1);
                 LibraryInteraction::handled()
             }
-            (KeyCode::Up, KeyModifiers::NONE) | (KeyCode::Char('k'), KeyModifiers::NONE) => {
+            (KeyCode::Up, KeyModifiers::NONE) => {
                 self.move_content_vertical(-1);
                 LibraryInteraction::handled()
             }
-            (KeyCode::Down, KeyModifiers::NONE) | (KeyCode::Char('j'), KeyModifiers::NONE) => {
+            (KeyCode::Down, KeyModifiers::NONE) => {
                 self.move_content_vertical(1);
                 LibraryInteraction::handled()
             }
@@ -2518,6 +2518,17 @@ mod tests {
 
         assert_eq!(modal.kind_label(), "script");
         assert_eq!(modal.content_label(), "Script");
+    }
+
+    #[test]
+    fn typing_j_and_k_in_content_field() {
+        let mut modal = LibraryEditorModalState::new_create();
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)); // Focus content
+
+        modal.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
+
+        assert_eq!(modal.content(), "jk");
     }
 
     #[test]
