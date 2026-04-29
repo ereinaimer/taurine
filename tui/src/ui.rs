@@ -496,7 +496,8 @@ fn render_library_editor_modal(frame: &mut Frame, area: Rect, state: &LibraryEdi
 
     let header_rows = 4;
     let available_after_headers = inner.height.saturating_sub(header_rows);
-    let metadata_len = state.metadata_rows().len() as u16 + 2;
+    let editable_metadata_rows = if state.is_script_kind() { 4 } else { 2 };
+    let metadata_len = state.metadata_rows().len() as u16 + editable_metadata_rows;
     let min_content_height = if available_after_headers >= 6 {
         4
     } else {
@@ -776,6 +777,20 @@ fn render_modal_metadata(
         state.focus() == LibraryModalField::TargetOs,
         false,
     ));
+    if state.is_script_kind() {
+        rows.push((
+            "Language",
+            state.language_label().to_string(),
+            state.focus() == LibraryModalField::Language,
+            false,
+        ));
+        rows.push((
+            "Mode",
+            state.mode_label().to_string(),
+            state.focus() == LibraryModalField::Mode,
+            false,
+        ));
+    }
     rows.extend(
         metadata_rows
             .iter()

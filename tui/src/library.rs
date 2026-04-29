@@ -16,6 +16,15 @@ const LIBRARY_CREATE_MODAL_FOOTER: &str = "Ctrl+S Save   Esc Cancel   Tab Next  
 const LIBRARY_DELETE_MODAL_FOOTER: &str = "Esc Cancel";
 const DEFAULT_SCRIPT_FALLBACK: &str = "Script content unavailable.";
 const DEFAULT_OUTPUT_FALLBACK: &str = "No output available.";
+const SCRIPT_LANGUAGE_OPTIONS: [ScriptInterpreter; 6] = [
+    ScriptInterpreter::Bash,
+    ScriptInterpreter::PowerShell,
+    ScriptInterpreter::Python,
+    ScriptInterpreter::Node,
+    ScriptInterpreter::NodeEsm,
+    ScriptInterpreter::Cmd,
+];
+const SCRIPT_MODE_OPTIONS: [ScriptBehavior; 2] = [ScriptBehavior::Inline, ScriptBehavior::Silent];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LibraryKind {
@@ -60,7 +69,7 @@ impl LibraryKind {
         }
     }
 
-    fn is_script(self) -> bool {
+    pub(crate) const fn is_script(self) -> bool {
         matches!(self, Self::Script | Self::HotkeyScript)
     }
 
@@ -145,32 +154,30 @@ pub(crate) enum LibraryModalField {
     Content,
     Kind,
     TargetOs,
+    Language,
+    Mode,
 }
+
+const SNIPPET_MODAL_FIELDS: [LibraryModalField; 4] = [
+    LibraryModalField::Trigger,
+    LibraryModalField::Content,
+    LibraryModalField::Kind,
+    LibraryModalField::TargetOs,
+];
+
+const SCRIPT_MODAL_FIELDS: [LibraryModalField; 6] = [
+    LibraryModalField::Trigger,
+    LibraryModalField::Content,
+    LibraryModalField::Kind,
+    LibraryModalField::TargetOs,
+    LibraryModalField::Language,
+    LibraryModalField::Mode,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LibraryEditorMode {
     Edit,
     Create,
-}
-
-impl LibraryModalField {
-    fn next(self) -> Self {
-        match self {
-            Self::Trigger => Self::Content,
-            Self::Content => Self::Kind,
-            Self::Kind => Self::TargetOs,
-            Self::TargetOs => Self::Trigger,
-        }
-    }
-
-    fn previous(self) -> Self {
-        match self {
-            Self::Trigger => Self::TargetOs,
-            Self::Content => Self::Trigger,
-            Self::Kind => Self::Content,
-            Self::TargetOs => Self::Kind,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -325,6 +332,8 @@ pub(crate) struct LibraryEditorModalState {
     content_cursor_goal: Option<usize>,
     kind: LibraryKind,
     target_os: String,
+    interpreter: ScriptInterpreter,
+    behavior: ScriptBehavior,
     focus: LibraryModalField,
     content_scroll: usize,
     error: Option<String>,
@@ -344,6 +353,10 @@ impl LibraryEditorModalState {
             content_cursor_goal: None,
             kind: automation.kind(),
             target_os: automation.target_os_raw().to_string(),
+            interpreter: automation.interpreter().unwrap_or_else(|| {
+                default_script_interpreter_for_target_os(automation.target_os_raw())
+            }),
+            behavior: automation.behavior().unwrap_or(ScriptBehavior::Inline),
             focus: LibraryModalField::Trigger,
             content_scroll: 0,
             error: None,
@@ -363,6 +376,8 @@ impl LibraryEditorModalState {
             content_cursor_goal: None,
             kind: LibraryKind::Snippet,
             target_os: SUPPORTED_TARGET_OS_VALUES[0].to_string(),
+            interpreter: default_script_interpreter_for_target_os(SUPPORTED_TARGET_OS_VALUES[0]),
+            behavior: ScriptBehavior::Inline,
             focus: LibraryModalField::Trigger,
             content_scroll: 0,
             error: None,
@@ -405,6 +420,28 @@ impl LibraryEditorModalState {
 
     pub(crate) fn target_os(&self) -> &str {
         display_target_os(&self.target_os)
+    }
+
+    pub(crate) const fn is_script_kind(&self) -> bool {
+        self.kind.is_script()
+    }
+
+    pub(crate) const fn language_label(&self) -> &'static str {
+        interpreter_label(self.interpreter)
+    }
+
+    pub(crate) const fn mode_label(&self) -> &'static str {
+        behavior_label(self.behavior)
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn interpreter(&self) -> ScriptInterpreter {
+        self.interpreter
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn behavior(&self) -> ScriptBehavior {
+        self.behavior
     }
 
     pub(crate) fn metadata_rows(&self) -> &[LibraryMetadataRow] {
@@ -458,19 +495,11 @@ impl LibraryEditorModalState {
         match (key.code, key.modifiers) {
             (KeyCode::Esc, KeyModifiers::NONE) => LibraryInteraction::close(),
             (KeyCode::Tab, KeyModifiers::NONE) => {
-                self.focus = self.focus.next();
-                self.content_cursor_goal = None;
-                if self.focus == LibraryModalField::Content {
-                    self.follow_content_cursor();
-                }
+                self.advance_focus(true);
                 LibraryInteraction::handled()
             }
             (KeyCode::BackTab, _) => {
-                self.focus = self.focus.previous();
-                self.content_cursor_goal = None;
-                if self.focus == LibraryModalField::Content {
-                    self.follow_content_cursor();
-                }
+                self.advance_focus(false);
                 LibraryInteraction::handled()
             }
             _ => self.handle_focused_key(key),
@@ -514,6 +543,8 @@ impl LibraryEditorModalState {
             content: self.content.clone(),
             kind: self.kind,
             target_os: self.target_os.clone(),
+            interpreter: self.kind.is_script().then_some(self.interpreter),
+            behavior: self.kind.is_script().then_some(self.behavior),
         }
     }
 
@@ -523,6 +554,8 @@ impl LibraryEditorModalState {
             LibraryModalField::Content => self.handle_content_key(key),
             LibraryModalField::Kind => self.handle_kind_key(key),
             LibraryModalField::TargetOs => self.handle_target_os_key(key),
+            LibraryModalField::Language => self.handle_language_key(key),
+            LibraryModalField::Mode => self.handle_mode_key(key),
         }
     }
 
@@ -652,9 +685,18 @@ impl LibraryEditorModalState {
             }
             (KeyCode::Enter, KeyModifiers::NONE) => {
                 if self.focus == LibraryModalField::Kind {
+                    let previous_kind = self.kind;
                     self.kind = LibraryKind::ALL[selector.selected];
+                    if !previous_kind.is_script() && self.kind.is_script() {
+                        self.initialize_script_defaults();
+                    }
+                    self.ensure_focus_visible();
                 } else if self.focus == LibraryModalField::TargetOs {
                     self.target_os = SUPPORTED_TARGET_OS_VALUES[selector.selected].to_string();
+                } else if self.focus == LibraryModalField::Language {
+                    self.interpreter = SCRIPT_LANGUAGE_OPTIONS[selector.selected];
+                } else if self.focus == LibraryModalField::Mode {
+                    self.behavior = SCRIPT_MODE_OPTIONS[selector.selected];
                 }
                 self.selector = None;
                 LibraryInteraction::handled()
@@ -685,6 +727,50 @@ impl LibraryEditorModalState {
                     .unwrap_or(0);
                 self.selector = Some(LibrarySelectState {
                     title: "Select Target OS",
+                    options,
+                    selected,
+                });
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    fn handle_language_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Char(' '), KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
+                let options = SCRIPT_LANGUAGE_OPTIONS
+                    .iter()
+                    .map(|value| interpreter_label(*value).to_string())
+                    .collect();
+                let selected = SCRIPT_LANGUAGE_OPTIONS
+                    .iter()
+                    .position(|value| *value == self.interpreter)
+                    .unwrap_or(0);
+                self.selector = Some(LibrarySelectState {
+                    title: "Select Language",
+                    options,
+                    selected,
+                });
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    fn handle_mode_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Char(' '), KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
+                let options = SCRIPT_MODE_OPTIONS
+                    .iter()
+                    .map(|value| behavior_label(*value).to_string())
+                    .collect();
+                let selected = SCRIPT_MODE_OPTIONS
+                    .iter()
+                    .position(|value| *value == self.behavior)
+                    .unwrap_or(0);
+                self.selector = Some(LibrarySelectState {
+                    title: "Select Mode",
                     options,
                     selected,
                 });
@@ -813,6 +899,48 @@ impl LibraryEditorModalState {
     pub(crate) fn selector(&self) -> Option<&LibrarySelectState> {
         self.selector.as_ref()
     }
+
+    fn visible_fields(&self) -> &'static [LibraryModalField] {
+        if self.is_script_kind() {
+            &SCRIPT_MODAL_FIELDS
+        } else {
+            &SNIPPET_MODAL_FIELDS
+        }
+    }
+
+    fn advance_focus(&mut self, forward: bool) {
+        let fields = self.visible_fields();
+        let current_index = fields
+            .iter()
+            .position(|field| *field == self.focus)
+            .unwrap_or(0);
+        let next_index = if forward {
+            (current_index + 1) % fields.len()
+        } else if current_index == 0 {
+            fields.len().saturating_sub(1)
+        } else {
+            current_index - 1
+        };
+        self.focus = fields[next_index];
+        self.content_cursor_goal = None;
+        if self.focus == LibraryModalField::Content {
+            self.follow_content_cursor();
+        }
+    }
+
+    fn ensure_focus_visible(&mut self) {
+        if self.visible_fields().contains(&self.focus) {
+            return;
+        }
+
+        self.focus = LibraryModalField::TargetOs;
+        self.content_cursor_goal = None;
+    }
+
+    fn initialize_script_defaults(&mut self) {
+        self.interpreter = default_script_interpreter_for_target_os(&self.target_os);
+        self.behavior = ScriptBehavior::Inline;
+    }
 }
 
 impl LibraryDeleteModalState {
@@ -889,6 +1017,8 @@ pub(crate) struct PendingLibrarySave {
     content: String,
     kind: LibraryKind,
     target_os: String,
+    interpreter: Option<ScriptInterpreter>,
+    behavior: Option<ScriptBehavior>,
 }
 
 impl PendingLibrarySave {
@@ -925,8 +1055,8 @@ impl PendingLibrarySave {
                         tags_json,
                         usage_count: *usage_count,
                         last_used_at: *last_used_at,
-                        interpreter: *interpreter,
-                        behavior: *behavior,
+                        interpreter: self.interpreter.or(*interpreter),
+                        behavior: self.behavior.or(*behavior),
                     },
                 )?;
                 id.clone()
@@ -942,8 +1072,8 @@ impl PendingLibrarySave {
                     action_type: self.kind.action_type(),
                     target_os: &self.target_os,
                     tags_json: "[]",
-                    interpreter: None,
-                    behavior: Some(ScriptBehavior::Inline),
+                    interpreter: self.interpreter,
+                    behavior: self.behavior.or(Some(ScriptBehavior::Inline)),
                 },
             )?,
         };
@@ -1488,20 +1618,6 @@ fn modal_content_from_row(row: &AutomationRow, kind: LibraryKind) -> taurine_cor
 fn build_metadata_rows(row: &AutomationRow) -> Vec<LibraryMetadataRow> {
     let mut rows = Vec::new();
 
-    if let Some(interpreter) = row.interpreter {
-        rows.push(LibraryMetadataRow::new(
-            "Language",
-            interpreter_label(interpreter).to_string(),
-        ));
-    }
-
-    if let Some(behavior) = row.behavior {
-        rows.push(LibraryMetadataRow::new(
-            "Mode",
-            behavior_label(behavior).to_string(),
-        ));
-    }
-
     rows.push(LibraryMetadataRow::new(
         "Uses",
         format_usage_count(row.usage_count.max(0) as u64),
@@ -1600,21 +1716,30 @@ fn display_target_os(target_os: &str) -> &str {
     }
 }
 
-fn interpreter_label(interpreter: ScriptInterpreter) -> &'static str {
+const fn interpreter_label(interpreter: ScriptInterpreter) -> &'static str {
     match interpreter {
         ScriptInterpreter::Bash => "bash",
         ScriptInterpreter::PowerShell => "powershell",
         ScriptInterpreter::Python => "python",
         ScriptInterpreter::Node => "node",
-        ScriptInterpreter::NodeEsm => "node esm",
+        ScriptInterpreter::NodeEsm => "node-esm",
         ScriptInterpreter::Cmd => "cmd",
     }
 }
 
-fn behavior_label(behavior: ScriptBehavior) -> &'static str {
+const fn behavior_label(behavior: ScriptBehavior) -> &'static str {
     match behavior {
         ScriptBehavior::Inline => "inline",
         ScriptBehavior::Silent => "silent",
+    }
+}
+
+fn default_script_interpreter_for_target_os(target_os: &str) -> ScriptInterpreter {
+    match target_os {
+        "win" => ScriptInterpreter::PowerShell,
+        "linux" | "mac" => ScriptInterpreter::Bash,
+        _ if cfg!(windows) => ScriptInterpreter::PowerShell,
+        _ => ScriptInterpreter::Bash,
     }
 }
 
@@ -2687,6 +2812,225 @@ mod tests {
     }
 
     #[test]
+    fn create_modal_initially_hides_language_and_mode_for_snippet() {
+        let modal = LibraryEditorModalState::new_create();
+
+        assert_eq!(modal.visible_fields(), &SNIPPET_MODAL_FIELDS);
+        assert!(!modal.is_script_kind());
+    }
+
+    #[test]
+    fn changing_kind_to_script_shows_language_and_mode() {
+        let mut modal = LibraryEditorModalState::new_create();
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(modal.kind_label(), "script");
+        assert_eq!(modal.visible_fields(), &SCRIPT_MODAL_FIELDS);
+        assert_eq!(
+            modal.interpreter(),
+            default_script_interpreter_for_target_os("all")
+        );
+        assert_eq!(modal.mode_label(), "inline");
+    }
+
+    #[test]
+    fn changing_kind_to_hotkey_script_shows_language_and_mode() {
+        let mut modal = LibraryEditorModalState::new_create();
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(modal.kind_label(), "hotkey script");
+        assert_eq!(modal.visible_fields(), &SCRIPT_MODAL_FIELDS);
+        assert_eq!(modal.mode_label(), "inline");
+    }
+
+    #[test]
+    fn changing_kind_back_to_snippet_hides_language_and_mode() {
+        let mut modal = LibraryEditorModalState::new_create();
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(modal.kind_label(), "snippet");
+        assert_eq!(modal.visible_fields(), &SNIPPET_MODAL_FIELDS);
+        assert_eq!(modal.focus(), LibraryModalField::TargetOs);
+    }
+
+    #[test]
+    fn new_script_mode_defaults_to_inline() {
+        let mut modal = LibraryEditorModalState::new_create();
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(modal.behavior(), ScriptBehavior::Inline);
+        assert_eq!(modal.mode_label(), "inline");
+    }
+
+    #[test]
+    fn language_selector_uses_exact_supported_options() {
+        let mut modal = LibraryEditorModalState::new_edit(
+            LibraryAutomationDetail::from_row(automation_row(
+                TriggerType::Hotkey,
+                "alt+r",
+                "[Script: powershell]",
+                "script",
+                "win",
+                6,
+                Some("Start-Process https://reddit.com"),
+            ))
+            .unwrap(),
+        );
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        let selector = modal.selector().expect("language selector");
+        assert_eq!(selector.title(), "Select Language");
+        assert_eq!(
+            selector.options,
+            vec!["bash", "powershell", "python", "node", "node-esm", "cmd"]
+        );
+    }
+
+    #[test]
+    fn mode_selector_uses_exact_supported_options() {
+        let mut modal = LibraryEditorModalState::new_edit(
+            LibraryAutomationDetail::from_row(automation_row(
+                TriggerType::Hotkey,
+                "alt+r",
+                "[Script: powershell]",
+                "script",
+                "win",
+                6,
+                Some("Start-Process https://reddit.com"),
+            ))
+            .unwrap(),
+        );
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        let selector = modal.selector().expect("mode selector");
+        assert_eq!(selector.title(), "Select Mode");
+        assert_eq!(selector.options, vec!["inline", "silent"]);
+    }
+
+    #[test]
+    fn selecting_language_updates_draft_language() {
+        let mut modal = LibraryEditorModalState::new_edit(
+            LibraryAutomationDetail::from_row(automation_row(
+                TriggerType::Hotkey,
+                "alt+r",
+                "[Script: powershell]",
+                "script",
+                "win",
+                6,
+                Some("Start-Process https://reddit.com"),
+            ))
+            .unwrap(),
+        );
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(modal.language_label(), "python");
+    }
+
+    #[test]
+    fn selecting_mode_updates_draft_mode() {
+        let mut modal = LibraryEditorModalState::new_edit(
+            LibraryAutomationDetail::from_row(automation_row(
+                TriggerType::Hotkey,
+                "alt+r",
+                "[Script: powershell]",
+                "script",
+                "win",
+                6,
+                Some("Start-Process https://reddit.com"),
+            ))
+            .unwrap(),
+        );
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(modal.behavior(), ScriptBehavior::Inline);
+        assert_eq!(modal.mode_label(), "inline");
+    }
+
+    #[test]
+    fn tab_visits_language_and_mode_only_for_script_kinds() {
+        let mut modal = LibraryEditorModalState::new_edit(
+            LibraryAutomationDetail::from_row(automation_row(
+                TriggerType::Hotkey,
+                "alt+r",
+                "[Script: powershell]",
+                "script",
+                "win",
+                6,
+                Some("Start-Process https://reddit.com"),
+            ))
+            .unwrap(),
+        );
+
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(modal.focus(), LibraryModalField::Content);
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(modal.focus(), LibraryModalField::Kind);
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(modal.focus(), LibraryModalField::TargetOs);
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(modal.focus(), LibraryModalField::Language);
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(modal.focus(), LibraryModalField::Mode);
+    }
+
+    #[test]
+    fn tab_skips_language_and_mode_for_snippet_kinds() {
+        let mut modal = LibraryEditorModalState::new_create();
+
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(modal.focus(), LibraryModalField::Content);
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(modal.focus(), LibraryModalField::Kind);
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(modal.focus(), LibraryModalField::TargetOs);
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(modal.focus(), LibraryModalField::Trigger);
+    }
+
+    #[test]
     fn typing_j_and_k_in_content_field() {
         let mut modal = LibraryEditorModalState::new_create();
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)); // Focus content
@@ -2744,6 +3088,8 @@ mod tests {
 
         assert_eq!(pending.kind, LibraryKind::HotkeyScript);
         assert_eq!(pending.content, "Start-Process https://reddit.com");
+        assert_eq!(pending.interpreter, Some(ScriptInterpreter::PowerShell));
+        assert_eq!(pending.behavior, Some(ScriptBehavior::Silent));
         assert!(matches!(
             pending.mode(),
             PendingLibrarySaveMode::Update { id, .. } if id == "automation-alt+r"
@@ -2759,6 +3105,11 @@ mod tests {
         assert_eq!(modal.content(), "");
         assert_eq!(modal.kind_label(), "snippet");
         assert_eq!(modal.target_os(), "all");
+        assert_eq!(
+            modal.interpreter(),
+            default_script_interpreter_for_target_os("all")
+        );
+        assert_eq!(modal.behavior(), ScriptBehavior::Inline);
     }
 
     #[test]
@@ -2779,6 +3130,63 @@ mod tests {
         assert_eq!(pending.target_os, "all");
         assert_eq!(pending.trigger, "gm");
         assert_eq!(pending.content, "Hi");
+        assert_eq!(pending.interpreter, None);
+        assert_eq!(pending.behavior, None);
+    }
+
+    #[test]
+    fn ctrl_s_for_new_script_captures_language_and_mode() {
+        let mut modal = LibraryEditorModalState::new_create();
+        modal.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let language_steps = match modal.interpreter() {
+            ScriptInterpreter::Bash => 2,
+            ScriptInterpreter::PowerShell => 1,
+            _ => 0,
+        };
+        for _ in 0..language_steps {
+            modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        }
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        let interaction =
+            modal.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+        let pending = interaction.pending_save().unwrap();
+
+        assert_eq!(pending.kind, LibraryKind::Script);
+        assert_eq!(pending.interpreter, Some(ScriptInterpreter::Python));
+        assert_eq!(pending.behavior, Some(ScriptBehavior::Silent));
+    }
+
+    #[test]
+    fn editing_existing_script_preserves_language_and_mode() {
+        let modal = LibraryEditorModalState::new_edit(
+            LibraryAutomationDetail::from_row(automation_row(
+                TriggerType::Hotkey,
+                "alt+r",
+                "[Script: powershell]",
+                "script",
+                "win",
+                6,
+                Some("Start-Process https://reddit.com"),
+            ))
+            .unwrap(),
+        );
+
+        assert_eq!(modal.language_label(), "powershell");
+        assert_eq!(modal.mode_label(), "silent");
     }
 
     #[test]
