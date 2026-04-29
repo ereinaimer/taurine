@@ -1,11 +1,9 @@
 use std::path::PathBuf;
 
-use chrono::Local;
 use inquire::{Password, PasswordDisplayMode};
 use taurine_core::db::init;
 use taurine_core::exchange::{
-    ExchangePayload, ExportOptions, crypto, encode_plaintext_payload, export_automations,
-    serialize_payload,
+    ExportOptions, encode_exchange_blob, export_automations, resolve_export_path,
 };
 use tracing::info;
 use zeroize::Zeroize;
@@ -27,10 +25,10 @@ pub fn execute(
         },
     )?;
     let encoded = if no_encrypt {
-        encode_plaintext_payload(&payload)?
+        encode_exchange_blob(&payload, false, None)?
     } else {
         let mut password = prompt_export_password()?;
-        let result = encode_exchange_blob(&payload, false, Some(password.as_str()));
+        let result = encode_exchange_blob(&payload, true, Some(password.as_str()));
         password.zeroize();
         result?
     };
@@ -44,45 +42,6 @@ pub fn execute(
     );
 
     Ok(())
-}
-
-fn resolve_export_path(path: Option<PathBuf>) -> taurine_core::error::Result<PathBuf> {
-    match path {
-        Some(path) => Ok(ensure_tau_extension(path)),
-        None => {
-            let date_string = Local::now().format("%Y-%m-%d").to_string();
-            let filename = format!("taurine-export-{}.tau", date_string);
-            Ok(std::env::current_dir()?.join(filename))
-        }
-    }
-}
-
-fn ensure_tau_extension(mut path: PathBuf) -> PathBuf {
-    if path.extension().is_none() {
-        path.set_extension("tau");
-    }
-    path
-}
-
-fn encode_exchange_blob(
-    payload: &ExchangePayload,
-    no_encrypt: bool,
-    password: Option<&str>,
-) -> taurine_core::error::Result<Vec<u8>> {
-    if no_encrypt {
-        return encode_plaintext_payload(payload);
-    }
-
-    let password = password.ok_or_else(|| {
-        taurine_core::error::Error::Config(
-            "An encryption password is required for TAU1 exports".to_string(),
-        )
-    })?;
-
-    let mut serialized = serialize_payload(payload)?;
-    let result = crypto::encrypt(&serialized, password);
-    serialized.zeroize();
-    result
 }
 
 fn prompt_export_password() -> taurine_core::error::Result<String> {
@@ -99,7 +58,7 @@ fn prompt_export_password() -> taurine_core::error::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use taurine_core::exchange::{ENCRYPTED_MAGIC_HEADER, PLAINTEXT_MAGIC_HEADER};
+    use taurine_core::exchange::{ENCRYPTED_MAGIC_HEADER, ExchangePayload, PLAINTEXT_MAGIC_HEADER};
 
     fn sample_payload() -> ExchangePayload {
         ExchangePayload::new(vec![])
@@ -107,13 +66,13 @@ mod tests {
 
     #[test]
     fn encode_exchange_blob_uses_taup_for_plaintext_exports() {
-        let blob = encode_exchange_blob(&sample_payload(), true, None).unwrap();
+        let blob = encode_exchange_blob(&sample_payload(), false, None).unwrap();
         assert_eq!(&blob[..4], &PLAINTEXT_MAGIC_HEADER);
     }
 
     #[test]
     fn encode_exchange_blob_uses_tau1_for_encrypted_exports() {
-        let blob = encode_exchange_blob(&sample_payload(), false, Some("hunter2")).unwrap();
+        let blob = encode_exchange_blob(&sample_payload(), true, Some("hunter2")).unwrap();
         assert_eq!(&blob[..4], &ENCRYPTED_MAGIC_HEADER);
         assert!(
             !blob
@@ -121,27 +80,5 @@ mod tests {
                 .any(|window| window == b"schema_version"),
             "Encrypted export should be an opaque binary blob"
         );
-    }
-
-    #[test]
-    fn ensure_tau_extension_appends_when_missing() {
-        let resolved = ensure_tau_extension(PathBuf::from("my_scripts"));
-        assert_eq!(resolved, PathBuf::from("my_scripts.tau"));
-    }
-
-    #[test]
-    fn ensure_tau_extension_preserves_existing_extension() {
-        let resolved = ensure_tau_extension(PathBuf::from("custom-pack.tau"));
-        assert_eq!(resolved, PathBuf::from("custom-pack.tau"));
-    }
-
-    #[test]
-    fn resolve_export_path_defaults_to_timestamped_tau_file_in_cwd() {
-        let resolved = resolve_export_path(None).unwrap();
-        let filename = resolved.file_name().unwrap().to_string_lossy();
-
-        assert!(resolved.is_absolute());
-        assert!(filename.starts_with("taurine-export-"));
-        assert!(filename.ends_with(".tau"));
     }
 }

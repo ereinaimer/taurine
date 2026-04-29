@@ -14,8 +14,9 @@ use crate::{
     app::{App, Page},
     control,
     library::{
-        LibraryAutomation, LibraryDeleteModalState, LibraryEditorModalState, LibraryMetadataRow,
-        LibraryModal, LibraryModalField, LibraryPageState, LibrarySelectState,
+        LibraryAutomation, LibraryDeleteModalState, LibraryEditorModalState,
+        LibraryExportModalField, LibraryExportModalState, LibraryMetadataRow, LibraryModal,
+        LibraryModalField, LibraryPageState, LibrarySelectState,
     },
     settings::{
         ConfirmResetModalState, InputModalState, SelectModalState, SettingKey, SettingsModal,
@@ -186,6 +187,7 @@ fn render_content(frame: &mut Frame, area: Rect, app: &App) {
             if let Some(modal) = app.library_page().modal() {
                 match modal {
                     LibraryModal::Editor(state) => render_library_editor_modal(frame, inner, state),
+                    LibraryModal::Export(state) => render_library_export_modal(frame, inner, state),
                     LibraryModal::ConfirmDelete(state) => {
                         render_library_delete_modal(frame, inner, state)
                     }
@@ -299,18 +301,47 @@ fn render_library_content(frame: &mut Frame, area: Rect, library_page: &LibraryP
         return;
     }
 
-    let sections = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(0),
-        ])
-        .split(area);
+    let has_status = library_page.status_message().is_some();
+    let sections = if has_status {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Min(0),
+            ])
+            .split(area)
+    } else {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Min(0),
+            ])
+            .split(area)
+    };
 
-    render_library_search_bar(frame, sections[0], library_page);
+    let search_index = if has_status {
+        if let Some(message) = library_page.status_message() {
+            frame.render_widget(
+                Paragraph::new(message).style(
+                    Style::default()
+                        .fg(ACCENT_COLOR)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                sections[0],
+            );
+        }
+        1
+    } else {
+        0
+    };
 
-    let list_area = sections[2];
+    render_library_search_bar(frame, sections[search_index], library_page);
+
+    let list_area = sections[search_index + 2];
     if list_area.height == 0 {
         return;
     }
@@ -485,6 +516,140 @@ fn render_library_item(frame: &mut Frame, area: Rect, item: &LibraryAutomation, 
             .style(preview_style),
         bottom_sections[1],
     );
+}
+
+fn render_library_export_modal(frame: &mut Frame, area: Rect, state: &LibraryExportModalState) {
+    let width = if area.width > 48 {
+        area.width.saturating_sub(6).min(76)
+    } else {
+        area.width.max(1)
+    };
+    let height = if state.encrypt() { 11 } else { 9 };
+    let popup = centered_rect(width, height, area);
+    frame.render_widget(Clear, popup);
+    let inner = render_modal_block(frame, popup, "Export Automations");
+
+    let constraints = if state.encrypt() {
+        vec![
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
+        ]
+    } else {
+        vec![
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
+        ]
+    };
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
+        .split(inner);
+
+    render_modal_field_label(
+        frame,
+        sections[0],
+        "Path",
+        state.focus() == LibraryExportModalField::Path,
+        None,
+    );
+    render_modal_input_field(
+        frame,
+        sections[1],
+        state.path(),
+        state.path_cursor(),
+        state.focus() == LibraryExportModalField::Path,
+    );
+
+    render_modal_key_value_row(
+        frame,
+        sections[2],
+        "Encrypt",
+        yes_no_label(state.encrypt()),
+        state.focus() == LibraryExportModalField::Encrypt,
+        false,
+    );
+
+    let mut next_row = 3usize;
+    if state.encrypt() {
+        render_modal_field_label(
+            frame,
+            sections[3],
+            "Password",
+            state.focus() == LibraryExportModalField::Password,
+            None,
+        );
+        render_modal_password_field(
+            frame,
+            sections[4],
+            &state.password_masked(),
+            state.password_cursor(),
+            state.focus() == LibraryExportModalField::Password,
+        );
+        next_row = 5;
+    }
+
+    render_modal_key_value_row(
+        frame,
+        sections[next_row],
+        "Settings",
+        yes_no_label(state.include_settings()),
+        state.focus() == LibraryExportModalField::IncludeSettings,
+        false,
+    );
+    render_modal_key_value_row(
+        frame,
+        sections[next_row + 1],
+        "Metrics",
+        yes_no_label(state.include_metrics()),
+        state.focus() == LibraryExportModalField::IncludeMetrics,
+        false,
+    );
+
+    let feedback_area = sections[next_row + 2];
+    let (text, style) = if let Some(error) = state.error() {
+        (
+            error,
+            Style::default()
+                .fg(ERROR_COLOR)
+                .add_modifier(Modifier::BOLD),
+        )
+    } else {
+        (
+            "",
+            Style::default()
+                .fg(MUTED_TEXT_COLOR)
+                .add_modifier(Modifier::DIM),
+        )
+    };
+    frame.render_widget(Paragraph::new(text).style(style), feedback_area);
+
+    match state.focus() {
+        LibraryExportModalField::Path => {
+            frame.set_cursor_position((
+                sections[1].x + 1 + state.path_cursor() as u16,
+                sections[1].y,
+            ));
+        }
+        LibraryExportModalField::Password if state.encrypt() => {
+            frame.set_cursor_position((
+                sections[4].x + 1 + state.password_cursor() as u16,
+                sections[4].y,
+            ));
+        }
+        _ => {}
+    }
 }
 
 fn render_library_editor_modal(frame: &mut Frame, area: Rect, state: &LibraryEditorModalState) {
@@ -717,6 +882,16 @@ fn render_modal_input_field(
     frame.render_widget(text.style(text_style), inner);
 }
 
+fn render_modal_password_field(
+    frame: &mut Frame,
+    area: Rect,
+    masked_value: &str,
+    cursor: usize,
+    focused: bool,
+) {
+    render_modal_input_field(frame, area, masked_value, cursor, focused);
+}
+
 fn render_modal_content_field(frame: &mut Frame, area: Rect, state: &LibraryEditorModalState) {
     let focused = state.focus() == LibraryModalField::Content;
     let bg = if focused {
@@ -877,6 +1052,10 @@ fn render_modal_key_value_row(
         Paragraph::new(truncate_to_width(value, sections[1].width)).style(value_style),
         sections[1],
     );
+}
+
+fn yes_no_label(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
 }
 
 fn render_metric_cards(frame: &mut Frame, area: Rect, metrics: &HomeMetrics) {
@@ -1654,7 +1833,7 @@ mod tests {
         );
         assert_eq!(
             footer_text(&app),
-            "Ctrl+B Nav   / Search   n New   d Delete   Enter Edit   q Quit"
+            "Ctrl+B Nav   / Search   n New   x Export   d Delete   Enter Edit   q Quit"
         );
     }
 
@@ -1715,6 +1894,21 @@ mod tests {
         assert_eq!(
             footer_text(&app),
             "Ctrl+B Nav   Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev"
+        );
+    }
+
+    #[test]
+    fn library_export_modal_footer_switches_to_export_hints() {
+        let mut app = App::default();
+        app.handle_key(
+            crossterm::event::KeyCode::Char('2'),
+            crossterm::event::KeyModifiers::NONE,
+        );
+        app.library_page_mut().open_export_modal();
+
+        assert_eq!(
+            footer_text(&app),
+            "Ctrl+B Nav   Ctrl+S Export   Esc Cancel   Tab Next   Shift+Tab Prev"
         );
     }
 }

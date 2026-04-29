@@ -1,4 +1,7 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use taurine_core::{
@@ -8,11 +11,13 @@ use taurine_core::{
         update_existing_automation,
     },
     engine::shell::{ScriptBehavior, ScriptInterpreter, decompress},
+    exchange::{ExportOptions, encode_exchange_blob, export_automations, resolve_export_path},
 };
 
-const LIBRARY_FOOTER: &str = "/ Search   n New   d Delete   Enter Edit   q Quit";
+const LIBRARY_FOOTER: &str = "/ Search   n New   x Export   d Delete   Enter Edit   q Quit";
 const LIBRARY_EDIT_MODAL_FOOTER: &str = "Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev";
 const LIBRARY_CREATE_MODAL_FOOTER: &str = "Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev";
+const LIBRARY_EXPORT_MODAL_FOOTER: &str = "Ctrl+S Export   Esc Cancel   Tab Next   Shift+Tab Prev";
 const LIBRARY_DELETE_MODAL_FOOTER: &str = "Esc Cancel";
 const DEFAULT_SCRIPT_FALLBACK: &str = "Script content unavailable.";
 const DEFAULT_OUTPUT_FALLBACK: &str = "No output available.";
@@ -25,6 +30,19 @@ const SCRIPT_LANGUAGE_OPTIONS: [ScriptInterpreter; 6] = [
     ScriptInterpreter::Cmd,
 ];
 const SCRIPT_MODE_OPTIONS: [ScriptBehavior; 2] = [ScriptBehavior::Inline, ScriptBehavior::Silent];
+const EXPORT_ENCRYPTION_OPTIONS: [LibraryExportModalField; 5] = [
+    LibraryExportModalField::Path,
+    LibraryExportModalField::Encrypt,
+    LibraryExportModalField::Password,
+    LibraryExportModalField::IncludeSettings,
+    LibraryExportModalField::IncludeMetrics,
+];
+const EXPORT_PLAINTEXT_OPTIONS: [LibraryExportModalField; 4] = [
+    LibraryExportModalField::Path,
+    LibraryExportModalField::Encrypt,
+    LibraryExportModalField::IncludeSettings,
+    LibraryExportModalField::IncludeMetrics,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LibraryKind {
@@ -158,6 +176,15 @@ pub(crate) enum LibraryModalField {
     Mode,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LibraryExportModalField {
+    Path,
+    Encrypt,
+    Password,
+    IncludeSettings,
+    IncludeMetrics,
+}
+
 const SNIPPET_MODAL_FIELDS: [LibraryModalField; 4] = [
     LibraryModalField::Trigger,
     LibraryModalField::Content,
@@ -220,6 +247,333 @@ pub(crate) struct LibrarySelectState {
 impl LibrarySelectState {
     pub(crate) const fn title(&self) -> &'static str {
         self.title
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LibraryExportModalState {
+    path: String,
+    path_cursor: usize,
+    encrypt: bool,
+    password: String,
+    password_cursor: usize,
+    include_settings: bool,
+    include_metrics: bool,
+    focus: LibraryExportModalField,
+    error: Option<String>,
+}
+
+impl LibraryExportModalState {
+    fn new() -> taurine_core::Result<Self> {
+        let path = resolve_export_path(None)?.to_string_lossy().into_owned();
+        let path_cursor = path.chars().count();
+
+        Ok(Self {
+            path,
+            path_cursor,
+            encrypt: true,
+            password: String::new(),
+            password_cursor: 0,
+            include_settings: false,
+            include_metrics: false,
+            focus: LibraryExportModalField::Path,
+            error: None,
+        })
+    }
+
+    pub(crate) fn path(&self) -> &str {
+        &self.path
+    }
+
+    pub(crate) const fn path_cursor(&self) -> usize {
+        self.path_cursor
+    }
+
+    pub(crate) const fn encrypt(&self) -> bool {
+        self.encrypt
+    }
+
+    pub(crate) fn password_masked(&self) -> String {
+        "*".repeat(self.password.chars().count())
+    }
+
+    pub(crate) const fn password_cursor(&self) -> usize {
+        self.password_cursor
+    }
+
+    pub(crate) const fn include_settings(&self) -> bool {
+        self.include_settings
+    }
+
+    pub(crate) const fn include_metrics(&self) -> bool {
+        self.include_metrics
+    }
+
+    pub(crate) const fn focus(&self) -> LibraryExportModalField {
+        self.focus
+    }
+
+    pub(crate) fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    fn set_error(&mut self, error: String) {
+        self.error = Some(error);
+    }
+
+    fn visible_fields(&self) -> &'static [LibraryExportModalField] {
+        if self.encrypt {
+            &EXPORT_ENCRYPTION_OPTIONS
+        } else {
+            &EXPORT_PLAINTEXT_OPTIONS
+        }
+    }
+
+    pub(crate) fn footer_text(&self) -> &'static str {
+        LIBRARY_EXPORT_MODAL_FOOTER
+    }
+
+    fn handle_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        self.error = None;
+
+        if matches!(key.code, KeyCode::Char('s' | 'S'))
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+        {
+            return match self.build_pending_export() {
+                Ok(pending_export) => LibraryInteraction::export(pending_export),
+                Err(error) => {
+                    self.error = Some(error.to_string());
+                    LibraryInteraction::handled()
+                }
+            };
+        }
+
+        match (key.code, key.modifiers) {
+            (KeyCode::Esc, KeyModifiers::NONE) => LibraryInteraction::close(),
+            (KeyCode::Tab, KeyModifiers::NONE) => {
+                self.advance_focus(true);
+                LibraryInteraction::handled()
+            }
+            (KeyCode::BackTab, _) => {
+                self.advance_focus(false);
+                LibraryInteraction::handled()
+            }
+            _ => self.handle_focused_key(key),
+        }
+    }
+
+    fn build_pending_export(&self) -> taurine_core::Result<PendingLibraryExport> {
+        if self.path.trim().is_empty() {
+            return Err(taurine_core::Error::Config(
+                "Export path is required.".to_string(),
+            ));
+        }
+
+        if self.encrypt && self.password.is_empty() {
+            return Err(taurine_core::Error::Config(
+                "Encryption password is required.".to_string(),
+            ));
+        }
+
+        Ok(PendingLibraryExport {
+            path: self.path.clone(),
+            encrypt: self.encrypt,
+            password: self.encrypt.then(|| self.password.clone()),
+            include_settings: self.include_settings,
+            include_metrics: self.include_metrics,
+        })
+    }
+
+    fn handle_focused_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match self.focus {
+            LibraryExportModalField::Path => self.handle_path_key(key),
+            LibraryExportModalField::Encrypt => self.handle_encrypt_key(key),
+            LibraryExportModalField::Password => self.handle_password_key(key),
+            LibraryExportModalField::IncludeSettings => self.handle_include_settings_key(key),
+            LibraryExportModalField::IncludeMetrics => self.handle_include_metrics_key(key),
+        }
+    }
+
+    fn handle_path_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Left, KeyModifiers::NONE) => {
+                self.path_cursor = self.path_cursor.saturating_sub(1);
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Right, KeyModifiers::NONE) => {
+                self.path_cursor = (self.path_cursor + 1).min(self.path.chars().count());
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Home, KeyModifiers::NONE) => {
+                self.path_cursor = 0;
+                LibraryInteraction::handled()
+            }
+            (KeyCode::End, KeyModifiers::NONE) => {
+                self.path_cursor = self.path.chars().count();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Backspace, KeyModifiers::NONE) => {
+                self.delete_path_backward();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Delete, KeyModifiers::NONE) => {
+                self.delete_path_forward();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Char(ch), modifiers)
+                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.insert_path_char(ch);
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    fn handle_encrypt_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Char(' '), KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
+                self.encrypt = !self.encrypt;
+                self.ensure_focus_visible();
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    fn handle_password_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Left, KeyModifiers::NONE) => {
+                self.password_cursor = self.password_cursor.saturating_sub(1);
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Right, KeyModifiers::NONE) => {
+                self.password_cursor =
+                    (self.password_cursor + 1).min(self.password.chars().count());
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Home, KeyModifiers::NONE) => {
+                self.password_cursor = 0;
+                LibraryInteraction::handled()
+            }
+            (KeyCode::End, KeyModifiers::NONE) => {
+                self.password_cursor = self.password.chars().count();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Backspace, KeyModifiers::NONE) => {
+                self.delete_password_backward();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Delete, KeyModifiers::NONE) => {
+                self.delete_password_forward();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Char(ch), modifiers)
+                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.insert_password_char(ch);
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    fn handle_include_settings_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Char(' '), KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
+                self.include_settings = !self.include_settings;
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    fn handle_include_metrics_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Char(' '), KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
+                self.include_metrics = !self.include_metrics;
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    fn advance_focus(&mut self, forward: bool) {
+        let fields = self.visible_fields();
+        let current_index = fields
+            .iter()
+            .position(|field| *field == self.focus)
+            .unwrap_or(0);
+        let next_index = if forward {
+            (current_index + 1) % fields.len()
+        } else if current_index == 0 {
+            fields.len().saturating_sub(1)
+        } else {
+            current_index - 1
+        };
+        self.focus = fields[next_index];
+    }
+
+    fn ensure_focus_visible(&mut self) {
+        if self.visible_fields().contains(&self.focus) {
+            return;
+        }
+
+        self.focus = LibraryExportModalField::IncludeSettings;
+    }
+
+    fn insert_path_char(&mut self, ch: char) {
+        let byte_index = char_index_to_byte_index(&self.path, self.path_cursor);
+        self.path.insert(byte_index, ch);
+        self.path_cursor += 1;
+    }
+
+    fn delete_path_backward(&mut self) {
+        if self.path_cursor == 0 {
+            return;
+        }
+
+        let end = char_index_to_byte_index(&self.path, self.path_cursor);
+        let start = char_index_to_byte_index(&self.path, self.path_cursor - 1);
+        self.path.replace_range(start..end, "");
+        self.path_cursor -= 1;
+    }
+
+    fn delete_path_forward(&mut self) {
+        if self.path_cursor >= self.path.chars().count() {
+            return;
+        }
+
+        let start = char_index_to_byte_index(&self.path, self.path_cursor);
+        let end = char_index_to_byte_index(&self.path, self.path_cursor + 1);
+        self.path.replace_range(start..end, "");
+    }
+
+    fn insert_password_char(&mut self, ch: char) {
+        let byte_index = char_index_to_byte_index(&self.password, self.password_cursor);
+        self.password.insert(byte_index, ch);
+        self.password_cursor += 1;
+    }
+
+    fn delete_password_backward(&mut self) {
+        if self.password_cursor == 0 {
+            return;
+        }
+
+        let end = char_index_to_byte_index(&self.password, self.password_cursor);
+        let start = char_index_to_byte_index(&self.password, self.password_cursor - 1);
+        self.password.replace_range(start..end, "");
+        self.password_cursor -= 1;
+    }
+
+    fn delete_password_forward(&mut self) {
+        if self.password_cursor >= self.password.chars().count() {
+            return;
+        }
+
+        let start = char_index_to_byte_index(&self.password, self.password_cursor);
+        let end = char_index_to_byte_index(&self.password, self.password_cursor + 1);
+        self.password.replace_range(start..end, "");
     }
 }
 
@@ -983,6 +1337,7 @@ impl LibraryDeleteModalState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LibraryModal {
     Editor(LibraryEditorModalState),
+    Export(LibraryExportModalState),
     ConfirmDelete(LibraryDeleteModalState),
 }
 
@@ -990,6 +1345,7 @@ impl LibraryModal {
     fn set_error(&mut self, error: String) {
         match self {
             Self::Editor(state) => state.set_error(error),
+            Self::Export(state) => state.set_error(error),
             Self::ConfirmDelete(state) => state.set_error(error),
         }
     }
@@ -1107,6 +1463,33 @@ impl PendingLibraryDelete {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PendingLibraryExport {
+    path: String,
+    encrypt: bool,
+    password: Option<String>,
+    include_settings: bool,
+    include_metrics: bool,
+}
+
+impl PendingLibraryExport {
+    pub(crate) fn apply(&self) -> taurine_core::Result<PathBuf> {
+        let path = resolve_export_path(Some(PathBuf::from(self.path.as_str())))?;
+        let conn = taurine_core::db::init::setup()?;
+        let payload = export_automations(
+            &conn,
+            ExportOptions {
+                include_settings: self.include_settings,
+                include_metrics: self.include_metrics,
+                include_sensitive_settings: false,
+            },
+        )?;
+        let encoded = encode_exchange_blob(&payload, self.encrypt, self.password.as_deref())?;
+        std::fs::write(&path, encoded)?;
+        Ok(path)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LibraryOpenRequest {
     Selected(String),
     Create,
@@ -1117,6 +1500,7 @@ pub(crate) struct LibraryInteraction {
     open_request: Option<LibraryOpenRequest>,
     pending_save: Option<PendingLibrarySave>,
     pending_delete: Option<PendingLibraryDelete>,
+    pending_export: Option<PendingLibraryExport>,
     close_modal: bool,
 }
 
@@ -1133,6 +1517,10 @@ impl LibraryInteraction {
         self.pending_delete.as_ref()
     }
 
+    pub(crate) const fn pending_export(&self) -> Option<&PendingLibraryExport> {
+        self.pending_export.as_ref()
+    }
+
     pub(crate) const fn should_close_modal(&self) -> bool {
         self.close_modal
     }
@@ -1146,6 +1534,7 @@ impl LibraryInteraction {
             open_request: Some(LibraryOpenRequest::Selected(id)),
             pending_save: None,
             pending_delete: None,
+            pending_export: None,
             close_modal: false,
         }
     }
@@ -1155,6 +1544,7 @@ impl LibraryInteraction {
             open_request: Some(LibraryOpenRequest::Create),
             pending_save: None,
             pending_delete: None,
+            pending_export: None,
             close_modal: false,
         }
     }
@@ -1164,6 +1554,7 @@ impl LibraryInteraction {
             open_request: None,
             pending_save: Some(pending_save),
             pending_delete: None,
+            pending_export: None,
             close_modal: false,
         }
     }
@@ -1173,6 +1564,17 @@ impl LibraryInteraction {
             open_request: None,
             pending_save: None,
             pending_delete: Some(pending_delete),
+            pending_export: None,
+            close_modal: false,
+        }
+    }
+
+    fn export(pending_export: PendingLibraryExport) -> Self {
+        Self {
+            open_request: None,
+            pending_save: None,
+            pending_delete: None,
+            pending_export: Some(pending_export),
             close_modal: false,
         }
     }
@@ -1182,6 +1584,7 @@ impl LibraryInteraction {
             open_request: None,
             pending_save: None,
             pending_delete: None,
+            pending_export: None,
             close_modal: true,
         }
     }
@@ -1195,6 +1598,7 @@ pub(crate) struct LibraryPageState {
     search_query: String,
     search_mode: bool,
     modal: Option<LibraryModal>,
+    status_message: Option<String>,
     load_error: Option<String>,
 }
 
@@ -1203,6 +1607,7 @@ impl LibraryPageState {
         sort_items(&mut items);
         self.items = items;
         self.load_error = None;
+        self.status_message = None;
         self.rebuild_filter();
     }
 
@@ -1210,12 +1615,20 @@ impl LibraryPageState {
         self.load_error = Some(error);
     }
 
+    pub(crate) fn set_status_message(&mut self, message: String) {
+        self.status_message = Some(message);
+    }
+
     pub(crate) fn set_save_error(&mut self, error: String) {
         if let Some(modal) = self.modal.as_mut() {
             modal.set_error(error);
         } else {
-            self.load_error = Some(error);
+            self.status_message = Some(error);
         }
+    }
+
+    pub(crate) fn status_message(&self) -> Option<&str> {
+        self.status_message.as_deref()
     }
 
     pub(crate) fn load_error(&self) -> Option<&str> {
@@ -1226,6 +1639,7 @@ impl LibraryPageState {
         if let Some(modal) = &self.modal {
             match modal {
                 LibraryModal::Editor(state) => state.footer_text(),
+                LibraryModal::Export(state) => state.footer_text(),
                 LibraryModal::ConfirmDelete(_) => LIBRARY_DELETE_MODAL_FOOTER,
             }
         } else if self.search_mode {
@@ -1259,6 +1673,13 @@ impl LibraryPageState {
 
     pub(crate) fn open_create_modal(&mut self) {
         self.modal = Some(LibraryModal::Editor(LibraryEditorModalState::new_create()));
+    }
+
+    pub(crate) fn open_export_modal(&mut self) {
+        match LibraryExportModalState::new() {
+            Ok(state) => self.modal = Some(LibraryModal::Export(state)),
+            Err(error) => self.set_status_message(error.to_string()),
+        }
     }
 
     fn open_delete_modal_for_selected(&mut self) {
@@ -1338,6 +1759,8 @@ impl LibraryPageState {
             return LibraryInteraction::handled();
         }
 
+        self.status_message = None;
+
         match (key.code, key.modifiers) {
             (KeyCode::Char('/'), KeyModifiers::NONE) => {
                 self.search_mode = true;
@@ -1352,6 +1775,10 @@ impl LibraryPageState {
                 LibraryInteraction::handled()
             }
             (KeyCode::Char('n'), KeyModifiers::NONE) => LibraryInteraction::open_create(),
+            (KeyCode::Char('x'), KeyModifiers::NONE) => {
+                self.open_export_modal();
+                LibraryInteraction::handled()
+            }
             (KeyCode::Char('d'), KeyModifiers::NONE) => {
                 self.open_delete_modal_for_selected();
                 LibraryInteraction::handled()
@@ -1374,6 +1801,13 @@ impl LibraryPageState {
                 let interaction = state.handle_key(key);
                 if !interaction.should_close_modal() {
                     self.modal = Some(LibraryModal::Editor(state));
+                }
+                interaction
+            }
+            LibraryModal::Export(mut state) => {
+                let interaction = state.handle_key(key);
+                if !interaction.should_close_modal() {
+                    self.modal = Some(LibraryModal::Export(state));
                 }
                 interaction
             }
@@ -2357,6 +2791,96 @@ mod tests {
             interaction.into_open_request(),
             Some(LibraryOpenRequest::Create)
         );
+    }
+
+    #[test]
+    fn pressing_x_opens_export_modal() {
+        let mut state = sample_state();
+
+        state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+
+        assert!(matches!(state.modal(), Some(LibraryModal::Export(_))));
+    }
+
+    #[test]
+    fn export_modal_defaults_match_cli_behavior() {
+        let mut state = sample_state();
+        state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+
+        let Some(LibraryModal::Export(modal)) = state.modal() else {
+            panic!("expected export modal");
+        };
+        assert!(modal.path().ends_with(".tau"));
+        assert!(modal.encrypt());
+        assert_eq!(modal.password_masked(), "");
+        assert!(!modal.include_settings());
+        assert!(!modal.include_metrics());
+        assert_eq!(state.footer_text(), LIBRARY_EXPORT_MODAL_FOOTER);
+    }
+
+    #[test]
+    fn export_modal_tab_skips_password_when_encryption_is_disabled() {
+        let mut state = sample_state();
+        state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+
+        let Some(LibraryModal::Export(modal)) = state.modal.as_mut() else {
+            panic!("expected export modal");
+        };
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(modal.focus(), LibraryExportModalField::Encrypt);
+
+        modal.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        assert!(!modal.encrypt());
+
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(modal.focus(), LibraryExportModalField::IncludeSettings);
+    }
+
+    #[test]
+    fn export_modal_requires_password_when_encryption_is_enabled() {
+        let mut state = sample_state();
+        state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+
+        let Some(LibraryModal::Export(modal)) = state.modal.as_mut() else {
+            panic!("expected export modal");
+        };
+        let interaction =
+            modal.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+
+        assert!(interaction.pending_export().is_none());
+        assert_eq!(modal.error(), Some("Encryption password is required."));
+    }
+
+    #[test]
+    fn export_modal_ctrl_s_creates_pending_export_when_plaintext() {
+        let mut state = sample_state();
+        state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+
+        let Some(LibraryModal::Export(modal)) = state.modal.as_mut() else {
+            panic!("expected export modal");
+        };
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+
+        let interaction =
+            modal.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+
+        let pending = interaction.pending_export().expect("pending export");
+        assert!(!pending.encrypt);
+        assert_eq!(pending.password, None);
+        assert!(!pending.include_settings);
+        assert!(!pending.include_metrics);
+    }
+
+    #[test]
+    fn export_modal_owns_input_and_keeps_search_inactive() {
+        let mut state = sample_state();
+        state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+
+        state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+
+        assert!(!state.is_search_active());
+        assert!(matches!(state.modal(), Some(LibraryModal::Export(_))));
     }
 
     #[test]

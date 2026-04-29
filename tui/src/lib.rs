@@ -157,6 +157,18 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
         return;
     }
 
+    if let Some(pending_export) = interaction.pending_export() {
+        match pending_export.apply() {
+            Ok(path) => {
+                app.library_page_mut().clear_modal();
+                app.library_page_mut()
+                    .set_status_message(format!("Exported automations to {}", path.display()));
+            }
+            Err(error) => app.library_page_mut().set_save_error(error.to_string()),
+        }
+        return;
+    }
+
     if let Some(pending_save) = interaction.pending_save() {
         match pending_save.apply() {
             Ok(automation_id) => {

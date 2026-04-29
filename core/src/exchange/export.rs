@@ -1,8 +1,15 @@
-use super::{AutomationExport, ExchangePayload, MetricExport, ScriptExport, SettingExport};
+use std::path::{Path, PathBuf};
+
+use super::{
+    AutomationExport, ExchangePayload, MetricExport, ScriptExport, SettingExport, crypto,
+    encode_plaintext_payload, serialize_payload,
+};
 use crate::db::crud::TriggerType;
 use crate::engine::shell::{ScriptBehavior, ScriptInterpreter, decompress};
 use rusqlite::Connection;
 use rusqlite::types::Type;
+use time::OffsetDateTime;
+use zeroize::Zeroize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ExportOptions {
@@ -98,6 +105,51 @@ pub fn export_automations(
         settings,
         metrics,
     })
+}
+
+pub fn default_export_filename() -> String {
+    let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
+    default_export_filename_for_timestamp(now)
+}
+
+pub fn default_export_path() -> crate::Result<PathBuf> {
+    Ok(default_export_path_for_cwd(
+        &std::env::current_dir()?,
+        OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc()),
+    ))
+}
+
+pub fn resolve_export_path(path: Option<PathBuf>) -> crate::Result<PathBuf> {
+    match path {
+        Some(path) => Ok(ensure_tau_extension(path)),
+        None => default_export_path(),
+    }
+}
+
+pub fn ensure_tau_extension(mut path: PathBuf) -> PathBuf {
+    if path.extension().is_none() {
+        path.set_extension("tau");
+    }
+    path
+}
+
+pub fn encode_exchange_blob(
+    payload: &ExchangePayload,
+    encrypt: bool,
+    password: Option<&str>,
+) -> crate::Result<Vec<u8>> {
+    if !encrypt {
+        return encode_plaintext_payload(payload);
+    }
+
+    let password = password.ok_or_else(|| {
+        crate::Error::Config("An encryption password is required for TAU1 exports".to_string())
+    })?;
+
+    let mut serialized = serialize_payload(payload)?;
+    let result = crypto::encrypt(&serialized, password);
+    serialized.zeroize();
+    result
 }
 
 fn to_automation_export(
@@ -236,4 +288,68 @@ fn is_sensitive_setting_key(key: &str) -> bool {
     ]
     .iter()
     .any(|needle| key.contains(needle))
+}
+
+fn default_export_filename_for_timestamp(now: OffsetDateTime) -> String {
+    format!(
+        "taurine-export-{:04}-{:02}-{:02}.tau",
+        now.year(),
+        now.month() as u8,
+        now.day()
+    )
+}
+
+fn default_export_path_for_cwd(cwd: &Path, now: OffsetDateTime) -> PathBuf {
+    cwd.join(default_export_filename_for_timestamp(now))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::exchange::ENCRYPTED_MAGIC_HEADER;
+    use time::macros::datetime;
+
+    #[test]
+    fn ensure_tau_extension_appends_when_missing() {
+        let resolved = ensure_tau_extension(PathBuf::from("my_scripts"));
+        assert_eq!(resolved, PathBuf::from("my_scripts.tau"));
+    }
+
+    #[test]
+    fn ensure_tau_extension_preserves_existing_extension() {
+        let resolved = ensure_tau_extension(PathBuf::from("custom-pack.tau"));
+        assert_eq!(resolved, PathBuf::from("custom-pack.tau"));
+    }
+
+    #[test]
+    fn default_export_filename_uses_tau_extension() {
+        let filename = default_export_filename_for_timestamp(datetime!(2026-04-30 09:15:00 +05:30));
+        assert_eq!(filename, "taurine-export-2026-04-30.tau");
+    }
+
+    #[test]
+    fn default_export_path_uses_current_working_directory() {
+        let path =
+            default_export_path_for_cwd(Path::new("C:/tmp"), datetime!(2026-04-30 09:15:00 +05:30));
+        assert_eq!(path, PathBuf::from("C:/tmp/taurine-export-2026-04-30.tau"));
+    }
+
+    #[test]
+    fn encode_exchange_blob_uses_taup_for_plaintext_exports() {
+        let blob = encode_exchange_blob(&ExchangePayload::new(vec![]), false, None).unwrap();
+        assert_eq!(&blob[..4], &super::super::PLAINTEXT_MAGIC_HEADER);
+    }
+
+    #[test]
+    fn encode_exchange_blob_uses_tau1_for_encrypted_exports() {
+        let blob =
+            encode_exchange_blob(&ExchangePayload::new(vec![]), true, Some("hunter2")).unwrap();
+        assert_eq!(&blob[..4], &ENCRYPTED_MAGIC_HEADER);
+        assert!(
+            !blob
+                .windows(b"schema_version".len())
+                .any(|window| window == b"schema_version"),
+            "Encrypted export should be opaque"
+        );
+    }
 }

@@ -6,7 +6,10 @@ use crate::db::crud::TriggerType;
 use crate::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use serde::{Deserialize, Serialize};
 
-pub use export::{ExportOptions, export_automations};
+pub use export::{
+    ExportOptions, default_export_filename, default_export_path, encode_exchange_blob,
+    ensure_tau_extension, export_automations, resolve_export_path,
+};
 pub use import::{
     ExistingAutomationConflict, ImportConflictAction, ImportMetricsMode, ImportOptions,
     import_automations,
