@@ -105,9 +105,8 @@ impl SettingKey {
             Self::SpinnerStyle => EditorKind::SpinnerSelect,
             Self::AiProvider => EditorKind::AiProviderSelect,
             Self::AiCustomEndpoint => EditorKind::OptionalTextInput,
-            Self::TriggerChar | Self::PauseHotkey | Self::AiModel | Self::InlineAiDelimiter => {
-                EditorKind::TextInput
-            }
+            Self::TriggerChar | Self::InlineAiDelimiter => EditorKind::SingleCharInput,
+            Self::PauseHotkey | Self::AiModel => EditorKind::TextInput,
         }
     }
 
@@ -151,6 +150,7 @@ impl SettingKey {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EditorKind {
     Toggle,
+    SingleCharInput,
     TextInput,
     OptionalTextInput,
     NumberInput,
@@ -302,12 +302,13 @@ impl SettingsPageState {
                     .collect(),
                 self.settings.ai_provider.clone().unwrap_or_default(),
             ))),
-            EditorKind::TextInput | EditorKind::OptionalTextInput | EditorKind::NumberInput => {
-                Some(SettingsModal::Input(InputModalState::new(
-                    key,
-                    key.edit_value(&self.settings),
-                )))
-            }
+            EditorKind::SingleCharInput
+            | EditorKind::TextInput
+            | EditorKind::OptionalTextInput
+            | EditorKind::NumberInput => Some(SettingsModal::Input(InputModalState::new(
+                key,
+                key.edit_value(&self.settings),
+            ))),
         };
     }
 
@@ -447,6 +448,15 @@ impl InputModalState {
         match (key.code, key.modifiers) {
             (KeyCode::Esc, KeyModifiers::NONE) => SettingsInteraction::cancel(),
             (KeyCode::Enter, KeyModifiers::NONE) => {
+                if self.key.editor_kind() == EditorKind::SingleCharInput
+                    && self.value.chars().count() != 1
+                {
+                    self.error = Some(format!(
+                        "{} must be exactly one character.",
+                        self.key.display_name()
+                    ));
+                    return SettingsInteraction::handled();
+                }
                 let value = match self.key.editor_kind() {
                     EditorKind::OptionalTextInput if self.value.trim().is_empty() => None,
                     _ => Some(self.value.clone()),
@@ -707,6 +717,18 @@ mod tests {
     }
 
     #[test]
+    fn trigger_char_and_inline_ai_delimiter_are_single_char_inputs() {
+        assert_eq!(
+            SettingKey::TriggerChar.editor_kind(),
+            EditorKind::SingleCharInput
+        );
+        assert_eq!(
+            SettingKey::InlineAiDelimiter.editor_kind(),
+            EditorKind::SingleCharInput
+        );
+    }
+
+    #[test]
     fn unset_custom_endpoint_uses_placeholder() {
         assert_eq!(
             SettingKey::AiCustomEndpoint.display_value(&Settings::default()),
@@ -789,6 +811,19 @@ mod tests {
         let interaction = state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(interaction.should_close_modal());
         assert!(interaction.pending_save().is_none());
+    }
+
+    #[test]
+    fn single_char_input_rejects_multi_character_values() {
+        let mut modal = InputModalState::new(SettingKey::TriggerChar, "ab".to_string());
+
+        let interaction = modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert!(interaction.pending_save().is_none());
+        assert_eq!(
+            modal.error(),
+            Some("Trigger Character must be exactly one character.")
+        );
     }
 
     #[test]

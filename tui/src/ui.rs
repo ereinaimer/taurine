@@ -202,8 +202,9 @@ fn render_content(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
+    let footer_text = footer_text(app);
     let footer_line = Line::from(vec![Span::styled(
-        footer_text(app),
+        footer_text,
         Style::default()
             .fg(MUTED_TEXT_COLOR)
             .add_modifier(Modifier::DIM),
@@ -212,10 +213,12 @@ fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(Paragraph::new(footer_line).alignment(Alignment::Left), area);
 }
 
-fn footer_text(app: &App) -> &str {
+fn footer_text(app: &App) -> String {
     match app.active_page() {
-        Page::Home => home_footer_with_nav(control::home_footer_label(app.daemon_status())),
-        Page::Library => library_footer_with_nav(app.library_page().footer_text()),
+        Page::Home => {
+            home_footer_with_nav(control::home_footer_label(app.daemon_status())).to_string()
+        }
+        Page::Library => library_footer_with_nav(app.library_page().footer_text()).to_string(),
         Page::Settings => settings_footer_with_nav(app.settings_page().footer_text()),
     }
 }
@@ -248,17 +251,13 @@ fn library_footer_with_nav(library_footer: &str) -> &str {
     }
 }
 
-fn settings_footer_with_nav(settings_footer: &str) -> &str {
-    match settings_footer {
-        "j/k Move   ↑/↓ Move   Enter Save   Esc Cancel" => {
-            "Ctrl+B Nav   j/k Move   ↑/↓ Move   Enter Save   Esc Cancel"
-        }
-        "Type Edit   Enter Save   Esc Cancel" => "Ctrl+B Nav   Type Edit   Enter Save   Esc Cancel",
-        "j/k Move   ↑/↓ Move   Space Toggle   Enter Edit   r Reset   q Quit" => {
-            "Ctrl+B Nav   j/k Move   ↑/↓ Move   Space Toggle   Enter Edit   r Reset   q Quit"
-        }
-        "" => NAV_TOGGLE_HINT,
-        _ => "Ctrl+B Nav",
+fn settings_footer_with_nav(settings_footer: &str) -> String {
+    if settings_footer.is_empty() {
+        NAV_TOGGLE_HINT.to_string()
+    } else if settings_footer.starts_with("Ctrl+B") {
+        settings_footer.to_string()
+    } else {
+        format!("Ctrl+B Nav   {settings_footer}")
     }
 }
 
@@ -1657,6 +1656,25 @@ mod tests {
         assert_eq!(
             footer_text(&app),
             "Ctrl+B Nav   / Search   n New   d Delete   Enter Edit   q Quit"
+        );
+    }
+
+    #[test]
+    fn settings_confirmation_footer_preserves_specific_keys_with_nav_hint() {
+        let mut app = App::default();
+        app.handle_key(
+            crossterm::event::KeyCode::Char('3'),
+            crossterm::event::KeyModifiers::NONE,
+        );
+        app.settings_page_mut()
+            .handle_key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Char('r'),
+                crossterm::event::KeyModifiers::NONE,
+            ));
+
+        assert_eq!(
+            footer_text(&app),
+            "Ctrl+B Nav   ←/h Yes   →/l No   y Confirm   n/Esc Cancel"
         );
     }
 
