@@ -2867,7 +2867,7 @@ mod tests {
 
         assert_eq!(modal.kind_label(), "snippet");
         assert_eq!(modal.visible_fields(), &SNIPPET_MODAL_FIELDS);
-        assert_eq!(modal.focus(), LibraryModalField::TargetOs);
+        assert_eq!(modal.focus(), LibraryModalField::Kind);
     }
 
     #[test]
