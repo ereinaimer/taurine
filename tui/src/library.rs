@@ -4,13 +4,17 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use taurine_core::{
     db::crud::{
         AutomationListItem, AutomationRow, ExistingAutomationUpdate, NewAutomation,
-        SUPPORTED_TARGET_OS_VALUES, TriggerType, create_automation, update_existing_automation,
+        SUPPORTED_TARGET_OS_VALUES, TriggerType, create_automation, delete_automation,
+        update_existing_automation,
     },
     engine::shell::{ScriptBehavior, ScriptInterpreter, decompress},
 };
 
 const LIBRARY_FOOTER: &str = "/ Search   n New   d Delete   Enter Edit   q Quit";
-const LIBRARY_MODAL_FOOTER: &str = "Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev";
+const LIBRARY_EDIT_MODAL_FOOTER: &str =
+    "Ctrl+S Save   d Delete   Esc Cancel   Tab Next   Shift+Tab Prev";
+const LIBRARY_CREATE_MODAL_FOOTER: &str = "Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev";
+const LIBRARY_DELETE_MODAL_FOOTER: &str = "Esc Cancel";
 const DEFAULT_SCRIPT_FALLBACK: &str = "Script content unavailable.";
 const DEFAULT_OUTPUT_FALLBACK: &str = "No output available.";
 
@@ -76,6 +80,7 @@ impl LibraryKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LibraryAutomation {
     id: String,
+    name: String,
     trigger: String,
     preview: String,
     kind: LibraryKind,
@@ -124,6 +129,7 @@ impl From<AutomationListItem> for LibraryAutomation {
 
         Self {
             id: item.id,
+            name: item.name,
             trigger: item.trigger,
             preview,
             kind,
@@ -186,6 +192,16 @@ impl LibraryMetadataRow {
     pub(crate) fn value(&self) -> &str {
         &self.value
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LibraryDeleteModalState {
+    automation_id: String,
+    name: String,
+    selected_yes: bool,
+    restore_index: usize,
+    return_to_editor: Option<LibraryEditorModalState>,
+    error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -773,8 +789,10 @@ impl LibraryEditorModalState {
     pub(crate) fn footer_text(&self) -> &'static str {
         if self.selector.is_some() {
             "j/k Move   ↑/↓ Move   Enter Save   Esc Cancel"
+        } else if self.mode == LibraryEditorMode::Edit {
+            LIBRARY_EDIT_MODAL_FOOTER
         } else {
-            LIBRARY_MODAL_FOOTER
+            LIBRARY_CREATE_MODAL_FOOTER
         }
     }
 
@@ -783,15 +801,66 @@ impl LibraryEditorModalState {
     }
 }
 
+impl LibraryDeleteModalState {
+    fn from_item(item: &LibraryAutomation, restore_index: usize) -> Self {
+        Self {
+            automation_id: item.id().to_string(),
+            name: item.name.clone(),
+            selected_yes: true,
+            restore_index,
+            return_to_editor: None,
+            error: None,
+        }
+    }
+
+    fn from_editor(editor: LibraryEditorModalState, restore_index: usize) -> Option<Self> {
+        let original = editor.original.as_ref()?;
+        Some(Self {
+            automation_id: original.id().to_string(),
+            name: original.name().to_string(),
+            selected_yes: true,
+            restore_index,
+            return_to_editor: Some(editor),
+            error: None,
+        })
+    }
+
+    pub(crate) fn automation_id(&self) -> &str {
+        &self.automation_id
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub(crate) const fn selected_yes(&self) -> bool {
+        self.selected_yes
+    }
+
+    pub(crate) const fn restore_index(&self) -> usize {
+        self.restore_index
+    }
+
+    pub(crate) fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    fn set_error(&mut self, error: String) {
+        self.error = Some(error);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LibraryModal {
     Editor(LibraryEditorModalState),
+    ConfirmDelete(LibraryDeleteModalState),
 }
 
 impl LibraryModal {
-    pub(crate) const fn editor(&self) -> &LibraryEditorModalState {
+    fn set_error(&mut self, error: String) {
         match self {
-            Self::Editor(state) => state,
+            Self::Editor(state) => state.set_error(error),
+            Self::ConfirmDelete(state) => state.set_error(error),
         }
     }
 }
@@ -883,6 +952,29 @@ impl PendingLibrarySave {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PendingLibraryDelete {
+    pub(crate) automation_id: String,
+    pub(crate) restore_index: usize,
+}
+
+impl PendingLibraryDelete {
+    pub(crate) const fn restore_index(&self) -> usize {
+        self.restore_index
+    }
+
+    pub(crate) fn apply(&self) -> taurine_core::Result<()> {
+        let conn = taurine_core::db::init::setup()?;
+        if !delete_automation(&conn, &self.automation_id)? {
+            return Err(taurine_core::Error::NotFound(
+                "Automation no longer exists.".to_string(),
+            ));
+        }
+        taurine_core::rpc::notify_daemon_reload();
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LibraryOpenRequest {
     Selected(String),
     Create,
@@ -892,6 +984,7 @@ pub(crate) enum LibraryOpenRequest {
 pub(crate) struct LibraryInteraction {
     open_request: Option<LibraryOpenRequest>,
     pending_save: Option<PendingLibrarySave>,
+    pending_delete: Option<PendingLibraryDelete>,
     close_modal: bool,
 }
 
@@ -902,6 +995,10 @@ impl LibraryInteraction {
 
     pub(crate) const fn pending_save(&self) -> Option<&PendingLibrarySave> {
         self.pending_save.as_ref()
+    }
+
+    pub(crate) const fn pending_delete(&self) -> Option<&PendingLibraryDelete> {
+        self.pending_delete.as_ref()
     }
 
     pub(crate) const fn should_close_modal(&self) -> bool {
@@ -916,6 +1013,7 @@ impl LibraryInteraction {
         Self {
             open_request: Some(LibraryOpenRequest::Selected(id)),
             pending_save: None,
+            pending_delete: None,
             close_modal: false,
         }
     }
@@ -924,6 +1022,7 @@ impl LibraryInteraction {
         Self {
             open_request: Some(LibraryOpenRequest::Create),
             pending_save: None,
+            pending_delete: None,
             close_modal: false,
         }
     }
@@ -932,6 +1031,16 @@ impl LibraryInteraction {
         Self {
             open_request: None,
             pending_save: Some(pending_save),
+            pending_delete: None,
+            close_modal: false,
+        }
+    }
+
+    fn delete(pending_delete: PendingLibraryDelete) -> Self {
+        Self {
+            open_request: None,
+            pending_save: None,
+            pending_delete: Some(pending_delete),
             close_modal: false,
         }
     }
@@ -940,6 +1049,7 @@ impl LibraryInteraction {
         Self {
             open_request: None,
             pending_save: None,
+            pending_delete: None,
             close_modal: true,
         }
     }
@@ -969,8 +1079,8 @@ impl LibraryPageState {
     }
 
     pub(crate) fn set_save_error(&mut self, error: String) {
-        if let Some(LibraryModal::Editor(state)) = self.modal.as_mut() {
-            state.set_error(error);
+        if let Some(modal) = self.modal.as_mut() {
+            modal.set_error(error);
         } else {
             self.load_error = Some(error);
         }
@@ -981,8 +1091,11 @@ impl LibraryPageState {
     }
 
     pub(crate) fn footer_text(&self) -> &'static str {
-        if let Some(LibraryModal::Editor(state)) = &self.modal {
-            state.footer_text()
+        if let Some(modal) = &self.modal {
+            match modal {
+                LibraryModal::Editor(state) => state.footer_text(),
+                LibraryModal::ConfirmDelete(_) => LIBRARY_DELETE_MODAL_FOOTER,
+            }
         } else if self.search_mode {
             "Type Search   Enter Finish   Esc Cancel"
         } else {
@@ -1014,6 +1127,20 @@ impl LibraryPageState {
 
     pub(crate) fn open_create_modal(&mut self) {
         self.modal = Some(LibraryModal::Editor(LibraryEditorModalState::new_create()));
+    }
+
+    fn open_delete_modal_for_selected(&mut self) {
+        let Some(selected_index) = self.selected_index() else {
+            self.load_error = Some("No automation selected.".to_string());
+            return;
+        };
+        let Some(item) = self.item_at_filtered(selected_index).cloned() else {
+            self.load_error = Some("No automation selected.".to_string());
+            return;
+        };
+        self.modal = Some(LibraryModal::ConfirmDelete(
+            LibraryDeleteModalState::from_item(&item, selected_index),
+        ));
     }
 
     pub(crate) fn clear_modal(&mut self) {
@@ -1051,6 +1178,14 @@ impl LibraryPageState {
         }
     }
 
+    pub(crate) fn select_after_delete(&mut self, previous_index: usize) {
+        if self.filtered_indices.is_empty() {
+            self.selected = 0;
+        } else {
+            self.selected = previous_index.min(self.filtered_indices.len().saturating_sub(1));
+        }
+    }
+
     pub(crate) fn empty_state_message(&self) -> Option<&'static str> {
         if self.items.is_empty() {
             Some("No automations yet.")
@@ -1085,6 +1220,10 @@ impl LibraryPageState {
                 LibraryInteraction::handled()
             }
             (KeyCode::Char('n'), KeyModifiers::NONE) => LibraryInteraction::open_create(),
+            (KeyCode::Char('d'), KeyModifiers::NONE) => {
+                self.open_delete_modal_for_selected();
+                LibraryInteraction::handled()
+            }
             (KeyCode::Enter, KeyModifiers::NONE) => self
                 .selected_item()
                 .map(|item| LibraryInteraction::open_selected(item.id().to_string()))
@@ -1094,12 +1233,95 @@ impl LibraryPageState {
     }
 
     fn handle_modal_key(&mut self, key: KeyEvent) -> LibraryInteraction {
-        let Some(modal) = self.modal.as_mut() else {
+        let Some(modal) = self.modal.take() else {
             return LibraryInteraction::handled();
         };
 
         match modal {
-            LibraryModal::Editor(state) => state.handle_key(key),
+            LibraryModal::Editor(mut state) => {
+                if state.selector().is_none()
+                    && matches!(
+                        (key.code, key.modifiers),
+                        (KeyCode::Char('d'), KeyModifiers::NONE)
+                    )
+                {
+                    if state.mode == LibraryEditorMode::Create {
+                        state.set_error("Cannot delete unsaved automation.".to_string());
+                        self.modal = Some(LibraryModal::Editor(state));
+                        return LibraryInteraction::handled();
+                    }
+
+                    if let Some(selected_index) = self.selected_index()
+                        && let Some(confirm) =
+                            LibraryDeleteModalState::from_editor(state.clone(), selected_index)
+                    {
+                        self.modal = Some(LibraryModal::ConfirmDelete(confirm));
+                        return LibraryInteraction::handled();
+                    }
+
+                    self.modal = Some(LibraryModal::Editor(state));
+                    self.load_error = Some("No automation selected.".to_string());
+                    return LibraryInteraction::handled();
+                }
+
+                let interaction = state.handle_key(key);
+                if !interaction.should_close_modal() {
+                    self.modal = Some(LibraryModal::Editor(state));
+                }
+                interaction
+            }
+            LibraryModal::ConfirmDelete(mut state) => match (key.code, key.modifiers) {
+                (KeyCode::Left, KeyModifiers::NONE) | (KeyCode::Char('h'), KeyModifiers::NONE) => {
+                    state.selected_yes = true;
+                    self.modal = Some(LibraryModal::ConfirmDelete(state));
+                    LibraryInteraction::handled()
+                }
+                (KeyCode::Right, KeyModifiers::NONE) | (KeyCode::Char('l'), KeyModifiers::NONE) => {
+                    state.selected_yes = false;
+                    self.modal = Some(LibraryModal::ConfirmDelete(state));
+                    LibraryInteraction::handled()
+                }
+                (KeyCode::Enter, KeyModifiers::NONE) => {
+                    if state.selected_yes() {
+                        let interaction = LibraryInteraction::delete(PendingLibraryDelete {
+                            automation_id: state.automation_id().to_string(),
+                            restore_index: state.restore_index(),
+                        });
+                        self.modal = Some(LibraryModal::ConfirmDelete(state));
+                        interaction
+                    } else {
+                        self.restore_delete_modal_parent(state);
+                        LibraryInteraction::handled()
+                    }
+                }
+                (KeyCode::Char('y'), KeyModifiers::NONE)
+                | (KeyCode::Char('Y'), KeyModifiers::NONE) => {
+                    let interaction = LibraryInteraction::delete(PendingLibraryDelete {
+                        automation_id: state.automation_id().to_string(),
+                        restore_index: state.restore_index(),
+                    });
+                    self.modal = Some(LibraryModal::ConfirmDelete(state));
+                    interaction
+                }
+                (KeyCode::Char('n'), KeyModifiers::NONE)
+                | (KeyCode::Char('N'), KeyModifiers::NONE)
+                | (KeyCode::Esc, KeyModifiers::NONE) => {
+                    self.restore_delete_modal_parent(state);
+                    LibraryInteraction::handled()
+                }
+                _ => {
+                    self.modal = Some(LibraryModal::ConfirmDelete(state));
+                    LibraryInteraction::handled()
+                }
+            },
+        }
+    }
+
+    fn restore_delete_modal_parent(&mut self, state: LibraryDeleteModalState) {
+        if let Some(editor) = state.return_to_editor {
+            self.modal = Some(LibraryModal::Editor(editor));
+        } else {
+            self.modal = None;
         }
     }
 
@@ -1489,6 +1711,7 @@ mod tests {
     ) -> AutomationListItem {
         AutomationListItem {
             id: id.to_string(),
+            name: trigger.to_string(),
             description: description.map(str::to_string),
             trigger_type,
             trigger: trigger.to_string(),
@@ -1938,6 +2161,54 @@ mod tests {
     }
 
     #[test]
+    fn pressing_d_with_selected_automation_opens_delete_confirmation_modal() {
+        let mut state = sample_state();
+
+        state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+
+        assert!(matches!(
+            state.modal(),
+            Some(LibraryModal::ConfirmDelete(_))
+        ));
+    }
+
+    #[test]
+    fn pressing_d_from_editor_edit_mode_opens_delete_confirmation_modal() {
+        let mut state = sample_state();
+        let detail = LibraryAutomationDetail::from_row(automation_row(
+            TriggerType::Word,
+            "gm",
+            "Good Morning",
+            "text",
+            "all",
+            9,
+            None,
+        ))
+        .unwrap();
+        state.open_editor_modal(detail);
+
+        state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+
+        assert!(matches!(
+            state.modal(),
+            Some(LibraryModal::ConfirmDelete(_))
+        ));
+    }
+
+    #[test]
+    fn pressing_d_from_create_mode_keeps_editor_open_and_shows_error() {
+        let mut state = sample_state();
+        state.open_create_modal();
+
+        state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+
+        let Some(LibraryModal::Editor(modal)) = state.modal() else {
+            panic!("expected editor modal");
+        };
+        assert_eq!(modal.error(), Some("Cannot delete unsaved automation."));
+    }
+
+    #[test]
     fn pressing_escape_closes_open_modal() {
         let mut state = sample_state();
         let detail = LibraryAutomationDetail::from_row(automation_row(
@@ -2010,7 +2281,7 @@ mod tests {
 
         state.open_editor_modal(detail);
 
-        assert_eq!(state.footer_text(), LIBRARY_MODAL_FOOTER);
+        assert_eq!(state.footer_text(), LIBRARY_EDIT_MODAL_FOOTER);
     }
 
     #[test]
@@ -2032,6 +2303,89 @@ mod tests {
 
         assert!(!state.is_search_active());
         assert!(state.is_modal_open());
+    }
+
+    #[test]
+    fn delete_confirmation_owns_input_and_keeps_search_inactive() {
+        let mut state = sample_state();
+        state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+
+        state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+
+        assert!(!state.is_search_active());
+        assert!(matches!(
+            state.modal(),
+            Some(LibraryModal::ConfirmDelete(_))
+        ));
+    }
+
+    #[test]
+    fn delete_confirmation_cancel_restores_editor_modal() {
+        let mut state = sample_state();
+        let detail = LibraryAutomationDetail::from_row(automation_row(
+            TriggerType::Word,
+            "gm",
+            "Good Morning",
+            "text",
+            "all",
+            9,
+            None,
+        ))
+        .unwrap();
+        state.open_editor_modal(detail);
+        state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+
+        state.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+
+        assert!(matches!(state.modal(), Some(LibraryModal::Editor(_))));
+    }
+
+    #[test]
+    fn delete_confirmation_enter_creates_pending_delete() {
+        let mut state = sample_state();
+        state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        let pending = interaction.pending_delete().expect("pending delete");
+        assert_eq!(pending.automation_id, "id-alt+r");
+        assert_eq!(pending.restore_index(), 0);
+    }
+
+    #[test]
+    fn select_after_delete_chooses_nearest_remaining_item() {
+        let mut state = sample_state();
+        state.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        state.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        state.replace_items(vec![
+            LibraryAutomation::from(list_item(
+                "id-gm",
+                None,
+                TriggerType::Word,
+                "gm",
+                "Good Morning",
+                "text",
+                "all",
+                9,
+                None,
+            )),
+            LibraryAutomation::from(list_item(
+                "id-deploy",
+                None,
+                TriggerType::Word,
+                "deploy",
+                "[Script: bash]",
+                "script",
+                "linux",
+                4,
+                Some("npm run build && npm publish"),
+            )),
+        ]);
+
+        state.select_after_delete(2);
+
+        assert_eq!(state.selected_index(), Some(1));
+        assert_eq!(state.item_at_filtered(1).unwrap().trigger(), "gm");
     }
 
     #[test]

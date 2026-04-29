@@ -240,7 +240,7 @@ pub fn get_all_active_hotkey_automations(
 pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>> {
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
-        "SELECT a.id, a.description, a.trigger, a.output, a.action_type, a.target_os,
+        "SELECT a.id, a.name, a.description, a.trigger, a.output, a.action_type, a.target_os,
                 a.usage_count, a.last_used_at, a.created_at, a.trigger_type, s.interpreter,
                 s.behavior, s.compressed_content
          FROM   automations a
@@ -251,24 +251,25 @@ pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>
     )?;
 
     let rows = stmt.query_map([os_str], |row| {
-        let trigger_type = parse_trigger_type_row(row.get(9)?)?;
-        let interpreter = parse_json_variant(row.get(10)?);
-        let behavior = parse_json_variant(row.get(11)?);
+        let trigger_type = parse_trigger_type_row(row.get(10)?)?;
+        let interpreter = parse_json_variant(row.get(11)?);
+        let behavior = parse_json_variant(row.get(12)?);
         let script_content = row
-            .get::<_, Option<Vec<u8>>>(12)?
+            .get::<_, Option<Vec<u8>>>(13)?
             .and_then(|compressed| decompress(&compressed).ok());
 
         Ok(AutomationListItem {
             id: row.get(0)?,
-            description: row.get(1)?,
+            name: row.get(1)?,
+            description: row.get(2)?,
             trigger_type,
-            trigger: row.get(2)?,
-            output: row.get(3)?,
-            action_type: row.get(4)?,
-            target_os: row.get(5)?,
-            usage_count: row.get(6)?,
-            last_used_at: row.get(7)?,
-            created_at: row.get(8)?,
+            trigger: row.get(3)?,
+            output: row.get(4)?,
+            action_type: row.get(5)?,
+            target_os: row.get(6)?,
+            usage_count: row.get(7)?,
+            last_used_at: row.get(8)?,
+            created_at: row.get(9)?,
             script_content,
             interpreter,
             behavior,
