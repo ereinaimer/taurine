@@ -95,6 +95,7 @@ pub struct AutomationListItem {
     pub trigger: String,
     pub output: String,
     pub action_type: String,
+    pub target_os: String,
     pub usage_count: i64,
     pub last_used_at: Option<i64>,
     pub created_at: i64,
