@@ -92,6 +92,7 @@ pub struct AutomationSummary {
 #[derive(Debug, Clone, PartialEq)]
 pub struct AutomationListItem {
     pub id: String,
+    pub name: String,
     pub description: Option<String>,
     pub trigger_type: TriggerType,
     pub trigger: String,

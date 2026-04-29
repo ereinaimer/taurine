@@ -155,6 +155,19 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
         return;
     }
 
+    if let Some(pending_delete) = interaction.pending_delete() {
+        let restore_index = pending_delete.restore_index();
+        match pending_delete.apply() {
+            Ok(()) => {
+                refresh_library_page(app);
+                app.library_page_mut().select_after_delete(restore_index);
+                app.library_page_mut().clear_modal();
+            }
+            Err(error) => app.library_page_mut().set_save_error(error.to_string()),
+        }
+        return;
+    }
+
     let Some(open_request) = interaction.into_open_request() else {
         return;
     };
@@ -478,6 +491,32 @@ mod tests {
         app.library_page_mut()
             .open_editor_modal(sample_library_modal());
 
+        handle_tui_key_event(&mut app, plain_key('/'), &controller);
+
+        assert!(!app.library_page().is_search_active());
+        assert!(app.library_page().is_modal_open());
+    }
+
+    #[test]
+    fn typing_q_while_library_delete_confirmation_is_open_does_not_quit() {
+        let mut app = App::default();
+        let controller = MockController::default();
+        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+
+        handle_tui_key_event(&mut app, plain_key('d'), &controller);
+        handle_tui_key_event(&mut app, plain_key('q'), &controller);
+
+        assert!(!app.should_quit());
+        assert!(app.library_page().is_modal_open());
+    }
+
+    #[test]
+    fn slash_does_not_activate_search_while_library_delete_confirmation_is_open() {
+        let mut app = App::default();
+        let controller = MockController::default();
+        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+
+        handle_tui_key_event(&mut app, plain_key('d'), &controller);
         handle_tui_key_event(&mut app, plain_key('/'), &controller);
 
         assert!(!app.library_page().is_search_active());

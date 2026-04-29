@@ -14,8 +14,8 @@ use crate::{
     app::{App, Page},
     control,
     library::{
-        LibraryAutomation, LibraryEditorModalState, LibraryMetadataRow, LibraryModalField,
-        LibraryPageState, LibrarySelectState,
+        LibraryAutomation, LibraryDeleteModalState, LibraryEditorModalState, LibraryMetadataRow,
+        LibraryModal, LibraryModalField, LibraryPageState, LibrarySelectState,
     },
     settings::{
         ConfirmResetModalState, InputModalState, SelectModalState, SettingKey, SettingsModal,
@@ -184,7 +184,12 @@ fn render_content(frame: &mut Frame, area: Rect, app: &App) {
         Page::Library => {
             render_library_content(frame, inner, app.library_page());
             if let Some(modal) = app.library_page().modal() {
-                render_library_editor_modal(frame, inner, modal.editor());
+                match modal {
+                    LibraryModal::Editor(state) => render_library_editor_modal(frame, inner, state),
+                    LibraryModal::ConfirmDelete(state) => {
+                        render_library_delete_modal(frame, inner, state)
+                    }
+                }
             }
         }
         Page::Settings => {
@@ -229,9 +234,13 @@ fn library_footer_with_nav(library_footer: &str) -> &str {
         "/ Search   n New   d Delete   Enter Edit   q Quit" => {
             "Ctrl+B Nav   / Search   n New   d Delete   Enter Edit   q Quit"
         }
+        "Ctrl+S Save   d Delete   Esc Cancel   Tab Next   Shift+Tab Prev" => {
+            "Ctrl+B Nav   Ctrl+S Save   d Delete   Esc Cancel   Tab Next   Shift+Tab Prev"
+        }
         "Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev" => {
             "Ctrl+B Nav   Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev"
         }
+        "Esc Cancel" => "Ctrl+B Nav   Esc Cancel",
         "" => NAV_TOGGLE_HINT,
         _ => "Ctrl+B Nav",
     }
@@ -565,6 +574,83 @@ fn render_library_editor_modal(frame: &mut Frame, area: Rect, state: &LibraryEdi
     if let Some(selector) = state.selector() {
         render_library_select_modal(frame, area, selector);
     }
+}
+
+fn render_library_delete_modal(frame: &mut Frame, area: Rect, state: &LibraryDeleteModalState) {
+    let width = if area.width > 44 {
+        area.width.saturating_sub(4).min(64)
+    } else {
+        area.width.max(1)
+    };
+    let height = 8;
+    let popup = centered_rect(width, height, area);
+    frame.render_widget(Clear, popup);
+    let inner = render_modal_block(frame, popup, "Delete Automation");
+
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
+        ])
+        .split(inner);
+
+    frame.render_widget(
+        Paragraph::new("Do you want to delete this automation?")
+            .style(Style::default().fg(MUTED_TEXT_COLOR)),
+        sections[0],
+    );
+
+    frame.render_widget(
+        Paragraph::new(truncate_to_width(state.name(), sections[1].width)).style(
+            Style::default()
+                .fg(ACCENT_COLOR)
+                .add_modifier(Modifier::BOLD),
+        ),
+        sections[1],
+    );
+
+    let yes_style = if state.selected_yes() {
+        Style::default()
+            .fg(ACCENT_COLOR)
+            .bg(SELECTED_ROW_BG_COLOR)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(MUTED_TEXT_COLOR)
+    };
+    let no_style = if !state.selected_yes() {
+        Style::default()
+            .fg(ACCENT_COLOR)
+            .bg(SELECTED_ROW_BG_COLOR)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(MUTED_TEXT_COLOR)
+    };
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("  Yes  ", yes_style),
+            Span::raw("    "),
+            Span::styled("  No  ", no_style),
+        ])),
+        sections[2],
+    );
+
+    let feedback_style = if state.error().is_some() {
+        Style::default()
+            .fg(ERROR_COLOR)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(MUTED_TEXT_COLOR)
+            .add_modifier(Modifier::DIM)
+    };
+    frame.render_widget(
+        Paragraph::new(state.error().unwrap_or("")).style(feedback_style),
+        sections[3],
+    );
 }
 
 fn render_modal_field_label(
@@ -1608,7 +1694,7 @@ mod tests {
 
         assert_eq!(
             footer_text(&app),
-            "Ctrl+B Nav   Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev"
+            "Ctrl+B Nav   Ctrl+S Save   d Delete   Esc Cancel   Tab Next   Shift+Tab Prev"
         );
     }
 }
