@@ -123,9 +123,8 @@ pub fn get_startup_vbs_path() -> PathBuf {
 mod tests {
     use super::*;
     use std::env;
-    use std::sync::Mutex;
 
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
+    use crate::testing::TEST_LOCK;
 
     #[test]
     fn test_db_env_override() {

@@ -28,3 +28,7 @@ pub fn open_test_db() -> (TempDir, Connection) {
 }
 
 pub use crate::logs::init_tracing_for_tests;
+use std::sync::Mutex;
+
+/// Global lock for tests that mutate environment variables or global state.
+pub static TEST_LOCK: Mutex<()> = Mutex::new(());

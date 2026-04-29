@@ -1609,6 +1609,7 @@ mod tests {
 
     #[test]
     fn test_record_expansion_usage_updates_automation_and_metrics() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
         init_tracing_for_tests();
         let (dir, conn) = open_test_db();
         let db_path = dir.path().join("test_taurine.db");

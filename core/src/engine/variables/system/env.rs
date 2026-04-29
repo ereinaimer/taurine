@@ -16,6 +16,7 @@ mod tests {
 
     #[test]
     fn test_resolve_env_var() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
         unsafe { env::set_var("TAURINE_TEST_VAR", "hello_world") };
         assert_eq!(
             resolve("env.TAURINE_TEST_VAR"),
