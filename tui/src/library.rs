@@ -253,7 +253,9 @@ fn sort_items(items: &mut [LibraryAutomation]) {
 }
 
 fn preview_from_item(item: &AutomationListItem) -> String {
-    if let Some(description) = normalized_preview_text(item.description.as_deref()) {
+    if let Some(description) = normalized_preview_text(item.description.as_deref())
+        && !is_script_placeholder(&description)
+    {
         return description;
     }
 
@@ -327,7 +329,11 @@ fn normalized_preview_text(value: Option<&str>) -> Option<String> {
 }
 
 fn is_script_placeholder(value: &str) -> bool {
-    value.starts_with("[Script:") && value.ends_with(']')
+    let normalized = value.trim();
+    (normalized.starts_with("[Script:") && normalized.ends_with(']'))
+        || normalized
+            .to_ascii_lowercase()
+            .starts_with("shell script (")
 }
 
 fn display_target_os(target_os: &str) -> &str {
@@ -487,6 +493,22 @@ mod tests {
     }
 
     #[test]
+    fn placeholder_script_description_does_not_block_real_script_preview() {
+        let item = LibraryAutomation::from(list_item(
+            Some("Shell script (CLI argument)"),
+            TriggerType::Hotkey,
+            "alt+r",
+            "[Script: powershell]",
+            "script",
+            "win",
+            6,
+            Some("Start-Process https://reddit.com"),
+        ));
+
+        assert_eq!(item.preview(), "Start-Process https://reddit.com");
+    }
+
+    #[test]
     fn preview_falls_back_to_text_output_when_description_is_empty() {
         let item = LibraryAutomation::from(list_item(
             Some("   "),
@@ -533,6 +555,39 @@ mod tests {
 
         assert_ne!(item.preview(), "[Script: bash]");
         assert_eq!(item.preview(), "npm run build && npm publish");
+    }
+
+    #[test]
+    fn script_preview_does_not_use_shell_script_description_placeholder() {
+        let item = LibraryAutomation::from(list_item(
+            Some("Shell script (CLI argument)"),
+            TriggerType::Word,
+            "deploy",
+            "[Script: bash]",
+            "script",
+            "all",
+            4,
+            Some("npm run build && npm publish"),
+        ));
+
+        assert_ne!(item.preview(), "Shell script (CLI argument)");
+        assert_eq!(item.preview(), "npm run build && npm publish");
+    }
+
+    #[test]
+    fn empty_script_content_falls_back_safely() {
+        let item = LibraryAutomation::from(list_item(
+            Some("Shell script (CLI argument)"),
+            TriggerType::Word,
+            "deploy",
+            "[Script: bash]",
+            "script",
+            "all",
+            4,
+            Some("   "),
+        ));
+
+        assert_eq!(item.preview(), "Script preview unavailable.");
     }
 
     #[test]
