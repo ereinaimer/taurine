@@ -144,9 +144,8 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
     }
 
     if let Some(pending_save) = interaction.pending_save() {
-        let automation_id = pending_save.automation_id().to_string();
         match pending_save.apply() {
-            Ok(()) => {
+            Ok(automation_id) => {
                 refresh_library_page(app);
                 app.library_page_mut().select_item_by_id(&automation_id);
                 app.library_page_mut().clear_modal();
@@ -156,18 +155,23 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
         return;
     }
 
-    let Some(id) = interaction.into_open_selected_id() else {
+    let Some(open_request) = interaction.into_open_request() else {
         return;
     };
 
-    match load_library_automation_detail(&id) {
-        Ok(Some(automation)) => app.library_page_mut().open_editor_modal(automation),
-        Ok(None) => error!(automation_id = %id, "Selected library automation no longer exists"),
-        Err(error) => error!(
-            automation_id = %id,
-            error = %error,
-            "Failed to load TUI library automation detail"
-        ),
+    match open_request {
+        library::LibraryOpenRequest::Selected(id) => match load_library_automation_detail(&id) {
+            Ok(Some(automation)) => app.library_page_mut().open_editor_modal(automation),
+            Ok(None) => error!(automation_id = %id, "Selected library automation no longer exists"),
+            Err(error) => error!(
+                automation_id = %id,
+                error = %error,
+                "Failed to load TUI library automation detail"
+            ),
+        },
+        library::LibraryOpenRequest::Create => {
+            app.library_page_mut().open_create_modal();
+        }
     }
 }
 
@@ -496,5 +500,17 @@ mod tests {
 
         assert_eq!(app.active_page(), Page::Library);
         assert!(!app.library_page().is_modal_open());
+    }
+
+    #[test]
+    fn pressing_n_on_library_opens_create_modal_without_changing_page() {
+        let mut app = App::default();
+        let controller = MockController::default();
+        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+
+        handle_tui_key_event(&mut app, plain_key('n'), &controller);
+
+        assert_eq!(app.active_page(), Page::Library);
+        assert!(app.library_page().is_modal_open());
     }
 }
