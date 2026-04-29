@@ -143,6 +143,19 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
         return;
     }
 
+    if let Some(pending_save) = interaction.pending_save() {
+        let automation_id = pending_save.automation_id().to_string();
+        match pending_save.apply() {
+            Ok(()) => {
+                refresh_library_page(app);
+                app.library_page_mut().select_item_by_id(&automation_id);
+                app.library_page_mut().clear_modal();
+            }
+            Err(error) => app.library_page_mut().set_save_error(error.to_string()),
+        }
+        return;
+    }
+
     let Some(id) = interaction.into_open_selected_id() else {
         return;
     };

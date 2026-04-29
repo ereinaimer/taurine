@@ -2,11 +2,134 @@ use crate::Result;
 use rusqlite::Connection;
 
 use crate::db::{crud::get_setting_value, now_unix_secs};
-use crate::keys::hotkey_strings_overlap;
+use crate::engine::{
+    shell::{ScriptBehavior, ScriptInterpreter, compress, infer_interpreter},
+    variables::system::validate_output,
+    variables::{ValidationError, split_system_tag, valid_modifier_hint, validate_system_tag},
+};
+use crate::keys::{
+    HotkeyPlatform, conflicts_with_taurine_global_hotkey, danger_for_platform,
+    hotkey_strings_overlap, parse_hotkey,
+};
 
 use super::{TriggerConflict, TriggerType};
 
 const INLINE_AI_RESERVED_TRIGGER: &str = "ai";
+const TAG_OPEN: u8 = b'[';
+const TAG_CLOSE: u8 = b']';
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TagBounds {
+    start: usize,
+    end: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTrigger {
+    pub trigger_type: TriggerType,
+    pub stored_trigger: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExistingAutomationUpdate<'a> {
+    pub id: &'a str,
+    pub name: &'a str,
+    pub description: Option<&'a str>,
+    pub trigger_type: TriggerType,
+    pub trigger: &'a str,
+    pub content: &'a str,
+    pub action_type: &'a str,
+    pub target_os: &'a str,
+    pub tags_json: &'a str,
+    pub usage_count: i64,
+    pub last_used_at: Option<i64>,
+    pub interpreter: Option<ScriptInterpreter>,
+    pub behavior: Option<ScriptBehavior>,
+}
+
+pub fn audit_payload_tags(payload: &str) -> Result<()> {
+    let mut ptr = 0;
+
+    while let Some(tag) = find_next_tag(payload, ptr) {
+        let inner = trim_slice(&payload[tag.start + 1..tag.end]);
+        let (key, default_value) = split_key_default(inner);
+
+        if let Some((root, modifier)) = split_system_tag(key) {
+            if let Some(_default) = default_value {
+                return Err(crate::Error::Config(format!(
+                    "Invalid system tag [{}]: system tags cannot use default assignments. {}",
+                    inner,
+                    valid_modifier_hint(root)
+                )));
+            }
+
+            if let Err(error) = validate_system_tag(root, modifier) {
+                return Err(crate::Error::Config(format_validation_error(
+                    inner, root, modifier, &error,
+                )));
+            }
+        }
+
+        ptr = tag.end + 1;
+    }
+
+    Ok(())
+}
+
+pub fn prepare_trigger(
+    trigger: &str,
+    use_hotkey: bool,
+    target_os: &str,
+) -> Result<PreparedTrigger> {
+    let trigger_type = if use_hotkey {
+        TriggerType::Hotkey
+    } else {
+        TriggerType::Word
+    };
+    prepare_trigger_with_type(trigger, trigger_type, target_os)
+}
+
+pub fn prepare_trigger_with_type(
+    trigger: &str,
+    trigger_type: TriggerType,
+    target_os: &str,
+) -> Result<PreparedTrigger> {
+    if matches!(trigger_type, TriggerType::Word) {
+        return Ok(PreparedTrigger {
+            trigger_type,
+            stored_trigger: trigger.to_string(),
+        });
+    }
+
+    let hotkey = parse_hotkey(trigger).map_err(|error| {
+        crate::Error::Config(format!("Invalid hotkey '{}': {}", trigger, error))
+    })?;
+    let canonical = hotkey.canonical_string();
+
+    if conflicts_with_taurine_global_hotkey(hotkey).is_some() {
+        return Err(crate::Error::Config(format!(
+            "Hotkey '{}' conflicts with Taurine's global pause hotkey alt+`",
+            canonical
+        )));
+    }
+
+    for platform in desktop_platforms_for_target_os(target_os)? {
+        if let Some(danger) = danger_for_platform(hotkey, *platform) {
+            return Err(crate::Error::Config(format!(
+                "Hotkey '{}' is not allowed for target_os '{}': conflicts with the {} on {}",
+                canonical,
+                target_os,
+                danger.description(),
+                platform.as_label(),
+            )));
+        }
+    }
+
+    Ok(PreparedTrigger {
+        trigger_type,
+        stored_trigger: canonical,
+    })
+}
 
 fn current_trigger_char(conn: &Connection) -> char {
     if let Ok(Some(val)) = get_setting_value(conn, "trigger_char")
@@ -274,6 +397,241 @@ pub fn upsert_script(
     )?;
 
     Ok(())
+}
+
+pub fn update_existing_automation(
+    conn: &mut Connection,
+    update: ExistingAutomationUpdate<'_>,
+) -> Result<()> {
+    validate_target_os_value(update.target_os)?;
+    audit_payload_tags(update.content)?;
+
+    let prepared =
+        prepare_trigger_with_type(update.trigger, update.trigger_type, update.target_os)?;
+    let tx = conn.transaction()?;
+
+    if update.action_type.eq_ignore_ascii_case("script") {
+        let interpreter = update
+            .interpreter
+            .or_else(|| infer_interpreter(None, update.content))
+            .ok_or_else(|| {
+                crate::Error::Config(
+                    "Unable to determine a script language for this automation.".to_string(),
+                )
+            })?;
+        let behavior = update.behavior.unwrap_or(ScriptBehavior::Inline);
+        let script_output = format!("[Script: {}]", script_interpreter_tag(interpreter));
+
+        upsert_automation_with_trigger_type(
+            &tx,
+            update.id,
+            update.name,
+            update.description,
+            prepared.trigger_type,
+            &prepared.stored_trigger,
+            &script_output,
+            "script",
+            update.target_os,
+            update.tags_json,
+            update.usage_count,
+            update.last_used_at,
+        )?;
+        upsert_script(
+            &tx,
+            update.id,
+            interpreter,
+            behavior,
+            &compress(update.content)?,
+        )?;
+    } else {
+        validate_output(update.content, Some(&prepared.stored_trigger));
+        upsert_automation_with_trigger_type(
+            &tx,
+            update.id,
+            update.name,
+            update.description,
+            prepared.trigger_type,
+            &prepared.stored_trigger,
+            update.content,
+            "text",
+            update.target_os,
+            update.tags_json,
+            update.usage_count,
+            update.last_used_at,
+        )?;
+        tx.execute(
+            "DELETE FROM scripts WHERE automation_id = ?1",
+            rusqlite::params![update.id],
+        )?;
+    }
+
+    tx.commit()?;
+    Ok(())
+}
+
+fn validate_target_os_value(target_os: &str) -> Result<()> {
+    if matches!(
+        target_os,
+        "all" | "win" | "linux" | "mac" | "android" | "ios"
+    ) {
+        Ok(())
+    } else {
+        Err(crate::Error::Config(format!(
+            "Unsupported target_os '{}'",
+            target_os
+        )))
+    }
+}
+
+fn desktop_platforms_for_target_os(target_os: &str) -> Result<&'static [HotkeyPlatform]> {
+    match target_os {
+        "all" => Ok(&[
+            HotkeyPlatform::Windows,
+            HotkeyPlatform::Linux,
+            HotkeyPlatform::Mac,
+        ]),
+        "win" => Ok(&[HotkeyPlatform::Windows]),
+        "linux" => Ok(&[HotkeyPlatform::Linux]),
+        "mac" => Ok(&[HotkeyPlatform::Mac]),
+        "android" | "ios" => Err(crate::Error::Config(format!(
+            "Hotkey triggers are only supported for desktop target_os values; got '{}'",
+            target_os
+        ))),
+        other => Err(crate::Error::Config(format!(
+            "Unsupported target_os '{}' for hotkey validation",
+            other
+        ))),
+    }
+}
+
+trait PlatformLabel {
+    fn as_label(&self) -> &'static str;
+}
+
+impl PlatformLabel for HotkeyPlatform {
+    fn as_label(&self) -> &'static str {
+        match self {
+            HotkeyPlatform::Windows => "windows",
+            HotkeyPlatform::Linux => "linux",
+            HotkeyPlatform::Mac => "mac",
+        }
+    }
+}
+
+fn format_validation_error(
+    raw_tag: &str,
+    root: &str,
+    modifier: Option<&str>,
+    error: &ValidationError,
+) -> String {
+    match error {
+        ValidationError::MissingModifier { .. } => format!(
+            "Invalid system tag [{}]: `{}` requires a modifier. {}",
+            raw_tag,
+            root,
+            valid_modifier_hint(root)
+        ),
+        ValidationError::UnexpectedModifier { .. } => format!(
+            "Invalid system tag [{}]: `{}` does not accept modifier `{}`. {}",
+            raw_tag,
+            root,
+            modifier.unwrap_or_default(),
+            valid_modifier_hint(root)
+        ),
+        ValidationError::InvalidModifier { modifier, .. } => format!(
+            "Invalid system tag [{}]: modifier `{}` is not valid for `{}`. {}",
+            raw_tag,
+            modifier,
+            root,
+            valid_modifier_hint(root)
+        ),
+        ValidationError::UnknownRoot(root) => {
+            format!("Invalid system tag [{}]: unknown root `{}`.", raw_tag, root)
+        }
+    }
+}
+
+fn is_escaped(bytes: &[u8], idx: usize) -> bool {
+    let mut backslashes = 0;
+    let mut cursor = idx;
+
+    while cursor > 0 && bytes[cursor - 1] == b'\\' {
+        backslashes += 1;
+        cursor -= 1;
+    }
+
+    backslashes % 2 == 1
+}
+
+fn trim_slice(s: &str) -> &str {
+    let trimmed = s.trim();
+    let start = s.len() - s.trim_start().len();
+    &s[start..start + trimmed.len()]
+}
+
+fn find_next_tag(text: &str, from: usize) -> Option<TagBounds> {
+    let bytes = text.as_bytes();
+    let mut ptr = from;
+    let mut start = None;
+    let mut depth = 0usize;
+
+    while ptr < bytes.len() {
+        match bytes[ptr] {
+            TAG_OPEN if !is_escaped(bytes, ptr) => {
+                if depth == 0 {
+                    start = Some(ptr);
+                }
+                depth += 1;
+            }
+            TAG_CLOSE if !is_escaped(bytes, ptr) && depth > 0 => {
+                depth -= 1;
+                if depth == 0 {
+                    return start.map(|tag_start| TagBounds {
+                        start: tag_start,
+                        end: ptr,
+                    });
+                }
+            }
+            _ => {}
+        }
+        ptr += 1;
+    }
+
+    None
+}
+
+fn split_key_default(inner: &str) -> (&str, Option<&str>) {
+    let inner = trim_slice(inner);
+    let bytes = inner.as_bytes();
+    let mut depth = 0usize;
+    let mut ptr = 0;
+
+    while ptr < bytes.len() {
+        if bytes[ptr] == TAG_OPEN && !is_escaped(bytes, ptr) {
+            depth += 1;
+        } else if bytes[ptr] == TAG_CLOSE && !is_escaped(bytes, ptr) {
+            depth -= 1;
+        } else if bytes[ptr] == b'=' && depth == 0 {
+            return (
+                trim_slice(&inner[..ptr]),
+                Some(trim_slice(&inner[ptr + 1..])),
+            );
+        }
+        ptr += 1;
+    }
+
+    (inner, None)
+}
+
+fn script_interpreter_tag(interpreter: ScriptInterpreter) -> &'static str {
+    match interpreter {
+        ScriptInterpreter::Bash => "bash",
+        ScriptInterpreter::PowerShell => "powershell",
+        ScriptInterpreter::Python => "python",
+        ScriptInterpreter::Node => "node",
+        ScriptInterpreter::NodeEsm => "node-esm",
+        ScriptInterpreter::Cmd => "cmd",
+    }
 }
 
 /// Increments the usage_count and updates last_used_at for the given trigger.

@@ -12,10 +12,12 @@ pub use automation_get::{
     get_all_active_hotkey_automations, get_automation, get_automations_list, search_automations,
 };
 pub use automation_set::{
-    AddOutcome, add_automation_by_trigger, add_automation_by_trigger_type,
-    find_trigger_overlap_conflict, increment_usage_count_by_trigger, record_expansion_usage,
-    target_os_values_overlap, upsert_automation, upsert_automation_with_trigger_type,
-    upsert_script, validate_trigger_not_reserved, validate_trigger_target_os_conflict,
+    AddOutcome, ExistingAutomationUpdate, PreparedTrigger, add_automation_by_trigger,
+    add_automation_by_trigger_type, audit_payload_tags, find_trigger_overlap_conflict,
+    increment_usage_count_by_trigger, prepare_trigger, prepare_trigger_with_type,
+    record_expansion_usage, target_os_values_overlap, update_existing_automation,
+    upsert_automation, upsert_automation_with_trigger_type, upsert_script,
+    validate_trigger_not_reserved, validate_trigger_target_os_conflict,
 };
 pub use automation_sync::get_syncable_automations;
 pub use automation_types::{
@@ -30,7 +32,7 @@ pub use automation_types::{
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::shell::{ScriptBehavior, ScriptInterpreter, compress};
+    use crate::engine::shell::{ScriptBehavior, ScriptInterpreter, compress, decompress};
     use crate::settings::SettingsManager;
     use crate::testing::{init_tracing_for_tests, open_test_db};
     use rusqlite::ErrorCode;
@@ -1217,6 +1219,233 @@ mod tests {
             items[0].script_content.as_deref(),
             Some("Start-Process https://reddit.com")
         );
+    }
+
+    #[test]
+    fn update_existing_automation_updates_same_row_by_id() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        upsert_automation(
+            &conn,
+            "uuid-edit-1",
+            "GM",
+            None,
+            "gm",
+            "hello",
+            "text",
+            "all",
+            "[]",
+            4,
+            None,
+        )
+        .unwrap();
+
+        update_existing_automation(
+            &mut conn,
+            ExistingAutomationUpdate {
+                id: "uuid-edit-1",
+                name: "GM",
+                description: None,
+                trigger_type: TriggerType::Word,
+                trigger: "gm2",
+                content: "hello again",
+                action_type: "text",
+                target_os: "all",
+                tags_json: "[]",
+                usage_count: 4,
+                last_used_at: None,
+                interpreter: None,
+                behavior: None,
+            },
+        )
+        .unwrap();
+
+        let row = get_automation(&conn, "uuid-edit-1").unwrap().unwrap();
+        assert_eq!(row.trigger, "gm2");
+        assert_eq!(row.output, "hello again");
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM automations WHERE id = 'uuid-edit-1' AND is_deleted = 0",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn update_existing_script_preserves_script_metadata() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        upsert_automation_with_trigger_type(
+            &conn,
+            "uuid-script-edit",
+            "Script Edit",
+            Some("Keep description"),
+            TriggerType::Hotkey,
+            "ralt+m",
+            "[Script: powershell]",
+            "script",
+            "win",
+            "[]",
+            6,
+            Some(10),
+        )
+        .unwrap();
+        upsert_script(
+            &conn,
+            "uuid-script-edit",
+            ScriptInterpreter::PowerShell,
+            ScriptBehavior::Silent,
+            &compress("Start-Process https://reddit.com").unwrap(),
+        )
+        .unwrap();
+
+        update_existing_automation(
+            &mut conn,
+            ExistingAutomationUpdate {
+                id: "uuid-script-edit",
+                name: "Script Edit",
+                description: Some("Keep description"),
+                trigger_type: TriggerType::Hotkey,
+                trigger: "ralt+m",
+                content: "Start-Process https://news.ycombinator.com",
+                action_type: "script",
+                target_os: "win",
+                tags_json: "[]",
+                usage_count: 6,
+                last_used_at: Some(10),
+                interpreter: Some(ScriptInterpreter::PowerShell),
+                behavior: Some(ScriptBehavior::Silent),
+            },
+        )
+        .unwrap();
+
+        let row = get_automation(&conn, "uuid-script-edit").unwrap().unwrap();
+        assert_eq!(row.description.as_deref(), Some("Keep description"));
+        assert_eq!(row.output, "[Script: powershell]");
+        assert_eq!(row.interpreter, Some(ScriptInterpreter::PowerShell));
+        assert_eq!(row.behavior, Some(ScriptBehavior::Silent));
+        assert_eq!(
+            row.script_binary
+                .as_deref()
+                .map(|value| decompress(value).unwrap()),
+            Some("Start-Process https://news.ycombinator.com".to_string())
+        );
+    }
+
+    #[test]
+    fn update_existing_automation_removes_stale_script_when_switching_to_text() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        upsert_automation_with_trigger_type(
+            &conn,
+            "uuid-switch-kind",
+            "Switch Kind",
+            None,
+            TriggerType::Word,
+            "deploy",
+            "[Script: bash]",
+            "script",
+            "linux",
+            "[]",
+            0,
+            None,
+        )
+        .unwrap();
+        upsert_script(
+            &conn,
+            "uuid-switch-kind",
+            ScriptInterpreter::Bash,
+            ScriptBehavior::Inline,
+            &compress("echo first").unwrap(),
+        )
+        .unwrap();
+
+        update_existing_automation(
+            &mut conn,
+            ExistingAutomationUpdate {
+                id: "uuid-switch-kind",
+                name: "Switch Kind",
+                description: None,
+                trigger_type: TriggerType::Word,
+                trigger: "deploy",
+                content: "echo text now",
+                action_type: "text",
+                target_os: "linux",
+                tags_json: "[]",
+                usage_count: 0,
+                last_used_at: None,
+                interpreter: Some(ScriptInterpreter::Bash),
+                behavior: Some(ScriptBehavior::Inline),
+            },
+        )
+        .unwrap();
+
+        let row = get_automation(&conn, "uuid-switch-kind").unwrap().unwrap();
+        assert_eq!(row.action_type, "text");
+        assert!(row.script_binary.is_none());
+    }
+
+    #[test]
+    fn update_existing_automation_rejects_conflicts_with_other_rows() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        upsert_automation(
+            &conn,
+            "uuid-conflict-a",
+            "A",
+            None,
+            "gm",
+            "hello",
+            "text",
+            "all",
+            "[]",
+            0,
+            None,
+        )
+        .unwrap();
+        upsert_automation(
+            &conn,
+            "uuid-conflict-b",
+            "B",
+            None,
+            "gs",
+            "status",
+            "text",
+            "all",
+            "[]",
+            0,
+            None,
+        )
+        .unwrap();
+
+        let error = update_existing_automation(
+            &mut conn,
+            ExistingAutomationUpdate {
+                id: "uuid-conflict-b",
+                name: "B",
+                description: None,
+                trigger_type: TriggerType::Word,
+                trigger: "gm",
+                content: "status",
+                action_type: "text",
+                target_os: "all",
+                tags_json: "[]",
+                usage_count: 0,
+                last_used_at: None,
+                interpreter: None,
+                behavior: None,
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("Trigger conflict"));
     }
 
     #[test]

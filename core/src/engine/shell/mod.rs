@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ScriptInterpreter {
     Bash,
@@ -11,7 +11,7 @@ pub enum ScriptInterpreter {
     Cmd,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ScriptBehavior {
     Inline,
@@ -23,6 +23,44 @@ pub struct ScriptMetadata {
     pub interpreter: ScriptInterpreter,
     pub behavior: ScriptBehavior,
     pub compressed_content: Vec<u8>,
+}
+
+pub fn infer_interpreter(
+    path: Option<&std::path::Path>,
+    content: &str,
+) -> Option<ScriptInterpreter> {
+    if let Some(ext) = path.and_then(|p| p.extension()).and_then(|s| s.to_str()) {
+        match ext.to_lowercase().as_str() {
+            "sh" => return Some(ScriptInterpreter::Bash),
+            "ps1" => return Some(ScriptInterpreter::PowerShell),
+            "py" => return Some(ScriptInterpreter::Python),
+            "js" | "cjs" => return Some(ScriptInterpreter::Node),
+            "mjs" => return Some(ScriptInterpreter::NodeEsm),
+            "bat" | "cmd" => return Some(ScriptInterpreter::Cmd),
+            _ => {}
+        }
+    }
+
+    if content.starts_with("#!") {
+        let first_line = content.lines().next().unwrap_or("");
+        if first_line.contains("bash") || first_line.contains("sh") {
+            return Some(ScriptInterpreter::Bash);
+        }
+        if first_line.contains("python") {
+            return Some(ScriptInterpreter::Python);
+        }
+        if first_line.contains("node") {
+            if content.contains("import ")
+                || content.contains("export ")
+                || content.contains("await ")
+            {
+                return Some(ScriptInterpreter::NodeEsm);
+            }
+            return Some(ScriptInterpreter::Node);
+        }
+    }
+
+    None
 }
 
 /// Compresses a script string using zstd for efficient storage.
@@ -62,5 +100,22 @@ mod tests {
         let long_script = "echo 'line'\n".repeat(100);
         let compressed = compress(&long_script).unwrap();
         assert!(compressed.len() < long_script.len());
+    }
+
+    #[test]
+    fn infer_interpreter_prefers_extension_then_shebang() {
+        assert_eq!(
+            infer_interpreter(Some(std::path::Path::new("test.ps1")), "#!/bin/bash"),
+            Some(ScriptInterpreter::PowerShell)
+        );
+        assert_eq!(
+            infer_interpreter(None, "#!/usr/bin/env python3\nprint(1)"),
+            Some(ScriptInterpreter::Python)
+        );
+        assert_eq!(
+            infer_interpreter(None, "#!/usr/bin/env node\nimport fs from 'fs'"),
+            Some(ScriptInterpreter::NodeEsm)
+        );
+        assert_eq!(infer_interpreter(None, "plain text"), None);
     }
 }
