@@ -80,15 +80,19 @@ fn handle_tui_key_event<C: DaemonController>(
         return;
     }
 
-    if app.active_page() == Page::Library && app.library_page().is_search_active() {
-        app.library_page_mut().handle_key(key);
+    if app.active_page() == Page::Library
+        && (app.library_page().is_modal_open() || app.library_page().is_search_active())
+    {
+        let interaction = app.library_page_mut().handle_key(key);
+        apply_library_interaction(app, interaction);
         return;
     }
 
     app.handle_key_event(key);
 
     if app.active_page() == Page::Library {
-        app.library_page_mut().handle_key(key);
+        let interaction = app.library_page_mut().handle_key(key);
+        apply_library_interaction(app, interaction);
         return;
     }
 
@@ -133,6 +137,27 @@ fn apply_settings_interaction(app: &mut App, interaction: settings::SettingsInte
     }
 }
 
+fn apply_library_interaction(app: &mut App, interaction: library::LibraryInteraction) {
+    if interaction.should_close_modal() {
+        app.library_page_mut().clear_modal();
+        return;
+    }
+
+    let Some(id) = interaction.into_open_selected_id() else {
+        return;
+    };
+
+    match load_library_automation_detail(&id) {
+        Ok(Some(automation)) => app.library_page_mut().open_editor_modal(automation),
+        Ok(None) => error!(automation_id = %id, "Selected library automation no longer exists"),
+        Err(error) => error!(
+            automation_id = %id,
+            error = %error,
+            "Failed to load TUI library automation detail"
+        ),
+    }
+}
+
 fn refresh_home_metrics(app: &mut App) {
     match taurine_core::db::init::setup()
         .and_then(|conn| taurine_core::metrics::load_home_metrics(&conn))
@@ -158,6 +183,17 @@ fn refresh_library_page(app: &mut App) {
             app.library_page_mut().set_load_error(error.to_string());
         }
     }
+}
+
+fn load_library_automation_detail(
+    id: &str,
+) -> taurine_core::Result<Option<library::LibraryAutomationDetail>> {
+    let conn = taurine_core::db::init::setup()?;
+    let Some(automation) = taurine_core::db::crud::get_automation(&conn, id)? else {
+        return Ok(None);
+    };
+
+    library::LibraryAutomationDetail::from_row(automation).map(Some)
 }
 
 fn refresh_settings_page(app: &mut App) {
@@ -227,6 +263,10 @@ mod tests {
     use std::cell::Cell;
 
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use taurine_core::{
+        db::crud::{AutomationRow, TriggerType},
+        engine::shell::{ScriptBehavior, ScriptInterpreter, compress},
+    };
 
     use super::*;
 
@@ -250,6 +290,32 @@ mod tests {
 
     fn plain_key(ch: char) -> KeyEvent {
         KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)
+    }
+
+    fn sample_library_modal() -> library::LibraryAutomationDetail {
+        library::LibraryAutomationDetail::from_row(AutomationRow {
+            id: "library-modal".to_string(),
+            name: "Library Modal".to_string(),
+            description: Some("Open Reddit".to_string()),
+            trigger_type: TriggerType::Hotkey,
+            trigger: "alt+r".to_string(),
+            output: "[Script: powershell]".to_string(),
+            action_type: "script".to_string(),
+            target_os: "win".to_string(),
+            tags: "[]".to_string(),
+            usage_count: 6,
+            last_used_at: Some(1),
+            created_at: 1,
+            updated_at: 1,
+            version: 1,
+            is_deleted: false,
+            is_synced: true,
+            is_enabled: true,
+            interpreter: Some(ScriptInterpreter::PowerShell),
+            behavior: Some(ScriptBehavior::Silent),
+            script_binary: Some(compress("Start-Process https://reddit.com").unwrap()),
+        })
+        .unwrap()
     }
 
     #[test]
@@ -371,5 +437,51 @@ mod tests {
 
         assert_eq!(app.active_page(), Page::Library);
         assert_eq!(app.library_page().search_query(), "1");
+    }
+
+    #[test]
+    fn typing_q_while_library_modal_is_open_does_not_quit() {
+        let mut app = App::default();
+        let controller = MockController::default();
+        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.library_page_mut()
+            .open_editor_modal(sample_library_modal());
+
+        handle_tui_key_event(&mut app, plain_key('q'), &controller);
+
+        assert!(!app.should_quit());
+        assert!(app.library_page().is_modal_open());
+    }
+
+    #[test]
+    fn slash_does_not_activate_library_search_while_modal_is_open() {
+        let mut app = App::default();
+        let controller = MockController::default();
+        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.library_page_mut()
+            .open_editor_modal(sample_library_modal());
+
+        handle_tui_key_event(&mut app, plain_key('/'), &controller);
+
+        assert!(!app.library_page().is_search_active());
+        assert!(app.library_page().is_modal_open());
+    }
+
+    #[test]
+    fn escape_closes_library_modal_without_changing_page() {
+        let mut app = App::default();
+        let controller = MockController::default();
+        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.library_page_mut()
+            .open_editor_modal(sample_library_modal());
+
+        handle_tui_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            &controller,
+        );
+
+        assert_eq!(app.active_page(), Page::Library);
+        assert!(!app.library_page().is_modal_open());
     }
 }
