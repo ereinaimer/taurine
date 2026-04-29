@@ -215,39 +215,29 @@ fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
 
 fn footer_text(app: &App) -> String {
     match app.active_page() {
-        Page::Home => {
-            home_footer_with_nav(control::home_footer_label(app.daemon_status())).to_string()
-        }
-        Page::Library => library_footer_with_nav(app.library_page().footer_text()).to_string(),
+        Page::Home => home_footer_with_nav(control::home_footer_label(app.daemon_status())),
+        Page::Library => library_footer_with_nav(app.library_page().footer_text()),
         Page::Settings => settings_footer_with_nav(app.settings_page().footer_text()),
     }
 }
 
-fn home_footer_with_nav(home_footer: &str) -> &str {
-    match home_footer {
-        "x Start   q Quit" => "Ctrl+B Nav   x Start   q Quit",
-        "x Stop   q Quit" => "Ctrl+B Nav   x Stop   q Quit",
-        "Starting...   q Quit" => "Ctrl+B Nav   Starting...   q Quit",
-        "Stopping...   q Quit" => "Ctrl+B Nav   Stopping...   q Quit",
-        "" => NAV_TOGGLE_HINT,
-        _ => "Ctrl+B Nav",
+fn home_footer_with_nav(home_footer: &str) -> String {
+    if home_footer.is_empty() {
+        NAV_TOGGLE_HINT.to_string()
+    } else if home_footer.contains(NAV_TOGGLE_HINT) {
+        home_footer.to_string()
+    } else {
+        format!("{NAV_TOGGLE_HINT}   {home_footer}")
     }
 }
 
-fn library_footer_with_nav(library_footer: &str) -> &str {
-    match library_footer {
-        "/ Search   n New   d Delete   Enter Edit   q Quit" => {
-            "Ctrl+B Nav   / Search   n New   d Delete   Enter Edit   q Quit"
-        }
-        "Ctrl+S Save   d Delete   Esc Cancel   Tab Next   Shift+Tab Prev" => {
-            "Ctrl+B Nav   Ctrl+S Save   d Delete   Esc Cancel   Tab Next   Shift+Tab Prev"
-        }
-        "Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev" => {
-            "Ctrl+B Nav   Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev"
-        }
-        "Esc Cancel" => "Ctrl+B Nav   Esc Cancel",
-        "" => NAV_TOGGLE_HINT,
-        _ => "Ctrl+B Nav",
+fn library_footer_with_nav(library_footer: &str) -> String {
+    if library_footer.is_empty() {
+        NAV_TOGGLE_HINT.to_string()
+    } else if library_footer.contains(NAV_TOGGLE_HINT) {
+        library_footer.to_string()
+    } else {
+        format!("{NAV_TOGGLE_HINT}   {library_footer}")
     }
 }
 
@@ -1398,20 +1388,14 @@ fn use_spacious_settings_layout(
 }
 
 fn visible_setting_range(total: usize, selected: usize, visible_count: usize) -> (usize, usize) {
-    if total <= visible_count {
-        return (0, total);
-    }
-
-    let mut start = selected.saturating_sub(visible_count.saturating_sub(1));
-    let mut end = (start + visible_count).min(total);
-    if end - start < visible_count {
-        start = end.saturating_sub(visible_count);
-        end = total.min(start + visible_count);
-    }
-    (start, end)
+    visible_range(total, selected, visible_count)
 }
 
 fn visible_library_range(total: usize, selected: usize, visible_count: usize) -> (usize, usize) {
+    visible_range(total, selected, visible_count)
+}
+
+fn visible_range(total: usize, selected: usize, visible_count: usize) -> (usize, usize) {
     if total <= visible_count {
         return (0, total);
     }
