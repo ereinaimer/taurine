@@ -26,6 +26,7 @@ const FOOTER_HEIGHT: u16 = 1;
 const PANEL_GAP_WIDTH: u16 = 1;
 const NAV_WIDTH: u16 = 22;
 const PANEL_PADDING: u16 = 1;
+const NAV_TOGGLE_HINT: &str = "Ctrl+B Nav";
 const ACCENT_COLOR: Color = Color::White;
 const PANEL_BORDER_COLOR: Color = Color::DarkGray;
 const MUTED_TEXT_COLOR: Color = Color::Gray;
@@ -88,17 +89,21 @@ fn render_header(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_body(frame: &mut Frame, area: Rect, app: &App) {
-    let sections = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length(NAV_WIDTH),
-            Constraint::Length(PANEL_GAP_WIDTH),
-            Constraint::Min(0),
-        ])
-        .split(area);
+    if app.nav_visible() {
+        let sections = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Length(NAV_WIDTH),
+                Constraint::Length(PANEL_GAP_WIDTH),
+                Constraint::Min(0),
+            ])
+            .split(area);
 
-    render_navigation(frame, sections[0], app);
-    render_content(frame, sections[2], app);
+        render_navigation(frame, sections[0], app);
+        render_content(frame, sections[2], app);
+    } else {
+        render_content(frame, area, app);
+    }
 }
 
 fn render_navigation(frame: &mut Frame, area: Rect, app: &App) {
@@ -192,10 +197,40 @@ fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn footer_text(app: &App) -> &str {
-    match app.active_page() {
+    let page_footer = match app.active_page() {
         Page::Home => control::home_footer_label(app.daemon_status()),
         Page::Library => "q Quit",
         Page::Settings => app.settings_page().footer_text(),
+    };
+
+    if page_footer.is_empty() {
+        NAV_TOGGLE_HINT
+    } else {
+        // This string table is small and static, so we can rely on fixed combinations.
+        match app.active_page() {
+            Page::Home => match app.daemon_status() {
+                crate::status::DaemonStatus::Stopped => "Ctrl+B Nav   x Start   q Quit",
+                crate::status::DaemonStatus::Running | crate::status::DaemonStatus::Paused => {
+                    "Ctrl+B Nav   x Stop   q Quit"
+                }
+            },
+            Page::Library => "Ctrl+B Nav   q Quit",
+            Page::Settings => settings_footer_with_nav(app.settings_page().footer_text()),
+        }
+    }
+}
+
+fn settings_footer_with_nav(settings_footer: &str) -> &str {
+    match settings_footer {
+        "j/k Move   ↑/↓ Move   Enter Save   Esc Cancel" => {
+            "Ctrl+B Nav   j/k Move   ↑/↓ Move   Enter Save   Esc Cancel"
+        }
+        "Type Edit   Enter Save   Esc Cancel" => "Ctrl+B Nav   Type Edit   Enter Save   Esc Cancel",
+        "j/k Move   ↑/↓ Move   Space Toggle   Enter Edit   r Reset   q Quit" => {
+            "Ctrl+B Nav   j/k Move   ↑/↓ Move   Space Toggle   Enter Edit   r Reset   q Quit"
+        }
+        "" => NAV_TOGGLE_HINT,
+        _ => "Ctrl+B Nav",
     }
 }
 
@@ -913,11 +948,22 @@ mod tests {
             crossterm::event::KeyModifiers::NONE,
         );
         assert!(footer_text(&app).contains("r Reset"));
+        assert!(footer_text(&app).contains("Ctrl+B Nav"));
 
         app.handle_key(
             crossterm::event::KeyCode::Char('2'),
             crossterm::event::KeyModifiers::NONE,
         );
-        assert_eq!(footer_text(&app), "q Quit");
+        assert_eq!(footer_text(&app), "Ctrl+B Nav   q Quit");
+    }
+
+    #[test]
+    fn home_footer_keeps_scope_without_navigation_shortcuts() {
+        let app = App::default();
+        let footer = footer_text(&app);
+        assert!(footer.contains("Ctrl+B Nav"));
+        assert!(!footer.contains("1 Home"));
+        assert!(!footer.contains("2 Library"));
+        assert!(!footer.contains("3 Settings"));
     }
 }
