@@ -15,7 +15,7 @@ use crate::{
     control,
     library::{
         LibraryAutomation, LibraryEditorModalState, LibraryMetadataRow, LibraryModalField,
-        LibraryPageState,
+        LibraryPageState, LibrarySelectState,
     },
     settings::{
         ConfirmResetModalState, InputModalState, SelectModalState, SettingKey, SettingsModal,
@@ -560,6 +560,10 @@ fn render_library_editor_modal(frame: &mut Frame, area: Rect, state: &LibraryEdi
             sections[3].x + 1 + cursor_col as u16,
             sections[3].y + cursor_line.saturating_sub(scroll) as u16,
         ));
+    }
+
+    if let Some(selector) = state.selector() {
+        render_library_select_modal(frame, area, selector);
     }
 }
 
@@ -1111,6 +1115,40 @@ fn render_input_modal(frame: &mut Frame, area: Rect, state: &InputModalState) {
             .add_modifier(Modifier::DIM)
     };
     frame.render_widget(Paragraph::new(feedback).style(feedback_style), sections[2]);
+}
+
+fn render_library_select_modal(frame: &mut Frame, area: Rect, state: &LibrarySelectState) {
+    let width = if area.width > 24 {
+        area.width.saturating_sub(4).min(44)
+    } else {
+        area.width.max(1)
+    };
+    let body_height = state.options.len().min(8) as u16;
+    let desired_height = body_height + 4;
+    let height = if area.height >= 6 {
+        desired_height.min(area.height.saturating_sub(2).max(6))
+    } else {
+        area.height.max(1)
+    };
+    let popup = centered_rect(width, height, area);
+    frame.render_widget(Clear, popup);
+    let inner = render_modal_block(frame, popup, "Select Kind");
+
+    let items: Vec<ListItem> = state
+        .options
+        .iter()
+        .map(|option| ListItem::new(option.as_str()))
+        .collect();
+    let mut list_state = ListState::default();
+    list_state.select(Some(state.selected));
+
+    let list = List::new(items).highlight_symbol("").highlight_style(
+        Style::default()
+            .bg(SELECTED_ROW_BG_COLOR)
+            .fg(ACCENT_COLOR)
+            .add_modifier(Modifier::BOLD),
+    );
+    frame.render_stateful_widget(list, inner, &mut list_state);
 }
 
 fn render_select_modal(frame: &mut Frame, area: Rect, state: &SelectModalState) {
