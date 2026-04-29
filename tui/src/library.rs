@@ -2,12 +2,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use taurine_core::{
-    db::crud::{AutomationListItem, AutomationRow, TriggerType},
+    db::crud::{
+        AutomationListItem, AutomationRow, ExistingAutomationUpdate, SUPPORTED_TARGET_OS_VALUES,
+        TriggerType, update_existing_automation,
+    },
     engine::shell::{ScriptBehavior, ScriptInterpreter, decompress},
 };
 
 const LIBRARY_FOOTER: &str = "/ Search   n New   e Edit   d Delete   Enter Details   q Quit";
-const LIBRARY_MODAL_FOOTER: &str = "Esc Close   Tab Next   Shift+Tab Prev";
+const LIBRARY_MODAL_FOOTER: &str = "Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev";
 const DEFAULT_SCRIPT_FALLBACK: &str = "Script content unavailable.";
 const DEFAULT_OUTPUT_FALLBACK: &str = "No output available.";
 
@@ -50,6 +53,26 @@ impl LibraryKind {
     fn is_script(self) -> bool {
         matches!(self, Self::Script | Self::HotkeyScript)
     }
+
+    fn next(self) -> Self {
+        match self {
+            Self::Snippet => Self::Script,
+            Self::Script => Self::HotkeySnippet,
+            Self::HotkeySnippet => Self::HotkeyScript,
+            Self::HotkeyScript => Self::Snippet,
+        }
+    }
+
+    fn trigger_type(self) -> TriggerType {
+        match self {
+            Self::Snippet | Self::Script => TriggerType::Word,
+            Self::HotkeySnippet | Self::HotkeyScript => TriggerType::Hotkey,
+        }
+    }
+
+    fn action_type(self) -> &'static str {
+        if self.is_script() { "script" } else { "text" }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,7 +82,6 @@ pub(crate) struct LibraryAutomation {
     preview: String,
     kind: LibraryKind,
     target_os: String,
-    raw_target_os: String,
     search_text: String,
     uses: u64,
 }
@@ -108,7 +130,6 @@ impl From<AutomationListItem> for LibraryAutomation {
             preview,
             kind,
             target_os,
-            raw_target_os: item.target_os,
             search_text,
             uses: item.usage_count.max(0) as u64,
         }
@@ -165,151 +186,489 @@ impl LibraryMetadataRow {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LibraryAutomationDetail {
+    id: String,
+    name: String,
+    description: Option<String>,
+    tags_json: String,
+    usage_count: i64,
+    last_used_at: Option<i64>,
     trigger: String,
-    content_label: &'static str,
+    kind: LibraryKind,
     content: String,
-    kind_label: &'static str,
-    target_os: String,
+    target_os_raw: String,
     metadata_rows: Vec<LibraryMetadataRow>,
+    interpreter: Option<ScriptInterpreter>,
+    behavior: Option<ScriptBehavior>,
 }
 
 impl LibraryAutomationDetail {
     pub(crate) fn from_row(row: AutomationRow) -> taurine_core::Result<Self> {
         let kind = LibraryKind::from_parts(row.trigger_type, row.action_type.as_str());
         let content = modal_content_from_row(&row, kind)?;
-        let target_os = display_target_os(&row.target_os).to_string();
         let metadata_rows = build_metadata_rows(&row);
 
         Ok(Self {
+            id: row.id,
+            name: row.name,
+            description: row.description,
+            tags_json: row.tags,
+            usage_count: row.usage_count,
+            last_used_at: row.last_used_at,
             trigger: row.trigger,
-            content_label: kind.content_label(),
+            kind,
             content,
-            kind_label: kind.label(),
-            target_os,
+            target_os_raw: row.target_os,
             metadata_rows,
+            interpreter: row.interpreter,
+            behavior: row.behavior,
         })
+    }
+
+    pub(crate) fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub(crate) fn description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+
+    pub(crate) fn tags_json(&self) -> &str {
+        &self.tags_json
+    }
+
+    pub(crate) const fn usage_count(&self) -> i64 {
+        self.usage_count
+    }
+
+    pub(crate) const fn last_used_at(&self) -> Option<i64> {
+        self.last_used_at
     }
 
     pub(crate) fn trigger(&self) -> &str {
         &self.trigger
     }
 
+    pub(crate) const fn kind(&self) -> LibraryKind {
+        self.kind
+    }
+
+    #[cfg(test)]
     pub(crate) const fn content_label(&self) -> &'static str {
-        self.content_label
+        self.kind.content_label()
     }
 
     pub(crate) fn content(&self) -> &str {
         &self.content
     }
 
-    pub(crate) const fn kind_label(&self) -> &'static str {
-        self.kind_label
-    }
-
-    pub(crate) fn target_os(&self) -> &str {
-        &self.target_os
+    pub(crate) fn target_os_raw(&self) -> &str {
+        &self.target_os_raw
     }
 
     pub(crate) fn metadata_rows(&self) -> &[LibraryMetadataRow] {
         &self.metadata_rows
     }
 
-    pub(crate) fn content_line_count(&self) -> usize {
-        self.content.lines().count().max(1)
+    pub(crate) const fn interpreter(&self) -> Option<ScriptInterpreter> {
+        self.interpreter
+    }
+
+    pub(crate) const fn behavior(&self) -> Option<ScriptBehavior> {
+        self.behavior
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LibraryEditorModalState {
-    automation: LibraryAutomationDetail,
+    original: LibraryAutomationDetail,
+    trigger: String,
+    trigger_cursor: usize,
+    content: String,
+    content_cursor: usize,
+    content_cursor_goal: Option<usize>,
+    kind: LibraryKind,
+    target_os: String,
     focus: LibraryModalField,
     content_scroll: usize,
+    error: Option<String>,
 }
 
 impl LibraryEditorModalState {
     fn new(automation: LibraryAutomationDetail) -> Self {
+        let trigger_cursor = automation.trigger().chars().count();
+        let content_cursor = automation.content().chars().count();
+
         Self {
-            automation,
+            trigger: automation.trigger().to_string(),
+            trigger_cursor,
+            content: automation.content().to_string(),
+            content_cursor,
+            content_cursor_goal: None,
+            kind: automation.kind(),
+            target_os: automation.target_os_raw().to_string(),
             focus: LibraryModalField::Trigger,
             content_scroll: 0,
+            error: None,
+            original: automation,
         }
-    }
-
-    pub(crate) const fn automation(&self) -> &LibraryAutomationDetail {
-        &self.automation
     }
 
     pub(crate) const fn focus(&self) -> LibraryModalField {
         self.focus
     }
 
+    pub(crate) fn trigger(&self) -> &str {
+        &self.trigger
+    }
+
+    pub(crate) const fn trigger_cursor(&self) -> usize {
+        self.trigger_cursor
+    }
+
+    pub(crate) fn content(&self) -> &str {
+        &self.content
+    }
+
+    pub(crate) const fn content_cursor(&self) -> usize {
+        self.content_cursor
+    }
+
+    pub(crate) const fn kind_label(&self) -> &'static str {
+        self.kind.label()
+    }
+
+    pub(crate) const fn content_label(&self) -> &'static str {
+        self.kind.content_label()
+    }
+
+    pub(crate) fn target_os(&self) -> &str {
+        display_target_os(&self.target_os)
+    }
+
+    pub(crate) fn metadata_rows(&self) -> &[LibraryMetadataRow] {
+        self.original.metadata_rows()
+    }
+
+    pub(crate) fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub(crate) fn set_error(&mut self, error: String) {
+        self.error = Some(error);
+    }
+
     pub(crate) fn effective_content_scroll(&self, visible_lines: u16) -> usize {
         let max_scroll = self
-            .automation
             .content_line_count()
             .saturating_sub(visible_lines.max(1) as usize);
         self.content_scroll.min(max_scroll)
     }
 
-    pub(crate) fn content_line_indicator(&self, visible_lines: u16) -> Option<String> {
-        let total_lines = self.automation.content_line_count();
+    pub(crate) fn content_line_indicator(&self, _visible_lines: u16) -> Option<String> {
+        let total_lines = self.content_line_count();
         if total_lines <= 1 {
             return None;
         }
 
-        let current_line = self
-            .effective_content_scroll(visible_lines)
-            .saturating_add(1);
-        Some(format!("{current_line}/{total_lines}"))
+        Some(format!(
+            "{}/{}",
+            self.current_content_line() + 1,
+            total_lines
+        ))
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        self.error = None;
+
+        if matches!(key.code, KeyCode::Char('s' | 'S'))
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+        {
+            return LibraryInteraction::save(self.build_pending_save());
+        }
+
         match (key.code, key.modifiers) {
-            (KeyCode::Esc, KeyModifiers::NONE) => LibraryInteraction::CloseModal,
+            (KeyCode::Esc, KeyModifiers::NONE) => LibraryInteraction::close(),
             (KeyCode::Tab, KeyModifiers::NONE) => {
                 self.focus = self.focus.next();
-                LibraryInteraction::None
+                self.content_cursor_goal = None;
+                if self.focus == LibraryModalField::Content {
+                    self.follow_content_cursor();
+                }
+                LibraryInteraction::handled()
             }
             (KeyCode::BackTab, _) => {
                 self.focus = self.focus.previous();
-                LibraryInteraction::None
+                self.content_cursor_goal = None;
+                if self.focus == LibraryModalField::Content {
+                    self.follow_content_cursor();
+                }
+                LibraryInteraction::handled()
             }
-            (KeyCode::Char('j'), KeyModifiers::NONE) | (KeyCode::Down, KeyModifiers::NONE)
-                if self.focus == LibraryModalField::Content =>
-            {
-                self.scroll_content(1);
-                LibraryInteraction::None
-            }
-            (KeyCode::Char('k'), KeyModifiers::NONE) | (KeyCode::Up, KeyModifiers::NONE)
-                if self.focus == LibraryModalField::Content =>
-            {
-                self.scroll_content(-1);
-                LibraryInteraction::None
-            }
-            (KeyCode::PageDown, KeyModifiers::NONE) if self.focus == LibraryModalField::Content => {
-                self.scroll_content(5);
-                LibraryInteraction::None
-            }
-            (KeyCode::PageUp, KeyModifiers::NONE) if self.focus == LibraryModalField::Content => {
-                self.scroll_content(-5);
-                LibraryInteraction::None
-            }
-            (KeyCode::Home, KeyModifiers::NONE) if self.focus == LibraryModalField::Content => {
-                self.content_scroll = 0;
-                LibraryInteraction::None
-            }
-            (KeyCode::End, KeyModifiers::NONE) if self.focus == LibraryModalField::Content => {
-                self.content_scroll = self.automation.content_line_count().saturating_sub(1);
-                LibraryInteraction::None
-            }
-            _ => LibraryInteraction::None,
+            _ => self.handle_focused_key(key),
         }
     }
 
-    fn scroll_content(&mut self, delta: isize) {
-        let max_scroll = self.automation.content_line_count().saturating_sub(1) as isize;
-        let next = (self.content_scroll as isize + delta).clamp(0, max_scroll);
-        self.content_scroll = next as usize;
+    pub(crate) fn visible_content_lines(&self, visible_lines: u16) -> Vec<String> {
+        let lines = split_lines_with_trailing(&self.content);
+        let scroll = self.effective_content_scroll(visible_lines);
+        let mut visible = lines
+            .into_iter()
+            .skip(scroll)
+            .take(visible_lines.max(1) as usize)
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        if visible.is_empty() {
+            visible.push(String::new());
+        }
+        visible
+    }
+
+    pub(crate) fn build_pending_save(&self) -> PendingLibrarySave {
+        PendingLibrarySave {
+            id: self.original.id().to_string(),
+            name: self.original.name().to_string(),
+            description: self.original.description().map(str::to_string),
+            tags_json: self.original.tags_json().to_string(),
+            usage_count: self.original.usage_count(),
+            last_used_at: self.original.last_used_at(),
+            interpreter: self.original.interpreter(),
+            behavior: self.original.behavior(),
+            trigger: self.trigger.clone(),
+            content: self.content.clone(),
+            kind: self.kind,
+            target_os: self.target_os.clone(),
+        }
+    }
+
+    fn handle_focused_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match self.focus {
+            LibraryModalField::Trigger => self.handle_trigger_key(key),
+            LibraryModalField::Content => self.handle_content_key(key),
+            LibraryModalField::Kind => self.handle_kind_key(key),
+            LibraryModalField::TargetOs => self.handle_target_os_key(key),
+        }
+    }
+
+    fn handle_trigger_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Backspace, KeyModifiers::NONE) => {
+                self.backspace_trigger();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Delete, KeyModifiers::NONE) => {
+                self.delete_trigger();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Left, KeyModifiers::NONE) => {
+                self.trigger_cursor = self.trigger_cursor.saturating_sub(1);
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Right, KeyModifiers::NONE) => {
+                self.trigger_cursor = (self.trigger_cursor + 1).min(self.trigger.chars().count());
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Home, KeyModifiers::NONE) => {
+                self.trigger_cursor = 0;
+                LibraryInteraction::handled()
+            }
+            (KeyCode::End, KeyModifiers::NONE) => {
+                self.trigger_cursor = self.trigger.chars().count();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Char(ch), modifiers)
+                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.insert_trigger_char(ch);
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    fn handle_content_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Enter, KeyModifiers::NONE) => {
+                self.insert_content_char('\n');
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Backspace, KeyModifiers::NONE) => {
+                self.backspace_content();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Delete, KeyModifiers::NONE) => {
+                self.delete_content();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Left, KeyModifiers::NONE) => {
+                self.move_content_horizontal(-1);
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Right, KeyModifiers::NONE) => {
+                self.move_content_horizontal(1);
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Up, KeyModifiers::NONE) | (KeyCode::Char('k'), KeyModifiers::NONE) => {
+                self.move_content_vertical(-1);
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Down, KeyModifiers::NONE) | (KeyCode::Char('j'), KeyModifiers::NONE) => {
+                self.move_content_vertical(1);
+                LibraryInteraction::handled()
+            }
+            (KeyCode::PageUp, KeyModifiers::NONE) => {
+                self.move_content_vertical(-5);
+                LibraryInteraction::handled()
+            }
+            (KeyCode::PageDown, KeyModifiers::NONE) => {
+                self.move_content_vertical(5);
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Home, KeyModifiers::NONE) => {
+                self.move_content_to_line_edge(true);
+                LibraryInteraction::handled()
+            }
+            (KeyCode::End, KeyModifiers::NONE) => {
+                self.move_content_to_line_edge(false);
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Char(ch), modifiers)
+                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.insert_content_char(ch);
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    fn handle_kind_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Char(' '), KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
+                self.kind = self.kind.next();
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    fn handle_target_os_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Char(' '), KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
+                self.target_os = next_target_os_value(&self.target_os).to_string();
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    fn insert_trigger_char(&mut self, ch: char) {
+        let byte_index = char_index_to_byte_index(&self.trigger, self.trigger_cursor);
+        self.trigger.insert(byte_index, ch);
+        self.trigger_cursor += 1;
+    }
+
+    fn backspace_trigger(&mut self) {
+        if self.trigger_cursor == 0 {
+            return;
+        }
+
+        let end = char_index_to_byte_index(&self.trigger, self.trigger_cursor);
+        let start = char_index_to_byte_index(&self.trigger, self.trigger_cursor - 1);
+        self.trigger.drain(start..end);
+        self.trigger_cursor -= 1;
+    }
+
+    fn delete_trigger(&mut self) {
+        if self.trigger_cursor >= self.trigger.chars().count() {
+            return;
+        }
+
+        let start = char_index_to_byte_index(&self.trigger, self.trigger_cursor);
+        let end = char_index_to_byte_index(&self.trigger, self.trigger_cursor + 1);
+        self.trigger.drain(start..end);
+    }
+
+    fn insert_content_char(&mut self, ch: char) {
+        let byte_index = char_index_to_byte_index(&self.content, self.content_cursor);
+        self.content.insert(byte_index, ch);
+        self.content_cursor += 1;
+        self.content_cursor_goal = None;
+        self.follow_content_cursor();
+    }
+
+    fn backspace_content(&mut self) {
+        if self.content_cursor == 0 {
+            return;
+        }
+
+        let end = char_index_to_byte_index(&self.content, self.content_cursor);
+        let start = char_index_to_byte_index(&self.content, self.content_cursor - 1);
+        self.content.drain(start..end);
+        self.content_cursor -= 1;
+        self.content_cursor_goal = None;
+        self.follow_content_cursor();
+    }
+
+    fn delete_content(&mut self) {
+        if self.content_cursor >= self.content.chars().count() {
+            return;
+        }
+
+        let start = char_index_to_byte_index(&self.content, self.content_cursor);
+        let end = char_index_to_byte_index(&self.content, self.content_cursor + 1);
+        self.content.drain(start..end);
+        self.content_cursor_goal = None;
+        self.follow_content_cursor();
+    }
+
+    fn move_content_horizontal(&mut self, delta: isize) {
+        let max = self.content.chars().count() as isize;
+        let next = (self.content_cursor as isize + delta).clamp(0, max);
+        self.content_cursor = next as usize;
+        self.content_cursor_goal = None;
+        self.follow_content_cursor();
+    }
+
+    fn move_content_vertical(&mut self, delta_lines: isize) {
+        let starts = line_start_positions(&self.content);
+        let (line_index, column) = line_col_for_char_index(&self.content, self.content_cursor);
+        let goal = self.content_cursor_goal.unwrap_or(column);
+        let next_line = (line_index as isize + delta_lines)
+            .clamp(0, starts.len().saturating_sub(1) as isize) as usize;
+        self.content_cursor = char_index_for_line_col(&self.content, next_line, goal);
+        self.content_cursor_goal = Some(goal);
+        self.follow_content_cursor();
+    }
+
+    fn move_content_to_line_edge(&mut self, start: bool) {
+        let (line_index, _) = line_col_for_char_index(&self.content, self.content_cursor);
+        let target_column = if start {
+            0
+        } else {
+            line_lengths(&self.content)
+                .get(line_index)
+                .copied()
+                .unwrap_or_default()
+        };
+        self.content_cursor = char_index_for_line_col(&self.content, line_index, target_column);
+        self.content_cursor_goal = None;
+        self.follow_content_cursor();
+    }
+
+    fn current_content_line(&self) -> usize {
+        line_col_for_char_index(&self.content, self.content_cursor).0
+    }
+
+    fn content_line_count(&self) -> usize {
+        line_start_positions(&self.content).len().max(1)
+    }
+
+    fn follow_content_cursor(&mut self) {
+        self.content_scroll = self.current_content_line().saturating_sub(2);
     }
 }
 
@@ -326,24 +685,98 @@ impl LibraryModal {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PendingLibrarySave {
+    id: String,
+    name: String,
+    description: Option<String>,
+    tags_json: String,
+    usage_count: i64,
+    last_used_at: Option<i64>,
+    interpreter: Option<ScriptInterpreter>,
+    behavior: Option<ScriptBehavior>,
+    trigger: String,
+    content: String,
+    kind: LibraryKind,
+    target_os: String,
+}
+
+impl PendingLibrarySave {
+    pub(crate) fn automation_id(&self) -> &str {
+        &self.id
+    }
+
+    pub(crate) fn apply(&self) -> taurine_core::Result<()> {
+        let mut conn = taurine_core::db::init::setup()?;
+        update_existing_automation(
+            &mut conn,
+            ExistingAutomationUpdate {
+                id: &self.id,
+                name: &self.name,
+                description: self.description.as_deref(),
+                trigger_type: self.kind.trigger_type(),
+                trigger: &self.trigger,
+                content: &self.content,
+                action_type: self.kind.action_type(),
+                target_os: &self.target_os,
+                tags_json: &self.tags_json,
+                usage_count: self.usage_count,
+                last_used_at: self.last_used_at,
+                interpreter: self.interpreter,
+                behavior: self.behavior,
+            },
+        )?;
+        taurine_core::rpc::notify_daemon_reload();
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(crate) enum LibraryInteraction {
-    #[default]
-    None,
-    OpenSelectedAutomation(String),
-    CloseModal,
+pub(crate) struct LibraryInteraction {
+    open_selected_id: Option<String>,
+    pending_save: Option<PendingLibrarySave>,
+    close_modal: bool,
 }
 
 impl LibraryInteraction {
     pub(crate) fn into_open_selected_id(self) -> Option<String> {
-        match self {
-            Self::OpenSelectedAutomation(id) => Some(id),
-            Self::None | Self::CloseModal => None,
-        }
+        self.open_selected_id
+    }
+
+    pub(crate) const fn pending_save(&self) -> Option<&PendingLibrarySave> {
+        self.pending_save.as_ref()
     }
 
     pub(crate) const fn should_close_modal(&self) -> bool {
-        matches!(self, Self::CloseModal)
+        self.close_modal
+    }
+
+    fn handled() -> Self {
+        Self::default()
+    }
+
+    fn open_selected(id: String) -> Self {
+        Self {
+            open_selected_id: Some(id),
+            pending_save: None,
+            close_modal: false,
+        }
+    }
+
+    fn save(pending_save: PendingLibrarySave) -> Self {
+        Self {
+            open_selected_id: None,
+            pending_save: Some(pending_save),
+            close_modal: false,
+        }
+    }
+
+    fn close() -> Self {
+        Self {
+            open_selected_id: None,
+            pending_save: None,
+            close_modal: true,
+        }
     }
 }
 
@@ -368,6 +801,14 @@ impl LibraryPageState {
 
     pub(crate) fn set_load_error(&mut self, error: String) {
         self.load_error = Some(error);
+    }
+
+    pub(crate) fn set_save_error(&mut self, error: String) {
+        if let Some(LibraryModal::Editor(state)) = self.modal.as_mut() {
+            state.set_error(error);
+        } else {
+            self.load_error = Some(error);
+        }
     }
 
     pub(crate) fn load_error(&self) -> Option<&str> {
@@ -429,6 +870,16 @@ impl LibraryPageState {
             .and_then(|item_index| self.items.get(*item_index))
     }
 
+    pub(crate) fn select_item_by_id(&mut self, id: &str) {
+        if let Some(position) = self
+            .filtered_indices
+            .iter()
+            .position(|item_index| self.items[*item_index].id() == id)
+        {
+            self.selected = position;
+        }
+    }
+
     pub(crate) fn empty_state_message(&self) -> Option<&'static str> {
         if self.items.is_empty() {
             Some("No automations yet.")
@@ -446,33 +897,33 @@ impl LibraryPageState {
 
         if self.search_mode {
             self.handle_search_key(key);
-            return LibraryInteraction::None;
+            return LibraryInteraction::handled();
         }
 
         match (key.code, key.modifiers) {
             (KeyCode::Char('/'), KeyModifiers::NONE) => {
                 self.search_mode = true;
-                LibraryInteraction::None
+                LibraryInteraction::handled()
             }
             (KeyCode::Char('j'), KeyModifiers::NONE) | (KeyCode::Down, KeyModifiers::NONE) => {
                 self.move_selection(1);
-                LibraryInteraction::None
+                LibraryInteraction::handled()
             }
             (KeyCode::Char('k'), KeyModifiers::NONE) | (KeyCode::Up, KeyModifiers::NONE) => {
                 self.move_selection(-1);
-                LibraryInteraction::None
+                LibraryInteraction::handled()
             }
             (KeyCode::Enter, KeyModifiers::NONE) | (KeyCode::Char('e'), KeyModifiers::NONE) => self
                 .selected_item()
-                .map(|item| LibraryInteraction::OpenSelectedAutomation(item.id().to_string()))
+                .map(|item| LibraryInteraction::open_selected(item.id().to_string()))
                 .unwrap_or_default(),
-            _ => LibraryInteraction::None,
+            _ => LibraryInteraction::handled(),
         }
     }
 
     fn handle_modal_key(&mut self, key: KeyEvent) -> LibraryInteraction {
         let Some(modal) = self.modal.as_mut() else {
-            return LibraryInteraction::None;
+            return LibraryInteraction::handled();
         };
 
         match modal {
@@ -553,6 +1004,71 @@ fn sort_items(items: &mut [LibraryAutomation]) {
             .then_with(|| left.target_os.cmp(&right.target_os))
             .then_with(|| left.preview.cmp(&right.preview))
     });
+}
+
+fn next_target_os_value(current: &str) -> &'static str {
+    SUPPORTED_TARGET_OS_VALUES
+        .iter()
+        .position(|value| *value == current)
+        .map(|index| SUPPORTED_TARGET_OS_VALUES[(index + 1) % SUPPORTED_TARGET_OS_VALUES.len()])
+        .unwrap_or(SUPPORTED_TARGET_OS_VALUES[0])
+}
+
+fn char_index_to_byte_index(value: &str, char_index: usize) -> usize {
+    value
+        .char_indices()
+        .nth(char_index)
+        .map(|(byte_index, _)| byte_index)
+        .unwrap_or(value.len())
+}
+
+fn split_lines_with_trailing(value: &str) -> Vec<&str> {
+    if value.is_empty() {
+        return vec![""];
+    }
+
+    value.split('\n').collect()
+}
+
+fn line_start_positions(value: &str) -> Vec<usize> {
+    let mut starts = vec![0];
+    let mut char_index = 0usize;
+    for ch in value.chars() {
+        char_index += 1;
+        if ch == '\n' {
+            starts.push(char_index);
+        }
+    }
+    starts
+}
+
+fn line_lengths(value: &str) -> Vec<usize> {
+    split_lines_with_trailing(value)
+        .into_iter()
+        .map(|line| line.chars().count())
+        .collect()
+}
+
+pub(crate) fn line_col_for_char_index(value: &str, char_index: usize) -> (usize, usize) {
+    let starts = line_start_positions(value);
+    let lengths = line_lengths(value);
+    let safe_index = char_index.min(value.chars().count());
+
+    for (line_index, start) in starts.iter().enumerate().rev() {
+        if safe_index >= *start {
+            let column = safe_index.saturating_sub(*start).min(lengths[line_index]);
+            return (line_index, column);
+        }
+    }
+
+    (0, safe_index)
+}
+
+fn char_index_for_line_col(value: &str, line_index: usize, column: usize) -> usize {
+    let starts = line_start_positions(value);
+    let lengths = line_lengths(value);
+    let safe_line = line_index.min(starts.len().saturating_sub(1));
+    starts[safe_line] + column.min(lengths[safe_line])
 }
 
 fn preview_from_item(item: &AutomationListItem) -> String {
@@ -1376,7 +1892,7 @@ mod tests {
     }
 
     #[test]
-    fn content_focus_supports_scrolling() {
+    fn content_focus_supports_cursor_navigation() {
         let mut modal = LibraryEditorModalState::new(
             LibraryAutomationDetail::from_row(automation_row(
                 TriggerType::Word,
@@ -1391,9 +1907,149 @@ mod tests {
         );
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
 
-        modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
 
         assert_eq!(modal.content_line_indicator(1).as_deref(), Some("2/3"));
+    }
+
+    #[test]
+    fn editor_modal_initializes_editable_fields_from_selected_automation() {
+        let modal = LibraryEditorModalState::new(
+            LibraryAutomationDetail::from_row(automation_row(
+                TriggerType::Hotkey,
+                "alt+r",
+                "[Script: powershell]",
+                "script",
+                "win",
+                6,
+                Some("Start-Process https://reddit.com"),
+            ))
+            .unwrap(),
+        );
+
+        assert_eq!(modal.trigger(), "alt+r");
+        assert_eq!(modal.content(), "Start-Process https://reddit.com");
+        assert_eq!(modal.kind_label(), "hotkey script");
+        assert_eq!(modal.target_os(), "windows");
+    }
+
+    #[test]
+    fn editing_trigger_updates_modal_draft_state() {
+        let mut modal = LibraryEditorModalState::new(
+            LibraryAutomationDetail::from_row(automation_row(
+                TriggerType::Word,
+                "gm",
+                "Good Morning",
+                "text",
+                "all",
+                9,
+                None,
+            ))
+            .unwrap(),
+        );
+
+        modal.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Char('!'), KeyModifiers::SHIFT));
+
+        assert_eq!(modal.trigger(), "gm!");
+    }
+
+    #[test]
+    fn editing_content_updates_modal_draft_state() {
+        let mut modal = LibraryEditorModalState::new(
+            LibraryAutomationDetail::from_row(automation_row(
+                TriggerType::Word,
+                "gm",
+                "Good",
+                "text",
+                "all",
+                9,
+                None,
+            ))
+            .unwrap(),
+        );
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Char('M'), KeyModifiers::SHIFT));
+
+        assert_eq!(modal.content(), "Good M");
+    }
+
+    #[test]
+    fn kind_cycles_through_all_user_facing_labels() {
+        let mut modal = LibraryEditorModalState::new(
+            LibraryAutomationDetail::from_row(automation_row(
+                TriggerType::Word,
+                "gm",
+                "Good",
+                "text",
+                "all",
+                9,
+                None,
+            ))
+            .unwrap(),
+        );
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(modal.kind_label(), "script");
+        assert_eq!(modal.content_label(), "Script");
+
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(modal.kind_label(), "hotkey snippet");
+
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(modal.kind_label(), "hotkey script");
+
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(modal.kind_label(), "snippet");
+    }
+
+    #[test]
+    fn target_os_cycles_through_supported_values() {
+        let mut modal = LibraryEditorModalState::new(
+            LibraryAutomationDetail::from_row(automation_row(
+                TriggerType::Word,
+                "gm",
+                "Good",
+                "text",
+                "all",
+                9,
+                None,
+            ))
+            .unwrap(),
+        );
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(modal.target_os(), "windows");
+    }
+
+    #[test]
+    fn ctrl_s_creates_pending_save_for_existing_automation() {
+        let mut modal = LibraryEditorModalState::new(
+            LibraryAutomationDetail::from_row(automation_row(
+                TriggerType::Hotkey,
+                "alt+r",
+                "[Script: powershell]",
+                "script",
+                "win",
+                6,
+                Some("Start-Process https://reddit.com"),
+            ))
+            .unwrap(),
+        );
+
+        let interaction =
+            modal.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+        let pending = interaction.pending_save().unwrap();
+
+        assert_eq!(pending.automation_id(), "automation-alt+r");
+        assert_eq!(pending.kind, LibraryKind::HotkeyScript);
+        assert_eq!(pending.content, "Start-Process https://reddit.com");
     }
 
     #[test]

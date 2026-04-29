@@ -145,48 +145,7 @@ pub fn execute(
 }
 
 fn infer_interpreter(path: Option<&std::path::Path>, content: &str) -> Option<ScriptInterpreter> {
-    // Check extension if path is available
-    if let Some(ext) = path.and_then(|p| p.extension()).and_then(|s| s.to_str()) {
-        match ext.to_lowercase().as_str() {
-            "sh" => return Some(ScriptInterpreter::Bash),
-            "ps1" => return Some(ScriptInterpreter::PowerShell),
-            "py" => return Some(ScriptInterpreter::Python),
-            "js" | "cjs" => return Some(ScriptInterpreter::Node),
-            "mjs" => return Some(ScriptInterpreter::NodeEsm),
-            "bat" | "cmd" => return Some(ScriptInterpreter::Cmd),
-            _ => {}
-        }
-    }
-
-    // Check shebang in content
-    if content.starts_with("#!") {
-        let first_line = content.lines().next().unwrap_or("");
-        if first_line.contains("bash") || first_line.contains("sh") {
-            return Some(ScriptInterpreter::Bash);
-        }
-        if first_line.contains("python") {
-            return Some(ScriptInterpreter::Python);
-        }
-        if first_line.contains("node") {
-            if content.contains("import ")
-                || content.contains("export ")
-                || content.contains("await ")
-            {
-                return Some(ScriptInterpreter::NodeEsm);
-            }
-            return Some(ScriptInterpreter::Node);
-        }
-    }
-
-    // No extension and no shebang, but maybe Node content?
-    if content.contains("import ") || content.contains("export ") || content.contains("await ") {
-        // This is a bit of a heuristic, but often people paste Node code without shebang.
-        // However, we should be conservative.
-        // For now, only use this if we are pretty sure it's Node.
-        // Let's stick with explicit for now if no extension/shebang.
-    }
-
-    None
+    taurine_core::engine::shell::infer_interpreter(path, content)
 }
 
 fn lang_to_str(i: ScriptInterpreter) -> &'static str {

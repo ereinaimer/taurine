@@ -229,8 +229,8 @@ fn library_footer_with_nav(library_footer: &str) -> &str {
         "/ Search   n New   e Edit   d Delete   Enter Details   q Quit" => {
             "Ctrl+B Nav   / Search   n New   e Edit   d Delete   Enter Details   q Quit"
         }
-        "Esc Close   Tab Next   Shift+Tab Prev" => {
-            "Ctrl+B Nav   Esc Close   Tab Next   Shift+Tab Prev"
+        "Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev" => {
+            "Ctrl+B Nav   Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev"
         }
         "" => NAV_TOGGLE_HINT,
         _ => "Ctrl+B Nav",
@@ -494,9 +494,9 @@ fn render_library_editor_modal(frame: &mut Frame, area: Rect, state: &LibraryEdi
     frame.render_widget(Clear, popup);
     let inner = render_modal_block(frame, popup, "Automation");
 
-    let header_rows = 3;
+    let header_rows = 4;
     let available_after_headers = inner.height.saturating_sub(header_rows);
-    let metadata_len = state.automation().metadata_rows().len() as u16 + 2;
+    let metadata_len = state.metadata_rows().len() as u16 + 2;
     let min_content_height = if available_after_headers >= 6 {
         4
     } else {
@@ -516,6 +516,7 @@ fn render_library_editor_modal(frame: &mut Frame, area: Rect, state: &LibraryEdi
             Constraint::Length(1),
             Constraint::Length(content_height.max(1)),
             Constraint::Min(0),
+            Constraint::Length(1),
         ])
         .split(inner);
 
@@ -526,28 +527,25 @@ fn render_library_editor_modal(frame: &mut Frame, area: Rect, state: &LibraryEdi
         state.focus() == LibraryModalField::Trigger,
         None,
     );
-    render_modal_value_field(
+    render_modal_input_field(
         frame,
         sections[1],
-        state.automation().trigger(),
+        state.trigger(),
+        state.trigger_cursor(),
         state.focus() == LibraryModalField::Trigger,
     );
 
     render_modal_field_label(
         frame,
         sections[2],
-        state.automation().content_label(),
+        state.content_label(),
         state.focus() == LibraryModalField::Content,
         state.content_line_indicator(sections[3].height),
     );
     render_modal_content_field(frame, sections[3], state);
 
-    render_modal_metadata(
-        frame,
-        sections[4],
-        state,
-        state.automation().metadata_rows(),
-    );
+    render_modal_metadata(frame, sections[4], state, state.metadata_rows());
+    render_library_editor_feedback(frame, sections[5], state);
 }
 
 fn render_modal_field_label(
@@ -587,7 +585,13 @@ fn render_modal_field_label(
     }
 }
 
-fn render_modal_value_field(frame: &mut Frame, area: Rect, value: &str, focused: bool) {
+fn render_modal_input_field(
+    frame: &mut Frame,
+    area: Rect,
+    value: &str,
+    cursor: usize,
+    focused: bool,
+) {
     let bg = if focused {
         SELECTED_ROW_BG_COLOR
     } else {
@@ -607,7 +611,12 @@ fn render_modal_value_field(frame: &mut Frame, area: Rect, value: &str, focused:
         .padding(Padding::new(1, 1, 0, 0));
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    frame.render_widget(Paragraph::new(value).style(text_style), inner);
+    let text = if focused {
+        Paragraph::new(input_cursor_line(value, cursor))
+    } else {
+        Paragraph::new(value.to_string())
+    };
+    frame.render_widget(text.style(text_style), inner);
 }
 
 fn render_modal_content_field(frame: &mut Frame, area: Rect, state: &LibraryEditorModalState) {
@@ -623,6 +632,23 @@ fn render_modal_content_field(frame: &mut Frame, area: Rect, state: &LibraryEdit
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
+    let scroll = state.effective_content_scroll(inner.height);
+    let (cursor_line, cursor_col) =
+        crate::library::line_col_for_char_index(state.content(), state.content_cursor());
+    let visible_lines = state.visible_content_lines(inner.height);
+    let rendered = visible_lines
+        .into_iter()
+        .enumerate()
+        .map(|(index, line)| {
+            let absolute_line = scroll + index;
+            if focused && absolute_line == cursor_line {
+                input_cursor_line(&line, cursor_col)
+            } else {
+                Line::from(line)
+            }
+        })
+        .collect::<Vec<_>>();
+
     let content_style = if focused {
         Style::default()
             .fg(ACCENT_COLOR)
@@ -631,12 +657,7 @@ fn render_modal_content_field(frame: &mut Frame, area: Rect, state: &LibraryEdit
     } else {
         Style::default().fg(ACCENT_COLOR).bg(bg)
     };
-    frame.render_widget(
-        Paragraph::new(state.automation().content().to_string())
-            .style(content_style)
-            .scroll((state.effective_content_scroll(inner.height) as u16, 0)),
-        inner,
-    );
+    frame.render_widget(Paragraph::new(rendered).style(content_style), inner);
 }
 
 fn render_modal_metadata(
@@ -648,13 +669,13 @@ fn render_modal_metadata(
     let mut rows = Vec::with_capacity(metadata_rows.len() + 2);
     rows.push((
         "Kind",
-        state.automation().kind_label().to_string(),
+        state.kind_label().to_string(),
         state.focus() == LibraryModalField::Kind,
         false,
     ));
     rows.push((
         "Target OS",
-        state.automation().target_os().to_string(),
+        state.target_os().to_string(),
         state.focus() == LibraryModalField::TargetOs,
         false,
     ));
@@ -674,6 +695,26 @@ fn render_modal_metadata(
         };
         render_modal_key_value_row(frame, row_area, label, &value, focused, quiet);
     }
+}
+
+fn render_library_editor_feedback(frame: &mut Frame, area: Rect, state: &LibraryEditorModalState) {
+    let (text, style) = if let Some(error) = state.error() {
+        (
+            error,
+            Style::default()
+                .fg(ERROR_COLOR)
+                .add_modifier(Modifier::BOLD),
+        )
+    } else {
+        (
+            "Ctrl+S Save   Esc Cancel",
+            Style::default()
+                .fg(MUTED_TEXT_COLOR)
+                .add_modifier(Modifier::DIM),
+        )
+    };
+
+    frame.render_widget(Paragraph::new(text).style(style), area);
 }
 
 fn render_modal_key_value_row(
@@ -1514,7 +1555,7 @@ mod tests {
 
         assert_eq!(
             footer_text(&app),
-            "Ctrl+B Nav   Esc Close   Tab Next   Shift+Tab Prev"
+            "Ctrl+B Nav   Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev"
         );
     }
 }
