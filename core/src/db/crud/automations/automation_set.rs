@@ -61,6 +61,12 @@ pub struct NewAutomation<'a> {
     pub behavior: Option<ScriptBehavior>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AutomationActionKind {
+    Text,
+    Script,
+}
+
 pub fn audit_payload_tags(payload: &str) -> Result<()> {
     let mut ptr = 0;
 
@@ -422,13 +428,16 @@ pub fn update_existing_automation(
     update: ExistingAutomationUpdate<'_>,
 ) -> Result<()> {
     validate_target_os_value(update.target_os)?;
-    audit_payload_tags(update.content)?;
+    let action_kind = parse_action_kind(update.action_type)?;
+    if action_kind == AutomationActionKind::Text {
+        audit_payload_tags(update.content)?;
+    }
 
     let prepared =
         prepare_trigger_with_type(update.trigger, update.trigger_type, update.target_os)?;
     let tx = conn.transaction()?;
 
-    if update.action_type.eq_ignore_ascii_case("script") {
+    if action_kind == AutomationActionKind::Script {
         let interpreter = update
             .interpreter
             .or_else(|| infer_interpreter(None, update.content))
@@ -492,7 +501,10 @@ pub fn create_automation(
     new_automation: NewAutomation<'_>,
 ) -> Result<String> {
     validate_target_os_value(new_automation.target_os)?;
-    audit_payload_tags(new_automation.content)?;
+    let action_kind = parse_action_kind(new_automation.action_type)?;
+    if action_kind == AutomationActionKind::Text {
+        audit_payload_tags(new_automation.content)?;
+    }
 
     let prepared = prepare_trigger_with_type(
         new_automation.trigger,
@@ -507,7 +519,7 @@ pub fn create_automation(
         .unwrap_or(generated_name.as_str());
     let tx = conn.transaction()?;
 
-    if new_automation.action_type.eq_ignore_ascii_case("script") {
+    if action_kind == AutomationActionKind::Script {
         let interpreter = new_automation
             .interpreter
             .or_else(|| infer_interpreter(None, new_automation.content))
@@ -560,6 +572,19 @@ pub fn create_automation(
 
     tx.commit()?;
     Ok(id)
+}
+
+fn parse_action_kind(action_type: &str) -> Result<AutomationActionKind> {
+    if action_type.eq_ignore_ascii_case("text") {
+        Ok(AutomationActionKind::Text)
+    } else if action_type.eq_ignore_ascii_case("script") {
+        Ok(AutomationActionKind::Script)
+    } else {
+        Err(crate::Error::Config(format!(
+            "Unsupported action_type '{}'. Expected 'text' or 'script'.",
+            action_type
+        )))
+    }
 }
 
 fn validate_target_os_value(target_os: &str) -> Result<()> {

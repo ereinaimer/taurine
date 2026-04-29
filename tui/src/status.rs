@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use ratatui::style::{Color, Style};
 use taurine_core::rpc::{
     DEFAULT_RPC_URL, StatusRequest, daemon_control_client::DaemonControlClient,
@@ -62,17 +64,23 @@ pub(crate) fn probe_daemon_status() -> DaemonStatus {
     };
 
     runtime.block_on(async {
-        let Ok(mut client) = DaemonControlClient::connect(DEFAULT_RPC_URL).await else {
-            return DaemonStatus::Stopped;
-        };
-
-        let request = tonic::Request::new(StatusRequest {});
-        let Ok(response) = client.get_status(request).await else {
-            return DaemonStatus::Stopped;
-        };
-
-        let status = response.into_inner();
-        DaemonStatus::from_flags(status.online, status.paused)
+        tokio::time::timeout(Duration::from_millis(250), async {
+            let Ok(mut client) = DaemonControlClient::connect(DEFAULT_RPC_URL).await else {
+                return None;
+            };
+            let Ok(response) = client
+                .get_status(tonic::Request::new(StatusRequest {}))
+                .await
+            else {
+                return None;
+            };
+            let status = response.into_inner();
+            Some(DaemonStatus::from_flags(status.online, status.paused))
+        })
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(DaemonStatus::Stopped)
     })
 }
 

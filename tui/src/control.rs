@@ -1,6 +1,3 @@
-use std::thread;
-use std::time::Duration;
-
 use crate::status::{DaemonStatus, probe_daemon_status};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,7 +74,7 @@ pub(crate) fn toggle_daemon<C: DaemonController>(
     let status = match action {
         LifecycleAction::Start => {
             controller.start()?;
-            wait_for_started_status()
+            Some(DaemonStatus::Starting)
         }
         LifecycleAction::Stop => {
             controller.stop()?;
@@ -89,30 +86,6 @@ pub(crate) fn toggle_daemon<C: DaemonController>(
         action,
         status: status.unwrap_or_else(probe_daemon_status),
     })
-}
-
-fn wait_for_started_status() -> Option<DaemonStatus> {
-    #[cfg(test)]
-    const STARTUP_PROBE_ATTEMPTS: usize = 1;
-    #[cfg(not(test))]
-    const STARTUP_PROBE_ATTEMPTS: usize = 6;
-    #[cfg(test)]
-    const STARTUP_PROBE_DELAY: Duration = Duration::from_millis(0);
-    #[cfg(not(test))]
-    const STARTUP_PROBE_DELAY: Duration = Duration::from_millis(200);
-
-    for attempt in 0..STARTUP_PROBE_ATTEMPTS {
-        let status = probe_daemon_status();
-        if status != DaemonStatus::Stopped {
-            return Some(status);
-        }
-
-        if attempt + 1 < STARTUP_PROBE_ATTEMPTS {
-            thread::sleep(STARTUP_PROBE_DELAY);
-        }
-    }
-
-    None
 }
 
 #[cfg(test)]
