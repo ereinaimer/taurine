@@ -1210,6 +1210,7 @@ mod tests {
 
         let items = get_automations_list(&conn).unwrap();
         assert_eq!(items.len(), 1);
+        assert_eq!(items[0].id, "uuid-list-1");
         assert_eq!(items[0].target_os, "all");
         assert_eq!(items[0].description.as_deref(), Some("Open Reddit"));
         assert_eq!(

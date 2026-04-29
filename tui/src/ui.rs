@@ -13,7 +13,10 @@ use taurine_core::metrics::{HomeMetrics, MostUsedAutomation};
 use crate::{
     app::{App, Page},
     control,
-    library::{LibraryAutomation, LibraryPageState},
+    library::{
+        LibraryAutomation, LibraryEditorModalState, LibraryMetadataRow, LibraryModalField,
+        LibraryPageState,
+    },
     settings::{
         ConfirmResetModalState, InputModalState, SelectModalState, SettingKey, SettingsModal,
     },
@@ -178,7 +181,12 @@ fn render_content(frame: &mut Frame, area: Rect, app: &App) {
 
     match app.active_page() {
         Page::Home => render_home_content(frame, inner, app.home_metrics()),
-        Page::Library => render_library_content(frame, inner, app.library_page()),
+        Page::Library => {
+            render_library_content(frame, inner, app.library_page());
+            if let Some(modal) = app.library_page().modal() {
+                render_library_editor_modal(frame, inner, modal.editor());
+            }
+        }
         Page::Settings => {
             render_settings_content(frame, inner, app);
             if let Some(modal) = app.settings_page().modal() {
@@ -220,6 +228,9 @@ fn library_footer_with_nav(library_footer: &str) -> &str {
     match library_footer {
         "/ Search   n New   e Edit   d Delete   Enter Details   q Quit" => {
             "Ctrl+B Nav   / Search   n New   e Edit   d Delete   Enter Details   q Quit"
+        }
+        "Esc Close   Tab Next   Shift+Tab Prev" => {
+            "Ctrl+B Nav   Esc Close   Tab Next   Shift+Tab Prev"
         }
         "" => NAV_TOGGLE_HINT,
         _ => "Ctrl+B Nav",
@@ -473,6 +484,245 @@ fn render_library_item(frame: &mut Frame, area: Rect, item: &LibraryAutomation, 
             .alignment(Alignment::Right)
             .style(preview_style),
         bottom_sections[1],
+    );
+}
+
+fn render_library_editor_modal(frame: &mut Frame, area: Rect, state: &LibraryEditorModalState) {
+    let width = ((area.width as u32 * 4) / 5) as u16;
+    let height = ((area.height as u32 * 4) / 5) as u16;
+    let popup = centered_rect(width.max(48), height.max(12), area);
+    frame.render_widget(Clear, popup);
+    let inner = render_modal_block(frame, popup, "Automation");
+
+    let header_rows = 3;
+    let available_after_headers = inner.height.saturating_sub(header_rows);
+    let metadata_len = state.automation().metadata_rows().len() as u16 + 2;
+    let min_content_height = if available_after_headers >= 6 {
+        4
+    } else {
+        available_after_headers.max(1)
+    };
+    let metadata_height = metadata_len.min(available_after_headers.saturating_sub(1));
+    let mut content_height = available_after_headers.saturating_sub(metadata_height);
+    if content_height < min_content_height {
+        content_height = min_content_height.min(available_after_headers.max(1));
+    }
+
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(content_height.max(1)),
+            Constraint::Min(0),
+        ])
+        .split(inner);
+
+    render_modal_field_label(
+        frame,
+        sections[0],
+        "Trigger",
+        state.focus() == LibraryModalField::Trigger,
+        None,
+    );
+    render_modal_value_field(
+        frame,
+        sections[1],
+        state.automation().trigger(),
+        state.focus() == LibraryModalField::Trigger,
+    );
+
+    render_modal_field_label(
+        frame,
+        sections[2],
+        state.automation().content_label(),
+        state.focus() == LibraryModalField::Content,
+        state.content_line_indicator(sections[3].height),
+    );
+    render_modal_content_field(frame, sections[3], state);
+
+    render_modal_metadata(
+        frame,
+        sections[4],
+        state,
+        state.automation().metadata_rows(),
+    );
+}
+
+fn render_modal_field_label(
+    frame: &mut Frame,
+    area: Rect,
+    label: &str,
+    focused: bool,
+    indicator: Option<String>,
+) {
+    let indicator_width = indicator
+        .as_ref()
+        .map(|value| value.chars().count() as u16)
+        .unwrap_or_default();
+    let sections = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(0), Constraint::Length(indicator_width)])
+        .split(area);
+
+    let label_style = if focused {
+        Style::default()
+            .fg(ACCENT_COLOR)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(MUTED_TEXT_COLOR)
+    };
+    frame.render_widget(Paragraph::new(label).style(label_style), sections[0]);
+
+    if let Some(indicator) = indicator {
+        frame.render_widget(
+            Paragraph::new(indicator).alignment(Alignment::Right).style(
+                Style::default()
+                    .fg(MUTED_TEXT_COLOR)
+                    .add_modifier(Modifier::DIM),
+            ),
+            sections[1],
+        );
+    }
+}
+
+fn render_modal_value_field(frame: &mut Frame, area: Rect, value: &str, focused: bool) {
+    let bg = if focused {
+        SELECTED_ROW_BG_COLOR
+    } else {
+        INPUT_BG_COLOR
+    };
+    let text_style = if focused {
+        Style::default()
+            .fg(ACCENT_COLOR)
+            .bg(bg)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(ACCENT_COLOR).bg(bg)
+    };
+
+    let block = Block::default()
+        .style(Style::default().bg(bg))
+        .padding(Padding::new(1, 1, 0, 0));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    frame.render_widget(Paragraph::new(value).style(text_style), inner);
+}
+
+fn render_modal_content_field(frame: &mut Frame, area: Rect, state: &LibraryEditorModalState) {
+    let focused = state.focus() == LibraryModalField::Content;
+    let bg = if focused {
+        SELECTED_ROW_BG_COLOR
+    } else {
+        INPUT_BG_COLOR
+    };
+    let block = Block::default()
+        .style(Style::default().bg(bg))
+        .padding(Padding::new(1, 1, 0, 0));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let content_style = if focused {
+        Style::default()
+            .fg(ACCENT_COLOR)
+            .bg(bg)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(ACCENT_COLOR).bg(bg)
+    };
+    frame.render_widget(
+        Paragraph::new(state.automation().content().to_string())
+            .style(content_style)
+            .scroll((state.effective_content_scroll(inner.height) as u16, 0)),
+        inner,
+    );
+}
+
+fn render_modal_metadata(
+    frame: &mut Frame,
+    area: Rect,
+    state: &LibraryEditorModalState,
+    metadata_rows: &[LibraryMetadataRow],
+) {
+    let mut rows = Vec::with_capacity(metadata_rows.len() + 2);
+    rows.push((
+        "Kind",
+        state.automation().kind_label().to_string(),
+        state.focus() == LibraryModalField::Kind,
+        false,
+    ));
+    rows.push((
+        "Target OS",
+        state.automation().target_os().to_string(),
+        state.focus() == LibraryModalField::TargetOs,
+        false,
+    ));
+    rows.extend(
+        metadata_rows
+            .iter()
+            .map(|row| (row.label(), row.value().to_string(), false, true)),
+    );
+
+    let render_count = rows.len().min(area.height as usize);
+    for (index, (label, value, focused, quiet)) in rows.into_iter().take(render_count).enumerate() {
+        let row_area = Rect {
+            x: area.x,
+            y: area.y + index as u16,
+            width: area.width,
+            height: 1,
+        };
+        render_modal_key_value_row(frame, row_area, label, &value, focused, quiet);
+    }
+}
+
+fn render_modal_key_value_row(
+    frame: &mut Frame,
+    area: Rect,
+    label: &str,
+    value: &str,
+    focused: bool,
+    quiet: bool,
+) {
+    let bg = if focused {
+        SELECTED_ROW_BG_COLOR
+    } else {
+        Color::Reset
+    };
+    frame.render_widget(Block::default().style(Style::default().bg(bg)), area);
+
+    let label_width = area.width.min(12);
+    let sections = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Length(label_width), Constraint::Min(0)])
+        .split(area);
+
+    let label_style = if focused {
+        Style::default()
+            .fg(ACCENT_COLOR)
+            .bg(bg)
+            .add_modifier(Modifier::BOLD)
+    } else if quiet {
+        Style::default()
+            .fg(MUTED_TEXT_COLOR)
+            .add_modifier(Modifier::DIM)
+    } else {
+        Style::default().fg(MUTED_TEXT_COLOR)
+    };
+    let value_style = if focused {
+        Style::default().fg(ACCENT_COLOR).bg(bg)
+    } else if quiet {
+        Style::default()
+            .fg(MUTED_TEXT_COLOR)
+            .add_modifier(Modifier::DIM)
+    } else {
+        Style::default().fg(ACCENT_COLOR)
+    };
+
+    frame.render_widget(Paragraph::new(label).style(label_style), sections[0]);
+    frame.render_widget(
+        Paragraph::new(truncate_to_width(value, sections[1].width)).style(value_style),
+        sections[1],
     );
 }
 
@@ -1138,6 +1388,36 @@ fn format_time_saved(time_saved_ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use taurine_core::{
+        db::crud::{AutomationRow, TriggerType},
+        engine::shell::{ScriptBehavior, ScriptInterpreter, compress},
+    };
+
+    fn sample_library_modal() -> crate::library::LibraryAutomationDetail {
+        crate::library::LibraryAutomationDetail::from_row(AutomationRow {
+            id: "library-modal".to_string(),
+            name: "Library Modal".to_string(),
+            description: Some("Open Reddit".to_string()),
+            trigger_type: TriggerType::Hotkey,
+            trigger: "alt+r".to_string(),
+            output: "[Script: powershell]".to_string(),
+            action_type: "script".to_string(),
+            target_os: "win".to_string(),
+            tags: "[]".to_string(),
+            usage_count: 6,
+            last_used_at: Some(1),
+            created_at: 1,
+            updated_at: 1,
+            version: 1,
+            is_deleted: false,
+            is_synced: true,
+            is_enabled: true,
+            interpreter: Some(ScriptInterpreter::PowerShell),
+            behavior: Some(ScriptBehavior::Silent),
+            script_binary: Some(compress("Start-Process https://reddit.com").unwrap()),
+        })
+        .unwrap()
+    }
 
     #[test]
     fn formats_zero_time_saved_as_zero_minutes() {
@@ -1220,5 +1500,21 @@ mod tests {
         assert!(!footer.contains("1 Home"));
         assert!(!footer.contains("2 Library"));
         assert!(!footer.contains("3 Settings"));
+    }
+
+    #[test]
+    fn library_modal_footer_switches_to_close_and_focus_hints() {
+        let mut app = App::default();
+        app.handle_key(
+            crossterm::event::KeyCode::Char('2'),
+            crossterm::event::KeyModifiers::NONE,
+        );
+        app.library_page_mut()
+            .open_editor_modal(sample_library_modal());
+
+        assert_eq!(
+            footer_text(&app),
+            "Ctrl+B Nav   Esc Close   Tab Next   Shift+Tab Prev"
+        );
     }
 }
