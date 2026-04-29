@@ -3,8 +3,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use taurine_core::{
     db::crud::{
-        AutomationListItem, AutomationRow, ExistingAutomationUpdate, SUPPORTED_TARGET_OS_VALUES,
-        TriggerType, update_existing_automation,
+        AutomationListItem, AutomationRow, ExistingAutomationUpdate, NewAutomation,
+        SUPPORTED_TARGET_OS_VALUES, TriggerType, create_automation, update_existing_automation,
     },
     engine::shell::{ScriptBehavior, ScriptInterpreter, decompress},
 };
@@ -140,6 +140,12 @@ pub(crate) enum LibraryModalField {
     Content,
     Kind,
     TargetOs,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LibraryEditorMode {
+    Edit,
+    Create,
 }
 
 impl LibraryModalField {
@@ -288,7 +294,8 @@ impl LibraryAutomationDetail {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LibraryEditorModalState {
-    original: LibraryAutomationDetail,
+    mode: LibraryEditorMode,
+    original: Option<LibraryAutomationDetail>,
     trigger: String,
     trigger_cursor: usize,
     content: String,
@@ -303,11 +310,11 @@ pub(crate) struct LibraryEditorModalState {
 }
 
 impl LibraryEditorModalState {
-    fn new(automation: LibraryAutomationDetail) -> Self {
+    fn new_edit(automation: LibraryAutomationDetail) -> Self {
         let trigger_cursor = automation.trigger().chars().count();
         let content_cursor = automation.content().chars().count();
-
         Self {
+            mode: LibraryEditorMode::Edit,
             trigger: automation.trigger().to_string(),
             trigger_cursor,
             content: automation.content().to_string(),
@@ -318,9 +325,32 @@ impl LibraryEditorModalState {
             focus: LibraryModalField::Trigger,
             content_scroll: 0,
             error: None,
-            original: automation,
+            original: Some(automation),
             selector: None,
         }
+    }
+
+    fn new_create() -> Self {
+        Self {
+            mode: LibraryEditorMode::Create,
+            original: None,
+            trigger: String::new(),
+            trigger_cursor: 0,
+            content: String::new(),
+            content_cursor: 0,
+            content_cursor_goal: None,
+            kind: LibraryKind::Snippet,
+            target_os: SUPPORTED_TARGET_OS_VALUES[0].to_string(),
+            focus: LibraryModalField::Trigger,
+            content_scroll: 0,
+            error: None,
+            selector: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn mode(&self) -> LibraryEditorMode {
+        self.mode
     }
 
     pub(crate) const fn focus(&self) -> LibraryModalField {
@@ -356,7 +386,10 @@ impl LibraryEditorModalState {
     }
 
     pub(crate) fn metadata_rows(&self) -> &[LibraryMetadataRow] {
-        self.original.metadata_rows()
+        self.original
+            .as_ref()
+            .map(LibraryAutomationDetail::metadata_rows)
+            .unwrap_or(&[])
     }
 
     pub(crate) fn error(&self) -> Option<&str> {
@@ -438,15 +471,23 @@ impl LibraryEditorModalState {
     }
 
     pub(crate) fn build_pending_save(&self) -> PendingLibrarySave {
+        let mode = match (self.mode, self.original.as_ref()) {
+            (LibraryEditorMode::Edit, Some(original)) => PendingLibrarySaveMode::Update {
+                id: original.id().to_string(),
+                name: original.name().to_string(),
+                description: original.description().map(str::to_string),
+                tags_json: original.tags_json().to_string(),
+                usage_count: original.usage_count(),
+                last_used_at: original.last_used_at(),
+                interpreter: original.interpreter(),
+                behavior: original.behavior(),
+            },
+            (LibraryEditorMode::Create, _) => PendingLibrarySaveMode::Create,
+            (LibraryEditorMode::Edit, None) => PendingLibrarySaveMode::Create,
+        };
+
         PendingLibrarySave {
-            id: self.original.id().to_string(),
-            name: self.original.name().to_string(),
-            description: self.original.description().map(str::to_string),
-            tags_json: self.original.tags_json().to_string(),
-            usage_count: self.original.usage_count(),
-            last_used_at: self.original.last_used_at(),
-            interpreter: self.original.interpreter(),
-            behavior: self.original.behavior(),
+            mode,
             trigger: self.trigger.clone(),
             content: self.content.clone(),
             kind: self.kind,
@@ -756,15 +797,23 @@ impl LibraryModal {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PendingLibrarySaveMode {
+    Update {
+        id: String,
+        name: String,
+        description: Option<String>,
+        tags_json: String,
+        usage_count: i64,
+        last_used_at: Option<i64>,
+        interpreter: Option<ScriptInterpreter>,
+        behavior: Option<ScriptBehavior>,
+    },
+    Create,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PendingLibrarySave {
-    id: String,
-    name: String,
-    description: Option<String>,
-    tags_json: String,
-    usage_count: i64,
-    last_used_at: Option<i64>,
-    interpreter: Option<ScriptInterpreter>,
-    behavior: Option<ScriptBehavior>,
+    mode: PendingLibrarySaveMode,
     trigger: String,
     content: String,
     kind: LibraryKind,
@@ -772,45 +821,83 @@ pub(crate) struct PendingLibrarySave {
 }
 
 impl PendingLibrarySave {
-    pub(crate) fn automation_id(&self) -> &str {
-        &self.id
+    #[cfg(test)]
+    pub(crate) const fn mode(&self) -> &PendingLibrarySaveMode {
+        &self.mode
     }
 
-    pub(crate) fn apply(&self) -> taurine_core::Result<()> {
+    pub(crate) fn apply(&self) -> taurine_core::Result<String> {
         let mut conn = taurine_core::db::init::setup()?;
-        update_existing_automation(
-            &mut conn,
-            ExistingAutomationUpdate {
-                id: &self.id,
-                name: &self.name,
-                description: self.description.as_deref(),
-                trigger_type: self.kind.trigger_type(),
-                trigger: &self.trigger,
-                content: &self.content,
-                action_type: self.kind.action_type(),
-                target_os: &self.target_os,
-                tags_json: &self.tags_json,
-                usage_count: self.usage_count,
-                last_used_at: self.last_used_at,
-                interpreter: self.interpreter,
-                behavior: self.behavior,
-            },
-        )?;
+
+        let automation_id = match &self.mode {
+            PendingLibrarySaveMode::Update {
+                id,
+                name,
+                description,
+                tags_json,
+                usage_count,
+                last_used_at,
+                interpreter,
+                behavior,
+            } => {
+                update_existing_automation(
+                    &mut conn,
+                    ExistingAutomationUpdate {
+                        id,
+                        name,
+                        description: description.as_deref(),
+                        trigger_type: self.kind.trigger_type(),
+                        trigger: &self.trigger,
+                        content: &self.content,
+                        action_type: self.kind.action_type(),
+                        target_os: &self.target_os,
+                        tags_json,
+                        usage_count: *usage_count,
+                        last_used_at: *last_used_at,
+                        interpreter: *interpreter,
+                        behavior: *behavior,
+                    },
+                )?;
+                id.clone()
+            }
+            PendingLibrarySaveMode::Create => create_automation(
+                &mut conn,
+                NewAutomation {
+                    name: None,
+                    description: None,
+                    trigger_type: self.kind.trigger_type(),
+                    trigger: &self.trigger,
+                    content: &self.content,
+                    action_type: self.kind.action_type(),
+                    target_os: &self.target_os,
+                    tags_json: "[]",
+                    interpreter: None,
+                    behavior: Some(ScriptBehavior::Inline),
+                },
+            )?,
+        };
+
         taurine_core::rpc::notify_daemon_reload();
-        Ok(())
+        Ok(automation_id)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum LibraryOpenRequest {
+    Selected(String),
+    Create,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct LibraryInteraction {
-    open_selected_id: Option<String>,
+    open_request: Option<LibraryOpenRequest>,
     pending_save: Option<PendingLibrarySave>,
     close_modal: bool,
 }
 
 impl LibraryInteraction {
-    pub(crate) fn into_open_selected_id(self) -> Option<String> {
-        self.open_selected_id
+    pub(crate) fn into_open_request(self) -> Option<LibraryOpenRequest> {
+        self.open_request
     }
 
     pub(crate) const fn pending_save(&self) -> Option<&PendingLibrarySave> {
@@ -827,7 +914,15 @@ impl LibraryInteraction {
 
     fn open_selected(id: String) -> Self {
         Self {
-            open_selected_id: Some(id),
+            open_request: Some(LibraryOpenRequest::Selected(id)),
+            pending_save: None,
+            close_modal: false,
+        }
+    }
+
+    fn open_create() -> Self {
+        Self {
+            open_request: Some(LibraryOpenRequest::Create),
             pending_save: None,
             close_modal: false,
         }
@@ -835,7 +930,7 @@ impl LibraryInteraction {
 
     fn save(pending_save: PendingLibrarySave) -> Self {
         Self {
-            open_selected_id: None,
+            open_request: None,
             pending_save: Some(pending_save),
             close_modal: false,
         }
@@ -843,7 +938,7 @@ impl LibraryInteraction {
 
     fn close() -> Self {
         Self {
-            open_selected_id: None,
+            open_request: None,
             pending_save: None,
             close_modal: true,
         }
@@ -912,9 +1007,13 @@ impl LibraryPageState {
     }
 
     pub(crate) fn open_editor_modal(&mut self, automation: LibraryAutomationDetail) {
-        self.modal = Some(LibraryModal::Editor(LibraryEditorModalState::new(
+        self.modal = Some(LibraryModal::Editor(LibraryEditorModalState::new_edit(
             automation,
         )));
+    }
+
+    pub(crate) fn open_create_modal(&mut self) {
+        self.modal = Some(LibraryModal::Editor(LibraryEditorModalState::new_create()));
     }
 
     pub(crate) fn clear_modal(&mut self) {
@@ -985,6 +1084,7 @@ impl LibraryPageState {
                 self.move_selection(-1);
                 LibraryInteraction::handled()
             }
+            (KeyCode::Char('n'), KeyModifiers::NONE) => LibraryInteraction::open_create(),
             (KeyCode::Enter, KeyModifiers::NONE) => self
                 .selected_item()
                 .map(|item| LibraryInteraction::open_selected(item.id().to_string()))
@@ -1819,7 +1919,22 @@ mod tests {
 
         let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
-        assert_eq!(interaction.into_open_selected_id(), expected_id);
+        assert_eq!(
+            interaction.into_open_request(),
+            expected_id.map(LibraryOpenRequest::Selected)
+        );
+    }
+
+    #[test]
+    fn pressing_n_opens_editor_modal_in_create_mode() {
+        let mut state = sample_state();
+
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+
+        assert_eq!(
+            interaction.into_open_request(),
+            Some(LibraryOpenRequest::Create)
+        );
     }
 
     #[test]
@@ -1921,7 +2036,7 @@ mod tests {
 
     #[test]
     fn tab_and_shift_tab_cycle_modal_focus() {
-        let mut modal = LibraryEditorModalState::new(
+        let mut modal = LibraryEditorModalState::new_edit(
             LibraryAutomationDetail::from_row(automation_row(
                 TriggerType::Word,
                 "gm",
@@ -1943,7 +2058,7 @@ mod tests {
 
     #[test]
     fn content_focus_supports_cursor_navigation() {
-        let mut modal = LibraryEditorModalState::new(
+        let mut modal = LibraryEditorModalState::new_edit(
             LibraryAutomationDetail::from_row(automation_row(
                 TriggerType::Word,
                 "gm",
@@ -1964,7 +2079,7 @@ mod tests {
 
     #[test]
     fn editor_modal_initializes_editable_fields_from_selected_automation() {
-        let modal = LibraryEditorModalState::new(
+        let modal = LibraryEditorModalState::new_edit(
             LibraryAutomationDetail::from_row(automation_row(
                 TriggerType::Hotkey,
                 "alt+r",
@@ -1985,7 +2100,7 @@ mod tests {
 
     #[test]
     fn editing_trigger_updates_modal_draft_state() {
-        let mut modal = LibraryEditorModalState::new(
+        let mut modal = LibraryEditorModalState::new_edit(
             LibraryAutomationDetail::from_row(automation_row(
                 TriggerType::Word,
                 "gm",
@@ -2006,7 +2121,7 @@ mod tests {
 
     #[test]
     fn editing_content_updates_modal_draft_state() {
-        let mut modal = LibraryEditorModalState::new(
+        let mut modal = LibraryEditorModalState::new_edit(
             LibraryAutomationDetail::from_row(automation_row(
                 TriggerType::Word,
                 "gm",
@@ -2027,7 +2142,7 @@ mod tests {
 
     #[test]
     fn kind_selector_updates_kind_on_enter() {
-        let mut modal = LibraryEditorModalState::new(
+        let mut modal = LibraryEditorModalState::new_edit(
             LibraryAutomationDetail::from_row(automation_row(
                 TriggerType::Word,
                 "gm",
@@ -2053,7 +2168,7 @@ mod tests {
 
     #[test]
     fn target_os_selector_updates_target_os_on_enter() {
-        let mut modal = LibraryEditorModalState::new(
+        let mut modal = LibraryEditorModalState::new_edit(
             LibraryAutomationDetail::from_row(automation_row(
                 TriggerType::Word,
                 "gm",
@@ -2079,7 +2194,7 @@ mod tests {
 
     #[test]
     fn ctrl_s_creates_pending_save_for_existing_automation() {
-        let mut modal = LibraryEditorModalState::new(
+        let mut modal = LibraryEditorModalState::new_edit(
             LibraryAutomationDetail::from_row(automation_row(
                 TriggerType::Hotkey,
                 "alt+r",
@@ -2096,9 +2211,43 @@ mod tests {
             modal.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
         let pending = interaction.pending_save().unwrap();
 
-        assert_eq!(pending.automation_id(), "automation-alt+r");
         assert_eq!(pending.kind, LibraryKind::HotkeyScript);
         assert_eq!(pending.content, "Start-Process https://reddit.com");
+        assert!(matches!(
+            pending.mode(),
+            PendingLibrarySaveMode::Update { id, .. } if id == "automation-alt+r"
+        ));
+    }
+
+    #[test]
+    fn create_modal_initializes_empty_defaults() {
+        let modal = LibraryEditorModalState::new_create();
+
+        assert_eq!(modal.mode(), LibraryEditorMode::Create);
+        assert_eq!(modal.trigger(), "");
+        assert_eq!(modal.content(), "");
+        assert_eq!(modal.kind_label(), "snippet");
+        assert_eq!(modal.target_os(), "all");
+    }
+
+    #[test]
+    fn ctrl_s_creates_pending_save_for_new_automation() {
+        let mut modal = LibraryEditorModalState::new_create();
+        modal.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Char('H'), KeyModifiers::SHIFT));
+        modal.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
+
+        let interaction =
+            modal.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+        let pending = interaction.pending_save().unwrap();
+
+        assert!(matches!(pending.mode(), PendingLibrarySaveMode::Create));
+        assert_eq!(pending.kind, LibraryKind::Snippet);
+        assert_eq!(pending.target_os, "all");
+        assert_eq!(pending.trigger, "gm");
+        assert_eq!(pending.content, "Hi");
     }
 
     #[test]

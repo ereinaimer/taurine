@@ -47,6 +47,20 @@ pub struct ExistingAutomationUpdate<'a> {
     pub behavior: Option<ScriptBehavior>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewAutomation<'a> {
+    pub name: Option<&'a str>,
+    pub description: Option<&'a str>,
+    pub trigger_type: TriggerType,
+    pub trigger: &'a str,
+    pub content: &'a str,
+    pub action_type: &'a str,
+    pub target_os: &'a str,
+    pub tags_json: &'a str,
+    pub interpreter: Option<ScriptInterpreter>,
+    pub behavior: Option<ScriptBehavior>,
+}
+
 pub fn audit_payload_tags(payload: &str) -> Result<()> {
     let mut ptr = 0;
 
@@ -94,6 +108,10 @@ pub fn prepare_trigger_with_type(
     trigger_type: TriggerType,
     target_os: &str,
 ) -> Result<PreparedTrigger> {
+    if trigger.trim().is_empty() {
+        return Err(crate::Error::Config("Trigger cannot be empty.".to_string()));
+    }
+
     if matches!(trigger_type, TriggerType::Word) {
         return Ok(PreparedTrigger {
             trigger_type,
@@ -467,6 +485,81 @@ pub fn update_existing_automation(
 
     tx.commit()?;
     Ok(())
+}
+
+pub fn create_automation(
+    conn: &mut Connection,
+    new_automation: NewAutomation<'_>,
+) -> Result<String> {
+    validate_target_os_value(new_automation.target_os)?;
+    audit_payload_tags(new_automation.content)?;
+
+    let prepared = prepare_trigger_with_type(
+        new_automation.trigger,
+        new_automation.trigger_type,
+        new_automation.target_os,
+    )?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let generated_name = prepared.stored_trigger.clone();
+    let name = new_automation
+        .name
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or(generated_name.as_str());
+    let tx = conn.transaction()?;
+
+    if new_automation.action_type.eq_ignore_ascii_case("script") {
+        let interpreter = new_automation
+            .interpreter
+            .or_else(|| infer_interpreter(None, new_automation.content))
+            .ok_or_else(|| {
+                crate::Error::Config(
+                    "Unable to determine a script language for this automation.".to_string(),
+                )
+            })?;
+        let behavior = new_automation.behavior.unwrap_or(ScriptBehavior::Inline);
+        let script_output = format!("[Script: {}]", script_interpreter_tag(interpreter));
+
+        upsert_automation_with_trigger_type(
+            &tx,
+            &id,
+            name,
+            new_automation.description,
+            prepared.trigger_type,
+            &prepared.stored_trigger,
+            &script_output,
+            "script",
+            new_automation.target_os,
+            new_automation.tags_json,
+            0,
+            None,
+        )?;
+        upsert_script(
+            &tx,
+            &id,
+            interpreter,
+            behavior,
+            &compress(new_automation.content)?,
+        )?;
+    } else {
+        validate_output(new_automation.content, Some(&prepared.stored_trigger));
+        upsert_automation_with_trigger_type(
+            &tx,
+            &id,
+            name,
+            new_automation.description,
+            prepared.trigger_type,
+            &prepared.stored_trigger,
+            new_automation.content,
+            "text",
+            new_automation.target_os,
+            new_automation.tags_json,
+            0,
+            None,
+        )?;
+    }
+
+    tx.commit()?;
+    Ok(id)
 }
 
 fn validate_target_os_value(target_os: &str) -> Result<()> {

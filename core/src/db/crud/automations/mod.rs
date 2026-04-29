@@ -12,12 +12,12 @@ pub use automation_get::{
     get_all_active_hotkey_automations, get_automation, get_automations_list, search_automations,
 };
 pub use automation_set::{
-    AddOutcome, ExistingAutomationUpdate, PreparedTrigger, add_automation_by_trigger,
-    add_automation_by_trigger_type, audit_payload_tags, find_trigger_overlap_conflict,
-    increment_usage_count_by_trigger, prepare_trigger, prepare_trigger_with_type,
-    record_expansion_usage, target_os_values_overlap, update_existing_automation,
-    upsert_automation, upsert_automation_with_trigger_type, upsert_script,
-    validate_trigger_not_reserved, validate_trigger_target_os_conflict,
+    AddOutcome, ExistingAutomationUpdate, NewAutomation, PreparedTrigger,
+    add_automation_by_trigger, add_automation_by_trigger_type, audit_payload_tags,
+    create_automation, find_trigger_overlap_conflict, increment_usage_count_by_trigger,
+    prepare_trigger, prepare_trigger_with_type, record_expansion_usage, target_os_values_overlap,
+    update_existing_automation, upsert_automation, upsert_automation_with_trigger_type,
+    upsert_script, validate_trigger_not_reserved, validate_trigger_target_os_conflict,
 };
 pub use automation_sync::get_syncable_automations;
 pub use automation_types::{
@@ -1446,6 +1446,137 @@ mod tests {
         .unwrap_err();
 
         assert!(error.to_string().contains("Trigger conflict"));
+    }
+
+    #[test]
+    fn create_automation_creates_new_text_row() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        let id = create_automation(
+            &mut conn,
+            NewAutomation {
+                name: None,
+                description: None,
+                trigger_type: TriggerType::Word,
+                trigger: "gm",
+                content: "Good Morning",
+                action_type: "text",
+                target_os: "all",
+                tags_json: "[]",
+                interpreter: None,
+                behavior: None,
+            },
+        )
+        .unwrap();
+
+        let row = get_automation(&conn, &id).unwrap().unwrap();
+        assert_eq!(row.trigger, "gm");
+        assert_eq!(row.output, "Good Morning");
+        assert_eq!(row.action_type, "text");
+        assert_eq!(row.description, None);
+    }
+
+    #[test]
+    fn create_automation_creates_script_with_defaults() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        let id = create_automation(
+            &mut conn,
+            NewAutomation {
+                name: None,
+                description: None,
+                trigger_type: TriggerType::Word,
+                trigger: "deploy",
+                content: "#!/usr/bin/env python3\nprint('hi')",
+                action_type: "script",
+                target_os: "all",
+                tags_json: "[]",
+                interpreter: None,
+                behavior: None,
+            },
+        )
+        .unwrap();
+
+        let row = get_automation(&conn, &id).unwrap().unwrap();
+        assert_eq!(row.action_type, "script");
+        assert_eq!(row.output, "[Script: python]");
+        assert_eq!(row.interpreter, Some(ScriptInterpreter::Python));
+        assert_eq!(row.behavior, Some(ScriptBehavior::Inline));
+        assert_eq!(
+            decompress(row.script_binary.as_deref().unwrap()).unwrap(),
+            "#!/usr/bin/env python3\nprint('hi')"
+        );
+    }
+
+    #[test]
+    fn create_automation_rejects_conflicts_without_updating_existing_rows() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        let original_id = create_automation(
+            &mut conn,
+            NewAutomation {
+                name: None,
+                description: None,
+                trigger_type: TriggerType::Word,
+                trigger: "gm",
+                content: "Good Morning",
+                action_type: "text",
+                target_os: "all",
+                tags_json: "[]",
+                interpreter: None,
+                behavior: None,
+            },
+        )
+        .unwrap();
+
+        let error = create_automation(
+            &mut conn,
+            NewAutomation {
+                name: None,
+                description: None,
+                trigger_type: TriggerType::Word,
+                trigger: "gm",
+                content: "Different output",
+                action_type: "text",
+                target_os: "win",
+                tags_json: "[]",
+                interpreter: None,
+                behavior: None,
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("Trigger conflict"));
+        let row = get_automation(&conn, &original_id).unwrap().unwrap();
+        assert_eq!(row.output, "Good Morning");
+    }
+
+    #[test]
+    fn create_automation_rejects_empty_trigger() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        let error = create_automation(
+            &mut conn,
+            NewAutomation {
+                name: None,
+                description: None,
+                trigger_type: TriggerType::Word,
+                trigger: "   ",
+                content: "Good Morning",
+                action_type: "text",
+                target_os: "all",
+                tags_json: "[]",
+                interpreter: None,
+                behavior: None,
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("Trigger cannot be empty"));
     }
 
     #[test]
