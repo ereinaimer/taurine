@@ -18,6 +18,8 @@ const LIBRARY_FOOTER: &str = "/ Search   n New   x Export   d Delete   Enter Edi
 const LIBRARY_EDIT_MODAL_FOOTER: &str = "Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev";
 const LIBRARY_CREATE_MODAL_FOOTER: &str = "Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev";
 const LIBRARY_EXPORT_MODAL_FOOTER: &str = "Ctrl+S Export   Esc Cancel   Tab Next   Shift+Tab Prev";
+const LIBRARY_EXPORT_PASSWORD_FOOTER: &str =
+    "Ctrl+S Export   Esc Cancel   Tab Next   Shift+Tab Prev   Enter Show/Hide";
 const LIBRARY_DELETE_MODAL_FOOTER: &str = "Esc Cancel";
 const DEFAULT_SCRIPT_FALLBACK: &str = "Script content unavailable.";
 const DEFAULT_OUTPUT_FALLBACK: &str = "No output available.";
@@ -257,6 +259,7 @@ pub(crate) struct LibraryExportModalState {
     encrypt: bool,
     password: String,
     password_cursor: usize,
+    show_password: bool,
     include_settings: bool,
     include_metrics: bool,
     focus: LibraryExportModalField,
@@ -274,6 +277,7 @@ impl LibraryExportModalState {
             encrypt: true,
             password: String::new(),
             password_cursor: 0,
+            show_password: false,
             include_settings: false,
             include_metrics: false,
             focus: LibraryExportModalField::Path,
@@ -297,8 +301,25 @@ impl LibraryExportModalState {
         "*".repeat(self.password.chars().count())
     }
 
+    pub(crate) fn password_display_value(&self) -> String {
+        if self.show_password {
+            self.password.clone()
+        } else {
+            self.password_masked()
+        }
+    }
+
     pub(crate) const fn password_cursor(&self) -> usize {
         self.password_cursor
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn show_password(&self) -> bool {
+        self.show_password
+    }
+
+    pub(crate) const fn password_toggle_label(&self) -> &'static str {
+        if self.show_password { "hide" } else { "show" }
     }
 
     pub(crate) const fn include_settings(&self) -> bool {
@@ -330,7 +351,11 @@ impl LibraryExportModalState {
     }
 
     pub(crate) fn footer_text(&self) -> &'static str {
-        LIBRARY_EXPORT_MODAL_FOOTER
+        if self.encrypt && self.focus == LibraryExportModalField::Password {
+            LIBRARY_EXPORT_PASSWORD_FOOTER
+        } else {
+            LIBRARY_EXPORT_MODAL_FOOTER
+        }
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> LibraryInteraction {
@@ -434,6 +459,9 @@ impl LibraryExportModalState {
         match (key.code, key.modifiers) {
             (KeyCode::Char(' '), KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
                 self.encrypt = !self.encrypt;
+                if !self.encrypt {
+                    self.show_password = false;
+                }
                 self.ensure_focus_visible();
                 LibraryInteraction::handled()
             }
@@ -443,6 +471,10 @@ impl LibraryExportModalState {
 
     fn handle_password_key(&mut self, key: KeyEvent) -> LibraryInteraction {
         match (key.code, key.modifiers) {
+            (KeyCode::Enter, KeyModifiers::NONE) => {
+                self.show_password = !self.show_password;
+                LibraryInteraction::handled()
+            }
             (KeyCode::Left, KeyModifiers::NONE) => {
                 self.password_cursor = self.password_cursor.saturating_sub(1);
                 LibraryInteraction::handled()
@@ -2813,6 +2845,9 @@ mod tests {
         assert!(modal.path().ends_with(".tau"));
         assert!(modal.encrypt());
         assert_eq!(modal.password_masked(), "");
+        assert_eq!(modal.password_display_value(), "");
+        assert!(!modal.show_password());
+        assert_eq!(modal.password_toggle_label(), "show");
         assert!(!modal.include_settings());
         assert!(!modal.include_metrics());
         assert_eq!(state.footer_text(), LIBRARY_EXPORT_MODAL_FOOTER);
@@ -2848,7 +2883,93 @@ mod tests {
             modal.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
 
         assert!(interaction.pending_export().is_none());
-        assert_eq!(modal.error(), Some("Encryption password is required."));
+        assert_eq!(
+            modal.error(),
+            Some("Configuration error: Encryption password is required.")
+        );
+    }
+
+    #[test]
+    fn export_modal_password_field_stores_typed_characters() {
+        let mut state = sample_state();
+        state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+
+        let Some(LibraryModal::Export(modal)) = state.modal.as_mut() else {
+            panic!("expected export modal");
+        };
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+
+        assert_eq!(modal.password_masked(), "***");
+        assert_eq!(modal.password_display_value(), "***");
+        assert!(!modal.show_password());
+    }
+
+    #[test]
+    fn export_modal_password_visibility_toggle_preserves_value() {
+        let mut state = sample_state();
+        state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+
+        let Some(LibraryModal::Export(modal)) = state.modal.as_mut() else {
+            panic!("expected export modal");
+        };
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        for ch in "secret".chars() {
+            modal.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+        }
+
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(modal.show_password());
+        assert_eq!(modal.password_display_value(), "secret");
+        assert_eq!(modal.password_toggle_label(), "hide");
+
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(!modal.show_password());
+        assert_eq!(modal.password_display_value(), "******");
+        assert_eq!(modal.password_toggle_label(), "show");
+    }
+
+    #[test]
+    fn export_modal_password_footer_includes_show_hide_hint_when_focused() {
+        let mut state = sample_state();
+        state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+
+        let Some(LibraryModal::Export(modal)) = state.modal.as_mut() else {
+            panic!("expected export modal");
+        };
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+
+        assert_eq!(state.footer_text(), LIBRARY_EXPORT_PASSWORD_FOOTER);
+    }
+
+    #[test]
+    fn disabling_encryption_hides_password_field_and_resets_visibility() {
+        let mut state = sample_state();
+        state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+
+        let Some(LibraryModal::Export(modal)) = state.modal.as_mut() else {
+            panic!("expected export modal");
+        };
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        for ch in "secret".chars() {
+            modal.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+        }
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(modal.show_password());
+
+        modal.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
+        modal.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+
+        assert!(!modal.encrypt());
+        assert!(!modal.show_password());
+        assert_eq!(modal.visible_fields(), &EXPORT_PLAINTEXT_OPTIONS);
+        assert_eq!(modal.focus(), LibraryExportModalField::Encrypt);
     }
 
     #[test]

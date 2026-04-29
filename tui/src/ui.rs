@@ -582,6 +582,7 @@ fn render_library_export_modal(frame: &mut Frame, area: Rect, state: &LibraryExp
     );
 
     let mut next_row = 3usize;
+    let mut password_text_area = None;
     if state.encrypt() {
         render_modal_field_label(
             frame,
@@ -590,13 +591,14 @@ fn render_library_export_modal(frame: &mut Frame, area: Rect, state: &LibraryExp
             state.focus() == LibraryExportModalField::Password,
             None,
         );
-        render_modal_password_field(
+        password_text_area = Some(render_modal_password_field(
             frame,
             sections[4],
-            &state.password_masked(),
+            &state.password_display_value(),
             state.password_cursor(),
+            state.password_toggle_label(),
             state.focus() == LibraryExportModalField::Password,
-        );
+        ));
         next_row = 5;
     }
 
@@ -643,9 +645,12 @@ fn render_library_export_modal(frame: &mut Frame, area: Rect, state: &LibraryExp
             ));
         }
         LibraryExportModalField::Password if state.encrypt() => {
+            let Some(password_text_area) = password_text_area else {
+                return;
+            };
             frame.set_cursor_position((
-                sections[4].x + 1 + state.password_cursor() as u16,
-                sections[4].y,
+                password_text_area.x + state.password_cursor() as u16,
+                password_text_area.y,
             ));
         }
         _ => {}
@@ -885,11 +890,64 @@ fn render_modal_input_field(
 fn render_modal_password_field(
     frame: &mut Frame,
     area: Rect,
-    masked_value: &str,
+    value: &str,
     cursor: usize,
+    toggle_label: &str,
     focused: bool,
-) {
-    render_modal_input_field(frame, area, masked_value, cursor, focused);
+) -> Rect {
+    let bg = if focused {
+        SELECTED_ROW_BG_COLOR
+    } else {
+        INPUT_BG_COLOR
+    };
+    let text_style = if focused {
+        Style::default()
+            .fg(ACCENT_COLOR)
+            .bg(bg)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(ACCENT_COLOR).bg(bg)
+    };
+    let toggle_style = if focused {
+        Style::default()
+            .fg(MUTED_TEXT_COLOR)
+            .bg(bg)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(MUTED_TEXT_COLOR)
+            .bg(bg)
+            .add_modifier(Modifier::DIM)
+    };
+
+    let block = Block::default()
+        .style(Style::default().bg(bg))
+        .padding(Padding::new(1, 1, 0, 0));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let toggle_width = (toggle_label.chars().count() as u16)
+        .saturating_add(1)
+        .min(inner.width);
+    let sections = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(0), Constraint::Length(toggle_width)])
+        .split(inner);
+
+    let text = if focused {
+        Paragraph::new(input_cursor_line(value, cursor))
+    } else {
+        Paragraph::new(value.to_string())
+    };
+    frame.render_widget(text.style(text_style), sections[0]);
+    frame.render_widget(
+        Paragraph::new(toggle_label)
+            .alignment(Alignment::Right)
+            .style(toggle_style),
+        sections[1],
+    );
+
+    sections[0]
 }
 
 fn render_modal_content_field(frame: &mut Frame, area: Rect, state: &LibraryEditorModalState) {
@@ -1909,6 +1967,31 @@ mod tests {
         assert_eq!(
             footer_text(&app),
             "Ctrl+B Nav   Ctrl+S Export   Esc Cancel   Tab Next   Shift+Tab Prev"
+        );
+    }
+
+    #[test]
+    fn library_export_password_footer_includes_show_hide_hint() {
+        let mut app = App::default();
+        app.handle_key(
+            crossterm::event::KeyCode::Char('2'),
+            crossterm::event::KeyModifiers::NONE,
+        );
+        app.library_page_mut().open_export_modal();
+        app.library_page_mut()
+            .handle_key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Tab,
+                crossterm::event::KeyModifiers::NONE,
+            ));
+        app.library_page_mut()
+            .handle_key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Tab,
+                crossterm::event::KeyModifiers::NONE,
+            ));
+
+        assert_eq!(
+            footer_text(&app),
+            "Ctrl+B Nav   Ctrl+S Export   Esc Cancel   Tab Next   Shift+Tab Prev   Enter Show/Hide"
         );
     }
 }
