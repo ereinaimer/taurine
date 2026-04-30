@@ -210,8 +210,12 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
         match pending_export.apply() {
             Ok(path) => {
                 app.library_page_mut().clear_modal();
-                app.library_page_mut()
-                    .set_status_message(format!("Exported automations to {}", path.display()));
+                app.library_page_mut().open_export_result_modal(
+                    &path,
+                    pending_export.encrypt(),
+                    pending_export.include_settings(),
+                    pending_export.include_metrics(),
+                );
             }
             Err(error) => app.library_page_mut().set_save_error(error.to_string()),
         }

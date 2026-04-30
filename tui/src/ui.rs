@@ -15,8 +15,8 @@ use crate::{
     control,
     library::{
         LibraryAutomation, LibraryDeleteModalState, LibraryEditorModalState,
-        LibraryExportModalField, LibraryExportModalState, LibraryImportModalField,
-        LibraryImportModalState, LibraryImportResultModalState,
+        LibraryExportModalField, LibraryExportModalState, LibraryExportResultModalState,
+        LibraryImportModalField, LibraryImportModalState, LibraryImportResultModalState,
         LibraryImportRunVariablesModalState, LibraryMetadataRow, LibraryModal, LibraryModalField,
         LibraryPageState, LibrarySelectState,
     },
@@ -29,6 +29,7 @@ const OUTER_HORIZONTAL_PADDING: u16 = 2;
 const OUTER_VERTICAL_PADDING: u16 = 1;
 const HEADER_GAP_HEIGHT: u16 = 1;
 const FOOTER_GAP_HEIGHT: u16 = 1;
+const EXPORT_RESULT_MODAL_TITLE: &str = "Export complete";
 const IMPORT_RUN_VARIABLES_WARNING_LINES: [&str; 3] = [
     "CAUTION: This import contains [run] variables that execute",
     "shell commands. Untrusted scripts can damage your system.",
@@ -195,6 +196,9 @@ fn render_content(frame: &mut Frame, area: Rect, app: &App) {
                 match modal {
                     LibraryModal::Editor(state) => render_library_editor_modal(frame, inner, state),
                     LibraryModal::Export(state) => render_library_export_modal(frame, inner, state),
+                    LibraryModal::ExportResult(state) => {
+                        render_library_export_result_modal(frame, inner, state)
+                    }
                     LibraryModal::Import(state) => render_library_import_modal(frame, inner, state),
                     LibraryModal::ImportResult(state) => {
                         render_library_import_result_modal(frame, inner, state)
@@ -858,6 +862,26 @@ fn render_library_import_result_modal(
     frame.render_widget(
         Paragraph::new(lines).style(Style::default().fg(MUTED_TEXT_COLOR)),
         sections[0],
+    );
+}
+
+fn render_library_export_result_modal(
+    frame: &mut Frame,
+    area: Rect,
+    state: &LibraryExportResultModalState,
+) {
+    let width = if area.width > 48 {
+        area.width.saturating_sub(6).min(76)
+    } else {
+        area.width.max(1)
+    };
+    let popup = centered_rect(width, 5.min(area.height.max(1)), area);
+    frame.render_widget(Clear, popup);
+    let inner = render_modal_block(frame, popup, EXPORT_RESULT_MODAL_TITLE);
+
+    frame.render_widget(
+        Paragraph::new(vec![Line::from(state.body())]).style(Style::default().fg(MUTED_TEXT_COLOR)),
+        inner,
     );
 }
 
@@ -2221,6 +2245,28 @@ mod tests {
             footer_text(&app),
             "Ctrl+B Nav   Ctrl+S Export   Esc Cancel   Tab Next   Shift+Tab Prev   Enter Show/Hide"
         );
+    }
+
+    #[test]
+    fn library_export_result_modal_footer_switches_to_close_hints() {
+        let mut app = App::default();
+        app.handle_key(
+            crossterm::event::KeyCode::Char('2'),
+            crossterm::event::KeyModifiers::NONE,
+        );
+        app.library_page_mut().open_export_result_modal(
+            &std::path::PathBuf::from("backup.tau"),
+            false,
+            false,
+            false,
+        );
+
+        assert_eq!(footer_text(&app), "Ctrl+B Nav   Enter Close   Esc Close");
+    }
+
+    #[test]
+    fn library_export_result_modal_title_is_exact() {
+        assert_eq!(EXPORT_RESULT_MODAL_TITLE, "Export complete");
     }
 
     #[test]

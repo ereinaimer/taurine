@@ -1,5 +1,5 @@
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -30,6 +30,7 @@ const LIBRARY_IMPORT_MODAL_FOOTER: &str = "Ctrl+S Import   Esc Cancel   Tab Next
 const LIBRARY_IMPORT_PASSWORD_FOOTER: &str =
     "Ctrl+S Import   Esc Cancel   Tab Next   Shift+Tab Prev   Enter Show/Hide";
 const LIBRARY_IMPORT_RESULT_FOOTER: &str = "Enter Close   Esc Close";
+const LIBRARY_EXPORT_RESULT_FOOTER: &str = "Enter Close   Esc Close";
 const LIBRARY_DELETE_MODAL_FOOTER: &str = "Esc Cancel";
 const LIBRARY_IMPORT_RUN_VARIABLES_FOOTER: &str = "y Continue   n Cancel   Esc Cancel";
 const DEFAULT_SCRIPT_FALLBACK: &str = "Script content unavailable.";
@@ -1890,6 +1891,7 @@ impl LibraryDeleteModalState {
 pub(crate) enum LibraryModal {
     Editor(LibraryEditorModalState),
     Export(LibraryExportModalState),
+    ExportResult(LibraryExportResultModalState),
     Import(LibraryImportModalState),
     ImportResult(LibraryImportResultModalState),
     ConfirmImportRunVariables(LibraryImportRunVariablesModalState),
@@ -1901,6 +1903,7 @@ impl LibraryModal {
         match self {
             Self::Editor(state) => state.set_error(error),
             Self::Export(state) => state.set_error(error),
+            Self::ExportResult(state) => state.set_error(error),
             Self::Import(state) => state.set_error(error),
             Self::ImportResult(state) => state.set_error(error),
             Self::ConfirmImportRunVariables(state) => state.set_error(error),
@@ -2045,6 +2048,18 @@ impl PendingLibraryExport {
         std::fs::write(&path, encoded)?;
         Ok(path)
     }
+
+    pub(crate) const fn encrypt(&self) -> bool {
+        self.encrypt
+    }
+
+    pub(crate) const fn include_settings(&self) -> bool {
+        self.include_settings
+    }
+
+    pub(crate) const fn include_metrics(&self) -> bool {
+        self.include_metrics
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2096,6 +2111,49 @@ impl LibraryImportOutcome {
     pub(crate) const fn imported_metrics(&self) -> bool {
         self.imported_metrics
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LibraryExportResultModalState {
+    body: String,
+}
+
+impl LibraryExportResultModalState {
+    fn new(path: &Path, encrypt: bool, include_settings: bool, include_metrics: bool) -> Self {
+        let subject = match (include_settings, include_metrics) {
+            (false, false) => "Automations".to_string(),
+            (true, false) => "Automations and Settings".to_string(),
+            (false, true) => "Automations and Metrics".to_string(),
+            (true, true) => "Automations, Settings and Metrics".to_string(),
+        };
+
+        let body = match (include_settings, include_metrics, encrypt) {
+            (false, false, false) => format!("{} are exported to: {}", subject, path.display()),
+            (false, false, true) => format!(
+                "{} are exported to: {} as an encrypted export.",
+                subject,
+                path.display()
+            ),
+            (_, _, true) => format!(
+                "{} were exported to: {} with encryption.",
+                subject,
+                path.display()
+            ),
+            (_, _, false) => format!("{} were exported to: {}", subject, path.display()),
+        };
+
+        Self { body }
+    }
+
+    pub(crate) fn body(&self) -> &str {
+        &self.body
+    }
+
+    pub(crate) const fn footer_text(&self) -> &'static str {
+        LIBRARY_EXPORT_RESULT_FOOTER
+    }
+
+    fn set_error(&mut self, _error: String) {}
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2385,6 +2443,7 @@ impl LibraryPageState {
             match modal {
                 LibraryModal::Editor(state) => state.footer_text(),
                 LibraryModal::Export(state) => state.footer_text(),
+                LibraryModal::ExportResult(state) => state.footer_text(),
                 LibraryModal::Import(state) => state.footer_text(),
                 LibraryModal::ImportResult(state) => state.footer_text(),
                 LibraryModal::ConfirmImportRunVariables(_) => LIBRARY_IMPORT_RUN_VARIABLES_FOOTER,
@@ -2432,6 +2491,18 @@ impl LibraryPageState {
 
     pub(crate) fn open_import_modal(&mut self) {
         self.modal = Some(LibraryModal::Import(LibraryImportModalState::new()));
+    }
+
+    pub(crate) fn open_export_result_modal(
+        &mut self,
+        path: &Path,
+        encrypt: bool,
+        include_settings: bool,
+        include_metrics: bool,
+    ) {
+        self.modal = Some(LibraryModal::ExportResult(
+            LibraryExportResultModalState::new(path, encrypt, include_settings, include_metrics),
+        ));
     }
 
     pub(crate) fn open_import_result_modal(&mut self, outcome: &LibraryImportOutcome) {
@@ -2583,6 +2654,15 @@ impl LibraryPageState {
                 }
                 interaction
             }
+            LibraryModal::ExportResult(state) => match (key.code, key.modifiers) {
+                (KeyCode::Enter, KeyModifiers::NONE) | (KeyCode::Esc, KeyModifiers::NONE) => {
+                    LibraryInteraction::close()
+                }
+                _ => {
+                    self.modal = Some(LibraryModal::ExportResult(state));
+                    LibraryInteraction::handled()
+                }
+            },
             LibraryModal::Import(mut state) => {
                 let interaction = state.handle_key(key);
                 if !interaction.should_close_modal() {
@@ -3793,6 +3873,179 @@ mod tests {
 
         assert!(!state.is_search_active());
         assert!(matches!(state.modal(), Some(LibraryModal::ImportResult(_))));
+    }
+
+    #[test]
+    fn export_result_modal_body_for_automations_without_encryption_matches_exactly() {
+        let mut state = sample_state();
+        let path = PathBuf::from("backup.tau");
+
+        state.open_export_result_modal(&path, false, false, false);
+
+        let Some(LibraryModal::ExportResult(modal)) = state.modal() else {
+            panic!("expected export result modal");
+        };
+        assert_eq!(modal.body(), "Automations are exported to: backup.tau");
+    }
+
+    #[test]
+    fn export_result_modal_body_for_automations_with_encryption_matches_exactly() {
+        let mut state = sample_state();
+        let path = PathBuf::from("backup.tau");
+
+        state.open_export_result_modal(&path, true, false, false);
+
+        let Some(LibraryModal::ExportResult(modal)) = state.modal() else {
+            panic!("expected export result modal");
+        };
+        assert_eq!(
+            modal.body(),
+            "Automations are exported to: backup.tau as an encrypted export."
+        );
+    }
+
+    #[test]
+    fn export_result_modal_body_for_automations_and_settings_matches_exactly() {
+        let mut state = sample_state();
+        let path = PathBuf::from("backup.tau");
+
+        state.open_export_result_modal(&path, false, true, false);
+
+        let Some(LibraryModal::ExportResult(modal)) = state.modal() else {
+            panic!("expected export result modal");
+        };
+        assert_eq!(
+            modal.body(),
+            "Automations and Settings were exported to: backup.tau"
+        );
+    }
+
+    #[test]
+    fn export_result_modal_body_for_automations_and_settings_with_encryption_matches_exactly() {
+        let mut state = sample_state();
+        let path = PathBuf::from("backup.tau");
+
+        state.open_export_result_modal(&path, true, true, false);
+
+        let Some(LibraryModal::ExportResult(modal)) = state.modal() else {
+            panic!("expected export result modal");
+        };
+        assert_eq!(
+            modal.body(),
+            "Automations and Settings were exported to: backup.tau with encryption."
+        );
+    }
+
+    #[test]
+    fn export_result_modal_body_for_automations_and_metrics_matches_exactly() {
+        let mut state = sample_state();
+        let path = PathBuf::from("backup.tau");
+
+        state.open_export_result_modal(&path, false, false, true);
+
+        let Some(LibraryModal::ExportResult(modal)) = state.modal() else {
+            panic!("expected export result modal");
+        };
+        assert_eq!(
+            modal.body(),
+            "Automations and Metrics were exported to: backup.tau"
+        );
+    }
+
+    #[test]
+    fn export_result_modal_body_for_automations_and_metrics_with_encryption_matches_exactly() {
+        let mut state = sample_state();
+        let path = PathBuf::from("backup.tau");
+
+        state.open_export_result_modal(&path, true, false, true);
+
+        let Some(LibraryModal::ExportResult(modal)) = state.modal() else {
+            panic!("expected export result modal");
+        };
+        assert_eq!(
+            modal.body(),
+            "Automations and Metrics were exported to: backup.tau with encryption."
+        );
+    }
+
+    #[test]
+    fn export_result_modal_body_for_all_export_data_without_encryption_matches_exactly() {
+        let mut state = sample_state();
+        let path = PathBuf::from("backup.tau");
+
+        state.open_export_result_modal(&path, false, true, true);
+
+        let Some(LibraryModal::ExportResult(modal)) = state.modal() else {
+            panic!("expected export result modal");
+        };
+        assert_eq!(
+            modal.body(),
+            "Automations, Settings and Metrics were exported to: backup.tau"
+        );
+    }
+
+    #[test]
+    fn export_result_modal_body_for_all_export_data_with_encryption_matches_exactly() {
+        let mut state = sample_state();
+        let path = PathBuf::from("backup.tau");
+
+        state.open_export_result_modal(&path, true, true, true);
+
+        let Some(LibraryModal::ExportResult(modal)) = state.modal() else {
+            panic!("expected export result modal");
+        };
+        assert_eq!(
+            modal.body(),
+            "Automations, Settings and Metrics were exported to: backup.tau with encryption."
+        );
+    }
+
+    #[test]
+    fn export_result_modal_does_not_use_separate_encryption_line() {
+        let mut state = sample_state();
+        let path = PathBuf::from("backup.tau");
+
+        state.open_export_result_modal(&path, true, true, true);
+
+        let Some(LibraryModal::ExportResult(modal)) = state.modal() else {
+            panic!("expected export result modal");
+        };
+        assert!(!modal.body().contains("This export was encrypted."));
+        assert_eq!(state.footer_text(), LIBRARY_EXPORT_RESULT_FOOTER);
+    }
+
+    #[test]
+    fn export_result_modal_closes_on_enter() {
+        let mut state = sample_state();
+        let path = PathBuf::from("backup.tau");
+        state.open_export_result_modal(&path, false, false, false);
+
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert!(interaction.should_close_modal());
+    }
+
+    #[test]
+    fn export_result_modal_closes_on_escape() {
+        let mut state = sample_state();
+        let path = PathBuf::from("backup.tau");
+        state.open_export_result_modal(&path, false, false, false);
+
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+        assert!(interaction.should_close_modal());
+    }
+
+    #[test]
+    fn export_result_modal_owns_input_and_keeps_search_inactive() {
+        let mut state = sample_state();
+        let path = PathBuf::from("backup.tau");
+        state.open_export_result_modal(&path, false, false, false);
+
+        state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+
+        assert!(!state.is_search_active());
+        assert!(matches!(state.modal(), Some(LibraryModal::ExportResult(_))));
     }
 
     #[test]
