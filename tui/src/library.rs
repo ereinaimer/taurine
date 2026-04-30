@@ -29,6 +29,7 @@ const LIBRARY_EXPORT_PASSWORD_FOOTER: &str =
 const LIBRARY_IMPORT_MODAL_FOOTER: &str = "Ctrl+S Import   Esc Cancel   Tab Next   Shift+Tab Prev";
 const LIBRARY_IMPORT_PASSWORD_FOOTER: &str =
     "Ctrl+S Import   Esc Cancel   Tab Next   Shift+Tab Prev   Enter Show/Hide";
+const LIBRARY_IMPORT_RESULT_FOOTER: &str = "Enter Close   Esc Close";
 const LIBRARY_DELETE_MODAL_FOOTER: &str = "Esc Cancel";
 const LIBRARY_IMPORT_RUN_VARIABLES_FOOTER: &str = "y Continue   n Cancel   Esc Cancel";
 const DEFAULT_SCRIPT_FALLBACK: &str = "Script content unavailable.";
@@ -1890,6 +1891,7 @@ pub(crate) enum LibraryModal {
     Editor(LibraryEditorModalState),
     Export(LibraryExportModalState),
     Import(LibraryImportModalState),
+    ImportResult(LibraryImportResultModalState),
     ConfirmImportRunVariables(LibraryImportRunVariablesModalState),
     ConfirmDelete(LibraryDeleteModalState),
 }
@@ -1900,6 +1902,7 @@ impl LibraryModal {
             Self::Editor(state) => state.set_error(error),
             Self::Export(state) => state.set_error(error),
             Self::Import(state) => state.set_error(error),
+            Self::ImportResult(state) => state.set_error(error),
             Self::ConfirmImportRunVariables(state) => state.set_error(error),
             Self::ConfirmDelete(state) => state.set_error(error),
         }
@@ -2093,6 +2096,34 @@ impl LibraryImportOutcome {
     pub(crate) const fn imported_metrics(&self) -> bool {
         self.imported_metrics
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LibraryImportResultModalState {
+    lines: Vec<String>,
+}
+
+impl LibraryImportResultModalState {
+    fn from_outcome(outcome: &LibraryImportOutcome) -> Self {
+        let mut lines = vec![format!("Imported {} automation(s).", outcome.imported())];
+        if outcome.imported_settings() {
+            lines.push("Settings imported.".to_string());
+        }
+        if outcome.imported_metrics() {
+            lines.push("Metrics updated.".to_string());
+        }
+        Self { lines }
+    }
+
+    pub(crate) fn lines(&self) -> &[String] {
+        &self.lines
+    }
+
+    pub(crate) const fn footer_text(&self) -> &'static str {
+        LIBRARY_IMPORT_RESULT_FOOTER
+    }
+
+    fn set_error(&mut self, _error: String) {}
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2355,6 +2386,7 @@ impl LibraryPageState {
                 LibraryModal::Editor(state) => state.footer_text(),
                 LibraryModal::Export(state) => state.footer_text(),
                 LibraryModal::Import(state) => state.footer_text(),
+                LibraryModal::ImportResult(state) => state.footer_text(),
                 LibraryModal::ConfirmImportRunVariables(_) => LIBRARY_IMPORT_RUN_VARIABLES_FOOTER,
                 LibraryModal::ConfirmDelete(_) => LIBRARY_DELETE_MODAL_FOOTER,
             }
@@ -2400,6 +2432,12 @@ impl LibraryPageState {
 
     pub(crate) fn open_import_modal(&mut self) {
         self.modal = Some(LibraryModal::Import(LibraryImportModalState::new()));
+    }
+
+    pub(crate) fn open_import_result_modal(&mut self, outcome: &LibraryImportOutcome) {
+        self.modal = Some(LibraryModal::ImportResult(
+            LibraryImportResultModalState::from_outcome(outcome),
+        ));
     }
 
     pub(crate) fn open_import_run_variables_modal(
@@ -2552,6 +2590,15 @@ impl LibraryPageState {
                 }
                 interaction
             }
+            LibraryModal::ImportResult(state) => match (key.code, key.modifiers) {
+                (KeyCode::Enter, KeyModifiers::NONE) | (KeyCode::Esc, KeyModifiers::NONE) => {
+                    LibraryInteraction::close()
+                }
+                _ => {
+                    self.modal = Some(LibraryModal::ImportResult(state));
+                    LibraryInteraction::handled()
+                }
+            },
             LibraryModal::ConfirmImportRunVariables(state) => match (key.code, key.modifiers) {
                 (KeyCode::Char('y'), KeyModifiers::NONE)
                 | (KeyCode::Char('Y'), KeyModifiers::NONE)
@@ -3691,6 +3738,61 @@ mod tests {
 
         assert!(!state.is_search_active());
         assert!(matches!(state.modal(), Some(LibraryModal::Import(_))));
+    }
+
+    #[test]
+    fn import_result_modal_uses_reliable_result_lines() {
+        let outcome = LibraryImportOutcome::new(12, true, true);
+        let mut state = sample_state();
+
+        state.open_import_result_modal(&outcome);
+
+        let Some(LibraryModal::ImportResult(modal)) = state.modal() else {
+            panic!("expected import result modal");
+        };
+        assert_eq!(modal.lines()[0], "Imported 12 automation(s).");
+        assert!(
+            modal
+                .lines()
+                .iter()
+                .any(|line| line == "Settings imported.")
+        );
+        assert!(modal.lines().iter().any(|line| line == "Metrics updated."));
+        assert_eq!(state.footer_text(), LIBRARY_IMPORT_RESULT_FOOTER);
+    }
+
+    #[test]
+    fn import_result_modal_closes_on_enter() {
+        let outcome = LibraryImportOutcome::new(3, false, false);
+        let mut state = sample_state();
+        state.open_import_result_modal(&outcome);
+
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert!(interaction.should_close_modal());
+    }
+
+    #[test]
+    fn import_result_modal_closes_on_escape() {
+        let outcome = LibraryImportOutcome::new(3, false, false);
+        let mut state = sample_state();
+        state.open_import_result_modal(&outcome);
+
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+        assert!(interaction.should_close_modal());
+    }
+
+    #[test]
+    fn import_result_modal_owns_input_and_keeps_search_inactive() {
+        let outcome = LibraryImportOutcome::new(3, false, false);
+        let mut state = sample_state();
+        state.open_import_result_modal(&outcome);
+
+        state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+
+        assert!(!state.is_search_active());
+        assert!(matches!(state.modal(), Some(LibraryModal::ImportResult(_))));
     }
 
     #[test]

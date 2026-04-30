@@ -178,8 +178,7 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
                 if should_refresh_home_after_import(&outcome) {
                     refresh_home_metrics(app);
                 }
-                app.library_page_mut()
-                    .set_status_message(format!("Imported {} automation(s).", outcome.imported()));
+                app.library_page_mut().open_import_result_modal(&outcome);
             }
             Err(error) => app.library_page_mut().set_save_error(error.to_string()),
         }
@@ -200,11 +199,7 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
                 if should_refresh_home_after_import(&outcome) {
                     refresh_home_metrics(app);
                 }
-                app.library_page_mut().set_status_message(format!(
-                    "Imported {} automation(s) from {}.",
-                    outcome.imported(),
-                    prepared_import.path()
-                ));
+                app.library_page_mut().open_import_result_modal(&outcome);
             }
             Err(error) => app.library_page_mut().set_save_error(error.to_string()),
         }

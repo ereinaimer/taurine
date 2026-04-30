@@ -16,8 +16,9 @@ use crate::{
     library::{
         LibraryAutomation, LibraryDeleteModalState, LibraryEditorModalState,
         LibraryExportModalField, LibraryExportModalState, LibraryImportModalField,
-        LibraryImportModalState, LibraryImportRunVariablesModalState, LibraryMetadataRow,
-        LibraryModal, LibraryModalField, LibraryPageState, LibrarySelectState,
+        LibraryImportModalState, LibraryImportResultModalState,
+        LibraryImportRunVariablesModalState, LibraryMetadataRow, LibraryModal, LibraryModalField,
+        LibraryPageState, LibrarySelectState,
     },
     settings::{
         ConfirmResetModalState, InputModalState, SelectModalState, SettingKey, SettingsModal,
@@ -195,6 +196,9 @@ fn render_content(frame: &mut Frame, area: Rect, app: &App) {
                     LibraryModal::Editor(state) => render_library_editor_modal(frame, inner, state),
                     LibraryModal::Export(state) => render_library_export_modal(frame, inner, state),
                     LibraryModal::Import(state) => render_library_import_modal(frame, inner, state),
+                    LibraryModal::ImportResult(state) => {
+                        render_library_import_result_modal(frame, inner, state)
+                    }
                     LibraryModal::ConfirmImportRunVariables(state) => {
                         render_library_import_run_variables_modal(frame, inner, state)
                     }
@@ -817,6 +821,43 @@ fn render_library_import_run_variables_modal(
     frame.render_widget(
         Paragraph::new(state.error().unwrap_or("")).style(feedback_style),
         sections[2],
+    );
+}
+
+fn render_library_import_result_modal(
+    frame: &mut Frame,
+    area: Rect,
+    state: &LibraryImportResultModalState,
+) {
+    let width = if area.width > 48 {
+        area.width.saturating_sub(6).min(64)
+    } else {
+        area.width.max(1)
+    };
+    let popup = centered_rect(
+        width,
+        (state.lines().len() as u16 + 4).min(area.height.max(1)),
+        area,
+    );
+    frame.render_widget(Clear, popup);
+    let inner = render_modal_block(frame, popup, "Import complete");
+
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(state.lines().len() as u16),
+            Constraint::Min(0),
+        ])
+        .split(inner);
+
+    let lines = state
+        .lines()
+        .iter()
+        .map(|line| Line::from(line.as_str()))
+        .collect::<Vec<_>>();
+    frame.render_widget(
+        Paragraph::new(lines).style(Style::default().fg(MUTED_TEXT_COLOR)),
+        sections[0],
     );
 }
 
@@ -2195,6 +2236,19 @@ mod tests {
             footer_text(&app),
             "Ctrl+B Nav   Ctrl+S Import   Esc Cancel   Tab Next   Shift+Tab Prev"
         );
+    }
+
+    #[test]
+    fn library_import_result_modal_footer_switches_to_close_hints() {
+        let mut app = App::default();
+        app.handle_key(
+            crossterm::event::KeyCode::Char('2'),
+            crossterm::event::KeyModifiers::NONE,
+        );
+        app.library_page_mut()
+            .open_import_result_modal(&crate::library::LibraryImportOutcome::new(5, false, false));
+
+        assert_eq!(footer_text(&app), "Ctrl+B Nav   Enter Close   Esc Close");
     }
 
     #[test]
