@@ -15,8 +15,9 @@ use crate::{
     control,
     library::{
         LibraryAutomation, LibraryDeleteModalState, LibraryEditorModalState,
-        LibraryExportModalField, LibraryExportModalState, LibraryMetadataRow, LibraryModal,
-        LibraryModalField, LibraryPageState, LibrarySelectState,
+        LibraryExportModalField, LibraryExportModalState, LibraryImportModalField,
+        LibraryImportModalState, LibraryImportRunVariablesModalState, LibraryMetadataRow,
+        LibraryModal, LibraryModalField, LibraryPageState, LibrarySelectState,
     },
     settings::{
         ConfirmResetModalState, InputModalState, SelectModalState, SettingKey, SettingsModal,
@@ -27,6 +28,11 @@ const OUTER_HORIZONTAL_PADDING: u16 = 2;
 const OUTER_VERTICAL_PADDING: u16 = 1;
 const HEADER_GAP_HEIGHT: u16 = 1;
 const FOOTER_GAP_HEIGHT: u16 = 1;
+const IMPORT_RUN_VARIABLES_WARNING_LINES: [&str; 3] = [
+    "CAUTION: This import contains [run] variables that execute",
+    "shell commands. Untrusted scripts can damage your system.",
+    "Continue? [y/N]",
+];
 const FOOTER_HEIGHT: u16 = 1;
 const PANEL_GAP_WIDTH: u16 = 1;
 const NAV_WIDTH: u16 = 22;
@@ -188,6 +194,10 @@ fn render_content(frame: &mut Frame, area: Rect, app: &App) {
                 match modal {
                     LibraryModal::Editor(state) => render_library_editor_modal(frame, inner, state),
                     LibraryModal::Export(state) => render_library_export_modal(frame, inner, state),
+                    LibraryModal::Import(state) => render_library_import_modal(frame, inner, state),
+                    LibraryModal::ConfirmImportRunVariables(state) => {
+                        render_library_import_run_variables_modal(frame, inner, state)
+                    }
                     LibraryModal::ConfirmDelete(state) => {
                         render_library_delete_modal(frame, inner, state)
                     }
@@ -634,6 +644,180 @@ fn render_library_export_modal(frame: &mut Frame, area: Rect, state: &LibraryExp
         }
         _ => {}
     }
+}
+
+fn render_library_import_modal(frame: &mut Frame, area: Rect, state: &LibraryImportModalState) {
+    let width = if area.width > 48 {
+        area.width.saturating_sub(6).min(76)
+    } else {
+        area.width.max(1)
+    };
+    let popup = centered_rect(width, 12.min(area.height.max(1)), area);
+    frame.render_widget(Clear, popup);
+    let inner = render_modal_block(frame, popup, "Import Automations");
+
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
+        ])
+        .split(inner);
+
+    render_modal_field_label(
+        frame,
+        sections[0],
+        "Path",
+        state.focus() == LibraryImportModalField::Path,
+        None,
+    );
+    render_modal_input_field(
+        frame,
+        sections[1],
+        state.path(),
+        state.path_cursor(),
+        state.focus() == LibraryImportModalField::Path,
+    );
+
+    render_modal_password_row(
+        frame,
+        sections[3],
+        "Password",
+        &state.password_display_value(),
+        state.password_cursor(),
+        state.password_toggle_label(),
+        PasswordRowFocus {
+            password: state.focus() == LibraryImportModalField::Password,
+            toggle: state.focus() == LibraryImportModalField::PasswordToggle,
+        },
+    );
+
+    render_modal_key_value_row(
+        frame,
+        sections[4],
+        "Settings",
+        yes_no_label(state.include_settings()),
+        state.focus() == LibraryImportModalField::IncludeSettings,
+        false,
+    );
+    render_modal_key_value_row(
+        frame,
+        sections[5],
+        "Metrics",
+        state.metrics_mode_label(),
+        state.focus() == LibraryImportModalField::MetricsMode,
+        false,
+    );
+    render_modal_key_value_row(
+        frame,
+        sections[6],
+        "Conflicts",
+        state.conflict_mode_label(),
+        state.focus() == LibraryImportModalField::ConflictMode,
+        false,
+    );
+
+    let (text, style) = if let Some(error) = state.error() {
+        (
+            error,
+            Style::default()
+                .fg(ERROR_COLOR)
+                .add_modifier(Modifier::BOLD),
+        )
+    } else {
+        (
+            "",
+            Style::default()
+                .fg(MUTED_TEXT_COLOR)
+                .add_modifier(Modifier::DIM),
+        )
+    };
+    frame.render_widget(Paragraph::new(text).style(style), sections[7]);
+
+    match state.focus() {
+        LibraryImportModalField::Path => {
+            frame.set_cursor_position((
+                sections[1].x + 1 + state.path_cursor() as u16,
+                sections[1].y,
+            ));
+        }
+        LibraryImportModalField::Password => {
+            let label_width = sections[3].width.min(12);
+            frame.set_cursor_position((
+                sections[3].x + label_width + state.password_cursor() as u16,
+                sections[3].y,
+            ));
+        }
+        _ => {}
+    }
+
+    if let Some(selector) = state.selector() {
+        render_library_select_modal(frame, area, selector);
+    }
+}
+
+fn render_library_import_run_variables_modal(
+    frame: &mut Frame,
+    area: Rect,
+    state: &LibraryImportRunVariablesModalState,
+) {
+    let width = if area.width > 52 {
+        area.width.saturating_sub(6).min(72)
+    } else {
+        area.width.max(1)
+    };
+    let popup = centered_rect(width, 9.min(area.height.max(1)), area);
+    frame.render_widget(Clear, popup);
+    let inner = render_modal_block(frame, popup, "Run Variables Warning");
+
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
+        ])
+        .split(inner);
+
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(IMPORT_RUN_VARIABLES_WARNING_LINES[0]),
+            Line::from(IMPORT_RUN_VARIABLES_WARNING_LINES[1]),
+            Line::from(IMPORT_RUN_VARIABLES_WARNING_LINES[2]),
+        ])
+        .style(Style::default().fg(MUTED_TEXT_COLOR)),
+        sections[0],
+    );
+    frame.render_widget(
+        Paragraph::new(truncate_to_width(state.path(), sections[1].width)).style(
+            Style::default()
+                .fg(ACCENT_COLOR)
+                .add_modifier(Modifier::BOLD),
+        ),
+        sections[1],
+    );
+
+    let feedback_style = if state.error().is_some() {
+        Style::default()
+            .fg(ERROR_COLOR)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(MUTED_TEXT_COLOR)
+            .add_modifier(Modifier::DIM)
+    };
+    frame.render_widget(
+        Paragraph::new(state.error().unwrap_or("")).style(feedback_style),
+        sections[2],
+    );
 }
 
 fn render_library_editor_modal(frame: &mut Frame, area: Rect, state: &LibraryEditorModalState) {
@@ -1892,7 +2076,7 @@ mod tests {
         );
         assert_eq!(
             footer_text(&app),
-            "Ctrl+B Nav   / Search   n New   x Export   d Delete   Enter Edit   q Quit"
+            "Ctrl+B Nav   / Search   n New   i Import   x Export   d Delete   Enter Edit   q Quit"
         );
     }
 
@@ -1935,6 +2119,8 @@ mod tests {
 
         let footer = footer_text(&app);
         assert!(footer.contains("/ Search"));
+        assert!(footer.contains("i Import"));
+        assert!(footer.contains("x Export"));
         assert!(!footer.contains("1 Home"));
         assert!(!footer.contains("2 Library"));
         assert!(!footer.contains("3 Settings"));
@@ -1994,5 +2180,31 @@ mod tests {
             footer_text(&app),
             "Ctrl+B Nav   Ctrl+S Export   Esc Cancel   Tab Next   Shift+Tab Prev   Enter Show/Hide"
         );
+    }
+
+    #[test]
+    fn library_import_modal_footer_switches_to_import_hints() {
+        let mut app = App::default();
+        app.handle_key(
+            crossterm::event::KeyCode::Char('2'),
+            crossterm::event::KeyModifiers::NONE,
+        );
+        app.library_page_mut().open_import_modal();
+
+        assert_eq!(
+            footer_text(&app),
+            "Ctrl+B Nav   Ctrl+S Import   Esc Cancel   Tab Next   Shift+Tab Prev"
+        );
+    }
+
+    #[test]
+    fn import_run_variables_warning_text_is_explicit_and_cautionary() {
+        let warning = IMPORT_RUN_VARIABLES_WARNING_LINES.join(" ");
+
+        assert!(warning.contains("CAUTION:"));
+        assert!(warning.contains("[run]"));
+        assert!(warning.contains("shell commands"));
+        assert!(warning.contains("Untrusted scripts can damage your system."));
+        assert!(warning.contains("[y/N]"));
     }
 }

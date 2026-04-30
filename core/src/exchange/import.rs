@@ -4,7 +4,7 @@ use crate::db::crud::{
     upsert_script, upsert_setting,
 };
 use crate::engine::shell::compress;
-use rusqlite::Transaction;
+use rusqlite::{Connection, Transaction};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +87,32 @@ where
     import_global_metrics(tx, payload, options.metrics_mode)?;
 
     Ok(imported)
+}
+
+pub fn import_payload_transactionally<F>(
+    conn: &mut Connection,
+    payload: &ExchangePayload,
+    options: ImportOptions,
+    mut resolve_conflict: F,
+) -> crate::Result<usize>
+where
+    F: FnMut(&AutomationExport, &ExistingAutomationConflict) -> crate::Result<ImportConflictAction>,
+{
+    let tx = conn.transaction()?;
+    let result = import_automations(&tx, payload, options, |incoming, existing| {
+        resolve_conflict(incoming, existing)
+    });
+
+    match result {
+        Ok(imported) => {
+            tx.commit()?;
+            Ok(imported)
+        }
+        Err(err) => {
+            tx.rollback()?;
+            Err(err)
+        }
+    }
 }
 
 fn insert_imported_automation(

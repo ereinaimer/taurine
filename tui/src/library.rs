@@ -11,16 +11,26 @@ use taurine_core::{
         update_existing_automation,
     },
     engine::shell::{ScriptBehavior, ScriptInterpreter, decompress},
-    exchange::{ExportOptions, encode_exchange_blob, export_automations, resolve_export_path},
+    exchange::{
+        ExchangeFormat, ExchangePayload, ExportOptions, ImportConflictAction, ImportMetricsMode,
+        ImportOptions, decode_exchange_blob, detect_exchange_format, encode_exchange_blob,
+        export_automations, import_payload_transactionally, payload_contains_run_variables,
+        resolve_export_path,
+    },
 };
 
-const LIBRARY_FOOTER: &str = "/ Search   n New   x Export   d Delete   Enter Edit   q Quit";
+const LIBRARY_FOOTER: &str =
+    "/ Search   n New   i Import   x Export   d Delete   Enter Edit   q Quit";
 const LIBRARY_EDIT_MODAL_FOOTER: &str = "Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev";
 const LIBRARY_CREATE_MODAL_FOOTER: &str = "Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev";
 const LIBRARY_EXPORT_MODAL_FOOTER: &str = "Ctrl+S Export   Esc Cancel   Tab Next   Shift+Tab Prev";
 const LIBRARY_EXPORT_PASSWORD_FOOTER: &str =
     "Ctrl+S Export   Esc Cancel   Tab Next   Shift+Tab Prev   Enter Show/Hide";
+const LIBRARY_IMPORT_MODAL_FOOTER: &str = "Ctrl+S Import   Esc Cancel   Tab Next   Shift+Tab Prev";
+const LIBRARY_IMPORT_PASSWORD_FOOTER: &str =
+    "Ctrl+S Import   Esc Cancel   Tab Next   Shift+Tab Prev   Enter Show/Hide";
 const LIBRARY_DELETE_MODAL_FOOTER: &str = "Esc Cancel";
+const LIBRARY_IMPORT_RUN_VARIABLES_FOOTER: &str = "y Continue   n Cancel   Esc Cancel";
 const DEFAULT_SCRIPT_FALLBACK: &str = "Script content unavailable.";
 const DEFAULT_OUTPUT_FALLBACK: &str = "No output available.";
 const SCRIPT_LANGUAGE_OPTIONS: [ScriptInterpreter; 6] = [
@@ -45,6 +55,14 @@ const EXPORT_PLAINTEXT_OPTIONS: [LibraryExportModalField; 4] = [
     LibraryExportModalField::Encrypt,
     LibraryExportModalField::IncludeSettings,
     LibraryExportModalField::IncludeMetrics,
+];
+const IMPORT_MODAL_FIELDS: [LibraryImportModalField; 6] = [
+    LibraryImportModalField::Path,
+    LibraryImportModalField::Password,
+    LibraryImportModalField::PasswordToggle,
+    LibraryImportModalField::IncludeSettings,
+    LibraryImportModalField::MetricsMode,
+    LibraryImportModalField::ConflictMode,
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -187,6 +205,40 @@ pub(crate) enum LibraryExportModalField {
     PasswordToggle,
     IncludeSettings,
     IncludeMetrics,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LibraryImportModalField {
+    Path,
+    Password,
+    PasswordToggle,
+    IncludeSettings,
+    MetricsMode,
+    ConflictMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LibraryImportConflictMode {
+    Skip,
+    Overwrite,
+}
+
+impl LibraryImportConflictMode {
+    const ALL: [Self; 2] = [Self::Skip, Self::Overwrite];
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Skip => "skip",
+            Self::Overwrite => "overwrite",
+        }
+    }
+
+    const fn to_action(self) -> ImportConflictAction {
+        match self {
+            Self::Skip => ImportConflictAction::Skip,
+            Self::Overwrite => ImportConflictAction::Overwrite,
+        }
+    }
 }
 
 const SNIPPET_MODAL_FIELDS: [LibraryModalField; 4] = [
@@ -615,6 +667,464 @@ impl LibraryExportModalState {
         let start = char_index_to_byte_index(&self.password, self.password_cursor);
         let end = char_index_to_byte_index(&self.password, self.password_cursor + 1);
         self.password.replace_range(start..end, "");
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LibraryImportModalState {
+    path: String,
+    path_cursor: usize,
+    password: String,
+    password_cursor: usize,
+    show_password: bool,
+    include_settings: bool,
+    metrics_mode: ImportMetricsMode,
+    conflict_mode: LibraryImportConflictMode,
+    focus: LibraryImportModalField,
+    error: Option<String>,
+    selector: Option<LibrarySelectState>,
+}
+
+impl LibraryImportModalState {
+    fn new() -> Self {
+        Self {
+            path: String::new(),
+            path_cursor: 0,
+            password: String::new(),
+            password_cursor: 0,
+            show_password: false,
+            include_settings: false,
+            metrics_mode: ImportMetricsMode::Ignore,
+            conflict_mode: LibraryImportConflictMode::Skip,
+            focus: LibraryImportModalField::Path,
+            error: None,
+            selector: None,
+        }
+    }
+
+    pub(crate) fn path(&self) -> &str {
+        &self.path
+    }
+
+    pub(crate) const fn path_cursor(&self) -> usize {
+        self.path_cursor
+    }
+
+    pub(crate) fn password_display_value(&self) -> String {
+        if self.show_password {
+            self.password.clone()
+        } else {
+            "*".repeat(self.password.chars().count())
+        }
+    }
+
+    pub(crate) const fn password_cursor(&self) -> usize {
+        self.password_cursor
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn show_password(&self) -> bool {
+        self.show_password
+    }
+
+    pub(crate) const fn password_toggle_label(&self) -> &'static str {
+        if self.show_password { "hide" } else { "show" }
+    }
+
+    pub(crate) const fn include_settings(&self) -> bool {
+        self.include_settings
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn metrics_mode(&self) -> ImportMetricsMode {
+        self.metrics_mode
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn conflict_mode(&self) -> LibraryImportConflictMode {
+        self.conflict_mode
+    }
+
+    pub(crate) const fn focus(&self) -> LibraryImportModalField {
+        self.focus
+    }
+
+    pub(crate) fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    fn set_error(&mut self, error: String) {
+        self.error = Some(error);
+    }
+
+    pub(crate) fn footer_text(&self) -> &'static str {
+        if self.selector.is_some() {
+            "j/k Move   ↑/↓ Move   Enter Save   Esc Cancel"
+        } else if self.focus == LibraryImportModalField::PasswordToggle {
+            LIBRARY_IMPORT_PASSWORD_FOOTER
+        } else {
+            LIBRARY_IMPORT_MODAL_FOOTER
+        }
+    }
+
+    pub(crate) fn selector(&self) -> Option<&LibrarySelectState> {
+        self.selector.as_ref()
+    }
+
+    pub(crate) const fn metrics_mode_label(&self) -> &'static str {
+        match self.metrics_mode {
+            ImportMetricsMode::Ignore => "ignore",
+            ImportMetricsMode::Merge => "merge",
+            ImportMetricsMode::Overwrite => "overwrite",
+        }
+    }
+
+    pub(crate) const fn conflict_mode_label(&self) -> &'static str {
+        self.conflict_mode.label()
+    }
+
+    fn visible_fields(&self) -> &'static [LibraryImportModalField] {
+        &IMPORT_MODAL_FIELDS
+    }
+
+    fn handle_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        if self.selector.is_some() {
+            return self.handle_selector_key(key);
+        }
+
+        self.error = None;
+
+        if matches!(key.code, KeyCode::Char('s' | 'S'))
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+        {
+            return match self.build_pending_prepare() {
+                Ok(pending_prepare) => LibraryInteraction::prepare_import(pending_prepare),
+                Err(error) => {
+                    self.error = Some(error.to_string());
+                    LibraryInteraction::handled()
+                }
+            };
+        }
+
+        match (key.code, key.modifiers) {
+            (KeyCode::Esc, KeyModifiers::NONE) => LibraryInteraction::close(),
+            (KeyCode::Tab, KeyModifiers::NONE) => {
+                self.advance_focus(true);
+                LibraryInteraction::handled()
+            }
+            (KeyCode::BackTab, _) => {
+                self.advance_focus(false);
+                LibraryInteraction::handled()
+            }
+            _ => self.handle_focused_key(key),
+        }
+    }
+
+    fn build_pending_prepare(&self) -> taurine_core::Result<PendingLibraryImportPrepare> {
+        if self.path.trim().is_empty() {
+            return Err(taurine_core::Error::Config(
+                "Import path is required.".to_string(),
+            ));
+        }
+
+        Ok(PendingLibraryImportPrepare {
+            path: self.path.clone(),
+            password: (!self.password.is_empty()).then(|| self.password.clone()),
+            options: ImportOptions {
+                include_settings: self.include_settings,
+                metrics_mode: self.metrics_mode,
+            },
+            conflict_mode: self.conflict_mode,
+            return_to_modal: self.clone(),
+        })
+    }
+
+    fn handle_focused_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match self.focus {
+            LibraryImportModalField::Path => self.handle_path_key(key),
+            LibraryImportModalField::Password => self.handle_password_key(key),
+            LibraryImportModalField::PasswordToggle => self.handle_password_toggle_key(key),
+            LibraryImportModalField::IncludeSettings => self.handle_include_settings_key(key),
+            LibraryImportModalField::MetricsMode => self.handle_metrics_mode_key(key),
+            LibraryImportModalField::ConflictMode => self.handle_conflict_mode_key(key),
+        }
+    }
+
+    fn handle_selector_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        let Some(mut selector) = self.selector.take() else {
+            return LibraryInteraction::handled();
+        };
+
+        match (key.code, key.modifiers) {
+            (KeyCode::Esc, KeyModifiers::NONE) => {
+                self.selector = None;
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Char('j'), KeyModifiers::NONE) | (KeyCode::Down, KeyModifiers::NONE) => {
+                selector.selected =
+                    (selector.selected + 1).min(selector.options.len().saturating_sub(1));
+                self.selector = Some(selector);
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Char('k'), KeyModifiers::NONE) | (KeyCode::Up, KeyModifiers::NONE) => {
+                selector.selected = selector.selected.saturating_sub(1);
+                self.selector = Some(selector);
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Enter, KeyModifiers::NONE) => {
+                match self.focus {
+                    LibraryImportModalField::MetricsMode => {
+                        self.metrics_mode = match selector.selected {
+                            0 => ImportMetricsMode::Ignore,
+                            1 => ImportMetricsMode::Merge,
+                            _ => ImportMetricsMode::Overwrite,
+                        };
+                    }
+                    LibraryImportModalField::ConflictMode => {
+                        self.conflict_mode = match selector.selected {
+                            0 => LibraryImportConflictMode::Skip,
+                            _ => LibraryImportConflictMode::Overwrite,
+                        };
+                    }
+                    _ => {}
+                }
+                LibraryInteraction::handled()
+            }
+            _ => {
+                self.selector = Some(selector);
+                LibraryInteraction::handled()
+            }
+        }
+    }
+
+    fn handle_path_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Left, KeyModifiers::NONE) => {
+                self.path_cursor = self.path_cursor.saturating_sub(1);
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Right, KeyModifiers::NONE) => {
+                self.path_cursor = (self.path_cursor + 1).min(self.path.chars().count());
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Home, KeyModifiers::NONE) => {
+                self.path_cursor = 0;
+                LibraryInteraction::handled()
+            }
+            (KeyCode::End, KeyModifiers::NONE) => {
+                self.path_cursor = self.path.chars().count();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Backspace, KeyModifiers::NONE) => {
+                self.delete_path_backward();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Delete, KeyModifiers::NONE) => {
+                self.delete_path_forward();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Char(ch), modifiers)
+                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.insert_path_char(ch);
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    fn handle_password_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Left, KeyModifiers::NONE) => {
+                self.password_cursor = self.password_cursor.saturating_sub(1);
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Right, KeyModifiers::NONE) => {
+                self.password_cursor =
+                    (self.password_cursor + 1).min(self.password.chars().count());
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Home, KeyModifiers::NONE) => {
+                self.password_cursor = 0;
+                LibraryInteraction::handled()
+            }
+            (KeyCode::End, KeyModifiers::NONE) => {
+                self.password_cursor = self.password.chars().count();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Backspace, KeyModifiers::NONE) => {
+                self.delete_password_backward();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Delete, KeyModifiers::NONE) => {
+                self.delete_password_forward();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Char(ch), modifiers)
+                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.insert_password_char(ch);
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    fn handle_password_toggle_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Char(' '), KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
+                self.show_password = !self.show_password;
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    fn handle_include_settings_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Char(' '), KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
+                self.include_settings = !self.include_settings;
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    fn handle_metrics_mode_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Char(' '), KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
+                self.selector = Some(LibrarySelectState {
+                    title: "Select Metrics Mode",
+                    options: vec![
+                        "ignore".to_string(),
+                        "merge".to_string(),
+                        "overwrite".to_string(),
+                    ],
+                    selected: match self.metrics_mode {
+                        ImportMetricsMode::Ignore => 0,
+                        ImportMetricsMode::Merge => 1,
+                        ImportMetricsMode::Overwrite => 2,
+                    },
+                });
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    fn handle_conflict_mode_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Char(' '), KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
+                self.selector = Some(LibrarySelectState {
+                    title: "Select Conflict Mode",
+                    options: LibraryImportConflictMode::ALL
+                        .iter()
+                        .map(|mode| mode.label().to_string())
+                        .collect(),
+                    selected: match self.conflict_mode {
+                        LibraryImportConflictMode::Skip => 0,
+                        LibraryImportConflictMode::Overwrite => 1,
+                    },
+                });
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    fn advance_focus(&mut self, forward: bool) {
+        let fields = self.visible_fields();
+        let current_index = fields
+            .iter()
+            .position(|field| *field == self.focus)
+            .unwrap_or(0);
+        let next_index = if forward {
+            (current_index + 1) % fields.len()
+        } else if current_index == 0 {
+            fields.len().saturating_sub(1)
+        } else {
+            current_index - 1
+        };
+        self.focus = fields[next_index];
+    }
+
+    fn insert_path_char(&mut self, ch: char) {
+        let byte_index = char_index_to_byte_index(&self.path, self.path_cursor);
+        self.path.insert(byte_index, ch);
+        self.path_cursor += 1;
+    }
+
+    fn delete_path_backward(&mut self) {
+        if self.path_cursor == 0 {
+            return;
+        }
+        let end = char_index_to_byte_index(&self.path, self.path_cursor);
+        let start = char_index_to_byte_index(&self.path, self.path_cursor - 1);
+        self.path.replace_range(start..end, "");
+        self.path_cursor -= 1;
+    }
+
+    fn delete_path_forward(&mut self) {
+        if self.path_cursor >= self.path.chars().count() {
+            return;
+        }
+        let start = char_index_to_byte_index(&self.path, self.path_cursor);
+        let end = char_index_to_byte_index(&self.path, self.path_cursor + 1);
+        self.path.replace_range(start..end, "");
+    }
+
+    fn insert_password_char(&mut self, ch: char) {
+        let byte_index = char_index_to_byte_index(&self.password, self.password_cursor);
+        self.password.insert(byte_index, ch);
+        self.password_cursor += 1;
+    }
+
+    fn delete_password_backward(&mut self) {
+        if self.password_cursor == 0 {
+            return;
+        }
+        let end = char_index_to_byte_index(&self.password, self.password_cursor);
+        let start = char_index_to_byte_index(&self.password, self.password_cursor - 1);
+        self.password.replace_range(start..end, "");
+        self.password_cursor -= 1;
+    }
+
+    fn delete_password_forward(&mut self) {
+        if self.password_cursor >= self.password.chars().count() {
+            return;
+        }
+        let start = char_index_to_byte_index(&self.password, self.password_cursor);
+        let end = char_index_to_byte_index(&self.password, self.password_cursor + 1);
+        self.password.replace_range(start..end, "");
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct LibraryImportRunVariablesModalState {
+    prepared: PreparedLibraryImport,
+    return_to_import: LibraryImportModalState,
+    error: Option<String>,
+}
+
+impl LibraryImportRunVariablesModalState {
+    fn new(prepared: PreparedLibraryImport, return_to_import: LibraryImportModalState) -> Self {
+        Self {
+            prepared,
+            return_to_import,
+            error: None,
+        }
+    }
+
+    pub(crate) fn path(&self) -> &str {
+        self.prepared.path()
+    }
+
+    pub(crate) fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    fn set_error(&mut self, error: String) {
+        self.error = Some(error);
     }
 }
 
@@ -1375,10 +1885,12 @@ impl LibraryDeleteModalState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum LibraryModal {
     Editor(LibraryEditorModalState),
     Export(LibraryExportModalState),
+    Import(LibraryImportModalState),
+    ConfirmImportRunVariables(LibraryImportRunVariablesModalState),
     ConfirmDelete(LibraryDeleteModalState),
 }
 
@@ -1387,6 +1899,8 @@ impl LibraryModal {
         match self {
             Self::Editor(state) => state.set_error(error),
             Self::Export(state) => state.set_error(error),
+            Self::Import(state) => state.set_error(error),
+            Self::ConfirmImportRunVariables(state) => state.set_error(error),
             Self::ConfirmDelete(state) => state.set_error(error),
         }
     }
@@ -1531,17 +2045,132 @@ impl PendingLibraryExport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PendingLibraryImportPrepare {
+    path: String,
+    password: Option<String>,
+    options: ImportOptions,
+    conflict_mode: LibraryImportConflictMode,
+    return_to_modal: LibraryImportModalState,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PreparedLibraryImport {
+    path: String,
+    payload: ExchangePayload,
+    options: ImportOptions,
+    conflict_mode: LibraryImportConflictMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LibraryImportOutcome {
+    imported: usize,
+    imported_settings: bool,
+    imported_metrics: bool,
+}
+
+impl LibraryImportOutcome {
+    #[cfg(test)]
+    pub(crate) const fn new(
+        imported: usize,
+        imported_settings: bool,
+        imported_metrics: bool,
+    ) -> Self {
+        Self {
+            imported,
+            imported_settings,
+            imported_metrics,
+        }
+    }
+
+    pub(crate) const fn imported(&self) -> usize {
+        self.imported
+    }
+
+    pub(crate) const fn imported_settings(&self) -> bool {
+        self.imported_settings
+    }
+
+    pub(crate) const fn imported_metrics(&self) -> bool {
+        self.imported_metrics
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum LibraryImportPreparedResult {
+    NeedsRunVariableConfirmation {
+        prepared: PreparedLibraryImport,
+        return_to_modal: Box<LibraryImportModalState>,
+    },
+    Imported(LibraryImportOutcome),
+}
+
+impl PendingLibraryImportPrepare {
+    pub(crate) fn prepare(&self) -> taurine_core::Result<LibraryImportPreparedResult> {
+        let path = self.path.trim();
+        let bytes = std::fs::read(path)?;
+        let format = detect_exchange_format(&bytes)?;
+        if format == ExchangeFormat::Encrypted && self.password.as_deref().unwrap_or("").is_empty()
+        {
+            return Err(taurine_core::Error::Config(
+                "A password is required to import TAU1 exchange files.".to_string(),
+            ));
+        }
+
+        let payload = decode_exchange_blob(&bytes, self.password.as_deref())?;
+        let prepared = PreparedLibraryImport {
+            path: path.to_string(),
+            payload,
+            options: self.options,
+            conflict_mode: self.conflict_mode,
+        };
+
+        if payload_contains_run_variables(&prepared.payload) {
+            Ok(LibraryImportPreparedResult::NeedsRunVariableConfirmation {
+                prepared,
+                return_to_modal: Box::new(self.return_to_modal.clone()),
+            })
+        } else {
+            let outcome = prepared.apply()?;
+            Ok(LibraryImportPreparedResult::Imported(outcome))
+        }
+    }
+}
+
+impl PreparedLibraryImport {
+    pub(crate) fn path(&self) -> &str {
+        &self.path
+    }
+
+    pub(crate) fn apply(&self) -> taurine_core::Result<LibraryImportOutcome> {
+        let mut conn = taurine_core::db::init::setup()?;
+        let imported =
+            import_payload_transactionally(&mut conn, &self.payload, self.options, |_, _| {
+                Ok(self.conflict_mode.to_action())
+            })?;
+
+        Ok(LibraryImportOutcome {
+            imported,
+            imported_settings: self.options.include_settings && self.payload.settings.is_some(),
+            imported_metrics: self.options.metrics_mode != ImportMetricsMode::Ignore
+                && self.payload.metrics.is_some(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LibraryOpenRequest {
     Selected(String),
     Create,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct LibraryInteraction {
     open_request: Option<LibraryOpenRequest>,
     pending_save: Option<PendingLibrarySave>,
     pending_delete: Option<PendingLibraryDelete>,
     pending_export: Option<PendingLibraryExport>,
+    pending_import_prepare: Option<PendingLibraryImportPrepare>,
+    pending_import_commit: Option<PreparedLibraryImport>,
     close_modal: bool,
 }
 
@@ -1562,6 +2191,14 @@ impl LibraryInteraction {
         self.pending_export.as_ref()
     }
 
+    pub(crate) const fn pending_import_prepare(&self) -> Option<&PendingLibraryImportPrepare> {
+        self.pending_import_prepare.as_ref()
+    }
+
+    pub(crate) const fn pending_import_commit(&self) -> Option<&PreparedLibraryImport> {
+        self.pending_import_commit.as_ref()
+    }
+
     pub(crate) const fn should_close_modal(&self) -> bool {
         self.close_modal
     }
@@ -1576,6 +2213,8 @@ impl LibraryInteraction {
             pending_save: None,
             pending_delete: None,
             pending_export: None,
+            pending_import_prepare: None,
+            pending_import_commit: None,
             close_modal: false,
         }
     }
@@ -1586,6 +2225,8 @@ impl LibraryInteraction {
             pending_save: None,
             pending_delete: None,
             pending_export: None,
+            pending_import_prepare: None,
+            pending_import_commit: None,
             close_modal: false,
         }
     }
@@ -1596,6 +2237,8 @@ impl LibraryInteraction {
             pending_save: Some(pending_save),
             pending_delete: None,
             pending_export: None,
+            pending_import_prepare: None,
+            pending_import_commit: None,
             close_modal: false,
         }
     }
@@ -1606,6 +2249,8 @@ impl LibraryInteraction {
             pending_save: None,
             pending_delete: Some(pending_delete),
             pending_export: None,
+            pending_import_prepare: None,
+            pending_import_commit: None,
             close_modal: false,
         }
     }
@@ -1616,6 +2261,32 @@ impl LibraryInteraction {
             pending_save: None,
             pending_delete: None,
             pending_export: Some(pending_export),
+            pending_import_prepare: None,
+            pending_import_commit: None,
+            close_modal: false,
+        }
+    }
+
+    fn prepare_import(pending_import_prepare: PendingLibraryImportPrepare) -> Self {
+        Self {
+            open_request: None,
+            pending_save: None,
+            pending_delete: None,
+            pending_export: None,
+            pending_import_prepare: Some(pending_import_prepare),
+            pending_import_commit: None,
+            close_modal: false,
+        }
+    }
+
+    fn import(prepared: PreparedLibraryImport) -> Self {
+        Self {
+            open_request: None,
+            pending_save: None,
+            pending_delete: None,
+            pending_export: None,
+            pending_import_prepare: None,
+            pending_import_commit: Some(prepared),
             close_modal: false,
         }
     }
@@ -1626,12 +2297,14 @@ impl LibraryInteraction {
             pending_save: None,
             pending_delete: None,
             pending_export: None,
+            pending_import_prepare: None,
+            pending_import_commit: None,
             close_modal: true,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct LibraryPageState {
     items: Vec<LibraryAutomation>,
     filtered_indices: Vec<usize>,
@@ -1681,6 +2354,8 @@ impl LibraryPageState {
             match modal {
                 LibraryModal::Editor(state) => state.footer_text(),
                 LibraryModal::Export(state) => state.footer_text(),
+                LibraryModal::Import(state) => state.footer_text(),
+                LibraryModal::ConfirmImportRunVariables(_) => LIBRARY_IMPORT_RUN_VARIABLES_FOOTER,
                 LibraryModal::ConfirmDelete(_) => LIBRARY_DELETE_MODAL_FOOTER,
             }
         } else if self.search_mode {
@@ -1721,6 +2396,20 @@ impl LibraryPageState {
             Ok(state) => self.modal = Some(LibraryModal::Export(state)),
             Err(error) => self.set_status_message(error.to_string()),
         }
+    }
+
+    pub(crate) fn open_import_modal(&mut self) {
+        self.modal = Some(LibraryModal::Import(LibraryImportModalState::new()));
+    }
+
+    pub(crate) fn open_import_run_variables_modal(
+        &mut self,
+        prepared: PreparedLibraryImport,
+        return_to_import: LibraryImportModalState,
+    ) {
+        self.modal = Some(LibraryModal::ConfirmImportRunVariables(
+            LibraryImportRunVariablesModalState::new(prepared, return_to_import),
+        ));
     }
 
     fn open_delete_modal_for_selected(&mut self) {
@@ -1816,6 +2505,10 @@ impl LibraryPageState {
                 LibraryInteraction::handled()
             }
             (KeyCode::Char('n'), KeyModifiers::NONE) => LibraryInteraction::open_create(),
+            (KeyCode::Char('i'), KeyModifiers::NONE) => {
+                self.open_import_modal();
+                LibraryInteraction::handled()
+            }
             (KeyCode::Char('x'), KeyModifiers::NONE) => {
                 self.open_export_modal();
                 LibraryInteraction::handled()
@@ -1852,6 +2545,32 @@ impl LibraryPageState {
                 }
                 interaction
             }
+            LibraryModal::Import(mut state) => {
+                let interaction = state.handle_key(key);
+                if !interaction.should_close_modal() {
+                    self.modal = Some(LibraryModal::Import(state));
+                }
+                interaction
+            }
+            LibraryModal::ConfirmImportRunVariables(state) => match (key.code, key.modifiers) {
+                (KeyCode::Char('y'), KeyModifiers::NONE)
+                | (KeyCode::Char('Y'), KeyModifiers::NONE)
+                | (KeyCode::Enter, KeyModifiers::NONE) => {
+                    let prepared = state.prepared.clone();
+                    self.modal = Some(LibraryModal::ConfirmImportRunVariables(state));
+                    LibraryInteraction::import(prepared)
+                }
+                (KeyCode::Char('n'), KeyModifiers::NONE)
+                | (KeyCode::Char('N'), KeyModifiers::NONE)
+                | (KeyCode::Esc, KeyModifiers::NONE) => {
+                    self.modal = Some(LibraryModal::Import(state.return_to_import));
+                    LibraryInteraction::handled()
+                }
+                _ => {
+                    self.modal = Some(LibraryModal::ConfirmImportRunVariables(state));
+                    LibraryInteraction::handled()
+                }
+            },
             LibraryModal::ConfirmDelete(mut state) => match (key.code, key.modifiers) {
                 (KeyCode::Left, KeyModifiers::NONE) | (KeyCode::Char('h'), KeyModifiers::NONE) => {
                     state.selected_yes = true;
@@ -2841,6 +3560,137 @@ mod tests {
         state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
 
         assert!(matches!(state.modal(), Some(LibraryModal::Export(_))));
+    }
+
+    #[test]
+    fn pressing_i_opens_import_modal() {
+        let mut state = sample_state();
+
+        state.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
+
+        assert!(matches!(state.modal(), Some(LibraryModal::Import(_))));
+    }
+
+    #[test]
+    fn import_modal_defaults_match_current_behavior() {
+        let mut state = sample_state();
+        state.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
+
+        let Some(LibraryModal::Import(modal)) = state.modal() else {
+            panic!("expected import modal");
+        };
+        assert_eq!(modal.path(), "");
+        assert_eq!(modal.password_display_value(), "");
+        assert!(!modal.show_password());
+        assert!(!modal.include_settings());
+        assert_eq!(modal.metrics_mode(), ImportMetricsMode::Ignore);
+        assert_eq!(modal.conflict_mode(), LibraryImportConflictMode::Skip);
+        assert_eq!(state.footer_text(), LIBRARY_IMPORT_MODAL_FOOTER);
+    }
+
+    #[test]
+    fn import_modal_requires_non_empty_path() {
+        let mut state = sample_state();
+        state.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
+
+        let Some(LibraryModal::Import(modal)) = state.modal.as_mut() else {
+            panic!("expected import modal");
+        };
+        let interaction =
+            modal.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+
+        assert!(interaction.pending_import_prepare().is_none());
+        assert_eq!(
+            modal.error(),
+            Some("Configuration error: Import path is required.")
+        );
+    }
+
+    #[test]
+    fn import_modal_password_field_accepts_input_and_stays_masked() {
+        let mut state = sample_state();
+        state.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
+
+        let Some(LibraryModal::Import(modal)) = state.modal.as_mut() else {
+            panic!("expected import modal");
+        };
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        for ch in "secret".chars() {
+            modal.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+        }
+
+        assert_eq!(modal.password_display_value(), "******");
+        assert!(!modal.show_password());
+    }
+
+    #[test]
+    fn import_modal_password_toggle_preserves_value() {
+        let mut state = sample_state();
+        state.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
+
+        let Some(LibraryModal::Import(modal)) = state.modal.as_mut() else {
+            panic!("expected import modal");
+        };
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        for ch in "secret".chars() {
+            modal.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+        }
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(modal.focus(), LibraryImportModalField::PasswordToggle);
+
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(modal.show_password());
+        assert_eq!(modal.password_display_value(), "secret");
+        assert_eq!(modal.password_toggle_label(), "hide");
+        assert_eq!(state.footer_text(), LIBRARY_IMPORT_PASSWORD_FOOTER);
+    }
+
+    #[test]
+    fn import_modal_metrics_selector_uses_existing_modes() {
+        let mut state = sample_state();
+        state.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
+
+        let Some(LibraryModal::Import(modal)) = state.modal.as_mut() else {
+            panic!("expected import modal");
+        };
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        let selector = modal.selector().expect("metrics selector");
+        assert_eq!(selector.title(), "Select Metrics Mode");
+        assert_eq!(selector.options, vec!["ignore", "merge", "overwrite"]);
+    }
+
+    #[test]
+    fn import_modal_conflict_selector_uses_safe_modes() {
+        let mut state = sample_state();
+        state.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
+
+        let Some(LibraryModal::Import(modal)) = state.modal.as_mut() else {
+            panic!("expected import modal");
+        };
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        let selector = modal.selector().expect("conflict selector");
+        assert_eq!(selector.title(), "Select Conflict Mode");
+        assert_eq!(selector.options, vec!["skip", "overwrite"]);
+    }
+
+    #[test]
+    fn import_modal_owns_input_and_keeps_search_inactive() {
+        let mut state = sample_state();
+        state.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
+
+        state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+
+        assert!(!state.is_search_active());
+        assert!(matches!(state.modal(), Some(LibraryModal::Import(_))));
     }
 
     #[test]

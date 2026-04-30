@@ -157,6 +157,60 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
         return;
     }
 
+    if let Some(pending_import_prepare) = interaction.pending_import_prepare() {
+        match pending_import_prepare.prepare() {
+            Ok(library::LibraryImportPreparedResult::NeedsRunVariableConfirmation {
+                prepared,
+                return_to_modal,
+            }) => {
+                app.library_page_mut()
+                    .open_import_run_variables_modal(prepared, *return_to_modal);
+            }
+            Ok(library::LibraryImportPreparedResult::Imported(outcome)) => {
+                app.library_page_mut().clear_modal();
+                if outcome.imported() > 0 {
+                    taurine_core::rpc::notify_daemon_reload();
+                }
+                refresh_library_page(app);
+                if outcome.imported_settings() {
+                    refresh_settings_page(app);
+                }
+                if should_refresh_home_after_import(&outcome) {
+                    refresh_home_metrics(app);
+                }
+                app.library_page_mut()
+                    .set_status_message(format!("Imported {} automation(s).", outcome.imported()));
+            }
+            Err(error) => app.library_page_mut().set_save_error(error.to_string()),
+        }
+        return;
+    }
+
+    if let Some(prepared_import) = interaction.pending_import_commit() {
+        match prepared_import.apply() {
+            Ok(outcome) => {
+                app.library_page_mut().clear_modal();
+                if outcome.imported() > 0 {
+                    taurine_core::rpc::notify_daemon_reload();
+                }
+                refresh_library_page(app);
+                if outcome.imported_settings() {
+                    refresh_settings_page(app);
+                }
+                if should_refresh_home_after_import(&outcome) {
+                    refresh_home_metrics(app);
+                }
+                app.library_page_mut().set_status_message(format!(
+                    "Imported {} automation(s) from {}.",
+                    outcome.imported(),
+                    prepared_import.path()
+                ));
+            }
+            Err(error) => app.library_page_mut().set_save_error(error.to_string()),
+        }
+        return;
+    }
+
     if let Some(pending_export) = interaction.pending_export() {
         match pending_export.apply() {
             Ok(path) => {
@@ -212,6 +266,10 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
             app.library_page_mut().open_create_modal();
         }
     }
+}
+
+fn should_refresh_home_after_import(outcome: &library::LibraryImportOutcome) -> bool {
+    outcome.imported_settings() || outcome.imported_metrics()
 }
 
 fn refresh_home_metrics(app: &mut App) {
@@ -378,6 +436,14 @@ mod tests {
         .unwrap()
     }
 
+    fn sample_import_outcome(
+        imported: usize,
+        imported_settings: bool,
+        imported_metrics: bool,
+    ) -> library::LibraryImportOutcome {
+        library::LibraryImportOutcome::new(imported, imported_settings, imported_metrics)
+    }
+
     #[test]
     fn pressing_x_on_home_calls_start_when_stopped() {
         let mut app = App::default();
@@ -437,6 +503,27 @@ mod tests {
 
         assert_eq!(controller.start_calls.get(), 0);
         assert_eq!(controller.stop_calls.get(), 0);
+    }
+
+    #[test]
+    fn home_metrics_refreshes_after_import_when_settings_are_imported() {
+        let outcome = sample_import_outcome(0, true, false);
+
+        assert!(should_refresh_home_after_import(&outcome));
+    }
+
+    #[test]
+    fn home_metrics_refreshes_after_import_when_metrics_are_imported() {
+        let outcome = sample_import_outcome(0, false, true);
+
+        assert!(should_refresh_home_after_import(&outcome));
+    }
+
+    #[test]
+    fn home_metrics_does_not_refresh_when_neither_settings_nor_metrics_are_imported() {
+        let outcome = sample_import_outcome(0, false, false);
+
+        assert!(!should_refresh_home_after_import(&outcome));
     }
 
     #[test]

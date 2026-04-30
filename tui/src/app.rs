@@ -33,7 +33,7 @@ impl Page {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct App {
     active_page: Page,
     nav_visible: bool,

@@ -5,8 +5,10 @@ use taurine_core::db::crud::TriggerType;
 use taurine_core::db::init;
 use taurine_core::exchange::{
     AutomationExport, ExchangeFormat, ExchangePayload, ExistingAutomationConflict,
-    ImportConflictAction, ImportMetricsMode, ImportOptions, crypto, decode_plaintext_payload,
-    deserialize_payload, detect_exchange_format, import_automations,
+    ImportConflictAction, ImportMetricsMode, ImportOptions,
+    decode_exchange_blob as decode_exchange_blob_core, detect_exchange_format,
+    import_payload_transactionally as import_payload_transactionally_core,
+    payload_contains_run_variables as payload_contains_run_variables_core,
 };
 use tracing::info;
 use zeroize::Zeroize;
@@ -61,21 +63,9 @@ fn import_payload_transactionally(
     options: ImportOptions,
 ) -> taurine_core::error::Result<usize> {
     let mut remembered_choice = None;
-    let tx = conn.transaction()?;
-    let result = import_automations(&tx, payload, options, |incoming, existing| {
+    import_payload_transactionally_core(conn, payload, options, |incoming, existing| {
         resolve_conflict_action(incoming, existing, on_conflict, &mut remembered_choice)
-    });
-
-    match result {
-        Ok(imported) => {
-            tx.commit()?;
-            Ok(imported)
-        }
-        Err(err) => {
-            tx.rollback()?;
-            Err(err)
-        }
-    }
+    })
 }
 
 fn map_import_metrics_mode(include_metrics: Option<ImportMetricsCli>) -> ImportMetricsMode {
@@ -90,20 +80,7 @@ fn decode_exchange_blob(
     bytes: &[u8],
     password: Option<&str>,
 ) -> taurine_core::error::Result<ExchangePayload> {
-    match detect_exchange_format(bytes)? {
-        ExchangeFormat::Plaintext => decode_plaintext_payload(bytes),
-        ExchangeFormat::Encrypted => {
-            let password = password.ok_or_else(|| {
-                taurine_core::error::Error::Config(
-                    "A password is required to import TAU1 exchange files".to_string(),
-                )
-            })?;
-            let mut plaintext = crypto::decrypt(bytes, password)?;
-            let payload = deserialize_payload(&plaintext);
-            plaintext.zeroize();
-            payload
-        }
-    }
+    decode_exchange_blob_core(bytes, password)
 }
 
 fn confirm_run_variable_import(payload: &ExchangePayload) -> taurine_core::error::Result<()> {
@@ -133,17 +110,7 @@ Untrusted scripts can damage your system. Continue? [y/N]",
 }
 
 fn payload_contains_run_variables(payload: &ExchangePayload) -> bool {
-    payload.automations.iter().any(|automation| {
-        contains_run_variable(&automation.output)
-            || automation
-                .script
-                .as_ref()
-                .is_some_and(|script| contains_run_variable(&script.content))
-    })
-}
-
-fn contains_run_variable(content: &str) -> bool {
-    content.to_ascii_lowercase().contains("[run.")
+    payload_contains_run_variables_core(payload)
 }
 
 fn resolve_conflict_action(

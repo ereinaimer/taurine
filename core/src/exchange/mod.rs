@@ -12,7 +12,7 @@ pub use export::{
 };
 pub use import::{
     ExistingAutomationConflict, ImportConflictAction, ImportMetricsMode, ImportOptions,
-    import_automations,
+    import_automations, import_payload_transactionally,
 };
 
 pub const PLAINTEXT_MAGIC_HEADER: [u8; 4] = *b"TAUP";
@@ -140,6 +140,37 @@ pub fn detect_exchange_format(bytes: &[u8]) -> crate::Result<ExchangeFormat> {
     }
 }
 
+pub fn decode_exchange_blob(
+    bytes: &[u8],
+    password: Option<&str>,
+) -> crate::Result<ExchangePayload> {
+    match detect_exchange_format(bytes)? {
+        ExchangeFormat::Plaintext => decode_plaintext_payload(bytes),
+        ExchangeFormat::Encrypted => {
+            let password = password.ok_or_else(|| {
+                crate::Error::Config(
+                    "A password is required to import TAU1 exchange files".to_string(),
+                )
+            })?;
+            let mut plaintext = crypto::decrypt(bytes, password)?;
+            let payload = deserialize_payload(&plaintext);
+            use zeroize::Zeroize;
+            plaintext.zeroize();
+            payload
+        }
+    }
+}
+
+pub fn payload_contains_run_variables(payload: &ExchangePayload) -> bool {
+    payload.automations.iter().any(|automation| {
+        contains_run_variable(&automation.output)
+            || automation
+                .script
+                .as_ref()
+                .is_some_and(|script| contains_run_variable(&script.content))
+    })
+}
+
 pub fn serialize_payload(payload: &ExchangePayload) -> crate::Result<Vec<u8>> {
     payload.validate_schema_version()?;
     Ok(serde_json::to_vec(payload)?)
@@ -149,6 +180,10 @@ pub fn deserialize_payload(bytes: &[u8]) -> crate::Result<ExchangePayload> {
     let payload: ExchangePayload = serde_json::from_slice(bytes)?;
     payload.validate_schema_version()?;
     Ok(payload)
+}
+
+fn contains_run_variable(content: &str) -> bool {
+    content.to_ascii_lowercase().contains("[run.")
 }
 
 #[cfg(test)]
@@ -343,6 +378,50 @@ mod tests {
 
         let err = detect_exchange_format(b"BADS").unwrap_err();
         assert!(err.to_string().contains("TAUP or TAU1"));
+    }
+
+    #[test]
+    fn decode_exchange_blob_handles_plaintext_without_password() {
+        let payload = ExchangePayload::new(vec![]);
+        let encoded = encode_plaintext_payload(&payload).unwrap();
+
+        assert_eq!(decode_exchange_blob(&encoded, None).unwrap(), payload);
+    }
+
+    #[test]
+    fn decode_exchange_blob_requires_password_for_tau1() {
+        let serialized = serialize_payload(&ExchangePayload::new(vec![])).unwrap();
+        let blob = crypto::encrypt(&serialized, "hunter2").unwrap();
+
+        let err = decode_exchange_blob(&blob, None).unwrap_err();
+        assert!(err.to_string().contains("password is required"));
+    }
+
+    #[test]
+    fn payload_contains_run_variables_detects_output_and_script_content() {
+        let mut payload = ExchangePayload::new(vec![AutomationExport {
+            name: "Run".to_string(),
+            description: None,
+            trigger_type: TriggerType::Word,
+            trigger: "gm".to_string(),
+            output: "before [RUN.bash(echo hi)] after".to_string(),
+            action_type: "text".to_string(),
+            is_enabled: true,
+            target_os: "all".to_string(),
+            tags: vec![],
+            usage_count: None,
+            last_used_at: None,
+            script: None,
+        }]);
+        assert!(payload_contains_run_variables(&payload));
+
+        payload.automations[0].output = "safe".to_string();
+        payload.automations[0].script = Some(ScriptExport {
+            interpreter: ScriptInterpreter::Bash,
+            behavior: ScriptBehavior::Inline,
+            content: "echo [run.bash(date)]".to_string(),
+        });
+        assert!(payload_contains_run_variables(&payload));
     }
 
     #[test]
