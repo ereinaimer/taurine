@@ -34,11 +34,15 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
         }
         ScriptInterpreter::PowerShell => {
             let mut c = Command::new("powershell");
+            // Force UTF-8 stdout so non-ASCII chars (e.g. °, →, ✓) round-trip correctly.
+            // PowerShell defaults to the system OEM code page which corrupts Unicode output.
+            let utf8_prefix = "[Console]::OutputEncoding = [Text.Encoding]::UTF8; ";
+            let full_cmd = format!("{}{}", utf8_prefix, &script_content);
             c.arg("-NoProfile")
                 .arg("-ExecutionPolicy")
                 .arg("Bypass")
                 .arg("-Command")
-                .arg(&script_content);
+                .arg(&full_cmd);
             c
         }
         ScriptInterpreter::Cmd => {

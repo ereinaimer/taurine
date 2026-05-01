@@ -5,6 +5,8 @@
 use std::mem;
 use std::ptr;
 use std::sync::OnceLock;
+use std::thread;
+use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{GetLastError, GlobalFree, HANDLE, HGLOBAL};
 use windows_sys::Win32::System::DataExchange::{
@@ -101,12 +103,27 @@ fn set_clipboard_unicode_nul_terminated(text: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Opens the clipboard with up to `max_retries` attempts, sleeping `retry_delay` between each.
+/// This is the standard Win32 pattern for clipboard contention (ERROR_ACCESS_DENIED = 5).
+fn open_clipboard_with_retry(max_retries: u32, retry_delay: Duration) -> Result<(), String> {
+    for attempt in 0..=max_retries {
+        if unsafe { OpenClipboard(ptr::null_mut()) } != 0 {
+            return Ok(());
+        }
+        let err = unsafe { GetLastError() };
+        if attempt < max_retries {
+            thread::sleep(retry_delay);
+        } else {
+            return Err(format!("OpenClipboard failed: {}", err));
+        }
+    }
+    unreachable!()
+}
+
 /// Reads `CF_UNICODETEXT` without taking ownership (matches arboard empty-on-missing).
 pub fn get_unicode_text() -> Result<String, String> {
+    open_clipboard_with_retry(5, Duration::from_millis(20))?;
     unsafe {
-        if OpenClipboard(ptr::null_mut()) == 0 {
-            return Err(format!("OpenClipboard failed: {}", GetLastError()));
-        }
         let result = (|| {
             if IsClipboardFormatAvailable(CF_UNICODETEXT) == 0 {
                 return Ok(String::new());
@@ -145,10 +162,8 @@ pub fn set_unicode_text_exclude_from_history(text: &str) -> Result<(), String> {
     let cf_history = format_can_include_history()?;
     let cf_cloud = format_can_upload_cloud()?;
 
+    open_clipboard_with_retry(5, Duration::from_millis(20))?;
     unsafe {
-        if OpenClipboard(ptr::null_mut()) == 0 {
-            return Err(format!("OpenClipboard failed: {}", GetLastError()));
-        }
         let result = (|| {
             if EmptyClipboard() == 0 {
                 return Err(format!("EmptyClipboard failed: {}", GetLastError()));
