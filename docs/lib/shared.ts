@@ -1,5 +1,6 @@
 export const appName = 'Taurine';
-export const appDescription = 'Fast, secure and easy to use text expander and keyboard automation tool';
+export const appDescription =
+  'A fast, local-first text expander and keyboard automation app for shortcuts, scripts, hotkeys, and inline AI.';
 export const docsRoute = '/docs';
 export const docsImageRoute = '/og/docs';
 export const docsContentRoute = '/llms.mdx/docs';
