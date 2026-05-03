@@ -2240,6 +2240,11 @@ mod tests {
                 crossterm::event::KeyCode::Tab,
                 crossterm::event::KeyModifiers::NONE,
             ));
+        app.library_page_mut()
+            .handle_key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Tab,
+                crossterm::event::KeyModifiers::NONE,
+            ));
 
         assert_eq!(
             footer_text(&app),

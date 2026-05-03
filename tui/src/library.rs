@@ -3783,6 +3783,7 @@ mod tests {
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
         let selector = modal.selector().expect("metrics selector");
@@ -3798,6 +3799,7 @@ mod tests {
         let Some(LibraryModal::Import(modal)) = state.modal.as_mut() else {
             panic!("expected import modal");
         };
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
