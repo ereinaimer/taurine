@@ -26,3 +26,8 @@ lto = true           # Link Time Optimization (huge win for size)
 codegen-units = 1    # Better optimization at the cost of compile time
 panic = "abort"      # Remove unwinding code (saves size)
 strip = true         # Strip symbols from the binary
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
