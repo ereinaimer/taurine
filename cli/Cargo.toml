@@ -38,3 +38,6 @@ axoupdater = { version = "0.10.0", features = ["blocking"] }
 [target."cfg(windows)".dependencies]
 sysinfo = "0.38.4"
 winreg = "0.56.0"
+
+[build-dependencies]
+winres = "0.1"
