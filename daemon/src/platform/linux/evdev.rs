@@ -629,7 +629,7 @@ fn is_solo_modifier_press(
 mod tests {
     use super::*;
     use crate::hotkey_evaluator::HotkeyEvaluator;
-    use crate::injector::{INJECTION_ABORT, IS_INJECTING};
+    use crate::injector::INJECTION_ABORT;
     use std::sync::RwLock;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};

@@ -7,20 +7,21 @@ use std::sync::atomic::Ordering;
 #[cfg(windows)]
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
-#[cfg(not(target_os = "linux"))]
 use std::time::{Duration, Instant};
 use tokio::runtime::Handle;
-#[cfg(not(target_os = "linux"))]
+#[allow(unused_imports)]
 use tracing::{debug, error, info, trace, warn};
 
+#[cfg(not(target_os = "linux"))]
 use crate::hook_health::HookHealth;
 use crate::hotkey;
 #[cfg(not(target_os = "linux"))]
 use crate::hotkey_evaluator::{
     HotkeyEvaluation, HotkeyEvaluator, logical_key_from_rdev, modifiers_from_sides,
 };
+use crate::injector;
 #[cfg(not(target_os = "linux"))]
-use crate::injector::{self, IS_INJECTING, consume_simulated_event};
+use crate::injector::{IS_INJECTING, consume_simulated_event};
 #[cfg(not(target_os = "linux"))]
 use crate::notify;
 use taurine_core::engine::Evaluator;
@@ -807,7 +808,6 @@ fn mark_windows_recovery_signal(hook_health: &HookHealth, listener_running: bool
     }
 }
 
-#[cfg(not(target_os = "linux"))]
 fn with_evaluator_lock<T>(
     evaluator: &Arc<Mutex<Evaluator>>,
     operation: &'static str,
@@ -835,7 +835,6 @@ fn with_evaluator_lock<T>(
     Some(result)
 }
 
-#[cfg(not(target_os = "linux"))]
 fn log_callback_timing(operation: &'static str, lock_wait: Duration, evaluation: Duration) {
     if lock_wait > Duration::from_millis(5) || evaluation > Duration::from_millis(5) {
         debug!(
