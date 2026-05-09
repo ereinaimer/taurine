@@ -1,7 +1,6 @@
 // Licensed under the Aimer Software License (ASL).
 // See LICENSE for details.
 pub mod commands;
-pub mod service;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use tracing::{error, info};
@@ -474,13 +473,13 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
             };
 
             if matches!(cli.command, Some(Commands::Restart)) {
-                service::restart(start_on_boot)?;
+                taurine_core::service::restart(start_on_boot)?;
             } else {
-                service::up(start_on_boot)?;
+                taurine_core::service::up(start_on_boot)?;
             }
         }
-        Some(Commands::Down) => service::down()?,
-        Some(Commands::Status) => service::status()?,
+        Some(Commands::Down) => taurine_core::service::down()?,
+        Some(Commands::Status) => taurine_core::service::status()?,
         Some(Commands::Add(args)) => {
             if let Some(AddSubcommand::Script {
                 trigger,
