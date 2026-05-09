@@ -18,9 +18,11 @@ pub struct DaemonService {
     pause_hotkey_spec: Arc<RwLock<crate::hotkey::HotkeySpec>>,
     pause_hotkey_display: Arc<RwLock<String>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+    hook_health: crate::hook_health::HookHealth,
 }
 
 impl DaemonService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         shutdown_sender: mpsc::Sender<()>,
         state: Arc<EngineState>,
@@ -29,6 +31,7 @@ impl DaemonService {
         pause_hotkey_spec: Arc<RwLock<crate::hotkey::HotkeySpec>>,
         pause_hotkey_display: Arc<RwLock<String>>,
         spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+        hook_health: crate::hook_health::HookHealth,
     ) -> Self {
         Self {
             shutdown_sender,
@@ -38,6 +41,7 @@ impl DaemonService {
             pause_hotkey_spec,
             pause_hotkey_display,
             spinner_style,
+            hook_health,
         }
     }
 }
@@ -53,11 +57,21 @@ impl DaemonControl for DaemonService {
             .read()
             .map(|g| g.clone())
             .unwrap_or_else(|_| "Unknown".to_string());
+        let hook_health = self.hook_health.snapshot();
+        let keyboard_capture = hook_health.keyboard_capture_state().as_str().to_string();
+        let recovery_suggestion = hook_health.recovery_suggestion().unwrap_or_default();
+        let last_hook_error = hook_health.last_hook_error.clone().unwrap_or_default();
 
         Ok(Response::new(StatusResponse {
             online: true,
             paused: self.paused.load(Ordering::Relaxed),
             pause_hotkey,
+            keyboard_capture,
+            hook_listener_running: hook_health.listener_running,
+            hook_thread_started_at_unix_ms: hook_health.hook_thread_started_at_unix_ms,
+            last_keyboard_event_at_unix_ms: hook_health.last_keyboard_event_at_unix_ms,
+            last_hook_error,
+            recovery_suggestion,
         }))
     }
 
@@ -190,6 +204,7 @@ mod tests {
             Arc::new(std::sync::RwLock::new(
                 taurine_core::settings::SpinnerStyle::default(),
             )),
+            crate::hook_health::HookHealth::new(),
         );
 
         // Initially state should be empty

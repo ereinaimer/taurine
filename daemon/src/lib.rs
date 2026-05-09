@@ -12,6 +12,7 @@ use tracing::{debug, error, info};
 mod clipboard_history;
 mod engine;
 mod hook;
+mod hook_health;
 mod hotkey;
 mod hotkey_evaluator;
 mod injector;
@@ -90,6 +91,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     let pause_notifications_enabled = Arc::new(std::sync::atomic::AtomicBool::new(
         pause_notifications_enabled,
     ));
+    let hook_health = hook_health::HookHealth::new();
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -109,17 +111,37 @@ pub fn start() -> taurine_core::error::Result<()> {
     let pause_hotkey_spec_clone = pause_hotkey_spec.clone();
     let spinner_style_clone = spinner_style.clone();
     let runtime_handle_clone = runtime_handle.clone();
+    #[cfg(windows)]
+    let hook_health_clone = hook_health.clone();
     std::thread::spawn(move || {
-        info!("Starting OS keyboard hook listener...");
-        hook::start_listener(
-            eval_clone,
-            state_clone,
-            paused_clone,
-            pause_notifications_enabled_clone,
-            pause_hotkey_spec_clone,
-            spinner_style_clone,
-            runtime_handle_clone,
-        );
+        #[cfg(windows)]
+        {
+            info!("Starting supervised Windows keyboard hook listener...");
+            hook::start_windows_supervisor(
+                eval_clone,
+                state_clone,
+                paused_clone,
+                pause_notifications_enabled_clone,
+                pause_hotkey_spec_clone,
+                spinner_style_clone,
+                runtime_handle_clone,
+                hook_health_clone,
+            );
+        }
+
+        #[cfg(not(windows))]
+        {
+            info!("Starting OS keyboard hook listener...");
+            hook::start_listener(
+                eval_clone,
+                state_clone,
+                paused_clone,
+                pause_notifications_enabled_clone,
+                pause_hotkey_spec_clone,
+                spinner_style_clone,
+                runtime_handle_clone,
+            );
+        }
     });
 
     rt.block_on(async {
@@ -133,6 +155,7 @@ pub fn start() -> taurine_core::error::Result<()> {
             pause_hotkey_spec.clone(),
             pause_hotkey.clone(),
             spinner_style.clone(),
+            hook_health.clone(),
         );
 
         info!("Starting gRPC server on {}", addr);
@@ -148,7 +171,7 @@ pub fn start() -> taurine_core::error::Result<()> {
         }
     });
 
-    // The rdev::listen() OS hook thread blocks permanently on a native message
+    // The rdev::grab() OS hook thread blocks permanently on a native message
     // loop (SetWindowsHookEx + GetMessage on Windows, similar on Unix) and
     // cannot be unblocked from outside. After the gRPC server has shut down
     // gracefully, the only correct action for a daemon is to exit the process.

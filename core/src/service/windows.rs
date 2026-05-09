@@ -1,6 +1,7 @@
 use std::env;
 use std::os::windows::process::CommandExt;
 use std::process::Command;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use sysinfo::System;
 use tokio::runtime::Runtime;
@@ -9,7 +10,7 @@ use winreg::RegKey;
 use winreg::enums::*;
 
 use crate::rpc::daemon_control_client::DaemonControlClient;
-use crate::rpc::{ShutdownRequest, StatusRequest};
+use crate::rpc::{ShutdownRequest, StatusRequest, StatusResponse};
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -268,6 +269,7 @@ pub fn restart(start_on_boot: bool) -> crate::error::Result<()> {
 
 pub fn status() -> crate::error::Result<()> {
     debug!("Fetching status from daemon via gRPC...");
+    let mut grpc_status: Option<StatusResponse> = None;
 
     if let Ok(rt) = Runtime::new() {
         rt.block_on(async {
@@ -276,15 +278,8 @@ pub fn status() -> crate::error::Result<()> {
                 let request = tonic::Request::new(StatusRequest {});
                 match client.get_status(request).await {
                     Ok(res) => {
-                        let s = res.into_inner();
-                        if s.paused {
-                            info!(
-                                "Taurine is Paused. Press {} to resume operations",
-                                s.pause_hotkey
-                            );
-                        } else {
-                            debug!("Engine status: ONLINE (gRPC)");
-                        }
+                        grpc_status = Some(res.into_inner());
+                        debug!("Engine status: ONLINE (gRPC)");
                     }
                     Err(e) => error!("Engine status error via gRPC: {}", e),
                 }
@@ -294,14 +289,64 @@ pub fn status() -> crate::error::Result<()> {
         });
     }
 
+    if let Some(status) = grpc_status.as_ref() {
+        info!(
+            "Daemon: {}",
+            if status.paused {
+                "running (paused)"
+            } else {
+                "running"
+            }
+        );
+        info!("Keyboard capture: {}", status.keyboard_capture);
+        info!(
+            "Last keyboard event: {}",
+            format_event_age(status.last_keyboard_event_at_unix_ms)
+        );
+        if !status.last_hook_error.is_empty() {
+            info!("Last hook error: {}", status.last_hook_error);
+        }
+        if !status.recovery_suggestion.is_empty() {
+            info!("Suggestion: {}", status.recovery_suggestion);
+        }
+        if status.paused {
+            info!("Pause hotkey: {}", status.pause_hotkey);
+        }
+        return Ok(());
+    }
+
     let mut sys = System::new();
     if is_daemon_running(&mut sys) {
-        info!("Taurine is Running.");
+        info!("Daemon: running");
     } else {
-        info!("Taurine is Stopped.");
+        info!("Daemon: stopped");
     }
 
     Ok(())
+}
+
+fn format_event_age(timestamp_ms: u64) -> String {
+    if timestamp_ms == 0 {
+        return "none recorded".to_string();
+    }
+
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or_default();
+
+    let elapsed = Duration::from_millis(now_ms.saturating_sub(timestamp_ms));
+    if elapsed < Duration::from_secs(5) {
+        "just now".to_string()
+    } else if elapsed < Duration::from_secs(60) {
+        format!("{}s ago", elapsed.as_secs())
+    } else if elapsed < Duration::from_secs(60 * 60) {
+        format!("{}m ago", elapsed.as_secs() / 60)
+    } else if elapsed < Duration::from_secs(60 * 60 * 24) {
+        format!("{}h ago", elapsed.as_secs() / (60 * 60))
+    } else {
+        format!("{}d ago", elapsed.as_secs() / (60 * 60 * 24))
+    }
 }
 
 #[cfg(test)]

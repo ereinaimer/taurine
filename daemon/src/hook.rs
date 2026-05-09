@@ -1,12 +1,19 @@
 #[cfg(not(target_os = "linux"))]
 use rdev::{Event, EventType, Key};
+#[cfg(windows)]
+use std::panic::{AssertUnwindSafe, catch_unwind};
 #[cfg(not(target_os = "linux"))]
 use std::sync::atomic::Ordering;
+#[cfg(windows)]
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
+#[cfg(not(target_os = "linux"))]
+use std::time::{Duration, Instant};
 use tokio::runtime::Handle;
 #[cfg(not(target_os = "linux"))]
-use tracing::{debug, error};
+use tracing::{debug, error, info, trace, warn};
 
+use crate::hook_health::HookHealth;
 use crate::hotkey;
 #[cfg(not(target_os = "linux"))]
 use crate::hotkey_evaluator::{
@@ -19,6 +26,16 @@ use crate::notify;
 use taurine_core::engine::Evaluator;
 #[cfg(not(target_os = "linux"))]
 use taurine_core::engine::{EngineEvent, EngineMode};
+
+#[cfg(windows)]
+#[derive(Debug, Clone)]
+pub enum WindowsSupervisorEvent {
+    ResumeAutomatic,
+    ResumeFromSuspend,
+    SessionUnlock,
+    SessionLogon,
+    ListenerExited { error: Option<String> },
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CompletionKeyKind {
@@ -138,7 +155,125 @@ pub fn start_listener(
     );
 }
 
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+pub fn start_windows_supervisor(
+    evaluator: Arc<Mutex<Evaluator>>,
+    state: Arc<taurine_core::engine::EngineState>,
+    paused: Arc<std::sync::atomic::AtomicBool>,
+    pause_notifications_enabled: Arc<std::sync::atomic::AtomicBool>,
+    pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
+    spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+    runtime_handle: Handle,
+    hook_health: HookHealth,
+) {
+    let (tx, rx) = mpsc::channel::<WindowsSupervisorEvent>();
+
+    if let Err(error) = crate::platform::windows::power::start_listener(tx.clone()) {
+        error!(
+            error = %error,
+            "Failed to start Windows power/session monitor"
+        );
+    }
+
+    let spawn_result = std::thread::Builder::new()
+        .name("taurine-hook-supervisor".to_string())
+        .spawn(move || {
+            const RESTART_BACKOFF: Duration = Duration::from_secs(2);
+
+            let mut listener_running = spawn_windows_hook_listener(
+                evaluator.clone(),
+                state.clone(),
+                paused.clone(),
+                pause_notifications_enabled.clone(),
+                pause_hotkey.clone(),
+                spinner_style.clone(),
+                runtime_handle.clone(),
+                hook_health.clone(),
+                tx.clone(),
+            );
+
+            while let Ok(event) = rx.recv() {
+                match event {
+                    WindowsSupervisorEvent::ListenerExited { error } => {
+                        hook_health.mark_listener_exit(error.clone());
+
+                        if let Some(ref error) = error {
+                            error!(error = %error, "Windows hook listener exited");
+                        } else {
+                            warn!("Windows hook listener exited without an error");
+                        }
+
+                        std::thread::sleep(RESTART_BACKOFF);
+                        info!("Restarting Windows hook listener after backoff");
+                        listener_running = spawn_windows_hook_listener(
+                            evaluator.clone(),
+                            state.clone(),
+                            paused.clone(),
+                            pause_notifications_enabled.clone(),
+                            pause_hotkey.clone(),
+                            spinner_style.clone(),
+                            runtime_handle.clone(),
+                            hook_health.clone(),
+                            tx.clone(),
+                        );
+                    }
+                    WindowsSupervisorEvent::ResumeAutomatic => {
+                        mark_windows_recovery_signal(
+                            &hook_health,
+                            listener_running,
+                            "automatic resume",
+                        );
+                    }
+                    WindowsSupervisorEvent::ResumeFromSuspend => {
+                        mark_windows_recovery_signal(
+                            &hook_health,
+                            listener_running,
+                            "resume from suspend",
+                        );
+                    }
+                    WindowsSupervisorEvent::SessionUnlock => {
+                        mark_windows_recovery_signal(
+                            &hook_health,
+                            listener_running,
+                            "session unlock",
+                        );
+                    }
+                    WindowsSupervisorEvent::SessionLogon => {
+                        mark_windows_recovery_signal(
+                            &hook_health,
+                            listener_running,
+                            "session logon",
+                        );
+                    }
+                }
+
+                if !listener_running {
+                    info!("Hook listener is not running; attempting supervised restart");
+                    listener_running = spawn_windows_hook_listener(
+                        evaluator.clone(),
+                        state.clone(),
+                        paused.clone(),
+                        pause_notifications_enabled.clone(),
+                        pause_hotkey.clone(),
+                        spinner_style.clone(),
+                        runtime_handle.clone(),
+                        hook_health.clone(),
+                        tx.clone(),
+                    );
+                }
+            }
+
+            warn!("Windows hook supervisor channel closed; hook supervision stopped");
+        });
+
+    if let Err(error) = spawn_result {
+        error!(error = %error, "Failed to spawn Windows hook supervisor thread");
+    }
+}
+
 #[cfg(not(target_os = "linux"))]
+#[cfg_attr(windows, allow(dead_code))]
 pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
     state: Arc<taurine_core::engine::EngineState>,
@@ -148,6 +283,32 @@ pub fn start_listener(
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     runtime_handle: Handle,
 ) {
+    if let Err(error) = run_listener_once(
+        evaluator,
+        state,
+        paused,
+        pause_notifications_enabled,
+        pause_hotkey,
+        spinner_style,
+        runtime_handle,
+        None,
+    ) {
+        error!(error = %error, "Fatal OS global hook crash");
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+#[allow(clippy::too_many_arguments)]
+fn run_listener_once(
+    evaluator: Arc<Mutex<Evaluator>>,
+    state: Arc<taurine_core::engine::EngineState>,
+    paused: Arc<std::sync::atomic::AtomicBool>,
+    pause_notifications_enabled: Arc<std::sync::atomic::AtomicBool>,
+    pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
+    spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+    runtime_handle: Handle,
+    hook_health: Option<HookHealth>,
+) -> Result<(), String> {
     let left_alt_down = std::sync::atomic::AtomicBool::new(false);
     let right_alt_down = std::sync::atomic::AtomicBool::new(false);
     let left_ctrl_down = std::sync::atomic::AtomicBool::new(false);
@@ -157,10 +318,21 @@ pub fn start_listener(
     let left_meta_down = std::sync::atomic::AtomicBool::new(false);
     let right_meta_down = std::sync::atomic::AtomicBool::new(false);
     let hotkey_evaluator = Mutex::new(HotkeyEvaluator::new());
+    let callback_health = hook_health.clone();
 
     let callback = move |event: Event| -> Option<Event> {
         if consume_simulated_event(&event.event_type) {
             return Some(event);
+        }
+
+        if is_keyboard_event(&event.event_type) {
+            if let Some(health) = callback_health.as_ref() {
+                health.record_keyboard_event();
+            }
+            trace!(
+                event_kind = event_type_label(&event.event_type),
+                "Hook callback received keyboard event"
+            );
         }
 
         match event.event_type {
@@ -269,8 +441,9 @@ pub fn start_listener(
                 if paused.load(Ordering::Relaxed) {
                     return Some(event);
                 }
-                let mut lock = evaluator.lock().unwrap();
-                let _ = lock.process_event(EngineEvent::Interrupt);
+                let _ = with_evaluator_lock(&evaluator, "button_interrupt", |lock| {
+                    let _ = lock.process_event(EngineEvent::Interrupt);
+                });
             }
             EventType::KeyPress(key) => {
                 let ctrl_active = left_ctrl_active || right_ctrl_active;
@@ -286,16 +459,17 @@ pub fn start_listener(
                     clear_undo_state(&evaluator);
 
                     if key == Key::Backspace && !alt_active && !meta_active {
-                        let rewrite = evaluator.lock().ok().and_then(|mut lock| {
-                            if ctrl_active {
-                                lock.rewrite_word_backspace_query()
-                            } else {
-                                lock.rewrite_backspace_query()
-                            }
-                        });
+                        let rewrite =
+                            with_evaluator_lock(&evaluator, "rewrite_backspace_query", |lock| {
+                                if ctrl_active {
+                                    lock.rewrite_word_backspace_query()
+                                } else {
+                                    lock.rewrite_backspace_query()
+                                }
+                            })
+                            .flatten();
 
                         if let Some(rewrite) = rewrite {
-                            IS_INJECTING.store(true, Ordering::SeqCst);
                             let spinner_style_inner =
                                 spinner_style.read().map(|s| *s).unwrap_or_default();
                             spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
@@ -317,13 +491,13 @@ pub fn start_listener(
                         meta_active,
                     ) {
                         CompletionKeyAction::CycleForward => {
-                            let rewrite = evaluator
-                                .lock()
-                                .ok()
-                                .and_then(|mut lock| lock.cycle_completion_next());
+                            let rewrite =
+                                with_evaluator_lock(&evaluator, "cycle_completion_next", |lock| {
+                                    lock.cycle_completion_next()
+                                })
+                                .flatten();
 
                             if let Some(rewrite) = rewrite {
-                                IS_INJECTING.store(true, Ordering::SeqCst);
                                 let spinner_style_inner =
                                     spinner_style.read().map(|s| *s).unwrap_or_default();
                                 spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
@@ -332,13 +506,13 @@ pub fn start_listener(
                             return None;
                         }
                         CompletionKeyAction::CycleBackward => {
-                            let rewrite = evaluator
-                                .lock()
-                                .ok()
-                                .and_then(|mut lock| lock.cycle_completion_prev());
+                            let rewrite =
+                                with_evaluator_lock(&evaluator, "cycle_completion_prev", |lock| {
+                                    lock.cycle_completion_prev()
+                                })
+                                .flatten();
 
                             if let Some(rewrite) = rewrite {
-                                IS_INJECTING.store(true, Ordering::SeqCst);
                                 let spinner_style_inner =
                                     spinner_style.read().map(|s| *s).unwrap_or_default();
                                 spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
@@ -347,13 +521,13 @@ pub fn start_listener(
                             return None;
                         }
                         CompletionKeyAction::HistoryOlder => {
-                            let rewrite = evaluator
-                                .lock()
-                                .ok()
-                                .and_then(|mut lock| lock.navigate_history_older());
+                            let rewrite =
+                                with_evaluator_lock(&evaluator, "navigate_history_older", |lock| {
+                                    lock.navigate_history_older()
+                                })
+                                .flatten();
 
                             if let Some(rewrite) = rewrite {
-                                IS_INJECTING.store(true, Ordering::SeqCst);
                                 let spinner_style_inner =
                                     spinner_style.read().map(|s| *s).unwrap_or_default();
                                 spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
@@ -362,13 +536,13 @@ pub fn start_listener(
                             return None;
                         }
                         CompletionKeyAction::HistoryNewer => {
-                            let rewrite = evaluator
-                                .lock()
-                                .ok()
-                                .and_then(|mut lock| lock.navigate_history_newer());
+                            let rewrite =
+                                with_evaluator_lock(&evaluator, "navigate_history_newer", |lock| {
+                                    lock.navigate_history_newer()
+                                })
+                                .flatten();
 
                             if let Some(rewrite) = rewrite {
-                                IS_INJECTING.store(true, Ordering::SeqCst);
                                 let spinner_style_inner =
                                     spinner_style.read().map(|s| *s).unwrap_or_default();
                                 spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
@@ -377,15 +551,23 @@ pub fn start_listener(
                             return None;
                         }
                         CompletionKeyAction::CancelAndSwallow => {
-                            if let Ok(mut lock) = evaluator.lock() {
-                                lock.cancel_completion();
-                            }
+                            let _ = with_evaluator_lock(
+                                &evaluator,
+                                "cancel_completion_swallow",
+                                |lock| {
+                                    lock.cancel_completion();
+                                },
+                            );
                             return None;
                         }
                         CompletionKeyAction::CancelAndPassThrough => {
-                            if let Ok(mut lock) = evaluator.lock() {
-                                lock.cancel_completion();
-                            }
+                            let _ = with_evaluator_lock(
+                                &evaluator,
+                                "cancel_completion_pass_through",
+                                |lock| {
+                                    lock.cancel_completion();
+                                },
+                            );
                         }
                         CompletionKeyAction::PassThrough => {}
                     }
@@ -397,7 +579,6 @@ pub fn start_listener(
                     match lock.on_key_event(state.as_ref(), true, modifiers, logical_key) {
                         HotkeyEvaluation::Matched(expansion) => {
                             debug!("Hotkey matched! Expanding: {:?}", expansion);
-                            IS_INJECTING.store(true, Ordering::SeqCst);
 
                             let spinner_style_inner =
                                 spinner_style.read().map(|s| *s).unwrap_or_default();
@@ -427,7 +608,6 @@ pub fn start_listener(
                         // Win32/macOS can swallow directly in the global hook callback by
                         // returning `None` here. Linux cannot do that with a passive reader, so
                         // it uses EVIOCGRAB + uinput proxying instead.
-                        IS_INJECTING.store(true, Ordering::SeqCst);
                         spawn_undo_dispatch(trigger_string, output_length);
                         return None;
                     }
@@ -484,13 +664,20 @@ pub fn start_listener(
                 };
 
                 if let Some(ev) = engine_event {
-                    let mut lock = evaluator.lock().unwrap();
-                    if let Some(expansion) = lock.process_event(ev) {
-                        let state = lock.state.clone();
-                        drop(lock);
-
+                    trace!(
+                        engine_event = engine_event_label(&ev),
+                        "Dispatching engine event from hook callback"
+                    );
+                    if let Some((expansion, state)) =
+                        with_evaluator_lock(&evaluator, "process_engine_event", |lock| {
+                            lock.process_event(ev).map(|expansion| {
+                                let state = lock.state.clone();
+                                (expansion, state)
+                            })
+                        })
+                        .flatten()
+                    {
                         debug!("Trigger matched! Expanding: {:?}", expansion);
-                        IS_INJECTING.store(true, Ordering::SeqCst);
 
                         let spinner_style_inner =
                             spinner_style.read().map(|s| *s).unwrap_or_default();
@@ -532,8 +719,168 @@ pub fn start_listener(
         Some(event)
     };
 
-    if let Err(e) = rdev::grab(callback) {
-        error!("Fatal OS global hook crash: {:?}", e);
+    if let Some(health) = hook_health.as_ref() {
+        health.mark_listener_entering_grab();
+    }
+    info!("Hook listener entering rdev::grab");
+    rdev::grab(callback).map_err(|error| format!("{error:?}"))
+}
+
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+fn spawn_windows_hook_listener(
+    evaluator: Arc<Mutex<Evaluator>>,
+    state: Arc<taurine_core::engine::EngineState>,
+    paused: Arc<std::sync::atomic::AtomicBool>,
+    pause_notifications_enabled: Arc<std::sync::atomic::AtomicBool>,
+    pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
+    spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+    runtime_handle: Handle,
+    hook_health: HookHealth,
+    supervisor_tx: mpsc::Sender<WindowsSupervisorEvent>,
+) -> bool {
+    hook_health.mark_listener_started();
+    info!("Starting supervised Windows hook listener thread");
+    let listener_health = hook_health.clone();
+
+    let spawn_result = std::thread::Builder::new()
+        .name("taurine-hook-listener".to_string())
+        .spawn(move || {
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                run_listener_once(
+                    evaluator,
+                    state,
+                    paused,
+                    pause_notifications_enabled,
+                    pause_hotkey,
+                    spinner_style,
+                    runtime_handle,
+                    Some(listener_health.clone()),
+                )
+            }));
+
+            let exit_error = match result {
+                Ok(Ok(())) => None,
+                Ok(Err(error)) => Some(error),
+                Err(_) => Some("Windows hook listener panicked".to_string()),
+            };
+
+            if let Some(ref error) = exit_error {
+                error!(error = %error, "Windows hook listener is exiting");
+            } else {
+                warn!("Windows hook listener returned unexpectedly without an error");
+            }
+
+            if let Err(error) =
+                supervisor_tx.send(WindowsSupervisorEvent::ListenerExited { error: exit_error })
+            {
+                error!(
+                    error = %error,
+                    "Failed to notify hook supervisor that the listener exited"
+                );
+            }
+        });
+
+    if let Err(error) = spawn_result {
+        let message = format!("Failed to spawn Windows hook listener thread: {error}");
+        hook_health.mark_listener_exit(Some(message.clone()));
+        error!(error = %message, "Unable to spawn Windows hook listener");
+        false
+    } else {
+        true
+    }
+}
+
+#[cfg(windows)]
+fn mark_windows_recovery_signal(hook_health: &HookHealth, listener_running: bool, reason: &str) {
+    hook_health.mark_recovery_signal(reason);
+    if listener_running {
+        warn!(
+            recovery_reason = reason,
+            "Windows power/session change detected; listener is still running so automatic rehook is skipped to avoid duplicate hooks"
+        );
+    } else {
+        warn!(
+            recovery_reason = reason,
+            "Windows power/session change detected while listener is down"
+        );
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn with_evaluator_lock<T>(
+    evaluator: &Arc<Mutex<Evaluator>>,
+    operation: &'static str,
+    action: impl FnOnce(&mut Evaluator) -> T,
+) -> Option<T> {
+    let lock_wait_started = Instant::now();
+    let mut lock = match evaluator.lock() {
+        Ok(lock) => lock,
+        Err(error) => {
+            error!(
+                operation,
+                error = %error,
+                "Evaluator mutex poisoned inside hook callback"
+            );
+            return None;
+        }
+    };
+    let lock_wait = lock_wait_started.elapsed();
+
+    let evaluation_started = Instant::now();
+    let result = action(&mut lock);
+    let evaluation_elapsed = evaluation_started.elapsed();
+
+    log_callback_timing(operation, lock_wait, evaluation_elapsed);
+    Some(result)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn log_callback_timing(operation: &'static str, lock_wait: Duration, evaluation: Duration) {
+    if lock_wait > Duration::from_millis(5) || evaluation > Duration::from_millis(5) {
+        debug!(
+            operation,
+            lock_wait_us = lock_wait.as_micros() as u64,
+            evaluation_us = evaluation.as_micros() as u64,
+            "Hook callback evaluator timing"
+        );
+    } else {
+        trace!(
+            operation,
+            lock_wait_us = lock_wait.as_micros() as u64,
+            evaluation_us = evaluation.as_micros() as u64,
+            "Hook callback evaluator timing"
+        );
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn is_keyboard_event(event_type: &EventType) -> bool {
+    matches!(
+        event_type,
+        EventType::KeyPress(_) | EventType::KeyRelease(_)
+    )
+}
+
+#[cfg(not(target_os = "linux"))]
+fn event_type_label(event_type: &EventType) -> &'static str {
+    match event_type {
+        EventType::KeyPress(_) => "key_press",
+        EventType::KeyRelease(_) => "key_release",
+        EventType::ButtonPress(_) => "button_press",
+        EventType::ButtonRelease(_) => "button_release",
+        EventType::MouseMove { .. } => "mouse_move",
+        EventType::Wheel { .. } => "wheel",
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn engine_event_label(event: &EngineEvent) -> &'static str {
+    match event {
+        EngineEvent::Interrupt => "interrupt",
+        EngineEvent::Backspace => "backspace",
+        EngineEvent::WordBackspace => "word_backspace",
+        EngineEvent::Char(_) => "char",
     }
 }
 
@@ -548,23 +895,26 @@ fn map_return_key(engine_mode: EngineMode) -> EngineEvent {
 
 #[cfg(not(target_os = "linux"))]
 fn clear_undo_state(evaluator: &Arc<Mutex<Evaluator>>) {
-    if let Ok(lock) = evaluator.lock() {
+    let _ = with_evaluator_lock(evaluator, "clear_undo_state", |lock| {
         lock.state.clear_undo_state();
-    }
+    });
 }
 
 #[cfg(not(target_os = "linux"))]
 fn take_active_undo_state(evaluator: &Arc<Mutex<Evaluator>>) -> Option<(String, usize)> {
-    evaluator.lock().ok().and_then(|lock| {
+    with_evaluator_lock(evaluator, "take_active_undo_state", |lock| {
         lock.state
             .take_active_undo_state()
             .map(|undo| (undo.trigger_string, undo.output_length))
     })
+    .flatten()
 }
 
 #[cfg(not(target_os = "linux"))]
 fn spawn_undo_dispatch(trigger_string: String, output_length: usize) {
-    std::thread::spawn(move || injector::inject_undo(trigger_string, output_length));
+    injector::spawn_guarded_injection_thread("taurine-undo-dispatch", move || {
+        injector::inject_undo(trigger_string, output_length);
+    });
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -605,7 +955,7 @@ pub(crate) fn spawn_expansion_dispatch(
     runtime_handle: Handle,
     state: Arc<taurine_core::engine::EngineState>,
 ) {
-    std::thread::spawn(move || {
+    injector::spawn_guarded_injection_thread("taurine-expansion-dispatch", move || {
         dispatch_expansion_with(
             expansion,
             spinner_style,
@@ -618,10 +968,10 @@ pub(crate) fn spawn_expansion_dispatch(
 }
 
 fn completion_is_active(evaluator: &Arc<Mutex<Evaluator>>) -> bool {
-    evaluator
-        .lock()
-        .map(|lock| lock.is_completion_active())
-        .unwrap_or(false)
+    with_evaluator_lock(evaluator, "completion_is_active", |lock| {
+        lock.is_completion_active()
+    })
+    .unwrap_or(false)
 }
 
 pub(crate) fn trigger_assist_is_active(
@@ -638,7 +988,7 @@ pub(crate) fn spawn_completion_rewrite_dispatch(
     rewrite: taurine_core::engine::CompletionRewrite,
     spinner_style: taurine_core::settings::SpinnerStyle,
 ) {
-    std::thread::spawn(move || {
+    injector::spawn_guarded_injection_thread("taurine-completion-rewrite", move || {
         dispatch_completion_rewrite_with(rewrite, spinner_style, crate::injector::inject_expansion);
     });
 }
@@ -658,12 +1008,23 @@ fn dispatch_completion_rewrite_with<I>(
         delete_count,
         replacement,
     } = rewrite;
-    let _ = inject(
+    debug!(
+        delete_count,
+        replacement_chars = replacement.chars().count(),
+        "Starting completion rewrite dispatch"
+    );
+    let injection = inject(
         vec![taurine_core::engine::variables::ExpansionStep::Text(
             replacement,
         )],
         delete_count,
         spinner_style,
+    );
+    debug!(
+        delete_count,
+        completed = injection.completed,
+        output_chars = injection.successful_chars,
+        "Finished completion rewrite dispatch"
     );
 }
 
@@ -696,9 +1057,23 @@ fn dispatch_expansion_with<I, L>(
         track_usage,
         follow_up,
     } = expansion;
+    let step_count = steps.len();
+    let has_follow_up = follow_up.is_some();
 
     state.clear_undo_state();
+    debug!(
+        delete_count,
+        step_count, has_follow_up, track_usage, "Starting expansion dispatch"
+    );
     let injection = inject_expansion(steps, delete_count, spinner_style);
+    debug!(
+        delete_count,
+        step_count,
+        completed = injection.completed,
+        output_chars = injection.successful_chars,
+        has_follow_up,
+        "Finished expansion dispatch"
+    );
     if track_usage && delete_count > 0 && (injection.completed || injection.successful_chars > 0) {
         state.record_word_trigger_usage(&trigger);
     }
@@ -738,8 +1113,8 @@ fn launch_follow_up(
         system_prompt_override,
     }) = follow_up
     {
-        crate::injector::IS_INJECTING.store(true, std::sync::atomic::Ordering::SeqCst);
-        crate::injector::INJECTION_ABORT.store(false, std::sync::atomic::Ordering::SeqCst);
+        info!("Starting inline AI follow-up dispatch");
+        let injection_guard = crate::injector::InjectionFlagGuard::begin();
 
         let spinner_handle = taurine_core::utils::spinner::spawn_async(
             spinner_style,
@@ -747,15 +1122,14 @@ fn launch_follow_up(
             &runtime_handle,
         );
         runtime_handle.spawn(async move {
+            let _guard = injection_guard;
             crate::engine::ai::stream::run_inline_ai_stream(
                 prompt,
                 system_prompt_override,
                 spinner_handle,
             )
             .await;
-
-            crate::injector::IS_INJECTING.store(false, std::sync::atomic::Ordering::SeqCst);
-            crate::injector::INJECTION_ABORT.store(false, std::sync::atomic::Ordering::SeqCst);
+            info!("Finished inline AI follow-up dispatch");
         });
     }
 }

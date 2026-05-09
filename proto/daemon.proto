@@ -14,6 +14,12 @@ message StatusResponse {
     bool online = 1;
     bool paused = 2;
     string pause_hotkey = 3;
+    string keyboard_capture = 4;
+    bool hook_listener_running = 5;
+    uint64 hook_thread_started_at_unix_ms = 6;
+    uint64 last_keyboard_event_at_unix_ms = 7;
+    string last_hook_error = 8;
+    string recovery_suggestion = 9;
 }
 
 message ShutdownRequest {}

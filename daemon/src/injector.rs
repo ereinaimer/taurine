@@ -77,6 +77,92 @@ pub static INJECTION_ABORT: AtomicBool = AtomicBool::new(false);
 #[allow(dead_code)]
 pub static IS_SIMULATING: AtomicBool = AtomicBool::new(false);
 
+/// Marks a synthetic injection scope as active and restores the prior state when dropped.
+///
+/// This makes `IS_INJECTING` panic-safe and also supports nested scopes such as inline AI output
+/// streams that temporarily spawn their own clipboard-backed injectors.
+pub struct InjectionFlagGuard {
+    previous_injecting: bool,
+    previous_abort: bool,
+}
+
+impl InjectionFlagGuard {
+    pub fn begin() -> Self {
+        let previous_injecting = IS_INJECTING.swap(true, Ordering::SeqCst);
+        let previous_abort = INJECTION_ABORT.load(Ordering::SeqCst);
+        INJECTION_ABORT.store(false, Ordering::SeqCst);
+
+        debug!(previous_injecting, previous_abort, "Injection guard armed");
+
+        Self {
+            previous_injecting,
+            previous_abort,
+        }
+    }
+}
+
+impl Drop for InjectionFlagGuard {
+    fn drop(&mut self) {
+        if self.previous_injecting {
+            INJECTION_ABORT.store(self.previous_abort, Ordering::SeqCst);
+        } else {
+            INJECTION_ABORT.store(false, Ordering::SeqCst);
+        }
+        IS_INJECTING.store(self.previous_injecting, Ordering::SeqCst);
+
+        debug!(
+            restored_injecting = self.previous_injecting,
+            restored_abort = self.previous_injecting && self.previous_abort,
+            "Injection guard reset"
+        );
+    }
+}
+
+/// Temporarily hides spinner-driven synthetic input from the hook while preserving any outer
+/// injection state.
+pub struct InjectionVisibilityGuard {
+    previous_injecting: bool,
+}
+
+impl InjectionVisibilityGuard {
+    pub fn begin() -> Self {
+        Self {
+            previous_injecting: IS_INJECTING.swap(true, Ordering::SeqCst),
+        }
+    }
+}
+
+impl Drop for InjectionVisibilityGuard {
+    fn drop(&mut self) {
+        IS_INJECTING.store(self.previous_injecting, Ordering::SeqCst);
+        debug!(
+            restored_injecting = self.previous_injecting,
+            "Injection visibility guard reset"
+        );
+    }
+}
+
+pub fn spawn_guarded_injection_thread<F>(thread_name: &str, task: F)
+where
+    F: FnOnce() + Send + 'static,
+{
+    let guard = InjectionFlagGuard::begin();
+    let spawn_result = thread::Builder::new()
+        .name(thread_name.to_string())
+        .spawn(move || {
+            let _guard = guard;
+            task();
+        });
+
+    if let Err(error) = spawn_result {
+        error!(
+            thread_name,
+            error = %error,
+            "Failed to spawn guarded injection thread"
+        );
+    }
+}
+
 #[cfg(not(target_os = "linux"))]
 #[derive(Clone)]
 struct SimulatedEvent {
@@ -184,9 +270,8 @@ fn erase_trigger(delete_count: usize) {
 /// platform, so Taurine must erase the full expanded output before retyping the
 /// original trigger.
 pub fn inject_undo(trigger_string: String, output_length: usize) {
+    let _state_guard = InjectionFlagGuard::begin();
     let _inject_guard = inject_mutex().lock().expect("inject mutex poisoned");
-
-    INJECTION_ABORT.store(false, Ordering::SeqCst);
     pre_release_modifiers();
 
     #[cfg(target_os = "linux")]
@@ -204,8 +289,6 @@ pub fn inject_undo(trigger_string: String, output_length: usize) {
     }
 
     pre_release_modifiers();
-    INJECTION_ABORT.store(false, Ordering::SeqCst);
-    IS_INJECTING.store(false, Ordering::SeqCst);
 }
 
 fn simulate_paste() {
@@ -817,6 +900,7 @@ pub fn restore_clipboard_text(original: &str) {
 
 pub struct StreamingTextSession {
     guard: Option<MutexGuard<'static, ()>>,
+    state_guard: Option<InjectionFlagGuard>,
     original_clipboard: Option<String>,
     tracked_chars: usize,
 }
@@ -824,12 +908,12 @@ pub struct StreamingTextSession {
 impl StreamingTextSession {
     pub fn begin() -> Self {
         let guard = inject_mutex().lock().expect("inject mutex poisoned");
-        INJECTION_ABORT.store(false, Ordering::SeqCst);
+        let state_guard = InjectionFlagGuard::begin();
         pre_release_modifiers();
-        IS_INJECTING.store(true, Ordering::SeqCst);
 
         Self {
             guard: Some(guard),
+            state_guard: Some(state_guard),
             original_clipboard: None,
             tracked_chars: 0,
         }
@@ -864,9 +948,8 @@ impl StreamingTextSession {
         pre_release_modifiers();
         self.original_clipboard = None;
         self.tracked_chars = 0;
-        INJECTION_ABORT.store(false, Ordering::SeqCst);
-        IS_INJECTING.store(false, Ordering::SeqCst);
         self.guard.take();
+        self.state_guard.take();
         tracked_chars
     }
 }
@@ -890,17 +973,15 @@ impl Drop for StreamingTextSession {
 /// - **Panic Release**: All modifier keys are released at the end (success or failure).
 /// - **Implicit Delay**: A 10ms delay is inserted between every step.
 ///
-/// `IS_INJECTING` must already be `true` when this is called (the hook sets it
-/// before spawning this thread). We clear it when we are done.
+/// Injection state is guarded so synthetic event suppression is reset even if the work returns
+/// early or panics inside the caller-owned thread.
 pub fn inject_expansion(
     steps: Vec<ExpansionStep>,
     delete_count: usize,
     spinner_style: taurine_core::settings::SpinnerStyle,
 ) -> InjectionReport {
+    let _state_guard = InjectionFlagGuard::begin();
     let _inject_guard = inject_mutex().lock().expect("inject mutex poisoned");
-
-    // Clear any stale abort from a previous injection.
-    INJECTION_ABORT.store(false, Ordering::SeqCst);
 
     // Pre-Release: neutralize modifier state before any injection.
     pre_release_modifiers();
@@ -1108,9 +1189,6 @@ pub fn inject_expansion(
 
     // Panic Release: ensure all modifiers are logically released.
     pre_release_modifiers();
-
-    INJECTION_ABORT.store(false, Ordering::SeqCst);
-    IS_INJECTING.store(false, Ordering::SeqCst);
     report
 }
 

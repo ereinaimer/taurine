@@ -1,4 +1,5 @@
 pub mod clipboard;
+pub mod power;
 
 pub struct WindowsClipboard;
 

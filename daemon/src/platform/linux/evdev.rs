@@ -343,7 +343,6 @@ fn process_frame(
                     });
 
                     if let Some(rewrite) = rewrite {
-                        IS_INJECTING.store(true, Ordering::SeqCst);
                         let spinner_style_inner =
                             spinner_style.read().map(|s| *s).unwrap_or_default();
                         crate::hook::spawn_completion_rewrite_dispatch(
@@ -376,7 +375,6 @@ fn process_frame(
                             .and_then(|mut lock| lock.cycle_completion_next());
 
                         if let Some(rewrite) = rewrite {
-                            IS_INJECTING.store(true, Ordering::SeqCst);
                             let spinner_style_inner =
                                 spinner_style.read().map(|s| *s).unwrap_or_default();
                             crate::hook::spawn_completion_rewrite_dispatch(
@@ -395,7 +393,6 @@ fn process_frame(
                             .and_then(|mut lock| lock.cycle_completion_prev());
 
                         if let Some(rewrite) = rewrite {
-                            IS_INJECTING.store(true, Ordering::SeqCst);
                             let spinner_style_inner =
                                 spinner_style.read().map(|s| *s).unwrap_or_default();
                             crate::hook::spawn_completion_rewrite_dispatch(
@@ -414,7 +411,6 @@ fn process_frame(
                             .and_then(|mut lock| lock.navigate_history_older());
 
                         if let Some(rewrite) = rewrite {
-                            IS_INJECTING.store(true, Ordering::SeqCst);
                             let spinner_style_inner =
                                 spinner_style.read().map(|s| *s).unwrap_or_default();
                             crate::hook::spawn_completion_rewrite_dispatch(
@@ -433,7 +429,6 @@ fn process_frame(
                             .and_then(|mut lock| lock.navigate_history_newer());
 
                         if let Some(rewrite) = rewrite {
-                            IS_INJECTING.store(true, Ordering::SeqCst);
                             let spinner_style_inner =
                                 spinner_style.read().map(|s| *s).unwrap_or_default();
                             crate::hook::spawn_completion_rewrite_dispatch(
@@ -465,7 +460,6 @@ fn process_frame(
                 match hotkey_evaluator.on_key_event(state.as_ref(), true, modifiers, logical_key) {
                     HotkeyEvaluation::Matched(expansion) => {
                         debug!("Hotkey matched! Expanding: {:?}", expansion);
-                        IS_INJECTING.store(true, Ordering::SeqCst);
                         swallow_frame = true;
 
                         let spinner_style_inner =
@@ -495,7 +489,6 @@ fn process_frame(
                 {
                     // Windows/macOS can swallow inside the hook callback itself. Linux needs
                     // EVIOCGRAB plus a uinput proxy, so we drop the grabbed frame instead.
-                    IS_INJECTING.store(true, Ordering::SeqCst);
                     spawn_undo_dispatch(trigger_string, output_length);
                     swallow_frame = true;
                     *swallow_next_backspace_release = true;
@@ -549,8 +542,6 @@ fn process_frame(
                 drop(lock);
 
                 debug!("Trigger matched! Expanding: {:?}", expansion);
-
-                IS_INJECTING.store(true, Ordering::SeqCst);
 
                 let spinner_style_inner = spinner_style.read().map(|s| *s).unwrap_or_default();
 
@@ -678,9 +669,7 @@ mod tests {
             InputEvent::new(EventType::KEY.0, KeyCode::KEY_G.code(), 1),
         ];
 
-        // Ensure clean state
-        IS_INJECTING.store(true, Ordering::SeqCst);
-        INJECTION_ABORT.store(false, Ordering::SeqCst);
+        let _guard = crate::injector::InjectionFlagGuard::begin();
 
         // Process the frame while IS_INJECTING is true
         process_frame(
@@ -704,9 +693,5 @@ mod tests {
             INJECTION_ABORT.load(Ordering::SeqCst),
             "Physical key press during injection must set INJECTION_ABORT"
         );
-
-        // Clean up
-        IS_INJECTING.store(false, Ordering::SeqCst);
-        INJECTION_ABORT.store(false, Ordering::SeqCst);
     }
 }
