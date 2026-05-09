@@ -102,21 +102,36 @@ Taurine saves time by turning short triggers into longer text, keyboard automati
 
 ## Installation
 
-Taurine is currently preparing for its first release. You can use the following options to install it:
+Prebuilt binaries are available for Windows, macOS, and Linux. You can download them manually from our [GitHub Releases](https://github.com/ereinaimer/taurine/releases) page, or use one of the quick install scripts below:
 
-### Prebuilt Binaries
+### Windows (PowerShell)
 
-Prebuilt binaries will be soon available for Windows, macOS, and Linux from the GitHub Releases page. Until then, you can build Taurine yourself.
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/ereinaimer/taurine/releases/latest/download/taurine-installer.ps1 | iex"
+```
 
-### Install via Cargo
+### macOS / Linux (Bash)
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/ereinaimer/taurine/releases/latest/download/taurine-installer.sh | sh
+```
+
+<details>
+<summary><b>Install via Cargo</b></summary>
+
+<br>
 
 If you already have Rust installed, you can install Taurine directly from the repository using cargo:
 
 ```bash
 cargo install --git https://github.com/ereinaimer/taurine
 ```
+</details>
 
-### Build from source
+<details>
+<summary><b>Build from source</b></summary>
+
+<br>
 
 Requirements:
 
@@ -146,6 +161,8 @@ Run Taurine:
 ```bash
 ./target/release/taurine --help
 ```
+
+</details>
 
 ## Managing the service
 
