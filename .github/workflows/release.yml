@@ -136,7 +136,14 @@ jobs:
           pattern: artifacts-*
           path: target/distrib/
           merge-multiple: true
+      - name: Configure apt to not prompt
+        if: runner.os == 'Linux'
+        run: |
+          echo 'APT::Get::Assume-Yes "true";' | sudo tee /etc/apt/apt.conf.d/90assume-yes
+          echo 'APT::Get::Force-Yes "true";' | sudo tee -a /etc/apt/apt.conf.d/90assume-yes
       - name: Install dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
           ${{ matrix.packages_install }}
       - name: Build artifacts
