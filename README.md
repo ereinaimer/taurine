@@ -98,6 +98,7 @@ Taurine saves time by turning short triggers into longer text, keyboard automati
 - [**Inline math**](#inline-math) — calculate while typing
 - [**Inline AI**](#inline-ai) — use AI without switching apps
 - [**CLI and TUI**](#basic-commands) — manage automations from the terminal
+- [**Import and export**](#import-and-export) — backup and share your automations
 
 ## Installation
 
@@ -388,6 +389,40 @@ Trigger AI expansion just like any other shortcut:
 4.  Hit **Space**.
 
 Taurine will generate the response and insert it right where you are typing.
+
+## Import and export
+
+Taurine allows you to backup your automations, move them to another machine, or share them with others. Exports use the .tau file format.
+
+### Export
+
+You can export your automations using the CLI:
+
+```bash
+taurine export <path> <flags>
+```
+
+By default, if no path parameter is passed, it exports to the current working directory.
+
+Options:
+* `--no-encrypt`: Export without encryption (default is encrypted).
+* `--with-settings`: Include your app settings in the export.
+* `--with-metrics`: Include your usage stats.
+
+### Import
+
+To import automations:
+
+```bash
+taurine import <path> <flags>
+```
+
+Options:
+* `--on-conflict <action>`: How to resolve trigger collisions (prompt, skip, overwrite).
+* `--include-settings`: Overwrite local settings with imported values.
+* `--include-metrics [mode]`: Include imported metrics (ignore, merge, overwrite).
+
+You can also use the Terminal UI to manage imports and exports visually by pressing `i` or `x` in the library view.
 
 ## Basic commands
 
