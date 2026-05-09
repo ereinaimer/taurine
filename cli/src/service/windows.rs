@@ -1,10 +1,9 @@
 use std::env;
 use std::os::windows::process::CommandExt;
 use std::process::Command;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use sysinfo::System;
 use taurine_core::rpc::daemon_control_client::DaemonControlClient;
-use taurine_core::rpc::{ShutdownRequest, StatusRequest, StatusResponse};
+use taurine_core::rpc::{ShutdownRequest, StatusRequest};
 use tokio::runtime::Runtime;
 use tracing::{debug, error, info};
 use winreg::RegKey;
@@ -277,8 +276,7 @@ pub fn restart(start_on_boot: bool) -> taurine_core::error::Result<()> {
 }
 
 pub fn status() -> taurine_core::error::Result<()> {
-    debug!("Fetching status from daemon via gRPC...");
-    let mut grpc_status: Option<StatusResponse> = None;
+    let mut grpc_status = None;
 
     if let Ok(rt) = Runtime::new() {
         rt.block_on(async {
@@ -286,78 +284,32 @@ pub fn status() -> taurine_core::error::Result<()> {
                 DaemonControlClient::connect(taurine_core::rpc::DEFAULT_RPC_URL).await
             {
                 let request = tonic::Request::new(StatusRequest {});
-                match client.get_status(request).await {
-                    Ok(res) => {
-                        grpc_status = Some(res.into_inner());
-                        debug!("Engine status: ONLINE (gRPC)");
-                    }
-                    Err(e) => error!("Engine status error via gRPC: {}", e),
+                if let Ok(res) = client.get_status(request).await {
+                    grpc_status = Some(res.into_inner());
                 }
-            } else {
-                debug!("Engine status: OFFLINE (gRPC)");
             }
         });
     }
 
-    if let Some(status) = grpc_status.as_ref() {
-        info!(
-            "Daemon: {}",
-            if status.paused {
-                "running (paused)"
-            } else {
-                "running"
-            }
-        );
-        info!("Keyboard capture: {}", status.keyboard_capture);
-        info!(
-            "Last keyboard event: {}",
-            format_event_age(status.last_keyboard_event_at_unix_ms)
-        );
-        if !status.last_hook_error.is_empty() {
-            info!("Last hook error: {}", status.last_hook_error);
-        }
-        if !status.recovery_suggestion.is_empty() {
-            info!("Suggestion: {}", status.recovery_suggestion);
-        }
+    if let Some(status) = grpc_status {
         if status.paused {
-            info!("Pause hotkey: {}", status.pause_hotkey);
+            info!("Taurine is Paused. Press {} to resume!", status.pause_hotkey);
+        } else {
+            info!("Taurine is Running.");
         }
         return Ok(());
     }
 
     let mut sys = System::new();
     if is_daemon_running(&mut sys) {
-        info!("Daemon: running");
+        info!("Taurine is Running.");
     } else {
-        info!("Daemon: stopped");
+        info!("Taurine is Stopped.");
     }
 
     Ok(())
 }
 
-fn format_event_age(timestamp_ms: u64) -> String {
-    if timestamp_ms == 0 {
-        return "none recorded".to_string();
-    }
-
-    let now_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or_default();
-
-    let elapsed = Duration::from_millis(now_ms.saturating_sub(timestamp_ms));
-    if elapsed < Duration::from_secs(5) {
-        "just now".to_string()
-    } else if elapsed < Duration::from_secs(60) {
-        format!("{}s ago", elapsed.as_secs())
-    } else if elapsed < Duration::from_secs(60 * 60) {
-        format!("{}m ago", elapsed.as_secs() / 60)
-    } else if elapsed < Duration::from_secs(60 * 60 * 24) {
-        format!("{}h ago", elapsed.as_secs() / (60 * 60))
-    } else {
-        format!("{}d ago", elapsed.as_secs() / (60 * 60 * 24))
-    }
-}
 
 #[cfg(test)]
 mod tests {

@@ -426,31 +426,30 @@ pub fn restart(start_on_boot: bool) -> crate::error::Result<()> {
 }
 
 pub fn status() -> crate::error::Result<()> {
-    debug!("Fetching status from daemon via gRPC...");
+    let mut grpc_status = None;
 
     if let Ok(rt) = Runtime::new() {
         rt.block_on(async {
             if let Ok(mut client) = DaemonControlClient::connect(crate::rpc::DEFAULT_RPC_URL).await
             {
                 let request = tonic::Request::new(StatusRequest {});
-                match client.get_status(request).await {
-                    Ok(res) => {
-                        let s = res.into_inner();
-                        if s.paused {
-                            info!(
-                                "Taurine is Paused. Press {} to resume operations",
-                                s.pause_hotkey
-                            );
-                        } else {
-                            info!("Engine status: ONLINE (gRPC)");
-                        }
-                    }
-                    Err(e) => debug!("Engine status error via gRPC: {}", e),
+                if let Ok(res) = client.get_status(request).await {
+                    grpc_status = Some(res.into_inner());
                 }
-            } else {
-                debug!("Engine status: OFFLINE (gRPC)");
             }
         });
+    }
+
+    if let Some(status) = grpc_status {
+        if status.paused {
+            info!(
+                "Taurine is Paused. Press {} to resume!",
+                status.pause_hotkey
+            );
+        } else {
+            info!("Taurine is Running.");
+        }
+        return Ok(());
     }
 
     let manager = get_manager()?;
@@ -464,9 +463,8 @@ pub fn status() -> crate::error::Result<()> {
     match manager.status(ServiceStatusCtx {
         label: label.clone(),
     }) {
-        Ok(ServiceStatus::Running) => info!("ONLINE (Running)"),
-        Ok(ServiceStatus::Stopped(_)) => info!("OFFLINE (Stopped)"),
-        Ok(ServiceStatus::NotInstalled) | Err(_) => info!("NOT INSTALLED"),
+        Ok(ServiceStatus::Running) => info!("Taurine is Running."),
+        _ => info!("Taurine is Stopped."),
     }
 
     Ok(())
