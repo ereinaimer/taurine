@@ -16,6 +16,7 @@ install-path = "CARGO_HOME"
 # Whether to install an updater program
 install-updater = true
 auto-includes = false
+allow-dirty = ["ci"]
 # Explicitly include assets to avoid ../LICENSE resolution bugs during cross-compilation
 include = ["LICENSE", "README.md", "CHANGELOG.md"]
 
