@@ -2,7 +2,7 @@
 
 A fast, secure and easy to use automation software for text expansion and keyboard automation.
 
-Taurine helps you type less, automate repetitive work, and run shortcuts from anywhere on your computer.
+Taurine helps you type less, automate repetitive work, and run keyboard shortcuts from anywhere on your computer.
 
 <video src="https://github.com/user-attachments/assets/2e51336a-7951-4d01-9123-747dbc358968" controls width="100%"></video>
 
@@ -104,11 +104,19 @@ Taurine saves time by turning short triggers into longer text, keyboard automati
 
 Taurine is currently preparing for its first release. You can use the following options to install it:
 
-### Option 1: Prebuilt Binaries
+### Prebuilt Binaries
 
 Prebuilt binaries will be soon available for Windows, macOS, and Linux from the GitHub Releases page. Until then, you can build Taurine yourself.
 
-### Option 2: Build from source
+### Install via Cargo
+
+If you already have Rust installed, you can install Taurine directly from the repository using cargo:
+
+```bash
+cargo install --git https://github.com/ereinaimer/taurine
+```
+
+### Build from source
 
 Requirements:
 
