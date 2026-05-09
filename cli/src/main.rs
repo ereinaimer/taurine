@@ -45,6 +45,8 @@ enum Commands {
     /// Restart Taurine
     #[command(alias = "reboot")]
     Restart,
+    /// Update Taurine to the latest version
+    Update,
     /// Check if Taurine is currently running
     Status,
     /// Add a new automation
@@ -480,6 +482,7 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
         }
         Some(Commands::Down) => taurine_core::service::down()?,
         Some(Commands::Status) => taurine_core::service::status()?,
+        Some(Commands::Update) => commands::update::execute()?,
         Some(Commands::Add(args)) => {
             if let Some(AddSubcommand::Script {
                 trigger,
