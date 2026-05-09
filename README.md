@@ -444,7 +444,7 @@ Your automations are stored locally on your machine in a secure database. Taurin
 
 ## AI Usage
 
-AI coding assistants were utilized during the development of Taurine for faster iteration. However, to ensure quality and security, the codebase is regularly audited through a comprehensive test suite and manual review.
+AI coding assistants were utilized during the development of Taurine for faster iteration. However, to ensure quality and security, the codebase is regularly audited through a comprehensive test suite of 700+ tests and manual review.
 
 ## Credits
 
