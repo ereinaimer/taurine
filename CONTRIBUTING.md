@@ -30,11 +30,19 @@ You can start by looking through our open issues. If you want to work on somethi
     git checkout -b feature/your-feature-name
     ```
 
-### 3. Install System Dependencies (Linux Only)
+### 3. Install System Dependencies
+
+#### Linux
 If you are compiling Taurine on a Linux system, you must install the following system dependencies:
 ```bash
 sudo apt update
 sudo apt install build-essential protobuf-compiler libxkbcommon-dev libdbus-1-dev pkg-config
+```
+
+#### Windows
+If you are compiling Taurine on Windows, you must install the Protocol Buffers compiler. You can easily do this using `winget`:
+```powershell
+winget install protobuf
 ```
 
 ### 4. Setup Pre-commit (Recommended)
