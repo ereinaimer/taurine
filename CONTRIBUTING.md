@@ -30,7 +30,14 @@ You can start by looking through our open issues. If you want to work on somethi
     git checkout -b feature/your-feature-name
     ```
 
-### 3. Setup Pre-commit (Recommended)
+### 3. Install System Dependencies (Linux Only)
+If you are compiling Taurine on a Linux system, you must install the following system dependencies:
+```bash
+sudo apt update
+sudo apt install build-essential protobuf-compiler libxkbcommon-dev libdbus-1-dev pkg-config
+```
+
+### 4. Setup Pre-commit (Recommended)
 We use `pre-commit` to automatically run code formatters and linters (`cargo fmt` and `cargo clippy`) before every commit. This ensures clean code and prevents CI from failing over simple styling issues.
 
 To set it up, install `pre-commit` via Python's package manager, then install the hooks for this repo:
@@ -39,12 +46,12 @@ pip install pre-commit
 pre-commit install -c scripts/pre-commit.yaml
 ```
 
-### 4. Make Your Changes
+### 5. Make Your Changes
 - Write clear, concise code and include comments where necessary.
 - Ensure your changes follow the existing coding style of the project.
 - If you're adding a new feature, consider adding tests for it.
 
-### 5. Test Your Code
+### 6. Test Your Code
 Before submitting your changes, please make sure everything builds correctly and that all tests pass:
 
 ```bash
@@ -52,7 +59,7 @@ cargo check
 cargo test
 ```
 
-### 6. Submit a Pull Request
+### 7. Submit a Pull Request
 - Create a Pull Request (PR) against our `main` branch.
 - Use the provided PR template to describe your changes and link any relevant issues.
 - Once submitted, we will review your PR and provide feedback! 
