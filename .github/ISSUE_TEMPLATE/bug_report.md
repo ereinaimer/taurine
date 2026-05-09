@@ -1,7 +1,7 @@
 ---
 name: Bug report
 about: Report a bug in Taurine
-title: '[BUG REPORT]: '
+title: '[Bug] '
 labels: bug
 assignees: ''
 ---

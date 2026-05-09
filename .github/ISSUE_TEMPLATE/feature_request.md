@@ -1,7 +1,7 @@
 ---
 name: Feature request
 about: Suggest an idea for Taurine
-title: '[FEATURE REQUEST]: '
+title: '[Feature] '
 labels: enhancement
 assignees: ''
 
