@@ -56,9 +56,8 @@ export default function HomePage() {
                 rel="noreferrer"
                 className={cn(
                   'group inline-flex h-12 items-center justify-center gap-2.5 rounded-xl px-8',
-                  'border border-[#A3B1C7] bg-[#A3B1C7]/10',
-                  'font-mono text-[12px] font-medium uppercase tracking-[0.08em] text-[#A3B1C7]',
-                  'transition-all duration-150 hover:bg-[#A3B1C7] hover:text-[#141313]',
+                  'bg-[#A3B1C7] font-mono text-[12px] font-medium uppercase tracking-[0.08em] text-[#141313]',
+                  'transition-all duration-150 hover:bg-[#B7C5DB]',
                   'active:scale-[0.97]',
                 )}
               >
@@ -69,9 +68,8 @@ export default function HomePage() {
                 href={docsRoute}
                 className={cn(
                   'group inline-flex h-12 items-center justify-center gap-2.5 rounded-xl px-8',
-                  'border border-[#A3B1C7] bg-[#A3B1C7]/10',
-                  'font-mono text-[12px] font-medium uppercase tracking-[0.08em] text-[#A3B1C7]',
-                  'transition-all duration-150 hover:bg-[#A3B1C7] hover:text-[#141313]',
+                  'bg-[#A3B1C7] font-mono text-[12px] font-medium uppercase tracking-[0.08em] text-[#141313]',
+                  'transition-all duration-150 hover:bg-[#B7C5DB]',
                   'active:scale-[0.97]',
                 )}
               >
