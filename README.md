@@ -1,8 +1,8 @@
 # Taurine
 
-A fast, secure and easy to use automation software for text expansion and keyboard automation.
+A fast, secure and easy to use automation software for text expansion and keyboard automation. Taurine helps you type less, automate repetitive work, and run keyboard shortcuts from anywhere on your computer.
 
-Taurine helps you type less, automate repetitive work, and run keyboard shortcuts from anywhere on your computer.
+<video src="https://github.com/user-attachments/assets/2e51336a-7951-4d01-9123-747dbc358968" controls width="100%"></video>
 
 <p align="center">
   <a href="#features">Features</a> ·
@@ -12,8 +12,6 @@ Taurine helps you type less, automate repetitive work, and run keyboard shortcut
   <a href="#inline-ai">AI</a> ·
   <a href="#faq">FAQ</a>
 </p>
-
-<video src="https://github.com/user-attachments/assets/2e51336a-7951-4d01-9123-747dbc358968" controls width="100%"></video>
 
 <div align="center">
 
