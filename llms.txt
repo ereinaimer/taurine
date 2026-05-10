@@ -1,6 +1,6 @@
 # Taurine
 
-Fast, secure, and easy-to-use text expander and keyboard automation tool built in Rust. Taurine allows users to manage local text expansions via a robust CLI and background service.
+A fast, secure and easy-to-use automation software for text expansion and keyboard automation built in Rust. Taurine helps you type less, automate repetitive work, and run keyboard shortcuts from anywhere on your computer via a robust CLI and background service.
 
 - [README](https://raw.githubusercontent.com/ereinaimer/taurine/refs/heads/main/README.md)
 - [Contributing Guide](https://raw.githubusercontent.com/ereinaimer/taurine/refs/heads/main/CONTRIBUTING.md)
@@ -10,269 +10,144 @@ Fast, secure, and easy-to-use text expander and keyboard automation tool built i
 
 ---
 
-## 1. Installation
-
-Taurine is currently in development. You can build it from source using the Rust toolchain:
-
-### 1.1 Requirements
-*   Rust (latest stable version)
-*   Cargo (included with Rust)
-
-### 1.2 Building from Source
-```bash
-# Clone the repository
-git clone https://github.com/ereinaimer/taurine.git
-cd taurine
-
-# Build the project
-cargo build --release
-
-# The binary will be located at ./target/release/taurine
-```
-
----
-
-## 2. Quick-Start (CLI)
+## 1. Quick-Start (CLI)
 
 | Command | Action | One-liner |
 |---------|--------|-----------|
-| **up** | Start the automation service | taurine up |
-| **add** | Create a new text expansion | taurine add "trigger" "output" |
-| **add script** | Create a script automation | taurine add script "trigger" -f script.py |
-| **ls** | List expansions (supports --sort) | taurine ls --sort usage --desc |
-| **config** | Manage system settings | taurine config ls |
-| **status** | Check background daemon health | taurine status |
-| **down** | Stop the automation service | taurine down |
+| **up** | Start the automation service | `taurine up` |
+| **add** | Create a new text expansion | `taurine add "trigger" "output"` |
+| **add script** | Create a script automation | `taurine add script "trigger" -f script.ps1` |
+| **hotkey** | Create a global hotkey | `taurine add "trigger" "output" --hotkey` |
+| **ls** | List expansions | `taurine ls --sort usage --desc` |
+| **update** | Self-update to latest release | `taurine update` |
+| **ai add** | Add AI provider keys | `taurine ai add --provider gemini` |
+| **config** | Manage system settings | `taurine config ls` |
+| **status** | Check daemon health | `taurine status` |
+| **down** | Stop the automation service | `taurine down` |
 
 ---
 
-## 3. Command Reference
+## 2. Command Reference
 
-### 3.1 Managing the Service
-*   taurine up: Installs and starts the background service. Use taurine down to stop it.
-*   taurine restart: Restarts the service to apply changes or refresh the engine.
-*   taurine status: Reports whether the engine is online and if it's currently paused.
+### 2.1 Managing the Service
+*   `taurine up`: Installs and starts the background service. Use `taurine down` to stop it.
+*   `taurine restart`: Restarts the service to apply changes or refresh the engine.
+*   `taurine status`: Reports whether the engine is online and if it's currently paused.
+*   `taurine update`: Self-updates the CLI and daemon to the latest version.
 
-### 3.2 Managing Automations
-*   taurine add <trigger> <output>: Adds a new snippet. Triggers are typically prefixed with a special character (default is `>`).
-*   taurine add script <trigger> [content] [-f file] [-l lang] [-m mode]: Adds a shell script automation.
+### 2.2 Managing Automations
+*   `taurine add <trigger> <output>`: Adds a new snippet. Use the `--hotkey` flag to treat the trigger as a global keyboard shortcut (e.g., `alt+y`).
+*   `taurine add script <trigger> <body> [-f file] [-l lang] [-m mode]`: Adds a shell script automation.
     *   **Auto-Inference**: Automatically detects language via file extension or shebang.
-    *   **Flags**: Use --lang (-l) to specify interpreter (`bash`, `powershell`, `python`, `node`, `cmd`) and --mode (-m) for execution behavior.
-*   taurine delete <trigger>: Removes an automation matching the specific trigger.
-*   taurine ls: Displays a formatted table of all active triggers.
-    *   **Sorting**: Use --sort with alpha, usage, created, or recent.
-    *   **Order**: Use --asc or --desc (default is ascending for alpha, descending for others).
+    *   **Flags**: Use `--lang` (`-l`) to specify interpreter (`bash`, `powershell`, `python`, `node`, `cmd`) and `--mode` (`-m`) for execution behavior (`inline` or `silent`).
+*   `taurine delete <trigger>`: Removes an automation matching the specific trigger.
+*   `taurine list` (or `ls`): Displays a formatted table of all active triggers. Supports `--sort` (`alpha`, `usage`, `created`, `recent`) and `--asc`/`--desc`.
 
-### 3.3 Configuration
-*   taurine config set <key> <value>: Updates a specific setting.
-*   taurine config reset <key>: Resets a setting to factory defaults (use --all to reset everything).
-*   Key Settings: trigger_char, pause_hotkey, start_on_boot.
+### 2.3 Import / Export
+*   `taurine export [path]`: Exports automations to a file. Supports `--no-encrypt`, `--with-settings`, and `--with-metrics`.
+*   `taurine import <path>`: Imports automations. Supports `--on-conflict` (`prompt`, `skip`, `overwrite`), `--include-settings`, and `--include-metrics`.
 
----
+### 2.4 Configuration
+*   `taurine config set <key> <value>`: Updates a specific setting.
+*   `taurine config list` (or `ls`): Lists all current settings.
+*   `taurine config reset <key>`: Resets a setting to factory defaults (use `--all` to reset everything).
+*   **Core Settings**: `trigger_char`, `pause_hotkey`, `start_on_boot`.
+*   **UI Settings**: `spinner_style`, `pause_notifications_enabled`.
+*   **AI Settings**: `ai_provider`, `ai_model`, `ai_custom_endpoint`, `inline_ai_delimiter`.
+*   **Assist Settings**: `inline_tab_completion_enabled`, `inline_history_enabled`.
 
-## 4. Example Automations
-
-Practical templates for every major Taurine feature, organized by integration pattern:
-
-### 4.1 Basic Snippets
-*   Git Shortcut: >gs -> git status
-*   Common Phrase: >ty -> Thank you for your response!
-*   Code Bracket: >cur -> {\n    \n} (Standard expansion)
-
-### 4.2 Dynamic Snippets (With Arguments)
-Snippets can take arguments passed within double quotes after the trigger.
-*   Positional Args: >repo-"ereinaimer, taurine" -> https://github.com/ereinaimer/taurine
-    *   Snippet template: https://github.com/{0}/{1}
-*   Named Args & Defaults: >gh-"username=ereinaimer" -> https://github.com/ereinaimer/taurine
-    *   Snippet template: https://github.com/{username}/{repo=taurine}
-
-### 4.3 System Variables
-*   Contextual:
-    *   >hi -> {time.greeting}, {clipboard}! How can I help you?
-    *   >fn -> pub fn name() {\n    {cursor}\n}
-*   Generators:
-    *   >uuid -> ID: {uuid.v7}
-    *   >today -> Fixed on: {date.iso}
-    *   >log -> [{time.full}] {env.USER}: {clipboard}
-*   Environment:
-    *   >path -> Home: {env.HOME} (Unix) or Home: {env.USERPROFILE} (Windows)
-*   Keystroke Sequences:
-    *   >login -> admin{key.tab}password123{key.enter}
-    *   >select -> {key.ctrl+a}{key.backspace} (Use `mod` for cross-platform: {key.mod+a})
-    *   >slow -> Start...{delay.500ms}End.
-
-### 4.4 Inline Math (Instant Calculation)
-Math expansion works with any trigger character followed by a valid expression.
-*   Arithmetic: >15*4 -> 60
-*   Scientific: >sqrt(16) -> 4 | >2pi -> 6.2832
-*   Precedence: >(100-25)/3 -> 25 (BEDMAS compliant)
-*   Scientific Notation: >1.2e3 -> 1200
-
-### 4.5 Hybrid Templates
-*   Commit Message: >cmt -> feat({env.PWD}): {clipboard}\n\nSigned-off-by: {env.USER}
-*   Daily Log: >day -> # {date.long}\n- Started at {time.now.12h} in {env.COMPUTERNAME}\n- {cursor}
-
-### 4.6 Text Transformers
-*   Basic Literal: >greet -> {upper.'welcome'} -> WELCOME
-*   Direct Variable: >user -> {title.name} (Formats the name argument in Title Case)
-*   System Variable: >now -> {upper.time.now} -> 12:00 PM (Uppercases the current time)
-*   Deep Chaining: >id -> {shoutysnake.uuid.v4} -> A1B2-C3D4... (Uppercases and snakes the UUID)
-
-### 4.7 Shell Script Automations
-Execute arbitrary code and inject the `stdout` results into your active application.
-*   Python (Inline): >ip -> `taurine add script ip "print(requests.get('api.ipify.org').text)" -l python`
-*   Bash (System Info): >sys -> `taurine add script sys -f monitor.sh -l bash`
-*   Silent Background: >task -> (Runs a script without modifying the current focus area).
+### 2.5 AI Copilot
+*   `taurine ai add --provider <name>`: Adds a provider credential.
+*   `taurine ai models --provider <name>`: Lists models supported by a specific provider.
+*   `taurine ai list`: Lists all configured AI providers.
+*   `taurine ai remove --provider <name>`: Removes a provider's credentials.
+*   `taurine ai preset add/rm/list`: Manage shortcuts for specific AI personas or tasks.
 
 ---
 
-## 5. Dynamic Variables
+## 3. Dynamic Variables
 
-Taurine supports rich, dynamic content injection using the {variable} syntax. System variables are divided into three core categories:
+Taurine allows flexible snippets using `[variable_name]` placeholders. Arguments are passed at expansion time by appending them with a colon.
+Example: `taurine add hi "Hello, [name]!"` -> typing `>hi:erein ` outputs `Hello, erein!`.
 
-### 5.1 Content Generators
-Generators produce and inject new content into your expansions. Most support sub-formats via dot-notation (e.g., {date.iso}).
+### 3.1 Defaults and Spaces
+*   **Defaults**: Provide a fallback using `[variable=default]` (e.g., `Hello, [name=friend]!`).
+*   **Spaces**: If an argument contains spaces, wrap it in single or double quotes (`>hi:"John Doe" `).
 
-*   Date ({date.*}):
-    *   Formats: date.iso (YYYY-MM-DD), date.short (MM/DD/YYYY), date.long (Month DD, YYYY).
-    *   Components: date.weekday, date.year, date.month, date.month_name, date.day.
-    *   Modifiers: Supports .tomorrow and .yesterday prefixes (e.g., {date.tomorrow.iso}).
-*   Time ({time.*}):
-    *   Current: time.now (HH:mm), time.full (HH:mm:ss).
-    *   Formatting: Supports .12h and .24h modifiers (e.g., {time.now.12h}).
-    *   Utility: time.greeting (Context-aware), time.epoch (Unix timestamp), time.utc, time.tz (Offset).
-*   UUID ({uuid.*}):
-    *   Standards: uuid.v4 (Random), uuid.v7 (Time-ordered).
-    *   Compact: uuid.simple (32-character hex, no dashes).
-*   Environment ({env.*}):
-    *   Usage: {env.<VAR_NAME>} resolves to any available system environment variable (e.g., {env.USER}).
+### 3.2 System Variables
+System variables inject data directly from the machine or generate values on the fly using `[namespace.variable]` syntax:
+*   **Date/Time**: `[date.iso]`, `[date.long]`, `[time.now]`, `[time.now.12h]`, `[date.tomorrow]`, `[date.yesterday]`.
+*   **Contextual**: `[clipboard]` (captures current clipboard content before expansion).
+*   **Generators**: `[uuid.v4]`, `[uuid.v7]`, `[random.password]`, `[mock.name]`, `[mock.email]`.
+*   **Environment**: `[env.USER]`, `[env.HOME]`, `[sys.os]`, `[sys.cpu]`.
 
-### 5.2 Contextual Variables
-Contextual variables pull data from the active system state at the moment of expansion.
+### 3.3 Expansion Directives
+Directives control the behavior of the expansion process:
+*   **Keystroke**: `[key.tab]`, `[key.enter]`, `[key.ctrl+shift+t]`, `[key.mod+a]` (cross-platform modifier).
+*   **Delay**: `[delay.200ms]` pauses the sequence for exactly 200 milliseconds.
+*   **Cursor**: `[cursor]` defines the final caret position after expansion (ignored if `[key.*]` directives exist).
 
-*   Clipboard ({clipboard}):
-    *   Operation: Captures the current system clipboard content and injects it into the expansion.
-    *   Safety: The daemon captures the clipboard state *before* any expansion actions to ensure the data is preserved accurately.
-
-### 5.3 Expansion Directives
-Directives are special placeholders that do not produce text themselves but control the behavior of the expansion process (keystrokes, timing, and positioning).
-
-*   Keystroke ({key.*}):
-    *   Aliases: Single keys like tab, enter, esc, up, down, home, end, backspace, space.
-    *   Alphabets/Numbers: key.a..key.z, key.0..key.9, key.f1..key.f12.
-    *   Combinations: Supports + separator for modifier chords (e.g., {key.ctrl+shift+t}).
-    *   Platform Modifiers: mod (Cmd on macOS, Win/Ctrl elsewhere), win, cmd, opt.
-*   Delay ({delay.*}):
-    *   Usage: {delay.Xms} (e.g., {delay.200ms}) pauses the expansion sequence for exactly X milliseconds.
-    *   Utility: Essential for waiting for UI transitions or target applications to process field changes.
-*   Cursor ({cursor}):
-    *   Action: Defines the final caret (cursor) position after expansion is complete.
-    *   Mechanism: The engine calculates the required left-arrow offset and automatically simulates the necessary back-arrow keystrokes.
-    *   Conflict Rule: If a snippet contains any {key.*} directives, the {cursor} tag is ignored as a directive (treated as literal text) to avoid ambiguous positioning in multi-action sequences.
-
-### 5.4 Text Transformers ({transformer.*})
-Transformers modify the casing and structure of provided content (literals or variables) using dot-notation.
-
-*   Flattened Resolution: Resolve content directly without nesting braces (e.g., {upper.msg} resolves msg first, then uppercases it).
-*   Literal Handling: Supports literal strings wrapped in single or double quotes (e.g., {upper.'hello'}).
-*   Recursive Chaining: Apply multiple modifiers in a single tag (e.g., {upper.lower.val}).
-*   Format List:
-    *   Case Styles: upper, lower, title, camel, pascal.
-    *   Delimiters: snake, kebab, shoutysnake, shoutykebab, train.
+### 3.4 Text Transformers
+Transformers modify casing and structure using dot-notation:
+*   **Case Styles**: `upper`, `lower`, `title`, `camel`, `pascal`.
+*   **Delimiters**: `snake`, `kebab`, `shoutysnake`.
+*   **Usage**: Chain multiple transformers (e.g., `[upper.lower.val]`). Combine with defaults (e.g., `[name.title=friend]`). Use `urlencode` for links.
 
 ---
 
-## 7. Shell Script Automation
+## 4. Shell Script Automation
 
-Taurine integrates a background execution engine allowing triggers to run arbitrary scripts (Bash, Python, PowerShell, Node, Cmd) and inject their output directly into your application.
+Taurine integrates a background execution engine allowing triggers (words or hotkeys) to run arbitrary scripts (Bash, Python, PowerShell, Node, Cmd).
 
-### 7.1 Architecture & Workflow
-*   **Encapsulated Storage**: Scripts are stored as `zstd` compressed BLOBs within the SQLite database. They are never exported as local files, ensuring isolation and persistence across hardware migrations.
-*   **Execution Pipeline**: Uses `tokio::process::Command` for non-blocking execution. The daemon remains responsive even during heavy computational script tasks.
-*   **Feedback System**: Employs an asynchronous Braille spinner thread (`⠋`, `⠙`, `⠹`...) to provide minimal visual feedback during execution without stealing window focus.
-*   **Fidelity Injection**: Leverages a "clipboard-first" approach. The engine saves the user's clipboard, pastes the script result via simulated `Ctrl+V`/`Cmd+V`, and restores the original clipboard.
-
----
-
-## 8. Safety & Robustness
-
-As a background service with keyboard hook privileges, Taurine implements strict safety protocols:
-
-*   **Global Kill Switch**: Any physical user keystroke detected during a script's execution triggers an immediate hard-kill of the process tree and aborts the injection sequence.
-*   **Hanging Prevention**: All script `stdin` streams are explicitly dropped (`Stdio::null`) to prevent interactive prompts from causing background hangs.
-*   **Interpreters Check**: The engine proactively catches `ErrorKind::NotFound` to notify the user if an interpreter (like `python3` or `bash`) is missing from the system `$PATH`.
+*   **Encapsulated Storage**: Scripts are stored as `zstd` compressed BLOBs within the SQLite database.
+*   **Execution Pipeline**: Uses `tokio::process::Command` for non-blocking execution.
+*   **Feedback System**: Employs an asynchronous Braille spinner thread (`⠋`, `⠙`, `⠹`...) during execution.
+*   **Fidelity Injection**: Leverages a "clipboard-first" approach for injecting script `stdout`.
 
 ---
 
-## 9. Inline Math Expansion
+## 5. Inline Features
 
-Taurine can automatically evaluate mathematical expressions typed directly into any text field. Expansion occurs when the input buffer contains a valid math expression prefixed by the **trigger character** (e.g., >5+5 -> 10).
+### 5.1 Inline Math
+Evaluate mathematical expressions typed directly into any text field prefixed by the trigger character.
+*   Standard operations (`+`, `-`, `*`, `/`, `%`, `^`). Implicit multiplication supported (`>2(3+4)`).
+*   Scientific notation (`1.5e3`). Constants (`pi`, `e`). Functions (`sqrt`, `abs`, `floor`, `ceil`, `round`).
 
-### 9.1 Math Parser Capabilities
-*   BEDMAS Compliance: Standard order of operations (Brackets, Exponents, Division/Multiplication, Addition/Subtraction).
-*   Scientific Notation: Support for large/small numbers (e.g., 1.2e10 or 5E-3).
-*   Operators: Supports +, -, *, /, % (modulo), ^ (exponent).
-*   Implicit Multiplication: Automatically resolves expressions like 2(3+4) as 2 * (3 + 4).
-*   Constants & Functions:
-    *   Constants: pi, e.
-    *   Functions: sqrt(x), abs(x), floor(x), ceil(x), round(x).
+### 5.2 Inline AI Copilot
+Stream AI responses directly into the active text field.
+1.  Configure provider: `taurine config set ai_provider gemini`.
+2.  Trigger: Type `>ai ` followed by a **Space**.
+3.  Prompt: A delimiter (`` ` ``) appears. Type the prompt, close with another backtick, and hit **Space**.
 
----
-
-## 10. Hot Reload Support
-
-Taurine features a robust "Hot Reload" mechanism to ensure your productivity is never interrupted:
-*   Instant Sync: Every time an automation is added, updated, or deleted, the daemon automatically reloads its in-memory lookup cache.
-*   Settings Persistence: Updating application settings (e.g., trigger_char) triggers an immediate state synchronization without requiring a manual restart of the service.
+### 5.3 Inline Trigger Assist
+Headless assist features for word triggers, managed via config:
+*   **Tab Completion**: Cycle through matching word triggers using `Tab` and `Shift + Tab`.
+*   **History Navigation**: Navigate recently used triggers using the `Up` and `Down` arrow keys.
 
 ---
 
-## 11. Future Roadmap
+## 6. Project Architecture
 
-We are committed to making Taurine the most accessible keyboard automation tool:
-*   Cross-Platform UI: A simple, unified interface built with Flutter for Windows, Linux, and macOS.
-*   Fuzzy Search Overlay: A global command palette (powered by the Flutter UI) to help users discover and execute their automations instantly, removing the need to memorize every trigger prefix.
+Taurine is a modular Rust workspace designed for performance and safety.
+*   **core**: Foundations, database layer (rusqlite), and the custom interpolation/math engine.
+*   **cli**: Front-facing tool (clap) and OS service manager (`axoupdater` for updates).
+*   **daemon**: Background logic responsible for keyboard monitoring and text injection.
+    *   Windows/macOS: Uses `rdev` for global hooks.
+    *   Linux (Wayland/X11): Bypasses display servers entirely using `evdev` and `uinput` with kernel capabilities (`sudo setcap 'cap_dac_override+ep'`).
+*   **tui**: Interactive terminal interface (built with `ratatui`).
 
----
-
-## 12. Project Architecture
-
-Taurine is a modular Rust workspace designed for absolute performance and safety.
-* core: Foundations, database layer (rusqlite storing JSON settings), and the custom interpolation/math engine.
-* cli: Front-facing tool (clap) and OS service manager.
-* daemon: Background logic responsible for keyboard monitoring and text injection.
-    * Windows/macOS: Uses rdev for global hooks.
-    * Linux (Wayland/X11): Bypasses display servers entirely using evdev (listening) and uinput (injecting).
-    * IPC: The CLI and Daemon communicate strictly via gRPC (tonic).
-* tui: Interactive terminal interface (currently under development).
+### 6.1 System Paths
+*   **Windows**: `%LOCALAPPDATA%\Taurine`
+*   **Linux**: `~/.local/share/taurine`
+*   **macOS**: `~/Library/Application Support/Taurine`
+*   Contains `taurine.db` (Primary SQLite storage) and `logs/` (Daily rotating log files).
 
 ---
 
-## 13. System Paths
-
-Taurine stores data and logs in platform-specific local directories:
-
-| Platform | Path |
-|----------|------|
-| Windows | %LOCALAPPDATA%\Taurine |
-| Linux | ~/.local/share/taurine |
-| macOS | ~/Library/Application Support/Taurine |
-
-*   Database: taurine.db (Primary SQLite storage).
-*   Logs: logs/ (Daily rotating log files).
-
----
-
-## 14. AI Agent Best Practices & Coding Guidelines
+## 7. AI Agent Best Practices & Coding Guidelines
 
 When assisting with Taurine's codebase or usage, strictly adhere to these rules:
-1.  User Interaction: Use the taurine CLI commands directly for automation management. Do not suggest manual edits to taurine.db.
-2.  Linux Permissions: Never suggest X11 tools (xdotool, xmodmap) or running the daemon as root. Taurine achieves kernel-level Wayland support by applying capabilities to the binary (sudo setcap 'cap_dac_override+ep'). The daemon drops these privileges after acquiring file descriptors.
-3.  Error Handling: Use color-eyre for application-level error reporting and tracing for all logging.
-4.  Performance: Prefer zero-copy string references (&str) over allocations (String) in the hot path of the FastBuffer keystroke evaluator.
-
-## 15. Project License
-
-Taurine is Source-Available under the **Aimer Software License (ASL)**. It is free for non-commercial personal use; commercial rights and public redistribution are reserved.
-
----
+1.  **User Interaction**: Use the `taurine` CLI commands directly for automation management. Do not suggest manual edits to `taurine.db`.
+2.  **Linux Permissions**: Never suggest X11 tools (`xdotool`, `xmodmap`) or running the daemon as root. The daemon uses `setcap` for permissions and drops them after acquiring file descriptors.
+3.  **Error Handling**: Use `color-eyre` for application-level error reporting and `tracing` for logging.
+4.  **Performance**: Prefer zero-copy string references (`&str`) over allocations (`String`) in the hot path of the `FastBuffer` keystroke evaluator.
