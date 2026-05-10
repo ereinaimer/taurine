@@ -11,6 +11,7 @@ Taurine helps you type less, automate repetitive work, and run keyboard shortcut
 <!-- Outline -->
 
 <a href="https://github.com/ereinaimer/taurine/actions/workflows/ci.yml"><img src="https://shieldcn.dev/github/ci/ereinaimer/taurine.svg?label=build&mode=dark&statusDot=false&logo=github&size=xs&variant=outline" alt="Build Status" /></a>
+<a href="https://github.com/ereinaimer/taurine/releases"><img src="https://shieldcn.dev/github/ereinaimer/taurine/release.svg?label=version&mode=dark&logo=github&size=xs&variant=outline" alt="Latest Release" /></a>
 <a href="https://discord.gg/Kc9XmHJgsS"><img src="https://shieldcn.dev/discord/members/Kc9XmHJgsS.svg?mode=dark&size=xs&variant=outline" alt="Discord" /></a>
 <a href="https://github.com/ereinaimer/taurine/commits"><img src="https://shieldcn.dev/github/last-commit/ereinaimer/taurine.svg?mode=dark&size=xs&variant=outline" alt="Last Update" /></a>
 <a href="https://github.com/ereinaimer/taurine/stargazers"><img src="https://shieldcn.dev/github/stars/ereinaimer/taurine.svg?mode=dark&size=xs&variant=outline" alt="Stars" /></a>
@@ -23,6 +24,7 @@ Taurine helps you type less, automate repetitive work, and run keyboard shortcut
 <!-- Colored Outline -->
 
 <!-- <a href="https://github.com/ereinaimer/taurine/actions/workflows/ci.yml"><img src="https://shieldcn.dev/github/ci/ereinaimer/taurine.svg?label=build&mode=dark&statusDot=false&logo=github&size=xs&variant=outline&color=22c55e&logoColor=f8fafc&labelTextColor=f8fafc" alt="Build Status" /></a>
+<a href="https://github.com/ereinaimer/taurine/releases"><img src="https://shieldcn.dev/github/ereinaimer/taurine/release.svg?label=version&mode=dark&logo=github&size=xs&variant=outline&color=a855f7&logoColor=f8fafc&labelTextColor=f8fafc" alt="Latest Release" /></a>
 <a href="https://discord.gg/Kc9XmHJgsS"><img src="https://shieldcn.dev/discord/members/Kc9XmHJgsS.svg?mode=dark&size=xs&variant=outline&color=5865f2&logoColor=f8fafc&labelTextColor=f8fafc" alt="Discord" /></a>
 <a href="https://github.com/ereinaimer/taurine/commits"><img src="https://shieldcn.dev/github/last-commit/ereinaimer/taurine.svg?label=updated&mode=dark&size=xs&variant=outline&color=3b82f6&logoColor=f8fafc&labelTextColor=f8fafc" alt="Last Update" /></a>
 <a href="https://github.com/ereinaimer/taurine/stargazers"><img src="https://shieldcn.dev/github/stars/ereinaimer/taurine.svg?mode=dark&size=xs&variant=outline&color=fcd34d&logoColor=f8fafc&labelTextColor=f8fafc" alt="Stars" /></a>
@@ -36,6 +38,7 @@ Taurine helps you type less, automate repetitive work, and run keyboard shortcut
 
 
 <!-- <a href="https://github.com/ereinaimer/taurine/actions/workflows/ci.yml"><img src="https://shieldcn.dev/github/ci/ereinaimer/taurine.svg?label=build&mode=dark&statusDot=false&logo=github&size=xs&color=22c55e&logoColor=f8fafc&labelTextColor=f8fafc" alt="Build Status" /></a>
+<a href="https://github.com/ereinaimer/taurine/releases"><img src="https://shieldcn.dev/github/ereinaimer/taurine/release.svg?label=version&mode=dark&logo=github&size=xs&color=a855f7&logoColor=f8fafc&labelTextColor=f8fafc" alt="Latest Release" /></a>
 <a href="https://discord.gg/Kc9XmHJgsS"><img src="https://shieldcn.dev/discord/members/Kc9XmHJgsS.svg?mode=dark&size=xs&color=5865f2&logoColor=f8fafc&labelTextColor=f8fafc" alt="Discord" /></a>
 <a href="https://github.com/ereinaimer/taurine/commits"><img src="https://shieldcn.dev/github/last-commit/ereinaimer/taurine.svg?label=updated&mode=dark&size=xs&color=3b82f6&logoColor=f8fafc&labelTextColor=f8fafc" alt="Last Update" /></a>
 <a href="https://github.com/ereinaimer/taurine/stargazers"><img src="https://shieldcn.dev/github/stars/ereinaimer/taurine.svg?mode=dark&size=xs&color=fcd34d" alt="Stars" /></a>
