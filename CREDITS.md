@@ -26,3 +26,5 @@ Taurine is built on the shoulders of some outstanding open source projects.
 |---|---|
 | [Fumadocs](https://fumadocs.vercel.app/) | Documentation site framework |
 | [OpenScreen](https://github.com/siddharthvaddem/openscreen) | Screen capture tool used for the demo video |
+| [cargo-dist](https://github.com/axodotdev/cargo-dist) | Packaging, distributions, and CI workflow generation |
+| [pre-commit](https://pre-commit.com/) | Managing and maintaining Git pre-commit hooks |
