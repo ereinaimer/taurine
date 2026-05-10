@@ -4,6 +4,15 @@ A fast, secure and easy to use automation software for text expansion and keyboa
 
 Taurine helps you type less, automate repetitive work, and run keyboard shortcuts from anywhere on your computer.
 
+<p align="center">
+  <a href="#features">Features</a> ·
+  <a href="#installation">Install</a> ·
+  <a href="#keyboard-shortcuts-and-hotkeys">Hotkeys</a> ·
+  <a href="#scripts-and-commands">Scripts</a> ·
+  <a href="#inline-ai">AI</a> ·
+  <a href="#faq">FAQ</a>
+</p>
+
 <video src="https://github.com/user-attachments/assets/2e51336a-7951-4d01-9123-747dbc358968" controls width="100%"></video>
 
 <div align="center">
