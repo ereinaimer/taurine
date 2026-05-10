@@ -2,9 +2,12 @@
 
 ## Supported Versions
 
-Taurine is currently in active development and has not yet published any official releases. 
+| Version | Supported          |
+| ------- | ------------------ |
+| 1.x     | :white_check_mark: |
+| < 1.0   | :x:                |
 
-While there are no stable versions to support at this time, we take security seriously from day one. If you discover a vulnerability in the `main` branch or any current development build, we highly encourage you to report it so it can be addressed before our first official release. Once stable versions are published, this section will be updated with a support matrix.
+We take security seriously from day one. If you discover a vulnerability in any current `1.x` release or the `main` branch, we highly encourage you to report it so it can be addressed immediately.
 
 ## Reporting a Vulnerability
 
