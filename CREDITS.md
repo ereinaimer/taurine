@@ -19,6 +19,10 @@ Taurine is built on the shoulders of some outstanding open source projects.
 | [service-manager](https://github.com/chipsenkbeil/service-manager-rs) | Cross-platform system service management |
 | [arboard](https://github.com/1Password/arboard) | Clipboard access across all platforms |
 | [inquire](https://github.com/mikaelmello/inquire) | Interactive terminal prompts for the CLI |
+| [axoupdater](https://github.com/axodotdev/axoupdater) | Self-updating client for cargo-dist releases |
+| [color-eyre](https://github.com/eyre-rs/color-eyre) | Application-level error reporting and panic handling |
+| [tracing](https://github.com/tokio-rs/tracing) | Application-level logging and diagnostics |
+| [comfy-table](https://github.com/Nukesor/comfy-table) | Dynamic terminal table formatting for the CLI |
 
 ### Tooling
 
