@@ -8,8 +8,6 @@ icon: Rocket
 Taurine is a fast and secure text expander and keyboard automation tool
 
 import { InteractiveExpander } from '@/components/interactive-expander';
-import { Card, Cards } from 'fumadocs-ui/components/card';
-import { Cpu, LayoutTemplate, Database, Terminal } from 'lucide-react';
 
 ## How it Works
 
@@ -48,35 +46,3 @@ taurine rm gm
 ```
 Clean up triggers you no longer need.
 </Steps>
-
-## Features
-
-<Cards>
-  <Card 
-    icon={<Cpu />} 
-    title="Taurine Core" 
-    description="Handles most of the logic, including document search, content source adapters, and Markdown extensions." 
-    href="/docs/core" 
-  />
-  
-  <Card 
-    icon={<LayoutTemplate />} 
-    title="Taurine UI" 
-    description="The default theme of Taurine offers a beautiful look for documentation sites and interactive components." 
-    href="/docs/ui" 
-  />
-  
-  <Card 
-    icon={<Database />} 
-    title="Taurine Source" 
-    description="The source of your content, can be a CMS or local data layers like Fumadocs MDX (the official content source)." 
-    href="/docs/content-source" 
-  />
-  
-  <Card 
-    icon={<Terminal />} 
-    title="Taurine CLI" 
-    description="A command line tool to install UI components and automate things, useful for customizing layouts." 
-    href="/docs/cli" 
-  />
-</Cards>
