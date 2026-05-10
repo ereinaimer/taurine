@@ -110,7 +110,7 @@ enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
-    /// Manage Inline AI Copilot credentials and provider metadata
+    /// Configure AI settings
     Ai {
         #[command(subcommand)]
         action: AiAction,
