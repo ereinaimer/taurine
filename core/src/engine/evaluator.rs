@@ -2234,6 +2234,41 @@ mod tests {
     }
 
     #[test]
+    fn inline_ai_success_path_returns_to_normal_and_allows_later_word_expansion() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![(
+            "gm".to_string(),
+            crate::db::crud::AutomationAction::text("Good morning!"),
+        )]);
+        let mut eval = Evaluator::new(state.clone());
+
+        for c in ">ai ".chars() {
+            let _ = eval.process_event(EngineEvent::Char(c));
+        }
+        for c in "What is Rust?`".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        let ai_result = eval
+            .process_event(EngineEvent::Char(' '))
+            .expect("inline ai follow-up should dispatch on closing delimiter plus space");
+        assert_eq!(state.engine_mode(), EngineMode::Normal);
+        assert_inline_ai_follow_up(&ai_result, "What is Rust?", None);
+
+        for c in ">gm".chars() {
+            assert_eq!(eval.process_event(EngineEvent::Char(c)), None);
+        }
+
+        let expansion = eval
+            .process_event(EngineEvent::Char(' '))
+            .expect("normal word trigger should still expand after inline ai success");
+        assert_eq!(
+            expansion.steps,
+            vec![ExpansionStep::Text("Good morning!".to_string())]
+        );
+    }
+
+    #[test]
     fn test_ai_capture_interrupted_by_esc_reverts_to_normal() {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![(

@@ -5,7 +5,7 @@ use arboard::Clipboard;
 use rdev::{EventType, Key, simulate};
 #[cfg(not(target_os = "linux"))]
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::Duration;
@@ -72,47 +72,117 @@ pub static IS_INJECTING: AtomicBool = AtomicBool::new(false);
 /// and aborts early if set, restoring the clipboard and releasing modifiers.
 pub static INJECTION_ABORT: AtomicBool = AtomicBool::new(false);
 
+static INJECTION_SCOPE_DEPTH: AtomicUsize = AtomicUsize::new(0);
+static INJECTION_VISIBILITY_DEPTH: AtomicUsize = AtomicUsize::new(0);
+
 /// Set to `true` momentarily while we are simulating a keystroke. The hook thread
 /// checks this to distinguish physical from synthetic keyboard events.
 #[allow(dead_code)]
 pub static IS_SIMULATING: AtomicBool = AtomicBool::new(false);
 
-/// Marks a synthetic injection scope as active and restores the prior state when dropped.
+#[derive(Clone, Copy)]
+struct InjectionGate<'a> {
+    is_injecting: &'a AtomicBool,
+    abort: &'a AtomicBool,
+    scope_depth: &'a AtomicUsize,
+    visibility_depth: &'a AtomicUsize,
+}
+
+impl<'a> InjectionGate<'a> {
+    const fn new(
+        is_injecting: &'a AtomicBool,
+        abort: &'a AtomicBool,
+        scope_depth: &'a AtomicUsize,
+        visibility_depth: &'a AtomicUsize,
+    ) -> Self {
+        Self {
+            is_injecting,
+            abort,
+            scope_depth,
+            visibility_depth,
+        }
+    }
+
+    fn begin_scope(self) {
+        let was_outermost_scope = self.scope_depth.fetch_add(1, Ordering::SeqCst) == 0;
+        self.visibility_depth.fetch_add(1, Ordering::SeqCst);
+        self.is_injecting.store(true, Ordering::SeqCst);
+        if was_outermost_scope {
+            self.abort.store(false, Ordering::SeqCst);
+        }
+    }
+
+    fn end_scope(self) {
+        let previous_scope_depth = self.scope_depth.fetch_sub(1, Ordering::SeqCst);
+        debug_assert!(previous_scope_depth > 0, "scope depth underflow");
+        let remaining_scope_depth = previous_scope_depth.saturating_sub(1);
+
+        let previous_visibility_depth = self.visibility_depth.fetch_sub(1, Ordering::SeqCst);
+        debug_assert!(previous_visibility_depth > 0, "visibility depth underflow");
+        let remaining_visibility_depth = previous_visibility_depth.saturating_sub(1);
+
+        self.is_injecting
+            .store(remaining_visibility_depth > 0, Ordering::SeqCst);
+        if remaining_scope_depth == 0 {
+            self.abort.store(false, Ordering::SeqCst);
+        }
+    }
+
+    fn begin_visibility(self) {
+        self.visibility_depth.fetch_add(1, Ordering::SeqCst);
+        self.is_injecting.store(true, Ordering::SeqCst);
+    }
+
+    fn end_visibility(self) {
+        let previous_visibility_depth = self.visibility_depth.fetch_sub(1, Ordering::SeqCst);
+        debug_assert!(previous_visibility_depth > 0, "visibility depth underflow");
+        let remaining_visibility_depth = previous_visibility_depth.saturating_sub(1);
+        self.is_injecting
+            .store(remaining_visibility_depth > 0, Ordering::SeqCst);
+    }
+}
+
+fn injection_gate() -> InjectionGate<'static> {
+    InjectionGate::new(
+        &IS_INJECTING,
+        &INJECTION_ABORT,
+        &INJECTION_SCOPE_DEPTH,
+        &INJECTION_VISIBILITY_DEPTH,
+    )
+}
+
+/// Marks a synthetic injection scope as active and releases it when dropped.
 ///
-/// This makes `IS_INJECTING` panic-safe and also supports nested scopes such as inline AI output
-/// streams that temporarily spawn their own clipboard-backed injectors.
+/// The guard uses ref-counted bookkeeping so nested scopes can safely outlive the scope that
+/// spawned them, which is required for inline AI follow-up tasks that finish on another thread.
 pub struct InjectionFlagGuard {
-    previous_injecting: bool,
-    previous_abort: bool,
+    gate: InjectionGate<'static>,
 }
 
 impl InjectionFlagGuard {
     pub fn begin() -> Self {
-        let previous_injecting = IS_INJECTING.swap(true, Ordering::SeqCst);
-        let previous_abort = INJECTION_ABORT.load(Ordering::SeqCst);
-        INJECTION_ABORT.store(false, Ordering::SeqCst);
+        let gate = injection_gate();
+        gate.begin_scope();
 
-        debug!(previous_injecting, previous_abort, "Injection guard armed");
+        debug!(
+            scope_depth = INJECTION_SCOPE_DEPTH.load(Ordering::SeqCst),
+            visibility_depth = INJECTION_VISIBILITY_DEPTH.load(Ordering::SeqCst),
+            "Injection guard armed"
+        );
 
-        Self {
-            previous_injecting,
-            previous_abort,
-        }
+        Self { gate }
     }
 }
 
 impl Drop for InjectionFlagGuard {
     fn drop(&mut self) {
-        if self.previous_injecting {
-            INJECTION_ABORT.store(self.previous_abort, Ordering::SeqCst);
-        } else {
-            INJECTION_ABORT.store(false, Ordering::SeqCst);
-        }
-        IS_INJECTING.store(self.previous_injecting, Ordering::SeqCst);
+        self.gate.end_scope();
 
         debug!(
-            restored_injecting = self.previous_injecting,
-            restored_abort = self.previous_injecting && self.previous_abort,
+            remaining_scope_depth = INJECTION_SCOPE_DEPTH.load(Ordering::SeqCst),
+            remaining_visibility_depth = INJECTION_VISIBILITY_DEPTH.load(Ordering::SeqCst),
+            restored_injecting = IS_INJECTING.load(Ordering::SeqCst),
+            restored_abort = INJECTION_ABORT.load(Ordering::SeqCst),
             "Injection guard reset"
         );
     }
@@ -121,22 +191,23 @@ impl Drop for InjectionFlagGuard {
 /// Temporarily hides spinner-driven synthetic input from the hook while preserving any outer
 /// injection state.
 pub struct InjectionVisibilityGuard {
-    previous_injecting: bool,
+    gate: InjectionGate<'static>,
 }
 
 impl InjectionVisibilityGuard {
     pub fn begin() -> Self {
-        Self {
-            previous_injecting: IS_INJECTING.swap(true, Ordering::SeqCst),
-        }
+        let gate = injection_gate();
+        gate.begin_visibility();
+        Self { gate }
     }
 }
 
 impl Drop for InjectionVisibilityGuard {
     fn drop(&mut self) {
-        IS_INJECTING.store(self.previous_injecting, Ordering::SeqCst);
+        self.gate.end_visibility();
         debug!(
-            restored_injecting = self.previous_injecting,
+            remaining_visibility_depth = INJECTION_VISIBILITY_DEPTH.load(Ordering::SeqCst),
+            restored_injecting = IS_INJECTING.load(Ordering::SeqCst),
             "Injection visibility guard reset"
         );
     }
@@ -1198,6 +1269,8 @@ mod tests {
     use crate::platform::ClipboardManager;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc, Barrier};
+    use taurine_core::db::crud::AutomationAction;
+    use taurine_core::engine::{EngineEvent, EngineState, Evaluator};
 
     /// Mock clipboard: records operations and supports simulating a race where post-write read
     /// does not match the payload (verify failure).
@@ -1246,6 +1319,121 @@ mod tests {
             self.text = text.to_string();
             Ok(())
         }
+    }
+
+    fn assert_normal_expansion_still_works() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![(
+            "gm".to_string(),
+            AutomationAction::text("Good morning!"),
+        )]);
+        let mut evaluator = Evaluator::new(state);
+
+        for ch in ">gm".chars() {
+            assert_eq!(evaluator.process_event(EngineEvent::Char(ch)), None);
+        }
+
+        let expansion = evaluator
+            .process_event(EngineEvent::Char(' '))
+            .expect("word trigger should still expand after AI cleanup");
+        assert_eq!(
+            expansion.steps,
+            vec![ExpansionStep::Text("Good morning!".to_string())]
+        );
+    }
+
+    #[test]
+    fn injection_gate_successful_follow_up_cleanup_reenables_normal_expansion() {
+        let is_injecting = AtomicBool::new(false);
+        let abort = AtomicBool::new(false);
+        let scope_depth = AtomicUsize::new(0);
+        let visibility_depth = AtomicUsize::new(0);
+        let gate = InjectionGate::new(&is_injecting, &abort, &scope_depth, &visibility_depth);
+
+        gate.begin_scope();
+        gate.begin_scope();
+        gate.end_scope();
+
+        assert!(
+            is_injecting.load(Ordering::SeqCst),
+            "the follow-up scope must stay active after the dispatch scope exits"
+        );
+
+        gate.end_scope();
+
+        assert!(
+            !is_injecting.load(Ordering::SeqCst),
+            "successful follow-up cleanup must release hook suppression"
+        );
+        assert!(
+            !abort.load(Ordering::SeqCst),
+            "successful cleanup must leave no stale abort signal behind"
+        );
+        assert_normal_expansion_still_works();
+    }
+
+    #[test]
+    fn injection_gate_cancelled_follow_up_cleanup_clears_abort_and_reenables_normal_expansion() {
+        let is_injecting = AtomicBool::new(false);
+        let abort = AtomicBool::new(false);
+        let scope_depth = AtomicUsize::new(0);
+        let visibility_depth = AtomicUsize::new(0);
+        let gate = InjectionGate::new(&is_injecting, &abort, &scope_depth, &visibility_depth);
+
+        gate.begin_scope();
+        gate.begin_scope();
+        abort.store(true, Ordering::SeqCst);
+
+        gate.end_scope();
+        assert!(
+            abort.load(Ordering::SeqCst),
+            "the active follow-up should still observe the cancel request until it exits"
+        );
+
+        gate.end_scope();
+
+        assert!(
+            !is_injecting.load(Ordering::SeqCst),
+            "cancelled follow-up cleanup must release hook suppression"
+        );
+        assert!(
+            !abort.load(Ordering::SeqCst),
+            "cancelled cleanup must clear the abort signal for later triggers"
+        );
+        assert_normal_expansion_still_works();
+    }
+
+    #[test]
+    fn injection_gate_error_cleanup_waits_for_overlapping_visibility_scope_before_releasing() {
+        let is_injecting = AtomicBool::new(false);
+        let abort = AtomicBool::new(false);
+        let scope_depth = AtomicUsize::new(0);
+        let visibility_depth = AtomicUsize::new(0);
+        let gate = InjectionGate::new(&is_injecting, &abort, &scope_depth, &visibility_depth);
+
+        gate.begin_scope();
+        gate.begin_scope();
+        gate.begin_visibility();
+
+        gate.end_scope();
+        gate.end_scope();
+
+        assert!(
+            is_injecting.load(Ordering::SeqCst),
+            "an overlapping spinner or UI-injection frame must keep suppression active until it finishes"
+        );
+
+        gate.end_visibility();
+
+        assert!(
+            !is_injecting.load(Ordering::SeqCst),
+            "error cleanup must fully release suppression after the last overlapping scope ends"
+        );
+        assert!(
+            !abort.load(Ordering::SeqCst),
+            "error cleanup must not leak abort state into future trigger handling"
+        );
+        assert_normal_expansion_still_works();
     }
 
     #[cfg(not(target_os = "linux"))]
