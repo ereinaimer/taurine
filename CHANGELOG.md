@@ -5,7 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2026-05-10
+## [1.0.0-alpha.2] - 2026-05-21
+
+### Added
+- **Audio Feedback**: Asynchronous audio feedback when toggling pause and resume states
+- **Audio Configuration**: Support for configuring pause/resume audio feedback in CLI and TUI
+- **Windows Metadata**: Embedded native Windows file version metadata into the CLI binary
+
+### Fixed
+- **Inline AI Lifecycle**: Resolved injection gating issues where text expansion/taurine stopped working after using inline AI
+- **Audio Output Switching**: Resolved audio playback not switching to speakers after headphones are unplugged
+- **CI/CD Linux Support**: Added `libasound2-dev` and other build dependencies to CI and Linux distribution packages to support audio output
+
+## [1.0.0-alpha.1] - 2026-05-10
 
 ### Added
 - **Text Expansion**: Turn short triggers into full text instantly in any application

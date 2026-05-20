@@ -26,6 +26,10 @@ protobuf-compiler = "*"
 libxkbcommon-dev = "*"
 libdbus-1-dev = "*"
 pkg-config = "*"
+libclang-dev = "*"
+libwayland-dev = "*"
+libevdev-dev = "*"
+libasound2-dev = "*"
 
 [dist.dependencies.chocolatey]
 protoc = "*"

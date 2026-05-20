@@ -4679,7 +4679,7 @@ dependencies = [
 
 [[package]]
 name = "taurine"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "axoupdater",
  "chrono",
@@ -4714,7 +4714,7 @@ dependencies = [
 
 [[package]]
 name = "taurine_core"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "aes-gcm",
  "ahash",
@@ -4763,7 +4763,7 @@ dependencies = [
 
 [[package]]
 name = "taurine_daemon"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "arboard",
  "caps",
@@ -4785,7 +4785,7 @@ dependencies = [
 
 [[package]]
 name = "taurine_tui"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "crossterm",
  "ratatui",
