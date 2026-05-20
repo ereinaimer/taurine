@@ -27,6 +27,10 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
         "pause_notifications_enabled",
         &settings.pause_notifications_enabled.to_string(),
     ]);
+    table.add_row(vec![
+        "pause_audio_enabled",
+        &settings.pause_audio_enabled.to_string(),
+    ]);
     table.add_row(vec!["start_on_boot", &settings.start_on_boot.to_string()]);
     table.add_row(vec![
         "inline_tab_completion_enabled",
@@ -83,6 +87,7 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
             info!("Updated pause_hotkey to: {}", value);
         }
         "pause_notifications_enabled"
+        | "pause_audio_enabled"
         | "start_on_boot"
         | "inline_tab_completion_enabled"
         | "inline_history_enabled" => {
@@ -175,6 +180,13 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
                 defaults.pause_notifications_enabled
             );
         }
+        "pause_audio_enabled" => {
+            manager.update_setting(actual_key, defaults.pause_audio_enabled)?;
+            info!(
+                "Reset pause_audio_enabled to default: {}",
+                defaults.pause_audio_enabled
+            );
+        }
         "start_on_boot" => {
             manager.update_setting(actual_key, defaults.start_on_boot)?;
             info!("Reset start_on_boot to default: {}", defaults.start_on_boot);
@@ -248,6 +260,7 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
         "pause_notifications_enabled",
         defaults.pause_notifications_enabled,
     )?;
+    manager.update_setting("pause_audio_enabled", defaults.pause_audio_enabled)?;
     manager.update_setting("start_on_boot", defaults.start_on_boot)?;
     manager.update_setting(
         "inline_tab_completion_enabled",

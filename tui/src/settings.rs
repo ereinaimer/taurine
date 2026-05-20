@@ -11,6 +11,7 @@ pub(crate) enum SettingKey {
     TriggerChar,
     PauseHotkey,
     PauseNotificationsEnabled,
+    PauseAudioEnabled,
     StartOnBoot,
     InlineTabCompletionEnabled,
     InlineHistoryEnabled,
@@ -23,10 +24,11 @@ pub(crate) enum SettingKey {
 }
 
 impl SettingKey {
-    pub(crate) const ALL: [Self; 12] = [
+    pub(crate) const ALL: [Self; 13] = [
         Self::TriggerChar,
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
+        Self::PauseAudioEnabled,
         Self::StartOnBoot,
         Self::InlineTabCompletionEnabled,
         Self::InlineHistoryEnabled,
@@ -43,6 +45,7 @@ impl SettingKey {
             Self::TriggerChar => "trigger_char",
             Self::PauseHotkey => "pause_hotkey",
             Self::PauseNotificationsEnabled => "pause_notifications_enabled",
+            Self::PauseAudioEnabled => "pause_audio_enabled",
             Self::StartOnBoot => "start_on_boot",
             Self::InlineTabCompletionEnabled => "inline_tab_completion_enabled",
             Self::InlineHistoryEnabled => "inline_history_enabled",
@@ -60,6 +63,7 @@ impl SettingKey {
             Self::TriggerChar => "Trigger Character",
             Self::PauseHotkey => "Pause Hotkey",
             Self::PauseNotificationsEnabled => "Pause Notifications",
+            Self::PauseAudioEnabled => "Pause Audio",
             Self::StartOnBoot => "Start on Boot",
             Self::InlineTabCompletionEnabled => "Inline Tab Completion",
             Self::InlineHistoryEnabled => "Inline History",
@@ -79,6 +83,7 @@ impl SettingKey {
             Self::PauseNotificationsEnabled => {
                 "Show a notification when Taurine is paused or resumed"
             }
+            Self::PauseAudioEnabled => "Play an audio cue when Taurine is paused or resumed",
             Self::StartOnBoot => "Start Taurine automatically when the system starts",
             Self::InlineTabCompletionEnabled => {
                 "Use Tab and Shift+Tab to cycle trigger completions after the trigger character"
@@ -98,6 +103,7 @@ impl SettingKey {
     pub(crate) const fn editor_kind(self) -> EditorKind {
         match self {
             Self::PauseNotificationsEnabled
+            | Self::PauseAudioEnabled
             | Self::StartOnBoot
             | Self::InlineTabCompletionEnabled
             | Self::InlineHistoryEnabled => EditorKind::Toggle,
@@ -115,6 +121,7 @@ impl SettingKey {
             Self::TriggerChar => settings.trigger_char.to_string(),
             Self::PauseHotkey => settings.pause_hotkey.clone(),
             Self::PauseNotificationsEnabled => settings.pause_notifications_enabled.to_string(),
+            Self::PauseAudioEnabled => settings.pause_audio_enabled.to_string(),
             Self::StartOnBoot => settings.start_on_boot.to_string(),
             Self::InlineTabCompletionEnabled => settings.inline_tab_completion_enabled.to_string(),
             Self::InlineHistoryEnabled => settings.inline_history_enabled.to_string(),
@@ -139,6 +146,7 @@ impl SettingKey {
             Self::AiCustomEndpoint => settings.ai_custom_endpoint.clone().unwrap_or_default(),
             Self::InlineAiDelimiter => settings.inline_ai_delimiter.to_string(),
             Self::PauseNotificationsEnabled
+            | Self::PauseAudioEnabled
             | Self::StartOnBoot
             | Self::InlineTabCompletionEnabled
             | Self::InlineHistoryEnabled
@@ -271,6 +279,7 @@ impl SettingsPageState {
             SettingKey::PauseNotificationsEnabled => {
                 (!self.settings.pause_notifications_enabled).to_string()
             }
+            SettingKey::PauseAudioEnabled => (!self.settings.pause_audio_enabled).to_string(),
             SettingKey::StartOnBoot => (!self.settings.start_on_boot).to_string(),
             SettingKey::InlineTabCompletionEnabled => {
                 (!self.settings.inline_tab_completion_enabled).to_string()
@@ -678,7 +687,7 @@ mod tests {
 
     #[test]
     fn every_setting_has_a_descriptor() {
-        assert_eq!(SettingKey::ALL.len(), 12);
+        assert_eq!(SettingKey::ALL.len(), 13);
     }
 
     #[test]
@@ -697,6 +706,10 @@ mod tests {
     fn boolean_settings_are_toggles() {
         assert_eq!(
             SettingKey::PauseNotificationsEnabled.editor_kind(),
+            EditorKind::Toggle
+        );
+        assert_eq!(
+            SettingKey::PauseAudioEnabled.editor_kind(),
             EditorKind::Toggle
         );
         assert_eq!(SettingKey::StartOnBoot.editor_kind(), EditorKind::Toggle);
@@ -769,8 +782,12 @@ mod tests {
 
     #[test]
     fn space_toggles_boolean_setting() {
+        let selected = SettingKey::ALL
+            .iter()
+            .position(|&k| k == SettingKey::PauseNotificationsEnabled)
+            .unwrap();
         let mut state = SettingsPageState {
-            selected: 2,
+            selected,
             ..Default::default()
         };
         let interaction = state.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
@@ -789,8 +806,12 @@ mod tests {
 
     #[test]
     fn enter_on_spinner_style_opens_select_modal() {
+        let selected = SettingKey::ALL
+            .iter()
+            .position(|&k| k == SettingKey::SpinnerStyle)
+            .unwrap();
         let mut state = SettingsPageState {
-            selected: 7,
+            selected,
             ..Default::default()
         };
         state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
@@ -828,8 +849,12 @@ mod tests {
 
     #[test]
     fn pressing_r_creates_reset_action_for_selected_setting() {
+        let selected = SettingKey::ALL
+            .iter()
+            .position(|&k| k == SettingKey::InlineTabCompletionEnabled)
+            .unwrap();
         let mut state = SettingsPageState {
-            selected: 4,
+            selected,
             ..Default::default()
         };
         let interaction = state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
@@ -886,8 +911,12 @@ mod tests {
 
     #[test]
     fn pressing_y_confirms_reset_after_modal_opens() {
+        let selected = SettingKey::ALL
+            .iter()
+            .position(|&k| k == SettingKey::InlineTabCompletionEnabled)
+            .unwrap();
         let mut state = SettingsPageState {
-            selected: 4,
+            selected,
             ..Default::default()
         };
         state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
@@ -902,15 +931,19 @@ mod tests {
 
     #[test]
     fn unrelated_keys_are_ignored_while_reset_modal_is_open() {
+        let selected = SettingKey::ALL
+            .iter()
+            .position(|&k| k == SettingKey::PauseAudioEnabled)
+            .unwrap();
         let mut state = SettingsPageState {
-            selected: 3,
+            selected,
             ..Default::default()
         };
         state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
 
         let interaction = state.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
 
-        assert_eq!(state.selected_index(), 3);
+        assert_eq!(state.selected_index(), selected);
         assert!(interaction.pending_reset().is_none());
         assert!(!interaction.should_close_modal());
         assert!(matches!(
@@ -921,8 +954,12 @@ mod tests {
 
     #[test]
     fn reset_modal_uses_selected_setting_and_default_value() {
+        let selected = SettingKey::ALL
+            .iter()
+            .position(|&k| k == SettingKey::AiCustomEndpoint)
+            .unwrap();
         let mut state = SettingsPageState {
-            selected: 10,
+            selected,
             ..Default::default()
         };
         state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));

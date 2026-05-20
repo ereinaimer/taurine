@@ -5,7 +5,7 @@ pub fn notify_pause_toggled(paused: bool) {
     let (summary, body) = if paused {
         ("Taurine Paused", "Automations are currently disabled.")
     } else {
-        ("Taurine Resumed", "Locked in and ready to go!")
+        ("Taurine Resumed", "Automations are active.")
     };
 
     // Best-effort: notifications must never crash the hook thread.
