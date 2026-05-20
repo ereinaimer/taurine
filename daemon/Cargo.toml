@@ -18,7 +18,7 @@ notify-rust = "4"
 genai = "0.5.3"
 futures = "0.3"
 zeroize = "1.8"
-rodio = { version = "0.19", default-features = false, features = ["symphonia-vorbis"] }
+rodio = { version = "0.19", default-features = false, features = ["symphonia-wav"] }
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 rdev = { version = "0.5.3", features = ["unstable_grab"] }

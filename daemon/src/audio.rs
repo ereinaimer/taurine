@@ -19,10 +19,18 @@ pub fn init_audio_system() -> mpsc::Sender<bool> {
 
         while let Some(is_paused) = rx.blocking_recv() {
             let data: &[u8] = if is_paused {
-                include_bytes!("../../assets/audio/pause.ogg")
+                include_bytes!("../../assets/audio/pause.wav")
             } else {
-                include_bytes!("../../assets/audio/resume.ogg")
+                include_bytes!("../../assets/audio/resume.wav")
             };
+
+            tracing::debug!(
+                "Audio buffer first 4 bytes: {:02X} {:02X} {:02X} {:02X}",
+                data[0],
+                data[1],
+                data[2],
+                data[3]
+            );
 
             let cursor = Cursor::new(data);
             match Decoder::new(cursor) {
