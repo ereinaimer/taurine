@@ -36,6 +36,12 @@ impl<'a> SettingsManager<'a> {
             settings.pause_notifications_enabled = v;
         }
 
+        if let Ok(Some(val)) = get_setting_value(self.conn, "pause_audio_enabled")
+            && let Ok(v) = serde_json::from_str::<bool>(&val)
+        {
+            settings.pause_audio_enabled = v;
+        }
+
         if let Ok(Some(val)) = get_setting_value(self.conn, "start_on_boot")
             && let Ok(v) = serde_json::from_str::<bool>(&val)
         {

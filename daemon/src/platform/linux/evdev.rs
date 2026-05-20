@@ -80,6 +80,7 @@ fn update_flag(flag: &mut bool, is_press: bool, is_release: bool) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
     state: Arc<taurine_core::engine::EngineState>,
@@ -88,6 +89,8 @@ pub fn start_listener(
     pause_hotkey: Arc<RwLock<HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     runtime_handle: Handle,
+    pause_audio_enabled: Arc<AtomicBool>,
+    audio_tx: tokio::sync::mpsc::Sender<bool>,
 ) {
     let mut devices = vec![];
     let input_dir = "/dev/input";
@@ -158,6 +161,8 @@ pub fn start_listener(
         let pause_hotkey = pause_hotkey.clone();
         let spinner_style = spinner_style.clone();
         let runtime_handle = runtime_handle.clone();
+        let pause_audio_enabled = pause_audio_enabled.clone();
+        let audio_tx = audio_tx.clone();
 
         thread::spawn(move || {
             let mut xkb = XkbMapper::default();
@@ -198,6 +203,8 @@ pub fn start_listener(
                                     &pause_hotkey,
                                     &spinner_style,
                                     &runtime_handle,
+                                    &pause_audio_enabled,
+                                    &audio_tx,
                                     &mut xkb,
                                     &mut modifier_sides,
                                     &mut hotkey_evaluator,
@@ -221,6 +228,8 @@ pub fn start_listener(
                                 &pause_hotkey,
                                 &spinner_style,
                                 &runtime_handle,
+                                &pause_audio_enabled,
+                                &audio_tx,
                                 &mut xkb,
                                 &mut modifier_sides,
                                 &mut hotkey_evaluator,
@@ -249,6 +258,8 @@ fn process_frame(
     pause_hotkey: &Arc<RwLock<HotkeySpec>>,
     spinner_style: &Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     runtime_handle: &Handle,
+    pause_audio_enabled: &Arc<AtomicBool>,
+    audio_tx: &tokio::sync::mpsc::Sender<bool>,
     xkb: &mut XkbMapper,
     modifier_sides: &mut ModifierSides,
     hotkey_evaluator: &mut HotkeyEvaluator,
@@ -316,6 +327,9 @@ fn process_frame(
             paused.store(now_paused, Ordering::Relaxed);
             if pause_notifications_enabled.load(Ordering::Relaxed) {
                 notify::notify_pause_toggled(now_paused);
+            }
+            if pause_audio_enabled.load(Ordering::Relaxed) {
+                let _ = audio_tx.try_send(now_paused);
             }
             continue;
         }
@@ -651,6 +665,8 @@ mod tests {
             crate::hotkey::parse_pause_hotkey_setting("Alt + `").unwrap(),
         ));
         let spinner_style = Arc::new(RwLock::new(taurine_core::settings::SpinnerStyle::default()));
+        let pause_audio = Arc::new(AtomicBool::new(false));
+        let (audio_tx, _) = tokio::sync::mpsc::channel(1);
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -682,6 +698,8 @@ mod tests {
             &pause_hotkey,
             &spinner_style,
             &handle,
+            &pause_audio,
+            &audio_tx,
             &mut xkb,
             &mut modifier_sides,
             &mut hotkey_evaluator,

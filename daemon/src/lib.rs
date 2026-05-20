@@ -9,6 +9,7 @@ use tokio::sync::mpsc;
 use tonic::transport::Server;
 use tracing::{debug, error, info};
 
+mod audio;
 mod clipboard_history;
 mod engine;
 mod hook;
@@ -91,12 +92,17 @@ pub fn start() -> taurine_core::error::Result<()> {
     let pause_notifications_enabled = Arc::new(std::sync::atomic::AtomicBool::new(
         pause_notifications_enabled,
     ));
+    let pause_audio_enabled = Arc::new(std::sync::atomic::AtomicBool::new(
+        settings.pause_audio_enabled,
+    ));
     let hook_health = hook_health::HookHealth::new();
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
     let runtime_handle = rt.handle().clone();
+
+    let audio_tx = audio::init_audio_system();
 
     std::thread::spawn(|| {
         info!("Starting clipboard history listener...");
@@ -111,6 +117,8 @@ pub fn start() -> taurine_core::error::Result<()> {
     let pause_hotkey_spec_clone = pause_hotkey_spec.clone();
     let spinner_style_clone = spinner_style.clone();
     let runtime_handle_clone = runtime_handle.clone();
+    let pause_audio_enabled_clone = pause_audio_enabled.clone();
+    let audio_tx_clone = audio_tx.clone();
     #[cfg(windows)]
     let hook_health_clone = hook_health.clone();
     std::thread::spawn(move || {
@@ -125,6 +133,8 @@ pub fn start() -> taurine_core::error::Result<()> {
                 pause_hotkey_spec_clone,
                 spinner_style_clone,
                 runtime_handle_clone,
+                pause_audio_enabled_clone,
+                audio_tx_clone,
                 hook_health_clone,
             );
         }
@@ -140,6 +150,8 @@ pub fn start() -> taurine_core::error::Result<()> {
                 pause_hotkey_spec_clone,
                 spinner_style_clone,
                 runtime_handle_clone,
+                pause_audio_enabled_clone,
+                audio_tx_clone,
             );
         }
     });
@@ -155,6 +167,7 @@ pub fn start() -> taurine_core::error::Result<()> {
             pause_hotkey_spec.clone(),
             pause_hotkey.clone(),
             spinner_style.clone(),
+            pause_audio_enabled.clone(),
             hook_health.clone(),
         );
 

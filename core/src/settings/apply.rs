@@ -41,6 +41,7 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "trigger_char" => Ok(Some(defaults.trigger_char.to_string())),
         "pause_hotkey" => Ok(Some(defaults.pause_hotkey)),
         "pause_notifications_enabled" => Ok(Some(defaults.pause_notifications_enabled.to_string())),
+        "pause_audio_enabled" => Ok(Some(defaults.pause_audio_enabled.to_string())),
         "start_on_boot" => Ok(Some(defaults.start_on_boot.to_string())),
         "inline_tab_completion_enabled" => {
             Ok(Some(defaults.inline_tab_completion_enabled.to_string()))
@@ -81,6 +82,7 @@ pub fn apply_setting_input_with_manager(
             ApplySettingOutcome::default()
         }
         "pause_notifications_enabled"
+        | "pause_audio_enabled"
         | "inline_tab_completion_enabled"
         | "inline_history_enabled" => {
             manager.update_setting(

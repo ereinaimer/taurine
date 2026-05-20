@@ -18,6 +18,7 @@ pub struct DaemonService {
     pause_hotkey_spec: Arc<RwLock<crate::hotkey::HotkeySpec>>,
     pause_hotkey_display: Arc<RwLock<String>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+    pause_audio_enabled: Arc<AtomicBool>,
     hook_health: crate::hook_health::HookHealth,
 }
 
@@ -31,6 +32,7 @@ impl DaemonService {
         pause_hotkey_spec: Arc<RwLock<crate::hotkey::HotkeySpec>>,
         pause_hotkey_display: Arc<RwLock<String>>,
         spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+        pause_audio_enabled: Arc<AtomicBool>,
         hook_health: crate::hook_health::HookHealth,
     ) -> Self {
         Self {
@@ -41,6 +43,7 @@ impl DaemonService {
             pause_hotkey_spec,
             pause_hotkey_display,
             spinner_style,
+            pause_audio_enabled,
             hook_health,
         }
     }
@@ -140,6 +143,9 @@ impl DaemonControl for DaemonService {
         self.pause_notifications_enabled
             .store(settings.pause_notifications_enabled, Ordering::Relaxed);
 
+        self.pause_audio_enabled
+            .store(settings.pause_audio_enabled, Ordering::Relaxed);
+
         // Update pause hotkey spec (RwLock)
         if let Some(spec) = crate::hotkey::parse_pause_hotkey_setting(&settings.pause_hotkey)
             && let Ok(mut lock) = self.pause_hotkey_spec.write()
@@ -204,6 +210,7 @@ mod tests {
             Arc::new(std::sync::RwLock::new(
                 taurine_core::settings::SpinnerStyle::default(),
             )),
+            Arc::new(AtomicBool::new(true)),
             crate::hook_health::HookHealth::new(),
         );
 

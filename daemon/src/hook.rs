@@ -136,6 +136,7 @@ pub(crate) fn should_swallow_trigger_assist_key_release(
 }
 
 #[cfg(target_os = "linux")]
+#[allow(clippy::too_many_arguments)]
 pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
     state: Arc<taurine_core::engine::EngineState>,
@@ -144,6 +145,8 @@ pub fn start_listener(
     pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     runtime_handle: Handle,
+    pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
+    audio_tx: tokio::sync::mpsc::Sender<bool>,
 ) {
     crate::platform::linux::evdev::start_listener(
         evaluator,
@@ -153,6 +156,8 @@ pub fn start_listener(
         pause_hotkey,
         spinner_style,
         runtime_handle,
+        pause_audio_enabled,
+        audio_tx,
     );
 }
 
@@ -166,6 +171,8 @@ pub fn start_windows_supervisor(
     pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     runtime_handle: Handle,
+    pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
+    audio_tx: tokio::sync::mpsc::Sender<bool>,
     hook_health: HookHealth,
 ) {
     let (tx, rx) = mpsc::channel::<WindowsSupervisorEvent>();
@@ -190,6 +197,8 @@ pub fn start_windows_supervisor(
                 pause_hotkey.clone(),
                 spinner_style.clone(),
                 runtime_handle.clone(),
+                pause_audio_enabled.clone(),
+                audio_tx.clone(),
                 hook_health.clone(),
                 tx.clone(),
             );
@@ -215,6 +224,8 @@ pub fn start_windows_supervisor(
                             pause_hotkey.clone(),
                             spinner_style.clone(),
                             runtime_handle.clone(),
+                            pause_audio_enabled.clone(),
+                            audio_tx.clone(),
                             hook_health.clone(),
                             tx.clone(),
                         );
@@ -259,6 +270,8 @@ pub fn start_windows_supervisor(
                         pause_hotkey.clone(),
                         spinner_style.clone(),
                         runtime_handle.clone(),
+                        pause_audio_enabled.clone(),
+                        audio_tx.clone(),
                         hook_health.clone(),
                         tx.clone(),
                     );
@@ -275,6 +288,7 @@ pub fn start_windows_supervisor(
 
 #[cfg(not(target_os = "linux"))]
 #[cfg_attr(windows, allow(dead_code))]
+#[allow(clippy::too_many_arguments)]
 pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
     state: Arc<taurine_core::engine::EngineState>,
@@ -283,6 +297,8 @@ pub fn start_listener(
     pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     runtime_handle: Handle,
+    pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
+    audio_tx: tokio::sync::mpsc::Sender<bool>,
 ) {
     if let Err(error) = run_listener_once(
         evaluator,
@@ -292,6 +308,8 @@ pub fn start_listener(
         pause_hotkey,
         spinner_style,
         runtime_handle,
+        pause_audio_enabled,
+        audio_tx,
         None,
     ) {
         error!(error = %error, "Fatal OS global hook crash");
@@ -308,6 +326,8 @@ fn run_listener_once(
     pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     runtime_handle: Handle,
+    pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
+    audio_tx: tokio::sync::mpsc::Sender<bool>,
     hook_health: Option<HookHealth>,
 ) -> Result<(), String> {
     let left_alt_down = std::sync::atomic::AtomicBool::new(false);
@@ -429,6 +449,9 @@ fn run_listener_once(
             paused.store(now_paused, Ordering::Relaxed);
             if pause_notifications_enabled.load(Ordering::Relaxed) {
                 notify::notify_pause_toggled(now_paused);
+            }
+            if pause_audio_enabled.load(Ordering::Relaxed) {
+                let _ = audio_tx.try_send(now_paused);
             }
             return None;
         }
@@ -737,6 +760,8 @@ fn spawn_windows_hook_listener(
     pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     runtime_handle: Handle,
+    pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
+    audio_tx: tokio::sync::mpsc::Sender<bool>,
     hook_health: HookHealth,
     supervisor_tx: mpsc::Sender<WindowsSupervisorEvent>,
 ) -> bool {
@@ -756,6 +781,8 @@ fn spawn_windows_hook_listener(
                     pause_hotkey,
                     spinner_style,
                     runtime_handle,
+                    pause_audio_enabled,
+                    audio_tx,
                     Some(listener_health.clone()),
                 )
             }));
