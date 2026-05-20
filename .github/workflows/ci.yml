@@ -62,7 +62,8 @@ jobs:
             protobuf-compiler \
             libwayland-dev \
             libxkbcommon-dev \
-            libevdev-dev
+            libevdev-dev \
+            libasound2-dev
 
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@v2
