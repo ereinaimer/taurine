@@ -1,0 +1,12 @@
+[package]
+name = "taurine-startup"
+version = "1.0.0-alpha.2"
+edition = "2024"
+authors = ["ereinaimer"]
+publish = false
+
+[build-dependencies]
+winres = "0.1"
+
+[workspace]
+

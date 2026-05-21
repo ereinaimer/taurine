@@ -13,44 +13,44 @@ use crate::rpc::{ShutdownRequest, StatusRequest};
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-fn write_vbs_launcher(exe_path: &std::path::Path) -> std::io::Result<()> {
-    let vbs_path = crate::paths::get_startup_vbs_path();
-    let exe_str = exe_path.to_string_lossy();
-    let vbs_content = format!(
-        "Set WshShell = CreateObject(\"WScript.Shell\")\r\n\
-         WshShell.Run \"\"\"{}\"\" --daemon\", 0, False\r\n\
-         Set WshShell = Nothing\r\n",
-        exe_str
-    );
-    std::fs::write(&vbs_path, vbs_content)?;
+const STARTUP_RUNNER_BYTES: &[u8] = include_bytes!(env!("STARTUP_RUNNER_PATH"));
+
+fn write_startup_launcher() -> std::io::Result<()> {
+    let exe_path = crate::paths::get_startup_exe_path();
+    std::fs::write(&exe_path, STARTUP_RUNNER_BYTES)?;
     Ok(())
 }
 
-fn delete_vbs_launcher() {
-    let vbs_path = crate::paths::get_startup_vbs_path();
-    if vbs_path.exists()
-        && let Err(e) = std::fs::remove_file(&vbs_path)
+fn delete_startup_launcher() {
+    let exe_path = crate::paths::get_startup_exe_path();
+    if exe_path.exists()
+        && let Err(e) = std::fs::remove_file(&exe_path)
     {
-        debug!("Failed to delete daemon-startup.vbs: {}", e);
+        debug!("Failed to delete taurine-startup.exe: {}", e);
     }
 }
 
 fn set_autorun(current_exe: &std::path::Path) -> std::io::Result<()> {
-    write_vbs_launcher(current_exe)?;
-    let vbs_path = crate::paths::get_startup_vbs_path();
+    write_startup_launcher()?;
+    let exe_path = crate::paths::get_startup_exe_path();
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let path = r#"Software\Microsoft\Windows\CurrentVersion\Run"#;
     let (key, _) = hkcu.create_subkey(path)?;
 
-    let val = format!("wscript.exe //B \"{}\"", vbs_path.to_string_lossy());
+    // Start the embedded runner and pass the actual executable as an argument
+    let val = format!(
+        "\"{}\" \"{}\"",
+        exe_path.to_string_lossy(),
+        current_exe.to_string_lossy()
+    );
     key.set_value("Taurine", &val)?;
     Ok(())
 }
 
 fn is_autorun_registered() -> bool {
-    let vbs_path = crate::paths::get_startup_vbs_path();
-    if !vbs_path.exists() {
+    let exe_path = crate::paths::get_startup_exe_path();
+    if !exe_path.exists() {
         return false;
     }
 
@@ -62,7 +62,7 @@ fn is_autorun_registered() -> bool {
 }
 
 fn remove_autorun() -> std::io::Result<()> {
-    delete_vbs_launcher();
+    delete_startup_launcher();
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let path = r#"Software\Microsoft\Windows\CurrentVersion\Run"#;
@@ -305,30 +305,25 @@ pub fn status() -> crate::error::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
 
     #[test]
-    fn test_vbs_launcher_lifecycle() {
+    fn test_startup_launcher_lifecycle() {
         let _guard = crate::testing::TEST_LOCK.lock().unwrap();
         crate::logs::init_tracing_for_tests();
-        let test_dir = std::env::temp_dir().join("taurine_vbs_lifecycle_test");
+        let test_dir = std::env::temp_dir().join("taurine_exe_lifecycle_test");
         unsafe { std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
 
-        let dummy_exe = PathBuf::from(r"C:\fake\taurine.exe");
-        let vbs_path = crate::paths::get_startup_vbs_path();
+        let exe_path = crate::paths::get_startup_exe_path();
 
-        write_vbs_launcher(&dummy_exe).expect("Failed to write VBS launcher");
-        assert!(vbs_path.exists());
+        write_startup_launcher().expect("Failed to write startup launcher");
+        assert!(exe_path.exists());
 
-        let contents = std::fs::read_to_string(&vbs_path).expect("Failed to read VBS");
-        assert!(contents.contains(&dummy_exe.to_string_lossy().into_owned()));
-        assert!(contents.contains("--daemon"));
-        assert!(contents.contains("WshShell.Run"));
+        let contents = std::fs::read(&exe_path).expect("Failed to read exe");
+        assert!(!contents.is_empty());
 
-        delete_vbs_launcher();
-        assert!(!vbs_path.exists());
+        delete_startup_launcher();
+        assert!(!exe_path.exists());
 
         let _ = std::fs::remove_dir_all(&test_dir);
         unsafe { std::env::remove_var("TAURINE_DATA_DIR") };

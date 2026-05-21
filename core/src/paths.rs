@@ -104,8 +104,8 @@ pub fn logs_dir() -> PathBuf {
     data_dir.join(LOGS_DIR_NAME)
 }
 
-/// Resolves the exact file path for the daemon startup VBScript.
-pub fn get_startup_vbs_path() -> PathBuf {
+/// Resolves the exact file path for the daemon startup executable.
+pub fn get_startup_exe_path() -> PathBuf {
     let data_dir = ensure_data_dir();
     let startup_dir = data_dir.join(STARTUP_DIR_NAME);
     if !startup_dir.exists() {
@@ -116,7 +116,7 @@ pub fn get_startup_vbs_path() -> PathBuf {
         );
         fs::create_dir_all(&startup_dir).expect("Failed to create startup directory");
     }
-    startup_dir.join("daemon-startup.vbs")
+    startup_dir.join("taurine-startup.exe")
 }
 
 #[cfg(test)]
@@ -190,17 +190,17 @@ mod tests {
     }
 
     #[test]
-    fn test_startup_vbs_path_creation() {
+    fn test_startup_exe_path_creation() {
         let _guard = TEST_LOCK.lock().unwrap();
         crate::testing::init_tracing_for_tests();
 
-        let test_dir = std::env::temp_dir().join("taurine_vbs_test");
+        let test_dir = std::env::temp_dir().join("taurine_exe_test");
         unsafe { env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
 
-        let vbs_path = get_startup_vbs_path();
-        assert!(vbs_path.ends_with("daemon-startup.vbs"));
+        let exe_path = get_startup_exe_path();
+        assert!(exe_path.ends_with("taurine-startup.exe"));
 
-        let startup_dir = vbs_path.parent().unwrap();
+        let startup_dir = exe_path.parent().unwrap();
         assert!(startup_dir.ends_with("startup"));
         assert!(startup_dir.exists());
 
