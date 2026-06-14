@@ -12,7 +12,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
 tracing = { workspace = true }
-rusqlite = { version = "0.39", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 directories = "6.0"
 tracing-appender = "0.2.4"
 tracing-subscriber = { workspace = true, features = ["env-filter", "time", "local-time"] }
