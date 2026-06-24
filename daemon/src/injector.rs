@@ -766,19 +766,14 @@ pub fn inject_text_segment(
     original_clipboard: &Option<String>,
 ) -> TextSegmentInjection {
     let injected_chars = text.chars().count();
-    let post_paste_wait = if cfg!(target_os = "windows") {
-        static IS_WIN10: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        let is_win10 = *IS_WIN10.get_or_init(|| os_info::get().to_string().contains("Windows 10"));
-        if is_win10 {
-            Duration::from_millis(450)
-        } else {
-            Duration::from_millis(220)
-        }
-    } else if cfg!(target_os = "linux") {
-        Duration::from_millis(300)
+    let delay_ms = if let Ok(conn) = taurine_core::db::init::setup() {
+        taurine_core::settings::SettingsManager::new(&conn)
+            .load_all()
+            .clipboard_restore_delay_ms
     } else {
-        Duration::from_millis(160)
+        taurine_core::settings::Settings::default().clipboard_restore_delay_ms
     };
+    let post_paste_wait = Duration::from_millis(delay_ms as u64);
 
     #[cfg(windows)]
     {

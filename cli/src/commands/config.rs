@@ -61,6 +61,10 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
         "inline_ai_delimiter",
         &settings.inline_ai_delimiter.to_string(),
     ]);
+    table.add_row(vec![
+        "clipboard_restore_delay_ms",
+        &settings.clipboard_restore_delay_ms.to_string(),
+    ]);
 
     println!("{}", table);
 
@@ -108,6 +112,14 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
             let wpm = Settings::sanitize_wpm(parsed);
             manager.update_setting(actual_key, wpm)?;
             info!("Updated wpm to: {}", wpm);
+        }
+        "clipboard_restore_delay_ms" => {
+            let parsed = value.parse::<u32>().map_err(|_| {
+                taurine_core::error::Error::Config(format!("Invalid delay value: {}", value))
+            })?;
+            let delay = Settings::sanitize_clipboard_restore_delay_ms(parsed);
+            manager.update_setting(actual_key, delay)?;
+            info!("Updated clipboard_restore_delay_ms to: {}", delay);
         }
         "spinner_style" => {
             let s = match value.to_lowercase().as_str() {
@@ -213,6 +225,13 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
             manager.update_setting(actual_key, defaults.wpm)?;
             info!("Reset wpm to default: {}", defaults.wpm);
         }
+        "clipboard_restore_delay_ms" => {
+            manager.update_setting(actual_key, defaults.clipboard_restore_delay_ms)?;
+            info!(
+                "Reset clipboard_restore_delay_ms to default: {}",
+                defaults.clipboard_restore_delay_ms
+            );
+        }
         "spinner_style" => {
             manager.update_setting(actual_key, defaults.spinner_style)?;
             info!(
@@ -273,6 +292,10 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
     manager.update_setting("ai_model", defaults.ai_model.clone())?;
     manager.update_setting("ai_custom_endpoint", defaults.ai_custom_endpoint.clone())?;
     manager.update_setting("inline_ai_delimiter", defaults.inline_ai_delimiter)?;
+    manager.update_setting(
+        "clipboard_restore_delay_ms",
+        defaults.clipboard_restore_delay_ms,
+    )?;
 
     info!("All settings have been reset to factory defaults.");
 

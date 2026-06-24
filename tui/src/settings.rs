@@ -21,10 +21,11 @@ pub(crate) enum SettingKey {
     AiModel,
     AiCustomEndpoint,
     InlineAiDelimiter,
+    ClipboardRestoreDelayMs,
 }
 
 impl SettingKey {
-    pub(crate) const ALL: [Self; 13] = [
+    pub(crate) const ALL: [Self; 14] = [
         Self::TriggerChar,
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
@@ -38,6 +39,7 @@ impl SettingKey {
         Self::AiModel,
         Self::AiCustomEndpoint,
         Self::InlineAiDelimiter,
+        Self::ClipboardRestoreDelayMs,
     ];
 
     pub(crate) const fn storage_key(self) -> &'static str {
@@ -55,6 +57,7 @@ impl SettingKey {
             Self::AiModel => "ai_model",
             Self::AiCustomEndpoint => "ai_custom_endpoint",
             Self::InlineAiDelimiter => "inline_ai_delimiter",
+            Self::ClipboardRestoreDelayMs => "clipboard_restore_delay_ms",
         }
     }
 
@@ -73,6 +76,7 @@ impl SettingKey {
             Self::AiModel => "AI Model",
             Self::AiCustomEndpoint => "AI Custom Endpoint",
             Self::InlineAiDelimiter => "Inline AI Delimiter",
+            Self::ClipboardRestoreDelayMs => "Clipboard Restore Delay (ms)",
         }
     }
 
@@ -97,6 +101,9 @@ impl SettingKey {
             Self::AiModel => "Default AI model used for inline AI",
             Self::AiCustomEndpoint => "Optional custom API endpoint for AI requests",
             Self::InlineAiDelimiter => "Delimiter used by inline AI capture mode",
+            Self::ClipboardRestoreDelayMs => {
+                "The delay in milliseconds between pasting and restoring the clipboard"
+            }
         }
     }
 
@@ -107,7 +114,7 @@ impl SettingKey {
             | Self::StartOnBoot
             | Self::InlineTabCompletionEnabled
             | Self::InlineHistoryEnabled => EditorKind::Toggle,
-            Self::Wpm => EditorKind::NumberInput,
+            Self::Wpm | Self::ClipboardRestoreDelayMs => EditorKind::NumberInput,
             Self::SpinnerStyle => EditorKind::SpinnerSelect,
             Self::AiProvider => EditorKind::AiProviderSelect,
             Self::AiCustomEndpoint => EditorKind::OptionalTextInput,
@@ -133,6 +140,7 @@ impl SettingKey {
                 optional_value_label(settings.ai_custom_endpoint.as_deref()).to_string()
             }
             Self::InlineAiDelimiter => settings.inline_ai_delimiter.to_string(),
+            Self::ClipboardRestoreDelayMs => settings.clipboard_restore_delay_ms.to_string(),
         }
     }
 
@@ -150,7 +158,8 @@ impl SettingKey {
             | Self::StartOnBoot
             | Self::InlineTabCompletionEnabled
             | Self::InlineHistoryEnabled
-            | Self::SpinnerStyle => self.display_value(settings),
+            | Self::SpinnerStyle
+            | Self::ClipboardRestoreDelayMs => self.display_value(settings),
         }
     }
 }
@@ -687,7 +696,7 @@ mod tests {
 
     #[test]
     fn every_setting_has_a_descriptor() {
-        assert_eq!(SettingKey::ALL.len(), 13);
+        assert_eq!(SettingKey::ALL.len(), 14);
     }
 
     #[test]
@@ -726,6 +735,10 @@ mod tests {
     #[test]
     fn wpm_is_number_input_and_ai_model_is_text_input() {
         assert_eq!(SettingKey::Wpm.editor_kind(), EditorKind::NumberInput);
+        assert_eq!(
+            SettingKey::ClipboardRestoreDelayMs.editor_kind(),
+            EditorKind::NumberInput
+        );
         assert_eq!(SettingKey::AiModel.editor_kind(), EditorKind::TextInput);
     }
 

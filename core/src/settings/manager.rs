@@ -97,6 +97,12 @@ impl<'a> SettingsManager<'a> {
             settings.inline_ai_delimiter = c;
         }
 
+        if let Ok(Some(val)) = get_setting_value(self.conn, "clipboard_restore_delay_ms")
+            && let Ok(v) = serde_json::from_str::<u32>(&val)
+        {
+            settings.clipboard_restore_delay_ms = Settings::sanitize_clipboard_restore_delay_ms(v);
+        }
+
         settings
     }
 

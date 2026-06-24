@@ -34,6 +34,7 @@ pub struct Settings {
     pub ai_model: Option<String>,
     pub ai_custom_endpoint: Option<String>,
     pub inline_ai_delimiter: char,
+    pub clipboard_restore_delay_ms: u32,
 }
 
 impl Settings {
@@ -55,6 +56,8 @@ impl Settings {
             "endpoint" => "ai_custom_endpoint",
             "custom_endpoint" => "ai_custom_endpoint",
             "ai_custom_endpoint" => "ai_custom_endpoint",
+            "clipboard_restore_delay_ms" => "clipboard_restore_delay_ms",
+            "clipboard_delay" => "clipboard_restore_delay_ms",
             _ => key,
         }
     }
@@ -65,6 +68,27 @@ impl Settings {
 
     pub const fn sanitize_wpm(wpm: u32) -> u32 {
         if wpm == 0 { Self::default_wpm() } else { wpm }
+    }
+
+    pub fn default_clipboard_restore_delay_ms() -> u32 {
+        static DELAY: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+        *DELAY.get_or_init(|| {
+            if cfg!(target_os = "windows") {
+                if os_info::get().to_string().contains("Windows 10") {
+                    450
+                } else {
+                    220
+                }
+            } else if cfg!(target_os = "linux") {
+                300
+            } else {
+                160
+            }
+        })
+    }
+
+    pub const fn sanitize_clipboard_restore_delay_ms(delay: u32) -> u32 {
+        if delay > 2000 { 2000 } else { delay }
     }
 }
 
@@ -84,6 +108,18 @@ impl Default for Settings {
             ai_model: None,
             ai_custom_endpoint: None,
             inline_ai_delimiter: '`',
+            clipboard_restore_delay_ms: Self::default_clipboard_restore_delay_ms(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_clipboard_restore_delay_ms_clamping() {
+        assert_eq!(Settings::sanitize_clipboard_restore_delay_ms(1500), 1500);
+        assert_eq!(Settings::sanitize_clipboard_restore_delay_ms(2500), 2000);
     }
 }

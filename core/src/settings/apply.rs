@@ -57,6 +57,7 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "ai_model" => Ok(defaults.ai_model),
         "ai_custom_endpoint" => Ok(defaults.ai_custom_endpoint),
         "inline_ai_delimiter" => Ok(Some(defaults.inline_ai_delimiter.to_string())),
+        "clipboard_restore_delay_ms" => Ok(Some(defaults.clipboard_restore_delay_ms.to_string())),
         _ => Err(Error::Config(format!("Unknown setting key: {actual_key}"))),
     }
 }
@@ -133,6 +134,17 @@ pub fn apply_setting_input_with_manager(
         }
         "inline_ai_delimiter" => {
             manager.update_setting(actual_key, parse_char_setting(value, actual_key)?)?;
+            ApplySettingOutcome::default()
+        }
+        "clipboard_restore_delay_ms" => {
+            let raw_value = require_non_empty(value, actual_key)?;
+            let parsed = raw_value
+                .parse::<u32>()
+                .map_err(|_| Error::Config(format!("Invalid delay value: {raw_value}")))?;
+            manager.update_setting(
+                actual_key,
+                Settings::sanitize_clipboard_restore_delay_ms(parsed),
+            )?;
             ApplySettingOutcome::default()
         }
         _ => {
@@ -288,5 +300,21 @@ mod tests {
             manager.load_all().trigger_char,
             Settings::default().trigger_char
         );
+    }
+
+    #[test]
+    fn test_apply_clipboard_restore_delay_ms() {
+        let (_dir, conn) = open_test_db();
+        let manager = SettingsManager::new(&conn);
+
+        // Apply a valid value
+        apply_setting_input_with_manager(&manager, "clipboard_restore_delay_ms", Some("1200"))
+            .unwrap();
+        assert_eq!(manager.load_all().clipboard_restore_delay_ms, 1200);
+
+        // Apply clamped value
+        apply_setting_input_with_manager(&manager, "clipboard_restore_delay_ms", Some("3000"))
+            .unwrap();
+        assert_eq!(manager.load_all().clipboard_restore_delay_ms, 2000);
     }
 }
