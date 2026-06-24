@@ -168,7 +168,7 @@ fn is_event_device_path(path: &Path) -> bool {
 fn open_attempt_due(next_open_attempt: &HashMap<PathBuf, Instant>, path: &Path) -> bool {
     next_open_attempt
         .get(path)
-        .map_or(true, |next_attempt| Instant::now() >= *next_attempt)
+        .is_none_or(|next_attempt| Instant::now() >= *next_attempt)
 }
 
 fn schedule_open_retry(next_open_attempt: &mut HashMap<PathBuf, Instant>, path: PathBuf) {

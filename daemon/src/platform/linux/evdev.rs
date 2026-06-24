@@ -156,10 +156,7 @@ pub fn start_listener(
 }
 
 pub(crate) fn open_keyboard_device(path: &Path) -> io::Result<Option<Device>> {
-    let device = match Device::open(path) {
-        Ok(device) => device,
-        Err(error) => return Err(error),
-    };
+    let device = Device::open(path)?;
 
     let name = device.name().unwrap_or("Unknown Device");
     if name == crate::platform::linux::VIRTUAL_DEVICE_NAME {
