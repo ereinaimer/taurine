@@ -767,7 +767,13 @@ pub fn inject_text_segment(
 ) -> TextSegmentInjection {
     let injected_chars = text.chars().count();
     let post_paste_wait = if cfg!(target_os = "windows") {
-        Duration::from_millis(220)
+        static IS_WIN10: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let is_win10 = *IS_WIN10.get_or_init(|| os_info::get().to_string().contains("Windows 10"));
+        if is_win10 {
+            Duration::from_millis(450)
+        } else {
+            Duration::from_millis(220)
+        }
     } else if cfg!(target_os = "linux") {
         Duration::from_millis(300)
     } else {
