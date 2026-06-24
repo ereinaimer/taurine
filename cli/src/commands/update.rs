@@ -17,6 +17,13 @@ pub fn execute() -> Result<()> {
         }
     };
 
+    if let Ok(false) = receipt.check_receipt_is_for_this_executable() {
+        warn!(
+            "This executable was not installed via the official installer, so it cannot be updated automatically."
+        );
+        return Ok(());
+    }
+
     let needs_update = match receipt.is_update_needed_sync() {
         Ok(needed) => needed,
         Err(e) => {
