@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 pub mod evdev;
+pub mod input_supervisor;
 pub mod security;
 pub mod uinput;
 pub mod xkb;

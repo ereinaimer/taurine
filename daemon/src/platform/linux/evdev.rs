@@ -1,10 +1,12 @@
 use evdev::{Device, EventType, InputEvent, KeyCode};
-use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use tokio::runtime::Handle;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use super::xkb::XkbMapper;
 use crate::hotkey::{HotkeySpec, is_pause_chord_evdev};
@@ -14,6 +16,52 @@ use crate::hotkey_evaluator::{
 use crate::injector::{self, IS_INJECTING};
 use crate::notify;
 use taurine_core::engine::{EngineEvent, Evaluator};
+
+#[derive(Debug)]
+pub(crate) struct DeviceExit {
+    pub path: PathBuf,
+    pub worker_id: u64,
+}
+
+#[derive(Clone)]
+pub(crate) struct ListenerContext {
+    evaluator: Arc<Mutex<Evaluator>>,
+    state: Arc<taurine_core::engine::EngineState>,
+    paused: Arc<AtomicBool>,
+    pause_notifications_enabled: Arc<AtomicBool>,
+    pause_hotkey: Arc<RwLock<HotkeySpec>>,
+    spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+    runtime_handle: Handle,
+    pause_audio_enabled: Arc<AtomicBool>,
+    audio_tx: tokio::sync::mpsc::Sender<bool>,
+}
+
+impl ListenerContext {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new(
+        evaluator: Arc<Mutex<Evaluator>>,
+        state: Arc<taurine_core::engine::EngineState>,
+        paused: Arc<AtomicBool>,
+        pause_notifications_enabled: Arc<AtomicBool>,
+        pause_hotkey: Arc<RwLock<HotkeySpec>>,
+        spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+        runtime_handle: Handle,
+        pause_audio_enabled: Arc<AtomicBool>,
+        audio_tx: tokio::sync::mpsc::Sender<bool>,
+    ) -> Self {
+        Self {
+            evaluator,
+            state,
+            paused,
+            pause_notifications_enabled,
+            pause_hotkey,
+            spinner_style,
+            runtime_handle,
+            pause_audio_enabled,
+            audio_tx,
+        }
+    }
+}
 
 #[derive(Default)]
 struct ModifierSides {
@@ -92,79 +140,51 @@ pub fn start_listener(
     pause_audio_enabled: Arc<AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
 ) {
-    let mut devices = vec![];
-    let input_dir = "/dev/input";
+    let context = ListenerContext::new(
+        evaluator,
+        state,
+        paused,
+        pause_notifications_enabled,
+        pause_hotkey,
+        spinner_style,
+        runtime_handle,
+        pause_audio_enabled,
+        audio_tx,
+    );
 
-    match fs::read_dir(input_dir) {
-        Ok(entries) => {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+    super::input_supervisor::start(context);
+}
 
-                if file_name.starts_with("event") {
-                    match Device::open(&path) {
-                        Ok(device) => {
-                            let name = device.name().unwrap_or("Unknown Device");
-                            if name == crate::platform::linux::VIRTUAL_DEVICE_NAME {
-                                debug!("Ignoring Taurine virtual keyboard: {:?}", path);
-                                continue;
-                            }
+pub(crate) fn open_keyboard_device(path: &Path) -> io::Result<Option<Device>> {
+    let device = match Device::open(path) {
+        Ok(device) => device,
+        Err(error) => return Err(error),
+    };
 
-                            if let Some(keys) = device.supported_keys() {
-                                // Broadened keyboard detection: check for basic alphanumeric support.
-                                // Most physical keyboards will have ENTER, SPACE, and KeyA.
-                                if keys.contains(KeyCode::KEY_ENTER)
-                                    && keys.contains(KeyCode::KEY_SPACE)
-                                    && keys.contains(KeyCode::KEY_A)
-                                {
-                                    debug!(
-                                        "Found potential keyboard device: {} ({:?})",
-                                        name, path
-                                    );
-                                    devices.push(device);
-                                }
-                            }
-                        }
-                        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-                            warn!(
-                                "Permission denied opening {:?}. You may need to add your user to the 'input' group.",
-                                path
-                            );
-                        }
-                        Err(e) => {
-                            debug!("Failed to open device {:?}: {}", path, e);
-                        }
-                    }
-                }
-            }
-        }
-        Err(e) => {
-            error!(
-                "Failed to read {} directory: {}. Hook listener cannot start.",
-                input_dir, e
-            );
-        }
+    let name = device.name().unwrap_or("Unknown Device");
+    if name == crate::platform::linux::VIRTUAL_DEVICE_NAME {
+        debug!("Ignoring Taurine virtual keyboard: {:?}", path);
+        return Ok(None);
     }
 
-    if devices.is_empty() {
-        error!("Fatal OS global hook crash: No evdev keyboard devices found.");
-        return;
+    if is_keyboard_device(&device) {
+        debug!("Found potential keyboard device: {} ({:?})", name, path);
+        Ok(Some(device))
+    } else {
+        Ok(None)
     }
+}
 
-    info!("Found {} evdev keyboard device(s)", devices.len());
-
-    for mut device in devices {
-        let evaluator = evaluator.clone();
-        let state = state.clone();
-        let paused = paused.clone();
-        let pause_notifications_enabled = pause_notifications_enabled.clone();
-        let pause_hotkey = pause_hotkey.clone();
-        let spinner_style = spinner_style.clone();
-        let runtime_handle = runtime_handle.clone();
-        let pause_audio_enabled = pause_audio_enabled.clone();
-        let audio_tx = audio_tx.clone();
-
-        thread::spawn(move || {
+pub(crate) fn spawn_device_listener(
+    path: PathBuf,
+    worker_id: u64,
+    mut device: Device,
+    context: ListenerContext,
+    exit_tx: Sender<DeviceExit>,
+) -> io::Result<()> {
+    thread::Builder::new()
+        .name("taurine-linux-evdev-device".to_string())
+        .spawn(move || {
             let mut xkb = XkbMapper::default();
             let mut modifier_sides = ModifierSides::default();
             let mut hotkey_evaluator = HotkeyEvaluator::new();
@@ -196,15 +216,15 @@ pub fn start_listener(
                                 process_frame(
                                     &frame,
                                     grab_enabled,
-                                    &evaluator,
-                                    &state,
-                                    &paused,
-                                    &pause_notifications_enabled,
-                                    &pause_hotkey,
-                                    &spinner_style,
-                                    &runtime_handle,
-                                    &pause_audio_enabled,
-                                    &audio_tx,
+                                    &context.evaluator,
+                                    &context.state,
+                                    &context.paused,
+                                    &context.pause_notifications_enabled,
+                                    &context.pause_hotkey,
+                                    &context.spinner_style,
+                                    &context.runtime_handle,
+                                    &context.pause_audio_enabled,
+                                    &context.audio_tx,
                                     &mut xkb,
                                     &mut modifier_sides,
                                     &mut hotkey_evaluator,
@@ -221,15 +241,15 @@ pub fn start_listener(
                             process_frame(
                                 &frame,
                                 grab_enabled,
-                                &evaluator,
-                                &state,
-                                &paused,
-                                &pause_notifications_enabled,
-                                &pause_hotkey,
-                                &spinner_style,
-                                &runtime_handle,
-                                &pause_audio_enabled,
-                                &audio_tx,
+                                &context.evaluator,
+                                &context.state,
+                                &context.paused,
+                                &context.pause_notifications_enabled,
+                                &context.pause_hotkey,
+                                &context.spinner_style,
+                                &context.runtime_handle,
+                                &context.pause_audio_enabled,
+                                &context.audio_tx,
                                 &mut xkb,
                                 &mut modifier_sides,
                                 &mut hotkey_evaluator,
@@ -243,8 +263,18 @@ pub fn start_listener(
                     }
                 }
             }
-        });
-    }
+
+            let _ = exit_tx.send(DeviceExit { path, worker_id });
+        })
+        .map(|_| ())
+}
+
+fn is_keyboard_device(device: &Device) -> bool {
+    device.supported_keys().is_some_and(|keys| {
+        keys.contains(KeyCode::KEY_ENTER)
+            && keys.contains(KeyCode::KEY_SPACE)
+            && keys.contains(KeyCode::KEY_A)
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
