@@ -74,11 +74,15 @@ impl Settings {
         static DELAY: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
         *DELAY.get_or_init(|| {
             if cfg!(target_os = "windows") {
-                if os_info::get().to_string().contains("Windows 10") {
-                    450
-                } else {
-                    220
-                }
+                let info = os_info::get();
+                let is_win10 = match info.version() {
+                    os_info::Version::Semantic(major, _, patch) => *major == 10 && *patch < 22000,
+                    _ => {
+                        let s = info.to_string();
+                        s.contains("Windows 10") && !s.contains("Windows 11")
+                    }
+                };
+                if is_win10 { 450 } else { 220 }
             } else if cfg!(target_os = "linux") {
                 300
             } else {
