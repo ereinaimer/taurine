@@ -15,10 +15,10 @@ tonic = "0.14"
 arboard = { version = "3.4.1", features = ["wayland-data-control"] }
 serde_json = "1.0.149"
 notify-rust = "4"
-genai = "0.5.3"
+genai = "0.6.5"
 futures = "0.3"
 zeroize = "1.8"
-rodio = { version = "0.19", default-features = false, features = ["symphonia-wav"] }
+rodio = { version = "0.22", default-features = false, features = ["symphonia-wav"] }
 os_info = "3"
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
