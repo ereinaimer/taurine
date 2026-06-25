@@ -62,6 +62,7 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
             super::ActionDelimiter::Space => "space".to_string(),
             super::ActionDelimiter::Enter => "enter".to_string(),
         })),
+        "triggerless_mode" => Ok(Some(defaults.triggerless_mode.to_string())),
         _ => Err(Error::Config(format!("Unknown setting key: {actual_key}"))),
     }
 }
@@ -155,6 +156,13 @@ pub fn apply_setting_input_with_manager(
             manager.update_setting(
                 actual_key,
                 parse_action_delimiter(require_non_empty(value, actual_key)?)?,
+            )?;
+            ApplySettingOutcome::default()
+        }
+        "triggerless_mode" => {
+            manager.update_setting(
+                actual_key,
+                parse_boolean_setting_value(require_non_empty(value, actual_key)?)?,
             )?;
             ApplySettingOutcome::default()
         }

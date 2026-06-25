@@ -2114,7 +2114,7 @@ mod tests {
 
     #[test]
     fn spacious_layout_shows_descriptions_when_height_is_sufficient() {
-        assert!(use_spacious_settings_layout(30, SettingKey::ALL.len(), 0));
+        assert!(use_spacious_settings_layout(35, SettingKey::ALL.len(), 0));
     }
 
     #[test]

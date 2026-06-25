@@ -56,6 +56,9 @@ pub fn start() -> taurine_core::error::Result<()> {
     state
         .inline_history_enabled
         .store(settings.inline_history_enabled, Ordering::Relaxed);
+    state
+        .triggerless_mode
+        .store(settings.triggerless_mode, Ordering::Relaxed);
 
     if let Ok(mut lock) = state.action_delimiter.write() {
         *lock = settings.action_delimiter;

@@ -503,6 +503,29 @@ impl Evaluator {
             }
         }
 
+        // Triggerless mode: look up the bare tail word without a trigger character prefix.
+        if self
+            .state
+            .triggerless_mode
+            .load(std::sync::atomic::Ordering::Relaxed)
+            && let Some(word) = self.buffer.extract_tail_word()
+            && let Some(expansion) = self.state.fetch_expansion(&word)
+        {
+            let delete_count = word.chars().count();
+            let metric_kind = metric_kind_for_steps(expansion.is_calculation, &expansion.steps);
+            self.buffer.clear();
+            return Some(ExpansionResult {
+                delete_count,
+                steps: expansion.steps,
+                trigger: word,
+                undo_trigger: None,
+                is_calculation: expansion.is_calculation,
+                metric_kind,
+                track_usage: true,
+                follow_up: None,
+            });
+        }
+
         self.buffer.push(' ');
         None
     }
@@ -2905,5 +2928,87 @@ mod tests {
             .process_event(EngineEvent::ActionDelimiter)
             .expect("Should finish prompt");
         assert_inline_ai_follow_up(&result, "fix grammar", Some("expert editor"));
+    }
+
+    #[test]
+    fn triggerless_mode_expands_bare_words() {
+        use std::sync::atomic::Ordering;
+        let state = Arc::new(EngineState::new('>'));
+        state.triggerless_mode.store(true, Ordering::Relaxed);
+        state.load_actions(vec![(
+            "gs".to_string(),
+            crate::db::crud::AutomationAction::text("git status"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        for c in "gs".chars() {
+            eval.process_event(EngineEvent::Char(c));
+        }
+
+        let result = eval
+            .process_event(EngineEvent::ActionDelimiter)
+            .expect("triggerless match");
+        assert_eq!(result.delete_count, 2);
+        assert_eq!(result.trigger, "gs");
+        assert_eq!(result.undo_trigger, None);
+    }
+
+    #[test]
+    fn triggerless_mode_does_not_fire_when_disabled() {
+        use std::sync::atomic::Ordering;
+        let state = Arc::new(EngineState::new('>'));
+        state.triggerless_mode.store(false, Ordering::Relaxed);
+        state.load_actions(vec![(
+            "gs".to_string(),
+            crate::db::crud::AutomationAction::text("git status"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        for c in "gs".chars() {
+            eval.process_event(EngineEvent::Char(c));
+        }
+
+        assert_eq!(eval.process_event(EngineEvent::ActionDelimiter), None);
+    }
+
+    #[test]
+    fn triggerless_mode_does_not_fire_with_punctuation_prefix() {
+        use std::sync::atomic::Ordering;
+        let state = Arc::new(EngineState::new('>'));
+        state.triggerless_mode.store(true, Ordering::Relaxed);
+        state.load_actions(vec![(
+            "gs".to_string(),
+            crate::db::crud::AutomationAction::text("git status"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        for c in "(gs".chars() {
+            eval.process_event(EngineEvent::Char(c));
+        }
+
+        assert_eq!(eval.process_event(EngineEvent::ActionDelimiter), None);
+    }
+
+    #[test]
+    fn triggered_mode_still_works_when_triggerless_enabled() {
+        use std::sync::atomic::Ordering;
+        let state = Arc::new(EngineState::new('>'));
+        state.triggerless_mode.store(true, Ordering::Relaxed);
+        state.load_actions(vec![(
+            "gs".to_string(),
+            crate::db::crud::AutomationAction::text("git status"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">gs".chars() {
+            eval.process_event(EngineEvent::Char(c));
+        }
+
+        let result = eval
+            .process_event(EngineEvent::ActionDelimiter)
+            .expect("triggered match");
+        assert_eq!(result.delete_count, 3);
+        assert_eq!(result.trigger, "gs");
+        assert_eq!(result.undo_trigger, Some(">gs".to_string()));
     }
 }

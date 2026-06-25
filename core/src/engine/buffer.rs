@@ -211,6 +211,45 @@ impl FastBuffer {
 
         None
     }
+
+    /// Extracts the trailing word from the buffer for triggerless expansion.
+    ///
+    /// Walks backward from the head, collecting non-whitespace characters until it
+    /// hits a whitespace character or the start of the buffer. Returns the collected
+    /// word, or `None` if the buffer is empty or the tail contains only whitespace.
+    ///
+    /// **Boundary rule**: The word must be immediately preceded by whitespace or be at
+    /// the absolute start of the buffer. Punctuation is NOT treated as a boundary —
+    /// it becomes part of the word. For example, `(gs` extracts as `(gs`, which will
+    /// not match a trigger named `gs`.
+    pub fn extract_tail_word(&self) -> Option<String> {
+        if self.len == 0 {
+            return None;
+        }
+
+        let mut collected = Vec::new();
+        let mut curr = (self.head + FAST_BUFFER_CAPACITY - 1) % FAST_BUFFER_CAPACITY;
+        let mut n = 0;
+
+        while n < self.len {
+            let c = self.data[curr];
+
+            if c.is_whitespace() {
+                break;
+            }
+
+            collected.push(c);
+            curr = (curr + FAST_BUFFER_CAPACITY - 1) % FAST_BUFFER_CAPACITY;
+            n += 1;
+        }
+
+        if collected.is_empty() {
+            return None;
+        }
+
+        collected.reverse();
+        Some(collected.into_iter().collect())
+    }
 }
 
 #[cfg(test)]
@@ -328,5 +367,57 @@ mod tests {
         let mut b = FastBuffer::new();
         type_str(&mut b, r#">foo-"bar"#);
         assert_eq!(b.extract_trigger_word('>'), None);
+    }
+
+    #[test]
+    fn extract_tail_word_empty_buffer_returns_none() {
+        let b = FastBuffer::new();
+        assert_eq!(b.extract_tail_word(), None);
+    }
+
+    #[test]
+    fn extract_tail_word_single_word_at_buffer_start() {
+        let mut b = FastBuffer::new();
+        type_str(&mut b, "gs");
+        assert_eq!(b.extract_tail_word(), Some("gs".to_string()));
+    }
+
+    #[test]
+    fn extract_tail_word_after_whitespace() {
+        let mut b = FastBuffer::new();
+        type_str(&mut b, "hello gs");
+        assert_eq!(b.extract_tail_word(), Some("gs".to_string()));
+    }
+
+    #[test]
+    fn extract_tail_word_punctuation_is_not_a_boundary() {
+        let mut b = FastBuffer::new();
+        type_str(&mut b, "(gs");
+        assert_eq!(
+            b.extract_tail_word(),
+            Some("(gs".to_string()),
+            "punctuation should be part of the word, not a boundary"
+        );
+    }
+
+    #[test]
+    fn extract_tail_word_trailing_whitespace_returns_none() {
+        let mut b = FastBuffer::new();
+        type_str(&mut b, "hello ");
+        assert_eq!(b.extract_tail_word(), None);
+    }
+
+    #[test]
+    fn extract_tail_word_after_tab() {
+        let mut b = FastBuffer::new();
+        type_str(&mut b, "some\tgs");
+        assert_eq!(b.extract_tail_word(), Some("gs".to_string()));
+    }
+
+    #[test]
+    fn extract_tail_word_unicode_word() {
+        let mut b = FastBuffer::new();
+        type_str(&mut b, "text ツ");
+        assert_eq!(b.extract_tail_word(), Some("ツ".to_string()));
     }
 }

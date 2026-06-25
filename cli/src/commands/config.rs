@@ -69,6 +69,10 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
         "action_delimiter",
         &format!("{:?}", settings.action_delimiter).to_lowercase(),
     ]);
+    table.add_row(vec![
+        "triggerless_mode",
+        &settings.triggerless_mode.to_string(),
+    ]);
 
     println!("{}", table);
 
@@ -98,7 +102,8 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
         | "pause_audio_enabled"
         | "start_on_boot"
         | "inline_tab_completion_enabled"
-        | "inline_history_enabled" => {
+        | "inline_history_enabled"
+        | "triggerless_mode" => {
             let b = parse_boolean_setting_value(&value)?;
             manager.update_setting(actual_key, b)?;
             info!("Updated {} to: {}", actual_key, b);
@@ -265,6 +270,13 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
                 defaults.action_delimiter
             );
         }
+        "triggerless_mode" => {
+            manager.update_setting(actual_key, defaults.triggerless_mode)?;
+            info!(
+                "Reset triggerless_mode to default: {}",
+                defaults.triggerless_mode
+            );
+        }
         "ai_provider" => {
             manager.update_setting(actual_key, defaults.ai_provider.clone())?;
             info!("Reset ai_provider to default: <unset>");
@@ -323,6 +335,7 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
         defaults.clipboard_restore_delay_ms,
     )?;
     manager.update_setting("action_delimiter", defaults.action_delimiter)?;
+    manager.update_setting("triggerless_mode", defaults.triggerless_mode)?;
 
     info!("All settings have been reset to factory defaults.");
 

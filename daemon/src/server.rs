@@ -138,6 +138,9 @@ impl DaemonControl for DaemonService {
         self.state
             .inline_history_enabled
             .store(settings.inline_history_enabled, Ordering::Relaxed);
+        self.state
+            .triggerless_mode
+            .store(settings.triggerless_mode, Ordering::Relaxed);
 
         // Update pause notifications (atomic)
         self.pause_notifications_enabled

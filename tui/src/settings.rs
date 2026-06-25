@@ -24,10 +24,11 @@ pub(crate) enum SettingKey {
     InlineAiDelimiter,
     ClipboardRestoreDelayMs,
     ActionDelimiter,
+    TriggerlessMode,
 }
 
 impl SettingKey {
-    pub(crate) const ALL: [Self; 15] = [
+    pub(crate) const ALL: [Self; 16] = [
         Self::TriggerChar,
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
@@ -43,6 +44,7 @@ impl SettingKey {
         Self::InlineAiDelimiter,
         Self::ClipboardRestoreDelayMs,
         Self::ActionDelimiter,
+        Self::TriggerlessMode,
     ];
 
     pub(crate) const fn storage_key(self) -> &'static str {
@@ -62,6 +64,7 @@ impl SettingKey {
             Self::InlineAiDelimiter => "inline_ai_delimiter",
             Self::ClipboardRestoreDelayMs => "clipboard_restore_delay_ms",
             Self::ActionDelimiter => "action_delimiter",
+            Self::TriggerlessMode => "triggerless_mode",
         }
     }
 
@@ -82,6 +85,7 @@ impl SettingKey {
             Self::InlineAiDelimiter => "Inline AI Delimiter",
             Self::ClipboardRestoreDelayMs => "Clipboard Restore Delay (ms)",
             Self::ActionDelimiter => "Action Delimiter",
+            Self::TriggerlessMode => "Triggerless Mode",
         }
     }
 
@@ -112,6 +116,9 @@ impl SettingKey {
             Self::ActionDelimiter => {
                 "The keystroke used to trigger a text expansion after the trigger character"
             }
+            Self::TriggerlessMode => {
+                "Expand trigger words automatically when typing without requiring the trigger character"
+            }
         }
     }
 
@@ -121,7 +128,8 @@ impl SettingKey {
             | Self::PauseAudioEnabled
             | Self::StartOnBoot
             | Self::InlineTabCompletionEnabled
-            | Self::InlineHistoryEnabled => EditorKind::Toggle,
+            | Self::InlineHistoryEnabled
+            | Self::TriggerlessMode => EditorKind::Toggle,
             Self::Wpm | Self::ClipboardRestoreDelayMs => EditorKind::NumberInput,
             Self::SpinnerStyle => EditorKind::SpinnerSelect,
             Self::ActionDelimiter => EditorKind::ActionDelimiterSelect,
@@ -151,6 +159,7 @@ impl SettingKey {
             Self::InlineAiDelimiter => settings.inline_ai_delimiter.to_string(),
             Self::ClipboardRestoreDelayMs => settings.clipboard_restore_delay_ms.to_string(),
             Self::ActionDelimiter => format!("{:?}", settings.action_delimiter).to_lowercase(),
+            Self::TriggerlessMode => settings.triggerless_mode.to_string(),
         }
     }
 
@@ -168,6 +177,7 @@ impl SettingKey {
             | Self::StartOnBoot
             | Self::InlineTabCompletionEnabled
             | Self::InlineHistoryEnabled
+            | Self::TriggerlessMode
             | Self::SpinnerStyle
             | Self::ActionDelimiter
             | Self::ClipboardRestoreDelayMs => self.display_value(settings),
@@ -306,6 +316,7 @@ impl SettingsPageState {
                 (!self.settings.inline_tab_completion_enabled).to_string()
             }
             SettingKey::InlineHistoryEnabled => (!self.settings.inline_history_enabled).to_string(),
+            SettingKey::TriggerlessMode => (!self.settings.triggerless_mode).to_string(),
             _ => return SettingsInteraction::handled(),
         };
 
@@ -718,7 +729,7 @@ mod tests {
 
     #[test]
     fn every_setting_has_a_descriptor() {
-        assert_eq!(SettingKey::ALL.len(), 15);
+        assert_eq!(SettingKey::ALL.len(), 16);
     }
 
     #[test]

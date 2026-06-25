@@ -44,6 +44,7 @@ pub struct Settings {
     pub inline_ai_delimiter: char,
     pub clipboard_restore_delay_ms: u32,
     pub action_delimiter: ActionDelimiter,
+    pub triggerless_mode: bool,
 }
 
 impl Settings {
@@ -68,6 +69,8 @@ impl Settings {
             "clipboard_restore_delay_ms" => "clipboard_restore_delay_ms",
             "clipboard_delay" => "clipboard_restore_delay_ms",
             "action_delimiter" => "action_delimiter",
+            "triggerless" => "triggerless_mode",
+            "triggerless_mode" => "triggerless_mode",
             _ => key,
         }
     }
@@ -124,6 +127,7 @@ impl Default for Settings {
             inline_ai_delimiter: '`',
             clipboard_restore_delay_ms: Self::default_clipboard_restore_delay_ms(),
             action_delimiter: ActionDelimiter::default(),
+            triggerless_mode: false,
         }
     }
 }

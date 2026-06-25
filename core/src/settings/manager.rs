@@ -109,6 +109,12 @@ impl<'a> SettingsManager<'a> {
             settings.action_delimiter = v;
         }
 
+        if let Ok(Some(val)) = get_setting_value(self.conn, "triggerless_mode")
+            && let Ok(v) = serde_json::from_str::<bool>(&val)
+        {
+            settings.triggerless_mode = v;
+        }
+
         settings
     }
 
