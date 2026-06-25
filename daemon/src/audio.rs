@@ -1,4 +1,4 @@
-use rodio::{Decoder, OutputStream, Sink};
+use rodio::{Decoder, DeviceSinkBuilder, Player};
 use std::io::Cursor;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
@@ -39,13 +39,13 @@ pub fn init_audio_system() -> mpsc::Sender<bool> {
         while let Some(is_paused) = rx.blocking_recv() {
             let data = if is_paused { PAUSE_WAV } else { RESUME_WAV };
 
-            // Acquire a fresh OutputStream on every trigger so we always bind
+            // Acquire a fresh OutputStream/MixerDeviceSink on every trigger so we always bind
             // to the *current* default device. Cached streams silently play
             // into dead endpoints on Windows (WASAPI) after a device unplug
             // because rodio/cpal does not surface device-loss errors through
             // the Sink API.
-            let (_stream, handle) = match OutputStream::try_default() {
-                Ok(pair) => pair,
+            let stream = match DeviceSinkBuilder::open_default_sink() {
+                Ok(s) => s,
                 Err(e) => {
                     warn!("Audio playback skipped: no audio device available: {}", e);
                     continue;
@@ -53,20 +53,16 @@ pub fn init_audio_system() -> mpsc::Sender<bool> {
             };
 
             match load_wav_source(data) {
-                Ok(decoder) => match Sink::try_new(&handle) {
-                    Ok(sink) => {
-                        sink.append(decoder);
-                        sink.sleep_until_end();
-                    }
-                    Err(e) => {
-                        warn!("Audio playback failed: sink error: {}", e);
-                    }
-                },
+                Ok(decoder) => {
+                    let player = Player::connect_new(stream.mixer());
+                    player.append(decoder);
+                    player.sleep_until_end();
+                }
                 Err(e) => {
                     error!("Failed to decode audio: {}", e);
                 }
             }
-            // _stream and handle drop here, releasing the device cleanly.
+            // stream drops here, releasing the device cleanly.
         }
     });
 

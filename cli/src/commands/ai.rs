@@ -212,7 +212,7 @@ impl ModelCatalog for GenaiModelCatalog {
         let result = runtime.block_on(async {
             let client = build_model_client(secret.as_str());
             let mut models = client
-                .all_model_names(adapter_kind(provider))
+                .all_model_names(adapter_kind(provider), ())
                 .await
                 .map_err(|e| {
                     taurine_core::error::Error::Service(format!(

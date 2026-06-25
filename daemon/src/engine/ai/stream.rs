@@ -524,7 +524,7 @@ mod tests {
         assert_eq!(gemini.tools.as_ref().map(|tools| tools.len()), Some(1));
         assert_eq!(
             gemini.tools.as_ref().unwrap()[0].name,
-            "googleSearch".to_string()
+            genai::chat::ToolName::Custom("googleSearch".to_string())
         );
 
         let openai = build_chat_request(AiProvider::Openai, "latest rust release", None);
