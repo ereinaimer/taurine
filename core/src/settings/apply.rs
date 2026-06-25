@@ -58,6 +58,10 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "ai_custom_endpoint" => Ok(defaults.ai_custom_endpoint),
         "inline_ai_delimiter" => Ok(Some(defaults.inline_ai_delimiter.to_string())),
         "clipboard_restore_delay_ms" => Ok(Some(defaults.clipboard_restore_delay_ms.to_string())),
+        "action_delimiter" => Ok(Some(match defaults.action_delimiter {
+            super::ActionDelimiter::Space => "space".to_string(),
+            super::ActionDelimiter::Enter => "enter".to_string(),
+        })),
         _ => Err(Error::Config(format!("Unknown setting key: {actual_key}"))),
     }
 }
@@ -147,6 +151,13 @@ pub fn apply_setting_input_with_manager(
             )?;
             ApplySettingOutcome::default()
         }
+        "action_delimiter" => {
+            manager.update_setting(
+                actual_key,
+                parse_action_delimiter(require_non_empty(value, actual_key)?)?,
+            )?;
+            ApplySettingOutcome::default()
+        }
         _ => {
             return Err(Error::Config(format!("Unknown setting key: {actual_key}")));
         }
@@ -170,6 +181,16 @@ pub fn parse_spinner_style(value: &str) -> Result<SpinnerStyle> {
         "arc" => Ok(SpinnerStyle::Arc),
         other => Err(Error::Config(format!(
             "Invalid spinner_style value '{other}'. Supported values: classic, braille, arc"
+        ))),
+    }
+}
+
+pub fn parse_action_delimiter(value: &str) -> Result<super::ActionDelimiter> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "space" => Ok(super::ActionDelimiter::Space),
+        "enter" => Ok(super::ActionDelimiter::Enter),
+        other => Err(Error::Config(format!(
+            "Invalid action_delimiter value '{other}'. Supported values: space, enter"
         ))),
     }
 }

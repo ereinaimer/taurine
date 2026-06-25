@@ -427,10 +427,17 @@ mod tests {
 
         let mut text = Evaluator::new(state);
         for ch in ">gm".chars() {
-            assert_eq!(text.process_event(EngineEvent::Char(ch)), None);
+            assert_eq!(
+                text.process_event(if ch == ' ' {
+                    EngineEvent::ActionDelimiter
+                } else {
+                    EngineEvent::Char(ch)
+                }),
+                None
+            );
         }
         let expansion = text
-            .process_event(EngineEvent::Char(' '))
+            .process_event(EngineEvent::ActionDelimiter)
             .expect("word trigger should still expand on hotkey miss");
         assert_eq!(
             expansion.steps,
@@ -455,7 +462,7 @@ mod tests {
         );
 
         assert!(matches!(result, HotkeyEvaluation::Matched(_)));
-        assert_eq!(text.process_event(EngineEvent::Char(' ')), None);
+        assert_eq!(text.process_event(EngineEvent::ActionDelimiter), None);
         assert!(state.take_active_undo_state().is_none());
     }
 

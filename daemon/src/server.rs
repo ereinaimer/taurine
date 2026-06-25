@@ -163,6 +163,10 @@ impl DaemonControl for DaemonService {
             *lock = settings.spinner_style;
         }
 
+        if let Ok(mut lock) = self.state.action_delimiter.write() {
+            *lock = settings.action_delimiter;
+        }
+
         info!("Successfully reloaded snippets and settings into daemon.");
         Ok(Response::new(ReloadResponse { success: true }))
     }

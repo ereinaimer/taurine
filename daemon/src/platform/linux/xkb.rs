@@ -87,6 +87,7 @@ impl XkbMapper {
         key: KeyCode,
         is_press: bool,
         engine_mode: EngineMode,
+        action_delimiter: taurine_core::settings::ActionDelimiter,
     ) -> Option<EngineEvent> {
         // evdev keycodes map to XKB keycodes by adding 8.
         let keycode = key.code() as u32 + 8;
@@ -114,9 +115,17 @@ impl XkbMapper {
                         return Some(EngineEvent::Backspace);
                     }
                 }
-                KeyCode::KEY_SPACE => return Some(EngineEvent::Char(' ')),
+                KeyCode::KEY_SPACE => {
+                    if action_delimiter == taurine_core::settings::ActionDelimiter::Space {
+                        return Some(EngineEvent::ActionDelimiter);
+                    }
+                    return Some(EngineEvent::Char(' '));
+                }
                 // Structural keys — break any active typing sequence.
                 KeyCode::KEY_ENTER | KeyCode::KEY_KPENTER => {
+                    if action_delimiter == taurine_core::settings::ActionDelimiter::Enter {
+                        return Some(EngineEvent::ActionDelimiter);
+                    }
                     if matches!(engine_mode, EngineMode::AiCapture { .. }) {
                         return Some(EngineEvent::Char('\n'));
                     }

@@ -5,6 +5,7 @@ use taurine_core::{
 };
 
 const SPINNER_STYLE_OPTIONS: [&str; 3] = ["classic", "braille", "arc"];
+const ACTION_DELIMITER_OPTIONS: [&str; 2] = ["space", "enter"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SettingKey {
@@ -22,10 +23,11 @@ pub(crate) enum SettingKey {
     AiCustomEndpoint,
     InlineAiDelimiter,
     ClipboardRestoreDelayMs,
+    ActionDelimiter,
 }
 
 impl SettingKey {
-    pub(crate) const ALL: [Self; 14] = [
+    pub(crate) const ALL: [Self; 15] = [
         Self::TriggerChar,
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
@@ -40,6 +42,7 @@ impl SettingKey {
         Self::AiCustomEndpoint,
         Self::InlineAiDelimiter,
         Self::ClipboardRestoreDelayMs,
+        Self::ActionDelimiter,
     ];
 
     pub(crate) const fn storage_key(self) -> &'static str {
@@ -58,6 +61,7 @@ impl SettingKey {
             Self::AiCustomEndpoint => "ai_custom_endpoint",
             Self::InlineAiDelimiter => "inline_ai_delimiter",
             Self::ClipboardRestoreDelayMs => "clipboard_restore_delay_ms",
+            Self::ActionDelimiter => "action_delimiter",
         }
     }
 
@@ -77,6 +81,7 @@ impl SettingKey {
             Self::AiCustomEndpoint => "AI Custom Endpoint",
             Self::InlineAiDelimiter => "Inline AI Delimiter",
             Self::ClipboardRestoreDelayMs => "Clipboard Restore Delay (ms)",
+            Self::ActionDelimiter => "Action Delimiter",
         }
     }
 
@@ -104,6 +109,9 @@ impl SettingKey {
             Self::ClipboardRestoreDelayMs => {
                 "The delay in milliseconds between pasting and restoring the clipboard"
             }
+            Self::ActionDelimiter => {
+                "The keystroke used to trigger a text expansion after the trigger character"
+            }
         }
     }
 
@@ -116,6 +124,7 @@ impl SettingKey {
             | Self::InlineHistoryEnabled => EditorKind::Toggle,
             Self::Wpm | Self::ClipboardRestoreDelayMs => EditorKind::NumberInput,
             Self::SpinnerStyle => EditorKind::SpinnerSelect,
+            Self::ActionDelimiter => EditorKind::ActionDelimiterSelect,
             Self::AiProvider => EditorKind::AiProviderSelect,
             Self::AiCustomEndpoint => EditorKind::OptionalTextInput,
             Self::TriggerChar | Self::InlineAiDelimiter => EditorKind::SingleCharInput,
@@ -141,6 +150,7 @@ impl SettingKey {
             }
             Self::InlineAiDelimiter => settings.inline_ai_delimiter.to_string(),
             Self::ClipboardRestoreDelayMs => settings.clipboard_restore_delay_ms.to_string(),
+            Self::ActionDelimiter => format!("{:?}", settings.action_delimiter).to_lowercase(),
         }
     }
 
@@ -159,6 +169,7 @@ impl SettingKey {
             | Self::InlineTabCompletionEnabled
             | Self::InlineHistoryEnabled
             | Self::SpinnerStyle
+            | Self::ActionDelimiter
             | Self::ClipboardRestoreDelayMs => self.display_value(settings),
         }
     }
@@ -172,6 +183,7 @@ pub(crate) enum EditorKind {
     OptionalTextInput,
     NumberInput,
     SpinnerSelect,
+    ActionDelimiterSelect,
     AiProviderSelect,
 }
 
@@ -312,6 +324,16 @@ impl SettingsPageState {
                     .collect(),
                 key.display_value(&self.settings),
             ))),
+            EditorKind::ActionDelimiterSelect => {
+                Some(SettingsModal::Select(SelectModalState::new(
+                    key,
+                    ACTION_DELIMITER_OPTIONS
+                        .iter()
+                        .map(|value| (*value).to_string())
+                        .collect(),
+                    key.display_value(&self.settings),
+                )))
+            }
             EditorKind::AiProviderSelect => Some(SettingsModal::Select(SelectModalState::new(
                 key,
                 supported_providers()
@@ -696,7 +718,7 @@ mod tests {
 
     #[test]
     fn every_setting_has_a_descriptor() {
-        assert_eq!(SettingKey::ALL.len(), 14);
+        assert_eq!(SettingKey::ALL.len(), 15);
     }
 
     #[test]

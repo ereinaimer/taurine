@@ -65,6 +65,10 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
         "clipboard_restore_delay_ms",
         &settings.clipboard_restore_delay_ms.to_string(),
     ]);
+    table.add_row(vec![
+        "action_delimiter",
+        &format!("{:?}", settings.action_delimiter).to_lowercase(),
+    ]);
 
     println!("{}", table);
 
@@ -136,6 +140,21 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
             };
             manager.update_setting(actual_key, s)?;
             info!("Updated spinner_style to: {}", value);
+        }
+        "action_delimiter" => {
+            let s = match value.to_lowercase().as_str() {
+                "space" => taurine_core::settings::ActionDelimiter::Space,
+                "enter" => taurine_core::settings::ActionDelimiter::Enter,
+                _ => {
+                    warn!(
+                        "Invalid action delimiter: {}. Supported: space, enter",
+                        value
+                    );
+                    return Ok(());
+                }
+            };
+            manager.update_setting(actual_key, s)?;
+            info!("Updated action_delimiter to: {}", value);
         }
         "ai_provider" => {
             let provider = taurine_core::ai::AiProvider::try_from(value.as_str())?;
@@ -239,6 +258,13 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
                 defaults.spinner_style
             );
         }
+        "action_delimiter" => {
+            manager.update_setting(actual_key, defaults.action_delimiter)?;
+            info!(
+                "Reset action_delimiter to default: {:?}",
+                defaults.action_delimiter
+            );
+        }
         "ai_provider" => {
             manager.update_setting(actual_key, defaults.ai_provider.clone())?;
             info!("Reset ai_provider to default: <unset>");
@@ -296,6 +322,7 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
         "clipboard_restore_delay_ms",
         defaults.clipboard_restore_delay_ms,
     )?;
+    manager.update_setting("action_delimiter", defaults.action_delimiter)?;
 
     info!("All settings have been reset to factory defaults.");
 

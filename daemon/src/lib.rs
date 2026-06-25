@@ -57,6 +57,10 @@ pub fn start() -> taurine_core::error::Result<()> {
         .inline_history_enabled
         .store(settings.inline_history_enabled, Ordering::Relaxed);
 
+    if let Ok(mut lock) = state.action_delimiter.write() {
+        *lock = settings.action_delimiter;
+    }
+
     // Global pause toggle hotkey (display + parse).
     let pause_hotkey = Arc::new(RwLock::new(settings.pause_hotkey.clone()));
 

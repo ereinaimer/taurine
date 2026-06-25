@@ -328,7 +328,8 @@ fn process_frame(
 
         let logical_key = logical_key_from_evdev(key);
         let engine_mode = state.engine_mode();
-        let engine_event = xkb.process_key(key, is_press, engine_mode);
+        let action_delimiter = *state.action_delimiter.read().unwrap();
+        let engine_event = xkb.process_key(key, is_press, engine_mode, action_delimiter);
         let modifiers = modifier_sides.current_modifiers();
 
         if IS_INJECTING.load(Ordering::SeqCst) {

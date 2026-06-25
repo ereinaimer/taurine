@@ -1331,11 +1331,18 @@ mod tests {
         let mut evaluator = Evaluator::new(state);
 
         for ch in ">gm".chars() {
-            assert_eq!(evaluator.process_event(EngineEvent::Char(ch)), None);
+            assert_eq!(
+                evaluator.process_event(if ch == ' ' {
+                    EngineEvent::ActionDelimiter
+                } else {
+                    EngineEvent::Char(ch)
+                }),
+                None
+            );
         }
 
         let expansion = evaluator
-            .process_event(EngineEvent::Char(' '))
+            .process_event(EngineEvent::ActionDelimiter)
             .expect("word trigger should still expand after AI cleanup");
         assert_eq!(
             expansion.steps,

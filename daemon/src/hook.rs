@@ -659,8 +659,24 @@ fn run_listener_once(
                             Some(EngineEvent::Backspace)
                         }
                     }
-                    Key::Space => Some(EngineEvent::Char(' ')),
-                    Key::Return => Some(map_return_key(engine_mode)),
+                    Key::Space => {
+                        if *state.action_delimiter.read().unwrap()
+                            == taurine_core::settings::ActionDelimiter::Space
+                        {
+                            Some(EngineEvent::ActionDelimiter)
+                        } else {
+                            Some(EngineEvent::Char(' '))
+                        }
+                    }
+                    Key::Return => {
+                        if *state.action_delimiter.read().unwrap()
+                            == taurine_core::settings::ActionDelimiter::Enter
+                        {
+                            Some(EngineEvent::ActionDelimiter)
+                        } else {
+                            Some(map_return_key(engine_mode))
+                        }
+                    }
                     Key::Tab => Some(EngineEvent::Interrupt),
                     Key::UpArrow
                     | Key::DownArrow
@@ -906,6 +922,7 @@ fn engine_event_label(event: &EngineEvent) -> &'static str {
         EngineEvent::Interrupt => "interrupt",
         EngineEvent::Backspace => "backspace",
         EngineEvent::WordBackspace => "word_backspace",
+        EngineEvent::ActionDelimiter => "action_delimiter",
         EngineEvent::Char(_) => "char",
     }
 }
@@ -1473,7 +1490,11 @@ mod tests {
         let mut evaluator = taurine_core::engine::Evaluator::new(state);
         for ch in ">g".chars() {
             assert_eq!(
-                evaluator.process_event(taurine_core::engine::EngineEvent::Char(ch)),
+                evaluator.process_event(if ch == ' ' {
+                    taurine_core::engine::EngineEvent::ActionDelimiter
+                } else {
+                    taurine_core::engine::EngineEvent::Char(ch)
+                }),
                 None
             );
         }
@@ -1550,13 +1571,17 @@ mod tests {
 
         for ch in ">ai".chars() {
             assert_eq!(
-                evaluator.process_event(taurine_core::engine::EngineEvent::Char(ch)),
+                evaluator.process_event(if ch == ' ' {
+                    taurine_core::engine::EngineEvent::ActionDelimiter
+                } else {
+                    taurine_core::engine::EngineEvent::Char(ch)
+                }),
                 None
             );
         }
 
         let expansion = evaluator
-            .process_event(taurine_core::engine::EngineEvent::Char(' '))
+            .process_event(taurine_core::engine::EngineEvent::ActionDelimiter)
             .expect("inline ai capture should start");
         assert_eq!(expansion.trigger, "ai");
 

@@ -103,6 +103,12 @@ impl<'a> SettingsManager<'a> {
             settings.clipboard_restore_delay_ms = Settings::sanitize_clipboard_restore_delay_ms(v);
         }
 
+        if let Ok(Some(val)) = get_setting_value(self.conn, "action_delimiter")
+            && let Ok(v) = serde_json::from_str::<super::ActionDelimiter>(&val)
+        {
+            settings.action_delimiter = v;
+        }
+
         settings
     }
 

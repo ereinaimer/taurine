@@ -19,6 +19,14 @@ pub enum SpinnerStyle {
     Classic,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ActionDelimiter {
+    #[default]
+    Space,
+    Enter,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Settings {
     pub trigger_char: char,
@@ -35,6 +43,7 @@ pub struct Settings {
     pub ai_custom_endpoint: Option<String>,
     pub inline_ai_delimiter: char,
     pub clipboard_restore_delay_ms: u32,
+    pub action_delimiter: ActionDelimiter,
 }
 
 impl Settings {
@@ -58,6 +67,7 @@ impl Settings {
             "ai_custom_endpoint" => "ai_custom_endpoint",
             "clipboard_restore_delay_ms" => "clipboard_restore_delay_ms",
             "clipboard_delay" => "clipboard_restore_delay_ms",
+            "action_delimiter" => "action_delimiter",
             _ => key,
         }
     }
@@ -113,6 +123,7 @@ impl Default for Settings {
             ai_custom_endpoint: None,
             inline_ai_delimiter: '`',
             clipboard_restore_delay_ms: Self::default_clipboard_restore_delay_ms(),
+            action_delimiter: ActionDelimiter::default(),
         }
     }
 }
