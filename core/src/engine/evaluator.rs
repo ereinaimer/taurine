@@ -486,7 +486,7 @@ impl Evaluator {
             }
 
             if let Some(expansion) = self.state.fetch_expansion(&keyword) {
-                let delete_count = 1 + keyword.chars().count() + 1;
+                let delete_count = 1 + keyword.chars().count();
                 let undo_trigger = self.undo_trigger_for_steps(&keyword, &expansion.steps);
                 let metric_kind = metric_kind_for_steps(expansion.is_calculation, &expansion.steps);
                 self.buffer.clear();
@@ -623,7 +623,7 @@ impl Evaluator {
         });
 
         ExpansionResult {
-            delete_count: 1 + keyword.chars().count() + 1,
+            delete_count: 1 + keyword.chars().count(),
             steps: vec![ExpansionStep::Text(delimiter.to_string())],
             trigger: keyword.to_string(),
             undo_trigger: None,
@@ -636,7 +636,7 @@ impl Evaluator {
 
     fn expand_inline_ai_prompt(&mut self, keyword: &str, prompt: String) -> ExpansionResult {
         self.buffer.clear();
-        let delete_count = 1 + keyword.chars().count() + 1;
+        let delete_count = 1 + keyword.chars().count();
 
         ExpansionResult {
             delete_count,
@@ -1779,8 +1779,8 @@ mod tests {
 
         // Exact sequence matching should occur when space fires
         let result = eval.process_event(EngineEvent::ActionDelimiter).unwrap();
-        // delete_count = '/' (1) + "gm" (2) + ' ' (1) = 4
-        assert_eq!(result.delete_count, 4);
+        // delete_count = '/' (1) + "gm" (2) = 3
+        assert_eq!(result.delete_count, 3);
         assert_eq!(
             result.steps,
             vec![ExpansionStep::Text("Good morning!".to_string())]
@@ -1831,7 +1831,7 @@ mod tests {
 
         // Fire expansion
         let result = eval.process_event(EngineEvent::ActionDelimiter).unwrap();
-        assert_eq!(result.delete_count, 4);
+        assert_eq!(result.delete_count, 3);
         assert_eq!(
             result.steps,
             vec![ExpansionStep::Text("Good morning!".to_string())]
@@ -1950,7 +1950,7 @@ mod tests {
             });
         }
         let result = eval.process_event(EngineEvent::ActionDelimiter).unwrap();
-        assert_eq!(result.delete_count, 7);
+        assert_eq!(result.delete_count, 6);
         assert_eq!(
             result.steps,
             vec![ExpansionStep::Text(r#"¯\_(ツ)_/¯"#.to_string())]
@@ -2025,7 +2025,7 @@ mod tests {
                     r.steps,
                     vec![ExpansionStep::Text("Be right back!".to_string())]
                 );
-                assert_eq!(r.delete_count, 1 + "brb".len() + 1);
+                assert_eq!(r.delete_count, 1 + "brb".len());
             } else {
                 assert_eq!(
                     eval.process_event(if c == ' ' {
@@ -2046,7 +2046,7 @@ mod tests {
                     r.steps,
                     vec![ExpansionStep::Text("Good morning!".to_string())]
                 );
-                assert_eq!(r.delete_count, 1 + "gm".len() + 1);
+                assert_eq!(r.delete_count, 1 + "gm".len());
             } else {
                 assert_eq!(
                     eval.process_event(if c == ' ' {
@@ -2079,7 +2079,7 @@ mod tests {
                         r.steps,
                         vec![ExpansionStep::Text("Good morning!".to_string())]
                     );
-                    assert_eq!(r.delete_count, 1 + 2 + 1);
+                    assert_eq!(r.delete_count, 1 + 2);
                 } else {
                     assert_eq!(
                         eval.process_event(if c == ' ' {
@@ -2173,7 +2173,7 @@ mod tests {
         );
         assert_eq!(result.trigger, r#"repo:"ereinaimer":"taurine""#);
         // trigger_char + keyword + space
-        assert_eq!(result.delete_count, 1 + result.trigger.len() + 1);
+        assert_eq!(result.delete_count, 1 + result.trigger.len());
     }
 
     #[test]
@@ -2403,7 +2403,7 @@ mod tests {
             .expect("inline ai should trigger on the trailing space");
 
         assert_eq!(eval.buffer.len, 0);
-        assert_eq!(result.delete_count, trigger.chars().count() + 1);
+        assert_eq!(result.delete_count, trigger.chars().count());
         assert_eq!(
             result.steps,
             vec![ExpansionStep::Text(eval.get_thinking_text())]
@@ -2443,7 +2443,7 @@ mod tests {
             .process_event(EngineEvent::ActionDelimiter)
             .expect("single-quoted inline ai should trigger on the trailing space");
 
-        assert_eq!(result.delete_count, trigger.chars().count() + 1);
+        assert_eq!(result.delete_count, trigger.chars().count());
         assert_inline_ai_follow_up(&result, "What is the deadliest microbe?", None);
     }
 
@@ -2505,7 +2505,7 @@ mod tests {
 
         assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
         assert_eq!(state.ai_prompt_buffer(), "");
-        assert_eq!(result.delete_count, 4);
+        assert_eq!(result.delete_count, 3);
         assert_eq!(result.steps, vec![ExpansionStep::Text("`".to_string())]);
         assert_eq!(result.undo_trigger, None);
         assert_no_follow_up(&result);

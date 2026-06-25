@@ -728,6 +728,10 @@ fn run_listener_once(
                             runtime_handle.clone(),
                             state,
                         );
+
+                        if ev == EngineEvent::ActionDelimiter {
+                            return None;
+                        }
                     }
                 }
             }

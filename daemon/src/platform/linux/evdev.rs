@@ -593,6 +593,10 @@ fn process_frame(
                     runtime_handle.clone(),
                     state,
                 );
+
+                if ev == EngineEvent::ActionDelimiter {
+                    swallow_frame = true;
+                }
             }
         }
     }
