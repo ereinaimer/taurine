@@ -44,13 +44,14 @@ pub fn init_audio_system() -> mpsc::Sender<bool> {
             // into dead endpoints on Windows (WASAPI) after a device unplug
             // because rodio/cpal does not surface device-loss errors through
             // the Sink API.
-            let stream = match DeviceSinkBuilder::open_default_sink() {
+            let mut stream = match DeviceSinkBuilder::open_default_sink() {
                 Ok(s) => s,
                 Err(e) => {
                     warn!("Audio playback skipped: no audio device available: {}", e);
                     continue;
                 }
             };
+            stream.log_on_drop(false);
 
             match load_wav_source(data) {
                 Ok(decoder) => {
