@@ -233,28 +233,28 @@ pub fn start_windows_supervisor(
                     WindowsSupervisorEvent::ResumeAutomatic => {
                         mark_windows_recovery_signal(
                             &hook_health,
-                            listener_running,
+                            &mut listener_running,
                             "automatic resume",
                         );
                     }
                     WindowsSupervisorEvent::ResumeFromSuspend => {
                         mark_windows_recovery_signal(
                             &hook_health,
-                            listener_running,
+                            &mut listener_running,
                             "resume from suspend",
                         );
                     }
                     WindowsSupervisorEvent::SessionUnlock => {
                         mark_windows_recovery_signal(
                             &hook_health,
-                            listener_running,
+                            &mut listener_running,
                             "session unlock",
                         );
                     }
                     WindowsSupervisorEvent::SessionLogon => {
                         mark_windows_recovery_signal(
                             &hook_health,
-                            listener_running,
+                            &mut listener_running,
                             "session logon",
                         );
                     }
@@ -317,6 +317,9 @@ pub fn start_listener(
 }
 
 #[cfg(not(target_os = "linux"))]
+static LISTENER_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(not(target_os = "linux"))]
 #[allow(clippy::too_many_arguments)]
 fn run_listener_once(
     evaluator: Arc<Mutex<Evaluator>>,
@@ -340,8 +343,13 @@ fn run_listener_once(
     let right_meta_down = std::sync::atomic::AtomicBool::new(false);
     let hotkey_evaluator = Mutex::new(HotkeyEvaluator::new());
     let callback_health = hook_health.clone();
+    let my_epoch = LISTENER_EPOCH.load(Ordering::SeqCst);
 
     let callback = move |event: Event| -> Option<Event> {
+        if LISTENER_EPOCH.load(Ordering::Relaxed) != my_epoch {
+            return Some(event);
+        }
+
         if consume_simulated_event(&event.event_type) {
             return Some(event);
         }
@@ -840,13 +848,19 @@ fn spawn_windows_hook_listener(
 }
 
 #[cfg(windows)]
-fn mark_windows_recovery_signal(hook_health: &HookHealth, listener_running: bool, reason: &str) {
+fn mark_windows_recovery_signal(
+    hook_health: &HookHealth,
+    listener_running: &mut bool,
+    reason: &str,
+) {
     hook_health.mark_recovery_signal(reason);
-    if listener_running {
+    if *listener_running {
         warn!(
             recovery_reason = reason,
-            "Windows power/session change detected; listener is still running so automatic rehook is skipped to avoid duplicate hooks"
+            "Windows power/session change detected; forcing automatic rehook and bumping epoch to orphan old listener"
         );
+        LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
+        *listener_running = false;
     } else {
         warn!(
             recovery_reason = reason,
