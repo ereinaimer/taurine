@@ -64,8 +64,10 @@ pub fn start_listener(state: Arc<EngineState>) {
         );
 
         while let Ok(event) = conn.wait_for_event() {
-            if let x11rb::protocol::Event::PropertyNotify(ev) = event {
-                if ev.atom == net_active_window || ev.atom == net_wm_state {
+            match event {
+                x11rb::protocol::Event::PropertyNotify(ev)
+                    if ev.atom == net_active_window || ev.atom == net_wm_state =>
+                {
                     update_fullscreen_state(
                         &conn,
                         root,
@@ -75,6 +77,7 @@ pub fn start_listener(state: Arc<EngineState>) {
                         &state,
                     );
                 }
+                _ => {}
             }
         }
     });
@@ -89,7 +92,7 @@ fn update_fullscreen_state(
     state: &Arc<EngineState>,
 ) {
     let mut is_full = false;
-    if let Ok(reply) = conn
+    let active_window_val = conn
         .get_property(
             false,
             root,
@@ -98,38 +101,36 @@ fn update_fullscreen_state(
             0,
             1,
         )
-        .unwrap()
-        .reply()
-    {
-        if let Some(val) = reply.value32().and_then(|mut iter| iter.next()) {
-            let active_window = val;
+        .ok()
+        .and_then(|cookie| cookie.reply().ok())
+        .and_then(|reply| reply.value32().and_then(|mut iter| iter.next()));
 
-            // Register to catch when the window goes fullscreen without losing focus
-            let _ = conn.change_window_attributes(
+    if let Some(active_window) = active_window_val {
+        // Register to catch when the window goes fullscreen without losing focus
+        let _ = conn.change_window_attributes(
+            active_window,
+            &x11rb::protocol::xproto::ChangeWindowAttributesAux::new()
+                .event_mask(EventMask::PROPERTY_CHANGE),
+        );
+
+        let states_val = conn
+            .get_property(
+                false,
                 active_window,
-                &x11rb::protocol::xproto::ChangeWindowAttributesAux::new()
-                    .event_mask(EventMask::PROPERTY_CHANGE),
-            );
+                net_wm_state,
+                x11rb::protocol::xproto::AtomEnum::ATOM,
+                0,
+                1024,
+            )
+            .ok()
+            .and_then(|cookie| cookie.reply().ok())
+            .and_then(|state_reply| state_reply.value32());
 
-            if let Ok(state_reply) = conn
-                .get_property(
-                    false,
-                    active_window,
-                    net_wm_state,
-                    x11rb::protocol::xproto::AtomEnum::ATOM,
-                    0,
-                    1024,
-                )
-                .unwrap()
-                .reply()
-            {
-                if let Some(states) = state_reply.value32() {
-                    for s in states {
-                        if s == net_wm_state_fullscreen {
-                            is_full = true;
-                            break;
-                        }
-                    }
+        if let Some(states) = states_val {
+            for s in states {
+                if s == net_wm_state_fullscreen {
+                    is_full = true;
+                    break;
                 }
             }
         }

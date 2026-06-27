@@ -1,19 +1,12 @@
-use objc2_app_kit::{NSApplication, NSApplicationPresentationOptions, NSWorkspace};
+use objc2_app_kit::{NSApplication, NSWorkspace};
 use objc2_foundation::{MainThreadMarker, NSNotificationCenter, NSString};
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use taurine_core::engine::EngineState;
 use tracing::debug;
 
-pub fn start_listener(state: Arc<EngineState>) {
+pub fn start_listener(_state: Arc<EngineState>) {
     std::thread::spawn(move || {
-        let mtm = match MainThreadMarker::new() {
-            Some(m) => m,
-            None => {
-                debug!("macOS fullscreen detection requires main thread initialization.");
-                return;
-            }
-        };
+        let _mtm = unsafe { MainThreadMarker::new_unchecked() };
 
         // Note: Full implementation of NSNotificationCenter observer block using objc2 requires `Block` syntax.
         // We evaluate NSApplication.sharedApplication().currentSystemPresentationOptions()
