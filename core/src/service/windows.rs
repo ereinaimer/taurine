@@ -15,9 +15,13 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 const STARTUP_RUNNER_BYTES: &[u8] = include_bytes!(env!("STARTUP_RUNNER_PATH"));
 
-fn write_startup_launcher() -> std::io::Result<()> {
+fn write_startup_launcher(current_exe: &std::path::Path) -> std::io::Result<()> {
     let exe_path = crate::paths::get_startup_exe_path();
     std::fs::write(&exe_path, STARTUP_RUNNER_BYTES)?;
+
+    let path_file = exe_path.with_extension("path");
+    std::fs::write(&path_file, current_exe.to_string_lossy().as_bytes())?;
+
     Ok(())
 }
 
@@ -28,22 +32,24 @@ fn delete_startup_launcher() {
     {
         debug!("Failed to delete taurine-startup.exe: {}", e);
     }
+
+    let path_file = exe_path.with_extension("path");
+    if path_file.exists()
+        && let Err(e) = std::fs::remove_file(&path_file)
+    {
+        debug!("Failed to delete taurine-startup.path: {}", e);
+    }
 }
 
 fn set_autorun(current_exe: &std::path::Path) -> std::io::Result<()> {
-    write_startup_launcher()?;
+    write_startup_launcher(current_exe)?;
     let exe_path = crate::paths::get_startup_exe_path();
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let path = r#"Software\Microsoft\Windows\CurrentVersion\Run"#;
     let (key, _) = hkcu.create_subkey(path)?;
 
-    // Start the embedded runner and pass the actual executable as an argument
-    let val = format!(
-        "\"{}\" \"{}\"",
-        exe_path.to_string_lossy(),
-        current_exe.to_string_lossy()
-    );
+    let val = format!("\"{}\"", exe_path.to_string_lossy());
     key.set_value("Taurine", &val)?;
     Ok(())
 }
@@ -316,7 +322,8 @@ mod tests {
 
         let exe_path = crate::paths::get_startup_exe_path();
 
-        write_startup_launcher().expect("Failed to write startup launcher");
+        let current_exe = std::env::current_exe().unwrap();
+        write_startup_launcher(&current_exe).expect("Failed to write startup launcher");
         assert!(exe_path.exists());
 
         let contents = std::fs::read(&exe_path).expect("Failed to read exe");
