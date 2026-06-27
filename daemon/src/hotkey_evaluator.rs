@@ -45,6 +45,13 @@ impl HotkeyEvaluator {
         modifiers: Modifiers,
         key: LogicalKey,
     ) -> HotkeyEvaluation {
+        use std::sync::atomic::Ordering;
+        if state.ignore_fullscreen_enabled.load(Ordering::Relaxed)
+            && state.is_os_fullscreen.load(Ordering::Relaxed)
+        {
+            return HotkeyEvaluation::NoMatch;
+        }
+
         if key.is_modifier_key().is_some() {
             return HotkeyEvaluation::NoMatch;
         }

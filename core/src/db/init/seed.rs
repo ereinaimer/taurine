@@ -61,6 +61,12 @@ pub fn ensure_defaults(conn: &Connection) -> Result<()> {
         upsert_setting(conn, "spinner_style", r#""braille""#)?;
     }
 
+    let ignore_fullscreen_val = get_setting(conn, "ignore_fullscreen")?;
+    if ignore_fullscreen_val.is_none() {
+        debug!("Default 'ignore_fullscreen' missing. Seeding database with 'true'.");
+        upsert_setting(conn, "ignore_fullscreen", "true")?;
+    }
+
     Ok(())
 }
 

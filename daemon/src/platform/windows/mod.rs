@@ -1,4 +1,5 @@
 pub mod clipboard;
+pub mod fullscreen;
 pub mod power;
 
 pub struct WindowsClipboard;

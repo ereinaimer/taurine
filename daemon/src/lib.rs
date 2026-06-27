@@ -59,6 +59,9 @@ pub fn start() -> taurine_core::error::Result<()> {
     state
         .triggerless_mode
         .store(settings.triggerless_mode, Ordering::Relaxed);
+    state
+        .ignore_fullscreen_enabled
+        .store(settings.ignore_fullscreen, Ordering::Relaxed);
 
     if let Ok(mut lock) = state.action_delimiter.write() {
         *lock = settings.action_delimiter;
@@ -115,6 +118,13 @@ pub fn start() -> taurine_core::error::Result<()> {
         info!("Starting clipboard history listener...");
         clipboard_history::start_listener();
     });
+
+    #[cfg(windows)]
+    crate::platform::windows::fullscreen::start_listener(state.clone());
+    #[cfg(target_os = "linux")]
+    crate::platform::linux::fullscreen::start_listener(state.clone());
+    #[cfg(target_os = "macos")]
+    crate::platform::macos::fullscreen::start_listener(state.clone());
 
     // Fire up listener in OS thread
     let eval_clone = evaluator.clone();

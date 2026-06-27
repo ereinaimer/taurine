@@ -531,6 +531,15 @@ impl Evaluator {
     }
 
     pub fn process_event(&mut self, event: EngineEvent) -> Option<ExpansionResult> {
+        use std::sync::atomic::Ordering;
+        if self.state.ignore_fullscreen_enabled.load(Ordering::Relaxed)
+            && self.state.is_os_fullscreen.load(Ordering::Relaxed)
+        {
+            self.buffer.clear();
+            self.completion.deactivate();
+            return None;
+        }
+
         if let EngineMode::AiCapture { .. } = self.state.engine_mode() {
             return self.process_ai_capture_event(event);
         }

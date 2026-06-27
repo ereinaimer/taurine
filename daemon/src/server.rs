@@ -141,6 +141,9 @@ impl DaemonControl for DaemonService {
         self.state
             .triggerless_mode
             .store(settings.triggerless_mode, Ordering::Relaxed);
+        self.state
+            .ignore_fullscreen_enabled
+            .store(settings.ignore_fullscreen, Ordering::Relaxed);
 
         // Update pause notifications (atomic)
         self.pause_notifications_enabled

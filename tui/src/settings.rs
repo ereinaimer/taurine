@@ -25,10 +25,11 @@ pub(crate) enum SettingKey {
     ClipboardRestoreDelayMs,
     ActionDelimiter,
     TriggerlessMode,
+    IgnoreFullscreen,
 }
 
 impl SettingKey {
-    pub(crate) const ALL: [Self; 16] = [
+    pub(crate) const ALL: [Self; 17] = [
         Self::TriggerChar,
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
@@ -45,6 +46,7 @@ impl SettingKey {
         Self::ClipboardRestoreDelayMs,
         Self::ActionDelimiter,
         Self::TriggerlessMode,
+        Self::IgnoreFullscreen,
     ];
 
     pub(crate) const fn storage_key(self) -> &'static str {
@@ -65,6 +67,7 @@ impl SettingKey {
             Self::ClipboardRestoreDelayMs => "clipboard_restore_delay_ms",
             Self::ActionDelimiter => "action_delimiter",
             Self::TriggerlessMode => "triggerless_mode",
+            Self::IgnoreFullscreen => "ignore_fullscreen",
         }
     }
 
@@ -86,6 +89,7 @@ impl SettingKey {
             Self::ClipboardRestoreDelayMs => "Clipboard Restore Delay (ms)",
             Self::ActionDelimiter => "Action Delimiter",
             Self::TriggerlessMode => "Triggerless Mode",
+            Self::IgnoreFullscreen => "Ignore Fullscreen Apps",
         }
     }
 
@@ -119,6 +123,9 @@ impl SettingKey {
             Self::TriggerlessMode => {
                 "Expand trigger words automatically when typing without requiring the trigger character"
             }
+            Self::IgnoreFullscreen => {
+                "Pause macro evaluation when running a full-screen application (e.g. games)"
+            }
         }
     }
 
@@ -129,7 +136,8 @@ impl SettingKey {
             | Self::StartOnBoot
             | Self::InlineTabCompletionEnabled
             | Self::InlineHistoryEnabled
-            | Self::TriggerlessMode => EditorKind::Toggle,
+            | Self::TriggerlessMode
+            | Self::IgnoreFullscreen => EditorKind::Toggle,
             Self::Wpm | Self::ClipboardRestoreDelayMs => EditorKind::NumberInput,
             Self::SpinnerStyle => EditorKind::SpinnerSelect,
             Self::ActionDelimiter => EditorKind::ActionDelimiterSelect,
@@ -160,6 +168,7 @@ impl SettingKey {
             Self::ClipboardRestoreDelayMs => settings.clipboard_restore_delay_ms.to_string(),
             Self::ActionDelimiter => format!("{:?}", settings.action_delimiter).to_lowercase(),
             Self::TriggerlessMode => settings.triggerless_mode.to_string(),
+            Self::IgnoreFullscreen => settings.ignore_fullscreen.to_string(),
         }
     }
 
@@ -178,6 +187,7 @@ impl SettingKey {
             | Self::InlineTabCompletionEnabled
             | Self::InlineHistoryEnabled
             | Self::TriggerlessMode
+            | Self::IgnoreFullscreen
             | Self::SpinnerStyle
             | Self::ActionDelimiter
             | Self::ClipboardRestoreDelayMs => self.display_value(settings),
@@ -317,6 +327,7 @@ impl SettingsPageState {
             }
             SettingKey::InlineHistoryEnabled => (!self.settings.inline_history_enabled).to_string(),
             SettingKey::TriggerlessMode => (!self.settings.triggerless_mode).to_string(),
+            SettingKey::IgnoreFullscreen => (!self.settings.ignore_fullscreen).to_string(),
             _ => return SettingsInteraction::handled(),
         };
 

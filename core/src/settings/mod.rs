@@ -45,6 +45,7 @@ pub struct Settings {
     pub clipboard_restore_delay_ms: u32,
     pub action_delimiter: ActionDelimiter,
     pub triggerless_mode: bool,
+    pub ignore_fullscreen: bool,
 }
 
 impl Settings {
@@ -71,6 +72,7 @@ impl Settings {
             "action_delimiter" => "action_delimiter",
             "triggerless" => "triggerless_mode",
             "triggerless_mode" => "triggerless_mode",
+            "ignore_fullscreen" => "ignore_fullscreen",
             _ => key,
         }
     }
@@ -128,6 +130,7 @@ impl Default for Settings {
             clipboard_restore_delay_ms: Self::default_clipboard_restore_delay_ms(),
             action_delimiter: ActionDelimiter::default(),
             triggerless_mode: false,
+            ignore_fullscreen: true,
         }
     }
 }
