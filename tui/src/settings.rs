@@ -740,7 +740,7 @@ mod tests {
 
     #[test]
     fn every_setting_has_a_descriptor() {
-        assert_eq!(SettingKey::ALL.len(), 16);
+        assert_eq!(SettingKey::ALL.len(), 17);
     }
 
     #[test]
