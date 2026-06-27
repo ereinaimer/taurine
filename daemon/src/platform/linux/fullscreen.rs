@@ -113,7 +113,7 @@ fn update_fullscreen_state(
                 .event_mask(EventMask::PROPERTY_CHANGE),
         );
 
-        let states_val = conn
+        let state_reply = conn
             .get_property(
                 false,
                 active_window,
@@ -123,14 +123,15 @@ fn update_fullscreen_state(
                 1024,
             )
             .ok()
-            .and_then(|cookie| cookie.reply().ok())
-            .and_then(|state_reply| state_reply.value32());
+            .and_then(|cookie| cookie.reply().ok());
 
-        if let Some(states) = states_val {
-            for s in states {
-                if s == net_wm_state_fullscreen {
-                    is_full = true;
-                    break;
+        if let Some(reply) = state_reply {
+            if let Some(states) = reply.value32() {
+                for s in states {
+                    if s == net_wm_state_fullscreen {
+                        is_full = true;
+                        break;
+                    }
                 }
             }
         }
