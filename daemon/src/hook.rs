@@ -204,6 +204,7 @@ pub fn start_windows_supervisor(
             );
 
             while let Ok(event) = rx.recv() {
+                let mut delay_restart = false;
                 match event {
                     WindowsSupervisorEvent::ListenerExited { error } => {
                         hook_health.mark_listener_exit(error.clone());
@@ -236,6 +237,7 @@ pub fn start_windows_supervisor(
                             &mut listener_running,
                             "automatic resume",
                         );
+                        delay_restart = true;
                     }
                     WindowsSupervisorEvent::ResumeFromSuspend => {
                         mark_windows_recovery_signal(
@@ -243,6 +245,7 @@ pub fn start_windows_supervisor(
                             &mut listener_running,
                             "resume from suspend",
                         );
+                        delay_restart = true;
                     }
                     WindowsSupervisorEvent::SessionUnlock => {
                         mark_windows_recovery_signal(
@@ -250,6 +253,7 @@ pub fn start_windows_supervisor(
                             &mut listener_running,
                             "session unlock",
                         );
+                        delay_restart = true;
                     }
                     WindowsSupervisorEvent::SessionLogon => {
                         mark_windows_recovery_signal(
@@ -257,10 +261,15 @@ pub fn start_windows_supervisor(
                             &mut listener_running,
                             "session logon",
                         );
+                        delay_restart = true;
                     }
                 }
 
                 if !listener_running {
+                    if delay_restart {
+                        info!("Waiting 1000ms for USB re-enumeration before hook restart...");
+                        std::thread::sleep(std::time::Duration::from_millis(1000));
+                    }
                     info!("Hook listener is not running; attempting supervised restart");
                     listener_running = spawn_windows_hook_listener(
                         evaluator.clone(),

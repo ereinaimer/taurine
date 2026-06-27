@@ -1,4 +1,6 @@
+#[cfg(not(windows))]
 use std::thread;
+#[cfg(not(windows))]
 use std::time::{Duration, Instant};
 #[cfg(windows)]
 use taurine_core::engine::variables::system::clipboard::MAX_PAYLOAD_BYTES;
@@ -6,14 +8,14 @@ use taurine_core::engine::variables::system::clipboard::clipboard_manager;
 
 use crate::injector::IS_INJECTING;
 
+#[cfg(not(windows))]
 const DEBOUNCE_WINDOW: Duration = Duration::from_millis(50);
-#[cfg(windows)]
-const OPEN_CLIPBOARD_RETRY_DELAY: Duration = Duration::from_millis(10);
-#[cfg(windows)]
-const OPEN_CLIPBOARD_RETRIES: usize = 3;
+#[cfg(not(windows))]
 const POLL_INTERVAL: Duration = Duration::from_millis(150);
+#[cfg(not(windows))]
 const INIT_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
+#[cfg(not(windows))]
 pub fn start_listener() {
     let mut last_event = Instant::now() - DEBOUNCE_WINDOW;
 
@@ -23,8 +25,6 @@ pub fn start_listener() {
             continue;
         }
 
-        // Mitigate clipboard notification spam by dropping events that arrive inside a tiny
-        // debounce window before we touch any Win32 clipboard state.
         let now = Instant::now();
         if now.duration_since(last_event) < DEBOUNCE_WINDOW {
             thread::sleep(POLL_INTERVAL);
@@ -34,8 +34,6 @@ pub fn start_listener() {
 
         match try_read_clipboard_text_bounded() {
             Ok(Some(text)) => {
-                // Deduplication still happens inside the manager under the write lock after the
-                // payload passed the bounded size probe and text-only filter.
                 let _ = clipboard_manager().record_text(text);
                 thread::sleep(POLL_INTERVAL);
             }
@@ -45,6 +43,133 @@ pub fn start_listener() {
                 thread::sleep(INIT_RETRY_INTERVAL);
             }
         }
+    }
+}
+
+#[cfg(windows)]
+pub fn start_listener() {
+    use std::ptr::null;
+    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows_sys::Win32::System::DataExchange::{
+        AddClipboardFormatListener, RemoveClipboardFormatListener,
+    };
+    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, HWND_MESSAGE, MSG,
+        RegisterClassW, TranslateMessage, WM_DESTROY, WNDCLASSW,
+    };
+
+    const WM_CLIPBOARDUPDATE: u32 = 0x031D;
+    static LAST_EVENT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+    unsafe extern "system" fn window_proc(
+        hwnd: HWND,
+        message: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        if message == WM_CLIPBOARDUPDATE {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+            let last = LAST_EVENT.load(std::sync::atomic::Ordering::Relaxed);
+
+            // 50ms debounce
+            if now.saturating_sub(last) < 50 {
+                return 0;
+            }
+
+            if !IS_INJECTING.load(std::sync::atomic::Ordering::Relaxed) {
+                let mut attempt = 0;
+                while attempt < 10 {
+                    match try_read_clipboard_text_bounded() {
+                        Ok(Some(text)) => {
+                            let _ = clipboard_manager().record_text(text);
+                            LAST_EVENT.store(now, std::sync::atomic::Ordering::Relaxed);
+                            break;
+                        }
+                        Ok(None) => break,
+                        Err(_err) => {
+                            attempt += 1;
+                            std::thread::sleep(std::time::Duration::from_millis(15));
+                        }
+                    }
+                }
+            }
+            return 0;
+        } else if message == WM_DESTROY {
+            return 0;
+        }
+        unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
+    }
+
+    let class_name: Vec<u16> = "TaurineClipboardMonitor"
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    let instance = unsafe { GetModuleHandleW(null()) };
+
+    let window_class = WNDCLASSW {
+        lpfnWndProc: Some(window_proc),
+        hInstance: instance,
+        lpszClassName: class_name.as_ptr(),
+        ..Default::default()
+    };
+
+    let atom = unsafe { RegisterClassW(&window_class) };
+    if atom == 0 {
+        tracing::error!("Failed to register clipboard monitor window class");
+        return;
+    }
+
+    let hwnd = unsafe {
+        CreateWindowExW(
+            0,
+            class_name.as_ptr(),
+            class_name.as_ptr(),
+            0,
+            0,
+            0,
+            0,
+            0,
+            HWND_MESSAGE,
+            std::ptr::null_mut(),
+            instance,
+            std::ptr::null(),
+        )
+    };
+
+    if hwnd.is_null() {
+        tracing::error!("Failed to create clipboard monitor window");
+        return;
+    }
+
+    if unsafe { AddClipboardFormatListener(hwnd) } == 0 {
+        tracing::error!("Failed to register clipboard format listener");
+        return;
+    }
+
+    tracing::info!("Windows clipboard monitor is listening for WM_CLIPBOARDUPDATE");
+
+    let mut message = MSG::default();
+    loop {
+        let status = unsafe { GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) };
+        if status > 0 {
+            unsafe {
+                TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+        } else if status == 0 {
+            break;
+        } else {
+            tracing::error!("Windows clipboard monitor message loop failed");
+            break;
+        }
+    }
+
+    unsafe {
+        let _ = RemoveClipboardFormatListener(hwnd);
     }
 }
 
@@ -67,26 +192,10 @@ fn try_read_clipboard_text_bounded() -> Result<Option<String>, String> {
         unsafe { RegisterClipboardFormatW(wide.as_ptr()) }
     }
 
-    unsafe fn try_open_clipboard_with_retry() -> bool {
-        for attempt in 0..OPEN_CLIPBOARD_RETRIES {
-            // Mitigate Win32 lock race condition by retrying briefly instead of treating a busy
-            // clipboard as a hard failure.
-            if unsafe { OpenClipboard(ptr::null_mut()) } != 0 {
-                return true;
-            }
-
-            if attempt + 1 < OPEN_CLIPBOARD_RETRIES {
-                thread::sleep(OPEN_CLIPBOARD_RETRY_DELAY);
-            }
-        }
-
-        false
-    }
-
     unsafe {
-        if !try_open_clipboard_with_retry() {
-            let _ = GetLastError();
-            return Ok(None);
+        if OpenClipboard(ptr::null_mut()) == 0 {
+            let err = GetLastError();
+            return Err(format!("OpenClipboard failed with error {}", err));
         }
 
         let result = (|| {
