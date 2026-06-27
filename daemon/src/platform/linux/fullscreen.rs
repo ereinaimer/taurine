@@ -125,13 +125,11 @@ fn update_fullscreen_state(
             .ok()
             .and_then(|cookie| cookie.reply().ok());
 
-        if let Some(reply) = state_reply {
-            if let Some(states) = reply.value32() {
-                for s in states {
-                    if s == net_wm_state_fullscreen {
-                        is_full = true;
-                        break;
-                    }
+        if let Some(states) = state_reply.as_ref().and_then(|reply| reply.value32()) {
+            for s in states {
+                if s == net_wm_state_fullscreen {
+                    is_full = true;
+                    break;
                 }
             }
         }
