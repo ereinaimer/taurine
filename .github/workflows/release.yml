@@ -279,10 +279,52 @@ jobs:
           PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
           ANNOUNCEMENT_TITLE: "${{ fromJson(steps.host.outputs.manifest).announcement_title }}"
           ANNOUNCEMENT_BODY: "${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}"
+          RELEASE_TAG: "${{ needs.plan.outputs.tag }}"
           RELEASE_COMMIT: "${{ github.sha }}"
         run: |
-          # Write and read notes from a file to avoid quoting breaking things
-          echo "$ANNOUNCEMENT_BODY" > $RUNNER_TEMP/notes.txt
+          python3 -c '
+          import re, os
+          body = os.environ.get("ANNOUNCEMENT_BODY", "")
+          tag = os.environ.get("RELEASE_TAG", "")
+          ver = tag.lstrip("v")
+          sections = re.split(r"\n(?=## )", body)
+          notes_parts = []
+          install_section = ""
+          download_section = ""
+          for sec in sections:
+              if sec.startswith("## Install"):
+                  install_section = sec
+              elif sec.startswith("## Download"):
+                  download_section = sec
+              else:
+                  notes_parts.append(sec)
+          final_body = "\n".join(notes_parts).strip() + "\n\n"
+          if install_section:
+              sub_items = re.split(r"\n(?=### )", install_section)
+              nested_details = []
+              for sub in sub_items[1:]:
+                  lines = sub.strip().split("\n")
+                  raw_title = lines[0].replace("###", "").strip()
+                  sub_content = "\n".join(lines[1:]).strip()
+                  if "powershell" in raw_title.lower() or "ps1" in sub_content.lower():
+                      sub_title = "Install via powershell script"
+                  elif "shell" in raw_title.lower() or "sh" in sub_content.lower():
+                      sub_title = "Install via shell script"
+                  else:
+                      sub_title = raw_title
+                  nested = f"<details>\n<summary>{sub_title}</summary>\n<br/>\n\n{sub_content}\n\n</details>"
+                  nested_details.append(nested)
+              install_formatted = f"<details>\n<summary><strong>Install {ver}</strong></summary>\n<br/>\n" + "\n".join(nested_details) + "\n</details>"
+              final_body += install_formatted + "\n\n"
+          if download_section:
+              lines = download_section.strip().split("\n")
+              table_lines = [l for l in lines if l.strip().startswith("|")]
+              table_content = "\n".join(table_lines)
+              download_formatted = f"<details>\n<summary><strong>Download {tag}</strong></summary>\n<br/>\n\n{table_content}\n\n</details>"
+              final_body += download_formatted + "\n"
+          with open(os.environ["RUNNER_TEMP"] + "/notes.txt", "w") as f:
+              f.write(final_body)
+          '
 
           gh release create "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
 
