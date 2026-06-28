@@ -38,14 +38,11 @@ pub fn execute(
 
     match outcome {
         AddOutcome::Created => {
-            info!("Added automation: {} -> {}", stored_trigger, output);
+            info!("Added automation: {}", stored_trigger);
             taurine_core::rpc::notify_daemon_reload();
         }
         AddOutcome::AlreadyExists => {
-            info!(
-                "Automation already exists: {} -> {}",
-                stored_trigger, output
-            )
+            info!("Automation already exists: {}", stored_trigger);
         }
         AddOutcome::Updated => {
             info!("Updated automation: {}", stored_trigger);
