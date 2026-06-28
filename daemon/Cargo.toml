@@ -38,9 +38,9 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2 = { version = "0.5", features = ["std"] }
-objc2-app-kit = { version = "0.2", features = ["NSApplication", "NSWorkspace"] }
-objc2-foundation = { version = "0.2", features = ["NSNotification", "NSString"] }
+objc2 = { version = "0.6", features = ["std"] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSWorkspace"] }
+objc2-foundation = { version = "0.3", features = ["NSNotification", "NSString"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 caps = "0.5.6"
