@@ -443,11 +443,11 @@ pub fn status() -> crate::error::Result<()> {
     if let Some(status) = grpc_status {
         if status.paused {
             info!(
-                "Taurine is Paused. Press {} to resume!",
+                "Taurine is paused. Press {} to resume!",
                 status.pause_hotkey
             );
         } else {
-            info!("Taurine is Running.");
+            info!("Taurine is running.");
         }
         return Ok(());
     }
@@ -463,8 +463,8 @@ pub fn status() -> crate::error::Result<()> {
     match manager.status(ServiceStatusCtx {
         label: label.clone(),
     }) {
-        Ok(ServiceStatus::Running) => info!("Taurine is Running."),
-        _ => info!("Taurine is Stopped."),
+        Ok(ServiceStatus::Running) => info!("Taurine is running."),
+        _ => info!("Taurine is stopped."),
     }
 
     Ok(())

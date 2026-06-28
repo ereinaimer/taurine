@@ -193,7 +193,7 @@ pub fn start() -> taurine_core::error::Result<()> {
             .add_service(DaemonControlServer::new(daemon_service))
             .serve_with_shutdown(addr, async {
                 let _ = rx.recv().await;
-                info!("Shutdown signal received, Initiating shutdown...");
+                info!("Shutdown signal received, initiating shutdown...");
             });
 
         if let Err(e) = server_future.await {

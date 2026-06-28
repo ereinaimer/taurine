@@ -290,20 +290,20 @@ pub fn status() -> crate::error::Result<()> {
     if let Some(status) = grpc_status {
         if status.paused {
             info!(
-                "Taurine is Paused. Press {} to resume!",
+                "Taurine is paused. Press {} to resume!",
                 status.pause_hotkey
             );
         } else {
-            info!("Taurine is Running.");
+            info!("Taurine is running.");
         }
         return Ok(());
     }
 
     let mut sys = System::new();
     if is_daemon_running(&mut sys) {
-        info!("Taurine is Running.");
+        info!("Taurine is running.");
     } else {
-        info!("Taurine is Stopped.");
+        info!("Taurine is stopped.");
     }
 
     Ok(())
