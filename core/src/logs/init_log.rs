@@ -48,6 +48,7 @@ pub fn init_tracing_for_app(
     quiet: bool,
     no_log_file: bool,
     no_color: bool,
+    show_log_prefixes: bool,
     component: LogComponent,
     suppress_console: bool,
 ) -> Option<tracing_appender::non_blocking::WorkerGuard> {
@@ -123,6 +124,7 @@ pub fn init_tracing_for_app(
                     .with_target(false)
                     .with_file(false)
                     .with_line_number(false)
+                    .with_level(show_log_prefixes)
                     .with_filter(console_filter);
 
                 let subscriber = tracing_subscriber::registry()
@@ -136,6 +138,7 @@ pub fn init_tracing_for_app(
                     .with_target(false)
                     .with_file(false)
                     .with_line_number(false)
+                    .with_level(show_log_prefixes)
                     .without_time()
                     .with_filter(console_filter);
 
@@ -175,6 +178,7 @@ pub fn init_tracing_for_app(
                     .with_target(false)
                     .with_file(false)
                     .with_line_number(false)
+                    .with_level(show_log_prefixes)
                     .with_filter(console_filter);
 
                 let file_timer = tracing_subscriber::fmt::time::LocalTime::new(
@@ -203,6 +207,7 @@ pub fn init_tracing_for_app(
                     .with_target(false)
                     .with_file(false)
                     .with_line_number(false)
+                    .with_level(show_log_prefixes)
                     .without_time()
                     .with_filter(console_filter);
 

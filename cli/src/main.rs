@@ -26,6 +26,10 @@ struct Cli {
     #[arg(long, global = true)]
     no_color: bool,
 
+    /// Show log level prefixes (INFO, DEBUG, WARN) in console output
+    #[arg(long, global = true)]
+    show_log_prefixes: bool,
+
     /// Internal flag used by the OS service manager (DO NOT RUN MANUALLY)
     #[arg(long, hide = true)]
     daemon: bool,
@@ -420,6 +424,7 @@ fn main() -> std::process::ExitCode {
         cli.quiet,
         cli.no_log_file,
         cli.no_color,
+        cli.show_log_prefixes,
         component,
         launch_target == LaunchTarget::Tui,
     );
