@@ -36,6 +36,7 @@ pub const TRANSFORMERS: &[&str] = &[
     "length",
     "trim",
     "truncate",
+    "repeat",
     "replace",
     "remove",
     "regexreplace",

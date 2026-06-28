@@ -15,6 +15,7 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
         "length" if args.is_empty() => Some(content.chars().count().to_string()),
         "trim" if args.is_empty() => Some(content.trim().to_string()),
         "truncate" if args.len() == 1 => truncate(content, args[0]),
+        "repeat" if args.len() == 1 => repeat(content, args[0]),
         "replace" if args.len() == 2 => Some(replace(content, args[0], args[1])),
         "remove" if args.len() == 1 => Some(remove(content, args[0])),
         "regexreplace" if args.len() == 2 => Some(regex_replace(content, args[0], args[1])),
@@ -31,6 +32,17 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
 fn truncate(content: &str, arg: &str) -> Option<String> {
     let limit = strip_argument_quotes(arg).parse::<usize>().ok()?;
     Some(content.chars().take(limit).collect())
+}
+
+const MAX_REPEAT_BUFFER_BYTES: usize = 200_000;
+
+fn repeat(content: &str, arg: &str) -> Option<String> {
+    let raw_count = strip_argument_quotes(arg).parse::<usize>().ok()?;
+    let count = raw_count.min(100);
+    if content.len().saturating_mul(count) > MAX_REPEAT_BUFFER_BYTES {
+        return Some("[Error: Transformer output exceeded maximum character limit]".to_string());
+    }
+    Some(content.repeat(count))
 }
 
 fn replace(content: &str, old: &str, new: &str) -> String {
@@ -127,6 +139,13 @@ mod tests {
             Some("abcd".to_string())
         );
         assert_eq!(apply("truncate", &["2"], "aßc"), Some("aß".to_string()));
+        assert_eq!(apply("repeat", &["3"], "hi"), Some("hihihi".to_string()));
+        assert_eq!(apply("repeat", &["0"], "hi"), Some("".to_string()));
+        assert_eq!(apply("repeat", &["150"], "a"), Some("a".repeat(100)));
+        assert_eq!(
+            apply("repeat", &["100"], &"x".repeat(3000)),
+            Some("[Error: Transformer output exceeded maximum character limit]".to_string())
+        );
         assert_eq!(
             apply("replace", &["\"a\"", "\"o\""], "banana"),
             Some("bonono".to_string())
