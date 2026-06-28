@@ -152,7 +152,7 @@ taurine add script hi -f ./hi.ps1 --lang powershell
   <Tab value="System Navigation">
     **Open a Projects Folder (Windows)**
     ```bash
-    taurine add script pro 'explorer C:\Users\[env.USERNAME]\Projects' --lang powershell --os windows
+    taurine add script pro 'explorer C:\Users\[env(USERNAME)]\Projects' --lang powershell --os windows
     ```
   </Tab>
   <Tab value="Developer Tools">
@@ -173,5 +173,5 @@ taurine add script hi -f ./hi.ps1 --lang powershell
 
 - **Timeouts**: Every script expansion has a maximum execution time of **20 seconds**. If it takes longer, Taurine will terminate the process and return an error.
 - **Environment**: Scripts are executed with the same environment as the Taurine daemon. Ensure your interpreters (`python`, `node`, etc.) are available in your system's `PATH`.
-- **CWD**: Scripts are executed in a temporary directory. Always use absolute paths (via variables like `[env.USERPROFILE]`) when interacting with specific files on your system.
+- **CWD**: Scripts are executed in a temporary directory. Always use absolute paths (via variables like `[env(USERPROFILE)]`) when interacting with specific files on your system.
 - **Cross-Platform**: Use the `--os` flag to define different versions of a trigger for `windows`, `linux`, or `macos`.

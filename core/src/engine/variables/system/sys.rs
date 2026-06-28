@@ -69,7 +69,7 @@ mod tests {
     fn test_resolve_unknown_modifier() {
         assert_eq!(resolve("sys"), None);
         assert_eq!(resolve("sys.home"), None);
-        assert_eq!(resolve("env.USER"), None);
+        assert_eq!(resolve("env(USER)"), None);
     }
 
     #[test]

@@ -79,7 +79,7 @@ System variables inject data directly from the machine or generate values on the
 *   **Date/Time**: `[date.iso]`, `[date.long]`, `[time.now]`, `[time.now.12h]`, `[date.tomorrow]`, `[date.yesterday]`.
 *   **Contextual**: `[clipboard]` (captures current clipboard content before expansion).
 *   **Generators**: `[uuid.v4]`, `[uuid.v7]`, `[random.password]`, `[mock.name]`, `[mock.email]`.
-*   **Environment**: `[env.USER]`, `[env.HOME]`, `[sys.os]`, `[sys.cpu]`.
+*   **Environment**: `[env(USER)]`, `[env(HOME)]`, `[sys.os]`, `[sys.cpu]`.
 
 ### 3.3 Expansion Directives
 Directives control the behavior of the expansion process:

@@ -49,7 +49,7 @@ pub fn is_reserved(mut key: &str) -> bool {
         || key.starts_with("sys.")
         || key.starts_with("time.")
         || key.starts_with("date.")
-        || key.starts_with("env.")
+        || key.starts_with("env(")
         || key.starts_with("file.")
         || key.starts_with("net.")
         || key.starts_with("execute.")
@@ -91,7 +91,7 @@ pub fn resolve(key: &str) -> Option<String> {
     if key.starts_with("date.") {
         return date::resolve(key);
     }
-    if key.starts_with("env.") {
+    if key.starts_with("env(") {
         return env::resolve(key);
     }
     if key.starts_with("file.") {

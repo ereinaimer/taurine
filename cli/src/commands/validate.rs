@@ -8,7 +8,7 @@ mod tests {
 
     #[test]
     fn accepts_valid_system_tags_and_literals() {
-        assert!(audit_payload_tags("[time.now.upper] [env.USERPROFILE]").is_ok());
+        assert!(audit_payload_tags("[time.now.upper] [env(USERPROFILE)]").is_ok());
         assert!(audit_payload_tags("[net.hostname] [net.localip] [net.mac]").is_ok());
         assert!(audit_payload_tags("json = [1, 2, 3]").is_ok());
         assert!(audit_payload_tags("[name.upper]").is_ok());

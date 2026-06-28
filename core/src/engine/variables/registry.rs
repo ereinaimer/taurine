@@ -209,6 +209,11 @@ pub fn split_system_tag(key: &str) -> Option<(&str, Option<&str>)> {
     {
         return Some(("delay", Some(inner)));
     }
+    if let Some(rest) = base.strip_prefix("env(")
+        && let Some(inner) = rest.strip_suffix(')')
+    {
+        return Some(("env", Some(inner)));
+    }
 
     let (root, modifier) = match base.split_once('.') {
         Some((root, modifier)) => (root, Some(modifier.trim()).filter(|m| !m.is_empty())),
@@ -226,7 +231,7 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "time" => format!("Valid modifiers: {}", TIME_MODIFIERS.join(", ")),
         "date" => format!("Valid modifiers: {}", DATE_MODIFIERS.join(", ")),
         "uuid" => format!("Valid modifiers: uuid, {}", UUID_MODIFIERS.join(", ")),
-        "env" => "Valid form: [env.VAR_NAME]".to_string(),
+        "env" => "Valid form: [env(<var_name>)] or [env(\"<var_name>\")]".to_string(),
         "net" => format!("Valid modifiers: {}", NET_MODIFIERS.join(", ")),
         "sys" => format!("Valid modifiers: {}", SYS_MODIFIERS.join(", ")),
         "execute" => "Valid form: [execute.<lang>(...)] or [execute.<lang>.file(...).args(...)]. Languages: bash, powershell, python, node, node_esm, cmd".to_string(),
@@ -310,7 +315,9 @@ fn validate_optional_known_modifier(
 }
 
 fn validate_env_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
-    if normalize_modifier(modifier.unwrap_or_default()).is_some() {
+    let raw = modifier.unwrap_or_default().trim();
+    let var_name = crate::engine::variables::system::strip_quotes(raw).unwrap_or(raw);
+    if !var_name.is_empty() {
         Ok(())
     } else {
         Err(ValidationError::MissingModifier { root: "env" })
@@ -841,6 +848,16 @@ mod tests {
         assert_eq!(
             validate_system_tag("sys", None),
             Err(ValidationError::MissingModifier { root: "sys" })
+        );
+    }
+
+    #[test]
+    fn test_validate_env_modifier() {
+        assert_eq!(validate_system_tag("env", Some("PATH")), Ok(()));
+        assert_eq!(validate_system_tag("env", Some("\"PATH\"")), Ok(()));
+        assert_eq!(
+            validate_system_tag("env", None),
+            Err(ValidationError::MissingModifier { root: "env" })
         );
     }
 
