@@ -40,4 +40,4 @@ Use `[sys.*]` variables combined with [transformers](/docs/cli/dynamic-variables
 - **Case Sensitivity**: Modifiers like `os` and `hostname` are case-insensitive.
 - **Platform Specifics**: `[sys.user]` correctly resolves `USERNAME` on Windows and `USER` on Linux/macOS.
 - **Transformers**: Standard transformers chain normally after the modifier. For example, `[sys.user.upper]` will return the username in all caps.
-- **Static Resolution**: Unlike the `[run.*]` namespace, `sys` variables resolve instantly and do not trigger a spinner.
+- **Static Resolution**: Unlike the `[execute.*]` namespace, `sys` variables resolve instantly and do not trigger a spinner.

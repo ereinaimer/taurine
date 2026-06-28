@@ -89,14 +89,14 @@ fn confirm_run_variable_import(payload: &ExchangePayload) -> taurine_core::error
     }
 
     let confirmed = Confirm::new(
-        "**CAUTION**: This import contains [run] variables that execute shell commands.\n\
+        "**CAUTION**: This import contains [execute] variables that execute shell commands.\n\
 Untrusted scripts can damage your system. Continue? [y/N]",
     )
     .with_default(false)
     .prompt()
     .map_err(|e| {
         taurine_core::error::Error::Service(format!(
-            "Failed to read run variable import confirmation: {e}"
+            "Failed to read execute variable import confirmation: {e}"
         ))
     })?;
 
@@ -104,7 +104,7 @@ Untrusted scripts can damage your system. Continue? [y/N]",
         Ok(())
     } else {
         Err(taurine_core::error::Error::Config(
-            "Import cancelled because it contains [run] variables".to_string(),
+            "Import cancelled because it contains [execute] variables".to_string(),
         ))
     }
 }
@@ -342,7 +342,7 @@ mod tests {
         let mut payload = sample_payload();
         payload.automations.push(AutomationExport {
             trigger_type: TriggerType::Word,
-            output: "before [RUN.bash(echo hi)] after".to_string(),
+            output: "before [EXECUTE.bash(echo hi)] after".to_string(),
             ..sample_automation()
         });
 
@@ -356,7 +356,7 @@ mod tests {
         automation.script = Some(taurine_core::exchange::ScriptExport {
             interpreter: taurine_core::engine::shell::ScriptInterpreter::Bash,
             behavior: taurine_core::engine::shell::ScriptBehavior::Inline,
-            content: "echo [run.bash(echo nested)]".to_string(),
+            content: "echo [execute.bash(echo nested)]".to_string(),
         });
         payload.automations.push(automation);
 

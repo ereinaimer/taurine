@@ -7,11 +7,11 @@ use std::time::Duration;
 use crate::engine::shell::{ScriptBehavior, ScriptInterpreter, ScriptMetadata, compress};
 use wait_timeout::ChildExt;
 
-const RUN_TIMEOUT: Duration = Duration::from_secs(20);
+const EXECUTE_TIMEOUT: Duration = Duration::from_secs(20);
 const SCRIPT_NOT_FOUND: &str = "[Error: path to script not found!]";
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct RunInvocation {
+pub(crate) struct ExecuteInvocation {
     pub silent: bool,
     pub interpreter: ScriptInterpreter,
     pub file: bool,
@@ -20,17 +20,17 @@ pub(crate) struct RunInvocation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum RunParseError {
+pub(crate) enum ExecuteParseError {
     MissingSubject,
     InvalidLanguage,
     UnbalancedParentheses,
     InvalidTrailingSyntax,
 }
 
-pub(crate) fn parse_invocation(key: &str) -> Result<RunInvocation, RunParseError> {
+pub(crate) fn parse_invocation(key: &str) -> Result<ExecuteInvocation, ExecuteParseError> {
     let mut rest = key
-        .strip_prefix("run.")
-        .ok_or(RunParseError::InvalidLanguage)?;
+        .strip_prefix("execute.")
+        .ok_or(ExecuteParseError::InvalidLanguage)?;
     let silent = if let Some(suffix) = rest.strip_prefix("silent.") {
         rest = suffix;
         true
@@ -54,10 +54,10 @@ pub(crate) fn parse_invocation(key: &str) -> Result<RunInvocation, RunParseError
     };
 
     if !rest.trim().is_empty() {
-        return Err(RunParseError::InvalidTrailingSyntax);
+        return Err(ExecuteParseError::InvalidTrailingSyntax);
     }
 
-    Ok(RunInvocation {
+    Ok(ExecuteInvocation {
         silent,
         interpreter: language,
         file,
@@ -81,7 +81,7 @@ pub fn resolve(key: &str) -> Option<String> {
 }
 
 pub(crate) fn to_script_metadata(key: &str) -> Result<ScriptMetadata, String> {
-    let invocation = parse_invocation(key).map_err(|_| "invalid run syntax".to_string())?;
+    let invocation = parse_invocation(key).map_err(|_| "invalid execute syntax".to_string())?;
 
     if invocation.file && !Path::new(invocation.subject.trim()).exists() {
         return Err(SCRIPT_NOT_FOUND.to_string());
@@ -89,7 +89,7 @@ pub(crate) fn to_script_metadata(key: &str) -> Result<ScriptMetadata, String> {
 
     let content = invocation_script_content(&invocation);
     let compressed_content =
-        compress(&content).map_err(|e| format!("failed to prepare run script: {e}"))?;
+        compress(&content).map_err(|e| format!("failed to prepare execute script: {e}"))?;
 
     Ok(ScriptMetadata {
         interpreter: invocation.interpreter,
@@ -102,7 +102,7 @@ pub(crate) fn to_script_metadata(key: &str) -> Result<ScriptMetadata, String> {
     })
 }
 
-fn parse_language(input: &str) -> Result<(ScriptInterpreter, &str), RunParseError> {
+fn parse_language(input: &str) -> Result<(ScriptInterpreter, &str), ExecuteParseError> {
     const LANGUAGES: &[(&str, ScriptInterpreter)] = &[
         ("node_esm", ScriptInterpreter::NodeEsm),
         ("powershell", ScriptInterpreter::PowerShell),
@@ -120,12 +120,12 @@ fn parse_language(input: &str) -> Result<(ScriptInterpreter, &str), RunParseErro
         }
     }
 
-    Err(RunParseError::InvalidLanguage)
+    Err(ExecuteParseError::InvalidLanguage)
 }
 
-fn scan_parenthesized(input: &str) -> Result<(String, &str), RunParseError> {
+fn scan_parenthesized(input: &str) -> Result<(String, &str), ExecuteParseError> {
     if !input.starts_with('(') {
-        return Err(RunParseError::MissingSubject);
+        return Err(ExecuteParseError::MissingSubject);
     }
 
     let mut depth = 0usize;
@@ -141,11 +141,11 @@ fn scan_parenthesized(input: &str) -> Result<(String, &str), RunParseError> {
             }
             ')' => {
                 if depth == 0 {
-                    return Err(RunParseError::UnbalancedParentheses);
+                    return Err(ExecuteParseError::UnbalancedParentheses);
                 }
                 depth -= 1;
                 if depth == 0 {
-                    let start = start.ok_or(RunParseError::MissingSubject)?;
+                    let start = start.ok_or(ExecuteParseError::MissingSubject)?;
                     return Ok((input[start..idx].trim().to_string(), &input[idx + 1..]));
                 }
             }
@@ -153,7 +153,7 @@ fn scan_parenthesized(input: &str) -> Result<(String, &str), RunParseError> {
         }
     }
 
-    Err(RunParseError::UnbalancedParentheses)
+    Err(ExecuteParseError::UnbalancedParentheses)
 }
 
 fn split_args(input: &str) -> Vec<String> {
@@ -184,7 +184,7 @@ fn push_arg(args: &mut Vec<String>, raw: &str) {
     }
 }
 
-fn invocation_script_content(invocation: &RunInvocation) -> String {
+fn invocation_script_content(invocation: &ExecuteInvocation) -> String {
     if !invocation.file {
         return invocation.subject.clone();
     }
@@ -281,7 +281,7 @@ fn js_array(args: &[String]) -> String {
     )
 }
 
-fn execute_inline(invocation: &RunInvocation) -> Result<String, String> {
+fn execute_inline(invocation: &ExecuteInvocation) -> Result<String, String> {
     let mut command = build_command(invocation);
     command
         .stdin(Stdio::null())
@@ -304,7 +304,7 @@ fn execute_inline(invocation: &RunInvocation) -> Result<String, String> {
     let stderr_reader = thread::spawn(move || read_pipe(stderr));
 
     match child
-        .wait_timeout(RUN_TIMEOUT)
+        .wait_timeout(EXECUTE_TIMEOUT)
         .map_err(|e| format!("Failed to wait for script: {e}"))?
     {
         Some(status) => {
@@ -332,7 +332,7 @@ fn execute_inline(invocation: &RunInvocation) -> Result<String, String> {
     }
 }
 
-fn spawn_silent(invocation: &RunInvocation) -> Result<String, String> {
+fn spawn_silent(invocation: &ExecuteInvocation) -> Result<String, String> {
     let mut command = build_command(invocation);
     command
         .stdin(Stdio::null())
@@ -345,7 +345,7 @@ fn spawn_silent(invocation: &RunInvocation) -> Result<String, String> {
     Ok(String::new())
 }
 
-fn build_command(invocation: &RunInvocation) -> Command {
+fn build_command(invocation: &ExecuteInvocation) -> Command {
     match invocation.interpreter {
         ScriptInterpreter::Bash => {
             let mut command = Command::new("bash");
@@ -482,7 +482,7 @@ mod tests {
 
     #[test]
     fn parses_inline_command() {
-        let parsed = parse_invocation("run.bash(curl -s wttr.in/?format=3)").unwrap();
+        let parsed = parse_invocation("execute.bash(curl -s wttr.in/?format=3)").unwrap();
         assert!(!parsed.silent);
         assert_eq!(parsed.interpreter, ScriptInterpreter::Bash);
         assert!(!parsed.file);
@@ -493,7 +493,8 @@ mod tests {
     #[test]
     fn parses_silent_file_with_args() {
         let parsed =
-            parse_invocation("run.silent.python.file(/tmp/script.py).args(arg1, arg2)").unwrap();
+            parse_invocation("execute.silent.python.file(/tmp/script.py).args(arg1, arg2)")
+                .unwrap();
         assert!(parsed.silent);
         assert_eq!(parsed.interpreter, ScriptInterpreter::Python);
         assert!(parsed.file);
@@ -503,40 +504,40 @@ mod tests {
 
     #[test]
     fn parses_nested_parentheses_in_subject_and_args() {
-        let parsed = parse_invocation("run.node(console.log((1 + 2))).args(a(b), c)").unwrap();
+        let parsed = parse_invocation("execute.node(console.log((1 + 2))).args(a(b), c)").unwrap();
         assert_eq!(parsed.interpreter, ScriptInterpreter::Node);
         assert_eq!(parsed.subject, "console.log((1 + 2))");
         assert_eq!(parsed.args, vec!["a(b)", "c"]);
     }
 
     #[test]
-    fn rejects_invalid_run_syntax() {
+    fn rejects_invalid_execute_syntax() {
         assert_eq!(
-            parse_invocation("run.ruby(puts 1)"),
-            Err(RunParseError::InvalidLanguage)
+            parse_invocation("execute.ruby(puts 1)"),
+            Err(ExecuteParseError::InvalidLanguage)
         );
         assert_eq!(
-            parse_invocation("run.bash(echo 1"),
-            Err(RunParseError::UnbalancedParentheses)
+            parse_invocation("execute.bash(echo 1"),
+            Err(ExecuteParseError::UnbalancedParentheses)
         );
         assert_eq!(
-            parse_invocation("run.bash"),
-            Err(RunParseError::InvalidLanguage)
+            parse_invocation("execute.bash"),
+            Err(ExecuteParseError::InvalidLanguage)
         );
     }
 
     #[test]
-    fn run_bash_echo_resolves_stdout() {
+    fn execute_bash_echo_resolves_stdout() {
         if !bash_available() {
             eprintln!("skipping bash execution test because bash is unavailable");
             return;
         }
 
-        assert_eq!(resolve("run.bash(echo 42)").unwrap(), "42");
+        assert_eq!(resolve("execute.bash(echo 42)").unwrap(), "42");
     }
 
     #[test]
-    fn run_bash_file_executes_script() {
+    fn execute_bash_file_executes_script() {
         if !bash_available() {
             eprintln!("skipping bash file test because bash is unavailable");
             return;
@@ -546,7 +547,7 @@ mod tests {
         let path = dir.path().join("test.sh");
         std::fs::write(&path, "echo file:$1\n").unwrap();
 
-        let key = format!("run.bash.file({}).args(ok)", path.display());
+        let key = format!("execute.bash.file({}).args(ok)", path.display());
         assert_eq!(resolve(&key).unwrap(), "file:ok");
     }
 
@@ -554,14 +555,14 @@ mod tests {
     fn missing_file_returns_plan_error() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("missing.sh");
-        let key = format!("run.bash.file({})", path.display());
+        let key = format!("execute.bash.file({})", path.display());
 
         assert_eq!(resolve(&key).unwrap(), SCRIPT_NOT_FOUND);
     }
 
     #[test]
-    fn converts_inline_run_to_script_metadata() {
-        let metadata = to_script_metadata("run.bash(echo 42)").unwrap();
+    fn converts_inline_execute_to_script_metadata() {
+        let metadata = to_script_metadata("execute.bash(echo 42)").unwrap();
         assert_eq!(metadata.interpreter, ScriptInterpreter::Bash);
         assert_eq!(metadata.behavior, ScriptBehavior::Inline);
         assert_eq!(
@@ -571,13 +572,13 @@ mod tests {
     }
 
     #[test]
-    fn converts_silent_file_run_to_wrapper_metadata() {
+    fn converts_silent_file_execute_to_wrapper_metadata() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.sh");
         std::fs::write(&path, "echo file:$1\n").unwrap();
 
         let metadata = to_script_metadata(&format!(
-            "run.silent.bash.file({}).args(ok)",
+            "execute.silent.bash.file({}).args(ok)",
             path.display()
         ))
         .unwrap();
@@ -589,27 +590,27 @@ mod tests {
     }
 
     #[test]
-    fn run_silent_bash_returns_immediately() {
+    fn execute_silent_bash_returns_immediately() {
         if !bash_available() {
             eprintln!("skipping silent bash test because bash is unavailable");
             return;
         }
 
         let start = Instant::now();
-        let output = resolve("run.silent.bash(sleep 5)").unwrap();
+        let output = resolve("execute.silent.bash(sleep 5)").unwrap();
 
         assert_eq!(output, "");
         assert!(start.elapsed() < Duration::from_secs(2));
     }
 
     #[test]
-    fn interpolation_keeps_run_tags_for_finalization() {
+    fn interpolation_keeps_execute_tags_for_finalization() {
         assert_eq!(
             crate::engine::variables::interpolate::interpolate(
-                "[run.bash(echo hi)]",
+                "[execute.bash(echo hi)]",
                 &crate::engine::variables::types::ArgMap::default()
             ),
-            "[run.bash(echo hi)]"
+            "[execute.bash(echo hi)]"
         );
     }
 }

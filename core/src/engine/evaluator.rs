@@ -1911,7 +1911,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "runme".to_string(),
-            crate::db::crud::AutomationAction::text("before [run.bash(echo hi)] after"),
+            crate::db::crud::AutomationAction::text("before [execute.bash(echo hi)] after"),
         )]);
         let mut eval = Evaluator::new(state);
 

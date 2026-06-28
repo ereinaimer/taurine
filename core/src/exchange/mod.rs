@@ -183,7 +183,7 @@ pub fn deserialize_payload(bytes: &[u8]) -> crate::Result<ExchangePayload> {
 }
 
 fn contains_run_variable(content: &str) -> bool {
-    content.to_ascii_lowercase().contains("[run.")
+    content.to_ascii_lowercase().contains("[execute.")
 }
 
 #[cfg(test)]
@@ -404,7 +404,7 @@ mod tests {
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "gm".to_string(),
-            output: "before [RUN.bash(echo hi)] after".to_string(),
+            output: "before [EXECUTE.bash(echo hi)] after".to_string(),
             action_type: "text".to_string(),
             is_enabled: true,
             target_os: "all".to_string(),
@@ -419,7 +419,7 @@ mod tests {
         payload.automations[0].script = Some(ScriptExport {
             interpreter: ScriptInterpreter::Bash,
             behavior: ScriptBehavior::Inline,
-            content: "echo [run.bash(date)]".to_string(),
+            content: "echo [execute.bash(date)]".to_string(),
         });
         assert!(payload_contains_run_variables(&payload));
     }
