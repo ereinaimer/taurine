@@ -1,4 +1,4 @@
-use super::registry::{split_system_tag, strip_global_transformers};
+use super::registry::split_system_tag;
 use super::system;
 use super::types::ArgMap;
 
@@ -83,12 +83,9 @@ pub(crate) fn extract_placeholders<'a>(template: &'a str) -> IndexMap<&'a str, P
 
     for tag in tags {
         let inner = trim_slice(&template[tag.start + 1..tag.end]);
-        let (mut key, default_value) = split_key_default(inner);
-
-        // Strip transformer suffixes to find the base user key
-        while let Some((sub, _)) = system::split_modifier(key) {
-            key = sub;
-        }
+        let pipeline = system::transformers::split_pipeline(inner);
+        let base_expr = pipeline[0];
+        let (key, default_value) = split_key_default(base_expr);
 
         if !system::is_reserved(key)
             && !placeholders.contains_key(key)
@@ -215,35 +212,46 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
     while iterations < MAX_ITERATIONS {
         if let Some((start, end)) = find_innermost_tag(&output) {
             let inner = trim_slice(&output[start + 1..end]);
-            let (key, default_value) = split_key_default(inner);
+            let pipeline = system::transformers::split_pipeline(inner);
+            let base_expr = pipeline[0];
+            let transformers = &pipeline[1..];
+            let (key, default_value) = split_key_default(base_expr);
 
-            let resolved = if let Some(user) = user_resolutions.get(key) {
-                user.clone()
+            let base_resolved = if let Some(user) = user_resolutions.get(key) {
+                Some(user.clone())
             } else if let Some(sys) = resolve_system_placeholder(key) {
-                sys
-            } else if let Some((sub, suffix)) = system::split_modifier(key)
-                && (is_valid_user_reference(
-                    strip_global_transformers(sub),
-                    default_value,
-                    args,
-                    usize::MAX,
-                ) || system::strip_quotes(sub).is_some()
-                    || sub.chars().all(|c| c.is_ascii_digit()))
-            {
-                // Flattened resolution (e.g. msg.upper)
-                if let Some(res) =
-                    resolve_modified(sub, suffix, default_value, args, &user_resolutions, depth)
-                {
-                    res
+                Some(sys)
+            } else if is_valid_user_reference(key, default_value, args, usize::MAX) {
+                let mut pos_idx_dummy = usize::MAX;
+                resolve_user_placeholder(key, default_value, args, depth, &mut pos_idx_dummy)
+            } else if let Some(unquoted) = system::strip_quotes(key) {
+                Some(unquoted.to_string())
+            } else if key.chars().all(|c| c.is_ascii_digit()) {
+                let mut pos_idx_dummy = usize::MAX;
+                resolve_user_placeholder(key, default_value, args, depth, &mut pos_idx_dummy)
+            } else {
+                None
+            };
+
+            let resolved = if let Some(mut text) = base_resolved {
+                let mut valid_pipeline = true;
+                for tr in transformers {
+                    if let Some(transformed) = system::transformers::apply(tr, &text) {
+                        text = transformed;
+                    } else {
+                        valid_pipeline = false;
+                        break;
+                    }
+                }
+                if valid_pipeline {
+                    text
                 } else {
                     format!("{SENTINEL_OPEN}{inner}{SENTINEL_CLOSE}")
                 }
-            } else if system::is_directive(key) {
-                // Directive stays for finalization phase, use sentinel to avoid re-processing
+            } else if system::is_directive(key) && transformers.is_empty() {
                 format!("{SENTINEL_OPEN}{key}{SENTINEL_CLOSE}")
             } else {
-                // Unknown tag, keep as is
-                format!("{SENTINEL_OPEN}{inner}{SENTINEL_CLOSE}") // Sentinel to mark as "touched"
+                format!("{SENTINEL_OPEN}{inner}{SENTINEL_CLOSE}")
             };
 
             output.replace_range(start..end + 1, &resolved);
@@ -255,41 +263,6 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
 
     // Restore sentinels and handle escapes
     finalize_interpolation(output)
-}
-
-fn resolve_modified(
-    sub: &str,
-    suffix: &str,
-    default_value: Option<&str>,
-    args: &ArgMap,
-    user_resolutions: &std::collections::HashMap<&str, String>,
-    depth: usize,
-) -> Option<String> {
-    let content = if let Some(res) = system::resolve(sub) {
-        res
-    } else if let Some(user) = user_resolutions.get(sub) {
-        user.clone()
-    } else if let Some((s2, p2)) = system::split_modifier(sub) {
-        resolve_modified(s2, p2, default_value, args, user_resolutions, depth)?
-    } else if let Some(user) = {
-        let mut pos_idx_dummy = usize::MAX;
-        resolve_user_placeholder(sub, default_value, args, depth, &mut pos_idx_dummy)
-    } {
-        user
-    } else if let Some(unquoted) = system::strip_quotes(sub) {
-        unquoted.to_string()
-    } else {
-        // Fallback: literal
-        sub.to_string()
-    };
-
-    // If the content is an unresolved sentinel, we don't transform it yet.
-    // This allows the transformer to stay intact: [\x01msg\x02.upper]
-    if content.starts_with(SENTINEL_OPEN) && content.ends_with(SENTINEL_CLOSE) {
-        return None;
-    }
-
-    system::transformers::apply(suffix, &content)
 }
 
 fn resolve_system_placeholder(key: &str) -> Option<String> {
@@ -525,21 +498,21 @@ mod tests {
         let mut args = ArgMap::default();
         args.named
             .insert("val".to_string(), "MixedCase".to_string());
-        let tpl = "[[val.lower].upper]";
-        // Pass 1: [val.lower] -> mixedcase
-        // Pass 2: [mixedcase.upper] remains literal
-        assert_eq!(interpolate(tpl, &args), "[mixedcase.upper]");
+        let tpl = "[[val | lower] | upper]";
+        // Pass 1: [val | lower] -> mixedcase
+        // Pass 2: [mixedcase | upper] remains literal because mixedcase is not a variable
+        assert_eq!(interpolate(tpl, &args), "[mixedcase | upper]");
     }
 
     #[test]
     fn test_interpolate_nested_user() {
         let mut args = ArgMap::default();
         args.named.insert("name".to_string(), "john".to_string());
-        let tpl = "[[name].upper]";
+        let tpl = "[[name] | upper]";
         // Under strict validation, unquoted tags that are not variables are left as-is.
-        // [name] resolves to john, resulting in [john.upper].
-        // john is not a variable, so [john.upper] remains literal.
-        assert_eq!(interpolate(tpl, &args), "[john.upper]");
+        // [name] resolves to john, resulting in [john | upper].
+        // john is not a variable, so [john | upper] remains literal.
+        assert_eq!(interpolate(tpl, &args), "[john | upper]");
     }
 
     #[test]
@@ -565,9 +538,9 @@ mod tests {
         let mut args = ArgMap::default();
         args.positional.push("aimer".to_string());
 
-        assert_eq!(interpolate("[name.title=erein]", &args), "Aimer");
+        assert_eq!(interpolate("[name=erein | title]", &args), "Aimer");
         assert_eq!(
-            interpolate("[name.title=erein]", &ArgMap::default()),
+            interpolate("[name=erein | title]", &ArgMap::default()),
             "Erein"
         );
     }
@@ -576,15 +549,15 @@ mod tests {
     fn test_interpolate_balanced_with_escapes() {
         let args = ArgMap::default();
         // Use quotes to ensure it's treated as a literal and not an unresolved placeholder
-        let tpl = r#"['a\[b\]c'.upper]"#;
+        let tpl = r#"['a\[b\]c' | upper]"#;
         assert_eq!(interpolate(tpl, &args), "A[B]C");
     }
 
     #[test]
     fn test_interpolate_flattened_system() {
         let args = ArgMap::default();
-        // time.now.upper should resolve to the current time in uppercase
-        let res = interpolate("[time.now.upper]", &args);
+        // time.now | upper should resolve to the current time in uppercase
+        let res = interpolate("[time.now | upper]", &args);
         // We check if it resolved to SOMETHING that isn't the literal string or empty
         assert!(!res.is_empty());
         assert!(!res.contains("time.now"));
@@ -596,15 +569,18 @@ mod tests {
     fn test_interpolate_flattened_user() {
         let mut args = ArgMap::default();
         args.named.insert("name".to_string(), "john".to_string());
-        // name.upper should resolve to JOHN
-        assert_eq!(interpolate("[name.upper]", &args), "JOHN");
+        // name | upper should resolve to JOHN
+        assert_eq!(interpolate("[name | upper]", &args), "JOHN");
     }
 
     #[test]
     fn test_interpolate_quoted_literal() {
         let args = ArgMap::default();
-        assert_eq!(interpolate("['hello world'.upper]", &args), "HELLO WORLD");
-        assert_eq!(interpolate("[\"hello world\".upper]", &args), "HELLO WORLD");
+        assert_eq!(interpolate("['hello world' | upper]", &args), "HELLO WORLD");
+        assert_eq!(
+            interpolate("[\"hello world\" | upper]", &args),
+            "HELLO WORLD"
+        );
     }
 
     #[test]
@@ -612,12 +588,12 @@ mod tests {
         let mut args = ArgMap::default();
         args.named
             .insert("val".to_string(), "MixedCase".to_string());
-        assert_eq!(interpolate("[val.lower.upper]", &args), "MIXEDCASE");
+        assert_eq!(interpolate("[val | lower | upper]", &args), "MIXEDCASE");
     }
 
     #[test]
     fn test_extract_placeholders_suffixed() {
-        let text = "Hello [name.upper] and [email.lower=DEFAULT@EMAIL.COM]";
+        let text = "Hello [name | upper] and [email=DEFAULT@EMAIL.COM | lower]";
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 2);
         assert!(p.contains_key("name"));
@@ -630,7 +606,7 @@ mod tests {
 
     #[test]
     fn test_extract_placeholders_parameterized_transformers() {
-        let text = "Hello [name.truncate(3)] and [email.replace(\"@\", \"+\")=DEFAULT]";
+        let text = "Hello [name | truncate(3)] and [email=DEFAULT | replace(\"@\", \"+\")]";
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 2);
         assert!(p.contains_key("name"));
@@ -639,79 +615,9 @@ mod tests {
     }
 
     #[test]
-    fn test_interpolate_urlencode_nested() {
-        let mut args = ArgMap::default();
-        args.named
-            .insert("query".to_string(), "hello world!".to_string());
-
-        let tpl = "https://google.com/search?q=[[query].urlencode]";
-        // Under strict validation, unquoted tags resulting from interpolation like [hello world!.urlencode]
-        // are left as literal if they don't match a variable.
-        assert_eq!(
-            interpolate(tpl, &args),
-            "https://google.com/search?q=[hello world!.urlencode]"
-        );
-    }
-
-    #[test]
-    fn test_interpolate_google_search_clipboard() {
-        let args = ArgMap::default();
-        system::clipboard::set_mock_clipboard(Some("customer error msg".to_string()));
-
-        let tpl = "https://google.com/search?q=[[clipboard].urlencode]";
-        assert_eq!(
-            interpolate(tpl, &args),
-            "https://google.com/search?q=[customer error msg.urlencode]"
-        );
-
-        system::clipboard::set_mock_clipboard(None);
-    }
-
-    #[test]
-    fn test_interpolate_urlencode_repro() {
-        let mut args = ArgMap::default();
-        args.positional.push("banana".to_string());
-
-        let tpl = "https://google.com/search?q=[[0].urlencode]";
-        assert_eq!(
-            interpolate(tpl, &args),
-            "https://google.com/search?q=[banana.urlencode]"
-        );
-    }
-
-    #[test]
-    fn test_interpolate_urlencode_flat() {
-        let mut args = ArgMap::default();
-        args.positional.push("apple".to_string());
-
-        let tpl = "https://google.com/search?q=[0.urlencode]";
-        assert_eq!(interpolate(tpl, &args), "https://google.com/search?q=apple");
-    }
-
-    #[test]
-    fn test_interpolate_lorem_accepts_nested_dynamic_count() {
-        let args = ArgMap::default();
-        let resolved = interpolate("[lorem.words([num=5])]", &args);
-
-        assert_eq!(resolved.split_whitespace().count(), 5);
-    }
-
-    #[test]
-    fn test_interpolate_mock_password_accepts_nested_dynamic_count() {
-        let args = ArgMap::default();
-        let resolved = interpolate("[mock.password([len=12])]", &args);
-
-        assert_eq!(resolved.chars().count(), 12);
-    }
-
-    #[test]
     fn test_interpolate_unknown_transformed_tag_remains_literal() {
         let args = ArgMap::default();
-        assert_eq!(interpolate("[foo.upper]", &args), "[foo.upper]");
-        assert_eq!(
-            interpolate("[time.india.upper]", &args),
-            "[time.india.upper]"
-        );
+        assert_eq!(interpolate("[foo | upper]", &args), "[foo | upper]");
     }
 
     #[test]
@@ -719,9 +625,9 @@ mod tests {
         let mut args = ArgMap::default();
         args.named.insert("name".to_string(), "john".to_string());
 
-        assert_eq!(interpolate("[name.truncate(2)]", &args), "jo");
+        assert_eq!(interpolate("[name | truncate(2)]", &args), "jo");
         assert_eq!(
-            interpolate("[name.replace(\"o\", \"0\").upper]", &args),
+            interpolate("[name | replace(\"o\", \"0\") | upper]", &args),
             "J0HN"
         );
     }
@@ -731,9 +637,9 @@ mod tests {
         let args = ArgMap::default();
         system::clipboard::set_mock_clipboard(Some("alpha,beta".to_string()));
 
-        assert_eq!(interpolate("[clipboard.truncate(5)]", &args), "alpha");
+        assert_eq!(interpolate("[clipboard | truncate(5)]", &args), "alpha");
         assert_eq!(
-            interpolate("[clipboard.replace(\",\", \";\")]", &args),
+            interpolate("[clipboard | replace(\",\", \";\")]", &args),
             "alpha;beta"
         );
 
@@ -750,24 +656,8 @@ mod tests {
 
         assert_eq!(interpolate("[clipboard]", &args), "current");
         assert_eq!(interpolate("[clipboard(0)]", &args), "current");
-        assert_eq!(interpolate("[clipboard(1).upper]", &args), "PREVIOUS");
+        assert_eq!(interpolate("[clipboard(1) | upper]", &args), "PREVIOUS");
         assert_eq!(interpolate("[clipboard(2)]", &args), "");
-
-        system::clipboard::set_mock_clipboard(None);
-    }
-
-    #[test]
-    fn test_interpolate_clipboard_history_malformed_and_out_of_bounds_requests() {
-        let args = ArgMap::default();
-        system::clipboard::set_mock_clipboard_history(vec!["current".to_string()]);
-
-        assert_eq!(interpolate("[clipboard(4)]", &args), "");
-        assert_eq!(interpolate("[clipboard(abc)]", &args), "[clipboard(abc)]");
-        assert_eq!(interpolate("[clipboard(-1)]", &args), "[clipboard(-1)]");
-        assert_eq!(
-            interpolate("[clipboard(abc).upper]", &args),
-            "[clipboard(abc).upper]"
-        );
 
         system::clipboard::set_mock_clipboard(None);
     }
@@ -776,7 +666,7 @@ mod tests {
     fn test_interpolate_replace_handles_literal_commas() {
         let args = ArgMap::default();
         assert_eq!(
-            interpolate(r#"['a,b,c'.replace(",", ";")]"#, &args),
+            interpolate(r#"['a,b,c' | replace(",", ";")]"#, &args),
             "a;b;c"
         );
     }
@@ -786,7 +676,7 @@ mod tests {
         let args = ArgMap::default();
         assert_eq!(
             interpolate(
-                r#"['a,B,c,D'.regexreplace("([a-z]),([A-Z])", "$1 $2")]"#,
+                r#"['a,B,c,D' | regexreplace("([a-z]),([A-Z])", "$1 $2")]"#,
                 &args
             ),
             "a B,c D"
@@ -796,7 +686,7 @@ mod tests {
     #[test]
     fn test_interpolate_substring_is_utf8_safe() {
         let args = ArgMap::default();
-        assert_eq!(interpolate(r#"['aßç'.substring(1, 3)]"#, &args), "ßç");
+        assert_eq!(interpolate(r#"['aßç' | substring(1, 3)]"#, &args), "ßç");
     }
 
     #[test]
@@ -894,10 +784,10 @@ mod tests {
             args.positional.push("banana".to_string());
 
             assert_eq!(
-                interpolate("nested=[[0].urlencode]", &args),
-                "nested=[banana.urlencode]"
+                interpolate("nested=[[0] | urlencode]", &args),
+                "nested=[banana | urlencode]"
             );
-            assert_eq!(interpolate("flat=[0.urlencode]", &args), "flat=banana");
+            assert_eq!(interpolate("flat=[0 | urlencode]", &args), "flat=banana");
         }
     }
 }

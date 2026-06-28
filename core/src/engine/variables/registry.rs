@@ -186,11 +186,9 @@ const KEY_MODIFIERS: &[&str] = &[
     "scrolllock",
 ];
 
-pub fn strip_global_transformers(mut key: &str) -> &str {
-    while let Some((sub, _)) = system::split_modifier(key) {
-        key = sub;
-    }
-    key
+pub fn strip_global_transformers(key: &str) -> &str {
+    let pipeline = system::transformers::split_pipeline(key);
+    pipeline[0]
 }
 
 pub fn split_system_tag(key: &str) -> Option<(&str, Option<&str>)> {
@@ -716,27 +714,27 @@ mod tests {
 
     #[test]
     fn strips_global_transformers_before_system_validation() {
-        assert_eq!(strip_global_transformers("time.now.upper"), "time.now");
-        assert_eq!(strip_global_transformers("name.upper"), "name");
+        assert_eq!(strip_global_transformers("time.now | upper"), "time.now");
+        assert_eq!(strip_global_transformers("name | upper"), "name");
     }
 
     #[test]
     fn splits_known_system_roots_only() {
         assert_eq!(
-            split_system_tag("time.now.upper"),
+            split_system_tag("time.now | upper"),
             Some(("time", Some("now")))
         );
         assert_eq!(
-            split_system_tag("net.hostname.upper"),
+            split_system_tag("net.hostname | upper"),
             Some(("net", Some("hostname")))
         );
         assert_eq!(split_system_tag("clipboard"), Some(("clipboard", None)));
         assert_eq!(split_system_tag("clipboard(1)"), Some(("clipboard", None)));
         assert_eq!(
-            split_system_tag("clipboard(2).upper"),
+            split_system_tag("clipboard(2) | upper"),
             Some(("clipboard", None))
         );
-        assert_eq!(split_system_tag("query.upper"), None);
+        assert_eq!(split_system_tag("query | upper"), None);
     }
 
     #[test]

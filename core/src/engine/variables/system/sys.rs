@@ -75,8 +75,11 @@ mod tests {
     #[test]
     fn test_resolve_sys_transformer() {
         assert_eq!(
-            crate::engine::variables::system::resolve("sys.os.upper"),
-            Some(env::consts::OS.to_uppercase())
+            crate::engine::variables::interpolate::interpolate(
+                "[sys.os | upper]",
+                &crate::engine::variables::types::ArgMap::default()
+            ),
+            env::consts::OS.to_uppercase()
         );
     }
 }

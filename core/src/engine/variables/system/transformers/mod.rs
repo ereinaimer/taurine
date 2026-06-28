@@ -78,13 +78,16 @@ struct ParsedTransformer<'a> {
     args: Vec<&'a str>,
 }
 
-pub fn split_suffix(key: &str) -> Option<(&str, &str)> {
+/// Splits an expression on top-level `|` characters (ignoring `|` inside quotes or parentheses).
+/// Returns a list of trimmed segments: `[base_expression, transformer1, transformer2, ...]`.
+pub fn split_pipeline(input: &str) -> Vec<&str> {
+    let mut segments = Vec::new();
     let mut depth = 0usize;
     let mut quote = None;
     let mut escaped = false;
-    let mut last_dot = None;
+    let mut start = 0usize;
 
-    for (idx, ch) in key.char_indices() {
+    for (idx, ch) in input.char_indices() {
         if let Some(active_quote) = quote {
             if escaped {
                 escaped = false;
@@ -101,36 +104,22 @@ pub fn split_suffix(key: &str) -> Option<(&str, &str)> {
 
         match ch {
             '\'' | '"' => quote = Some(ch),
-            '(' => depth += 1,
-            ')' => {
-                if depth == 0 {
-                    return None;
-                }
-                depth -= 1;
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth = depth.saturating_sub(1),
+            '|' if depth == 0 => {
+                segments.push(input[start..idx].trim());
+                start = idx + ch.len_utf8();
             }
-            '.' if depth == 0 => last_dot = Some(idx),
             _ => {}
         }
     }
 
-    if depth != 0 || quote.is_some() {
-        return None;
-    }
-
-    let dot_idx = last_dot?;
-    let sub = &key[..dot_idx];
-    let suffix = &key[dot_idx + 1..];
-
-    (!sub.is_empty() && parse_transformer(suffix).is_some()).then_some((sub, suffix))
+    segments.push(input[start..].trim());
+    segments
 }
 
-pub fn resolve<F>(key: &str, mut resolve_sub: F) -> Option<String>
-where
-    F: FnMut(&str) -> Option<String>,
-{
-    let (sub, suffix) = split_suffix(key)?;
-    let content = resolve_sub(sub).or_else(|| super::strip_quotes(sub).map(str::to_string))?;
-    apply(suffix, &content)
+pub fn is_valid_transformer(input: &str) -> bool {
+    parse_transformer(input).is_some()
 }
 
 pub fn apply(transformer: &str, content: &str) -> Option<String> {
@@ -256,27 +245,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_split_suffix_supports_parameterized_transformers() {
+    fn test_split_pipeline_supports_parameterized_transformers() {
         assert_eq!(
-            split_suffix("clipboard.truncate(5)"),
-            Some(("clipboard", "truncate(5)"))
+            split_pipeline("clipboard | truncate(5)"),
+            vec!["clipboard", "truncate(5)"]
         );
         assert_eq!(
-            split_suffix("clipboard.replace(\",\", \";\").upper"),
-            Some(("clipboard.replace(\",\", \";\")", "upper"))
+            split_pipeline("clipboard | replace(\",\", \";\") | upper"),
+            vec!["clipboard", "replace(\",\", \";\")", "upper"]
         );
         assert_eq!(
-            split_suffix("'a.b'.replace(\".\", \"-\")"),
-            Some(("'a.b'", "replace(\".\", \"-\")"))
+            split_pipeline("'a|b' | replace(\"|\", \"-\")"),
+            vec!["'a|b'", "replace(\"|\", \"-\")"]
         );
-        assert_eq!(
-            split_suffix("clipboard.regexreplace(\"([a-z]),([A-Z])\", \"$1 $2\").upper"),
-            Some((
-                "clipboard.regexreplace(\"([a-z]),([A-Z])\", \"$1 $2\")",
-                "upper"
-            ))
-        );
-        assert_eq!(split_suffix("clipboard.unknown(5)"), None);
     }
 
     #[test]

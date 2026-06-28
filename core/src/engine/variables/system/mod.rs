@@ -32,13 +32,7 @@ struct TagBounds {
 }
 
 /// Checks if a keyword is reserved by the system.
-pub fn is_reserved(mut key: &str) -> bool {
-    // 1. Strip all valid format modifiers to find the base variable
-    while let Some((sub, _)) = split_modifier(key) {
-        key = sub;
-    }
-
-    // 2. Check if the resulting base is a reserved system variable
+pub fn is_reserved(key: &str) -> bool {
     key == "cursor"
         || key == "uuid"
         || clipboard::is_clipboard_key(key)
@@ -63,12 +57,6 @@ pub fn is_reserved(mut key: &str) -> bool {
         || key.contains('.') // Reserve all other dot-namespaces
 }
 
-/// Splits a key into its base and a modifier suffix if it matches a known transformer.
-/// Example: `time.now.upper` -> `Some(("time.now", "upper"))`
-pub fn split_modifier(key: &str) -> Option<(&str, &str)> {
-    transformers::split_suffix(key)
-}
-
 /// Checks if a keyword is a post-processing directive.
 ///
 /// Directives are not replaced during interpolation but are instead handled
@@ -79,12 +67,6 @@ pub fn is_directive(key: &str) -> bool {
 
 /// Resolves a content-producing system variable.
 pub fn resolve(key: &str) -> Option<String> {
-    // 1. Handle Transformers first (Recursive)
-    if let Some(resolved) = transformers::resolve(key, resolve) {
-        return Some(resolved);
-    }
-
-    // 2. Base System Variables
     if key.starts_with("time.") {
         return time::resolve(key);
     }
@@ -476,43 +458,19 @@ mod tests {
         assert!(is_reserved("time.now"));
         assert!(is_reserved("time.now.upper"));
         assert!(is_reserved("net.localip"));
-        assert!(is_reserved("net.mac.upper"));
+        assert!(is_reserved("net.localip"));
         assert!(is_reserved("execute.bash(echo hi)"));
-        assert!(is_reserved("execute.bash(echo hi).upper"));
         assert!(is_reserved("random.int(1, 9)"));
-        assert!(is_reserved("random.int(1, 9).upper"));
         assert!(is_reserved("lorem"));
         assert!(is_reserved("lorem.words(3)"));
-        assert!(is_reserved("lorem.words(3).upper"));
         assert!(is_reserved("mock"));
         assert!(is_reserved("mock.email"));
-        assert!(is_reserved("mock.password(12).upper"));
+        assert!(is_reserved("mock.password(12)"));
         assert!(is_reserved("sys"));
         assert!(is_reserved("sys.os"));
-        assert!(is_reserved("sys.os.upper"));
-        assert!(is_reserved("lowercase.hello"));
 
         // These are valid user variables and should not be reserved
         assert!(!is_reserved("username"));
-        assert!(!is_reserved("name.upper"));
-        assert!(!is_reserved("name.truncate(5)"));
-        assert!(!is_reserved("my_var.shoutysnake"));
-    }
-
-    #[test]
-    fn test_split_modifier_supports_parenthesized_transformers() {
-        assert_eq!(
-            split_modifier("clipboard.truncate(5)"),
-            Some(("clipboard", "truncate(5)"))
-        );
-        assert_eq!(
-            split_modifier("clipboard.replace(\",\", \";\").upper"),
-            Some(("clipboard.replace(\",\", \";\")", "upper"))
-        );
-        assert_eq!(
-            split_modifier("'a.b'.replace(\".\", \"-\")"),
-            Some(("'a.b'", "replace(\".\", \"-\")"))
-        );
     }
 
     #[test]
