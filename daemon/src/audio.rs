@@ -1,7 +1,7 @@
 use rodio::{Decoder, DeviceSinkBuilder, Player};
 use std::io::Cursor;
 use tokio::sync::mpsc;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 const PAUSE_WAV: &[u8] = include_bytes!("../../assets/audio/pause.wav");
 const RESUME_WAV: &[u8] = include_bytes!("../../assets/audio/resume.wav");
@@ -16,22 +16,6 @@ fn load_wav_source(
 
 pub fn init_audio_system() -> mpsc::Sender<bool> {
     let (tx, mut rx) = mpsc::channel::<bool>(4);
-
-    // Print buffer headers once at daemon startup
-    tracing::debug!(
-        "Pause audio buffer first 4 bytes: {:02X} {:02X} {:02X} {:02X}",
-        PAUSE_WAV[0],
-        PAUSE_WAV[1],
-        PAUSE_WAV[2],
-        PAUSE_WAV[3]
-    );
-    tracing::debug!(
-        "Resume audio buffer first 4 bytes: {:02X} {:02X} {:02X} {:02X}",
-        RESUME_WAV[0],
-        RESUME_WAV[1],
-        RESUME_WAV[2],
-        RESUME_WAV[3]
-    );
 
     std::thread::spawn(move || {
         info!("Audio worker thread started (per-trigger device acquisition)");
@@ -60,7 +44,7 @@ pub fn init_audio_system() -> mpsc::Sender<bool> {
                     player.sleep_until_end();
                 }
                 Err(e) => {
-                    error!("Failed to decode audio: {}", e);
+                    warn!("Failed to decode audio: {}", e);
                 }
             }
             // stream drops here, releasing the device cleanly.

@@ -619,7 +619,7 @@ fn run_listener_once(
                 {
                     match lock.on_key_event(state.as_ref(), true, modifiers, logical_key) {
                         HotkeyEvaluation::Matched(expansion) => {
-                            debug!("Hotkey matched! Expanding: {:?}", expansion);
+                            debug!("Hotkey matched: {}", expansion.trigger);
 
                             let spinner_style_inner =
                                 spinner_style.read().map(|s| *s).unwrap_or_default();
@@ -734,7 +734,7 @@ fn run_listener_once(
                         })
                         .flatten()
                     {
-                        debug!("Trigger matched! Expanding: {:?}", expansion);
+                        debug!("Trigger matched: {}", expansion.trigger);
 
                         let spinner_style_inner =
                             spinner_style.read().map(|s| *s).unwrap_or_default();
@@ -1078,7 +1078,7 @@ fn dispatch_completion_rewrite_with<I>(
         delete_count,
         replacement,
     } = rewrite;
-    debug!(
+    trace!(
         delete_count,
         replacement_chars = replacement.chars().count(),
         "Starting completion rewrite dispatch"
@@ -1090,7 +1090,7 @@ fn dispatch_completion_rewrite_with<I>(
         delete_count,
         spinner_style,
     );
-    debug!(
+    trace!(
         delete_count,
         completed = injection.completed,
         output_chars = injection.successful_chars,
@@ -1131,12 +1131,12 @@ fn dispatch_expansion_with<I, L>(
     let has_follow_up = follow_up.is_some();
 
     state.clear_undo_state();
-    debug!(
+    trace!(
         delete_count,
         step_count, has_follow_up, track_usage, "Starting expansion dispatch"
     );
     let injection = inject_expansion(steps, delete_count, spinner_style);
-    debug!(
+    trace!(
         delete_count,
         step_count,
         completed = injection.completed,

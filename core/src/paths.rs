@@ -92,9 +92,7 @@ pub fn get_db_path() -> PathBuf {
 
     #[cfg(not(target_os = "android"))]
     {
-        let db_path = get_data_dir().join(DB_FILENAME);
-        debug!("Database path: {}", db_path.display());
-        db_path
+        get_data_dir().join(DB_FILENAME)
     }
 }
 

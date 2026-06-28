@@ -8,7 +8,7 @@ use taurine_core::rpc::{
 };
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
-use tracing::info;
+use tracing::{debug, info};
 
 pub struct DaemonService {
     shutdown_sender: mpsc::Sender<()>,
@@ -91,7 +91,7 @@ impl DaemonControl for DaemonService {
         &self,
         _request: Request<ReloadRequest>,
     ) -> Result<Response<ReloadResponse>, Status> {
-        info!("Received gRPC reload request, refreshing snippets and settings...");
+        debug!("Received gRPC reload request, refreshing snippets and settings...");
 
         let conn = taurine_core::db::init::setup()
             .map_err(|e| Status::internal(format!("Database connection failed: {}", e)))?;
@@ -173,7 +173,7 @@ impl DaemonControl for DaemonService {
             *lock = settings.action_delimiter;
         }
 
-        info!("Successfully reloaded snippets and settings into daemon.");
+        debug!("Successfully reloaded snippets and settings into daemon.");
         Ok(Response::new(ReloadResponse { success: true }))
     }
 }

@@ -501,7 +501,7 @@ fn process_frame(
             if grab_enabled && let Some(logical_key) = logical_key {
                 match hotkey_evaluator.on_key_event(state.as_ref(), true, modifiers, logical_key) {
                     HotkeyEvaluation::Matched(expansion) => {
-                        debug!("Hotkey matched! Expanding: {:?}", expansion);
+                        debug!("Hotkey matched: {}", expansion.trigger);
                         swallow_frame = true;
 
                         let spinner_style_inner =
@@ -583,7 +583,7 @@ fn process_frame(
                 let state = lock.state.clone();
                 drop(lock);
 
-                debug!("Trigger matched! Expanding: {:?}", expansion);
+                debug!("Trigger matched: {}", expansion.trigger);
 
                 let spinner_style_inner = spinner_style.read().map(|s| *s).unwrap_or_default();
 

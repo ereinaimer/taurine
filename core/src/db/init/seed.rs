@@ -3,8 +3,6 @@ use rusqlite::{Connection, Result};
 use tracing::debug;
 
 pub fn ensure_defaults(conn: &Connection) -> Result<()> {
-    debug!("Checking database for required default settings");
-
     // The settings table stores values as JSON. A single-character string is
     // stored as a JSON string literal — i.e. with surrounding double-quotes.
     let trigger_val = get_setting(conn, "trigger_char")?;

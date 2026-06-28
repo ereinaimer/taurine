@@ -13,7 +13,7 @@ use std::time::Duration;
 use std::time::Instant;
 #[cfg(not(target_os = "linux"))]
 use tracing::warn;
-use tracing::{debug, error};
+use tracing::{debug, error, trace};
 
 use taurine_core::engine::shell::ScriptBehavior;
 use taurine_core::engine::variables::ExpansionStep;
@@ -164,7 +164,7 @@ impl InjectionFlagGuard {
         let gate = injection_gate();
         gate.begin_scope();
 
-        debug!(
+        trace!(
             scope_depth = INJECTION_SCOPE_DEPTH.load(Ordering::SeqCst),
             visibility_depth = INJECTION_VISIBILITY_DEPTH.load(Ordering::SeqCst),
             "Injection guard armed"
@@ -178,7 +178,7 @@ impl Drop for InjectionFlagGuard {
     fn drop(&mut self) {
         self.gate.end_scope();
 
-        debug!(
+        trace!(
             remaining_scope_depth = INJECTION_SCOPE_DEPTH.load(Ordering::SeqCst),
             remaining_visibility_depth = INJECTION_VISIBILITY_DEPTH.load(Ordering::SeqCst),
             restored_injecting = IS_INJECTING.load(Ordering::SeqCst),
@@ -205,7 +205,7 @@ impl InjectionVisibilityGuard {
 impl Drop for InjectionVisibilityGuard {
     fn drop(&mut self) {
         self.gate.end_visibility();
-        debug!(
+        trace!(
             remaining_visibility_depth = INJECTION_VISIBILITY_DEPTH.load(Ordering::SeqCst),
             restored_injecting = IS_INJECTING.load(Ordering::SeqCst),
             "Injection visibility guard reset"
@@ -320,7 +320,7 @@ const INTER_STEP_DELAY_MS: u64 = 10;
 /// Sends n Backspace keystrokes with inter-key sleeps so the OS registers
 /// each one individually.
 fn erase_trigger(delete_count: usize) {
-    debug!("Injecting {} backspaces", delete_count);
+    trace!("Injecting {} backspaces", delete_count);
     for _ in 0..delete_count {
         #[cfg(target_os = "linux")]
         {

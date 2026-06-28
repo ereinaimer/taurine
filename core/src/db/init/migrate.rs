@@ -1,5 +1,5 @@
 use rusqlite::{Connection, Result};
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 /// Runs all pending schema migrations against an open connection.
 ///
@@ -150,10 +150,6 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     }
 
     reconcile_schema_v1(conn)?;
-    debug!(
-        current_schema_version = CURRENT_SCHEMA_VERSION,
-        "Schema is up to date"
-    );
 
     Ok(())
 }
