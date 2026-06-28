@@ -48,7 +48,7 @@ pub fn execute(
             )
         }
         AddOutcome::Updated => {
-            info!("Updated automation: {} -> {}", stored_trigger, output);
+            info!("Updated automation: {}", stored_trigger);
             taurine_core::rpc::notify_daemon_reload();
         }
     }
