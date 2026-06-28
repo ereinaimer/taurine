@@ -3,25 +3,26 @@ title: Introduction
 description: Elevate your snippets with powerful, global text transformers.
 ---
 
-Transformers are a powerful feature of the Taurine engine that allow you to manipulate the casing, encoding, and structure of your text dynamically. They are applied using **dot notation** (e.g., `.upper`) immediately following a variable name.
+Transformers are a powerful feature of the Taurine engine that allow you to manipulate the casing, encoding, and structure of your text dynamically. They are applied using **Unix pipe syntax** (e.g., `| upper`) immediately following a variable name or default value.
 
 ```
-[clipboard.upper]
-[0.snake]
+[clipboard | upper]
+[0 | snake]
+[name=john | title]
 ```
 
 ### Key Concepts
 
 *   **Global Availability**: Transformers can be applied to any variable, whether it is a user-defined argument, a system variable, or even a literal string inside a tag.
-*   **Recursive Chaining**: You can chain multiple transformers together. They are processed from left to right.
+*   **Recursive Chaining**: You can chain multiple transformers together using additional pipes. They are processed sequentially from left to right.
 *   **UTF-8 Awareness**: All text-based transformers (like `reverse` or `truncate`) are fully UTF-8 aware, ensuring safe manipulation of emojis and special characters.
 
 ### Chaining Transformers
 
-Taurine supports recursive transformation chaining. This allows you to perform complex cleanup and formatting in a single tag. The implementation is fully recursive; while there is no hard limit on the number of chained modifiers, depth is technically limited only by your system's stack and available memory.
+Taurine supports recursive transformation chaining using unix pipes. This allows you to perform complex cleanup and formatting in a single tag.
 
 <Transformation
-  template="[0.trim.upper.reverse]"
+  template="[0 | trim | upper | reverse]"
   input=">text:'  taurine  '"
   result="ENIRUAT"
 />
@@ -31,7 +32,7 @@ Taurine supports recursive transformation chaining. This allows you to perform c
 You can apply transformers directly to quoted strings. This is useful for formatting static text without defining a variable.
 
 <Transformation
-  template="['hello world'.title]"
+  template="['hello world' | title]"
   input=""
   result="Hello World"
 />

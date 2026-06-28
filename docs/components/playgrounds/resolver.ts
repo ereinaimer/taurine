@@ -157,10 +157,21 @@ export function resolveTemplate(template: string, input: string, prefix: string)
   const { positional, named } = parseArguments(input, prefix);
   let positionalIndex = 0;
 
-  // Regex to match [name] or [0] or [name=default] or [name.upper]
-  const placeholderRegex = /\[([a-zA-Z0-9_]+)(?:=([^\]\.]+))?(?:\.([a-zA-Z0-9_.]+))?\]/g;
+  const tagRegex = /\[([^\[\]]+)\]/g;
 
-  return template.replace(placeholderRegex, (match, key, defaultValue, modifierChain) => {
+  return template.replace(tagRegex, (match, inner) => {
+    const pipeline = inner.split('|').map((s: string) => s.trim());
+    const baseExpr = pipeline[0];
+    const transformersList = pipeline.slice(1);
+
+    let key = baseExpr;
+    let defaultValue: string | undefined = undefined;
+    if (baseExpr.includes('=')) {
+      const eqIdx = baseExpr.indexOf('=');
+      key = baseExpr.substring(0, eqIdx).trim();
+      defaultValue = baseExpr.substring(eqIdx + 1).trim();
+    }
+
     let resolvedValue: string | undefined;
 
     // 1. Try named argument
@@ -184,12 +195,9 @@ export function resolveTemplate(template: string, input: string, prefix: string)
     }
 
     // Apply modifiers
-    if (modifierChain) {
-      const mods = modifierChain.split('.');
-      for (const mod of mods) {
-        if (transformers[mod]) {
-          resolvedValue = transformers[mod]!(resolvedValue);
-        }
+    for (const mod of transformersList) {
+      if (transformers[mod]) {
+        resolvedValue = transformers[mod]!(resolvedValue);
       }
     }
 

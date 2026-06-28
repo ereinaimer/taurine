@@ -38,8 +38,8 @@ The `lorem` namespace supports Taurine's [Dynamic Variables](/docs/cli/dynamic-v
 You can chain [format modifiers](/docs/cli/dynamic-variables/transformers) after the closing parenthesis to transform the generated text.
 
 ```text
-[lorem.words(3).upper] -> "LOREM IPSUM DOLOR"
-[lorem.sentence(1).title] -> "Lorem Ipsum Dolor Sit Amet."
+[lorem.words(3) | upper] -> "LOREM IPSUM DOLOR"
+[lorem.sentence(1) | title] -> "Lorem Ipsum Dolor Sit Amet."
 ```
 
 ## Examples

@@ -9,33 +9,33 @@ These transformers allow you to modify the content of a string beyond simple cas
 
 | Modifier | Description | Example |
 | :--- | :--- | :--- |
-| `.trim` | Removes leading and trailing whitespace | `"  hi  "` → `"hi"` |
-| `.length` | Returns the number of characters | `"aßc"` → `3` |
-| `.reverse` | Reverses the string at char-level | `"cafe"` → `"efac"` |
-| `.truncate(n)` | Limits text to `n` characters | `"abcdef"` → `"abc..."` |
-| `.replace(old, new)` | Replaces all occurrences of `old` with `new` | `"a,b,c"` → `"a;b;c"` |
-| `.remove(str)` | Strips all occurrences of `str` | `"banana"` → `"ba"` |
-| `.substring(s, e)` | Precise char-aware slicing | `"naïve"` → `"ïve"` |
-| `.stripall` | Removes ALL whitespace | `" a b c "` → `"abc"` |
-| `.onlydigits` | Keeps only `0-9` | `"A-10-9"` → `"109"` |
-| `.onlyalphanumeric` | Keeps only letters and numbers | `"a-b_1!"` → `"ab1"` |
+| `trim` | Removes leading and trailing whitespace | `"  hi  "` → `"hi"` |
+| `length` | Returns the number of characters | `"aßc"` → `3` |
+| `reverse` | Reverses the string at char-level | `"cafe"` → `"efac"` |
+| `truncate(n)` | Limits text to `n` characters | `"abcdef"` → `"abc..."` |
+| `replace(old, new)` | Replaces all occurrences of `old` with `new` | `"a,b,c"` → `"a;b;c"` |
+| `remove(str)` | Strips all occurrences of `str` | `"banana"` → `"ba"` |
+| `substring(s, e)` | Precise char-aware slicing | `"naïve"` → `"ïve"` |
+| `stripall` | Removes ALL whitespace | `" a b c "` → `"abc"` |
+| `onlydigits` | Keeps only `0-9` | `"A-10-9"` → `"109"` |
+| `onlyalphanumeric` | Keeps only letters and numbers | `"a-b_1!"` → `"ab1"` |
 
 ### Advanced Manipulation
 
 #### Regex Replacement
-The `.regexreplace(pattern, replacement)` transformer uses the Rust [regex](https://docs.rs/regex/) crate. It supports Perl-like syntax and captures groups. If the pattern is invalid, the transformer fails gracefully and returns the original text.
+The `regexreplace(pattern, replacement)` transformer uses the Rust [regex](https://docs.rs/regex/) crate. It supports Perl-like syntax and captures groups. If the pattern is invalid, the transformer fails gracefully and returns the original text.
 
 <Transformation
-  template='[0.regexreplace("([a-z]),([A-Z])", "$1 $2")]'
+  template='[0 | regexreplace("([a-z]),([A-Z])", "$1 $2")]'
   input=">text:'a,B c,D'"
   result="a B c D"
 />
 
 #### Precise Slicing
-Unlike byte-based slicing in many languages, `.substring(start, end)` is fully UTF-8 char-aware. Indices are 0-based.
+Unlike byte-based slicing in many languages, `substring(start, end)` is fully UTF-8 char-aware. Indices are 0-based.
 
 <Transformation
-  template="[0.substring(1, 3)]"
+  template="[0 | substring(1, 3)]"
   input=">text:'aßc'"
   result="ßc"
 />
@@ -45,11 +45,11 @@ Extraction transformers are designed to pull specific patterns out of a larger b
 
 | Modifier | Description |
 | :--- | :--- |
-| `.extracturls` | Pulls all valid `http/https` URLs |
-| `.extractemails` | Pulls all valid email addresses |
+| `extracturls` | Pulls all valid `http/https` URLs |
+| `extractemails` | Pulls all valid email addresses |
 
 <Transformation
-  template="[clipboard.extracturls]"
+  template="[clipboard | extracturls]"
   input=">clip:'Check https://taurine.in and https://github.com'"
   result="https://taurine.in\nhttps://github.com"
 />

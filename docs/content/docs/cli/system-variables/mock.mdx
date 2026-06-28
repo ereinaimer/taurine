@@ -83,9 +83,9 @@ Like other system variables, you can use [nested placeholders](/docs/cli/dynamic
 All generated mock data can be piped through [Transformers](/docs/cli/dynamic-variables/transformers) for final formatting.
 
 ```text
-[mock.name.upper] -> "JOHN DOE"
-[mock.city.lower] -> "new york"
-[mock.job_title.slugify] -> "software-engineer"
+[mock.name | upper] -> "JOHN DOE"
+[mock.city | lower] -> "new york"
+[mock.job_title | kebab] -> "software-engineer"
 ```
 
 ## Examples

@@ -85,11 +85,11 @@ Combine `.silent` and `.file` to run a script in the background.
 
 ## Transformer Chaining
 
-You can chain any [format modifier](/docs/cli/dynamic-variables/transformers) after the closing parenthesis, just like with any other system variable.
+You can chain any [format modifier](/docs/cli/dynamic-variables/transformers) using pipe syntax after the closing parenthesis, just like with any other system variable.
 
 ```text
-[execute.bash(whoami).upper]
-[execute.bash(git rev-parse --abbrev-ref HEAD).kebab]
+[execute.bash(whoami) | upper]
+[execute.bash(git rev-parse --abbrev-ref HEAD) | kebab]
 ```
 
 The script executes first, then the transformer is applied to its output.
@@ -99,7 +99,7 @@ The script executes first, then the transformer is applied to its output.
 ### Live System Info Header
 
 <Transformation
-  template="Machine: [execute.bash(hostname)] | User: [execute.bash(whoami).upper] | [date.iso]"
+  template="Machine: [execute.bash(hostname)] | User: [execute.bash(whoami) | upper] | [date.iso]"
   input=">sysinfo "
   result="Machine: dev-box | User: EREIN | 2026-04-22"
 />
@@ -107,7 +107,7 @@ The script executes first, then the transformer is applied to its output.
 ### Current Git Branch
 
 <Transformation
-  template="Resolves: [execute.bash(git rev-parse --abbrev-ref HEAD).upper]"
+  template="Resolves: [execute.bash(git rev-parse --abbrev-ref HEAD) | upper]"
   input=">branch "
   result="Resolves: FEAT/EXECUTE-SYSTEM-VARIABLE"
 />
@@ -129,7 +129,7 @@ The snippet injects `Deployment triggered.` and exits. The notification fires in
 - **Timeout**: Every `execute` command has a maximum execution time of **20 seconds**. If it exceeds this limit, Taurine terminates the process and injects `[Error: script timed out after 20s]`.
 - **Environment**: Commands run with the same environment as the Taurine daemon. Ensure your interpreter (`python`, `node`, etc.) is available in your system's `PATH`.
 - **Abort**: If you click the mouse while the spinner is active, Taurine will kill the running process and stop injection immediately.
-- **Transformers come last**: When chaining transformers, they must always appear after the closing `)` of the command or `.args(...)`. For example, `[execute.bash(whoami).upper]` is valid; `[execute.bash(whoami).upper.args(...)]` is not.
+- **Transformers come last**: When chaining transformers, they must always appear after the closing `)` of the command using pipe syntax. For example, `[execute.bash(whoami) | upper]` is valid.
 
 <Callout title="Security Warning on Import" type="warn">
   When importing automations that contain `[execute.*]` variables, Taurine will display a security warning and ask for confirmation. Only import automations from sources you trust.

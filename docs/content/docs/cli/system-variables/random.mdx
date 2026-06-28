@@ -54,8 +54,8 @@ The `random.choice` variant supports nested structures and commas within options
 You can chain any [format modifier](/docs/cli/dynamic-variables/transformers) after the closing parenthesis.
 
 ```text
-[random.alpha(8).upper] -> "KLMNPQRST"
-[random.choice(apple, banana).kebab]
+[random.alpha(8) | upper] -> "KLMNPQRST"
+[random.choice(apple, banana) | kebab]
 ```
 
 ## Examples

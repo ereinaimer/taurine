@@ -30,7 +30,7 @@ User:     [sys.user]
 Use `[sys.*]` variables combined with [transformers](/docs/cli/dynamic-variables/transformers) to create a standardized header for your local logs or dev reports.
 
 <Transformation
-  template="REPORT | [sys.hostname.upper] | [sys.os.title] ([sys.arch]) | [date.iso]"
+  template="REPORT | [sys.hostname | upper] | [sys.os | title] ([sys.arch]) | [date.iso]"
   input=">sys "
   result="REPORT | DEV-STATION | Windows (x86_64) | 2026-04-22"
 />
@@ -39,5 +39,5 @@ Use `[sys.*]` variables combined with [transformers](/docs/cli/dynamic-variables
 
 - **Case Sensitivity**: Modifiers like `os` and `hostname` are case-insensitive.
 - **Platform Specifics**: `[sys.user]` correctly resolves `USERNAME` on Windows and `USER` on Linux/macOS.
-- **Transformers**: Standard transformers chain normally after the modifier. For example, `[sys.user.upper]` will return the username in all caps.
+- **Transformers**: Standard transformers chain normally using unix pipes. For example, `[sys.user | upper]` will return the username in all caps.
 - **Static Resolution**: Unlike the `[execute.*]` namespace, `sys` variables resolve instantly and do not trigger a spinner.
