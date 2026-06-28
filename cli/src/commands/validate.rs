@@ -12,6 +12,7 @@ mod tests {
         assert!(audit_payload_tags("[net.hostname] [net.localip] [net.mac]").is_ok());
         assert!(audit_payload_tags("json = [1, 2, 3]").is_ok());
         assert!(audit_payload_tags("[name | upper]").is_ok());
+        assert!(audit_payload_tags("[clipboard | ai(\"summarize\")]").is_ok());
     }
 
     #[test]

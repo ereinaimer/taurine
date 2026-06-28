@@ -25,6 +25,14 @@ pub enum ExpansionFollowUp {
         prompt: String,
         system_prompt_override: Option<String>,
     },
+    /// One or more `| ai(prompt)` transformers were found in the template.
+    /// Each entry carries the resolved source text and the prompt to apply.
+    /// The final text must be pre-resolved before injection (shown as spinner while processing).
+    AiTransformer {
+        /// The fully interpolated template output, with AI placeholder markers embedded.
+        /// Markers use the form: `\x03<base64-input>\x1F<prompt>\x04`.
+        template_with_markers: String,
+    },
 }
 
 /// Instructions the daemon must execute to perform a text expansion.
@@ -487,9 +495,26 @@ impl Evaluator {
 
             if let Some(expansion) = self.state.fetch_expansion(&keyword) {
                 let delete_count = 1 + keyword.chars().count();
-                let undo_trigger = self.undo_trigger_for_steps(&keyword, &expansion.steps);
                 let metric_kind = metric_kind_for_steps(expansion.is_calculation, &expansion.steps);
                 self.buffer.clear();
+
+                if let Some(template) = expansion.ai_transformer_template {
+                    // Template has | ai(...) markers — trigger async pre-resolution before injecting.
+                    return Some(ExpansionResult {
+                        delete_count,
+                        steps: vec![ExpansionStep::Text(self.get_thinking_text())],
+                        trigger: keyword,
+                        undo_trigger: None,
+                        is_calculation: false,
+                        metric_kind: AutomationMetricKind::InlineAi,
+                        track_usage: true,
+                        follow_up: Some(ExpansionFollowUp::AiTransformer {
+                            template_with_markers: template,
+                        }),
+                    });
+                }
+
+                let undo_trigger = self.undo_trigger_for_steps(&keyword, &expansion.steps);
                 return Some(ExpansionResult {
                     delete_count,
                     steps: expansion.steps,
@@ -514,6 +539,21 @@ impl Evaluator {
             let delete_count = word.chars().count();
             let metric_kind = metric_kind_for_steps(expansion.is_calculation, &expansion.steps);
             self.buffer.clear();
+            if let Some(template) = expansion.ai_transformer_template {
+                return Some(ExpansionResult {
+                    delete_count,
+                    steps: vec![ExpansionStep::Text(self.get_thinking_text())],
+                    trigger: word,
+                    undo_trigger: None,
+                    is_calculation: false,
+                    metric_kind: AutomationMetricKind::InlineAi,
+                    track_usage: true,
+                    follow_up: Some(ExpansionFollowUp::AiTransformer {
+                        template_with_markers: template,
+                    }),
+                });
+            }
+
             return Some(ExpansionResult {
                 delete_count,
                 steps: expansion.steps,

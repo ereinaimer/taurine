@@ -1,3 +1,4 @@
+pub mod ai;
 mod case;
 mod crypto;
 mod encoding;
@@ -70,6 +71,7 @@ pub const TRANSFORMERS: &[&str] = &[
     "doublequote",
     "singlequote",
     "unquote",
+    "ai",
 ];
 
 #[derive(Debug)]
@@ -122,6 +124,8 @@ pub fn is_valid_transformer(input: &str) -> bool {
     parse_transformer(input).is_some()
 }
 
+pub use ai::{extract_ai_prompt, is_ai_transformer};
+
 pub fn apply(transformer: &str, content: &str) -> Option<String> {
     let parsed = parse_transformer(transformer)?;
 
@@ -131,6 +135,7 @@ pub fn apply(transformer: &str, content: &str) -> Option<String> {
         .or_else(|| crypto::apply(parsed.name, &parsed.args, content))
         .or_else(|| lines::apply(parsed.name, &parsed.args, content))
         .or_else(|| formatting::apply(parsed.name, &parsed.args, content))
+        .or_else(|| ai::apply(parsed.name, &parsed.args, content))
 }
 
 pub(crate) fn strip_argument_quotes(arg: &str) -> &str {

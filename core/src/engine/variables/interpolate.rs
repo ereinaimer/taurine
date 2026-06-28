@@ -236,7 +236,12 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
             let resolved = if let Some(mut text) = base_resolved {
                 let mut valid_pipeline = true;
                 for tr in transformers {
-                    if let Some(transformed) = system::transformers::apply(tr, &text) {
+                    if system::transformers::is_ai_transformer(tr) {
+                        let prompt = system::transformers::extract_ai_prompt(tr).to_string();
+                        // Embed AI marker: \x03 + input + \x1F (unit sep) + prompt + \x04
+                        // \x1F is a C0 control character never present in normal text output
+                        text = format!("\x03{text}\x1F{prompt}\x04");
+                    } else if let Some(transformed) = system::transformers::apply(tr, &text) {
                         text = transformed;
                     } else {
                         valid_pipeline = false;
@@ -267,6 +272,34 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
 
 fn resolve_system_placeholder(key: &str) -> Option<String> {
     super::system::resolve(key)
+}
+
+/// Returns true if the interpolated string contains any embedded AI transformer markers.
+pub fn contains_ai_markers(s: &str) -> bool {
+    s.contains('\x03')
+}
+
+/// Extracts all AI transformer markers from an interpolated string.
+/// Returns a list of `(input, prompt)` pairs in the order they appear.
+/// The `template_with_markers` string itself should be passed to the daemon for async resolution.
+pub fn extract_ai_markers(s: &str) -> Vec<(String, String)> {
+    let mut results = Vec::new();
+    let mut rest = s;
+    while let Some(sot) = rest.find('\x03') {
+        let after_sot = &rest[sot + 1..];
+        if let Some(eot) = after_sot.find('\x04') {
+            let content = &after_sot[..eot];
+            if let Some(sep) = content.find('\x1F') {
+                let input = content[..sep].to_string();
+                let prompt = content[sep + 1..].to_string();
+                results.push((input, prompt));
+            }
+            rest = &after_sot[eot + 1..];
+        } else {
+            break;
+        }
+    }
+    results
 }
 
 fn find_innermost_tag(s: &str) -> Option<(usize, usize)> {
@@ -788,6 +821,27 @@ mod tests {
                 "nested=[banana | urlencode]"
             );
             assert_eq!(interpolate("flat=[0 | urlencode]", &args), "flat=banana");
+        }
+
+        #[test]
+        fn detects_and_extracts_ai_markers() {
+            assert!(!contains_ai_markers("normal text"));
+
+            let marked = "\x03input_text\x1Fprompt_text\x04";
+            assert!(contains_ai_markers(marked));
+
+            let extracted = extract_ai_markers(marked);
+            assert_eq!(extracted.len(), 1);
+            assert_eq!(extracted[0].0, "input_text");
+            assert_eq!(extracted[0].1, "prompt_text");
+
+            let multiple = "hello \x03in1\x1Fp1\x04 and \x03in2\x1Fp2\x04 end";
+            let multi_extracted = extract_ai_markers(multiple);
+            assert_eq!(multi_extracted.len(), 2);
+            assert_eq!(multi_extracted[0].0, "in1");
+            assert_eq!(multi_extracted[0].1, "p1");
+            assert_eq!(multi_extracted[1].0, "in2");
+            assert_eq!(multi_extracted[1].1, "p2");
         }
     }
 }

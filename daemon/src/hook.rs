@@ -1201,6 +1201,30 @@ fn launch_follow_up(
             .await;
             info!("Finished inline AI follow-up dispatch");
         });
+        return;
+    }
+
+    if let Some(taurine_core::engine::ExpansionFollowUp::AiTransformer {
+        template_with_markers,
+    }) = follow_up
+    {
+        info!("Starting AI transformer follow-up dispatch");
+        let injection_guard = crate::injector::InjectionFlagGuard::begin();
+
+        let spinner_handle = taurine_core::utils::spinner::spawn_async(
+            spinner_style,
+            crate::platform::spinner_renderer::OsSpinnerRenderer::default(),
+            &runtime_handle,
+        );
+        runtime_handle.spawn(async move {
+            let _guard = injection_guard;
+            crate::engine::ai::stream::run_ai_transformer_stream(
+                template_with_markers,
+                spinner_handle,
+            )
+            .await;
+            info!("Finished AI transformer follow-up dispatch");
+        });
     }
 }
 

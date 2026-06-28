@@ -208,11 +208,12 @@ where
     let configured = configured_providers(store)?;
     match configured.as_slice() {
         [] => Err(Error::Config(
-            "Error: No API keys configured. Run 'taurine ai add'.".to_string(),
+            "AI has not been properly configured. Please complete the AI setup steps.".to_string(),
         )),
         [provider] => Ok(*provider),
         _ => Err(Error::Config(
-            "Error: Multiple providers found. Run 'taurine config set ai_provider <name>' to select one.".to_string(),
+            "Multiple AI providers are configured. Please set a preferred provider in AI settings."
+                .to_string(),
         )),
     }
 }
@@ -313,7 +314,7 @@ mod tests {
             resolve_provider_from_settings(&empty, None)
                 .expect_err("empty keyring should fail")
                 .to_string(),
-            "Configuration error: Error: No API keys configured. Run 'taurine ai add'."
+            "Configuration error: AI has not been properly configured. Please complete the AI setup steps."
         );
 
         let multi = MemoryCredentialStore::default();
@@ -323,7 +324,7 @@ mod tests {
             resolve_provider_from_settings(&multi, None)
                 .expect_err("multiple providers should fail")
                 .to_string(),
-            "Configuration error: Error: Multiple providers found. Run 'taurine config set ai_provider <name>' to select one."
+            "Configuration error: Multiple AI providers are configured. Please set a preferred provider in AI settings."
         );
     }
 

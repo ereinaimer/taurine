@@ -142,6 +142,7 @@ pub fn finalize(interpolated: &str, trigger: Option<&str>) -> FinalExpansion {
     FinalExpansion {
         steps,
         is_calculation: false,
+        ai_transformer_template: None,
     }
 }
 

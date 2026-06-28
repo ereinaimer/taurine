@@ -296,6 +296,16 @@ fn expand_automation_action_with_args(
     }
 
     let interpolated = interpolate(&action.output, args);
+
+    if crate::engine::variables::contains_ai_markers(&interpolated) {
+        // Template contains | ai(...) transformer(s) — hand off to daemon for async resolution.
+        return Some(FinalExpansion {
+            steps: vec![],
+            is_calculation: false,
+            ai_transformer_template: Some(interpolated),
+        });
+    }
+
     Some(finalize(&interpolated, Some(matched_keyword)))
 }
 
@@ -315,6 +325,7 @@ fn interpolate_script_action(action: AutomationAction, args: &ArgMap) -> Option<
     Some(FinalExpansion {
         steps: vec![ExpansionStep::Script(md)],
         is_calculation: false,
+        ai_transformer_template: None,
     })
 }
 

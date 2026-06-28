@@ -1,0 +1,28 @@
+---
+title: AI
+description: Resolve dynamic prompts and transformations using AI.
+---
+
+The `| ai(prompt)` transformer sends the interpolated text to the configured AI provider, using the provided prompt to instruct the AI on how to process or transform the text.
+
+### Syntax
+```text
+[base_expression | ai(prompt)]
+```
+
+### Examples
+Summarize the current clipboard contents:
+```text
+[clipboard | ai(Summarize this text in 3 bullet points)]
+```
+
+Chain AI transformers for sequential processing:
+```text
+[clipboard | ai(Translate to French) | ai(Make the tone formal)]
+```
+
+### Configuration
+The AI transformer requires an AI provider to be configured. You can configure your AI provider globally via the Taurine settings or through the `taurine ai add` CLI command.
+
+### Response Handling
+If the AI provider wraps its response in a markdown code fence (e.g. ```rust ... ```), the AI transformer will automatically strip the leading and trailing fences before injecting the result, ensuring smooth inline integration.

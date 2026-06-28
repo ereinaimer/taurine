@@ -2,6 +2,7 @@
   "title": "Transformers",
   "pages": [
     "index",
+    "ai",
     "casing",
     "text-manipulation",
     "formatting",

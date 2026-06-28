@@ -32,6 +32,9 @@ pub struct FinalExpansion {
     pub steps: Vec<ExpansionStep>,
     /// Whether this expansion was a mathematical calculation.
     pub is_calculation: bool,
+    /// When set, the expansion contains `| ai(...)` transformer markers.
+    /// The daemon must resolve these asynchronously before injecting the final output.
+    pub ai_transformer_template: Option<String>,
 }
 
 impl FinalExpansion {
@@ -40,6 +43,7 @@ impl FinalExpansion {
         Self {
             steps: vec![ExpansionStep::Text(text)],
             is_calculation: false,
+            ai_transformer_template: None,
         }
     }
 }
