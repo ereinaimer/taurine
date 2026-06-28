@@ -327,7 +327,7 @@ mod tests {
         )]);
         state.load_hotkey_actions(vec![(
             "ctrl+shift+g".to_string(),
-            AutomationAction::text("git [key.enter]status"),
+            AutomationAction::text("git [key(enter)]status"),
         )]);
 
         let (trigger, expansion) = state

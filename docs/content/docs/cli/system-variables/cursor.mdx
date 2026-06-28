@@ -20,10 +20,10 @@ When you trigger this snippet, Taurine will output `console.log("");` and immedi
 ## The Cursor Rule
 
 <Callout title="Important Conflict Rule" type="warning">
-  If a snippet contains any `[key.*]` or `[delay.*]` directives, the `[cursor]` tag is **ignored** and treated as literal text.
+  If a snippet contains any `[key(...)]` or `[delay(...)]` directives, the `[cursor]` tag is **ignored** and treated as literal text.
 </Callout>
 
-This rule exists because `[key.*]` directives (like `[key.tab]`) simulate real hardware input that and can't be combined with post-expansion caret offsets. If you need to navigate in a multi-action snippet, use explicit navigation keys like `[key.left]` or `[key.right]`.
+This rule exists because `[key(...)]` directives (like `[key(tab)]`) simulate real hardware input and can't be combined with post-expansion caret offsets. If you need to navigate in a multi-action snippet, use explicit navigation keys like `[key(left)]` or `[key(right)]`.
 
 ## Escaping
 

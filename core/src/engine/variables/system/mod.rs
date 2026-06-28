@@ -56,8 +56,10 @@ pub fn is_reserved(mut key: &str) -> bool {
         || key.starts_with("random.")
         || key.starts_with("lorem.")
         || key.starts_with("mock.")
-        || key.starts_with("key.")
-        || key.starts_with("delay.")
+        || key == "key"
+        || key.starts_with("key(")
+        || key == "delay"
+        || key.starts_with("delay(")
         || key.contains('.') // Reserve all other dot-namespaces
 }
 
@@ -70,9 +72,9 @@ pub fn split_modifier(key: &str) -> Option<(&str, &str)> {
 /// Checks if a keyword is a post-processing directive.
 ///
 /// Directives are not replaced during interpolation but are instead handled
-/// in the `finalize` phase (e.g., `[cursor]`, `[key.tab]`, `[delay.200ms]`).
+/// in the `finalize` phase (e.g., `[cursor]`, `[key(tab)]`, `[delay(200ms)]`).
 pub fn is_directive(key: &str) -> bool {
-    key == "cursor" || key.starts_with("key.") || key.starts_with("delay.")
+    key == "cursor" || parse_key_directive(key).is_some() || parse_delay_directive(key).is_some()
 }
 
 /// Resolves a content-producing system variable.
@@ -262,13 +264,25 @@ fn append_unescaped_segment(segment: &str, output: &mut String) {
     }
 }
 
+fn parse_key_directive(inner: &str) -> Option<&str> {
+    let rest = inner.strip_prefix("key(")?;
+    let alias = rest.strip_suffix(')')?;
+    Some(alias)
+}
+
+fn parse_delay_directive(inner: &str) -> Option<u64> {
+    let rest = inner.strip_prefix("delay(")?;
+    let delay_str = rest.strip_suffix(')')?;
+    parse_delay_ms(delay_str)
+}
+
 /// Checks whether the interpolated string contains any `[key.*]` or `[delay.*]` directives.
 fn contains_key_or_delay_directives(text: &str) -> bool {
     let mut ptr = 0;
 
     while let Some(tag) = find_next_tag(text, ptr) {
         let inner = tag_inner(text, tag);
-        if inner.starts_with("key.") || inner.starts_with("delay.") {
+        if parse_key_directive(inner).is_some() || parse_delay_directive(inner).is_some() {
             return true;
         }
         ptr = tag.end + 1;
@@ -296,7 +310,7 @@ pub fn validate_output(output: &str, trigger: Option<&str>) {
         if inner == "cursor" {
             cursor_count += 1;
         }
-        if inner.starts_with("key.") || inner.starts_with("delay.") {
+        if parse_key_directive(inner).is_some() || parse_delay_directive(inner).is_some() {
             has_key_or_delay = true;
         }
         let (key, default_value) = split_key_default(inner);
@@ -351,12 +365,10 @@ fn split_into_steps(text: &str) -> Vec<ExpansionStep> {
                 Ok(metadata) => steps.push(ExpansionStep::InlineRun(metadata)),
                 Err(error) => steps.push(ExpansionStep::Text(format_run_error(error))),
             }
-        } else if let Some(alias) = inner.strip_prefix("key.") {
+        } else if let Some(alias) = parse_key_directive(inner) {
             flush_text(&mut steps, &mut current_text);
             steps.push(ExpansionStep::KeyPress(alias.to_lowercase()));
-        } else if let Some(delay_str) = inner.strip_prefix("delay.")
-            && let Some(ms) = parse_delay_ms(delay_str)
-        {
+        } else if let Some(ms) = parse_delay_directive(inner) {
             flush_text(&mut steps, &mut current_text);
             steps.push(ExpansionStep::Delay(ms));
         } else {
@@ -437,10 +449,14 @@ fn format_run_error(error: String) -> String {
     }
 }
 
-/// Parses a delay string like `200ms` into a `u64` millisecond value.
+/// Parses a delay string like `200ms` or `200` into a `u64` millisecond value.
 fn parse_delay_ms(s: &str) -> Option<u64> {
     let s = s.trim();
-    s.strip_suffix("ms").and_then(|n| n.parse::<u64>().ok())
+    if let Some(n) = s.strip_suffix("ms") {
+        n.parse::<u64>().ok()
+    } else {
+        s.parse::<u64>().ok()
+    }
 }
 
 #[cfg(test)]
@@ -502,9 +518,12 @@ mod tests {
     #[test]
     fn test_is_directive() {
         assert!(is_directive("cursor"));
-        assert!(is_directive("key.tab"));
-        assert!(is_directive("key.ctrl+a"));
-        assert!(is_directive("delay.200ms"));
+        assert!(is_directive("key(tab)"));
+        assert!(is_directive("key(ctrl+a)"));
+        assert!(is_directive("delay(200ms)"));
+        assert!(is_directive("delay(200)"));
+        assert!(!is_directive("key.tab"));
+        assert!(!is_directive("delay.200ms"));
         assert!(!is_directive("time.now"));
     }
 
@@ -579,7 +598,7 @@ mod tests {
 
     #[test]
     fn test_finalize_key_directive_splits_into_steps() {
-        let res = finalize("name[key.tab]email", None);
+        let res = finalize("name[key(tab)]email", None);
         assert_eq!(
             res.steps,
             vec![
@@ -592,13 +611,15 @@ mod tests {
 
     #[test]
     fn test_finalize_delay_directive() {
-        let res = finalize("first[delay.200ms]second", None);
+        let res = finalize("first[delay(200ms)]second[delay(100)]third", None);
         assert_eq!(
             res.steps,
             vec![
                 ExpansionStep::Text("first".to_string()),
                 ExpansionStep::Delay(200),
                 ExpansionStep::Text("second".to_string()),
+                ExpansionStep::Delay(100),
+                ExpansionStep::Text("third".to_string()),
             ]
         );
     }
@@ -652,7 +673,7 @@ mod tests {
 
     #[test]
     fn test_finalize_cursor_suppressed_when_key_directives_present() {
-        let res = finalize("name[cursor][key.tab]email", None);
+        let res = finalize("name[cursor][key(tab)]email", None);
         // [cursor] should be kept as literal text, not processed as a directive.
         assert_eq!(
             res.steps,
@@ -666,7 +687,7 @@ mod tests {
 
     #[test]
     fn test_finalize_multiple_key_directives() {
-        let res = finalize("a[key.tab]b[key.enter]c", None);
+        let res = finalize("a[key(tab)]b[key(enter)]c", None);
         assert_eq!(
             res.steps,
             vec![
@@ -681,18 +702,18 @@ mod tests {
 
     #[test]
     fn test_finalize_key_alias_case_insensitive() {
-        let res = finalize("[key.TAB]", None);
+        let res = finalize("[key(TAB)]", None);
         assert_eq!(res.steps, vec![ExpansionStep::KeyPress("tab".to_string())]);
     }
 
     #[test]
     fn test_contains_key_or_delay_directives() {
-        assert!(contains_key_or_delay_directives("hello [key.tab] world"));
-        assert!(contains_key_or_delay_directives("test [delay.100ms]"));
+        assert!(contains_key_or_delay_directives("hello [key(tab)] world"));
+        assert!(contains_key_or_delay_directives("test [delay(100ms)]"));
         assert!(!contains_key_or_delay_directives("hello [cursor] world"));
         assert!(!contains_key_or_delay_directives("just plain text"));
         // Escaped should not count.
-        assert!(!contains_key_or_delay_directives(r#"\[key.tab]"#));
+        assert!(!contains_key_or_delay_directives(r#"\[key(tab)\]"#));
     }
 
     #[test]
@@ -707,7 +728,7 @@ mod tests {
 
     #[test]
     fn test_finalize_escaped_brackets_in_key_mode() {
-        let res = finalize(r#"\[literal\][key.tab]after"#, None);
+        let res = finalize(r#"\[literal\][key(tab)]after"#, None);
         assert_eq!(
             res.steps,
             vec![
@@ -720,7 +741,7 @@ mod tests {
 
     #[test]
     fn test_finalize_modifier_combo_key() {
-        let res = finalize("[key.ctrl+a]", None);
+        let res = finalize("[key(ctrl+a)]", None);
         assert_eq!(
             res.steps,
             vec![ExpansionStep::KeyPress("ctrl+a".to_string())]
@@ -729,7 +750,7 @@ mod tests {
 
     #[test]
     fn test_finalize_multi_modifier_combo_case_normalized() {
-        let res = finalize("[key.Ctrl+Shift+End]", None);
+        let res = finalize("[key(Ctrl+Shift+End)]", None);
         assert_eq!(
             res.steps,
             vec![ExpansionStep::KeyPress("ctrl+shift+end".to_string())]
@@ -738,7 +759,7 @@ mod tests {
 
     #[test]
     fn test_finalize_combo_between_text_segments() {
-        let res = finalize("Name[key.tab]Address[key.shift+tab]Back", None);
+        let res = finalize("Name[key(tab)]Address[key(shift+tab)]Back", None);
         assert_eq!(
             res.steps,
             vec![
@@ -753,7 +774,7 @@ mod tests {
 
     #[test]
     fn test_finalize_standalone_modifier_directives() {
-        let res = finalize("[key.mod][key.super][key.ctrl]", None);
+        let res = finalize("[key(mod)][key(super)][key(ctrl)]", None);
         assert_eq!(
             res.steps,
             vec![
@@ -769,7 +790,7 @@ mod tests {
         // These calls shouldn't panic. We are primarily testing the path coverage.
         validate_output("valid", None);
         validate_output("[cursor] [cursor]", Some("multi"));
-        validate_output("[key.tab] [cursor]", Some("conflict"));
+        validate_output("[key(tab)] [cursor]", Some("conflict"));
         validate_output("[cursor=invalid]", Some("default"));
         validate_output("[lorem.words([num=5])]", Some("nested"));
         validate_output(r#"\[cursor\] [cursor]"#, Some("escaped"));
@@ -793,7 +814,7 @@ mod tests {
 
         #[test]
         fn delay_directives_also_suppress_cursor_positioning() {
-            let res = finalize("start[cursor][delay.25ms]end", None);
+            let res = finalize("start[cursor][delay(25ms)]end", None);
 
             assert_eq!(
                 res.steps,
@@ -807,7 +828,7 @@ mod tests {
 
         #[test]
         fn escaped_cursor_literal_stays_literal_when_key_directives_exist() {
-            let res = finalize(r#"\[cursor\][key.tab]after"#, None);
+            let res = finalize(r#"\[cursor\][key(tab)]after"#, None);
 
             assert_eq!(
                 res.steps,
@@ -834,7 +855,7 @@ mod tests {
 
         #[test]
         fn key_and_delay_directives_preserve_current_execution_order() {
-            let res = finalize("a[key.tab]b[delay.10ms]c[key.enter]", None);
+            let res = finalize("a[key(tab)]b[delay(10ms)]c[key(enter)]", None);
 
             assert_eq!(
                 res.steps,

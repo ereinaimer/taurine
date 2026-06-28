@@ -199,6 +199,17 @@ pub fn split_system_tag(key: &str) -> Option<(&str, Option<&str>)> {
         return Some(("clipboard", None));
     }
 
+    if let Some(rest) = base.strip_prefix("key(")
+        && let Some(inner) = rest.strip_suffix(')')
+    {
+        return Some(("key", Some(inner)));
+    }
+    if let Some(rest) = base.strip_prefix("delay(")
+        && let Some(inner) = rest.strip_suffix(')')
+    {
+        return Some(("delay", Some(inner)));
+    }
+
     let (root, modifier) = match base.split_once('.') {
         Some((root, modifier)) => (root, Some(modifier.trim()).filter(|m| !m.is_empty())),
         None => (base, None),
@@ -224,10 +235,10 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "mock" => format!("Valid modifiers: {}", MOCK_MODIFIERS.join(", ")),
         "file" => format!("Valid modifiers: {}", FILE_MODIFIERS.join(", ")),
         "key" => format!(
-            "Valid key tokens: {}. You can combine them with `+`, and any single character token is also allowed.",
+            "Valid forms: [key(<token>)]. Tokens: {}. You can combine them with `+`, and any single character token is also allowed.",
             KEY_MODIFIERS.join(", ")
         ),
-        "delay" => "Valid form: [delay.<u64>ms]".to_string(),
+        "delay" => "Valid form: [delay(<ms>)] or [delay(<u64>ms)]".to_string(),
         _ => "No modifier help available.".to_string(),
     }
 }
@@ -684,9 +695,12 @@ fn normalize_modifier(modifier: &str) -> Option<&str> {
 }
 
 fn parse_delay_ms(s: &str) -> Option<u64> {
-    s.trim()
-        .strip_suffix("ms")
-        .and_then(|n| n.parse::<u64>().ok())
+    let s = s.trim();
+    if let Some(n) = s.strip_suffix("ms") {
+        n.parse::<u64>().ok()
+    } else {
+        s.parse::<u64>().ok()
+    }
 }
 
 #[cfg(test)]

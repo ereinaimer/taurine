@@ -848,8 +848,8 @@ mod tests {
             let args = ArgMap::default();
 
             assert_eq!(
-                interpolate("before [cursor] [key.tab] [delay.25ms] after", &args),
-                "before [cursor] [key.tab] [delay.25ms] after"
+                interpolate("before [cursor] [key(tab)] [delay(25ms)] after", &args),
+                "before [cursor] [key(tab)] [delay(25ms)] after"
             );
         }
 
