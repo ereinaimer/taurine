@@ -35,52 +35,8 @@ const SYSTEM_ROOTS: &[&str] = &[
     "file",
 ];
 
-const TIME_MODIFIERS: &[&str] = &[
-    "greeting", "epoch", "unix", "millis", "ms", "utc", "tz", "12h", "24h", "now", "now.12h",
-    "now.24h", "full", "full.12h", "full.24h", "hour", "hour.12h", "minute", "second", "am_pm",
-];
-
-const DATE_MODIFIERS: &[&str] = &[
-    "iso",
-    "short",
-    "long",
-    "tomorrow",
-    "tomorrow.iso",
-    "tomorrow.short",
-    "tomorrow.long",
-    "yesterday",
-    "yesterday.iso",
-    "yesterday.short",
-    "yesterday.long",
-    "next_week",
-    "next_week.iso",
-    "next_week.short",
-    "next_week.long",
-    "last_week",
-    "last_week.iso",
-    "last_week.short",
-    "last_week.long",
-    "next_month",
-    "next_month.iso",
-    "next_month.short",
-    "next_month.long",
-    "last_month",
-    "last_month.iso",
-    "last_month.short",
-    "last_month.long",
-    "weekday",
-    "year",
-    "month",
-    "month_name",
-    "day",
-    "week",
-    "quarter",
-    "day_of_year",
-    "days_in_month",
-    "ordinal",
-    "is_leap_year",
-    "century",
-];
+const TIME_METHODS: &[&str] = &["utc", "calc(±...)", "format(...)"];
+const DATE_METHODS: &[&str] = &["utc", "calc(±...)", "format(...)"];
 
 const UUID_MODIFIERS: &[&str] = &["v4", "v7", "simple"];
 const NET_MODIFIERS: &[&str] = &["hostname", "localip", "mac"];
@@ -226,8 +182,8 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "cursor" => "Valid form: [cursor]".to_string(),
         "clipboard" => "Valid forms: [clipboard], [clipboard(0)], [clipboard(1)], [clipboard(2)]"
             .to_string(),
-        "time" => format!("Valid modifiers: {}", TIME_MODIFIERS.join(", ")),
-        "date" => format!("Valid modifiers: {}", DATE_MODIFIERS.join(", ")),
+        "time" => format!("Valid modifiers / methods: {}", TIME_METHODS.join(", ")),
+        "date" => format!("Valid modifiers / methods: {}", DATE_METHODS.join(", ")),
         "uuid" => format!("Valid modifiers: uuid, {}", UUID_MODIFIERS.join(", ")),
         "env" => "Valid form: [env(<var_name>)] or [env(\"<var_name>\")]".to_string(),
         "net" => format!("Valid modifiers: {}", NET_MODIFIERS.join(", ")),
@@ -250,8 +206,8 @@ pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), Val
     match root {
         "cursor" => validate_no_modifier("cursor", modifier),
         "clipboard" => validate_no_modifier("clipboard", modifier),
-        "time" => validate_known_modifier("time", modifier, TIME_MODIFIERS),
-        "date" => validate_known_modifier("date", modifier, DATE_MODIFIERS),
+        "time" => validate_time_modifier(modifier),
+        "date" => validate_date_modifier(modifier),
         "uuid" => validate_optional_known_modifier("uuid", modifier, UUID_MODIFIERS),
         "env" => validate_env_modifier(modifier),
         "net" => validate_known_modifier("net", modifier, NET_MODIFIERS),
@@ -293,6 +249,40 @@ fn validate_known_modifier(
             modifier: modifier.to_string(),
             allowed,
         })
+    }
+}
+
+fn validate_time_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
+    match modifier.and_then(normalize_modifier) {
+        None => Ok(()),
+        Some(m) => {
+            if system::time::parse_methods(m).is_ok() {
+                Ok(())
+            } else {
+                Err(ValidationError::InvalidModifier {
+                    root: "time",
+                    modifier: m.to_string(),
+                    allowed: TIME_METHODS,
+                })
+            }
+        }
+    }
+}
+
+fn validate_date_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
+    match modifier.and_then(normalize_modifier) {
+        None => Ok(()),
+        Some(m) => {
+            if system::date::parse_methods(m).is_ok() {
+                Ok(())
+            } else {
+                Err(ValidationError::InvalidModifier {
+                    root: "date",
+                    modifier: m.to_string(),
+                    allowed: DATE_METHODS,
+                })
+            }
+        }
     }
 }
 
@@ -739,30 +729,32 @@ mod tests {
 
     #[test]
     fn validates_time_modifiers_from_resolver_match_arms() {
-        for modifier in TIME_MODIFIERS {
-            assert_eq!(validate_system_tag("time", Some(modifier)), Ok(()));
-        }
+        assert_eq!(validate_system_tag("time", None), Ok(()));
+        assert_eq!(validate_system_tag("time", Some("utc")), Ok(()));
+        assert_eq!(
+            validate_system_tag("time", Some("utc.format(HH:mm)")),
+            Ok(())
+        );
         assert_eq!(
             validate_system_tag("time", Some("india")),
             Err(ValidationError::InvalidModifier {
                 root: "time",
                 modifier: "india".to_string(),
-                allowed: TIME_MODIFIERS,
+                allowed: TIME_METHODS,
             })
         );
     }
 
     #[test]
     fn validates_date_modifiers_from_resolver_match_arms() {
-        for modifier in DATE_MODIFIERS {
-            assert_eq!(validate_system_tag("date", Some(modifier)), Ok(()));
-        }
+        assert_eq!(validate_system_tag("date", None), Ok(()));
+        assert_eq!(validate_system_tag("date", Some("calc(+1d)")), Ok(()));
         assert_eq!(
             validate_system_tag("date", Some("tomorrow.india")),
             Err(ValidationError::InvalidModifier {
                 root: "date",
                 modifier: "tomorrow.india".to_string(),
-                allowed: DATE_MODIFIERS,
+                allowed: DATE_METHODS,
             })
         );
     }
