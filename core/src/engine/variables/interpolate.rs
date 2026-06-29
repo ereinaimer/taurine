@@ -905,7 +905,7 @@ mod tests {
             args.positional.push("cli".to_string());
             args.positional
                 .push("add support for custom pipelines".to_string());
-            let tpl = "git commit -m \"feat([0=core]): [1=update codebase | sentencecase]\"[key(enter)][delay(500ms)]git push origin main[key(enter)]";
+            let tpl = "git commit -m \"feat([0=core]): [1=update codebase | sentence]\"[key(enter)][delay(500ms)]git push origin main[key(enter)]";
             assert_eq!(
                 interpolate(tpl, &args),
                 "git commit -m \"feat(cli): Add support for custom pipelines\"[key(enter)][delay(500ms)]git push origin main[key(enter)]"

@@ -3,23 +3,19 @@ use rand::{Rng, RngExt};
 
 pub fn apply(transformer: &str, content: &str) -> Option<String> {
     match transformer {
-        "upper" | "uppercase" => Some(content.to_uppercase()),
-        "lower" | "lowercase" => Some(content.to_lowercase()),
-        "snake" | "snakecase" => Some(preserve_whitespace(content, |s| s.to_snake_case())),
-        "kebab" | "kebabcase" => Some(preserve_whitespace(content, |s| s.to_kebab_case())),
-        "pascal" | "pascalcase" => Some(preserve_whitespace(content, |s| s.to_upper_camel_case())),
-        "camel" | "camelcase" => Some(preserve_whitespace(content, |s| s.to_lower_camel_case())),
-        "title" | "titlecase" => Some(title_case(content)),
-        "sentencecase" => Some(sentence_case(content)),
-        "shoutysnake" | "shoutysnakecase" => {
-            Some(preserve_whitespace(content, |s| s.to_shouty_snake_case()))
-        }
-        "shoutykebab" | "shoutykebabcase" => {
-            Some(preserve_whitespace(content, |s| s.to_shouty_kebab_case()))
-        }
-        "train" | "traincase" => Some(preserve_whitespace(content, |s| s.to_train_case())),
-        "mockingcase" | "spongebobcase" => Some(mocking_case(content)),
-        "leet" | "leetspeak" => Some(leet_speak(content)),
+        "upper" => Some(content.to_uppercase()),
+        "lower" => Some(content.to_lowercase()),
+        "snake" => Some(preserve_whitespace(content, |s| s.to_snake_case())),
+        "kebab" => Some(preserve_whitespace(content, |s| s.to_kebab_case())),
+        "pascal" => Some(preserve_whitespace(content, |s| s.to_upper_camel_case())),
+        "camel" => Some(preserve_whitespace(content, |s| s.to_lower_camel_case())),
+        "title" => Some(title_case(content)),
+        "sentence" => Some(sentence_case(content)),
+        "shoutysnake" => Some(preserve_whitespace(content, |s| s.to_shouty_snake_case())),
+        "shoutykebab" => Some(preserve_whitespace(content, |s| s.to_shouty_kebab_case())),
+        "train" => Some(preserve_whitespace(content, |s| s.to_train_case())),
+        "mocking" => Some(mocking_case(content)),
+        "leet" => Some(leet_speak(content)),
         _ => None,
     }
 }
@@ -125,13 +121,13 @@ mod tests {
     #[test]
     fn test_case_transformers() {
         assert_eq!(apply("upper", "hello"), Some("HELLO".to_string()));
-        assert_eq!(apply("lowercase", "HELLO"), Some("hello".to_string()));
+        assert_eq!(apply("lower", "HELLO"), Some("hello".to_string()));
         assert_eq!(
             apply("snake", "HelloWorld"),
             Some("hello_world".to_string())
         );
         assert_eq!(
-            apply("kebabcase", "HelloWorld"),
+            apply("kebab", "HelloWorld"),
             Some("hello-world".to_string())
         );
         assert_eq!(
@@ -139,7 +135,7 @@ mod tests {
             Some("HelloWorld".to_string())
         );
         assert_eq!(
-            apply("camelcase", "hello_world"),
+            apply("camel", "hello_world"),
             Some("helloWorld".to_string())
         );
         assert_eq!(
@@ -147,7 +143,7 @@ mod tests {
             Some("Hello_world".to_string())
         );
         assert_eq!(
-            apply("sentencecase", "hello world"),
+            apply("sentence", "hello world"),
             Some("Hello world".to_string())
         );
         assert_eq!(
@@ -155,7 +151,7 @@ mod tests {
             Some("HELLO_WORLD".to_string())
         );
         assert_eq!(
-            apply("shoutykebabcase", "hello_world"),
+            apply("shoutykebab", "hello_world"),
             Some("HELLO-WORLD".to_string())
         );
         assert_eq!(
@@ -166,6 +162,24 @@ mod tests {
             apply("leet", "Elite Salsa Lot"),
             Some("31173 54154 107".to_string())
         );
+    }
+
+    #[test]
+    fn test_pruned_casing_aliases_return_none() {
+        assert_eq!(apply("uppercase", "hello"), None);
+        assert_eq!(apply("lowercase", "hello"), None);
+        assert_eq!(apply("snakecase", "hello"), None);
+        assert_eq!(apply("kebabcase", "hello"), None);
+        assert_eq!(apply("pascalcase", "hello"), None);
+        assert_eq!(apply("camelcase", "hello"), None);
+        assert_eq!(apply("titlecase", "hello"), None);
+        assert_eq!(apply("sentencecase", "hello"), None);
+        assert_eq!(apply("shoutysnakecase", "hello"), None);
+        assert_eq!(apply("shoutykebabcase", "hello"), None);
+        assert_eq!(apply("traincase", "hello"), None);
+        assert_eq!(apply("mockingcase", "hello"), None);
+        assert_eq!(apply("spongebobcase", "hello"), None);
+        assert_eq!(apply("leetspeak", "hello"), None);
     }
 
     #[test]

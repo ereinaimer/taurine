@@ -5,29 +5,29 @@ description: Transform text between different naming conventions and capitalizat
 
 Casing transformers are the most common way to ensure that user-provided arguments fit the requirements of your code, commit messages, or documentation.
 
-Every casing modifier has a `*case` alias (e.g., `snake` or `snakecase`) for better readability in complex templates.
+Taurine uses strict, short identifiers for all casing modifiers for clean Unix pipe syntax without redundant aliases.
 
 ### Reference Table
 
-| Modifier | Alias | Description | Example |
-| :--- | :--- | :--- | :--- |
-| `upper` | `uppercase` | ALL UPPERCASE | `hello` → `HELLO` |
-| `lower` | `lowercase` | all lowercase | `HELLO` → `hello` |
-| `sentence` | `sentencecase` | Capitalize first char | `hello world` → `Hello world` |
-| `title` | `titlecase` | Title Case | `hello world` → `Hello World` |
-| `snake` | `snakecase` | snake_case | `HelloWorld` → `hello_world` |
-| `kebab` | `kebabcase` | kebab-case | `HelloWorld` → `hello-world` |
-| `pascal` | `pascalcase` | PascalCase | `hello_world` → `HelloWorld` |
-| `camel` | `camelcase` | camelCase | `hello_world` → `helloWorld` |
-| `shoutysnake` | `shoutysnakecase` | SHOUTY_SNAKE_CASE | `hello world` → `HELLO_WORLD` |
-| `shoutykebab` | `shoutykebabcase` | SHOUTY-KEBAB-CASE | `hello world` → `HELLO-WORLD` |
-| `train` | `traincase` | Train-Case | `hello_world` → `Hello-World` |
-| `mocking` | `mockingcase` | mOcKiNg CaSe | `hello` → `hElLo` |
-| `leet` | `leetspeak` | l33t 5p34k | `elite` → `31173` |
+| Modifier | Description | Example |
+| :--- | :--- | :--- |
+| `upper` | ALL UPPERCASE | `hello` → `HELLO` |
+| `lower` | all lowercase | `HELLO` → `hello` |
+| `sentence` | Capitalize first char | `hello world` → `Hello world` |
+| `title` | Title Case | `hello world` → `Hello World` |
+| `snake` | snake_case | `HelloWorld` → `hello_world` |
+| `kebab` | kebab-case | `HelloWorld` → `hello-world` |
+| `pascal` | PascalCase | `hello_world` → `HelloWorld` |
+| `camel` | camelCase | `hello_world` → `helloWorld` |
+| `shoutysnake` | SHOUTY_SNAKE_CASE | `hello world` → `HELLO_WORLD` |
+| `shoutykebab` | SHOUTY-KEBAB-CASE | `hello world` → `HELLO-WORLD` |
+| `train` | Train-Case | `hello_world` → `Hello-World` |
+| `mocking` | mOcKiNg CaSe | `hello` → `hElLo` |
+| `leet` | l33t 5p34k | `elite` → `31173` |
 
 ### Sentence Case
 
-Unlike `title`, `sentencecase` only capitalizes the very first character of the string, leaving the rest of the text as-is.
+Unlike `title`, `sentence` only capitalizes the very first character of the string, leaving the rest of the text as-is.
 
 <Transformation
   template="[0 | sentence]"
