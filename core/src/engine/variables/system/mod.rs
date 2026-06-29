@@ -41,7 +41,9 @@ pub fn is_reserved(key: &str) -> bool {
         || key == "mock"
         || key.starts_with("uuid.")
         || key.starts_with("sys.")
+        || key == "time"
         || key.starts_with("time.")
+        || key == "date"
         || key.starts_with("date.")
         || key.starts_with("env(")
         || key.starts_with("file.")
@@ -67,10 +69,10 @@ pub fn is_directive(key: &str) -> bool {
 
 /// Resolves a content-producing system variable.
 pub fn resolve(key: &str) -> Option<String> {
-    if key.starts_with("time.") {
+    if key == "time" || key.starts_with("time.") {
         return time::resolve(key);
     }
-    if key.starts_with("date.") {
+    if key == "date" || key.starts_with("date.") {
         return date::resolve(key);
     }
     if key.starts_with("env(") {
@@ -466,8 +468,8 @@ mod tests {
         assert!(is_reserved("clipboard.truncate(5)"));
         assert!(is_reserved("clipboard(2).upper"));
         assert!(is_reserved("uuid.v4"));
-        assert!(is_reserved("time.now"));
-        assert!(is_reserved("time.now.upper"));
+        assert!(is_reserved("time"));
+        assert!(is_reserved("time.utc"));
         assert!(is_reserved("net.localip"));
         assert!(is_reserved("net.localip"));
         assert!(is_reserved("execute.bash(echo hi)"));
@@ -493,7 +495,7 @@ mod tests {
         assert!(is_directive("delay(200)"));
         assert!(!is_directive("key.tab"));
         assert!(!is_directive("delay.200ms"));
-        assert!(!is_directive("time.now"));
+        assert!(!is_directive("time.utc"));
     }
 
     #[test]

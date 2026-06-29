@@ -1,60 +1,77 @@
 ---
 title: Time
-description: Using time-based system variables in Taurine.
+description: Using time system variables in Taurine.
 ---
 
-The `[time.*]` namespace provides access to the current system time in various formats, as well as contextual strings like greetings.
+The `[time]` system variable allows you to insert the current time. Like `[date]`, it uses a zero-property, method-based API that lets you modify the context, perform calculations, and format the output using standard LDML tokens.
 
-## Reference Table
+By default, `[time]` outputs the current local time in `HH:mm` (24-hour) format.
 
-| Variable | Description | Example Output |
+## Methods
+
+You can chain methods onto `[time]` to customize the output.
+
+| Method | Description | Example |
 | :--- | :--- | :--- |
-| `[time.now]` | Current time (HH:mm) | `14:30` |
-| `[time.full]` | Current time with seconds (HH:mm:ss) | `14:30:45` |
-| `[time.greeting]` | Contextual greeting based on hour | `Good afternoon` |
-| `[time.utc]` | Current UTC time (HH:mm) | `09:00` |
-| `[time.tz]` | Current local timezone offset | `+05:30` |
-| `[time.unix]` / `[time.epoch]` | Unix timestamp (seconds) | `1713709845` |
-| `[time.millis]` / `[time.ms]` | Unix timestamp (milliseconds) | `1713709845000` |
+| `.utc` | Switches the time context to UTC instead of local time. | `[time.utc]` |
+| `.calc(±...<units>)` | Adds or subtracts time. Requires a `+` or `-` sign. | `[time.calc(-30m)]` |
+| `.format(<pattern>)` | Formats the time using LDML tokens. | `[time.format(hh:mm A)]` |
 
-<Callout title="Precision Note" type="info">
-  By default, `now` and `utc` hide seconds for a cleaner look. If you need exact second-precision, always use the `full` variants or append the `.24h` modifier.
-</Callout>
+### Method Chaining
 
-## Formatting Modifiers
-
-You can specifically request 12-hour or 24-hour formats by appending `.12h` or `.24h` to time variables.
-
-- `[time.now.12h]`: `02:30 PM`
-- `[time.full.12h]`: `02:30:45 PM`
-- `[time.hour.12h]`: `02`
-- `[time.now.24h]`: `14:30`
-
-## Component Variables
-
-Extract specific parts of the current time.
-
-| Variable | Description | Example Output |
-| :--- | :--- | :--- |
-| `[time.hour]` | 2-digit hour (24h default) | `14` |
-| `[time.minute]` | 2-digit minute (00-59) | `30` |
-| `[time.second]` | 2-digit second (00-59) | `45` |
-| `[time.am_pm]` | Meridian indicator (AM/PM) | `PM` |
-
-## Examples
-
-### Dynamic Greeting
-Use `[time.greeting]` to make your snippets feel more personal.
-
+Methods are evaluated from left to right.
 ```text
-[time.greeting], Erein! How can I help you today?
+[time.utc.calc(-5h).format(HH:mm:ss)]
 ```
 
-### Timestamps
-Combine time with [transformers](/docs/cli/dynamic-variables/transformers) for log-ready formats.
+## Time Formatting
 
-<Transformation
-  template="LOG [[time.full]]: Starting process..."
-  input=">log "
-  result="LOG [14:30:45]: Starting process..."
-/>
+Use the `.format()` method to format the time.
+
+### LDML Tokens
+
+| Token | Description | Example Output |
+| :--- | :--- | :--- |
+| `HH` | 24-hour hour, 2 digits | `14` |
+| `H` | 24-hour hour, 1 or 2 digits | `14` |
+| `hh` | 12-hour hour, 2 digits | `02` |
+| `h` | 12-hour hour, 1 or 2 digits | `2` |
+| `mm` | Minutes, 2 digits | `05` |
+| `m` | Minutes, 1 or 2 digits | `5` |
+| `ss` | Seconds, 2 digits | `09` |
+| `s` | Seconds, 1 or 2 digits | `9` |
+| `A` | AM/PM (uppercase) | `PM` |
+| `a` | am/pm (lowercase) | `pm` |
+| `Z` | Timezone offset | `+05:30` |
+| `X` | Unix timestamp (seconds) | `1713709845` |
+| `x` | Unix timestamp (millis) | `1713709845000` |
+
+*Note: Date-related tokens (like `YYYY`, `MM`) cannot be used in `time.format()`.*
+
+### Literal Text Escaping
+
+To include literal text inside your format string without it being interpreted as a token, wrap the text in single quotes (`'...'`).
+
+```text
+[time.format('The current time is' hh:mm A)]
+```
+*Output: The current time is 02:30 PM*
+
+## Time Calculations
+
+Use the `.calc()` method to calculate relative times. You **must** provide a leading `+` or `-` sign, followed by amounts and unit characters. You can combine multiple units.
+
+### Supported Time Units
+
+| Unit | Description |
+| :--- | :--- |
+| `h` / `H` | Hours |
+| `m` | Minutes |
+| `s` / `S` | Seconds |
+
+*Note: Date-related units (like `d`, `w`) cannot be used in `time.calc()`.*
+
+### Examples
+
+- `[time.calc(+30m)]` (30 minutes from now)
+- `[time.calc(-1h15m)]` (1 hour and 15 minutes ago)

@@ -1,105 +1,281 @@
-use time::{OffsetDateTime, UtcOffset};
+use time::{Duration, OffsetDateTime, UtcOffset};
 
-/// Resolves `time.*` system variables.
+#[derive(Debug)]
+pub(crate) enum Method<'a> {
+    Utc,
+    Calc(&'a str),
+    Format(&'a str),
+}
+
+pub(crate) fn parse_methods(mut key: &str) -> Result<Vec<Method<'_>>, String> {
+    let mut methods = Vec::new();
+    while !key.is_empty() {
+        if key.starts_with("utc") {
+            methods.push(Method::Utc);
+            key = &key[3..];
+        } else if key.starts_with("calc(") {
+            let mut end = 0;
+            let mut depth = 1;
+            let bytes = key.as_bytes();
+            for (i, &b) in bytes.iter().enumerate().skip(5) {
+                if b == b'(' {
+                    depth += 1;
+                } else if b == b')' {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = i;
+                        break;
+                    }
+                }
+            }
+            if end == 0 {
+                return Err("[Error: Unclosed parenthesis in calc]".to_string());
+            }
+            methods.push(Method::Calc(&key[5..end]));
+            key = &key[end + 1..];
+        } else if key.starts_with("format(") {
+            let mut end = 0;
+            let mut depth = 1;
+            let mut in_quote = false;
+            let bytes = key.as_bytes();
+            for (i, &b) in bytes.iter().enumerate().skip(7) {
+                match b {
+                    b'\'' => in_quote = !in_quote,
+                    b'(' if !in_quote => depth += 1,
+                    b')' if !in_quote => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = i;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if end == 0 {
+                return Err("[Error: Unclosed parenthesis in format]".to_string());
+            }
+            methods.push(Method::Format(&key[7..end]));
+            key = &key[end + 1..];
+        } else {
+            return Err(format!("[Error: Unknown method starting at '{}']", key));
+        }
+
+        if !key.is_empty() {
+            if !key.starts_with('.') {
+                return Err(format!(
+                    "[Error: Expected '.' before next method, found '{}']",
+                    key
+                ));
+            }
+            key = &key[1..];
+        }
+    }
+    Ok(methods)
+}
+
+fn apply_time_calc(mut dt: OffsetDateTime, args: &str) -> Result<OffsetDateTime, String> {
+    let args = args.trim();
+    if args.is_empty() {
+        return Err("[Error: calc requires arguments]".to_string());
+    }
+    let first = args.chars().next().unwrap();
+    if first != '+' && first != '-' {
+        return Err("[Error: calc requires explicit + or - sign]".to_string());
+    }
+
+    let mut is_positive = true;
+    let mut current_num = String::new();
+    let mut i = 0;
+    let chars: Vec<char> = args.chars().collect();
+
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '+' {
+            is_positive = true;
+            i += 1;
+        } else if c == '-' {
+            is_positive = false;
+            i += 1;
+        } else if c.is_ascii_digit() {
+            current_num.push(c);
+            i += 1;
+        } else if c.is_alphabetic() {
+            if current_num.is_empty() {
+                return Err("[Error: Missing number in calc]".to_string());
+            }
+            let val = current_num
+                .parse::<i64>()
+                .map_err(|_| "[Error: Invalid number]".to_string())?;
+            let val = if is_positive { val } else { -val };
+
+            match c {
+                'h' | 'H' => {
+                    dt += Duration::hours(val);
+                }
+                'm' => {
+                    dt += Duration::minutes(val);
+                }
+                's' | 'S' => {
+                    dt += Duration::seconds(val);
+                }
+                'd' | 'w' | 'y' | 'Y' | 'M' => {
+                    return Err(format!(
+                        "[Error: '{}' is a date unit and cannot be used in time.calc]",
+                        c
+                    ));
+                }
+                _ => return Err(format!("[Error: Unknown unit '{}' in calc]", c)),
+            }
+            current_num.clear();
+            i += 1;
+        } else if c.is_whitespace() {
+            i += 1;
+        } else {
+            return Err(format!("[Error: Invalid character '{}' in calc]", c));
+        }
+    }
+    Ok(dt)
+}
+
+fn hour_12(dt: OffsetDateTime) -> u8 {
+    let h = dt.hour() % 12;
+    if h == 0 { 12 } else { h }
+}
+
+fn format_time(dt: OffsetDateTime, format_str: &str) -> Result<String, String> {
+    let mut out = String::new();
+    let chars: Vec<char> = format_str.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        if chars[i] == '\'' {
+            i += 1;
+            while i < chars.len() && chars[i] != '\'' {
+                out.push(chars[i]);
+                i += 1;
+            }
+            if i < chars.len() {
+                i += 1;
+            }
+            continue;
+        }
+
+        let remaining = &format_str[i..];
+
+        if remaining.starts_with("HH") {
+            out.push_str(&format!("{:02}", dt.hour()));
+            i += 2;
+        } else if remaining.starts_with("H") {
+            out.push_str(&format!("{}", dt.hour()));
+            i += 1;
+        } else if remaining.starts_with("hh") {
+            out.push_str(&format!("{:02}", hour_12(dt)));
+            i += 2;
+        } else if remaining.starts_with("h") {
+            out.push_str(&format!("{}", hour_12(dt)));
+            i += 1;
+        } else if remaining.starts_with("mm") {
+            out.push_str(&format!("{:02}", dt.minute()));
+            i += 2;
+        } else if remaining.starts_with("m") {
+            out.push_str(&format!("{}", dt.minute()));
+            i += 1;
+        } else if remaining.starts_with("ss") {
+            out.push_str(&format!("{:02}", dt.second()));
+            i += 2;
+        } else if remaining.starts_with("s") {
+            out.push_str(&format!("{}", dt.second()));
+            i += 1;
+        } else if remaining.starts_with("A") {
+            out.push_str(if dt.hour() >= 12 { "PM" } else { "AM" });
+            i += 1;
+        } else if remaining.starts_with("a") {
+            out.push_str(if dt.hour() >= 12 { "pm" } else { "am" });
+            i += 1;
+        } else if remaining.starts_with("Z") {
+            let offset = dt.offset();
+            let (h, m, _) = offset.as_hms();
+            out.push_str(&format!("{:+03}:{:02}", h, m.abs()));
+            i += 1;
+        } else if remaining.starts_with("X") {
+            out.push_str(&format!("{}", dt.unix_timestamp()));
+            i += 1;
+        } else if remaining.starts_with("x") {
+            out.push_str(&format!("{}", dt.unix_timestamp_nanos() / 1_000_000));
+            i += 1;
+        } else if remaining.starts_with("YYYY")
+            || remaining.starts_with("MMMM")
+            || remaining.starts_with("dddd")
+        {
+            return Err(format!(
+                "[Error: Date token '{}' cannot be used in time.format]",
+                &remaining[0..4]
+            ));
+        } else if remaining.starts_with("MMM") || remaining.starts_with("ddd") {
+            return Err(format!(
+                "[Error: Date token '{}' cannot be used in time.format]",
+                &remaining[0..3]
+            ));
+        } else if remaining.starts_with("YY")
+            || remaining.starts_with("MM")
+            || remaining.starts_with("DD")
+        {
+            return Err(format!(
+                "[Error: Date token '{}' cannot be used in time.format]",
+                &remaining[0..2]
+            ));
+        } else if remaining.starts_with('Y')
+            || remaining.starts_with('M')
+            || remaining.starts_with('D')
+            || remaining.starts_with('d')
+        {
+            return Err(format!(
+                "[Error: Date token '{}' cannot be used in time.format]",
+                chars[i]
+            ));
+        } else {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+
+    Ok(out)
+}
+
+/// Resolves `time` and `time.*` system variables.
 pub fn resolve(key: &str) -> Option<String> {
-    if !key.starts_with("time.") {
+    if key != "time" && !key.starts_with("time.") {
         return None;
     }
 
-    let sub_key = &key[5..];
-    let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
+    let method_str = if key == "time" { "" } else { &key[5..] };
+    let methods = match parse_methods(method_str) {
+        Ok(m) => m,
+        Err(e) => return Some(e),
+    };
 
-    match sub_key {
-        "greeting" => Some(get_greeting(now)),
-        "epoch" | "unix" => Some(now.unix_timestamp().to_string()),
-        "millis" | "ms" => Some((now.unix_timestamp_nanos() / 1_000_000).to_string()),
-        "utc" => {
-            let utc = now.to_offset(UtcOffset::UTC);
-            Some(format_time(utc, false, true))
-        }
-        "tz" => {
-            let offset = now.offset();
-            let (h, m, _) = offset.as_hms();
-            Some(format!("{:+03}:{:02}", h, m.abs()))
-        }
-        "12h" => Some(format_time(now, true, true)),
-        "24h" => Some(format_time(now, false, true)),
-        _ => {
-            // Check for modifiers (e.g., time.now.12h)
-            let parts: Vec<&str> = sub_key.split('.').collect();
-            match parts.as_slice() {
-                ["now"] => Some(format_time(now, false, true)),
-                ["now", "12h"] => Some(format_time(now, true, true)),
-                ["now", "24h"] => Some(format_time(now, false, true)),
-                ["full"] => Some(format_time(now, false, false)),
-                ["full", "12h"] => Some(format_time(now, true, false)),
-                ["full", "24h"] => Some(format_time(now, false, false)),
-                ["hour"] => Some(format_hour(now.hour(), false)),
-                ["hour", "12h"] => Some(format_hour(now.hour(), true)),
-                ["minute"] => Some(format!("{:02}", now.minute())),
-                ["second"] => Some(format!("{:02}", now.second())),
-                ["am_pm"] => Some(am_pm(now.hour()).to_string()),
-                _ => None,
+    let mut dt = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
+    let mut format_str = "HH:mm";
+
+    for method in methods {
+        match method {
+            Method::Utc => {
+                dt = dt.to_offset(UtcOffset::UTC);
+            }
+            Method::Calc(args) => {
+                dt = match apply_time_calc(dt, args) {
+                    Ok(new_dt) => new_dt,
+                    Err(e) => return Some(e),
+                };
+            }
+            Method::Format(args) => {
+                format_str = args;
             }
         }
     }
-}
 
-fn get_greeting(dt: OffsetDateTime) -> String {
-    let hour = dt.hour();
-    if hour < 12 {
-        "Good morning".to_string()
-    } else if hour < 17 {
-        "Good afternoon".to_string()
-    } else {
-        "Good evening".to_string()
-    }
-}
-
-fn format_time(dt: OffsetDateTime, is_12h: bool, hide_seconds: bool) -> String {
-    let hour = dt.hour();
-    let minute = dt.minute();
-    let second = dt.second();
-
-    if is_12h {
-        let is_pm = hour >= 12;
-        let h12 = match hour % 12 {
-            0 => 12,
-            h => h,
-        };
-        let am_pm = if is_pm { "PM" } else { "AM" };
-
-        if hide_seconds {
-            format!("{:02}:{:02} {}", h12, minute, am_pm)
-        } else {
-            format!("{:02}:{:02}:{:02} {}", h12, minute, second, am_pm)
-        }
-    } else {
-        if hide_seconds {
-            format!("{:02}:{:02}", hour, minute)
-        } else {
-            format!("{:02}:{:02}:{:02}", hour, minute, second)
-        }
-    }
-}
-
-fn hour_12(hour: u8) -> u8 {
-    match hour % 12 {
-        0 => 12,
-        h => h,
-    }
-}
-
-fn format_hour(hour: u8, is_12h: bool) -> String {
-    if is_12h {
-        format!("{:02}", hour_12(hour))
-    } else {
-        format!("{hour:02}")
-    }
-}
-
-fn am_pm(hour: u8) -> &'static str {
-    if hour >= 12 { "PM" } else { "AM" }
+    Some(format_time(dt, format_str).unwrap_or_else(|e| e))
 }
 
 #[cfg(test)]
@@ -107,71 +283,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_greeting_logic() {
-        // Morning
-        let morning = OffsetDateTime::now_utc().replace_time(time::macros::time!(08:00));
-        assert_eq!(get_greeting(morning), "Good morning");
-
-        // Afternoon
-        let afternoon = OffsetDateTime::now_utc().replace_time(time::macros::time!(14:00));
-        assert_eq!(get_greeting(afternoon), "Good afternoon");
-
-        // Evening
-        let evening = OffsetDateTime::now_utc().replace_time(time::macros::time!(19:00));
-        assert_eq!(get_greeting(evening), "Good evening");
-    }
-
-    #[test]
-    fn test_format_time() {
-        let dt = OffsetDateTime::now_utc().replace_time(time::macros::time!(14:30:45));
-
-        assert_eq!(format_time(dt, false, true), "14:30");
-        assert_eq!(format_time(dt, false, false), "14:30:45");
-        assert_eq!(format_time(dt, true, true), "02:30 PM");
-        assert_eq!(format_time(dt, true, false), "02:30:45 PM");
-    }
-
-    #[test]
-    fn test_hour_24h_and_12h() {
-        assert_eq!(format_hour(0, false), "00");
-        assert_eq!(format_hour(14, false), "14");
-        assert_eq!(format_hour(0, true), "12");
-        assert_eq!(format_hour(12, true), "12");
-        assert_eq!(format_hour(14, true), "02");
-        assert_eq!(format_hour(23, true), "11");
-    }
-
-    #[test]
-    fn test_millis_length() {
-        let millis = resolve("time.millis").expect("time.millis resolves");
-
-        assert_eq!(millis.len(), 13);
-        assert!(millis.chars().all(|ch| ch.is_ascii_digit()));
-    }
-
-    #[test]
-    fn test_resolve_base_keys() {
-        assert!(resolve("time.greeting").is_some());
-        assert!(resolve("time.epoch").is_some());
-        assert!(resolve("time.unix").is_some());
-        assert!(resolve("time.millis").is_some());
-        assert!(resolve("time.ms").is_some());
+    fn test_time_methods() {
+        assert!(resolve("time").is_some());
         assert!(resolve("time.utc").is_some());
-        assert!(resolve("time.tz").is_some());
-        assert!(resolve("time.now").is_some());
-        assert!(resolve("time.full").is_some());
-        assert!(resolve("time.hour").is_some());
-        assert!(resolve("time.minute").is_some());
-        assert!(resolve("time.second").is_some());
-        assert!(resolve("time.am_pm").is_some());
-    }
 
-    #[test]
-    fn test_resolve_modifiers() {
-        assert!(resolve("time.now.12h").is_some());
-        assert!(resolve("time.now.24h").is_some());
-        assert!(resolve("time.full.12h").is_some());
-        assert!(resolve("time.full.24h").is_some());
-        assert!(resolve("time.hour.12h").is_some());
+        let res = resolve("time.calc(+1h)");
+        assert!(res.is_some());
+        assert!(!res.unwrap().contains("[Error"));
+
+        let err_no_sign = resolve("time.calc(1h)").unwrap();
+        assert_eq!(err_no_sign, "[Error: calc requires explicit + or - sign]");
+
+        let err_date_unit = resolve("time.calc(+1d)").unwrap();
+        assert_eq!(
+            err_date_unit,
+            "[Error: 'd' is a date unit and cannot be used in time.calc]"
+        );
+
+        let res_format = resolve("time.format(HH:mm)").unwrap();
+        assert!(!res_format.contains("[Error"));
+
+        let res_literal = resolve("time.format('Time is' HH:mm)").unwrap();
+        assert!(res_literal.starts_with("Time is "));
+
+        let err_date_token = resolve("time.format(YYYY)").unwrap();
+        assert_eq!(
+            err_date_token,
+            "[Error: Date token 'YYYY' cannot be used in time.format]"
+        );
+
+        let err_upper_m = resolve("time.format(HH:MM)").unwrap();
+        assert_eq!(
+            err_upper_m,
+            "[Error: Date token 'MM' cannot be used in time.format]"
+        );
+
+        let compound_calc = resolve("time.calc(+1h30m)").unwrap();
+        assert!(!compound_calc.contains("[Error"));
+
+        let method_chain = resolve("time.utc.calc(-15m).format('Time:' hh:mm A Z)");
+        assert!(method_chain.unwrap().starts_with("Time: "));
     }
 }

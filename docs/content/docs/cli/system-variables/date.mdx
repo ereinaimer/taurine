@@ -1,57 +1,76 @@
 ---
 title: Date
-description: Using date-based system variables in Taurine.
+description: Using date system variables in Taurine.
 ---
 
-The `[date.*]` namespace allows you to insert the current, previous, or next day's date in several standard formats.
+The `[date]` system variable allows you to insert the current date. It uses a zero-property, method-based API that lets you modify the context (UTC vs Local), perform date calculations, and format the output using standard LDML tokens.
 
-## Standard Formats
+By default, `[date]` outputs the current local date in ISO format (`YYYY-MM-DD`).
 
-| Variable | Description | Example Output |
+## Methods
+
+You can chain methods onto `[date]` to customize the output.
+
+| Method | Description | Example |
 | :--- | :--- | :--- |
-| `[date.iso]` | Standard YYYY-MM-DD | `2026-04-21` |
-| `[date.short]` | MM/DD/YYYY | `04/21/2026` |
-| `[date.long]` | Month DD, YYYY | `April 21, 2026` |
+| `.utc` | Switches the date context to UTC instead of local time. | `[date.utc]` |
+| `.calc(±...<units>)` | Adds or subtracts time. Requires a `+` or `-` sign. | `[date.calc(+1d)]` |
+| `.format(<pattern>)` | Formats the date using LDML tokens. | `[date.format(YYYY)]` |
 
-## Relative Dates
+### Method Chaining
 
-Taurine can automatically calculate yesterday and tomorrow. If no format modifier is provided, **ISO** (`YYYY-MM-DD`) is used by default.
+Methods are evaluated from left to right.
+```text
+[date.utc.calc(+1w2d).format(dddd)]
+```
 
-- `[date.tomorrow]` (Default: ISO)
-- `[date.tomorrow.short]`
-- `[date.tomorrow.long]`
-- `[date.yesterday]` (Default: ISO)
-- `[date.next_week]` / `[date.last_week]`
-- `[date.next_month]` / `[date.last_month]`
+## Date Formatting
 
-Relative windows support the same format modifiers (`.iso`, `.short`, `.long`) as the base date variables.
+Use the `.format()` method to format the date.
 
-## Component Variables
+### LDML Tokens
 
-Extract specific parts of the current date for use in filenames, metadata, or custom formatting.
-
-| Variable | Description | Example Output |
+| Token | Description | Example Output |
 | :--- | :--- | :--- |
-| `[date.weekday]` | Full name of the day | `Tuesday` |
-| `[date.year]` | 4-digit year | `2026` |
-| `[date.month]` | 2-digit month (01-12) | `04` |
-| `[date.month_name]` | Full month name | `April` |
-| `[date.day]` | 2-digit day of month | `21` |
-| `[date.ordinal]` | Day with ordinal suffix | `21st` |
-| `[date.week]` | ISO week number (1-53) | `16` |
-| `[date.quarter]` | Current quarter (Q1-Q4) | `Q2` |
-| `[date.day_of_year]` | Day of the year (1-366) | `111` |
-| `[date.days_in_month]` | Total days in current month | `30` |
-| `[date.century]` | Current century | `21` |
-| `[date.is_leap_year]` | Boolean check | `false` |
+| `YYYY` | 4-digit year | `2026` |
+| `YY` | 2-digit year | `26` |
+| `MMMM` | Full month name | `April` |
+| `MMM` | Short month name | `Apr` |
+| `MM` | 2-digit month | `04` |
+| `M` | 1 or 2 digit month | `4` |
+| `DD` | 2-digit day of month | `08` |
+| `D` | 1 or 2 digit day of month | `8` |
+| `dddd` | Full weekday name | `Tuesday` |
+| `ddd` | Short weekday name | `Tue` |
 
-## Examples
+*Note: Time-related tokens (like `HH`, `mm`, `ss`) cannot be used in `date.format()`.*
 
-### Relative Deadline
-Perfect for setting a "DUE" date for the next day.
+### Literal Text Escaping
 
-<Transformation
-  template="Task: [0.title] | Due: [date.tomorrow.short]"
-  input=">todo:'update documentation' "
-  result="Task: Update Documentation | Due: 04/22/2026"
-/>
+To include literal text inside your format string without it being interpreted as a token, wrap the text in single quotes (`'...'`). This avoids any collision with Taurine's macro syntax.
+
+```text
+[date.format('Today is' dddd, MMMM D, YYYY)]
+```
+*Output: Today is Tuesday, April 8, 2026*
+
+## Date Calculations
+
+Use the `.calc()` method to calculate relative dates. You **must** provide a leading `+` or `-` sign, followed by amounts and unit characters. You can combine multiple units.
+
+### Supported Date Units
+
+| Unit | Description |
+| :--- | :--- |
+| `d` | Days |
+| `w` | Weeks |
+| `m` / `M` | Months |
+| `y` / `Y` | Years |
+
+*Note: Time-related units (like `h`, `s`) cannot be used in `date.calc()`.*
+
+### Examples
+
+- `[date.calc(+1d)]` (Tomorrow)
+- `[date.calc(-1w)]` (Last week)
+- `[date.calc(+1y2M)]` (1 year and 2 months from now)
