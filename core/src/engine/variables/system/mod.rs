@@ -168,6 +168,7 @@ fn split_key_default(inner: &str) -> (&str, Option<&str>) {
     let inner = trim_slice(inner);
     let bytes = inner.as_bytes();
     let mut depth = 0usize;
+    let mut paren_depth = 0usize;
     let mut ptr = 0usize;
 
     while ptr < bytes.len() {
@@ -175,7 +176,11 @@ fn split_key_default(inner: &str) -> (&str, Option<&str>) {
             depth += 1;
         } else if bytes[ptr] == TAG_CLOSE && !is_escaped(bytes, ptr) {
             depth -= 1;
-        } else if bytes[ptr] == b'=' && depth == 0 {
+        } else if bytes[ptr] == b'(' && !is_escaped(bytes, ptr) {
+            paren_depth += 1;
+        } else if bytes[ptr] == b')' && !is_escaped(bytes, ptr) {
+            paren_depth -= 1;
+        } else if bytes[ptr] == b'=' && depth == 0 && paren_depth == 0 {
             return (
                 trim_slice(&inner[..ptr]),
                 Some(trim_slice(&inner[ptr + 1..])),
