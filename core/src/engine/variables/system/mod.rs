@@ -229,7 +229,12 @@ fn append_unescaped_segment(segment: &str, output: &mut String) {
     while ptr < bytes.len() {
         if bytes[ptr] == b'\\' && ptr + 1 < bytes.len() {
             let next = bytes[ptr + 1];
-            if next == TAG_OPEN || next == TAG_CLOSE || next == b'\\' {
+            if next == TAG_OPEN
+                || next == TAG_CLOSE
+                || next == b'\\'
+                || next == b'\''
+                || next == b'"'
+            {
                 if segment[ptr..].starts_with(ESCAPED_CURSOR_LITERAL) {
                     output.push_str(ESCAPED_CURSOR_SENTINEL);
                     ptr += ESCAPED_CURSOR_LITERAL.len();
@@ -826,6 +831,26 @@ mod tests {
                     ExpansionStep::Text("c".to_string()),
                     ExpansionStep::KeyPress("enter".to_string()),
                 ]
+            );
+        }
+
+        #[test]
+        fn escaped_directives_are_unescaped_to_text() {
+            let res = finalize(r#"\[key(enter)\]"#, None);
+            assert_eq!(
+                res.steps,
+                vec![ExpansionStep::Text("[key(enter)]".to_string())]
+            );
+        }
+
+        #[test]
+        fn escaped_quotes_are_unescaped() {
+            let res = finalize(r#"echo \'hello\' | grep \"hello\""#, None);
+            assert_eq!(
+                res.steps,
+                vec![ExpansionStep::Text(
+                    r#"echo 'hello' | grep "hello""#.to_string()
+                )]
             );
         }
     }

@@ -336,36 +336,9 @@ fn find_innermost_tag(s: &str) -> Option<(usize, usize)> {
         .map(|tag| (tag.start, tag.end))
 }
 
-fn finalize_interpolation(mut s: String) -> String {
+fn finalize_interpolation(s: String) -> String {
     // 1. Remove sentinel markers
-    s = s.replace(SENTINEL_OPEN, "[").replace(SENTINEL_CLOSE, "]");
-
-    // 2. Resolve escapes: \[, \], \\
-    let mut result = String::with_capacity(s.len());
-    let bytes = s.as_bytes();
-    let mut ptr = 0;
-
-    while ptr < bytes.len() {
-        if bytes[ptr] == b'\\' && ptr + 1 < bytes.len() {
-            let next = bytes[ptr + 1];
-            if next == TAG_OPEN || next == TAG_CLOSE || next == b'\\' {
-                // Specialized \[cursor\] handling for finalizer
-                if s[ptr..].starts_with(r#"\[cursor\]"#) {
-                    result.push_str(r#"\[cursor\]"#);
-                    ptr += 10;
-                    continue;
-                }
-                result.push(next as char);
-                ptr += 2;
-                continue;
-            }
-        }
-
-        let c = s[ptr..].chars().next().unwrap();
-        result.push(c);
-        ptr += c.len_utf8();
-    }
-    result
+    s.replace(SENTINEL_OPEN, "[").replace(SENTINEL_CLOSE, "]")
 }
 
 #[cfg(test)]
@@ -472,11 +445,13 @@ mod tests {
 
     #[test]
     fn test_interpolate_escapes() {
+        let text = r#"const x = \[ "key": "123" \]; // literal \\ path"#;
         let args = ArgMap::default();
-        let tpl = r#"const x = \[ "key": "[value=123]" \]; // literal \\ path"#;
+        let result = interpolate(text, &args);
+        // Escapes are now resolved by system::finalize in split_into_steps
         assert_eq!(
-            interpolate(tpl, &args),
-            r#"const x = [ "key": "123" ]; // literal \ path"#
+            result,
+            r#"const x = \[ "key": "123" \]; // literal \\ path"#
         );
     }
 
@@ -607,10 +582,10 @@ mod tests {
 
     #[test]
     fn test_interpolate_balanced_with_escapes() {
+        let text = r#"A\[B\]C"#;
         let args = ArgMap::default();
-        // Use quotes to ensure it's treated as a literal and not an unresolved placeholder
-        let tpl = r#"['a\[b\]c' | upper]"#;
-        assert_eq!(interpolate(tpl, &args), "A[B]C");
+        let result = interpolate(text, &args);
+        assert_eq!(result, r#"A\[B\]C"#);
     }
 
     #[test]
@@ -830,12 +805,11 @@ mod tests {
 
         #[test]
         fn escaped_cursor_literal_and_backslashes_survive_interpolation() {
+            let text = r#"Hello \[cursor\] and \\ path"#;
             let args = ArgMap::default();
-
-            assert_eq!(
-                interpolate(r#"Hello \[cursor\] and \\ path"#, &args),
-                r#"Hello \[cursor\] and \ path"#
-            );
+            let result = super::interpolate(text, &args);
+            // The interpolate step leaves escapes alone, and finalize/split_into_steps processes them.
+            assert_eq!(result, r#"Hello \[cursor\] and \\ path"#);
         }
 
         #[test]
