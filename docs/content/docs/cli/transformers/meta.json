@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "ai",
+    "calc",
     "casing",
     "text-manipulation",
     "formatting",

@@ -1,0 +1,52 @@
+---
+title: Calculation
+description: Perform inline arithmetic and numerical calculations directly within templates.
+---
+
+The `| calc(...)` transformer allows you to perform inline arithmetic and numerical calculations directly within variable templates.
+
+### Syntax
+
+```text
+[base_expression | calc(expression)]
+```
+
+### Modes of Operation
+
+#### 1. Operator Prefix Chaining
+When the argument starts with an arithmetic operator (`+`, `-`, `*`, `/`, `%`, `^`), Taurine automatically evaluates the base expression against the right-hand side operation.
+
+| Example Template | Base Input | Result | Use Case |
+| :--- | :--- | :--- | :--- |
+| `[amount=100 \| calc("* 1.15")]` | `100` | `115` | Tax / Tip Calculation |
+| `[count=5 \| calc("+ 1")]` | `5` | `6` | Automated Counter |
+| `[price=50 \| calc("- 10")]` | `50` | `40` | Flat Discount |
+| `[total=100 \| calc("/ 2")]` | `100` | `50` | Split Bill / Halving |
+
+#### 2. Variable Reference (`x`)
+You can use `x` inside the argument expression to represent the incoming base value.
+
+```text
+[val=10 | calc("x * 2 + 5")]  -> 25
+[area=16 | calc("sqrt(x)")]    -> 4
+```
+
+#### 3. Parameterless Evaluation
+If no argument is provided, Taurine evaluates the incoming string directly as a math expression.
+
+```text
+["10 + 20" | calc]  -> 30
+```
+
+### Mathematical Functions & Constants
+
+The calculation transformer supports fundamental math constants and functions:
+* **Constants**: `pi`, `e`
+* **Functions**: `sqrt(x)`, `abs(x)`, `floor(x)`, `ceil(x)`, `round(x)`
+
+### Example Snippets
+
+Calculate total invoice amounts with sales tax:
+```text
+Total Due: $[subtotal | calc("* 1.08")]
+```

@@ -1,4 +1,5 @@
 pub mod ai;
+mod calc;
 mod case;
 mod crypto;
 mod encoding;
@@ -72,6 +73,7 @@ pub const TRANSFORMERS: &[&str] = &[
     "doublequote",
     "singlequote",
     "unquote",
+    "calc",
     "ai",
 ];
 
@@ -139,6 +141,7 @@ pub fn apply(transformer: &str, content: &str) -> Option<String> {
         .or_else(|| crypto::apply(parsed.name, &parsed.args, content))
         .or_else(|| lines::apply(parsed.name, &parsed.args, content))
         .or_else(|| formatting::apply(parsed.name, &parsed.args, content))
+        .or_else(|| calc::apply(parsed.name, &parsed.args, content))
         .or_else(|| ai::apply(parsed.name, &parsed.args, content))
 }
 
