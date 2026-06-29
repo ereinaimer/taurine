@@ -4,7 +4,9 @@ pub mod registry;
 pub mod system;
 pub mod types;
 
-pub use interpolate::{contains_ai_markers, extract_ai_markers, interpolate};
+pub use interpolate::{
+    contains_ai_markers, contains_non_sys_markers, extract_ai_markers, interpolate,
+};
 pub use parser::{parse_tokens, tokenize};
 pub use registry::{
     ValidationError, split_system_tag, strip_global_transformers, valid_modifier_hint,

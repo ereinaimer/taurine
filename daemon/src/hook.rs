@@ -1211,10 +1211,13 @@ fn launch_follow_up(
         info!("Starting AI transformer follow-up dispatch");
         let injection_guard = crate::injector::InjectionFlagGuard::begin();
 
-        let spinner_handle = taurine_core::utils::spinner::spawn_async(
+        let has_non_sys =
+            taurine_core::engine::variables::contains_non_sys_markers(&template_with_markers);
+        let spinner_handle = taurine_core::utils::spinner::spawn_async_with_suffix(
             spinner_style,
             crate::platform::spinner_renderer::OsSpinnerRenderer::default(),
             &runtime_handle,
+            has_non_sys,
         );
         runtime_handle.spawn(async move {
             let _guard = injection_guard;

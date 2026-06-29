@@ -36,9 +36,18 @@ pub fn spawn_async<R: SpinnerRenderer + 'static>(
     renderer: R,
     runtime: &tokio::runtime::Handle,
 ) -> AsyncSpinnerHandle {
+    spawn_async_with_suffix(style, renderer, runtime, true)
+}
+
+pub fn spawn_async_with_suffix<R: SpinnerRenderer + 'static>(
+    style: SpinnerStyle,
+    renderer: R,
+    runtime: &tokio::runtime::Handle,
+    has_suffix: bool,
+) -> AsyncSpinnerHandle {
     let (cancel, cancel_rx) = oneshot::channel();
     let task = runtime.spawn(async move {
-        run_async_loop(style, renderer, cancel_rx).await;
+        run_async_loop(style, renderer, cancel_rx, has_suffix).await;
     });
 
     AsyncSpinnerHandle { cancel, task }
@@ -51,12 +60,16 @@ async fn run_async_loop<R: SpinnerRenderer>(
     style: SpinnerStyle,
     mut renderer: R,
     mut cancel_rx: oneshot::Receiver<()>,
+    has_suffix: bool,
 ) {
     let frames = get_frames(style);
     let frame_width = frames[0].chars().count();
-    let total_width = frame_width + AI_SPINNER_SUFFIX_LEN;
+    let suffix_len = if has_suffix { AI_SPINNER_SUFFIX_LEN } else { 0 };
+    let total_width = frame_width + suffix_len;
 
-    renderer.move_left(AI_SPINNER_SUFFIX_LEN);
+    if suffix_len > 0 {
+        renderer.move_left(suffix_len);
+    }
 
     let mut frame_index = 1usize;
     let mut timer = tokio::time::interval(Duration::from_millis(AI_SPINNER_TICK_MS));
@@ -68,7 +81,9 @@ async fn run_async_loop<R: SpinnerRenderer>(
     loop {
         tokio::select! {
             _ = &mut cancel_rx => {
-                renderer.move_right(AI_SPINNER_SUFFIX_LEN);
+                if suffix_len > 0 {
+                    renderer.move_right(suffix_len);
+                }
                 renderer.backspace(total_width);
                 renderer.finish();
                 break;

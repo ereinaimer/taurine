@@ -147,6 +147,20 @@ impl Evaluator {
         }
     }
 
+    fn get_initial_spinner_text(&self, template: &str) -> String {
+        if crate::engine::variables::contains_non_sys_markers(template) {
+            self.get_thinking_text()
+        } else {
+            let style = self
+                .state
+                .spinner_style
+                .read()
+                .map(|s| *s)
+                .unwrap_or_default();
+            crate::utils::spinner::get_frames(style)[0].to_string()
+        }
+    }
+
     fn trigger_prefix(&self) -> char {
         use std::sync::atomic::Ordering;
         let trigger_char_u32 = self.state.trigger_char.load(Ordering::Relaxed);
@@ -499,10 +513,11 @@ impl Evaluator {
                 self.buffer.clear();
 
                 if let Some(template) = expansion.ai_transformer_template {
-                    // Template has | ai(...) markers — trigger async pre-resolution before injecting.
+                    let initial_text = self.get_initial_spinner_text(&template);
+                    // Template has | ai(...) or async system markers — trigger async pre-resolution before injecting.
                     return Some(ExpansionResult {
                         delete_count,
-                        steps: vec![ExpansionStep::Text(self.get_thinking_text())],
+                        steps: vec![ExpansionStep::Text(initial_text)],
                         trigger: keyword,
                         undo_trigger: None,
                         is_calculation: false,
@@ -540,9 +555,10 @@ impl Evaluator {
             let metric_kind = metric_kind_for_steps(expansion.is_calculation, &expansion.steps);
             self.buffer.clear();
             if let Some(template) = expansion.ai_transformer_template {
+                let initial_text = self.get_initial_spinner_text(&template);
                 return Some(ExpansionResult {
                     delete_count,
-                    steps: vec![ExpansionStep::Text(self.get_thinking_text())],
+                    steps: vec![ExpansionStep::Text(initial_text)],
                     trigger: word,
                     undo_trigger: None,
                     is_calculation: false,

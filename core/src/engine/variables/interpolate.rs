@@ -318,6 +318,28 @@ pub fn contains_ai_markers(s: &str) -> bool {
     s.contains('\x03')
 }
 
+/// Returns true if the interpolated string contains any markers that require AI LLM invocation (i.e. non-sys markers).
+pub fn contains_non_sys_markers(s: &str) -> bool {
+    let mut rest = s;
+    while let Some(sot) = rest.find('\x03') {
+        let after = &rest[sot + 1..];
+        if let Some(eot) = after.find('\x04') {
+            let content = &after[..eot];
+            if let Some(sep) = content.find('\x1F') {
+                if !content[sep + 1..].starts_with("sys:") {
+                    return true;
+                }
+            } else {
+                return true;
+            }
+            rest = &after[eot + 1..];
+        } else {
+            break;
+        }
+    }
+    false
+}
+
 /// Extracts all AI transformer markers from an interpolated string.
 /// Returns a list of `(input, prompt)` pairs in the order they appear.
 /// The `template_with_markers` string itself should be passed to the daemon for async resolution.
