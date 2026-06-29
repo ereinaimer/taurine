@@ -3,8 +3,8 @@ use std::thread;
 #[cfg(not(windows))]
 use std::time::{Duration, Instant};
 #[cfg(windows)]
-use taurine_core::engine::variables::system::clipboard::MAX_PAYLOAD_BYTES;
-use taurine_core::engine::variables::system::clipboard::clipboard_manager;
+use taurine_core::engine::variables::system::clip::MAX_PAYLOAD_BYTES;
+use taurine_core::engine::variables::system::clip::clip_manager;
 
 use crate::injector::IS_INJECTING;
 
@@ -34,7 +34,7 @@ pub fn start_listener() {
 
         match try_read_clipboard_text_bounded() {
             Ok(Some(text)) => {
-                let _ = clipboard_manager().record_text(text);
+                let _ = clip_manager().record_text(text);
                 thread::sleep(POLL_INTERVAL);
             }
             Ok(None) => thread::sleep(POLL_INTERVAL),
@@ -85,7 +85,7 @@ pub fn start_listener() {
                 while attempt < 10 {
                     match try_read_clipboard_text_bounded() {
                         Ok(Some(text)) => {
-                            let _ = clipboard_manager().record_text(text);
+                            let _ = clip_manager().record_text(text);
                             LAST_EVENT.store(now, std::sync::atomic::Ordering::Relaxed);
                             break;
                         }

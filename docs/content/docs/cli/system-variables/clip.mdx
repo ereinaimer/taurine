@@ -3,25 +3,25 @@ title: Clipboard
 description: Inject system clipboard content and history into your snippets.
 ---
 
-The `[clipboard]` variable is one of the most powerful system variables in Taurine. It allows you to take text you've copied and immediately use it inside a template, with full support for [transformers](/docs/cli/dynamic-variables/transformers).
+The `[clip]` variable is one of the most powerful system variables in Taurine. It allows you to take text you've copied and immediately use it inside a template, with full support for [transformers](/docs/cli/dynamic-variables/transformers).
 
 Taurine maintains a secure, in-memory history of your recent copies, enabling you to reference previous items without re-copying them.
 
 ## Usage
 
-Simply insert `[clipboard]` into your snippet to inject the most recent item. You can access previous clipboard entries using a simple index syntax:
+Simply insert `[clip]` into your snippet to inject the most recent item. You can access previous clipboard entries using a simple index syntax:
 
 | Variable | Description |
 | :--- | :--- |
-| `[clipboard]` | The most recent clipboard item (same as index 0). |
-| `[clipboard(0)]` | The most recent clipboard item. |
-| `[clipboard(1)]` | The second most recent item. |
-| `[clipboard(2)]` | The third most recent item. |
+| `[clip]` | The most recent clipboard item (same as index 0). |
+| `[clip(0)]` | The most recent clipboard item. |
+| `[clip(1)]` | The second most recent item. |
+| `[clip(2)]` | The third most recent item. |
 
 Taurine keeps a "ring buffer" of the last 3 items. If you request an index that hasn't been filled yet (e.g., you've only copied one thing since starting Taurine), the variable will resolve to an empty string.
 
 ```text
-The selected text was: "[clipboard]"
+The selected text was: "[clip]"
 ```
 
 ## Smart Filtering
@@ -54,7 +54,7 @@ You can sanitize or reformat copied text on the fly. This is useful for generati
 Converts a copied task ID and task title into a git-ready branch slug.
 
 <Transformation
-  template="git checkout -b feature/[clipboard(1)]-[clipboard(0).kebab]"
+  template="git checkout -b feature/[clip(1)]-[clip(0) | kebab]"
   input=">branch "
   result="git checkout -b feature/TAUR-123-update-clipboard-docs"
 />
@@ -63,5 +63,5 @@ Converts a copied task ID and task title into a git-ready branch slug.
 Encodes a copied URL to ensure it's safe for use in identifiers.
 
 ```text
-https://example.com/api/search?q=[clipboard.urlencode]
+https://example.com/api/search?q=[clip | urlencode]
 ```

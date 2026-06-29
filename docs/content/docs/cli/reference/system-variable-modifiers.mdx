@@ -15,7 +15,7 @@ The following roots are reserved by the Taurine engine and cannot be used as cus
 | :--- | :--- |
 | `time` | Current system time in various formats. |
 | `date` | Current system date in various formats. |
-| `clipboard` | Content of the system clipboard. |
+| `clip` | Content of the system clipboard. |
 | `cursor` | Directs the final cursor position (placeholder). |
 | `uuid` | Unique identifier generation. |
 | `env` | System environment variables. |
@@ -57,8 +57,9 @@ Modifiers for inserting timestamps and relative dates.
 Interact with your local system state and shell environment.
 
 <Accordions>
-<Accordion title="clipboard">
-  - `[clipboard]`: Standard text content of the clipboard.
+<Accordion title="clip">
+  - `[clip]`: The most recent clipboard item (same as `[clip(0)]`).
+  - `[clip(0)]` / `[clip(1)]` / `[clip(2)]`: Indexed clipboard history (up to 3 entries).
 </Accordion>
 
 <Accordion title="env">
@@ -71,7 +72,6 @@ Interact with your local system state and shell environment.
 <Accordion title="file">
   Read and inject local file contents natively.
   - `[file.read(path)]`: Reads the entire contents of a file (up to 5MB).
-  - `[file.random_line(path)]`: Extracts a random non-empty line from a file.
   - `[file.read_line(path, start, [end])]`: Extracts specific lines using a 1-indexed range.
 </Accordion>
 </Accordions>
@@ -106,7 +106,7 @@ Modifiers for generating IDs or simulating hardware interaction.
 
 ## Text Transformers
 
-These can be appended to **any** variable (system or custom) using Unix pipe syntax (`| transformer`) to transform the string output (e.g. `[clipboard | upper]`).
+These can be appended to **any** variable (system or custom) using Unix pipe syntax (`| transformer`) to transform the string output (e.g. `[clip | upper]`).
 
 <Accordions>
 <Accordion title="Casing Transformers">

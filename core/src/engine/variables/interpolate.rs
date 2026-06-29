@@ -494,17 +494,17 @@ mod tests {
         let mut args = ArgMap::default();
         args.named.insert("msg".to_string(), "hello".to_string());
 
-        system::clipboard::set_mock_clipboard(Some("clip_content".to_string()));
+        system::clip::set_mock_clip(Some("clip_content".to_string()));
 
-        let tpl = "[msg] [cursor] [time.now] [clipboard]";
+        let tpl = "[msg] [cursor] [time.now] [clip]";
         let res = interpolate(tpl, &args);
 
         assert!(res.contains("hello [cursor] "));
         assert!(res.contains("clip_content"));
         assert!(!res.contains("[time.now]"));
-        assert!(!res.contains("[clipboard]"));
+        assert!(!res.contains("[clip]"));
 
-        system::clipboard::set_mock_clipboard(None);
+        system::clip::set_mock_clip(None);
     }
 
     #[test]
@@ -704,31 +704,28 @@ mod tests {
     #[test]
     fn test_interpolate_parameterized_transformers_for_system_values() {
         let args = ArgMap::default();
-        system::clipboard::set_mock_clipboard(Some("alpha,beta".to_string()));
+        system::clip::set_mock_clip(Some("alpha,beta".to_string()));
 
-        assert_eq!(interpolate("[clipboard | truncate(5)]", &args), "alpha");
+        assert_eq!(interpolate("[clip | truncate(5)]", &args), "alpha");
         assert_eq!(
-            interpolate("[clipboard | replace(\",\", \";\")]", &args),
+            interpolate("[clip | replace(\",\", \";\")]", &args),
             "alpha;beta"
         );
 
-        system::clipboard::set_mock_clipboard(None);
+        system::clip::set_mock_clip(None);
     }
 
     #[test]
     fn test_interpolate_clipboard_history_function_syntax() {
         let args = ArgMap::default();
-        system::clipboard::set_mock_clipboard_history(vec![
-            "current".to_string(),
-            "previous".to_string(),
-        ]);
+        system::clip::set_mock_clip_history(vec!["current".to_string(), "previous".to_string()]);
 
-        assert_eq!(interpolate("[clipboard]", &args), "current");
-        assert_eq!(interpolate("[clipboard(0)]", &args), "current");
-        assert_eq!(interpolate("[clipboard(1) | upper]", &args), "PREVIOUS");
-        assert_eq!(interpolate("[clipboard(2)]", &args), "");
+        assert_eq!(interpolate("[clip]", &args), "current");
+        assert_eq!(interpolate("[clip(0)]", &args), "current");
+        assert_eq!(interpolate("[clip(1) | upper]", &args), "PREVIOUS");
+        assert_eq!(interpolate("[clip(2)]", &args), "");
 
-        system::clipboard::set_mock_clipboard(None);
+        system::clip::set_mock_clip(None);
     }
 
     #[test]
@@ -956,8 +953,8 @@ mod tests {
         #[test]
         fn test_aisummary_manual_case() {
             let args = ArgMap::default();
-            let tpl = "### SUMMARY OF COPIED TEXT ([date.short]):[key(enter)][clipboard | ai(summarize this in 3 concise bullet points) | trim]";
-            system::clipboard::set_mock_clipboard(Some("Long article text".to_string()));
+            let tpl = "### SUMMARY OF COPIED TEXT ([date.short]):[key(enter)][clip | ai(summarize this in 3 concise bullet points) | trim]";
+            system::clip::set_mock_clip(Some("Long article text".to_string()));
             let result = interpolate(tpl, &args);
             // date.short will be the actual date, so we just check the AI marker structure
             assert!(result.starts_with("### SUMMARY OF COPIED TEXT ("));
@@ -965,7 +962,7 @@ mod tests {
             // trim is applied to the AI marker?
             // the pipeline handles `clipboard | ai(...) | trim` by adding \x03 and \x04.
             // Wait, the test checks if it generates correct markers.
-            system::clipboard::set_mock_clipboard(None);
+            system::clip::set_mock_clip(None);
         }
 
         #[test]

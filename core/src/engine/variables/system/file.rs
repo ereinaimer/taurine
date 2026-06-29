@@ -1,5 +1,5 @@
 use directories::UserDirs;
-use rand::RngExt;
+
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -132,33 +132,6 @@ fn read_file(path_str: &str) -> String {
     contents
 }
 
-fn random_line(path_str: &str) -> String {
-    let path = match expand_path(path_str) {
-        Some(p) => p,
-        None => return "[Error: Invalid path]".to_string(),
-    };
-
-    let file = match check_file(&path) {
-        Ok(f) => f,
-        Err(e) => return e,
-    };
-
-    let reader = BufReader::new(file);
-    let lines: Vec<String> = reader
-        .lines()
-        .map_while(Result::ok)
-        .filter(|l| !l.trim().is_empty())
-        .collect();
-
-    if lines.is_empty() {
-        return "[Error: File is empty or only contains whitespace]".to_string();
-    }
-
-    let mut rng = rand::rng();
-    let index = rng.random_range(0..lines.len());
-    lines[index].clone()
-}
-
 fn read_lines(path_str: &str, start: usize, end: usize) -> String {
     let path = match expand_path(path_str) {
         Some(p) => p,
@@ -203,12 +176,6 @@ pub fn resolve(key: &str) -> Option<String> {
                 return Some("[Error: Missing path]".to_string());
             }
             Some(read_file(&invocation.raw_args))
-        }
-        "random_line" => {
-            if invocation.raw_args.is_empty() {
-                return Some("[Error: Missing path]".to_string());
-            }
-            Some(random_line(&invocation.raw_args))
         }
         "read_line" => {
             if invocation.raw_args.is_empty() {
@@ -298,14 +265,6 @@ mod tests {
     fn read_file_missing() {
         let result = read_file("/path/does/not/exist.txt");
         assert!(result.starts_with("[Error: "));
-    }
-
-    #[test]
-    fn random_line_filters_empty() {
-        let file = create_temp_file("\n\nhello\n\n");
-        let path = file.path().to_str().unwrap();
-        let line = random_line(path);
-        assert_eq!(line, "hello");
     }
 
     #[test]

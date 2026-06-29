@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::engine::variables::ExpansionStep;
-use crate::engine::variables::system::clipboard::MAX_PAYLOAD_BYTES;
+use crate::engine::variables::system::clip::MAX_PAYLOAD_BYTES;
 use crate::metrics::AutomationMetricKind;
 
 use crate::engine::buffer::FastBuffer;
@@ -141,8 +141,8 @@ impl Evaluator {
             .map(|s| *s)
             .unwrap_or_default();
         match style {
-            crate::settings::SpinnerStyle::Braille => "⠋ Thinking...".to_string(),
-            crate::settings::SpinnerStyle::Arc => "◜ Thinking...".to_string(),
+            crate::settings::SpinnerStyle::Braille => "Ã¢Â â€¹ Thinking...".to_string(),
+            crate::settings::SpinnerStyle::Arc => "Ã¢â€”Å“ Thinking...".to_string(),
             crate::settings::SpinnerStyle::Classic => "| Thinking...".to_string(),
         }
     }
@@ -514,7 +514,7 @@ impl Evaluator {
 
                 if let Some(template) = expansion.ai_transformer_template {
                     let initial_text = self.get_initial_spinner_text(&template);
-                    // Template has | ai(...) or async system markers — trigger async pre-resolution before injecting.
+                    // Template has | ai(...) or async system markers Ã¢â‚¬â€ trigger async pre-resolution before injecting.
                     return Some(ExpansionResult {
                         delete_count,
                         steps: vec![ExpansionStep::Text(initial_text)],
@@ -913,7 +913,7 @@ mod tests {
             ),
             (
                 "shrug".to_string(),
-                crate::db::crud::AutomationAction::text(r#"¯\_(ツ)_/¯"#),
+                crate::db::crud::AutomationAction::text(r#"Ã‚Â¯\_(Ã£Æ’â€ž)_/Ã‚Â¯"#),
             ),
         ]);
         Evaluator::new(state)
@@ -1996,14 +1996,12 @@ mod tests {
 
     #[test]
     fn clipboard_payload_at_history_ceiling_skips_blind_undo_registration() {
-        crate::engine::variables::system::clipboard::set_mock_clipboard(Some(
-            "x".repeat(MAX_PAYLOAD_BYTES),
-        ));
+        crate::engine::variables::system::clip::set_mock_clip(Some("x".repeat(MAX_PAYLOAD_BYTES)));
 
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "clip".to_string(),
-            crate::db::crud::AutomationAction::text("[clipboard]"),
+            crate::db::crud::AutomationAction::text("[clip]"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -2023,7 +2021,7 @@ mod tests {
             .expect("clipboard template should expand");
         assert_eq!(result.undo_trigger, None);
 
-        crate::engine::variables::system::clipboard::set_mock_clipboard(None);
+        crate::engine::variables::system::clip::set_mock_clip(None);
     }
 
     #[test]
@@ -2041,7 +2039,7 @@ mod tests {
         assert_eq!(result.delete_count, 6);
         assert_eq!(
             result.steps,
-            vec![ExpansionStep::Text(r#"¯\_(ツ)_/¯"#.to_string())]
+            vec![ExpansionStep::Text(r#"Ã‚Â¯\_(Ã£Æ’â€ž)_/Ã‚Â¯"#.to_string())]
         );
         assert!(result.track_usage);
         assert_no_follow_up(&result);
@@ -2085,12 +2083,12 @@ mod tests {
                 None
             );
         }
-        // Ambiguous: two `>` in one span — do not expand with a partial delete.
+        // Ambiguous: two `>` in one span Ã¢â‚¬â€ do not expand with a partial delete.
         assert_eq!(eval.process_event(EngineEvent::ActionDelimiter), None);
     }
 
     /// Simulates two separate expansions in a row: first snippet finishes (buffer cleared), then
-    /// user types the second trigger — must not merge or double-fire.
+    /// user types the second trigger Ã¢â‚¬â€ must not merge or double-fire.
     #[test]
     fn test_back_to_back_separate_triggers_like_user_typing_brb_then_gm() {
         let state = Arc::new(EngineState::new('>'));
@@ -2893,7 +2891,7 @@ mod tests {
     fn inline_ai_thinking_text_matches_spec() {
         let state = Arc::new(EngineState::new('>'));
         let eval = Evaluator::new(state);
-        assert_eq!(eval.get_thinking_text(), "⠋ Thinking...");
+        assert_eq!(eval.get_thinking_text(), "Ã¢Â â€¹ Thinking...");
     }
 
     #[test]

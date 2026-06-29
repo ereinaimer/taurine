@@ -11,19 +11,18 @@ The `[lorem.*]` namespace allows you to quickly generate placeholder text direct
 
 | Variable | Description | Default | Example Output |
 | :--- | :--- | :--- | :--- |
-| `[lorem]` | Generates a single paragraph of text. | - | `Lorem ipsum dolor sit amet...` |
 | `[lorem.words(n)]` | Generates a specific number of words. | `15` | `consectetur adipiscing elit` |
-| `[lorem.sentence(n)]` | Generates a specific number of sentences. | `1` | `Sed do eiusmod tempor incididunt.` |
-| `[lorem.paragraph(n)]` | Generates a specific number of paragraphs. | `1` | `(Multiple paragraphs separated by \n\n)` |
+| `[lorem.sentences(n)]` | Generates a specific number of sentences. | `1` | `Sed do eiusmod tempor incididunt.` |
+| `[lorem.paragraphs(n)]` | Generates a specific number of paragraphs. | `1` | `(Multiple paragraphs separated by \n\n)` |
 
 ## Usage Details
 
 ### Numeric Arguments
-All `lorem` variants (except the root `[lorem]` tag) accept an optional numeric argument `n` to control the amount of text generated.
+All `lorem` variants accept an optional numeric argument `n` to control the amount of text generated. If omitted, Taurine falls back to a sensible default.
 
 ```text
 [lorem.words(3)] -> "lorem ipsum dolor"
-[lorem.sentence(2)] -> "Lorem ipsum dolor sit amet. Consectetur adipiscing elit."
+[lorem.sentences(2)] -> "Lorem ipsum dolor sit amet. Consectetur adipiscing elit."
 ```
 
 ### Dynamic Count
@@ -31,7 +30,7 @@ The `lorem` namespace supports Taurine's [Dynamic Variables](/docs/cli/dynamic-v
 
 ```text
 [lorem.words([count=10])]
-[lorem.sentence([random.int(1, 3)])]
+[lorem.sentences([random.int(1, 3)])]
 ```
 
 ### Transformer Chaining
@@ -39,7 +38,7 @@ You can chain [format modifiers](/docs/cli/dynamic-variables/transformers) after
 
 ```text
 [lorem.words(3) | upper] -> "LOREM IPSUM DOLOR"
-[lorem.sentence(1) | title] -> "Lorem Ipsum Dolor Sit Amet."
+[lorem.sentences(1) | title] -> "Lorem Ipsum Dolor Sit Amet."
 ```
 
 ## Examples
@@ -48,19 +47,19 @@ You can chain [format modifiers](/docs/cli/dynamic-variables/transformers) after
 Quickly fill out a field with a sentence of placeholder text.
 
 <Transformation
-  template="Comment: [lorem.sentence(1)]"
+  template="Comment: [lorem.sentences(1)]"
   input=">mock "
   result="Comment: Pellentesque habitant morbi tristique senectus et netus."
 />
 
 ### Multiline Mocking
-For larger content blocks like email bodies or documentation drafts, use `[lorem.paragraph(n)]`.
+For larger content blocks like email bodies or documentation drafts, use `[lorem.paragraphs(n)]`.
 
 ```text
 Subject: Weekly Update
 Hi Team,
 
-[lorem.paragraph(2)]
+[lorem.paragraphs(2)]
 
 Best,
 Automation

@@ -13,10 +13,9 @@ pub(crate) struct LoremInvocation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LoremVariant {
-    Default,
     Words,
-    Sentence,
-    Paragraph,
+    Sentences,
+    Paragraphs,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,10 +34,7 @@ pub(crate) fn parse_invocation(key: &str) -> Result<LoremInvocation, LoremParseE
         .ok_or(LoremParseError::InvalidRoot)?;
 
     if rest.is_empty() {
-        return Ok(LoremInvocation {
-            variant: LoremVariant::Default,
-            count: DEFAULT_PARAGRAPH_COUNT,
-        });
+        return Err(LoremParseError::InvalidVariant);
     }
 
     let modifier = rest
@@ -62,12 +58,12 @@ pub(crate) fn parse_invocation(key: &str) -> Result<LoremInvocation, LoremParseE
             variant: LoremVariant::Words,
             count: count.unwrap_or(DEFAULT_WORD_COUNT),
         }),
-        "sentence" => Ok(LoremInvocation {
-            variant: LoremVariant::Sentence,
+        "sentences" => Ok(LoremInvocation {
+            variant: LoremVariant::Sentences,
             count: count.unwrap_or(DEFAULT_SENTENCE_COUNT),
         }),
-        "paragraph" => Ok(LoremInvocation {
-            variant: LoremVariant::Paragraph,
+        "paragraphs" => Ok(LoremInvocation {
+            variant: LoremVariant::Paragraphs,
             count: count.unwrap_or(DEFAULT_PARAGRAPH_COUNT),
         }),
         _ => Err(LoremParseError::InvalidVariant),
@@ -79,13 +75,13 @@ pub fn resolve(key: &str) -> Option<String> {
     let end = invocation.count.checked_add(1)?;
 
     match invocation.variant {
-        LoremVariant::Default | LoremVariant::Paragraph => Some(
+        LoremVariant::Paragraphs => Some(
             Paragraphs(invocation.count..end)
                 .fake::<Vec<String>>()
                 .join("\n\n"),
         ),
         LoremVariant::Words => Some(Words(invocation.count..end).fake::<Vec<String>>().join(" ")),
-        LoremVariant::Sentence => Some(
+        LoremVariant::Sentences => Some(
             Sentences(invocation.count..end)
                 .fake::<Vec<String>>()
                 .join(" "),
@@ -153,11 +149,8 @@ mod tests {
     }
 
     #[test]
-    fn resolves_default_lorem_to_one_paragraph() {
-        let value = resolve("lorem").unwrap();
-
-        assert!(!value.trim().is_empty());
-        assert_eq!(value.split("\n\n").count(), 1);
+    fn rejects_bare_lorem_tag() {
+        assert_eq!(resolve("lorem"), None);
     }
 
     #[test]
@@ -183,9 +176,9 @@ mod tests {
     }
 
     #[test]
-    fn resolves_sentence_and_paragraph_output_formatting() {
-        let sentences = resolve("lorem.sentence(2)").unwrap();
-        let paragraphs = resolve("lorem.paragraph(2)").unwrap();
+    fn resolves_sentences_and_paragraphs_output_formatting() {
+        let sentences = resolve("lorem.sentences(2)").unwrap();
+        let paragraphs = resolve("lorem.paragraphs(2)").unwrap();
 
         assert_eq!(sentence_count(&sentences), 2);
         assert!(!sentences.contains("\n\n"));
@@ -196,7 +189,7 @@ mod tests {
     fn rejects_invalid_input_for_fallback() {
         assert_eq!(resolve("lorem.words"), None);
         assert_eq!(resolve("lorem.words(nope)"), None);
-        assert_eq!(resolve("lorem.sentence(1, 2)"), None);
-        assert_eq!(resolve("lorem.paragraph(1).upper"), None);
+        assert_eq!(resolve("lorem.sentences(1, 2)"), None);
+        assert_eq!(resolve("lorem.paragraphs(1).upper"), None);
     }
 }

@@ -18,20 +18,8 @@ pub enum ValidationError {
 }
 
 const SYSTEM_ROOTS: &[&str] = &[
-    "cursor",
-    "clipboard",
-    "time",
-    "date",
-    "uuid",
-    "env",
-    "net",
-    "exec",
-    "random",
-    "key",
-    "delay",
-    "lorem",
-    "mock",
-    "file",
+    "cursor", "clip", "time", "date", "uuid", "env", "net", "exec", "random", "key", "delay",
+    "lorem", "mock", "file",
 ];
 
 const TIME_METHODS: &[&str] = &["utc", "calc(±...)", "format(...)"];
@@ -52,7 +40,7 @@ const RANDOM_MODIFIERS: &[&str] = &[
     "hex(len)",
     "pass(len)",
 ];
-const LOREM_MODIFIERS: &[&str] = &["words(n)", "sentence(n)", "paragraph(n)"];
+const LOREM_MODIFIERS: &[&str] = &["words(n)", "sentences(n)", "paragraphs(n)"];
 const MOCK_MODIFIERS: &[&str] = &[
     "name",
     "first_name",
@@ -71,11 +59,7 @@ const MOCK_MODIFIERS: &[&str] = &[
     "phone_number",
     "cell_number",
 ];
-const FILE_MODIFIERS: &[&str] = &[
-    "read(path)",
-    "random_line(path)",
-    "read_line(path, start, [end])",
-];
+const FILE_MODIFIERS: &[&str] = &["read(path)", "read_line(path, start, [end])"];
 const KEY_MODIFIERS: &[&str] = &[
     "enter",
     "tab",
@@ -128,8 +112,8 @@ pub fn strip_global_transformers(key: &str) -> &str {
 
 pub fn split_system_tag(key: &str) -> Option<(&str, Option<&str>)> {
     let base = strip_global_transformers(key);
-    if system::clipboard::is_clipboard_key(base) {
-        return Some(("clipboard", None));
+    if system::clip::is_clip_key(base) {
+        return Some(("clip", None));
     }
 
     if let Some(rest) = base.strip_prefix("key(")
@@ -159,7 +143,7 @@ pub fn split_system_tag(key: &str) -> Option<(&str, Option<&str>)> {
 pub fn valid_modifier_hint(root: &str) -> String {
     match root {
         "cursor" => "Valid form: [cursor]".to_string(),
-        "clipboard" => "Valid forms: [clipboard], [clipboard(0)], [clipboard(1)], [clipboard(2)]"
+        "clip" => "Valid forms: [clip], [clip(0)], [clip(1)], [clip(2)]"
             .to_string(),
         "time" => format!("Valid modifiers / methods: {}", TIME_METHODS.join(", ")),
         "date" => format!("Valid modifiers / methods: {}", DATE_METHODS.join(", ")),
@@ -168,7 +152,7 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "net" => format!("Valid modifiers: {}", NET_MODIFIERS.join(", ")),
         "exec" => "Valid form: [exec.<lang>(...)] or [exec.<lang>.file(...).args(...)]. Languages: bash, powershell, python, node, node_esm, cmd".to_string(),
         "random" => format!("Valid modifiers: {}", RANDOM_MODIFIERS.join(", ")),
-        "lorem" => format!("Valid modifiers: lorem, {}", LOREM_MODIFIERS.join(", ")),
+        "lorem" => format!("A modifier is required. Valid modifiers: {}", LOREM_MODIFIERS.join(", ")),
         "mock" => format!("Valid modifiers: {}", MOCK_MODIFIERS.join(", ")),
         "file" => format!("Valid modifiers: {}", FILE_MODIFIERS.join(", ")),
         "key" => format!(
@@ -183,7 +167,7 @@ pub fn valid_modifier_hint(root: &str) -> String {
 pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), ValidationError> {
     match root {
         "cursor" => validate_no_modifier("cursor", modifier),
-        "clipboard" => validate_no_modifier("clipboard", modifier),
+        "clip" => validate_clip_modifier(modifier),
         "time" => validate_time_modifier(modifier),
         "date" => validate_date_modifier(modifier),
         "uuid" => validate_known_modifier("uuid", modifier, UUID_MODIFIERS),
@@ -206,6 +190,20 @@ fn validate_no_modifier(root: &'static str, modifier: Option<&str>) -> Result<()
         Some(modifier) => Err(ValidationError::UnexpectedModifier {
             root,
             modifier: modifier.to_string(),
+        }),
+    }
+}
+
+const CLIP_INDEX_MODIFIERS: &[&str] = &["(0)", "(1)", "(2)"];
+
+fn validate_clip_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
+    match modifier.and_then(normalize_modifier) {
+        None => Ok(()),
+        Some(m) if CLIP_INDEX_MODIFIERS.contains(&m) => Ok(()),
+        Some(m) => Err(ValidationError::InvalidModifier {
+            root: "clip",
+            modifier: m.to_string(),
+            allowed: CLIP_INDEX_MODIFIERS,
         }),
     }
 }
@@ -444,7 +442,7 @@ fn validate_random_modifier(modifier: Option<&str>) -> Result<(), ValidationErro
 
 fn validate_lorem_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
     match modifier.and_then(normalize_modifier) {
-        None => Ok(()),
+        None => Err(ValidationError::MissingModifier { root: "lorem" }),
         Some(modifier) => {
             let Some((variant, args)) = parse_lorem_modifier(modifier) else {
                 return Err(ValidationError::InvalidModifier {
@@ -455,7 +453,7 @@ fn validate_lorem_modifier(modifier: Option<&str>) -> Result<(), ValidationError
             };
 
             let args = split_modifier_args(args);
-            let valid = matches!(variant, "words" | "sentence" | "paragraph") && args.len() <= 1;
+            let valid = matches!(variant, "words" | "sentences" | "paragraphs") && args.len() <= 1;
 
             if valid {
                 Ok(())
@@ -479,32 +477,26 @@ fn validate_file_modifier(modifier: Option<&str>) -> Result<(), ValidationError>
         normalize_modifier(modifier.ok_or(ValidationError::MissingModifier { root: "file" })?)
             .ok_or(ValidationError::MissingModifier { root: "file" })?;
 
-    let Some((variant, args)) = parse_file_modifier(modifier) else {
-        return Err(ValidationError::InvalidModifier {
-            root: "file",
-            modifier: modifier.to_string(),
-            allowed: FILE_MODIFIERS,
-        });
-    };
+    if let Some((variant, args)) = parse_file_modifier(modifier) {
+        let valid = match variant {
+            "read" => args.is_some_and(|args| split_modifier_args(args).len() == 1),
+            "read_line" => args.is_some_and(|args| {
+                let count = split_modifier_args(args).len();
+                count == 2 || count == 3
+            }),
+            _ => false,
+        };
 
-    let valid = match variant {
-        "read" | "random_line" => args.is_some_and(|args| split_modifier_args(args).len() == 1),
-        "read_line" => args.is_some_and(|args| {
-            let num_args = split_modifier_args(args).len();
-            num_args == 2 || num_args == 3
-        }),
-        _ => false,
-    };
-
-    if valid {
-        Ok(())
-    } else {
-        Err(ValidationError::InvalidModifier {
-            root: "file",
-            modifier: modifier.to_string(),
-            allowed: FILE_MODIFIERS,
-        })
+        if valid {
+            return Ok(());
+        }
     }
+
+    Err(ValidationError::InvalidModifier {
+        root: "file",
+        modifier: modifier.to_string(),
+        allowed: FILE_MODIFIERS,
+    })
 }
 
 fn parse_random_modifier(input: &str) -> Option<(&str, Option<&str>)> {
@@ -663,12 +655,9 @@ mod tests {
             split_system_tag("net.hostname | upper"),
             Some(("net", Some("hostname")))
         );
-        assert_eq!(split_system_tag("clipboard"), Some(("clipboard", None)));
-        assert_eq!(split_system_tag("clipboard(1)"), Some(("clipboard", None)));
-        assert_eq!(
-            split_system_tag("clipboard(2) | upper"),
-            Some(("clipboard", None))
-        );
+        assert_eq!(split_system_tag("clip"), Some(("clip", None)));
+        assert_eq!(split_system_tag("clip(1)"), Some(("clip", None)));
+        assert_eq!(split_system_tag("clip(2) | upper"), Some(("clip", None)));
         assert_eq!(split_system_tag("query | upper"), None);
     }
 
@@ -747,12 +736,29 @@ mod tests {
     #[test]
     fn validates_roots_with_no_modifiers() {
         assert_eq!(validate_system_tag("cursor", None), Ok(()));
-        assert_eq!(validate_system_tag("clipboard", None), Ok(()));
+        assert_eq!(validate_system_tag("clip", None), Ok(()));
         assert_eq!(
             validate_system_tag("cursor", Some("now")),
             Err(ValidationError::UnexpectedModifier {
                 root: "cursor",
                 modifier: "now".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn validates_clip_syntax() {
+        assert_eq!(validate_system_tag("clip", None), Ok(()));
+        assert_eq!(validate_system_tag("clip", Some("(0)")), Ok(()));
+        assert_eq!(validate_system_tag("clip", Some("(1)")), Ok(()));
+        assert_eq!(validate_system_tag("clip", Some("(2)")), Ok(()));
+
+        assert_eq!(
+            validate_system_tag("clip", Some("unknown")),
+            Err(ValidationError::InvalidModifier {
+                root: "clip",
+                modifier: "unknown".to_string(),
+                allowed: &["(0)", "(1)", "(2)"],
             })
         );
     }
@@ -851,18 +857,21 @@ mod tests {
 
     #[test]
     fn validates_lorem_modifier_syntax() {
-        assert_eq!(validate_system_tag("lorem", None), Ok(()));
         assert_eq!(validate_system_tag("lorem", Some("words(3)")), Ok(()));
         assert_eq!(validate_system_tag("lorem", Some("words()")), Ok(()));
-        assert_eq!(validate_system_tag("lorem", Some("sentence(2)")), Ok(()));
-        assert_eq!(validate_system_tag("lorem", Some("paragraph(1)")), Ok(()));
+        assert_eq!(validate_system_tag("lorem", Some("sentences(2)")), Ok(()));
+        assert_eq!(validate_system_tag("lorem", Some("paragraphs(1)")), Ok(()));
         assert_eq!(validate_system_tag("lorem", Some("words([num=5])")), Ok(()));
         assert_eq!(
             validate_system_tag("lorem", Some("words([random.int(3, 3)])")),
             Ok(())
         );
         assert_eq!(
-            validate_system_tag("lorem", Some("paragraph(nope)")),
+            validate_system_tag("lorem", None),
+            Err(ValidationError::MissingModifier { root: "lorem" })
+        );
+        assert_eq!(
+            validate_system_tag("lorem", Some("paragraphs(nope)")),
             Ok(())
         );
 

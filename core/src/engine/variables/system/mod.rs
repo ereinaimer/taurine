@@ -3,7 +3,7 @@
 //! Centralizes logic for reserved keywords and system-wide markers like `[cursor]`,
 //! and future variables like `[time.now]`.
 
-pub mod clipboard;
+pub mod clip;
 
 pub mod date;
 pub mod env;
@@ -34,7 +34,7 @@ struct TagBounds {
 pub fn is_reserved(key: &str) -> bool {
     key == "cursor"
         || key == "uuid"
-        || clipboard::is_clipboard_key(key)
+        || clip::is_clip_key(key)
         || key == "lorem"
         || key == "mock"
         || key.starts_with("uuid.")
@@ -93,8 +93,8 @@ pub fn resolve(key: &str) -> Option<String> {
     if key == "uuid" || key.starts_with("uuid.") {
         return uuid::resolve(key);
     }
-    if clipboard::is_clipboard_key(key) {
-        return clipboard::resolve(key);
+    if clip::is_clip_key(key) {
+        return clip::resolve(key);
     }
 
     None
@@ -407,7 +407,7 @@ fn apply_cursor_positioning(steps: &mut Vec<ExpansionStep>) {
             steps.push(ExpansionStep::KeyPress("left".to_string()));
         }
     } else {
-        // No [cursor] directive — just restore any escaped cursor sentinels.
+        // No [cursor] directive â€” just restore any escaped cursor sentinels.
         restore_cursor_sentinels(steps);
     }
 }
@@ -457,10 +457,10 @@ mod tests {
     fn test_is_reserved() {
         assert!(is_reserved("cursor"));
         assert!(is_reserved("uuid"));
-        assert!(is_reserved("clipboard"));
-        assert!(is_reserved("clipboard(1)"));
-        assert!(is_reserved("clipboard.truncate(5)"));
-        assert!(is_reserved("clipboard(2).upper"));
+        assert!(is_reserved("clip"));
+        assert!(is_reserved("clip(1)"));
+        assert!(is_reserved("clip.truncate(5)"));
+        assert!(is_reserved("clip(2).upper"));
         assert!(is_reserved("uuid.v4"));
         assert!(is_reserved("time"));
         assert!(is_reserved("time.utc"));
@@ -747,7 +747,7 @@ mod tests {
         validate_output("[cursor=invalid]", Some("default"));
         validate_output("[lorem.words([num=5])]", Some("nested"));
         validate_output(r#"\[cursor\] [cursor]"#, Some("escaped"));
-        validate_output("[clipboard=invalid]", None);
+        validate_output("[clip=invalid]", None);
     }
 
     #[test]

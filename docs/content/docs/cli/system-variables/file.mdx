@@ -16,7 +16,6 @@ You can use the following variants to read data from a file.
 | Syntax | Description |
 | :--- | :--- |
 | `[file.read(path)]` | Reads the entire contents of the file as plain text. |
-| `[file.random_line(path)]` | Randomly selects a single non-empty line from the file. |
 | `[file.read_line(path, start, [end])]` | Extracts specific lines based on a 1-indexed numbering system. |
 
 **Important Note for `read_line`:**
@@ -62,6 +61,6 @@ If you have a file named `quotes.txt` with one quote per line, you can configure
 
 <Transformation
   trigger=";quote"
-  template="Here is your quote for the day:\n[file.random_line(~/Documents/quotes.txt)]"
+  template="Here is your quote for the day:\n[file.read_line(~/Documents/quotes.txt, 1)]"
   output="Here is your quote for the day:\nThe only way to do great work is to love what you do."
 />
