@@ -25,7 +25,7 @@ const SYSTEM_ROOTS: &[&str] = &[
     "uuid",
     "env",
     "net",
-    "execute",
+    "exec",
     "random",
     "key",
     "delay",
@@ -39,11 +39,11 @@ const DATE_METHODS: &[&str] = &["utc", "calc(±...)", "format(...)"];
 
 const UUID_MODIFIERS: &[&str] = &["v4", "v7"];
 const NET_MODIFIERS: &[&str] = &["ip", "lip", "online", "port(n)"];
-const EXECUTE_LANGUAGES: &[&str] = &["bash", "powershell", "python", "node", "node_esm", "cmd"];
-const EXECUTE_MODIFIERS: &[&str] = &[
-    "execute.<lang>(...)",
-    "execute.silent.<lang>(...)",
-    "execute.<lang>.file(...).args(...)",
+const EXEC_LANGUAGES: &[&str] = &["bash", "powershell", "python", "node", "node_esm", "cmd"];
+const EXEC_MODIFIERS: &[&str] = &[
+    "exec.<lang>(...)",
+    "exec.silent.<lang>(...)",
+    "exec.<lang>.file(...).args(...)",
 ];
 const RANDOM_MODIFIERS: &[&str] = &[
     "int(min, max)",
@@ -166,7 +166,7 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "uuid" => format!("Valid modifiers: uuid, {}", UUID_MODIFIERS.join(", ")),
         "env" => "Valid form: [env(<var_name>)] or [env(\"<var_name>\")]".to_string(),
         "net" => format!("Valid modifiers: {}", NET_MODIFIERS.join(", ")),
-        "execute" => "Valid form: [execute.<lang>(...)] or [execute.<lang>.file(...).args(...)]. Languages: bash, powershell, python, node, node_esm, cmd".to_string(),
+        "exec" => "Valid form: [exec.<lang>(...)] or [exec.<lang>.file(...).args(...)]. Languages: bash, powershell, python, node, node_esm, cmd".to_string(),
         "random" => format!("Valid modifiers: {}", RANDOM_MODIFIERS.join(", ")),
         "lorem" => format!("Valid modifiers: lorem, {}", LOREM_MODIFIERS.join(", ")),
         "mock" => format!("Valid modifiers: {}", MOCK_MODIFIERS.join(", ")),
@@ -189,7 +189,7 @@ pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), Val
         "uuid" => validate_known_modifier("uuid", modifier, UUID_MODIFIERS),
         "env" => validate_env_modifier(modifier),
         "net" => validate_net_modifier(modifier),
-        "execute" => validate_execute_modifier(modifier),
+        "exec" => validate_exec_modifier(modifier),
         "random" => validate_random_modifier(modifier),
         "lorem" => validate_lorem_modifier(modifier),
         "mock" => validate_mock_modifier(modifier),
@@ -303,10 +303,10 @@ fn validate_env_modifier(modifier: Option<&str>) -> Result<(), ValidationError> 
     }
 }
 
-fn validate_execute_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
+fn validate_exec_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
     let modifier =
-        normalize_modifier(modifier.ok_or(ValidationError::MissingModifier { root: "execute" })?)
-            .ok_or(ValidationError::MissingModifier { root: "execute" })?;
+        normalize_modifier(modifier.ok_or(ValidationError::MissingModifier { root: "exec" })?)
+            .ok_or(ValidationError::MissingModifier { root: "exec" })?;
 
     let mut rest = modifier;
     if let Some(suffix) = rest.strip_prefix("silent.") {
@@ -314,17 +314,17 @@ fn validate_execute_modifier(modifier: Option<&str>) -> Result<(), ValidationErr
     }
 
     let (language, after_language) =
-        parse_execute_language(rest).ok_or_else(|| ValidationError::InvalidModifier {
-            root: "execute",
+        parse_exec_language(rest).ok_or_else(|| ValidationError::InvalidModifier {
+            root: "exec",
             modifier: modifier.to_string(),
-            allowed: EXECUTE_MODIFIERS,
+            allowed: EXEC_MODIFIERS,
         })?;
 
-    if !EXECUTE_LANGUAGES.contains(&language) {
+    if !EXEC_LANGUAGES.contains(&language) {
         return Err(ValidationError::InvalidModifier {
-            root: "execute",
+            root: "exec",
             modifier: modifier.to_string(),
-            allowed: EXECUTE_MODIFIERS,
+            allowed: EXEC_MODIFIERS,
         });
     }
 
@@ -332,18 +332,18 @@ fn validate_execute_modifier(modifier: Option<&str>) -> Result<(), ValidationErr
         .strip_prefix(".file")
         .unwrap_or(after_language);
     let (_, trailing) =
-        scan_execute_parenthesized(after_file).ok_or_else(|| ValidationError::InvalidModifier {
-            root: "execute",
+        scan_exec_parenthesized(after_file).ok_or_else(|| ValidationError::InvalidModifier {
+            root: "exec",
             modifier: modifier.to_string(),
-            allowed: EXECUTE_MODIFIERS,
+            allowed: EXEC_MODIFIERS,
         })?;
 
     let trailing = if let Some(args) = trailing.strip_prefix(".args") {
         let (_, trailing) =
-            scan_execute_parenthesized(args).ok_or_else(|| ValidationError::InvalidModifier {
-                root: "execute",
+            scan_exec_parenthesized(args).ok_or_else(|| ValidationError::InvalidModifier {
+                root: "exec",
                 modifier: modifier.to_string(),
-                allowed: EXECUTE_MODIFIERS,
+                allowed: EXEC_MODIFIERS,
             })?;
         trailing
     } else {
@@ -354,15 +354,15 @@ fn validate_execute_modifier(modifier: Option<&str>) -> Result<(), ValidationErr
         Ok(())
     } else {
         Err(ValidationError::InvalidModifier {
-            root: "execute",
+            root: "exec",
             modifier: modifier.to_string(),
-            allowed: EXECUTE_MODIFIERS,
+            allowed: EXEC_MODIFIERS,
         })
     }
 }
 
-fn parse_execute_language(input: &str) -> Option<(&str, &str)> {
-    for language in EXECUTE_LANGUAGES {
+fn parse_exec_language(input: &str) -> Option<(&str, &str)> {
+    for language in EXEC_LANGUAGES {
         if let Some(rest) = input.strip_prefix(language)
             && (rest.starts_with('(') || rest.starts_with(".file"))
         {
@@ -372,7 +372,7 @@ fn parse_execute_language(input: &str) -> Option<(&str, &str)> {
     None
 }
 
-fn scan_execute_parenthesized(input: &str) -> Option<(&str, &str)> {
+fn scan_exec_parenthesized(input: &str) -> Option<(&str, &str)> {
     if !input.starts_with('(') {
         return None;
     }
@@ -510,7 +510,7 @@ fn validate_file_modifier(modifier: Option<&str>) -> Result<(), ValidationError>
 fn parse_random_modifier(input: &str) -> Option<(&str, Option<&str>)> {
     if let Some(paren_idx) = input.find('(') {
         let variant = input[..paren_idx].trim();
-        let (args, trailing) = scan_execute_parenthesized(&input[paren_idx..])?;
+        let (args, trailing) = scan_exec_parenthesized(&input[paren_idx..])?;
         if !variant.is_empty() && trailing.trim().is_empty() {
             Some((variant, Some(args)))
         } else {
@@ -526,7 +526,7 @@ fn parse_random_modifier(input: &str) -> Option<(&str, Option<&str>)> {
 fn parse_file_modifier(input: &str) -> Option<(&str, Option<&str>)> {
     if let Some(paren_idx) = input.find('(') {
         let variant = input[..paren_idx].trim();
-        let (args, trailing) = scan_execute_parenthesized(&input[paren_idx..])?;
+        let (args, trailing) = scan_exec_parenthesized(&input[paren_idx..])?;
         if !variant.is_empty() && trailing.trim().is_empty() {
             Some((variant, Some(args)))
         } else {
@@ -542,7 +542,7 @@ fn parse_file_modifier(input: &str) -> Option<(&str, Option<&str>)> {
 fn parse_lorem_modifier(input: &str) -> Option<(&str, &str)> {
     let paren_idx = input.find('(')?;
     let variant = input[..paren_idx].trim();
-    let (args, trailing) = scan_execute_parenthesized(&input[paren_idx..])?;
+    let (args, trailing) = scan_exec_parenthesized(&input[paren_idx..])?;
 
     if variant.is_empty() || !trailing.trim().is_empty() {
         None
@@ -778,37 +778,34 @@ mod tests {
     }
 
     #[test]
-    fn validates_execute_modifier_syntax() {
+    fn validates_exec_modifier_syntax() {
+        assert_eq!(validate_system_tag("exec", Some("bash(echo 42)")), Ok(()));
         assert_eq!(
-            validate_system_tag("execute", Some("bash(echo 42)")),
+            validate_system_tag("exec", Some("silent.bash(echo start)")),
             Ok(())
         );
         assert_eq!(
-            validate_system_tag("execute", Some("silent.bash(echo start)")),
+            validate_system_tag("exec", Some("bash.file(/tmp/test.sh).args(arg1, arg2)")),
             Ok(())
         );
         assert_eq!(
-            validate_system_tag("execute", Some("bash.file(/tmp/test.sh).args(arg1, arg2)")),
+            validate_system_tag("exec", Some("node_esm(console.log((1 + 2)))")),
             Ok(())
         );
         assert_eq!(
-            validate_system_tag("execute", Some("node_esm(console.log((1 + 2)))")),
-            Ok(())
-        );
-        assert_eq!(
-            validate_system_tag("execute", Some("ruby(puts 1)")),
+            validate_system_tag("exec", Some("ruby(puts 1)")),
             Err(ValidationError::InvalidModifier {
-                root: "execute",
+                root: "exec",
                 modifier: "ruby(puts 1)".to_string(),
-                allowed: EXECUTE_MODIFIERS,
+                allowed: EXEC_MODIFIERS,
             })
         );
         assert_eq!(
-            validate_system_tag("execute", Some("bash(echo 1")),
+            validate_system_tag("exec", Some("bash(echo 1")),
             Err(ValidationError::InvalidModifier {
-                root: "execute",
+                root: "exec",
                 modifier: "bash(echo 1".to_string(),
-                allowed: EXECUTE_MODIFIERS,
+                allowed: EXEC_MODIFIERS,
             })
         );
     }

@@ -31,7 +31,7 @@ const HEADER_GAP_HEIGHT: u16 = 1;
 const FOOTER_GAP_HEIGHT: u16 = 1;
 const EXPORT_RESULT_MODAL_TITLE: &str = "Export complete";
 const IMPORT_RUN_VARIABLES_WARNING_LINES: [&str; 3] = [
-    "CAUTION: This import contains [execute] variables that execute",
+    "CAUTION: This import contains [exec] variables that execute",
     "shell commands. Untrusted scripts can damage your system.",
     "Continue? [y/N]",
 ];
@@ -2307,7 +2307,7 @@ mod tests {
         let warning = IMPORT_RUN_VARIABLES_WARNING_LINES.join(" ");
 
         assert!(warning.contains("CAUTION:"));
-        assert!(warning.contains("[execute]"));
+        assert!(warning.contains("[exec]"));
         assert!(warning.contains("shell commands"));
         assert!(warning.contains("Untrusted scripts can damage your system."));
         assert!(warning.contains("[y/N]"));

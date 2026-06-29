@@ -342,7 +342,7 @@ mod tests {
         let mut payload = sample_payload();
         payload.automations.push(AutomationExport {
             trigger_type: TriggerType::Word,
-            output: "before [EXECUTE.bash(echo hi)] after".to_string(),
+            output: "before [EXEC.bash(echo hi)] after".to_string(),
             ..sample_automation()
         });
 
@@ -356,7 +356,7 @@ mod tests {
         automation.script = Some(taurine_core::exchange::ScriptExport {
             interpreter: taurine_core::engine::shell::ScriptInterpreter::Bash,
             behavior: taurine_core::engine::shell::ScriptBehavior::Inline,
-            content: "echo [execute.bash(echo nested)]".to_string(),
+            content: "echo [exec.bash(echo nested)]".to_string(),
         });
         payload.automations.push(automation);
 

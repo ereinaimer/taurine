@@ -10,7 +10,7 @@
     "net",
     "uuid",
     "cursor",
-    "execute",
+    "exec",
     "random",
     "lorem",
     "mock",

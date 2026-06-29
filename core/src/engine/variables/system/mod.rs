@@ -7,7 +7,7 @@ pub mod clipboard;
 
 pub mod date;
 pub mod env;
-pub mod execute;
+pub mod exec;
 pub mod file;
 pub mod lorem;
 pub mod mock;
@@ -45,7 +45,7 @@ pub fn is_reserved(key: &str) -> bool {
         || key.starts_with("env(")
         || key.starts_with("file.")
         || key.starts_with("net.")
-        || key.starts_with("execute.")
+        || key.starts_with("exec.")
         || key.starts_with("random.")
         || key.starts_with("lorem.")
         || key.starts_with("mock.")
@@ -348,9 +348,9 @@ fn split_into_steps(text: &str) -> Vec<ExpansionStep> {
         append_unescaped_segment(&text[ptr..tag.start], &mut current_text);
         let inner = tag_inner(text, tag);
 
-        if inner.starts_with("execute.") {
+        if inner.starts_with("exec.") {
             flush_text(&mut steps, &mut current_text);
-            match execute::to_script_metadata(inner) {
+            match exec::to_script_metadata(inner) {
                 Ok(metadata) => steps.push(ExpansionStep::InlineRun(metadata)),
                 Err(error) => steps.push(ExpansionStep::Text(format_run_error(error))),
             }
@@ -466,7 +466,7 @@ mod tests {
         assert!(is_reserved("time.utc"));
         assert!(is_reserved("net.localip"));
         assert!(is_reserved("net.localip"));
-        assert!(is_reserved("execute.bash(echo hi)"));
+        assert!(is_reserved("exec.bash(echo hi)"));
         assert!(is_reserved("random.int(1, 9)"));
         assert!(is_reserved("lorem"));
         assert!(is_reserved("lorem.words(3)"));
@@ -579,7 +579,7 @@ mod tests {
 
     #[test]
     fn test_finalize_inline_run_splits_progressive_steps() {
-        let res = finalize("Wait for it... [execute.bash(echo Done!)]", None);
+        let res = finalize("Wait for it... [exec.bash(echo Done!)]", None);
 
         assert_eq!(
             res.steps[0],
@@ -598,7 +598,7 @@ mod tests {
 
     #[test]
     fn test_finalize_silent_inline_run_uses_silent_metadata() {
-        let res = finalize("start[execute.silent.bash(echo background)]end", None);
+        let res = finalize("start[exec.silent.bash(echo background)]end", None);
 
         assert_eq!(res.steps.len(), 3);
         match &res.steps[1] {
@@ -614,7 +614,7 @@ mod tests {
 
     #[test]
     fn test_finalize_missing_run_file_emits_error_text() {
-        let res = finalize("[execute.bash.file(C:\\definitely\\missing.sh)]", None);
+        let res = finalize("[exec.bash.file(C:\\definitely\\missing.sh)]", None);
 
         assert_eq!(
             res.steps,
