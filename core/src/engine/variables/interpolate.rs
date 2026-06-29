@@ -302,7 +302,14 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
     finalize_interpolation(output)
 }
 
+fn is_async_system_variable(key: &str) -> bool {
+    key == "net.ip" || key.starts_with("net.dns(")
+}
+
 fn resolve_system_placeholder(key: &str) -> Option<String> {
+    if is_async_system_variable(key) {
+        return Some(format!("\x03\x1Fsys:{key}\x04"));
+    }
     super::system::resolve(key)
 }
 

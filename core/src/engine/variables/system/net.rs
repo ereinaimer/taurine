@@ -74,33 +74,76 @@ fn resolve_port(port_str: &str) -> Option<String> {
 }
 
 fn resolve_public_ip() -> String {
-    let addr = ("api.ipify.org", 80);
     let timeout = Duration::from_millis(1500);
-    if let Ok(mut addrs) = addr.to_socket_addrs()
-        && let Some(socket_addr) = addrs.next()
-        && let Ok(mut stream) = TcpStream::connect_timeout(&socket_addr, timeout)
-    {
-        let _ = stream.set_read_timeout(Some(timeout));
-        let _ = stream.set_write_timeout(Some(timeout));
-        let req = "GET / HTTP/1.1\r\nHost: api.ipify.org\r\nConnection: close\r\n\r\n";
-        let mut buf = Vec::new();
-        if stream.write_all(req.as_bytes()).is_ok()
-            && stream.read_to_end(&mut buf).is_ok()
-            && let Ok(response) = String::from_utf8(buf)
-            && let Some(body) = response.split("\r\n\r\n").nth(1)
-        {
-            let ip = body.trim();
-            if !ip.is_empty() {
-                return ip.to_string();
+
+    let addrs = [
+        SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(1, 1, 1, 1), 80)),
+        SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(1, 0, 0, 1), 80)),
+    ];
+
+    for socket_addr in addrs {
+        if let Ok(mut stream) = TcpStream::connect_timeout(&socket_addr, timeout) {
+            let _ = stream.set_read_timeout(Some(timeout));
+            let _ = stream.set_write_timeout(Some(timeout));
+            let req = "GET /cdn-cgi/trace HTTP/1.1\r\nHost: 1.1.1.1\r\nUser-Agent: Taurine/1.0\r\nConnection: close\r\n\r\n";
+            let mut buf = [0u8; 2048];
+            if stream.write_all(req.as_bytes()).is_ok()
+                && let Ok(n) = stream.read(&mut buf)
+                && n > 0
+                && let Ok(response) = String::from_utf8(buf[..n].to_vec())
+            {
+                for line in response.lines() {
+                    if let Some(ip) = line.trim().strip_prefix("ip=") {
+                        let ip = ip.trim();
+                        if !ip.is_empty() {
+                            return ip.to_string();
+                        }
+                    }
+                }
             }
         }
     }
+
+    for (host, path) in [("api.ipify.org", "/"), ("checkip.amazonaws.com", "/")] {
+        let addr_str = format!("{}:80", host);
+        if let Ok(mut addrs) = addr_str.to_socket_addrs()
+            && let Some(socket_addr) = addrs.next()
+            && let Ok(mut stream) = TcpStream::connect_timeout(&socket_addr, timeout)
+        {
+            let _ = stream.set_read_timeout(Some(timeout));
+            let _ = stream.set_write_timeout(Some(timeout));
+            let req = format!(
+                "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: Taurine/1.0\r\nConnection: close\r\n\r\n",
+                path, host
+            );
+            let mut buf = [0u8; 2048];
+            if stream.write_all(req.as_bytes()).is_ok()
+                && let Ok(n) = stream.read(&mut buf)
+                && n > 0
+                && let Ok(response) = String::from_utf8(buf[..n].to_vec())
+                && let Some(body) = response.split("\r\n\r\n").nth(1)
+            {
+                let ip = body.trim();
+                if !ip.is_empty() && !ip.contains('<') && !ip.contains("HTTP") {
+                    return ip.to_string();
+                }
+            }
+        }
+    }
+
     "[Error: public IP unavailable]".to_string()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_resolve_ip() {
+        let res = resolve("net.ip").unwrap();
+        assert!(!res.starts_with("[Error"));
+        assert!(res.contains('.'));
+    }
 
     #[test]
     fn test_resolve_lip() {

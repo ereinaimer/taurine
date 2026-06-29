@@ -85,11 +85,32 @@ fn split_outermost_markers(template: &str) -> Vec<Chunk> {
     chunks
 }
 
+fn contains_non_sys_markers(template: &str) -> bool {
+    let mut rest = template;
+    while let Some(sot) = rest.find('\x03') {
+        let after = &rest[sot + 1..];
+        if let Some(eot) = after.find('\x04') {
+            let content = &after[..eot];
+            if let Some(sep) = content.find('\x1F') {
+                if !content[sep + 1..].starts_with("sys:") {
+                    return true;
+                }
+            } else {
+                return true;
+            }
+            rest = &after[eot + 1..];
+        } else {
+            break;
+        }
+    }
+    false
+}
+
 async fn evaluate_marker_tree(
     mut marker_tree: String,
-    client: Client,
-    provider: AiProvider,
-    model: String,
+    client: Option<Client>,
+    provider: Option<AiProvider>,
+    model: Option<String>,
 ) -> taurine_core::error::Result<String> {
     while let Some(eot) = marker_tree.find('\x04') {
         if let Some(sot) = marker_tree[..eot].rfind('\x03') {
@@ -98,44 +119,60 @@ async fn evaluate_marker_tree(
                 let input = &content[..sep];
                 let prompt = &content[sep + 1..];
 
-                if input.is_empty() {
+                if let Some(sys_key) = prompt.strip_prefix("sys:") {
+                    let sys_key_owned = sys_key.to_string();
+                    tokio::task::spawn_blocking(move || {
+                        taurine_core::engine::variables::system::resolve(&sys_key_owned)
+                    })
+                    .await
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| format!("[Error: failed to resolve {sys_key}]"))
+                } else if input.is_empty() {
                     return Err(taurine_core::error::Error::Service(
                         "[Error: AI transformer received empty input]".to_string(),
                     ));
-                }
+                } else if let (Some(client), Some(provider), Some(model)) =
+                    (client.as_ref(), provider, model.as_ref())
+                {
+                    let user_message = if prompt.is_empty() {
+                        input.to_string()
+                    } else {
+                        format!("{prompt}:\n\n{input}")
+                    };
 
-                let user_message = if prompt.is_empty() {
-                    input.to_string()
-                } else {
-                    format!("{prompt}:\n\n{input}")
-                };
-
-                let chat_request = build_chat_request(provider, &user_message, None);
-                let exec_future = client.exec_chat_stream(&model, chat_request, None);
-                match tokio::time::timeout(Duration::from_secs(30), exec_future).await {
-                    Ok(Ok(mut chat_stream)) => {
-                        let mut res = String::new();
-                        while let Some(event) = chat_stream.stream.next().await {
-                            if let Ok(event) = event
-                                && let Some(chunk) = visible_chunk_text(event)
-                            {
-                                res.push_str(&chunk);
+                    let chat_request = build_chat_request(provider, &user_message, None);
+                    let exec_future = client.exec_chat_stream(model, chat_request, None);
+                    match tokio::time::timeout(Duration::from_secs(30), exec_future).await {
+                        Ok(Ok(mut chat_stream)) => {
+                            let mut res = String::new();
+                            while let Some(event) = chat_stream.stream.next().await {
+                                if let Ok(event) = event
+                                    && let Some(chunk) = visible_chunk_text(event)
+                                {
+                                    res.push_str(&chunk);
+                                }
                             }
+                            taurine_core::engine::variables::system::transformers::ai::strip_markdown_fence(&res)
                         }
-                        taurine_core::engine::variables::system::transformers::ai::strip_markdown_fence(&res)
+                        Ok(Err(err)) => {
+                            let details = sanitize_error_message(&err.to_string());
+                            return Err(taurine_core::error::Error::Service(format!(
+                                "[Error: AI request failed - {}]",
+                                details
+                            )));
+                        }
+                        Err(_) => {
+                            return Err(taurine_core::error::Error::Service(
+                                "[Error: AI request failed - Request timed out.]".to_string(),
+                            ));
+                        }
                     }
-                    Ok(Err(err)) => {
-                        let details = sanitize_error_message(&err.to_string());
-                        return Err(taurine_core::error::Error::Service(format!(
-                            "[Error: AI request failed - {}]",
-                            details
-                        )));
-                    }
-                    Err(_) => {
-                        return Err(taurine_core::error::Error::Service(
-                            "[Error: AI request failed - Request timed out.]".to_string(),
-                        ));
-                    }
+                } else {
+                    return Err(taurine_core::error::Error::Config(
+                        "AI has not been properly configured. Please complete the AI setup steps."
+                            .to_string(),
+                    ));
                 }
             } else {
                 content.to_string()
@@ -156,28 +193,29 @@ async fn run_ai_transformer_stream_inner(
     let mut spinner = Some(spinner_handle);
     let mut spinner_cleared = false;
 
-    let mut resolved = match resolve_inline_ai_request(&OsKeyringStore) {
-        Ok(r) => r,
-        Err(err) => {
-            ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
-            let mut output: Option<LiveOutputHandle> = None;
-            // The original interface-agnostic version approved by user
-            inject_error_message(
-                &mut output,
-                false,
-                "[Error: AI has not been properly configured. Please run setup steps.]",
-            )
-            .await?;
-            finish_output(output).await;
-            return Err(err);
+    let mut resolved = if contains_non_sys_markers(&template_with_markers) {
+        match resolve_inline_ai_request(&OsKeyringStore) {
+            Ok(r) => Some(r),
+            Err(err) => {
+                ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
+                let mut output: Option<LiveOutputHandle> = None;
+                inject_error_message(
+                    &mut output,
+                    false,
+                    "[Error: AI has not been properly configured. Please run setup steps.]",
+                )
+                .await?;
+                finish_output(output).await;
+                return Err(err);
+            }
         }
+    } else {
+        None
     };
 
-    let client = build_chat_client(
-        resolved.provider,
-        resolved.secret.as_str(),
-        resolved.custom_endpoint.clone(),
-    );
+    let client = resolved
+        .as_ref()
+        .map(|r| build_chat_client(r.provider, r.secret.as_str(), r.custom_endpoint.clone()));
 
     let chunks = split_outermost_markers(&template_with_markers);
     let mut handles = Vec::new();
@@ -189,8 +227,8 @@ async fn run_ai_transformer_stream_inner(
             }
             Chunk::Marker(m) => {
                 let client = client.clone();
-                let model = resolved.model.clone();
-                let provider = resolved.provider;
+                let model = resolved.as_ref().map(|r| r.model.clone());
+                let provider = resolved.as_ref().map(|r| r.provider);
                 handles.push(tokio::spawn(async move {
                     evaluate_marker_tree(m, client, provider, model).await
                 }));
@@ -213,13 +251,17 @@ async fn run_ai_transformer_stream_inner(
                 let mut output: Option<LiveOutputHandle> = None;
                 inject_error_message(&mut output, false, &message).await?;
                 finish_output(output).await;
-                resolved.secret.zeroize();
+                if let Some(ref mut r) = resolved {
+                    r.secret.zeroize();
+                }
                 return Err(err);
             }
             Err(err) => {
                 // JoinError (panic)
                 ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
-                resolved.secret.zeroize();
+                if let Some(ref mut r) = resolved {
+                    r.secret.zeroize();
+                }
                 return Err(taurine_core::error::Error::Service(format!(
                     "Task failed: {}",
                     err
@@ -228,7 +270,9 @@ async fn run_ai_transformer_stream_inner(
         }
     }
 
-    resolved.secret.zeroize();
+    if let Some(ref mut r) = resolved {
+        r.secret.zeroize();
+    }
     ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
 
     if output_text.is_empty() {
