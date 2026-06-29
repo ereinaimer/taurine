@@ -37,7 +37,7 @@ const SYSTEM_ROOTS: &[&str] = &[
 const TIME_METHODS: &[&str] = &["utc", "calc(±...)", "format(...)"];
 const DATE_METHODS: &[&str] = &["utc", "calc(±...)", "format(...)"];
 
-const UUID_MODIFIERS: &[&str] = &["v4", "v7", "simple"];
+const UUID_MODIFIERS: &[&str] = &["v4", "v7"];
 const NET_MODIFIERS: &[&str] = &["ip", "lip", "online", "port(n)"];
 const EXECUTE_LANGUAGES: &[&str] = &["bash", "powershell", "python", "node", "node_esm", "cmd"];
 const EXECUTE_MODIFIERS: &[&str] = &[
@@ -47,17 +47,10 @@ const EXECUTE_MODIFIERS: &[&str] = &[
 ];
 const RANDOM_MODIFIERS: &[&str] = &[
     "int(min, max)",
-    "float(min, max)",
-    "bool",
     "choice(a, b, ...)",
-    "string(len)",
-    "alpha(len)",
-    "numeric(len)",
+    "str(len)",
     "hex(len)",
-    "password(len)",
-    "color",
-    "ip",
-    "mac",
+    "pass(len)",
 ];
 const LOREM_MODIFIERS: &[&str] = &["words(n)", "sentence(n)", "paragraph(n)"];
 const MOCK_MODIFIERS: &[&str] = &[
@@ -193,7 +186,7 @@ pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), Val
         "clipboard" => validate_no_modifier("clipboard", modifier),
         "time" => validate_time_modifier(modifier),
         "date" => validate_date_modifier(modifier),
-        "uuid" => validate_optional_known_modifier("uuid", modifier, UUID_MODIFIERS),
+        "uuid" => validate_known_modifier("uuid", modifier, UUID_MODIFIERS),
         "env" => validate_env_modifier(modifier),
         "net" => validate_net_modifier(modifier),
         "execute" => validate_execute_modifier(modifier),
@@ -267,22 +260,6 @@ fn validate_date_modifier(modifier: Option<&str>) -> Result<(), ValidationError>
                 })
             }
         }
-    }
-}
-
-fn validate_optional_known_modifier(
-    root: &'static str,
-    modifier: Option<&str>,
-    allowed: &'static [&'static str],
-) -> Result<(), ValidationError> {
-    match modifier.and_then(normalize_modifier) {
-        None => Ok(()),
-        Some(modifier) if allowed.contains(&modifier) => Ok(()),
-        Some(modifier) => Err(ValidationError::InvalidModifier {
-            root,
-            modifier: modifier.to_string(),
-            allowed,
-        }),
     }
 }
 
@@ -442,18 +419,15 @@ fn validate_random_modifier(modifier: Option<&str>) -> Result<(), ValidationErro
     };
 
     let valid = match variant {
-        "int" | "float" => args.is_none_or(|args| {
+        "int" => args.is_none_or(|args| {
             let args = split_random_args(args);
             args.is_empty() || args.len() == 2
         }),
-        "string" | "alpha" | "numeric" | "hex" | "password" => args.is_none_or(|args| {
+        "str" | "hex" | "pass" => args.is_none_or(|args| {
             let args = split_random_args(args);
             args.is_empty() || args.len() == 1
         }),
         "choice" => args.is_some_and(|args| !split_random_args(args).is_empty()),
-        "bool" | "color" | "ip" | "mac" => {
-            args.is_none_or(|args| split_random_args(args).is_empty())
-        }
         _ => false,
     };
 
@@ -731,8 +705,11 @@ mod tests {
     }
 
     #[test]
-    fn validates_uuid_modifiers_and_optional_default() {
-        assert_eq!(validate_system_tag("uuid", None), Ok(()));
+    fn validates_uuid_modifiers() {
+        assert_eq!(
+            validate_system_tag("uuid", None),
+            Err(ValidationError::MissingModifier { root: "uuid" })
+        );
         for modifier in UUID_MODIFIERS {
             assert_eq!(validate_system_tag("uuid", Some(modifier)), Ok(()));
         }
@@ -842,23 +819,12 @@ mod tests {
         assert_eq!(validate_system_tag("random", Some("int()")), Ok(()));
         assert_eq!(validate_system_tag("random", Some("int(1, 2)")), Ok(()));
         assert_eq!(
-            validate_system_tag("random", Some("float(0.1, 9.9)")),
-            Ok(())
-        );
-        assert_eq!(validate_system_tag("random", Some("bool")), Ok(()));
-        assert_eq!(validate_system_tag("random", Some("bool()")), Ok(()));
-        assert_eq!(
             validate_system_tag("random", Some("choice(alpha(one, two), beta)")),
             Ok(())
         );
-        assert_eq!(validate_system_tag("random", Some("string(8)")), Ok(()));
-        assert_eq!(validate_system_tag("random", Some("alpha(8)")), Ok(()));
-        assert_eq!(validate_system_tag("random", Some("numeric(8)")), Ok(()));
+        assert_eq!(validate_system_tag("random", Some("str(8)")), Ok(()));
         assert_eq!(validate_system_tag("random", Some("hex(8)")), Ok(()));
-        assert_eq!(validate_system_tag("random", Some("password(8)")), Ok(()));
-        assert_eq!(validate_system_tag("random", Some("color")), Ok(()));
-        assert_eq!(validate_system_tag("random", Some("ip")), Ok(()));
-        assert_eq!(validate_system_tag("random", Some("mac")), Ok(()));
+        assert_eq!(validate_system_tag("random", Some("pass(8)")), Ok(()));
 
         assert_eq!(
             validate_system_tag("random", Some("int(1)")),

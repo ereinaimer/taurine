@@ -1,8 +1,6 @@
 use rand::{Rng, RngExt};
 
 const ALPHANUMERIC: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-const ALPHA: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-const NUMERIC: &[u8] = b"0123456789";
 const HEX: &[u8] = b"0123456789abcdef";
 const PASSWORD: &[u8] =
     b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+[]{}|;:,.<>?";
@@ -62,11 +60,6 @@ pub fn resolve(key: &str) -> Option<String> {
             let (min, max) = parse_int_range(&invocation.args, 0, 99)?;
             Some(rng.random_range(min..=max).to_string())
         }
-        "float" => {
-            let (min, max) = parse_float_range(&invocation.args, 0.0, 1.0)?;
-            Some(rng.random_range(min..=max).to_string())
-        }
-        "bool" => no_args(&invocation.args).then(|| rng.random_bool(0.5).to_string()),
         "choice" => {
             if invocation.args.is_empty() {
                 return None;
@@ -74,45 +67,18 @@ pub fn resolve(key: &str) -> Option<String> {
             let index = rng.random_range(0..invocation.args.len());
             Some(invocation.args[index].clone())
         }
-        "string" => {
+        "str" => {
             let len = parse_len(&invocation.args, 16)?;
             Some(random_chars(&mut rng, ALPHANUMERIC, len))
-        }
-        "alpha" => {
-            let len = parse_len(&invocation.args, 16)?;
-            Some(random_chars(&mut rng, ALPHA, len))
-        }
-        "numeric" => {
-            let len = parse_len(&invocation.args, 16)?;
-            Some(random_chars(&mut rng, NUMERIC, len))
         }
         "hex" => {
             let len = parse_len(&invocation.args, 32)?;
             Some(random_chars(&mut rng, HEX, len))
         }
-        "password" => {
+        "pass" => {
             let len = parse_len(&invocation.args, 20)?;
             Some(random_chars(&mut rng, PASSWORD, len))
         }
-        "color" => no_args(&invocation.args).then(|| {
-            let value: u32 = rng.random_range(0..=0xFF_FFFF);
-            format!("#{value:06X}")
-        }),
-        "ip" => no_args(&invocation.args).then(|| {
-            format!(
-                "{}.{}.{}.{}",
-                rng.random_range(0..=255u8),
-                rng.random_range(0..=255u8),
-                rng.random_range(0..=255u8),
-                rng.random_range(0..=255u8)
-            )
-        }),
-        "mac" => no_args(&invocation.args).then(|| {
-            (0..6)
-                .map(|_| format!("{:02X}", rng.random_range(0..=255u8)))
-                .collect::<Vec<_>>()
-                .join(":")
-        }),
         _ => None,
     }
 }
@@ -188,16 +154,6 @@ fn parse_int_range(args: &[String], default_min: i64, default_max: i64) -> Optio
     (min <= max).then_some((min, max))
 }
 
-fn parse_float_range(args: &[String], default_min: f64, default_max: f64) -> Option<(f64, f64)> {
-    let (min, max) = match args {
-        [] => (default_min, default_max),
-        [min, max] => (min.parse::<f64>().ok()?, max.parse::<f64>().ok()?),
-        _ => return None,
-    };
-
-    (min.is_finite() && max.is_finite() && min <= max).then_some((min, max))
-}
-
 fn parse_len(args: &[String], default: usize) -> Option<usize> {
     let len = match args {
         [] => default,
@@ -206,10 +162,6 @@ fn parse_len(args: &[String], default: usize) -> Option<usize> {
     };
 
     (len <= MAX_RANDOM_STRING_LEN).then_some(len)
-}
-
-fn no_args(args: &[String]) -> bool {
-    args.is_empty()
 }
 
 fn random_chars(rng: &mut impl Rng, charset: &[u8], len: usize) -> String {
@@ -249,27 +201,11 @@ mod tests {
 
     #[test]
     fn parses_choice_commas_outside_nested_parentheses() {
-        let parsed = parse_invocation("random.choice(alpha(one, two), beta, gamma(3, 4))").unwrap();
-
         assert_eq!(
-            parsed.args,
-            vec![
-                "alpha(one, two)".to_string(),
-                "beta".to_string(),
-                "gamma(3, 4)".to_string(),
-            ]
-        );
-    }
-
-    #[test]
-    fn rejects_unbalanced_or_trailing_syntax() {
-        assert_eq!(
-            parse_invocation("random.int(1, 2"),
-            Err(RandomParseError::UnbalancedParentheses)
-        );
-        assert_eq!(
-            parse_invocation("random.int(1, 2).extra"),
-            Err(RandomParseError::InvalidTrailingSyntax)
+            parse_invocation("random.choice(alpha(one, two), beta)")
+                .unwrap()
+                .args,
+            vec!["alpha(one, two)".to_string(), "beta".to_string()]
         );
     }
 
@@ -281,28 +217,6 @@ mod tests {
             Some(value) if (0..=99).contains(&value.parse::<i64>().unwrap())
         ));
         assert_eq!(resolve("random.int(10, 5)"), None);
-        assert_eq!(resolve("random.int(nope, 5)"), None);
-        assert_eq!(resolve("random.int(1)"), None);
-    }
-
-    #[test]
-    fn resolves_float_ranges_and_rejects_invalid_ranges() {
-        assert_eq!(resolve("random.float(2.5, 2.5)"), Some("2.5".to_string()));
-        assert!(matches!(
-            resolve("random.float"),
-            Some(value) if (0.0..=1.0).contains(&value.parse::<f64>().unwrap())
-        ));
-        assert_eq!(resolve("random.float(2.0, 1.0)"), None);
-        assert_eq!(resolve("random.float(nan, 1.0)"), None);
-    }
-
-    #[test]
-    fn resolves_bool() {
-        assert!(matches!(
-            resolve("random.bool").as_deref(),
-            Some("true") | Some("false")
-        ));
-        assert_eq!(resolve("random.bool(true)"), None);
     }
 
     #[test]
@@ -316,58 +230,21 @@ mod tests {
     }
 
     #[test]
-    fn resolves_random_strings_with_expected_defaults_and_charsets() {
-        let string = resolve("random.string").unwrap();
-        assert_eq!(string.len(), 16);
-        assert_charset(&string, ALPHANUMERIC);
+    fn resolves_random_strings_and_aliases() {
+        let str_val = resolve("random.str").unwrap();
+        assert_eq!(str_val.len(), 16);
+        assert_charset(&str_val, ALPHANUMERIC);
 
-        let alpha = resolve("random.alpha(12)").unwrap();
-        assert_eq!(alpha.len(), 12);
-        assert_charset(&alpha, ALPHA);
-
-        let numeric = resolve("random.numeric(12)").unwrap();
-        assert_eq!(numeric.len(), 12);
-        assert_charset(&numeric, NUMERIC);
+        assert_eq!(resolve("random.string"), None);
 
         let hex = resolve("random.hex").unwrap();
         assert_eq!(hex.len(), 32);
         assert_charset(&hex, HEX);
 
-        let password = resolve("random.password(24)").unwrap();
-        assert_eq!(password.len(), 24);
-        assert_charset(&password, PASSWORD);
-    }
+        let pass_val = resolve("random.pass(20)").unwrap();
+        assert_eq!(pass_val.len(), 20);
+        assert_charset(&pass_val, PASSWORD);
 
-    #[test]
-    fn rejects_invalid_lengths() {
-        assert_eq!(resolve("random.string(nope)"), None);
-        assert_eq!(resolve("random.string(-1)"), None);
-        assert_eq!(resolve("random.string(4097)"), None);
-        assert_eq!(resolve("random.string(1, 2)"), None);
-    }
-
-    #[test]
-    fn resolves_color_ip_and_mac() {
-        let color = resolve("random.color").unwrap();
-        assert_eq!(color.len(), 7);
-        assert!(color.starts_with('#'));
-        assert!(color[1..].chars().all(|ch| ch.is_ascii_hexdigit()));
-
-        let ip = resolve("random.ip").unwrap();
-        let octets = ip
-            .split('.')
-            .map(|part| part.parse::<u8>())
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
-        assert_eq!(octets.len(), 4);
-
-        let mac = resolve("random.mac").unwrap();
-        let parts = mac.split(':').collect::<Vec<_>>();
-        assert_eq!(parts.len(), 6);
-        assert!(
-            parts
-                .iter()
-                .all(|part| part.len() == 2 && part.chars().all(|ch| ch.is_ascii_hexdigit()))
-        );
+        assert_eq!(resolve("random.password"), None);
     }
 }

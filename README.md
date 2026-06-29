@@ -352,8 +352,8 @@ Some of the most useful system variables include:
 
 *   **Date/Time**: `[date.iso]`, `[time.now]`, `[date.tomorrow]`
 *   **Clipboard**: `[clipboard]` (inserts your current clipboard text)
-*   **System**: `[sys.os]`, `[sys.hostname]`, `[sys.cpu]`
-*   **Random**: `[random.password]`, `[uuid.v4]`, `[lorem.sentence]`
+*   **Network**: `[net.ip]`, `[net.lip]`, `[net.online]`
+*   **Random**: `[random.pass]`, `[uuid.v4]`, `[lorem.sentence]`
 *   **Environment**: `[env(USER)]` (access any environment variable)
 
 For the full list of available namespaces and variables, refer to the [System Variables Documentation](#todo:link-to-system-variables-docs).

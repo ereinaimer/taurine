@@ -5,14 +5,15 @@ description: Generate unique identifiers in Taurine.
 
 The `[uuid.*]` namespace provides built-in generation of Universally Unique Identifiers (UUIDs). This is useful for creating unique log entries, database keys, or temporary filenames without needing external tools.
 
+> [!IMPORTANT]
+> The `uuid` namespace requires an explicit version modifier (`v4` or `v7`). Using bare `[uuid]` will not resolve.
+
 ## Available Variants
 
 | Variable | Description | Example Output |
 | :--- | :--- | :--- |
-| `[uuid]` | Standard v4 UUID | `f47ac10b-58cc-4372-a567-0e02b2c3d479` |
-| `[uuid.v4]` | Explicit v4 UUID | `f47ac10b-58cc-4372-a567-0e02b2c3d479` |
+| `[uuid.v4]` | Standard Random v4 UUID | `f47ac10b-58cc-4372-a567-0e02b2c3d479` |
 | `[uuid.v7]` | Time-ordered v7 UUID | `018f0a5f-fdfc-7af6-a21c-208a65c71c1b` |
-| `[uuid.simple]` | v4 UUID without dashes | `f47ac10b58cc4372a5670e02b2c3d479` |
 
 ## Why use v7?
 
@@ -21,10 +22,10 @@ The `[uuid.*]` namespace provides built-in generation of Universally Unique Iden
 ## Examples
 
 ### Unique Filename
-Generate a unique name for a temporary file using the `simple` variant.
+Generate a unique name for a temporary file using transformers to strip hyphens.
 
 ```text
-TMP_FILE=[uuid.simple].tmp
+TMP_FILE=[uuid.v4 | replace("-", "")].tmp
 ```
 
 ### Log Record
