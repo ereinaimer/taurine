@@ -9,7 +9,7 @@ mod tests {
     #[test]
     fn accepts_valid_system_tags_and_literals() {
         assert!(audit_payload_tags("[time.utc | upper] [env(USERPROFILE)]").is_ok());
-        assert!(audit_payload_tags("[net.hostname] [net.localip] [net.mac]").is_ok());
+        assert!(audit_payload_tags("[net.ip] [net.lip] [net.online] [net.port(8080)]").is_ok());
         assert!(audit_payload_tags("json = [1, 2, 3]").is_ok());
         assert!(audit_payload_tags("[name | upper]").is_ok());
         assert!(audit_payload_tags("[clipboard | ai(\"summarize\")]").is_ok());
@@ -24,9 +24,9 @@ mod tests {
 
     #[test]
     fn rejects_unknown_net_modifier() {
-        let error = audit_payload_tags("[net.publicip]").unwrap_err();
-        assert!(error.to_string().contains("net.publicip"));
-        assert!(error.to_string().contains("hostname"));
+        let error = audit_payload_tags("[net.unknown]").unwrap_err();
+        assert!(error.to_string().contains("net.unknown"));
+        assert!(error.to_string().contains("ip"));
     }
 
     #[test]

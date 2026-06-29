@@ -25,7 +25,6 @@ const SYSTEM_ROOTS: &[&str] = &[
     "uuid",
     "env",
     "net",
-    "sys",
     "execute",
     "random",
     "key",
@@ -39,8 +38,7 @@ const TIME_METHODS: &[&str] = &["utc", "calc(±...)", "format(...)"];
 const DATE_METHODS: &[&str] = &["utc", "calc(±...)", "format(...)"];
 
 const UUID_MODIFIERS: &[&str] = &["v4", "v7", "simple"];
-const NET_MODIFIERS: &[&str] = &["hostname", "localip", "mac"];
-const SYS_MODIFIERS: &[&str] = &["os", "osversion", "arch", "hostname", "user"];
+const NET_MODIFIERS: &[&str] = &["ip", "lip", "online", "port(n)"];
 const EXECUTE_LANGUAGES: &[&str] = &["bash", "powershell", "python", "node", "node_esm", "cmd"];
 const EXECUTE_MODIFIERS: &[&str] = &[
     "execute.<lang>(...)",
@@ -175,7 +173,6 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "uuid" => format!("Valid modifiers: uuid, {}", UUID_MODIFIERS.join(", ")),
         "env" => "Valid form: [env(<var_name>)] or [env(\"<var_name>\")]".to_string(),
         "net" => format!("Valid modifiers: {}", NET_MODIFIERS.join(", ")),
-        "sys" => format!("Valid modifiers: {}", SYS_MODIFIERS.join(", ")),
         "execute" => "Valid form: [execute.<lang>(...)] or [execute.<lang>.file(...).args(...)]. Languages: bash, powershell, python, node, node_esm, cmd".to_string(),
         "random" => format!("Valid modifiers: {}", RANDOM_MODIFIERS.join(", ")),
         "lorem" => format!("Valid modifiers: lorem, {}", LOREM_MODIFIERS.join(", ")),
@@ -198,8 +195,7 @@ pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), Val
         "date" => validate_date_modifier(modifier),
         "uuid" => validate_optional_known_modifier("uuid", modifier, UUID_MODIFIERS),
         "env" => validate_env_modifier(modifier),
-        "net" => validate_known_modifier("net", modifier, NET_MODIFIERS),
-        "sys" => validate_known_modifier("sys", modifier, SYS_MODIFIERS),
+        "net" => validate_net_modifier(modifier),
         "execute" => validate_execute_modifier(modifier),
         "random" => validate_random_modifier(modifier),
         "lorem" => validate_lorem_modifier(modifier),
@@ -287,6 +283,36 @@ fn validate_optional_known_modifier(
             modifier: modifier.to_string(),
             allowed,
         }),
+    }
+}
+
+fn validate_net_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
+    let modifier =
+        normalize_modifier(modifier.ok_or(ValidationError::MissingModifier { root: "net" })?)
+            .ok_or(ValidationError::MissingModifier { root: "net" })?;
+
+    let Some((variant, args)) = parse_file_modifier(modifier) else {
+        return Err(ValidationError::InvalidModifier {
+            root: "net",
+            modifier: modifier.to_string(),
+            allowed: NET_MODIFIERS,
+        });
+    };
+
+    let valid = match (variant, args) {
+        ("ip" | "lip" | "online", None) => true,
+        ("port", Some(args)) => split_modifier_args(args).len() == 1,
+        _ => false,
+    };
+
+    if valid {
+        Ok(())
+    } else {
+        Err(ValidationError::InvalidModifier {
+            root: "net",
+            modifier: modifier.to_string(),
+            allowed: NET_MODIFIERS,
+        })
     }
 }
 
@@ -722,19 +748,20 @@ mod tests {
 
     #[test]
     fn validates_net_modifiers() {
-        for modifier in NET_MODIFIERS {
-            assert_eq!(validate_system_tag("net", Some(modifier)), Ok(()));
-        }
+        assert_eq!(validate_system_tag("net", Some("ip")), Ok(()));
+        assert_eq!(validate_system_tag("net", Some("lip")), Ok(()));
+        assert_eq!(validate_system_tag("net", Some("online")), Ok(()));
+        assert_eq!(validate_system_tag("net", Some("port(8080)")), Ok(()));
 
         assert_eq!(
             validate_system_tag("net", None),
             Err(ValidationError::MissingModifier { root: "net" })
         );
         assert_eq!(
-            validate_system_tag("net", Some("publicip")),
+            validate_system_tag("net", Some("hostname")),
             Err(ValidationError::InvalidModifier {
                 root: "net",
-                modifier: "publicip".to_string(),
+                modifier: "hostname".to_string(),
                 allowed: NET_MODIFIERS,
             })
         );
@@ -760,29 +787,6 @@ mod tests {
         assert_eq!(
             validate_system_tag("env", None),
             Err(ValidationError::MissingModifier { root: "env" })
-        );
-    }
-
-    #[test]
-    fn test_validate_sys_known_modifier() {
-        for modifier in SYS_MODIFIERS {
-            assert_eq!(validate_system_tag("sys", Some(modifier)), Ok(()));
-        }
-    }
-
-    #[test]
-    fn test_validate_sys_unknown_modifier() {
-        assert_eq!(
-            validate_system_tag("sys", Some("home")),
-            Err(ValidationError::InvalidModifier {
-                root: "sys",
-                modifier: "home".to_string(),
-                allowed: SYS_MODIFIERS,
-            })
-        );
-        assert_eq!(
-            validate_system_tag("sys", None),
-            Err(ValidationError::MissingModifier { root: "sys" })
         );
     }
 

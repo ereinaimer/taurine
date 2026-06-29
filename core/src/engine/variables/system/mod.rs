@@ -13,7 +13,6 @@ pub mod lorem;
 pub mod mock;
 pub mod net;
 pub mod random;
-pub mod sys;
 pub mod time;
 pub mod transformers;
 pub mod uuid;
@@ -36,11 +35,9 @@ pub fn is_reserved(key: &str) -> bool {
     key == "cursor"
         || key == "uuid"
         || clipboard::is_clipboard_key(key)
-        || key == "sys"
         || key == "lorem"
         || key == "mock"
         || key.starts_with("uuid.")
-        || key.starts_with("sys.")
         || key == "time"
         || key.starts_with("time.")
         || key == "date"
@@ -83,9 +80,6 @@ pub fn resolve(key: &str) -> Option<String> {
     }
     if key.starts_with("net.") {
         return net::resolve(key);
-    }
-    if key.starts_with("sys.") {
-        return sys::resolve(key);
     }
     if key.starts_with("random.") {
         return random::resolve(key);
@@ -479,8 +473,6 @@ mod tests {
         assert!(is_reserved("mock"));
         assert!(is_reserved("mock.email"));
         assert!(is_reserved("mock.company"));
-        assert!(is_reserved("sys"));
-        assert!(is_reserved("sys.os"));
 
         // These are valid user variables and should not be reserved
         assert!(!is_reserved("username"));

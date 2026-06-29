@@ -26,8 +26,6 @@ ahash = "0.8"
 parking_lot = "0.12"
 uuid = { version = "1.23.0", features = ["v4", "v7"] }
 os_info = "3"
-gethostname = "1"
-network-interface = "2.0.5"
 arboard = { version = "3.4.1", features = ["wayland-data-control"] }
 indexmap = "2.14.0"
 serde = { version = "1.0.228", features = ["derive"] }

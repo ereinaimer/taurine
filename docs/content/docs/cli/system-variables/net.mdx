@@ -1,77 +1,53 @@
 ---
 title: Network
-description: Access machine identity and local network information in Taurine.
+description: Access network status, IP addresses, and local port listeners in Taurine.
 ---
 
-The `[net.*]` namespace provides read-only access to local machine identity and primary network interface information. These variables resolve information locally and do not perform external network requests.
+The `[net.*]` namespace provides essential utilities for checking internet connectivity, resolving public and local IP addresses, and monitoring local port listeners.
 
 ## Reference Table
 
-| Variable | Resolves To | Example Output |
+| Variable | Description | Example Output |
 | :--- | :--- | :--- |
-| `[net.hostname]` | Machine hostname (trimmed) | `dev-workstation` |
-| `[net.localip]` | Primary local IP address | `192.168.1.15` |
-| `[net.mac]` | Primary interface MAC address | `a4:5e:60:12:ab:cd` |
+| `[net.ip]` | Public WAN IP address | `198.51.100.42` |
+| `[net.lip]` | Local LAN IPv4 address | `192.168.1.15` |
+| `[net.online]` | Internet connection status | `true` or `false` |
+| `[net.port(n)]` | Local TCP port listener check | `true` or `false` |
 
-## Usage
+## Usage Details
 
-### Hostname
-`[net.hostname]` returns the machine's configured hostname. The output is automatically trimmed of leading and trailing whitespace.
+### Public IP (`net.ip`)
+`[net.ip]` resolves your external WAN IP address using a lightweight, non-blocking HTTP lookup with a strict timeout.
 
 ```text
-Host: [net.hostname]
+Public IP: [net.ip] -> "Public IP: 198.51.100.42"
 ```
 
-Example automation:
-```bash
-taurine add host "Host: [net.hostname]"
+### Local IP (`net.lip`)
+`[net.lip]` resolves your primary active local IPv4 address. It automatically filters out loopback (`127.0.0.1`) and unassigned interfaces.
+
+```text
+Local IP: [net.lip] -> "Local IP: 192.168.1.15"
 ```
 
-### Local IP
-`[net.localip]` returns the primary non-loopback local IP address. 
+### Online Check (`net.online`)
+`[net.online]` performs a fast 500ms connection check to verify active internet connectivity, returning `true` or `false`.
 
-- **IPv4 Preference**: Taurine prefers IPv4 addresses when multiple families are available on an interface.
-- **Filtering**: It ignores loopback addresses (like `127.0.0.1`) and unspecified addresses (like `0.0.0.0`).
-- **Deterministic**: If multiple valid local addresses are found across different interfaces, Taurine chooses a primary candidate deterministically.
-- **No External Calls**: This variable does not call any external public-IP services; it only queries local network interfaces.
-
-Example automation:
-```bash
-taurine add myip "Local IP: [net.localip]"
+```text
+Online: [net.online] -> "Online: true"
 ```
 
-### MAC Address
-`[net.mac]` returns the hardware (MAC) address for the selected primary interface.
+### Local Port Check (`net.port(n)`)
+`[net.port(n)]` checks if a specific local TCP port `n` (e.g. `8080` or `5432`) is currently listening for connections.
 
-- **Formatting**: The address is returned in lowercase, colon-separated format (e.g., `aa:bb:cc:dd:ee:ff`).
-- **Validation**: Rejects all-zero MAC addresses.
-- **Selection**: Prefers the MAC address of the interface corresponding to the primary local IP.
-
-Example automation:
-```bash
-taurine add mymac "MAC: [net.mac]"
+```text
+Dev Server Running: [net.port(8080)] -> "Dev Server Running: true"
 ```
 
 ## Combined Example
 
-You can combine these variables to create detailed machine identity strings:
-
-```bash
-taurine add netinfo "Host: [net.hostname] | IP: [net.localip] | MAC: [net.mac]"
-```
-
-## Advanced Usage
-
-### Transformers
-Like all system variables, `net.*` variables are compatible with [transformers](/docs/cli/reference/system-variable-modifiers).
+You can combine network variables and transformers for dynamic status templates:
 
 ```text
-[net.hostname | upper]
+IP: [net.ip] ([net.lip]) | Status: [net.online]
 ```
-
-### Error Behavior
-If Taurine cannot resolve a network value (e.g., no active network interfaces are found), it will return an error string following the standard system variable error format: `[Error: message]`.
-
-<Callout title="Public IP Note" type="info">
-  `[net.publicip]` is not currently available because it would require an external network request, which conflicts with Taurine's "local-first" resolution policy for system variables.
-</Callout>
