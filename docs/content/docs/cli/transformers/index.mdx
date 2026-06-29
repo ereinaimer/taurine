@@ -15,16 +15,16 @@ Transformers are a powerful feature of the Taurine engine that allow you to mani
 
 *   **Global Availability**: Transformers can be applied to any variable, whether it is a user-defined argument, a system variable, or even a literal string inside a tag.
 *   **Recursive Chaining**: You can chain multiple transformers together using additional pipes. They are processed sequentially from left to right.
-*   **UTF-8 Awareness**: All text-based transformers (like `reverse` or `truncate`) are fully UTF-8 aware, ensuring safe manipulation of emojis and special characters.
+*   **UTF-8 Awareness**: All text-based transformers (like `truncate` or `substring`) are fully UTF-8 aware, ensuring safe manipulation of emojis and special characters.
 
 ### Chaining Transformers
 
 Taurine supports recursive transformation chaining using unix pipes. This allows you to perform complex cleanup and formatting in a single tag.
 
 <Transformation
-  template="[0 | trim | upper | reverse]"
+  template="[0 | trim | upper | repeat(2)]"
   input=">text:'  taurine  '"
-  result="ENIRUAT"
+  result="TAURINETAURINE"
 />
 
 ### Quoted Literals
@@ -50,7 +50,7 @@ Explore the different categories of transformers:
   <Card 
     title="Casing" 
     href="/docs/cli/transformers/casing" 
-    description="Upper, lower, snake, camel, mocking, and leet." 
+    description="Upper, lower, snake, and camel." 
   />
   <Card 
     title="Text Manipulation" 

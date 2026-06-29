@@ -11,7 +11,6 @@ static EMAIL_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 
 pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> {
     match transformer {
-        "reverse" if args.is_empty() => Some(content.chars().rev().collect()),
         "length" if args.is_empty() => Some(content.chars().count().to_string()),
         "trim" if args.is_empty() => Some(content.trim().to_string()),
         "truncate" if args.len() == 1 => truncate(content, args[0]),
@@ -128,10 +127,6 @@ mod tests {
 
     #[test]
     fn test_text_transformers() {
-        assert_eq!(
-            apply("reverse", &[], "naive cafe"),
-            Some("efac evian".to_string())
-        );
         assert_eq!(apply("length", &[], "naive"), Some("5".to_string()));
         assert_eq!(apply("trim", &[], "  hi  "), Some("hi".to_string()));
         assert_eq!(
