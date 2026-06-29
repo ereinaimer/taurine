@@ -48,11 +48,6 @@ mod tests {
     }
 
     #[test]
-    fn accepts_mock_with_nested_dynamic_arg() {
-        assert!(audit_payload_tags("[mock.password([len=12])]").is_ok());
-    }
-
-    #[test]
     fn prepare_trigger_defaults_to_word_when_hotkey_flag_is_absent() {
         let prepared = prepare_trigger("gs", false, "all").unwrap();
         assert_eq!(prepared.trigger_type, TriggerType::Word);

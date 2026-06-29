@@ -478,7 +478,7 @@ mod tests {
         assert!(is_reserved("lorem.words(3)"));
         assert!(is_reserved("mock"));
         assert!(is_reserved("mock.email"));
-        assert!(is_reserved("mock.password(12)"));
+        assert!(is_reserved("mock.company"));
         assert!(is_reserved("sys"));
         assert!(is_reserved("sys.os"));
 
@@ -527,16 +527,6 @@ mod tests {
         );
 
         assert!(resolved.contains('@'));
-    }
-
-    #[test]
-    fn test_resolve_mock_password_interpolation() {
-        let resolved = crate::engine::variables::interpolate::interpolate(
-            "[mock.password(12)]",
-            &crate::engine::variables::types::ArgMap::default(),
-        );
-
-        assert_eq!(resolved.chars().count(), 12);
     }
 
     #[test]

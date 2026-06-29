@@ -66,31 +66,19 @@ const MOCK_MODIFIERS: &[&str] = &[
     "name",
     "first_name",
     "last_name",
-    "title",
-    "suffix",
     "address",
     "city",
     "state",
     "zip_code",
     "country",
-    "latitude",
-    "longitude",
     "email",
     "domain",
-    "user_agent",
-    "password(n)",
     "username",
     "company",
     "job_title",
-    "catch_phrase",
-    "bs",
     "credit_card",
-    "currency_name",
-    "currency_code",
     "phone_number",
     "cell_number",
-    "status_code",
-    "method",
 ];
 const FILE_MODIFIERS: &[&str] = &[
     "read(path)",
@@ -483,34 +471,7 @@ fn validate_lorem_modifier(modifier: Option<&str>) -> Result<(), ValidationError
 }
 
 fn validate_mock_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
-    let modifier =
-        normalize_modifier(modifier.ok_or(ValidationError::MissingModifier { root: "mock" })?)
-            .ok_or(ValidationError::MissingModifier { root: "mock" })?;
-
-    let Some((variant, args)) = parse_mock_modifier(modifier) else {
-        return Err(ValidationError::InvalidModifier {
-            root: "mock",
-            modifier: modifier.to_string(),
-            allowed: MOCK_MODIFIERS,
-        });
-    };
-
-    let valid = match (variant, args) {
-        ("password", Some(args)) => split_modifier_args(args).len() == 1,
-        ("password", None) => false,
-        (_, None) => MOCK_MODIFIERS.contains(&variant),
-        _ => false,
-    };
-
-    if valid {
-        Ok(())
-    } else {
-        Err(ValidationError::InvalidModifier {
-            root: "mock",
-            modifier: modifier.to_string(),
-            allowed: MOCK_MODIFIERS,
-        })
-    }
+    validate_known_modifier("mock", modifier, MOCK_MODIFIERS)
 }
 
 fn validate_file_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
@@ -563,22 +524,6 @@ fn parse_random_modifier(input: &str) -> Option<(&str, Option<&str>)> {
 }
 
 fn parse_file_modifier(input: &str) -> Option<(&str, Option<&str>)> {
-    if let Some(paren_idx) = input.find('(') {
-        let variant = input[..paren_idx].trim();
-        let (args, trailing) = scan_execute_parenthesized(&input[paren_idx..])?;
-        if !variant.is_empty() && trailing.trim().is_empty() {
-            Some((variant, Some(args)))
-        } else {
-            None
-        }
-    } else if input.contains(')') {
-        None
-    } else {
-        Some((input.trim(), None)).filter(|(variant, _)| !variant.is_empty())
-    }
-}
-
-fn parse_mock_modifier(input: &str) -> Option<(&str, Option<&str>)> {
     if let Some(paren_idx) = input.find('(') {
         let variant = input[..paren_idx].trim();
         let (args, trailing) = scan_execute_parenthesized(&input[paren_idx..])?;
@@ -976,38 +921,15 @@ mod tests {
     fn validates_mock_modifier_syntax() {
         assert_eq!(validate_system_tag("mock", Some("name")), Ok(()));
         assert_eq!(validate_system_tag("mock", Some("email")), Ok(()));
-        assert_eq!(validate_system_tag("mock", Some("status_code")), Ok(()));
-        assert_eq!(validate_system_tag("mock", Some("password(12)")), Ok(()));
-        assert_eq!(
-            validate_system_tag("mock", Some("password([len=12])")),
-            Ok(())
-        );
-
         assert_eq!(
             validate_system_tag("mock", None),
             Err(ValidationError::MissingModifier { root: "mock" })
         );
         assert_eq!(
-            validate_system_tag("mock", Some("password")),
+            validate_system_tag("mock", Some("password(12)")),
             Err(ValidationError::InvalidModifier {
                 root: "mock",
-                modifier: "password".to_string(),
-                allowed: MOCK_MODIFIERS,
-            })
-        );
-        assert_eq!(
-            validate_system_tag("mock", Some("password()")),
-            Err(ValidationError::InvalidModifier {
-                root: "mock",
-                modifier: "password()".to_string(),
-                allowed: MOCK_MODIFIERS,
-            })
-        );
-        assert_eq!(
-            validate_system_tag("mock", Some("password(12, 16)")),
-            Err(ValidationError::InvalidModifier {
-                root: "mock",
-                modifier: "password(12, 16)".to_string(),
+                modifier: "password(12)".to_string(),
                 allowed: MOCK_MODIFIERS,
             })
         );

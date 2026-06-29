@@ -1,18 +1,13 @@
 use fake::Fake;
 use fake::faker::address::en::{
-    BuildingNumber, CityName, CountryName, Latitude, Longitude, StateName, StreetName, ZipCode,
+    BuildingNumber, CityName, CountryName, StateName, StreetName, ZipCode,
 };
-use fake::faker::company::en::{Bs, CatchPhrase, CompanyName};
+use fake::faker::company::en::CompanyName;
 use fake::faker::creditcard::en::CreditCardNumber;
-use fake::faker::currency::en::{CurrencyCode, CurrencyName};
-use fake::faker::http::en::ValidStatusCode;
-use fake::faker::internet::en::{DomainSuffix, FreeEmail, Password, UserAgent, Username};
+use fake::faker::internet::en::{DomainSuffix, FreeEmail, Username};
 use fake::faker::job::en::Title as JobTitle;
-use fake::faker::name::en::{FirstName, LastName, Name, Suffix, Title as NameTitle};
+use fake::faker::name::en::{FirstName, LastName, Name};
 use fake::faker::phone_number::en::{CellNumber, PhoneNumber};
-use rand::seq::IndexedRandom;
-
-const HTTP_METHODS: &[&str] = &["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 
 pub fn resolve(key: &str) -> Option<String> {
     let modifier = key.strip_prefix("mock.")?.trim();
@@ -21,36 +16,19 @@ pub fn resolve(key: &str) -> Option<String> {
         ("name", None) => Some(Name().fake()),
         ("first_name", None) => Some(FirstName().fake()),
         ("last_name", None) => Some(LastName().fake()),
-        ("title", None) => Some(NameTitle().fake()),
-        ("suffix", None) => Some(Suffix().fake()),
         ("address", None) => Some(format_address()),
         ("city", None) => Some(CityName().fake()),
         ("state", None) => Some(StateName().fake()),
         ("zip_code", None) => Some(ZipCode().fake()),
         ("country", None) => Some(CountryName().fake()),
-        ("latitude", None) => Some(Latitude().fake()),
-        ("longitude", None) => Some(Longitude().fake()),
         ("email", None) => Some(FreeEmail().fake()),
         ("domain", None) => Some(format_domain()),
-        ("user_agent", None) => Some(UserAgent().fake()),
-        ("password", Some(args)) => {
-            let len = parse_password_len(args)?;
-            let end = len.checked_add(1)?;
-            Some(Password(len..end).fake())
-        }
         ("username", None) => Some(Username().fake()),
         ("company", None) => Some(CompanyName().fake()),
         ("job_title", None) => Some(JobTitle().fake()),
-        ("catch_phrase", None) => Some(CatchPhrase().fake()),
-        ("bs", None) => Some(Bs().fake()),
         ("credit_card", None) => Some(CreditCardNumber().fake()),
-        ("currency_name", None) => Some(CurrencyName().fake()),
-        ("currency_code", None) => Some(CurrencyCode().fake()),
         ("phone_number", None) => Some(PhoneNumber().fake()),
         ("cell_number", None) => Some(CellNumber().fake()),
-        ("status_code", None) => Some(format_status_code()),
-        // fake-rs exposes status-code fakers but not HTTP-method fakers.
-        ("method", None) => Some(random_method()?),
         _ => None,
     }
 }
@@ -104,15 +82,6 @@ fn scan_parenthesized(input: &str) -> Option<(&str, &str)> {
     None
 }
 
-fn parse_password_len(args: &str) -> Option<usize> {
-    let trimmed = args.trim();
-    if trimmed.is_empty() || trimmed.contains(',') {
-        return None;
-    }
-
-    trimmed.parse::<usize>().ok()
-}
-
 fn format_address() -> String {
     format!(
         "{} {}, {}, {} {}",
@@ -153,22 +122,6 @@ fn sanitize_domain_label(input: &str) -> String {
     }
 }
 
-fn random_method() -> Option<String> {
-    let mut rng = rand::rng();
-    HTTP_METHODS
-        .choose(&mut rng)
-        .map(|method| (*method).to_string())
-}
-
-fn format_status_code() -> String {
-    ValidStatusCode()
-        .fake::<String>()
-        .split_whitespace()
-        .next()
-        .unwrap_or_default()
-        .to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,24 +130,25 @@ mod tests {
     fn resolves_identity_variants() {
         assert!(!resolve("mock.name").unwrap().trim().is_empty());
         assert!(!resolve("mock.first_name").unwrap().trim().is_empty());
+        assert!(!resolve("mock.last_name").unwrap().trim().is_empty());
     }
 
     #[test]
     fn resolves_geography_variants() {
         let address = resolve("mock.address").unwrap();
-        let latitude = resolve("mock.latitude").unwrap();
-
         assert!(address.contains(','));
-        assert!(latitude.parse::<f64>().is_ok());
+        assert!(!resolve("mock.city").unwrap().trim().is_empty());
+        assert!(!resolve("mock.state").unwrap().trim().is_empty());
+        assert!(!resolve("mock.zip_code").unwrap().trim().is_empty());
+        assert!(!resolve("mock.country").unwrap().trim().is_empty());
     }
 
     #[test]
     fn resolves_web_variants() {
         let email = resolve("mock.email").unwrap();
-        let password = resolve("mock.password(12)").unwrap();
-
         assert!(email.contains('@'));
-        assert_eq!(password.chars().count(), 12);
+        assert!(!resolve("mock.username").unwrap().trim().is_empty());
+        assert!(resolve("mock.domain").unwrap().contains('.'));
     }
 
     #[test]
@@ -204,33 +158,16 @@ mod tests {
     }
 
     #[test]
-    fn resolves_financial_variants() {
-        let code = resolve("mock.currency_code").unwrap();
-
-        assert_eq!(code.chars().count(), 3);
+    fn resolves_financial_and_communication_variants() {
         assert!(!resolve("mock.credit_card").unwrap().trim().is_empty());
-    }
-
-    #[test]
-    fn resolves_communication_variants() {
         assert!(!resolve("mock.phone_number").unwrap().trim().is_empty());
         assert!(!resolve("mock.cell_number").unwrap().trim().is_empty());
     }
 
     #[test]
-    fn resolves_development_variants() {
-        let status = resolve("mock.status_code").unwrap();
-        let method = resolve("mock.method").unwrap();
-
-        assert!(status.parse::<u16>().is_ok());
-        assert!(HTTP_METHODS.contains(&method.as_str()));
-    }
-
-    #[test]
-    fn rejects_invalid_password_args() {
-        assert_eq!(resolve("mock.password"), None);
-        assert_eq!(resolve("mock.password()"), None);
-        assert_eq!(resolve("mock.password(nope)"), None);
-        assert_eq!(resolve("mock.password(12, 16)"), None);
+    fn rejects_pruned_variants() {
+        assert_eq!(resolve("mock.password(12)"), None);
+        assert_eq!(resolve("mock.bs"), None);
+        assert_eq!(resolve("mock.status_code"), None);
     }
 }
