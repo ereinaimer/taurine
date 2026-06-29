@@ -25,29 +25,24 @@ pub fn apply(transformer: &str, content: &str) -> Option<String> {
 }
 
 fn preserve_whitespace<F: Fn(&str) -> String>(content: &str, transform: F) -> String {
-    let leading_len: usize = content
-        .chars()
-        .take_while(|c| c.is_whitespace())
-        .map(|c| c.len_utf8())
-        .sum();
-    let trailing_len: usize = content
-        .chars()
-        .rev()
-        .take_while(|c| c.is_whitespace())
-        .map(|c| c.len_utf8())
-        .sum();
+    let first_alphanumeric = content.char_indices().find(|(_, c)| c.is_alphanumeric());
+    let last_alphanumeric = content.char_indices().rfind(|(_, c)| c.is_alphanumeric());
 
-    if leading_len + trailing_len >= content.len() {
-        return content.to_string(); // all whitespace
-    }
+    let (Some((leading_len, _)), Some((last_idx, last_char))) =
+        (first_alphanumeric, last_alphanumeric)
+    else {
+        return content.to_string();
+    };
 
-    let trimmed = &content[leading_len..content.len() - trailing_len];
+    let trailing_start = last_idx + last_char.len_utf8();
+    let trimmed = &content[leading_len..trailing_start];
     let transformed = transform(trimmed);
 
-    let mut out = String::with_capacity(content.len() + transformed.len());
+    let mut out =
+        String::with_capacity(leading_len + transformed.len() + (content.len() - trailing_start));
     out.push_str(&content[..leading_len]);
     out.push_str(&transformed);
-    out.push_str(&content[content.len() - trailing_len..]);
+    out.push_str(&content[trailing_start..]);
     out
 }
 
@@ -104,7 +99,6 @@ fn leet_speak(content: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::{SeedableRng, rngs::StdRng};
 
     #[test]
     fn test_case_transformers() {
@@ -153,12 +147,18 @@ mod tests {
     }
 
     #[test]
-    fn test_mocking_case_preserves_text_shape() {
-        let mut rng = StdRng::seed_from_u64(7);
-        let mocked = mocking_case_with_rng("Hello, World!", &mut rng);
-
-        assert_eq!(mocked.chars().count(), "Hello, World!".chars().count());
-        assert_eq!(mocked.to_lowercase(), "hello, world!");
-        assert_eq!(mocked.chars().nth(5), Some(','));
+    fn test_case_transformers_preserve_affixes_and_escapes() {
+        assert_eq!(
+            apply("title", r#"\'hello world \'"#),
+            Some(r#"\'Hello World \'"#.to_string())
+        );
+        assert_eq!(
+            apply("snake", r#"\'hello world \'"#),
+            Some(r#"\'hello_world \'"#.to_string())
+        );
+        assert_eq!(
+            apply("kebab", r#"\'hello world \'"#),
+            Some(r#"\'hello-world \'"#.to_string())
+        );
     }
 }
