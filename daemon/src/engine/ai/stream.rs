@@ -235,14 +235,23 @@ async fn run_ai_transformer_stream_inner(
         return Ok(());
     }
 
-    let mut output: Option<LiveOutputHandle> = None;
-    if output.is_none() {
-        output = Some(LiveOutputHandle::spawn());
-    }
-    if let Some(handle) = output.as_ref() {
-        handle.send_text(output_text, true)?;
-    }
-    record_inline_ai_completion(finish_output(output).await);
+    let expansion = taurine_core::engine::variables::system::finalize(&output_text, None);
+    let output_chars: usize = expansion
+        .steps
+        .iter()
+        .map(|s| match s {
+            taurine_core::engine::variables::ExpansionStep::Text(t) => t.chars().count(),
+            _ => 0,
+        })
+        .sum();
+
+    let steps = expansion.steps;
+    let _ = tokio::task::spawn_blocking(move || {
+        crate::injector::inject_expansion(steps, 0, taurine_core::settings::SpinnerStyle::default())
+    })
+    .await;
+
+    record_inline_ai_completion(output_chars);
 
     Ok(())
 }

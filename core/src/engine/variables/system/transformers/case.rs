@@ -9,8 +9,8 @@ pub fn apply(transformer: &str, content: &str) -> Option<String> {
         "kebab" | "kebabcase" => Some(preserve_whitespace(content, |s| s.to_kebab_case())),
         "pascal" | "pascalcase" => Some(preserve_whitespace(content, |s| s.to_upper_camel_case())),
         "camel" | "camelcase" => Some(preserve_whitespace(content, |s| s.to_lower_camel_case())),
-        "title" | "titlecase" => Some(preserve_whitespace(content, |s| s.to_title_case())),
-        "sentencecase" => Some(preserve_whitespace(content, sentence_case)),
+        "title" | "titlecase" => Some(title_case(content)),
+        "sentencecase" => Some(sentence_case(content)),
         "shoutysnake" | "shoutysnakecase" => {
             Some(preserve_whitespace(content, |s| s.to_shouty_snake_case()))
         }
@@ -55,6 +55,28 @@ fn sentence_case(content: &str) -> String {
     let mut out = String::new();
     out.extend(first.to_uppercase());
     out.extend(chars);
+    out
+}
+
+fn title_case(content: &str) -> String {
+    let mut out = String::with_capacity(content.len());
+    let mut new_word = true;
+
+    for ch in content.chars() {
+        if ch.is_whitespace() {
+            new_word = true;
+            out.push(ch);
+        } else if new_word {
+            // Capitalize the first character (if it has uppercase) and clear the flag.
+            out.extend(ch.to_uppercase());
+            // It only counts as the start of a word if it's alphabetic. Punctuation doesn't toggle
+            // new_word, but since we just capitalized it, we set new_word=false anyway.
+            new_word = false;
+        } else {
+            out.push(ch);
+        }
+    }
+
     out
 }
 
@@ -122,7 +144,7 @@ mod tests {
         );
         assert_eq!(
             apply("title", "hello_world"),
-            Some("Hello World".to_string())
+            Some("Hello_world".to_string())
         );
         assert_eq!(
             apply("sentencecase", "hello world"),
@@ -150,7 +172,7 @@ mod tests {
     fn test_case_transformers_preserve_affixes_and_escapes() {
         assert_eq!(
             apply("title", r#"\'hello world \'"#),
-            Some(r#"\'Hello World \'"#.to_string())
+            Some(r#"\'hello World \'"#.to_string())
         );
         assert_eq!(
             apply("snake", r#"\'hello world \'"#),

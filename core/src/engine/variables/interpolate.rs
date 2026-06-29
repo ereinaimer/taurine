@@ -160,6 +160,7 @@ fn split_key_default(inner: &str) -> (&str, Option<&str>) {
     let inner = trim_slice(inner);
     let bytes = inner.as_bytes();
     let mut depth = 0;
+    let mut paren_depth = 0;
     let mut ptr = 0;
     let mut quote = None;
     while ptr < bytes.len() {
@@ -173,7 +174,11 @@ fn split_key_default(inner: &str) -> (&str, Option<&str>) {
             depth += 1;
         } else if bytes[ptr] == TAG_CLOSE && !is_escaped(bytes, ptr) {
             depth -= 1;
-        } else if bytes[ptr] == b'=' && depth == 0 {
+        } else if bytes[ptr] == b'(' && !is_escaped(bytes, ptr) {
+            paren_depth += 1;
+        } else if bytes[ptr] == b')' && !is_escaped(bytes, ptr) {
+            paren_depth -= 1;
+        } else if bytes[ptr] == b'=' && depth == 0 && paren_depth == 0 {
             return (
                 trim_slice(&inner[..ptr]),
                 Some(trim_slice(&inner[ptr + 1..])),
@@ -865,6 +870,82 @@ mod tests {
             assert_eq!(
                 interpolate("['[key(enter)]' | repeat(3)]", &args),
                 "[key(enter)][key(enter)][key(enter)]"
+            );
+        }
+
+        #[test]
+        fn test_gcp_manual_case() {
+            let mut args = ArgMap::default();
+            args.positional.push("cli".to_string());
+            args.positional
+                .push("add support for custom pipelines".to_string());
+            let tpl = "git commit -m \"feat([0=core]): [1=update codebase | sentencecase]\"[key(enter)][delay(500ms)]git push origin main[key(enter)]";
+            assert_eq!(
+                interpolate(tpl, &args),
+                "git commit -m \"feat(cli): Add support for custom pipelines\"[key(enter)][delay(500ms)]git push origin main[key(enter)]"
+            );
+        }
+
+        #[test]
+        fn test_tblrow_manual_case() {
+            let mut args = ArgMap::default();
+            args.positional.push("101".to_string());
+            args.positional.push("john doe".to_string());
+            args.positional.push("active".to_string());
+            let tpl = "| [0=ID] | [1=Name | title] | [2=Status | upper] |[key(enter)]| ['--- | ' | repeat(3)][key(enter)]";
+            assert_eq!(
+                interpolate(tpl, &args),
+                "| 101 | John Doe | ACTIVE |[key(enter)]| --- | --- | --- | [key(enter)]"
+            );
+        }
+
+        #[test]
+        fn test_docsnippet_manual_case() {
+            let args = ArgMap::default();
+            let tpl = r#"\'\[key(enter)\]\' directive | title | repeat(2)"#;
+            assert_eq!(
+                interpolate(tpl, &args),
+                r#"\'\[key(enter)\]\' Directive\'\[key(enter)\]\' Directive"#
+            );
+        }
+
+        #[test]
+        fn test_mockreq_manual_case() {
+            let mut args = ArgMap::default();
+            args.positional.push("password_reset".to_string());
+            // Mock the env var and uuid in system resolve via a mock or just test the structure
+            // Since we can't easily mock UUID without a lock, we can use a known value.
+            // Wait, UUID changes. We'll skip [uuid] and [date.iso] for exact match and just test env
+            // actually we can test the interpolation of `[env(USER=admin)]`.
+            let tpl = r#"{"user": "[env(USER=admin) | lower]", "action": "[0=login | upper]"}"#;
+            assert_eq!(
+                interpolate(tpl, &args),
+                r#"{"user": "admin", "action": "PASSWORD_RESET"}"#
+            );
+        }
+
+        #[test]
+        fn test_aisummary_manual_case() {
+            let args = ArgMap::default();
+            let tpl = "### SUMMARY OF COPIED TEXT ([date.short]):[key(enter)][clipboard | ai(summarize this in 3 concise bullet points) | trim]";
+            system::clipboard::set_mock_clipboard(Some("Long article text".to_string()));
+            let result = interpolate(tpl, &args);
+            // date.short will be the actual date, so we just check the AI marker structure
+            assert!(result.starts_with("### SUMMARY OF COPIED TEXT ("));
+            assert!(result.contains("):[key(enter)]\x03Long article text\x1Fsummarize this in 3 concise bullet points\x04"));
+            // trim is applied to the AI marker?
+            // the pipeline handles `clipboard | ai(...) | trim` by adding \x03 and \x04.
+            // Wait, the test checks if it generates correct markers.
+            system::clipboard::set_mock_clipboard(None);
+        }
+
+        #[test]
+        fn test_testchain_manual_case() {
+            let args = ArgMap::default();
+            let tpl = "'hello_world-demo_test' | replace('_', ' ') | replace('-', ' ') | title | repeat(2)";
+            assert_eq!(
+                interpolate(tpl, &args),
+                "Hello World Demo TestHello World Demo Test"
             );
         }
     }
