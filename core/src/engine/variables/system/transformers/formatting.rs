@@ -4,8 +4,9 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
     }
 
     match transformer {
-        "quote" | "doublequote" => Some(format!("\"{content}\"")),
-        "singlequote" => Some(format!("'{content}'")),
+        "quote" => Some(format!("\"{content}\"")),
+        "squote" => Some(format!("'{content}'")),
+        "backtick" => Some(format!("`{content}`")),
         "unquote" => Some(unquote(content)),
         _ => None,
     }
@@ -24,18 +25,18 @@ mod tests {
     #[test]
     fn test_formatting_transformers() {
         assert_eq!(apply("quote", &[], "hello"), Some("\"hello\"".to_string()));
-        assert_eq!(
-            apply("doublequote", &[], "hello"),
-            Some("\"hello\"".to_string())
-        );
-        assert_eq!(
-            apply("singlequote", &[], "hello"),
-            Some("'hello'".to_string())
-        );
+        assert_eq!(apply("squote", &[], "hello"), Some("'hello'".to_string()));
+        assert_eq!(apply("backtick", &[], "hello"), Some("`hello`".to_string()));
         assert_eq!(
             apply("unquote", &[], "\"hello\""),
             Some("hello".to_string())
         );
         assert_eq!(apply("unquote", &[], "hello"), Some("hello".to_string()));
+    }
+
+    #[test]
+    fn test_pruned_formatting_aliases_return_none() {
+        assert_eq!(apply("doublequote", &[], "hello"), None);
+        assert_eq!(apply("singlequote", &[], "hello"), None);
     }
 }

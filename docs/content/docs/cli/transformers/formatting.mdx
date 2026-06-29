@@ -9,11 +9,12 @@ Formatting transformers help you manage quotes and other wrapping characters aro
 
 These modifiers are essential for ensuring that user input is correctly escaped or quoted when inserted into code snippets or JSON payloads.
 
-| Modifier | Alias | Description | Example |
-| :--- | :--- | :--- | :--- |
-| `quote` | `doublequote` | Wraps in `"` | `hi` → `"hi"` |
-| `singlequote` | — | Wraps in `'` | `hi` → `'hi'` |
-| `unquote` | — | Removes leading/trailing quotes | `"hi"` → `hi` |
+| Modifier | Description | Example |
+| :--- | :--- | :--- |
+| `quote` | Wraps in `"` | `hi` → `"hi"` |
+| `squote` | Wraps in `'` | `hi` → `'hi'` |
+| `backtick` | Wraps in ``` ` ``` | `hi` → `` `hi` `` |
+| `unquote` | Removes leading/trailing quotes | `"hi"` → `hi` |
 
 ### Practical Examples
 
@@ -24,6 +25,15 @@ Ensure a variable is safely wrapped in double quotes for a JSON structure.
   template='{ "value": [0 | quote] }'
   input=">text:'hello world'"
   result='{ "value": "hello world" }'
+/>
+
+#### Inline Code Formatting
+Wrap dynamic strings in backticks for markdown or documentation snippets.
+
+<Transformation
+  template="Use the [0 | backtick] variable."
+  input=">text:'user_id'"
+  result="Use the `user_id` variable."
 />
 
 #### Safely Unquoting
