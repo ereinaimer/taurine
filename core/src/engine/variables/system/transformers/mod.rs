@@ -91,16 +91,19 @@ pub fn split_pipeline(input: &str) -> Vec<&str> {
     let mut start = 0usize;
 
     for (idx, ch) in input.char_indices() {
-        if let Some(active_quote) = quote {
-            if escaped {
-                escaped = false;
-                continue;
-            }
+        if escaped {
+            escaped = false;
+            continue;
+        }
 
-            match ch {
-                '\\' => escaped = true,
-                current if current == active_quote => quote = None,
-                _ => {}
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+
+        if let Some(active_quote) = quote {
+            if ch == active_quote {
+                quote = None;
             }
             continue;
         }

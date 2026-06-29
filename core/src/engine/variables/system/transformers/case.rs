@@ -5,19 +5,50 @@ pub fn apply(transformer: &str, content: &str) -> Option<String> {
     match transformer {
         "upper" | "uppercase" => Some(content.to_uppercase()),
         "lower" | "lowercase" => Some(content.to_lowercase()),
-        "snake" | "snakecase" => Some(content.to_snake_case()),
-        "kebab" | "kebabcase" => Some(content.to_kebab_case()),
-        "pascal" | "pascalcase" => Some(content.to_upper_camel_case()),
-        "camel" | "camelcase" => Some(content.to_lower_camel_case()),
-        "title" | "titlecase" => Some(content.to_title_case()),
-        "sentencecase" => Some(sentence_case(content)),
-        "shoutysnake" | "shoutysnakecase" => Some(content.to_shouty_snake_case()),
-        "shoutykebab" | "shoutykebabcase" => Some(content.to_shouty_kebab_case()),
-        "train" | "traincase" => Some(content.to_train_case()),
+        "snake" | "snakecase" => Some(preserve_whitespace(content, |s| s.to_snake_case())),
+        "kebab" | "kebabcase" => Some(preserve_whitespace(content, |s| s.to_kebab_case())),
+        "pascal" | "pascalcase" => Some(preserve_whitespace(content, |s| s.to_upper_camel_case())),
+        "camel" | "camelcase" => Some(preserve_whitespace(content, |s| s.to_lower_camel_case())),
+        "title" | "titlecase" => Some(preserve_whitespace(content, |s| s.to_title_case())),
+        "sentencecase" => Some(preserve_whitespace(content, sentence_case)),
+        "shoutysnake" | "shoutysnakecase" => {
+            Some(preserve_whitespace(content, |s| s.to_shouty_snake_case()))
+        }
+        "shoutykebab" | "shoutykebabcase" => {
+            Some(preserve_whitespace(content, |s| s.to_shouty_kebab_case()))
+        }
+        "train" | "traincase" => Some(preserve_whitespace(content, |s| s.to_train_case())),
         "mockingcase" | "spongebobcase" => Some(mocking_case(content)),
         "leet" | "leetspeak" => Some(leet_speak(content)),
         _ => None,
     }
+}
+
+fn preserve_whitespace<F: Fn(&str) -> String>(content: &str, transform: F) -> String {
+    let leading_len: usize = content
+        .chars()
+        .take_while(|c| c.is_whitespace())
+        .map(|c| c.len_utf8())
+        .sum();
+    let trailing_len: usize = content
+        .chars()
+        .rev()
+        .take_while(|c| c.is_whitespace())
+        .map(|c| c.len_utf8())
+        .sum();
+
+    if leading_len + trailing_len >= content.len() {
+        return content.to_string(); // all whitespace
+    }
+
+    let trimmed = &content[leading_len..content.len() - trailing_len];
+    let transformed = transform(trimmed);
+
+    let mut out = String::with_capacity(content.len() + transformed.len());
+    out.push_str(&content[..leading_len]);
+    out.push_str(&transformed);
+    out.push_str(&content[content.len() - trailing_len..]);
+    out
 }
 
 fn sentence_case(content: &str) -> String {

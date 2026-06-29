@@ -59,7 +59,7 @@ pub fn parse_tokens(tokens: &[String]) -> ArgMap {
                 strip_quotes(value).to_string(),
             );
         } else {
-            map.positional.push(strip_quotes(token).to_string());
+            map.positional.push(token.to_string());
         }
     }
 
@@ -177,6 +177,14 @@ mod tests {
 
             assert_eq!(map.named.get("name").unwrap(), "Neil Armstrong");
             assert_eq!(map.named.get("repo").unwrap(), "taurine");
+        }
+
+        #[test]
+        fn parse_tokens_preserves_spaces_inside_quotes_for_hybrid_arguments() {
+            let tokens = vec!["\"bye \"".to_string(), "4".to_string()];
+            let map = parse_tokens(&tokens);
+            assert_eq!(map.positional[0], "bye ");
+            assert_eq!(map.positional[1], "4");
         }
     }
 }

@@ -185,7 +185,31 @@ fn split_key_default(inner: &str) -> (&str, Option<&str>) {
 }
 
 pub fn interpolate(template: &str, args: &ArgMap) -> String {
-    interpolate_with_depth(template, args, 0)
+    let segments = system::transformers::split_pipeline(template);
+    if segments.len() > 1 {
+        let mut all_valid = true;
+        for tr in &segments[1..] {
+            if !system::transformers::is_valid_transformer(tr) {
+                all_valid = false;
+                break;
+            }
+        }
+        if all_valid {
+            let base_expr = system::strip_quotes(segments[0]).unwrap_or(segments[0]);
+            let mut base_result = interpolate_with_depth(base_expr, args, 0);
+            for tr in &segments[1..] {
+                if system::transformers::is_ai_transformer(tr) {
+                    let prompt = system::transformers::extract_ai_prompt(tr).to_string();
+                    base_result = format!("\x03{}\x1F{}\x04", base_result, prompt);
+                } else if let Some(transformed) = system::transformers::apply(tr, &base_result) {
+                    base_result = transformed;
+                }
+            }
+            return base_result.replace("\\|", "|");
+        }
+    }
+
+    interpolate_with_depth(template, args, 0).replace("\\|", "|")
 }
 
 fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String {
@@ -229,6 +253,9 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
             } else if key.chars().all(|c| c.is_ascii_digit()) {
                 let mut pos_idx_dummy = usize::MAX;
                 resolve_user_placeholder(key, default_value, args, depth, &mut pos_idx_dummy)
+            } else if !transformers.is_empty() && (key.contains(' ') || key.contains(SENTINEL_OPEN))
+            {
+                Some(key.to_string())
             } else {
                 None
             };
@@ -842,6 +869,29 @@ mod tests {
             assert_eq!(multi_extracted[0].1, "p1");
             assert_eq!(multi_extracted[1].0, "in2");
             assert_eq!(multi_extracted[1].1, "p2");
+        }
+
+        #[test]
+        fn global_pipeline_strips_quotes_and_preserves_spaces() {
+            let args = ArgMap::default();
+            // Test 1.1: Global pipeline quote stripping
+            assert_eq!(
+                interpolate("\"hello world \" | title | repeat(2)", &args),
+                "Hello World Hello World "
+            );
+            assert_eq!(interpolate("'hello world ' | upper", &args), "HELLO WORLD ");
+        }
+
+        #[test]
+        fn nested_directive_evaluates_to_literal_when_quoted() {
+            let args = ArgMap::default();
+            // Test 2.2: Quoted directive evaluates to literal without escaping brackets
+            // This allows the downstream macro parser (injector) to still see it and execute it.
+            // If the user wants to prevent execution, they must escape the brackets explicitly.
+            assert_eq!(
+                interpolate("['[key(enter)]' | repeat(3)]", &args),
+                "[key(enter)][key(enter)][key(enter)]"
+            );
         }
     }
 }
