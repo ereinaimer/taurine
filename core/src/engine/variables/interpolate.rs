@@ -938,8 +938,8 @@ mod tests {
             // Mock the env var and uuid in system resolve via a mock or just test the structure
             // Since we can't easily mock UUID without a lock, we can use a known value.
             // Wait, UUID changes. We'll skip [uuid] and [date.iso] for exact match and just test env
-            // actually we can test the interpolation of `[env(USER=admin)]`.
-            let tpl = r#"{"user": "[env(USER=admin) | lower]", "action": "[0=login | upper]"}"#;
+            // actually we can test the interpolation of `[env(TAURINE_TEST_USER=admin)]`.
+            let tpl = r#"{"user": "[env(TAURINE_TEST_USER=admin) | lower]", "action": "[0=login | upper]"}"#;
             assert_eq!(
                 interpolate(tpl, &args),
                 r#"{"user": "admin", "action": "PASSWORD_RESET"}"#
