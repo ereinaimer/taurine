@@ -9,6 +9,7 @@ pub mod date;
 pub mod env;
 pub mod exec;
 pub mod file;
+pub mod http;
 pub mod lorem;
 pub mod mock;
 pub mod net;
@@ -45,6 +46,7 @@ pub fn is_reserved(key: &str) -> bool {
         || key.starts_with("env(")
         || key.starts_with("file.")
         || key.starts_with("net.")
+        || key.starts_with("http.")
         || key.starts_with("exec.")
         || key.starts_with("random.")
         || key.starts_with("lorem.")
@@ -64,6 +66,14 @@ pub fn is_directive(key: &str) -> bool {
     key == "cursor" || parse_key_directive(key).is_some() || parse_delay_directive(key).is_some()
 }
 
+/// Checks if a system keyword triggers deferred (async) evaluation.
+///
+/// Deferred variables are replaced with a special marker during interpolation
+/// so the daemon can evaluate them in a non-blocking thread and show a braille spinner.
+pub fn is_deferred(key: &str) -> bool {
+    key == "net.ip" || key.starts_with("net.dns(") || key.starts_with("http.")
+}
+
 /// Resolves a content-producing system variable.
 pub fn resolve(key: &str) -> Option<String> {
     if key == "time" || key.starts_with("time.") {
@@ -80,6 +90,9 @@ pub fn resolve(key: &str) -> Option<String> {
     }
     if key.starts_with("net.") {
         return net::resolve(key);
+    }
+    if key.starts_with("http.") {
+        return http::resolve(key);
     }
     if key.starts_with("random.") {
         return random::resolve(key);

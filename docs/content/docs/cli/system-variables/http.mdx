@@ -1,0 +1,32 @@
+---
+title: Web & APIs
+description: "Fetch web data and APIs natively using the http namespace"
+---
+
+The `http` namespace provides native variables for making synchronous HTTP GET requests directly within your text expansions. This is extremely useful for pulling down raw data from public APIs or performing quick health checks on URLs.
+
+<Callout title="Synchronous Loading">
+HTTP requests are executed synchronously. When you trigger a snippet containing an `http` variable, Taurine will display a Braille loading spinner `⠋ Thinking...` in place of the text until the network request completes, after which it seamlessly injects the result.
+</Callout>
+
+### Get Payload `[http.get(url)]`
+Fetches the raw response body from the specified URL. If the protocol (`http://` or `https://`) is omitted, Taurine defaults to `https://`.
+
+```text
+The current bitcoin price is: [http.get(api.coindesk.com/v1/bpi/currentprice.json)]
+```
+If the request fails or times out (after 5 seconds), it will return an error string such as `[Error: HTTP request failed]` or `[Error: HTTP 404]`.
+
+### Get Status `[http.status(url)]`
+Fetches only the HTTP status code (e.g., `200`, `404`, `500`) of the given URL. This is perfect for quick uptime checks without downloading massive response bodies.
+
+```text
+My website is currently returning status code: [http.status(https://mywebsite.com)]
+```
+
+### Advanced Requests
+The `http` namespace is intentionally kept simple for inline variables. If you need to make `POST` requests, pass authentication headers (like Bearer tokens), or handle complex payloads, you should use the `exec` namespace to run a shell script instead:
+
+```text
+[exec.bash(curl -X POST -H "Authorization: Bearer my_token" https://api.service.com)]
+```
