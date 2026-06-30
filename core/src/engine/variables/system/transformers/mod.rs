@@ -3,6 +3,7 @@ mod calc;
 mod case;
 mod crypto;
 mod encoding;
+mod extractors;
 mod formatting;
 mod lines;
 mod text;
@@ -52,6 +53,12 @@ pub const TRANSFORMERS: &[&str] = &[
     "unquote",
     "calc",
     "ai",
+    "json",
+    "html",
+    "xml",
+    "toml",
+    "yaml",
+    "regexmatch",
 ];
 
 #[derive(Debug)]
@@ -120,6 +127,7 @@ pub fn apply(transformer: &str, content: &str) -> Option<String> {
         .or_else(|| formatting::apply(parsed.name, &parsed.args, content))
         .or_else(|| calc::apply(parsed.name, &parsed.args, content))
         .or_else(|| ai::apply(parsed.name, &parsed.args, content))
+        .or_else(|| extractors::apply(parsed.name, &parsed.args, content))
 }
 
 pub(crate) fn strip_argument_quotes(arg: &str) -> &str {

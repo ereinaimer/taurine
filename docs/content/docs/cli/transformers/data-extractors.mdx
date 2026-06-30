@@ -1,0 +1,55 @@
+---
+title: Data Extraction
+description: Extract structured data from JSON, HTML, XML, TOML, YAML, and regex patterns.
+---
+
+Data extraction transformers allow you to parse and extract specific values from structured payloads (like API responses or configuration files) or scrape web content. These pair perfectly with system variables like `[http.get(...)]` and `[file.read(...)]`.
+
+### Available Modifiers
+
+| Modifier | Description |
+| :--- | :--- |
+| `json(path)` | Extracts a value from a JSON string using dot-notation |
+| `html(selector)` | Parses HTML and extracts the inner text of the first matching CSS selector |
+| `xml(selector)` | Parses XML and extracts the inner text of the first matching CSS selector |
+| `toml(path)` | Extracts a value from a TOML string using dot-notation |
+| `yaml(path)` | Extracts a value from a YAML string using dot-notation |
+| `regexmatch(pattern, [group])` | Extracts a specific capturing group from a regex match (default: group 0) |
+
+### Detailed Usage
+
+#### JSON Path Extraction
+Extract nested values or array elements from JSON strings. The path uses standard dot-notation, where numbers represent array indices.
+
+<Transformation
+  template='[0 | json("user.hobbies.1")]'
+  input='>text:{"user": {"name": "Alice", "hobbies": ["reading", "gaming"]}}'
+  result="gaming"
+/>
+
+#### HTML & XML Scraping
+Use standard CSS selectors to parse HTML or XML payloads. This allows you to scrape specific text nodes without complex XPath or regex queries.
+
+<Transformation
+  template='[0 | html(".price > span")]'
+  input='>text:<html><body><div class="price"><span>$99.99</span></div></body></html>'
+  result="$99.99"
+/>
+
+#### YAML & TOML Parsing
+Similar to JSON extraction, you can traverse YAML and TOML configurations using dot-notation.
+
+<Transformation
+  template='[0 | yaml("services.db.image")]'
+  input='>text:services:\n  db:\n    image: postgres:15'
+  result="postgres:15"
+/>
+
+#### Regular Expression Matching
+Extract specific segments of a text using capturing groups. Provide the regex pattern as the first argument, and the optional 0-based capturing group index as the second argument.
+
+<Transformation
+  template='[0 | regexmatch("#([0-9]+)", 1)]'
+  input=">text:Order ID: #12345 (Completed)"
+  result="12345"
+/>
