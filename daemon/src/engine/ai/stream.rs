@@ -122,12 +122,20 @@ async fn evaluate_marker_tree(
                 if let Some(sys_key) = prompt.strip_prefix("sys:") {
                     let sys_key_owned = sys_key.to_string();
                     tokio::task::spawn_blocking(move || {
-                        taurine_core::engine::variables::system::resolve(&sys_key_owned)
+                        if sys_key_owned == "mouse.pos" {
+                            crate::platform::get_mouse_pos()
+                                .map(|(x, y)| format!("{},{}", x, y))
+                                .unwrap_or_else(|| "0,0".to_string())
+                        } else {
+                            taurine_core::engine::variables::system::resolve(&sys_key_owned)
+                                .unwrap_or_else(|| {
+                                    format!("[Error: failed to resolve {sys_key_owned}]")
+                                })
+                        }
                     })
                     .await
                     .ok()
-                    .flatten()
-                    .unwrap_or_else(|| format!("[Error: failed to resolve {sys_key}]"))
+                    .unwrap_or_else(|| "[Error: task panicked]".to_string())
                 } else if input.is_empty() {
                     return Err(taurine_core::error::Error::Service(
                         "[Error: AI transformer received empty input]".to_string(),

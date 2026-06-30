@@ -1,0 +1,41 @@
+---
+title: Mouse Automation
+description: "Simulate mouse clicks, movements, and coordinate lookups natively"
+---
+
+Taurine provides a built-in `mouse` namespace to simulate hardware mouse actions and query current pointer coordinates. This allows you to construct UI-driven macros directly within your text expansions.
+
+### Mouse Directives (Actions)
+Directives are executed in sequence as post-processing steps when a snippet is expanded.
+
+| Directive | Description |
+| :--- | :--- |
+| `[mouse.click]` | Simulates a left mouse button click. |
+| `[mouse.rclick]` | Simulates a right mouse button click. |
+| `[mouse.mclick]` | Simulates a middle mouse button click. |
+| `[mouse.move(x, y)]` | Warps the mouse pointer to absolute screen coordinates `(x, y)`. |
+| `[mouse.scroll(delta)]` | Scrolls the mouse wheel vertically (positive scrolls up, negative down). |
+| `[mouse.hold]` | Presses and holds the left mouse button. |
+| `[mouse.release]` | Releases the left mouse button (ends a drag). |
+
+#### Drag and Drop Example
+You can combine mouse movement, holds, and delays to automate complex drag-and-drop actions:
+
+```text
+[mouse.move(100, 200)][mouse.hold][delay(200)][mouse.move(800, 600)][delay(100)][mouse.release]
+```
+
+<Callout type="warning" title="Linux Wayland Compatibility">
+Absolute pointer warping (`[mouse.move(x, y)]`) requires querying the X11 server on Linux. Under Wayland, system security policies prevent arbitrary absolute warping. If run under Wayland, absolute movements will fail silently, though relative clicking and scrolling via `uinput` remains fully functional.
+</Callout>
+
+---
+
+### Mouse Position Variable `[mouse.pos]`
+Resolves dynamically to the current pointer coordinates in the format `x,y` (e.g. `1024,768`).
+
+This is extremely helpful for locating coordinates when writing macros:
+1. Create a snippet like: `My cursor is at: [mouse.pos]`
+2. Hover over the button or target area.
+3. Trigger the snippet using its hotkey to output the exact screen coordinates.
+4. Copy those coordinates directly into your `[mouse.move(x, y)]` macro!

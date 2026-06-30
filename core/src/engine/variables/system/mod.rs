@@ -51,6 +51,8 @@ pub fn is_reserved(key: &str) -> bool {
         || key.starts_with("random.")
         || key.starts_with("lorem.")
         || key.starts_with("mock.")
+        || key == "mouse"
+        || key.starts_with("mouse.")
         || key == "key"
         || key.starts_with("key(")
         || key == "delay"
@@ -63,7 +65,10 @@ pub fn is_reserved(key: &str) -> bool {
 /// Directives are not replaced during interpolation but are instead handled
 /// in the `finalize` phase (e.g., `[cursor]`, `[key(tab)]`, `[delay(200ms)]`).
 pub fn is_directive(key: &str) -> bool {
-    key == "cursor" || parse_key_directive(key).is_some() || parse_delay_directive(key).is_some()
+    key == "cursor"
+        || parse_key_directive(key).is_some()
+        || parse_delay_directive(key).is_some()
+        || parse_mouse_directive(key).is_some()
 }
 
 /// Checks if a system keyword triggers deferred (async) evaluation.
@@ -71,7 +76,7 @@ pub fn is_directive(key: &str) -> bool {
 /// Deferred variables are replaced with a special marker during interpolation
 /// so the daemon can evaluate them in a non-blocking thread and show a braille spinner.
 pub fn is_deferred(key: &str) -> bool {
-    key == "net.ip" || key.starts_with("net.dns(") || key.starts_with("http.")
+    key == "net.ip" || key.starts_with("net.dns(") || key.starts_with("http.") || key == "mouse.pos"
 }
 
 /// Resolves a content-producing system variable.
@@ -278,13 +283,46 @@ fn parse_delay_directive(inner: &str) -> Option<u64> {
     parse_delay_ms(delay_str)
 }
 
-/// Checks whether the interpolated string contains any `[key.*]` or `[delay.*]` directives.
+fn parse_mouse_directive(inner: &str) -> Option<ExpansionStep> {
+    if inner == "mouse.click" {
+        Some(ExpansionStep::MouseClick)
+    } else if inner == "mouse.rclick" {
+        Some(ExpansionStep::MouseRClick)
+    } else if inner == "mouse.mclick" {
+        Some(ExpansionStep::MouseMClick)
+    } else if inner == "mouse.hold" {
+        Some(ExpansionStep::MouseHold)
+    } else if inner == "mouse.release" {
+        Some(ExpansionStep::MouseRelease)
+    } else if let Some(rest) = inner.strip_prefix("mouse.move(") {
+        let args = rest.strip_suffix(')')?;
+        let parts: Vec<&str> = args.split(',').collect();
+        if parts.len() == 2 {
+            let x = parts[0].trim().parse().ok()?;
+            let y = parts[1].trim().parse().ok()?;
+            Some(ExpansionStep::MouseMove(x, y))
+        } else {
+            None
+        }
+    } else if let Some(rest) = inner.strip_prefix("mouse.scroll(") {
+        let arg = rest.strip_suffix(')')?.trim();
+        let delta = arg.parse().ok()?;
+        Some(ExpansionStep::MouseScroll(delta))
+    } else {
+        None
+    }
+}
+
+/// Checks whether the interpolated string contains any `[key.*]`, `[delay.*]`, or `[mouse.*]` directives.
 fn contains_key_or_delay_directives(text: &str) -> bool {
     let mut ptr = 0;
 
     while let Some(tag) = find_next_tag(text, ptr) {
         let inner = tag_inner(text, tag);
-        if parse_key_directive(inner).is_some() || parse_delay_directive(inner).is_some() {
+        if parse_key_directive(inner).is_some()
+            || parse_delay_directive(inner).is_some()
+            || parse_mouse_directive(inner).is_some()
+        {
             return true;
         }
         ptr = tag.end + 1;
@@ -312,7 +350,10 @@ pub fn validate_output(output: &str, trigger: Option<&str>) {
         if inner == "cursor" {
             cursor_count += 1;
         }
-        if parse_key_directive(inner).is_some() || parse_delay_directive(inner).is_some() {
+        if parse_key_directive(inner).is_some()
+            || parse_delay_directive(inner).is_some()
+            || parse_mouse_directive(inner).is_some()
+        {
             has_key_or_delay = true;
         }
         let (key, default_value) = split_key_default(inner);
@@ -373,6 +414,9 @@ fn split_into_steps(text: &str) -> Vec<ExpansionStep> {
         } else if let Some(ms) = parse_delay_directive(inner) {
             flush_text(&mut steps, &mut current_text);
             steps.push(ExpansionStep::Delay(ms));
+        } else if let Some(step) = parse_mouse_directive(inner) {
+            flush_text(&mut steps, &mut current_text);
+            steps.push(step);
         } else {
             current_text.push_str(&text[tag.start..tag.end + 1]);
         }

@@ -24,6 +24,20 @@ pub enum ExpansionStep {
     Script(ScriptMetadata),
     /// A shell script to execute inline while preserving preceding injected text.
     InlineRun(ScriptMetadata),
+    /// Simulates a mouse left-click.
+    MouseClick,
+    /// Simulates a mouse right-click.
+    MouseRClick,
+    /// Simulates a mouse middle-click.
+    MouseMClick,
+    /// Moves mouse to absolute coordinates (x, y).
+    MouseMove(u16, u16),
+    /// Scrolls mouse wheel vertically by delta.
+    MouseScroll(i32),
+    /// Holds the mouse left button down.
+    MouseHold,
+    /// Releases the mouse left button.
+    MouseRelease,
 }
 
 #[derive(Debug, Clone, PartialEq)]

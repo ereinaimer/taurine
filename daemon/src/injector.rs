@@ -18,6 +18,94 @@ use tracing::{debug, error, trace};
 use taurine_core::engine::shell::ScriptBehavior;
 use taurine_core::engine::variables::ExpansionStep;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MouseButton {
+    Left,
+    Right,
+    Middle,
+}
+
+#[cfg(not(target_os = "linux"))]
+fn simulate_mouse_click(button: MouseButton) {
+    let rdev_btn = match button {
+        MouseButton::Left => rdev::Button::Left,
+        MouseButton::Right => rdev::Button::Right,
+        MouseButton::Middle => rdev::Button::Middle,
+    };
+    let _ = simulate_monitored(&rdev::EventType::ButtonPress(rdev_btn));
+    thread::sleep(Duration::from_millis(10));
+    let _ = simulate_monitored(&rdev::EventType::ButtonRelease(rdev_btn));
+}
+
+#[cfg(not(target_os = "linux"))]
+fn simulate_mouse_move(x: u16, y: u16) {
+    let _ = simulate_monitored(&rdev::EventType::MouseMove {
+        x: x as f64,
+        y: y as f64,
+    });
+}
+
+#[cfg(not(target_os = "linux"))]
+fn simulate_mouse_scroll(delta: i32) {
+    let _ = simulate_monitored(&rdev::EventType::Wheel {
+        delta_x: 0,
+        delta_y: delta as i64,
+    });
+}
+
+#[cfg(not(target_os = "linux"))]
+fn simulate_mouse_hold(button: MouseButton, hold: bool) {
+    let rdev_btn = match button {
+        MouseButton::Left => rdev::Button::Left,
+        MouseButton::Right => rdev::Button::Right,
+        MouseButton::Middle => rdev::Button::Middle,
+    };
+    let event = if hold {
+        rdev::EventType::ButtonPress(rdev_btn)
+    } else {
+        rdev::EventType::ButtonRelease(rdev_btn)
+    };
+    let _ = simulate_monitored(&event);
+}
+
+#[cfg(target_os = "linux")]
+fn simulate_mouse_click(button: MouseButton) {
+    let evdev_btn = match button {
+        MouseButton::Left => evdev::KeyCode::BTN_LEFT,
+        MouseButton::Right => evdev::KeyCode::BTN_RIGHT,
+        MouseButton::Middle => evdev::KeyCode::BTN_MIDDLE,
+    };
+    crate::platform::linux::uinput::simulate_mouse_button(evdev_btn, true);
+    thread::sleep(Duration::from_millis(10));
+    crate::platform::linux::uinput::simulate_mouse_button(evdev_btn, false);
+}
+
+#[cfg(target_os = "linux")]
+fn simulate_mouse_move(x: u16, y: u16) {
+    use x11rb::connection::Connection;
+    if let Ok((conn, _)) = x11rb::connect(None) {
+        if let Some(screen) = conn.setup().roots.first() {
+            let _ = conn.warp_pointer(x11rb::NONE, screen.root, 0, 0, 0, 0, x as i16, y as i16);
+            let _ = conn.flush();
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn simulate_mouse_scroll(delta: i32) {
+    crate::platform::linux::uinput::simulate_mouse_scroll(delta);
+}
+
+#[cfg(target_os = "linux")]
+fn simulate_mouse_hold(button: MouseButton, hold: bool) {
+    let evdev_btn = match button {
+        MouseButton::Left => evdev::KeyCode::BTN_LEFT,
+        MouseButton::Right => evdev::KeyCode::BTN_RIGHT,
+        MouseButton::Middle => evdev::KeyCode::BTN_MIDDLE,
+    };
+    crate::platform::linux::uinput::simulate_mouse_button(evdev_btn, hold);
+}
+
 /// Abstraction so clipboard ordering (read original → set payload → verify → restore) can be
 /// unit-tested without the OS clipboard or `simulate()`.
 impl crate::platform::ClipboardManager for Clipboard {
@@ -1110,6 +1198,27 @@ pub fn inject_expansion(
                 if !simulate_key_alias(alias) {
                     debug!("Unknown key alias '{}', skipping", alias);
                 }
+            }
+            ExpansionStep::MouseClick => {
+                simulate_mouse_click(MouseButton::Left);
+            }
+            ExpansionStep::MouseRClick => {
+                simulate_mouse_click(MouseButton::Right);
+            }
+            ExpansionStep::MouseMClick => {
+                simulate_mouse_click(MouseButton::Middle);
+            }
+            ExpansionStep::MouseMove(x, y) => {
+                simulate_mouse_move(*x, *y);
+            }
+            ExpansionStep::MouseScroll(delta) => {
+                simulate_mouse_scroll(*delta);
+            }
+            ExpansionStep::MouseHold => {
+                simulate_mouse_hold(MouseButton::Left, true);
+            }
+            ExpansionStep::MouseRelease => {
+                simulate_mouse_hold(MouseButton::Left, false);
             }
             ExpansionStep::Delay(ms) => {
                 // Split long delays into smaller chunks so abort is responsive.

@@ -181,7 +181,15 @@ impl Evaluator {
                 }
                 // Structural templates move the caret away from the absolute tail, so a blind
                 // backspace replay would corrupt surrounding text instead of the expansion.
-                ExpansionStep::KeyPress(_) | ExpansionStep::Delay(_) => return false,
+                ExpansionStep::KeyPress(_)
+                | ExpansionStep::Delay(_)
+                | ExpansionStep::MouseClick
+                | ExpansionStep::MouseRClick
+                | ExpansionStep::MouseMClick
+                | ExpansionStep::MouseMove(_, _)
+                | ExpansionStep::MouseScroll(_)
+                | ExpansionStep::MouseHold
+                | ExpansionStep::MouseRelease => return false,
                 // Shell/script side effects are not reversible through text deletion alone.
                 ExpansionStep::Script(_) | ExpansionStep::InlineRun(_) => return false,
             }

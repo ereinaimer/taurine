@@ -15,6 +15,7 @@
     "lorem",
     "mock",
     "http",
+    "mouse",
     "keyboard-automation"
   ]
 }

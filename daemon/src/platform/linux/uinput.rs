@@ -1,5 +1,7 @@
 use evdev::uinput::VirtualDevice;
-use evdev::{AttributeSet, BusType, EventType, InputEvent, InputId, KeyCode, MiscCode};
+use evdev::{
+    AttributeSet, BusType, EventType, InputEvent, InputId, KeyCode, MiscCode, RelativeAxisType,
+};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
@@ -18,6 +20,14 @@ pub fn init_uinput() -> Result<(), String> {
     for code in 1..256 {
         keys.insert(KeyCode::new(code as u16));
     }
+    keys.insert(KeyCode::BTN_LEFT);
+    keys.insert(KeyCode::BTN_RIGHT);
+    keys.insert(KeyCode::BTN_MIDDLE);
+
+    let mut relative_axes = AttributeSet::<RelativeAxisType>::new();
+    relative_axes.insert(RelativeAxisType::REL_X);
+    relative_axes.insert(RelativeAxisType::REL_Y);
+    relative_axes.insert(RelativeAxisType::REL_WHEEL);
 
     let mut msc = AttributeSet::<MiscCode>::new();
     msc.insert(MiscCode::MSC_SCAN);
@@ -28,6 +38,8 @@ pub fn init_uinput() -> Result<(), String> {
         .input_id(InputId::new(BusType::BUS_USB, 0x1234, 0x5678, 0x0001))
         .with_keys(&keys)
         .map_err(|e| format!("Failed to set uinput keys: {}", e))?
+        .with_relative_axes(&relative_axes)
+        .map_err(|e| format!("Failed to set uinput relative axes: {}", e))?
         .with_msc(&msc)
         .map_err(|e| format!("Failed to set uinput msc codes: {}", e))?
         .build()
@@ -88,4 +100,22 @@ pub fn simulate_type_string(s: &str, lookup: &std::collections::HashMap<char, (K
             thread::sleep(Duration::from_millis(8));
         }
     }
+}
+
+pub fn simulate_mouse_button(button: KeyCode, is_press: bool) {
+    let events = [InputEvent::new(
+        evdev::EventType::KEY.0,
+        button.code(),
+        if is_press { 1 } else { 0 },
+    )];
+    emit_batch(&events);
+}
+
+pub fn simulate_mouse_scroll(delta: i32) {
+    let events = [InputEvent::new(
+        evdev::EventType::RELATIVE.0,
+        RelativeAxisType::REL_WHEEL.0,
+        delta,
+    )];
+    emit_batch(&events);
 }
