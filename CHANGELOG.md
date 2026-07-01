@@ -25,6 +25,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ext.mdtable` — extracts complete markdown tables (requires a header separator row).
   - `ext.mdlist` — extracts contiguous bulleted and numbered lists.
 
+### Changed
+- **Unified Singular Naming Convention**: Renamed all `lorem` modifiers and line/text transformers to their singular forms to enforce syntactic consistency across all system variables, modifiers, and transformers:
+  - `lorem.words` -> `lorem.word`
+  - `lorem.sentences` -> `lorem.sentence`
+  - `lorem.paragraphs` -> `lorem.paragraph`
+  - `onlydigits` -> `onlydigit`
+  - `prefixlines` -> `prefixline`
+  - `suffixlines` -> `suffixline`
+  - `joinlines` -> `joinline`
+  - `splitlines` -> `splitline`
+  - `removeemptylines` -> `removeemptyline`
+  - `compactlines` -> `compactline`
+  - `sortlines` -> `sortline`
+  - `uniqlines` -> `uniqline`
+
 ### Removed
 - **Deprecated `extracturls` and `extractemails` transformers**: Removed in favour of `ext.url` and `ext.email` respectively. No backward compatibility layer — update any snippets using these names.
 

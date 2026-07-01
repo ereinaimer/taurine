@@ -12,30 +12,30 @@ Line transformers are helpful when processing multi-line data from the clipboard
 | `firstline` | Extracts only the first line |
 | `lastline` | Extracts only the last line |
 | `linecount` | Counts the total number of lines |
-| `removeemptylines` | Strips blank lines (alias: `compactlines`) |
-| `prefixlines(str)` | Prepends `str` to every line |
-| `suffixlines(str)` | Appends `str` to every line |
-| `joinlines(delim)` | Collapses lines into one, using `delim` |
-| `splitlines(delim)` | Expands one line into many, breaking at `delim` |
-| `uniqlines` | Deduplicates lines globally while preserving first-occurrence order |
-| `sortlines([opt])` | Sorts lines (`desc`, `insensitive`, `numeric`) |
+| `removeemptyline` | Strips blank lines (alias: `compactline`) |
+| `prefixline(str)` | Prepends `str` to every line |
+| `suffixline(str)` | Appends `str` to every line |
+| `joinline(delim)` | Collapses lines into one, using `delim` |
+| `splitline(delim)` | Expands one line into many, breaking at `delim` |
+| `uniqline` | Deduplicates lines globally while preserving first-occurrence order |
+| `sortline([opt])` | Sorts lines (`desc`, `insensitive`, `numeric`) |
 
 ### Prefix and Suffix
 
 These are useful for quickly formatting lists, such as adding bullet points or semicolon line-endings.
 
 <Transformation
-  template='[clip | prefixlines("> ")]'
+  template='[clip | prefixline("> ")]'
   input=">clip:'Line 1\nLine 2'"
   result="> Line 1\n> Line 2"
 />
 
-### Deduplication (`uniqlines`)
+### Deduplication (`uniqline`)
 
 Removes all duplicate lines while strictly preserving their original order of appearance.
 
 <Transformation
-  template='[clip | uniqlines]'
+  template='[clip | uniqline]'
   input=">clip:'orange\napple\norange\nbanana'"
   result="orange\napple\nbanana"
 />
@@ -50,7 +50,7 @@ Counts the total number of lines in the input text.
   result="3"
 />
 
-### Sorting (`sortlines`)
+### Sorting (`sortline`)
 
 Sorts lines alphabetically by default. Supports options:
 - `desc` / `reverse`: Descending sort.
@@ -58,7 +58,7 @@ Sorts lines alphabetically by default. Supports options:
 - `numeric`: Numerical sorting (correctly sorting `10` after `2`).
 
 <Transformation
-  template='[clip | sortlines("numeric")]'
+  template='[clip | sortline("numeric")]'
   input=">clip:'10\n2\n1.5'"
   result="1.5\n2\n10"
 />

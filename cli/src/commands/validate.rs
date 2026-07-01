@@ -43,8 +43,8 @@ mod tests {
 
     #[test]
     fn accepts_lorem_with_nested_dynamic_arg() {
-        assert!(audit_payload_tags("[lorem.words([num=5])]").is_ok());
-        assert!(audit_payload_tags("[lorem.words([random.int(3, 3)])]").is_ok());
+        assert!(audit_payload_tags("[lorem.word([num=5])]").is_ok());
+        assert!(audit_payload_tags("[lorem.word([random.int(3, 3)])]").is_ok());
     }
 
     #[test]

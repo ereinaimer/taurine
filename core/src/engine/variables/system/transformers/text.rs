@@ -14,7 +14,7 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
         "regexreplace" if args.len() == 2 => Some(regex_replace(content, args[0], args[1])),
         "substring" if args.len() == 2 => substring(content, args[0], args[1]),
 
-        "onlydigits" if args.is_empty() => Some(only_digits(content)),
+        "onlydigit" if args.is_empty() => Some(only_digits(content)),
         "onlyalphanumeric" if args.is_empty() => Some(only_alphanumeric(content)),
         "stripall" if args.is_empty() => Some(strip_all(content)),
         _ => None,
@@ -127,7 +127,7 @@ mod tests {
             Some("ba".to_string())
         );
         assert_eq!(
-            apply("onlydigits", &[], "ID: A-10-9"),
+            apply("onlydigit", &[], "ID: A-10-9"),
             Some("109".to_string())
         );
         assert_eq!(

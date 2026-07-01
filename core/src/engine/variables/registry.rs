@@ -40,7 +40,7 @@ const RANDOM_MODIFIERS: &[&str] = &[
     "hex(len)",
     "pass(len)",
 ];
-const LOREM_MODIFIERS: &[&str] = &["words(n)", "sentences(n)", "paragraphs(n)"];
+const LOREM_MODIFIERS: &[&str] = &["word(n)", "sentence(n)", "paragraph(n)"];
 const MOCK_MODIFIERS: &[&str] = &[
     "name",
     "first_name",
@@ -453,7 +453,7 @@ fn validate_lorem_modifier(modifier: Option<&str>) -> Result<(), ValidationError
             };
 
             let args = split_modifier_args(args);
-            let valid = matches!(variant, "words" | "sentences" | "paragraphs") && args.len() <= 1;
+            let valid = matches!(variant, "word" | "sentence" | "paragraph") && args.len() <= 1;
 
             if valid {
                 Ok(())
@@ -857,13 +857,13 @@ mod tests {
 
     #[test]
     fn validates_lorem_modifier_syntax() {
-        assert_eq!(validate_system_tag("lorem", Some("words(3)")), Ok(()));
-        assert_eq!(validate_system_tag("lorem", Some("words()")), Ok(()));
-        assert_eq!(validate_system_tag("lorem", Some("sentences(2)")), Ok(()));
-        assert_eq!(validate_system_tag("lorem", Some("paragraphs(1)")), Ok(()));
-        assert_eq!(validate_system_tag("lorem", Some("words([num=5])")), Ok(()));
+        assert_eq!(validate_system_tag("lorem", Some("word(3)")), Ok(()));
+        assert_eq!(validate_system_tag("lorem", Some("word()")), Ok(()));
+        assert_eq!(validate_system_tag("lorem", Some("sentence(2)")), Ok(()));
+        assert_eq!(validate_system_tag("lorem", Some("paragraph(1)")), Ok(()));
+        assert_eq!(validate_system_tag("lorem", Some("word([num=5])")), Ok(()));
         assert_eq!(
-            validate_system_tag("lorem", Some("words([random.int(3, 3)])")),
+            validate_system_tag("lorem", Some("word([random.int(3, 3)])")),
             Ok(())
         );
         assert_eq!(
@@ -871,23 +871,23 @@ mod tests {
             Err(ValidationError::MissingModifier { root: "lorem" })
         );
         assert_eq!(
-            validate_system_tag("lorem", Some("paragraphs(nope)")),
+            validate_system_tag("lorem", Some("paragraph(nope)")),
             Ok(())
         );
 
         assert_eq!(
-            validate_system_tag("lorem", Some("words")),
+            validate_system_tag("lorem", Some("word")),
             Err(ValidationError::InvalidModifier {
                 root: "lorem",
-                modifier: "words".to_string(),
+                modifier: "word".to_string(),
                 allowed: LOREM_MODIFIERS,
             })
         );
         assert_eq!(
-            validate_system_tag("lorem", Some("words(1, 2)")),
+            validate_system_tag("lorem", Some("word(1, 2)")),
             Err(ValidationError::InvalidModifier {
                 root: "lorem",
-                modifier: "words(1, 2)".to_string(),
+                modifier: "word(1, 2)".to_string(),
                 allowed: LOREM_MODIFIERS,
             })
         );

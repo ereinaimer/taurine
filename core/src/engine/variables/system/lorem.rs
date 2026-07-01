@@ -13,9 +13,9 @@ pub(crate) struct LoremInvocation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LoremVariant {
-    Words,
-    Sentences,
-    Paragraphs,
+    Word,
+    Sentence,
+    Paragraph,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,16 +54,16 @@ pub(crate) fn parse_invocation(key: &str) -> Result<LoremInvocation, LoremParseE
     let count = parse_count_arg(args)?;
 
     match variant {
-        "words" => Ok(LoremInvocation {
-            variant: LoremVariant::Words,
+        "word" => Ok(LoremInvocation {
+            variant: LoremVariant::Word,
             count: count.unwrap_or(DEFAULT_WORD_COUNT),
         }),
-        "sentences" => Ok(LoremInvocation {
-            variant: LoremVariant::Sentences,
+        "sentence" => Ok(LoremInvocation {
+            variant: LoremVariant::Sentence,
             count: count.unwrap_or(DEFAULT_SENTENCE_COUNT),
         }),
-        "paragraphs" => Ok(LoremInvocation {
-            variant: LoremVariant::Paragraphs,
+        "paragraph" => Ok(LoremInvocation {
+            variant: LoremVariant::Paragraph,
             count: count.unwrap_or(DEFAULT_PARAGRAPH_COUNT),
         }),
         _ => Err(LoremParseError::InvalidVariant),
@@ -75,13 +75,13 @@ pub fn resolve(key: &str) -> Option<String> {
     let end = invocation.count.checked_add(1)?;
 
     match invocation.variant {
-        LoremVariant::Paragraphs => Some(
+        LoremVariant::Paragraph => Some(
             Paragraphs(invocation.count..end)
                 .fake::<Vec<String>>()
                 .join("\n\n"),
         ),
-        LoremVariant::Words => Some(Words(invocation.count..end).fake::<Vec<String>>().join(" ")),
-        LoremVariant::Sentences => Some(
+        LoremVariant::Word => Some(Words(invocation.count..end).fake::<Vec<String>>().join(" ")),
+        LoremVariant::Sentence => Some(
             Sentences(invocation.count..end)
                 .fake::<Vec<String>>()
                 .join(" "),
@@ -156,29 +156,23 @@ mod tests {
     #[test]
     fn resolves_words_with_exact_counts() {
         assert_eq!(
-            resolve("lorem.words(1)")
-                .unwrap()
-                .split_whitespace()
-                .count(),
+            resolve("lorem.word(1)").unwrap().split_whitespace().count(),
             1
         );
         assert_eq!(
-            resolve("lorem.words(5)")
-                .unwrap()
-                .split_whitespace()
-                .count(),
+            resolve("lorem.word(5)").unwrap().split_whitespace().count(),
             5
         );
         assert_eq!(
-            resolve("lorem.words()").unwrap().split_whitespace().count(),
+            resolve("lorem.word()").unwrap().split_whitespace().count(),
             DEFAULT_WORD_COUNT
         );
     }
 
     #[test]
     fn resolves_sentences_and_paragraphs_output_formatting() {
-        let sentences = resolve("lorem.sentences(2)").unwrap();
-        let paragraphs = resolve("lorem.paragraphs(2)").unwrap();
+        let sentences = resolve("lorem.sentence(2)").unwrap();
+        let paragraphs = resolve("lorem.paragraph(2)").unwrap();
 
         assert_eq!(sentence_count(&sentences), 2);
         assert!(!sentences.contains("\n\n"));
@@ -187,9 +181,9 @@ mod tests {
 
     #[test]
     fn rejects_invalid_input_for_fallback() {
-        assert_eq!(resolve("lorem.words"), None);
-        assert_eq!(resolve("lorem.words(nope)"), None);
-        assert_eq!(resolve("lorem.sentences(1, 2)"), None);
-        assert_eq!(resolve("lorem.paragraphs(1).upper"), None);
+        assert_eq!(resolve("lorem.word"), None);
+        assert_eq!(resolve("lorem.word(nope)"), None);
+        assert_eq!(resolve("lorem.sentence(1, 2)"), None);
+        assert_eq!(resolve("lorem.paragraph(1).upper"), None);
     }
 }

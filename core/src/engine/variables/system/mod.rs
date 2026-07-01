@@ -526,7 +526,7 @@ mod tests {
         assert!(is_reserved("exec.bash(echo hi)"));
         assert!(is_reserved("random.int(1, 9)"));
         assert!(is_reserved("lorem"));
-        assert!(is_reserved("lorem.words(3)"));
+        assert!(is_reserved("lorem.word(3)"));
         assert!(is_reserved("mock"));
         assert!(is_reserved("mock.email"));
         assert!(is_reserved("mock.company"));
@@ -559,9 +559,9 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_lorem_words_interpolation_count() {
+    fn test_resolve_lorem_word_interpolation_count() {
         let resolved = crate::engine::variables::interpolate::interpolate(
-            "[lorem.words(3)]",
+            "[lorem.word(3)]",
             &crate::engine::variables::types::ArgMap::default(),
         );
 
@@ -802,7 +802,7 @@ mod tests {
         validate_output("[cursor] [cursor]", Some("multi"));
         validate_output("[key(tab)] [cursor]", Some("conflict"));
         validate_output("[cursor=invalid]", Some("default"));
-        validate_output("[lorem.words([num=5])]", Some("nested"));
+        validate_output("[lorem.word([num=5])]", Some("nested"));
         validate_output(r#"\[cursor\] [cursor]"#, Some("escaped"));
         validate_output("[clip=invalid]", None);
     }
@@ -810,8 +810,8 @@ mod tests {
     #[test]
     fn test_split_key_default_respects_nested_placeholders() {
         assert_eq!(
-            split_key_default("lorem.words([num=5])"),
-            ("lorem.words([num=5])", None)
+            split_key_default("lorem.word([num=5])"),
+            ("lorem.word([num=5])", None)
         );
         assert_eq!(
             split_key_default("cursor=invalid"),
