@@ -1,13 +1,6 @@
 use super::strip_argument_quotes;
 use regex::Regex;
-use std::sync::LazyLock;
 use tracing::warn;
-
-static URL_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"https?://[^\s<>"']+"#).expect("valid URL regex"));
-static EMAIL_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b").expect("valid email regex")
-});
 
 pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> {
     match transformer {
@@ -20,8 +13,7 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
         "remove" if args.len() == 1 => Some(remove(content, args[0])),
         "regexreplace" if args.len() == 2 => Some(regex_replace(content, args[0], args[1])),
         "substring" if args.len() == 2 => substring(content, args[0], args[1]),
-        "extracturls" if args.is_empty() => Some(extract_urls(content)),
-        "extractemails" if args.is_empty() => Some(extract_emails(content)),
+
         "onlydigits" if args.is_empty() => Some(only_digits(content)),
         "onlyalphanumeric" if args.is_empty() => Some(only_alphanumeric(content)),
         "stripall" if args.is_empty() => Some(strip_all(content)),
@@ -88,22 +80,6 @@ fn substring(content: &str, start: &str, end: &str) -> Option<String> {
     Some(chars[start..end].iter().collect())
 }
 
-fn extract_urls(content: &str) -> String {
-    URL_REGEX
-        .find_iter(content)
-        .map(|capture| trim_trailing_punctuation(capture.as_str()))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn extract_emails(content: &str) -> String {
-    EMAIL_REGEX
-        .find_iter(content)
-        .map(|capture| capture.as_str().to_string())
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 fn only_digits(content: &str) -> String {
     content.chars().filter(|ch| ch.is_ascii_digit()).collect()
 }
@@ -114,12 +90,6 @@ fn only_alphanumeric(content: &str) -> String {
 
 fn strip_all(content: &str) -> String {
     content.chars().filter(|ch| !ch.is_whitespace()).collect()
-}
-
-fn trim_trailing_punctuation(match_text: &str) -> String {
-    match_text
-        .trim_end_matches(['.', ',', ';', ':', '!', '?', ')', ']'])
-        .to_string()
 }
 
 #[cfg(test)]
@@ -215,19 +185,6 @@ mod tests {
         assert_eq!(
             apply("substring", &["4", "2"], "hello"),
             Some(String::new())
-        );
-    }
-
-    #[test]
-    fn test_extractors_return_newline_separated_matches() {
-        let text = "Links: https://example.com, https://openai.com/docs! Email aimer@example.com";
-        assert_eq!(
-            apply("extracturls", &[], text),
-            Some("https://example.com\nhttps://openai.com/docs".to_string())
-        );
-        assert_eq!(
-            apply("extractemails", &[], text),
-            Some("aimer@example.com".to_string())
         );
     }
 }

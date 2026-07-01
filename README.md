@@ -351,7 +351,7 @@ Taurine includes a wide range of **built-in system variables** that inject data 
 Some of the most useful system variables include:
 
 *   **Date/Time**: `[date.iso]`, `[time.now]`, `[date.tomorrow]`
-*   **Clipboard**: `[clipboard]` (inserts your current clipboard text)
+*   **Clipboard**: `[clip]` (inserts your current clipboard text)
 *   **Network**: `[net.ip]`, `[net.lip]`, `[net.online]`
 *   **Random**: `[random.pass]`, `[uuid.v4]`, `[lorem.sentence]`
 *   **Environment**: `[env(USER)]` (access any environment variable)

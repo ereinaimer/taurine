@@ -6,6 +6,7 @@
     "calc",
     "casing",
     "text-manipulation",
+    "ext",
     "data-extractors",
     "formatting",
     "encoding",

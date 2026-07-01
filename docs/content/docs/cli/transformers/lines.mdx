@@ -25,7 +25,7 @@ Line transformers are helpful when processing multi-line data from the clipboard
 These are useful for quickly formatting lists, such as adding bullet points or semicolon line-endings.
 
 <Transformation
-  template='[clipboard | prefixlines("> ")]'
+  template='[clip | prefixlines("> ")]'
   input=">clip:'Line 1\nLine 2'"
   result="> Line 1\n> Line 2"
 />
@@ -35,7 +35,7 @@ These are useful for quickly formatting lists, such as adding bullet points or s
 Removes all duplicate lines while strictly preserving their original order of appearance.
 
 <Transformation
-  template='[clipboard | uniqlines]'
+  template='[clip | uniqlines]'
   input=">clip:'orange\napple\norange\nbanana'"
   result="orange\napple\nbanana"
 />
@@ -45,7 +45,7 @@ Removes all duplicate lines while strictly preserving their original order of ap
 Counts the total number of lines in the input text.
 
 <Transformation
-  template='[clipboard | linecount]'
+  template='[clip | linecount]'
   input=">clip:'Line 1\nLine 2\nLine 3'"
   result="3"
 />
@@ -58,7 +58,7 @@ Sorts lines alphabetically by default. Supports options:
 - `numeric`: Numerical sorting (correctly sorting `10` after `2`).
 
 <Transformation
-  template='[clipboard | sortlines("numeric")]'
+  template='[clip | sortlines("numeric")]'
   input=">clip:'10\n2\n1.5'"
   result="1.5\n2\n10"
 />

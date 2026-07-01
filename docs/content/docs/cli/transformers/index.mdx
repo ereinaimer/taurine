@@ -6,7 +6,7 @@ description: Elevate your snippets with powerful, global text transformers.
 Transformers are a powerful feature of the Taurine engine that allow you to manipulate the casing, encoding, and structure of your text dynamically. They are applied using **Unix pipe syntax** (e.g., `| upper`) immediately following a variable name or default value.
 
 ```
-[clipboard | upper]
+[clip | upper]
 [0 | snake]
 [name=john | title]
 ```
@@ -56,6 +56,11 @@ Explore the different categories of transformers:
     title="Text Manipulation" 
     href="/docs/cli/transformers/text-manipulation" 
     description="Truncate, replace, regex, and extraction." 
+  />
+  <Card 
+    title="Extractors (ext.*)" 
+    href="/docs/cli/transformers/ext" 
+    description="Extract URLs, emails, paths, IPs, JWTs, semver, and markdown structures from raw text." 
   />
   <Card 
     title="Data Extraction" 

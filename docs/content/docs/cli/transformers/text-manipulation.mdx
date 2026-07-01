@@ -48,17 +48,3 @@ Returns the total number of words in a string, ignoring leading, trailing, or mu
   input=">text:'  This is a   sentence.  '"
   result="4"
 />
-
-### Data Extraction
-Extraction transformers are designed to pull specific patterns out of a larger block of text (like a webpage or log file). They return matches separated by newlines.
-
-| Modifier | Description |
-| :--- | :--- |
-| `extracturls` | Pulls all valid `http/https` URLs |
-| `extractemails` | Pulls all valid email addresses |
-
-<Transformation
-  template="[clipboard | extracturls]"
-  input=">clip:'Check https://taurine.in and https://github.com'"
-  result="https://taurine.in\nhttps://github.com"
-/>

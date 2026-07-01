@@ -1,0 +1,54 @@
+---
+title: Data Extraction
+description: Pull structured data (URLs, emails, numbers, paths, markdown) from raw text.
+---
+
+The `ext.*` suite of transformers provides powerful regular expressions and parsers to extract structured data from unstructured text, web pages, or clipboard contents. 
+
+Unlike standard text replacements, these extractors will find all matches within the input and return them as a newline-separated list.
+
+### Available Extractors
+
+| Transformer | Description |
+| :--- | :--- |
+| `ext.url` | Pulls valid `http/https` URLs. |
+| `ext.email` | Pulls valid email addresses. |
+| `ext.phone` | Pulls phone numbers (various formats). |
+| `ext.mention` | Pulls `@` handles (e.g., `@username`). |
+| `ext.hashtag` | Pulls `#` tags (e.g., `#rust`). |
+| `ext.ip` | Pulls IPv4 and IPv6 addresses. |
+| `ext.mac` | Pulls hardware MAC addresses. |
+| `ext.path` | Pulls POSIX and Windows file/directory paths. |
+| `ext.path.filename` | Pulls standalone filenames or extracts filenames from paths. |
+| `ext.path.dir` | Pulls directories or extracts the parent directory of paths. |
+| `ext.jwt` | Pulls JSON Web Tokens (JWT). |
+| `ext.semver` | Pulls Semantic Versions (e.g., `v1.2.3`). |
+| `ext.mdcode` | Pulls the inner contents of triple-backtick markdown blocks. |
+| `ext.mdtable` | Pulls markdown-formatted tables. |
+| `ext.mdlist` | Pulls bulleted or numbered lists. |
+
+### Examples
+
+#### Extracting URLs
+Easily scrape a webpage or clipboard text for all links:
+<Transformation
+  template="[clip | ext.url]"
+  input=">clip:'Check https://taurine.in and https://github.com'"
+  result="https://taurine.in\nhttps://github.com"
+/>
+
+#### Extracting Paths and Directories
+If you have a log file or a system prompt, you can extract the directory paths directly:
+<Transformation
+  template="[clip | ext.path.dir]"
+  input=">clip:'The config is at /etc/nginx/nginx.conf'"
+  result="/etc/nginx"
+/>
+
+#### Extracting Code Blocks
+When piping outputs from AI or Markdown documents, you can extract the raw code:
+<Transformation
+  template="[clip | ext.mdcode]"
+  input=">clip:'Here is the code:\n```rust\nfn main() {}\n```'"
+  result="fn main() {}"
+/>
