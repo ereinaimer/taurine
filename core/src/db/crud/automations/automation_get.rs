@@ -176,7 +176,6 @@ pub fn get_active_word_trigger_history(conn: &Connection) -> Result<Vec<String>>
            AND a.is_enabled = 1
            AND (a.target_os = 'all' OR a.target_os = ?1)
          ORDER BY
-           (a.target_os != 'all') DESC,
            (a.last_used_at IS NULL) ASC,
            a.last_used_at DESC,
            a.usage_count DESC,

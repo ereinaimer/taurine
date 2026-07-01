@@ -66,9 +66,7 @@ pub fn record_automation_metric_with_conn(
         }
     };
 
-    if !matches!(event.kind, AutomationMetricKind::InlineAi)
-        && let Some(trigger) = event.automation_trigger.as_deref()
-    {
+    if let Some(trigger) = event.automation_trigger.as_deref() {
         increment_usage_count_by_trigger(&tx, trigger)?;
     }
 
