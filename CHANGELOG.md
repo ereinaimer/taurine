@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Text Extractor Transformers (`ext.*`)**: Introduced a comprehensive suite of 14 regex-based and syntax-aware text extractor transformers under the `ext` namespace. Each extractor scans the full input and returns all matches as a newline-separated list.
+  - `ext.url` — extracts `http/https` URLs.
+  - `ext.email` — extracts email addresses.
+  - `ext.phone` — extracts phone numbers in a wide range of formats (international, local, parenthesised).
+  - `ext.mention` — extracts `@handle` mentions.
+  - `ext.hashtag` — extracts `#tag` hashtags (rejects pure-digit tags).
+  - `ext.ip` — extracts IPv4 and IPv6 addresses.
+  - `ext.mac` — extracts colon- or dash-separated MAC addresses.
+  - `ext.path` — extracts POSIX and Windows file/directory paths.
+  - `ext.path.filename` — extracts filenames with extensions, pulling them from full paths via `std::path::Path` or matching standalone filenames.
+  - `ext.path.dir` — extracts parent directories from paths.
+  - `ext.jwt` — extracts JSON Web Tokens.
+  - `ext.semver` — extracts semantic versions (e.g. `v1.2.3`, `0.4.0-alpha.1+build`).
+  - `ext.mdcode` — extracts the inner contents of triple-backtick markdown code blocks.
+  - `ext.mdtable` — extracts complete markdown tables (requires a header separator row).
+  - `ext.mdlist` — extracts contiguous bulleted and numbered lists.
+
+### Removed
+- **Deprecated `extracturls` and `extractemails` transformers**: Removed in favour of `ext.url` and `ext.email` respectively. No backward compatibility layer — update any snippets using these names.
+
 ## [1.0.0-alpha.7] - 2026-07-02
 
 ### Added
