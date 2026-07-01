@@ -339,7 +339,7 @@ taurine add hi "Hello, [name.title=friend]!"
 Automatically encode text for use in URLs:
 
 ```bash
-taurine add search "https://google.com/search?q=[query.urlencode]"
+taurine add search "https://google.com/search?q=[query | url.encode]"
 ```
 
 For a full list of available transformers and advanced chaining, check the [Transformers Documentation](#todo:link-to-transformers-docs).

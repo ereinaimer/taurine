@@ -19,7 +19,24 @@ const transformers: Record<string, (val: string) => string> = {
       /\w\S*/g,
       (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase()
     ),
-  urlencode: (val) => encodeURIComponent(val),
+  'url.encode': (val) => encodeURIComponent(val),
+  'url.decode': (val) => {
+    try {
+      return decodeURIComponent(val);
+    } catch {
+      return val;
+    }
+  },
+  'url.clean': (val) => {
+    try {
+      const url = new URL(val.trim());
+      url.search = '';
+      return url.toString();
+    } catch {
+      const qIdx = val.indexOf('?');
+      return qIdx !== -1 ? val.slice(0, qIdx) : val;
+    }
+  },
   snake: (val) =>
     val
       .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)

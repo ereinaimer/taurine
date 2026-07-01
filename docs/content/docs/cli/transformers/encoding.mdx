@@ -5,19 +5,26 @@ description: Encode and decode text for URLs and binary-safe transfers.
 
 Encoding transformers are essential for generating safe URLs, handling API payloads, or processing Base64 data.
 
-### URL Encoding
+### URL Encoding & Cleaning
 
-Use `urlencode` and `urldecode` to handle URI components. Space characters are encoded as `%20`.
+Use `url.encode` and `url.decode` to handle URI components (percent-encoding). Use `url.clean` to strip query and tracking parameters.
 
-| Modifier | Example |
-| :--- | :--- |
-| `urlencode` | `hello world!` → `hello%20world%21` |
-| `urldecode` | `hello%20world%21` → `hello world!` |
+| Modifier | Description | Example |
+| :--- | :--- | :--- |
+| `url.encode` | Percent-encodes characters for safe URI inclusion | `hello world!` → `hello%20world%21` |
+| `url.decode` | Decodes percent-encoded URL components | `hello%20world%21` → `hello world!` |
+| `url.clean` | Strips tracking and query parameters from a URL | `https://site.com/p?utm_id=123` → `https://site.com/p` |
 
 <Transformation
-  template="https://google.com/search?q=[0 | urlencode]"
+  template="https://google.com/search?q=[0 | url.encode]"
   input=">query:'rust programming'"
   result="https://google.com/search?q=rust%20programming"
+/>
+
+<Transformation
+  template="Clean URL: [0 | url.clean]"
+  input=">url:'https://example.com/item?id=45&utm_source=share'"
+  result="Clean URL: https://example.com/item"
 />
 
 ### Base64

@@ -91,7 +91,7 @@ Directives control the behavior of the expansion process:
 Transformers modify casing and structure using dot-notation:
 *   **Case Styles**: `upper`, `lower`, `title`, `camel`, `pascal`.
 *   **Delimiters**: `snake`, `kebab`, `shoutysnake`.
-*   **Usage**: Chain multiple transformers (e.g., `[upper.lower.val]`). Combine with defaults (e.g., `[name.title=friend]`). Use `urlencode` for links.
+*   **Usage**: Chain multiple transformers (e.g., `[val | upper | lower]`). Combine with defaults (e.g., `[name=friend | title]`). Use `url.encode` for links.
 
 ---
 

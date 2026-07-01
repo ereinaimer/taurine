@@ -845,10 +845,10 @@ mod tests {
             args.positional.push("banana".to_string());
 
             assert_eq!(
-                interpolate("nested=[[0] | urlencode]", &args),
-                "nested=[banana | urlencode]"
+                interpolate("nested=[[0] | url.encode]", &args),
+                "nested=[banana | url.encode]"
             );
-            assert_eq!(interpolate("flat=[0 | urlencode]", &args), "flat=banana");
+            assert_eq!(interpolate("flat=[0 | url.encode]", &args), "flat=banana");
         }
 
         #[test]

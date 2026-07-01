@@ -6,14 +6,24 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
     }
 
     match transformer {
-        "urlencode" => Some(urlencode_string(content)),
-        "urldecode" => urldecode_string(content),
+        "url.encode" => Some(urlencode_string(content)),
+        "url.decode" => urldecode_string(content),
+        "url.clean" => Some(url_clean(content)),
         "base64encode" => Some(STANDARD.encode(content)),
         "base64decode" => STANDARD
             .decode(content.trim())
             .ok()
             .and_then(|bytes| String::from_utf8(bytes).ok()),
         _ => None,
+    }
+}
+
+fn url_clean(content: &str) -> String {
+    let content = content.trim();
+    if let Some(idx) = content.find('?') {
+        content[..idx].to_string()
+    } else {
+        content.to_string()
     }
 }
 
@@ -77,12 +87,28 @@ mod tests {
     #[test]
     fn test_encoding_transformers() {
         assert_eq!(
-            apply("urlencode", &[], "hello world!"),
+            apply("url.encode", &[], "hello world!"),
             Some("hello%20world%21".to_string())
         );
         assert_eq!(
-            apply("urldecode", &[], "hello%20world%21"),
+            apply("url.decode", &[], "hello%20world%21"),
             Some("hello world!".to_string())
+        );
+        assert_eq!(
+            apply(
+                "url.clean",
+                &[],
+                "https://google.com/search?q=rust&utm_source=facebook"
+            ),
+            Some("https://google.com/search".to_string())
+        );
+        assert_eq!(
+            apply("url.clean", &[], "https://google.com/search"),
+            Some("https://google.com/search".to_string())
+        );
+        assert_eq!(
+            apply("url.clean", &[], "  https://google.com/search?q=123   "),
+            Some("https://google.com/search".to_string())
         );
         assert_eq!(
             apply("base64encode", &[], "hello"),
@@ -96,6 +122,6 @@ mod tests {
             apply("base64decode", &[], "  aGVsbG8=\n"),
             Some("hello".to_string())
         );
-        assert_eq!(apply("urldecode", &[], "%ZZ"), None);
+        assert_eq!(apply("url.decode", &[], "%ZZ"), None);
     }
 }
