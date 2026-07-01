@@ -10,6 +10,7 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
         "truncate" if args.len() == 1 => truncate(content, args[0]),
         "repeat" if args.len() == 1 => repeat(content, args[0]),
         "replace" if args.len() == 2 => Some(replace(content, args[0], args[1])),
+        "slug" if args.is_empty() => Some(slug(content)),
         "regexreplace" if args.len() == 2 => Some(regex_replace(content, args[0], args[1])),
         "substring" if args.len() == 2 => substring(content, args[0], args[1]),
 
@@ -87,6 +88,32 @@ fn strip_all(content: &str) -> String {
     content.chars().filter(|ch| !ch.is_whitespace()).collect()
 }
 
+fn slug(content: &str) -> String {
+    let mut result = String::with_capacity(content.len());
+    let mut last_was_hyphen = false;
+
+    for ch in content.chars() {
+        if ch.is_alphanumeric() {
+            for lowercase_ch in ch.to_lowercase() {
+                result.push(lowercase_ch);
+            }
+            last_was_hyphen = false;
+        } else if (ch.is_whitespace() || ch == '-' || ch == '_' || ch.is_ascii_punctuation())
+            && !result.is_empty()
+            && !last_was_hyphen
+        {
+            result.push('-');
+            last_was_hyphen = true;
+        }
+    }
+
+    if result.ends_with('-') {
+        result.pop();
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,6 +157,15 @@ mod tests {
             apply("stripall", &[], " a \n b\tc "),
             Some("abc".to_string())
         );
+        assert_eq!(
+            apply("slug", &[], "My Family Vacation 2026! 🌴"),
+            Some("my-family-vacation-2026".to_string())
+        );
+        assert_eq!(
+            apply("slug", &[], "---hello_world---"),
+            Some("hello-world".to_string())
+        );
+        assert_eq!(apply("slug", &[], "   "), Some(String::new()));
     }
 
     #[test]

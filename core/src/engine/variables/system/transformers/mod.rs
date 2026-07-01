@@ -22,6 +22,7 @@ pub const TRANSFORMERS: &[&str] = &[
     "truncate",
     "repeat",
     "replace",
+    "slug",
     "regexreplace",
     "substring",
     "ext.url",

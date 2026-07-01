@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Slug Transformer (`slug`)**: Added a native `slug` transformer to easily sanitize strings into clean, filesystem-safe and URL-safe slugs (lower-casing, replacing spaces/punctuation with hyphens, and stripping emojis).
 - **Text Extractor Transformers (`ext.*`)**: Introduced a comprehensive suite of 14 regex-based and syntax-aware text extractor transformers under the `ext` namespace. Each extractor scans the full input and returns all matches as a newline-separated list.
   - `ext.url` — extracts `http/https` URLs.
   - `ext.email` — extracts email addresses.
