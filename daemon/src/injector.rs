@@ -83,11 +83,11 @@ fn simulate_mouse_click(button: MouseButton) {
 #[cfg(target_os = "linux")]
 fn simulate_mouse_move(x: u16, y: u16) {
     use x11rb::connection::Connection;
-    if let Ok((conn, _)) = x11rb::connect(None) {
-        if let Some(screen) = conn.setup().roots.first() {
-            let _ = conn.warp_pointer(x11rb::NONE, screen.root, 0, 0, 0, 0, x as i16, y as i16);
-            let _ = conn.flush();
-        }
+    if let Ok((conn, _)) = x11rb::connect(None)
+        && let Some(screen) = conn.setup().roots.first()
+    {
+        let _ = conn.warp_pointer(x11rb::NONE, screen.root, 0, 0, 0, 0, x as i16, y as i16);
+        let _ = conn.flush();
     }
 }
 
@@ -960,18 +960,18 @@ pub fn inject_text_segment(
         // At this point, we must use direct typing (either display-less or fallback).
         if let Some(lookup) = linux::get_reverse_lookup() {
             linux::uinput::simulate_type_string(text, lookup);
-            return TextSegmentInjection {
+            TextSegmentInjection {
                 original_clipboard: original_clipboard.clone(),
                 injected_chars,
                 success: true,
-            };
+            }
         } else {
             error!("Direct typing failed: Linux XKB mapper not initialized");
-        }
-        TextSegmentInjection {
-            original_clipboard: original_clipboard.clone(),
-            injected_chars: 0,
-            success: false,
+            TextSegmentInjection {
+                original_clipboard: original_clipboard.clone(),
+                injected_chars: 0,
+                success: false,
+            }
         }
     }
 
