@@ -41,7 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `uniqlines` -> `uniqline`
 
 ### Removed
-- **Deprecated `extracturls` and `extractemails` transformers**: Removed in favour of `ext.url` and `ext.email` respectively. No backward compatibility layer — update any snippets using these names.
+- **Redundant Transformers and Aliases**:
+  - `remove` transformer (in favor of `replace(target, "")`).
+  - `hexencode` and `hexdecode` encoding/decoding transformers.
+  - `removeemptyline` line transformer alias (standardized on `compactline`).
+- **Deprecated `extracturls` and `extractemails` transformers**: Removed in favour of `ext.url` and `ext.email` respectively.
 
 ### Fixed
 - **Inline History Accuracy**: Fixed two bugs in the inline history implementation: corrected the database query sorting order to prioritize recency regardless of target OS (preventing used items from jumping around or being buried on daemon reload), and fixed history tracking for AI-powered snippet expansions by ensuring their usage is correctly registered in the database.

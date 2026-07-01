@@ -10,7 +10,6 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
         "truncate" if args.len() == 1 => truncate(content, args[0]),
         "repeat" if args.len() == 1 => repeat(content, args[0]),
         "replace" if args.len() == 2 => Some(replace(content, args[0], args[1])),
-        "remove" if args.len() == 1 => Some(remove(content, args[0])),
         "regexreplace" if args.len() == 2 => Some(regex_replace(content, args[0], args[1])),
         "substring" if args.len() == 2 => substring(content, args[0], args[1]),
 
@@ -41,10 +40,6 @@ fn replace(content: &str, old: &str, new: &str) -> String {
     let old = strip_argument_quotes(old);
     let new = strip_argument_quotes(new);
     content.replace(old, new)
-}
-
-fn remove(content: &str, needle: &str) -> String {
-    content.replace(strip_argument_quotes(needle), "")
 }
 
 fn regex_replace(content: &str, pattern: &str, replacement: &str) -> String {
@@ -122,10 +117,7 @@ mod tests {
             apply("replace", &["\"a\"", "\"o\""], "banana"),
             Some("bonono".to_string())
         );
-        assert_eq!(
-            apply("remove", &["\"na\""], "banana"),
-            Some("ba".to_string())
-        );
+
         assert_eq!(
             apply("onlydigit", &[], "ID: A-10-9"),
             Some("109".to_string())

@@ -8,7 +8,7 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
         "suffixline" if args.len() == 1 => Some(suffix_lines(content, args[0])),
         "joinline" if args.len() == 1 => Some(join_lines(content, args[0])),
         "splitline" if args.len() == 1 => Some(split_lines(content, args[0])),
-        "removeemptyline" | "compactline" if args.is_empty() => Some(remove_empty_lines(content)),
+        "compactline" if args.is_empty() => Some(remove_empty_lines(content)),
         "linecount" if args.is_empty() => Some(content.lines().count().to_string()),
         "uniqline" if args.is_empty() => Some(uniq_lines(content)),
         "sortline" => sort_lines(content, args),
@@ -139,7 +139,7 @@ mod tests {
             Some("a\nb\nc".to_string())
         );
         assert_eq!(
-            apply("removeemptyline", &[], "a\n\n \n b"),
+            apply("compactline", &[], "a\n\n \n b"),
             Some("a\n b".to_string())
         );
         assert_eq!(

@@ -13,10 +13,6 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
             .decode(content.trim())
             .ok()
             .and_then(|bytes| String::from_utf8(bytes).ok()),
-        "hexencode" => Some(hex::encode(content.as_bytes())),
-        "hexdecode" => hex::decode(content.trim())
-            .ok()
-            .and_then(|bytes| String::from_utf8(bytes).ok()),
         _ => None,
     }
 }
@@ -97,22 +93,9 @@ mod tests {
             Some("hello".to_string())
         );
         assert_eq!(
-            apply("hexencode", &[], "hello"),
-            Some("68656c6c6f".to_string())
-        );
-        assert_eq!(
-            apply("hexdecode", &[], "68656c6c6f"),
-            Some("hello".to_string())
-        );
-        assert_eq!(
             apply("base64decode", &[], "  aGVsbG8=\n"),
             Some("hello".to_string())
         );
-        assert_eq!(
-            apply("hexdecode", &[], "\t68656c6c6f "),
-            Some("hello".to_string())
-        );
         assert_eq!(apply("urldecode", &[], "%ZZ"), None);
-        assert_eq!(apply("hexdecode", &[], "ZZ"), None);
     }
 }
