@@ -17,6 +17,7 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
         "onlydigit" if args.is_empty() => Some(only_digits(content)),
         "onlyalphanumeric" if args.is_empty() => Some(only_alphanumeric(content)),
         "stripall" if args.is_empty() => Some(strip_all(content)),
+        "stripemoji" if args.is_empty() => Some(strip_emoji(content)),
         _ => None,
     }
 }
@@ -112,6 +113,26 @@ fn slug(content: &str) -> String {
     }
 
     result
+}
+
+fn strip_emoji(content: &str) -> String {
+    content.chars().filter(|&c| !is_emoji(c)).collect()
+}
+
+fn is_emoji(c: char) -> bool {
+    let cp = c as u32;
+    matches!(
+        cp,
+        0x1F300..=0x1F5FF // Miscellaneous Symbols and Pictographs
+        | 0x1F600..=0x1F64F // Emoticons
+        | 0x1F680..=0x1F6FF // Transport and Map Symbols
+        | 0x1F900..=0x1F9FF // Supplemental Symbols and Pictographs
+        | 0x1FA70..=0x1FAFF // Symbols and Pictographs Extended-A
+        | 0x2700..=0x27BF   // Dingbats
+        | 0x1F1E6..=0x1F1FF // Regional Indicator Symbols (Flags)
+        | 0x200D            // Zero Width Joiner
+        | 0xFE0F            // Variation Selector-16
+    )
 }
 
 #[cfg(test)]
@@ -210,6 +231,32 @@ mod tests {
             apply("substring", &["2", "99"], "naïve"),
             Some("ïve".to_string())
         );
+        assert_eq!(apply("slug", &[], "   "), Some(String::new()));
+        assert_eq!(
+            apply(
+                "stripemoji",
+                &[],
+                "Huge update today! 🚀🔥 structural changes are coming... 🛠️"
+            ),
+            Some("Huge update today!  structural changes are coming... ".to_string())
+        );
+        assert_eq!(
+            apply(
+                "stripemoji",
+                &[],
+                "No emojis here, but some normal symbols: © and ® and ™ and &."
+            ),
+            Some("No emojis here, but some normal symbols: © and ® and ™ and &.".to_string())
+        );
+        assert_eq!(
+            apply(
+                "stripemoji",
+                &[],
+                "Checkmark emoji: ✔️, heart: ❤️, combined flag: 🇺🇸"
+            ),
+            Some("Checkmark emoji: , heart: , combined flag: ".to_string())
+        );
+        assert_eq!(apply("stripemoji", &[], "   "), Some("   ".to_string()));
         assert_eq!(
             apply("substring", &["4", "2"], "hello"),
             Some(String::new())

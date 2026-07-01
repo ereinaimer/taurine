@@ -43,6 +43,7 @@ pub const TRANSFORMERS: &[&str] = &[
     "onlydigit",
     "onlyalphanumeric",
     "stripall",
+    "stripemoji",
     "url.encode",
     "url.decode",
     "url.clean",

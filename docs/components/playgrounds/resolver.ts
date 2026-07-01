@@ -45,6 +45,13 @@ const transformers: Record<string, (val: string) => string> = {
       return val;
     }
   },
+  'stripemoji': (val) => {
+    try {
+      return val.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}\u200D\uFE0F]/gu, '');
+    } catch {
+      return val.replace(/[\u2700-\u27BF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|\uD83E[\uDD10-\uDDFF]/g, '');
+    }
+  },
   snake: (val) =>
     val
       .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)

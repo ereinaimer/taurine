@@ -17,6 +17,7 @@ These transformers allow you to modify the content of a string beyond simple cas
 | `slug` | Converts text to a clean URL/filename-safe slug (lowercase, hyphens for separators, emojis/symbols stripped) | `"My Vacation 2026! 🌴"` → `"my-vacation-2026"` |
 | `substring(s, e)` | Precise char-aware slicing | `"naïve"` → `"ïve"` |
 | `stripall` | Removes ALL whitespace | `" a b c "` → `"abc"` |
+| `stripemoji` | Removes all emoji characters from the text | `"Huge update! 🚀🔥"` → `"Huge update! "` |
 | `onlydigit` | Keeps only `0-9` | `"A-10-9"` → `"109"` |
 | `onlyalphanumeric` | Keeps only letters and numbers | `"a-b_1!"` → `"ab1"` |
 
