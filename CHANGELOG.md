@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ext.mdlist` — extracts contiguous bulleted and numbered lists.
 
 ### Changed
-- **URL Namespace Reorganization**: Reorganized the standalone `urlencode` and `urldecode` encoding/decoding transformers under the `url` namespace as `url.encode` and `url.decode`.
+- **URL & Base64 Namespace Reorganization**: Reorganized the standalone `urlencode`/`urldecode` and `base64encode`/`base64decode` encoding/decoding transformers under their respective `url` and `base64` namespaces as `url.encode`/`url.decode` and `base64.encode`/`base64.decode`.
 - **Unified Singular Naming Convention**: Renamed all `lorem` modifiers and line/text transformers to their singular forms to enforce syntactic consistency across all system variables, modifiers, and transformers:
   - `lorem.words` -> `lorem.word`
   - `lorem.sentences` -> `lorem.sentence`

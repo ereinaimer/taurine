@@ -33,11 +33,11 @@ Base64 modifiers allow you to convert text to and from the standard Base64 encod
 
 | Modifier | Example |
 | :--- | :--- |
-| `base64encode` | `hello` → `aGVsbG8=` |
-| `base64decode` | `aGVsbG8=` → `hello` |
+| `base64.encode` | `hello` → `aGVsbG8=` |
+| `base64.decode` | `aGVsbG8=` → `hello` |
 
 <Transformation
-  template="Authorization: Basic [0 | base64encode]"
+  template="Authorization: Basic [0 | base64.encode]"
   input=">creds:'admin:password'"
   result="Authorization: Basic YWRtaW46cGFzc3dvcmQ="
 />

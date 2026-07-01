@@ -9,8 +9,8 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
         "url.encode" => Some(urlencode_string(content)),
         "url.decode" => urldecode_string(content),
         "url.clean" => Some(url_clean(content)),
-        "base64encode" => Some(STANDARD.encode(content)),
-        "base64decode" => STANDARD
+        "base64.encode" => Some(STANDARD.encode(content)),
+        "base64.decode" => STANDARD
             .decode(content.trim())
             .ok()
             .and_then(|bytes| String::from_utf8(bytes).ok()),
@@ -111,15 +111,15 @@ mod tests {
             Some("https://google.com/search".to_string())
         );
         assert_eq!(
-            apply("base64encode", &[], "hello"),
+            apply("base64.encode", &[], "hello"),
             Some("aGVsbG8=".to_string())
         );
         assert_eq!(
-            apply("base64decode", &[], "aGVsbG8="),
+            apply("base64.decode", &[], "aGVsbG8="),
             Some("hello".to_string())
         );
         assert_eq!(
-            apply("base64decode", &[], "  aGVsbG8=\n"),
+            apply("base64.decode", &[], "  aGVsbG8=\n"),
             Some("hello".to_string())
         );
         assert_eq!(apply("url.decode", &[], "%ZZ"), None);

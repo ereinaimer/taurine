@@ -37,6 +37,14 @@ const transformers: Record<string, (val: string) => string> = {
       return qIdx !== -1 ? val.slice(0, qIdx) : val;
     }
   },
+  'base64.encode': (val) => btoa(val),
+  'base64.decode': (val) => {
+    try {
+      return atob(val.trim());
+    } catch {
+      return val;
+    }
+  },
   snake: (val) =>
     val
       .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
