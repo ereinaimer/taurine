@@ -1,6 +1,6 @@
 use evdev::uinput::VirtualDevice;
 use evdev::{
-    AttributeSet, BusType, EventType, InputEvent, InputId, KeyCode, MiscCode, RelativeAxisType,
+    AttributeSet, BusType, EventType, InputEvent, InputId, KeyCode, MiscCode, RelativeAxisCode,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -24,10 +24,10 @@ pub fn init_uinput() -> Result<(), String> {
     keys.insert(KeyCode::BTN_RIGHT);
     keys.insert(KeyCode::BTN_MIDDLE);
 
-    let mut relative_axes = AttributeSet::<RelativeAxisType>::new();
-    relative_axes.insert(RelativeAxisType::REL_X);
-    relative_axes.insert(RelativeAxisType::REL_Y);
-    relative_axes.insert(RelativeAxisType::REL_WHEEL);
+    let mut relative_axes = AttributeSet::<RelativeAxisCode>::new();
+    relative_axes.insert(RelativeAxisCode::REL_X);
+    relative_axes.insert(RelativeAxisCode::REL_Y);
+    relative_axes.insert(RelativeAxisCode::REL_WHEEL);
 
     let mut msc = AttributeSet::<MiscCode>::new();
     msc.insert(MiscCode::MSC_SCAN);
@@ -114,7 +114,7 @@ pub fn simulate_mouse_button(button: KeyCode, is_press: bool) {
 pub fn simulate_mouse_scroll(delta: i32) {
     let events = [InputEvent::new(
         evdev::EventType::RELATIVE.0,
-        RelativeAxisType::REL_WHEEL.0,
+        RelativeAxisCode::REL_WHEEL.0,
         delta,
     )];
     emit_batch(&events);

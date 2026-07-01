@@ -83,6 +83,7 @@ fn simulate_mouse_click(button: MouseButton) {
 #[cfg(target_os = "linux")]
 fn simulate_mouse_move(x: u16, y: u16) {
     use x11rb::connection::Connection;
+    use x11rb::protocol::xproto::ConnectionExt;
     if let Ok((conn, _)) = x11rb::connect(None)
         && let Some(screen) = conn.setup().roots.first()
     {

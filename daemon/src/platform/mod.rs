@@ -43,7 +43,7 @@ pub fn get_mouse_pos() -> Option<(i32, i32)> {
 pub fn get_mouse_pos() -> Option<(i32, i32)> {
     use objc2::{class, msg_send};
     use objc2_app_kit::NSEvent;
-    let point = unsafe { NSEvent::mouseLocation() };
+    let point = NSEvent::mouseLocation();
 
     // Attempt dynamic retrieval of main screen height to convert bottom-left to top-left.
     let screen_height: f64 = unsafe {
@@ -66,6 +66,7 @@ pub fn get_mouse_pos() -> Option<(i32, i32)> {
 #[cfg(target_os = "linux")]
 pub fn get_mouse_pos() -> Option<(i32, i32)> {
     use x11rb::connection::Connection;
+    use x11rb::protocol::xproto::ConnectionExt;
     let (conn, _) = x11rb::connect(None).ok()?;
     let screen = &conn.setup().roots[0];
     let reply = conn.query_pointer(screen.root).ok()?.reply().ok()?;
