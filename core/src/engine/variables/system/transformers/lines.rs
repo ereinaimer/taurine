@@ -9,6 +9,9 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
         "joinlines" if args.len() == 1 => Some(join_lines(content, args[0])),
         "splitlines" if args.len() == 1 => Some(split_lines(content, args[0])),
         "removeemptylines" | "compactlines" if args.is_empty() => Some(remove_empty_lines(content)),
+        "linecount" if args.is_empty() => Some(content.lines().count().to_string()),
+        "uniqlines" if args.is_empty() => Some(uniq_lines(content)),
+        "sortlines" => sort_lines(content, args),
         _ => None,
     }
 }
@@ -55,6 +58,61 @@ fn remove_empty_lines(content: &str) -> String {
         .join("\n")
 }
 
+fn uniq_lines(content: &str) -> String {
+    let mut seen = std::collections::HashSet::new();
+    content
+        .lines()
+        .filter(|line| seen.insert(*line))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn sort_lines(content: &str, args: &[&str]) -> Option<String> {
+    let mut lines: Vec<&str> = content.lines().collect();
+
+    let mut desc = false;
+    let mut insensitive = false;
+    let mut numeric = false;
+
+    for arg in args {
+        let clean = strip_argument_quotes(arg).trim().to_lowercase();
+        if clean == "desc" || clean == "reverse" {
+            desc = true;
+        } else if clean == "insensitive" {
+            insensitive = true;
+        } else if clean == "numeric" {
+            numeric = true;
+        } else if clean == "asc" {
+            desc = false;
+        }
+    }
+
+    if numeric {
+        lines.sort_by(|a, b| {
+            let a_val = a.trim().parse::<f64>().unwrap_or(f64::NAN);
+            let b_val = b.trim().parse::<f64>().unwrap_or(f64::NAN);
+            match (a_val.is_nan(), b_val.is_nan()) {
+                (true, true) => std::cmp::Ordering::Equal,
+                (true, false) => std::cmp::Ordering::Greater,
+                (false, true) => std::cmp::Ordering::Less,
+                (false, false) => a_val
+                    .partial_cmp(&b_val)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            }
+        });
+    } else if insensitive {
+        lines.sort_by_key(|a| a.to_lowercase());
+    } else {
+        lines.sort();
+    }
+
+    if desc {
+        lines.reverse();
+    }
+
+    Some(lines.join("\n"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -87,6 +145,36 @@ mod tests {
         assert_eq!(
             apply("compactlines", &[], "a\n\nb"),
             Some("a\nb".to_string())
+        );
+        assert_eq!(apply("linecount", &[], "a\nb\nc"), Some("3".to_string()));
+        assert_eq!(
+            apply("linecount", &[], "a\r\nb\r\nc"),
+            Some("3".to_string())
+        );
+        assert_eq!(apply("linecount", &[], ""), Some("0".to_string()));
+        assert_eq!(
+            apply("uniqlines", &[], "b\na\nb\nc\na"),
+            Some("b\na\nc".to_string())
+        );
+        assert_eq!(
+            apply("uniqlines", &[], "a\n\nb\n\nc"),
+            Some("a\n\nb\nc".to_string())
+        );
+        assert_eq!(
+            apply("sortlines", &[], "b\nc\na"),
+            Some("a\nb\nc".to_string())
+        );
+        assert_eq!(
+            apply("sortlines", &["\"desc\""], "b\nc\na"),
+            Some("c\nb\na".to_string())
+        );
+        assert_eq!(
+            apply("sortlines", &["\"insensitive\""], "B\nc\na"),
+            Some("a\nB\nc".to_string())
+        );
+        assert_eq!(
+            apply("sortlines", &["\"numeric\""], "10\n2\n1.5"),
+            Some("1.5\n2\n10".to_string())
         );
     }
 }

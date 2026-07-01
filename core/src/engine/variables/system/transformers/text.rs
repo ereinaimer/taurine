@@ -12,6 +12,7 @@ static EMAIL_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> {
     match transformer {
         "length" if args.is_empty() => Some(content.chars().count().to_string()),
+        "wordcount" if args.is_empty() => Some(content.split_whitespace().count().to_string()),
         "trim" if args.is_empty() => Some(content.trim().to_string()),
         "truncate" if args.len() == 1 => truncate(content, args[0]),
         "repeat" if args.len() == 1 => repeat(content, args[0]),
@@ -128,6 +129,12 @@ mod tests {
     #[test]
     fn test_text_transformers() {
         assert_eq!(apply("length", &[], "naive"), Some("5".to_string()));
+        assert_eq!(
+            apply("wordcount", &[], "hello world   foo"),
+            Some("3".to_string())
+        );
+        assert_eq!(apply("wordcount", &[], "   "), Some("0".to_string()));
+        assert_eq!(apply("wordcount", &[], ""), Some("0".to_string()));
         assert_eq!(apply("trim", &[], "  hi  "), Some("hi".to_string()));
         assert_eq!(
             apply("truncate", &["4"], "abcdef"),

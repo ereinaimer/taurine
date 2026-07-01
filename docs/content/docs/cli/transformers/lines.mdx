@@ -11,11 +11,14 @@ Line transformers are helpful when processing multi-line data from the clipboard
 | :--- | :--- |
 | `firstline` | Extracts only the first line |
 | `lastline` | Extracts only the last line |
+| `linecount` | Counts the total number of lines |
 | `removeemptylines` | Strips blank lines (alias: `compactlines`) |
 | `prefixlines(str)` | Prepends `str` to every line |
 | `suffixlines(str)` | Appends `str` to every line |
 | `joinlines(delim)` | Collapses lines into one, using `delim` |
 | `splitlines(delim)` | Expands one line into many, breaking at `delim` |
+| `uniqlines` | Deduplicates lines globally while preserving first-occurrence order |
+| `sortlines([opt])` | Sorts lines (`desc`, `insensitive`, `numeric`) |
 
 ### Prefix and Suffix
 
@@ -24,6 +27,38 @@ These are useful for quickly formatting lists, such as adding bullet points or s
 <Transformation
   template='[clipboard | prefixlines("> ")]'
   input=">clip:'Line 1\nLine 2'"
-  result='> Line 1\n> Line 2'
+  result="> Line 1\n> Line 2"
 />
 
+### Deduplication (`uniqlines`)
+
+Removes all duplicate lines while strictly preserving their original order of appearance.
+
+<Transformation
+  template='[clipboard | uniqlines]'
+  input=">clip:'orange\napple\norange\nbanana'"
+  result="orange\napple\nbanana"
+/>
+
+### Line Count (`linecount`)
+
+Counts the total number of lines in the input text.
+
+<Transformation
+  template='[clipboard | linecount]'
+  input=">clip:'Line 1\nLine 2\nLine 3'"
+  result="3"
+/>
+
+### Sorting (`sortlines`)
+
+Sorts lines alphabetically by default. Supports options:
+- `desc` / `reverse`: Descending sort.
+- `insensitive`: Case-insensitive sorting.
+- `numeric`: Numerical sorting (correctly sorting `10` after `2`).
+
+<Transformation
+  template='[clipboard | sortlines("numeric")]'
+  input=">clip:'10\n2\n1.5'"
+  result="1.5\n2\n10"
+/>

@@ -127,6 +127,13 @@ These can be appended to **any** variable (system or custom) using Unix pipe syn
   - `urlencode`: Percent-encodes characters for use in URLs.
 </Accordion>
 
+<Accordion title="Text & Line Utilities">
+  - `wordcount`: Returns the number of whitespace-separated words (e.g. `[clip | wordcount]`).
+  - `linecount`: Returns the total number of lines (e.g. `[clip | linecount]`).
+  - `sortlines([options])`: Sorts lines alphabetically or numerically (e.g. `[clip | sortlines("numeric", "desc")]`).
+  - `uniqlines`: Removes duplicate lines globally while maintaining original order.
+</Accordion>
+
 <Accordion title="Data Extraction">
   Extract values from structured payloads or web content. Pairs perfectly with `[http.get(...)]` and `[file.read(...)]`.
   - `json(path)`: Extracts a value via dot-notation (e.g., `user.hobbies.1`).

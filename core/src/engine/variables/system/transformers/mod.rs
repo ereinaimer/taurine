@@ -59,6 +59,10 @@ pub const TRANSFORMERS: &[&str] = &[
     "toml",
     "yaml",
     "regexmatch",
+    "wordcount",
+    "linecount",
+    "sortlines",
+    "uniqlines",
 ];
 
 #[derive(Debug)]

@@ -11,6 +11,7 @@ These transformers allow you to modify the content of a string beyond simple cas
 | :--- | :--- | :--- |
 | `trim` | Removes leading and trailing whitespace | `"  hi  "` → `"hi"` |
 | `length` | Returns the number of characters | `"aßc"` → `3` |
+| `wordcount` | Returns the number of whitespace-separated words | `"Hello world"` → `2` |
 | `truncate(n)` | Limits text to `n` characters | `"abcdef"` → `"abc..."` |
 | `replace(old, new)` | Replaces all occurrences of `old` with `new` | `"a,b,c"` → `"a;b;c"` |
 | `remove(str)` | Strips all occurrences of `str` | `"banana"` → `"ba"` |
@@ -37,6 +38,15 @@ Unlike byte-based slicing in many languages, `substring(start, end)` is fully UT
   template="[0 | substring(1, 3)]"
   input=">text:'aßc'"
   result="ßc"
+/>
+
+#### Word Count
+Returns the total number of words in a string, ignoring leading, trailing, or multiple adjacent spaces.
+
+<Transformation
+  template="[0 | wordcount]"
+  input=">text:'  This is a   sentence.  '"
+  result="4"
 />
 
 ### Data Extraction
