@@ -138,7 +138,9 @@ These can be appended to **any** variable (system or custom) using Unix pipe syn
 
 <Accordion title="Data Extraction">
   Extract values from structured payloads or web content. Pairs perfectly with `[http.get(...)]` and `[file.read(...)]`.
-  - `json(path)`: Extracts a value via dot-notation (e.g., `user.hobbies.1`).
+  - `json.get(path)`: Extracts a value via dot-notation (e.g., `user.hobbies.1`).
+  - `json.pretty`: Indents and formats a JSON payload.
+  - `json.minify`: Strips all formatting whitespace from JSON.
   - `html(selector)`: Scrapes HTML inner text using a standard CSS selector (e.g., `.price > span`).
   - `xml(selector)`: Scrapes XML text using CSS selectors.
   - `yaml(path)`: Extracts a value from YAML via dot-notation.

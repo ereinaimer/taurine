@@ -1,0 +1,57 @@
+---
+title: JSON
+description: Parse, query, pretty-print, and minify JSON payloads.
+---
+
+JSON transformers allow you to work with structured JSON data. You can extract values using dot-notation, format minified payloads for readability, or compress pretty JSON to a single line for terminal commands.
+
+### Available Modifiers
+
+| Modifier | Description | Example |
+| :--- | :--- | :--- |
+| `json.get(path)` | Extracts a value from a JSON string using dot-notation | `{"a": 1}` → `1` |
+| `json.pretty` | Formats a JSON string with standard indentation | `{"a":1}` → pretty formatted JSON |
+| `json.minify` | Removes all formatting whitespace from a JSON string | pretty JSON → `{"a":1}` |
+
+---
+
+### Detailed Usage
+
+#### Extraction (`json.get`)
+
+Extract nested values or array elements from JSON strings. The path uses standard dot-notation, where numbers represent array indices.
+
+<Transformation
+  template='[0 | json.get("user.hobbies.1")]'
+  input='>text:{"user": {"name": "Alice", "hobbies": ["reading", "gaming"]}}'
+  result="gaming"
+/>
+
+#### Pretty Printing (`json.pretty`)
+
+Format minified JSON payloads to make them human-readable before pasting them into your editor or document.
+
+<Transformation
+  template='[0 | json.pretty]'
+  input='>text:{"user":{"name":"Alice","role":"admin"}}'
+  result='{
+  "user": {
+    "name": "Alice",
+    "role": "admin"
+  }
+}'
+/>
+
+#### Minification (`json.minify`)
+
+Strips all unnecessary whitespace and indentation from a JSON payload, making it compact and safe for single-line terminal prompts or curl commands.
+
+<Transformation
+  template='[0 | json.minify]'
+  input='>text:{
+  "user": {
+    "name": "Alice"
+  }
+}'
+  result='{"user":{"name":"Alice"}}'
+/>

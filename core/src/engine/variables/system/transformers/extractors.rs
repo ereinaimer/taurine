@@ -9,7 +9,9 @@ use super::strip_argument_quotes;
 
 pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> {
     match transformer {
-        "json" => apply_json(args, content),
+        "json.get" => apply_json(args, content),
+        "json.pretty" if args.is_empty() => apply_json_pretty(content),
+        "json.minify" if args.is_empty() => apply_json_minify(content),
         "html" | "xml" => apply_html_xml(args, content),
         "toml" => apply_toml(args, content),
         "yaml" => apply_yaml(args, content),
@@ -50,6 +52,16 @@ fn apply_json(args: &[&str], content: &str) -> Option<String> {
         JsonValue::Null => None,
         other => Some(other.to_string()),
     }
+}
+
+fn apply_json_pretty(content: &str) -> Option<String> {
+    let val: JsonValue = serde_json::from_str(content.trim()).ok()?;
+    serde_json::to_string_pretty(&val).ok()
+}
+
+fn apply_json_minify(content: &str) -> Option<String> {
+    let val: JsonValue = serde_json::from_str(content.trim()).ok()?;
+    serde_json::to_string(&val).ok()
 }
 
 fn apply_html_xml(args: &[&str], content: &str) -> Option<String> {
@@ -385,14 +397,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_apply_json() {
+    fn test_json_transformers() {
         let json = r#"{"user": {"name": "Alice", "hobbies": ["reading", "gaming"]}}"#;
-        assert_eq!(apply_json(&["user.name"], json), Some("Alice".to_string()));
         assert_eq!(
-            apply_json(&["user.hobbies.1"], json),
+            apply("json.get", &["user.name"], json),
+            Some("Alice".to_string())
+        );
+        assert_eq!(
+            apply("json.get", &["user.hobbies.1"], json),
             Some("gaming".to_string())
         );
-        assert_eq!(apply_json(&["invalid.path"], json), None);
+        assert_eq!(apply("json.get", &["invalid.path"], json), None);
+
+        // test json.pretty
+        let minified = r#"{"a":1,"b":[2,3]}"#;
+        let pretty = apply("json.pretty", &[], minified).unwrap();
+        assert!(pretty.contains("\n  \"a\": 1"));
+        assert!(pretty.contains("\n  \"b\": [\n    2,\n    3\n  ]"));
+
+        // test json.minify
+        let pretty_input = r#"{
+            "a": 1,
+            "b": [2, 3]
+        }"#;
+        assert_eq!(
+            apply("json.minify", &[], pretty_input),
+            Some(r#"{"a":1,"b":[2,3]}"#.to_string())
+        );
+
+        // invalid JSON
+        assert_eq!(apply("json.pretty", &[], "{invalid"), None);
+        assert_eq!(apply("json.minify", &[], "{invalid"), None);
     }
 
     #[test]

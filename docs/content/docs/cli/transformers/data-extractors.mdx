@@ -9,7 +9,6 @@ Data extraction transformers allow you to parse and extract specific values from
 
 | Modifier | Description |
 | :--- | :--- |
-| `json(path)` | Extracts a value from a JSON string using dot-notation |
 | `html(selector)` | Parses HTML and extracts the inner text of the first matching CSS selector |
 | `xml(selector)` | Parses XML and extracts the inner text of the first matching CSS selector |
 | `toml(path)` | Extracts a value from a TOML string using dot-notation |
@@ -17,15 +16,6 @@ Data extraction transformers allow you to parse and extract specific values from
 | `regexmatch(pattern, [group])` | Extracts a specific capturing group from a regex match (default: group 0) |
 
 ### Detailed Usage
-
-#### JSON Path Extraction
-Extract nested values or array elements from JSON strings. The path uses standard dot-notation, where numbers represent array indices.
-
-<Transformation
-  template='[0 | json("user.hobbies.1")]'
-  input='>text:{"user": {"name": "Alice", "hobbies": ["reading", "gaming"]}}'
-  result="gaming"
-/>
 
 #### HTML & XML Scraping
 Use standard CSS selectors to parse HTML or XML payloads. This allows you to scrape specific text nodes without complex XPath or regex queries.

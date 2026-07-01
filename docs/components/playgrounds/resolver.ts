@@ -52,6 +52,20 @@ const transformers: Record<string, (val: string) => string> = {
       return val.replace(/[\u2700-\u27BF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|\uD83E[\uDD10-\uDDFF]/g, '');
     }
   },
+  'json.pretty': (val) => {
+    try {
+      return JSON.stringify(JSON.parse(val.trim()), null, 2);
+    } catch {
+      return val;
+    }
+  },
+  'json.minify': (val) => {
+    try {
+      return JSON.stringify(JSON.parse(val.trim()));
+    } catch {
+      return val;
+    }
+  },
   snake: (val) =>
     val
       .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
