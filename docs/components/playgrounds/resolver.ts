@@ -220,8 +220,17 @@ export function resolveTemplate(template: string, input: string, prefix: string)
 
     let resolvedValue: string | undefined;
 
+    // 0. Try system variables mock
+    if (key.startsWith('use(') && key.endsWith(')')) {
+      const inner = key.slice(4, -1).trim();
+      let unquoted = inner;
+      if ((inner.startsWith('"') && inner.endsWith('"')) || (inner.startsWith("'") && inner.endsWith("'"))) {
+        unquoted = inner.slice(1, -1);
+      }
+      resolvedValue = `(Content of snippet ${unquoted})`;
+    }
     // 1. Try named argument
-    if (named[key] !== undefined) {
+    else if (named[key] !== undefined) {
       resolvedValue = named[key];
     }
     // 2. Try positional index if key is a number

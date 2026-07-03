@@ -423,6 +423,130 @@ pub fn upsert_script(
     Ok(())
 }
 
+fn count_ai_calls_in_template(payload: &str) -> usize {
+    let mut count = 0;
+    let mut ptr = 0;
+    while let Some(tag) = find_next_tag(payload, ptr) {
+        let inner = trim_slice(&payload[tag.start + 1..tag.end]);
+        let pipeline = crate::engine::variables::system::transformers::split_pipeline(inner);
+        for part in &pipeline[1..] {
+            if crate::engine::variables::system::transformers::is_ai_transformer(part) {
+                count += 1;
+            }
+        }
+        ptr = tag.end + 1;
+    }
+    count
+}
+
+fn get_referenced_triggers(payload: &str) -> Vec<String> {
+    let mut refs = Vec::new();
+    let mut ptr = 0;
+    while let Some(tag) = find_next_tag(payload, ptr) {
+        let inner = trim_slice(&payload[tag.start + 1..tag.end]);
+        let (key, _) = split_key_default(inner);
+        if key.starts_with("use(")
+            && key.ends_with(')')
+            && let Some(inner_key) = key.strip_prefix("use(").and_then(|k| k.strip_suffix(')'))
+        {
+            let unquoted = crate::engine::variables::system::strip_quotes(inner_key.trim())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| inner_key.trim().to_string());
+            refs.push(unquoted);
+        }
+        ptr = tag.end + 1;
+    }
+    refs
+}
+
+fn check_limits_recursive(
+    catalog: &std::collections::HashMap<String, String>,
+    trigger: &str,
+    visited: &mut std::collections::HashSet<String>,
+    depth: usize,
+    max_depth: &mut usize,
+    ai_count: &mut usize,
+) -> Result<()> {
+    if visited.contains(trigger) {
+        return Err(crate::Error::Config(format!(
+            "Circular reference detected involving trigger '{}'",
+            trigger
+        )));
+    }
+
+    *max_depth = std::cmp::max(*max_depth, depth);
+    if *max_depth > 5 {
+        return Err(crate::Error::Config(
+            "Nested snippet depth exceeds the maximum limit of 5".to_string(),
+        ));
+    }
+
+    visited.insert(trigger.to_string());
+
+    if let Some(template) = catalog.get(trigger) {
+        let nested_ai = count_ai_calls_in_template(template);
+        *ai_count += nested_ai;
+        if *ai_count > 3 {
+            return Err(crate::Error::Config(format!(
+                "Total expanded AI calls ({}) exceeds the limit of 3",
+                ai_count
+            )));
+        }
+
+        let refs = get_referenced_triggers(template);
+        for r in refs {
+            check_limits_recursive(catalog, &r, visited, depth + 1, max_depth, ai_count)?;
+        }
+    }
+
+    visited.remove(trigger);
+    Ok(())
+}
+
+pub fn validate_automation_limits(
+    conn: &Connection,
+    new_trigger: &str,
+    new_content: &str,
+    action_type: &str,
+) -> Result<()> {
+    let mut catalog = std::collections::HashMap::new();
+
+    if let Ok(actions) = super::automation_get::get_all_active_automations(conn) {
+        for (trigger, action) in actions {
+            if action.action_type == "text" {
+                catalog.insert(trigger, action.output);
+            }
+        }
+    }
+
+    if action_type == "text" {
+        catalog.insert(new_trigger.to_string(), new_content.to_string());
+    } else {
+        catalog.remove(new_trigger);
+    }
+
+    for (trigger, template) in &catalog {
+        let mut visited = std::collections::HashSet::new();
+        let mut max_depth = 0;
+        let mut ai_count = count_ai_calls_in_template(template);
+
+        if ai_count > 3 {
+            return Err(crate::Error::Config(format!(
+                "Snippet '{}' contains {} AI calls, exceeding the limit of 3",
+                trigger, ai_count
+            )));
+        }
+
+        visited.insert(trigger.clone());
+        let refs = get_referenced_triggers(template);
+        for r in refs {
+            check_limits_recursive(&catalog, &r, &mut visited, 1, &mut max_depth, &mut ai_count)?;
+        }
+    }
+
+    Ok(())
+}
+
 pub fn update_existing_automation(
     conn: &mut Connection,
     update: ExistingAutomationUpdate<'_>,
@@ -432,6 +556,9 @@ pub fn update_existing_automation(
     if action_kind == AutomationActionKind::Text {
         audit_payload_tags(update.content)?;
     }
+
+    // We only enforce limits for text snippets, as nested limits apply to the `use` variable
+    validate_automation_limits(conn, update.trigger, update.content, update.action_type)?;
 
     let prepared =
         prepare_trigger_with_type(update.trigger, update.trigger_type, update.target_os)?;
@@ -505,6 +632,13 @@ pub fn create_automation(
     if action_kind == AutomationActionKind::Text {
         audit_payload_tags(new_automation.content)?;
     }
+
+    validate_automation_limits(
+        conn,
+        new_automation.trigger,
+        new_automation.content,
+        new_automation.action_type,
+    )?;
 
     let prepared = prepare_trigger_with_type(
         new_automation.trigger,
@@ -892,5 +1026,117 @@ pub fn add_automation_by_trigger_type(
             )?;
             Ok(AddOutcome::Created)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_count_ai_calls_in_template() {
+        assert_eq!(count_ai_calls_in_template("Hello world"), 0);
+        assert_eq!(count_ai_calls_in_template("Hello [clip | upper]"), 0);
+        assert_eq!(count_ai_calls_in_template("[clip | ai(summarize)]"), 1);
+        assert_eq!(
+            count_ai_calls_in_template("[clip | ai(a) | upper | ai(b)] and [date | ai(c)]"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_get_referenced_triggers() {
+        assert!(get_referenced_triggers("Hello world").is_empty());
+        assert_eq!(get_referenced_triggers("Hello [use(\"foo\")]"), vec!["foo"]);
+        assert_eq!(
+            get_referenced_triggers("[use('bar')] [use(baz)]"),
+            vec!["bar", "baz"]
+        );
+    }
+
+    #[test]
+    fn test_check_limits_recursive_detects_cycles() {
+        let mut catalog = std::collections::HashMap::new();
+        catalog.insert("A".to_string(), "calls [use(\"B\")]".to_string());
+        catalog.insert("B".to_string(), "calls [use(\"A\")]".to_string());
+
+        let mut visited = std::collections::HashSet::new();
+        let mut max_depth = 0;
+        let mut ai_count = 0;
+
+        let result = check_limits_recursive(
+            &catalog,
+            "A",
+            &mut visited,
+            1,
+            &mut max_depth,
+            &mut ai_count,
+        );
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Circular reference")
+        );
+    }
+
+    #[test]
+    fn test_check_limits_recursive_enforces_depth() {
+        let mut catalog = std::collections::HashMap::new();
+        catalog.insert("1".to_string(), "[use(\"2\")]".to_string());
+        catalog.insert("2".to_string(), "[use(\"3\")]".to_string());
+        catalog.insert("3".to_string(), "[use(\"4\")]".to_string());
+        catalog.insert("4".to_string(), "[use(\"5\")]".to_string());
+        catalog.insert("5".to_string(), "[use(\"6\")]".to_string());
+        catalog.insert("6".to_string(), "done".to_string());
+
+        let mut visited = std::collections::HashSet::new();
+        let mut max_depth = 0;
+        let mut ai_count = 0;
+
+        let result = check_limits_recursive(
+            &catalog,
+            "1",
+            &mut visited,
+            1,
+            &mut max_depth,
+            &mut ai_count,
+        );
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("maximum limit of 5")
+        );
+    }
+
+    #[test]
+    fn test_check_limits_recursive_enforces_ai_count() {
+        let mut catalog = std::collections::HashMap::new();
+        catalog.insert("A".to_string(), "[clip | ai(1)] [use(\"B\")]".to_string());
+        catalog.insert("B".to_string(), "[clip | ai(2)] [use(\"C\")]".to_string());
+        catalog.insert("C".to_string(), "[clip | ai(3)] [clip | ai(4)]".to_string());
+
+        let mut visited = std::collections::HashSet::new();
+        let mut max_depth = 0;
+        let mut ai_count = 0;
+
+        let result = check_limits_recursive(
+            &catalog,
+            "A",
+            &mut visited,
+            1,
+            &mut max_depth,
+            &mut ai_count,
+        );
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("exceeds the limit of 3")
+        );
     }
 }

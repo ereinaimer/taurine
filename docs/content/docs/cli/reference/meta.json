@@ -3,6 +3,7 @@
   "pages": [
     "cli-reference",
     "settings-reference",
-    "system-variable-modifiers"
+    "system-variable-modifiers",
+    "limits"
   ]
 }

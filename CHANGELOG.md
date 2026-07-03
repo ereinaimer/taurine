@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Nested Snippets (`use` variable)**: Introduced the `[use("trigger_name")]` system variable, allowing users to compose and embed other text snippets directly within their macros.
+- **Safety Limits for Macros**: Added robust save-time validation limits (max 5 recursion depth, max 3 AI calls per expanded macro) to prevent infinite loops, thread locking, and runaway API quotas.
 - **JSON Formatting Transformers (`json.pretty` & `json.minify`)**: Added native `json.pretty` and `json.minify` formatters to prettify or compact JSON payloads.
 - **Emoji Stripper Transformer (`stripemoji`)**: Added a native `stripemoji` transformer to remove all emoji characters, Zero Width Joiners, and Variation Selectors from text, leaving regular characters, punctuation, and whitespace intact.
 - **URL Cleaner Transformer (`url.clean`)**: Added a native `url.clean` transformer to instantly strip tracking and query parameters from URLs (removing everything starting from the `?`).

@@ -248,6 +248,8 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
 
             let base_resolved = if let Some(user) = user_resolutions.get(key) {
                 Some(user.clone())
+            } else if key.starts_with("use(") && key.ends_with(')') {
+                Some(resolve_use_placeholder(key, args, depth))
             } else if let Some(sys) = resolve_system_placeholder(key) {
                 Some(sys)
             } else if is_valid_user_reference(key, default_value, args, usize::MAX) {
@@ -307,6 +309,42 @@ fn resolve_system_placeholder(key: &str) -> Option<String> {
         return Some(format!("\x03\x1Fsys:{key}\x04"));
     }
     super::system::resolve(key)
+}
+
+fn parse_use_key(key: &str) -> Option<String> {
+    let inner = key.strip_prefix("use(")?.strip_suffix(')')?;
+    let unquoted = super::system::strip_quotes(inner.trim())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| inner.trim().to_string());
+    Some(unquoted)
+}
+
+fn resolve_use_placeholder(key: &str, args: &ArgMap, depth: usize) -> String {
+    if depth >= 5 {
+        return "[Error: Max recursion depth reached]".to_string();
+    }
+
+    let trigger_name = match parse_use_key(key) {
+        Some(name) => name,
+        None => return "[Error: Malformed use key]".to_string(),
+    };
+
+    let conn = match rusqlite::Connection::open(crate::paths::get_db_path()) {
+        Ok(c) => c,
+        Err(e) => return format!("[Error: Database error: {}]", e),
+    };
+
+    let action = match crate::db::crud::automations::get_action_by_trigger(&conn, &trigger_name) {
+        Ok(Some(act)) => act,
+        Ok(None) => return format!("[Error: Snippet '{}' does not exist]", trigger_name),
+        Err(e) => return format!("[Error: Database query error: {}]", e),
+    };
+
+    if action.action_type != "text" {
+        return format!("[Error: Cannot invoke non-text snippet '{}']", trigger_name);
+    }
+
+    interpolate_with_depth(&action.output, args, depth + 1)
 }
 
 /// Returns true if the interpolated string contains any embedded AI transformer markers.

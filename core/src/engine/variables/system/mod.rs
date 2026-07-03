@@ -43,6 +43,7 @@ pub fn is_reserved(key: &str) -> bool {
         || key.starts_with("time.")
         || key == "date"
         || key.starts_with("date.")
+        || key.starts_with("use(")
         || key.starts_with("env(")
         || key.starts_with("file.")
         || key.starts_with("net.")

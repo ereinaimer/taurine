@@ -12,6 +12,7 @@
     "formatting",
     "encoding",
     "hashing",
-    "lines"
+    "lines",
+    "use"
   ]
 }
