@@ -11,10 +11,14 @@ Taurine is designed to give you maximum power and flexibility over your automati
 ## 1. Syntax Rules
 
 ### Dynamic (User-Defined) Variables
-* **Mandatory Defaults**: Every dynamic variable must define a fallback using the `=` operator (e.g., `[name=stranger]`).
+* **Mandatory Defaults**: Every dynamic variable must define a fallback using the `=` operator at least once (e.g., `[name=stranger]`). Subsequent references to the same variable within the template can omit the default assignment (e.g., `[name]`).
 * **Non-Empty Fallbacks**: Empty default assignments (e.g., `[name=]`) are deprecated and strictly prohibited. They will be rejected at save-time.
 * **Escaping Complex Defaults**: Default values containing spaces, commas, or closing brackets must be wrapped in single or double quotes (e.g., `[message="No content provided"]`).
 * **Positional vs. Named**: Positional arguments must use zero-based integers (e.g., `[0=default]`, `[1=default]`). Named arguments map key-value pairs (e.g., `[repo=taurine]`).
+
+### Nested Templates & Pipelines
+* **Nested Tags**: You can nest variables inside other tags (e.g., `[http.get([url]) | json.get('slideshow.title') | upper]`). Inner tags are always evaluated first.
+* **Pipeline Formatting**: Pipeline transformers (like `| upper` or `| json.get(...)`) must be enclosed within the tag's outer square brackets. Placing pipes outside (e.g., `[http.get(...)] | upper`) will output the pipe and transformer literally.
 
 ### System Variables & Directives
 * **No Default Assignments**: System variables cannot have default assignments. Trying to assign a default to a system variable (e.g., `[cursor=here]`) triggers a validation error.
