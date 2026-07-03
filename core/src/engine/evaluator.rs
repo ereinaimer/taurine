@@ -195,7 +195,7 @@ impl Evaluator {
             }
         }
 
-        // Clipboard history can legally hold a full 64 KiB payload. Treat that ceiling as unsafe
+        // Clipboard history can legally hold a full 1 MB payload. Treat that ceiling as unsafe
         // for blind undo so Taurine never floods the OS with a huge backspace replay.
         text_bytes < MAX_PAYLOAD_BYTES
     }

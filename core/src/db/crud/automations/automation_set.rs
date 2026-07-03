@@ -69,6 +69,7 @@ enum AutomationActionKind {
 
 pub fn audit_payload_tags(payload: &str) -> Result<()> {
     let mut ptr = 0;
+    let mut cursor_count = 0;
 
     while let Some(tag) = find_next_tag(payload, ptr) {
         let inner = trim_slice(&payload[tag.start + 1..tag.end]);
@@ -77,6 +78,15 @@ pub fn audit_payload_tags(payload: &str) -> Result<()> {
         let (key, default_value) = split_key_default(base_expr);
 
         if let Some((root, modifier)) = split_system_tag(key) {
+            if root == "cursor" {
+                cursor_count += 1;
+                if cursor_count > 1 {
+                    return Err(crate::Error::Config(
+                        "Invalid variable [cursor]: multiple cursor directives are not allowed. Only one final caret position can be defined.".to_string()
+                    ));
+                }
+            }
+
             if let Some(_default) = default_value {
                 return Err(crate::Error::Config(format!(
                     "Invalid system tag [{}]: system tags cannot use default assignments. {}",

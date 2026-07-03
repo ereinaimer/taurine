@@ -31,37 +31,59 @@ pub(crate) fn parse_invocation(key: &str) -> Result<ExecuteInvocation, ExecutePa
     let mut rest = key
         .strip_prefix("exec.")
         .ok_or(ExecuteParseError::InvalidLanguage)?;
-    let silent = if let Some(suffix) = rest.strip_prefix("silent.") {
-        rest = suffix;
-        true
-    } else {
-        false
-    };
 
-    let (language, rest) = parse_language(rest)?;
-    let (file, rest) = if let Some(suffix) = rest.strip_prefix(".file") {
-        (true, suffix)
-    } else {
-        (false, rest)
-    };
+    let mut silent = false;
+    let mut interpreter = None;
+    let mut file = false;
+    let mut subject = None;
+    let mut args = Vec::new();
 
-    let (subject, rest) = scan_parenthesized(rest)?;
-    let (args, rest) = if let Some(suffix) = rest.strip_prefix(".args") {
-        let (args_subject, trailing) = scan_parenthesized(suffix)?;
-        (split_args(&args_subject), trailing)
-    } else {
-        (Vec::new(), rest)
-    };
+    while !rest.is_empty() {
+        if let Some(suffix) = rest.strip_prefix("silent") {
+            silent = true;
+            rest = suffix;
+        } else if let Some(suffix) = rest.strip_prefix("args") {
+            let (args_str, trailing) = scan_parenthesized(suffix)?;
+            args = split_args(&args_str);
+            rest = trailing;
+        } else if let Some(suffix) = rest.strip_prefix("file") {
+            let (file_subj, trailing) = scan_parenthesized(suffix)?;
+            if subject.is_some() {
+                return Err(ExecuteParseError::InvalidTrailingSyntax);
+            }
+            subject = Some(file_subj);
+            file = true;
+            rest = trailing;
+        } else if let Some((lang, suffix)) = parse_language_only(rest) {
+            interpreter = Some(lang);
+            rest = suffix;
+            if rest.starts_with('(') {
+                let (inline_subj, trailing) = scan_parenthesized(rest)?;
+                if subject.is_some() {
+                    return Err(ExecuteParseError::InvalidTrailingSyntax);
+                }
+                subject = Some(inline_subj);
+                file = false;
+                rest = trailing;
+            }
+        } else {
+            return Err(ExecuteParseError::InvalidTrailingSyntax);
+        }
 
-    if !rest.trim().is_empty() {
-        return Err(ExecuteParseError::InvalidTrailingSyntax);
+        if !rest.is_empty() {
+            if let Some(suffix) = rest.strip_prefix('.') {
+                rest = suffix;
+            } else {
+                return Err(ExecuteParseError::InvalidTrailingSyntax);
+            }
+        }
     }
 
     Ok(ExecuteInvocation {
         silent,
-        interpreter: language,
+        interpreter: interpreter.ok_or(ExecuteParseError::InvalidLanguage)?,
         file,
-        subject,
+        subject: subject.ok_or(ExecuteParseError::MissingSubject)?,
         args,
     })
 }
@@ -102,7 +124,7 @@ pub(crate) fn to_script_metadata(key: &str) -> Result<ScriptMetadata, String> {
     })
 }
 
-fn parse_language(input: &str) -> Result<(ScriptInterpreter, &str), ExecuteParseError> {
+fn parse_language_only(input: &str) -> Option<(ScriptInterpreter, &str)> {
     const LANGUAGES: &[(&str, ScriptInterpreter)] = &[
         ("node_esm", ScriptInterpreter::NodeEsm),
         ("powershell", ScriptInterpreter::PowerShell),
@@ -113,14 +135,12 @@ fn parse_language(input: &str) -> Result<(ScriptInterpreter, &str), ExecuteParse
     ];
 
     for (name, interpreter) in LANGUAGES {
-        if let Some(rest) = input.strip_prefix(name)
-            && (rest.starts_with('(') || rest.starts_with(".file"))
-        {
-            return Ok((*interpreter, rest));
+        if let Some(rest) = input.strip_prefix(name) {
+            return Some((*interpreter, rest));
         }
     }
 
-    Err(ExecuteParseError::InvalidLanguage)
+    None
 }
 
 fn scan_parenthesized(input: &str) -> Result<(String, &str), ExecuteParseError> {
@@ -513,7 +533,7 @@ mod tests {
     fn rejects_invalid_execute_syntax() {
         assert_eq!(
             parse_invocation("exec.ruby(puts 1)"),
-            Err(ExecuteParseError::InvalidLanguage)
+            Err(ExecuteParseError::InvalidTrailingSyntax)
         );
         assert_eq!(
             parse_invocation("exec.bash(echo 1"),
@@ -521,7 +541,7 @@ mod tests {
         );
         assert_eq!(
             parse_invocation("exec.bash"),
-            Err(ExecuteParseError::InvalidLanguage)
+            Err(ExecuteParseError::MissingSubject)
         );
     }
 
