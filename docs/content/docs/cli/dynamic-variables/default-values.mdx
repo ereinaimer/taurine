@@ -21,7 +21,13 @@ Taurine uses a smart parser that makes your life easier:
   ]}
 />
 
-If no value is provided via input, Taurine will use the assigned default. If you omit the `=` symbol, Taurine will not parse the variable and will treat it as literal text.
+If no value is provided via input, Taurine will use the assigned default. 
+
+<Callout type="warning" title="Strict Parsing Rule">
+  Taurine will **reject** your template and prevent saving if a dynamic variable lacks a default value (e.g., `[name]`) or if the default value is empty (e.g., `[name=]`). 
+  
+  If you intend to write literal text that includes brackets without it being treated as a variable, you must escape it with a backslash like `\\[name\\]`.
+</Callout>
 
 ## Real-World Examples
 Default values turn templates into smart tools that work out of the box while remaining fully customizable. 

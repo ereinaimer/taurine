@@ -72,7 +72,9 @@ pub fn audit_payload_tags(payload: &str) -> Result<()> {
 
     while let Some(tag) = find_next_tag(payload, ptr) {
         let inner = trim_slice(&payload[tag.start + 1..tag.end]);
-        let (key, default_value) = split_key_default(inner);
+        let pipeline = crate::engine::variables::system::transformers::split_pipeline(inner);
+        let base_expr = pipeline[0];
+        let (key, default_value) = split_key_default(base_expr);
 
         if let Some((root, modifier)) = split_system_tag(key) {
             if let Some(_default) = default_value {
@@ -87,6 +89,25 @@ pub fn audit_payload_tags(payload: &str) -> Result<()> {
                 return Err(crate::Error::Config(format_validation_error(
                     inner, root, modifier, &error,
                 )));
+            }
+        } else {
+            match default_value {
+                None => {
+                    return Err(crate::Error::Config(format!(
+                        "Invalid variable [{}]: dynamic variables must have a default value assignment (e.g., [key=default]). If you intended to write literal text, escape the brackets like \\[{}\\].",
+                        inner, inner
+                    )));
+                }
+                Some(val) => {
+                    let unquoted =
+                        crate::engine::variables::system::strip_quotes(val).unwrap_or(val);
+                    if unquoted.trim().is_empty() {
+                        return Err(crate::Error::Config(format!(
+                            "Invalid variable [{}]: default assignments cannot be empty.",
+                            inner
+                        )));
+                    }
+                }
             }
         }
 

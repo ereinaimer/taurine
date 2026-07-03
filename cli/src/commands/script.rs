@@ -321,7 +321,7 @@ mod tests {
             execute(
                 "Control + Shift + W".to_string(),
                 true,
-                Some("winget install [0]".to_string()),
+                Some("winget install [0=package]".to_string()),
                 None,
                 Some(ScriptInterpreter::PowerShell),
                 ScriptBehavior::Inline,

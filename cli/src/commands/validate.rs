@@ -10,9 +10,9 @@ mod tests {
     fn accepts_valid_system_tags_and_literals() {
         assert!(audit_payload_tags("[time.utc | upper] [env(USERPROFILE)]").is_ok());
         assert!(audit_payload_tags("[net.ip] [net.lip] [net.online] [net.port(8080)]").is_ok());
-        assert!(audit_payload_tags("json = [1, 2, 3]").is_ok());
-        assert!(audit_payload_tags("[name | upper]").is_ok());
-        assert!(audit_payload_tags("[clipboard | ai(\"summarize\")]").is_ok());
+        assert!(audit_payload_tags("json = \\[1, 2, 3\\]").is_ok());
+        assert!(audit_payload_tags("[name=John | upper]").is_ok());
+        assert!(audit_payload_tags("[clip | ai(\"summarize\")]").is_ok());
     }
 
     #[test]
@@ -45,6 +45,47 @@ mod tests {
     fn accepts_lorem_with_nested_dynamic_arg() {
         assert!(audit_payload_tags("[lorem.word([num=5])]").is_ok());
         assert!(audit_payload_tags("[lorem.word([random.int(3, 3)])]").is_ok());
+    }
+
+    #[test]
+    fn rejects_missing_default_assignment() {
+        let error = audit_payload_tags("[name | upper]").unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("dynamic variables must have a default value assignment")
+        );
+
+        let error2 = audit_payload_tags("json = [1, 2, 3]").unwrap_err();
+        assert!(
+            error2
+                .to_string()
+                .contains("dynamic variables must have a default value assignment")
+        );
+    }
+
+    #[test]
+    fn rejects_empty_default_assignment() {
+        let error = audit_payload_tags("[name=]").unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("default assignments cannot be empty")
+        );
+
+        let error2 = audit_payload_tags("[name=\"\"]").unwrap_err();
+        assert!(
+            error2
+                .to_string()
+                .contains("default assignments cannot be empty")
+        );
+
+        let error3 = audit_payload_tags("[name=   | upper]").unwrap_err();
+        assert!(
+            error3
+                .to_string()
+                .contains("default assignments cannot be empty")
+        );
     }
 
     #[test]

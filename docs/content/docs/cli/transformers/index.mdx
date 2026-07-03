@@ -7,7 +7,7 @@ Transformers are a powerful feature of the Taurine engine that allow you to mani
 
 ```
 [clip | upper]
-[0= | snake]
+[0=text | snake]
 [name=john | title]
 ```
 
@@ -22,7 +22,7 @@ Transformers are a powerful feature of the Taurine engine that allow you to mani
 Taurine supports recursive transformation chaining using unix pipes. This allows you to perform complex cleanup and formatting in a single tag.
 
 <Transformation
-  template="[0= | trim | upper | repeat(2)]"
+  template="[0=text | trim | upper | repeat(2)]"
   input=">text:'  taurine  '"
   result="TAURINETAURINE"
 />

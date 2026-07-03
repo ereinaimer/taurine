@@ -75,6 +75,15 @@ fn scan_tag_bounds(template: &str) -> Vec<TagBounds> {
     tags
 }
 
+fn has_valid_default_value(default_value: Option<&str>) -> bool {
+    if let Some(dv) = default_value {
+        let unquoted = system::strip_quotes(dv).unwrap_or(dv);
+        !unquoted.trim().is_empty()
+    } else {
+        false
+    }
+}
+
 pub(crate) fn extract_placeholders<'a>(template: &'a str) -> IndexMap<&'a str, Placeholder<'a>> {
     let mut placeholders = IndexMap::new();
 
@@ -89,7 +98,7 @@ pub(crate) fn extract_placeholders<'a>(template: &'a str) -> IndexMap<&'a str, P
 
         let key_unquoted = system::strip_quotes(key).unwrap_or(key);
 
-        if default_value.is_some()
+        if has_valid_default_value(default_value)
             && !system::is_reserved(key_unquoted)
             && !placeholders.contains_key(key_unquoted)
             && !key_unquoted.contains('[')
@@ -117,9 +126,9 @@ fn is_valid_user_reference(key: &str, default_value: Option<&str>, args: &ArgMap
         return false;
     }
 
-    (key_unquoted.parse::<usize>().is_ok() && default_value.is_some())
+    (key_unquoted.parse::<usize>().is_ok() && has_valid_default_value(default_value))
         || args.named.contains_key(key_unquoted)
-        || (default_value.is_some()
+        || (has_valid_default_value(default_value)
             && !system::is_reserved(key_unquoted)
             && !key_unquoted.contains('[')
             && !key_unquoted.contains(']'))
@@ -426,25 +435,25 @@ mod tests {
 
     #[test]
     fn test_extract_placeholders() {
-        let text = "https://github.com/[username=ereinaimer]/[repo=]";
+        let text = "https://github.com/[username=ereinaimer]/[repo=default]";
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 2);
         assert_eq!(p.get("username").unwrap().default_value, Some("ereinaimer"));
-        assert_eq!(p.get("repo").unwrap().default_value, Some(""));
+        assert_eq!(p.get("repo").unwrap().default_value, Some("default"));
     }
 
     #[test]
     fn test_extract_placeholders_deduplicate() {
-        let text = "a [foo=] b [foo=bar] c [foo=]";
+        let text = "a [foo=bar] b [foo=baz] c [foo=bar]";
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 1);
         // Should keep the first appearance
-        assert_eq!(p.get("foo").unwrap().default_value, Some(""));
+        assert_eq!(p.get("foo").unwrap().default_value, Some("bar"));
     }
 
     #[test]
     fn test_extract_placeholders_ignore_system() {
-        let text = "Hello [cursor] at [time.now]. My name is [name=]";
+        let text = "Hello [cursor] at [time.now]. My name is [name=John]";
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 1);
         assert!(p.contains_key("name"));
@@ -454,7 +463,7 @@ mod tests {
 
     #[test]
     fn test_extract_placeholders_escapes() {
-        let text = r#"function \[ return "[msg=]"; \]"#;
+        let text = r#"function \[ return "[msg=default]"; \]"#;
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 1);
         assert!(p.contains_key("msg"));
@@ -462,7 +471,7 @@ mod tests {
 
     #[test]
     fn test_extract_placeholders_trims_inner_whitespace() {
-        let text = "Hello [  name = ] and [ title = Captain ]";
+        let text = "Hello [  name = John ] and [ title = Captain ]";
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 2);
         assert!(p.contains_key("name"));
@@ -475,7 +484,7 @@ mod tests {
         args.positional.push("ereinaimer".to_string());
         args.positional.push("taurine".to_string());
 
-        let tpl = "https://github.com/[0=]/[1=]";
+        let tpl = "https://github.com/[0=org]/[1=repo]";
         assert_eq!(
             interpolate(tpl, &args),
             "https://github.com/ereinaimer/taurine"
@@ -484,11 +493,10 @@ mod tests {
 
     #[test]
     fn test_interpolate_named() {
+        let tpl = "https://github.com/[0=user]/[repo=repo]";
         let mut args = ArgMap::default();
-        args.named.insert("repo".to_string(), "taurine".to_string());
         args.positional.push("ereinaimer".to_string());
-
-        let tpl = "https://github.com/[0=]/[repo=]";
+        args.named.insert("repo".to_string(), "taurine".to_string());
         assert_eq!(
             interpolate(tpl, &args),
             "https://github.com/ereinaimer/taurine"
@@ -507,16 +515,17 @@ mod tests {
 
     #[test]
     fn test_interpolate_empty_default() {
+        // Empty defaults are no longer valid, this test can just ensure missing positional arg uses default
+        let tpl = "git commit -m \"fix: [msg=default]\"";
         let args = ArgMap::default();
-        let tpl = "git commit -m \"fix: [msg=]\"";
-        assert_eq!(interpolate(tpl, &args), "git commit -m \"fix: \"");
+        assert_eq!(interpolate(tpl, &args), "git commit -m \"fix: default\"");
     }
 
     #[test]
     fn test_interpolate_missing_args() {
+        let tpl = "https://github.com/[username=user]/[repo=repo]";
         let args = ArgMap::default();
-        let tpl = "https://github.com/[username=]/[repo=]";
-        assert_eq!(interpolate(tpl, &args), "https://github.com//");
+        assert_eq!(interpolate(tpl, &args), "https://github.com/user/repo");
     }
 
     #[test]
@@ -598,9 +607,9 @@ mod tests {
 
     #[test]
     fn test_interpolate_repeated() {
+        let tpl = "https://[0=sub].github.io/[0=sub]";
         let mut args = ArgMap::default();
         args.positional.push("foo".to_string());
-        let tpl = "https://[0=].github.io/[0=]";
         assert_eq!(interpolate(tpl, &args), "https://foo.github.io/foo");
     }
 
@@ -704,7 +713,7 @@ mod tests {
 
     #[test]
     fn test_extract_placeholders_suffixed() {
-        let text = "Hello [name= | upper] and [email=DEFAULT@EMAIL.COM | lower]";
+        let text = "Hello [name=John | upper] and [email=DEFAULT@EMAIL.COM | lower]";
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 2);
         assert!(p.contains_key("name"));
@@ -717,7 +726,7 @@ mod tests {
 
     #[test]
     fn test_extract_placeholders_parameterized_transformers() {
-        let text = "Hello [name= | truncate(3)] and [email=DEFAULT | replace(\"@\", \"+\")]";
+        let text = "Hello [name=John | truncate(3)] and [email=DEFAULT | replace(\"@\", \"+\")]";
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 2);
         assert!(p.contains_key("name"));
@@ -736,9 +745,9 @@ mod tests {
         let mut args = ArgMap::default();
         args.named.insert("name".to_string(), "john".to_string());
 
-        assert_eq!(interpolate("[name= | truncate(2)]", &args), "jo");
+        assert_eq!(interpolate("[name=default | truncate(2)]", &args), "jo");
         assert_eq!(
-            interpolate("[name= | replace(\"o\", \"0\") | upper]", &args),
+            interpolate("[name=default | replace(\"o\", \"0\") | upper]", &args),
             "J0HN"
         );
     }
@@ -825,16 +834,10 @@ mod tests {
 
     #[test]
     fn test_interpolate_user_variable_without_default() {
+        let tpl = "Hello [var]";
         let mut args = ArgMap::default();
-        args.positional.push("myarg".to_string());
-
-        let tpl = "Hello [var=]";
-        // [var] should not consume the positional argument "myarg", it should use its default ""
-        assert_eq!(interpolate(tpl, &args), "Hello ");
-
-        // If no arg is passed, it uses empty default
-        let args_empty = ArgMap::default();
-        assert_eq!(interpolate(tpl, &args_empty), "Hello ");
+        args.positional.push("John".to_string());
+        assert_eq!(interpolate(tpl, &args), "Hello [var]");
     }
 
     mod compatibility_interpolation_tests {
@@ -892,10 +895,13 @@ mod tests {
             args.positional.push("banana".to_string());
 
             assert_eq!(
-                interpolate("nested=[[0=] | url.encode]", &args),
+                interpolate("nested=[[0=val] | url.encode]", &args),
                 "nested=[banana | url.encode]"
             );
-            assert_eq!(interpolate("flat=[0= | url.encode]", &args), "flat=banana");
+            assert_eq!(
+                interpolate("flat=[0=val | url.encode]", &args),
+                "flat=banana"
+            );
         }
 
         #[test]
