@@ -174,4 +174,31 @@ mod tests {
         assert!(audit_payload_tags("Status: [http.status(https://httpbin.org/status/200)] | UA: [[http.get(https://httpbin.org/headers)] | json.get('headers.User-Agent') | truncate(15)]").is_ok());
         assert!(audit_payload_tags("User [name='Developer'] checked [url='httpbin.org/json'] at [time.utc.format(HH:mm)] UTC. Title of JSON: [http.get([url]) | json.get('slideshow.title') | upper]").is_ok());
     }
+
+    #[test]
+    fn test_template_syntax_spec_compliance_validation() {
+        // Positive Test Cases
+        assert!(audit_payload_tags("Hello [0=friend]! You live in [1='San Francisco'] and work as [role='Software Engineer'].").is_ok());
+        assert!(audit_payload_tags("Escaped brackets: \\[0=ignored\\] | Literal pipe: [0='default value' \\| upper] | Parsed pipe: [0='hello' | upper]").is_ok());
+        assert!(audit_payload_tags("Local: [date] [time] | UTC +1w: [date.utc.calc(+1w).format('Today is' dddd, MMMM D, YYYY)] | UTC Time -2h: [time.utc.calc(-2h).format(hh:mm A)] | Cased AM/PM: [time.format(A) | lower]").is_ok());
+        assert!(audit_payload_tags("User (Title Case): [env(USERNAME) | title] | Home Path (Lowercase): [env(USERPROFILE) | lower]").is_ok());
+        assert!(audit_payload_tags("Full Content: [file.read(~/taurine_test.txt) | trim] | Line 2: [file.read_line(~/taurine_test.txt, 2) | upper] | Lines 1-3: [file.read_line(~/taurine_test.txt, 1, 3)]").is_ok());
+        assert!(audit_payload_tags("Latest (Slugified): [clip | slug] | Second: [clip(0) | trim] | Third (Upper): [clip(1) | upper] | Empty index: [clip(2) | squote]").is_ok());
+        assert!(audit_payload_tags("Cwd Path: [exec.powershell((Get-Location).Path) | trim] | Cmd Command: [exec.cmd(echo hello from cmd) | upper] | Silent Task: [exec.silent.powershell(echo 'background task')]").is_ok());
+        assert!(audit_payload_tags("Status: [http.status(https://httpbin.org/status/200)] | UA: [http.get(https://httpbin.org/headers) | json.get('headers.User-Agent') | truncate(15)]").is_ok());
+        assert!(audit_payload_tags("Status: [http.status(https://httpbin.org/status/200)] | UA: [[http.get(https://httpbin.org/headers)] | json.get('headers.User-Agent') | truncate(15)]").is_ok());
+        assert!(audit_payload_tags("Int (10-50): [random.int(10, 50)] | Pass (12): [random.pass(12)] | Choice: [random.choice(apple, banana, cherry) | title] | Lorem (Dynamic Count): [lorem.word([random.int(2, 4)]) | kebab]").is_ok());
+        assert!(audit_payload_tags("Name: [mock.name | upper] | Email: [mock.email] | Address: [mock.address | title] | Job Title: [mock.job_title | kebab]").is_ok());
+        assert!(audit_payload_tags("Output: [use('testinner') | upper] | Date: [date]").is_ok());
+        assert!(audit_payload_tags("User [name='Developer'] checked [url='httpbin.org/json'] at [time.utc.format(HH:mm)] UTC. Title of JSON: [http.get([url]) | json.get('slideshow.title') | upper]").is_ok());
+        assert!(audit_payload_tags("[0=first][key(tab)][delay(100ms)][1=second][key(tab)][delay(50)][2=third][key(enter)]").is_ok());
+
+        // Negative Test Cases
+        assert!(audit_payload_tags("User: [name=]").is_err());
+        assert!(audit_payload_tags("User: [name]").is_err());
+        assert!(audit_payload_tags("User: [my.custom.var=there]").is_err());
+        assert!(audit_payload_tags("Start: [cursor] End: [cursor]").is_err());
+        assert!(audit_payload_tags("Hello: [cursor] [key(tab)]").is_err());
+        assert!(audit_payload_tags("Time: [time=12:00]").is_err());
+    }
 }

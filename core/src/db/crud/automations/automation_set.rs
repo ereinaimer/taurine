@@ -100,6 +100,7 @@ fn audit_payload_tags_impl(
 ) -> Result<()> {
     let mut ptr = 0;
     let mut cursor_count = 0;
+    let mut has_key_or_delay = false;
 
     while let Some(tag) = find_next_tag(payload, ptr) {
         let inner = trim_slice(&payload[tag.start + 1..tag.end]);
@@ -122,6 +123,10 @@ fn audit_payload_tags_impl(
                     }
                 }
 
+                if matches!(root, "key" | "delay" | "mouse") {
+                    has_key_or_delay = true;
+                }
+
                 if let Some(_default) = default_value {
                     return Err(crate::Error::Config(format!(
                         "Invalid system tag [{}]: system tags cannot use default assignments. {}",
@@ -138,6 +143,12 @@ fn audit_payload_tags_impl(
             } else {
                 let key_unquoted =
                     crate::engine::variables::system::strip_quotes(key).unwrap_or(key);
+                if key_unquoted.contains('.') {
+                    return Err(crate::Error::Config(format!(
+                        "Invalid variable [{}]: user-defined variables cannot contain dots. Dot-namespaces are reserved for system variables.",
+                        inner
+                    )));
+                }
                 match default_value {
                     None => {
                         if !defined_vars.contains(key_unquoted) {
@@ -162,6 +173,12 @@ fn audit_payload_tags_impl(
         }
 
         ptr = tag.end + 1;
+    }
+
+    if cursor_count > 0 && has_key_or_delay {
+        return Err(crate::Error::Config(
+            "The [cursor] directive cannot be used alongside [key.*], [delay.*], or [mouse.*] directives.".to_string()
+        ));
     }
 
     Ok(())

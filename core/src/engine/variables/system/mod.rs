@@ -922,5 +922,283 @@ mod tests {
                 )]
             );
         }
+
+        fn evaluate_template(
+            text: &str,
+            args: Option<&crate::engine::variables::types::ArgMap>,
+        ) -> FinalExpansion {
+            let interpolated = crate::engine::variables::interpolate::interpolate(
+                text,
+                args.unwrap_or(&crate::engine::variables::types::ArgMap::default()),
+            );
+            finalize(&interpolated, None)
+        }
+
+        #[test]
+        fn test_template_syntax_spec_compliance_evaluation() {
+            // Test Case 1: testvars
+            {
+                let mut args = crate::engine::variables::types::ArgMap::default();
+                args.positional.push("Bob".to_string());
+                args.positional.push("New York".to_string());
+                args.named.insert("role".to_string(), "Manager".to_string());
+                let res = evaluate_template(
+                    "Hello [0=friend]! You live in [1='San Francisco'] and work as [role='Software Engineer'].",
+                    Some(&args),
+                );
+                assert_eq!(
+                    res.steps,
+                    vec![ExpansionStep::Text(
+                        "Hello Bob! You live in New York and work as Manager.".to_string()
+                    )]
+                );
+            }
+
+            // Test Case 2: testescape
+            {
+                let mut args = crate::engine::variables::types::ArgMap::default();
+                args.positional.push("custom".to_string());
+                let res = evaluate_template(
+                    "Escaped brackets: \\[0=ignored\\] | Literal pipe: [0='default value' \\| upper] | Parsed pipe: [0='hello' | upper]",
+                    Some(&args),
+                );
+                assert_eq!(res.steps, vec![ExpansionStep::Text("Escaped brackets: [0=ignored] | Literal pipe: custom | Parsed pipe: CUSTOM".to_string())]);
+
+                let res_no_args = evaluate_template(
+                    "Escaped brackets: \\[0=ignored\\] | Literal pipe: [0='default value' \\| upper] | Parsed pipe: [0='hello' | upper]",
+                    None,
+                );
+                assert_eq!(res_no_args.steps, vec![ExpansionStep::Text("Escaped brackets: [0=ignored] | Literal pipe: 'default value' | upper | Parsed pipe: 'DEFAULT VALUE' | UPPER".to_string())]);
+            }
+
+            // Test Case 3: testdatetime
+            {
+                let res = evaluate_template(
+                    "Local: [date] [time] | UTC +1w: [date.utc.calc(+1w).format('Today is' dddd, MMMM D, YYYY)] | UTC Time -2h: [time.utc.calc(-2h).format(hh:mm A)] | Cased AM/PM: [time.format(A) | lower]",
+                    None,
+                );
+                assert_eq!(res.steps.len(), 1);
+                if let ExpansionStep::Text(ref text) = res.steps[0] {
+                    assert!(text.contains("Local: "));
+                    assert!(text.contains("UTC +1w: Today is "));
+                    assert!(text.contains("UTC Time -2h: "));
+                    assert!(text.contains("Cased AM/PM: "));
+                } else {
+                    panic!("Expected Text step");
+                }
+            }
+
+            // Test Case 4: testenv
+            {
+                unsafe {
+                    std::env::set_var("USERNAME", "aimer");
+                    std::env::set_var("USERPROFILE", "c:\\users\\aimer");
+                }
+                let res = evaluate_template(
+                    "User (Title Case): [env(USERNAME) | title] | Home Path (Lowercase): [env(USERPROFILE) | lower]",
+                    None,
+                );
+                assert_eq!(
+                    res.steps,
+                    vec![ExpansionStep::Text(
+                        "User (Title Case): Aimer | Home Path (Lowercase): c:\\users\\aimer"
+                            .to_string()
+                    )]
+                );
+            }
+
+            // Test Case 5: testfile
+            {
+                if let Some(home) = directories::UserDirs::new().map(|d| d.home_dir().to_path_buf())
+                {
+                    let path = home.join("taurine_test.txt");
+                    std::fs::write(&path, "line one\nline two\nline three").ok();
+                    let res = evaluate_template(
+                        "Full Content: [file.read(~/taurine_test.txt) | trim] | Line 2: [file.read_line(~/taurine_test.txt, 2) | upper] | Lines 1-3: [file.read_line(~/taurine_test.txt, 1, 3)]",
+                        None,
+                    );
+                    std::fs::remove_file(&path).ok();
+
+                    assert_eq!(res.steps.len(), 1);
+                    if let ExpansionStep::Text(ref text) = res.steps[0] {
+                        let normalized = text.replace("\r\n", "\n");
+                        assert_eq!(
+                            normalized,
+                            "Full Content: line one\nline two\nline three | Line 2: LINE TWO | Lines 1-3: line one\nline two\nline three"
+                        );
+                    } else {
+                        panic!("Expected Text step");
+                    }
+                }
+            }
+
+            // Test Case 6: testclip
+            {
+                super::clip::set_mock_clip_history(vec![
+                    "  apple pie  ".to_string(),
+                    "banana".to_string(),
+                ]);
+                let res = evaluate_template(
+                    "Latest (Slugified): [clip | slug] | Second: [clip(0) | trim] | Third (Upper): [clip(1) | upper] | Empty index: [clip(2) | squote]",
+                    None,
+                );
+                super::clip::set_mock_clip(None);
+
+                assert_eq!(
+                    res.steps,
+                    vec![ExpansionStep::Text("Latest (Slugified): apple-pie | Second: apple pie | Third (Upper): BANANA | Empty index: ''".to_string())]
+                );
+            }
+
+            // Test Case 7: testexec
+            {
+                let res = evaluate_template(
+                    "Cwd Path: [exec.powershell((Get-Location).Path) | trim] | Cmd Command: [exec.cmd(echo hello from cmd) | upper] | Silent Task: [exec.silent.powershell(echo 'background task')]",
+                    None,
+                );
+                assert_eq!(res.steps.len(), 6);
+                assert_eq!(res.steps[0], ExpansionStep::Text("Cwd Path: ".to_string()));
+                if let ExpansionStep::InlineRun(ref m, ref t) = res.steps[1] {
+                    assert_eq!(t, &vec!["trim".to_string()]);
+                    assert_eq!(m.behavior, crate::engine::shell::ScriptBehavior::Inline);
+                } else {
+                    panic!("Expected InlineRun");
+                }
+                assert_eq!(
+                    res.steps[2],
+                    ExpansionStep::Text(" | Cmd Command: ".to_string())
+                );
+                if let ExpansionStep::InlineRun(ref m, ref t) = res.steps[3] {
+                    assert_eq!(t, &vec!["upper".to_string()]);
+                    assert_eq!(m.behavior, crate::engine::shell::ScriptBehavior::Inline);
+                } else {
+                    panic!("Expected InlineRun");
+                }
+                assert_eq!(
+                    res.steps[4],
+                    ExpansionStep::Text(" | Silent Task: ".to_string())
+                );
+                if let ExpansionStep::InlineRun(ref m, ref t) = res.steps[5] {
+                    assert!(t.is_empty());
+                    assert_eq!(m.behavior, crate::engine::shell::ScriptBehavior::Silent);
+                } else {
+                    panic!("Expected InlineRun");
+                }
+            }
+
+            // Test Case 8: testhttp
+            {
+                let res = evaluate_template(
+                    "Status: [http.status(https://httpbin.org/status/200)] | UA: [http.get(https://httpbin.org/headers) | json.get('headers.User-Agent') | truncate(15)]",
+                    None,
+                );
+                assert_eq!(res.steps.len(), 1);
+                if let ExpansionStep::Text(ref text) = res.steps[0] {
+                    assert_eq!(
+                        text,
+                        "Status: \x03\x1Fsys:http.status(https://httpbin.org/status/200)\x04 | UA: \x03\x1Fsys:http.get(https://httpbin.org/headers) | json.get('headers.User-Agent') | truncate(15)\x04"
+                    );
+                } else {
+                    panic!("Expected Text step");
+                }
+            }
+
+            // Test Case 9: testrandom
+            {
+                let res = evaluate_template(
+                    "Int (10-50): [random.int(10, 50)] | Pass (12): [random.pass(12)] | Choice: [random.choice(apple, banana, cherry) | title] | Lorem (Dynamic Count): [lorem.word([random.int(2, 4)]) | kebab]",
+                    None,
+                );
+                assert_eq!(res.steps.len(), 1);
+                if let ExpansionStep::Text(ref text) = res.steps[0] {
+                    assert!(text.contains("Int (10-50): "));
+                    assert!(text.contains(" | Pass (12): "));
+                    assert!(text.contains(" | Choice: "));
+                    assert!(text.contains(" | Lorem (Dynamic Count): "));
+                } else {
+                    panic!("Expected Text step");
+                }
+            }
+
+            // Test Case 10: testmock
+            {
+                let res = evaluate_template(
+                    "Name: [mock.name | upper] | Email: [mock.email] | Address: [mock.address | title] | Job Title: [mock.job_title | kebab]",
+                    None,
+                );
+                assert_eq!(res.steps.len(), 1);
+                if let ExpansionStep::Text(ref text) = res.steps[0] {
+                    assert!(text.contains("Name: "));
+                    assert!(text.contains(" | Email: "));
+                    assert!(text.contains(" | Address: "));
+                    assert!(text.contains(" | Job Title: "));
+                } else {
+                    panic!("Expected Text step");
+                }
+            }
+
+            // Test Case 11: testnested
+            {
+                let conn = rusqlite::Connection::open(crate::paths::get_db_path()).unwrap();
+                conn.execute(
+                    "INSERT OR REPLACE INTO automations (id, trigger, output, action_type, target_os, name, tags, is_deleted)
+                     VALUES ('test_inner_id', 'testinner', 'Hello from the inner snippet!', 'text', 'all', 'testinner', '[]', 0)",
+                    []
+                ).ok();
+
+                let res =
+                    evaluate_template("Output: [use('testinner') | upper] | Date: [date]", None);
+
+                conn.execute("DELETE FROM automations WHERE id = 'test_inner_id'", [])
+                    .ok();
+
+                assert_eq!(res.steps.len(), 1);
+                if let ExpansionStep::Text(ref text) = res.steps[0] {
+                    assert!(text.contains("Output: HELLO FROM THE INNER SNIPPET! | Date: "));
+                } else {
+                    panic!("Expected Text step");
+                }
+            }
+
+            // Test Case 12: testcombo
+            {
+                let res = evaluate_template(
+                    "User [name='Developer'] checked [url='httpbin.org/json'] at [time.utc.format(HH:mm)] UTC. Title of JSON: [http.get([url]) | json.get('slideshow.title') | upper]",
+                    None,
+                );
+                assert_eq!(res.steps.len(), 1);
+                if let ExpansionStep::Text(ref text) = res.steps[0] {
+                    assert!(text.contains("User Developer checked httpbin.org/json at "));
+                    assert!(text.contains(" UTC. Title of JSON: \x03\x1Fsys:http.get(httpbin.org/json) | json.get('slideshow.title') | upper\x04"));
+                } else {
+                    panic!("Expected Text step");
+                }
+            }
+
+            // Test Case 13: testkeys
+            {
+                let mut args = crate::engine::variables::types::ArgMap::default();
+                args.positional.push("Jane".to_string());
+                args.positional.push("Smith".to_string());
+                args.positional.push("Admin".to_string());
+                let res = evaluate_template(
+                    "[0=first][key(tab)][delay(100ms)][1=second][key(tab)][delay(50)][2=third][key(enter)]",
+                    Some(&args),
+                );
+                assert_eq!(
+                    res.steps,
+                    vec![
+                        ExpansionStep::Text("Jane".to_string()),
+                        ExpansionStep::KeyPress("tab".to_string()),
+                        ExpansionStep::Delay(100),
+                        ExpansionStep::Text("Smith".to_string()),
+                        ExpansionStep::KeyPress("tab".to_string()),
+                        ExpansionStep::Delay(50),
+                        ExpansionStep::Text("Admin".to_string()),
+                        ExpansionStep::KeyPress("enter".to_string()),
+                    ]
+                );
+            }
+        }
     }
 }
