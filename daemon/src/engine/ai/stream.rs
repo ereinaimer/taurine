@@ -122,16 +122,31 @@ async fn evaluate_marker_tree(
                 if let Some(sys_key) = prompt.strip_prefix("sys:") {
                     let sys_key_owned = sys_key.to_string();
                     tokio::task::spawn_blocking(move || {
-                        if sys_key_owned == "mouse.pos" {
+                        let pipeline =
+                            taurine_core::engine::variables::system::transformers::split_pipeline(
+                                &sys_key_owned,
+                            );
+                        let base_key = pipeline[0];
+
+                        let mut val = if base_key == "mouse.pos" {
                             crate::platform::get_mouse_pos()
                                 .map(|(x, y)| format!("{},{}", x, y))
                                 .unwrap_or_else(|| "0,0".to_string())
                         } else {
-                            taurine_core::engine::variables::system::resolve(&sys_key_owned)
-                                .unwrap_or_else(|| {
-                                    format!("[Error: failed to resolve {sys_key_owned}]")
-                                })
+                            taurine_core::engine::variables::system::resolve(base_key)
+                                .unwrap_or_else(|| format!("[Error: failed to resolve {base_key}]"))
+                        };
+
+                        for tr in &pipeline[1..] {
+                            if let Some(transformed) =
+                                taurine_core::engine::variables::system::transformers::apply(
+                                    tr, &val,
+                                )
+                            {
+                                val = transformed;
+                            }
                         }
+                        val
                     })
                     .await
                     .ok()

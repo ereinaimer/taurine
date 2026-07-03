@@ -260,6 +260,8 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
 
             let base_resolved = if let Some(user) = user_resolutions.get(key_unquoted) {
                 Some(user.clone())
+            } else if key_unquoted.starts_with('\x03') && key_unquoted.ends_with('\x04') {
+                Some(key_unquoted.to_string())
             } else if key_unquoted.starts_with("use(") && key_unquoted.ends_with(')') {
                 Some(resolve_use_placeholder(key_unquoted, args, depth))
             } else if let Some(sys) = resolve_system_placeholder(key_unquoted) {
@@ -287,6 +289,9 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
                         // Embed AI marker: \x03 + input + \x1F (unit sep) + prompt + \x04
                         // \x1F is a C0 control character never present in normal text output
                         text = format!("\x03{text}\x1F{prompt}\x04");
+                    } else if text.starts_with("\x03\x1Fsys:") && text.ends_with('\x04') {
+                        let inner_sys = &text[..text.len() - 1]; // strip trailing \x04
+                        text = format!("{} | {}\x04", inner_sys, tr);
                     } else if let Some(transformed) = system::transformers::apply(tr, &text) {
                         text = transformed;
                     } else {
@@ -1023,6 +1028,19 @@ mod tests {
             assert_eq!(
                 interpolate(tpl, &args),
                 "Hello World Demo TestHello World Demo Test"
+            );
+        }
+
+        #[test]
+        fn test_nested_deferred_pipelines() {
+            let mut args = ArgMap::default();
+            args.named
+                .insert("url".to_string(), "httpbin.org/json".to_string());
+            let tpl = "[http.get([url]) | json.get('slideshow.title') | upper]";
+            let result = interpolate(tpl, &args);
+            assert_eq!(
+                result,
+                "\x03\x1Fsys:http.get(httpbin.org/json) | json.get('slideshow.title') | upper\x04"
             );
         }
     }
