@@ -67,7 +67,37 @@ enum AutomationActionKind {
     Script,
 }
 
+fn collect_defined_variables(payload: &str) -> std::collections::HashSet<String> {
+    let mut defined = std::collections::HashSet::new();
+    let mut ptr = 0;
+    while let Some(tag) = find_next_tag(payload, ptr) {
+        let inner = trim_slice(&payload[tag.start + 1..tag.end]);
+        if inner.contains('[') {
+            defined.extend(collect_defined_variables(inner));
+        } else {
+            let pipeline = crate::engine::variables::system::transformers::split_pipeline(inner);
+            let base_expr = pipeline[0];
+            let (key, default_value) = split_key_default(base_expr);
+            if default_value.is_some() && split_system_tag(key).is_none() {
+                let key_unquoted =
+                    crate::engine::variables::system::strip_quotes(key).unwrap_or(key);
+                defined.insert(key_unquoted.to_string());
+            }
+        }
+        ptr = tag.end + 1;
+    }
+    defined
+}
+
 pub fn audit_payload_tags(payload: &str) -> Result<()> {
+    let defined_vars = collect_defined_variables(payload);
+    audit_payload_tags_impl(payload, &defined_vars)
+}
+
+fn audit_payload_tags_impl(
+    payload: &str,
+    defined_vars: &std::collections::HashSet<String>,
+) -> Result<()> {
     let mut ptr = 0;
     let mut cursor_count = 0;
 
@@ -77,45 +107,55 @@ pub fn audit_payload_tags(payload: &str) -> Result<()> {
         let base_expr = pipeline[0];
         let (key, default_value) = split_key_default(base_expr);
 
-        if let Some((root, modifier)) = split_system_tag(key) {
-            if root == "cursor" {
-                cursor_count += 1;
-                if cursor_count > 1 {
-                    return Err(crate::Error::Config(
-                        "Invalid variable [cursor]: multiple cursor directives are not allowed. Only one final caret position can be defined.".to_string()
-                    ));
+        let is_nested = key.contains('[') || key.contains(']') || key.starts_with('\x03');
+
+        if is_nested && inner.contains('[') {
+            audit_payload_tags_impl(inner, defined_vars)?;
+        } else if !is_nested {
+            if let Some((root, modifier)) = split_system_tag(key) {
+                if root == "cursor" {
+                    cursor_count += 1;
+                    if cursor_count > 1 {
+                        return Err(crate::Error::Config(
+                            "Invalid variable [cursor]: multiple cursor directives are not allowed. Only one final caret position can be defined.".to_string()
+                        ));
+                    }
                 }
-            }
 
-            if let Some(_default) = default_value {
-                return Err(crate::Error::Config(format!(
-                    "Invalid system tag [{}]: system tags cannot use default assignments. {}",
-                    inner,
-                    valid_modifier_hint(root)
-                )));
-            }
-
-            if let Err(error) = validate_system_tag(root, modifier) {
-                return Err(crate::Error::Config(format_validation_error(
-                    inner, root, modifier, &error,
-                )));
-            }
-        } else {
-            match default_value {
-                None => {
+                if let Some(_default) = default_value {
                     return Err(crate::Error::Config(format!(
-                        "Invalid variable [{}]: dynamic variables must have a default value assignment (e.g., [key=default]). If you intended to write literal text, escape the brackets like \\[{}\\].",
-                        inner, inner
+                        "Invalid system tag [{}]: system tags cannot use default assignments. {}",
+                        inner,
+                        valid_modifier_hint(root)
                     )));
                 }
-                Some(val) => {
-                    let unquoted =
-                        crate::engine::variables::system::strip_quotes(val).unwrap_or(val);
-                    if unquoted.trim().is_empty() {
-                        return Err(crate::Error::Config(format!(
-                            "Invalid variable [{}]: default assignments cannot be empty.",
-                            inner
-                        )));
+
+                if let Err(error) = validate_system_tag(root, modifier) {
+                    return Err(crate::Error::Config(format_validation_error(
+                        inner, root, modifier, &error,
+                    )));
+                }
+            } else {
+                let key_unquoted =
+                    crate::engine::variables::system::strip_quotes(key).unwrap_or(key);
+                match default_value {
+                    None => {
+                        if !defined_vars.contains(key_unquoted) {
+                            return Err(crate::Error::Config(format!(
+                                "Invalid variable [{}]: dynamic variables must have a default value assignment (e.g., [key=default]). If you intended to write literal text, escape the brackets like \\[{}\\].",
+                                inner, inner
+                            )));
+                        }
+                    }
+                    Some(val) => {
+                        let unquoted =
+                            crate::engine::variables::system::strip_quotes(val).unwrap_or(val);
+                        if unquoted.trim().is_empty() {
+                            return Err(crate::Error::Config(format!(
+                                "Invalid variable [{}]: default assignments cannot be empty.",
+                                inner
+                            )));
+                        }
                     }
                 }
             }

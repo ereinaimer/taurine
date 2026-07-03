@@ -168,4 +168,10 @@ mod tests {
         let error = prepare_trigger("ctrl+shift+g", true, "ios").unwrap_err();
         assert!(error.to_string().contains("desktop target_os"));
     }
+
+    #[test]
+    fn accepts_nested_and_reused_variables() {
+        assert!(audit_payload_tags("Status: [http.status(https://httpbin.org/status/200)] | UA: [[http.get(https://httpbin.org/headers)] | json.get('headers.User-Agent') | truncate(15)]").is_ok());
+        assert!(audit_payload_tags("User [name='Developer'] checked [url='httpbin.org/json'] at [time.utc.format(HH:mm)] UTC. Title of JSON: [http.get([url]) | json.get('slideshow.title') | upper]").is_ok());
+    }
 }
