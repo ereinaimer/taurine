@@ -191,7 +191,7 @@ impl Evaluator {
                 | ExpansionStep::MouseHold
                 | ExpansionStep::MouseRelease => return false,
                 // Shell/script side effects are not reversible through text deletion alone.
-                ExpansionStep::Script(_) | ExpansionStep::InlineRun(_) => return false,
+                ExpansionStep::Script(_) | ExpansionStep::InlineRun(_, _) => return false,
             }
         }
 
@@ -1998,7 +1998,7 @@ mod tests {
             result
                 .steps
                 .iter()
-                .any(|step| matches!(step, ExpansionStep::InlineRun(_)))
+                .any(|step| matches!(step, ExpansionStep::InlineRun(_, _)))
         );
     }
 

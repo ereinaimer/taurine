@@ -19,7 +19,7 @@ pub enum ValidationError {
 
 const SYSTEM_ROOTS: &[&str] = &[
     "cursor", "clip", "time", "date", "uuid", "env", "net", "exec", "random", "key", "delay",
-    "lorem", "mock", "file",
+    "lorem", "mock", "file", "use", "http", "mouse",
 ];
 
 const TIME_METHODS: &[&str] = &["utc", "calc(±...)", "format(...)"];
@@ -131,6 +131,11 @@ pub fn split_system_tag(key: &str) -> Option<(&str, Option<&str>)> {
     {
         return Some(("env", Some(inner)));
     }
+    if let Some(rest) = base.strip_prefix("use(")
+        && let Some(inner) = rest.strip_suffix(')')
+    {
+        return Some(("use", Some(inner)));
+    }
 
     let (root, modifier) = match base.split_once('.') {
         Some((root, modifier)) => (root, Some(modifier.trim()).filter(|m| !m.is_empty())),
@@ -160,6 +165,9 @@ pub fn valid_modifier_hint(root: &str) -> String {
             KEY_MODIFIERS.join(", ")
         ),
         "delay" => "Valid form: [delay(<ms>)] or [delay(<u64>ms)]".to_string(),
+        "use" => "Valid form: [use(\"trigger_name\")]".to_string(),
+        "http" => "Valid forms: [http.get(<url>)], [http.status(<url>)]".to_string(),
+        "mouse" => "Valid forms: [mouse.click], [mouse.rclick], [mouse.mclick], [mouse.move(x, y)], [mouse.scroll(delta)], [mouse.hold], [mouse.release], [mouse.pos]".to_string(),
         _ => "No modifier help available.".to_string(),
     }
 }
@@ -180,6 +188,9 @@ pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), Val
         "file" => validate_file_modifier(modifier),
         "key" => validate_key_modifier(modifier),
         "delay" => validate_delay_modifier(modifier),
+        "use" => validate_use_modifier(modifier),
+        "http" => validate_http_modifier(modifier),
+        "mouse" => validate_mouse_modifier(modifier),
         _ => Err(ValidationError::UnknownRoot(root.to_string())),
     }
 }
@@ -496,6 +507,73 @@ fn validate_file_modifier(modifier: Option<&str>) -> Result<(), ValidationError>
         root: "file",
         modifier: modifier.to_string(),
         allowed: FILE_MODIFIERS,
+    })
+}
+
+fn validate_use_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
+    let raw = modifier.unwrap_or_default().trim();
+    let name = crate::engine::variables::system::strip_quotes(raw).unwrap_or(raw);
+    if !name.is_empty() {
+        Ok(())
+    } else {
+        Err(ValidationError::MissingModifier { root: "use" })
+    }
+}
+
+const HTTP_MODIFIERS: &[&str] = &["get(url)", "status(url)"];
+
+fn validate_http_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
+    let modifier =
+        normalize_modifier(modifier.ok_or(ValidationError::MissingModifier { root: "http" })?)
+            .ok_or(ValidationError::MissingModifier { root: "http" })?;
+
+    if let Some((variant, args)) = parse_file_modifier(modifier)
+        && (match variant {
+            "get" | "status" => args.is_some_and(|args| split_modifier_args(args).len() == 1),
+            _ => false,
+        })
+    {
+        return Ok(());
+    }
+
+    Err(ValidationError::InvalidModifier {
+        root: "http",
+        modifier: modifier.to_string(),
+        allowed: HTTP_MODIFIERS,
+    })
+}
+
+const MOUSE_MODIFIERS: &[&str] = &[
+    "pos",
+    "click",
+    "rclick",
+    "mclick",
+    "hold",
+    "release",
+    "move(x, y)",
+    "scroll(delta)",
+];
+
+fn validate_mouse_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
+    let modifier =
+        normalize_modifier(modifier.ok_or(ValidationError::MissingModifier { root: "mouse" })?)
+            .ok_or(ValidationError::MissingModifier { root: "mouse" })?;
+
+    if let Some((variant, args)) = parse_file_modifier(modifier)
+        && (match variant {
+            "pos" | "click" | "rclick" | "mclick" | "hold" | "release" => args.is_none(),
+            "move" => args.is_some_and(|args| split_modifier_args(args).len() == 2),
+            "scroll" => args.is_some_and(|args| split_modifier_args(args).len() == 1),
+            _ => false,
+        })
+    {
+        return Ok(());
+    }
+
+    Err(ValidationError::InvalidModifier {
+        root: "mouse",
+        modifier: modifier.to_string(),
+        allowed: MOUSE_MODIFIERS,
     })
 }
 

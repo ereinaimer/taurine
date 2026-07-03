@@ -403,10 +403,14 @@ fn split_into_steps(text: &str) -> Vec<ExpansionStep> {
         append_unescaped_segment(&text[ptr..tag.start], &mut current_text);
         let inner = tag_inner(text, tag);
 
-        if inner.starts_with("exec.") {
+        let pipeline = transformers::split_pipeline(inner);
+        let base_expr = pipeline[0];
+        let transformers: Vec<String> = pipeline[1..].iter().map(|s| s.to_string()).collect();
+
+        if base_expr.starts_with("exec.") {
             flush_text(&mut steps, &mut current_text);
-            match exec::to_script_metadata(inner) {
-                Ok(metadata) => steps.push(ExpansionStep::InlineRun(metadata)),
+            match exec::to_script_metadata(base_expr) {
+                Ok(metadata) => steps.push(ExpansionStep::InlineRun(metadata, transformers)),
                 Err(error) => steps.push(ExpansionStep::Text(format_run_error(error))),
             }
         } else if let Some(alias) = parse_key_directive(inner) {
@@ -644,11 +648,12 @@ mod tests {
             ExpansionStep::Text("Wait for it... ".to_string())
         );
         match &res.steps[1] {
-            ExpansionStep::InlineRun(metadata) => {
+            ExpansionStep::InlineRun(metadata, transformers) => {
                 assert_eq!(
                     crate::engine::shell::decompress(&metadata.compressed_content).unwrap(),
                     "echo Done!"
                 );
+                assert!(transformers.is_empty());
             }
             other => panic!("expected InlineRun step, got {other:?}"),
         }
@@ -660,11 +665,28 @@ mod tests {
 
         assert_eq!(res.steps.len(), 3);
         match &res.steps[1] {
-            ExpansionStep::InlineRun(metadata) => {
+            ExpansionStep::InlineRun(metadata, transformers) => {
                 assert_eq!(
                     metadata.behavior,
                     crate::engine::shell::ScriptBehavior::Silent
                 );
+                assert!(transformers.is_empty());
+            }
+            other => panic!("expected InlineRun step, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_finalize_inline_run_with_transformers() {
+        let res = finalize("[exec.bash(echo done) | upper | trim]", None);
+        assert_eq!(res.steps.len(), 1);
+        match &res.steps[0] {
+            ExpansionStep::InlineRun(metadata, transformers) => {
+                assert_eq!(
+                    crate::engine::shell::decompress(&metadata.compressed_content).unwrap(),
+                    "echo done"
+                );
+                assert_eq!(transformers, &vec!["upper".to_string(), "trim".to_string()]);
             }
             other => panic!("expected InlineRun step, got {other:?}"),
         }

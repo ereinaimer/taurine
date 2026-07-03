@@ -1302,7 +1302,7 @@ pub fn inject_expansion(
                     }
                 }
             }
-            ExpansionStep::InlineRun(metadata) => match metadata.behavior {
+            ExpansionStep::InlineRun(metadata, transformers) => match metadata.behavior {
                 ScriptBehavior::Inline => {
                     let spinner_handle = taurine_core::utils::spinner::spawn_threaded(
                         spinner_style,
@@ -1314,10 +1314,22 @@ pub fn inject_expansion(
                         .build()
                         .expect("Failed to initialize inline run runtime");
 
-                    let script_result: taurine_core::Result<String> =
+                    let mut script_result: taurine_core::Result<String> =
                         rt.block_on(crate::platform::executor::execute_script(metadata));
 
                     spinner_handle.stop();
+
+                    if let Ok(ref mut output) = script_result {
+                        for tr in transformers {
+                            if let Some(transformed) =
+                                taurine_core::engine::variables::system::transformers::apply(
+                                    tr, output,
+                                )
+                            {
+                                *output = transformed;
+                            }
+                        }
+                    }
 
                     match script_result {
                         Ok(output) => {

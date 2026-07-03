@@ -23,7 +23,7 @@ pub enum ExpansionStep {
     /// A shell script to execute.
     Script(ScriptMetadata),
     /// A shell script to execute inline while preserving preceding injected text.
-    InlineRun(ScriptMetadata),
+    InlineRun(ScriptMetadata, Vec<String>),
     /// Simulates a mouse left-click.
     MouseClick,
     /// Simulates a mouse right-click.

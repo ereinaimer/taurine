@@ -270,7 +270,9 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
                 Some(unquoted.to_string())
             } else if key.chars().all(|c| c.is_ascii_digit()) {
                 resolve_user_placeholder(key, default_value, args, depth)
-            } else if !transformers.is_empty() && (key.contains(' ') || key.contains(SENTINEL_OPEN))
+            } else if !transformers.is_empty()
+                && !system::is_reserved(key_unquoted)
+                && (key.contains(' ') || key.contains(SENTINEL_OPEN))
             {
                 Some(key.to_string())
             } else {
