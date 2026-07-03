@@ -3,19 +3,25 @@ title: Default Values
 description: Provide fallbacks in case an argument isn't specified.
 ---
 
-## Default Value Syntax
+## Mandatory Default Values
 
-To ensure your snippet still works even if you forget to pass an argument, use the `=` symbol inside the placeholder:
+To ensure that variables always have a predictable fallback, Taurine strictly requires that every unique dynamic variable defines a default value using the `=` symbol.
+
+### Optional vs Required Quotes (Hybrid Syntax)
+
+Taurine uses a smart parser that makes your life easier:
+- **Optional:** You don't need quotes for simple alphanumeric defaults. E.g., `[name=there]`
+- **Required:** You **must** wrap your default value in quotes (`"` or `'`) if it contains spaces, commas, or closing brackets. E.g., `[message="No content provided"]`
 
 <Transformation
-  template="Message: [content=No content provided]"
+  template="Message: [content=\"No content provided\"]"
   cases={[
     { input: ">msg", result: "Message: No content provided" },
     { input: ">msg:\"Hello World\"", result: "Message: Hello World" },
   ]}
 />
 
-If no value is provided via input, Taurine will use the assigned default. 
+If no value is provided via input, Taurine will use the assigned default. If you omit the `=` symbol, Taurine will not parse the variable and will treat it as literal text.
 
 ## Real-World Examples
 Default values turn templates into smart tools that work out of the box while remaining fully customizable. 
@@ -46,7 +52,7 @@ Default values turn templates into smart tools that work out of the box while re
     </Callout>
     
     ```text trigger=">gc:::'Initial commit' "
-    [type=feat]([scope=cli]): [message]
+    [type=feat]([scope=cli]): [message="default message"]
     ```
   </Accordion>
 </Accordions>

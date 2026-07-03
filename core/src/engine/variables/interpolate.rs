@@ -87,39 +87,42 @@ pub(crate) fn extract_placeholders<'a>(template: &'a str) -> IndexMap<&'a str, P
         let base_expr = pipeline[0];
         let (key, default_value) = split_key_default(base_expr);
 
-        if !system::is_reserved(key)
-            && !placeholders.contains_key(key)
-            && system::strip_quotes(key).is_none()
-            && !key.contains('[')
-            && !key.contains(']')
+        let key_unquoted = system::strip_quotes(key).unwrap_or(key);
+
+        if default_value.is_some()
+            && !system::is_reserved(key_unquoted)
+            && !placeholders.contains_key(key_unquoted)
+            && !key_unquoted.contains('[')
+            && !key_unquoted.contains(']')
         {
-            placeholders.insert(key, Placeholder { key, default_value });
+            placeholders.insert(
+                key_unquoted,
+                Placeholder {
+                    key: key_unquoted,
+                    default_value,
+                },
+            );
         }
     }
 
     placeholders
 }
 
-fn is_valid_user_reference(
-    key: &str,
-    default_value: Option<&str>,
-    args: &ArgMap,
-    pos_idx: usize,
-) -> bool {
-    if let Some((root, modifier)) = split_system_tag(key)
+fn is_valid_user_reference(key: &str, default_value: Option<&str>, args: &ArgMap) -> bool {
+    let key_unquoted = system::strip_quotes(key).unwrap_or(key);
+
+    if let Some((root, modifier)) = split_system_tag(key_unquoted)
         && super::registry::validate_system_tag(root, modifier).is_ok()
     {
         return false;
     }
 
-    key.parse::<usize>().is_ok()
-        || args.named.contains_key(key)
-        || pos_idx < args.positional.len()
+    (key_unquoted.parse::<usize>().is_ok() && default_value.is_some())
+        || args.named.contains_key(key_unquoted)
         || (default_value.is_some()
-            && system::strip_quotes(key).is_none()
-            && !system::is_reserved(key)
-            && !key.contains('[')
-            && !key.contains(']'))
+            && !system::is_reserved(key_unquoted)
+            && !key_unquoted.contains('[')
+            && !key_unquoted.contains(']'))
 }
 
 fn resolve_user_placeholder(
@@ -127,24 +130,24 @@ fn resolve_user_placeholder(
     default_value: Option<&str>,
     args: &ArgMap,
     depth: usize,
-    pos_idx: &mut usize,
 ) -> Option<String> {
-    if !is_valid_user_reference(key, default_value, args, *pos_idx) {
+    if !is_valid_user_reference(key, default_value, args) {
         return None;
     }
 
-    if let Ok(index) = key.parse::<usize>() {
+    let key_unquoted = system::strip_quotes(key).unwrap_or(key);
+    let default_val_unquoted = default_value.map(|v| system::strip_quotes(v).unwrap_or(v));
+
+    if let Ok(index) = key_unquoted.parse::<usize>() {
         args.positional
             .get(index)
             .cloned()
-            .or_else(|| default_value.map(|value| resolve_default_value(value, args, depth)))
-    } else if let Some(value) = args.named.get(key) {
-        Some(value.clone())
-    } else if let Some(value) = args.positional.get(*pos_idx) {
-        *pos_idx += 1;
+            .or_else(|| args.named.get(key_unquoted).cloned())
+            .or_else(|| default_val_unquoted.map(|value| resolve_default_value(value, args, depth)))
+    } else if let Some(value) = args.named.get(key_unquoted) {
         Some(value.clone())
     } else {
-        default_value.map(|value| resolve_default_value(value, args, depth))
+        default_val_unquoted.map(|value| resolve_default_value(value, args, depth))
     }
 }
 
@@ -225,11 +228,9 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
     let placeholders = extract_placeholders(template);
     let mut user_resolutions = std::collections::HashMap::new();
 
-    let mut pos_idx = 0;
-
     for (key, placeholder) in placeholders.iter() {
         if let Some(resolved) =
-            resolve_user_placeholder(key, placeholder.default_value, args, depth, &mut pos_idx)
+            resolve_user_placeholder(key, placeholder.default_value, args, depth)
         {
             user_resolutions.insert(*key, resolved);
         }
@@ -246,20 +247,20 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
             let transformers = &pipeline[1..];
             let (key, default_value) = split_key_default(base_expr);
 
-            let base_resolved = if let Some(user) = user_resolutions.get(key) {
+            let key_unquoted = system::strip_quotes(key).unwrap_or(key);
+
+            let base_resolved = if let Some(user) = user_resolutions.get(key_unquoted) {
                 Some(user.clone())
-            } else if key.starts_with("use(") && key.ends_with(')') {
-                Some(resolve_use_placeholder(key, args, depth))
-            } else if let Some(sys) = resolve_system_placeholder(key) {
+            } else if key_unquoted.starts_with("use(") && key_unquoted.ends_with(')') {
+                Some(resolve_use_placeholder(key_unquoted, args, depth))
+            } else if let Some(sys) = resolve_system_placeholder(key_unquoted) {
                 Some(sys)
-            } else if is_valid_user_reference(key, default_value, args, usize::MAX) {
-                let mut pos_idx_dummy = usize::MAX;
-                resolve_user_placeholder(key, default_value, args, depth, &mut pos_idx_dummy)
+            } else if is_valid_user_reference(key_unquoted, default_value, args) {
+                resolve_user_placeholder(key, default_value, args, depth)
             } else if let Some(unquoted) = system::strip_quotes(key) {
                 Some(unquoted.to_string())
             } else if key.chars().all(|c| c.is_ascii_digit()) {
-                let mut pos_idx_dummy = usize::MAX;
-                resolve_user_placeholder(key, default_value, args, depth, &mut pos_idx_dummy)
+                resolve_user_placeholder(key, default_value, args, depth)
             } else if !transformers.is_empty() && (key.contains(' ') || key.contains(SENTINEL_OPEN))
             {
                 Some(key.to_string())
@@ -287,8 +288,8 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
                 } else {
                     format!("{SENTINEL_OPEN}{inner}{SENTINEL_CLOSE}")
                 }
-            } else if system::is_directive(key) && transformers.is_empty() {
-                format!("{SENTINEL_OPEN}{key}{SENTINEL_CLOSE}")
+            } else if system::is_directive(key_unquoted) && transformers.is_empty() {
+                format!("{SENTINEL_OPEN}{key_unquoted}{SENTINEL_CLOSE}")
             } else {
                 format!("{SENTINEL_OPEN}{inner}{SENTINEL_CLOSE}")
             };
@@ -415,25 +416,25 @@ mod tests {
 
     #[test]
     fn test_extract_placeholders() {
-        let text = "https://github.com/[username=ereinaimer]/[repo]";
+        let text = "https://github.com/[username=ereinaimer]/[repo=]";
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 2);
         assert_eq!(p.get("username").unwrap().default_value, Some("ereinaimer"));
-        assert_eq!(p.get("repo").unwrap().default_value, None);
+        assert_eq!(p.get("repo").unwrap().default_value, Some(""));
     }
 
     #[test]
     fn test_extract_placeholders_deduplicate() {
-        let text = "a [foo] b [foo=bar] c [foo]";
+        let text = "a [foo=] b [foo=bar] c [foo=]";
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 1);
         // Should keep the first appearance
-        assert_eq!(p.get("foo").unwrap().default_value, None);
+        assert_eq!(p.get("foo").unwrap().default_value, Some(""));
     }
 
     #[test]
     fn test_extract_placeholders_ignore_system() {
-        let text = "Hello [cursor] at [time.now]. My name is [name]";
+        let text = "Hello [cursor] at [time.now]. My name is [name=]";
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 1);
         assert!(p.contains_key("name"));
@@ -443,7 +444,7 @@ mod tests {
 
     #[test]
     fn test_extract_placeholders_escapes() {
-        let text = r#"function \[ return "[msg]"; \]"#;
+        let text = r#"function \[ return "[msg=]"; \]"#;
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 1);
         assert!(p.contains_key("msg"));
@@ -451,7 +452,7 @@ mod tests {
 
     #[test]
     fn test_extract_placeholders_trims_inner_whitespace() {
-        let text = "Hello [  name  ] and [ title = Captain ]";
+        let text = "Hello [  name = ] and [ title = Captain ]";
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 2);
         assert!(p.contains_key("name"));
@@ -464,7 +465,7 @@ mod tests {
         args.positional.push("ereinaimer".to_string());
         args.positional.push("taurine".to_string());
 
-        let tpl = "https://github.com/[0]/[1]";
+        let tpl = "https://github.com/[0=]/[1=]";
         assert_eq!(
             interpolate(tpl, &args),
             "https://github.com/ereinaimer/taurine"
@@ -477,7 +478,7 @@ mod tests {
         args.named.insert("repo".to_string(), "taurine".to_string());
         args.positional.push("ereinaimer".to_string());
 
-        let tpl = "https://github.com/[0]/[repo]";
+        let tpl = "https://github.com/[0=]/[repo=]";
         assert_eq!(
             interpolate(tpl, &args),
             "https://github.com/ereinaimer/taurine"
@@ -504,11 +505,8 @@ mod tests {
     #[test]
     fn test_interpolate_missing_args() {
         let args = ArgMap::default();
-        let tpl = "https://github.com/[username]/[repo]";
-        assert_eq!(
-            interpolate(tpl, &args),
-            "https://github.com/[username]/[repo]"
-        );
+        let tpl = "https://github.com/[username=]/[repo=]";
+        assert_eq!(interpolate(tpl, &args), "https://github.com//");
     }
 
     #[test]
@@ -530,7 +528,7 @@ mod tests {
 
         system::clip::set_mock_clip(Some("clip_content".to_string()));
 
-        let tpl = "[msg] [cursor] [time.now] [clip]";
+        let tpl = "[msg=] [cursor] [time.now] [clip]";
         let res = interpolate(tpl, &args);
 
         assert!(res.contains("hello [cursor] "));
@@ -592,7 +590,7 @@ mod tests {
     fn test_interpolate_repeated() {
         let mut args = ArgMap::default();
         args.positional.push("foo".to_string());
-        let tpl = "https://[0].github.io/[0]";
+        let tpl = "https://[0=].github.io/[0=]";
         assert_eq!(interpolate(tpl, &args), "https://foo.github.io/foo");
     }
 
@@ -611,9 +609,9 @@ mod tests {
     fn test_interpolate_nested_user() {
         let mut args = ArgMap::default();
         args.named.insert("name".to_string(), "john".to_string());
-        let tpl = "[[name] | upper]";
+        let tpl = "[[name=] | upper]";
         // Under strict validation, unquoted tags that are not variables are left as-is.
-        // [name] resolves to john, resulting in [john | upper].
+        // [name=] resolves to john, resulting in [john | upper].
         // john is not a variable, so [john | upper] remains literal.
         assert_eq!(interpolate(tpl, &args), "[john | upper]");
     }
@@ -641,7 +639,7 @@ mod tests {
         let mut args = ArgMap::default();
         args.positional.push("aimer".to_string());
 
-        assert_eq!(interpolate("[name=erein | title]", &args), "Aimer");
+        assert_eq!(interpolate("[name=erein | title]", &args), "Erein");
         assert_eq!(
             interpolate("[name=erein | title]", &ArgMap::default()),
             "Erein"
@@ -673,7 +671,7 @@ mod tests {
         let mut args = ArgMap::default();
         args.named.insert("name".to_string(), "john".to_string());
         // name | upper should resolve to JOHN
-        assert_eq!(interpolate("[name | upper]", &args), "JOHN");
+        assert_eq!(interpolate("[name= | upper]", &args), "JOHN");
     }
 
     #[test]
@@ -696,7 +694,7 @@ mod tests {
 
     #[test]
     fn test_extract_placeholders_suffixed() {
-        let text = "Hello [name | upper] and [email=DEFAULT@EMAIL.COM | lower]";
+        let text = "Hello [name= | upper] and [email=DEFAULT@EMAIL.COM | lower]";
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 2);
         assert!(p.contains_key("name"));
@@ -709,7 +707,7 @@ mod tests {
 
     #[test]
     fn test_extract_placeholders_parameterized_transformers() {
-        let text = "Hello [name | truncate(3)] and [email=DEFAULT | replace(\"@\", \"+\")]";
+        let text = "Hello [name= | truncate(3)] and [email=DEFAULT | replace(\"@\", \"+\")]";
         let p = extract_placeholders(text);
         assert_eq!(p.len(), 2);
         assert!(p.contains_key("name"));
@@ -728,9 +726,9 @@ mod tests {
         let mut args = ArgMap::default();
         args.named.insert("name".to_string(), "john".to_string());
 
-        assert_eq!(interpolate("[name | truncate(2)]", &args), "jo");
+        assert_eq!(interpolate("[name= | truncate(2)]", &args), "jo");
         assert_eq!(
-            interpolate("[name | replace(\"o\", \"0\") | upper]", &args),
+            interpolate("[name= | replace(\"o\", \"0\") | upper]", &args),
             "J0HN"
         );
     }
@@ -804,10 +802,8 @@ mod tests {
         args.positional.push("monkeytype.com".to_string());
 
         let tpl = "Start-Process https://[url=google.com]";
-        assert_eq!(
-            interpolate(tpl, &args),
-            "Start-Process https://monkeytype.com"
-        );
+        // [url] should not consume the positional argument "monkeytype.com"
+        assert_eq!(interpolate(tpl, &args), "Start-Process https://google.com");
 
         // Test fallback when argument is omitted
         let args_empty = ArgMap::default();
@@ -822,12 +818,13 @@ mod tests {
         let mut args = ArgMap::default();
         args.positional.push("myarg".to_string());
 
-        let tpl = "Hello [var]";
-        assert_eq!(interpolate(tpl, &args), "Hello myarg");
+        let tpl = "Hello [var=]";
+        // [var] should not consume the positional argument "myarg", it should use its default ""
+        assert_eq!(interpolate(tpl, &args), "Hello ");
 
-        // If no arg is passed and no default, it remains as literal
+        // If no arg is passed, it uses empty default
         let args_empty = ArgMap::default();
-        assert_eq!(interpolate(tpl, &args_empty), "Hello [var]");
+        assert_eq!(interpolate(tpl, &args_empty), "Hello ");
     }
 
     mod compatibility_interpolation_tests {
@@ -850,9 +847,10 @@ mod tests {
                 .insert("name".to_string(), "ereinaimer".to_string());
             args.positional.push("taurine".to_string());
 
+            // The positional argument "taurine" should NOT map to [repo]
             assert_eq!(
-                interpolate("[name] / [repo]", &args),
-                "ereinaimer / taurine"
+                interpolate("[name=] / [repo=default]", &args),
+                "ereinaimer / default"
             );
         }
 
@@ -862,9 +860,10 @@ mod tests {
             args.positional.push(String::new());
 
             assert_eq!(interpolate("numeric=[0=fallback]", &args), "numeric=");
+            // [value] does not consume the empty positional, so it falls back to its default
             assert_eq!(
                 interpolate("sequential=[value=fallback]", &args),
-                "sequential="
+                "sequential=fallback"
             );
         }
 
@@ -883,10 +882,10 @@ mod tests {
             args.positional.push("banana".to_string());
 
             assert_eq!(
-                interpolate("nested=[[0] | url.encode]", &args),
+                interpolate("nested=[[0=] | url.encode]", &args),
                 "nested=[banana | url.encode]"
             );
-            assert_eq!(interpolate("flat=[0 | url.encode]", &args), "flat=banana");
+            assert_eq!(interpolate("flat=[0= | url.encode]", &args), "flat=banana");
         }
 
         #[test]

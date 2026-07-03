@@ -5,12 +5,19 @@ description: Use simple placeholders to drop values directly into your text.
 
 Dynamic variables are the secret sauce that makes your Taurine snippets truly flexible. Instead of static text, they allow you to create templates that react to the context of your input—turning simple macros into powerful automation tools.
 
-The core of the system is the square bracket syntax: `[variable_name]`. 
+The core syntax uses square brackets with a mandatory `=` to define the variable and its fallback value: `[variable_name=default]`.
+
+If you omit the `=`, Taurine will treat the bracket contents as literal text and leave it unchanged.
 
 ### Escaping Brackets
-If you want to use literal square brackets without treating the inner text as a variable, escape them with a backslash: `\[name\]`. 
+If you need a literal square bracket in your output that is **not** a variable at all, prefix it with a backslash: `\[` outputs `[`, and `\]` outputs `]`.
 
 This is useful when writing code snippets or documentation where you want the brackets to remain visible in the expanded text instead of being replaced.
+
+```text
+Result: \[0\] + 1 = [value=1]
+→ Result: [0] + 1 = 1
+```
 
 When Taurine encounters a bracketed word, it converts it into an **input mapping**. Anything you type after the colon (`:`) in your trigger is captured and injected directly into that placeholder at the moment of expansion.
 
@@ -18,7 +25,7 @@ When Taurine encounters a bracketed word, it converts it into an **input mapping
 If your snippet has a single variable, Taurine maps the entirety of your terminal argument to that specific placeholder.
 
 <Transformation
-  template="Hello, [name]!"
+  template="Hello, [name=stranger]!"
   input=">hello:Erein"
   result="Hello, Erein!"
 />
@@ -27,7 +34,7 @@ If your snippet has a single variable, Taurine maps the entirety of your termina
 You aren't limited to just one variable. You can scatter placeholders throughout your text to build sophisticated templates.
 
 <Transformation
-  template="GRANT ACCESS TO [user] ON [environment]"
+  template="GRANT ACCESS TO [user=guest] ON [environment=sandbox]"
   input=">access:admin:staging"
   result="GRANT ACCESS TO admin ON staging"
 />
@@ -49,7 +56,7 @@ Dynamic variables are perfect for structural templates that you use every day—
     </Callout>
     
     ```text trigger=">reply:Erein:the redesign project "
-    Hi [name], thanks for the update! I'll take a look at [subject] today and get back to you.
+    Hi [name=there], thanks for the update! I'll take a look at [subject="your email"] today and get back to you.
     ```
   </Accordion>
   <Accordion title="Show Developer Examples">
@@ -59,7 +66,7 @@ Dynamic variables are perfect for structural templates that you use every day—
     **Trigger:** `>gh:ereinaimer:taurine`
     
     ```text trigger=">gh:ereinaimer:taurine "
-    https://github.com/[org]/[repo]
+    https://github.com/[org=github]/[repo=home]
     ```
   </Accordion>
 </Accordions>

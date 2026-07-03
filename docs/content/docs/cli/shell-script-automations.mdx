@@ -31,7 +31,7 @@ taurine add script url 'start https://[url=google.com]' --lang powershell --os w
 Trigger complex system actions with a keyboard shortcut.
 
 ```bash
-taurine add script --hotkey "ctrl+shift+w" winget-install -l powershell "winget install [0]"
+taurine add script --hotkey "ctrl+shift+w" winget-install -l powershell "winget install [0=]"
 ```
 
 You can also use **side-specific modifiers** to distinguish between left and right keys:
@@ -45,7 +45,7 @@ taurine add script --hotkey "lalt+m" "Start-Process https://mail.google.com" -l 
 ```
 
 <Callout title="No Arguments for Hotkeys" type="warn">
-  Hotkey triggers do **not** support typed positional arguments. Variables like `[0]` will use their default values or remain empty when triggered via hotkey.
+  Hotkey triggers do **not** support typed positional arguments. Variables like `[0=]` will use their default values or remain empty when triggered via hotkey.
 </Callout>
 
 ### Script Files
@@ -98,7 +98,7 @@ The true power of scripting comes from combining it with [Dynamic Variables](/do
 
 ### The "Interpolation First" Rule
 
-Before your script is passed to the system interpreter (like PowerShell or Bash), Taurine runs its expansion engine over the entire script body. This means any variable like `[var]` or `[sys.user]` is replaced with its actual value **before** the script starts executing.
+Before your script is passed to the system interpreter (like PowerShell or Bash), Taurine runs its expansion engine over the entire script body. This means any dynamic variable like `[var=]` or system variable like `[sys.user]` is replaced with its actual value **before** the script starts executing.
 
 This allows you to pass user input or system metadata directly into your script logic without writing complex argument-parsing code.
 
@@ -141,7 +141,7 @@ taurine add script hi -f ./hi.ps1 --lang powershell
     **Transformation in Script**
     You can even chain transformers within your script body.
     ```bash
-    taurine add script shout "echo '[0 | upper]!!!'" --lang bash
+    taurine add script shout "echo '[0= | upper]!!!'" --lang bash
     ```
   </Tab>
 </Tabs>

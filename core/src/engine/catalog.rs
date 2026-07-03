@@ -399,7 +399,7 @@ mod tests {
         let memory = Arc::new(MemorySource::new());
         let catalog = ExpansionCatalog::with_source(memory.clone());
 
-        let script = "explorer [0]";
+        let script = "explorer [0=]";
         let compressed = compress(script).unwrap();
 
         let action = AutomationAction {
@@ -426,7 +426,7 @@ mod tests {
         let memory = Arc::new(MemorySource::new());
         let catalog = ExpansionCatalog::with_source(memory.clone());
 
-        let script = "curl https://[env].example.com";
+        let script = "curl https://[env=].example.com";
         let compressed = compress(script).unwrap();
 
         let action = AutomationAction {

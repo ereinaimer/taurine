@@ -8,31 +8,31 @@ description: Group positional and named inputs effectively.
 Use numbered placeholders `[0]`, `[1]`, etc., to reference arguments strictly by the order you type them. This allows you to reorder inputs in your final output.
 
 <Transformation
-  template="https://github.com/[1]/[0]"
+  template="https://github.com/[1=]/[0=]"
   input=">gh:taurine:ereinaimer"
   result="https://github.com/ereinaimer/taurine"
 />
 
-By using `[1]` before `[0]`, Taurine swapped the order of the organization and the repository name. You have complete control over where each input goes, regardless of the order you typed them.
+By using `[1=]` before `[0=]`, Taurine swapped the order of the organization and the repository name. You have complete control over where each input goes, regardless of the order you typed them.
 
 ## Named Arguments
 
 Explicitly assign a value to a label using the `key=value` format when typing your trigger. This is useful when you want to ignore the order of arguments entirely.
 
 <Transformation
-  template="Repo: [repo] by [name]"
+  template="Repo: [repo=] by [name=]"
   input=">gh:name=ereinaimer:repo=taurine"
   result="Repo: taurine by ereinaimer"
 />
 
-Named arguments override their position. Even though `name` was typed first, it correctly filled the `[name]` placeholder at the end of the template.
+Named arguments override their position. Even though `name` was typed first, it correctly filled the `[name=]` placeholder at the end of the template.
 
 ## Quoted Arguments
 
 Quotes allow arguments to contain spaces or colons without breaking the trigger parsing. Taurine supports both double quotes (`"`) and single quotes (`'`), which allows you to nest quotes or include apostrophes easily.
 
 <Transformation
-  template="Quote: [0]"
+  template="Quote: [0=]"
   cases={[
     { input: ">quote:'\"One small step for man\"'", result: 'Quote: "One small step for man"' },
     { input: ">quote:\"How're you?\"", result: "Quote: How're you?" },
@@ -41,17 +41,17 @@ Quotes allow arguments to contain spaces or colons without breaking the trigger 
 
 By wrapping the text in quotes, you can preserve complex strings, including those that contain other quote characters or punctuation, as a single argument.
 
-## Sequential Positional Fallback
+## Strict Mapping & Non-Greedy Fallbacks
 
-If a placeholder is not numbered and does not match a named argument, Taurine will fill it from the next available positional value.
+If a placeholder is not numbered and does not match a named argument, Taurine will **not** consume positional values sequentially. Instead, it strictly respects the variable mapping, leaving the placeholder to use its default value.
 
 <Transformation
-  template="Player 1: [p1], Player 2: [p2]"
-  input=">match:Mario:Luigi"
-  result="Player 1: Mario, Player 2: Luigi"
+  template="Repo: [repo=\"taurine\"] / User: [0=\"erein\"]"
+  input=">gh:aimer"
+  result="Repo: taurine / User: aimer"
 />
 
-Taurine automatically maps `Mario` to the first unassigned placeholder (`p1`) and `Luigi` to the second (`p2`). This keeps your templates readable without needing to manage index numbers manually.
+Taurine maps `aimer` to `[0="erein"]`, leaving `[repo="taurine"]` to safely fall back to its default value.
 
 ## Real-World Examples
 Mastering arguments allows you to build templates that are both structured and highly reusable.
@@ -64,7 +64,7 @@ Mastering arguments allows you to build templates that are both structured and h
     **Trigger:** `>meet:2pm:the lobby`
     
     ```text trigger=">meet:2pm:the lobby "
-    Let's meet at [0] in [1]. See you then!
+    Let's meet at [0="time"] in [1="place"]. See you then!
     ```
   </Accordion>
   <Accordion title="Show Developer Examples">
@@ -74,11 +74,11 @@ Mastering arguments allows you to build templates that are both structured and h
     **Trigger:** `>gh:ereinaimer:taurine`
     
     ```text trigger=">gh:ereinaimer:taurine "
-    https://github.com/[0]/[1]
+    https://github.com/[0=org]/[1=repo]
     ```
   </Accordion>
 </Accordions>
 
 <Callout type="info" title="Take Note!">
-  Position indexing starts at **0**. If you have three arguments, they will be mapped to `[0]`, `[1]`, and `[2]` in the order they appear in your trigger.
+  Position indexing starts at **0**. If you have three arguments, they will be mapped to `[0=]`, `[1=]`, and `[2=]` in the order they appear in your trigger.
 </Callout>
