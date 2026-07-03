@@ -350,7 +350,7 @@ Taurine includes a wide range of **built-in system variables** that inject data 
 
 Some of the most useful system variables include:
 
-*   **Date/Time**: `[date.iso]`, `[time.now]`, `[date.tomorrow]`
+*   **Date/Time**: `[date]`, `[time]`, `[date.calc(+1d)]`
 *   **Clipboard**: `[clip]` (inserts your current clipboard text)
 *   **Network**: `[net.ip]`, `[net.lip]`, `[net.online]`
 *   **Random**: `[random.pass]`, `[uuid.v4]`, `[lorem.sentence]`
@@ -360,7 +360,7 @@ For the full list of available namespaces and variables, refer to the [System Va
 
 **Timestamping:**
 ```bash
-taurine add timestamp "Created on: [date.long] at [time.now]"
+taurine add timestamp "Created on: [date.format('MMMM D, YYYY')] at [time]"
 ```
 
 **Generating test data:**

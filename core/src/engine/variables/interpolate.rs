@@ -1002,7 +1002,7 @@ mod tests {
         #[test]
         fn test_aisummary_manual_case() {
             let args = ArgMap::default();
-            let tpl = "### SUMMARY OF COPIED TEXT ([date.short]):[key(enter)][clip | ai(summarize this in 3 concise bullet points) | trim]";
+            let tpl = "### SUMMARY OF COPIED TEXT ([date]):[key(enter)][clip | ai(summarize this in 3 concise bullet points) | trim]";
             system::clip::set_mock_clip(Some("Long article text".to_string()));
             let result = interpolate(tpl, &args);
             // date.short will be the actual date, so we just check the AI marker structure

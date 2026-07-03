@@ -27,26 +27,19 @@ The following roots are reserved by the Taurine engine and cannot be used as cus
 
 ## Time & Date
 
-Modifiers for inserting timestamps and relative dates.
+Method-based API for inserting and calculating timestamps and dates.
 
 <Accordions>
 <Accordion title="time">
-  - `greeting`: Inserts "Good morning", "Good afternoon", or "Good evening".
-  - `unix` / `epoch`: Current Unix timestamp in seconds.
-  - `utc`: Current time in UTC (HH:mm). For seconds, use `utc.full`.
-  - `tz`: Current local timezone offset (e.g., `+05:30`).
-  - `now`: Current time (HH:mm).
-  - `full`: Current time with seconds (HH:mm:ss).
+  - `utc`: Switches the time context to UTC.
+  - `calc(±...<units>)`: Performs time calculations using `h` (hours), `m` (minutes), or `s`/`S` (seconds).
+  - `format(<pattern>)`: Formats the output using standard LDML tokens.
 </Accordion>
 
 <Accordion title="date">
-  - `iso`: YYYY-MM-DD format.
-  - `short`: MM/DD/YYYY.
-  - `long`: Month name, Day, Year.
-  - `tomorrow` / `yesterday`: Following/Previous day's date (**Default: ISO**).
-  - `tomorrow.short` / `tomorrow.long`: Relative dates with specific formatting.
-  - `weekday`: Full name of the current day.
-  - `year` / `month` / `day`: Numeric components of the current date.
+  - `utc`: Switches the date context to UTC.
+  - `calc(±...<units>)`: Performs date calculations using `d` (days), `w` (weeks), `m`/`M` (months), or `y`/`Y` (years).
+  - `format(<pattern>)`: Formats the output using standard LDML tokens.
 </Accordion>
 </Accordions>
 

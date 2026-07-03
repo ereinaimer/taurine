@@ -1,0 +1,75 @@
+---
+title: Rules & Limits
+description: Complete guide to Taurine's syntax rules, safety limits, and execution boundaries.
+icon: ShieldAlert
+---
+
+Taurine is designed to give you maximum power and flexibility over your automation workflows. However, to protect your system from catastrophic resource exhaustion (like stack overflows), prevent accidental API bill spikes, and guarantee consistent expansions, Taurine enforces a set of syntax rules and safety limits.
+
+---
+
+## 1. Syntax Rules
+
+### Dynamic (User-Defined) Variables
+* **Mandatory Defaults**: Every dynamic variable must define a fallback using the `=` operator (e.g., `[name=stranger]`).
+* **Non-Empty Fallbacks**: Empty default assignments (e.g., `[name=]`) are deprecated and strictly prohibited. They will be rejected at save-time.
+* **Escaping Complex Defaults**: Default values containing spaces, commas, or closing brackets must be wrapped in single or double quotes (e.g., `[message="No content provided"]`).
+* **Positional vs. Named**: Positional arguments must use zero-based integers (e.g., `[0=default]`, `[1=default]`). Named arguments map key-value pairs (e.g., `[repo=taurine]`).
+
+### System Variables & Directives
+* **No Default Assignments**: System variables cannot have default assignments. Trying to assign a default to a system variable (e.g., `[cursor=here]`) triggers a validation error.
+* **Reserved Dot-Namespaces**: User-defined variable names containing dots (`.`) are prohibited; dot-namespaces are reserved strictly for system variables (e.g., `[date.utc]`).
+
+### Escaping Literals
+* **Brackets**: If literal square brackets are needed in the output, they must be escaped: `\[` and `\]`.
+* **Pipes**: The pipe character `|` used for transformer chaining can be escaped inside templates using `\|` to preserve a literal pipe.
+
+---
+
+## 2. Validation Limits (Save-Time)
+
+These boundaries are checked **when you save or update a snippet**, giving you instant feedback before runtime.
+
+### Nested Snippet Recursion Limit
+You can compose snippets by nesting them using the `[use("trigger")]` system variable. 
+* **Max Depth**: 5 nested levels.
+* **Violation**: Prevents saving with a `Nested snippet depth exceeds the maximum limit of 5` error.
+
+### AI Transformer Limits
+The `| ai(...)` transformer makes live requests to external LLMs.
+* **Max AI Calls**: 3 total calls per fully-expanded snippet sequence.
+* **Violation**: Prevents saving with a `Total expanded AI calls exceeds the limit of 3` error.
+
+### Multiple Cursors
+* **Max Cursors**: Exactly 1 `[cursor]` directive is allowed per sequence to specify the final caret position.
+* **Violation**: Prevents saving with a `Multiple [cursor] tags found` error.
+
+### Directives Conflict
+* **Rule**: The `[cursor]` directive cannot coexist with key automation (`[key.*]`), delay (`[delay.*]`), or mouse (`[mouse.*]`) directives.
+* **Violation**: Prevents saving with a `The [cursor] directive cannot be used alongside [key.*], [delay.*], or [mouse.*] directives` error.
+
+---
+
+## 3. Execution Limits (Runtime)
+
+These boundaries are enforced during template expansion at runtime.
+
+### Clipboard Capacity
+* **Max Payload**: 1MB.
+* **Behavior**: Clipboard items exceeding 1MB, containing binary data (e.g., images), or consisting entirely of whitespace are ignored.
+
+### File Read Size Limit
+* **Max Size**: 5MB.
+* **Behavior**: Natively reading files via `[file.read(path)]` or `[file.read_line(...)]` is capped at 5MB to prevent daemon memory exhaustion.
+
+### Exec Command Timeout
+* **Max Timeout**: 20 seconds.
+* **Behavior**: Shell process executions via `[exec.*]` are terminated after 20 seconds.
+
+### HTTP Request Timeout
+* **Max Timeout**: 5 seconds.
+* **Behavior**: Web requests via `[http.*]` timeout after 5 seconds.
+
+### Interpolation Boundaries
+* **Interpolation Depth**: Enforces a max depth of 32 levels (`MAX_INTERPOLATION_DEPTH`) during recursive placeholder resolution.
+* **Interpolation Iterations**: The inner tag parser loop runs up to 128 times (`MAX_ITERATIONS`) to prevent stack-overflows from cyclic anomalies.

@@ -1,7 +1,7 @@
 //! System variables module.
 //!
 //! Centralizes logic for reserved keywords and system-wide markers like `[cursor]`,
-//! and future variables like `[time.now]`.
+//! and future variables like `[time]`.
 
 pub mod clip;
 
