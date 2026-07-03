@@ -75,7 +75,7 @@ pub(crate) fn parse_methods(mut key: &str) -> Result<Vec<Method<'_>>, String> {
 }
 
 fn apply_time_calc(mut dt: OffsetDateTime, args: &str) -> Result<OffsetDateTime, String> {
-    let args = args.trim();
+    let args = crate::engine::variables::system::strip_quotes(args.trim()).unwrap_or(args.trim());
     if args.is_empty() {
         return Err("[Error: calc requires arguments]".to_string());
     }
@@ -270,7 +270,8 @@ pub fn resolve(key: &str) -> Option<String> {
                 };
             }
             Method::Format(args) => {
-                format_str = args;
+                format_str = crate::engine::variables::system::strip_quotes(args.trim())
+                    .unwrap_or(args.trim());
             }
         }
     }
@@ -289,7 +290,15 @@ mod tests {
 
         let res = resolve("time.calc(+1h)");
         assert!(res.is_some());
-        assert!(!res.unwrap().contains("[Error"));
+        assert!(!res.as_ref().unwrap().contains("[Error"));
+
+        let res_double = resolve("time.calc(\"+1h\")");
+        assert!(res_double.is_some());
+        assert!(!res_double.as_ref().unwrap().contains("[Error"));
+
+        let res_single = resolve("time.calc('+1h')");
+        assert!(res_single.is_some());
+        assert!(!res_single.as_ref().unwrap().contains("[Error"));
 
         let err_no_sign = resolve("time.calc(1h)").unwrap();
         assert_eq!(err_no_sign, "[Error: calc requires explicit + or - sign]");

@@ -415,6 +415,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_interpolate_quoted_system_arguments() {
+        let args = ArgMap::default();
+        let tpl =
+            "Raw: [time.calc(+2h)] | Double: [time.calc(\"+2h\")] | Single: [time.calc('+2h')]";
+        let res = interpolate(tpl, &args);
+        assert!(!res.contains("[Error"));
+        assert!(res.contains("Raw: "));
+    }
+
+    #[test]
     fn test_extract_placeholders() {
         let text = "https://github.com/[username=ereinaimer]/[repo=]";
         let p = extract_placeholders(text);
