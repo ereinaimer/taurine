@@ -423,6 +423,27 @@ pub fn upsert_script(
     Ok(())
 }
 
+fn count_directives_in_template(payload: &str) -> (usize, bool) {
+    let mut cursor_count = 0;
+    let mut has_key_or_delay = false;
+    let mut ptr = 0;
+    while let Some(tag) = find_next_tag(payload, ptr) {
+        let inner = trim_slice(&payload[tag.start + 1..tag.end]);
+        let (key, _) = split_key_default(inner);
+        if key == "cursor" {
+            cursor_count += 1;
+        } else if key.starts_with("key(")
+            || key.starts_with("delay(")
+            || key.starts_with("mouse.")
+            || key.starts_with("mouse(")
+        {
+            has_key_or_delay = true;
+        }
+        ptr = tag.end + 1;
+    }
+    (cursor_count, has_key_or_delay)
+}
+
 fn count_ai_calls_in_template(payload: &str) -> usize {
     let mut count = 0;
     let mut ptr = 0;
@@ -459,6 +480,7 @@ fn get_referenced_triggers(payload: &str) -> Vec<String> {
     refs
 }
 
+#[allow(clippy::too_many_arguments)]
 fn check_limits_recursive(
     catalog: &std::collections::HashMap<String, String>,
     trigger: &str,
@@ -466,6 +488,8 @@ fn check_limits_recursive(
     depth: usize,
     max_depth: &mut usize,
     ai_count: &mut usize,
+    cursor_count: &mut usize,
+    has_key_or_delay: &mut bool,
 ) -> Result<()> {
     if visited.contains(trigger) {
         return Err(crate::Error::Config(format!(
@@ -493,9 +517,34 @@ fn check_limits_recursive(
             )));
         }
 
+        let (c_count, has_kd) = count_directives_in_template(template);
+        *cursor_count += c_count;
+        *has_key_or_delay = *has_key_or_delay || has_kd;
+
+        if *cursor_count > 1 {
+            return Err(crate::Error::Config(
+                "Multiple [cursor] tags found in expanded snippet sequence. Only one [cursor] is allowed.".to_string()
+            ));
+        }
+
+        if *cursor_count > 0 && *has_key_or_delay {
+            return Err(crate::Error::Config(
+                "The [cursor] directive cannot be used alongside [key.*], [delay.*], or [mouse.*] directives in the same expanded snippet sequence.".to_string()
+            ));
+        }
+
         let refs = get_referenced_triggers(template);
         for r in refs {
-            check_limits_recursive(catalog, &r, visited, depth + 1, max_depth, ai_count)?;
+            check_limits_recursive(
+                catalog,
+                &r,
+                visited,
+                depth + 1,
+                max_depth,
+                ai_count,
+                cursor_count,
+                has_key_or_delay,
+            )?;
         }
     }
 
@@ -529,6 +578,7 @@ pub fn validate_automation_limits(
         let mut visited = std::collections::HashSet::new();
         let mut max_depth = 0;
         let mut ai_count = count_ai_calls_in_template(template);
+        let (mut cursor_count, mut has_key_or_delay) = count_directives_in_template(template);
 
         if ai_count > 3 {
             return Err(crate::Error::Config(format!(
@@ -537,10 +587,31 @@ pub fn validate_automation_limits(
             )));
         }
 
+        if cursor_count > 1 {
+            return Err(crate::Error::Config(
+                "Multiple [cursor] tags found. Only one [cursor] is allowed.".to_string(),
+            ));
+        }
+
+        if cursor_count > 0 && has_key_or_delay {
+            return Err(crate::Error::Config(
+                "The [cursor] directive cannot be used alongside [key.*], [delay.*], or [mouse.*] directives.".to_string()
+            ));
+        }
+
         visited.insert(trigger.clone());
         let refs = get_referenced_triggers(template);
         for r in refs {
-            check_limits_recursive(&catalog, &r, &mut visited, 1, &mut max_depth, &mut ai_count)?;
+            check_limits_recursive(
+                &catalog,
+                &r,
+                &mut visited,
+                1,
+                &mut max_depth,
+                &mut ai_count,
+                &mut cursor_count,
+                &mut has_key_or_delay,
+            )?;
         }
     }
 
@@ -1063,6 +1134,8 @@ mod tests {
         let mut visited = std::collections::HashSet::new();
         let mut max_depth = 0;
         let mut ai_count = 0;
+        let mut cursor_count = 0;
+        let mut has_key_or_delay = false;
 
         let result = check_limits_recursive(
             &catalog,
@@ -1071,6 +1144,8 @@ mod tests {
             1,
             &mut max_depth,
             &mut ai_count,
+            &mut cursor_count,
+            &mut has_key_or_delay,
         );
         assert!(result.is_err());
         assert!(
@@ -1094,6 +1169,8 @@ mod tests {
         let mut visited = std::collections::HashSet::new();
         let mut max_depth = 0;
         let mut ai_count = 0;
+        let mut cursor_count = 0;
+        let mut has_key_or_delay = false;
 
         let result = check_limits_recursive(
             &catalog,
@@ -1102,6 +1179,8 @@ mod tests {
             1,
             &mut max_depth,
             &mut ai_count,
+            &mut cursor_count,
+            &mut has_key_or_delay,
         );
         assert!(result.is_err());
         assert!(
@@ -1122,6 +1201,8 @@ mod tests {
         let mut visited = std::collections::HashSet::new();
         let mut max_depth = 0;
         let mut ai_count = 0;
+        let mut cursor_count = 0;
+        let mut has_key_or_delay = false;
 
         let result = check_limits_recursive(
             &catalog,
@@ -1130,6 +1211,8 @@ mod tests {
             1,
             &mut max_depth,
             &mut ai_count,
+            &mut cursor_count,
+            &mut has_key_or_delay,
         );
         assert!(result.is_err());
         assert!(
