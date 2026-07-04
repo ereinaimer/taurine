@@ -73,6 +73,10 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
         "ai_delimiter_mode",
         &format!("{:?}", settings.ai_delimiter_mode).to_lowercase(),
     ]);
+    table.add_row(vec![
+        "ai_symmetric_delimiter",
+        &settings.ai_symmetric_delimiter,
+    ]);
     table.add_row(vec!["ai_open_delimiter", &settings.ai_open_delimiter]);
     table.add_row(vec!["ai_close_delimiter", &settings.ai_close_delimiter]);
     table.add_row(vec![
@@ -365,6 +369,13 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
                 defaults.ai_delimiter_mode
             );
         }
+        "ai_symmetric_delimiter" => {
+            manager.update_setting(actual_key, defaults.ai_symmetric_delimiter.clone())?;
+            info!(
+                "Reset ai_symmetric_delimiter to default: {}",
+                defaults.ai_symmetric_delimiter
+            );
+        }
         "ai_open_delimiter" => {
             manager.update_setting(actual_key, defaults.ai_open_delimiter.clone())?;
             info!(
@@ -427,6 +438,10 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
     manager.update_setting("ai_model", defaults.ai_model.clone())?;
     manager.update_setting("ai_custom_endpoint", defaults.ai_custom_endpoint.clone())?;
     manager.update_setting("ai_delimiter_mode", defaults.ai_delimiter_mode)?;
+    manager.update_setting(
+        "ai_symmetric_delimiter",
+        defaults.ai_symmetric_delimiter.clone(),
+    )?;
     manager.update_setting("ai_open_delimiter", defaults.ai_open_delimiter.clone())?;
     manager.update_setting("ai_close_delimiter", defaults.ai_close_delimiter.clone())?;
     manager.update_setting(

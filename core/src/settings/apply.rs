@@ -60,6 +60,7 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
             super::AiDelimiterMode::Symmetric => "symmetric".to_string(),
             super::AiDelimiterMode::Asymmetric => "asymmetric".to_string(),
         })),
+        "ai_symmetric_delimiter" => Ok(Some(defaults.ai_symmetric_delimiter)),
         "ai_open_delimiter" => Ok(Some(defaults.ai_open_delimiter)),
         "ai_close_delimiter" => Ok(Some(defaults.ai_close_delimiter)),
         "clipboard_restore_delay_ms" => Ok(Some(defaults.clipboard_restore_delay_ms.to_string())),
@@ -156,7 +157,7 @@ pub fn apply_setting_input_with_manager(
             )?;
             ApplySettingOutcome::default()
         }
-        "ai_open_delimiter" | "ai_close_delimiter" => {
+        "ai_open_delimiter" | "ai_close_delimiter" | "ai_symmetric_delimiter" => {
             let parsed = require_non_empty(value, actual_key)?;
             manager.update_setting(actual_key, parsed.to_string())?;
             ApplySettingOutcome::default()

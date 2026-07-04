@@ -129,6 +129,8 @@ impl DaemonControl for DaemonService {
 
         // Update AI delimiters
         self.state.set_ai_delimiter_mode(settings.ai_delimiter_mode);
+        self.state
+            .set_ai_symmetric_delimiter(settings.ai_symmetric_delimiter);
         self.state.set_ai_open_delimiter(settings.ai_open_delimiter);
         self.state
             .set_ai_close_delimiter(settings.ai_close_delimiter);

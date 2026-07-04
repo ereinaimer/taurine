@@ -38,6 +38,7 @@ impl UndoState {
 pub struct EngineState {
     pub trigger_char: AtomicU32,
     ai_delimiter_mode: RwLock<crate::settings::AiDelimiterMode>,
+    ai_symmetric_delimiter: RwLock<String>,
     ai_open_delimiter: RwLock<String>,
     ai_close_delimiter: RwLock<String>,
     pub inline_tab_completion_enabled: AtomicBool,
@@ -59,6 +60,7 @@ impl EngineState {
         Self {
             trigger_char: AtomicU32::new(trigger_char as u32),
             ai_delimiter_mode: RwLock::new(crate::settings::AiDelimiterMode::default()),
+            ai_symmetric_delimiter: RwLock::new("^".to_string()),
             ai_open_delimiter: RwLock::new(">>".to_string()),
             ai_close_delimiter: RwLock::new("<<".to_string()),
             inline_tab_completion_enabled: AtomicBool::new(true),
@@ -81,6 +83,7 @@ impl EngineState {
         Self {
             trigger_char: AtomicU32::new(trigger_char as u32),
             ai_delimiter_mode: RwLock::new(crate::settings::AiDelimiterMode::default()),
+            ai_symmetric_delimiter: RwLock::new("^".to_string()),
             ai_open_delimiter: RwLock::new(">>".to_string()),
             ai_close_delimiter: RwLock::new("<<".to_string()),
             inline_tab_completion_enabled: AtomicBool::new(true),
@@ -223,6 +226,12 @@ impl EngineState {
         }
     }
 
+    pub fn set_ai_symmetric_delimiter(&self, delim: String) {
+        if let Ok(mut guard) = self.ai_symmetric_delimiter.write() {
+            *guard = delim;
+        }
+    }
+
     pub fn set_ai_close_delimiter(&self, close: String) {
         if let Ok(mut guard) = self.ai_close_delimiter.write() {
             *guard = close;
@@ -241,6 +250,13 @@ impl EngineState {
             .read()
             .map(|guard| guard.clone())
             .unwrap_or_else(|_| ">>".to_string())
+    }
+
+    pub fn get_ai_symmetric_delimiter(&self) -> String {
+        self.ai_symmetric_delimiter
+            .read()
+            .map(|guard| guard.clone())
+            .unwrap_or_else(|_| "^".to_string())
     }
 
     pub fn get_ai_close_delimiter(&self) -> String {
