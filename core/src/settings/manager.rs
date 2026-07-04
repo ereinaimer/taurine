@@ -96,16 +96,16 @@ impl<'a> SettingsManager<'a> {
             settings.ai_delimiter_mode = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_delimiter_open")
+        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_open_delimiter")
             && let Ok(v) = serde_json::from_str::<String>(&val)
         {
-            settings.ai_delimiter_open = v;
+            settings.ai_open_delimiter = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_delimiter_close")
+        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_close_delimiter")
             && let Ok(v) = serde_json::from_str::<String>(&val)
         {
-            settings.ai_delimiter_close = v;
+            settings.ai_close_delimiter = v;
         }
 
         if let Ok(Some(val)) = get_setting_value(self.conn, "clipboard_restore_delay_ms")

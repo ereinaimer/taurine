@@ -73,8 +73,8 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
         "ai_delimiter_mode",
         &format!("{:?}", settings.ai_delimiter_mode).to_lowercase(),
     ]);
-    table.add_row(vec!["ai_delimiter_open", &settings.ai_delimiter_open]);
-    table.add_row(vec!["ai_delimiter_close", &settings.ai_delimiter_close]);
+    table.add_row(vec!["ai_open_delimiter", &settings.ai_open_delimiter]);
+    table.add_row(vec!["ai_close_delimiter", &settings.ai_close_delimiter]);
     table.add_row(vec![
         "clipboard_restore_delay_ms",
         &settings.clipboard_restore_delay_ms.to_string(),
@@ -365,18 +365,18 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
                 defaults.ai_delimiter_mode
             );
         }
-        "ai_delimiter_open" => {
-            manager.update_setting(actual_key, defaults.ai_delimiter_open.clone())?;
+        "ai_open_delimiter" => {
+            manager.update_setting(actual_key, defaults.ai_open_delimiter.clone())?;
             info!(
-                "Reset ai_delimiter_open to default: {}",
-                defaults.ai_delimiter_open
+                "Reset ai_open_delimiter to default: {}",
+                defaults.ai_open_delimiter
             );
         }
-        "ai_delimiter_close" => {
-            manager.update_setting(actual_key, defaults.ai_delimiter_close.clone())?;
+        "ai_close_delimiter" => {
+            manager.update_setting(actual_key, defaults.ai_close_delimiter.clone())?;
             info!(
-                "Reset ai_delimiter_close to default: {}",
-                defaults.ai_delimiter_close
+                "Reset ai_close_delimiter to default: {}",
+                defaults.ai_close_delimiter
             );
         }
         "rpc_port" => {
@@ -427,8 +427,8 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
     manager.update_setting("ai_model", defaults.ai_model.clone())?;
     manager.update_setting("ai_custom_endpoint", defaults.ai_custom_endpoint.clone())?;
     manager.update_setting("ai_delimiter_mode", defaults.ai_delimiter_mode)?;
-    manager.update_setting("ai_delimiter_open", defaults.ai_delimiter_open.clone())?;
-    manager.update_setting("ai_delimiter_close", defaults.ai_delimiter_close.clone())?;
+    manager.update_setting("ai_open_delimiter", defaults.ai_open_delimiter.clone())?;
+    manager.update_setting("ai_close_delimiter", defaults.ai_close_delimiter.clone())?;
     manager.update_setting(
         "clipboard_restore_delay_ms",
         defaults.clipboard_restore_delay_ms,

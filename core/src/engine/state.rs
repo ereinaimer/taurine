@@ -38,8 +38,8 @@ impl UndoState {
 pub struct EngineState {
     pub trigger_char: AtomicU32,
     ai_delimiter_mode: RwLock<crate::settings::AiDelimiterMode>,
-    ai_delimiter_open: RwLock<String>,
-    ai_delimiter_close: RwLock<String>,
+    ai_open_delimiter: RwLock<String>,
+    ai_close_delimiter: RwLock<String>,
     pub inline_tab_completion_enabled: AtomicBool,
     pub inline_history_enabled: AtomicBool,
     pub triggerless_mode: AtomicBool,
@@ -59,8 +59,8 @@ impl EngineState {
         Self {
             trigger_char: AtomicU32::new(trigger_char as u32),
             ai_delimiter_mode: RwLock::new(crate::settings::AiDelimiterMode::default()),
-            ai_delimiter_open: RwLock::new(">>".to_string()),
-            ai_delimiter_close: RwLock::new("<<".to_string()),
+            ai_open_delimiter: RwLock::new(">>".to_string()),
+            ai_close_delimiter: RwLock::new("<<".to_string()),
             inline_tab_completion_enabled: AtomicBool::new(true),
             inline_history_enabled: AtomicBool::new(true),
             triggerless_mode: AtomicBool::new(false),
@@ -81,8 +81,8 @@ impl EngineState {
         Self {
             trigger_char: AtomicU32::new(trigger_char as u32),
             ai_delimiter_mode: RwLock::new(crate::settings::AiDelimiterMode::default()),
-            ai_delimiter_open: RwLock::new(">>".to_string()),
-            ai_delimiter_close: RwLock::new("<<".to_string()),
+            ai_open_delimiter: RwLock::new(">>".to_string()),
+            ai_close_delimiter: RwLock::new("<<".to_string()),
             inline_tab_completion_enabled: AtomicBool::new(true),
             inline_history_enabled: AtomicBool::new(true),
             triggerless_mode: AtomicBool::new(false),
@@ -217,14 +217,14 @@ impl EngineState {
         }
     }
 
-    pub fn set_ai_delimiter_open(&self, open: String) {
-        if let Ok(mut guard) = self.ai_delimiter_open.write() {
+    pub fn set_ai_open_delimiter(&self, open: String) {
+        if let Ok(mut guard) = self.ai_open_delimiter.write() {
             *guard = open;
         }
     }
 
-    pub fn set_ai_delimiter_close(&self, close: String) {
-        if let Ok(mut guard) = self.ai_delimiter_close.write() {
+    pub fn set_ai_close_delimiter(&self, close: String) {
+        if let Ok(mut guard) = self.ai_close_delimiter.write() {
             *guard = close;
         }
     }
@@ -236,15 +236,15 @@ impl EngineState {
             .unwrap_or_default()
     }
 
-    pub fn get_ai_delimiter_open(&self) -> String {
-        self.ai_delimiter_open
+    pub fn get_ai_open_delimiter(&self) -> String {
+        self.ai_open_delimiter
             .read()
             .map(|guard| guard.clone())
             .unwrap_or_else(|_| ">>".to_string())
     }
 
-    pub fn get_ai_delimiter_close(&self) -> String {
-        self.ai_delimiter_close
+    pub fn get_ai_close_delimiter(&self) -> String {
+        self.ai_close_delimiter
             .read()
             .map(|guard| guard.clone())
             .unwrap_or_else(|_| "<<".to_string())

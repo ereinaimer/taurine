@@ -43,8 +43,8 @@ taurine config reset --all
 | `ai_model` | - | The default model for the selected AI provider. |
 | `ai_custom_endpoint` | - | Custom OpenAI-compatible URL for the `custom` provider. |
 | `ai_delimiter_mode` | `Symmetric` | The behavior mode (`Symmetric` or `Asymmetric`) for inline AI delimiters. |
-| `ai_delimiter_open` | `>>` | The opening text boundary for inline AI prompts. |
-| `ai_delimiter_close` | `<<` | The closing text boundary for inline AI prompts. |
+| `ai_open_delimiter` | `>>` | The opening text boundary for inline AI prompts. |
+| `ai_close_delimiter` | `<<` | The closing text boundary for inline AI prompts. |
 | `inline_tab_completion_enabled` | `true` | Enables or disables inline `Tab` / `Shift+Tab` completion. |
 | `inline_history_enabled` | `true` | Enables or disables inline `Up Arrow` / `Down Arrow` trigger history. |
 
@@ -60,8 +60,8 @@ You can use these shorter aliases when running `taurine config set`:
 | `boot` | `start_on_boot` |
 | `spinner` | `spinner_style` |
 | `delimiter_mode` | `ai_delimiter_mode` |
-| `delimiter_open` | `ai_delimiter_open` |
-| `delimiter_close` | `ai_delimiter_close` |
+| `open_delimiter` | `ai_open_delimiter` |
+| `close_delimiter` | `ai_close_delimiter` |
 | `endpoint` | `ai_custom_endpoint` |
 | `custom_endpoint` | `ai_custom_endpoint` |
 | `inline_tab_completion` | `inline_tab_completion_enabled` |

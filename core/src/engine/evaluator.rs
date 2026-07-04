@@ -631,7 +631,7 @@ impl Evaluator {
                 self.buffer.push(c);
                 self.update_completion_after_char(c);
 
-                let open_delim = self.state.get_ai_delimiter_open();
+                let open_delim = self.state.get_ai_open_delimiter();
                 if self.buffer.buffer_string().ends_with(&open_delim) {
                     if self.completion.active {
                         self.completion.deactivate();
@@ -718,8 +718,8 @@ impl Evaluator {
     fn finish_inline_ai_capture_if_ready(&mut self) -> Option<ExpansionResult> {
         let mode = self.state.get_ai_delimiter_mode();
         let close_delim = match mode {
-            crate::settings::AiDelimiterMode::Symmetric => self.state.get_ai_delimiter_open(),
-            crate::settings::AiDelimiterMode::Asymmetric => self.state.get_ai_delimiter_close(),
+            crate::settings::AiDelimiterMode::Symmetric => self.state.get_ai_open_delimiter(),
+            crate::settings::AiDelimiterMode::Asymmetric => self.state.get_ai_close_delimiter(),
         };
 
         let captured = self.state.ai_prompt_buffer();
@@ -732,7 +732,7 @@ impl Evaluator {
             return None;
         }
 
-        let open_delim = self.state.get_ai_delimiter_open();
+        let open_delim = self.state.get_ai_open_delimiter();
         let delete_count = captured.chars().count() + open_delim.chars().count();
 
         let system_prompt_override = if let EngineMode::AiCapture {
@@ -2630,7 +2630,7 @@ mod tests {
     fn test_ai_capture_finish_with_symmetric_delimiters() {
         let state = Arc::new(EngineState::new('>'));
         state.set_ai_delimiter_mode(crate::settings::AiDelimiterMode::Symmetric);
-        state.set_ai_delimiter_open("^".to_string());
+        state.set_ai_open_delimiter("^".to_string());
         let mut eval = Evaluator::new(state.clone());
 
         let _ = eval.process_event(EngineEvent::Char('^'));
@@ -2695,8 +2695,8 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         *state.action_delimiter.write().unwrap() = crate::settings::ActionDelimiter::Space;
         state.set_ai_delimiter_mode(crate::settings::AiDelimiterMode::Asymmetric);
-        state.set_ai_delimiter_open("[[".to_string());
-        state.set_ai_delimiter_close("]]".to_string());
+        state.set_ai_open_delimiter("[[".to_string());
+        state.set_ai_close_delimiter("]]".to_string());
         let mut eval = Evaluator::new(state.clone());
 
         // 1. Enter capture
