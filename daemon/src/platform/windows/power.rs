@@ -10,9 +10,9 @@ use windows_sys::Win32::System::RemoteDesktop::{
     NOTIFY_FOR_THIS_SESSION, WTSRegisterSessionNotification, WTSUnRegisterSessionNotification,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, HWND_MESSAGE, MSG,
-    PBT_APMRESUMEAUTOMATIC, PBT_APMRESUMESUSPEND, PostQuitMessage, RegisterClassW,
-    TranslateMessage, WM_DESTROY, WM_POWERBROADCAST, WM_WTSSESSION_CHANGE, WNDCLASSW,
+    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, MSG, PBT_APMRESUMEAUTOMATIC,
+    PBT_APMRESUMESUSPEND, PostQuitMessage, RegisterClassW, TranslateMessage, WM_DESTROY,
+    WM_POWERBROADCAST, WM_WTSSESSION_CHANGE, WNDCLASSW,
 };
 
 use crate::hook::WindowsSupervisorEvent;
@@ -67,7 +67,7 @@ fn run_message_loop() {
             0,
             0,
             0,
-            HWND_MESSAGE,
+            std::ptr::null_mut(),
             std::ptr::null_mut(),
             instance,
             std::ptr::null(),
