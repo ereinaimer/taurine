@@ -29,6 +29,14 @@ pub enum ActionDelimiter {
     Enter,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AiDelimiterMode {
+    Symmetric,
+    #[default]
+    Asymmetric,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Settings {
     pub trigger_char: char,
@@ -43,7 +51,9 @@ pub struct Settings {
     pub ai_provider: Option<String>,
     pub ai_model: Option<String>,
     pub ai_custom_endpoint: Option<String>,
-    pub inline_ai_delimiter: char,
+    pub ai_delimiter_mode: AiDelimiterMode,
+    pub ai_delimiter_open: String,
+    pub ai_delimiter_close: String,
     pub clipboard_restore_delay_ms: u32,
     pub action_delimiter: ActionDelimiter,
     pub triggerless_mode: bool,
@@ -69,8 +79,9 @@ impl Settings {
             "spinner" => "spinner_style",
             "ai_provider" => "ai_provider",
             "ai_model" => "ai_model",
-            "inline_ai_delimiter" => "inline_ai_delimiter",
-            "delimiter" => "inline_ai_delimiter",
+            "ai_delimiter_mode" | "delimiter_mode" => "ai_delimiter_mode",
+            "ai_delimiter_open" | "delimiter_open" | "delimiter" => "ai_delimiter_open",
+            "ai_delimiter_close" | "delimiter_close" => "ai_delimiter_close",
             "endpoint" => "ai_custom_endpoint",
             "custom_endpoint" => "ai_custom_endpoint",
             "ai_custom_endpoint" => "ai_custom_endpoint",
@@ -160,7 +171,9 @@ impl Default for Settings {
             ai_provider: None,
             ai_model: None,
             ai_custom_endpoint: None,
-            inline_ai_delimiter: '`',
+            ai_delimiter_mode: AiDelimiterMode::default(),
+            ai_delimiter_open: ">>".to_string(),
+            ai_delimiter_close: "<<".to_string(),
             clipboard_restore_delay_ms: Self::default_clipboard_restore_delay_ms(),
             action_delimiter: ActionDelimiter::default(),
             triggerless_mode: true,

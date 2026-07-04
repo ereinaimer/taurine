@@ -90,11 +90,22 @@ impl<'a> SettingsManager<'a> {
             settings.ai_custom_endpoint = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "inline_ai_delimiter")
-            && let Ok(v) = serde_json::from_str::<String>(&val)
-            && let Some(c) = v.chars().next()
+        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_delimiter_mode")
+            && let Ok(v) = serde_json::from_str::<super::AiDelimiterMode>(&val)
         {
-            settings.inline_ai_delimiter = c;
+            settings.ai_delimiter_mode = v;
+        }
+
+        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_delimiter_open")
+            && let Ok(v) = serde_json::from_str::<String>(&val)
+        {
+            settings.ai_delimiter_open = v;
+        }
+
+        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_delimiter_close")
+            && let Ok(v) = serde_json::from_str::<String>(&val)
+        {
+            settings.ai_delimiter_close = v;
         }
 
         if let Ok(Some(val)) = get_setting_value(self.conn, "clipboard_restore_delay_ms")

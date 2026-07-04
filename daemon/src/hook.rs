@@ -1623,21 +1623,11 @@ mod tests {
         let state = Arc::new(taurine_core::engine::EngineState::new('>'));
         let mut evaluator = taurine_core::engine::Evaluator::new(state.clone());
 
-        for ch in ">ai".chars() {
-            assert_eq!(
-                evaluator.process_event(if ch == ' ' {
-                    taurine_core::engine::EngineEvent::ActionDelimiter
-                } else {
-                    taurine_core::engine::EngineEvent::Char(ch)
-                }),
-                None
-            );
-        }
-
+        let _ = evaluator.process_event(taurine_core::engine::EngineEvent::Char('>'));
         let expansion = evaluator
-            .process_event(taurine_core::engine::EngineEvent::ActionDelimiter)
-            .expect("inline ai capture should start");
-        assert_eq!(expansion.trigger, "ai");
+            .process_event(taurine_core::engine::EngineEvent::Char('>'))
+            .expect("inline ai capture should start on >>");
+        assert_eq!(expansion.trigger, ">>");
 
         let evaluator = Arc::new(Mutex::new(evaluator));
         assert!(

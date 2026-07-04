@@ -117,7 +117,7 @@ taurine config set inline_tab_completion false
 taurine config set inline_history false
 ```
 
-When disabled, the relevant keys (`Tab`, `Up`, `Down`) are passed through to the system normally. Disabling these assist features does not affect your ability to expand word triggers using `Space` or use the `>ai` copilot.
+When disabled, the relevant keys (`Tab`, `Up`, `Down`) are passed through to the system normally. Disabling these assist features does not affect your ability to expand word triggers using `Space` or use the inline AI copilot.
 
 ## Viewing Your Automations
 
@@ -137,6 +137,3 @@ taurine rm brb gm sig
 taurine delete obsolete_trigger
 ```
 
-<Callout title="Reserved Triggers" type="warn">
-  The trigger `ai` is reserved for the **Inline AI Copilot**. Taurine will prevent you from creating custom automations that conflict with this system trigger.
-</Callout>

@@ -7,9 +7,6 @@ use crate::metrics::AutomationMetricKind;
 use crate::engine::buffer::FastBuffer;
 use crate::engine::state::{EngineMode, EngineState};
 
-const INLINE_AI_KEYWORD: &str = "ai";
-const INLINE_AI_KEYWORD_PREFIX: &str = "ai:";
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EngineEvent {
     Char(char),
@@ -141,9 +138,9 @@ impl Evaluator {
             .map(|s| *s)
             .unwrap_or_default();
         match style {
-            crate::settings::SpinnerStyle::Braille => "⠋ Thinking...".to_string(),
-            crate::settings::SpinnerStyle::Arc => "◜ Thinking...".to_string(),
-            crate::settings::SpinnerStyle::Classic => "| Thinking...".to_string(),
+            crate::settings::SpinnerStyle::Braille => "⠋".to_string(),
+            crate::settings::SpinnerStyle::Arc => "◜".to_string(),
+            crate::settings::SpinnerStyle::Classic => "|".to_string(),
         }
     }
 
@@ -500,55 +497,41 @@ impl Evaluator {
     fn process_delimiter_event(&mut self) -> Option<ExpansionResult> {
         let trigger_char = self.trigger_prefix();
 
-        if let Some(keyword) = self.buffer.extract_trigger_word(trigger_char) {
-            if keyword == INLINE_AI_KEYWORD {
-                return Some(self.start_inline_ai_capture(&keyword, None));
-            }
+        if let Some(keyword) = self.buffer.extract_trigger_word(trigger_char)
+            && let Some(expansion) = self.state.fetch_expansion(&keyword)
+        {
+            let delete_count = 1 + keyword.chars().count();
+            let metric_kind = metric_kind_for_steps(expansion.is_calculation, &expansion.steps);
+            self.buffer.clear();
 
-            if let Some(preset_name) = keyword.strip_prefix("ai.")
-                && let Some(prompt_override) = self.state.get_ai_preset(preset_name)
-            {
-                return Some(self.start_inline_ai_capture(&keyword, Some(prompt_override)));
-            }
-
-            if let Some(prompt) = parse_inline_ai_prompt(&keyword) {
-                return Some(self.expand_inline_ai_prompt(&keyword, prompt));
-            }
-
-            if let Some(expansion) = self.state.fetch_expansion(&keyword) {
-                let delete_count = 1 + keyword.chars().count();
-                let metric_kind = metric_kind_for_steps(expansion.is_calculation, &expansion.steps);
-                self.buffer.clear();
-
-                if let Some(template) = expansion.ai_transformer_template {
-                    let initial_text = self.get_initial_spinner_text(&template);
-                    // Template has | ai(...) or async system markers — trigger async pre-resolution before injecting.
-                    return Some(ExpansionResult {
-                        delete_count,
-                        steps: vec![ExpansionStep::Text(initial_text)],
-                        trigger: keyword,
-                        undo_trigger: None,
-                        is_calculation: false,
-                        metric_kind: AutomationMetricKind::InlineAi,
-                        track_usage: true,
-                        follow_up: Some(ExpansionFollowUp::AiTransformer {
-                            template_with_markers: template,
-                        }),
-                    });
-                }
-
-                let undo_trigger = self.undo_trigger_for_steps(&keyword, &expansion.steps);
+            if let Some(template) = expansion.ai_transformer_template {
+                let initial_text = self.get_initial_spinner_text(&template);
+                // Template has | ai(...) or async system markers — trigger async pre-resolution before injecting.
                 return Some(ExpansionResult {
                     delete_count,
-                    steps: expansion.steps,
+                    steps: vec![ExpansionStep::Text(initial_text)],
                     trigger: keyword,
-                    undo_trigger,
-                    is_calculation: expansion.is_calculation,
-                    metric_kind,
+                    undo_trigger: None,
+                    is_calculation: false,
+                    metric_kind: AutomationMetricKind::InlineAi,
                     track_usage: true,
-                    follow_up: None,
+                    follow_up: Some(ExpansionFollowUp::AiTransformer {
+                        template_with_markers: template,
+                    }),
                 });
             }
+
+            let undo_trigger = self.undo_trigger_for_steps(&keyword, &expansion.steps);
+            return Some(ExpansionResult {
+                delete_count,
+                steps: expansion.steps,
+                trigger: keyword,
+                undo_trigger,
+                is_calculation: expansion.is_calculation,
+                metric_kind,
+                track_usage: true,
+                follow_up: None,
+            });
         }
 
         // Triggerless mode: look up the bare tail word without a trigger character prefix.
@@ -647,6 +630,15 @@ impl Evaluator {
                 // Normal typing tracking
                 self.buffer.push(c);
                 self.update_completion_after_char(c);
+
+                let open_delim = self.state.get_ai_delimiter_open();
+                if self.buffer.buffer_string().ends_with(&open_delim) {
+                    if self.completion.active {
+                        self.completion.deactivate();
+                    }
+                    return Some(self.start_inline_ai_capture(&open_delim));
+                }
+
                 None
             }
         }
@@ -703,25 +695,18 @@ impl Evaluator {
         }
     }
 
-    fn start_inline_ai_capture(
-        &mut self,
-        keyword: &str,
-        prompt_override: Option<String>,
-    ) -> ExpansionResult {
-        use std::sync::atomic::Ordering;
-        let delimiter_u32 = self.state.inline_ai_delimiter.load(Ordering::Relaxed);
-        let delimiter = std::char::from_u32(delimiter_u32).unwrap_or('`');
-
+    fn start_inline_ai_capture(&mut self, open_delim: &str) -> ExpansionResult {
         self.buffer.clear();
         self.state.clear_ai_prompt_buffer();
         self.state.set_engine_mode(EngineMode::AiCapture {
-            system_prompt_override: prompt_override.clone(),
+            system_prompt_override: None,
         });
+        self.completion.deactivate();
 
         ExpansionResult {
-            delete_count: 1 + keyword.chars().count(),
-            steps: vec![ExpansionStep::Text(delimiter.to_string())],
-            trigger: keyword.to_string(),
+            delete_count: open_delim.chars().count(),
+            steps: vec![ExpansionStep::Text(open_delim.to_string())],
+            trigger: open_delim.to_string(),
             undo_trigger: None,
             is_calculation: false,
             metric_kind: AutomationMetricKind::InlineAi,
@@ -730,41 +715,26 @@ impl Evaluator {
         }
     }
 
-    fn expand_inline_ai_prompt(&mut self, keyword: &str, prompt: String) -> ExpansionResult {
-        self.buffer.clear();
-        let delete_count = 1 + keyword.chars().count();
-
-        ExpansionResult {
-            delete_count,
-            steps: vec![ExpansionStep::Text(self.get_thinking_text())],
-            trigger: INLINE_AI_KEYWORD.to_string(),
-            undo_trigger: None,
-            is_calculation: false,
-            metric_kind: AutomationMetricKind::InlineAi,
-            track_usage: false,
-            follow_up: Some(ExpansionFollowUp::InlineAi {
-                prompt,
-                system_prompt_override: None,
-            }),
-        }
-    }
-
     fn finish_inline_ai_capture_if_ready(&mut self) -> Option<ExpansionResult> {
-        use std::sync::atomic::Ordering;
-        let delimiter_u32 = self.state.inline_ai_delimiter.load(Ordering::Relaxed);
-        let delimiter = std::char::from_u32(delimiter_u32).unwrap_or('`');
+        let mode = self.state.get_ai_delimiter_mode();
+        let close_delim = match mode {
+            crate::settings::AiDelimiterMode::Symmetric => self.state.get_ai_delimiter_open(),
+            crate::settings::AiDelimiterMode::Asymmetric => self.state.get_ai_delimiter_close(),
+        };
 
         let captured = self.state.ai_prompt_buffer();
-        if !captured.ends_with(delimiter) {
+        if !captured.ends_with(&close_delim) {
             return None;
         }
 
-        let prompt = captured.strip_suffix(delimiter)?;
+        let prompt = captured.strip_suffix(&close_delim)?;
         if prompt.is_empty() {
             return None;
         }
 
-        let delete_count = captured.chars().count() + 2;
+        let open_delim = self.state.get_ai_delimiter_open();
+        let delete_count = captured.chars().count() + open_delim.chars().count();
+
         let system_prompt_override = if let EngineMode::AiCapture {
             system_prompt_override,
         } = self.state.engine_mode()
@@ -781,7 +751,7 @@ impl Evaluator {
         Some(ExpansionResult {
             delete_count,
             steps: vec![ExpansionStep::Text(self.get_thinking_text())],
-            trigger: INLINE_AI_KEYWORD.to_string(),
+            trigger: "inline_ai".to_string(),
             undo_trigger: None,
             is_calculation: false,
             metric_kind: AutomationMetricKind::InlineAi,
@@ -837,56 +807,6 @@ fn pop_word_from_query(query: &str) -> String {
     }
 
     chars.into_iter().collect()
-}
-
-fn parse_inline_ai_prompt(keyword: &str) -> Option<String> {
-    let raw_prompt = keyword.strip_prefix(INLINE_AI_KEYWORD_PREFIX)?;
-    parse_quoted_inline_ai_prompt(raw_prompt)
-}
-
-fn parse_quoted_inline_ai_prompt(raw_prompt: &str) -> Option<String> {
-    let mut chars = raw_prompt.chars();
-    let quote = chars.next()?;
-    if !matches!(quote, '"' | '\'') || raw_prompt.chars().count() < 2 {
-        return None;
-    }
-
-    if raw_prompt.chars().last()? != quote {
-        return None;
-    }
-
-    let inner = &raw_prompt[quote.len_utf8()..raw_prompt.len() - quote.len_utf8()];
-    let mut parsed = String::new();
-    let mut escaping = false;
-
-    for ch in inner.chars() {
-        if escaping {
-            let resolved = match ch {
-                '\\' => '\\',
-                '\'' => '\'',
-                '"' => '"',
-                'n' => '\n',
-                'r' => '\r',
-                't' => '\t',
-                _ => ch,
-            };
-            parsed.push(resolved);
-            escaping = false;
-            continue;
-        }
-
-        match ch {
-            '\\' => escaping = true,
-            current if current == quote => return None,
-            other => parsed.push(other),
-        }
-    }
-
-    if escaping {
-        return None;
-    }
-
-    Some(parsed)
 }
 
 #[cfg(test)]
@@ -1250,24 +1170,13 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         let mut eval = Evaluator::new(state.clone());
 
-        for c in ">ai".chars() {
-            assert_eq!(
-                eval.process_event(if c == ' ' {
-                    EngineEvent::ActionDelimiter
-                } else {
-                    EngineEvent::Char(c)
-                }),
-                None
-            );
-        }
-
-        assert!(eval.is_completion_active());
+        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
         let result = eval
-            .process_event(EngineEvent::ActionDelimiter)
-            .expect("inline ai capture should still start");
+            .process_event(EngineEvent::Char('>'))
+            .expect("inline ai capture should start");
 
         assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
-        assert_eq!(result.trigger, INLINE_AI_KEYWORD);
+        assert_eq!(result.trigger, ">>");
         assert!(!eval.is_completion_active());
         assert_eq!(eval.completion.selection_mode, None);
         assert_eq!(eval.navigate_history_older(), None);
@@ -1823,21 +1732,11 @@ mod tests {
         assert_eq!(expansion.trigger, "gs");
 
         let mut ai_eval = Evaluator::new(state.clone());
-        for c in ">ai".chars() {
-            assert_eq!(
-                ai_eval.process_event(if c == ' ' {
-                    EngineEvent::ActionDelimiter
-                } else {
-                    EngineEvent::Char(c)
-                }),
-                None
-            );
-        }
-
+        assert_eq!(ai_eval.process_event(EngineEvent::Char('>')), None);
         let ai_result = ai_eval
-            .process_event(EngineEvent::ActionDelimiter)
-            .expect("inline ai should still start");
-        assert_eq!(ai_result.trigger, INLINE_AI_KEYWORD);
+            .process_event(EngineEvent::Char('>'))
+            .expect("inline ai should start");
+        assert_eq!(ai_result.trigger, ">>");
         assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
     }
 
@@ -2476,131 +2375,18 @@ mod tests {
     }
 
     #[test]
-    fn inline_ai_quoted_trigger_expands_into_thinking_spinner_with_prompt_payload() {
-        let state = Arc::new(EngineState::new('>'));
-        let mut eval = Evaluator::new(state);
-
-        let trigger = r#">ai:"What is the deadliest microbe?""#;
-        for c in trigger.chars() {
-            assert_eq!(
-                eval.process_event(if c == ' ' {
-                    EngineEvent::ActionDelimiter
-                } else {
-                    EngineEvent::Char(c)
-                }),
-                None
-            );
-        }
-
-        let result = eval
-            .process_event(EngineEvent::ActionDelimiter)
-            .expect("inline ai should trigger on the trailing space");
-
-        assert_eq!(eval.buffer.len, 0);
-        assert_eq!(result.delete_count, trigger.chars().count());
-        assert_eq!(
-            result.steps,
-            vec![ExpansionStep::Text(eval.get_thinking_text())]
-        );
-        assert_eq!(result.trigger, INLINE_AI_KEYWORD);
-        assert_eq!(result.undo_trigger, None);
-        assert!(!result.track_usage);
-        assert_inline_ai_follow_up(&result, "What is the deadliest microbe?", None);
-    }
-
-    #[test]
-    fn inline_ai_prompt_parser_decodes_json_escapes() {
-        assert_eq!(
-            parse_inline_ai_prompt(r#"ai:"Line one\n\"Rust\"""#),
-            Some("Line one\n\"Rust\"".to_string())
-        );
-    }
-
-    #[test]
-    fn inline_ai_single_quoted_trigger_expands_and_extracts_prompt() {
-        let state = Arc::new(EngineState::new('>'));
-        let mut eval = Evaluator::new(state);
-
-        let trigger = ">ai:'What is the deadliest microbe?'";
-        for c in trigger.chars() {
-            assert_eq!(
-                eval.process_event(if c == ' ' {
-                    EngineEvent::ActionDelimiter
-                } else {
-                    EngineEvent::Char(c)
-                }),
-                None
-            );
-        }
-
-        let result = eval
-            .process_event(EngineEvent::ActionDelimiter)
-            .expect("single-quoted inline ai should trigger on the trailing space");
-
-        assert_eq!(result.delete_count, trigger.chars().count());
-        assert_inline_ai_follow_up(&result, "What is the deadliest microbe?", None);
-    }
-
-    #[test]
-    fn inline_ai_requires_matching_quotes() {
-        assert_eq!(
-            parse_inline_ai_prompt("ai:'hello'"),
-            Some("hello".to_string())
-        );
-        assert_eq!(parse_inline_ai_prompt(r#"ai:"unterminated"#), None);
-        assert_eq!(parse_inline_ai_prompt(r#"ai:"prompt'"#), None);
-        assert_eq!(parse_inline_ai_prompt("ai:'prompt\""), None);
-
-        let state = Arc::new(EngineState::new('>'));
-        let mut eval = Evaluator::new(state);
-        let invalid_trigger = r#">ai:"hello'"#;
-        for c in invalid_trigger.chars() {
-            assert_eq!(
-                eval.process_event(if c == ' ' {
-                    EngineEvent::ActionDelimiter
-                } else {
-                    EngineEvent::Char(c)
-                }),
-                None
-            );
-        }
-
-        assert_eq!(eval.process_event(EngineEvent::ActionDelimiter), None);
-        assert_eq!(eval.buffer.len, invalid_trigger.chars().count() + 1);
-    }
-
-    #[test]
-    fn inline_ai_single_quote_parser_supports_escaped_quotes() {
-        assert_eq!(
-            parse_inline_ai_prompt(r#"ai:'It\'s still stateless'"#),
-            Some("It's still stateless".to_string())
-        );
-    }
-
-    #[test]
     fn inline_ai_capture_trigger_enters_micro_state_and_paints_opening_delimiter() {
         let state = Arc::new(EngineState::new('>'));
         let mut eval = Evaluator::new(state.clone());
 
-        for c in ">ai".chars() {
-            assert_eq!(
-                eval.process_event(if c == ' ' {
-                    EngineEvent::ActionDelimiter
-                } else {
-                    EngineEvent::Char(c)
-                }),
-                None
-            );
-        }
-
+        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
         let result = eval
-            .process_event(EngineEvent::ActionDelimiter)
-            .expect("inline ai capture should start on >ai<space>");
+            .process_event(EngineEvent::Char('>'))
+            .expect("Should enter capture");
 
         assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
-        assert_eq!(state.ai_prompt_buffer(), "");
-        assert_eq!(result.delete_count, 3);
-        assert_eq!(result.steps, vec![ExpansionStep::Text("`".to_string())]);
+        assert_eq!(result.trigger, ">>");
+        assert_eq!(result.steps, vec![ExpansionStep::Text(">>".to_string())]);
         assert_eq!(result.undo_trigger, None);
         assert_no_follow_up(&result);
     }
@@ -2611,15 +2397,10 @@ mod tests {
         *state.action_delimiter.write().unwrap() = crate::settings::ActionDelimiter::Space;
         let mut eval = Evaluator::new(state.clone());
 
-        for c in ">ai ".chars() {
-            let _ = eval.process_event(if c == ' ' {
-                EngineEvent::ActionDelimiter
-            } else {
-                EngineEvent::Char(c)
-            });
-        }
+        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+        let _ = eval.process_event(EngineEvent::Char('>'));
 
-        for c in "What is Rust?`".chars() {
+        for c in "What is Rust?<<".chars() {
             assert_eq!(
                 eval.process_event(if c == ' ' {
                     EngineEvent::ActionDelimiter
@@ -2636,7 +2417,7 @@ mod tests {
 
         assert_eq!(state.engine_mode(), EngineMode::Normal);
         assert_eq!(state.ai_prompt_buffer(), "");
-        assert_eq!(result.delete_count, "What is Rust?`".chars().count() + 2);
+        assert_eq!(result.delete_count, "What is Rust?<<".chars().count() + 2);
         assert_eq!(
             result.steps,
             vec![ExpansionStep::Text(eval.get_thinking_text())]
@@ -2655,14 +2436,9 @@ mod tests {
         )]);
         let mut eval = Evaluator::new(state.clone());
 
-        for c in ">ai ".chars() {
-            let _ = eval.process_event(if c == ' ' {
-                EngineEvent::ActionDelimiter
-            } else {
-                EngineEvent::Char(c)
-            });
-        }
-        for c in "What is Rust?`".chars() {
+        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+        let _ = eval.process_event(EngineEvent::Char('>'));
+        for c in "What is Rust?<<".chars() {
             assert_eq!(
                 eval.process_event(if c == ' ' {
                     EngineEvent::ActionDelimiter
@@ -2708,13 +2484,8 @@ mod tests {
         )]);
         let mut eval = Evaluator::new(state.clone());
 
-        for c in ">ai ".chars() {
-            let _ = eval.process_event(if c == ' ' {
-                EngineEvent::ActionDelimiter
-            } else {
-                EngineEvent::Char(c)
-            });
-        }
+        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+        let _ = eval.process_event(EngineEvent::Char('>'));
         for c in "draft".chars() {
             assert_eq!(
                 eval.process_event(if c == ' ' {
@@ -2740,11 +2511,12 @@ mod tests {
                 None
             );
         }
-        let result = eval
+
+        let expansion = eval
             .process_event(EngineEvent::ActionDelimiter)
-            .expect("normal trigger should work after interrupt exits capture");
+            .expect("normal word trigger should still expand after inline ai cancelled");
         assert_eq!(
-            result.steps,
+            expansion.steps,
             vec![ExpansionStep::Text("Good morning!".to_string())]
         );
     }
@@ -2758,13 +2530,8 @@ mod tests {
         )]);
         let mut eval = Evaluator::new(state.clone());
 
-        for c in ">ai ".chars() {
-            let _ = eval.process_event(if c == ' ' {
-                EngineEvent::ActionDelimiter
-            } else {
-                EngineEvent::Char(c)
-            });
-        }
+        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+        let _ = eval.process_event(EngineEvent::Char('>'));
 
         assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
         assert!(state.is_ai_prompt_empty());
@@ -2800,13 +2567,8 @@ mod tests {
         )]);
         let mut eval = Evaluator::new(state.clone());
 
-        for c in ">ai ".chars() {
-            let _ = eval.process_event(if c == ' ' {
-                EngineEvent::ActionDelimiter
-            } else {
-                EngineEvent::Char(c)
-            });
-        }
+        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+        let _ = eval.process_event(EngineEvent::Char('>'));
 
         assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
         assert!(state.is_ai_prompt_empty());
@@ -2833,18 +2595,13 @@ mod tests {
     }
 
     #[test]
-    fn test_ai_capture_finish_with_backtick_and_space() {
+    fn test_ai_capture_finish_with_asymmetric_delimiters() {
         let state = Arc::new(EngineState::new('>'));
         let mut eval = Evaluator::new(state.clone());
 
-        for c in ">ai ".chars() {
-            let _ = eval.process_event(if c == ' ' {
-                EngineEvent::ActionDelimiter
-            } else {
-                EngineEvent::Char(c)
-            });
-        }
-        for c in "prompt`".chars() {
+        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+        let _ = eval.process_event(EngineEvent::Char('>'));
+        for c in "prompt<<".chars() {
             assert_eq!(
                 eval.process_event(if c == ' ' {
                     EngineEvent::ActionDelimiter
@@ -2857,11 +2614,44 @@ mod tests {
 
         let result = eval
             .process_event(EngineEvent::ActionDelimiter)
-            .expect("closing backtick plus space should submit captured prompt");
+            .expect("action delimiter should submit captured asymmetric prompt");
 
         assert_eq!(state.engine_mode(), EngineMode::Normal);
         assert!(state.is_ai_prompt_empty());
-        assert_eq!(result.delete_count, "prompt`".chars().count() + 2);
+        assert_eq!(result.delete_count, "prompt<<".chars().count() + 2);
+        assert_eq!(
+            result.steps,
+            vec![ExpansionStep::Text(eval.get_thinking_text())]
+        );
+        assert_inline_ai_follow_up(&result, "prompt", None);
+    }
+
+    #[test]
+    fn test_ai_capture_finish_with_symmetric_delimiters() {
+        let state = Arc::new(EngineState::new('>'));
+        state.set_ai_delimiter_mode(crate::settings::AiDelimiterMode::Symmetric);
+        state.set_ai_delimiter_open("^".to_string());
+        let mut eval = Evaluator::new(state.clone());
+
+        let _ = eval.process_event(EngineEvent::Char('^'));
+        for c in "prompt^".chars() {
+            assert_eq!(
+                eval.process_event(if c == ' ' {
+                    EngineEvent::ActionDelimiter
+                } else {
+                    EngineEvent::Char(c)
+                }),
+                None
+            );
+        }
+
+        let result = eval
+            .process_event(EngineEvent::ActionDelimiter)
+            .expect("action delimiter should submit captured symmetric prompt");
+
+        assert_eq!(state.engine_mode(), EngineMode::Normal);
+        assert!(state.is_ai_prompt_empty());
+        assert_eq!(result.delete_count, "prompt^".chars().count() + 1);
         assert_eq!(
             result.steps,
             vec![ExpansionStep::Text(eval.get_thinking_text())]
@@ -2875,13 +2665,8 @@ mod tests {
         *state.action_delimiter.write().unwrap() = crate::settings::ActionDelimiter::Space;
         let mut eval = Evaluator::new(state.clone());
 
-        for c in ">ai ".chars() {
-            let _ = eval.process_event(if c == ' ' {
-                EngineEvent::ActionDelimiter
-            } else {
-                EngineEvent::Char(c)
-            });
-        }
+        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+        let _ = eval.process_event(EngineEvent::Char('>'));
 
         for c in "draft prompt ".chars() {
             assert_eq!(
@@ -2902,32 +2687,29 @@ mod tests {
     fn inline_ai_thinking_text_matches_spec() {
         let state = Arc::new(EngineState::new('>'));
         let eval = Evaluator::new(state);
-        assert_eq!(eval.get_thinking_text(), "⠋ Thinking...");
+        assert_eq!(eval.get_thinking_text(), "⠋");
     }
 
     #[test]
     fn inline_ai_capture_works_with_custom_delimiter() {
-        use std::sync::atomic::Ordering;
         let state = Arc::new(EngineState::new('>'));
         *state.action_delimiter.write().unwrap() = crate::settings::ActionDelimiter::Space;
-        state
-            .inline_ai_delimiter
-            .store('~' as u32, Ordering::Relaxed);
+        state.set_ai_delimiter_mode(crate::settings::AiDelimiterMode::Asymmetric);
+        state.set_ai_delimiter_open("[[".to_string());
+        state.set_ai_delimiter_close("]]".to_string());
         let mut eval = Evaluator::new(state.clone());
 
         // 1. Enter capture
-        eval.process_event(EngineEvent::Char('>'));
-        eval.process_event(EngineEvent::Char('a'));
-        eval.process_event(EngineEvent::Char('i'));
+        assert_eq!(eval.process_event(EngineEvent::Char('[')), None);
         let start_res = eval
-            .process_event(EngineEvent::ActionDelimiter)
+            .process_event(EngineEvent::Char('['))
             .expect("Should enter capture");
 
         assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
-        assert_eq!(start_res.steps, vec![ExpansionStep::Text("~".to_string())]);
+        assert_eq!(start_res.steps, vec![ExpansionStep::Text("[[".to_string())]);
 
         // 2. Type prompt
-        for c in "Hello AI~".chars() {
+        for c in "Hello AI]]".chars() {
             assert_eq!(
                 eval.process_event(if c == ' ' {
                     EngineEvent::ActionDelimiter
@@ -2944,67 +2726,6 @@ mod tests {
             .expect("Should finish capture");
         assert_eq!(state.engine_mode(), EngineMode::Normal);
         assert_inline_ai_follow_up(&finish_res, "Hello AI", None);
-    }
-
-    #[test]
-    fn test_ai_preset_trigger_enters_capture_mode_with_override() {
-        let state = Arc::new(EngineState::new('>'));
-        *state.action_delimiter.write().unwrap() = crate::settings::ActionDelimiter::Space;
-        state.load_ai_presets(vec![("re".to_string(), "expert editor".to_string())]);
-        let mut eval = Evaluator::new(state);
-
-        let input = ">ai.re ";
-        let mut result = None;
-        for c in input.chars() {
-            if let Some(res) = eval.process_event(if c == ' ' {
-                EngineEvent::ActionDelimiter
-            } else {
-                EngineEvent::Char(c)
-            }) {
-                result = Some(res);
-            }
-        }
-
-        let res = result.expect("AI preset should trigger");
-        assert_no_follow_up(&res);
-        assert!(matches!(
-            eval.state.engine_mode(),
-            EngineMode::AiCapture {
-                system_prompt_override: Some(_)
-            }
-        ));
-    }
-
-    #[test]
-    fn test_finishing_ai_preset_capture_preserves_override() {
-        let state = Arc::new(EngineState::new('>'));
-        *state.action_delimiter.write().unwrap() = crate::settings::ActionDelimiter::Space;
-        state.load_ai_presets(vec![("re".to_string(), "expert editor".to_string())]);
-        let mut eval = Evaluator::new(state);
-
-        // Start capture
-        for c in ">ai.re ".chars() {
-            eval.process_event(if c == ' ' {
-                EngineEvent::ActionDelimiter
-            } else {
-                EngineEvent::Char(c)
-            });
-        }
-
-        // Type prompt + delimiter
-        for c in "fix grammar`".chars() {
-            eval.process_event(if c == ' ' {
-                EngineEvent::ActionDelimiter
-            } else {
-                EngineEvent::Char(c)
-            });
-        }
-
-        // Finish capture with space
-        let result = eval
-            .process_event(EngineEvent::ActionDelimiter)
-            .expect("Should finish prompt");
-        assert_inline_ai_follow_up(&result, "fix grammar", Some("expert editor"));
     }
 
     #[test]

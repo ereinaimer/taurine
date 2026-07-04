@@ -126,13 +126,32 @@ Configure your AI provider integrations and capture behavior.
   - **Example**: `taurine config set endpoint http://localhost:11434/v1`
 </Accordion>
 
-<Accordion title="inline_ai_delimiter">
-  The character used to wrap interactive AI prompts.
+<Accordion title="ai_delimiter_mode">
+  The behavior style of inline AI delimiters. When Symmetric, the opening boundary is used for both sides.
   
-  - **Key**: `inline_ai_delimiter`
-  - **Alias**: `delimiter`
-  - **Default**: `` ` ``
-  - **Example**: `taurine config set delimiter ~`
+  - **Key**: `ai_delimiter_mode`
+  - **Alias**: `delimiter_mode`
+  - **Default**: `Symmetric`
+  - **Values**: `Symmetric`, `Asymmetric`
+  - **Example**: `taurine config set ai_delimiter_mode Asymmetric`
+</Accordion>
+
+<Accordion title="ai_delimiter_open">
+  The boundary text used to start an inline AI prompt.
+  
+  - **Key**: `ai_delimiter_open`
+  - **Alias**: `delimiter_open`
+  - **Default**: `>>`
+  - **Example**: `taurine config set ai_delimiter_open "[[ "`
+</Accordion>
+
+<Accordion title="ai_delimiter_close">
+  The boundary text used to end an inline AI prompt. (Only used if `ai_delimiter_mode` is Asymmetric)
+  
+  - **Key**: `ai_delimiter_close`
+  - **Alias**: `delimiter_close`
+  - **Default**: `<<`
+  - **Example**: `taurine config set ai_delimiter_close " ]]"`
 </Accordion>
 </Accordions>
 

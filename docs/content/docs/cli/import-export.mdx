@@ -65,7 +65,7 @@ Taurine's exchange engine is designed for reliability and consistency:
 | **Atomic Imports** | Imports are wrapped in a single database transaction. If one item fails, the **entire** import is rolled back to prevent data corruption. |
 | **Script Handling** | Scripts are decompressed into human-readable text during export (if plaintext) and re-compressed using `zstd` upon import. |
 | **Platform Metadata** | `target_os` metadata is preserved, ensuring your Windows-only scripts don't accidentally run on your Mac after an import. |
-| **Reserved Triggers** | Imports strictly block any automation that attempts to claim the reserved `>ai` trigger. |
+
 
 <Callout title="Atomic Reliability" type="success">
   You never have to worry about a "partial" import. If you lose power or the script crashes mid-way, your database remains exactly as it was before the command started.

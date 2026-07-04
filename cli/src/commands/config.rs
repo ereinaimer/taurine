@@ -70,9 +70,11 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
         render_optional_setting(settings.ai_custom_endpoint.as_deref()),
     ]);
     table.add_row(vec![
-        "inline_ai_delimiter",
-        &settings.inline_ai_delimiter.to_string(),
+        "ai_delimiter_mode",
+        &format!("{:?}", settings.ai_delimiter_mode).to_lowercase(),
     ]);
+    table.add_row(vec!["ai_delimiter_open", &settings.ai_delimiter_open]);
+    table.add_row(vec!["ai_delimiter_close", &settings.ai_delimiter_close]);
     table.add_row(vec![
         "clipboard_restore_delay_ms",
         &settings.clipboard_restore_delay_ms.to_string(),
@@ -356,11 +358,25 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
             manager.update_setting(actual_key, defaults.ai_custom_endpoint.clone())?;
             info!("Reset ai_custom_endpoint to default: <unset>");
         }
-        "inline_ai_delimiter" => {
-            manager.update_setting(actual_key, defaults.inline_ai_delimiter)?;
+        "ai_delimiter_mode" => {
+            manager.update_setting(actual_key, defaults.ai_delimiter_mode)?;
             info!(
-                "Reset inline_ai_delimiter to default: {}",
-                defaults.inline_ai_delimiter
+                "Reset ai_delimiter_mode to default: {:?}",
+                defaults.ai_delimiter_mode
+            );
+        }
+        "ai_delimiter_open" => {
+            manager.update_setting(actual_key, defaults.ai_delimiter_open.clone())?;
+            info!(
+                "Reset ai_delimiter_open to default: {}",
+                defaults.ai_delimiter_open
+            );
+        }
+        "ai_delimiter_close" => {
+            manager.update_setting(actual_key, defaults.ai_delimiter_close.clone())?;
+            info!(
+                "Reset ai_delimiter_close to default: {}",
+                defaults.ai_delimiter_close
             );
         }
         "rpc_port" => {
@@ -410,7 +426,9 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
     manager.update_setting("ai_provider", defaults.ai_provider.clone())?;
     manager.update_setting("ai_model", defaults.ai_model.clone())?;
     manager.update_setting("ai_custom_endpoint", defaults.ai_custom_endpoint.clone())?;
-    manager.update_setting("inline_ai_delimiter", defaults.inline_ai_delimiter)?;
+    manager.update_setting("ai_delimiter_mode", defaults.ai_delimiter_mode)?;
+    manager.update_setting("ai_delimiter_open", defaults.ai_delimiter_open.clone())?;
+    manager.update_setting("ai_delimiter_close", defaults.ai_delimiter_close.clone())?;
     manager.update_setting(
         "clipboard_restore_delay_ms",
         defaults.clipboard_restore_delay_ms,

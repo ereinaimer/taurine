@@ -127,10 +127,11 @@ impl DaemonControl for DaemonService {
             .trigger_char
             .store(settings.trigger_char as u32, Ordering::Relaxed);
 
-        // Update inline AI delimiter (atomic)
+        // Update AI delimiters
+        self.state.set_ai_delimiter_mode(settings.ai_delimiter_mode);
+        self.state.set_ai_delimiter_open(settings.ai_delimiter_open);
         self.state
-            .inline_ai_delimiter
-            .store(settings.inline_ai_delimiter as u32, Ordering::Relaxed);
+            .set_ai_delimiter_close(settings.ai_delimiter_close);
 
         self.state
             .inline_tab_completion_enabled

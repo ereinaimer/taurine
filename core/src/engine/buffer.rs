@@ -89,6 +89,15 @@ impl FastBuffer {
         self.len = 0;
     }
 
+    pub fn buffer_string(&self) -> String {
+        let mut result = String::with_capacity(self.len);
+        let start = (self.head + FAST_BUFFER_CAPACITY - self.len) % FAST_BUFFER_CAPACITY;
+        for i in 0..self.len {
+            result.push(self.data[(start + i) % FAST_BUFFER_CAPACITY]);
+        }
+        result
+    }
+
     fn count_consecutive_backslashes_before(&self, mut curr: usize, mut available: usize) -> usize {
         let mut count = 0;
         while available > 0 {

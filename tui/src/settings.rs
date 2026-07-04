@@ -21,7 +21,9 @@ pub(crate) enum SettingKey {
     AiProvider,
     AiModel,
     AiCustomEndpoint,
-    InlineAiDelimiter,
+    AiDelimiterMode,
+    AiDelimiterOpen,
+    AiDelimiterClose,
     ClipboardRestoreDelayMs,
     ActionDelimiter,
     TriggerlessMode,
@@ -34,7 +36,7 @@ pub(crate) enum SettingKey {
 }
 
 impl SettingKey {
-    pub(crate) const ALL: [Self; 22] = [
+    pub(crate) const ALL: [Self; 24] = [
         Self::TriggerChar,
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
@@ -47,7 +49,9 @@ impl SettingKey {
         Self::AiProvider,
         Self::AiModel,
         Self::AiCustomEndpoint,
-        Self::InlineAiDelimiter,
+        Self::AiDelimiterMode,
+        Self::AiDelimiterOpen,
+        Self::AiDelimiterClose,
         Self::ClipboardRestoreDelayMs,
         Self::ActionDelimiter,
         Self::TriggerlessMode,
@@ -73,7 +77,9 @@ impl SettingKey {
             Self::AiProvider => "ai_provider",
             Self::AiModel => "ai_model",
             Self::AiCustomEndpoint => "ai_custom_endpoint",
-            Self::InlineAiDelimiter => "inline_ai_delimiter",
+            Self::AiDelimiterMode => "ai_delimiter_mode",
+            Self::AiDelimiterOpen => "ai_delimiter_open",
+            Self::AiDelimiterClose => "ai_delimiter_close",
             Self::ClipboardRestoreDelayMs => "clipboard_restore_delay_ms",
             Self::ActionDelimiter => "action_delimiter",
             Self::TriggerlessMode => "triggerless_mode",
@@ -100,7 +106,9 @@ impl SettingKey {
             Self::AiProvider => "AI Provider",
             Self::AiModel => "AI Model",
             Self::AiCustomEndpoint => "AI Custom Endpoint",
-            Self::InlineAiDelimiter => "Inline AI Delimiter",
+            Self::AiDelimiterMode => "Inline AI Delimiter Mode",
+            Self::AiDelimiterOpen => "Inline AI Open Delimiter",
+            Self::AiDelimiterClose => "Inline AI Close Delimiter",
             Self::ClipboardRestoreDelayMs => "Clipboard Restore Delay (ms)",
             Self::ActionDelimiter => "Action Delimiter",
             Self::TriggerlessMode => "Triggerless Mode",
@@ -133,7 +141,11 @@ impl SettingKey {
             Self::AiProvider => "Default AI provider used for inline AI",
             Self::AiModel => "Default AI model used for inline AI",
             Self::AiCustomEndpoint => "Optional custom API endpoint for AI requests",
-            Self::InlineAiDelimiter => "Delimiter used by inline AI capture mode",
+            Self::AiDelimiterMode => {
+                "The behavior style of inline AI delimiters (Symmetric or Asymmetric)"
+            }
+            Self::AiDelimiterOpen => "The boundary text used to start an inline AI prompt",
+            Self::AiDelimiterClose => "The boundary text used to end an inline AI prompt",
             Self::ClipboardRestoreDelayMs => {
                 "The delay in milliseconds between pasting and restoring the clipboard"
             }
@@ -176,8 +188,11 @@ impl SettingKey {
             Self::AiCustomEndpoint | Self::AiTemperature | Self::AiSystemPrompt => {
                 EditorKind::OptionalTextInput
             }
-            Self::TriggerChar | Self::InlineAiDelimiter => EditorKind::SingleCharInput,
-            Self::PauseHotkey | Self::AiModel => EditorKind::TextInput,
+            Self::AiDelimiterMode => EditorKind::AiDelimiterModeSelect,
+            Self::TriggerChar => EditorKind::SingleCharInput,
+            Self::PauseHotkey | Self::AiModel | Self::AiDelimiterOpen | Self::AiDelimiterClose => {
+                EditorKind::TextInput
+            }
         }
     }
 
@@ -197,7 +212,12 @@ impl SettingKey {
             Self::AiCustomEndpoint => {
                 optional_value_label(settings.ai_custom_endpoint.as_deref()).to_string()
             }
-            Self::InlineAiDelimiter => settings.inline_ai_delimiter.to_string(),
+            Self::AiDelimiterMode => match settings.ai_delimiter_mode {
+                taurine_core::settings::AiDelimiterMode::Symmetric => "symmetric".to_string(),
+                taurine_core::settings::AiDelimiterMode::Asymmetric => "asymmetric".to_string(),
+            },
+            Self::AiDelimiterOpen => settings.ai_delimiter_open.clone(),
+            Self::AiDelimiterClose => settings.ai_delimiter_close.clone(),
             Self::ClipboardRestoreDelayMs => settings.clipboard_restore_delay_ms.to_string(),
             Self::ActionDelimiter => format!("{:?}", settings.action_delimiter).to_lowercase(),
             Self::TriggerlessMode => settings.triggerless_mode.to_string(),
@@ -228,7 +248,8 @@ impl SettingKey {
             Self::AiProvider => settings.ai_provider.clone().unwrap_or_default(),
             Self::AiModel => settings.ai_model.clone().unwrap_or_default(),
             Self::AiCustomEndpoint => settings.ai_custom_endpoint.clone().unwrap_or_default(),
-            Self::InlineAiDelimiter => settings.inline_ai_delimiter.to_string(),
+            Self::AiDelimiterOpen => settings.ai_delimiter_open.clone(),
+            Self::AiDelimiterClose => settings.ai_delimiter_close.clone(),
             Self::PauseNotificationsEnabled
             | Self::PauseAudioEnabled
             | Self::StartOnBoot
@@ -238,6 +259,7 @@ impl SettingKey {
             | Self::IgnoreFullscreen
             | Self::SpinnerStyle
             | Self::ActionDelimiter
+            | Self::AiDelimiterMode
             | Self::ClipboardRestoreDelayMs
             | Self::RpcPort
             | Self::ScriptTimeout => self.display_value(settings),
@@ -268,6 +290,7 @@ pub(crate) enum EditorKind {
     SpinnerSelect,
     ActionDelimiterSelect,
     AiProviderSelect,
+    AiDelimiterModeSelect,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -288,8 +311,17 @@ impl SettingsPageState {
         self.selected
     }
 
+    pub(crate) fn visible_keys(&self) -> Vec<SettingKey> {
+        let mut keys = SettingKey::ALL.to_vec();
+        if self.settings.ai_delimiter_mode == taurine_core::settings::AiDelimiterMode::Symmetric {
+            keys.retain(|k| *k != SettingKey::AiDelimiterClose);
+        }
+        keys
+    }
+
     pub(crate) fn selected_key(&self) -> SettingKey {
-        SettingKey::ALL[self.selected]
+        let keys = self.visible_keys();
+        keys[self.selected.min(keys.len().saturating_sub(1))]
     }
 
     pub(crate) const fn modal(&self) -> Option<&SettingsModal> {
@@ -372,7 +404,7 @@ impl SettingsPageState {
     }
 
     fn move_selection(&mut self, delta: isize) {
-        let max_index = SettingKey::ALL.len().saturating_sub(1) as isize;
+        let max_index = self.visible_keys().len().saturating_sub(1) as isize;
         let next = (self.selected as isize + delta).clamp(0, max_index);
         self.selected = next as usize;
     }
@@ -427,6 +459,13 @@ impl SettingsPageState {
                     .collect(),
                 self.settings.ai_provider.clone().unwrap_or_default(),
             ))),
+            EditorKind::AiDelimiterModeSelect => {
+                Some(SettingsModal::Select(SelectModalState::new(
+                    key,
+                    vec!["symmetric".to_string(), "asymmetric".to_string()],
+                    key.display_value(&self.settings),
+                )))
+            }
             EditorKind::SingleCharInput
             | EditorKind::TextInput
             | EditorKind::OptionalTextInput
@@ -803,7 +842,7 @@ mod tests {
 
     #[test]
     fn every_setting_has_a_descriptor() {
-        assert_eq!(SettingKey::ALL.len(), 22);
+        assert_eq!(SettingKey::ALL.len(), 24);
     }
 
     #[test]
@@ -850,14 +889,18 @@ mod tests {
     }
 
     #[test]
-    fn trigger_char_and_inline_ai_delimiter_are_single_char_inputs() {
+    fn trigger_char_is_single_char_input_and_delimiters_are_text_input() {
         assert_eq!(
             SettingKey::TriggerChar.editor_kind(),
             EditorKind::SingleCharInput
         );
         assert_eq!(
-            SettingKey::InlineAiDelimiter.editor_kind(),
-            EditorKind::SingleCharInput
+            SettingKey::AiDelimiterOpen.editor_kind(),
+            EditorKind::TextInput
+        );
+        assert_eq!(
+            SettingKey::AiDelimiterClose.editor_kind(),
+            EditorKind::TextInput
         );
     }
 

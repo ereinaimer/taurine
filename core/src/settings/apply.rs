@@ -56,7 +56,12 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "ai_provider" => Ok(defaults.ai_provider),
         "ai_model" => Ok(defaults.ai_model),
         "ai_custom_endpoint" => Ok(defaults.ai_custom_endpoint),
-        "inline_ai_delimiter" => Ok(Some(defaults.inline_ai_delimiter.to_string())),
+        "ai_delimiter_mode" => Ok(Some(match defaults.ai_delimiter_mode {
+            super::AiDelimiterMode::Symmetric => "symmetric".to_string(),
+            super::AiDelimiterMode::Asymmetric => "asymmetric".to_string(),
+        })),
+        "ai_delimiter_open" => Ok(Some(defaults.ai_delimiter_open)),
+        "ai_delimiter_close" => Ok(Some(defaults.ai_delimiter_close)),
         "clipboard_restore_delay_ms" => Ok(Some(defaults.clipboard_restore_delay_ms.to_string())),
         "action_delimiter" => Ok(Some(match defaults.action_delimiter {
             super::ActionDelimiter::Space => "space".to_string(),
@@ -144,8 +149,16 @@ pub fn apply_setting_input_with_manager(
             manager.update_setting(actual_key, endpoint)?;
             ApplySettingOutcome::default()
         }
-        "inline_ai_delimiter" => {
-            manager.update_setting(actual_key, parse_char_setting(value, actual_key)?)?;
+        "ai_delimiter_mode" => {
+            manager.update_setting(
+                actual_key,
+                parse_ai_delimiter_mode(require_non_empty(value, actual_key)?)?,
+            )?;
+            ApplySettingOutcome::default()
+        }
+        "ai_delimiter_open" | "ai_delimiter_close" => {
+            let parsed = require_non_empty(value, actual_key)?;
+            manager.update_setting(actual_key, parsed.to_string())?;
             ApplySettingOutcome::default()
         }
         "clipboard_restore_delay_ms" => {
@@ -259,6 +272,16 @@ pub fn parse_action_delimiter(value: &str) -> Result<super::ActionDelimiter> {
         "enter" => Ok(super::ActionDelimiter::Enter),
         other => Err(Error::Config(format!(
             "Invalid action_delimiter value '{other}'. Supported values: space, enter"
+        ))),
+    }
+}
+
+pub fn parse_ai_delimiter_mode(value: &str) -> Result<super::AiDelimiterMode> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "symmetric" => Ok(super::AiDelimiterMode::Symmetric),
+        "asymmetric" => Ok(super::AiDelimiterMode::Asymmetric),
+        other => Err(Error::Config(format!(
+            "Invalid ai_delimiter_mode value '{other}'. Supported values: symmetric, asymmetric"
         ))),
     }
 }

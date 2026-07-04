@@ -46,53 +46,19 @@ When you add a provider, Taurine uses the following default models (which you ca
 - **List models**: `taurine ai models --provider <name>`
 - **Remove provider**: `taurine ai remove --provider <name>`
 
-## Usage Modes
+## Usage
 
-Taurine provides multiple ways to interact with AI directly from your text area.
+Taurine provides a highly customizable inline capture mode to interact with AI directly from anywhere you type.
 
-<Tabs items={['Quoted Prompt', 'Interactive Capture']}>
-  <Tab value="Quoted Prompt">
-    The fastest way for short instructions. Type your trigger, then the prompt in quotes:
-    
-    ```text
-    >ai:'hello'
-    >ai:"Rewrite this politely"
-    ```
-    This immediately starts the AI request and replaces the trigger with the response.
-  </Tab>
-  <Tab value="Interactive Capture">
-    Best for longer prompts. Type `>ai` followed by a space to open the capture delimiter:
-    
-    ```text
-    >ai
-    ```
-    Taurine inserts the opening delimiter (default: `` ` ``). Type your prompt, close the delimiter, and press `Space` again:
-    
-    ```text
-    `write a haiku about rust`
-    ```
-  </Tab>
-</Tabs>
+To trigger the AI copilot, simply type your configured **opening delimiter** (default: `>>`). Taurine will enter capture mode and insert the opening delimiter.
 
-## AI Presets
-
-Presets allow you to save complex system instructions or specific personas under short aliases.
-
-### Management
-```bash
-# Add a preset for simple explanations
-taurine ai preset add eli5 "explain this like I'm five"
-
-# Add a preset for code documentation
-taurine ai preset add doc "generate rust documentation for the following code"
-```
-
-### Usage
-Trigger any preset using the format `>ai.[alias]`:
+Type your prompt, and then type your **closing delimiter** (default: `<<`). Finally, press your **Action Delimiter** (default: `Space` or `Enter`) to submit the request:
 
 ```text
->ai.eli5 Space
+>>write a haiku about rust<<[Space]
 ```
+
+This immediately starts the AI request and replaces the delimiters and your prompt with the response.
 
 ## Advanced Configuration
 
@@ -103,11 +69,22 @@ If you are using the `custom` provider (e.g., Local LLMs via Ollama or LM Studio
 taurine config set ai_custom_endpoint http://localhost:11434/v1
 ```
 
-### Custom Delimiter
-If the default backtick (`` ` ``) conflicts with your workflow, change the capture delimiter:
+### Custom Delimiters
+You can customize the text boundaries used to trigger and close the AI copilot. Taurine supports both **Symmetric** (same boundary for open/close) and **Asymmetric** (different boundaries) modes.
+
+To configure an asymmetric setup (e.g., `[[` to open and `]]` to close):
 
 ```bash
-taurine config set inline_ai_delimiter ~
+taurine config set ai_delimiter_mode asymmetric
+taurine config set ai_delimiter_open "[["
+taurine config set ai_delimiter_close "]]"
+```
+
+To configure a symmetric setup (e.g., `~` for both):
+
+```bash
+taurine config set ai_delimiter_mode symmetric
+taurine config set ai_delimiter_open "~"
 ```
 
 ## Provider Selection

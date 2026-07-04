@@ -37,7 +37,9 @@ impl UndoState {
 
 pub struct EngineState {
     pub trigger_char: AtomicU32,
-    pub inline_ai_delimiter: AtomicU32,
+    ai_delimiter_mode: RwLock<crate::settings::AiDelimiterMode>,
+    ai_delimiter_open: RwLock<String>,
+    ai_delimiter_close: RwLock<String>,
     pub inline_tab_completion_enabled: AtomicBool,
     pub inline_history_enabled: AtomicBool,
     pub triggerless_mode: AtomicBool,
@@ -56,7 +58,9 @@ impl EngineState {
     pub fn new(trigger_char: char) -> Self {
         Self {
             trigger_char: AtomicU32::new(trigger_char as u32),
-            inline_ai_delimiter: AtomicU32::new('`' as u32),
+            ai_delimiter_mode: RwLock::new(crate::settings::AiDelimiterMode::default()),
+            ai_delimiter_open: RwLock::new(">>".to_string()),
+            ai_delimiter_close: RwLock::new("<<".to_string()),
             inline_tab_completion_enabled: AtomicBool::new(true),
             inline_history_enabled: AtomicBool::new(true),
             triggerless_mode: AtomicBool::new(false),
@@ -76,7 +80,9 @@ impl EngineState {
     pub fn with_source(trigger_char: char, source: Arc<dyn SnippetSource>) -> Self {
         Self {
             trigger_char: AtomicU32::new(trigger_char as u32),
-            inline_ai_delimiter: AtomicU32::new('`' as u32),
+            ai_delimiter_mode: RwLock::new(crate::settings::AiDelimiterMode::default()),
+            ai_delimiter_open: RwLock::new(">>".to_string()),
+            ai_delimiter_close: RwLock::new("<<".to_string()),
             inline_tab_completion_enabled: AtomicBool::new(true),
             inline_history_enabled: AtomicBool::new(true),
             triggerless_mode: AtomicBool::new(false),
@@ -197,6 +203,51 @@ impl EngineState {
         if let Ok(mut guard) = self.undo_state.write() {
             *guard = Some(UndoState::new(trigger_string, output_length));
         }
+    }
+
+    pub fn set_action_delimiter(&self, delimiter: crate::settings::ActionDelimiter) {
+        if let Ok(mut guard) = self.action_delimiter.write() {
+            *guard = delimiter;
+        }
+    }
+
+    pub fn set_ai_delimiter_mode(&self, mode: crate::settings::AiDelimiterMode) {
+        if let Ok(mut guard) = self.ai_delimiter_mode.write() {
+            *guard = mode;
+        }
+    }
+
+    pub fn set_ai_delimiter_open(&self, open: String) {
+        if let Ok(mut guard) = self.ai_delimiter_open.write() {
+            *guard = open;
+        }
+    }
+
+    pub fn set_ai_delimiter_close(&self, close: String) {
+        if let Ok(mut guard) = self.ai_delimiter_close.write() {
+            *guard = close;
+        }
+    }
+
+    pub fn get_ai_delimiter_mode(&self) -> crate::settings::AiDelimiterMode {
+        self.ai_delimiter_mode
+            .read()
+            .map(|guard| *guard)
+            .unwrap_or_default()
+    }
+
+    pub fn get_ai_delimiter_open(&self) -> String {
+        self.ai_delimiter_open
+            .read()
+            .map(|guard| guard.clone())
+            .unwrap_or_else(|_| ">>".to_string())
+    }
+
+    pub fn get_ai_delimiter_close(&self) -> String {
+        self.ai_delimiter_close
+            .read()
+            .map(|guard| guard.clone())
+            .unwrap_or_else(|_| "<<".to_string())
     }
 
     pub fn clear_undo_state(&self) {
