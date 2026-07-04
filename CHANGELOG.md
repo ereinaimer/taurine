@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ext.mdlist` — extracts contiguous bulleted and numbered lists.
 
 ### Changed
+- **Inline AI Delimiter Overhaul**: Replaced the hardcoded inline AI triggers (`>ai:` and backticks) with a customizable symmetric and asymmetric delimiter system (`ai_delimiter_mode`, `ai_open_delimiter`, and `ai_close_delimiter`), defaulting to asymmetric mode using `>>` and `<<`. Removed the word "Thinking..." from the inline loading spinner.
 - **Default Configuration Updates**: Enabled triggerless mode (`triggerless_mode`) and ignore fullscreen (`ignore_fullscreen`) by default. Changed the default action delimiter (`action_delimiter`) from Space to Enter. Lowered the default script execution timeout (`script_timeout`) from 20 seconds to 15 seconds.
 - **JSON Extractor Namespace**: Renamed the standalone `json(path)` extractor to `json.get(path)`.
 - **URL & Base64 Namespace Reorganization**: Reorganized the standalone `urlencode`/`urldecode` and `base64encode`/`base64decode` encoding/decoding transformers under their respective `url` and `base64` namespaces as `url.encode`/`url.decode` and `base64.encode`/`base64.decode`.
