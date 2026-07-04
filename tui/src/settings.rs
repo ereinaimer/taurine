@@ -212,9 +212,11 @@ impl SettingKey {
                 optional_value_label(settings.ai_max_tokens.map(|v| v.to_string()).as_deref())
                     .to_string()
             }
-            Self::AiSystemPrompt => {
-                optional_value_label(settings.ai_system_prompt.as_deref()).to_string()
-            }
+            Self::AiSystemPrompt => settings
+                .ai_system_prompt
+                .as_deref()
+                .unwrap_or(taurine_core::settings::DEFAULT_AI_SYSTEM_PROMPT)
+                .to_string(),
         }
     }
 
@@ -247,9 +249,11 @@ impl SettingKey {
                 optional_value_label(settings.ai_max_tokens.map(|v| v.to_string()).as_deref())
                     .to_string()
             }
-            Self::AiSystemPrompt => {
-                optional_value_label(settings.ai_system_prompt.as_deref()).to_string()
-            }
+            Self::AiSystemPrompt => settings
+                .ai_system_prompt
+                .as_deref()
+                .unwrap_or(taurine_core::settings::DEFAULT_AI_SYSTEM_PROMPT)
+                .to_string(),
         }
     }
 }

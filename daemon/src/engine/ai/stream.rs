@@ -21,7 +21,6 @@ use taurine_core::settings::SettingsManager;
 
 const STREAM_BATCH_WINDOW_MS: u64 = 50;
 const STREAM_ERROR_PREFIX: &str = "Error: ";
-const IMMUTABLE_FORMAT_RULE: &str = "You are Tau, an inline text expander. Provide complete but highly concise answers. Plain text only. No markdown, lists, code fences, or newlines. No filler, greetings, explanations, or extra context. Output your entire response as one continuous string.";
 
 pub async fn run_inline_ai_stream(
     prompt: String,
@@ -528,7 +527,8 @@ fn build_chat_request(
     snippet_prompt_override: Option<String>,
     user_system_prompt: Option<String>,
 ) -> ChatRequest {
-    let base_prompt = user_system_prompt.unwrap_or_else(|| IMMUTABLE_FORMAT_RULE.to_string());
+    let base_prompt = user_system_prompt
+        .unwrap_or_else(|| taurine_core::settings::DEFAULT_AI_SYSTEM_PROMPT.to_string());
 
     let system_prompt = if let Some(prompt_override) = snippet_prompt_override {
         format!("{}\n\n{}", prompt_override, base_prompt)
@@ -828,7 +828,10 @@ mod tests {
     #[test]
     fn chat_request_uses_inline_system_prompt_and_gemini_search_only() {
         let gemini = build_chat_request(AiProvider::Gemini, "latest rust release", None, None);
-        assert_eq!(gemini.system.as_deref(), Some(IMMUTABLE_FORMAT_RULE));
+        assert_eq!(
+            gemini.system.as_deref(),
+            Some(taurine_core::settings::DEFAULT_AI_SYSTEM_PROMPT)
+        );
         assert_eq!(gemini.tools.as_ref().map(|tools| tools.len()), Some(1));
         assert_eq!(
             gemini.tools.as_ref().unwrap()[0].name,
@@ -836,7 +839,10 @@ mod tests {
         );
 
         let openai = build_chat_request(AiProvider::Openai, "latest rust release", None, None);
-        assert_eq!(openai.system.as_deref(), Some(IMMUTABLE_FORMAT_RULE));
+        assert_eq!(
+            openai.system.as_deref(),
+            Some(taurine_core::settings::DEFAULT_AI_SYSTEM_PROMPT)
+        );
         assert!(openai.tools.is_none());
     }
 
