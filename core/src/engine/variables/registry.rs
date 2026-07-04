@@ -696,7 +696,7 @@ fn validate_delay_modifier(modifier: Option<&str>) -> Result<(), ValidationError
 }
 
 fn normalize_modifier(modifier: &str) -> Option<&str> {
-    let trimmed = modifier.trim();
+    let trimmed = crate::engine::variables::system::strip_argument_quotes(modifier);
     if trimmed.is_empty() {
         None
     } else {
