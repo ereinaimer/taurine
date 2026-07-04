@@ -27,10 +27,11 @@ pub(crate) enum SettingKey {
     TriggerlessMode,
     IgnoreFullscreen,
     RpcPort,
+    ScriptTimeout,
 }
 
 impl SettingKey {
-    pub(crate) const ALL: [Self; 18] = [
+    pub(crate) const ALL: [Self; 19] = [
         Self::TriggerChar,
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
@@ -49,6 +50,7 @@ impl SettingKey {
         Self::TriggerlessMode,
         Self::IgnoreFullscreen,
         Self::RpcPort,
+        Self::ScriptTimeout,
     ];
 
     pub(crate) const fn storage_key(self) -> &'static str {
@@ -71,6 +73,7 @@ impl SettingKey {
             Self::TriggerlessMode => "triggerless_mode",
             Self::IgnoreFullscreen => "ignore_fullscreen",
             Self::RpcPort => "rpc_port",
+            Self::ScriptTimeout => "script_timeout",
         }
     }
 
@@ -94,6 +97,7 @@ impl SettingKey {
             Self::TriggerlessMode => "Triggerless Mode",
             Self::IgnoreFullscreen => "Ignore Fullscreen Apps",
             Self::RpcPort => "RPC Port",
+            Self::ScriptTimeout => "Script Timeout",
         }
     }
 
@@ -131,6 +135,9 @@ impl SettingKey {
                 "Pause macro evaluation when running a full-screen application (e.g. games)"
             }
             Self::RpcPort => "The network port the gRPC RPC server listens on (1024-65535)",
+            Self::ScriptTimeout => {
+                "Maximum script execution time before termination (0 for infinite)"
+            }
         }
     }
 
@@ -143,7 +150,9 @@ impl SettingKey {
             | Self::InlineHistoryEnabled
             | Self::TriggerlessMode
             | Self::IgnoreFullscreen => EditorKind::Toggle,
-            Self::Wpm | Self::ClipboardRestoreDelayMs | Self::RpcPort => EditorKind::NumberInput,
+            Self::Wpm | Self::ClipboardRestoreDelayMs | Self::RpcPort | Self::ScriptTimeout => {
+                EditorKind::NumberInput
+            }
             Self::SpinnerStyle => EditorKind::SpinnerSelect,
             Self::ActionDelimiter => EditorKind::ActionDelimiterSelect,
             Self::AiProvider => EditorKind::AiProviderSelect,
@@ -175,6 +184,7 @@ impl SettingKey {
             Self::TriggerlessMode => settings.triggerless_mode.to_string(),
             Self::IgnoreFullscreen => settings.ignore_fullscreen.to_string(),
             Self::RpcPort => settings.rpc_port.to_string(),
+            Self::ScriptTimeout => settings.script_timeout.to_string(),
         }
     }
 
@@ -197,7 +207,8 @@ impl SettingKey {
             | Self::SpinnerStyle
             | Self::ActionDelimiter
             | Self::ClipboardRestoreDelayMs
-            | Self::RpcPort => self.display_value(settings),
+            | Self::RpcPort
+            | Self::ScriptTimeout => self.display_value(settings),
         }
     }
 }
@@ -747,7 +758,7 @@ mod tests {
 
     #[test]
     fn every_setting_has_a_descriptor() {
-        assert_eq!(SettingKey::ALL.len(), 18);
+        assert_eq!(SettingKey::ALL.len(), 19);
     }
 
     #[test]

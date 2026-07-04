@@ -127,6 +127,12 @@ impl<'a> SettingsManager<'a> {
             settings.rpc_port = Settings::sanitize_rpc_port(v);
         }
 
+        if let Ok(Some(val)) = get_setting_value(self.conn, "script_timeout")
+            && let Ok(v) = serde_json::from_str::<u32>(&val)
+        {
+            settings.script_timeout = v;
+        }
+
         settings
     }
 

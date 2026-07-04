@@ -74,6 +74,7 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
         &settings.triggerless_mode.to_string(),
     ]);
     table.add_row(vec!["rpc_port", &settings.rpc_port.to_string()]);
+    table.add_row(vec!["script_timeout", &settings.script_timeout.to_string()]);
 
     println!("{}", table);
 
@@ -321,6 +322,13 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
                 defaults.rpc_port
             );
         }
+        "script_timeout" => {
+            manager.update_setting(actual_key, defaults.script_timeout)?;
+            info!(
+                "Reset script_timeout to default: {}",
+                defaults.script_timeout
+            );
+        }
         _ => {
             warn!("Unknown setting key: {}", key);
             return Ok(());
@@ -360,6 +368,8 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
         defaults.clipboard_restore_delay_ms,
     )?;
     manager.update_setting("action_delimiter", defaults.action_delimiter)?;
+    manager.update_setting("ignore_fullscreen", defaults.ignore_fullscreen)?;
+    manager.update_setting("script_timeout", defaults.script_timeout)?;
     manager.update_setting("triggerless_mode", defaults.triggerless_mode)?;
     manager.update_setting("rpc_port", defaults.rpc_port)?;
 

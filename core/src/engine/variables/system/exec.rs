@@ -2,12 +2,10 @@ use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread;
-use std::time::Duration;
 
 use crate::engine::shell::{ScriptBehavior, ScriptInterpreter, ScriptMetadata, compress};
 use wait_timeout::ChildExt;
 
-const EXECUTE_TIMEOUT: Duration = Duration::from_secs(20);
 const SCRIPT_NOT_FOUND: &str = "[Error: path to script not found!]";
 
 #[derive(Debug, Clone, PartialEq)]
@@ -323,10 +321,19 @@ fn execute_inline(invocation: &ExecuteInvocation) -> Result<String, String> {
     let stdout_reader = thread::spawn(move || read_pipe(stdout));
     let stderr_reader = thread::spawn(move || read_pipe(stderr));
 
-    match child
-        .wait_timeout(EXECUTE_TIMEOUT)
-        .map_err(|e| format!("Failed to wait for script: {e}"))?
-    {
+    let timeout_opt = crate::settings::Settings::get_script_timeout();
+
+    let wait_result = match timeout_opt {
+        Some(timeout) => child
+            .wait_timeout(timeout)
+            .map_err(|e| format!("Failed to wait for script: {e}")),
+        None => child
+            .wait()
+            .map(Some)
+            .map_err(|e| format!("Failed to wait for script: {e}")),
+    };
+
+    match wait_result? {
         Some(status) => {
             let stdout = join_reader(stdout_reader)?;
             let stderr = join_reader(stderr_reader)?;
@@ -619,7 +626,7 @@ mod tests {
         let output = resolve("exec.silent.bash(sleep 5)").unwrap();
 
         assert_eq!(output, "");
-        assert!(start.elapsed() < Duration::from_secs(2));
+        assert!(start.elapsed() < std::time::Duration::from_secs(2));
     }
 
     #[test]

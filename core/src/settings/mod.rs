@@ -47,6 +47,7 @@ pub struct Settings {
     pub triggerless_mode: bool,
     pub rpc_port: u16,
     pub ignore_fullscreen: bool,
+    pub script_timeout: u32,
 }
 
 impl Settings {
@@ -75,6 +76,7 @@ impl Settings {
             "triggerless_mode" => "triggerless_mode",
             "ignore_fullscreen" => "ignore_fullscreen",
             "rpc_port" | "port" => "rpc_port",
+            "script_timeout" => "script_timeout",
             _ => key,
         }
     }
@@ -92,10 +94,20 @@ impl Settings {
     }
 
     pub const fn sanitize_rpc_port(port: u16) -> u16 {
-        if port < 1024 {
-            Self::default_rpc_port()
+        if port < 1024 { 1024 } else { port }
+    }
+
+    pub fn get_script_timeout() -> Option<std::time::Duration> {
+        if let Ok(conn) = rusqlite::Connection::open(crate::paths::get_db_path()) {
+            let manager = crate::settings::SettingsManager::new(&conn);
+            let timeout = manager.load_all().script_timeout;
+            if timeout == 0 {
+                None
+            } else {
+                Some(std::time::Duration::from_secs(timeout as u64))
+            }
         } else {
-            port
+            Some(std::time::Duration::from_secs(20))
         }
     }
 
@@ -145,7 +157,8 @@ impl Default for Settings {
             action_delimiter: ActionDelimiter::default(),
             triggerless_mode: false,
             rpc_port: Self::default_rpc_port(),
-            ignore_fullscreen: true,
+            ignore_fullscreen: false,
+            script_timeout: 20,
         }
     }
 }
