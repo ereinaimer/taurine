@@ -190,11 +190,11 @@ fn split_key_default(inner: &str) -> (&str, Option<&str>) {
         if bytes[ptr] == TAG_OPEN && !is_escaped(bytes, ptr) {
             depth += 1;
         } else if bytes[ptr] == TAG_CLOSE && !is_escaped(bytes, ptr) {
-            depth -= 1;
+            depth = depth.saturating_sub(1);
         } else if bytes[ptr] == b'(' && !is_escaped(bytes, ptr) {
             paren_depth += 1;
         } else if bytes[ptr] == b')' && !is_escaped(bytes, ptr) {
-            paren_depth -= 1;
+            paren_depth = paren_depth.saturating_sub(1);
         } else if bytes[ptr] == b'=' && depth == 0 && paren_depth == 0 {
             return (
                 trim_slice(&inner[..ptr]),
@@ -936,6 +936,15 @@ mod tests {
 
         #[test]
         fn test_template_syntax_spec_compliance_evaluation() {
+            let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+            let (_dir, _conn) = crate::testing::open_test_db();
+            unsafe {
+                std::env::set_var(
+                    "TAURINE_DB_PATH",
+                    _dir.path().join("test_taurine.db").to_str().unwrap(),
+                );
+            }
+
             // Test Case 1: testvars
             {
                 let mut args = crate::engine::variables::types::ArgMap::default();
