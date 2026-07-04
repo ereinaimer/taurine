@@ -38,6 +38,30 @@ Manage the basic behavior and interaction of the Taurine engine.
   - **Default**: `true`
   - **Values**: `true`, `false`
 </Accordion>
+
+<Accordion title="triggerless_mode">
+  Allows text expansion without requiring the `trigger_char` to precede the trigger word.
+  
+  - **Key**: `triggerless_mode`
+  - **Alias**: `triggerless`
+  - **Default**: `true`
+  - **Values**: `true`, `false`
+</Accordion>
+
+<Accordion title="action_delimiter">
+  Specifies the key used to activate a trigger.
+  
+  - **Key**: `action_delimiter`
+  - **Default**: `enter`
+  - **Values**: `enter`, `space`
+</Accordion>
+
+<Accordion title="script_timeout">
+  Specifies the maximum time (in seconds) a script can run before being terminated.
+  
+  - **Key**: `script_timeout`
+  - **Default**: `15`
+</Accordion>
 </Accordions>
 
 ## User Interface
@@ -59,6 +83,14 @@ Customize how Taurine interacts with your system's UI and notifications.
   
   - **Key**: `pause_notifications_enabled`
   - **Alias**: `notifications`
+  - **Default**: `true`
+  - **Values**: `true`, `false`
+</Accordion>
+
+<Accordion title="ignore_fullscreen">
+  When set to true, disables Taurine's text expansion engine while a fullscreen application (like a game or presentation) is focused.
+  
+  - **Key**: `ignore_fullscreen`
   - **Default**: `true`
   - **Values**: `true`, `false`
 </Accordion>

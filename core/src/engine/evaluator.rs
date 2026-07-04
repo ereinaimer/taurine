@@ -2608,6 +2608,7 @@ mod tests {
     #[test]
     fn inline_ai_capture_exits_on_backtick_then_space_and_hands_prompt_to_stream() {
         let state = Arc::new(EngineState::new('>'));
+        *state.action_delimiter.write().unwrap() = crate::settings::ActionDelimiter::Space;
         let mut eval = Evaluator::new(state.clone());
 
         for c in ">ai ".chars() {
@@ -2647,6 +2648,7 @@ mod tests {
     #[test]
     fn inline_ai_success_path_returns_to_normal_and_allows_later_word_expansion() {
         let state = Arc::new(EngineState::new('>'));
+        *state.action_delimiter.write().unwrap() = crate::settings::ActionDelimiter::Space;
         state.load_actions(vec![(
             "gm".to_string(),
             crate::db::crud::AutomationAction::text("Good morning!"),
@@ -2870,6 +2872,7 @@ mod tests {
     #[test]
     fn inline_ai_capture_keeps_collecting_without_closing_backtick_space() {
         let state = Arc::new(EngineState::new('>'));
+        *state.action_delimiter.write().unwrap() = crate::settings::ActionDelimiter::Space;
         let mut eval = Evaluator::new(state.clone());
 
         for c in ">ai ".chars() {
@@ -2906,6 +2909,7 @@ mod tests {
     fn inline_ai_capture_works_with_custom_delimiter() {
         use std::sync::atomic::Ordering;
         let state = Arc::new(EngineState::new('>'));
+        *state.action_delimiter.write().unwrap() = crate::settings::ActionDelimiter::Space;
         state
             .inline_ai_delimiter
             .store('~' as u32, Ordering::Relaxed);
@@ -2945,6 +2949,7 @@ mod tests {
     #[test]
     fn test_ai_preset_trigger_enters_capture_mode_with_override() {
         let state = Arc::new(EngineState::new('>'));
+        *state.action_delimiter.write().unwrap() = crate::settings::ActionDelimiter::Space;
         state.load_ai_presets(vec![("re".to_string(), "expert editor".to_string())]);
         let mut eval = Evaluator::new(state);
 
@@ -2973,6 +2978,7 @@ mod tests {
     #[test]
     fn test_finishing_ai_preset_capture_preserves_override() {
         let state = Arc::new(EngineState::new('>'));
+        *state.action_delimiter.write().unwrap() = crate::settings::ActionDelimiter::Space;
         state.load_ai_presets(vec![("re".to_string(), "expert editor".to_string())]);
         let mut eval = Evaluator::new(state);
 

@@ -24,8 +24,8 @@ pub enum SpinnerStyle {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ActionDelimiter {
-    #[default]
     Space,
+    #[default]
     Enter,
 }
 
@@ -115,7 +115,7 @@ impl Settings {
                 Some(std::time::Duration::from_secs(timeout as u64))
             }
         } else {
-            Some(std::time::Duration::from_secs(20))
+            Some(std::time::Duration::from_secs(15))
         }
     }
 
@@ -163,10 +163,10 @@ impl Default for Settings {
             inline_ai_delimiter: '`',
             clipboard_restore_delay_ms: Self::default_clipboard_restore_delay_ms(),
             action_delimiter: ActionDelimiter::default(),
-            triggerless_mode: false,
+            triggerless_mode: true,
             rpc_port: Self::default_rpc_port(),
-            ignore_fullscreen: false,
-            script_timeout: 20,
+            ignore_fullscreen: true,
+            script_timeout: 15,
             ai_temperature: None,
             ai_max_tokens: None,
             ai_system_prompt: None,
