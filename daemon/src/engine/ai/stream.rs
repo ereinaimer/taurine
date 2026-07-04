@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use genai::adapter::AdapterKind;
-use genai::chat::{ChatRequest, ChatStreamEvent, Tool};
+use genai::chat::{ChatOptions, ChatRequest, ChatStreamEvent, Tool};
 use genai::resolver::AuthData;
 use genai::{Client, ModelIden, ServiceTarget};
 use serde_json::json;
@@ -164,7 +164,7 @@ async fn evaluate_marker_tree(
                         format!("{prompt}:\n\n{input}")
                     };
 
-                    let chat_request = build_chat_request(provider, &user_message, None);
+                    let chat_request = build_chat_request(provider, &user_message, None, None);
                     let exec_future = client.exec_chat_stream(model, chat_request, None);
                     match tokio::time::timeout(Duration::from_secs(30), exec_future).await {
                         Ok(Ok(mut chat_stream)) => {
@@ -348,10 +348,23 @@ async fn run_inline_ai_stream_inner(
         resolved.secret.as_str(),
         resolved.custom_endpoint,
     );
-    let chat_request =
-        build_chat_request(resolved.provider, prompt.as_str(), system_prompt_override);
+    let chat_request = build_chat_request(
+        resolved.provider,
+        prompt.as_str(),
+        system_prompt_override,
+        resolved.system_prompt,
+    );
 
-    let chat_stream_future = client.exec_chat_stream(resolved.model.as_str(), chat_request, None);
+    let mut chat_options = ChatOptions::default();
+    if let Some(temperature) = resolved.temperature {
+        chat_options = chat_options.with_temperature(temperature as f64);
+    }
+    if let Some(max_tokens) = resolved.max_tokens {
+        chat_options = chat_options.with_max_tokens(max_tokens);
+    }
+
+    let chat_stream_future =
+        client.exec_chat_stream(resolved.model.as_str(), chat_request, Some(&chat_options));
     tokio::pin!(chat_stream_future);
 
     let mut chat_stream = loop {
@@ -447,6 +460,9 @@ struct ResolvedInlineAiRequest {
     model: String,
     secret: String,
     custom_endpoint: Option<String>,
+    temperature: Option<f32>,
+    max_tokens: Option<u32>,
+    system_prompt: Option<String>,
 }
 
 fn resolve_inline_ai_request<S>(store: &S) -> taurine_core::error::Result<ResolvedInlineAiRequest>
@@ -474,6 +490,9 @@ where
         model,
         secret,
         custom_endpoint: settings.ai_custom_endpoint,
+        temperature: settings.ai_temperature,
+        max_tokens: settings.ai_max_tokens,
+        system_prompt: settings.ai_system_prompt,
     })
 }
 
@@ -506,12 +525,15 @@ fn build_chat_client(
 fn build_chat_request(
     provider: AiProvider,
     prompt: &str,
-    system_prompt_override: Option<String>,
+    snippet_prompt_override: Option<String>,
+    user_system_prompt: Option<String>,
 ) -> ChatRequest {
-    let system_prompt = if let Some(prompt_override) = system_prompt_override {
-        format!("{}\n\n{}", prompt_override, IMMUTABLE_FORMAT_RULE)
+    let base_prompt = user_system_prompt.unwrap_or_else(|| IMMUTABLE_FORMAT_RULE.to_string());
+
+    let system_prompt = if let Some(prompt_override) = snippet_prompt_override {
+        format!("{}\n\n{}", prompt_override, base_prompt)
     } else {
-        IMMUTABLE_FORMAT_RULE.to_string()
+        base_prompt
     };
 
     let request = ChatRequest::from_user(prompt).with_system(system_prompt);
@@ -805,7 +827,7 @@ mod tests {
 
     #[test]
     fn chat_request_uses_inline_system_prompt_and_gemini_search_only() {
-        let gemini = build_chat_request(AiProvider::Gemini, "latest rust release", None);
+        let gemini = build_chat_request(AiProvider::Gemini, "latest rust release", None, None);
         assert_eq!(gemini.system.as_deref(), Some(IMMUTABLE_FORMAT_RULE));
         assert_eq!(gemini.tools.as_ref().map(|tools| tools.len()), Some(1));
         assert_eq!(
@@ -813,7 +835,7 @@ mod tests {
             genai::chat::ToolName::Custom("googleSearch".to_string())
         );
 
-        let openai = build_chat_request(AiProvider::Openai, "latest rust release", None);
+        let openai = build_chat_request(AiProvider::Openai, "latest rust release", None, None);
         assert_eq!(openai.system.as_deref(), Some(IMMUTABLE_FORMAT_RULE));
         assert!(openai.tools.is_none());
     }

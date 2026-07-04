@@ -54,6 +54,18 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
         render_optional_setting(settings.ai_model.as_deref()),
     ]);
     table.add_row(vec![
+        "ai_temperature",
+        render_optional_setting(settings.ai_temperature.map(|v| v.to_string()).as_deref()),
+    ]);
+    table.add_row(vec![
+        "ai_max_tokens",
+        render_optional_setting(settings.ai_max_tokens.map(|v| v.to_string()).as_deref()),
+    ]);
+    table.add_row(vec![
+        "ai_system_prompt",
+        render_optional_setting(settings.ai_system_prompt.as_deref()),
+    ]);
+    table.add_row(vec![
         "ai_custom_endpoint",
         render_optional_setting(settings.ai_custom_endpoint.as_deref()),
     ]);
@@ -203,6 +215,30 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
                 parsed
             );
         }
+        "ai_temperature" => {
+            let parsed = value.parse::<f32>().map_err(|_| {
+                taurine_core::error::Error::Config(format!("Invalid temperature value: {}", value))
+            })?;
+            manager.update_setting(actual_key, Some(parsed))?;
+            info!("Updated ai_temperature to: {}", parsed);
+        }
+        "ai_max_tokens" => {
+            let parsed = value.parse::<u32>().map_err(|_| {
+                taurine_core::error::Error::Config(format!("Invalid max tokens value: {}", value))
+            })?;
+            manager.update_setting(actual_key, Some(parsed))?;
+            info!("Updated ai_max_tokens to: {}", parsed);
+        }
+        "ai_system_prompt" => {
+            let val = value.trim();
+            if val.is_empty() {
+                manager.update_setting(actual_key, None as Option<String>)?;
+                info!("Cleared ai_system_prompt");
+            } else {
+                manager.update_setting(actual_key, Some(val.to_string()))?;
+                info!("Updated ai_system_prompt to: {}", val);
+            }
+        }
         _ => {
             warn!("Unknown setting key: {}", key);
             return Ok(());
@@ -304,6 +340,18 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
             manager.update_setting(actual_key, defaults.ai_model.clone())?;
             info!("Reset ai_model to default: <unset>");
         }
+        "ai_temperature" => {
+            manager.update_setting(actual_key, defaults.ai_temperature)?;
+            info!("Reset ai_temperature to default: <unset>");
+        }
+        "ai_max_tokens" => {
+            manager.update_setting(actual_key, defaults.ai_max_tokens)?;
+            info!("Reset ai_max_tokens to default: <unset>");
+        }
+        "ai_system_prompt" => {
+            manager.update_setting(actual_key, defaults.ai_system_prompt.clone())?;
+            info!("Reset ai_system_prompt to default: <unset>");
+        }
         "ai_custom_endpoint" => {
             manager.update_setting(actual_key, defaults.ai_custom_endpoint.clone())?;
             info!("Reset ai_custom_endpoint to default: <unset>");
@@ -370,6 +418,9 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
     manager.update_setting("action_delimiter", defaults.action_delimiter)?;
     manager.update_setting("ignore_fullscreen", defaults.ignore_fullscreen)?;
     manager.update_setting("script_timeout", defaults.script_timeout)?;
+    manager.update_setting("ai_temperature", defaults.ai_temperature)?;
+    manager.update_setting("ai_max_tokens", defaults.ai_max_tokens)?;
+    manager.update_setting("ai_system_prompt", defaults.ai_system_prompt.clone())?;
     manager.update_setting("triggerless_mode", defaults.triggerless_mode)?;
     manager.update_setting("rpc_port", defaults.rpc_port)?;
 

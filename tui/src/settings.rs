@@ -28,10 +28,13 @@ pub(crate) enum SettingKey {
     IgnoreFullscreen,
     RpcPort,
     ScriptTimeout,
+    AiTemperature,
+    AiMaxTokens,
+    AiSystemPrompt,
 }
 
 impl SettingKey {
-    pub(crate) const ALL: [Self; 19] = [
+    pub(crate) const ALL: [Self; 22] = [
         Self::TriggerChar,
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
@@ -51,6 +54,9 @@ impl SettingKey {
         Self::IgnoreFullscreen,
         Self::RpcPort,
         Self::ScriptTimeout,
+        Self::AiTemperature,
+        Self::AiMaxTokens,
+        Self::AiSystemPrompt,
     ];
 
     pub(crate) const fn storage_key(self) -> &'static str {
@@ -74,6 +80,9 @@ impl SettingKey {
             Self::IgnoreFullscreen => "ignore_fullscreen",
             Self::RpcPort => "rpc_port",
             Self::ScriptTimeout => "script_timeout",
+            Self::AiTemperature => "ai_temperature",
+            Self::AiMaxTokens => "ai_max_tokens",
+            Self::AiSystemPrompt => "ai_system_prompt",
         }
     }
 
@@ -95,9 +104,12 @@ impl SettingKey {
             Self::ClipboardRestoreDelayMs => "Clipboard Restore Delay (ms)",
             Self::ActionDelimiter => "Action Delimiter",
             Self::TriggerlessMode => "Triggerless Mode",
-            Self::IgnoreFullscreen => "Ignore Fullscreen Apps",
-            Self::RpcPort => "RPC Port",
-            Self::ScriptTimeout => "Script Timeout",
+            Self::IgnoreFullscreen => "Ignore Fullscreen on Windows",
+            Self::RpcPort => "Daemon RPC Port",
+            Self::ScriptTimeout => "Script Execution Timeout",
+            Self::AiTemperature => "AI Temperature",
+            Self::AiMaxTokens => "AI Max Tokens",
+            Self::AiSystemPrompt => "AI System Prompt",
         }
     }
 
@@ -138,6 +150,9 @@ impl SettingKey {
             Self::ScriptTimeout => {
                 "Maximum script execution time before termination (0 for infinite)"
             }
+            Self::AiTemperature => "Controls randomness (0.0 for deterministic, 1.0 for creative).",
+            Self::AiMaxTokens => "The maximum number of tokens to generate in the completion.",
+            Self::AiSystemPrompt => "Overrides the default immutable system instructions.",
         }
     }
 
@@ -150,13 +165,17 @@ impl SettingKey {
             | Self::InlineHistoryEnabled
             | Self::TriggerlessMode
             | Self::IgnoreFullscreen => EditorKind::Toggle,
-            Self::Wpm | Self::ClipboardRestoreDelayMs | Self::RpcPort | Self::ScriptTimeout => {
-                EditorKind::NumberInput
-            }
+            Self::Wpm
+            | Self::ClipboardRestoreDelayMs
+            | Self::RpcPort
+            | Self::ScriptTimeout
+            | Self::AiMaxTokens => EditorKind::NumberInput,
             Self::SpinnerStyle => EditorKind::SpinnerSelect,
             Self::ActionDelimiter => EditorKind::ActionDelimiterSelect,
             Self::AiProvider => EditorKind::AiProviderSelect,
-            Self::AiCustomEndpoint => EditorKind::OptionalTextInput,
+            Self::AiCustomEndpoint | Self::AiTemperature | Self::AiSystemPrompt => {
+                EditorKind::OptionalTextInput
+            }
             Self::TriggerChar | Self::InlineAiDelimiter => EditorKind::SingleCharInput,
             Self::PauseHotkey | Self::AiModel => EditorKind::TextInput,
         }
@@ -185,6 +204,17 @@ impl SettingKey {
             Self::IgnoreFullscreen => settings.ignore_fullscreen.to_string(),
             Self::RpcPort => settings.rpc_port.to_string(),
             Self::ScriptTimeout => settings.script_timeout.to_string(),
+            Self::AiTemperature => {
+                optional_value_label(settings.ai_temperature.map(|v| v.to_string()).as_deref())
+                    .to_string()
+            }
+            Self::AiMaxTokens => {
+                optional_value_label(settings.ai_max_tokens.map(|v| v.to_string()).as_deref())
+                    .to_string()
+            }
+            Self::AiSystemPrompt => {
+                optional_value_label(settings.ai_system_prompt.as_deref()).to_string()
+            }
         }
     }
 
@@ -209,6 +239,17 @@ impl SettingKey {
             | Self::ClipboardRestoreDelayMs
             | Self::RpcPort
             | Self::ScriptTimeout => self.display_value(settings),
+            Self::AiTemperature => {
+                optional_value_label(settings.ai_temperature.map(|v| v.to_string()).as_deref())
+                    .to_string()
+            }
+            Self::AiMaxTokens => {
+                optional_value_label(settings.ai_max_tokens.map(|v| v.to_string()).as_deref())
+                    .to_string()
+            }
+            Self::AiSystemPrompt => {
+                optional_value_label(settings.ai_system_prompt.as_deref()).to_string()
+            }
         }
     }
 }
@@ -225,7 +266,7 @@ pub(crate) enum EditorKind {
     AiProviderSelect,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct SettingsPageState {
     settings: Settings,
     selected: usize,
@@ -758,7 +799,7 @@ mod tests {
 
     #[test]
     fn every_setting_has_a_descriptor() {
-        assert_eq!(SettingKey::ALL.len(), 19);
+        assert_eq!(SettingKey::ALL.len(), 22);
     }
 
     #[test]

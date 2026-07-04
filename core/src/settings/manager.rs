@@ -133,6 +133,24 @@ impl<'a> SettingsManager<'a> {
             settings.script_timeout = v;
         }
 
+        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_temperature")
+            && let Ok(v) = serde_json::from_str::<Option<f32>>(&val)
+        {
+            settings.ai_temperature = v;
+        }
+
+        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_max_tokens")
+            && let Ok(v) = serde_json::from_str::<Option<u32>>(&val)
+        {
+            settings.ai_max_tokens = v;
+        }
+
+        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_system_prompt")
+            && let Ok(v) = serde_json::from_str::<Option<String>>(&val)
+        {
+            settings.ai_system_prompt = v;
+        }
+
         settings
     }
 

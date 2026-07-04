@@ -66,6 +66,9 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "ignore_fullscreen" => Ok(Some(defaults.ignore_fullscreen.to_string())),
         "rpc_port" => Ok(Some(defaults.rpc_port.to_string())),
         "script_timeout" => Ok(Some(defaults.script_timeout.to_string())),
+        "ai_temperature" => Ok(defaults.ai_temperature.map(|v| v.to_string())),
+        "ai_max_tokens" => Ok(defaults.ai_max_tokens.map(|v| v.to_string())),
+        "ai_system_prompt" => Ok(defaults.ai_system_prompt),
         _ => Err(Error::Config(format!("Unknown setting key: {actual_key}"))),
     }
 }
@@ -188,6 +191,38 @@ pub fn apply_setting_input_with_manager(
             let parsed = raw_value
                 .parse::<u32>()
                 .map_err(|_| Error::Config(format!("Invalid timeout value: {raw_value}")))?;
+            manager.update_setting(actual_key, parsed)?;
+            ApplySettingOutcome::default()
+        }
+        "ai_temperature" => {
+            let parsed = match value {
+                Some(v) if !v.trim().is_empty() => Some(
+                    v.trim()
+                        .parse::<f32>()
+                        .map_err(|_| Error::Config(format!("Invalid temperature value: {v}")))?,
+                ),
+                _ => None,
+            };
+            manager.update_setting(actual_key, parsed)?;
+            ApplySettingOutcome::default()
+        }
+        "ai_max_tokens" => {
+            let parsed = match value {
+                Some(v) if !v.trim().is_empty() => Some(
+                    v.trim()
+                        .parse::<u32>()
+                        .map_err(|_| Error::Config(format!("Invalid max tokens value: {v}")))?,
+                ),
+                _ => None,
+            };
+            manager.update_setting(actual_key, parsed)?;
+            ApplySettingOutcome::default()
+        }
+        "ai_system_prompt" => {
+            let parsed = match value {
+                Some(v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+                _ => None,
+            };
             manager.update_setting(actual_key, parsed)?;
             ApplySettingOutcome::default()
         }

@@ -27,7 +27,7 @@ pub enum ActionDelimiter {
     Enter,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Settings {
     pub trigger_char: char,
     pub pause_hotkey: String,
@@ -48,6 +48,9 @@ pub struct Settings {
     pub rpc_port: u16,
     pub ignore_fullscreen: bool,
     pub script_timeout: u32,
+    pub ai_temperature: Option<f32>,
+    pub ai_max_tokens: Option<u32>,
+    pub ai_system_prompt: Option<String>,
 }
 
 impl Settings {
@@ -77,6 +80,9 @@ impl Settings {
             "ignore_fullscreen" => "ignore_fullscreen",
             "rpc_port" | "port" => "rpc_port",
             "script_timeout" => "script_timeout",
+            "ai_temperature" | "temperature" => "ai_temperature",
+            "ai_max_tokens" | "max_tokens" => "ai_max_tokens",
+            "ai_system_prompt" | "system_prompt" => "ai_system_prompt",
             _ => key,
         }
     }
@@ -159,6 +165,9 @@ impl Default for Settings {
             rpc_port: Self::default_rpc_port(),
             ignore_fullscreen: false,
             script_timeout: 20,
+            ai_temperature: None,
+            ai_max_tokens: None,
+            ai_system_prompt: None,
         }
     }
 }
