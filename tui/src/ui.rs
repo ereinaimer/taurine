@@ -1529,17 +1529,18 @@ fn render_settings_content(frame: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
-    let spacious = use_spacious_settings_layout(list_area.height, SettingKey::ALL.len(), 0);
+    let all_keys = settings_page.visible_keys();
+    let spacious = use_spacious_settings_layout(list_area.height, all_keys.len(), 0);
     let row_height = if spacious { 2 } else { 1 };
     let visible_count = usize::from((list_area.height / row_height).max(1));
     let (start, end) = visible_setting_range(
-        SettingKey::ALL.len(),
+        all_keys.len(),
         settings_page.selected_index(),
         visible_count,
     );
     let control_width = control_column_width(settings_page.settings(), list_area.width);
 
-    for (visible_index, key) in SettingKey::ALL[start..end].iter().enumerate() {
+    for (visible_index, key) in all_keys[start..end].iter().enumerate() {
         let row_area = Rect {
             x: list_area.x,
             y: list_area.y + (visible_index as u16 * row_height),
