@@ -64,6 +64,7 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         })),
         "triggerless_mode" => Ok(Some(defaults.triggerless_mode.to_string())),
         "ignore_fullscreen" => Ok(Some(defaults.ignore_fullscreen.to_string())),
+        "rpc_port" => Ok(Some(defaults.rpc_port.to_string())),
         _ => Err(Error::Config(format!("Unknown setting key: {actual_key}"))),
     }
 }
@@ -166,6 +167,19 @@ pub fn apply_setting_input_with_manager(
                 actual_key,
                 parse_boolean_setting_value(require_non_empty(value, actual_key)?)?,
             )?;
+            ApplySettingOutcome::default()
+        }
+        "rpc_port" => {
+            let raw_value = require_non_empty(value, actual_key)?;
+            let parsed = raw_value
+                .parse::<u16>()
+                .map_err(|_| Error::Config(format!("Invalid port value: {raw_value}")))?;
+            if parsed < 1024 {
+                return Err(Error::Config(format!(
+                    "Invalid port value: {raw_value}. Must be between 1024 and 65535"
+                )));
+            }
+            manager.update_setting(actual_key, parsed)?;
             ApplySettingOutcome::default()
         }
         _ => {

@@ -1141,10 +1141,10 @@ mod tests {
             {
                 let conn = rusqlite::Connection::open(crate::paths::get_db_path()).unwrap();
                 conn.execute(
-                    "INSERT OR REPLACE INTO automations (id, trigger, output, action_type, target_os, name, tags, is_deleted)
-                     VALUES ('test_inner_id', 'testinner', 'Hello from the inner snippet!', 'text', 'all', 'testinner', '[]', 0)",
+                    "INSERT OR REPLACE INTO automations (id, trigger, output, action_type, target_os, name, tags, is_deleted, created_at, updated_at)
+                     VALUES ('test_inner_id', 'testinner', 'Hello from the inner snippet!', 'text', 'all', 'testinner', '[]', 0, 1719878400, 1719878400)",
                     []
-                ).ok();
+                ).unwrap();
 
                 let res =
                     evaluate_template("Output: [use('testinner') | upper] | Date: [date]", None);
@@ -1154,6 +1154,7 @@ mod tests {
 
                 assert_eq!(res.steps.len(), 1);
                 if let ExpansionStep::Text(ref text) = res.steps[0] {
+                    println!("ACTUAL TEXT: {}", text);
                     assert!(text.contains("Output: HELLO FROM THE INNER SNIPPET! | Date: "));
                 } else {
                     panic!("Expected Text step");

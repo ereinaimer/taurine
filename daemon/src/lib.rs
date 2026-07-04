@@ -175,7 +175,7 @@ pub fn start() -> taurine_core::error::Result<()> {
 
     rt.block_on(async {
         let (tx, mut rx) = mpsc::channel(1);
-        let addr: SocketAddr = taurine_core::rpc::DEFAULT_RPC_ADDR_RAW.parse().unwrap();
+        let addr = SocketAddr::from(([127, 0, 0, 1], settings.rpc_port));
         let daemon_service = DaemonService::new(
             tx,
             state.clone(),

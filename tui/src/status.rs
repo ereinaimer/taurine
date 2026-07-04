@@ -1,9 +1,7 @@
 use std::time::Duration;
 
 use ratatui::style::{Color, Style};
-use taurine_core::rpc::{
-    DEFAULT_RPC_URL, StatusRequest, daemon_control_client::DaemonControlClient,
-};
+use taurine_core::rpc::{StatusRequest, daemon_control_client::DaemonControlClient, get_rpc_url};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum DaemonStatus {
@@ -65,7 +63,7 @@ pub(crate) fn probe_daemon_status() -> DaemonStatus {
 
     runtime.block_on(async {
         tokio::time::timeout(Duration::from_millis(250), async {
-            let Ok(mut client) = DaemonControlClient::connect(DEFAULT_RPC_URL).await else {
+            let Ok(mut client) = DaemonControlClient::connect(get_rpc_url()).await else {
                 return None;
             };
             let Ok(response) = client

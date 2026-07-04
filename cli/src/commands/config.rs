@@ -73,6 +73,7 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
         "triggerless_mode",
         &settings.triggerless_mode.to_string(),
     ]);
+    table.add_row(vec!["rpc_port", &settings.rpc_port.to_string()]);
 
     println!("{}", table);
 
@@ -183,6 +184,23 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
             } else {
                 warn!("Invalid delimiter character provided.");
             }
+        }
+        "rpc_port" => {
+            let parsed = value.parse::<u16>().map_err(|_| {
+                taurine_core::error::Error::Config(format!("Invalid port value: {}", value))
+            })?;
+            if parsed < 1024 {
+                warn!(
+                    "Invalid port value: {}. Must be between 1024 and 65535",
+                    parsed
+                );
+                return Ok(());
+            }
+            manager.update_setting(actual_key, parsed)?;
+            info!(
+                "Updated rpc_port to: {}. Note: please restart the Taurine daemon for this to take effect.",
+                parsed
+            );
         }
         _ => {
             warn!("Unknown setting key: {}", key);
@@ -296,6 +314,13 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
                 defaults.inline_ai_delimiter
             );
         }
+        "rpc_port" => {
+            manager.update_setting(actual_key, defaults.rpc_port)?;
+            info!(
+                "Reset rpc_port to default: {}. Note: please restart the Taurine daemon for this to take effect.",
+                defaults.rpc_port
+            );
+        }
         _ => {
             warn!("Unknown setting key: {}", key);
             return Ok(());
@@ -336,6 +361,7 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
     )?;
     manager.update_setting("action_delimiter", defaults.action_delimiter)?;
     manager.update_setting("triggerless_mode", defaults.triggerless_mode)?;
+    manager.update_setting("rpc_port", defaults.rpc_port)?;
 
     info!("All settings have been reset to factory defaults.");
 

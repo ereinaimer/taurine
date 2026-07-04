@@ -26,10 +26,11 @@ pub(crate) enum SettingKey {
     ActionDelimiter,
     TriggerlessMode,
     IgnoreFullscreen,
+    RpcPort,
 }
 
 impl SettingKey {
-    pub(crate) const ALL: [Self; 17] = [
+    pub(crate) const ALL: [Self; 18] = [
         Self::TriggerChar,
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
@@ -47,6 +48,7 @@ impl SettingKey {
         Self::ActionDelimiter,
         Self::TriggerlessMode,
         Self::IgnoreFullscreen,
+        Self::RpcPort,
     ];
 
     pub(crate) const fn storage_key(self) -> &'static str {
@@ -68,6 +70,7 @@ impl SettingKey {
             Self::ActionDelimiter => "action_delimiter",
             Self::TriggerlessMode => "triggerless_mode",
             Self::IgnoreFullscreen => "ignore_fullscreen",
+            Self::RpcPort => "rpc_port",
         }
     }
 
@@ -90,6 +93,7 @@ impl SettingKey {
             Self::ActionDelimiter => "Action Delimiter",
             Self::TriggerlessMode => "Triggerless Mode",
             Self::IgnoreFullscreen => "Ignore Fullscreen Apps",
+            Self::RpcPort => "RPC Port",
         }
     }
 
@@ -126,6 +130,7 @@ impl SettingKey {
             Self::IgnoreFullscreen => {
                 "Pause macro evaluation when running a full-screen application (e.g. games)"
             }
+            Self::RpcPort => "The network port the gRPC RPC server listens on (1024-65535)",
         }
     }
 
@@ -138,7 +143,7 @@ impl SettingKey {
             | Self::InlineHistoryEnabled
             | Self::TriggerlessMode
             | Self::IgnoreFullscreen => EditorKind::Toggle,
-            Self::Wpm | Self::ClipboardRestoreDelayMs => EditorKind::NumberInput,
+            Self::Wpm | Self::ClipboardRestoreDelayMs | Self::RpcPort => EditorKind::NumberInput,
             Self::SpinnerStyle => EditorKind::SpinnerSelect,
             Self::ActionDelimiter => EditorKind::ActionDelimiterSelect,
             Self::AiProvider => EditorKind::AiProviderSelect,
@@ -169,6 +174,7 @@ impl SettingKey {
             Self::ActionDelimiter => format!("{:?}", settings.action_delimiter).to_lowercase(),
             Self::TriggerlessMode => settings.triggerless_mode.to_string(),
             Self::IgnoreFullscreen => settings.ignore_fullscreen.to_string(),
+            Self::RpcPort => settings.rpc_port.to_string(),
         }
     }
 
@@ -190,7 +196,8 @@ impl SettingKey {
             | Self::IgnoreFullscreen
             | Self::SpinnerStyle
             | Self::ActionDelimiter
-            | Self::ClipboardRestoreDelayMs => self.display_value(settings),
+            | Self::ClipboardRestoreDelayMs
+            | Self::RpcPort => self.display_value(settings),
         }
     }
 }
@@ -740,7 +747,7 @@ mod tests {
 
     #[test]
     fn every_setting_has_a_descriptor() {
-        assert_eq!(SettingKey::ALL.len(), 17);
+        assert_eq!(SettingKey::ALL.len(), 18);
     }
 
     #[test]

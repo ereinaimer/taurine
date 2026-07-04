@@ -121,6 +121,12 @@ impl<'a> SettingsManager<'a> {
             settings.ignore_fullscreen = v;
         }
 
+        if let Ok(Some(val)) = get_setting_value(self.conn, "rpc_port")
+            && let Ok(v) = serde_json::from_str::<u16>(&val)
+        {
+            settings.rpc_port = Settings::sanitize_rpc_port(v);
+        }
+
         settings
     }
 

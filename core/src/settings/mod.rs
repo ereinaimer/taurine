@@ -45,6 +45,7 @@ pub struct Settings {
     pub clipboard_restore_delay_ms: u32,
     pub action_delimiter: ActionDelimiter,
     pub triggerless_mode: bool,
+    pub rpc_port: u16,
     pub ignore_fullscreen: bool,
 }
 
@@ -73,6 +74,7 @@ impl Settings {
             "triggerless" => "triggerless_mode",
             "triggerless_mode" => "triggerless_mode",
             "ignore_fullscreen" => "ignore_fullscreen",
+            "rpc_port" | "port" => "rpc_port",
             _ => key,
         }
     }
@@ -83,6 +85,18 @@ impl Settings {
 
     pub const fn sanitize_wpm(wpm: u32) -> u32 {
         if wpm == 0 { Self::default_wpm() } else { wpm }
+    }
+
+    pub const fn default_rpc_port() -> u16 {
+        50051
+    }
+
+    pub const fn sanitize_rpc_port(port: u16) -> u16 {
+        if port < 1024 {
+            Self::default_rpc_port()
+        } else {
+            port
+        }
     }
 
     pub fn default_clipboard_restore_delay_ms() -> u32 {
@@ -130,6 +144,7 @@ impl Default for Settings {
             clipboard_restore_delay_ms: Self::default_clipboard_restore_delay_ms(),
             action_delimiter: ActionDelimiter::default(),
             triggerless_mode: false,
+            rpc_port: Self::default_rpc_port(),
             ignore_fullscreen: true,
         }
     }

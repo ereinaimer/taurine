@@ -5,6 +5,19 @@ pub const DEFAULT_RPC_PORT: u16 = 50051;
 pub const DEFAULT_RPC_ADDR_RAW: &str = "127.0.0.1:50051";
 pub const DEFAULT_RPC_URL: &str = "http://127.0.0.1:50051";
 
+pub fn get_rpc_port() -> u16 {
+    if let Ok(conn) = rusqlite::Connection::open(crate::paths::get_db_path()) {
+        let manager = crate::settings::SettingsManager::new(&conn);
+        manager.load_all().rpc_port
+    } else {
+        DEFAULT_RPC_PORT
+    }
+}
+
+pub fn get_rpc_url() -> String {
+    format!("http://127.0.0.1:{}", get_rpc_port())
+}
+
 pub fn notify_daemon_reload() {
     tracing::debug!("Dispatching Reload instruction to daemon...");
 
@@ -12,7 +25,7 @@ pub fn notify_daemon_reload() {
         rt.block_on(async {
             use daemon_control_client::DaemonControlClient;
 
-            match DaemonControlClient::connect(DEFAULT_RPC_URL).await {
+            match DaemonControlClient::connect(get_rpc_url()).await {
                 Ok(mut client) => {
                     let req = tonic::Request::new(ReloadRequest {});
                     if let Err(e) = client.reload(req).await {
