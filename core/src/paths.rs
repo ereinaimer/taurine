@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn test_db_env_override() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         crate::testing::init_tracing_for_tests();
         // Skip this test via an env var override
         if env::var("TAURINE_SKIP_DB_ENV_OVERRIDE_TEST").unwrap_or_default() == "true" {
@@ -144,7 +144,7 @@ mod tests {
 
     #[test]
     fn test_data_dir_env_override() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         crate::testing::init_tracing_for_tests();
         let test_dir = "some/custom/app_dir";
         unsafe { env::set_var("TAURINE_DATA_DIR", test_dir) };
@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_default_desktop_path_resolution() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         crate::testing::init_tracing_for_tests();
         // Skip this test via an env var override
         if env::var("TAURINE_SKIP_DEFAULT_PATH_RESOLUTION_TEST").unwrap_or_default() == "true" {
@@ -166,8 +166,16 @@ mod tests {
 
         #[cfg(not(target_os = "android"))]
         {
-            let backup_env = env::var("TAURINE_DB_PATH").ok();
-            unsafe { env::remove_var("TAURINE_DB_PATH") };
+            if directories::BaseDirs::new().is_none() {
+                return;
+            }
+
+            let backup_db = env::var("TAURINE_DB_PATH").ok();
+            let backup_data = env::var("TAURINE_DATA_DIR").ok();
+            unsafe {
+                env::remove_var("TAURINE_DB_PATH");
+                env::remove_var("TAURINE_DATA_DIR");
+            };
 
             let db_path = get_db_path();
             let data_dir = get_data_dir();
@@ -181,15 +189,20 @@ mod tests {
             #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "android")))]
             assert!(data_dir.ends_with("taurine"));
 
-            if let Some(val) = backup_env {
-                unsafe { env::set_var("TAURINE_DB_PATH", val) };
+            unsafe {
+                if let Some(val) = backup_db {
+                    env::set_var("TAURINE_DB_PATH", val);
+                }
+                if let Some(val) = backup_data {
+                    env::set_var("TAURINE_DATA_DIR", val);
+                }
             }
         }
     }
 
     #[test]
     fn test_startup_exe_path_creation() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         crate::testing::init_tracing_for_tests();
 
         let test_dir = std::env::temp_dir().join("taurine_exe_test");

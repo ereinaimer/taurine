@@ -313,7 +313,9 @@ mod tests {
 
     #[test]
     fn test_startup_launcher_lifecycle() {
-        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let _guard = crate::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         crate::logs::init_tracing_for_tests();
         let test_dir = std::env::temp_dir().join("taurine_exe_lifecycle_test");
         unsafe { std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
