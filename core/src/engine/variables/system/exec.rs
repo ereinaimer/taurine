@@ -49,7 +49,9 @@ pub(crate) fn parse_invocation(key: &str) -> Result<ExecuteInvocation, ExecutePa
             if subject.is_some() {
                 return Err(ExecuteParseError::InvalidTrailingSyntax);
             }
-            subject = Some(file_subj);
+            subject = Some(
+                crate::engine::variables::system::strip_argument_quotes(&file_subj).to_string(),
+            );
             file = true;
             rest = trailing;
         } else if let Some((lang, suffix)) = parse_language_only(rest) {
@@ -60,7 +62,10 @@ pub(crate) fn parse_invocation(key: &str) -> Result<ExecuteInvocation, ExecutePa
                 if subject.is_some() {
                     return Err(ExecuteParseError::InvalidTrailingSyntax);
                 }
-                subject = Some(inline_subj);
+                subject = Some(
+                    crate::engine::variables::system::strip_argument_quotes(&inline_subj)
+                        .to_string(),
+                );
                 file = false;
                 rest = trailing;
             }
@@ -196,7 +201,7 @@ fn split_args(input: &str) -> Vec<String> {
 }
 
 fn push_arg(args: &mut Vec<String>, raw: &str) {
-    let trimmed = raw.trim();
+    let trimmed = crate::engine::variables::system::strip_argument_quotes(raw);
     if !trimmed.is_empty() {
         args.push(trimmed.to_string());
     }

@@ -138,7 +138,7 @@ fn split_args(input: &str) -> Vec<String> {
 }
 
 fn push_arg(args: &mut Vec<String>, raw: &str) {
-    let trimmed = raw.trim();
+    let trimmed = crate::engine::variables::system::strip_argument_quotes(raw);
     if !trimmed.is_empty() {
         args.push(trimmed.to_string());
     }
@@ -192,6 +192,17 @@ mod tests {
         );
         assert_eq!(
             parse_invocation("random.int(1, 2)").unwrap(),
+            RandomInvocation {
+                variant: "int".to_string(),
+                args: vec!["1".to_string(), "2".to_string()],
+            }
+        );
+    }
+
+    #[test]
+    fn parses_quoted_arguments() {
+        assert_eq!(
+            parse_invocation("random.int(\"1\", '2')").unwrap(),
             RandomInvocation {
                 variant: "int".to_string(),
                 args: vec!["1".to_string(), "2".to_string()],

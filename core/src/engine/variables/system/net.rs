@@ -20,7 +20,9 @@ pub fn resolve(key: &str) -> Option<String> {
     } else if modifier.starts_with("port(") {
         let rest = modifier.strip_prefix("port(")?;
         let port_str = rest.strip_suffix(')')?;
-        resolve_port(port_str)
+        resolve_port(crate::engine::variables::system::strip_argument_quotes(
+            port_str,
+        ))
     } else {
         None
     }

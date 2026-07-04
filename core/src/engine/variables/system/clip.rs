@@ -82,6 +82,8 @@ fn parse_clip_key(key: &str) -> Option<ClipKey> {
         .strip_prefix("clip(")
         .and_then(|rest| rest.strip_suffix(')'))?;
 
+    let inner = crate::engine::variables::system::strip_argument_quotes(inner);
+
     // Malformed arguments stay literal at the interpolation layer instead of panicking or
     // accidentally flowing into transformer fallback paths.
     match inner.parse::<usize>() {

@@ -131,6 +131,11 @@ pub fn strip_quotes(s: &str) -> Option<&str> {
     None
 }
 
+pub fn strip_argument_quotes(arg: &str) -> &str {
+    let trimmed = arg.trim();
+    strip_quotes(trimmed).unwrap_or(trimmed)
+}
+
 /// Performs final post-processing on the interpolated string.
 ///
 /// All directives (`[key.*]`, `[delay.*]`, `[cursor]`) are resolved into
@@ -275,13 +280,13 @@ fn append_unescaped_segment(segment: &str, output: &mut String) {
 fn parse_key_directive(inner: &str) -> Option<&str> {
     let rest = inner.strip_prefix("key(")?;
     let alias = rest.strip_suffix(')')?;
-    Some(alias)
+    Some(strip_argument_quotes(alias))
 }
 
 fn parse_delay_directive(inner: &str) -> Option<u64> {
     let rest = inner.strip_prefix("delay(")?;
     let delay_str = rest.strip_suffix(')')?;
-    parse_delay_ms(delay_str)
+    parse_delay_ms(strip_argument_quotes(delay_str))
 }
 
 fn parse_mouse_directive(inner: &str) -> Option<ExpansionStep> {
@@ -299,15 +304,15 @@ fn parse_mouse_directive(inner: &str) -> Option<ExpansionStep> {
         let args = rest.strip_suffix(')')?;
         let parts: Vec<&str> = args.split(',').collect();
         if parts.len() == 2 {
-            let x = parts[0].trim().parse().ok()?;
-            let y = parts[1].trim().parse().ok()?;
+            let x = strip_argument_quotes(parts[0]).parse().ok()?;
+            let y = strip_argument_quotes(parts[1]).parse().ok()?;
             Some(ExpansionStep::MouseMove(x, y))
         } else {
             None
         }
     } else if let Some(rest) = inner.strip_prefix("mouse.scroll(") {
         let arg = rest.strip_suffix(')')?.trim();
-        let delta = arg.parse().ok()?;
+        let delta = strip_argument_quotes(arg).parse().ok()?;
         Some(ExpansionStep::MouseScroll(delta))
     } else {
         None
@@ -737,6 +742,17 @@ mod tests {
     fn test_finalize_key_alias_case_insensitive() {
         let res = finalize("[key(TAB)]", None);
         assert_eq!(res.steps, vec![ExpansionStep::KeyPress("tab".to_string())]);
+    }
+
+    #[test]
+    fn test_finalize_key_alias_strips_quotes() {
+        let res = finalize("[key(\"tab\")]", None);
+        assert_eq!(res.steps, vec![ExpansionStep::KeyPress("tab".to_string())]);
+        let res2 = finalize("[key('enter')]", None);
+        assert_eq!(
+            res2.steps,
+            vec![ExpansionStep::KeyPress("enter".to_string())]
+        );
     }
 
     #[test]

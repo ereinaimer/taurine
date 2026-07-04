@@ -123,7 +123,7 @@ fn scan_parenthesized(input: &str) -> Result<(&str, &str), LoremParseError> {
 }
 
 fn parse_count_arg(args: &str) -> Result<Option<usize>, LoremParseError> {
-    let trimmed = args.trim();
+    let trimmed = crate::engine::variables::system::strip_argument_quotes(args);
     if trimmed.is_empty() {
         return Ok(None);
     }
