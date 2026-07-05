@@ -38,6 +38,12 @@ pub enum WindowsSupervisorEvent {
     ListenerExited { error: Option<String> },
 }
 
+#[cfg(windows)]
+struct ListenerHandle {
+    join: std::thread::JoinHandle<()>,
+    thread_id: u32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CompletionKeyKind {
     Tab,
@@ -189,7 +195,7 @@ pub fn start_windows_supervisor(
         .spawn(move || {
             const RESTART_BACKOFF: Duration = Duration::from_secs(2);
 
-            let mut listener_running = spawn_windows_hook_listener(
+            let mut listener_handle: Option<ListenerHandle> = Some(spawn_windows_hook_listener(
                 evaluator.clone(),
                 state.clone(),
                 paused.clone(),
@@ -201,7 +207,7 @@ pub fn start_windows_supervisor(
                 audio_tx.clone(),
                 hook_health.clone(),
                 tx.clone(),
-            );
+            ));
 
             while let Ok(event) = rx.recv() {
                 let mut delay_restart = false;
@@ -215,63 +221,53 @@ pub fn start_windows_supervisor(
                             warn!("Windows hook listener exited without an error");
                         }
 
+                        listener_handle.take();
                         std::thread::sleep(RESTART_BACKOFF);
                         info!("Restarting Windows hook listener after backoff");
-                        listener_running = spawn_windows_hook_listener(
-                            evaluator.clone(),
-                            state.clone(),
-                            paused.clone(),
-                            pause_notifications_enabled.clone(),
-                            pause_hotkey.clone(),
-                            spinner_style.clone(),
-                            runtime_handle.clone(),
-                            pause_audio_enabled.clone(),
-                            audio_tx.clone(),
-                            hook_health.clone(),
-                            tx.clone(),
-                        );
                     }
                     WindowsSupervisorEvent::ResumeAutomatic => {
-                        mark_windows_recovery_signal(
-                            &hook_health,
-                            &mut listener_running,
-                            "automatic resume",
+                        hook_health.mark_recovery_signal("automatic resume");
+                        LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
+                        warn!(
+                            "Windows automatic resume detected; tearing down old listener hook before reinstall"
                         );
+                        tear_down_listener(&mut listener_handle);
                         delay_restart = true;
                     }
                     WindowsSupervisorEvent::ResumeFromSuspend => {
-                        mark_windows_recovery_signal(
-                            &hook_health,
-                            &mut listener_running,
-                            "resume from suspend",
+                        hook_health.mark_recovery_signal("resume from suspend");
+                        LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
+                        warn!(
+                            "Windows resume from suspend detected; tearing down old listener hook before reinstall"
                         );
+                        tear_down_listener(&mut listener_handle);
                         delay_restart = true;
                     }
                     WindowsSupervisorEvent::SessionUnlock => {
-                        mark_windows_recovery_signal(
-                            &hook_health,
-                            &mut listener_running,
-                            "session unlock",
+                        hook_health.mark_recovery_signal("session unlock");
+                        LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
+                        warn!(
+                            "Windows session unlock detected; tearing down old listener hook before reinstall"
                         );
+                        tear_down_listener(&mut listener_handle);
                         delay_restart = true;
                     }
                     WindowsSupervisorEvent::SessionLogon => {
-                        mark_windows_recovery_signal(
-                            &hook_health,
-                            &mut listener_running,
-                            "session logon",
-                        );
+                        hook_health.mark_recovery_signal("session logon");
+                        LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
+                        warn!("Windows session logon detected; tearing down old listener hook before reinstall");
+                        tear_down_listener(&mut listener_handle);
                         delay_restart = true;
                     }
                 }
 
-                if !listener_running {
+                if listener_handle.is_none() {
                     if delay_restart {
                         info!("Waiting 1000ms for USB re-enumeration before hook restart...");
                         std::thread::sleep(std::time::Duration::from_millis(1000));
                     }
                     info!("Hook listener is not running; attempting supervised restart");
-                    listener_running = spawn_windows_hook_listener(
+                    listener_handle = Some(spawn_windows_hook_listener(
                         evaluator.clone(),
                         state.clone(),
                         paused.clone(),
@@ -283,7 +279,7 @@ pub fn start_windows_supervisor(
                         audio_tx.clone(),
                         hook_health.clone(),
                         tx.clone(),
-                    );
+                    ));
                 }
             }
 
@@ -341,7 +337,7 @@ fn run_listener_once(
     pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
     hook_health: Option<HookHealth>,
-) -> Result<(), String> {
+) -> Result<u64, String> {
     let left_alt_down = std::sync::atomic::AtomicBool::new(false);
     let right_alt_down = std::sync::atomic::AtomicBool::new(false);
     let left_ctrl_down = std::sync::atomic::AtomicBool::new(false);
@@ -784,7 +780,8 @@ fn run_listener_once(
         health.mark_listener_entering_grab();
     }
     info!("Hook listener entering rdev::grab");
-    rdev::grab(callback).map_err(|error| format!("{error:?}"))
+    rdev::grab(callback).map_err(|error| format!("{error:?}"))?;
+    Ok(my_epoch)
 }
 
 #[cfg(windows)]
@@ -801,14 +798,27 @@ fn spawn_windows_hook_listener(
     audio_tx: tokio::sync::mpsc::Sender<bool>,
     hook_health: HookHealth,
     supervisor_tx: mpsc::Sender<WindowsSupervisorEvent>,
-) -> bool {
+) -> ListenerHandle {
+    use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+
     hook_health.mark_listener_started();
     info!("Starting supervised Windows hook listener thread");
     let listener_health = hook_health.clone();
+    let fallback_tx = supervisor_tx.clone();
+
+    let (thread_id_tx, thread_id_rx) = mpsc::channel::<u32>();
 
     let spawn_result = std::thread::Builder::new()
         .name("taurine-hook-listener".to_string())
         .spawn(move || {
+            let os_thread_id = unsafe { GetCurrentThreadId() };
+            if thread_id_tx.send(os_thread_id).is_err() {
+                warn!(
+                    "Supervisor dropped the thread-id channel; listener thread is abandoning itself"
+                );
+                return;
+            }
+
             let result = catch_unwind(AssertUnwindSafe(|| {
                 run_listener_once(
                     evaluator,
@@ -824,16 +834,27 @@ fn spawn_windows_hook_listener(
                 )
             }));
 
-            let exit_error = match result {
-                Ok(Ok(())) => None,
-                Ok(Err(error)) => Some(error),
-                Err(_) => Some("Windows hook listener panicked".to_string()),
+            let (exit_error, exit_epoch) = match result {
+                Ok(Ok(epoch)) => (None, Some(epoch)),
+                Ok(Err(error)) => (Some(error), None),
+                Err(_) => (Some("Windows hook listener panicked".to_string()), None),
             };
 
             if let Some(ref error) = exit_error {
                 error!(error = %error, "Windows hook listener is exiting");
             } else {
                 warn!("Windows hook listener returned unexpectedly without an error");
+            }
+
+            let current_epoch = LISTENER_EPOCH.load(Ordering::SeqCst);
+            let is_evicted = exit_epoch.is_some_and(|epoch| epoch != current_epoch);
+            if is_evicted {
+                info!(
+                    exit_epoch = exit_epoch.unwrap(),
+                    current_epoch,
+                    "Listener was evicted by recovery; suppressing stale exit notification"
+                );
+                return;
             }
 
             if let Err(error) =
@@ -846,36 +867,77 @@ fn spawn_windows_hook_listener(
             }
         });
 
-    if let Err(error) = spawn_result {
-        let message = format!("Failed to spawn Windows hook listener thread: {error}");
-        hook_health.mark_listener_exit(Some(message.clone()));
-        error!(error = %message, "Unable to spawn Windows hook listener");
-        false
-    } else {
-        true
+    let join = match spawn_result {
+        Ok(handle) => handle,
+        Err(error) => {
+            let message = format!("Failed to spawn Windows hook listener thread: {error}");
+            hook_health.mark_listener_exit(Some(message.clone()));
+            error!(error = %message, "Unable to spawn Windows hook listener");
+            let _ = fallback_tx.send(WindowsSupervisorEvent::ListenerExited {
+                error: Some(message),
+            });
+            // ponytail: absorb the spawn failure with a no-op handle. The
+            // ListenerExited event we just queued drives the supervisor's
+            // regular crash-restart loop. Upgrade when we surface boot-time
+            // spawn failures as a dedicated channel message.
+            return ListenerHandle {
+                join: std::thread::Builder::new()
+                    .spawn(|| {})
+                    .expect("infallible no-op thread spawn"),
+                thread_id: 0,
+            };
+        }
+    };
+
+    let thread_id = thread_id_rx.recv().expect(
+        "Listener thread died before sending its OS thread ID; \
+         this indicates a panic or spawn failure that should have been logged above",
+    );
+
+    ListenerHandle { join, thread_id }
+}
+
+#[cfg(windows)]
+fn tear_down_listener(listener_handle: &mut Option<ListenerHandle>) {
+    let Some(handle) = listener_handle.take() else {
+        return;
+    };
+    send_wm_quit_to_thread(handle.thread_id);
+    if let Err(_error) = handle.join.join() {
+        warn!("Listener thread panicked during teardown; hook chain may be inconsistent");
     }
 }
 
 #[cfg(windows)]
-fn mark_windows_recovery_signal(
-    hook_health: &HookHealth,
-    listener_running: &mut bool,
-    reason: &str,
-) {
-    hook_health.mark_recovery_signal(reason);
-    if *listener_running {
+fn send_wm_quit_to_thread(thread_id: u32) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
+
+    if thread_id == 0 {
         warn!(
-            recovery_reason = reason,
-            "Windows power/session change detected; forcing automatic rehook and bumping epoch to orphan old listener"
+            thread_id,
+            "Cannot post WM_QUIT to listener: supervisor has no OS thread id (spawn failed earlier)"
         );
-        LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
-        *listener_running = false;
-    } else {
-        warn!(
-            recovery_reason = reason,
-            "Windows power/session change detected while listener is down"
-        );
+        return;
     }
+
+    unsafe {
+        // PostThreadMessageW returns 0 if the target thread's message queue
+        // doesn't exist yet (race: thread spawned but hasn't reached rdev::grab).
+        // SetWindowsHookExA with WH_KEYBOARD_LL implicitly creates the queue,
+        // so once rdev::grab installs the hook the post succeeds. Retry with a
+        // bounded timeout so a crash before the grab started still terminates.
+        for _ in 0..500 {
+            if PostThreadMessageW(thread_id, WM_QUIT, 0, 0) != 0 {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    warn!(
+        thread_id,
+        "Failed to post WM_QUIT after 5s of retries; listener thread likely crashed before creating its message queue"
+    );
 }
 
 fn with_evaluator_lock<T>(

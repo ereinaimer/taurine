@@ -63,7 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Windows Keyboard Hook Resilience**: Fixed a bug where power resume events (WM_POWERBROADCAST) were not received because the power/session monitor window was created as a message-only window (HWND_MESSAGE). Changing it to a top-level invisible window allows the supervisor to successfully capture sleep/resume states and rehook the keyboard listener.
-- **Inline History Accuracy**: Fixed two bugs in the inline history implementation: corrected the database query sorting order to prioritize recency regardless of target OS (preventing used items from jumping around or being buried on daemon reload), and fixed history tracking for AI-powered snippet expansions by ensuring their usage is correctly registered in the database.
+- **Windows Sleep/Resume Double-Processing**: Fixed a bug where typing a trigger after system resume (sleep) produced duplicate characters in the buffer, preventing trigger expansion. The root cause was `rdev::grab` installing a second `WH_KEYBOARD_LL` hook without unloading the old one, causing events to be processed twice. Now the old listener is signaled to exit via `WM_QUIT` before reinstalling, ensuring a single clean hook.
 
 ## [1.0.0-alpha.7] - 2026-07-02
 
