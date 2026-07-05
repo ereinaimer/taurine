@@ -327,7 +327,7 @@ jobs:
               f.write(final_body)
           '
 
-          gh release create "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
+          gh release create "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$RELEASE_TAG" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
 
   announce:
     needs:
