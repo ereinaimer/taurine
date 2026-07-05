@@ -47,7 +47,7 @@ pub struct EngineState {
     pub instant_expand: AtomicBool,
     pub ignore_fullscreen_enabled: AtomicBool,
     pub is_os_fullscreen: AtomicBool,
-    pub ai_presets: RwLock<std::collections::HashMap<String, String>>,
+
     pub spinner_style: RwLock<crate::settings::SpinnerStyle>,
     pub action_delimiter: RwLock<crate::settings::ActionDelimiter>,
     undo_state: RwLock<Option<UndoState>>,
@@ -70,7 +70,7 @@ impl EngineState {
             instant_expand: AtomicBool::new(false),
             ignore_fullscreen_enabled: AtomicBool::new(true),
             is_os_fullscreen: AtomicBool::new(false),
-            ai_presets: RwLock::new(std::collections::HashMap::new()),
+
             spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
             action_delimiter: RwLock::new(crate::settings::ActionDelimiter::default()),
             undo_state: RwLock::new(None),
@@ -94,7 +94,7 @@ impl EngineState {
             instant_expand: AtomicBool::new(false),
             ignore_fullscreen_enabled: AtomicBool::new(true),
             is_os_fullscreen: AtomicBool::new(false),
-            ai_presets: RwLock::new(std::collections::HashMap::new()),
+
             spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
             action_delimiter: RwLock::new(crate::settings::ActionDelimiter::default()),
             undo_state: RwLock::new(None),
@@ -159,19 +159,6 @@ impl EngineState {
         actions: impl IntoIterator<Item = (String, AutomationAction)>,
     ) {
         self.hotkey_catalog.load_actions(actions);
-    }
-
-    pub fn load_ai_presets(&self, presets: impl IntoIterator<Item = (String, String)>) {
-        if let Ok(mut guard) = self.ai_presets.write() {
-            *guard = presets.into_iter().collect();
-        }
-    }
-
-    pub fn get_ai_preset(&self, name: &str) -> Option<String> {
-        self.ai_presets
-            .read()
-            .ok()
-            .and_then(|guard| guard.get(name).cloned())
     }
 
     pub fn fetch_expansion(&self, keyword: &str) -> Option<FinalExpansion> {

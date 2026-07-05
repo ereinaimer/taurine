@@ -54,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `uniqlines` -> `uniqline`
 
 ### Removed
+- **Legacy AI Presets CLI**: Removed the legacy `ai preset` command from the CLI (`taurine ai preset list/add/rm`) and its associated engine logic, as the feature was wholly replaced by the customizable inline delimiter parsing and system prompts.
 - **Redundant Transformers and Aliases**:
   - `remove` transformer (in favor of `replace(target, "")`).
   - `hexencode` and `hexdecode` encoding/decoding transformers.
