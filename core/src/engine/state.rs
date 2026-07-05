@@ -175,7 +175,10 @@ impl EngineState {
     }
 
     pub fn fetch_expansion(&self, keyword: &str) -> Option<FinalExpansion> {
-        self.word_catalog.fetch_expansion(keyword)
+        let instant = self
+            .instant_expand
+            .load(std::sync::atomic::Ordering::Relaxed);
+        self.word_catalog.fetch_expansion(keyword, instant)
     }
 
     pub fn matching_word_triggers(&self, prefix: &str) -> Vec<String> {

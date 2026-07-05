@@ -250,17 +250,20 @@ impl ExpansionCatalog {
         self.expand_action(action, &args, base)
     }
 
-    fn fetch_math_fallback(&self, keyword: &str) -> Option<FinalExpansion> {
+    fn fetch_math_fallback(&self, keyword: &str, instant_expand: bool) -> Option<FinalExpansion> {
+        if instant_expand {
+            return None;
+        }
         let math_result = crate::engine::math::evaluate(keyword)?;
         let mut expansion = FinalExpansion::text(math_result);
         expansion.is_calculation = true;
         Some(expansion)
     }
 
-    pub fn fetch_expansion(&self, keyword: &str) -> Option<FinalExpansion> {
+    pub fn fetch_expansion(&self, keyword: &str, instant_expand: bool) -> Option<FinalExpansion> {
         self.fetch_exact_match(keyword)
             .or_else(|| self.fetch_hybrid_arguments(keyword))
-            .or_else(|| self.fetch_math_fallback(keyword))
+            .or_else(|| self.fetch_math_fallback(keyword, instant_expand))
     }
 }
 
@@ -352,7 +355,7 @@ mod tests {
             ),
         ]);
 
-        let expansion = catalog.fetch_expansion("hi:erin").unwrap();
+        let expansion = catalog.fetch_expansion("hi:erin", false).unwrap();
         assert_eq!(
             expansion.steps[0],
             ExpansionStep::Text("exact trigger wins".to_string())
@@ -375,23 +378,23 @@ mod tests {
         ]);
 
         assert_eq!(
-            catalog.fetch_expansion("gm").unwrap().steps[0],
+            catalog.fetch_expansion("gm", false).unwrap().steps[0],
             ExpansionStep::Text("lowercase".to_string())
         );
         assert_eq!(
-            catalog.fetch_expansion("GM").unwrap().steps[0],
+            catalog.fetch_expansion("GM", false).unwrap().steps[0],
             ExpansionStep::Text("UPPERCASE".to_string())
         );
         assert_eq!(
-            catalog.fetch_expansion("Gm").unwrap().steps[0],
+            catalog.fetch_expansion("Gm", false).unwrap().steps[0],
             ExpansionStep::Text("lowercase".to_string())
         );
         assert_eq!(
-            catalog.fetch_expansion("ONLY_LOW").unwrap().steps[0],
+            catalog.fetch_expansion("ONLY_LOW", false).unwrap().steps[0],
             ExpansionStep::Text("only lowercase".to_string())
         );
-        assert!(catalog.fetch_expansion("unknown").is_none());
-        assert!(catalog.fetch_expansion("UNKNOWN").is_none());
+        assert!(catalog.fetch_expansion("unknown", false).is_none());
+        assert!(catalog.fetch_expansion("UNKNOWN", false).is_none());
     }
 
     #[test]
@@ -412,7 +415,9 @@ mod tests {
 
         memory.load_actions(vec![("opendir".to_string(), action)]);
 
-        let expansion = catalog.fetch_expansion("opendir:\"C:\\Temp\"").unwrap();
+        let expansion = catalog
+            .fetch_expansion("opendir:\"C:\\Temp\"", false)
+            .unwrap();
         if let ExpansionStep::Script(md) = &expansion.steps[0] {
             let decompressed = decompress(&md.compressed_content).unwrap();
             assert_eq!(decompressed, "explorer C:\\Temp");
@@ -439,7 +444,7 @@ mod tests {
 
         memory.load_actions(vec![("api".to_string(), action)]);
 
-        let expansion = catalog.fetch_expansion("api:env=prod").unwrap();
+        let expansion = catalog.fetch_expansion("api:env=prod", false).unwrap();
         if let ExpansionStep::Script(md) = &expansion.steps[0] {
             let decompressed = decompress(&md.compressed_content).unwrap();
             assert_eq!(decompressed, "curl https://prod.example.com");
@@ -458,16 +463,23 @@ mod tests {
             AutomationAction::text("exact snippet"),
         )]);
 
-        let expansion = catalog.fetch_expansion("5+2").unwrap();
+        let expansion = catalog.fetch_expansion("5+2", false).unwrap();
         assert_eq!(
             expansion.steps[0],
             ExpansionStep::Text("exact snippet".to_string())
         );
         assert!(!expansion.is_calculation);
 
-        let fallback = catalog.fetch_expansion("7*6").unwrap();
+        let fallback = catalog.fetch_expansion("7*6", false).unwrap();
         assert_eq!(fallback.steps[0], ExpansionStep::Text("42".to_string()));
         assert!(fallback.is_calculation);
+    }
+
+    #[test]
+    fn math_fallback_skipped_in_instant_expand() {
+        let memory = Arc::new(MemorySource::new());
+        let catalog = ExpansionCatalog::with_source(memory.clone());
+        assert!(catalog.fetch_expansion("7*6", true).is_none());
     }
 
     #[test]
@@ -579,7 +591,11 @@ mod tests {
         assert_eq!(action.output, "git status");
 
         let word_catalog = ExpansionCatalog::new();
-        assert!(word_catalog.fetch_expansion("ctrl+shift+g").is_none());
+        assert!(
+            word_catalog
+                .fetch_expansion("ctrl+shift+g", false)
+                .is_none()
+        );
     }
 
     #[test]
