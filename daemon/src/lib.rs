@@ -60,6 +60,9 @@ pub fn start() -> taurine_core::error::Result<()> {
         .triggerless_mode
         .store(settings.triggerless_mode, Ordering::Relaxed);
     state
+        .instant_expand
+        .store(settings.instant_expand, Ordering::Relaxed);
+    state
         .ignore_fullscreen_enabled
         .store(settings.ignore_fullscreen, Ordering::Relaxed);
 

@@ -132,6 +132,12 @@ impl<'a> SettingsManager<'a> {
             settings.triggerless_mode = v;
         }
 
+        if let Ok(Some(val)) = get_setting_value(self.conn, "instant_expand")
+            && let Ok(v) = serde_json::from_str::<bool>(&val)
+        {
+            settings.instant_expand = v;
+        }
+
         if let Ok(Some(val)) = get_setting_value(self.conn, "ignore_fullscreen")
             && let Ok(v) = serde_json::from_str::<bool>(&val)
         {

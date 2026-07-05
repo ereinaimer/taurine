@@ -145,6 +145,9 @@ impl DaemonControl for DaemonService {
             .triggerless_mode
             .store(settings.triggerless_mode, Ordering::Relaxed);
         self.state
+            .instant_expand
+            .store(settings.instant_expand, Ordering::Relaxed);
+        self.state
             .ignore_fullscreen_enabled
             .store(settings.ignore_fullscreen, Ordering::Relaxed);
 

@@ -28,6 +28,7 @@ pub(crate) enum SettingKey {
     ClipboardRestoreDelayMs,
     ActionDelimiter,
     TriggerlessMode,
+    InstantExpand,
     IgnoreFullscreen,
     RpcPort,
     ScriptTimeout,
@@ -37,7 +38,7 @@ pub(crate) enum SettingKey {
 }
 
 impl SettingKey {
-    pub(crate) const ALL: [Self; 25] = [
+    pub(crate) const ALL: [Self; 26] = [
         Self::TriggerChar,
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
@@ -57,6 +58,7 @@ impl SettingKey {
         Self::ClipboardRestoreDelayMs,
         Self::ActionDelimiter,
         Self::TriggerlessMode,
+        Self::InstantExpand,
         Self::IgnoreFullscreen,
         Self::RpcPort,
         Self::ScriptTimeout,
@@ -86,6 +88,7 @@ impl SettingKey {
             Self::ClipboardRestoreDelayMs => "clipboard_restore_delay_ms",
             Self::ActionDelimiter => "action_delimiter",
             Self::TriggerlessMode => "triggerless_mode",
+            Self::InstantExpand => "instant_expand",
             Self::IgnoreFullscreen => "ignore_fullscreen",
             Self::RpcPort => "rpc_port",
             Self::ScriptTimeout => "script_timeout",
@@ -116,6 +119,7 @@ impl SettingKey {
             Self::ClipboardRestoreDelayMs => "Clipboard Restore Delay (ms)",
             Self::ActionDelimiter => "Action Delimiter",
             Self::TriggerlessMode => "Triggerless Mode",
+            Self::InstantExpand => "Instant Expand",
             Self::IgnoreFullscreen => "Ignore Fullscreen on Windows",
             Self::RpcPort => "Daemon RPC Port",
             Self::ScriptTimeout => "Script Execution Timeout",
@@ -162,6 +166,9 @@ impl SettingKey {
             Self::TriggerlessMode => {
                 "Expand trigger words automatically when typing without requiring the trigger character"
             }
+            Self::InstantExpand => {
+                "Expand snippets instantly when typed, without needing a Space or Enter key"
+            }
             Self::IgnoreFullscreen => {
                 "Pause macro evaluation when running a full-screen application (e.g. games)"
             }
@@ -183,6 +190,7 @@ impl SettingKey {
             | Self::InlineTabCompletionEnabled
             | Self::InlineHistoryEnabled
             | Self::TriggerlessMode
+            | Self::InstantExpand
             | Self::IgnoreFullscreen => EditorKind::Toggle,
             Self::Wpm
             | Self::ClipboardRestoreDelayMs
@@ -231,6 +239,7 @@ impl SettingKey {
             Self::ClipboardRestoreDelayMs => settings.clipboard_restore_delay_ms.to_string(),
             Self::ActionDelimiter => format!("{:?}", settings.action_delimiter).to_lowercase(),
             Self::TriggerlessMode => settings.triggerless_mode.to_string(),
+            Self::InstantExpand => settings.instant_expand.to_string(),
             Self::IgnoreFullscreen => settings.ignore_fullscreen.to_string(),
             Self::RpcPort => settings.rpc_port.to_string(),
             Self::ScriptTimeout => settings.script_timeout.to_string(),
@@ -267,6 +276,7 @@ impl SettingKey {
             | Self::InlineTabCompletionEnabled
             | Self::InlineHistoryEnabled
             | Self::TriggerlessMode
+            | Self::InstantExpand
             | Self::IgnoreFullscreen
             | Self::SpinnerStyle
             | Self::ActionDelimiter
@@ -439,6 +449,7 @@ impl SettingsPageState {
             }
             SettingKey::InlineHistoryEnabled => (!self.settings.inline_history_enabled).to_string(),
             SettingKey::TriggerlessMode => (!self.settings.triggerless_mode).to_string(),
+            SettingKey::InstantExpand => (!self.settings.instant_expand).to_string(),
             SettingKey::IgnoreFullscreen => (!self.settings.ignore_fullscreen).to_string(),
             _ => return SettingsInteraction::handled(),
         };
@@ -859,7 +870,7 @@ mod tests {
 
     #[test]
     fn every_setting_has_a_descriptor() {
-        assert_eq!(SettingKey::ALL.len(), 25);
+        assert_eq!(SettingKey::ALL.len(), 26);
     }
 
     #[test]

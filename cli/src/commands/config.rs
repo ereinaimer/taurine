@@ -91,6 +91,7 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
         "triggerless_mode",
         &settings.triggerless_mode.to_string(),
     ]);
+    table.add_row(vec!["instant_expand", &settings.instant_expand.to_string()]);
     table.add_row(vec!["rpc_port", &settings.rpc_port.to_string()]);
     table.add_row(vec!["script_timeout", &settings.script_timeout.to_string()]);
 
@@ -118,12 +119,7 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
             manager.update_setting(actual_key, value.clone())?;
             info!("Updated pause_hotkey to: {}", value);
         }
-        "pause_notifications_enabled"
-        | "pause_audio_enabled"
-        | "start_on_boot"
-        | "inline_tab_completion_enabled"
-        | "inline_history_enabled"
-        | "triggerless_mode" => {
+        "triggerless_mode" | "instant_expand" => {
             let b = parse_boolean_setting_value(&value)?;
             manager.update_setting(actual_key, b)?;
             info!("Updated {} to: {}", actual_key, b);
@@ -338,6 +334,13 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
                 defaults.triggerless_mode
             );
         }
+        "instant_expand" => {
+            manager.update_setting(actual_key, defaults.instant_expand)?;
+            info!(
+                "Reset instant_expand to default: {}",
+                defaults.instant_expand
+            );
+        }
         "ai_provider" => {
             manager.update_setting(actual_key, defaults.ai_provider.clone())?;
             info!("Reset ai_provider to default: <unset>");
@@ -455,6 +458,7 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
     manager.update_setting("ai_max_tokens", defaults.ai_max_tokens)?;
     manager.update_setting("ai_system_prompt", defaults.ai_system_prompt.clone())?;
     manager.update_setting("triggerless_mode", defaults.triggerless_mode)?;
+    manager.update_setting("instant_expand", defaults.instant_expand)?;
     manager.update_setting("rpc_port", defaults.rpc_port)?;
 
     info!("All settings have been reset to factory defaults.");

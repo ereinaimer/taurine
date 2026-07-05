@@ -494,7 +494,7 @@ impl Evaluator {
         Some(rewrite)
     }
 
-    fn process_delimiter_event(&mut self) -> Option<ExpansionResult> {
+    fn evaluate_buffer_for_expansion(&mut self) -> Option<ExpansionResult> {
         let trigger_char = self.trigger_prefix();
 
         if let Some(keyword) = self.buffer.extract_trigger_word(trigger_char)
@@ -573,7 +573,6 @@ impl Evaluator {
             });
         }
 
-        self.buffer.push(' ');
         None
     }
 
@@ -620,9 +619,12 @@ impl Evaluator {
             }
             EngineEvent::ActionDelimiter => {
                 let was_completion_active = self.completion.active;
-                let result = self.process_delimiter_event();
+                let result = self.evaluate_buffer_for_expansion();
                 if was_completion_active {
                     self.completion.deactivate();
+                }
+                if result.is_none() {
+                    self.buffer.push(' ');
                 }
                 result
             }
@@ -645,6 +647,15 @@ impl Evaluator {
                         self.completion.deactivate();
                     }
                     return Some(self.start_inline_ai_capture(&open_delim));
+                }
+
+                if self.state.instant_expand.load(Ordering::Relaxed)
+                    && let Some(result) = self.evaluate_buffer_for_expansion()
+                {
+                    if self.completion.active {
+                        self.completion.deactivate();
+                    }
+                    return Some(result);
                 }
 
                 None
@@ -2819,5 +2830,66 @@ mod tests {
         assert_eq!(result.delete_count, 3);
         assert_eq!(result.trigger, "gs");
         assert_eq!(result.undo_trigger, Some(">gs".to_string()));
+    }
+
+    #[test]
+    fn instant_expand_triggered() {
+        use std::sync::atomic::Ordering;
+        let state = Arc::new(EngineState::new('>'));
+        state.instant_expand.store(true, Ordering::Relaxed);
+        state.load_actions(vec![(
+            "gs".to_string(),
+            crate::db::crud::AutomationAction::text("git status"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+        assert_eq!(eval.process_event(EngineEvent::Char('g')), None);
+
+        let result = eval
+            .process_event(EngineEvent::Char('s'))
+            .expect("Should expand instantly");
+        assert_eq!(result.delete_count, 3);
+        assert_eq!(result.trigger, "gs");
+    }
+
+    #[test]
+    fn instant_expand_triggerless() {
+        use std::sync::atomic::Ordering;
+        let state = Arc::new(EngineState::new('>'));
+        state.instant_expand.store(true, Ordering::Relaxed);
+        state.triggerless_mode.store(true, Ordering::Relaxed);
+        state.load_actions(vec![(
+            "gs".to_string(),
+            crate::db::crud::AutomationAction::text("git status"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        assert_eq!(eval.process_event(EngineEvent::Char('g')), None);
+
+        let result = eval
+            .process_event(EngineEvent::Char('s'))
+            .expect("Should expand instantly");
+        assert_eq!(result.delete_count, 2);
+        assert_eq!(result.trigger, "gs");
+    }
+
+    #[test]
+    fn instant_expand_disabled_by_default() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_actions(vec![(
+            "gs".to_string(),
+            crate::db::crud::AutomationAction::text("git status"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+        assert_eq!(eval.process_event(EngineEvent::Char('g')), None);
+        assert_eq!(eval.process_event(EngineEvent::Char('s')), None);
+
+        let result = eval
+            .process_event(EngineEvent::ActionDelimiter)
+            .expect("Should expand on delimiter");
+        assert_eq!(result.delete_count, 3);
     }
 }

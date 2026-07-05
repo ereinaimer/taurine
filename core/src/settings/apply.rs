@@ -69,6 +69,7 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
             super::ActionDelimiter::Enter => "enter".to_string(),
         })),
         "triggerless_mode" => Ok(Some(defaults.triggerless_mode.to_string())),
+        "instant_expand" => Ok(Some(defaults.instant_expand.to_string())),
         "ignore_fullscreen" => Ok(Some(defaults.ignore_fullscreen.to_string())),
         "rpc_port" => Ok(Some(defaults.rpc_port.to_string())),
         "script_timeout" => Ok(Some(defaults.script_timeout.to_string())),
@@ -181,6 +182,13 @@ pub fn apply_setting_input_with_manager(
             ApplySettingOutcome::default()
         }
         "triggerless_mode" => {
+            manager.update_setting(
+                actual_key,
+                parse_boolean_setting_value(require_non_empty(value, actual_key)?)?,
+            )?;
+            ApplySettingOutcome::default()
+        }
+        "instant_expand" => {
             manager.update_setting(
                 actual_key,
                 parse_boolean_setting_value(require_non_empty(value, actual_key)?)?,
