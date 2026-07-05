@@ -1,7 +1,4 @@
-use aes_gcm::{
-    Aes256Gcm, KeyInit, Nonce,
-    aead::{Aead, generic_array::GenericArray},
-};
+use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::Aead};
 use argon2::{Algorithm, Argon2, Params, Version};
 use rand::random;
 use zeroize::Zeroize;
@@ -42,10 +39,11 @@ pub fn encrypt(plaintext: &[u8], password: &str) -> crate::Result<Vec<u8>> {
     let nonce_bytes: [u8; NONCE_LEN] = random();
     let mut key = derive_key(password, &salt)?;
 
-    let cipher = Aes256Gcm::new(GenericArray::from_slice(&key));
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let cipher = Aes256Gcm::new_from_slice(&key)
+        .map_err(|_| crate::Error::Service("Invalid AES-256-GCM key length".to_string()))?;
+    let nonce = Nonce::from(nonce_bytes);
     let ciphertext = cipher
-        .encrypt(nonce, plaintext)
+        .encrypt(&nonce, plaintext)
         .map_err(|_| crate::Error::Service("Failed to encrypt exchange payload".to_string()))?;
 
     key.zeroize();
@@ -76,9 +74,13 @@ pub fn decrypt(blob: &[u8], password: &str) -> crate::Result<Vec<u8>> {
     let ciphertext = &blob[4 + SALT_LEN + NONCE_LEN..];
 
     let mut key = derive_key(password, salt)?;
-    let cipher = Aes256Gcm::new(GenericArray::from_slice(&key));
+    let cipher = Aes256Gcm::new_from_slice(&key)
+        .map_err(|_| crate::Error::Service("Invalid AES-256-GCM key length".to_string()))?;
+    let nonce_arr: [u8; NONCE_LEN] = nonce
+        .try_into()
+        .map_err(|_| crate::Error::Config("Invalid nonce length".to_string()))?;
     let plaintext = cipher
-        .decrypt(Nonce::from_slice(nonce), ciphertext)
+        .decrypt(&Nonce::from(nonce_arr), ciphertext)
         .map_err(|_| {
             crate::Error::Config(
                 "Failed to decrypt exchange file: incorrect password or tampered data".to_string(),
