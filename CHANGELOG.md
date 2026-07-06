@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.9] - 2026-07-06
+
 ### Added
 - **In-Process Self-Updater**: Added a built-in auto-update system capable of silently checking for and installing new releases on Windows, macOS, and Linux without external dependencies.
 - **Cross-Platform Install Scripts**: Added official `install.sh` and `install.ps1` scripts for frictionless one-line setups.
@@ -18,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - **Axoupdater & Cargo-Dist**: Removed third-party release managers (`cargo-dist`, `axoupdater`) in favor of a leaner in-house release pipeline and self-replacement architecture.
+
 
 ## [1.0.0-alpha.8] - 2026-07-06
 

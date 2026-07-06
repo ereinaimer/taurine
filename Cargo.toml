@@ -8,7 +8,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "1.0.0-alpha.8"
+version = "1.0.0-alpha.9"
 edition = "2024"
 authors = ["ereinaimer"]
 description = "Fast, secure and easy to use text expander and keyboard automation tool"
