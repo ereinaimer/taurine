@@ -9,45 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  create-release:
-    runs-on: ubuntu-22.04
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Extract Release Notes
-        run: |
-          VERSION=${GITHUB_REF_NAME#v}
-          python3 -c "
-          import re
-          version = '${VERSION}'
-          with open('CHANGELOG.md', 'r') as f:
-              content = f.read()
-          pattern = rf'(?s)## \[{re.escape(version)}\].*?(?=\n## \[|\Z)'
-          match = re.search(pattern, content)
-          if match:
-              notes = match.group(0).strip()
-              lines = notes.splitlines()
-              body = '\n'.join(lines[1:]).strip()
-          else:
-              body = f'Release v{version}'
-          with open('notes.md', 'w') as f:
-              f.write(body)
-          "
-      - name: Create Release
-        id: create_release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION=${GITHUB_REF_NAME#v}
-          gh release create $GITHUB_REF_NAME --draft --title "v$VERSION" --notes-file notes.md
-          UPLOAD_URL=$(gh release view $GITHUB_REF_NAME --json uploadUrl -q .uploadUrl)
-          echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
-
-
   build:
-    needs: create-release
     strategy:
       matrix:
         include:
@@ -122,23 +84,40 @@ jobs:
           tar -cJf $ARCHIVE_NAME -C package .
           echo "ARCHIVE_NAME=$ARCHIVE_NAME" >> $GITHUB_ENV
 
-      - name: Upload Artifact
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          gh release upload $GITHUB_REF_NAME $ARCHIVE_NAME
+      - name: Upload Artifact to Workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts-${{ matrix.platform_key }}
+          path: ${{ env.ARCHIVE_NAME }}
 
   publish:
-    needs: [create-release, build]
+    needs: build
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout scripts
         uses: actions/checkout@v4
         
-      - name: Generate Manifest and Upload
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract Release Notes
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          python3 -c "
+          import re
+          version = '${VERSION}'
+          with open('CHANGELOG.md', 'r') as f:
+              content = f.read()
+          pattern = rf'(?s)## \[{re.escape(version)}\].*?(?=\n## \[|\Z)'
+          match = re.search(pattern, content)
+          if match:
+              notes = match.group(0).strip()
+              lines = notes.splitlines()
+              body = '\n'.join(lines[1:]).strip()
+          else:
+              body = f'Release v{version}'
+          with open('notes.md', 'w') as f:
+              f.write(body)
+          "
+          
+      - name: Generate Manifest
         run: |
           VERSION=${GITHUB_REF_NAME#v}
           cat << 'EOF' > generate_manifest.py
@@ -159,7 +138,21 @@ jobs:
           EOF
           python3 generate_manifest.py $VERSION
           
-          gh release upload $GITHUB_REF_NAME manifest.json
+      - name: Download all workflow artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-artifacts-*
+          path: artifacts
+          merge-multiple: true
           
-          # Publish release (remove draft status)
-          gh release edit $GITHUB_REF_NAME --draft=false
+      - name: Create Pre-Release and Upload Assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          gh release create $GITHUB_REF_NAME \
+            ./artifacts/* \
+            manifest.json \
+            --title "v$VERSION" \
+            --notes-file notes.md \
+            --prerelease
