@@ -76,6 +76,7 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "ai_temperature" => Ok(defaults.ai_temperature.map(|v| v.to_string())),
         "ai_max_tokens" => Ok(defaults.ai_max_tokens.map(|v| v.to_string())),
         "ai_system_prompt" => Ok(defaults.ai_system_prompt),
+        "auto_update" => Ok(Some(defaults.auto_update.to_string())),
         _ => Err(Error::Config(format!("Unknown setting key: {actual_key}"))),
     }
 }
@@ -189,6 +190,13 @@ pub fn apply_setting_input_with_manager(
             ApplySettingOutcome::default()
         }
         "instant_expand" => {
+            manager.update_setting(
+                actual_key,
+                parse_boolean_setting_value(require_non_empty(value, actual_key)?)?,
+            )?;
+            ApplySettingOutcome::default()
+        }
+        "auto_update" => {
             manager.update_setting(
                 actual_key,
                 parse_boolean_setting_value(require_non_empty(value, actual_key)?)?,

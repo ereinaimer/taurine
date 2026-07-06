@@ -14,6 +14,7 @@ pub(crate) enum SettingKey {
     PauseNotificationsEnabled,
     PauseAudioEnabled,
     StartOnBoot,
+    AutoUpdate,
     InlineTabCompletionEnabled,
     InlineHistoryEnabled,
     Wpm,
@@ -38,12 +39,13 @@ pub(crate) enum SettingKey {
 }
 
 impl SettingKey {
-    pub(crate) const ALL: [Self; 26] = [
+    pub(crate) const ALL: [Self; 27] = [
         Self::TriggerChar,
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
         Self::PauseAudioEnabled,
         Self::StartOnBoot,
+        Self::AutoUpdate,
         Self::InlineTabCompletionEnabled,
         Self::InlineHistoryEnabled,
         Self::Wpm,
@@ -74,6 +76,7 @@ impl SettingKey {
             Self::PauseNotificationsEnabled => "pause_notifications_enabled",
             Self::PauseAudioEnabled => "pause_audio_enabled",
             Self::StartOnBoot => "start_on_boot",
+            Self::AutoUpdate => "auto_update",
             Self::InlineTabCompletionEnabled => "inline_tab_completion_enabled",
             Self::InlineHistoryEnabled => "inline_history_enabled",
             Self::Wpm => "wpm",
@@ -105,6 +108,7 @@ impl SettingKey {
             Self::PauseNotificationsEnabled => "Pause Notifications",
             Self::PauseAudioEnabled => "Pause Audio",
             Self::StartOnBoot => "Start on Boot",
+            Self::AutoUpdate => "Auto Update",
             Self::InlineTabCompletionEnabled => "Inline Tab Completion",
             Self::InlineHistoryEnabled => "Inline History",
             Self::Wpm => "Words Per Minute",
@@ -138,6 +142,9 @@ impl SettingKey {
             }
             Self::PauseAudioEnabled => "Play an audio cue when Taurine is paused or resumed",
             Self::StartOnBoot => "Start Taurine automatically when the system starts",
+            Self::AutoUpdate => {
+                "Automatically check for and install updates when the daemon starts"
+            }
             Self::InlineTabCompletionEnabled => {
                 "Use Tab and Shift+Tab to cycle trigger completions after the trigger character"
             }
@@ -187,6 +194,7 @@ impl SettingKey {
             Self::PauseNotificationsEnabled
             | Self::PauseAudioEnabled
             | Self::StartOnBoot
+            | Self::AutoUpdate
             | Self::InlineTabCompletionEnabled
             | Self::InlineHistoryEnabled
             | Self::TriggerlessMode
@@ -220,6 +228,7 @@ impl SettingKey {
             Self::PauseNotificationsEnabled => settings.pause_notifications_enabled.to_string(),
             Self::PauseAudioEnabled => settings.pause_audio_enabled.to_string(),
             Self::StartOnBoot => settings.start_on_boot.to_string(),
+            Self::AutoUpdate => settings.auto_update.to_string(),
             Self::InlineTabCompletionEnabled => settings.inline_tab_completion_enabled.to_string(),
             Self::InlineHistoryEnabled => settings.inline_history_enabled.to_string(),
             Self::Wpm => settings.wpm.to_string(),
@@ -273,6 +282,7 @@ impl SettingKey {
             Self::PauseNotificationsEnabled
             | Self::PauseAudioEnabled
             | Self::StartOnBoot
+            | Self::AutoUpdate
             | Self::InlineTabCompletionEnabled
             | Self::InlineHistoryEnabled
             | Self::TriggerlessMode
@@ -870,7 +880,7 @@ mod tests {
 
     #[test]
     fn every_setting_has_a_descriptor() {
-        assert_eq!(SettingKey::ALL.len(), 26);
+        assert_eq!(SettingKey::ALL.len(), 27);
     }
 
     #[test]

@@ -65,6 +65,7 @@ pub struct Settings {
     pub ai_temperature: Option<f32>,
     pub ai_max_tokens: Option<u32>,
     pub ai_system_prompt: Option<String>,
+    pub auto_update: bool,
 }
 
 impl Settings {
@@ -190,6 +191,7 @@ impl Default for Settings {
             ai_temperature: None,
             ai_max_tokens: None,
             ai_system_prompt: None,
+            auto_update: true,
         }
     }
 }

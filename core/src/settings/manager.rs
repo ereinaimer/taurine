@@ -174,6 +174,12 @@ impl<'a> SettingsManager<'a> {
             settings.ai_system_prompt = v;
         }
 
+        if let Ok(Some(val)) = get_setting_value(self.conn, "auto_update")
+            && let Ok(v) = serde_json::from_str::<bool>(&val)
+        {
+            settings.auto_update = v;
+        }
+
         settings
     }
 

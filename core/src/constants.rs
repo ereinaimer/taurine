@@ -14,3 +14,6 @@ pub const LOGS_DIR_NAME: &str = "logs";
 
 /// The folder name used for storing startup scripts.
 pub const STARTUP_DIR_NAME: &str = "startup";
+
+/// The folder name used for the installed taurine binary.
+pub const BIN_DIR_NAME: &str = "bin";

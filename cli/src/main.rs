@@ -428,6 +428,20 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
         LaunchTarget::Daemon => {
             info!("Initializing Taurine v{}", env!("CARGO_PKG_VERSION"));
 
+            // Auto-update: check at most once every 24 hours, non-blocking
+            let auto_update = {
+                use taurine_core::{db::init, settings::SettingsManager};
+                init::setup()
+                    .ok()
+                    .map(|conn| SettingsManager::new(&conn).load_all().auto_update)
+                    .unwrap_or(true)
+            };
+            if auto_update && commands::update::should_check_now() {
+                std::thread::spawn(|| {
+                    let _ = commands::update::run_auto_update();
+                });
+            }
+
             // Execute the startup sequence (database init, seed, etc.)
             taurine_daemon::start()?;
 

@@ -1,6 +1,6 @@
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "android")))]
 use crate::constants::APP_NAME_SLUG;
-use crate::constants::{APP_NAME, DB_FILENAME, LOGS_DIR_NAME, STARTUP_DIR_NAME};
+use crate::constants::{APP_NAME, BIN_DIR_NAME, DB_FILENAME, LOGS_DIR_NAME, STARTUP_DIR_NAME};
 use std::fs;
 use std::path::PathBuf;
 use tracing::debug;
@@ -115,6 +115,35 @@ pub fn get_startup_exe_path() -> PathBuf {
         fs::create_dir_all(&startup_dir).expect("Failed to create startup directory");
     }
     startup_dir.join("taurine-startup.exe")
+}
+
+/// Resolves the canonical directory where the taurine binary should be installed.
+///
+/// This is always a "bin/" subdirectory of get_data_dir():
+/// - Windows:  %LOCALAPPDATA%\Taurine\bin\
+/// - macOS:    ~/Library/Application Support/Taurine/bin/
+/// - Linux:    ~/.local/share/taurine/bin/
+///
+/// Future GUI assets will go in get_data_dir().join("app"), keeping
+/// all taurine files under a single parent directory per OS.
+pub fn get_install_bin_dir() -> PathBuf {
+    get_data_dir().join(BIN_DIR_NAME)
+}
+
+/// Resolves the canonical path of the taurine executable.
+pub fn get_install_exe_path() -> PathBuf {
+    let exe_name = if cfg!(target_os = "windows") {
+        "taurine.exe"
+    } else {
+        "taurine"
+    };
+    get_install_bin_dir().join(exe_name)
+}
+
+/// Path to the file storing the last auto-update check timestamp (Unix seconds).
+/// Located at get_data_dir()/.last_update_check
+pub fn get_last_update_check_path() -> PathBuf {
+    get_data_dir().join(".last_update_check")
 }
 
 #[cfg(test)]

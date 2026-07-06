@@ -1,81 +1,319 @@
-use axoupdater::AxoUpdater;
+use reqwest::blocking::Client;
+use std::fs;
+use std::path::PathBuf;
 use taurine_core::error::{Error, Result};
-use tracing::{error, info, warn};
+use taurine_core::paths::{get_install_bin_dir, get_install_exe_path, get_last_update_check_path};
+use taurine_core::settings::SpinnerStyle;
+use taurine_core::utils::spinner::{SpinnerRenderer, ThreadSpinnerHandle, spawn_threaded};
+
+fn platform_key() -> &'static str {
+    if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        "windows-x86_64"
+    } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        "linux-x86_64"
+    } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+        "macos-x86_64"
+    } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        "macos-aarch64"
+    } else {
+        panic!("unsupported platform")
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct Manifest {
+    version: String,
+    artifacts: std::collections::HashMap<String, Artifact>,
+}
+
+#[derive(serde::Deserialize)]
+struct Artifact {
+    url: String,
+}
+
+struct StdoutStepRenderer {
+    label: String,
+}
+
+impl SpinnerRenderer for StdoutStepRenderer {
+    fn inject_frame(&mut self, frame: &str) {
+        print!("\r{frame} {}", self.label);
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+    }
+    fn backspace(&mut self, _: usize) {}
+    fn move_left(&mut self, _: usize) {}
+    fn move_right(&mut self, _: usize) {}
+    fn finish(&mut self) {
+        print!("\r");
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+    }
+}
+
+struct Stepper {
+    label: String,
+    handle: Option<ThreadSpinnerHandle>,
+}
+
+impl Stepper {
+    fn start(label: &str) -> Self {
+        let renderer = StdoutStepRenderer {
+            label: label.to_string(),
+        };
+        let handle = spawn_threaded(SpinnerStyle::Braille, renderer);
+        Self {
+            label: label.to_string(),
+            handle: Some(handle),
+        }
+    }
+    fn step(&mut self, next_label: &str) {
+        if let Some(h) = self.handle.take() {
+            h.stop();
+            println!("\r\x1b[32m✓\x1b[0m {}", self.label);
+        }
+        self.label = next_label.to_string();
+        let renderer = StdoutStepRenderer {
+            label: next_label.to_string(),
+        };
+        self.handle = Some(spawn_threaded(SpinnerStyle::Braille, renderer));
+    }
+    fn finish(mut self) {
+        if let Some(h) = self.handle.take() {
+            h.stop();
+            println!("\r\x1b[32m✓\x1b[0m {}", self.label);
+        }
+    }
+}
+
+pub fn should_check_now() -> bool {
+    let path = get_last_update_check_path();
+    if !path.exists() {
+        return true;
+    }
+    if let Ok(metadata) = fs::metadata(&path)
+        && let Ok(modified) = metadata.modified()
+        && let Ok(elapsed) = modified.elapsed()
+    {
+        return elapsed.as_secs() > 24 * 60 * 60;
+    }
+    true
+}
+
+pub fn run_auto_update() -> Result<()> {
+    let _ = fs::write(get_last_update_check_path(), "");
+    let _ = execute_inner(true);
+    Ok(())
+}
 
 pub fn execute() -> Result<()> {
-    info!("Checking for updates...");
+    execute_inner(false)
+}
 
-    let mut updater = AxoUpdater::new_for("taurine");
+fn execute_inner(silent: bool) -> Result<()> {
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| Error::Engine(e.to_string()))?;
 
-    let receipt = match updater.load_receipt() {
-        Ok(u) => u,
-        Err(_) => {
-            warn!(
-                "No install receipt found. Please use the official installer scripts or manually download the latest ZIP."
-            );
-            return Ok(());
+    let manifest: Manifest = client
+        .get("https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json")
+        .send()
+        .map_err(|e| Error::Engine(e.to_string()))?
+        .error_for_status()
+        .map_err(|e| Error::Engine(e.to_string()))?
+        .json()
+        .map_err(|e| Error::Engine(e.to_string()))?;
+
+    let current_version = env!("CARGO_PKG_VERSION");
+    let is_newer = is_newer_version(current_version, &manifest.version);
+
+    if !is_newer {
+        if !silent {
+            println!("Taurine is already up to date (v{}).", current_version);
         }
-    };
-
-    if let Ok(false) = receipt.check_receipt_is_for_this_executable() {
-        warn!(
-            "This executable was not installed via the official installer, so it cannot be updated automatically."
-        );
         return Ok(());
     }
 
-    let needs_update = match receipt.is_update_needed_sync() {
-        Ok(needed) => needed,
-        Err(e) => {
-            error!(error=%e, "Failed to check for updates");
-            return Err(Error::Engine(e.to_string()));
-        }
+    let artifact = manifest
+        .artifacts
+        .get(platform_key())
+        .ok_or_else(|| Error::Engine("Platform not supported by latest release".into()))?;
+
+    let mut sp = if !silent {
+        Some(Stepper::start(&format!(
+            "Fetching update v{}",
+            manifest.version
+        )))
+    } else {
+        None
     };
 
-    if !needs_update {
-        info!("Taurine is already up to date.");
-        return Ok(());
+    let _ = taurine_core::service::down();
+
+    if let Some(s) = sp.as_mut() {
+        s.step("Downloading");
     }
 
-    info!("Update found! Initiating update sequence...");
+    let temp_dir = std::env::temp_dir();
+    let archive_path = temp_dir.join(format!("taurine-update-{}", uuid::Uuid::new_v4()));
+    let binary_path = temp_dir.join(format!("taurine-bin-{}", uuid::Uuid::new_v4()));
 
-    // Stop the daemon before updating to release file locks on Windows
-    if let Err(e) = taurine_core::service::down() {
-        warn!(error=%e, "Failed to stop daemon prior to update, continuing anyway...");
+    let mut response = client
+        .get(&artifact.url)
+        .send()
+        .map_err(|e| Error::Engine(e.to_string()))?
+        .error_for_status()
+        .map_err(|e| Error::Engine(e.to_string()))?;
+    let mut archive_file =
+        fs::File::create(&archive_path).map_err(|e| Error::Engine(e.to_string()))?;
+    std::io::copy(&mut response, &mut archive_file).map_err(|e| Error::Engine(e.to_string()))?;
+
+    if let Some(s) = sp.as_mut() {
+        s.step("Extracting");
     }
 
-    match receipt.run_sync() {
-        Ok(Some(_)) => {
-            info!("Update installed successfully!");
-
-            // Restart the daemon after successful update
-            let start_on_boot = {
-                match taurine_core::db::init::setup() {
-                    Ok(conn) => {
-                        let settings_manager = taurine_core::settings::SettingsManager::new(&conn);
-                        settings_manager.load_all().start_on_boot
-                    }
-                    Err(e) => {
-                        warn!(error=%e, "Failed to access database for settings, defaulting to not starting on boot");
-                        false
-                    }
-                }
-            };
-
-            if let Err(e) = taurine_core::service::up(start_on_boot) {
-                error!(error=%e, "Failed to restart daemon after update. Please run `taurine up` manually.");
-            } else {
-                info!("Daemon restarted successfully.");
-            }
+    if cfg!(target_os = "windows") {
+        let extract_dir = temp_dir.join(format!("taurine-ext-{}", uuid::Uuid::new_v4()));
+        let status = std::process::Command::new("powershell")
+            .arg("-NoProfile")
+            .arg("-Command")
+            .arg(format!(
+                "Expand-Archive -Path '{}' -DestinationPath '{}' -Force",
+                archive_path.display(),
+                extract_dir.display()
+            ))
+            .status()
+            .map_err(|e| Error::Engine(e.to_string()))?;
+        if !status.success() {
+            return Err(Error::Engine("Failed to extract update".into()));
         }
-        Ok(None) => {
-            info!("Taurine is already up to date.");
+        fs::copy(extract_dir.join("taurine.exe"), &binary_path)
+            .map_err(|e| Error::Engine(e.to_string()))?;
+        let _ = fs::remove_dir_all(extract_dir);
+    } else {
+        let extract_dir = temp_dir.join(format!("taurine-ext-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&extract_dir).map_err(|e| Error::Engine(e.to_string()))?;
+        let status = std::process::Command::new("tar")
+            .arg("-xf")
+            .arg(&archive_path)
+            .arg("-C")
+            .arg(&extract_dir)
+            .status()
+            .map_err(|e| Error::Engine(e.to_string()))?;
+        if !status.success() {
+            return Err(Error::Engine("Failed to extract update".into()));
         }
-        Err(e) => {
-            error!(error=%e, "Failed to install update");
-            return Err(Error::Engine(e.to_string()));
+        fs::copy(extract_dir.join("taurine"), &binary_path)
+            .map_err(|e| Error::Engine(e.to_string()))?;
+        let _ = fs::remove_dir_all(extract_dir);
+    }
+
+    let _ = fs::remove_file(&archive_path);
+
+    if let Some(s) = sp.as_mut() {
+        s.step("Installing");
+    }
+
+    let current = std::env::current_exe().map_err(|e| Error::Engine(e.to_string()))?;
+    let canonical = get_install_exe_path();
+
+    if current == canonical {
+        self_replace::self_replace(&binary_path).map_err(|e| Error::Engine(e.to_string()))?;
+    } else {
+        fs::create_dir_all(get_install_bin_dir()).map_err(|e| Error::Engine(e.to_string()))?;
+        fs::copy(&binary_path, &canonical).map_err(|e| Error::Engine(e.to_string()))?;
+        ensure_on_path(get_install_bin_dir());
+        if !silent {
+            eprintln!("PATH updated - restart your shell to use `taurine` directly");
         }
     }
+
+    let _ = fs::remove_file(&binary_path);
+
+    if let Some(s) = sp.take() {
+        s.finish();
+        println!("✓ taurine updated to v{}", manifest.version);
+    }
+
+    std::process::Command::new(&canonical)
+        .arg("up")
+        .spawn()
+        .map_err(|e| Error::Engine(e.to_string()))?;
 
     Ok(())
+}
+
+fn is_newer_version(current: &str, manifest: &str) -> bool {
+    let mut current_parts = current.split('-');
+    let cur_base = current_parts.next().unwrap_or("0.0.0");
+    let mut man_parts = manifest.split('-');
+    let man_base = man_parts.next().unwrap_or("0.0.0");
+
+    let cur_tuple: Vec<u32> = cur_base.split('.').filter_map(|s| s.parse().ok()).collect();
+    let man_tuple: Vec<u32> = man_base.split('.').filter_map(|s| s.parse().ok()).collect();
+
+    if man_tuple > cur_tuple {
+        true
+    } else if man_tuple == cur_tuple {
+        let cur_pre = current_parts.next().unwrap_or("");
+        let man_pre = man_parts.next().unwrap_or("");
+        if cur_pre.is_empty() && !man_pre.is_empty() {
+            false
+        } else if !cur_pre.is_empty() && man_pre.is_empty() {
+            true
+        } else {
+            man_pre > cur_pre
+        }
+    } else {
+        false
+    }
+}
+
+fn ensure_on_path(dir: PathBuf) {
+    if cfg!(target_os = "windows") {
+        #[cfg(target_os = "windows")]
+        {
+            use winreg::RegKey;
+            use winreg::enums::*;
+            if let Ok(hkcu) = RegKey::predef(HKEY_CURRENT_USER)
+                .open_subkey_with_flags("Environment", KEY_READ | KEY_WRITE)
+                && let Ok(path) = hkcu.get_value::<String, _>("Path")
+            {
+                let dir_str = dir.to_string_lossy().to_string();
+                if !path.contains(&dir_str) {
+                    let new_path = if path.ends_with(';') {
+                        format!("{}{}", path, dir_str)
+                    } else {
+                        format!("{};{}", path, dir_str)
+                    };
+                    let _ = hkcu.set_value("Path", &new_path);
+                }
+            }
+        }
+    } else {
+        let dir_str = dir.to_string_lossy().to_string();
+        let home = std::env::var("HOME").unwrap_or_default();
+        let files = if cfg!(target_os = "macos") {
+            vec![
+                format!("{}/.zprofile", home),
+                format!("{}/.bash_profile", home),
+            ]
+        } else {
+            vec![format!("{}/.bashrc", home), format!("{}/.zshrc", home)]
+        };
+
+        for file in files {
+            let path = std::path::Path::new(&file);
+            let content = fs::read_to_string(path).unwrap_or_default();
+            if !content.contains(&dir_str) {
+                let _ = fs::OpenOptions::new()
+                    .append(true)
+                    .create(true)
+                    .open(path)
+                    .and_then(|mut f| {
+                        use std::io::Write;
+                        writeln!(f, "\nexport PATH=\"{}:$PATH\"", dir_str)
+                    });
+            }
+        }
+    }
 }
