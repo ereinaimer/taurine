@@ -117,13 +117,13 @@ Prebuilt binaries are available for Windows, macOS, and Linux. You can download 
 ### Windows (PowerShell)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/ereinaimer/taurine/releases/latest/download/taurine-installer.ps1 | iex"
+irm https://raw.githubusercontent.com/ereinaimer/taurine/main/scripts/install/install.ps1 | iex
 ```
 
 ### macOS / Linux (Bash)
 
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/ereinaimer/taurine/releases/latest/download/taurine-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/ereinaimer/taurine/main/scripts/install/install.sh | sh
 ```
 
 <details>

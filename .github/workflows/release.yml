@@ -16,15 +16,35 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Extract Release Notes
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          python3 -c "
+          import re
+          version = '${VERSION}'
+          with open('CHANGELOG.md', 'r') as f:
+              content = f.read()
+          pattern = rf'(?s)## \[{re.escape(version)}\].*?(?=\n## \[|\Z)'
+          match = re.search(pattern, content)
+          if match:
+              notes = match.group(0).strip()
+              lines = notes.splitlines()
+              body = '\n'.join(lines[1:]).strip()
+          else:
+              body = f'Release v{version}'
+          with open('notes.md', 'w') as f:
+              f.write(body)
+          "
       - name: Create Release
         id: create_release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION=${GITHUB_REF_NAME#v}
-          gh release create $GITHUB_REF_NAME --draft --title "v$VERSION" --notes "Release v$VERSION"
+          gh release create $GITHUB_REF_NAME --draft --title "v$VERSION" --notes-file notes.md
           UPLOAD_URL=$(gh release view $GITHUB_REF_NAME --json uploadUrl -q .uploadUrl)
           echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
+
 
   build:
     needs: create-release
@@ -140,8 +160,6 @@ jobs:
           python3 generate_manifest.py $VERSION
           
           gh release upload $GITHUB_REF_NAME manifest.json
-          gh release upload $GITHUB_REF_NAME scripts/install/install.sh
-          gh release upload $GITHUB_REF_NAME scripts/install/install.ps1
           
           # Publish release (remove draft status)
           gh release edit $GITHUB_REF_NAME --draft=false

@@ -31,6 +31,18 @@ if (-not $Version -or -not $Url) {
     exit 1
 }
 
+$InstallDir = Join-Path $env:LOCALAPPDATA "Taurine\bin"
+$ExePath = Join-Path $InstallDir "taurine.exe"
+
+# Check if already installed
+if (Test-Path $ExePath) {
+    $LocalVersion = & $ExePath --version 2>$null | ForEach-Object { $_.Split(" ")[1] }
+    if ($LocalVersion -eq $Version) {
+        Write-Host "Taurine is already installed and up to date (v$LocalVersion)."
+        exit 0
+    }
+}
+
 $TempZip = Join-Path $env:TEMP "taurine-$([guid]::NewGuid()).zip"
 $DownloadJob = Start-Job -ScriptBlock {
     param($url, $out)
@@ -45,10 +57,10 @@ $ExtractJob = Start-Job -ScriptBlock {
 } -ArgumentList $TempZip, $TempDir
 Show-SpinnerJob $ExtractJob "Extracting" | Out-Null
 
-$InstallDir = Join-Path $env:LOCALAPPDATA "Taurine\bin"
 if (-not (Test-Path $InstallDir)) {
     New-Item -ItemType Directory -Path $InstallDir | Out-Null
 }
+
 
 Copy-Item -Path (Join-Path $TempDir "taurine.exe") -Destination $InstallDir -Force
 

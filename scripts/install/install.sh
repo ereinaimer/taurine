@@ -60,7 +60,18 @@ if [ -z "$VERSION" ] || [ -z "$URL" ]; then
     exit 1
 fi
 
+# Check if already installed
+if [ -x "$INSTALL_DIR/taurine" ]; then
+    LOCAL_VERSION=$("$INSTALL_DIR/taurine" --version 2>/dev/null | awk '{print $2}')
+    if [ "$LOCAL_VERSION" = "$VERSION" ]; then
+        echo "Taurine is already installed and up to date (v$LOCAL_VERSION)."
+        rm -rf "$TMP_DIR"
+        exit 0
+    fi
+fi
+
 ARCHIVE="$TMP_DIR/taurine.tar.xz"
+
 
 # Download archive
 curl -fsSL "$URL" -o "$ARCHIVE" &
