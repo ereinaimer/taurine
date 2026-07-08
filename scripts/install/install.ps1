@@ -78,8 +78,13 @@ if ($LocalVersion) {
         Write-Host "Taurine is already installed and up to date (v$LocalVersion)."
         exit 0
     }
-    # Prevent downgrade
-    if ([version]$LocalVersion -gt [version]$Version) {
+    # Prevent downgrade (strip pre-release suffix for version comparison)
+    function Get-VersionBase {
+        param([string]$v)
+        $idx = $v.IndexOf('-')
+        if ($idx -ge 0) { return $v.Substring(0, $idx) } else { return $v }
+    }
+    if ([version](Get-VersionBase $LocalVersion) -gt [version](Get-VersionBase $Version)) {
         Write-Host "Taurine v$LocalVersion is newer than the latest release (v$Version). Skipping update."
         exit 0
     }
@@ -97,14 +102,18 @@ Invoke-WithRetry -ScriptBlock $DownloadJob -ArgumentList @($Url, $TempZip) -Labe
 
 # Verify checksum if available
 if ($Sha256) {
-    $computedHash = (Get-FileHash -Path $TempZip -Algorithm SHA256).Hash.ToLower()
-    $expectedHash = $Sha256.ToLower()
-    if ($computedHash -ne $expectedHash) {
-        Write-Error "Checksum verification failed for downloaded archive."
+    $ChecksumJob = {
+        param($zip, $expected)
+        $computed = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLower()
+        return ($computed -eq $expected.ToLower())
+    }
+    $job = Start-Job -ScriptBlock $ChecksumJob -ArgumentList @($TempZip, $Sha256)
+    $valid = Show-SpinnerJob $job "Verifying checksum"
+    if (-not $valid) {
         Remove-Item -Path $TempZip -Force -ErrorAction SilentlyContinue
+        Write-Error "Checksum verification failed for downloaded archive."
         exit 1
     }
-    Write-Host "  Checksum verified"
 }
 
 $TempDir = Join-Path $env:TEMP "taurine-ext-$([guid]::NewGuid())"
