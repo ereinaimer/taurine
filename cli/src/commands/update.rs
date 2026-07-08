@@ -7,6 +7,7 @@ use taurine_core::error::{Error, Result};
 use taurine_core::paths::{get_install_bin_dir, get_install_exe_path, get_last_update_check_path};
 use taurine_core::settings::SpinnerStyle;
 use taurine_core::utils::spinner::{SpinnerRenderer, ThreadSpinnerHandle, spawn_threaded};
+use tracing::info;
 
 fn platform_key() -> &'static str {
     if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
@@ -72,7 +73,7 @@ impl Stepper {
     fn step(&mut self, next_label: &str) {
         if let Some(h) = self.handle.take() {
             h.stop();
-            println!("\r\x1b[32m✓\x1b[0m {}", self.label);
+            info!("\x1b[32m✓\x1b[0m {}", self.label);
         }
         self.label = next_label.to_string();
         let renderer = StdoutStepRenderer {
@@ -83,7 +84,7 @@ impl Stepper {
     fn finish(mut self) {
         if let Some(h) = self.handle.take() {
             h.stop();
-            println!("\r\x1b[32m✓\x1b[0m {}", self.label);
+            info!("\x1b[32m✓\x1b[0m {}", self.label);
         }
     }
 }
@@ -132,7 +133,7 @@ fn execute_inner(silent: bool) -> Result<()> {
 
     if !is_newer {
         if !silent {
-            println!("Taurine is already up to date (v{}).", current_version);
+            info!("Taurine is already up to date (v{}).", current_version);
         }
         return Ok(());
     }
@@ -142,6 +143,11 @@ fn execute_inner(silent: bool) -> Result<()> {
         .get(platform_key())
         .ok_or_else(|| Error::Engine("Platform not supported by latest release".into()))?;
 
+    // Stop the service BEFORE the spinner starts, so "Taurine is stopped."
+    // (emitted via tracing::info! to stderr) doesn't interleave with the spinner's
+    // stdout carriage-return frames.
+    let _ = taurine_core::service::down();
+
     let mut sp = if !silent {
         Some(Stepper::start(&format!(
             "Fetching update v{}",
@@ -150,8 +156,6 @@ fn execute_inner(silent: bool) -> Result<()> {
     } else {
         None
     };
-
-    let _ = taurine_core::service::down();
 
     if let Some(s) = sp.as_mut() {
         s.step("Downloading");
@@ -249,22 +253,24 @@ fn execute_inner(silent: bool) -> Result<()> {
     let current = std::env::current_exe().map_err(|e| Error::Engine(e.to_string()))?;
     let canonical = get_install_exe_path();
 
-    if current == canonical {
+    let path_updated = if current == canonical {
         self_replace::self_replace(&binary_path).map_err(|e| Error::Engine(e.to_string()))?;
+        false
     } else {
         fs::create_dir_all(get_install_bin_dir()).map_err(|e| Error::Engine(e.to_string()))?;
         fs::copy(&binary_path, &canonical).map_err(|e| Error::Engine(e.to_string()))?;
         ensure_on_path(get_install_bin_dir());
-        if !silent {
-            eprintln!("PATH updated - restart your shell to use `taurine` directly");
-        }
-    }
+        true
+    };
 
     let _ = fs::remove_file(&binary_path);
 
     if let Some(s) = sp.take() {
         s.finish();
-        println!("✓ taurine updated to v{}", manifest.version);
+        if !silent && path_updated {
+            info!("PATH updated - restart your shell to use `taurine` directly");
+        }
+        info!("✓ taurine updated to v{}", manifest.version);
     }
 
     std::process::Command::new(&canonical)
