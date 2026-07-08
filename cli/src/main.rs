@@ -7,7 +7,7 @@ use tracing::{error, info};
 
 /// Taurine Command Line Interface
 #[derive(Parser, Debug)]
-#[command(name = "taurine")]
+#[command(name = "taurine", version = env!("CARGO_PKG_VERSION"), disable_version_flag = true)]
 #[command(about = "Fast, secure and easy to use text expander and keyboard automation tool")]
 struct Cli {
     /// Increase console verbosity
@@ -29,6 +29,10 @@ struct Cli {
     /// Show log level prefixes (INFO, DEBUG, WARN) in console output
     #[arg(long, global = true)]
     show_log_prefixes: bool,
+
+    /// Print version information and exit
+    #[arg(long, global = true)]
+    version: bool,
 
     /// Internal flag used by the OS service manager (DO NOT RUN MANUALLY)
     #[arg(long, hide = true)]
@@ -385,8 +389,16 @@ enum LaunchTarget {
     Command,
 }
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
+
+    if cli.version {
+        println!("taurine {}", VERSION);
+        return std::process::ExitCode::SUCCESS;
+    }
+
     let launch_target = launch_target(&cli);
 
     let component = if cli.daemon {
@@ -426,7 +438,7 @@ fn main() -> std::process::ExitCode {
 fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()> {
     match launch_target {
         LaunchTarget::Daemon => {
-            info!("Initializing Taurine v{}", env!("CARGO_PKG_VERSION"));
+            info!("Initializing Taurine v{VERSION}");
 
             // Auto-update: check at most once every 24 hours, non-blocking
             let auto_update = {

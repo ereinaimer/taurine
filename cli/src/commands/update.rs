@@ -166,6 +166,7 @@ fn execute_inner(silent: bool) -> Result<()> {
     let mut archive_file =
         fs::File::create(&archive_path).map_err(|e| Error::Engine(e.to_string()))?;
     std::io::copy(&mut response, &mut archive_file).map_err(|e| Error::Engine(e.to_string()))?;
+    drop(archive_file);
 
     if let Some(s) = sp.as_mut() {
         s.step("Extracting");
