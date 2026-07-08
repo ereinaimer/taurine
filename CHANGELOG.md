@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Portable checksum computation in release workflow**: Replaced `sha256sum` with a portable detection chain (`sha256sum` -> `shasum -a 256` -> `openssl dgst -sha256`) so the checksum step works on macOS runners where `sha256sum` is not available.
+- **Scoped workflow permissions**: Changed top-level `permissions` from `contents: write` to `contents: read`, with `contents: write` scoped only to the `publish` job that creates the release. The `build` jobs no longer have unnecessary write access.
+
 ### Added
 - **Install script resilience improvements**: Both `install.sh` and `install.ps1` now include:
   - Retry logic with exponential backoff for network operations (manifest fetch, archive download)

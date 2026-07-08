@@ -6,7 +6,7 @@ on:
       - 'v[0-9]*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -87,7 +87,13 @@ jobs:
       - name: Compute checksum
         shell: bash
         run: |
-          echo "SHA256=$(sha256sum $ARCHIVE_NAME | cut -d' ' -f1)" >> $GITHUB_ENV
+          if command -v sha256sum &>/dev/null; then
+            echo "SHA256=$(sha256sum $ARCHIVE_NAME | cut -d' ' -f1)" >> $GITHUB_ENV
+          elif command -v shasum &>/dev/null; then
+            echo "SHA256=$(shasum -a 256 $ARCHIVE_NAME | cut -d' ' -f1)" >> $GITHUB_ENV
+          else
+            echo "SHA256=$(openssl dgst -sha256 $ARCHIVE_NAME | cut -d' ' -f2)" >> $GITHUB_ENV
+          fi
 
       - name: Upload Artifact to Workflow
         uses: actions/upload-artifact@v4
@@ -109,6 +115,8 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     steps:
       - name: Checkout scripts
         uses: actions/checkout@v4
