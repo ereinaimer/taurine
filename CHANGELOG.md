@@ -5,11 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0-alpha.12] - 2026-07-08
+
+### Removed
+- **`fake` crate from production dependencies**: Moved `fake` (test data generation) out of `[dependencies]` and replaced its usage in `mock.*` and `lorem.*` system variables with static data pools and `rand`-based random selection. The `fake` crate is no longer compiled into release builds, reducing dependency bloat.
+  - Replaced `fake::faker::lorem` with a static lorem ipsum word pool in `lorem.rs`
+  - Replaced `fake::faker` mock data (names, addresses, companies, jobs, credit cards, phones, emails, domains, usernames) with comprehensive static culturally-diverse data pools in `mock.rs`
 
 ### Fixed
 - **Checksum verification spinner feedback**: Checksum verification step now shows spinner and green tick
 - **Install script semver pre-release parsing**: Fixed `install.ps1` crash when the release version contains a semver pre-release suffix (e.g. `1.0.0-alpha.10`). PowerShell's `[version]` cast only accepts numeric components, so the pre-release tag is now stripped before numeric comparison in the downgrade guard.
+
+## [1.0.0-alpha.11] - 2026-07-08
+
+### Fixed
+- **install.ps1 Invoke-WithRetry argument passing**: Added missing `$ArgumentList` parameter and `-ArgumentList` to `Start-Job` so job arguments are forwarded correctly instead of being silently dropped or passing `$null` to `Invoke-RestMethod`.
+- **Pre-release version comparison in updater**: Fixed `is_newer_version` using string comparison (`>`) on pre-release identifiers, which caused `"alpha.10" < "alpha.9"` lexicographically. Replaced with proper field-by-field numeric comparison per semver spec.
 
 ## [1.0.0-alpha.10] - 2026-07-08
 

@@ -1,9 +1,131 @@
-use fake::Fake;
-use fake::faker::lorem::en::{Paragraphs, Sentences, Words};
+use rand::RngExt;
 
 const DEFAULT_WORD_COUNT: usize = 15;
 const DEFAULT_SENTENCE_COUNT: usize = 1;
 const DEFAULT_PARAGRAPH_COUNT: usize = 1;
+
+const LOREM_WORDS: &[&str] = &[
+    "lorem",
+    "ipsum",
+    "dolor",
+    "sit",
+    "amet",
+    "consectetur",
+    "adipiscing",
+    "elit",
+    "sed",
+    "do",
+    "eiusmod",
+    "tempor",
+    "incididunt",
+    "ut",
+    "labore",
+    "et",
+    "dolore",
+    "magna",
+    "aliqua",
+    "ut",
+    "enim",
+    "ad",
+    "minim",
+    "veniam",
+    "quis",
+    "nostrud",
+    "exercitation",
+    "ullamco",
+    "laboris",
+    "nisi",
+    "ut",
+    "aliquip",
+    "ex",
+    "ea",
+    "commodo",
+    "consequat",
+    "duis",
+    "aute",
+    "irure",
+    "dolor",
+    "in",
+    "reprehenderit",
+    "in",
+    "voluptate",
+    "velit",
+    "esse",
+    "cillum",
+    "dolore",
+    "eu",
+    "fugiat",
+    "nulla",
+    "pariatur",
+    "excepteur",
+    "sint",
+    "occaecat",
+    "cupidatat",
+    "non",
+    "proident",
+    "sunt",
+    "in",
+    "culpa",
+    "qui",
+    "officia",
+    "deserunt",
+    "mollit",
+    "anim",
+    "id",
+    "est",
+    "laborum",
+];
+
+fn pick_words(count: usize) -> Vec<String> {
+    let mut rng = rand::rng();
+    (0..count)
+        .map(|_| LOREM_WORDS[rng.random_range(0..LOREM_WORDS.len())].to_string())
+        .collect()
+}
+
+fn pick_sentences(count: usize) -> Vec<String> {
+    let mut rng = rand::rng();
+    (0..count)
+        .map(|_| {
+            let sentence_len = rng.random_range(5..=15);
+            let mut words: Vec<String> = (0..sentence_len)
+                .map(|_| LOREM_WORDS[rng.random_range(0..LOREM_WORDS.len())].to_string())
+                .collect();
+            if !words.is_empty() {
+                let first =
+                    words[0].chars().next().unwrap().to_uppercase().to_string() + &words[0][1..];
+                words[0] = first;
+                words.push(".".to_string());
+            }
+            words.join(" ")
+        })
+        .collect()
+}
+
+fn pick_paragraphs(count: usize) -> Vec<String> {
+    let mut rng = rand::rng();
+    (0..count)
+        .map(|_| {
+            let sentence_count = rng.random_range(3..=8);
+            let sentences: Vec<String> = (0..sentence_count)
+                .map(|_| {
+                    let sentence_len = rng.random_range(5..=15);
+                    let mut words: Vec<String> = (0..sentence_len)
+                        .map(|_| LOREM_WORDS[rng.random_range(0..LOREM_WORDS.len())].to_string())
+                        .collect();
+                    if !words.is_empty() {
+                        let first = words[0].chars().next().unwrap().to_uppercase().to_string()
+                            + &words[0][1..];
+                        words[0] = first;
+                        words.push(".".to_string());
+                    }
+                    words.join(" ")
+                })
+                .collect();
+            sentences.join(" ")
+        })
+        .collect()
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LoremInvocation {
@@ -72,20 +194,12 @@ pub(crate) fn parse_invocation(key: &str) -> Result<LoremInvocation, LoremParseE
 
 pub fn resolve(key: &str) -> Option<String> {
     let invocation = parse_invocation(key).ok()?;
-    let end = invocation.count.checked_add(1)?;
+    let count = invocation.count.max(1);
 
     match invocation.variant {
-        LoremVariant::Paragraph => Some(
-            Paragraphs(invocation.count..end)
-                .fake::<Vec<String>>()
-                .join("\n\n"),
-        ),
-        LoremVariant::Word => Some(Words(invocation.count..end).fake::<Vec<String>>().join(" ")),
-        LoremVariant::Sentence => Some(
-            Sentences(invocation.count..end)
-                .fake::<Vec<String>>()
-                .join(" "),
-        ),
+        LoremVariant::Word => Some(pick_words(count).join(" ")),
+        LoremVariant::Sentence => Some(pick_sentences(count).join(" ")),
+        LoremVariant::Paragraph => Some(pick_paragraphs(count).join("\n\n")),
     }
 }
 
