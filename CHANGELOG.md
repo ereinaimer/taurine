@@ -8,9 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- **Install script fixes**: Fixed both `install.sh` and `install.ps1` for cross-platform compatibility and reliability.
+- **Install script cross-platform compatibility fixes**: Fixed both `install.sh` and `install.ps1` for cross-platform compatibility and reliability.
   - `install.sh`: Replaced `sha256sum` with a portable checksum function supporting both `sha256sum` (Linux) and `shasum -a 256` (macOS). Replaced `sort -V` (GNU extension, unavailable on macOS) with a component-by-component numeric version comparison for downgrade prevention.
   - `install.ps1`: Wrapped main logic in a `Main()` function and replaced `exit` with `return`/`throw` to prevent the PowerShell host from terminating when the script is run via `irm ... | iex`. Fixed PATH check to use case-insensitive comparison on Windows. Added `try/finally` block to ensure temp files are cleaned up on errors. Added red `Write-Host` before error throws for better user visibility.
+- **Install script bug fixes**: Fixed several additional bugs in both install scripts.
+  - `install.sh`: Added `|| true` to JSON parsing pipelines to prevent `set -euo pipefail` from silently killing the script before the friendly error message. Changed `grep -q` to `grep -Fq` for PATH checks to use fixed-string matching instead of regex. Added `wait $PID` exit code checks after manifest fetch and archive download so network failures produce a clear error instead of a cryptic system error.
+  - `install.ps1`: Wrapped `[version]` cast in `try/catch` in the downgrade check to gracefully handle malformed version strings. Improved checksum error handling to distinguish between a job failure (tool crash) and a genuine checksum mismatch. Guarded PATH operations against a `$null` registry value to prevent null reference crashes.
 
 ## [1.0.0-alpha.12] - 2026-07-08
 

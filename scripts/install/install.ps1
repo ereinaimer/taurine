@@ -85,9 +85,16 @@ function Main {
             return
         }
         # Prevent downgrade (strip pre-release suffix for version comparison)
-        if ([version](Get-VersionBase $LocalVersion) -gt [version](Get-VersionBase $Version)) {
-            Write-Host "Taurine v$LocalVersion is newer than the latest release (v$Version). Skipping update."
-            return
+        try {
+            $localBase = [version](Get-VersionBase $LocalVersion)
+            $remoteBase = [version](Get-VersionBase $Version)
+            if ($localBase -gt $remoteBase) {
+                Write-Host "Taurine v$LocalVersion is newer than the latest release (v$Version). Skipping update."
+                return
+            }
+        } catch {
+            # Malformed version string — can't compare, proceed with install
+            Write-Host "  Unable to compare versions ($LocalVersion vs $Version) — will reinstall."
         }
     }
 
@@ -113,10 +120,15 @@ function Main {
                 return ($computed -eq $expected.ToLower())
             }
             $job = Start-Job -ScriptBlock $ChecksumJob -ArgumentList @($TempZip, $Sha256)
-            $valid = Show-SpinnerJob $job "Verifying checksum"
-            if (-not $valid) {
-                Write-Host -ForegroundColor Red "Error: Checksum verification failed for downloaded archive."
-                throw "Checksum verification failed for downloaded archive."
+            $result = Show-SpinnerJob $job "Verifying checksum"
+            # $result should be a boolean; anything else (error record, $null) means the job failed
+            if ($result -isnot [bool] -or -not $result) {
+                if ($result -isnot [bool]) {
+                    Write-Host -ForegroundColor Red "Error: Checksum verification tool failed for downloaded archive."
+                    throw "Checksum verification tool failed for downloaded archive."
+                }
+                Write-Host -ForegroundColor Red "Error: Checksum mismatch for downloaded archive."
+                throw "Checksum mismatch for downloaded archive."
             }
         }
 
@@ -138,8 +150,14 @@ function Main {
         $PathRegKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $true)
         $CurrentPath = $PathRegKey.GetValue("Path", $null, "DoNotExpandEnvironmentNames")
 
-        if ($CurrentPath.IndexOf($InstallDir, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
-            $NewPath = if ($CurrentPath.EndsWith(";")) { "$CurrentPath$InstallDir" } else { "$CurrentPath;$InstallDir" }
+        if ($null -eq $CurrentPath -or $CurrentPath.IndexOf($InstallDir, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+            if ($null -eq $CurrentPath) {
+                $NewPath = $InstallDir
+            } elseif ($CurrentPath.EndsWith(";")) {
+                $NewPath = "$CurrentPath$InstallDir"
+            } else {
+                $NewPath = "$CurrentPath;$InstallDir"
+            }
             $PathRegKey.SetValue("Path", $NewPath, [Microsoft.Win32.RegistryValueKind]::ExpandString)
 
             # Broadcast WM_SETTINGCHANGE

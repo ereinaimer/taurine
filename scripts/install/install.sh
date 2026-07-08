@@ -113,12 +113,12 @@ retry() {
 retry 3 "curl -fsSL https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json -o \"$TMP_DIR/manifest.json\"" &
 PID=$!
 show_spinner $PID "Fetching latest release manifest"
-wait $PID
+wait $PID || { echo "Error: Could not fetch release manifest after 3 retries."; exit 1; }
 
 MANIFEST=$(cat "$TMP_DIR/manifest.json")
-VERSION=$(echo "$MANIFEST" | grep -o '"version":"[^"]*"' | head -n 1 | cut -d'"' -f4)
-URL=$(echo "$MANIFEST" | grep -o "\"$PLATFORM\":{[^}]*}" | grep -o '"url":"[^"]*"' | cut -d'"' -f4)
-SHA256=$(echo "$MANIFEST" | grep -o "\"$PLATFORM\":{[^}]*}" | grep -o '"sha256":"[^"]*"' | cut -d'"' -f4)
+VERSION=$(echo "$MANIFEST" | grep -o '"version":"[^"]*"' | head -n 1 | cut -d'"' -f4 || true)
+URL=$(echo "$MANIFEST" | grep -o "\"$PLATFORM\":{[^}]*}" | grep -o '"url":"[^"]*"' | cut -d'"' -f4 || true)
+SHA256=$(echo "$MANIFEST" | grep -o "\"$PLATFORM\":{[^}]*}" | grep -o '"sha256":"[^"]*"' | cut -d'"' -f4 || true)
 
 if [ -z "$VERSION" ] || [ -z "$URL" ]; then
     echo "Error: Could not determine latest version or download URL."
@@ -149,7 +149,7 @@ ARCHIVE="$TMP_DIR/taurine.tar.xz"
 retry 3 "curl -fsSL \"$URL\" -o \"$ARCHIVE\"" &
 PID=$!
 show_spinner $PID "Downloading taurine v$VERSION"
-wait $PID
+wait $PID || { echo "Error: Could not download taurine v$VERSION after 3 retries."; exit 1; }
 
 # Verify checksum if available
 if [ -n "$SHA256" ]; then
@@ -174,7 +174,7 @@ ADDED_PATH=false
 if [ "$OS" = "Darwin" ]; then
     for profile in "$HOME/.zprofile" "$HOME/.bash_profile"; do
         touch "$profile"
-        if ! grep -q "$INSTALL_DIR" "$profile"; then
+        if ! grep -Fq "$INSTALL_DIR" "$profile"; then
             echo -e "\nexport PATH=\"$INSTALL_DIR:\$PATH\"" >> "$profile"
             ADDED_PATH=true
         fi
@@ -182,7 +182,7 @@ if [ "$OS" = "Darwin" ]; then
 else
     for profile in "$HOME/.bashrc" "$HOME/.zshrc"; do
         if [ -f "$profile" ]; then
-            if ! grep -q "$INSTALL_DIR" "$profile"; then
+            if ! grep -Fq "$INSTALL_DIR" "$profile"; then
                 echo -e "\nexport PATH=\"$INSTALL_DIR:\$PATH\"" >> "$profile"
                 ADDED_PATH=true
             fi
