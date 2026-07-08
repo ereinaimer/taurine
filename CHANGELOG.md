@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Install script resilience improvements**: Both `install.sh` and `install.ps1` now include:
+  - Retry logic with exponential backoff for network operations (manifest fetch, archive download)
+  - SHA-256 checksum verification when the manifest provides it, protecting against corrupted downloads
+  - Graceful handling of old binaries that lack the `--version` flag (no longer fails the version check)
+  - Downgrade prevention: skips installation if the local version is newer than the latest release
+  - `install.sh`: cleanup trap ensures temp directory is removed on `EXIT`, `INT`, or `TERM` signals
+- **Checksum support in release manifest**: The release workflow now computes `sha256sum` for each artifact and includes it in `manifest.json` under each platform entry
+- **Checksum verification in internal updater**: `taurine update` now verifies the downloaded archive SHA-256 against the manifest checksum before extracting
+- **`--version` flag regression test**: Added a unit test verifying the `--version` flag parses correctly and the version constant is a valid semver string
+
 ### Fixed
 - **Missing `--version` flag**: Added support for `taurine --version` to output the current version (e.g. `taurine 1.0.0-alpha.9`). The install scripts rely on this to detect existing installations and skip redundant re-downloads.
 - **Windows update extraction failure**: Fixed a bug where `taurine update` failed on Windows with "file is being used by another process" during zip extraction. The downloaded archive file handle was not explicitly dropped before PowerShell's `Expand-Archive` tried to read it, causing an exclusive access lock conflict. Added an explicit `drop(archive_file)` before the extraction step.

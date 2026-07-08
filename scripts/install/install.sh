@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
 # Detect OS and Architecture
 OS="$(uname -s)"
@@ -28,6 +28,13 @@ else
     exit 1
 fi
 
+# Cleanup handler — always remove temp dir on exit
+TMP_DIR=$(mktemp -d)
+cleanup() {
+    rm -rf "$TMP_DIR"
+}
+trap cleanup EXIT INT TERM
+
 show_spinner() {
     local pid=$1
     local label=$2
@@ -42,10 +49,28 @@ show_spinner() {
     printf "\r\x1b[32m✓\x1b[0m %s\n" "$label"
 }
 
-TMP_DIR=$(mktemp -d)
+# Retry a command up to N times with exponential backoff
+retry() {
+    local max_attempts=$1
+    local cmd="$2"
+    local attempt=1
+    local delay=2
+
+    while [ $attempt -le $max_attempts ]; do
+        if eval "$cmd" 2>/dev/null; then
+            return 0
+        fi
+        if [ $attempt -lt $max_attempts ]; then
+            sleep $delay
+            delay=$((delay * 2))
+        fi
+        attempt=$((attempt + 1))
+    done
+    return 1
+}
 
 # Fetch latest release manifest
-curl -fsSL https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json -o "$TMP_DIR/manifest.json" &
+retry 3 "curl -fsSL https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json -o \"$TMP_DIR/manifest.json\"" &
 PID=$!
 show_spinner $PID "Fetching latest release manifest"
 wait $PID
@@ -53,31 +78,46 @@ wait $PID
 MANIFEST=$(cat "$TMP_DIR/manifest.json")
 VERSION=$(echo "$MANIFEST" | grep -o '"version":"[^"]*"' | head -n 1 | cut -d'"' -f4)
 URL=$(echo "$MANIFEST" | grep -o "\"$PLATFORM\":{[^}]*}" | grep -o '"url":"[^"]*"' | cut -d'"' -f4)
+SHA256=$(echo "$MANIFEST" | grep -o "\"$PLATFORM\":{[^}]*}" | grep -o '"sha256":"[^"]*"' | cut -d'"' -f4)
 
 if [ -z "$VERSION" ] || [ -z "$URL" ]; then
     echo "Error: Could not determine latest version or download URL."
-    rm -rf "$TMP_DIR"
     exit 1
 fi
 
-# Check if already installed
+# Check if already installed — gracefully handle old binaries without --version
+LOCAL_VERSION=""
 if [ -x "$INSTALL_DIR/taurine" ]; then
-    LOCAL_VERSION=$("$INSTALL_DIR/taurine" --version 2>/dev/null | awk '{print $2}')
+    LOCAL_VERSION=$("$INSTALL_DIR/taurine" --version 2>/dev/null | awk '{print $2}') || true
+fi
+
+if [ -n "$LOCAL_VERSION" ]; then
     if [ "$LOCAL_VERSION" = "$VERSION" ]; then
         echo "Taurine is already installed and up to date (v$LOCAL_VERSION)."
-        rm -rf "$TMP_DIR"
+        exit 0
+    fi
+    # Prevent downgrade: if local version is newer than manifest, skip
+    if [ "$(printf '%s\n' "$LOCAL_VERSION" "$VERSION" | sort -V | tail -n1)" = "$LOCAL_VERSION" ] && [ "$LOCAL_VERSION" != "$VERSION" ]; then
+        echo "Taurine v$LOCAL_VERSION is newer than the latest release (v$VERSION). Skipping update."
         exit 0
     fi
 fi
 
 ARCHIVE="$TMP_DIR/taurine.tar.xz"
 
-
-# Download archive
-curl -fsSL "$URL" -o "$ARCHIVE" &
+# Download archive with retry
+retry 3 "curl -fsSL \"$URL\" -o \"$ARCHIVE\"" &
 PID=$!
 show_spinner $PID "Downloading taurine v$VERSION"
 wait $PID
+
+# Verify checksum if available
+if [ -n "$SHA256" ]; then
+    echo "$SHA256  $ARCHIVE" | sha256sum -c - > /dev/null 2>&1 || {
+        echo "Error: Checksum verification failed for downloaded archive."
+        exit 1
+    }
+fi
 
 # Extract
 mkdir -p "$INSTALL_DIR"
@@ -88,7 +128,6 @@ wait $PID
 
 cp "$TMP_DIR/taurine" "$INSTALL_DIR/"
 chmod +x "$INSTALL_DIR/taurine"
-rm -rf "$TMP_DIR"
 
 # Add to PATH
 ADDED_PATH=false
@@ -120,4 +159,3 @@ if [ "$ADDED_PATH" = true ]; then
         echo "  source ~/.bashrc"
     fi
 fi
-

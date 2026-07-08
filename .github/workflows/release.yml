@@ -84,11 +84,27 @@ jobs:
           tar -cJf $ARCHIVE_NAME -C package .
           echo "ARCHIVE_NAME=$ARCHIVE_NAME" >> $GITHUB_ENV
 
+      - name: Compute checksum
+        shell: bash
+        run: |
+          echo "SHA256=$(sha256sum $ARCHIVE_NAME | cut -d' ' -f1)" >> $GITHUB_ENV
+
       - name: Upload Artifact to Workflow
         uses: actions/upload-artifact@v4
         with:
           name: release-artifacts-${{ matrix.platform_key }}
           path: ${{ env.ARCHIVE_NAME }}
+
+      - name: Write checksum file
+        shell: bash
+        run: |
+          echo "${{ env.SHA256 }}  ${{ env.ARCHIVE_NAME }}" > checksums-${{ matrix.platform_key }}.sha256
+
+      - name: Upload Checksum File
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksum-files
+          path: checksums-${{ matrix.platform_key }}.sha256
 
   publish:
     needs: build
@@ -117,33 +133,59 @@ jobs:
               f.write(body)
           "
           
-      - name: Generate Manifest
-        run: |
-          VERSION=${GITHUB_REF_NAME#v}
-          cat << 'EOF' > generate_manifest.py
-          import sys, json
-          version = sys.argv[1]
-          base_url = f"https://github.com/ereinaimer/taurine/releases/download/v{version}"
-          manifest = {
-              "version": version,
-              "artifacts": {
-                  "windows-x86_64": {"url": f"{base_url}/taurine-v{version}-windows-x86_64.zip"},
-                  "linux-x86_64": {"url": f"{base_url}/taurine-v{version}-linux-x86_64.tar.xz"},
-                  "macos-x86_64": {"url": f"{base_url}/taurine-v{version}-macos-x86_64.tar.xz"},
-                  "macos-aarch64": {"url": f"{base_url}/taurine-v{version}-macos-aarch64.tar.xz"},
-              }
-          }
-          with open('manifest.json', 'w') as f:
-              json.dump(manifest, f, indent=2)
-          EOF
-          python3 generate_manifest.py $VERSION
-          
       - name: Download all workflow artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: release-artifacts-*
           path: artifacts
           merge-multiple: true
+
+      - name: Download checksum files
+        uses: actions/download-artifact@v4
+        with:
+          pattern: checksum-files
+          path: checksums
+          merge-multiple: true
+          
+      - name: Generate Manifest with Checksums
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          base_url="https://github.com/ereinaimer/taurine/releases/download/v${VERSION}"
+          
+          # Read checksums into variables
+          windows_sha256=$(grep "windows-x86_64" checksums/*.sha256 2>/dev/null | cut -d' ' -f1 || echo "")
+          linux_sha256=$(grep "linux-x86_64" checksums/*.sha256 2>/dev/null | cut -d' ' -f1 || echo "")
+          macos_x64_sha256=$(grep "macos-x86_64" checksums/*.sha256 2>/dev/null | cut -d' ' -f1 || echo "")
+          macos_arm_sha256=$(grep "macos-aarch64" checksums/*.sha256 2>/dev/null | cut -d' ' -f1 || echo "")
+          
+          python3 -c "
+          import json, os
+          version = '$VERSION'
+          base_url = f'https://github.com/ereinaimer/taurine/releases/download/v{version}'
+          manifest = {
+              'version': version,
+              'artifacts': {
+                  'windows-x86_64': {
+                      'url': f'{base_url}/taurine-v{version}-windows-x86_64.zip',
+                      'sha256': '$windows_sha256'
+                  },
+                  'linux-x86_64': {
+                      'url': f'{base_url}/taurine-v{version}-linux-x86_64.tar.xz',
+                      'sha256': '$linux_sha256'
+                  },
+                  'macos-x86_64': {
+                      'url': f'{base_url}/taurine-v{version}-macos-x86_64.tar.xz',
+                      'sha256': '$macos_x64_sha256'
+                  },
+                  'macos-aarch64': {
+                      'url': f'{base_url}/taurine-v{version}-macos-aarch64.tar.xz',
+                      'sha256': '$macos_arm_sha256'
+                  },
+              }
+          }
+          with open('manifest.json', 'w') as f:
+              json.dump(manifest, f, indent=2)
+          "
           
       - name: Create Pre-Release and Upload Assets
         env:

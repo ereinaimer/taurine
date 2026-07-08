@@ -1,5 +1,7 @@
 use reqwest::blocking::Client;
+use sha2::Digest;
 use std::fs;
+use std::io::Read;
 use std::path::PathBuf;
 use taurine_core::error::{Error, Result};
 use taurine_core::paths::{get_install_bin_dir, get_install_exe_path, get_last_update_check_path};
@@ -29,6 +31,8 @@ struct Manifest {
 #[derive(serde::Deserialize)]
 struct Artifact {
     url: String,
+    #[serde(default)]
+    sha256: Option<String>,
 }
 
 struct StdoutStepRenderer {
@@ -167,6 +171,34 @@ fn execute_inner(silent: bool) -> Result<()> {
         fs::File::create(&archive_path).map_err(|e| Error::Engine(e.to_string()))?;
     std::io::copy(&mut response, &mut archive_file).map_err(|e| Error::Engine(e.to_string()))?;
     drop(archive_file);
+
+    // Verify checksum if available in manifest
+    if let Some(expected_sha256) = &artifact.sha256 {
+        let computed = {
+            let mut hasher = sha2::Sha256::new();
+            let mut f = fs::File::open(&archive_path).map_err(|e| Error::Engine(e.to_string()))?;
+            let mut buf = [0u8; 8192];
+            loop {
+                let n = f.read(&mut buf).map_err(|e| Error::Engine(e.to_string()))?;
+                if n == 0 {
+                    break;
+                }
+                hasher.update(&buf[..n]);
+            }
+            hasher
+                .finalize()
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<String>()
+        };
+        if computed != *expected_sha256 {
+            let _ = fs::remove_file(&archive_path);
+            return Err(Error::Engine(format!(
+                "Checksum mismatch for downloaded update: expected {}, got {}",
+                expected_sha256, computed
+            )));
+        }
+    }
 
     if let Some(s) = sp.as_mut() {
         s.step("Extracting");

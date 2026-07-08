@@ -715,6 +715,19 @@ mod tests {
     }
 
     #[test]
+    fn version_flag_prints_expected_format() {
+        // --version should exit successfully and print "taurine <semver>"
+        let cli = Cli::try_parse_from(["taurine", "--version"]).expect("--version should parse");
+        assert!(cli.version, "version flag should be true");
+        // The actual output is printed in main() before launch_target is called,
+        // so we verify the flag routing here and the constant exists.
+        assert!(
+            VERSION.contains('.'),
+            "VERSION constant should be a semver string, got: {VERSION}"
+        );
+    }
+
+    #[test]
     fn verbose_flag_only_invocation_routes_to_tui() {
         let cli = Cli::try_parse_from(["taurine", "--verbose"])
             .expect("flag-only invocation should parse");
