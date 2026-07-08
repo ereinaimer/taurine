@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+
+### Fixed
+- **install.ps1 Invoke-WithRetry argument passing**: Added missing `$ArgumentList` parameter and `-ArgumentList` to `Start-Job` so job arguments are forwarded correctly instead of being silently dropped or passing `$null` to `Invoke-RestMethod`.
+- **Pre-release version comparison in updater**: Fixed `is_newer_version` using string comparison (`>`) on pre-release identifiers, which caused `"alpha.10" < "alpha.9"` lexicographically. Replaced with proper field-by-field numeric comparison per semver spec.
+
 ## [1.0.0-alpha.10] - 2026-07-08
 
 ### Changed

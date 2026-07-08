@@ -285,20 +285,48 @@ fn is_newer_version(current: &str, manifest: &str) -> bool {
     let man_tuple: Vec<u32> = man_base.split('.').filter_map(|s| s.parse().ok()).collect();
 
     if man_tuple > cur_tuple {
-        true
-    } else if man_tuple == cur_tuple {
-        let cur_pre = current_parts.next().unwrap_or("");
-        let man_pre = man_parts.next().unwrap_or("");
-        if cur_pre.is_empty() && !man_pre.is_empty() {
-            false
-        } else if !cur_pre.is_empty() && man_pre.is_empty() {
-            true
-        } else {
-            man_pre > cur_pre
-        }
-    } else {
-        false
+        return true;
     }
+    if man_tuple < cur_tuple {
+        return false;
+    }
+
+    // Base versions are equal — compare pre-release identifiers per semver spec.
+    // A missing pre-release is higher than any pre-release.
+    let cur_pre = current_parts.next().unwrap_or("");
+    let man_pre = man_parts.next().unwrap_or("");
+
+    match (cur_pre.is_empty(), man_pre.is_empty()) {
+        (true, false) => return false, // current is release, manifest is pre-release
+        (false, true) => return true,  // current is pre-release, manifest is release
+        (true, true) => return false,  // both are release — equal
+        (false, false) => {}           // both are pre-release — compare numerically
+    }
+
+    // Compare pre-release identifiers field-by-field (e.g. "alpha.10" vs "alpha.9")
+    let cur_fields: Vec<&str> = cur_pre.split('.').collect();
+    let man_fields: Vec<&str> = man_pre.split('.').collect();
+
+    let max_len = cur_fields.len().max(man_fields.len());
+    for i in 0..max_len {
+        let a = cur_fields.get(i).copied().unwrap_or("");
+        let b = man_fields.get(i).copied().unwrap_or("");
+
+        if a == b {
+            continue;
+        }
+
+        // Numeric comparison when both fields are integers
+        if let (Ok(an), Ok(bn)) = (a.parse::<u64>(), b.parse::<u64>()) {
+            return bn > an;
+        }
+
+        // Lexicographic comparison for non-numeric fields (e.g. "alpha" vs "beta")
+        return b > a;
+    }
+
+    // All fields equal up to the shorter length — the longer one is greater
+    man_fields.len() > cur_fields.len()
 }
 
 fn ensure_on_path(dir: PathBuf) {

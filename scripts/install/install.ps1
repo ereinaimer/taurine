@@ -21,11 +21,11 @@ function Show-SpinnerJob ($Job, $Label) {
     return $result
 }
 
-function Invoke-WithRetry ($ScriptBlock, $Label) {
+function Invoke-WithRetry ($ScriptBlock, $ArgumentList, $Label) {
     $attempt = 0
     $delay = $RetryDelay
     while ($attempt -lt $MaxRetries) {
-        $job = Start-Job -ScriptBlock $ScriptBlock
+        $job = Start-Job -ScriptBlock $ScriptBlock -ArgumentList $ArgumentList
         $result = Show-SpinnerJob $job $Label
         if ($null -ne $result -and ($result -is [string] -or $result.PSObject.Properties.Name -contains 'version')) {
             return $result
@@ -46,7 +46,7 @@ $ManifestJob = {
     param($url)
     Invoke-RestMethod -Uri $url
 }
-$Manifest = Invoke-WithRetry $ManifestJob @{url = "https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json"} "Fetching latest release manifest"
+$Manifest = Invoke-WithRetry -ScriptBlock $ManifestJob -ArgumentList @("https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json") -Label "Fetching latest release manifest"
 $Version = $Manifest.version
 $Url = $Manifest.artifacts.$Platform.url
 $Sha256 = $Manifest.artifacts.$Platform.sha256
@@ -93,7 +93,7 @@ $DownloadJob = {
     Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing
     return $out
 }
-Invoke-WithRetry $DownloadJob @{url = $Url; out = $TempZip} "Downloading taurine v$Version" | Out-Null
+Invoke-WithRetry -ScriptBlock $DownloadJob -ArgumentList @($Url, $TempZip) -Label "Downloading taurine v$Version" | Out-Null
 
 # Verify checksum if available
 if ($Sha256) {
@@ -113,7 +113,7 @@ $ExtractJob = {
     Expand-Archive -Path $zip -DestinationPath $dest -Force
     return $dest
 }
-Invoke-WithRetry $ExtractJob @{zip = $TempZip; dest = $TempDir} "Extracting" | Out-Null
+Invoke-WithRetry -ScriptBlock $ExtractJob -ArgumentList @($TempZip, $TempDir) -Label "Extracting" | Out-Null
 
 if (-not (Test-Path $InstallDir)) {
     New-Item -ItemType Directory -Path $InstallDir | Out-Null
