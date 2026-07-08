@@ -49,6 +49,46 @@ show_spinner() {
     printf "\r\x1b[32m✓\x1b[0m %s\n" "$label"
 }
 
+verify_checksum() {
+    local file=$1
+    local expected=$2
+    if command -v sha256sum >/dev/null 2>&1; then
+        echo "$expected  $file" | sha256sum -c - > /dev/null 2>&1
+    elif command -v shasum >/dev/null 2>&1; then
+        echo "$expected  $file" | shasum -a 256 -c - > /dev/null 2>&1
+    else
+        echo "Error: No sha256 checksum tool available (tried sha256sum, shasum)"
+        exit 1
+    fi
+}
+
+version_gt() {
+    # Returns 0 if $1 > $2, 1 otherwise
+    # Strips pre-release suffixes for comparison
+    local v1="${1%%-*}"
+    local v2="${2%%-*}"
+
+    # Split into components and zero-pad for reliable numeric comparison
+    local IFS=.
+    set -f
+    # shellcheck disable=SC2206
+    local parts1=($v1) parts2=($v2)
+    set +f
+
+    for i in 0 1 2 3; do
+        local a="${parts1[$i]:-0}"
+        local b="${parts2[$i]:-0}"
+        # Strip any non-numeric suffix
+        a="${a%%[!0-9]*}"
+        b="${b%%[!0-9]*}"
+        a="${a:-0}"
+        b="${b:-0}"
+        if [ "$a" -gt "$b" ] 2>/dev/null; then return 0; fi
+        if [ "$a" -lt "$b" ] 2>/dev/null; then return 1; fi
+    done
+    return 1
+}
+
 # Retry a command up to N times with exponential backoff
 retry() {
     local max_attempts=$1
@@ -97,7 +137,7 @@ if [ -n "$LOCAL_VERSION" ]; then
         exit 0
     fi
     # Prevent downgrade: if local version is newer than manifest, skip
-    if [ "$(printf '%s\n' "$LOCAL_VERSION" "$VERSION" | sort -V | tail -n1)" = "$LOCAL_VERSION" ] && [ "$LOCAL_VERSION" != "$VERSION" ]; then
+    if version_gt "$LOCAL_VERSION" "$VERSION"; then
         echo "Taurine v$LOCAL_VERSION is newer than the latest release (v$VERSION). Skipping update."
         exit 0
     fi
@@ -113,7 +153,7 @@ wait $PID
 
 # Verify checksum if available
 if [ -n "$SHA256" ]; then
-    echo "$SHA256  $ARCHIVE" | sha256sum -c - > /dev/null 2>&1 || {
+    verify_checksum "$ARCHIVE" "$SHA256" || {
         echo "Error: Checksum verification failed for downloaded archive."
         exit 1
     }
