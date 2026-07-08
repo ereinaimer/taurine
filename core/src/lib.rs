@@ -12,6 +12,7 @@
 //! - **Error**: Centralized error handling.
 
 pub mod ai;
+pub mod alias;
 pub mod constants;
 pub mod db;
 pub mod engine;
@@ -27,6 +28,7 @@ pub mod paths;
 pub mod rpc;
 pub mod service;
 pub mod settings;
+pub mod shell;
 pub mod utils;
 
 #[cfg(test)]

@@ -263,58 +263,26 @@ fn install_fish(cmd: &mut clap::Command) {
 
 #[cfg(not(target_os = "windows"))]
 fn append_to_rc_file(path: &std::path::Path, content: &str) {
-    if !path.exists() {
-        match fs::File::create(path) {
-            Ok(mut file) => {
-                use std::io::Write;
+    // Keep the fpath-aware duplicate check used by Zsh completions
+    let needs_fpath_check = content.contains("fpath");
 
-                if let Err(error) = writeln!(file, "\n{content}") {
-                    error!("Failed to write to {}: {error}", path.display());
-                } else {
-                    debug!("Added sourcing line to: {}", path.display());
-                }
-            }
-            Err(error) => error!("Failed to create {}: {error}", path.display()),
-        }
-        return;
-    }
-
-    match fs::read_to_string(path) {
-        Ok(existing_content) => {
-            let fpath_prefix = if content.contains("fpath") {
-                content.split_once(' ').map(|(prefix, _)| prefix)
-            } else {
-                None
-            };
-
-            let already_exists = existing_content.contains(content)
-                || fpath_prefix.is_some_and(|prefix| existing_content.contains(prefix));
-
-            if already_exists {
-                debug!(
-                    "File {} already contains the sourcing line.",
-                    path.display()
-                );
+    if needs_fpath_check && path.exists() {
+        if let Ok(existing) = fs::read_to_string(path) {
+            let fpath_prefix = content.split_once(' ').map(|(prefix, _)| prefix);
+            if fpath_prefix.is_some_and(|p| existing.contains(p)) {
+                debug!("File {} already contains the fpath line.", path.display());
                 return;
             }
-
-            use std::io::Write;
-
-            let mut file = match fs::OpenOptions::new().append(true).open(path) {
-                Ok(file) => file,
-                Err(error) => {
-                    error!("Failed to open {} for appending: {error}", path.display());
-                    return;
-                }
-            };
-
-            if let Err(error) = writeln!(file, "\n{content}") {
-                error!("Failed to append to {}: {error}", path.display());
-            } else {
-                debug!("Added sourcing line to: {}", path.display());
-            }
         }
-        Err(error) => error!("Failed to read {}: {error}", path.display()),
+    }
+
+    match taurine_core::shell::append_line_to_rc_file(path, content) {
+        Ok(true) => debug!("Added sourcing line to: {}", path.display()),
+        Ok(false) => debug!(
+            "File {} already contains the sourcing line.",
+            path.display()
+        ),
+        Err(error) => error!("Failed to append to {}: {error}", path.display()),
     }
 }
 
@@ -436,26 +404,10 @@ fn uninstall_unix() {}
 
 #[cfg(not(target_os = "windows"))]
 fn remove_line_from_file(path: &std::path::Path, partial_content: &str) {
-    if !path.exists() {
-        return;
-    }
-
-    match fs::read_to_string(path) {
-        Ok(content) => {
-            if content.contains(partial_content) {
-                let new_content = content
-                    .lines()
-                    .filter(|line| !line.contains(partial_content))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-
-                match fs::write(path, new_content) {
-                    Ok(_) => debug!("Removed sourcing line from: {}", path.display()),
-                    Err(error) => error!("Failed to write to {}: {error}", path.display()),
-                }
-            }
-        }
-        Err(error) => error!("Failed to read {}: {error}", path.display()),
+    match taurine_core::shell::remove_lines_from_rc_file(path, partial_content) {
+        Ok(true) => debug!("Removed sourcing line from: {}", path.display()),
+        Ok(false) => {}
+        Err(error) => error!("Failed to remove from {}: {error}", path.display()),
     }
 }
 

@@ -7,6 +7,9 @@ description.workspace = true
 repository.workspace = true
 license-file.workspace = true
 
+[dev-dependencies]
+tempfile = "3.10"
+
 [dependencies]
 taurine_core = { path = "../core" }
 taurine_daemon = { path = "../daemon" }

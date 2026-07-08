@@ -131,6 +131,9 @@ fn execute_inner(silent: bool) -> Result<()> {
     let current_version = env!("CARGO_PKG_VERSION");
     let is_newer = is_newer_version(current_version, &manifest.version);
 
+    // Ensure the tau alias is set up on every update invocation
+    taurine_core::alias::ensure_tau_alias();
+
     if !is_newer {
         if !silent {
             info!("Taurine is already up to date (v{}).", current_version);
@@ -358,29 +361,9 @@ fn ensure_on_path(dir: PathBuf) {
         }
     } else {
         let dir_str = dir.to_string_lossy().to_string();
-        let home = std::env::var("HOME").unwrap_or_default();
-        let files = if cfg!(target_os = "macos") {
-            vec![
-                format!("{}/.zprofile", home),
-                format!("{}/.bash_profile", home),
-            ]
-        } else {
-            vec![format!("{}/.bashrc", home), format!("{}/.zshrc", home)]
-        };
-
-        for file in files {
-            let path = std::path::Path::new(&file);
-            let content = fs::read_to_string(path).unwrap_or_default();
-            if !content.contains(&dir_str) {
-                let _ = fs::OpenOptions::new()
-                    .append(true)
-                    .create(true)
-                    .open(path)
-                    .and_then(|mut f| {
-                        use std::io::Write;
-                        writeln!(f, "\nexport PATH=\"{}:$PATH\"", dir_str)
-                    });
-            }
+        let path_line = format!("export PATH=\"{dir_str}:$PATH\"");
+        for profile in taurine_core::shell::detect_shell_profiles() {
+            let _ = taurine_core::shell::append_line_to_rc_file(&profile, &path_line);
         }
     }
 }

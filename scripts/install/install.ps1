@@ -178,7 +178,27 @@ public static extern IntPtr SendMessageTimeout(
             Write-Host "PATH updated. You may need to restart your terminal to use taurine directly."
         }
 
+        # Set up tau function alias
+        $ProfilePath = $PROFILE
+        if ($ProfilePath) {
+            $tauFuncLine = "function tau { taurine @args }"
+            if (Test-Path $ProfilePath) {
+                $content = Get-Content $ProfilePath -Raw -ErrorAction SilentlyContinue
+                if (-not $content -or $content -notlike "*function tau*") {
+                    Add-Content -Path $ProfilePath -Value "`n$tauFuncLine`n" -NoNewLine
+                }
+            } else {
+                $parentDir = Split-Path $ProfilePath -Parent
+                if (-not (Test-Path $parentDir)) {
+                    New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
+                }
+                Set-Content -Path $ProfilePath -Value "`n$tauFuncLine`n" -NoNewLine
+            }
+        }
+
         Write-Host -ForegroundColor Green "✓ taurine v$Version installed"
+        Write-Host "Added alias tau to your shell profile."
+        Write-Host "Now you can run 'tau --help' for more details."
     } finally {
         # Clean up temp files on success or failure
         if ($TempZip -and (Test-Path $TempZip)) {

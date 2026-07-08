@@ -126,6 +126,8 @@ irm https://raw.githubusercontent.com/ereinaimer/taurine/main/scripts/install/in
 curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/ereinaimer/taurine/main/scripts/install/install.sh | sh
 ```
 
+After installation, you can use `tau` as a handy alias for `taurine` — try `tau --help`!
+
 <details>
 <summary><b>Install via Cargo</b></summary>
 

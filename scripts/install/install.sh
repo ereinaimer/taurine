@@ -190,7 +190,16 @@ else
     done
 fi
 
-echo -e "\n\x1b[32m✓\x1b[0m taurine v$VERSION installed"
+# Set up tau alias
+echo -e "\nSetting up 'tau' alias..."
+ALIAS_LINE="alias tau='taurine'"
+for profile in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zprofile"; do
+    if [ -f "$profile" ] && ! grep -Fq "alias tau=" "$profile" 2>/dev/null; then
+        echo -e "\n$ALIAS_LINE" >> "$profile"
+    fi
+done
+
+echo -e "\x1b[32m✓\x1b[0m taurine v$VERSION installed"
 if [ "$ADDED_PATH" = true ]; then
     echo "Added to PATH. Please restart your shell or run:"
     if [ "$OS" = "Darwin" ]; then
@@ -199,3 +208,5 @@ if [ "$ADDED_PATH" = true ]; then
         echo "  source ~/.bashrc"
     fi
 fi
+echo "Added alias tau to your shell profile."
+echo "Now you can run 'tau --help' for more details."

@@ -4889,6 +4889,7 @@ dependencies = [
  "taurine_core",
  "taurine_daemon",
  "taurine_tui",
+ "tempfile",
  "time",
  "tokio",
  "tonic",
