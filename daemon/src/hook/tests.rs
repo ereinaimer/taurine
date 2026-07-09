@@ -1,0 +1,407 @@
+use super::completion::{
+    CompletionKeyAction, CompletionKeyKind, completion_is_active, completion_key_action,
+    completion_key_kind_from_tab_like, should_swallow_trigger_assist_key_release,
+    trigger_assist_is_active, trigger_assist_key_action,
+};
+use super::dispatch::{dispatch_completion_rewrite_with, dispatch_expansion_with};
+use std::sync::{Arc, Mutex};
+
+#[test]
+fn dispatch_expansion_runs_injection_before_follow_up_consumption() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let inject_events = events.clone();
+    let follow_up_events = events.clone();
+    let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime should build");
+
+    let expansion = taurine_core::engine::ExpansionResult {
+        delete_count: 4,
+        steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
+            "thinking".to_string(),
+        )],
+        trigger: "ai".to_string(),
+        undo_trigger: Some(">ai".to_string()),
+        is_calculation: false,
+        metric_kind: taurine_core::db::crud::AutomationMetricKind::InlineAi,
+        track_usage: false,
+        follow_up: Some(taurine_core::engine::ExpansionFollowUp::InlineAi {
+            prompt: "prompt".to_string(),
+            system_prompt_override: Some("expert editor".to_string()),
+        }),
+    };
+
+    dispatch_expansion_with(
+        expansion,
+        taurine_core::settings::SpinnerStyle::default(),
+        rt.handle().clone(),
+        state,
+        move |_, _, _| {
+            inject_events
+                .lock()
+                .expect("inject events poisoned")
+                .push("inject");
+            crate::injector::InjectionReport::default()
+        },
+        move |follow_up, _, _| {
+            follow_up_events
+                .lock()
+                .expect("follow-up events poisoned")
+                .push("follow_up");
+            assert_eq!(
+                follow_up,
+                Some(taurine_core::engine::ExpansionFollowUp::InlineAi {
+                    prompt: "prompt".to_string(),
+                    system_prompt_override: Some("expert editor".to_string()),
+                })
+            );
+        },
+    );
+
+    assert_eq!(
+        &*events.lock().expect("events poisoned"),
+        &["inject", "follow_up"]
+    );
+}
+
+#[test]
+fn dispatch_expansion_records_undo_state_for_plain_text_output() {
+    let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime should build");
+
+    let expansion = taurine_core::engine::ExpansionResult {
+        delete_count: 4,
+        steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
+            "Good Morning".to_string(),
+        )],
+        trigger: "gm".to_string(),
+        undo_trigger: Some(">gm".to_string()),
+        is_calculation: false,
+        metric_kind: taurine_core::db::crud::AutomationMetricKind::Snippet,
+        track_usage: false,
+        follow_up: None,
+    };
+
+    dispatch_expansion_with(
+        expansion,
+        taurine_core::settings::SpinnerStyle::default(),
+        rt.handle().clone(),
+        state.clone(),
+        move |_, _, _| crate::injector::InjectionReport {
+            successful_chars: "Good Morning".chars().count(),
+            completed: true,
+        },
+        move |_, _, _| {},
+    );
+
+    let undo = state
+        .take_active_undo_state()
+        .expect("undo state should be recorded");
+    assert!(undo.trigger_string.starts_with('>'));
+    assert_eq!(undo.trigger_string, ">gm");
+    assert_eq!(undo.output_length, "Good Morning".chars().count());
+}
+
+#[test]
+fn dispatch_expansion_skips_undo_registration_for_hotkey_results() {
+    let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime should build");
+
+    let expansion = taurine_core::engine::ExpansionResult {
+        delete_count: 0,
+        steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
+            "git status".to_string(),
+        )],
+        trigger: "ctrl+shift+g".to_string(),
+        undo_trigger: None,
+        is_calculation: false,
+        metric_kind: taurine_core::db::crud::AutomationMetricKind::Hotkey,
+        track_usage: false,
+        follow_up: None,
+    };
+
+    dispatch_expansion_with(
+        expansion,
+        taurine_core::settings::SpinnerStyle::default(),
+        rt.handle().clone(),
+        state.clone(),
+        move |_, _, _| crate::injector::InjectionReport {
+            successful_chars: "git status".chars().count(),
+            completed: true,
+        },
+        move |_, _, _| {},
+    );
+
+    assert!(state.take_active_undo_state().is_none());
+}
+
+#[test]
+fn completion_rewrite_dispatch_uses_single_bulk_text_step() {
+    let captured = Arc::new(Mutex::new(None));
+    let captured_clone = captured.clone();
+
+    dispatch_completion_rewrite_with(
+        taurine_core::engine::CompletionRewrite {
+            delete_count: 5,
+            replacement: "gco".to_string(),
+        },
+        taurine_core::settings::SpinnerStyle::default(),
+        move |steps, delete_count, _| {
+            *captured_clone.lock().expect("capture poisoned") = Some((steps, delete_count));
+            crate::injector::InjectionReport::default()
+        },
+    );
+
+    let (steps, delete_count) = captured
+        .lock()
+        .expect("capture poisoned")
+        .clone()
+        .expect("rewrite should be captured");
+    assert_eq!(delete_count, 5);
+    assert_eq!(
+        steps,
+        vec![taurine_core::engine::variables::ExpansionStep::Text(
+            "gco".to_string()
+        )]
+    );
+}
+
+#[test]
+fn completion_key_action_wraps_plain_and_shift_tab_into_cycle_actions() {
+    assert_eq!(
+        completion_key_action(CompletionKeyKind::Tab, false, false, false, false),
+        CompletionKeyAction::CycleForward
+    );
+    assert_eq!(
+        completion_key_action(CompletionKeyKind::Tab, true, false, false, false),
+        CompletionKeyAction::CycleBackward
+    );
+}
+
+#[test]
+fn completion_key_action_treats_modified_tabs_as_pass_through_cancels() {
+    assert_eq!(
+        completion_key_action(CompletionKeyKind::Tab, false, false, true, false),
+        CompletionKeyAction::CancelAndPassThrough
+    );
+    assert_eq!(
+        completion_key_action(CompletionKeyKind::Tab, false, true, false, false),
+        CompletionKeyAction::CancelAndPassThrough
+    );
+    assert_eq!(
+        completion_key_action(CompletionKeyKind::Tab, true, true, false, false),
+        CompletionKeyAction::CancelAndPassThrough
+    );
+    assert_eq!(
+        completion_key_action(CompletionKeyKind::Tab, false, false, false, true),
+        CompletionKeyAction::CancelAndPassThrough
+    );
+}
+
+#[test]
+fn completion_key_action_swallows_escape_and_vertical_navigation() {
+    assert_eq!(
+        completion_key_action(CompletionKeyKind::Escape, false, false, false, false),
+        CompletionKeyAction::CancelAndSwallow
+    );
+    assert_eq!(
+        completion_key_action(CompletionKeyKind::Up, false, false, false, false),
+        CompletionKeyAction::HistoryOlder
+    );
+    assert_eq!(
+        completion_key_action(CompletionKeyKind::Down, false, false, false, false),
+        CompletionKeyAction::HistoryNewer
+    );
+}
+
+#[test]
+fn completion_key_kind_from_tab_like_maps_expected_keys() {
+    assert_eq!(
+        completion_key_kind_from_tab_like(true, false, false, false),
+        CompletionKeyKind::Tab
+    );
+    assert_eq!(
+        completion_key_kind_from_tab_like(false, true, false, false),
+        CompletionKeyKind::Escape
+    );
+    assert_eq!(
+        completion_key_kind_from_tab_like(false, false, true, false),
+        CompletionKeyKind::Up
+    );
+    assert_eq!(
+        completion_key_kind_from_tab_like(false, false, false, true),
+        CompletionKeyKind::Down
+    );
+    assert_eq!(
+        completion_key_kind_from_tab_like(false, false, false, false),
+        CompletionKeyKind::Other
+    );
+}
+
+#[test]
+fn trigger_assist_key_action_passes_tab_through_when_tab_completion_is_disabled() {
+    use std::sync::atomic::Ordering;
+
+    let state = taurine_core::engine::EngineState::new('>');
+    state
+        .inline_tab_completion_enabled
+        .store(false, Ordering::Relaxed);
+
+    assert_eq!(
+        trigger_assist_key_action(&state, CompletionKeyKind::Tab, false, false, false, false),
+        CompletionKeyAction::PassThrough
+    );
+}
+
+#[test]
+fn trigger_assist_key_action_passes_history_through_when_history_is_disabled() {
+    use std::sync::atomic::Ordering;
+
+    let state = taurine_core::engine::EngineState::new('>');
+    state.inline_history_enabled.store(false, Ordering::Relaxed);
+
+    assert_eq!(
+        trigger_assist_key_action(&state, CompletionKeyKind::Up, false, false, false, false),
+        CompletionKeyAction::PassThrough
+    );
+    assert_eq!(
+        trigger_assist_key_action(&state, CompletionKeyKind::Down, false, false, false, false),
+        CompletionKeyAction::PassThrough
+    );
+}
+
+#[test]
+fn trigger_assist_key_release_swallowing_respects_feature_settings() {
+    use std::sync::atomic::Ordering;
+
+    let state = taurine_core::engine::EngineState::new('>');
+    assert!(should_swallow_trigger_assist_key_release(
+        &state,
+        CompletionKeyKind::Tab
+    ));
+    assert!(should_swallow_trigger_assist_key_release(
+        &state,
+        CompletionKeyKind::Up
+    ));
+
+    state
+        .inline_tab_completion_enabled
+        .store(false, Ordering::Relaxed);
+    state.inline_history_enabled.store(false, Ordering::Relaxed);
+
+    assert!(!should_swallow_trigger_assist_key_release(
+        &state,
+        CompletionKeyKind::Tab
+    ));
+    assert!(!should_swallow_trigger_assist_key_release(
+        &state,
+        CompletionKeyKind::Down
+    ));
+}
+
+#[test]
+fn completion_is_inactive_after_trigger_character_is_deleted() {
+    let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+    let mut evaluator = taurine_core::engine::Evaluator::new(state);
+    for ch in ">g".chars() {
+        assert_eq!(
+            evaluator.process_event(if ch == ' ' {
+                taurine_core::engine::EngineEvent::ActionDelimiter
+            } else {
+                taurine_core::engine::EngineEvent::Char(ch)
+            }),
+            None
+        );
+    }
+    assert_eq!(
+        evaluator.process_event(taurine_core::engine::EngineEvent::Backspace),
+        None
+    );
+    assert_eq!(
+        evaluator.process_event(taurine_core::engine::EngineEvent::Backspace),
+        None
+    );
+
+    let evaluator = Arc::new(Mutex::new(evaluator));
+    assert!(
+        !completion_is_active(&evaluator),
+        "hook gating must not treat deleted-trigger state as active completion"
+    );
+}
+
+#[test]
+fn dispatch_expansion_promotes_word_trigger_history_on_success() {
+    let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+    state.load_actions(vec![
+        (
+            "email".to_string(),
+            taurine_core::db::crud::AutomationAction::text("team update"),
+        ),
+        (
+            "gs".to_string(),
+            taurine_core::db::crud::AutomationAction::text("git status"),
+        ),
+    ]);
+    state.load_word_trigger_history(vec!["email".to_string(), "gs".to_string()]);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime should build");
+
+    let expansion = taurine_core::engine::ExpansionResult {
+        delete_count: 4,
+        steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
+            "git status".to_string(),
+        )],
+        trigger: "gs".to_string(),
+        undo_trigger: Some(">gs".to_string()),
+        is_calculation: false,
+        metric_kind: taurine_core::db::crud::AutomationMetricKind::Snippet,
+        track_usage: true,
+        follow_up: None,
+    };
+
+    dispatch_expansion_with(
+        expansion,
+        taurine_core::settings::SpinnerStyle::default(),
+        rt.handle().clone(),
+        state.clone(),
+        move |_, _, _| crate::injector::InjectionReport {
+            successful_chars: "git status".chars().count(),
+            completed: true,
+        },
+        move |_, _, _| {},
+    );
+
+    assert_eq!(
+        state.matching_word_trigger_history(""),
+        vec!["gs".to_string(), "email".to_string()]
+    );
+}
+
+#[test]
+fn trigger_assist_is_inactive_while_inline_ai_capture_mode_is_active() {
+    let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+    let mut evaluator = taurine_core::engine::Evaluator::new(state.clone());
+
+    let _ = evaluator.process_event(taurine_core::engine::EngineEvent::Char('>'));
+    let expansion = evaluator
+        .process_event(taurine_core::engine::EngineEvent::Char('>'))
+        .expect("inline ai capture should start on >>");
+    assert_eq!(expansion.trigger, ">>");
+
+    let evaluator = Arc::new(Mutex::new(evaluator));
+    assert!(
+        !trigger_assist_is_active(&evaluator, state.as_ref()),
+        "history and completion keys must not be hijacked once AI capture is active"
+    );
+}
