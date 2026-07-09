@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Linux and macOS Clipboard History Support**: Wired up full clipboard history tracking on non-Windows platforms. Uses AppKit's `changeCount` API on macOS for zero-overhead change detection, and polls `arboard` on Linux at an optimized 350ms interval to eliminate idle CPU battery drain.
+- **`tau` shell alias**: The install scripts now automatically set up a `tau` shell alias for `taurine`. The `update` command also ensures the alias is present after an update. A new `core::shell` module centralizes RC file manipulation logic, reused by the update, completions, and alias modules.
+
 ### Changed
 - **Database Optimizations on Hot paths**: Significantly reduced typing latency and eliminated keypress stuttering by optimizing SQLite interactions:
   - Switched to a shared, thread-safe connection pool (`r2d2`) configured with WAL mode, normal synchronicity, and a 5-second busy timeout to eliminate connection overhead and prevent database locking errors.
@@ -15,8 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Isolated parallel database tests using thread-local connection pools.
 - **Tokio Runtime Reuse in `notify_daemon_reload`**: Optimized the gRPC reload notification logic to attempt to reuse the thread's existing Tokio runtime handle before falling back to a lightweight, single-threaded runtime. This prevents spawning a full multi-threaded runtime on every reload.
 
-### Added
-- **`tau` shell alias**: The install scripts now automatically set up a `tau` shell alias for `taurine`. The `update` command also ensures the alias is present after an update. A new `core::shell` module centralizes RC file manipulation logic, reused by the update, completions, and alias modules.
+### Removed
+- **Unused dependencies**: Cleaned up workspace dependency bloat by removing unused crates (`chrono` from the CLI, and `sha1` and `crc32fast` from the core library) to improve compile times.
+
 
 ### Fixed
 - **Install script cross-platform compatibility fixes**: Fixed both `install.sh` and `install.ps1` for cross-platform compatibility and reliability.

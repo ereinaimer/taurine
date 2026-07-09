@@ -32,7 +32,6 @@ colored = "3"
 dirs = "6"
 zeroize = "1.8"
 rusqlite = { version = "0.39", features = ["bundled"] }
-chrono = "0.4"
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 genai = "0.6.5"
 regex = "1"

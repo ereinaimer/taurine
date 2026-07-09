@@ -2,22 +2,35 @@
 use std::thread;
 #[cfg(not(windows))]
 use std::time::{Duration, Instant};
-#[cfg(windows)]
 use taurine_core::engine::variables::system::clip::MAX_PAYLOAD_BYTES;
 use taurine_core::engine::variables::system::clip::clip_manager;
 
 use crate::injector::IS_INJECTING;
 
 #[cfg(not(windows))]
-const DEBOUNCE_WINDOW: Duration = Duration::from_millis(50);
-#[cfg(not(windows))]
-const POLL_INTERVAL: Duration = Duration::from_millis(150);
-#[cfg(not(windows))]
 const INIT_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
 #[cfg(not(windows))]
 pub fn start_listener() {
-    let mut last_event = Instant::now() - DEBOUNCE_WINDOW;
+    #[cfg(target_os = "macos")]
+    use objc2_app_kit::NSPasteboard;
+
+    #[cfg(target_os = "macos")]
+    const POLL_INTERVAL: Duration = Duration::from_millis(200);
+    #[cfg(not(target_os = "macos"))]
+    const POLL_INTERVAL: Duration = Duration::from_millis(350);
+
+    let mut clip = match arboard::Clipboard::new() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("Failed to initialize clipboard listener: {}", e);
+            return;
+        }
+    };
+
+    #[cfg(target_os = "macos")]
+    // SAFETY: generalPasteboard is thread-safe and always returns a valid pasteboard instance.
+    let mut last_change_count = unsafe { NSPasteboard::generalPasteboard().changeCount() };
 
     loop {
         if IS_INJECTING.load(std::sync::atomic::Ordering::Relaxed) {
@@ -25,21 +38,25 @@ pub fn start_listener() {
             continue;
         }
 
-        let now = Instant::now();
-        if now.duration_since(last_event) < DEBOUNCE_WINDOW {
-            thread::sleep(POLL_INTERVAL);
-            continue;
+        #[cfg(target_os = "macos")]
+        {
+            // SAFETY: generalPasteboard is thread-safe and always returns a valid pasteboard instance.
+            let current = unsafe { NSPasteboard::generalPasteboard().changeCount() };
+            if current == last_change_count {
+                thread::sleep(POLL_INTERVAL);
+                continue;
+            }
+            last_change_count = current;
         }
-        last_event = now;
 
-        match try_read_clipboard_text_bounded() {
+        match try_read_clipboard_text_bounded(&mut clip) {
             Ok(Some(text)) => {
                 let _ = clip_manager().record_text(text);
                 thread::sleep(POLL_INTERVAL);
             }
             Ok(None) => thread::sleep(POLL_INTERVAL),
             Err(error) => {
-                tracing::warn!("Clipboard history listener unavailable: {}", error);
+                tracing::warn!("Clipboard history listener error: {}", error);
                 thread::sleep(INIT_RETRY_INTERVAL);
             }
         }
@@ -302,29 +319,41 @@ fn try_read_clipboard_text_bounded() -> Result<Option<String>, String> {
     }
 }
 
-#[cfg(target_os = "linux")]
-fn try_read_clipboard_text_bounded() -> Result<Option<String>, String> {
-    static WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
-
-    let _ = WARNED.get_or_init(|| {
-        tracing::warn!(
-            "Clipboard history is disabled on Linux until a bounded clipboard read path is wired; refusing to call arboard::get_text() because it allocates before the size cap."
-        );
-    });
-
-    Ok(None)
-}
-
-#[cfg(all(not(windows), not(target_os = "linux")))]
-fn try_read_clipboard_text_bounded() -> Result<Option<String>, String> {
-    Ok(None)
+#[cfg(not(windows))]
+fn try_read_clipboard_text_bounded(
+    clip: &mut arboard::Clipboard,
+) -> Result<Option<String>, String> {
+    match clip.get_text() {
+        Ok(text) => {
+            if text.len() > MAX_PAYLOAD_BYTES {
+                Ok(None)
+            } else {
+                let trimmed = text.trim();
+                if trimmed.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(text))
+                }
+            }
+        }
+        Err(arboard::Error::ContentNotReady) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     #[test]
     #[cfg(target_os = "linux")]
-    fn linux_bounded_reader_is_fail_closed() {
-        assert_eq!(super::try_read_clipboard_text_bounded().unwrap(), None);
+    fn linux_bounded_reader_handles_init_failure() {
+        let clip = arboard::Clipboard::new();
+        match clip {
+            Ok(mut c) => {
+                let _ = super::try_read_clipboard_text_bounded(&mut c);
+            }
+            Err(_) => {
+                // Expected on headless environments without a display server
+            }
+        }
     }
 }

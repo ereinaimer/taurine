@@ -628,10 +628,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c673075a2e0e5f4a1dde27ce9dee1ea4558c7ffe648f576438a20ca1d2acc4b0"
 dependencies = [
  "iana-time-zone",
- "js-sys",
  "num-traits",
  "serde",
- "wasm-bindgen",
  "windows-link 0.2.1",
 ]
 
@@ -4537,17 +4535,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sha1"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
-dependencies = [
- "cfg-if",
- "cpufeatures 0.3.0",
- "digest 0.11.2",
-]
-
-[[package]]
 name = "sha2"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4895,7 +4882,6 @@ dependencies = [
 name = "taurine"
 version = "1.0.0-alpha.12"
 dependencies = [
- "chrono",
  "clap",
  "clap_complete",
  "color-eyre",
@@ -4939,7 +4925,6 @@ dependencies = [
  "arboard",
  "argon2",
  "base64",
- "crc32fast",
  "directories",
  "heck",
  "hex",
@@ -4958,7 +4943,6 @@ dependencies = [
  "serde",
  "serde_json",
  "service-manager",
- "sha1",
  "sha2",
  "sysinfo",
  "tempfile",
