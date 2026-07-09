@@ -173,12 +173,13 @@ fn send_wm_quit_to_thread(thread_id: u32) {
         return;
     }
 
+    // SAFETY: PostThreadMessageW posts a message to the message queue of the
+    // specified thread. `thread_id` is a valid OS thread ID obtained from
+    // GetCurrentThreadId() on the listener thread. WM_QUIT (0x0012) is a
+    // standard system message constant. The wparam/lparam values are ignored
+    // for WM_QUIT. Retrying 500 times with 10ms sleep handles the race where
+    // the target thread hasn't created its message queue yet.
     unsafe {
-        // PostThreadMessageW returns 0 if the target thread's message queue
-        // doesn't exist yet (race: thread spawned but hasn't reached rdev::grab).
-        // SetWindowsHookExA with WH_KEYBOARD_LL implicitly creates the queue,
-        // so once rdev::grab installs the hook the post succeeds. Retry with a
-        // bounded timeout so a crash before the grab started still terminates.
         for _ in 0..500 {
             if PostThreadMessageW(thread_id, WM_QUIT, 0, 0) != 0 {
                 return;

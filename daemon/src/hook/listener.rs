@@ -571,6 +571,10 @@ pub(super) fn spawn_windows_hook_listener(
     let spawn_result = std::thread::Builder::new()
         .name("taurine-hook-listener".to_string())
         .spawn(move || {
+            // SAFETY: GetCurrentThreadId() returns the OS thread ID of the calling
+            // thread. It always succeeds, has no failure mode, and requires no
+            // arguments. The returned DWORD is valid for the lifetime of the thread
+            // and is used later by the supervisor to post WM_QUIT during teardown.
             let os_thread_id = unsafe { GetCurrentThreadId() };
             if thread_id_tx.send(os_thread_id).is_err() {
                 warn!(

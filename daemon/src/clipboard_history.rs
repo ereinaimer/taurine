@@ -62,6 +62,9 @@ pub fn start_listener() {
     const WM_CLIPBOARDUPDATE: u32 = 0x031D;
     static LAST_EVENT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+    // SAFETY: Win32 window procedure called by the OS on the thread's message queue.
+    // `hwnd` is a valid window handle created by CreateWindowExW below. The function
+    // pointer is registered via WNDCLASSW.lpfnWndProc and must have the `system` ABI.
     unsafe extern "system" fn window_proc(
         hwnd: HWND,
         message: u32,
@@ -101,6 +104,9 @@ pub fn start_listener() {
         } else if message == WM_DESTROY {
             return 0;
         }
+        // SAFETY: DefWindowProcW forwards unhandled messages to the default window
+        // procedure. `hwnd` is valid (created below) and `message`/`wparam`/`lparam`
+        // are the parameters passed by the OS to this window procedure.
         unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
     }
 
@@ -108,6 +114,10 @@ pub fn start_listener() {
         .encode_utf16()
         .chain(std::iter::once(0))
         .collect();
+    // SAFETY: GetModuleHandleW(null()) returns the handle of the calling process's
+    // executable (.exe) module. Passing null is documented and always succeeds for
+    // the current process. The returned pseudo-handle is valid for the lifetime of
+    // the process and must not be freed.
     let instance = unsafe { GetModuleHandleW(null()) };
 
     let window_class = WNDCLASSW {
@@ -117,12 +127,22 @@ pub fn start_listener() {
         ..Default::default()
     };
 
+    // SAFETY: RegisterClassW registers a window class for this process.
+    // `window_class` is a fully initialized WNDCLASSW on the stack with valid
+    // `lpfnWndProc` and `lpszClassName` pointers. The pointer to `window_class`
+    // must remain valid for the call duration (it is a stack-local). Returns 0
+    // on failure, which we check below.
     let atom = unsafe { RegisterClassW(&window_class) };
     if atom == 0 {
         tracing::error!("Failed to register clipboard monitor window class");
         return;
     }
 
+    // SAFETY: CreateWindowExW creates a message-only window (HWND_MESSAGE) that
+    // receives clipboard notifications. `class_name.as_ptr()` points to a valid
+    // null-terminated UTF-16 string registered above via RegisterClassW.
+    // `instance` is the valid module handle from GetModuleHandleW. The returned
+    // HWND is checked for null (failure) before use.
     let hwnd = unsafe {
         CreateWindowExW(
             0,
@@ -145,6 +165,9 @@ pub fn start_listener() {
         return;
     }
 
+    // SAFETY: AddClipboardFormatListener registers `hwnd` to receive
+    // WM_CLIPBOARDUPDATE messages. `hwnd` is a valid message-only window created
+    // above. Returns 0 on failure, which we check.
     if unsafe { AddClipboardFormatListener(hwnd) } == 0 {
         tracing::error!("Failed to register clipboard format listener");
         return;
@@ -154,8 +177,17 @@ pub fn start_listener() {
 
     let mut message = MSG::default();
     loop {
+        // SAFETY: GetMessageW retrieves a message from the calling thread's message
+        // queue. `&mut message` is a valid pointer to a MSG struct on the stack.
+        // Passing null for hwnd means all messages for this thread are retrieved.
+        // Returns -1 on error, 0 on WM_QUIT, >0 otherwise.
         let status = unsafe { GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) };
         if status > 0 {
+            // SAFETY: TranslateMessage converts virtual-key messages to character
+            // messages; it is safe on any valid MSG. DispatchMessageW sends the
+            // message to the window procedure registered for the target HWND in
+            // `message`. `&message` is a valid stack pointer. Both accept any
+            // initialized MSG.
             unsafe {
                 TranslateMessage(&message);
                 DispatchMessageW(&message);
@@ -168,6 +200,9 @@ pub fn start_listener() {
         }
     }
 
+    // SAFETY: RemoveClipboardFormatListener unregisters `hwnd` from clipboard
+    // update notifications. `hwnd` is the valid window created above. The call
+    // is safe even during shutdown because the window still exists at this point.
     unsafe {
         let _ = RemoveClipboardFormatListener(hwnd);
     }
@@ -189,9 +224,20 @@ fn try_read_clipboard_text_bounded() -> Result<Option<String>, String> {
 
     fn register_optional_format(name: &str) -> u32 {
         let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+        // SAFETY: RegisterClipboardFormatW takes a pointer to a null-terminated
+        // UTF-16 string. `wide.as_ptr()` points to the Vec's backing buffer which
+        // is valid and lives for the duration of the call. The returned clipboard
+        // format identifier is valid until the process exits. Returns 0 on failure.
         unsafe { RegisterClipboardFormatW(wide.as_ptr()) }
     }
 
+    // SAFETY: This entire block operates on the Win32 clipboard API. OpenClipboard
+    // with a null HWND opens the clipboard for the current process. GetClipboardData
+    // returns a handle to clipboard data owned by the system — we must not free it.
+    // GlobalLock/GlobalUnlock provide read-only access to the HGLOBAL memory. The
+    // pointer from GlobalLock is valid while the clipboard is open and the handle
+    // is not freed. We bound reads by GlobalSize and cap at MAX_PAYLOAD_BYTES to
+    // prevent unbounded allocation.
     unsafe {
         if OpenClipboard(ptr::null_mut()) == 0 {
             let err = GetLastError();

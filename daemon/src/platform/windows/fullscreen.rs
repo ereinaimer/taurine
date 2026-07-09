@@ -21,6 +21,16 @@ pub fn start_listener(state: Arc<EngineState>) {
     std::thread::spawn(move || {
         ENGINE_STATE.with(|s| *s.borrow_mut() = Some(state));
 
+        // SAFETY: All Win32 calls in this block operate on the current thread's
+        // message queue. SetWinEventHook registers callback functions for system
+        // events (foreground window changes and object location changes). The
+        // null hmod argument (third param) means the callback lives in this module.
+        // SetTimer creates a 100ms timer with a callback function. GetMessageW,
+        // TranslateMessage, and DispatchMessageW drive the message loop.
+        // `win_event_proc` and `timer_proc` are safe `extern "system"` functions.
+        // `std::mem::zeroed()` is safe for MSG (it is a POD struct). All HWND
+        // null checks are done before use. The WinEvent hooks are never explicitly
+        // unhooked — they are automatically removed when the thread terminates.
         unsafe {
             let hook_foreground = SetWinEventHook(
                 EVENT_SYSTEM_FOREGROUND,
@@ -62,6 +72,10 @@ pub fn start_listener(state: Arc<EngineState>) {
     });
 }
 
+// SAFETY: WinEvent callback invoked by the OS when a WinEvent is fired. The
+// function is registered via SetWinEventHook and must use `system` ABI. `hwnd`
+// is checked for null before use. GetForegroundWindow always returns a valid
+// handle or null with no error path.
 unsafe extern "system" fn win_event_proc(
     _hwineventhook: HWINEVENTHOOK,
     event: u32,
@@ -76,6 +90,8 @@ unsafe extern "system" fn win_event_proc(
     }
 
     if event == EVENT_OBJECT_LOCATIONCHANGE {
+        // SAFETY: GetForegroundWindow returns a handle to the foreground window
+        // (or null). No error state; always safe to call from any thread.
         let fg = unsafe { GetForegroundWindow() };
         if fg != hwnd {
             return;
@@ -85,6 +101,10 @@ unsafe extern "system" fn win_event_proc(
     check_fullscreen_state();
 }
 
+// SAFETY: Timer callback invoked by the OS message loop. Registered via SetTimer.
+// Must use `system` ABI. The parameters are ignored — only the polling side-effect
+// (check_fullscreen_state) is needed. The callback is always safe to call from
+// the thread that created the timer.
 unsafe extern "system" fn timer_proc(_hwnd: HWND, _msg: u32, _id_event: usize, _time: u32) {
     check_fullscreen_state();
 }
@@ -102,6 +122,13 @@ fn check_fullscreen_state() {
 }
 
 fn check_borderless_fullscreen() -> bool {
+    // SAFETY: All Win32 calls here operate on the foreground window retrieved
+    // by GetForegroundWindow. GetClassNameW writes into a stack buffer (256
+    // u16) — we pass the buffer size to prevent overflow. GetWindowLongW reads
+    // window styles (safe read-only). GetWindowRect, GetClientRect, and
+    // ClientToScreen write to stack-local RECT/POINT structs initialized with
+    // zeroed(). MonitorFromWindow and GetMonitorInfoW retrieve monitor info.
+    // Null HWNDs are checked before each call. All buffer sizes are accurate.
     unsafe {
         let hwnd = GetForegroundWindow();
         if hwnd.is_null() {

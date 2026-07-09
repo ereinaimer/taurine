@@ -30,6 +30,10 @@ pub fn get_mouse_pos() -> Option<(i32, i32)> {
     use windows_sys::Win32::Foundation::POINT;
     use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
     let mut point = POINT { x: 0, y: 0 };
+    // SAFETY: GetCursorPos writes the cursor coordinates into a stack-allocated
+    // POINT struct. It accepts any valid pointer to a POINT and returns 0 on
+    // failure (no error info needed). The POINT is fully initialized after a
+    // successful call.
     unsafe {
         if GetCursorPos(&mut point) != 0 {
             Some((point.x, point.y))
@@ -47,6 +51,14 @@ pub fn get_mouse_pos() -> Option<(i32, i32)> {
 
     // Attempt dynamic retrieval of main screen height to convert bottom-left to top-left.
     let screen_height: f64 = unsafe {
+        // SAFETY: Objective-C messaging via msg_send! requires unsafe because the
+        // compiler cannot verify the selector exists or returns the correct type.
+        // [NSScreen mainScreen] is a documented class method that returns the
+        // primary screen (or nil if no screens are connected). The returned pointer
+        // is checked for null before dereference. The `frame` selector on NSScreen
+        // returns an NSRect describing the screen's dimensions in the global
+        // coordinate system. All types match the framework declarations in
+        // objc2_foundation.
         let nsscreen: *mut objc2::runtime::AnyObject = msg_send![class!(NSScreen), mainScreen];
         if !nsscreen.is_null() {
             let frame: objc2_foundation::NSRect = msg_send![nsscreen, frame];
