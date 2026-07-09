@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Tokio Runtime Reuse in `notify_daemon_reload`**: Optimized the gRPC reload notification logic to attempt to reuse the thread's existing Tokio runtime handle before falling back to a lightweight, single-threaded runtime. This prevents spawning a full multi-threaded runtime on every reload.
+
 ### Added
 - **`tau` shell alias**: The install scripts now automatically set up a `tau` shell alias for `taurine`. The `update` command also ensures the alias is present after an update. A new `core::shell` module centralizes RC file manipulation logic, reused by the update, completions, and alias modules.
 

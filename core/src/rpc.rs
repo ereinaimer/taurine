@@ -21,25 +21,40 @@ pub fn get_rpc_url() -> String {
 pub fn notify_daemon_reload() {
     tracing::debug!("Dispatching Reload instruction to daemon...");
 
-    if let Ok(rt) = tokio::runtime::Runtime::new() {
-        rt.block_on(async {
-            use daemon_control_client::DaemonControlClient;
+    let perform_reload = async {
+        use daemon_control_client::DaemonControlClient;
 
-            match DaemonControlClient::connect(get_rpc_url()).await {
-                Ok(mut client) => {
-                    let req = tonic::Request::new(ReloadRequest {});
-                    if let Err(e) = client.reload(req).await {
-                        tracing::error!("Daemon reload request failed: {}", e);
-                    } else {
-                        tracing::info!("Daemon state reloaded successfully.");
-                    }
-                }
-                Err(_) => {
-                    tracing::debug!("Daemon is not reachable for reload notification.");
+        match DaemonControlClient::connect(get_rpc_url()).await {
+            Ok(mut client) => {
+                let req = tonic::Request::new(ReloadRequest {});
+                if let Err(e) = client.reload(req).await {
+                    tracing::error!("Daemon reload request failed: {}", e);
+                } else {
+                    tracing::info!("Daemon state reloaded successfully.");
                 }
             }
-        });
+            Err(_) => {
+                tracing::debug!("Daemon is not reachable for reload notification.");
+            }
+        }
+    };
+
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn(perform_reload);
     } else {
-        tracing::error!("Failed to create tokio runtime for daemon notification.");
+        match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => {
+                rt.block_on(perform_reload);
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to create tokio runtime for daemon notification: {}",
+                    e
+                );
+            }
+        }
     }
 }
