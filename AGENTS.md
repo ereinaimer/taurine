@@ -5,6 +5,7 @@
 # Architectural Guidelines
 - **Separation of Concerns:** Keep files modular. Do not create monolithic, 1,000-line behemoth files. When a file grows too large, proactively suggest extracting logic into a new, dedicated module.
 - **Rust Standards:** Adhere strictly to idiomatic Rust. Run `cargo fmt` and ensure there are zero `cargo clippy` warnings before finalizing any backend code. 
+- **Unsafe Code Documentation:** All raw Win32 calls, Obj-C messaging, and other unsafe blocks/functions must have a `// SAFETY:` comment directly preceding them explaining exactly why the operations within the unsafe boundary are memory-safe and valid.
 
 # Operational Boundaries
 - **NEVER** commit any files to version control yourself.
