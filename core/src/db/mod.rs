@@ -13,11 +13,17 @@ pub use crud::{SettingRow, delete_setting, get_setting, get_setting_value, upser
 /// Used by every CRUD write to stamp `updated_at` without pulling in an
 /// extra dependency. Exposed as `pub(crate)` so all submodules share one copy.
 pub(crate) fn now_unix_secs() -> i64 {
+    use std::sync::atomic::{AtomicI64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
+    static LAST_TIME: AtomicI64 = AtomicI64::new(0);
+
+    let current = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("system clock predates the Unix epoch")
-        .as_secs() as i64
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+
+    let prev = LAST_TIME.fetch_max(current, Ordering::Relaxed);
+    prev.max(current)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -187,5 +193,14 @@ mod tests {
         assert_eq!(trigger_type.1, "TEXT");
         assert!(trigger_type.2);
         assert_eq!(trigger_type.3.as_deref(), Some("'word'"));
+    }
+
+    #[test]
+    fn test_now_unix_secs_monotonicity_and_safety() {
+        let t1 = now_unix_secs();
+        assert!(t1 > 0, "Time should be positive since Unix Epoch");
+
+        let t2 = now_unix_secs();
+        assert!(t2 >= t1, "Time should not run backward");
     }
 }
