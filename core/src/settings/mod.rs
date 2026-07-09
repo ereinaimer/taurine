@@ -1,4 +1,29 @@
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU32, Ordering};
+
+static CACHED_SCRIPT_TIMEOUT: AtomicU32 = AtomicU32::new(15);
+static CACHED_CLIPBOARD_RESTORE_DELAY: AtomicU32 = AtomicU32::new(160);
+static CACHED_WPM: AtomicU32 = AtomicU32::new(60);
+
+pub fn set_cached_script_timeout(timeout: u32) {
+    CACHED_SCRIPT_TIMEOUT.store(timeout, Ordering::Relaxed);
+}
+
+pub fn set_cached_clipboard_restore_delay(delay: u32) {
+    CACHED_CLIPBOARD_RESTORE_DELAY.store(delay, Ordering::Relaxed);
+}
+
+pub fn set_cached_wpm(wpm: u32) {
+    CACHED_WPM.store(wpm, Ordering::Relaxed);
+}
+
+pub fn get_cached_clipboard_restore_delay() -> u32 {
+    CACHED_CLIPBOARD_RESTORE_DELAY.load(Ordering::Relaxed)
+}
+
+pub fn get_cached_wpm() -> u32 {
+    CACHED_WPM.load(Ordering::Relaxed)
+}
 
 pub const DEFAULT_AI_SYSTEM_PROMPT: &str = "You are Tau, an inline text expander. Provide complete but highly concise answers. Plain text only. No markdown, lists, code fences, or newlines. No filler, greetings, explanations, or extra context. Output your entire response as one continuous string.";
 
@@ -123,16 +148,11 @@ impl Settings {
     }
 
     pub fn get_script_timeout() -> Option<std::time::Duration> {
-        if let Ok(conn) = rusqlite::Connection::open(crate::paths::get_db_path()) {
-            let manager = crate::settings::SettingsManager::new(&conn);
-            let timeout = manager.load_all().script_timeout;
-            if timeout == 0 {
-                None
-            } else {
-                Some(std::time::Duration::from_secs(timeout as u64))
-            }
+        let timeout = CACHED_SCRIPT_TIMEOUT.load(Ordering::Relaxed);
+        if timeout == 0 {
+            None
         } else {
-            Some(std::time::Duration::from_secs(15))
+            Some(std::time::Duration::from_secs(timeout as u64))
         }
     }
 

@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Database Optimizations on Hot paths**: Significantly reduced typing latency and eliminated keypress stuttering by optimizing SQLite interactions:
+  - Switched to a shared, thread-safe connection pool (`r2d2`) configured with WAL mode, normal synchronicity, and a 5-second busy timeout to eliminate connection overhead and prevent database locking errors.
+  - Implemented lock-free atomic settings caching for typing speed (WPM), clipboard delay, and script timeouts, completely bypassing database reads during expansions.
+  - Offloaded daily metric logging writes from the hot keyboard hook thread to a non-blocking background worker thread.
+  - Isolated parallel database tests using thread-local connection pools.
 - **Tokio Runtime Reuse in `notify_daemon_reload`**: Optimized the gRPC reload notification logic to attempt to reuse the thread's existing Tokio runtime handle before falling back to a lightweight, single-threaded runtime. This prevents spawning a full multi-threaded runtime on every reload.
 
 ### Added

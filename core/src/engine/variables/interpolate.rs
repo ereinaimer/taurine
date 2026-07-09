@@ -346,9 +346,9 @@ fn resolve_use_placeholder(key: &str, args: &ArgMap, depth: usize) -> String {
         None => return "[Error: Malformed use key]".to_string(),
     };
 
-    let conn = match rusqlite::Connection::open(crate::paths::get_db_path()) {
+    let conn = match crate::db::get_conn() {
         Ok(c) => c,
-        Err(e) => return format!("[Error: Database error: {}]", e),
+        Err(e) => return format!("[Error: Database pool error: {}]", e),
     };
 
     let action = match crate::db::crud::automations::get_action_by_trigger(&conn, &trigger_name) {

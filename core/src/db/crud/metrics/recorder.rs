@@ -2,7 +2,7 @@ use rusqlite::Connection;
 
 use crate::db::crud::automations::increment_usage_count_by_trigger;
 use crate::metrics::{AutomationMetricKind, calculate_expansion_metrics, get_current_date_string};
-use crate::settings::{Settings, SettingsManager};
+use crate::settings::Settings;
 
 use super::increment_metric;
 
@@ -26,15 +26,50 @@ impl AutomationMetricEvent {
 }
 
 pub fn record_automation_metric(event: AutomationMetricEvent) {
-    match Connection::open(crate::paths::get_db_path()) {
-        Ok(mut conn) => {
-            if let Err(error) = record_automation_metric_with_conn(&mut conn, &event) {
-                tracing::warn!(error = %error, ?event, "Failed to record automation metric");
+    if cfg!(test) {
+        match crate::db::get_conn() {
+            Ok(mut conn) => {
+                if let Err(error) = record_automation_metric_with_conn(&mut conn, &event) {
+                    tracing::warn!(error = %error, ?event, "Failed to record automation metric synchronously in test");
+                }
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, ?event, "Could not get pooled connection for metrics synchronously in test");
             }
         }
-        Err(error) => {
-            tracing::warn!(error = %error, ?event, "Could not open DB for automation metrics");
-        }
+        return;
+    }
+
+    use std::sync::OnceLock;
+    use std::sync::mpsc::{self, Sender};
+    use std::thread;
+
+    static METRICS_TX: OnceLock<Sender<AutomationMetricEvent>> = OnceLock::new();
+
+    let tx = METRICS_TX.get_or_init(|| {
+        let (tx, rx) = mpsc::channel::<AutomationMetricEvent>();
+        thread::Builder::new()
+            .name("taurine-metrics".to_string())
+            .spawn(move || {
+                while let Ok(evt) = rx.recv() {
+                    match crate::db::get_conn() {
+                        Ok(mut conn) => {
+                            if let Err(error) = record_automation_metric_with_conn(&mut conn, &evt) {
+                                tracing::warn!(error = %error, ?evt, "Failed to record automation metric in background");
+                            }
+                        }
+                        Err(error) => {
+                            tracing::warn!(error = %error, ?evt, "Could not get pooled connection for metrics in background");
+                        }
+                    }
+                }
+            })
+            .expect("Failed to spawn metrics background thread");
+        tx
+    });
+
+    if let Err(e) = tx.send(event) {
+        tracing::warn!("Failed to send metric event to background channel: {}", e);
     }
 }
 
@@ -83,8 +118,8 @@ pub fn record_automation_metric_with_conn(
     Ok(())
 }
 
-fn effective_wpm(conn: &Connection, event_wpm: Option<u32>) -> u32 {
+fn effective_wpm(_conn: &Connection, event_wpm: Option<u32>) -> u32 {
     event_wpm
         .map(Settings::sanitize_wpm)
-        .unwrap_or_else(|| SettingsManager::new(conn).load_all().wpm)
+        .unwrap_or_else(|| Settings::sanitize_wpm(crate::settings::get_cached_wpm()))
 }

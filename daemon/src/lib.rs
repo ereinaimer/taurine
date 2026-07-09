@@ -48,6 +48,10 @@ pub fn start() -> taurine_core::error::Result<()> {
     let settings_manager = SettingsManager::new(&conn);
     let settings = settings_manager.load_all();
 
+    taurine_core::settings::set_cached_wpm(settings.wpm);
+    taurine_core::settings::set_cached_clipboard_restore_delay(settings.clipboard_restore_delay_ms);
+    taurine_core::settings::set_cached_script_timeout(settings.script_timeout);
+
     let trigger_char = settings.trigger_char;
     let state = Arc::new(EngineState::new(trigger_char));
     state

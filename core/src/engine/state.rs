@@ -47,6 +47,9 @@ pub struct EngineState {
     pub instant_expand: AtomicBool,
     pub ignore_fullscreen_enabled: AtomicBool,
     pub is_os_fullscreen: AtomicBool,
+    pub wpm: AtomicU32,
+    pub clipboard_restore_delay_ms: AtomicU32,
+    pub script_timeout: AtomicU32,
 
     pub spinner_style: RwLock<crate::settings::SpinnerStyle>,
     pub action_delimiter: RwLock<crate::settings::ActionDelimiter>,
@@ -70,6 +73,9 @@ impl EngineState {
             instant_expand: AtomicBool::new(false),
             ignore_fullscreen_enabled: AtomicBool::new(true),
             is_os_fullscreen: AtomicBool::new(false),
+            wpm: AtomicU32::new(60),
+            clipboard_restore_delay_ms: AtomicU32::new(160),
+            script_timeout: AtomicU32::new(15),
 
             spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
             action_delimiter: RwLock::new(crate::settings::ActionDelimiter::default()),
@@ -94,6 +100,9 @@ impl EngineState {
             instant_expand: AtomicBool::new(false),
             ignore_fullscreen_enabled: AtomicBool::new(true),
             is_os_fullscreen: AtomicBool::new(false),
+            wpm: AtomicU32::new(60),
+            clipboard_restore_delay_ms: AtomicU32::new(160),
+            script_timeout: AtomicU32::new(15),
 
             spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
             action_delimiter: RwLock::new(crate::settings::ActionDelimiter::default()),

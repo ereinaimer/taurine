@@ -39,13 +39,7 @@ pub fn inject_text_segment(
     original_clipboard: &Option<String>,
 ) -> TextSegmentInjection {
     let injected_chars = text.chars().count();
-    let delay_ms = if let Ok(conn) = taurine_core::db::init::setup() {
-        taurine_core::settings::SettingsManager::new(&conn)
-            .load_all()
-            .clipboard_restore_delay_ms
-    } else {
-        taurine_core::settings::Settings::default().clipboard_restore_delay_ms
-    };
+    let delay_ms = taurine_core::settings::get_cached_clipboard_restore_delay();
     let post_paste_wait = Duration::from_millis(delay_ms as u64);
 
     #[cfg(windows)]

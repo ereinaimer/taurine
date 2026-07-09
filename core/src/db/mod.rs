@@ -26,6 +26,71 @@ pub(crate) fn now_unix_secs() -> i64 {
     prev.max(current)
 }
 
+/// Returns a connection from the global shared SQLite connection pool.
+///
+/// Configures WAL mode, synchronous to NORMAL, and sets a busy timeout of 5 seconds
+/// to resolve database locking errors under concurrent workloads.
+pub fn get_conn()
+-> Result<r2d2::PooledConnection<r2d2_sqlite::SqliteConnectionManager>, crate::error::Error> {
+    use r2d2::Pool;
+    use r2d2_sqlite::SqliteConnectionManager;
+    use std::sync::OnceLock;
+
+    if cfg!(test) {
+        thread_local! {
+            static THREAD_POOL: std::cell::RefCell<Option<Pool<SqliteConnectionManager>>> = const { std::cell::RefCell::new(None) };
+        }
+
+        return THREAD_POOL.with(|tp| {
+            let mut guard = tp.borrow_mut();
+            if guard.is_none() {
+                let db_path = crate::paths::get_db_path();
+                let manager = SqliteConnectionManager::file(db_path).with_init(|conn| {
+                    conn.execute_batch(
+                        "PRAGMA journal_mode = WAL;
+                             PRAGMA synchronous = NORMAL;
+                             PRAGMA busy_timeout = 5000;",
+                    )?;
+                    Ok(())
+                });
+                let pool = Pool::builder()
+                    .max_size(1)
+                    .build(manager)
+                    .expect("Failed to initialize test thread connection pool");
+                *guard = Some(pool);
+            }
+            guard.as_ref().unwrap().get().map_err(|e| {
+                crate::error::Error::Service(format!(
+                    "Failed to get connection from test pool: {}",
+                    e
+                ))
+            })
+        });
+    }
+
+    static POOL: OnceLock<Pool<SqliteConnectionManager>> = OnceLock::new();
+
+    let pool = POOL.get_or_init(|| {
+        let db_path = crate::paths::get_db_path();
+        let manager = SqliteConnectionManager::file(db_path).with_init(|conn| {
+            conn.execute_batch(
+                "PRAGMA journal_mode = WAL;
+                     PRAGMA synchronous = NORMAL;
+                     PRAGMA busy_timeout = 5000;",
+            )?;
+            Ok(())
+        });
+        Pool::builder()
+            .max_size(5)
+            .build(manager)
+            .expect("Failed to initialize connection pool")
+    });
+
+    pool.get().map_err(|e| {
+        crate::error::Error::Service(format!("Failed to get connection from pool: {}", e))
+    })
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Schema tests (verify migrations succeed and default values are correct)
 
