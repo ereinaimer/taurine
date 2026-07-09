@@ -174,17 +174,17 @@ pub fn start() -> taurine_core::error::Result<()> {
     rt.block_on(async {
         let (tx, mut rx) = mpsc::channel(1);
         let addr = SocketAddr::from(([127, 0, 0, 1], settings.rpc_port));
-        let daemon_service = DaemonService::new(
-            tx,
-            state.clone(),
-            paused.clone(),
-            pause_notifications_enabled.clone(),
-            pause_hotkey_spec.clone(),
-            pause_hotkey.clone(),
-            spinner_style.clone(),
-            pause_audio_enabled.clone(),
-            hook_health.clone(),
-        );
+        let daemon_service = DaemonService::builder()
+            .shutdown_sender(tx)
+            .state(state.clone())
+            .paused(paused.clone())
+            .pause_notifications_enabled(pause_notifications_enabled.clone())
+            .pause_hotkey_spec(pause_hotkey_spec.clone())
+            .pause_hotkey_display(pause_hotkey.clone())
+            .spinner_style(spinner_style.clone())
+            .pause_audio_enabled(pause_audio_enabled.clone())
+            .hook_health(hook_health.clone())
+            .build();
 
         info!("Starting gRPC server on {}", addr);
         let server_future = Server::builder()

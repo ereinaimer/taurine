@@ -23,28 +23,111 @@ pub struct DaemonService {
 }
 
 impl DaemonService {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        shutdown_sender: mpsc::Sender<()>,
-        state: Arc<EngineState>,
-        paused: Arc<AtomicBool>,
-        pause_notifications_enabled: Arc<AtomicBool>,
-        pause_hotkey_spec: Arc<RwLock<crate::hotkey::HotkeySpec>>,
-        pause_hotkey_display: Arc<RwLock<String>>,
-        spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
-        pause_audio_enabled: Arc<AtomicBool>,
-        hook_health: crate::hook_health::HookHealth,
-    ) -> Self {
+    pub fn builder() -> DaemonServiceBuilder {
+        DaemonServiceBuilder::new()
+    }
+}
+
+pub struct DaemonServiceBuilder {
+    shutdown_sender: Option<mpsc::Sender<()>>,
+    state: Option<Arc<EngineState>>,
+    paused: Option<Arc<AtomicBool>>,
+    pause_notifications_enabled: Option<Arc<AtomicBool>>,
+    pause_hotkey_spec: Option<Arc<RwLock<crate::hotkey::HotkeySpec>>>,
+    pause_hotkey_display: Option<Arc<RwLock<String>>>,
+    spinner_style: Option<Arc<RwLock<taurine_core::settings::SpinnerStyle>>>,
+    pause_audio_enabled: Option<Arc<AtomicBool>>,
+    hook_health: Option<crate::hook_health::HookHealth>,
+}
+
+impl Default for DaemonServiceBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DaemonServiceBuilder {
+    pub fn new() -> Self {
         Self {
-            shutdown_sender,
-            state,
-            paused,
-            pause_notifications_enabled,
-            pause_hotkey_spec,
-            pause_hotkey_display,
-            spinner_style,
-            pause_audio_enabled,
-            hook_health,
+            shutdown_sender: None,
+            state: None,
+            paused: None,
+            pause_notifications_enabled: None,
+            pause_hotkey_spec: None,
+            pause_hotkey_display: None,
+            spinner_style: None,
+            pause_audio_enabled: None,
+            hook_health: None,
+        }
+    }
+
+    pub fn shutdown_sender(mut self, sender: mpsc::Sender<()>) -> Self {
+        self.shutdown_sender = Some(sender);
+        self
+    }
+
+    pub fn state(mut self, state: Arc<EngineState>) -> Self {
+        self.state = Some(state);
+        self
+    }
+
+    pub fn paused(mut self, paused: Arc<AtomicBool>) -> Self {
+        self.paused = Some(paused);
+        self
+    }
+
+    pub fn pause_notifications_enabled(mut self, enabled: Arc<AtomicBool>) -> Self {
+        self.pause_notifications_enabled = Some(enabled);
+        self
+    }
+
+    pub fn pause_hotkey_spec(mut self, spec: Arc<RwLock<crate::hotkey::HotkeySpec>>) -> Self {
+        self.pause_hotkey_spec = Some(spec);
+        self
+    }
+
+    pub fn pause_hotkey_display(mut self, display: Arc<RwLock<String>>) -> Self {
+        self.pause_hotkey_display = Some(display);
+        self
+    }
+
+    pub fn spinner_style(
+        mut self,
+        style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+    ) -> Self {
+        self.spinner_style = Some(style);
+        self
+    }
+
+    pub fn pause_audio_enabled(mut self, enabled: Arc<AtomicBool>) -> Self {
+        self.pause_audio_enabled = Some(enabled);
+        self
+    }
+
+    pub fn hook_health(mut self, hook_health: crate::hook_health::HookHealth) -> Self {
+        self.hook_health = Some(hook_health);
+        self
+    }
+
+    pub fn build(self) -> DaemonService {
+        DaemonService {
+            shutdown_sender: self.shutdown_sender.expect("shutdown_sender is required"),
+            state: self.state.expect("state is required"),
+            paused: self.paused.expect("paused is required"),
+            pause_notifications_enabled: self
+                .pause_notifications_enabled
+                .expect("pause_notifications_enabled is required"),
+            pause_hotkey_spec: self
+                .pause_hotkey_spec
+                .expect("pause_hotkey_spec is required"),
+            pause_hotkey_display: self
+                .pause_hotkey_display
+                .expect("pause_hotkey_display is required"),
+            spinner_style: self.spinner_style.expect("spinner_style is required"),
+            pause_audio_enabled: self
+                .pause_audio_enabled
+                .expect("pause_audio_enabled is required"),
+            hook_health: self.hook_health.expect("hook_health is required"),
         }
     }
 }
@@ -209,19 +292,19 @@ mod tests {
         let pause_hotkey_spec = Arc::new(std::sync::RwLock::new(
             crate::hotkey::parse_pause_hotkey_setting(&pause_hotkey).unwrap(),
         ));
-        let service = DaemonService::new(
-            tx,
-            state.clone(),
-            Arc::new(AtomicBool::new(false)),
-            Arc::new(AtomicBool::new(true)),
-            pause_hotkey_spec,
-            Arc::new(std::sync::RwLock::new(pause_hotkey)),
-            Arc::new(std::sync::RwLock::new(
+        let service = DaemonService::builder()
+            .shutdown_sender(tx)
+            .state(state.clone())
+            .paused(Arc::new(AtomicBool::new(false)))
+            .pause_notifications_enabled(Arc::new(AtomicBool::new(true)))
+            .pause_hotkey_spec(pause_hotkey_spec)
+            .pause_hotkey_display(Arc::new(std::sync::RwLock::new(pause_hotkey)))
+            .spinner_style(Arc::new(std::sync::RwLock::new(
                 taurine_core::settings::SpinnerStyle::default(),
-            )),
-            Arc::new(AtomicBool::new(true)),
-            crate::hook_health::HookHealth::new(),
-        );
+            )))
+            .pause_audio_enabled(Arc::new(AtomicBool::new(true)))
+            .hook_health(crate::hook_health::HookHealth::new())
+            .build();
 
         // Initially state should be empty
         assert_eq!(state.fetch_expansion("hello"), None);
