@@ -2,7 +2,9 @@ use std::sync::Arc;
 use taurine_core::engine::EngineState;
 
 pub fn start_listener(_state: Arc<EngineState>) {
-    std::thread::spawn(move || {
-        // macOS fullscreen detection placeholder.
-    });
+    let _ = std::thread::Builder::new()
+        .name("tau-mac-full".to_string())
+        .spawn(move || {
+            // macOS fullscreen detection placeholder.
+        });
 }

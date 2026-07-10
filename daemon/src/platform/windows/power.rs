@@ -36,7 +36,7 @@ pub fn start_listener(tx: Sender<WindowsSupervisorEvent>) -> Result<(), String> 
     *slot = Some(tx);
 
     let handle = thread::Builder::new()
-        .name("taurine-win-power".to_string())
+        .name("tau-win-power".to_string())
         .spawn(run_message_loop)
         .map_err(|error| error.to_string())?;
 

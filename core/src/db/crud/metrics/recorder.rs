@@ -49,7 +49,7 @@ pub fn record_automation_metric(event: AutomationMetricEvent) {
     let tx = METRICS_TX.get_or_init(|| {
         let (tx, rx) = mpsc::channel::<AutomationMetricEvent>();
         thread::Builder::new()
-            .name("taurine-metrics".to_string())
+            .name("tau-metrics".to_string())
             .spawn(move || {
                 while let Ok(evt) = rx.recv() {
                     match crate::db::get_conn() {

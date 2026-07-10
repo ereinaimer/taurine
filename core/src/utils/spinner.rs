@@ -103,26 +103,29 @@ pub fn spawn_threaded<R: SpinnerRenderer + 'static>(
     let frames = get_frames(style);
     let frame_width = frames[0].chars().count();
 
-    let thread = std::thread::spawn(move || {
-        let mut idx = 0;
+    let thread = std::thread::Builder::new()
+        .name("tau-spinner".to_string())
+        .spawn(move || {
+            let mut idx = 0;
 
-        while !abort_clone.load(Ordering::SeqCst) {
-            let frame = frames[idx % frames.len()];
-            renderer.inject_frame(frame);
+            while !abort_clone.load(Ordering::SeqCst) {
+                let frame = frames[idx % frames.len()];
+                renderer.inject_frame(frame);
 
-            std::thread::sleep(Duration::from_millis(60));
+                std::thread::sleep(Duration::from_millis(60));
 
-            if abort_clone.load(Ordering::SeqCst) {
-                break;
+                if abort_clone.load(Ordering::SeqCst) {
+                    break;
+                }
+
+                renderer.backspace(frame_width);
+                idx += 1;
             }
 
             renderer.backspace(frame_width);
-            idx += 1;
-        }
-
-        renderer.backspace(frame_width);
-        renderer.finish();
-    });
+            renderer.finish();
+        })
+        .expect("Failed to spawn spinner thread");
 
     ThreadSpinnerHandle {
         abort,

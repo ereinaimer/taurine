@@ -58,7 +58,7 @@ pub fn start_windows_supervisor(
     }
 
     let spawn_result = std::thread::Builder::new()
-        .name("taurine-hook-supervisor".to_string())
+        .name("tau-hook-super".to_string())
         .spawn(move || {
             const RESTART_BACKOFF: Duration = Duration::from_secs(2);
 

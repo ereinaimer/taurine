@@ -17,39 +17,42 @@ fn load_wav_source(
 pub fn init_audio_system() -> mpsc::Sender<bool> {
     let (tx, mut rx) = mpsc::channel::<bool>(4);
 
-    std::thread::spawn(move || {
-        info!("Audio worker thread started (per-trigger device acquisition)");
+    std::thread::Builder::new()
+        .name("tau-audio".to_string())
+        .spawn(move || {
+            info!("Audio worker thread started (per-trigger device acquisition)");
 
-        while let Some(is_paused) = rx.blocking_recv() {
-            let data = if is_paused { PAUSE_WAV } else { RESUME_WAV };
+            while let Some(is_paused) = rx.blocking_recv() {
+                let data = if is_paused { PAUSE_WAV } else { RESUME_WAV };
 
-            // Acquire a fresh OutputStream/MixerDeviceSink on every trigger so we always bind
-            // to the *current* default device. Cached streams silently play
-            // into dead endpoints on Windows (WASAPI) after a device unplug
-            // because rodio/cpal does not surface device-loss errors through
-            // the Sink API.
-            let mut stream = match DeviceSinkBuilder::open_default_sink() {
-                Ok(s) => s,
-                Err(e) => {
-                    warn!("Audio playback skipped: no audio device available: {}", e);
-                    continue;
-                }
-            };
-            stream.log_on_drop(false);
+                // Acquire a fresh OutputStream/MixerDeviceSink on every trigger so we always bind
+                // to the *current* default device. Cached streams silently play
+                // into dead endpoints on Windows (WASAPI) after a device unplug
+                // because rodio/cpal does not surface device-loss errors through
+                // the Sink API.
+                let mut stream = match DeviceSinkBuilder::open_default_sink() {
+                    Ok(s) => s,
+                    Err(e) => {
+                        warn!("Audio playback skipped: no audio device available: {}", e);
+                        continue;
+                    }
+                };
+                stream.log_on_drop(false);
 
-            match load_wav_source(data) {
-                Ok(decoder) => {
-                    let player = Player::connect_new(stream.mixer());
-                    player.append(decoder);
-                    player.sleep_until_end();
+                match load_wav_source(data) {
+                    Ok(decoder) => {
+                        let player = Player::connect_new(stream.mixer());
+                        player.append(decoder);
+                        player.sleep_until_end();
+                    }
+                    Err(e) => {
+                        warn!("Failed to decode audio: {}", e);
+                    }
                 }
-                Err(e) => {
-                    warn!("Failed to decode audio: {}", e);
-                }
+                // stream drops here, releasing the device cleanly.
             }
-            // stream drops here, releasing the device cleanly.
-        }
-    });
+        })
+        .expect("Failed to spawn audio thread");
 
     tx
 }

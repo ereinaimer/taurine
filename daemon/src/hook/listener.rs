@@ -610,7 +610,7 @@ pub(super) fn spawn_windows_hook_listener(
     let (thread_id_tx, thread_id_rx) = std::sync::mpsc::channel::<u32>();
 
     let spawn_result = std::thread::Builder::new()
-        .name("taurine-hook-listener".to_string())
+        .name("tau-hook-listn".to_string())
         .spawn(move || {
             // SAFETY: GetCurrentThreadId() returns the OS thread ID of the calling
             // thread. It always succeeds, has no failure mode, and requires no

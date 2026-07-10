@@ -122,10 +122,12 @@ pub fn start() -> taurine_core::error::Result<()> {
 
     let audio_tx = audio::init_audio_system();
 
-    let clipboard_thread = std::thread::spawn(|| {
-        info!("Starting clipboard history listener...");
-        clipboard_history::start_listener();
-    });
+    let clipboard_thread = std::thread::Builder::new()
+        .name("tau-clip".to_string())
+        .spawn(|| {
+            info!("Starting clipboard history listener...");
+            clipboard_history::start_listener();
+        })?;
 
     #[cfg(windows)]
     crate::platform::windows::fullscreen::start_listener(state.clone());
@@ -149,43 +151,45 @@ pub fn start() -> taurine_core::error::Result<()> {
 
     #[cfg(windows)]
     let hook_health_clone = hook_health.clone();
-    let hook_thread = std::thread::spawn(move || {
-        #[cfg(windows)]
-        {
-            info!("Starting supervised Windows keyboard hook listener...");
-            let handle = hook::start_windows_supervisor(
-                eval_clone,
-                state_clone,
-                paused_clone,
-                pause_notifications_enabled_clone,
-                pause_hotkey_spec_clone,
-                spinner_style_clone,
-                runtime_handle_clone,
-                pause_audio_enabled_clone,
-                audio_tx_clone,
-                hook_health_clone,
-            );
-            if let Ok(mut lock) = supervisor_handle_clone.lock() {
-                *lock = handle;
+    let hook_thread = std::thread::Builder::new()
+        .name("tau-hook".to_string())
+        .spawn(move || {
+            #[cfg(windows)]
+            {
+                info!("Starting supervised Windows keyboard hook listener...");
+                let handle = hook::start_windows_supervisor(
+                    eval_clone,
+                    state_clone,
+                    paused_clone,
+                    pause_notifications_enabled_clone,
+                    pause_hotkey_spec_clone,
+                    spinner_style_clone,
+                    runtime_handle_clone,
+                    pause_audio_enabled_clone,
+                    audio_tx_clone,
+                    hook_health_clone,
+                );
+                if let Ok(mut lock) = supervisor_handle_clone.lock() {
+                    *lock = handle;
+                }
             }
-        }
 
-        #[cfg(not(windows))]
-        {
-            info!("Starting OS keyboard hook listener...");
-            hook::start_listener(
-                eval_clone,
-                state_clone,
-                paused_clone,
-                pause_notifications_enabled_clone,
-                pause_hotkey_spec_clone,
-                spinner_style_clone,
-                runtime_handle_clone,
-                pause_audio_enabled_clone,
-                audio_tx_clone,
-            );
-        }
-    });
+            #[cfg(not(windows))]
+            {
+                info!("Starting OS keyboard hook listener...");
+                hook::start_listener(
+                    eval_clone,
+                    state_clone,
+                    paused_clone,
+                    pause_notifications_enabled_clone,
+                    pause_hotkey_spec_clone,
+                    spinner_style_clone,
+                    runtime_handle_clone,
+                    pause_audio_enabled_clone,
+                    audio_tx_clone,
+                );
+            }
+        })?;
 
     rt.block_on(async {
         let (mut shutdown_tx, mut shutdown_rx) = mpsc::channel(1);

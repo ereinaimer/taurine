@@ -22,7 +22,7 @@ pub(super) fn take_active_undo_state(
 
 #[cfg(not(target_os = "linux"))]
 pub(super) fn spawn_undo_dispatch(trigger_string: String, output_length: usize) {
-    injector::spawn_guarded_injection_thread("taurine-undo-dispatch", move || {
+    injector::spawn_guarded_injection_thread("tau-undo-disp", move || {
         injector::inject_undo(trigger_string, output_length);
     });
 }
@@ -33,7 +33,7 @@ pub(crate) fn spawn_expansion_dispatch(
     runtime_handle: Handle,
     state: Arc<taurine_core::engine::EngineState>,
 ) {
-    injector::spawn_guarded_injection_thread("taurine-expansion-dispatch", move || {
+    injector::spawn_guarded_injection_thread("tau-exp-disp", move || {
         dispatch_expansion_with(
             expansion,
             spinner_style,
@@ -49,7 +49,7 @@ pub(crate) fn spawn_completion_rewrite_dispatch(
     rewrite: taurine_core::engine::CompletionRewrite,
     spinner_style: taurine_core::settings::SpinnerStyle,
 ) {
-    injector::spawn_guarded_injection_thread("taurine-completion-rewrite", move || {
+    injector::spawn_guarded_injection_thread("tau-comp-rw", move || {
         dispatch_completion_rewrite_with(rewrite, spinner_style, crate::injector::inject_expansion);
     });
 }

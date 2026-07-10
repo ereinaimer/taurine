@@ -728,29 +728,32 @@ struct LiveOutputHandle {
 impl LiveOutputHandle {
     fn spawn() -> Self {
         let (tx, rx) = mpsc::channel::<LiveOutputCommand>();
-        let join = thread::spawn(move || {
-            let mut session = crate::injector::StreamingTextSession::begin();
+        let join = thread::Builder::new()
+            .name("tau-ai-stream".to_string())
+            .spawn(move || {
+                let mut session = crate::injector::StreamingTextSession::begin();
 
-            while let Ok(command) = rx.recv() {
-                match command {
-                    LiveOutputCommand::Text {
-                        text,
-                        track_metrics,
-                    } => {
-                        if !session.push_text(&text, track_metrics) {
-                            break;
+                while let Ok(command) = rx.recv() {
+                    match command {
+                        LiveOutputCommand::Text {
+                            text,
+                            track_metrics,
+                        } => {
+                            if !session.push_text(&text, track_metrics) {
+                                break;
+                            }
                         }
+                        LiveOutputCommand::Finish => break,
                     }
-                    LiveOutputCommand::Finish => break,
+
+                    if session.abort_requested() {
+                        break;
+                    }
                 }
 
-                if session.abort_requested() {
-                    break;
-                }
-            }
-
-            session.finish()
-        });
+                session.finish()
+            })
+            .expect("Failed to spawn live output thread");
 
         Self {
             tx,

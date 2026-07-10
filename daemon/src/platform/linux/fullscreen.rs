@@ -12,75 +12,78 @@ pub fn start_listener(state: Arc<EngineState>) {
         return;
     }
 
-    std::thread::spawn(move || {
-        let (conn, screen_num) = match x11rb::connect(None) {
-            Ok(c) => c,
-            Err(e) => {
-                error!("Failed to connect to X11 server: {:?}", e);
+    std::thread::Builder::new()
+        .name("tau-lnx-full".to_string())
+        .spawn(move || {
+            let (conn, screen_num) = match x11rb::connect(None) {
+                Ok(c) => c,
+                Err(e) => {
+                    error!("Failed to connect to X11 server: {:?}", e);
+                    return;
+                }
+            };
+
+            let screen = &conn.setup().roots[screen_num];
+            let root = screen.root;
+
+            if let Err(e) = conn.change_window_attributes(
+                root,
+                &x11rb::protocol::xproto::ChangeWindowAttributesAux::new()
+                    .event_mask(EventMask::PROPERTY_CHANGE),
+            ) {
+                error!("Failed to select X11 property changes: {:?}", e);
                 return;
             }
-        };
 
-        let screen = &conn.setup().roots[screen_num];
-        let root = screen.root;
+            let net_active_window = conn
+                .intern_atom(false, b"_NET_ACTIVE_WINDOW")
+                .unwrap()
+                .reply()
+                .unwrap()
+                .atom;
+            let net_wm_state = conn
+                .intern_atom(false, b"_NET_WM_STATE")
+                .unwrap()
+                .reply()
+                .unwrap()
+                .atom;
+            let net_wm_state_fullscreen = conn
+                .intern_atom(false, b"_NET_WM_STATE_FULLSCREEN")
+                .unwrap()
+                .reply()
+                .unwrap()
+                .atom;
 
-        if let Err(e) = conn.change_window_attributes(
-            root,
-            &x11rb::protocol::xproto::ChangeWindowAttributesAux::new()
-                .event_mask(EventMask::PROPERTY_CHANGE),
-        ) {
-            error!("Failed to select X11 property changes: {:?}", e);
-            return;
-        }
+            let _ = conn.flush();
 
-        let net_active_window = conn
-            .intern_atom(false, b"_NET_ACTIVE_WINDOW")
-            .unwrap()
-            .reply()
-            .unwrap()
-            .atom;
-        let net_wm_state = conn
-            .intern_atom(false, b"_NET_WM_STATE")
-            .unwrap()
-            .reply()
-            .unwrap()
-            .atom;
-        let net_wm_state_fullscreen = conn
-            .intern_atom(false, b"_NET_WM_STATE_FULLSCREEN")
-            .unwrap()
-            .reply()
-            .unwrap()
-            .atom;
+            update_fullscreen_state(
+                &conn,
+                root,
+                net_active_window,
+                net_wm_state,
+                net_wm_state_fullscreen,
+                &state,
+            );
 
-        let _ = conn.flush();
-
-        update_fullscreen_state(
-            &conn,
-            root,
-            net_active_window,
-            net_wm_state,
-            net_wm_state_fullscreen,
-            &state,
-        );
-
-        while let Ok(event) = conn.wait_for_event() {
-            match event {
-                x11rb::protocol::Event::PropertyNotify(ev)
-                    if ev.atom == net_active_window || ev.atom == net_wm_state =>
-                {
-                    update_fullscreen_state(
-                        &conn,
-                        root,
-                        net_active_window,
-                        net_wm_state,
-                        net_wm_state_fullscreen,
-                        &state,
-                    );
+            while let Ok(event) = conn.wait_for_event() {
+                match event {
+                    x11rb::protocol::Event::PropertyNotify(ev)
+                        if ev.atom == net_active_window || ev.atom == net_wm_state =>
+                    {
+                        update_fullscreen_state(
+                            &conn,
+                            root,
+                            net_active_window,
+                            net_wm_state,
+                            net_wm_state_fullscreen,
+                            &state,
+                        );
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
-        }
-    });
+        })
+        .expect("Failed to spawn Linux fullscreen listener thread");
 }
 
 fn update_fullscreen_state(

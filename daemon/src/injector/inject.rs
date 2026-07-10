@@ -527,16 +527,21 @@ pub fn inject_expansion(
                     ScriptBehavior::Silent => {
                         // Fire and forget in the background
                         let metadata_clone = metadata.clone();
-                        thread::spawn(move || {
-                            if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
-                                .enable_all()
-                                .build()
-                            {
-                                let _ = rt.block_on(crate::platform::executor::execute_script(
-                                    &metadata_clone,
-                                ));
-                            }
-                        });
+                        let spawn_res = thread::Builder::new()
+                            .name("tau-script-bg".to_string())
+                            .spawn(move || {
+                                if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                                    .enable_all()
+                                    .build()
+                                {
+                                    let _ = rt.block_on(crate::platform::executor::execute_script(
+                                        &metadata_clone,
+                                    ));
+                                }
+                            });
+                        if let Err(e) = spawn_res {
+                            error!("Failed to spawn background script thread: {}", e);
+                        }
                     }
                 }
             }
@@ -599,16 +604,21 @@ pub fn inject_expansion(
                 }
                 ScriptBehavior::Silent => {
                     let metadata_clone = metadata.clone();
-                    thread::spawn(move || {
-                        if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
-                            .enable_all()
-                            .build()
-                        {
-                            let _ = rt.block_on(crate::platform::executor::execute_script(
-                                &metadata_clone,
-                            ));
-                        }
-                    });
+                    let spawn_res = thread::Builder::new()
+                        .name("tau-script-bg".to_string())
+                        .spawn(move || {
+                            if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                                .enable_all()
+                                .build()
+                            {
+                                let _ = rt.block_on(crate::platform::executor::execute_script(
+                                    &metadata_clone,
+                                ));
+                            }
+                        });
+                    if let Err(e) = spawn_res {
+                        error!("Failed to spawn background script thread: {}", e);
+                    }
                 }
             },
         }

@@ -323,8 +323,14 @@ fn execute_inline(invocation: &ExecuteInvocation) -> Result<String, String> {
         .take()
         .ok_or_else(|| "Failed to capture stderr".to_string())?;
 
-    let stdout_reader = thread::spawn(move || read_pipe(stdout));
-    let stderr_reader = thread::spawn(move || read_pipe(stderr));
+    let stdout_reader = thread::Builder::new()
+        .name("tau-stdout-rd".to_string())
+        .spawn(move || read_pipe(stdout))
+        .expect("Failed to spawn stdout reader thread");
+    let stderr_reader = thread::Builder::new()
+        .name("tau-stderr-rd".to_string())
+        .spawn(move || read_pipe(stderr))
+        .expect("Failed to spawn stderr reader thread");
 
     let timeout_opt = crate::settings::Settings::get_script_timeout();
 

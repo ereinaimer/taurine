@@ -180,7 +180,7 @@ pub(crate) fn spawn_device_listener(
     exit_tx: Sender<DeviceExit>,
 ) -> io::Result<()> {
     thread::Builder::new()
-        .name("taurine-linux-evdev-device".to_string())
+        .name("tau-lnx-evdev".to_string())
         .spawn(move || {
             let mut xkb = XkbMapper::default();
             let mut modifier_sides = ModifierSides::default();
@@ -618,7 +618,12 @@ fn take_active_undo_state(state: &taurine_core::engine::EngineState) -> Option<(
 }
 
 fn spawn_undo_dispatch(trigger_string: String, output_length: usize) {
-    thread::spawn(move || injector::inject_undo(trigger_string, output_length));
+    if let Err(e) = thread::Builder::new()
+        .name("tau-ev-undo".to_string())
+        .spawn(move || injector::inject_undo(trigger_string, output_length))
+    {
+        error!("Failed to spawn evdev undo dispatch thread: {}", e);
+    }
 }
 
 fn is_mouse_button(key: KeyCode) -> bool {
