@@ -17,15 +17,26 @@ fn open_connection() -> Result<Connection> {
     let db_path = get_db_path();
 
     #[cfg(all(unix, not(target_os = "android")))]
-    if !db_path.exists() {
-        use std::fs::OpenOptions;
-        use std::os::unix::fs::OpenOptionsExt;
-        let _ = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&db_path);
+    {
+        use std::fs::{self, OpenOptions};
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+        if !db_path.exists() {
+            let _ = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&db_path);
+        }
+
+        if let Ok(metadata) = fs::metadata(&db_path) {
+            let mut perms = metadata.permissions();
+            if perms.mode() & 0o777 != 0o600 {
+                perms.set_mode(0o600);
+                let _ = fs::set_permissions(&db_path, perms);
+            }
+        }
     }
 
     let conn = Connection::open(db_path)?;

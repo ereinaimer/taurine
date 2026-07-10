@@ -36,6 +36,32 @@ pub fn get_conn()
     use r2d2_sqlite::SqliteConnectionManager;
     use std::sync::OnceLock;
 
+    crate::paths::ensure_data_dir();
+
+    #[cfg(all(unix, not(target_os = "android")))]
+    {
+        use std::fs::{self, OpenOptions};
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let db_path = crate::paths::get_db_path();
+
+        if !db_path.exists() {
+            let _ = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&db_path);
+        }
+
+        if let Ok(metadata) = fs::metadata(&db_path) {
+            let mut perms = metadata.permissions();
+            if perms.mode() & 0o777 != 0o600 {
+                perms.set_mode(0o600);
+                let _ = fs::set_permissions(&db_path, perms);
+            }
+        }
+    }
+
     if cfg!(test) {
         thread_local! {
             static THREAD_POOL: std::cell::RefCell<Option<Pool<SqliteConnectionManager>>> = const { std::cell::RefCell::new(None) };
@@ -267,5 +293,43 @@ mod tests {
 
         let t2 = now_unix_secs();
         assert!(t2 >= t1, "Time should not run backward");
+    }
+
+    #[test]
+    fn test_get_conn_permissions() {
+        let _guard = crate::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        init_tracing_for_tests();
+
+        let test_dir = std::env::temp_dir().join("taurine_db_perms_test");
+        let _ = std::fs::remove_dir_all(&test_dir);
+
+        unsafe { std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
+
+        // Calling get_conn() should initialize the DB and ensure permissions
+        let conn = get_conn();
+        assert!(conn.is_ok());
+
+        let db_path = crate::paths::get_db_path();
+        assert!(db_path.exists());
+
+        #[cfg(all(unix, not(target_os = "android")))]
+        {
+            use std::fs;
+            use std::os::unix::fs::PermissionsExt;
+
+            // Check directory permissions
+            let dir_metadata = fs::metadata(&test_dir).unwrap();
+            assert_eq!(dir_metadata.permissions().mode() & 0o777, 0o700);
+
+            // Check database file permissions
+            let db_metadata = fs::metadata(&db_path).unwrap();
+            assert_eq!(db_metadata.permissions().mode() & 0o777, 0o600);
+        }
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&test_dir);
+        unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
     }
 }

@@ -70,6 +70,23 @@ pub fn ensure_data_dir() -> PathBuf {
         fs::create_dir_all(&data_dir).expect("Failed to create app data directories");
     }
 
+    #[cfg(all(unix, not(target_os = "android")))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = fs::metadata(&data_dir) {
+            let mut perms = metadata.permissions();
+            if perms.mode() & 0o777 != 0o700 {
+                perms.set_mode(0o700);
+                if let Err(e) = fs::set_permissions(&data_dir, perms) {
+                    debug!(
+                        "Failed to set permissions 0700 on app data directory: {}",
+                        e
+                    );
+                }
+            }
+        }
+    }
+
     data_dir
 }
 
@@ -243,6 +260,31 @@ mod tests {
         let startup_dir = exe_path.parent().unwrap();
         assert!(startup_dir.ends_with("startup"));
         assert!(startup_dir.exists());
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&test_dir);
+        unsafe { env::remove_var("TAURINE_DATA_DIR") };
+    }
+
+    #[test]
+    fn test_ensure_data_dir_permissions() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        crate::testing::init_tracing_for_tests();
+
+        let test_dir = std::env::temp_dir().join("taurine_perms_test");
+        let _ = fs::remove_dir_all(&test_dir);
+
+        unsafe { env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
+
+        let data_dir = ensure_data_dir();
+        assert!(data_dir.exists());
+
+        #[cfg(all(unix, not(target_os = "android")))]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let metadata = fs::metadata(&data_dir).unwrap();
+            assert_eq!(metadata.permissions().mode() & 0o777, 0o700);
+        }
 
         // Cleanup
         let _ = fs::remove_dir_all(&test_dir);
