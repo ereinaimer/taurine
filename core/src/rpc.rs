@@ -18,14 +18,40 @@ pub fn get_rpc_url() -> String {
     format!("http://127.0.0.1:{}", get_rpc_port())
 }
 
+pub async fn connect_to_daemon() -> Result<tonic::transport::Channel, tonic::transport::Error> {
+    #[cfg(all(unix, not(target_os = "android")))]
+    {
+        use std::convert::TryFrom;
+        use tokio::net::UnixStream;
+        use tower::service_fn;
+
+        let socket_path = crate::paths::get_data_dir().join("taurine.sock");
+
+        tonic::transport::Endpoint::try_from("http://[::]:50051")?
+            .connect_with_connector(service_fn(move |_: tonic::transport::Uri| {
+                let socket_path = socket_path.clone();
+                async move { UnixStream::connect(socket_path).await }
+            }))
+            .await
+    }
+
+    #[cfg(not(all(unix, not(target_os = "android"))))]
+    {
+        tonic::transport::Endpoint::from_shared(get_rpc_url())?
+            .connect()
+            .await
+    }
+}
+
 pub fn notify_daemon_reload() {
     tracing::debug!("Dispatching Reload instruction to daemon...");
 
     let perform_reload = async {
         use daemon_control_client::DaemonControlClient;
 
-        match DaemonControlClient::connect(get_rpc_url()).await {
-            Ok(mut client) => {
+        match connect_to_daemon().await {
+            Ok(channel) => {
+                let mut client = DaemonControlClient::new(channel);
                 let req = tonic::Request::new(ReloadRequest {});
                 if let Err(e) = client.reload(req).await {
                     tracing::error!("Daemon reload request failed: {}", e);

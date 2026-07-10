@@ -177,7 +177,6 @@ pub fn start() -> taurine_core::error::Result<()> {
 
     rt.block_on(async {
         let (tx, mut rx) = mpsc::channel(1);
-        let addr = SocketAddr::from(([127, 0, 0, 1], settings.rpc_port));
         let daemon_service = DaemonService::builder()
             .shutdown_sender(tx)
             .state(state.clone())
@@ -190,16 +189,63 @@ pub fn start() -> taurine_core::error::Result<()> {
             .hook_health(hook_health.clone())
             .build();
 
-        info!("Starting gRPC server on {}", addr);
-        let server_future = Server::builder()
-            .add_service(DaemonControlServer::new(daemon_service))
-            .serve_with_shutdown(addr, async {
-                let _ = rx.recv().await;
-                info!("Shutdown signal received, initiating shutdown...");
-            });
+        #[cfg(all(unix, not(target_os = "android")))]
+        {
+            use tokio::net::UnixListener;
+            use tokio_stream::wrappers::UnixListenerStream;
 
-        if let Err(e) = server_future.await {
-            error!("gRPC server failed: {}", e);
+            let socket_path = taurine_core::paths::get_data_dir().join("taurine.sock");
+            if socket_path.exists() {
+                let _ = std::fs::remove_file(&socket_path);
+            }
+
+            match UnixListener::bind(&socket_path) {
+                Ok(uds) => {
+                    use std::os::unix::fs::PermissionsExt;
+                    if let Ok(metadata) = std::fs::metadata(&socket_path) {
+                        let mut perms = metadata.permissions();
+                        perms.set_mode(0o600);
+                        let _ = std::fs::set_permissions(&socket_path, perms);
+                    }
+
+                    let stream = UnixListenerStream::new(uds);
+                    info!(
+                        "Starting gRPC server on UDS socket: {}",
+                        socket_path.display()
+                    );
+                    let server_future = Server::builder()
+                        .add_service(DaemonControlServer::new(daemon_service))
+                        .serve_with_incoming_shutdown(stream, async {
+                            let _ = rx.recv().await;
+                            info!("Shutdown signal received, initiating shutdown...");
+                        });
+
+                    if let Err(e) = server_future.await {
+                        error!("gRPC server failed: {}", e);
+                    }
+
+                    let _ = std::fs::remove_file(&socket_path);
+                }
+                Err(e) => {
+                    error!("Failed to bind to UDS socket: {}", e);
+                }
+            }
+        }
+
+        #[cfg(not(all(unix, not(target_os = "android"))))]
+        {
+            let addr = SocketAddr::from(([127, 0, 0, 1], settings.rpc_port));
+            info!("Starting gRPC server on {}", addr);
+            let server_future = Server::builder()
+                .add_service(DaemonControlServer::new(daemon_service))
+                .serve_with_shutdown(addr, async {
+                    let _ = rx.recv().await;
+                    info!("Shutdown signal received, initiating shutdown...");
+                });
+
+            if let Err(e) = server_future.await {
+                error!("gRPC server failed: {}", e);
+            }
         }
     });
 

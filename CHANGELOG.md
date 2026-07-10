@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`tau` shell alias**: The install scripts now automatically set up a `tau` shell alias for `taurine`. The `update` command also ensures the alias is present after an update. A new `core::shell` module centralizes RC file manipulation logic, reused by the update, completions, and alias modules.
 
 ### Changed
+- **Default Unix Domain Sockets for IPC on Linux and macOS**: Changed the default gRPC communication channel from local loopback TCP to Unix Domain Sockets (`taurine.sock` stored in the user data directory) on macOS and Linux. This prevents port scanning and enforces kernel-level owner-only access permissions, while Windows continues to use loopback TCP.
 - **Secure File and Directory Permissions on Unix**: Enforced owner-only permissions (`0700` for the app data directory and `0600` for the SQLite database file) on Linux and macOS to prevent unauthorized local users from reading sensitive macros, snippets, or credentials.
 - **Database Optimizations on Hot paths**: Significantly reduced typing latency and eliminated keypress stuttering by optimizing SQLite interactions:
   - Switched to a shared, thread-safe connection pool (`r2d2`) configured with WAL mode, normal synchronicity, and a 5-second busy timeout to eliminate connection overhead and prevent database locking errors.
