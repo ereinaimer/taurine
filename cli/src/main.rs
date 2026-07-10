@@ -456,12 +456,7 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
 
             // Execute the startup sequence (database init, seed, etc.)
             taurine_daemon::start()?;
-
-            info!("Taurine is alive. Idling...");
-
-            loop {
-                std::thread::sleep(std::time::Duration::from_secs(60));
-            }
+            info!("Taurine daemon stopped cleanly.");
         }
         LaunchTarget::Tui => return taurine_tui::run(),
         LaunchTarget::Command => {}

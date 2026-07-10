@@ -17,8 +17,17 @@ thread_local! {
     static ENGINE_STATE: std::cell::RefCell<Option<Arc<EngineState>>> = const { std::cell::RefCell::new(None) };
 }
 
+static FULLSCREEN_THREAD_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static FULLSCREEN_JOIN_HANDLE: std::sync::Mutex<Option<std::thread::JoinHandle<()>>> =
+    std::sync::Mutex::new(None);
+
 pub fn start_listener(state: Arc<EngineState>) {
-    std::thread::spawn(move || {
+    let handle = std::thread::spawn(move || {
+        // SAFETY: GetCurrentThreadId retrieves the OS thread ID of the calling thread.
+        // It always succeeds and has no failure modes.
+        let tid = unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() };
+        FULLSCREEN_THREAD_ID.store(tid, Ordering::Relaxed);
+
         ENGINE_STATE.with(|s| *s.borrow_mut() = Some(state));
 
         // SAFETY: All Win32 calls in this block operate on the current thread's
@@ -70,6 +79,39 @@ pub fn start_listener(state: Arc<EngineState>) {
             }
         }
     });
+
+    if let Ok(mut lock) = FULLSCREEN_JOIN_HANDLE.lock() {
+        *lock = Some(handle);
+    }
+}
+
+pub fn stop_listener() {
+    let tid = FULLSCREEN_THREAD_ID.load(Ordering::Relaxed);
+    if tid != 0 {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
+        // SAFETY: PostThreadMessageW is safe to call with a valid thread ID and message.
+        unsafe {
+            for _ in 0..100 {
+                if PostThreadMessageW(tid, WM_QUIT, 0, 0) != 0 {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        }
+    }
+
+    let handle = if let Ok(mut lock) = FULLSCREEN_JOIN_HANDLE.lock() {
+        lock.take()
+    } else {
+        None
+    };
+
+    if let Some(h) = handle {
+        let res = h.join();
+        if let Err(e) = res {
+            error!("Error joining fullscreen listener thread: {:?}", e);
+        }
+    }
 }
 
 // SAFETY: WinEvent callback invoked by the OS when a WinEvent is fired. The

@@ -15,10 +15,10 @@ pub(crate) use completion::{
 
 pub(crate) use dispatch::{spawn_completion_rewrite_dispatch, spawn_expansion_dispatch};
 
-pub use listener::start_listener;
+pub use listener::{start_listener, stop_listener};
 
 #[cfg(windows)]
-pub use supervisor::{WindowsSupervisorEvent, start_windows_supervisor};
+pub use supervisor::{WindowsSupervisorEvent, start_windows_supervisor, stop_windows_supervisor};
 
 #[cfg(test)]
 mod tests;

@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ### Fixed
+- **Missing graceful shutdown for hook and background threads**: Resolved issues where the daemon process would forcibly terminate via `process::exit(0)`. The daemon now coordinates a clean shutdown sequence on Windows, macOS, and Linux by signaling and joining all spawned background threads (including the keyboard hook, clipboard history, power, and fullscreen monitors), permitting standard Rust drop cleanups for database connections and system-level resources.
 - **Buffer expansion capacity safety**: Fixed keyboard buffer overflow issues when typing long paths or URLs. The text input ring buffer now dynamically resizes (doubles in capacity) and unrolls its contents when full rather than silently overwriting the oldest characters, preserving trigger recognition. Added a capacity warning when the buffer reaches 80% usage.
 - **Install script cross-platform compatibility fixes**: Fixed both `install.sh` and `install.ps1` for cross-platform compatibility and reliability.
   - `install.sh`: Replaced `sha256sum` with a portable checksum function supporting both `sha256sum` (Linux) and `shasum -a 256` (macOS). Replaced `sort -V` (GNU extension, unavailable on macOS) with a component-by-component numeric version comparison for downgrade prevention.

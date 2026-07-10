@@ -122,7 +122,7 @@ pub fn start() -> taurine_core::error::Result<()> {
 
     let audio_tx = audio::init_audio_system();
 
-    std::thread::spawn(|| {
+    let clipboard_thread = std::thread::spawn(|| {
         info!("Starting clipboard history listener...");
         clipboard_history::start_listener();
     });
@@ -144,13 +144,16 @@ pub fn start() -> taurine_core::error::Result<()> {
     let runtime_handle_clone = runtime_handle.clone();
     let pause_audio_enabled_clone = pause_audio_enabled.clone();
     let audio_tx_clone = audio_tx.clone();
+    let supervisor_handle = Arc::new(Mutex::new(None));
+    let supervisor_handle_clone = supervisor_handle.clone();
+
     #[cfg(windows)]
     let hook_health_clone = hook_health.clone();
-    std::thread::spawn(move || {
+    let hook_thread = std::thread::spawn(move || {
         #[cfg(windows)]
         {
             info!("Starting supervised Windows keyboard hook listener...");
-            hook::start_windows_supervisor(
+            let handle = hook::start_windows_supervisor(
                 eval_clone,
                 state_clone,
                 paused_clone,
@@ -162,6 +165,9 @@ pub fn start() -> taurine_core::error::Result<()> {
                 audio_tx_clone,
                 hook_health_clone,
             );
+            if let Ok(mut lock) = supervisor_handle_clone.lock() {
+                *lock = handle;
+            }
         }
 
         #[cfg(not(windows))]
@@ -439,12 +445,47 @@ pub fn start() -> taurine_core::error::Result<()> {
         }
     });
 
-    // The rdev::grab() OS hook thread blocks permanently on a native message
-    // loop (SetWindowsHookEx + GetMessage on Windows, similar on Unix) and
-    // cannot be unblocked from outside. After the gRPC server has shut down
-    // gracefully, the only correct action for a daemon is to exit the process.
-    debug!("gRPC server stopped. Exiting daemon process.");
-    std::process::exit(0);
+    info!("Initiating clean shutdown of all background threads...");
+
+    // 1. Signal shutdown to all hook listeners/supervisors
+    #[cfg(windows)]
+    {
+        hook::stop_windows_supervisor();
+        // Join the supervisor thread
+        let handle = supervisor_handle.lock().unwrap().take();
+        if let Some(h) = handle {
+            let res = h.join();
+            if let Err(e) = res {
+                error!("Error joining supervisor thread: {:?}", e);
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        hook::stop_listener();
+    }
+
+    // 2. Join the hook thread (either the supervisor spawner on Windows, or the hook listener on Unix/macOS)
+    let res = hook_thread.join();
+    if let Err(e) = res {
+        error!("Error joining hook thread: {:?}", e);
+    }
+
+    // 3. Stop the clipboard history listener and join its thread
+    clipboard_history::stop_listener();
+    let res = clipboard_thread.join();
+    if let Err(e) = res {
+        error!("Error joining clipboard thread: {:?}", e);
+    }
+
+    // 4. Stop the fullscreen listener (on Windows, join the thread)
+    #[cfg(windows)]
+    {
+        crate::platform::windows::fullscreen::stop_listener();
+    }
+
+    info!("Daemon stopped cleanly. Exiting.");
+    Ok(())
 }
 
 #[cfg(windows)]

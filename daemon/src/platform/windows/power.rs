@@ -21,6 +21,9 @@ const WINDOW_CLASS_NAME: &str = "TaurinePowerSessionMonitor";
 const WTS_SESSION_LOGON: u32 = 0x5;
 const WTS_SESSION_UNLOCK: u32 = 0x8;
 
+static POWER_THREAD_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static POWER_JOIN_HANDLE: Mutex<Option<thread::JoinHandle<()>>> = Mutex::new(None);
+
 fn event_sender() -> &'static Mutex<Option<Sender<WindowsSupervisorEvent>>> {
     static EVENT_SENDER: OnceLock<Mutex<Option<Sender<WindowsSupervisorEvent>>>> = OnceLock::new();
     EVENT_SENDER.get_or_init(|| Mutex::new(None))
@@ -32,14 +35,23 @@ pub fn start_listener(tx: Sender<WindowsSupervisorEvent>) -> Result<(), String> 
         .map_err(|_| "Windows power/session sender lock is poisoned".to_string())?;
     *slot = Some(tx);
 
-    thread::Builder::new()
+    let handle = thread::Builder::new()
         .name("taurine-win-power".to_string())
         .spawn(run_message_loop)
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+
+    if let Ok(mut lock) = POWER_JOIN_HANDLE.lock() {
+        *lock = Some(handle);
+    }
+    Ok(())
 }
 
 fn run_message_loop() {
+    // SAFETY: GetCurrentThreadId retrieves the OS thread ID of the calling thread.
+    // It always succeeds and has no failure modes.
+    let tid = unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() };
+    POWER_THREAD_ID.store(tid, std::sync::atomic::Ordering::Relaxed);
+
     info!("Starting Windows power/session monitor");
 
     let class_name = wide_null(WINDOW_CLASS_NAME);
@@ -209,4 +221,37 @@ fn send_event(event: WindowsSupervisorEvent) {
 
 fn wide_null(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+pub fn stop_listener() {
+    let tid = POWER_THREAD_ID.load(std::sync::atomic::Ordering::Relaxed);
+    if tid != 0 {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
+        // SAFETY: PostThreadMessageW is safe to call with a valid thread ID and message.
+        unsafe {
+            for _ in 0..100 {
+                if PostThreadMessageW(tid, WM_QUIT, 0, 0) != 0 {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        }
+    }
+
+    let handle = if let Ok(mut lock) = POWER_JOIN_HANDLE.lock() {
+        lock.take()
+    } else {
+        None
+    };
+
+    if let Some(h) = handle {
+        let res = h.join();
+        if let Err(e) = res {
+            warn!("Error joining power listener thread: {:?}", e);
+        }
+    }
+
+    if let Ok(mut slot) = event_sender().lock() {
+        *slot = None;
+    }
 }

@@ -20,7 +20,11 @@ pub enum WindowsSupervisorEvent {
     SessionUnlock,
     SessionLogon,
     ListenerExited { error: Option<String> },
+    Shutdown,
 }
+
+static SUPERVISOR_SENDER: std::sync::OnceLock<Mutex<Option<mpsc::Sender<WindowsSupervisorEvent>>>> =
+    std::sync::OnceLock::new();
 
 pub(super) struct ListenerHandle {
     pub(super) join: std::thread::JoinHandle<()>,
@@ -39,8 +43,12 @@ pub fn start_windows_supervisor(
     pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
     hook_health: HookHealth,
-) {
+) -> Option<std::thread::JoinHandle<()>> {
     let (tx, rx) = mpsc::channel::<WindowsSupervisorEvent>();
+
+    if let Ok(mut lock) = SUPERVISOR_SENDER.get_or_init(|| Mutex::new(None)).lock() {
+        *lock = Some(tx.clone());
+    }
 
     if let Err(error) = crate::platform::windows::power::start_listener(tx.clone()) {
         error!(
@@ -120,6 +128,10 @@ pub fn start_windows_supervisor(
                         tear_down_listener(&mut listener_handle);
                         delay_restart = true;
                     }
+                    WindowsSupervisorEvent::Shutdown => {
+                        info!("Windows hook supervisor received Shutdown event");
+                        break;
+                    }
                 }
 
                 if listener_handle.is_none() {
@@ -149,7 +161,23 @@ pub fn start_windows_supervisor(
 
     if let Err(error) = spawn_result {
         error!(error = %error, "Failed to spawn Windows hook supervisor thread");
+        None
+    } else {
+        spawn_result.ok()
     }
+}
+
+pub fn stop_windows_supervisor() {
+    if let Some(slot) = SUPERVISOR_SENDER.get() {
+        let lock_res = slot.lock();
+        if let Ok(mut lock) = lock_res {
+            let tx_opt = lock.take();
+            if let Some(tx) = tx_opt {
+                let _ = tx.send(WindowsSupervisorEvent::Shutdown);
+            }
+        }
+    }
+    crate::platform::windows::power::stop_listener();
 }
 
 fn tear_down_listener(listener_handle: &mut Option<ListenerHandle>) {

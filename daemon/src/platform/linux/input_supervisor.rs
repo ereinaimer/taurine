@@ -14,6 +14,13 @@ const RESCAN_INTERVAL: Duration = Duration::from_secs(2);
 const OPEN_RETRY_INTERVAL: Duration = Duration::from_secs(10);
 const NO_ACTIVE_WARNING_INTERVAL: Duration = Duration::from_secs(30);
 
+pub static LINUX_SHOULD_SHUTDOWN: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+pub(crate) fn stop() {
+    LINUX_SHOULD_SHUTDOWN.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub(crate) fn start(context: ListenerContext) {
     let spawn_result = thread::Builder::new()
         .name("taurine-linux-input-supervisor".to_string())
@@ -32,9 +39,14 @@ fn run(context: ListenerContext) {
     let mut next_worker_id = 1_u64;
     let mut last_no_active_warning = None::<Instant>;
 
-    info!("Starting Linux input supervisor");
+    LINUX_SHOULD_SHUTDOWN.store(false, std::sync::atomic::Ordering::Relaxed);
 
     loop {
+        if LINUX_SHOULD_SHUTDOWN.load(std::sync::atomic::Ordering::Relaxed) {
+            info!("Linux input supervisor shutting down...");
+            break;
+        }
+
         for exit in exit_rx.try_iter() {
             if active_devices
                 .get(&exit.path)

@@ -6,6 +6,12 @@ use taurine_core::engine::variables::system::clip::MAX_PAYLOAD_BYTES;
 use taurine_core::engine::variables::system::clip::clip_manager;
 
 use crate::injector::IS_INJECTING;
+use std::sync::atomic::AtomicBool;
+
+pub static CLIPBOARD_SHOULD_SHUTDOWN: AtomicBool = AtomicBool::new(false);
+
+#[cfg(windows)]
+static CLIPBOARD_THREAD_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 #[cfg(not(windows))]
 const INIT_RETRY_INTERVAL: Duration = Duration::from_secs(1);
@@ -32,7 +38,12 @@ pub fn start_listener() {
     // SAFETY: generalPasteboard is thread-safe and always returns a valid pasteboard instance.
     let mut last_change_count = unsafe { NSPasteboard::generalPasteboard().changeCount() };
 
+    CLIPBOARD_SHOULD_SHUTDOWN.store(false, std::sync::atomic::Ordering::Relaxed);
+
     loop {
+        if CLIPBOARD_SHOULD_SHUTDOWN.load(std::sync::atomic::Ordering::Relaxed) {
+            break;
+        }
         if !taurine_core::settings::get_cached_clipboard_history_enabled() {
             thread::sleep(POLL_INTERVAL);
             continue;
@@ -70,6 +81,12 @@ pub fn start_listener() {
 
 #[cfg(windows)]
 pub fn start_listener() {
+    // SAFETY: GetCurrentThreadId retrieves the OS thread ID of the calling thread.
+    // It always succeeds and has no failure modes.
+    let tid = unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() };
+    CLIPBOARD_THREAD_ID.store(tid, std::sync::atomic::Ordering::Relaxed);
+    CLIPBOARD_SHOULD_SHUTDOWN.store(false, std::sync::atomic::Ordering::Relaxed);
+
     use std::ptr::null;
     use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows_sys::Win32::System::DataExchange::{
@@ -203,6 +220,9 @@ pub fn start_listener() {
 
     let mut message = MSG::default();
     loop {
+        if CLIPBOARD_SHOULD_SHUTDOWN.load(std::sync::atomic::Ordering::Relaxed) {
+            break;
+        }
         // SAFETY: GetMessageW retrieves a message from the calling thread's message
         // queue. `&mut message` is a valid pointer to a MSG struct on the stack.
         // Passing null for hwnd means all messages for this thread are retrieved.
@@ -231,6 +251,26 @@ pub fn start_listener() {
     // is safe even during shutdown because the window still exists at this point.
     unsafe {
         let _ = RemoveClipboardFormatListener(hwnd);
+    }
+}
+
+pub fn stop_listener() {
+    CLIPBOARD_SHOULD_SHUTDOWN.store(true, std::sync::atomic::Ordering::Relaxed);
+    #[cfg(windows)]
+    {
+        let tid = CLIPBOARD_THREAD_ID.load(std::sync::atomic::Ordering::Relaxed);
+        if tid != 0 {
+            use windows_sys::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
+            // SAFETY: PostThreadMessageW is safe to call with a valid thread ID and message.
+            unsafe {
+                for _ in 0..100 {
+                    if PostThreadMessageW(tid, WM_QUIT, 0, 0) != 0 {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
+        }
     }
 }
 

@@ -4,6 +4,17 @@ use std::time::{Duration, Instant};
 use tokio::runtime::Handle;
 use tracing::{debug, error, info, trace, warn};
 
+#[cfg(target_os = "macos")]
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    fn CFRunLoopGetCurrent() -> *mut std::ffi::c_void;
+    fn CFRunLoopStop(rl: *mut std::ffi::c_void);
+}
+
+#[cfg(target_os = "macos")]
+static MACOS_RUN_LOOP: std::sync::Mutex<Option<*mut std::ffi::c_void>> =
+    std::sync::Mutex::new(None);
+
 #[cfg(not(target_os = "linux"))]
 use rdev::{Event, EventType, Key};
 
@@ -538,9 +549,39 @@ pub(super) fn run_listener_once(
     if let Some(health) = hook_health.as_ref() {
         health.mark_listener_entering_grab();
     }
+
+    #[cfg(target_os = "macos")]
+    {
+        // SAFETY: CFRunLoopGetCurrent always returns a valid run loop reference for the current thread.
+        let rl = unsafe { CFRunLoopGetCurrent() };
+        if let Ok(mut lock) = MACOS_RUN_LOOP.lock() {
+            *lock = Some(rl);
+        }
+    }
+
     info!("Hook listener entering rdev::grab");
     rdev::grab(callback).map_err(|error| format!("{error:?}"))?;
     Ok(my_epoch)
+}
+
+#[allow(dead_code)]
+pub fn stop_listener() {
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(mut lock) = MACOS_RUN_LOOP.lock() {
+            if let Some(rl) = lock.take() {
+                // SAFETY: CFRunLoopStop is safe to call from any thread with a valid CFRunLoopRef.
+                unsafe {
+                    CFRunLoopStop(rl);
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        crate::platform::linux::input_supervisor::stop();
+    }
 }
 
 #[cfg(windows)]
