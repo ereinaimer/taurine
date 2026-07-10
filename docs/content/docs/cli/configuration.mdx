@@ -47,6 +47,10 @@ taurine config reset --all
 | `ai_close_delimiter` | `<<` | The closing text boundary for inline AI prompts. |
 | `inline_tab_completion_enabled` | `true` | Enables or disables inline `Tab` / `Shift+Tab` completion. |
 | `inline_history_enabled` | `true` | Enables or disables inline `Up Arrow` / `Down Arrow` trigger history. |
+| `rpc_mode` | `socket` | RPC transport mode (`socket` or `tcp`) (Unix only). |
+| `rpc_host` | `127.0.0.1` | Network interface address the daemon binds to. |
+| `rpc_port` | `50051` | Port the daemon listens on for RPC. |
+| `rpc_token` | - | Token required to control daemon in TCP mode (auto-generated). |
 
 ## Helpful Aliases
 
@@ -66,6 +70,10 @@ You can use these shorter aliases when running `taurine config set`:
 | `custom_endpoint` | `ai_custom_endpoint` |
 | `inline_tab_completion` | `inline_tab_completion_enabled` |
 | `inline_history` | `inline_history_enabled` |
+| `mode` | `rpc_mode` |
+| `host` | `rpc_host` |
+| `port` | `rpc_port` |
+| `token` | `rpc_token` |
 
 <Callout title="Startup setting" type="info">
   Changing `start_on_boot` also tries to update the OS startup hook right away, so the setting and

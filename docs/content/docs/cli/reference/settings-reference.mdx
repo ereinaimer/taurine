@@ -187,3 +187,43 @@ Control the behavior of the headless assist features for word triggers.
   - **Values**: `true`, `false`
 </Accordion>
 </Accordions>
+
+## Daemon RPC
+
+Configure communication and security settings for the gRPC connection between the clients (TUI / CLI) and the background daemon process.
+
+<Accordions>
+<Accordion title="rpc_mode">
+  The transport protocol used for daemon RPC. Unix domain sockets (UDS) are recommended for local owner-only security. TCP loopback mode is used on Windows or when cross-machine RPC is required.
+  
+  - **Key**: `rpc_mode`
+  - **Alias**: `mode`
+  - **Default**: `socket` (macOS/Linux), always `tcp` (Windows)
+  - **Values**: `socket`, `tcp`
+  - **Note**: This setting is hidden and not configurable on Windows platforms.
+</Accordion>
+
+<Accordion title="rpc_host">
+  The IP address / network interface the background daemon binds to in TCP mode.
+  
+  - **Key**: `rpc_host`
+  - **Alias**: `host`
+  - **Default**: `127.0.0.1`
+</Accordion>
+
+<Accordion title="rpc_port">
+  The TCP port the gRPC RPC server listens on when running in TCP mode.
+  
+  - **Key**: `rpc_port`
+  - **Alias**: `port`
+  - **Default**: `50051`
+</Accordion>
+
+<Accordion title="rpc_token">
+  The secret Bearer authorization token used to secure connection channels in TCP mode. This token is automatically generated as a secure UUID v4 on startup if not set.
+  
+  - **Key**: `rpc_token`
+  - **Alias**: `token`
+  - **Default**: *Auto-generated*
+</Accordion>
+</Accordions>
