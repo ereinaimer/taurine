@@ -249,21 +249,22 @@ pub fn start() -> taurine_core::error::Result<()> {
                 }
             };
 
-            if use_tcp {
-                let auth_interceptor =
-                    move |req: tonic::Request<()>| -> Result<tonic::Request<()>, tonic::Status> {
-                        if let Some(auth_val) = req.metadata().get("authorization")
-                            && let Ok(auth_str) = auth_val.to_str()
-                            && auth_str.starts_with("Bearer ")
-                            && &auth_str[7..] == token.as_str()
-                        {
-                            return Ok(req);
-                        }
-                        Err(tonic::Status::unauthenticated(
-                            "Invalid or missing RPC token",
-                        ))
-                    };
+            let auth_token = token.clone();
+            let auth_interceptor =
+                move |req: tonic::Request<()>| -> Result<tonic::Request<()>, tonic::Status> {
+                    if let Some(auth_val) = req.metadata().get("authorization")
+                        && let Ok(auth_str) = auth_val.to_str()
+                        && auth_str.starts_with("Bearer ")
+                        && &auth_str[7..] == auth_token.as_str()
+                    {
+                        return Ok(req);
+                    }
+                    Err(tonic::Status::unauthenticated(
+                        "Invalid or missing RPC token",
+                    ))
+                };
 
+            if use_tcp {
                 let addr_parsed = current_rpc
                     .rpc_host
                     .parse::<std::net::IpAddr>()
@@ -307,7 +308,10 @@ pub fn start() -> taurine_core::error::Result<()> {
                                 socket_path.display()
                             );
                             let server_future = Server::builder()
-                                .add_service(DaemonControlServer::new(daemon_service))
+                                .add_service(DaemonControlServer::with_interceptor(
+                                    daemon_service,
+                                    auth_interceptor.clone(),
+                                ))
                                 .serve_with_incoming_shutdown(stream, shutdown_signal);
 
                             if let Err(e) = server_future.await {
@@ -371,7 +375,10 @@ pub fn start() -> taurine_core::error::Result<()> {
 
                     let stream = tokio_stream::wrappers::ReceiverStream::new(connection_rx);
                     let server_future = Server::builder()
-                        .add_service(DaemonControlServer::new(daemon_service))
+                        .add_service(DaemonControlServer::with_interceptor(
+                            daemon_service,
+                            auth_interceptor.clone(),
+                        ))
                         .serve_with_incoming_shutdown(stream, shutdown_signal);
 
                     if let Err(e) = server_future.await {
@@ -385,7 +392,10 @@ pub fn start() -> taurine_core::error::Result<()> {
                     let addr = SocketAddr::from(([127, 0, 0, 1], current_rpc.rpc_port));
                     info!("Starting fallback gRPC server on {}", addr);
                     let server_future = Server::builder()
-                        .add_service(DaemonControlServer::new(daemon_service))
+                        .add_service(DaemonControlServer::with_interceptor(
+                            daemon_service,
+                            auth_interceptor.clone(),
+                        ))
                         .serve_with_shutdown(addr, shutdown_signal);
                     let _ = server_future.await;
                 }

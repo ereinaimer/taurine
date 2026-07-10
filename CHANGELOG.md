@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Zeroize AI API Keys**: Utilized self-erasing memory (`Zeroizing`) to automatically clear AI API keys from system memory as soon as they are no longer needed, reducing potential exposure in core, daemon, and CLI processes.
 - **Configurable RPC Settings and Token-Based Authentication**: Implemented customizable RPC communication settings with secure token-based authentication.
   - Added new configuration keys: `rpc_mode`, `rpc_host`, and `rpc_token`.
-  - Added a gRPC interceptor to the daemon that validates requests against a secure Bearer token in TCP mode.
+  - Added a gRPC interceptor to the daemon that validates requests against a secure Bearer token across all transport modes (TCP, sockets, and named pipes) for defense-in-depth security.
   - Automatically generates a secure cryptographically random UUID v4 token if the RPC token setting is empty.
   - Exposed these settings in the TUI Settings screen and CLI with platform-specific visibility rules (hiding TCP settings when UDS or Named Pipes are active).
   - Allowed overriding the connection token on clients using the `TAURINE_RPC_TOKEN` environment variable.

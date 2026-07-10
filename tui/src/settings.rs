@@ -382,11 +382,9 @@ impl SettingsPageState {
             keys.retain(|k| *k != SettingKey::AiSymmetricDelimiter);
         }
 
-        // If mode is Socket, hide host/port/token
+        // If mode is Socket, hide host/port (keep token visible)
         if self.settings.rpc_mode == taurine_core::settings::RpcMode::Socket {
-            keys.retain(|k| {
-                *k != SettingKey::RpcHost && *k != SettingKey::RpcPort && *k != SettingKey::RpcToken
-            });
+            keys.retain(|k| *k != SettingKey::RpcHost && *k != SettingKey::RpcPort);
         }
         keys
     }

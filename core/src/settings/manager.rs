@@ -203,6 +203,9 @@ impl<'a> SettingsManager<'a> {
             let token = uuid::Uuid::new_v4().to_string();
             settings.rpc_token = token.clone();
             let _ = self.update_setting("rpc_token", token);
+            tracing::warn!(
+                "Generated a new secure RPC authentication token. If you configure Taurine to use TCP mode, ensure this token is kept confidential."
+            );
         }
 
         settings

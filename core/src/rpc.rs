@@ -129,11 +129,10 @@ pub async fn get_client_with_settings(
     tonic::transport::Error,
 > {
     let token = get_rpc_token();
-    let use_tcp = settings.rpc_mode == crate::settings::RpcMode::Tcp;
     let channel = connect_to_daemon_with_settings(settings).await?;
     let interceptor = ClientAuthInterceptor {
         token,
-        use_auth: use_tcp,
+        use_auth: true,
     };
     Ok(daemon_control_client::DaemonControlClient::with_interceptor(channel, interceptor))
 }
