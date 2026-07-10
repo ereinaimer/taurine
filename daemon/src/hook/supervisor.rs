@@ -76,10 +76,13 @@ pub fn start_windows_supervisor(
                 tx.clone(),
             ));
 
-            while let Ok(event) = rx.recv() {
+            loop {
+                let event = rx.recv_timeout(Duration::from_secs(1));
+
                 let mut delay_restart = false;
+
                 match event {
-                    WindowsSupervisorEvent::ListenerExited { error } => {
+                    Ok(WindowsSupervisorEvent::ListenerExited { error }) => {
                         hook_health.mark_listener_exit(error.clone());
 
                         if let Some(ref error) = error {
@@ -92,7 +95,7 @@ pub fn start_windows_supervisor(
                         std::thread::sleep(RESTART_BACKOFF);
                         info!("Restarting Windows hook listener after backoff");
                     }
-                    WindowsSupervisorEvent::ResumeAutomatic => {
+                    Ok(WindowsSupervisorEvent::ResumeAutomatic) => {
                         hook_health.mark_recovery_signal("automatic resume");
                         LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
                         warn!(
@@ -101,7 +104,7 @@ pub fn start_windows_supervisor(
                         tear_down_listener(&mut listener_handle);
                         delay_restart = true;
                     }
-                    WindowsSupervisorEvent::ResumeFromSuspend => {
+                    Ok(WindowsSupervisorEvent::ResumeFromSuspend) => {
                         hook_health.mark_recovery_signal("resume from suspend");
                         LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
                         warn!(
@@ -110,7 +113,7 @@ pub fn start_windows_supervisor(
                         tear_down_listener(&mut listener_handle);
                         delay_restart = true;
                     }
-                    WindowsSupervisorEvent::SessionUnlock => {
+                    Ok(WindowsSupervisorEvent::SessionUnlock) => {
                         hook_health.mark_recovery_signal("session unlock");
                         LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
                         warn!(
@@ -119,7 +122,7 @@ pub fn start_windows_supervisor(
                         tear_down_listener(&mut listener_handle);
                         delay_restart = true;
                     }
-                    WindowsSupervisorEvent::SessionLogon => {
+                    Ok(WindowsSupervisorEvent::SessionLogon) => {
                         hook_health.mark_recovery_signal("session logon");
                         LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
                         warn!(
@@ -128,8 +131,53 @@ pub fn start_windows_supervisor(
                         tear_down_listener(&mut listener_handle);
                         delay_restart = true;
                     }
-                    WindowsSupervisorEvent::Shutdown => {
+                    Ok(WindowsSupervisorEvent::Shutdown) => {
                         info!("Windows hook supervisor received Shutdown event");
+                        break;
+                    }
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        // Watchdog timer: periodically check listener health.
+                        // Compute restart decision without holding a borrow on
+                        // listener_handle so tear_down_listener can borrow it mutably.
+                        let needs_restart = listener_handle.as_ref().is_some_and(|handle| {
+                            let snapshot = hook_health.snapshot();
+
+                            // Check 1: Startup/Reinstall Hang — listener started
+                            // but hasn't entered rdev::grab within 3 seconds.
+                            let startup_hang = snapshot.hook_thread_started_at_unix_ms > 0
+                                && snapshot.hook_entered_grab_at_unix_ms == 0
+                                && std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_millis() as u64
+                                    >= snapshot.hook_thread_started_at_unix_ms + 3000;
+
+                            // Check 2: Silent Thread Termination — thread exited
+                            // without sending ListenerExited.
+                            let silent_exit = handle.join.is_finished();
+
+                            if startup_hang {
+                                warn!(
+                                    "Watchdog: hook listener started but hasn't entered grab after 3s; restarting"
+                                );
+                                hook_health.mark_recovery_signal("watchdog: startup hang");
+                            }
+                            if silent_exit {
+                                warn!(
+                                    "Watchdog: hook listener thread silently terminated; restarting"
+                                );
+                                hook_health.mark_recovery_signal("watchdog: silent termination");
+                            }
+
+                            startup_hang || silent_exit
+                        });
+
+                        if needs_restart {
+                            tear_down_listener(&mut listener_handle);
+                        }
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        error!("Supervisor channel disconnected; shutting down");
                         break;
                     }
                 }
@@ -184,14 +232,19 @@ fn tear_down_listener(listener_handle: &mut Option<ListenerHandle>) {
     let Some(handle) = listener_handle.take() else {
         return;
     };
-    send_wm_quit_to_thread(handle.thread_id);
+    send_wm_quit_to_thread(handle.thread_id, &handle.join);
     if let Err(_error) = handle.join.join() {
         warn!("Listener thread panicked during teardown; hook chain may be inconsistent");
     }
 }
 
-fn send_wm_quit_to_thread(thread_id: u32) {
+fn send_wm_quit_to_thread(thread_id: u32, join_handle: &std::thread::JoinHandle<()>) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
+
+    // If the thread has already exited, no need to post WM_QUIT.
+    if join_handle.is_finished() {
+        return;
+    }
 
     if thread_id == 0 {
         warn!(
@@ -205,10 +258,10 @@ fn send_wm_quit_to_thread(thread_id: u32) {
     // specified thread. `thread_id` is a valid OS thread ID obtained from
     // GetCurrentThreadId() on the listener thread. WM_QUIT (0x0012) is a
     // standard system message constant. The wparam/lparam values are ignored
-    // for WM_QUIT. Retrying 500 times with 10ms sleep handles the race where
+    // for WM_QUIT. Retrying 50 times with 10ms sleep handles the race where
     // the target thread hasn't created its message queue yet.
     unsafe {
-        for _ in 0..500 {
+        for _ in 0..50 {
             if PostThreadMessageW(thread_id, WM_QUIT, 0, 0) != 0 {
                 return;
             }
@@ -218,6 +271,6 @@ fn send_wm_quit_to_thread(thread_id: u32) {
 
     warn!(
         thread_id,
-        "Failed to post WM_QUIT after 5s of retries; listener thread likely crashed before creating its message queue"
+        "Failed to post WM_QUIT after 500ms of retries; listener thread likely crashed before creating its message queue"
     );
 }

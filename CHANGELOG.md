@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ### Fixed
+- **Windows Keyboard Hook Supervisor Reliability**: Fixed a 5-second UI freeze on sleep/wake transitions by reducing the WM_QUIT retry limit from 500 to 50 (max 500ms blocking). Added a watchdog timer that checks the hook listener health every second, automatically restarting it if it hangs during startup (no grab after 3s) or terminates silently without notification.
 - **Missing graceful shutdown for hook and background threads**: Resolved issues where the daemon process would forcibly terminate via `process::exit(0)`. The daemon now coordinates a clean shutdown sequence on Windows, macOS, and Linux by signaling and joining all spawned background threads (including the keyboard hook, clipboard history, power, and fullscreen monitors), permitting standard Rust drop cleanups for database connections and system-level resources.
 - **Buffer expansion capacity safety**: Fixed keyboard buffer overflow issues when typing long paths or URLs. The text input ring buffer now dynamically resizes (doubles in capacity) and unrolls its contents when full rather than silently overwriting the oldest characters, preserving trigger recognition. Added a capacity warning when the buffer reaches 80% usage.
 - **Install script cross-platform compatibility fixes**: Fixed both `install.sh` and `install.ps1` for cross-platform compatibility and reliability.
