@@ -1,5 +1,5 @@
 use super::Settings;
-use crate::db::crud::{get_setting_value, upsert_setting};
+use crate::db::crud::{get_all_settings, upsert_setting};
 use crate::error::Result;
 use rusqlite::Connection;
 use serde::Serialize;
@@ -16,184 +16,185 @@ impl<'a> SettingsManager<'a> {
     /// Loads all settings from the database, falling back to defaults for missing keys.
     pub fn load_all(&self) -> Settings {
         let mut settings = Settings::default();
+        let map = get_all_settings(self.conn).unwrap_or_default();
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "trigger_char")
-            && let Ok(v) = serde_json::from_str::<String>(&val)
+        if let Some(val) = map.get("trigger_char")
+            && let Ok(v) = serde_json::from_str::<String>(val)
             && let Some(c) = v.chars().next()
         {
             settings.trigger_char = c;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "pause_hotkey")
-            && let Ok(v) = serde_json::from_str::<String>(&val)
+        if let Some(val) = map.get("pause_hotkey")
+            && let Ok(v) = serde_json::from_str::<String>(val)
         {
             settings.pause_hotkey = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "pause_notifications_enabled")
-            && let Ok(v) = serde_json::from_str::<bool>(&val)
+        if let Some(val) = map.get("pause_notifications_enabled")
+            && let Ok(v) = serde_json::from_str::<bool>(val)
         {
             settings.pause_notifications_enabled = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "pause_audio_enabled")
-            && let Ok(v) = serde_json::from_str::<bool>(&val)
+        if let Some(val) = map.get("pause_audio_enabled")
+            && let Ok(v) = serde_json::from_str::<bool>(val)
         {
             settings.pause_audio_enabled = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "start_on_boot")
-            && let Ok(v) = serde_json::from_str::<bool>(&val)
+        if let Some(val) = map.get("start_on_boot")
+            && let Ok(v) = serde_json::from_str::<bool>(val)
         {
             settings.start_on_boot = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "inline_tab_completion_enabled")
-            && let Ok(v) = serde_json::from_str::<bool>(&val)
+        if let Some(val) = map.get("inline_tab_completion_enabled")
+            && let Ok(v) = serde_json::from_str::<bool>(val)
         {
             settings.inline_tab_completion_enabled = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "inline_history_enabled")
-            && let Ok(v) = serde_json::from_str::<bool>(&val)
+        if let Some(val) = map.get("inline_history_enabled")
+            && let Ok(v) = serde_json::from_str::<bool>(val)
         {
             settings.inline_history_enabled = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "wpm")
-            && let Ok(v) = serde_json::from_str::<u32>(&val)
+        if let Some(val) = map.get("wpm")
+            && let Ok(v) = serde_json::from_str::<u32>(val)
         {
             settings.wpm = Settings::sanitize_wpm(v);
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "spinner_style")
-            && let Ok(v) = serde_json::from_str::<super::SpinnerStyle>(&val)
+        if let Some(val) = map.get("spinner_style")
+            && let Ok(v) = serde_json::from_str::<super::SpinnerStyle>(val)
         {
             settings.spinner_style = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_provider")
-            && let Ok(v) = serde_json::from_str::<Option<String>>(&val)
+        if let Some(val) = map.get("ai_provider")
+            && let Ok(v) = serde_json::from_str::<Option<String>>(val)
         {
             settings.ai_provider = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_model")
-            && let Ok(v) = serde_json::from_str::<Option<String>>(&val)
+        if let Some(val) = map.get("ai_model")
+            && let Ok(v) = serde_json::from_str::<Option<String>>(val)
         {
             settings.ai_model = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_custom_endpoint")
-            && let Ok(v) = serde_json::from_str::<Option<String>>(&val)
+        if let Some(val) = map.get("ai_custom_endpoint")
+            && let Ok(v) = serde_json::from_str::<Option<String>>(val)
         {
             settings.ai_custom_endpoint = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_delimiter_mode")
-            && let Ok(v) = serde_json::from_str::<super::AiDelimiterMode>(&val)
+        if let Some(val) = map.get("ai_delimiter_mode")
+            && let Ok(v) = serde_json::from_str::<super::AiDelimiterMode>(val)
         {
             settings.ai_delimiter_mode = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_symmetric_delimiter")
-            && let Ok(v) = serde_json::from_str::<String>(&val)
+        if let Some(val) = map.get("ai_symmetric_delimiter")
+            && let Ok(v) = serde_json::from_str::<String>(val)
         {
             settings.ai_symmetric_delimiter = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_open_delimiter")
-            && let Ok(v) = serde_json::from_str::<String>(&val)
+        if let Some(val) = map.get("ai_open_delimiter")
+            && let Ok(v) = serde_json::from_str::<String>(val)
         {
             settings.ai_open_delimiter = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_close_delimiter")
-            && let Ok(v) = serde_json::from_str::<String>(&val)
+        if let Some(val) = map.get("ai_close_delimiter")
+            && let Ok(v) = serde_json::from_str::<String>(val)
         {
             settings.ai_close_delimiter = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "clipboard_restore_delay_ms")
-            && let Ok(v) = serde_json::from_str::<u32>(&val)
+        if let Some(val) = map.get("clipboard_restore_delay_ms")
+            && let Ok(v) = serde_json::from_str::<u32>(val)
         {
             settings.clipboard_restore_delay_ms = Settings::sanitize_clipboard_restore_delay_ms(v);
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "action_delimiter")
-            && let Ok(v) = serde_json::from_str::<super::ActionDelimiter>(&val)
+        if let Some(val) = map.get("action_delimiter")
+            && let Ok(v) = serde_json::from_str::<super::ActionDelimiter>(val)
         {
             settings.action_delimiter = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "triggerless_mode")
-            && let Ok(v) = serde_json::from_str::<bool>(&val)
+        if let Some(val) = map.get("triggerless_mode")
+            && let Ok(v) = serde_json::from_str::<bool>(val)
         {
             settings.triggerless_mode = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "instant_expand")
-            && let Ok(v) = serde_json::from_str::<bool>(&val)
+        if let Some(val) = map.get("instant_expand")
+            && let Ok(v) = serde_json::from_str::<bool>(val)
         {
             settings.instant_expand = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "ignore_fullscreen")
-            && let Ok(v) = serde_json::from_str::<bool>(&val)
+        if let Some(val) = map.get("ignore_fullscreen")
+            && let Ok(v) = serde_json::from_str::<bool>(val)
         {
             settings.ignore_fullscreen = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "rpc_port")
-            && let Ok(v) = serde_json::from_str::<u16>(&val)
+        if let Some(val) = map.get("rpc_port")
+            && let Ok(v) = serde_json::from_str::<u16>(val)
         {
             settings.rpc_port = Settings::sanitize_rpc_port(v);
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "script_timeout")
-            && let Ok(v) = serde_json::from_str::<u32>(&val)
+        if let Some(val) = map.get("script_timeout")
+            && let Ok(v) = serde_json::from_str::<u32>(val)
         {
             settings.script_timeout = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_temperature")
-            && let Ok(v) = serde_json::from_str::<Option<f32>>(&val)
+        if let Some(val) = map.get("ai_temperature")
+            && let Ok(v) = serde_json::from_str::<Option<f32>>(val)
         {
             settings.ai_temperature = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_max_tokens")
-            && let Ok(v) = serde_json::from_str::<Option<u32>>(&val)
+        if let Some(val) = map.get("ai_max_tokens")
+            && let Ok(v) = serde_json::from_str::<Option<u32>>(val)
         {
             settings.ai_max_tokens = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "ai_system_prompt")
-            && let Ok(v) = serde_json::from_str::<Option<String>>(&val)
+        if let Some(val) = map.get("ai_system_prompt")
+            && let Ok(v) = serde_json::from_str::<Option<String>>(val)
         {
             settings.ai_system_prompt = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "auto_update")
-            && let Ok(v) = serde_json::from_str::<bool>(&val)
+        if let Some(val) = map.get("auto_update")
+            && let Ok(v) = serde_json::from_str::<bool>(val)
         {
             settings.auto_update = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "rpc_mode")
-            && let Ok(v) = serde_json::from_str::<super::RpcMode>(&val)
+        if let Some(val) = map.get("rpc_mode")
+            && let Ok(v) = serde_json::from_str::<super::RpcMode>(val)
         {
             settings.rpc_mode = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "rpc_host")
-            && let Ok(v) = serde_json::from_str::<String>(&val)
+        if let Some(val) = map.get("rpc_host")
+            && let Ok(v) = serde_json::from_str::<String>(val)
         {
             settings.rpc_host = v;
         }
 
-        if let Ok(Some(val)) = get_setting_value(self.conn, "rpc_token")
-            && let Ok(v) = serde_json::from_str::<String>(&val)
+        if let Some(val) = map.get("rpc_token")
+            && let Ok(v) = serde_json::from_str::<String>(val)
         {
             settings.rpc_token = v;
         }

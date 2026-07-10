@@ -22,7 +22,9 @@ pub use metrics::{
     increment_metric, record_automation_metric, record_automation_metric_with_conn,
     record_calculation_usage,
 };
-pub use settings::{SettingRow, delete_setting, get_setting, get_setting_value, upsert_setting};
+pub use settings::{
+    SettingRow, delete_setting, get_all_settings, get_setting, get_setting_value, upsert_setting,
+};
 
 pub const SUPPORTED_TARGET_OS_VALUES: [&str; 6] = ["all", "win", "linux", "mac", "android", "ios"];
 

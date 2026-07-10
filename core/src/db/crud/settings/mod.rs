@@ -4,7 +4,7 @@ mod setting_set;
 mod setting_types;
 
 pub use setting_delete::delete_setting;
-pub use setting_get::{get_setting, get_setting_value};
+pub use setting_get::{get_all_settings, get_setting, get_setting_value};
 pub use setting_set::upsert_setting;
 pub use setting_types::SettingRow;
 
@@ -29,6 +29,20 @@ mod tests {
         let (_dir, conn) = open_test_db();
         let result = get_setting_value(&conn, "nonexistent").unwrap();
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn get_all_settings_returns_all_inserted_settings() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+
+        upsert_setting(&conn, "theme", r#""dark""#).unwrap();
+        upsert_setting(&conn, "wpm", "120").unwrap();
+
+        let map = get_all_settings(&conn).unwrap();
+        assert!(map.len() >= 2);
+        assert_eq!(map.get("theme").unwrap(), r#""dark""#);
+        assert_eq!(map.get("wpm").unwrap(), "120");
     }
 
     // ── insert (first upsert) ─────────────────────────────────────────────────

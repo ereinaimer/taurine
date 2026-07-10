@@ -33,3 +33,18 @@ pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<SettingRow>> {
 pub fn get_setting_value(conn: &Connection, key: &str) -> Result<Option<String>> {
     Ok(get_setting(conn, key)?.map(|row| row.value))
 }
+
+/// Returns all settings as a HashMap mapping key to JSON value string.
+pub fn get_all_settings(conn: &Connection) -> Result<std::collections::HashMap<String, String>> {
+    let mut stmt = conn.prepare_cached("SELECT key, CAST(value AS TEXT) FROM settings")?;
+
+    let mut map = std::collections::HashMap::new();
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let key: String = row.get(0)?;
+        let value: String = row.get(1)?;
+        map.insert(key, value);
+    }
+
+    Ok(map)
+}
