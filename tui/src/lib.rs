@@ -223,11 +223,20 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
     }
 
     if let Some(pending_save) = interaction.pending_save() {
+        let contains_clip = pending_save.content.contains("[clip");
         match pending_save.apply() {
             Ok(automation_id) => {
                 refresh_library_page(app);
                 app.library_page_mut().select_item_by_id(&automation_id);
                 app.library_page_mut().clear_modal();
+                if contains_clip && let Ok(conn) = taurine_core::db::get_conn() {
+                    let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
+                    if !settings.clipboard_history_enabled {
+                        app.library_page_mut().set_status_message(
+                            "Warning: '[clip]' system variable won't work because clipboard history is disabled.".to_string()
+                        );
+                    }
+                }
             }
             Err(error) => app.library_page_mut().set_save_error(error.to_string()),
         }

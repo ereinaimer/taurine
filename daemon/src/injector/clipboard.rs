@@ -57,11 +57,19 @@ pub(super) fn restore_clipboard(original: &str) {
         }
     }
 
-    #[cfg(all(not(windows), not(target_os = "linux")))]
+    #[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
     {
         if let Ok(mut clipboard) = Clipboard::new()
             && let Err(e) = clipboard.set_text(original)
         {
+            error!("Failed to restore clipboard: {}", e);
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut clipboard = crate::platform::macos::clipboard::MacosClipboard;
+        if let Err(e) = clipboard.set_text(original) {
             error!("Failed to restore clipboard: {}", e);
         }
     }

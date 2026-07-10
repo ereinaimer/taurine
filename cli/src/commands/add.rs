@@ -24,6 +24,12 @@ pub fn execute(
     validate_output(&output, Some(&stored_trigger));
 
     let conn = init::setup()?;
+    let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
+    if !settings.clipboard_history_enabled && output.contains("[clip") {
+        tracing::warn!(
+            "Warning: The automation contains '[clip]' system variables, which won't work because clipboard history is disabled in the settings."
+        );
+    }
     validate_trigger_not_reserved(&conn, &stored_trigger)?;
     let outcome = match prepared.trigger_type {
         TriggerType::Word => add_automation_by_trigger(&conn, &stored_trigger, &output, &os)?,

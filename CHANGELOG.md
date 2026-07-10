@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Exposed these settings in the TUI Settings screen and CLI with platform-specific visibility rules (hiding TCP settings when UDS or Named Pipes are active).
   - Allowed overriding the connection token on clients using the `TAURINE_RPC_TOKEN` environment variable.
 - **Linux and macOS Clipboard History Support**: Wired up full clipboard history tracking on non-Windows platforms. Uses AppKit's `changeCount` API on macOS for zero-overhead change detection, and polls `arboard` on Linux at an optimized 350ms interval to eliminate idle CPU battery drain.
+- **Configurable Clipboard History and Exclusions**: Implemented customizable settings to control clipboard history recording and retention.
+  - Added new configuration keys: `clipboard_history_enabled` and `clipboard_history_retention_secs`.
+  - Added automated in-memory pruning and expiration of clipboard history items based on the retention duration.
+  - Added warnings to TUI library screen and CLI automation addition command when users define snippets containing `[clip]` variables while clipboard history is disabled.
+  - Integrated native macOS clipboard exclusions by setting standard transient pasteboard types (`org.nspasteboard.TransientType`, etc.) with empty data to prevent third-party clipboard managers from capturing sensitive expansions.
+  - Exposed these settings in the TUI Settings screen and CLI configuration commands.
 - **`tau` shell alias**: The install scripts now automatically set up a `tau` shell alias for `taurine`. The `update` command also ensures the alias is present after an update. A new `core::shell` module centralizes RC file manipulation logic, reused by the update, completions, and alias modules.
 
 ### Changed

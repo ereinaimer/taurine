@@ -84,6 +84,14 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
         &settings.clipboard_restore_delay_ms.to_string(),
     ]);
     table.add_row(vec![
+        "clipboard_history_enabled",
+        &settings.clipboard_history_enabled.to_string(),
+    ]);
+    table.add_row(vec![
+        "clipboard_history_retention_secs",
+        &settings.clipboard_history_retention_secs.to_string(),
+    ]);
+    table.add_row(vec![
         "action_delimiter",
         &format!("{:?}", settings.action_delimiter).to_lowercase(),
     ]);
@@ -130,7 +138,7 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
             manager.update_setting(actual_key, value.clone())?;
             info!("Updated pause_hotkey to: {}", value);
         }
-        "triggerless_mode" | "instant_expand" => {
+        "triggerless_mode" | "instant_expand" | "clipboard_history_enabled" => {
             let b = parse_boolean_setting_value(&value)?;
             manager.update_setting(actual_key, b)?;
             info!("Updated {} to: {}", actual_key, b);
@@ -156,6 +164,17 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
             let delay = Settings::sanitize_clipboard_restore_delay_ms(parsed);
             manager.update_setting(actual_key, delay)?;
             info!("Updated clipboard_restore_delay_ms to: {}", delay);
+        }
+        "clipboard_history_retention_secs" => {
+            let parsed = value.parse::<u32>().map_err(|_| {
+                taurine_core::error::Error::Config(format!(
+                    "Invalid retention seconds value: {}",
+                    value
+                ))
+            })?;
+            let secs = Settings::sanitize_clipboard_history_retention_secs(parsed);
+            manager.update_setting(actual_key, secs)?;
+            info!("Updated clipboard_history_retention_secs to: {}", secs);
         }
         "spinner_style" => {
             let s = match value.to_lowercase().as_str() {
@@ -354,6 +373,20 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
                 defaults.clipboard_restore_delay_ms
             );
         }
+        "clipboard_history_enabled" => {
+            manager.update_setting(actual_key, defaults.clipboard_history_enabled)?;
+            info!(
+                "Reset clipboard_history_enabled to default: {}",
+                defaults.clipboard_history_enabled
+            );
+        }
+        "clipboard_history_retention_secs" => {
+            manager.update_setting(actual_key, defaults.clipboard_history_retention_secs)?;
+            info!(
+                "Reset clipboard_history_retention_secs to default: {}",
+                defaults.clipboard_history_retention_secs
+            );
+        }
         "spinner_style" => {
             manager.update_setting(actual_key, defaults.spinner_style)?;
             info!(
@@ -504,6 +537,14 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
     manager.update_setting(
         "clipboard_restore_delay_ms",
         defaults.clipboard_restore_delay_ms,
+    )?;
+    manager.update_setting(
+        "clipboard_history_enabled",
+        defaults.clipboard_history_enabled,
+    )?;
+    manager.update_setting(
+        "clipboard_history_retention_secs",
+        defaults.clipboard_history_retention_secs,
     )?;
     manager.update_setting("action_delimiter", defaults.action_delimiter)?;
     manager.update_setting("ignore_fullscreen", defaults.ignore_fullscreen)?;

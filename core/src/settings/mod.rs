@@ -4,6 +4,9 @@ use std::sync::atomic::{AtomicU32, Ordering};
 static CACHED_SCRIPT_TIMEOUT: AtomicU32 = AtomicU32::new(15);
 static CACHED_CLIPBOARD_RESTORE_DELAY: AtomicU32 = AtomicU32::new(160);
 static CACHED_WPM: AtomicU32 = AtomicU32::new(60);
+static CACHED_CLIPBOARD_HISTORY_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(true);
+static CACHED_CLIPBOARD_HISTORY_RETENTION_SECS: AtomicU32 = AtomicU32::new(300);
 
 pub fn set_cached_script_timeout(timeout: u32) {
     CACHED_SCRIPT_TIMEOUT.store(timeout, Ordering::Relaxed);
@@ -17,12 +20,28 @@ pub fn set_cached_wpm(wpm: u32) {
     CACHED_WPM.store(wpm, Ordering::Relaxed);
 }
 
+pub fn set_cached_clipboard_history_enabled(enabled: bool) {
+    CACHED_CLIPBOARD_HISTORY_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub fn set_cached_clipboard_history_retention_secs(secs: u32) {
+    CACHED_CLIPBOARD_HISTORY_RETENTION_SECS.store(secs, Ordering::Relaxed);
+}
+
 pub fn get_cached_clipboard_restore_delay() -> u32 {
     CACHED_CLIPBOARD_RESTORE_DELAY.load(Ordering::Relaxed)
 }
 
 pub fn get_cached_wpm() -> u32 {
     CACHED_WPM.load(Ordering::Relaxed)
+}
+
+pub fn get_cached_clipboard_history_enabled() -> bool {
+    CACHED_CLIPBOARD_HISTORY_ENABLED.load(Ordering::Relaxed)
+}
+
+pub fn get_cached_clipboard_history_retention_secs() -> u32 {
+    CACHED_CLIPBOARD_HISTORY_RETENTION_SECS.load(Ordering::Relaxed)
 }
 
 pub const DEFAULT_AI_SYSTEM_PROMPT: &str = "You are Tau, an inline text expander. Provide complete but highly concise answers. Plain text only. No markdown, lists, code fences, or newlines. No filler, greetings, explanations, or extra context. Output your entire response as one continuous string.";
@@ -102,6 +121,8 @@ pub struct Settings {
     pub ai_max_tokens: Option<u32>,
     pub ai_system_prompt: Option<String>,
     pub auto_update: bool,
+    pub clipboard_history_enabled: bool,
+    pub clipboard_history_retention_secs: u32,
 }
 
 impl Settings {
@@ -141,6 +162,10 @@ impl Settings {
             "ai_temperature" | "temperature" => "ai_temperature",
             "ai_max_tokens" | "max_tokens" => "ai_max_tokens",
             "ai_system_prompt" | "system_prompt" => "ai_system_prompt",
+            "clipboard_history" | "clipboard_history_enabled" => "clipboard_history_enabled",
+            "clipboard_history_retention" | "clipboard_history_retention_secs" => {
+                "clipboard_history_retention_secs"
+            }
             _ => key,
         }
     }
@@ -194,6 +219,10 @@ impl Settings {
     pub const fn sanitize_clipboard_restore_delay_ms(delay: u32) -> u32 {
         if delay > 2000 { 2000 } else { delay }
     }
+
+    pub const fn sanitize_clipboard_history_retention_secs(secs: u32) -> u32 {
+        if secs > 86400 { 86400 } else { secs }
+    }
 }
 
 impl Default for Settings {
@@ -229,6 +258,8 @@ impl Default for Settings {
             ai_max_tokens: None,
             ai_system_prompt: None,
             auto_update: true,
+            clipboard_history_enabled: true,
+            clipboard_history_retention_secs: 300,
         }
     }
 }

@@ -154,7 +154,7 @@ pub fn inject_text_segment(
         }
     }
 
-    #[cfg(all(not(windows), not(target_os = "linux")))]
+    #[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
     {
         let mut clipboard = match Clipboard::new() {
             Ok(c) => c,
@@ -163,6 +163,50 @@ pub fn inject_text_segment(
                 return TextSegmentInjection::default();
             }
         };
+
+        if original_clipboard.is_none() {
+            match prepare_clipboard_for_expansion(&mut clipboard, text) {
+                Ok(orig) => {
+                    simulate_paste();
+                    thread::sleep(post_paste_wait);
+                    TextSegmentInjection {
+                        original_clipboard: Some(orig),
+                        injected_chars,
+                        success: true,
+                    }
+                }
+                Err(e) => {
+                    if e.starts_with("clipboard verify failed:") {
+                        warn!("Clipboard content mismatch before paste — {}. Skipping.", e);
+                    } else {
+                        error!("Could not prepare clipboard before paste: {}", e);
+                    }
+                    TextSegmentInjection::default()
+                }
+            }
+        } else {
+            if let Err(e) = clipboard.set_text(text) {
+                error!("Failed to set clipboard for text segment: {}", e);
+                return TextSegmentInjection {
+                    original_clipboard: original_clipboard.clone(),
+                    injected_chars: 0,
+                    success: false,
+                };
+            }
+            thread::sleep(Duration::from_millis(25));
+            simulate_paste();
+            thread::sleep(post_paste_wait);
+            TextSegmentInjection {
+                original_clipboard: original_clipboard.clone(),
+                injected_chars,
+                success: true,
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut clipboard = crate::platform::macos::clipboard::MacosClipboard;
 
         if original_clipboard.is_none() {
             match prepare_clipboard_for_expansion(&mut clipboard, text) {

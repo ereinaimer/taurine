@@ -39,10 +39,12 @@ pub(crate) enum SettingKey {
     AiTemperature,
     AiMaxTokens,
     AiSystemPrompt,
+    ClipboardHistoryEnabled,
+    ClipboardHistoryRetentionSecs,
 }
 
 impl SettingKey {
-    pub(crate) const ALL: [Self; 30] = [
+    pub(crate) const ALL: [Self; 32] = [
         Self::TriggerChar,
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
@@ -73,6 +75,8 @@ impl SettingKey {
         Self::AiTemperature,
         Self::AiMaxTokens,
         Self::AiSystemPrompt,
+        Self::ClipboardHistoryEnabled,
+        Self::ClipboardHistoryRetentionSecs,
     ];
 
     pub(crate) const fn storage_key(self) -> &'static str {
@@ -107,6 +111,8 @@ impl SettingKey {
             Self::AiTemperature => "ai_temperature",
             Self::AiMaxTokens => "ai_max_tokens",
             Self::AiSystemPrompt => "ai_system_prompt",
+            Self::ClipboardHistoryEnabled => "clipboard_history_enabled",
+            Self::ClipboardHistoryRetentionSecs => "clipboard_history_retention_secs",
         }
     }
 
@@ -142,6 +148,8 @@ impl SettingKey {
             Self::AiTemperature => "AI Temperature",
             Self::AiMaxTokens => "AI Max Tokens",
             Self::AiSystemPrompt => "AI System Prompt",
+            Self::ClipboardHistoryEnabled => "Clipboard History",
+            Self::ClipboardHistoryRetentionSecs => "Clipboard History Retention (s)",
         }
     }
 
@@ -201,6 +209,12 @@ impl SettingKey {
             Self::AiTemperature => "Controls randomness (0.0 for deterministic, 1.0 for creative).",
             Self::AiMaxTokens => "The maximum number of tokens to generate in the completion.",
             Self::AiSystemPrompt => "Overrides the default immutable system instructions.",
+            Self::ClipboardHistoryEnabled => {
+                "Enable local clipboard history tracking and [clip] variables"
+            }
+            Self::ClipboardHistoryRetentionSecs => {
+                "Delete history items automatically after this time (in seconds)"
+            }
         }
     }
 
@@ -214,12 +228,14 @@ impl SettingKey {
             | Self::InlineHistoryEnabled
             | Self::TriggerlessMode
             | Self::InstantExpand
-            | Self::IgnoreFullscreen => EditorKind::Toggle,
+            | Self::IgnoreFullscreen
+            | Self::ClipboardHistoryEnabled => EditorKind::Toggle,
             Self::Wpm
             | Self::ClipboardRestoreDelayMs
             | Self::RpcPort
             | Self::ScriptTimeout
-            | Self::AiMaxTokens => EditorKind::NumberInput,
+            | Self::AiMaxTokens
+            | Self::ClipboardHistoryRetentionSecs => EditorKind::NumberInput,
             Self::SpinnerStyle => EditorKind::SpinnerSelect,
             Self::ActionDelimiter => EditorKind::ActionDelimiterSelect,
             Self::AiProvider => EditorKind::AiProviderSelect,
@@ -289,6 +305,10 @@ impl SettingKey {
             },
             Self::RpcHost => settings.rpc_host.clone(),
             Self::RpcToken => settings.rpc_token.clone(),
+            Self::ClipboardHistoryEnabled => settings.clipboard_history_enabled.to_string(),
+            Self::ClipboardHistoryRetentionSecs => {
+                settings.clipboard_history_retention_secs.to_string()
+            }
         }
     }
 
@@ -320,7 +340,9 @@ impl SettingKey {
             | Self::RpcMode
             | Self::ClipboardRestoreDelayMs
             | Self::RpcPort
-            | Self::ScriptTimeout => self.display_value(settings),
+            | Self::ScriptTimeout
+            | Self::ClipboardHistoryEnabled
+            | Self::ClipboardHistoryRetentionSecs => self.display_value(settings),
             Self::AiTemperature => {
                 optional_value_label(settings.ai_temperature.map(|v| v.to_string()).as_deref())
                     .to_string()
@@ -494,6 +516,9 @@ impl SettingsPageState {
             SettingKey::TriggerlessMode => (!self.settings.triggerless_mode).to_string(),
             SettingKey::InstantExpand => (!self.settings.instant_expand).to_string(),
             SettingKey::IgnoreFullscreen => (!self.settings.ignore_fullscreen).to_string(),
+            SettingKey::ClipboardHistoryEnabled => {
+                (!self.settings.clipboard_history_enabled).to_string()
+            }
             _ => return SettingsInteraction::handled(),
         };
 
@@ -918,7 +943,7 @@ mod tests {
 
     #[test]
     fn every_setting_has_a_descriptor() {
-        assert_eq!(SettingKey::ALL.len(), 30);
+        assert_eq!(SettingKey::ALL.len(), 32);
     }
 
     #[test]

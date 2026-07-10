@@ -51,6 +51,12 @@ pub fn start() -> taurine_core::error::Result<()> {
     taurine_core::settings::set_cached_wpm(settings.wpm);
     taurine_core::settings::set_cached_clipboard_restore_delay(settings.clipboard_restore_delay_ms);
     taurine_core::settings::set_cached_script_timeout(settings.script_timeout);
+    taurine_core::settings::set_cached_clipboard_history_enabled(
+        settings.clipboard_history_enabled,
+    );
+    taurine_core::settings::set_cached_clipboard_history_retention_secs(
+        settings.clipboard_history_retention_secs,
+    );
 
     let trigger_char = settings.trigger_char;
     let state = Arc::new(EngineState::new(trigger_char));

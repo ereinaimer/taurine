@@ -1931,7 +1931,7 @@ pub(crate) enum PendingLibrarySaveMode {
 pub(crate) struct PendingLibrarySave {
     mode: PendingLibrarySaveMode,
     trigger: String,
-    content: String,
+    pub(crate) content: String,
     kind: LibraryKind,
     target_os: String,
     interpreter: Option<ScriptInterpreter>,

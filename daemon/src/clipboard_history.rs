@@ -33,6 +33,11 @@ pub fn start_listener() {
     let mut last_change_count = unsafe { NSPasteboard::generalPasteboard().changeCount() };
 
     loop {
+        if !taurine_core::settings::get_cached_clipboard_history_enabled() {
+            thread::sleep(POLL_INTERVAL);
+            continue;
+        }
+
         if IS_INJECTING.load(std::sync::atomic::Ordering::Relaxed) {
             thread::sleep(POLL_INTERVAL);
             continue;
@@ -97,6 +102,10 @@ pub fn start_listener() {
 
             // 50ms debounce
             if now.saturating_sub(last) < 50 {
+                return 0;
+            }
+
+            if !taurine_core::settings::get_cached_clipboard_history_enabled() {
                 return 0;
             }
 

@@ -236,6 +236,12 @@ impl DaemonControl for DaemonService {
                 settings.clipboard_restore_delay_ms,
             );
             taurine_core::settings::set_cached_script_timeout(settings.script_timeout);
+            taurine_core::settings::set_cached_clipboard_history_enabled(
+                settings.clipboard_history_enabled,
+            );
+            taurine_core::settings::set_cached_clipboard_history_retention_secs(
+                settings.clipboard_history_retention_secs,
+            );
 
             // Update trigger char (atomic)
             self.state

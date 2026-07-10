@@ -181,6 +181,19 @@ impl<'a> SettingsManager<'a> {
             settings.auto_update = v;
         }
 
+        if let Some(val) = map.get("clipboard_history_enabled")
+            && let Ok(v) = serde_json::from_str::<bool>(val)
+        {
+            settings.clipboard_history_enabled = v;
+        }
+
+        if let Some(val) = map.get("clipboard_history_retention_secs")
+            && let Ok(v) = serde_json::from_str::<u32>(val)
+        {
+            settings.clipboard_history_retention_secs =
+                Settings::sanitize_clipboard_history_retention_secs(v);
+        }
+
         if let Some(val) = map.get("rpc_mode")
             && let Ok(v) = serde_json::from_str::<super::RpcMode>(val)
         {

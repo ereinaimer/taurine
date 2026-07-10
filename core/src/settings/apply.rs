@@ -83,6 +83,10 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "ai_max_tokens" => Ok(defaults.ai_max_tokens.map(|v| v.to_string())),
         "ai_system_prompt" => Ok(defaults.ai_system_prompt),
         "auto_update" => Ok(Some(defaults.auto_update.to_string())),
+        "clipboard_history_enabled" => Ok(Some(defaults.clipboard_history_enabled.to_string())),
+        "clipboard_history_retention_secs" => {
+            Ok(Some(defaults.clipboard_history_retention_secs.to_string()))
+        }
         _ => Err(Error::Config(format!("Unknown setting key: {actual_key}"))),
     }
 }
@@ -206,6 +210,25 @@ pub fn apply_setting_input_with_manager(
             manager.update_setting(
                 actual_key,
                 parse_boolean_setting_value(require_non_empty(value, actual_key)?)?,
+            )?;
+            ApplySettingOutcome::default()
+        }
+        "clipboard_history_enabled" => {
+            let enabled = parse_boolean_setting_value(require_non_empty(value, actual_key)?)?;
+            manager.update_setting(actual_key, enabled)?;
+            if !enabled {
+                crate::engine::variables::system::clip::clip_manager().clear();
+            }
+            ApplySettingOutcome::default()
+        }
+        "clipboard_history_retention_secs" => {
+            let raw_value = require_non_empty(value, actual_key)?;
+            let parsed = raw_value.parse::<u32>().map_err(|_| {
+                Error::Config(format!("Invalid retention seconds value: {raw_value}"))
+            })?;
+            manager.update_setting(
+                actual_key,
+                Settings::sanitize_clipboard_history_retention_secs(parsed),
             )?;
             ApplySettingOutcome::default()
         }
