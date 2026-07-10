@@ -77,7 +77,7 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
             super::RpcMode::Tcp => "tcp".to_string(),
         })),
         "rpc_host" => Ok(Some(defaults.rpc_host)),
-        "rpc_token" => Ok(Some(defaults.rpc_token)),
+        "rpc_token" => Ok(Some(uuid::Uuid::new_v4().to_string())),
         "script_timeout" => Ok(Some(defaults.script_timeout.to_string())),
         "ai_temperature" => Ok(defaults.ai_temperature.map(|v| v.to_string())),
         "ai_max_tokens" => Ok(defaults.ai_max_tokens.map(|v| v.to_string())),
@@ -476,5 +476,14 @@ mod tests {
         apply_setting_input_with_manager(&manager, "clipboard_restore_delay_ms", Some("3000"))
             .unwrap();
         assert_eq!(manager.load_all().clipboard_restore_delay_ms, 2000);
+    }
+
+    #[test]
+    fn resetting_rpc_token_generates_new_uuid() {
+        let default_val = default_setting_input("rpc_token").unwrap();
+        assert!(default_val.is_some());
+        let token_str = default_val.unwrap();
+        assert!(!token_str.is_empty());
+        assert!(uuid::Uuid::parse_str(&token_str).is_ok());
     }
 }
