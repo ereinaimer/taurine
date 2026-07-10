@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Configurable RPC Settings and Token-Based Authentication**: Implemented customizable RPC communication settings with secure token-based authentication.
+  - Added new configuration keys: `rpc_mode` (Unix only), `rpc_host`, and `rpc_token`.
+  - Added a gRPC interceptor to the daemon that validates requests against a secure Bearer token in TCP mode.
+  - Automatically generates a secure cryptographically random UUID v4 token if the RPC token setting is empty.
+  - Exposed these settings in the TUI Settings screen and CLI with platform-specific visibility rules (hiding the mode option on Windows, and hiding TCP settings when Unix Domain Sockets are active on Unix).
+  - Allowed overriding the connection token on clients using the `TAURINE_RPC_TOKEN` environment variable.
 - **Linux and macOS Clipboard History Support**: Wired up full clipboard history tracking on non-Windows platforms. Uses AppKit's `changeCount` API on macOS for zero-overhead change detection, and polls `arboard` on Linux at an optimized 350ms interval to eliminate idle CPU battery drain.
 - **`tau` shell alias**: The install scripts now automatically set up a `tau` shell alias for `taurine`. The `update` command also ensures the alias is present after an update. A new `core::shell` module centralizes RC file manipulation logic, reused by the update, completions, and alias modules.
 

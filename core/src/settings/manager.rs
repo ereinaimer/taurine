@@ -180,6 +180,30 @@ impl<'a> SettingsManager<'a> {
             settings.auto_update = v;
         }
 
+        if let Ok(Some(val)) = get_setting_value(self.conn, "rpc_mode")
+            && let Ok(v) = serde_json::from_str::<super::RpcMode>(&val)
+        {
+            settings.rpc_mode = v;
+        }
+
+        if let Ok(Some(val)) = get_setting_value(self.conn, "rpc_host")
+            && let Ok(v) = serde_json::from_str::<String>(&val)
+        {
+            settings.rpc_host = v;
+        }
+
+        if let Ok(Some(val)) = get_setting_value(self.conn, "rpc_token")
+            && let Ok(v) = serde_json::from_str::<String>(&val)
+        {
+            settings.rpc_token = v;
+        }
+
+        if settings.rpc_token.is_empty() {
+            let token = uuid::Uuid::new_v4().to_string();
+            settings.rpc_token = token.clone();
+            let _ = self.update_setting("rpc_token", token);
+        }
+
         settings
     }
 

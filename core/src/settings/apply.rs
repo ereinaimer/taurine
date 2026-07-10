@@ -72,6 +72,12 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "instant_expand" => Ok(Some(defaults.instant_expand.to_string())),
         "ignore_fullscreen" => Ok(Some(defaults.ignore_fullscreen.to_string())),
         "rpc_port" => Ok(Some(defaults.rpc_port.to_string())),
+        "rpc_mode" => Ok(Some(match defaults.rpc_mode {
+            super::RpcMode::Socket => "socket".to_string(),
+            super::RpcMode::Tcp => "tcp".to_string(),
+        })),
+        "rpc_host" => Ok(Some(defaults.rpc_host)),
+        "rpc_token" => Ok(Some(defaults.rpc_token)),
         "script_timeout" => Ok(Some(defaults.script_timeout.to_string())),
         "ai_temperature" => Ok(defaults.ai_temperature.map(|v| v.to_string())),
         "ai_max_tokens" => Ok(defaults.ai_max_tokens.map(|v| v.to_string())),
@@ -256,6 +262,27 @@ pub fn apply_setting_input_with_manager(
             manager.update_setting(actual_key, parsed)?;
             ApplySettingOutcome::default()
         }
+        "rpc_mode" => {
+            let mode = parse_rpc_mode(require_non_empty(value, actual_key)?)?;
+            #[cfg(target_os = "windows")]
+            if mode == super::RpcMode::Socket {
+                return Err(Error::Config(
+                    "Windows does not support socket mode. Only TCP mode is supported.".to_string(),
+                ));
+            }
+            manager.update_setting(actual_key, mode)?;
+            ApplySettingOutcome::default()
+        }
+        "rpc_host" => {
+            let host = require_non_empty(value, actual_key)?;
+            manager.update_setting(actual_key, host.to_string())?;
+            ApplySettingOutcome::default()
+        }
+        "rpc_token" => {
+            let token = require_non_empty(value, actual_key)?;
+            manager.update_setting(actual_key, token.to_string())?;
+            ApplySettingOutcome::default()
+        }
         _ => {
             return Err(Error::Config(format!("Unknown setting key: {actual_key}")));
         }
@@ -299,6 +326,16 @@ pub fn parse_ai_delimiter_mode(value: &str) -> Result<super::AiDelimiterMode> {
         "asymmetric" => Ok(super::AiDelimiterMode::Asymmetric),
         other => Err(Error::Config(format!(
             "Invalid ai_delimiter_mode value '{other}'. Supported values: symmetric, asymmetric"
+        ))),
+    }
+}
+
+pub fn parse_rpc_mode(value: &str) -> Result<super::RpcMode> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "socket" => Ok(super::RpcMode::Socket),
+        "tcp" => Ok(super::RpcMode::Tcp),
+        other => Err(Error::Config(format!(
+            "Invalid rpc_mode value '{other}'. Supported values: socket, tcp"
         ))),
     }
 }

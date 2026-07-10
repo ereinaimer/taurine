@@ -92,7 +92,30 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
         &settings.triggerless_mode.to_string(),
     ]);
     table.add_row(vec!["instant_expand", &settings.instant_expand.to_string()]);
-    table.add_row(vec!["rpc_port", &settings.rpc_port.to_string()]);
+    let show_tcp_settings = {
+        #[cfg(target_os = "windows")]
+        {
+            true
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            settings.rpc_mode == taurine_core::settings::RpcMode::Tcp
+        }
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        table.add_row(vec![
+            "rpc_mode",
+            &format!("{:?}", settings.rpc_mode).to_lowercase(),
+        ]);
+    }
+
+    if show_tcp_settings {
+        table.add_row(vec!["rpc_host", &settings.rpc_host]);
+        table.add_row(vec!["rpc_port", &settings.rpc_port.to_string()]);
+        table.add_row(vec!["rpc_token", &settings.rpc_token]);
+    }
     table.add_row(vec!["script_timeout", &settings.script_timeout.to_string()]);
 
     println!("{}", table);
@@ -240,6 +263,44 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
                 manager.update_setting(actual_key, Some(val.to_string()))?;
                 info!("Updated ai_system_prompt to: {}", val);
             }
+        }
+        "rpc_mode" => {
+            #[cfg(target_os = "windows")]
+            {
+                warn!("Windows does not support changing the RPC mode. It is always TCP.");
+                return Ok(());
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                let mode = match value.to_lowercase().as_str() {
+                    "socket" => taurine_core::settings::RpcMode::Socket,
+                    "tcp" => taurine_core::settings::RpcMode::Tcp,
+                    _ => {
+                        warn!("Invalid rpc_mode: {}. Supported: socket, tcp", value);
+                        return Ok(());
+                    }
+                };
+                manager.update_setting(actual_key, mode)?;
+                info!("Updated rpc_mode to: {:?}", mode);
+            }
+        }
+        "rpc_host" => {
+            let val = value.trim();
+            if val.is_empty() {
+                warn!("rpc_host cannot be empty.");
+                return Ok(());
+            }
+            manager.update_setting(actual_key, val.to_string())?;
+            info!("Updated rpc_host to: {}", val);
+        }
+        "rpc_token" => {
+            let val = value.trim();
+            if val.is_empty() {
+                warn!("rpc_token cannot be empty.");
+                return Ok(());
+            }
+            manager.update_setting(actual_key, val.to_string())?;
+            info!("Updated rpc_token to: {}", val);
         }
         _ => {
             warn!("Unknown setting key: {}", key);
@@ -400,6 +461,27 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
                 defaults.rpc_port
             );
         }
+        "rpc_mode" => {
+            #[cfg(target_os = "windows")]
+            {
+                warn!("Windows does not support resetting the RPC mode. It is always TCP.");
+                return Ok(());
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                manager.update_setting(actual_key, defaults.rpc_mode)?;
+                info!("Reset rpc_mode to default: {:?}", defaults.rpc_mode);
+            }
+        }
+        "rpc_host" => {
+            manager.update_setting(actual_key, defaults.rpc_host.clone())?;
+            info!("Reset rpc_host to default: {}", defaults.rpc_host);
+        }
+        "rpc_token" => {
+            let token = uuid::Uuid::new_v4().to_string();
+            manager.update_setting(actual_key, token.clone())?;
+            info!("Generated new rpc_token: {}", token);
+        }
         "script_timeout" => {
             manager.update_setting(actual_key, defaults.script_timeout)?;
             info!(
@@ -460,6 +542,12 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
     manager.update_setting("triggerless_mode", defaults.triggerless_mode)?;
     manager.update_setting("instant_expand", defaults.instant_expand)?;
     manager.update_setting("rpc_port", defaults.rpc_port)?;
+    #[cfg(not(target_os = "windows"))]
+    {
+        manager.update_setting("rpc_mode", defaults.rpc_mode)?;
+    }
+    manager.update_setting("rpc_host", defaults.rpc_host.clone())?;
+    manager.update_setting("rpc_token", uuid::Uuid::new_v4().to_string())?;
 
     info!("All settings have been reset to factory defaults.");
 

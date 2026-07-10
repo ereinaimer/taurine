@@ -31,7 +31,10 @@ pub(crate) enum SettingKey {
     TriggerlessMode,
     InstantExpand,
     IgnoreFullscreen,
+    RpcMode,
+    RpcHost,
     RpcPort,
+    RpcToken,
     ScriptTimeout,
     AiTemperature,
     AiMaxTokens,
@@ -39,7 +42,7 @@ pub(crate) enum SettingKey {
 }
 
 impl SettingKey {
-    pub(crate) const ALL: [Self; 27] = [
+    pub(crate) const ALL: [Self; 30] = [
         Self::TriggerChar,
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
@@ -62,7 +65,10 @@ impl SettingKey {
         Self::TriggerlessMode,
         Self::InstantExpand,
         Self::IgnoreFullscreen,
+        Self::RpcMode,
+        Self::RpcHost,
         Self::RpcPort,
+        Self::RpcToken,
         Self::ScriptTimeout,
         Self::AiTemperature,
         Self::AiMaxTokens,
@@ -93,7 +99,10 @@ impl SettingKey {
             Self::TriggerlessMode => "triggerless_mode",
             Self::InstantExpand => "instant_expand",
             Self::IgnoreFullscreen => "ignore_fullscreen",
+            Self::RpcMode => "rpc_mode",
+            Self::RpcHost => "rpc_host",
             Self::RpcPort => "rpc_port",
+            Self::RpcToken => "rpc_token",
             Self::ScriptTimeout => "script_timeout",
             Self::AiTemperature => "ai_temperature",
             Self::AiMaxTokens => "ai_max_tokens",
@@ -125,7 +134,10 @@ impl SettingKey {
             Self::TriggerlessMode => "Triggerless Mode",
             Self::InstantExpand => "Instant Expand",
             Self::IgnoreFullscreen => "Ignore Fullscreen on Windows",
+            Self::RpcMode => "Daemon RPC Mode",
+            Self::RpcHost => "Daemon RPC Host",
             Self::RpcPort => "Daemon RPC Port",
+            Self::RpcToken => "Daemon RPC Token",
             Self::ScriptTimeout => "Script Execution Timeout",
             Self::AiTemperature => "AI Temperature",
             Self::AiMaxTokens => "AI Max Tokens",
@@ -179,7 +191,10 @@ impl SettingKey {
             Self::IgnoreFullscreen => {
                 "Pause macro evaluation when running a full-screen application (e.g. games)"
             }
+            Self::RpcMode => "The transport protocol used for daemon RPC (socket or tcp)",
+            Self::RpcHost => "The network interface IP address the daemon binds to",
             Self::RpcPort => "The network port the gRPC RPC server listens on (1024-65535)",
+            Self::RpcToken => "The secret authorization token required to control the daemon",
             Self::ScriptTimeout => {
                 "Maximum script execution time before termination (0 for infinite)"
             }
@@ -212,12 +227,15 @@ impl SettingKey {
                 EditorKind::OptionalTextInput
             }
             Self::AiDelimiterMode => EditorKind::AiDelimiterModeSelect,
+            Self::RpcMode => EditorKind::RpcModeSelect,
             Self::TriggerChar => EditorKind::SingleCharInput,
             Self::PauseHotkey
             | Self::AiModel
             | Self::AiSymmetricDelimiter
             | Self::AiOpenDelimiter
-            | Self::AiCloseDelimiter => EditorKind::TextInput,
+            | Self::AiCloseDelimiter
+            | Self::RpcHost
+            | Self::RpcToken => EditorKind::TextInput,
         }
     }
 
@@ -265,6 +283,12 @@ impl SettingKey {
                 .as_deref()
                 .unwrap_or(taurine_core::settings::DEFAULT_AI_SYSTEM_PROMPT)
                 .to_string(),
+            Self::RpcMode => match settings.rpc_mode {
+                taurine_core::settings::RpcMode::Socket => "socket".to_string(),
+                taurine_core::settings::RpcMode::Tcp => "tcp".to_string(),
+            },
+            Self::RpcHost => settings.rpc_host.clone(),
+            Self::RpcToken => settings.rpc_token.clone(),
         }
     }
 
@@ -279,6 +303,8 @@ impl SettingKey {
             Self::AiSymmetricDelimiter => settings.ai_symmetric_delimiter.clone(),
             Self::AiOpenDelimiter => settings.ai_open_delimiter.clone(),
             Self::AiCloseDelimiter => settings.ai_close_delimiter.clone(),
+            Self::RpcHost => settings.rpc_host.clone(),
+            Self::RpcToken => settings.rpc_token.clone(),
             Self::PauseNotificationsEnabled
             | Self::PauseAudioEnabled
             | Self::StartOnBoot
@@ -291,6 +317,7 @@ impl SettingKey {
             | Self::SpinnerStyle
             | Self::ActionDelimiter
             | Self::AiDelimiterMode
+            | Self::RpcMode
             | Self::ClipboardRestoreDelayMs
             | Self::RpcPort
             | Self::ScriptTimeout => self.display_value(settings),
@@ -322,6 +349,7 @@ pub(crate) enum EditorKind {
     ActionDelimiterSelect,
     AiProviderSelect,
     AiDelimiterModeSelect,
+    RpcModeSelect,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -352,6 +380,20 @@ impl SettingsPageState {
         } else {
             // In asymmetric mode: show AiOpenDelimiter + AiCloseDelimiter, hide symmetric-only key
             keys.retain(|k| *k != SettingKey::AiSymmetricDelimiter);
+        }
+
+        if cfg!(target_os = "windows") {
+            // Windows: hide rpc_mode, always show TCP settings
+            keys.retain(|k| *k != SettingKey::RpcMode);
+        } else {
+            // Unix: show rpc_mode. If mode is Socket, hide host/port/token
+            if self.settings.rpc_mode == taurine_core::settings::RpcMode::Socket {
+                keys.retain(|k| {
+                    *k != SettingKey::RpcHost
+                        && *k != SettingKey::RpcPort
+                        && *k != SettingKey::RpcToken
+                });
+            }
         }
         keys
     }
@@ -504,6 +546,11 @@ impl SettingsPageState {
                     key.display_value(&self.settings),
                 )))
             }
+            EditorKind::RpcModeSelect => Some(SettingsModal::Select(SelectModalState::new(
+                key,
+                vec!["socket".to_string(), "tcp".to_string()],
+                key.display_value(&self.settings),
+            ))),
             EditorKind::SingleCharInput
             | EditorKind::TextInput
             | EditorKind::OptionalTextInput
@@ -880,7 +927,7 @@ mod tests {
 
     #[test]
     fn every_setting_has_a_descriptor() {
-        assert_eq!(SettingKey::ALL.len(), 27);
+        assert_eq!(SettingKey::ALL.len(), 30);
     }
 
     #[test]

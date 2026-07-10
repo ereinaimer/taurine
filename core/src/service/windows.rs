@@ -8,7 +8,6 @@ use tracing::{debug, error, info};
 use winreg::RegKey;
 use winreg::enums::*;
 
-use crate::rpc::daemon_control_client::DaemonControlClient;
 use crate::rpc::{ShutdownRequest, StatusRequest};
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -156,8 +155,7 @@ pub fn down() -> crate::error::Result<()> {
     let mut grpc_success = false;
     if let Ok(rt) = Runtime::new() {
         rt.block_on(async {
-            if let Ok(channel) = crate::rpc::connect_to_daemon().await {
-                let mut client = DaemonControlClient::new(channel);
+            if let Ok(mut client) = crate::rpc::get_client().await {
                 let request = tonic::Request::new(ShutdownRequest {});
                 match client.shutdown(request).await {
                     Ok(_) => {
@@ -218,8 +216,7 @@ pub fn restart(start_on_boot: bool) -> crate::error::Result<()> {
         let mut grpc_success = false;
         if let Ok(rt) = Runtime::new() {
             rt.block_on(async {
-                if let Ok(channel) = crate::rpc::connect_to_daemon().await {
-                    let mut client = DaemonControlClient::new(channel);
+                if let Ok(mut client) = crate::rpc::get_client().await {
                     let request = tonic::Request::new(ShutdownRequest {});
                     if client.shutdown(request).await.is_ok() {
                         grpc_success = true;
@@ -276,8 +273,7 @@ pub fn status() -> crate::error::Result<()> {
 
     if let Ok(rt) = Runtime::new() {
         rt.block_on(async {
-            if let Ok(channel) = crate::rpc::connect_to_daemon().await {
-                let mut client = DaemonControlClient::new(channel);
+            if let Ok(mut client) = crate::rpc::get_client().await {
                 let request = tonic::Request::new(StatusRequest {});
                 if let Ok(res) = client.get_status(request).await {
                     grpc_status = Some(res.into_inner());

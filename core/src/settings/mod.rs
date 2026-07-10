@@ -62,6 +62,14 @@ pub enum AiDelimiterMode {
     Asymmetric,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum RpcMode {
+    #[default]
+    Socket,
+    Tcp,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Settings {
     pub trigger_char: char,
@@ -84,7 +92,10 @@ pub struct Settings {
     pub action_delimiter: ActionDelimiter,
     pub triggerless_mode: bool,
     pub instant_expand: bool,
+    pub rpc_mode: RpcMode,
+    pub rpc_host: String,
     pub rpc_port: u16,
+    pub rpc_token: String,
     pub ignore_fullscreen: bool,
     pub script_timeout: u32,
     pub ai_temperature: Option<f32>,
@@ -122,7 +133,10 @@ impl Settings {
             "instant_expand" => "instant_expand",
             "instant" => "instant_expand",
             "ignore_fullscreen" => "ignore_fullscreen",
+            "rpc_mode" | "mode" => "rpc_mode",
+            "rpc_host" | "host" => "rpc_host",
             "rpc_port" | "port" => "rpc_port",
+            "rpc_token" | "token" => "rpc_token",
             "script_timeout" => "script_timeout",
             "ai_temperature" | "temperature" => "ai_temperature",
             "ai_max_tokens" | "max_tokens" => "ai_max_tokens",
@@ -205,7 +219,10 @@ impl Default for Settings {
             action_delimiter: ActionDelimiter::default(),
             triggerless_mode: true,
             instant_expand: false,
+            rpc_mode: RpcMode::default(),
+            rpc_host: "127.0.0.1".to_string(),
             rpc_port: Self::default_rpc_port(),
+            rpc_token: "".to_string(),
             ignore_fullscreen: true,
             script_timeout: 15,
             ai_temperature: None,
