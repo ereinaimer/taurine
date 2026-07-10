@@ -7,20 +7,17 @@ use crate::platform::spinner_renderer::OsSpinnerRenderer;
 use taurine_core::engine::Evaluator;
 
 #[cfg(not(target_os = "linux"))]
-pub(super) fn clear_undo_state(evaluator: &Arc<Mutex<Evaluator>>) {
-    let _ = super::listener::with_evaluator_lock(evaluator, "clear_undo_state", |lock| {
-        lock.state.clear_undo_state();
-    });
+pub(super) fn clear_undo_state(state: &taurine_core::engine::EngineState) {
+    state.clear_undo_state();
 }
 
 #[cfg(not(target_os = "linux"))]
-pub(super) fn take_active_undo_state(evaluator: &Arc<Mutex<Evaluator>>) -> Option<(String, usize)> {
-    super::listener::with_evaluator_lock(evaluator, "take_active_undo_state", |lock| {
-        lock.state
-            .take_active_undo_state()
-            .map(|undo| (undo.trigger_string, undo.output_length))
-    })
-    .flatten()
+pub(super) fn take_active_undo_state(
+    state: &taurine_core::engine::EngineState,
+) -> Option<(String, usize)> {
+    state
+        .take_active_undo_state()
+        .map(|undo| (undo.trigger_string, undo.output_length))
 }
 
 #[cfg(not(target_os = "linux"))]

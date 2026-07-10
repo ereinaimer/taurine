@@ -82,8 +82,9 @@ enum TriggerAssistSelectionMode {
 }
 
 impl TriggerCompletionState {
-    fn activate(&mut self) {
+    fn activate(&mut self, active_atomic: &std::sync::atomic::AtomicBool) {
         self.active = true;
+        active_atomic.store(true, std::sync::atomic::Ordering::Relaxed);
         self.original_query.clear();
         self.current_text.clear();
         self.suggestions.clear();
@@ -93,8 +94,9 @@ impl TriggerCompletionState {
         self.selection_mode = None;
     }
 
-    fn deactivate(&mut self) {
+    fn deactivate(&mut self, active_atomic: &std::sync::atomic::AtomicBool) {
         self.active = false;
+        active_atomic.store(false, std::sync::atomic::Ordering::Relaxed);
         self.original_query.clear();
         self.current_text.clear();
         self.suggestions.clear();
@@ -123,6 +125,9 @@ pub struct Evaluator {
 
 impl Evaluator {
     pub fn new(state: Arc<EngineState>) -> Self {
+        state
+            .completion_active
+            .store(false, std::sync::atomic::Ordering::Relaxed);
         Self {
             buffer: FastBuffer::new(),
             state,
@@ -211,7 +216,7 @@ impl Evaluator {
     }
 
     pub fn cancel_completion(&mut self) {
-        self.completion.deactivate();
+        self.completion.deactivate(&self.state.completion_active);
     }
 
     pub fn has_active_selection(&self) -> bool {
@@ -245,7 +250,7 @@ impl Evaluator {
     fn update_completion_after_char(&mut self, c: char) {
         let trigger_char = self.trigger_prefix();
         if c == trigger_char && !self.completion.active {
-            self.completion.activate();
+            self.completion.activate(&self.state.completion_active);
             self.rebuild_history_items("");
             return;
         }
@@ -266,7 +271,7 @@ impl Evaluator {
 
         let trigger_char = self.trigger_prefix();
         let Some(query) = self.buffer.extract_trigger_word(trigger_char) else {
-            self.completion.deactivate();
+            self.completion.deactivate(&self.state.completion_active);
             return;
         };
 
@@ -353,7 +358,7 @@ impl Evaluator {
             .extract_trigger_word(self.trigger_prefix())
             .is_none()
         {
-            self.completion.deactivate();
+            self.completion.deactivate(&self.state.completion_active);
             return None;
         }
 
@@ -389,7 +394,7 @@ impl Evaluator {
             .extract_trigger_word(self.trigger_prefix())
             .is_none()
         {
-            self.completion.deactivate();
+            self.completion.deactivate(&self.state.completion_active);
             return None;
         }
 
@@ -443,7 +448,7 @@ impl Evaluator {
             .extract_trigger_word(self.trigger_prefix())
             .is_none()
         {
-            self.completion.deactivate();
+            self.completion.deactivate(&self.state.completion_active);
             return None;
         }
 
@@ -582,7 +587,7 @@ impl Evaluator {
             && self.state.is_os_fullscreen.load(Ordering::Relaxed)
         {
             self.buffer.clear();
-            self.completion.deactivate();
+            self.completion.deactivate(&self.state.completion_active);
             return None;
         }
 
@@ -594,7 +599,7 @@ impl Evaluator {
             EngineEvent::Interrupt => {
                 // Severe interrupts ruin active sequences
                 self.buffer.clear();
-                self.completion.deactivate();
+                self.completion.deactivate(&self.state.completion_active);
                 None
             }
             EngineEvent::Backspace => {
@@ -621,7 +626,7 @@ impl Evaluator {
                 let was_completion_active = self.completion.active;
                 let result = self.evaluate_buffer_for_expansion();
                 if was_completion_active {
-                    self.completion.deactivate();
+                    self.completion.deactivate(&self.state.completion_active);
                 }
                 if result.is_none() {
                     self.buffer.push(' ');
@@ -644,7 +649,7 @@ impl Evaluator {
                 };
                 if self.buffer.buffer_string().ends_with(&open_delim) {
                     if self.completion.active {
-                        self.completion.deactivate();
+                        self.completion.deactivate(&self.state.completion_active);
                     }
                     return Some(self.start_inline_ai_capture(&open_delim));
                 }
@@ -653,7 +658,7 @@ impl Evaluator {
                     && let Some(result) = self.evaluate_buffer_for_expansion()
                 {
                     if self.completion.active {
-                        self.completion.deactivate();
+                        self.completion.deactivate(&self.state.completion_active);
                     }
                     return Some(result);
                 }
@@ -720,7 +725,7 @@ impl Evaluator {
         self.state.set_engine_mode(EngineMode::AiCapture {
             system_prompt_override: None,
         });
-        self.completion.deactivate();
+        self.completion.deactivate(&self.state.completion_active);
 
         ExpansionResult {
             delete_count: open_delim.chars().count(),

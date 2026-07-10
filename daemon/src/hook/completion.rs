@@ -112,5 +112,8 @@ pub(crate) fn trigger_assist_is_active(
     !matches!(
         state.engine_mode(),
         taurine_core::engine::EngineMode::AiCapture { .. }
-    ) && completion_is_active(evaluator)
+    ) && state
+        .completion_active
+        .load(std::sync::atomic::Ordering::Relaxed)
+        && completion_is_active(evaluator)
 }

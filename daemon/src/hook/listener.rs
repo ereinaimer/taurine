@@ -219,7 +219,7 @@ pub(super) fn run_listener_once(
         };
 
         if is_chord {
-            clear_undo_state(&evaluator);
+            clear_undo_state(state.as_ref());
             let now_paused = !paused.load(Ordering::Relaxed);
             paused.store(now_paused, Ordering::Relaxed);
             if pause_notifications_enabled.load(Ordering::Relaxed) {
@@ -233,7 +233,7 @@ pub(super) fn run_listener_once(
 
         match event.event_type {
             EventType::ButtonPress(_) => {
-                clear_undo_state(&evaluator);
+                clear_undo_state(state.as_ref());
                 if let Ok(mut lock) = hotkey_evaluator.lock() {
                     lock.clear();
                 }
@@ -255,7 +255,7 @@ pub(super) fn run_listener_once(
                 }
 
                 if trigger_assist_is_active(&evaluator, state.as_ref()) {
-                    clear_undo_state(&evaluator);
+                    clear_undo_state(state.as_ref());
 
                     if key == Key::Backspace && !alt_active && !meta_active {
                         let rewrite =
@@ -397,12 +397,12 @@ pub(super) fn run_listener_once(
 
                 if key == Key::Backspace {
                     if ctrl_active || alt_active || meta_active {
-                        clear_undo_state(&evaluator);
+                        clear_undo_state(state.as_ref());
                         return Some(event);
                     }
 
                     if let Some((trigger_string, output_length)) =
-                        take_active_undo_state(&evaluator)
+                        take_active_undo_state(state.as_ref())
                     {
                         spawn_undo_dispatch(trigger_string, output_length);
                         return None;
@@ -417,7 +417,7 @@ pub(super) fn run_listener_once(
                     // Naked modifier presses should not expire the undo window.
                 } else {
                     // Invalidate on any non-modifier or combo before normal evaluator handling.
-                    clear_undo_state(&evaluator);
+                    clear_undo_state(state.as_ref());
                 }
 
                 let engine_mode = state.engine_mode();
