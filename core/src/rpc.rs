@@ -6,7 +6,7 @@ pub const DEFAULT_RPC_ADDR_RAW: &str = "127.0.0.1:50051";
 pub const DEFAULT_RPC_URL: &str = "http://127.0.0.1:50051";
 
 pub fn get_rpc_port() -> u16 {
-    if let Ok(conn) = rusqlite::Connection::open(crate::paths::get_db_path()) {
+    if let Ok(conn) = crate::db::get_conn() {
         let manager = crate::settings::SettingsManager::new(&conn);
         manager.load_all().rpc_port
     } else {
@@ -19,7 +19,7 @@ pub fn get_rpc_url() -> String {
 }
 
 pub async fn connect_to_daemon() -> Result<tonic::transport::Channel, tonic::transport::Error> {
-    let settings = if let Ok(conn) = rusqlite::Connection::open(crate::paths::get_db_path()) {
+    let settings = if let Ok(conn) = crate::db::get_conn() {
         let manager = crate::settings::SettingsManager::new(&conn);
         manager.load_all()
     } else {
@@ -77,7 +77,7 @@ pub fn get_rpc_token() -> String {
         return val;
     }
 
-    if let Ok(conn) = rusqlite::Connection::open(crate::paths::get_db_path()) {
+    if let Ok(conn) = crate::db::get_conn() {
         let manager = crate::settings::SettingsManager::new(&conn);
         manager.load_all().rpc_token
     } else {
@@ -117,7 +117,7 @@ pub async fn get_client() -> Result<
     tonic::transport::Error,
 > {
     #[cfg(not(target_os = "windows"))]
-    let settings = if let Ok(conn) = rusqlite::Connection::open(crate::paths::get_db_path()) {
+    let settings = if let Ok(conn) = crate::db::get_conn() {
         let manager = crate::settings::SettingsManager::new(&conn);
         manager.load_all()
     } else {

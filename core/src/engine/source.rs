@@ -60,7 +60,7 @@ pub struct DatabaseSource;
 
 impl SnippetSource for DatabaseSource {
     fn get_action(&self, keyword: &str) -> Option<crate::db::crud::AutomationAction> {
-        if let Ok(conn) = rusqlite::Connection::open(crate::paths::get_db_path())
+        if let Ok(conn) = crate::db::get_conn()
             && let Ok(Some(action)) =
                 crate::db::crud::automations::get_action_by_trigger(&conn, keyword)
         {

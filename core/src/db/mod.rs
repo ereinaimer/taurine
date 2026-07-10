@@ -26,12 +26,46 @@ pub(crate) fn now_unix_secs() -> i64 {
     prev.max(current)
 }
 
-/// Returns a connection from the global shared SQLite connection pool.
+pub enum DbConnection {
+    Pooled(r2d2::PooledConnection<r2d2_sqlite::SqliteConnectionManager>),
+    Raw(rusqlite::Connection),
+}
+
+impl std::ops::Deref for DbConnection {
+    type Target = rusqlite::Connection;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            DbConnection::Pooled(conn) => conn,
+            DbConnection::Raw(conn) => conn,
+        }
+    }
+}
+
+impl std::ops::DerefMut for DbConnection {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            DbConnection::Pooled(conn) => conn,
+            DbConnection::Raw(conn) => conn,
+        }
+    }
+}
+
+fn is_test_env() -> bool {
+    cfg!(test)
+        || std::env::var("CARGO_MANIFEST_DIR").is_ok()
+        || std::env::current_exe()
+            .map(|p| {
+                let s = p.to_string_lossy().to_lowercase();
+                s.contains("deps") || s.contains("test")
+            })
+            .unwrap_or(false)
+}
+
+/// Returns a connection from the global shared SQLite connection pool (or a raw connection in tests).
 ///
 /// Configures WAL mode, synchronous to NORMAL, and sets a busy timeout of 5 seconds
 /// to resolve database locking errors under concurrent workloads.
-pub fn get_conn()
--> Result<r2d2::PooledConnection<r2d2_sqlite::SqliteConnectionManager>, crate::error::Error> {
+pub fn get_conn() -> Result<DbConnection, crate::error::Error> {
     use r2d2::Pool;
     use r2d2_sqlite::SqliteConnectionManager;
     use std::sync::OnceLock;
@@ -62,43 +96,47 @@ pub fn get_conn()
         }
     }
 
-    if cfg!(test) {
-        thread_local! {
-            static THREAD_POOL: std::cell::RefCell<Option<Pool<SqliteConnectionManager>>> = const { std::cell::RefCell::new(None) };
-        }
-
-        return THREAD_POOL.with(|tp| {
-            let mut guard = tp.borrow_mut();
-            if guard.is_none() {
-                let db_path = crate::paths::get_db_path();
-                let manager = SqliteConnectionManager::file(db_path).with_init(|conn| {
-                    conn.execute_batch(
-                        "PRAGMA journal_mode = WAL;
-                             PRAGMA synchronous = NORMAL;
-                             PRAGMA busy_timeout = 5000;",
-                    )?;
-                    Ok(())
-                });
-                let pool = Pool::builder()
-                    .max_size(1)
-                    .build(manager)
-                    .expect("Failed to initialize test thread connection pool");
-                *guard = Some(pool);
-            }
-            guard.as_ref().unwrap().get().map_err(|e| {
-                crate::error::Error::Service(format!(
-                    "Failed to get connection from test pool: {}",
-                    e
-                ))
-            })
-        });
+    if is_test_env() {
+        let db_path = crate::paths::get_db_path();
+        let conn = rusqlite::Connection::open(db_path).map_err(|e| {
+            crate::error::Error::Service(format!("Failed to open test connection: {}", e))
+        })?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(|e| {
+                crate::error::Error::Service(format!("Failed to set busy timeout: {}", e))
+            })?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;",
+        )
+        .map_err(|e| crate::error::Error::Service(format!("Failed to set pragmas: {}", e)))?;
+        return Ok(DbConnection::Raw(conn));
     }
 
-    static POOL: OnceLock<Pool<SqliteConnectionManager>> = OnceLock::new();
+    use parking_lot::RwLock;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
 
-    let pool = POOL.get_or_init(|| {
-        let db_path = crate::paths::get_db_path();
-        let manager = SqliteConnectionManager::file(db_path).with_init(|conn| {
+    static POOLS: OnceLock<RwLock<HashMap<PathBuf, Pool<SqliteConnectionManager>>>> =
+        OnceLock::new();
+
+    let db_path = crate::paths::get_db_path();
+    let pools = POOLS.get_or_init(|| RwLock::new(HashMap::new()));
+
+    // Try reading with a read lock first
+    {
+        let read_guard = pools.read();
+        if let Some(pool) = read_guard.get(&db_path) {
+            return pool.get().map(DbConnection::Pooled).map_err(|e| {
+                crate::error::Error::Service(format!("Failed to get connection from pool: {}", e))
+            });
+        }
+    }
+
+    // If not found, acquire write lock and initialize the pool for this path
+    let mut write_guard = pools.write();
+    let pool = write_guard.entry(db_path.clone()).or_insert_with(|| {
+        let manager = SqliteConnectionManager::file(&db_path).with_init(|conn| {
             conn.execute_batch(
                 "PRAGMA journal_mode = WAL;
                      PRAGMA synchronous = NORMAL;
@@ -112,7 +150,7 @@ pub fn get_conn()
             .expect("Failed to initialize connection pool")
     });
 
-    pool.get().map_err(|e| {
+    pool.get().map(DbConnection::Pooled).map_err(|e| {
         crate::error::Error::Service(format!("Failed to get connection from pool: {}", e))
     })
 }
