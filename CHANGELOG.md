@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ### Fixed
+- **Buffer expansion capacity safety**: Fixed keyboard buffer overflow issues when typing long paths or URLs. The text input ring buffer now dynamically resizes (doubles in capacity) and unrolls its contents when full rather than silently overwriting the oldest characters, preserving trigger recognition. Added a capacity warning when the buffer reaches 80% usage.
 - **Install script cross-platform compatibility fixes**: Fixed both `install.sh` and `install.ps1` for cross-platform compatibility and reliability.
   - `install.sh`: Replaced `sha256sum` with a portable checksum function supporting both `sha256sum` (Linux) and `shasum -a 256` (macOS). Replaced `sort -V` (GNU extension, unavailable on macOS) with a component-by-component numeric version comparison for downgrade prevention.
   - `install.ps1`: Wrapped main logic in a `Main()` function and replaced `exit` with `return`/`throw` to prevent the PowerShell host from terminating when the script is run via `irm ... | iex`. Fixed PATH check to use case-insensitive comparison on Windows. Added `try/finally` block to ensure temp files are cleaned up on errors. Added red `Write-Host` before error throws for better user visibility.
