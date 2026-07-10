@@ -92,24 +92,12 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
         &settings.triggerless_mode.to_string(),
     ]);
     table.add_row(vec!["instant_expand", &settings.instant_expand.to_string()]);
-    let show_tcp_settings = {
-        #[cfg(target_os = "windows")]
-        {
-            true
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            settings.rpc_mode == taurine_core::settings::RpcMode::Tcp
-        }
-    };
+    let show_tcp_settings = settings.rpc_mode == taurine_core::settings::RpcMode::Tcp;
 
-    #[cfg(not(target_os = "windows"))]
-    {
-        table.add_row(vec![
-            "rpc_mode",
-            &format!("{:?}", settings.rpc_mode).to_lowercase(),
-        ]);
-    }
+    table.add_row(vec![
+        "rpc_mode",
+        &format!("{:?}", settings.rpc_mode).to_lowercase(),
+    ]);
 
     if show_tcp_settings {
         table.add_row(vec!["rpc_host", &settings.rpc_host]);
@@ -265,24 +253,16 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
             }
         }
         "rpc_mode" => {
-            #[cfg(target_os = "windows")]
-            {
-                warn!("Windows does not support changing the RPC mode. It is always TCP.");
-                return Ok(());
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                let mode = match value.to_lowercase().as_str() {
-                    "socket" => taurine_core::settings::RpcMode::Socket,
-                    "tcp" => taurine_core::settings::RpcMode::Tcp,
-                    _ => {
-                        warn!("Invalid rpc_mode: {}. Supported: socket, tcp", value);
-                        return Ok(());
-                    }
-                };
-                manager.update_setting(actual_key, mode)?;
-                info!("Updated rpc_mode to: {:?}", mode);
-            }
+            let mode = match value.to_lowercase().as_str() {
+                "socket" => taurine_core::settings::RpcMode::Socket,
+                "tcp" => taurine_core::settings::RpcMode::Tcp,
+                _ => {
+                    warn!("Invalid rpc_mode: {}. Supported: socket, tcp", value);
+                    return Ok(());
+                }
+            };
+            manager.update_setting(actual_key, mode)?;
+            info!("Updated rpc_mode to: {:?}", mode);
         }
         "rpc_host" => {
             let val = value.trim();
@@ -462,16 +442,8 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
             );
         }
         "rpc_mode" => {
-            #[cfg(target_os = "windows")]
-            {
-                warn!("Windows does not support resetting the RPC mode. It is always TCP.");
-                return Ok(());
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                manager.update_setting(actual_key, defaults.rpc_mode)?;
-                info!("Reset rpc_mode to default: {:?}", defaults.rpc_mode);
-            }
+            manager.update_setting(actual_key, defaults.rpc_mode)?;
+            info!("Reset rpc_mode to default: {:?}", defaults.rpc_mode);
         }
         "rpc_host" => {
             manager.update_setting(actual_key, defaults.rpc_host.clone())?;
@@ -542,10 +514,7 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
     manager.update_setting("triggerless_mode", defaults.triggerless_mode)?;
     manager.update_setting("instant_expand", defaults.instant_expand)?;
     manager.update_setting("rpc_port", defaults.rpc_port)?;
-    #[cfg(not(target_os = "windows"))]
-    {
-        manager.update_setting("rpc_mode", defaults.rpc_mode)?;
-    }
+    manager.update_setting("rpc_mode", defaults.rpc_mode)?;
     manager.update_setting("rpc_host", defaults.rpc_host.clone())?;
     manager.update_setting("rpc_token", uuid::Uuid::new_v4().to_string())?;
 

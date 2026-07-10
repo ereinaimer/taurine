@@ -457,7 +457,7 @@ async fn run_inline_ai_stream_inner(
 struct ResolvedInlineAiRequest {
     provider: AiProvider,
     model: String,
-    secret: String,
+    secret: zeroize::Zeroizing<String>,
     custom_endpoint: Option<String>,
     temperature: Option<f32>,
     max_tokens: Option<u32>,
@@ -806,13 +806,16 @@ mod tests {
             Ok(())
         }
 
-        fn get_secret(&self, provider: AiProvider) -> taurine_core::error::Result<Option<String>> {
+        fn get_secret(
+            &self,
+            provider: AiProvider,
+        ) -> taurine_core::error::Result<Option<zeroize::Zeroizing<String>>> {
             Ok(self
                 .secrets
                 .lock()
                 .expect("memory store poisoned")
                 .get(&provider)
-                .cloned())
+                .map(|s| zeroize::Zeroizing::new(s.clone())))
         }
 
         fn delete_secret(&self, provider: AiProvider) -> taurine_core::error::Result<bool> {

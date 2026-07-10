@@ -176,120 +176,249 @@ pub fn start() -> taurine_core::error::Result<()> {
     });
 
     rt.block_on(async {
-        let (tx, mut rx) = mpsc::channel(1);
-        let daemon_service = DaemonService::builder()
-            .shutdown_sender(tx)
-            .state(state.clone())
-            .paused(paused.clone())
-            .pause_notifications_enabled(pause_notifications_enabled.clone())
-            .pause_hotkey_spec(pause_hotkey_spec.clone())
-            .pause_hotkey_display(pause_hotkey.clone())
-            .spinner_style(spinner_style.clone())
-            .pause_audio_enabled(pause_audio_enabled.clone())
-            .hook_health(hook_health.clone())
-            .build();
+        let (mut shutdown_tx, mut shutdown_rx) = mpsc::channel(1);
+        let (mut rpc_reload_tx, mut rpc_reload_rx) = mpsc::channel(1);
 
-        let token = settings.rpc_token.clone();
-        let use_tcp = {
-            #[cfg(target_os = "windows")]
-            {
-                true
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                settings.rpc_mode == taurine_core::settings::RpcMode::Tcp
-            }
-        };
+        let active_rpc_settings =
+            std::sync::Arc::new(std::sync::RwLock::new(server::RpcServerSettings {
+                rpc_mode: settings.rpc_mode,
+                rpc_host: settings.rpc_host.clone(),
+                rpc_port: settings.rpc_port,
+                rpc_token: settings.rpc_token.clone(),
+            }));
 
-        if use_tcp {
-            let auth_interceptor =
-                move |req: tonic::Request<()>| -> Result<tonic::Request<()>, tonic::Status> {
-                    if let Some(auth_val) = req.metadata().get("authorization")
-                        && let Ok(auth_str) = auth_val.to_str()
-                        && auth_str.starts_with("Bearer ")
-                        && &auth_str[7..] == token.as_str()
-                    {
-                        return Ok(req);
+        let shutdown_requested = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let rpc_reload_requested = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        loop {
+            let shutdown_requested_clone = shutdown_requested.clone();
+            let rpc_reload_requested_clone = rpc_reload_requested.clone();
+
+            let watcher_task = {
+                let shutdown_requested_clone = shutdown_requested_clone.clone();
+                let rpc_reload_requested_clone = rpc_reload_requested_clone.clone();
+                tokio::spawn(async move {
+                    tokio::select! {
+                        _ = shutdown_rx.recv() => {
+                            shutdown_requested_clone.store(true, Ordering::Relaxed);
+                        }
+                        _ = rpc_reload_rx.recv() => {
+                            rpc_reload_requested_clone.store(true, Ordering::Relaxed);
+                        }
                     }
-                    Err(tonic::Status::unauthenticated(
-                        "Invalid or missing RPC token",
-                    ))
-                };
+                })
+            };
 
-            let addr_parsed = settings
-                .rpc_host
-                .parse::<std::net::IpAddr>()
-                .unwrap_or_else(|_| [127, 0, 0, 1].into());
-            let addr = SocketAddr::new(addr_parsed, settings.rpc_port);
+            let daemon_service = DaemonService::builder()
+                .shutdown_sender(shutdown_tx.clone())
+                .state(state.clone())
+                .paused(paused.clone())
+                .pause_notifications_enabled(pause_notifications_enabled.clone())
+                .pause_hotkey_spec(pause_hotkey_spec.clone())
+                .pause_hotkey_display(pause_hotkey.clone())
+                .spinner_style(spinner_style.clone())
+                .pause_audio_enabled(pause_audio_enabled.clone())
+                .hook_health(hook_health.clone())
+                .active_rpc_settings(active_rpc_settings.clone())
+                .rpc_reload_sender(rpc_reload_tx.clone())
+                .build();
 
-            info!("Starting authenticated gRPC server on {}", addr);
-            let server_future = Server::builder()
-                .add_service(DaemonControlServer::with_interceptor(
-                    daemon_service,
-                    auth_interceptor,
-                ))
-                .serve_with_shutdown(addr, async {
-                    let _ = rx.recv().await;
-                    info!("Shutdown signal received, initiating shutdown...");
-                });
+            let current_rpc = {
+                let lock = active_rpc_settings
+                    .read()
+                    .expect("Failed to read active_rpc_settings");
+                lock.clone()
+            };
 
-            if let Err(e) = server_future.await {
-                error!("gRPC server failed: {}", e);
-            }
-        } else {
-            #[cfg(all(unix, not(target_os = "android")))]
-            {
-                use tokio::net::UnixListener;
-                use tokio_stream::wrappers::UnixListenerStream;
+            let token = current_rpc.rpc_token.clone();
+            let use_tcp = current_rpc.rpc_mode == taurine_core::settings::RpcMode::Tcp;
 
-                let socket_path = taurine_core::paths::get_data_dir().join("taurine.sock");
-                if socket_path.exists() {
-                    let _ = std::fs::remove_file(&socket_path);
+            let shutdown_requested_for_signal = shutdown_requested.clone();
+            let rpc_reload_requested_for_signal = rpc_reload_requested.clone();
+            let shutdown_signal = async move {
+                loop {
+                    if shutdown_requested_for_signal.load(Ordering::Relaxed) {
+                        info!("Shutdown signal received, initiating gRPC server shutdown...");
+                        break;
+                    }
+                    if rpc_reload_requested_for_signal.load(Ordering::Relaxed) {
+                        info!("RPC settings changed, reloading gRPC server...");
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                 }
+            };
 
-                match UnixListener::bind(&socket_path) {
-                    Ok(uds) => {
-                        use std::os::unix::fs::PermissionsExt;
-                        if let Ok(metadata) = std::fs::metadata(&socket_path) {
-                            let mut perms = metadata.permissions();
-                            perms.set_mode(0o600);
-                            let _ = std::fs::set_permissions(&socket_path, perms);
+            if use_tcp {
+                let auth_interceptor =
+                    move |req: tonic::Request<()>| -> Result<tonic::Request<()>, tonic::Status> {
+                        if let Some(auth_val) = req.metadata().get("authorization")
+                            && let Ok(auth_str) = auth_val.to_str()
+                            && auth_str.starts_with("Bearer ")
+                            && &auth_str[7..] == token.as_str()
+                        {
+                            return Ok(req);
                         }
+                        Err(tonic::Status::unauthenticated(
+                            "Invalid or missing RPC token",
+                        ))
+                    };
 
-                        let stream = UnixListenerStream::new(uds);
-                        info!(
-                            "Starting gRPC server on UDS socket: {}",
-                            socket_path.display()
-                        );
-                        let server_future = Server::builder()
-                            .add_service(DaemonControlServer::new(daemon_service))
-                            .serve_with_incoming_shutdown(stream, async {
-                                let _ = rx.recv().await;
-                                info!("Shutdown signal received, initiating shutdown...");
-                            });
+                let addr_parsed = current_rpc
+                    .rpc_host
+                    .parse::<std::net::IpAddr>()
+                    .unwrap_or_else(|_| [127, 0, 0, 1].into());
+                let addr = SocketAddr::new(addr_parsed, current_rpc.rpc_port);
 
-                        if let Err(e) = server_future.await {
-                            error!("gRPC server failed: {}", e);
-                        }
+                info!("Starting authenticated gRPC server on {}", addr);
+                let server_future = Server::builder()
+                    .add_service(DaemonControlServer::with_interceptor(
+                        daemon_service,
+                        auth_interceptor,
+                    ))
+                    .serve_with_shutdown(addr, shutdown_signal);
 
+                if let Err(e) = server_future.await {
+                    error!("gRPC server failed: {}", e);
+                }
+            } else {
+                #[cfg(all(unix, not(target_os = "android")))]
+                {
+                    use tokio::net::UnixListener;
+                    use tokio_stream::wrappers::UnixListenerStream;
+
+                    let socket_path = taurine_core::paths::get_data_dir().join("taurine.sock");
+                    if socket_path.exists() {
                         let _ = std::fs::remove_file(&socket_path);
                     }
-                    Err(e) => {
-                        error!("Failed to bind to UDS socket: {}", e);
+
+                    match UnixListener::bind(&socket_path) {
+                        Ok(uds) => {
+                            use std::os::unix::fs::PermissionsExt;
+                            if let Ok(metadata) = std::fs::metadata(&socket_path) {
+                                let mut perms = metadata.permissions();
+                                perms.set_mode(0o600);
+                                let _ = std::fs::set_permissions(&socket_path, perms);
+                            }
+
+                            let stream = UnixListenerStream::new(uds);
+                            info!(
+                                "Starting gRPC server on UDS socket: {}",
+                                socket_path.display()
+                            );
+                            let server_future = Server::builder()
+                                .add_service(DaemonControlServer::new(daemon_service))
+                                .serve_with_incoming_shutdown(stream, shutdown_signal);
+
+                            if let Err(e) = server_future.await {
+                                error!("gRPC server failed: {}", e);
+                            }
+
+                            let _ = std::fs::remove_file(&socket_path);
+                        }
+                        Err(e) => {
+                            error!("Failed to bind to UDS socket: {}", e);
+                        }
                     }
+                }
+
+                #[cfg(target_os = "windows")]
+                {
+                    use tokio::net::windows::named_pipe::ServerOptions;
+
+                    let pipe_path = r"\\.\pipe\taurine";
+                    info!(
+                        "Starting gRPC server on Named Pipe UDS equivalent: {}",
+                        pipe_path
+                    );
+
+                    let (connection_tx, connection_rx) =
+                        tokio::sync::mpsc::channel::<Result<NamedPipeConn, std::io::Error>>(16);
+
+                    let accept_task = {
+                        let pipe_path = pipe_path.to_string();
+                        tokio::spawn(async move {
+                            let mut first = true;
+                            loop {
+                                let server_instance = ServerOptions::new()
+                                    .first_pipe_instance(first)
+                                    .create(&pipe_path);
+
+                                first = false;
+
+                                let server_instance = match server_instance {
+                                    Ok(s) => s,
+                                    Err(e) => {
+                                        error!("Failed to create named pipe instance: {}", e);
+                                        tokio::time::sleep(std::time::Duration::from_millis(100))
+                                            .await;
+                                        continue;
+                                    }
+                                };
+
+                                if server_instance.connect().await.is_ok()
+                                    && connection_tx
+                                        .send(Ok(NamedPipeConn(server_instance)))
+                                        .await
+                                        .is_err()
+                                {
+                                    break;
+                                }
+                            }
+                        })
+                    };
+                    let accept_task_abort = accept_task.abort_handle();
+
+                    let stream = tokio_stream::wrappers::ReceiverStream::new(connection_rx);
+                    let server_future = Server::builder()
+                        .add_service(DaemonControlServer::new(daemon_service))
+                        .serve_with_incoming_shutdown(stream, shutdown_signal);
+
+                    if let Err(e) = server_future.await {
+                        error!("gRPC server failed: {}", e);
+                    }
+                    accept_task_abort.abort();
+                }
+
+                #[cfg(not(any(all(unix, not(target_os = "android")), target_os = "windows")))]
+                {
+                    let addr = SocketAddr::from(([127, 0, 0, 1], current_rpc.rpc_port));
+                    info!("Starting fallback gRPC server on {}", addr);
+                    let server_future = Server::builder()
+                        .add_service(DaemonControlServer::new(daemon_service))
+                        .serve_with_shutdown(addr, shutdown_signal);
+                    let _ = server_future.await;
                 }
             }
 
-            #[cfg(not(all(unix, not(target_os = "android"))))]
-            {
-                let addr = SocketAddr::from(([127, 0, 0, 1], settings.rpc_port));
-                info!("Starting fallback gRPC server on {}", addr);
-                let server_future = Server::builder()
-                    .add_service(DaemonControlServer::new(daemon_service))
-                    .serve_with_shutdown(addr, async {
-                        let _ = rx.recv().await;
-                    });
-                let _ = server_future.await;
+            let _ = watcher_task.await;
+
+            if shutdown_requested.load(Ordering::Relaxed) {
+                break;
+            }
+
+            // Reset reload request flag
+            rpc_reload_requested.store(false, Ordering::Relaxed);
+
+            // Re-create channels for next iteration
+            let (new_shutdown_tx, new_shutdown_rx) = mpsc::channel(1);
+            let (new_rpc_reload_tx, new_rpc_reload_rx) = mpsc::channel(1);
+            shutdown_tx = new_shutdown_tx;
+            shutdown_rx = new_shutdown_rx;
+            rpc_reload_tx = new_rpc_reload_tx;
+            rpc_reload_rx = new_rpc_reload_rx;
+
+            // Load the new settings from the database and update Arc<RwLock<RpcServerSettings>>
+            if let Ok(conn) = taurine_core::db::init::setup() {
+                let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
+                if let Ok(mut lock) = active_rpc_settings.write() {
+                    *lock = server::RpcServerSettings {
+                        rpc_mode: settings.rpc_mode,
+                        rpc_host: settings.rpc_host.clone(),
+                        rpc_port: settings.rpc_port,
+                        rpc_token: settings.rpc_token.clone(),
+                    };
+                }
             }
         }
     });
@@ -300,4 +429,49 @@ pub fn start() -> taurine_core::error::Result<()> {
     // gracefully, the only correct action for a daemon is to exit the process.
     debug!("gRPC server stopped. Exiting daemon process.");
     std::process::exit(0);
+}
+
+#[cfg(windows)]
+struct NamedPipeConn(tokio::net::windows::named_pipe::NamedPipeServer);
+
+#[cfg(windows)]
+impl tokio::io::AsyncRead for NamedPipeConn {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.0).poll_read(cx, buf)
+    }
+}
+
+#[cfg(windows)]
+impl tokio::io::AsyncWrite for NamedPipeConn {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.0).poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.0).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.0).poll_shutdown(cx)
+    }
+}
+
+#[cfg(windows)]
+impl tonic::transport::server::Connected for NamedPipeConn {
+    type ConnectInfo = ();
+    fn connect_info(&self) -> Self::ConnectInfo {}
 }

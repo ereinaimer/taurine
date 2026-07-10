@@ -18,24 +18,10 @@ pub fn get_rpc_url() -> String {
     format!("http://127.0.0.1:{}", get_rpc_port())
 }
 
-pub async fn connect_to_daemon() -> Result<tonic::transport::Channel, tonic::transport::Error> {
-    let settings = if let Ok(conn) = crate::db::get_conn() {
-        let manager = crate::settings::SettingsManager::new(&conn);
-        manager.load_all()
-    } else {
-        crate::settings::Settings::default()
-    };
-
-    let use_tcp = {
-        #[cfg(target_os = "windows")]
-        {
-            true
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            settings.rpc_mode == crate::settings::RpcMode::Tcp
-        }
-    };
+pub async fn connect_to_daemon_with_settings(
+    settings: &crate::settings::Settings,
+) -> Result<tonic::transport::Channel, tonic::transport::Error> {
+    let use_tcp = settings.rpc_mode == crate::settings::RpcMode::Tcp;
 
     if use_tcp {
         let host = if settings.rpc_host.is_empty() {
@@ -63,13 +49,37 @@ pub async fn connect_to_daemon() -> Result<tonic::transport::Channel, tonic::tra
                 }))
                 .await
         }
-        #[cfg(not(all(unix, not(target_os = "android"))))]
+        #[cfg(target_os = "windows")]
+        {
+            use tokio::net::windows::named_pipe::ClientOptions;
+            use tower::service_fn;
+
+            let pipe_path = r"\\.\pipe\taurine";
+
+            tonic::transport::Endpoint::try_from("http://[::]:50051")?
+                .connect_with_connector(service_fn(move |_: tonic::transport::Uri| async move {
+                    let client = ClientOptions::new().open(pipe_path)?;
+                    Ok::<_, std::io::Error>(hyper_util::rt::tokio::TokioIo::new(client))
+                }))
+                .await
+        }
+        #[cfg(not(any(all(unix, not(target_os = "android")), target_os = "windows")))]
         {
             tonic::transport::Endpoint::from_shared(get_rpc_url())?
                 .connect()
                 .await
         }
     }
+}
+
+pub async fn connect_to_daemon() -> Result<tonic::transport::Channel, tonic::transport::Error> {
+    let settings = if let Ok(conn) = crate::db::get_conn() {
+        let manager = crate::settings::SettingsManager::new(&conn);
+        manager.load_all()
+    } else {
+        crate::settings::Settings::default()
+    };
+    connect_to_daemon_with_settings(&settings).await
 }
 
 pub fn get_rpc_token() -> String {
@@ -107,6 +117,27 @@ impl tonic::service::Interceptor for ClientAuthInterceptor {
     }
 }
 
+pub async fn get_client_with_settings(
+    settings: &crate::settings::Settings,
+) -> Result<
+    daemon_control_client::DaemonControlClient<
+        tonic::service::interceptor::InterceptedService<
+            tonic::transport::Channel,
+            ClientAuthInterceptor,
+        >,
+    >,
+    tonic::transport::Error,
+> {
+    let token = get_rpc_token();
+    let use_tcp = settings.rpc_mode == crate::settings::RpcMode::Tcp;
+    let channel = connect_to_daemon_with_settings(settings).await?;
+    let interceptor = ClientAuthInterceptor {
+        token,
+        use_auth: use_tcp,
+    };
+    Ok(daemon_control_client::DaemonControlClient::with_interceptor(channel, interceptor))
+}
+
 pub async fn get_client() -> Result<
     daemon_control_client::DaemonControlClient<
         tonic::service::interceptor::InterceptedService<
@@ -116,52 +147,48 @@ pub async fn get_client() -> Result<
     >,
     tonic::transport::Error,
 > {
-    #[cfg(not(target_os = "windows"))]
     let settings = if let Ok(conn) = crate::db::get_conn() {
         let manager = crate::settings::SettingsManager::new(&conn);
         manager.load_all()
     } else {
         crate::settings::Settings::default()
     };
-
-    let token = get_rpc_token();
-
-    let use_tcp = {
-        #[cfg(target_os = "windows")]
-        {
-            true
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            settings.rpc_mode == crate::settings::RpcMode::Tcp
-        }
-    };
-
-    let channel = connect_to_daemon().await?;
-
-    let interceptor = ClientAuthInterceptor {
-        token,
-        use_auth: use_tcp,
-    };
-
-    Ok(daemon_control_client::DaemonControlClient::with_interceptor(channel, interceptor))
+    get_client_with_settings(&settings).await
 }
 
 pub fn notify_daemon_reload() {
     tracing::debug!("Dispatching Reload instruction to daemon...");
 
     let perform_reload = async {
-        match get_client().await {
-            Ok(mut client) => {
-                let req = tonic::Request::new(ReloadRequest {});
-                if let Err(e) = client.reload(req).await {
-                    tracing::error!("Daemon reload request failed: {}", e);
-                } else {
-                    tracing::info!("Daemon state reloaded successfully.");
-                }
+        let settings = if let Ok(conn) = crate::db::get_conn() {
+            let manager = crate::settings::SettingsManager::new(&conn);
+            manager.load_all()
+        } else {
+            crate::settings::Settings::default()
+        };
+
+        // Try primary config (new settings)
+        let mut reload_success = false;
+        if let Ok(mut client) = get_client_with_settings(&settings).await {
+            let req = tonic::Request::new(ReloadRequest {});
+            if client.reload(req).await.is_ok() {
+                tracing::info!("Daemon state reloaded successfully.");
+                reload_success = true;
             }
-            Err(_) => {
-                tracing::debug!("Daemon is not reachable for reload notification.");
+        }
+
+        // Try fallback config (opposite rpc_mode) if primary failed
+        if !reload_success {
+            let mut fallback_settings = settings.clone();
+            fallback_settings.rpc_mode = match settings.rpc_mode {
+                crate::settings::RpcMode::Tcp => crate::settings::RpcMode::Socket,
+                crate::settings::RpcMode::Socket => crate::settings::RpcMode::Tcp,
+            };
+            if let Ok(mut client) = get_client_with_settings(&fallback_settings).await {
+                let req = tonic::Request::new(ReloadRequest {});
+                if client.reload(req).await.is_ok() {
+                    tracing::info!("Daemon state reloaded successfully via fallback channel.");
+                }
             }
         }
     };

@@ -382,18 +382,11 @@ impl SettingsPageState {
             keys.retain(|k| *k != SettingKey::AiSymmetricDelimiter);
         }
 
-        if cfg!(target_os = "windows") {
-            // Windows: hide rpc_mode, always show TCP settings
-            keys.retain(|k| *k != SettingKey::RpcMode);
-        } else {
-            // Unix: show rpc_mode. If mode is Socket, hide host/port/token
-            if self.settings.rpc_mode == taurine_core::settings::RpcMode::Socket {
-                keys.retain(|k| {
-                    *k != SettingKey::RpcHost
-                        && *k != SettingKey::RpcPort
-                        && *k != SettingKey::RpcToken
-                });
-            }
+        // If mode is Socket, hide host/port/token
+        if self.settings.rpc_mode == taurine_core::settings::RpcMode::Socket {
+            keys.retain(|k| {
+                *k != SettingKey::RpcHost && *k != SettingKey::RpcPort && *k != SettingKey::RpcToken
+            });
         }
         keys
     }

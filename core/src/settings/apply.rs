@@ -264,12 +264,6 @@ pub fn apply_setting_input_with_manager(
         }
         "rpc_mode" => {
             let mode = parse_rpc_mode(require_non_empty(value, actual_key)?)?;
-            #[cfg(target_os = "windows")]
-            if mode == super::RpcMode::Socket {
-                return Err(Error::Config(
-                    "Windows does not support socket mode. Only TCP mode is supported.".to_string(),
-                ));
-            }
             manager.update_setting(actual_key, mode)?;
             ApplySettingOutcome::default()
         }

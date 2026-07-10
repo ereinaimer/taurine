@@ -8,18 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Zeroize AI API Keys**: Utilized self-erasing memory (`Zeroizing`) to automatically clear AI API keys from system memory as soon as they are no longer needed, reducing potential exposure in core, daemon, and CLI processes.
 - **Configurable RPC Settings and Token-Based Authentication**: Implemented customizable RPC communication settings with secure token-based authentication.
-  - Added new configuration keys: `rpc_mode` (Unix only), `rpc_host`, and `rpc_token`.
+  - Added new configuration keys: `rpc_mode`, `rpc_host`, and `rpc_token`.
   - Added a gRPC interceptor to the daemon that validates requests against a secure Bearer token in TCP mode.
   - Automatically generates a secure cryptographically random UUID v4 token if the RPC token setting is empty.
-  - Exposed these settings in the TUI Settings screen and CLI with platform-specific visibility rules (hiding the mode option on Windows, and hiding TCP settings when Unix Domain Sockets are active on Unix).
+  - Exposed these settings in the TUI Settings screen and CLI with platform-specific visibility rules (hiding TCP settings when UDS or Named Pipes are active).
   - Allowed overriding the connection token on clients using the `TAURINE_RPC_TOKEN` environment variable.
 - **Linux and macOS Clipboard History Support**: Wired up full clipboard history tracking on non-Windows platforms. Uses AppKit's `changeCount` API on macOS for zero-overhead change detection, and polls `arboard` on Linux at an optimized 350ms interval to eliminate idle CPU battery drain.
 - **`tau` shell alias**: The install scripts now automatically set up a `tau` shell alias for `taurine`. The `update` command also ensures the alias is present after an update. A new `core::shell` module centralizes RC file manipulation logic, reused by the update, completions, and alias modules.
 
 ### Changed
 - **Lock-Free Completion Checking & Decoupled Undo State**: Eliminated keyboard hook input lag and typing stuttering by making the inline trigger-assist completion check completely lock-free. In addition, de-coupled the undo state check and clearing logic from the central evaluator mutex, allowing the keyboard hook listener to bypass evaluator locking on 99.9% of normal keystrokes.
-- **Default Unix Domain Sockets for IPC on Linux and macOS**: Changed the default gRPC communication channel from local loopback TCP to Unix Domain Sockets (`taurine.sock` stored in the user data directory) on macOS and Linux. This prevents port scanning and enforces kernel-level owner-only access permissions, while Windows continues to use loopback TCP.
+- **Default Unix Domain Sockets and Windows Named Pipes for IPC**: Changed the default gRPC communication channel from local loopback TCP to local owner-only socket connections (Unix Domain Sockets on Linux/macOS and Named Pipes on Windows) to prevent port scanning and enforce kernel-level owner-only access permissions.
 - **Secure File and Directory Permissions on Unix**: Enforced owner-only permissions (`0700` for the app data directory and `0600` for the SQLite database file) on Linux and macOS to prevent unauthorized local users from reading sensitive macros, snippets, or credentials.
 - **Database Optimizations on Hot paths**: Significantly reduced typing latency and eliminated keypress stuttering by optimizing SQLite interactions:
   - Switched to a shared, thread-safe connection pool (`r2d2`) configured with WAL mode, normal synchronicity, and a 5-second busy timeout to eliminate connection overhead and prevent database locking errors.

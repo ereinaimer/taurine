@@ -80,15 +80,13 @@ where
     S: CredentialStore,
     M: ModelCatalog,
 {
-    let mut secret = store.get_secret(provider)?.ok_or_else(|| {
+    let secret = store.get_secret(provider)?.ok_or_else(|| {
         taurine_core::error::Error::Config(format!(
             "Provider '{}' is not configured",
             provider.as_str()
         ))
     })?;
-    let result = catalog.list_models(provider, secret.as_str());
-    secret.zeroize();
-    result
+    catalog.list_models(provider, secret.as_str())
 }
 
 fn remove_provider_credential<S>(
@@ -219,13 +217,16 @@ mod tests {
             Ok(())
         }
 
-        fn get_secret(&self, provider: AiProvider) -> taurine_core::error::Result<Option<String>> {
+        fn get_secret(
+            &self,
+            provider: AiProvider,
+        ) -> taurine_core::error::Result<Option<zeroize::Zeroizing<String>>> {
             Ok(self
                 .secrets
                 .lock()
                 .expect("memory store poisoned")
                 .get(&provider)
-                .cloned())
+                .map(|s| zeroize::Zeroizing::new(s.clone())))
         }
 
         fn delete_secret(&self, provider: AiProvider) -> taurine_core::error::Result<bool> {
@@ -277,7 +278,7 @@ mod tests {
             store
                 .get_secret(AiProvider::Openai)
                 .expect("store read should succeed"),
-            Some("sk-test".to_string())
+            Some(zeroize::Zeroizing::new("sk-test".to_string()))
         );
     }
 
@@ -294,7 +295,7 @@ mod tests {
             store
                 .get_secret(AiProvider::Claude)
                 .expect("store read should succeed"),
-            Some("super-secret".to_string())
+            Some(zeroize::Zeroizing::new("super-secret".to_string()))
         );
     }
 

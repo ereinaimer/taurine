@@ -194,13 +194,12 @@ Configure communication and security settings for the gRPC connection between th
 
 <Accordions>
 <Accordion title="rpc_mode">
-  The transport protocol used for daemon RPC. Unix domain sockets (UDS) are recommended for local owner-only security. TCP loopback mode is used on Windows or when cross-machine RPC is required.
+  The transport protocol used for daemon RPC. Local owner-only sockets (Unix domain sockets on macOS/Linux, and Named Pipes on Windows) are recommended for local owner-only security. TCP loopback mode can be used if cross-machine RPC is required.
   
   - **Key**: `rpc_mode`
   - **Alias**: `mode`
-  - **Default**: `socket` (macOS/Linux), always `tcp` (Windows)
+  - **Default**: `socket` (all platforms)
   - **Values**: `socket`, `tcp`
-  - **Note**: This setting is hidden and not configurable on Windows platforms.
 </Accordion>
 
 <Accordion title="rpc_host">

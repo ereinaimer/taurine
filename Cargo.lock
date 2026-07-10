@@ -4928,6 +4928,7 @@ dependencies = [
  "directories",
  "heck",
  "hex",
+ "hyper-util",
  "indexmap 2.14.0",
  "keyring",
  "md5",

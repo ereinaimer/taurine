@@ -120,7 +120,7 @@ impl TryFrom<&str> for AiProvider {
 
 pub trait CredentialStore {
     fn set_secret(&self, provider: AiProvider, secret: &str) -> Result<()>;
-    fn get_secret(&self, provider: AiProvider) -> Result<Option<String>>;
+    fn get_secret(&self, provider: AiProvider) -> Result<Option<zeroize::Zeroizing<String>>>;
     fn delete_secret(&self, provider: AiProvider) -> Result<bool>;
 }
 
@@ -144,9 +144,9 @@ impl CredentialStore for OsKeyringStore {
             .map_err(|e| keyring_error(provider, "store", e))
     }
 
-    fn get_secret(&self, provider: AiProvider) -> Result<Option<String>> {
+    fn get_secret(&self, provider: AiProvider) -> Result<Option<zeroize::Zeroizing<String>>> {
         match Self::entry(provider)?.get_password() {
-            Ok(secret) => Ok(Some(secret)),
+            Ok(secret) => Ok(Some(zeroize::Zeroizing::new(secret))),
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(e) => Err(keyring_error(provider, "read", e)),
         }
@@ -253,13 +253,13 @@ mod tests {
             Ok(())
         }
 
-        fn get_secret(&self, provider: AiProvider) -> Result<Option<String>> {
+        fn get_secret(&self, provider: AiProvider) -> Result<Option<zeroize::Zeroizing<String>>> {
             Ok(self
                 .secrets
                 .lock()
                 .expect("memory store poisoned")
                 .get(&provider)
-                .cloned())
+                .map(|s| zeroize::Zeroizing::new(s.clone())))
         }
 
         fn delete_secret(&self, provider: AiProvider) -> Result<bool> {

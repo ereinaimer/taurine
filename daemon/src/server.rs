@@ -10,6 +10,14 @@ use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
 use tracing::{debug, info};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RpcServerSettings {
+    pub rpc_mode: taurine_core::settings::RpcMode,
+    pub rpc_host: String,
+    pub rpc_port: u16,
+    pub rpc_token: String,
+}
+
 pub struct DaemonService {
     shutdown_sender: mpsc::Sender<()>,
     state: Arc<EngineState>,
@@ -20,6 +28,8 @@ pub struct DaemonService {
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<AtomicBool>,
     hook_health: crate::hook_health::HookHealth,
+    active_rpc_settings: Arc<RwLock<RpcServerSettings>>,
+    rpc_reload_sender: mpsc::Sender<()>,
 }
 
 impl DaemonService {
@@ -38,6 +48,8 @@ pub struct DaemonServiceBuilder {
     spinner_style: Option<Arc<RwLock<taurine_core::settings::SpinnerStyle>>>,
     pause_audio_enabled: Option<Arc<AtomicBool>>,
     hook_health: Option<crate::hook_health::HookHealth>,
+    active_rpc_settings: Option<Arc<RwLock<RpcServerSettings>>>,
+    rpc_reload_sender: Option<mpsc::Sender<()>>,
 }
 
 impl Default for DaemonServiceBuilder {
@@ -58,6 +70,8 @@ impl DaemonServiceBuilder {
             spinner_style: None,
             pause_audio_enabled: None,
             hook_health: None,
+            active_rpc_settings: None,
+            rpc_reload_sender: None,
         }
     }
 
@@ -109,6 +123,16 @@ impl DaemonServiceBuilder {
         self
     }
 
+    pub fn active_rpc_settings(mut self, settings: Arc<RwLock<RpcServerSettings>>) -> Self {
+        self.active_rpc_settings = Some(settings);
+        self
+    }
+
+    pub fn rpc_reload_sender(mut self, sender: mpsc::Sender<()>) -> Self {
+        self.rpc_reload_sender = Some(sender);
+        self
+    }
+
     pub fn build(self) -> DaemonService {
         DaemonService {
             shutdown_sender: self.shutdown_sender.expect("shutdown_sender is required"),
@@ -128,6 +152,12 @@ impl DaemonServiceBuilder {
                 .pause_audio_enabled
                 .expect("pause_audio_enabled is required"),
             hook_health: self.hook_health.expect("hook_health is required"),
+            active_rpc_settings: self
+                .active_rpc_settings
+                .expect("active_rpc_settings is required"),
+            rpc_reload_sender: self
+                .rpc_reload_sender
+                .expect("rpc_reload_sender is required"),
         }
     }
 }
@@ -176,89 +206,113 @@ impl DaemonControl for DaemonService {
     ) -> Result<Response<ReloadResponse>, Status> {
         debug!("Received gRPC reload request, refreshing snippets and settings...");
 
-        let conn = taurine_core::db::init::setup()
-            .map_err(|e| Status::internal(format!("Database connection failed: {}", e)))?;
+        let settings = {
+            let conn = taurine_core::db::init::setup()
+                .map_err(|e| Status::internal(format!("Database connection failed: {}", e)))?;
 
-        // 1. Reload Snippets
-        let active = taurine_core::db::crud::get_all_active_automations(&conn)
-            .map_err(|e| Status::internal(format!("Failed to retrieve automations: {}", e)))?;
-        let history = taurine_core::db::crud::get_active_word_trigger_history(&conn)
-            .map_err(|e| Status::internal(format!("Failed to retrieve trigger history: {}", e)))?;
-        let hotkeys =
-            taurine_core::db::crud::get_all_active_hotkey_automations(&conn).map_err(|e| {
-                Status::internal(format!("Failed to retrieve hotkey automations: {}", e))
-            })?;
+            // 1. Reload Snippets
+            let active = taurine_core::db::crud::get_all_active_automations(&conn)
+                .map_err(|e| Status::internal(format!("Failed to retrieve automations: {}", e)))?;
+            let history =
+                taurine_core::db::crud::get_active_word_trigger_history(&conn).map_err(|e| {
+                    Status::internal(format!("Failed to retrieve trigger history: {}", e))
+                })?;
+            let hotkeys = taurine_core::db::crud::get_all_active_hotkey_automations(&conn)
+                .map_err(|e| {
+                    Status::internal(format!("Failed to retrieve hotkey automations: {}", e))
+                })?;
 
-        self.state.load_actions(active);
-        self.state.load_word_trigger_history(history);
-        self.state.load_hotkey_actions(hotkeys);
+            self.state.load_actions(active);
+            self.state.load_word_trigger_history(history);
+            self.state.load_hotkey_actions(hotkeys);
 
-        // 3. Reload Settings
-        use taurine_core::settings::SettingsManager;
-        let settings_manager = SettingsManager::new(&conn);
-        let settings = settings_manager.load_all();
+            // 3. Reload Settings
+            use taurine_core::settings::SettingsManager;
+            let settings_manager = SettingsManager::new(&conn);
+            let settings = settings_manager.load_all();
 
-        taurine_core::settings::set_cached_wpm(settings.wpm);
-        taurine_core::settings::set_cached_clipboard_restore_delay(
-            settings.clipboard_restore_delay_ms,
-        );
-        taurine_core::settings::set_cached_script_timeout(settings.script_timeout);
+            taurine_core::settings::set_cached_wpm(settings.wpm);
+            taurine_core::settings::set_cached_clipboard_restore_delay(
+                settings.clipboard_restore_delay_ms,
+            );
+            taurine_core::settings::set_cached_script_timeout(settings.script_timeout);
 
-        // Update trigger char (atomic)
-        self.state
-            .trigger_char
-            .store(settings.trigger_char as u32, Ordering::Relaxed);
+            // Update trigger char (atomic)
+            self.state
+                .trigger_char
+                .store(settings.trigger_char as u32, Ordering::Relaxed);
 
-        // Update AI delimiters
-        self.state.set_ai_delimiter_mode(settings.ai_delimiter_mode);
-        self.state
-            .set_ai_symmetric_delimiter(settings.ai_symmetric_delimiter);
-        self.state.set_ai_open_delimiter(settings.ai_open_delimiter);
-        self.state
-            .set_ai_close_delimiter(settings.ai_close_delimiter);
+            // Update AI delimiters
+            self.state.set_ai_delimiter_mode(settings.ai_delimiter_mode);
+            self.state
+                .set_ai_symmetric_delimiter(settings.ai_symmetric_delimiter.clone());
+            self.state
+                .set_ai_open_delimiter(settings.ai_open_delimiter.clone());
+            self.state
+                .set_ai_close_delimiter(settings.ai_close_delimiter.clone());
 
-        self.state
-            .inline_tab_completion_enabled
-            .store(settings.inline_tab_completion_enabled, Ordering::Relaxed);
-        self.state
-            .inline_history_enabled
-            .store(settings.inline_history_enabled, Ordering::Relaxed);
-        self.state
-            .triggerless_mode
-            .store(settings.triggerless_mode, Ordering::Relaxed);
-        self.state
-            .instant_expand
-            .store(settings.instant_expand, Ordering::Relaxed);
-        self.state
-            .ignore_fullscreen_enabled
-            .store(settings.ignore_fullscreen, Ordering::Relaxed);
+            self.state
+                .inline_tab_completion_enabled
+                .store(settings.inline_tab_completion_enabled, Ordering::Relaxed);
+            self.state
+                .inline_history_enabled
+                .store(settings.inline_history_enabled, Ordering::Relaxed);
+            self.state
+                .triggerless_mode
+                .store(settings.triggerless_mode, Ordering::Relaxed);
+            self.state
+                .instant_expand
+                .store(settings.instant_expand, Ordering::Relaxed);
+            self.state
+                .ignore_fullscreen_enabled
+                .store(settings.ignore_fullscreen, Ordering::Relaxed);
 
-        // Update pause notifications (atomic)
-        self.pause_notifications_enabled
-            .store(settings.pause_notifications_enabled, Ordering::Relaxed);
+            // Update pause notifications (atomic)
+            self.pause_notifications_enabled
+                .store(settings.pause_notifications_enabled, Ordering::Relaxed);
 
-        self.pause_audio_enabled
-            .store(settings.pause_audio_enabled, Ordering::Relaxed);
+            self.pause_audio_enabled
+                .store(settings.pause_audio_enabled, Ordering::Relaxed);
 
-        // Update pause hotkey spec (RwLock)
-        if let Some(spec) = crate::hotkey::parse_pause_hotkey_setting(&settings.pause_hotkey)
-            && let Ok(mut lock) = self.pause_hotkey_spec.write()
-        {
-            *lock = spec;
-        }
+            // Update pause hotkey spec (RwLock)
+            if let Some(spec) = crate::hotkey::parse_pause_hotkey_setting(&settings.pause_hotkey)
+                && let Ok(mut lock) = self.pause_hotkey_spec.write()
+            {
+                *lock = spec;
+            }
 
-        // Update pause hotkey display (RwLock)
-        if let Ok(mut lock) = self.pause_hotkey_display.write() {
-            *lock = settings.pause_hotkey;
-        }
+            // Update pause hotkey display (RwLock)
+            if let Ok(mut lock) = self.pause_hotkey_display.write() {
+                *lock = settings.pause_hotkey.clone();
+            }
 
-        // Update spinner style (RwLock)
-        if let Ok(mut lock) = self.spinner_style.write() {
-            *lock = settings.spinner_style;
-        }
+            // Update spinner style (RwLock)
+            if let Ok(mut lock) = self.spinner_style.write() {
+                *lock = settings.spinner_style;
+            }
 
-        if let Ok(mut lock) = self.state.action_delimiter.write() {
-            *lock = settings.action_delimiter;
+            if let Ok(mut lock) = self.state.action_delimiter.write() {
+                *lock = settings.action_delimiter;
+            }
+
+            settings
+        };
+
+        let rpc_settings_changed = if let Ok(active_rpc) = self.active_rpc_settings.read() {
+            let db_rpc = RpcServerSettings {
+                rpc_mode: settings.rpc_mode,
+                rpc_host: settings.rpc_host.clone(),
+                rpc_port: settings.rpc_port,
+                rpc_token: settings.rpc_token.clone(),
+            };
+            *active_rpc != db_rpc
+        } else {
+            false
+        };
+
+        if rpc_settings_changed {
+            debug!("RPC settings changed in DB. Triggering gRPC server reload...");
+            let _ = self.rpc_reload_sender.try_send(());
         }
 
         debug!("Successfully reloaded snippets and settings into daemon.");
@@ -298,6 +352,14 @@ mod tests {
         let pause_hotkey_spec = Arc::new(std::sync::RwLock::new(
             crate::hotkey::parse_pause_hotkey_setting(&pause_hotkey).unwrap(),
         ));
+        let (reload_tx, _reload_rx) = mpsc::channel(1);
+        let active_rpc_settings = Arc::new(std::sync::RwLock::new(RpcServerSettings {
+            rpc_mode: taurine_core::settings::RpcMode::Tcp,
+            rpc_host: String::new(),
+            rpc_port: 0,
+            rpc_token: String::new(),
+        }));
+
         let service = DaemonService::builder()
             .shutdown_sender(tx)
             .state(state.clone())
@@ -310,6 +372,8 @@ mod tests {
             )))
             .pause_audio_enabled(Arc::new(AtomicBool::new(true)))
             .hook_health(crate::hook_health::HookHealth::new())
+            .active_rpc_settings(active_rpc_settings)
+            .rpc_reload_sender(reload_tx)
             .build();
 
         // Initially state should be empty
