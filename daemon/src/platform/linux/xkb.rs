@@ -2,6 +2,7 @@ use evdev::KeyCode;
 use std::collections::HashMap;
 use taurine_core::engine::{EngineEvent, EngineMode};
 use taurine_core::keys::{Modifier, Modifiers};
+use tracing::warn;
 use xkbcommon::xkb;
 
 pub struct XkbMapper {
@@ -11,7 +12,9 @@ pub struct XkbMapper {
 
 impl Default for XkbMapper {
     fn default() -> Self {
-        Self::new().expect("Failed to initialize XKB mapper")
+        Self::new().unwrap_or_else(|e| {
+            panic!("Failed to initialize XKB mapper: {}", e);
+        })
     }
 }
 
@@ -23,7 +26,7 @@ impl XkbMapper {
 
     pub fn new() -> Result<Self, String> {
         let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
-        let keymap = xkb::Keymap::new_from_names(
+        let mut keymap = xkb::Keymap::new_from_names(
             &context,
             "",
             "",
@@ -31,8 +34,30 @@ impl XkbMapper {
             "",
             None,
             xkb::KEYMAP_COMPILE_NO_FLAGS,
-        )
-        .ok_or_else(|| "Failed to create xkb keymap".to_string())?;
+        );
+
+        if keymap.is_none() {
+            warn!(
+                "Failed to create XKB keymap from system environment defaults. Attempting fallback US keyboard layout..."
+            );
+            keymap = xkb::Keymap::new_from_names(
+                &context,
+                "evdev",
+                "pc105",
+                "us",
+                "",
+                None,
+                xkb::KEYMAP_COMPILE_NO_FLAGS,
+            );
+        }
+
+        // PONYTAIL: If both default and US keymap compilations fail, we fail layout initialization.
+        // Ceiling: Headless systems without any XKB rules database files installed cannot run the daemon.
+        // Upgrade path: Support a stateless mock layout fallback.
+        let keymap = keymap.ok_or_else(|| {
+            "Failed to compile both system default and fallback (evdev/pc105/us) XKB keymaps"
+                .to_string()
+        })?;
 
         let state = xkb::State::new(&keymap);
         let mut reverse_map = HashMap::new();
@@ -188,5 +213,24 @@ impl XkbMapper {
             let _ = modifiers.insert(Modifier::Meta);
         }
         modifiers
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_xkb_mapper_creation() {
+        let mapper = XkbMapper::new();
+        if let Ok(mut mapper) = mapper {
+            let event = mapper.process_key(
+                KeyCode::KEY_SPACE,
+                true,
+                EngineMode::Standard,
+                taurine_core::settings::ActionDelimiter::Enter,
+            );
+            assert_eq!(event, Some(EngineEvent::Char(' ')));
+        }
     }
 }

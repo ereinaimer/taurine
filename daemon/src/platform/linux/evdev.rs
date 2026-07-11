@@ -179,10 +179,12 @@ pub(crate) fn spawn_device_listener(
     context: ListenerContext,
     exit_tx: Sender<DeviceExit>,
 ) -> io::Result<()> {
+    let xkb = XkbMapper::new().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
     thread::Builder::new()
         .name("tau-lnx-evdev".to_string())
         .spawn(move || {
-            let mut xkb = XkbMapper::default();
+            let mut xkb = xkb;
             let mut modifier_sides = ModifierSides::default();
             let mut hotkey_evaluator = HotkeyEvaluator::new();
             let device_name = device.name().map(|s| s.to_string());
