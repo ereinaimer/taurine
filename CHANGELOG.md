@@ -40,6 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ### Fixed
+- **Single-Instance Enforcement & gRPC Error Propagation**: Fixed issues where launching duplicate daemon instances would result in silent transport hijacking or infinite high-CPU busy-loops.
+  - Added Unix Domain Socket active listener detection (Unix/macOS) using connection testing before socket file cleanup to prevent duplicate daemons from stealing socket handles.
+  - Implemented early Named Pipe collision check on Windows by pre-allocating the first pipe instance with exclusive access on the main thread.
+  - Propagated gRPC server socket binding and runtime execution errors out of the Tokio runtime, stopping the duplicate process cleanly with exit code `1` instead of indefinitely retrying.
 - **Linux keyboard layout supervisor gating**: Fixed a silent failure on headless Linux and remote SSH sessions where XkbMapper would panic if default system keymap compilation failed, killing the input listener thread without notifying the supervisor. XkbMapper now falls back gracefully to a standard US layout (`evdev/pc105/us`) if system defaults fail to compile, and device listener initialization errors are propagated back to the supervisor instead of panicking silently.
 - **Windows Keyboard Hook Supervisor Reliability**: Fixed a 5-second UI freeze on sleep/wake transitions by reducing the WM_QUIT retry limit from 500 to 50 (max 500ms blocking). Added a watchdog timer that checks the hook listener health every second, automatically restarting it if it hangs during startup (no grab after 3s) or terminates silently without notification.
 - **Missing graceful shutdown for hook and background threads**: Resolved issues where the daemon process would forcibly terminate via `process::exit(0)`. The daemon now coordinates a clean shutdown sequence on Windows, macOS, and Linux by signaling and joining all spawned background threads (including the keyboard hook, clipboard history, power, and fullscreen monitors), permitting standard Rust drop cleanups for database connections and system-level resources.

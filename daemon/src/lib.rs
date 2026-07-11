@@ -191,7 +191,7 @@ pub fn start() -> taurine_core::error::Result<()> {
             }
         })?;
 
-    rt.block_on(async {
+    let run_result = rt.block_on(async {
         let (mut shutdown_tx, mut shutdown_rx) = mpsc::channel(1);
         let (mut rpc_reload_tx, mut rpc_reload_rx) = mpsc::channel(1);
 
@@ -297,6 +297,7 @@ pub fn start() -> taurine_core::error::Result<()> {
 
                 if let Err(e) = server_future.await {
                     error!("gRPC server failed: {}", e);
+                    return Err(taurine_core::error::Error::Transport(Box::new(e)));
                 }
             } else {
                 #[cfg(all(unix, not(target_os = "android")))]
@@ -305,9 +306,19 @@ pub fn start() -> taurine_core::error::Result<()> {
                     use tokio_stream::wrappers::UnixListenerStream;
 
                     let socket_path = taurine_core::paths::get_data_dir().join("taurine.sock");
-                    if socket_path.exists() {
-                        let _ = std::fs::remove_file(&socket_path);
+                    if socket_path.exists()
+                        && std::os::unix::net::UnixStream::connect(&socket_path).is_ok()
+                    {
+                        error!(
+                            "Another daemon instance is already listening on UDS socket: {}",
+                            socket_path.display()
+                        );
+                        return Err(taurine_core::error::Error::Service(format!(
+                            "Another daemon instance is already listening on UDS socket: {}",
+                            socket_path.display()
+                        )));
                     }
+                    let _ = std::fs::remove_file(&socket_path);
 
                     match UnixListener::bind(&socket_path) {
                         Ok(uds) => {
@@ -332,12 +343,14 @@ pub fn start() -> taurine_core::error::Result<()> {
 
                             if let Err(e) = server_future.await {
                                 error!("gRPC server failed: {}", e);
+                                return Err(taurine_core::error::Error::Transport(Box::new(e)));
                             }
 
                             let _ = std::fs::remove_file(&socket_path);
                         }
                         Err(e) => {
                             error!("Failed to bind to UDS socket: {}", e);
+                            return Err(taurine_core::error::Error::Io(e));
                         }
                     }
                 }
@@ -347,6 +360,18 @@ pub fn start() -> taurine_core::error::Result<()> {
                     use tokio::net::windows::named_pipe::ServerOptions;
 
                     let pipe_path = r"\\.\pipe\taurine";
+
+                    let first_server = match ServerOptions::new()
+                        .first_pipe_instance(true)
+                        .create(pipe_path)
+                    {
+                        Ok(s) => s,
+                        Err(e) => {
+                            error!("Failed to create first named pipe instance: {}", e);
+                            return Err(taurine_core::error::Error::Io(e));
+                        }
+                    };
+
                     info!(
                         "Starting gRPC server on Named Pipe UDS equivalent: {}",
                         pipe_path
@@ -358,22 +383,24 @@ pub fn start() -> taurine_core::error::Result<()> {
                     let accept_task = {
                         let pipe_path = pipe_path.to_string();
                         tokio::spawn(async move {
-                            let mut first = true;
+                            let mut next_server = Some(first_server);
                             loop {
-                                let server_instance = ServerOptions::new()
-                                    .first_pipe_instance(first)
-                                    .create(&pipe_path);
-
-                                first = false;
-
-                                let server_instance = match server_instance {
-                                    Ok(s) => s,
-                                    Err(e) => {
-                                        error!("Failed to create named pipe instance: {}", e);
-                                        tokio::time::sleep(std::time::Duration::from_millis(100))
+                                let server_instance = match next_server.take() {
+                                    Some(s) => s,
+                                    None => match ServerOptions::new()
+                                        .first_pipe_instance(false)
+                                        .create(&pipe_path)
+                                    {
+                                        Ok(s) => s,
+                                        Err(e) => {
+                                            error!("Failed to create named pipe instance: {}", e);
+                                            tokio::time::sleep(std::time::Duration::from_millis(
+                                                100,
+                                            ))
                                             .await;
-                                        continue;
-                                    }
+                                            continue;
+                                        }
+                                    },
                                 };
 
                                 if server_instance.connect().await.is_ok()
@@ -399,6 +426,8 @@ pub fn start() -> taurine_core::error::Result<()> {
 
                     if let Err(e) = server_future.await {
                         error!("gRPC server failed: {}", e);
+                        accept_task_abort.abort();
+                        return Err(taurine_core::error::Error::Transport(Box::new(e)));
                     }
                     accept_task_abort.abort();
                 }
@@ -413,7 +442,10 @@ pub fn start() -> taurine_core::error::Result<()> {
                             auth_interceptor.clone(),
                         ))
                         .serve_with_shutdown(addr, shutdown_signal);
-                    let _ = server_future.await;
+                    if let Err(e) = server_future.await {
+                        error!("gRPC server failed: {}", e);
+                        return Err(taurine_core::error::Error::Transport(Box::new(e)));
+                    }
                 }
             }
 
@@ -447,6 +479,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                 }
             }
         }
+        Ok(())
     });
 
     info!("Initiating clean shutdown of all background threads...");
@@ -489,7 +522,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     }
 
     info!("Daemon stopped cleanly. Exiting.");
-    Ok(())
+    run_result
 }
 
 #[cfg(windows)]
