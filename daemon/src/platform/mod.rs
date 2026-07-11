@@ -12,6 +12,16 @@ pub mod macos;
 pub mod executor;
 pub mod spinner_renderer;
 
+#[cfg(not(target_os = "linux"))]
+pub mod rdev_injector;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MouseButton {
+    Left,
+    Right,
+    Middle,
+}
+
 pub trait ClipboardManager {
     fn get_text(&mut self) -> Result<String, String>;
     fn set_text(&mut self, text: &str) -> Result<(), String>;
@@ -22,7 +32,48 @@ pub trait InputHook {
 }
 
 pub trait Injector {
-    // Placeholder for Phase 2/4
+    fn simulate_mouse_click(&self, button: MouseButton);
+    fn simulate_mouse_move(&self, x: u16, y: u16);
+    fn simulate_mouse_scroll(&self, delta: i32);
+    fn simulate_mouse_hold(&self, button: MouseButton, hold: bool);
+    fn simulate_key_alias(&self, alias: &str) -> bool;
+    fn simulate_left(&self, count: usize);
+    fn simulate_right(&self, count: usize);
+    fn simulate_backspace(&self, count: usize);
+    fn simulate_paste(&self);
+    fn pre_release_modifiers(&self);
+    fn try_inject_frame_raw(&self, frame: &str) -> bool;
+}
+
+#[allow(clippy::needless_return)]
+pub fn get_clipboard_manager() -> Result<impl ClipboardManager, String> {
+    #[cfg(windows)]
+    {
+        return Ok(windows::WindowsClipboard);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return Ok(linux::LinuxClipboard);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return Ok(macos::clipboard::MacosClipboard);
+    }
+    #[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
+    {
+        return arboard::Clipboard::new().map_err(|e| e.to_string());
+    }
+}
+
+pub fn get_injector() -> &'static dyn Injector {
+    #[cfg(target_os = "linux")]
+    {
+        &linux::injector::LinuxInjector
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        &rdev_injector::RdevInjector
+    }
 }
 
 #[cfg(windows)]

@@ -1,19 +1,14 @@
-use crate::platform::ClipboardManager;
+use crate::platform::{ClipboardManager, MouseButton};
 use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::Duration;
 use tracing::{debug, error, trace, warn};
 
-use arboard::Clipboard;
 use taurine_core::engine::shell::ScriptBehavior;
 use taurine_core::engine::variables::ExpansionStep;
 
 use super::clipboard::{prepare_clipboard_for_expansion, restore_clipboard};
 use super::gate::{INJECTION_ABORT, InjectionFlagGuard, inject_mutex};
-use super::simulate::{
-    MouseButton, pre_release_modifiers, simulate_key_alias, simulate_mouse_click,
-    simulate_mouse_hold, simulate_mouse_move, simulate_mouse_scroll,
-};
 
 #[cfg(target_os = "linux")]
 const INTER_STEP_DELAY_MS: u64 = 15;
@@ -33,6 +28,30 @@ pub struct TextSegmentInjection {
     pub success: bool,
 }
 
+#[cfg(target_os = "linux")]
+fn linux_direct_typing(
+    text: &str,
+    original_clipboard: &Option<String>,
+    injected_chars: usize,
+) -> TextSegmentInjection {
+    use crate::platform::linux;
+    if let Some(lookup) = linux::get_reverse_lookup() {
+        linux::uinput::simulate_type_string(text, lookup);
+        TextSegmentInjection {
+            original_clipboard: original_clipboard.clone(),
+            injected_chars,
+            success: true,
+        }
+    } else {
+        error!("Direct typing failed: Linux XKB mapper not initialized");
+        TextSegmentInjection {
+            original_clipboard: original_clipboard.clone(),
+            injected_chars: 0,
+            success: false,
+        }
+    }
+}
+
 #[allow(clippy::needless_return)]
 pub fn inject_text_segment(
     text: &str,
@@ -42,22 +61,55 @@ pub fn inject_text_segment(
     let delay_ms = taurine_core::settings::get_cached_clipboard_restore_delay();
     let post_paste_wait = Duration::from_millis(delay_ms as u64);
 
-    #[cfg(windows)]
+    // On Linux, check if we must use direct typing (no display)
+    #[cfg(target_os = "linux")]
     {
-        let mut clip = crate::platform::windows::WindowsClipboard;
-        if original_clipboard.is_none() {
-            // First text segment: save the original clipboard.
-            match prepare_clipboard_for_expansion(&mut clip, text) {
-                Ok(orig) => {
-                    simulate_paste();
-                    thread::sleep(post_paste_wait);
-                    return TextSegmentInjection {
-                        original_clipboard: Some(orig),
-                        injected_chars,
-                        success: true,
-                    };
+        let has_display =
+            std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok();
+        if !has_display {
+            return linux_direct_typing(text, original_clipboard, injected_chars);
+        }
+    }
+
+    // Normal clipboard-based injection
+    let mut clipboard = match crate::platform::get_clipboard_manager() {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Failed to initialize clipboard: {}", e);
+            // On Linux, fall back to direct typing if clipboard fails
+            #[cfg(target_os = "linux")]
+            {
+                return linux_direct_typing(text, original_clipboard, injected_chars);
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                return TextSegmentInjection::default();
+            }
+        }
+    };
+
+    if original_clipboard.is_none() {
+        match prepare_clipboard_for_expansion(&mut clipboard, text) {
+            Ok(orig) => {
+                crate::platform::get_injector().simulate_paste();
+                thread::sleep(post_paste_wait);
+                return TextSegmentInjection {
+                    original_clipboard: Some(orig),
+                    injected_chars,
+                    success: true,
+                };
+            }
+            Err(e) => {
+                #[cfg(target_os = "linux")]
+                {
+                    error!(
+                        "Clipboard expansion failed (verify mismatch or permission issue: {}). Falling back to direct typing.",
+                        e
+                    );
+                    return linux_direct_typing(text, original_clipboard, injected_chars);
                 }
-                Err(e) => {
+                #[cfg(not(target_os = "linux"))]
+                {
                     if e.starts_with("clipboard verify failed:") {
                         warn!("Clipboard content mismatch before paste — {}. Skipping.", e);
                     } else {
@@ -66,193 +118,31 @@ pub fn inject_text_segment(
                     return TextSegmentInjection::default();
                 }
             }
-        } else {
-            // Subsequent text segments: clipboard was already saved.
-            if let Err(e) = clip.set_text(text) {
-                error!("Failed to set clipboard for text segment: {}", e);
-                return TextSegmentInjection {
-                    original_clipboard: original_clipboard.clone(),
-                    injected_chars: 0,
-                    success: false,
-                };
-            }
-            thread::sleep(Duration::from_millis(25));
-            simulate_paste();
-            thread::sleep(post_paste_wait);
+        }
+    } else {
+        if let Err(e) = clipboard.set_text(text) {
+            error!("Failed to set clipboard for text segment: {}", e);
             return TextSegmentInjection {
-                original_clipboard: original_clipboard.clone(),
-                injected_chars,
-                success: true,
-            };
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        use crate::platform::linux;
-
-        let has_display =
-            std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok();
-        let use_typing = !has_display;
-
-        if !use_typing {
-            let mut clipboard = linux::LinuxClipboard;
-            if original_clipboard.is_none() {
-                match prepare_clipboard_for_expansion(&mut clipboard, text) {
-                    Ok(orig) => {
-                        simulate_paste();
-                        thread::sleep(post_paste_wait);
-                        return TextSegmentInjection {
-                            original_clipboard: Some(orig),
-                            injected_chars,
-                            success: true,
-                        };
-                    }
-                    Err(e) => {
-                        error!(
-                            "Clipboard expansion failed (verify mismatch or permission issue: {}). Falling back to direct typing.",
-                            e
-                        );
-                    }
-                }
-            } else {
-                if let Err(e) = clipboard.set_text(text) {
-                    error!("Failed to set clipboard for text segment: {}", e);
-                    return TextSegmentInjection {
-                        original_clipboard: original_clipboard.clone(),
-                        injected_chars: 0,
-                        success: false,
-                    };
-                } else {
-                    thread::sleep(Duration::from_millis(25));
-                    simulate_paste();
-                    thread::sleep(post_paste_wait);
-                }
-                return TextSegmentInjection {
-                    original_clipboard: original_clipboard.clone(),
-                    injected_chars,
-                    success: true,
-                };
-            }
-        }
-
-        // At this point, we must use direct typing (either display-less or fallback).
-        if let Some(lookup) = linux::get_reverse_lookup() {
-            linux::uinput::simulate_type_string(text, lookup);
-            TextSegmentInjection {
-                original_clipboard: original_clipboard.clone(),
-                injected_chars,
-                success: true,
-            }
-        } else {
-            error!("Direct typing failed: Linux XKB mapper not initialized");
-            TextSegmentInjection {
                 original_clipboard: original_clipboard.clone(),
                 injected_chars: 0,
                 success: false,
-            }
+            };
         }
-    }
-
-    #[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
-    {
-        let mut clipboard = match Clipboard::new() {
-            Ok(c) => c,
-            Err(e) => {
-                error!("Failed to initialize clipboard: {}", e);
-                return TextSegmentInjection::default();
-            }
+        thread::sleep(Duration::from_millis(25));
+        crate::platform::get_injector().simulate_paste();
+        thread::sleep(post_paste_wait);
+        return TextSegmentInjection {
+            original_clipboard: original_clipboard.clone(),
+            injected_chars,
+            success: true,
         };
-
-        if original_clipboard.is_none() {
-            match prepare_clipboard_for_expansion(&mut clipboard, text) {
-                Ok(orig) => {
-                    simulate_paste();
-                    thread::sleep(post_paste_wait);
-                    TextSegmentInjection {
-                        original_clipboard: Some(orig),
-                        injected_chars,
-                        success: true,
-                    }
-                }
-                Err(e) => {
-                    if e.starts_with("clipboard verify failed:") {
-                        warn!("Clipboard content mismatch before paste — {}. Skipping.", e);
-                    } else {
-                        error!("Could not prepare clipboard before paste: {}", e);
-                    }
-                    TextSegmentInjection::default()
-                }
-            }
-        } else {
-            if let Err(e) = clipboard.set_text(text) {
-                error!("Failed to set clipboard for text segment: {}", e);
-                return TextSegmentInjection {
-                    original_clipboard: original_clipboard.clone(),
-                    injected_chars: 0,
-                    success: false,
-                };
-            }
-            thread::sleep(Duration::from_millis(25));
-            simulate_paste();
-            thread::sleep(post_paste_wait);
-            TextSegmentInjection {
-                original_clipboard: original_clipboard.clone(),
-                injected_chars,
-                success: true,
-            }
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        let mut clipboard = crate::platform::macos::clipboard::MacosClipboard;
-
-        if original_clipboard.is_none() {
-            match prepare_clipboard_for_expansion(&mut clipboard, text) {
-                Ok(orig) => {
-                    simulate_paste();
-                    thread::sleep(post_paste_wait);
-                    TextSegmentInjection {
-                        original_clipboard: Some(orig),
-                        injected_chars,
-                        success: true,
-                    }
-                }
-                Err(e) => {
-                    if e.starts_with("clipboard verify failed:") {
-                        warn!("Clipboard content mismatch before paste — {}. Skipping.", e);
-                    } else {
-                        error!("Could not prepare clipboard before paste: {}", e);
-                    }
-                    TextSegmentInjection::default()
-                }
-            }
-        } else {
-            if let Err(e) = clipboard.set_text(text) {
-                error!("Failed to set clipboard for text segment: {}", e);
-                return TextSegmentInjection {
-                    original_clipboard: original_clipboard.clone(),
-                    injected_chars: 0,
-                    success: false,
-                };
-            }
-            thread::sleep(Duration::from_millis(25));
-            simulate_paste();
-            thread::sleep(post_paste_wait);
-            TextSegmentInjection {
-                original_clipboard: original_clipboard.clone(),
-                injected_chars,
-                success: true,
-            }
-        }
     }
 }
 
 pub fn inject_undo(trigger_string: String, output_length: usize) {
     let _state_guard = InjectionFlagGuard::begin();
     let _inject_guard = inject_mutex().lock().expect("inject mutex poisoned");
-    pre_release_modifiers();
+    crate::platform::get_injector().pre_release_modifiers();
 
     #[cfg(target_os = "linux")]
     thread::sleep(Duration::from_millis(10));
@@ -268,47 +158,14 @@ pub fn inject_undo(trigger_string: String, output_length: usize) {
         restore_clipboard(original);
     }
 
-    pre_release_modifiers();
+    crate::platform::get_injector().pre_release_modifiers();
 }
 
 fn erase_trigger(delete_count: usize) {
     trace!("Injecting {} backspaces", delete_count);
     for _ in 0..delete_count {
-        #[cfg(target_os = "linux")]
-        {
-            crate::platform::linux::uinput::simulate_keypress(evdev::KeyCode::KEY_BACKSPACE);
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            let _ = super::simulate::simulate_monitored(&rdev::EventType::KeyPress(
-                rdev::Key::Backspace,
-            ));
-            let _ = super::simulate::simulate_monitored(&rdev::EventType::KeyRelease(
-                rdev::Key::Backspace,
-            ));
-        }
+        crate::platform::get_injector().simulate_backspace(1);
         thread::sleep(Duration::from_millis(3));
-    }
-}
-
-fn simulate_paste() {
-    #[cfg(target_os = "linux")]
-    {
-        crate::platform::linux::uinput::simulate_key(evdev::KeyCode::KEY_LEFTCTRL, true);
-        crate::platform::linux::uinput::simulate_keypress(evdev::KeyCode::KEY_V);
-        crate::platform::linux::uinput::simulate_key(evdev::KeyCode::KEY_LEFTCTRL, false);
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let modifier = if cfg!(target_os = "macos") {
-            rdev::Key::MetaLeft
-        } else {
-            rdev::Key::ControlLeft
-        };
-        let _ = super::simulate::simulate_monitored(&rdev::EventType::KeyPress(modifier));
-        let _ = super::simulate::simulate_monitored(&rdev::EventType::KeyPress(rdev::Key::KeyV));
-        let _ = super::simulate::simulate_monitored(&rdev::EventType::KeyRelease(rdev::Key::KeyV));
-        let _ = super::simulate::simulate_monitored(&rdev::EventType::KeyRelease(modifier));
     }
 }
 
@@ -323,7 +180,7 @@ impl StreamingTextSession {
     pub fn begin() -> Self {
         let guard = inject_mutex().lock().expect("inject mutex poisoned");
         let state_guard = InjectionFlagGuard::begin();
-        pre_release_modifiers();
+        crate::platform::get_injector().pre_release_modifiers();
 
         Self {
             guard: Some(guard),
@@ -359,7 +216,7 @@ impl StreamingTextSession {
             restore_clipboard(original);
         }
 
-        pre_release_modifiers();
+        crate::platform::get_injector().pre_release_modifiers();
         self.original_clipboard = None;
         self.tracked_chars = 0;
         self.guard.take();
@@ -383,7 +240,7 @@ pub fn inject_expansion(
     let _inject_guard = inject_mutex().lock().expect("inject mutex poisoned");
 
     // Pre-Release: neutralize modifier state before any injection.
-    pre_release_modifiers();
+    crate::platform::get_injector().pre_release_modifiers();
 
     // On Linux, give the OS a moment to register the released modifiers before typing starts.
     #[cfg(target_os = "linux")]
@@ -434,30 +291,30 @@ pub fn inject_expansion(
                 }
             }
             ExpansionStep::KeyPress(alias) => {
-                if !simulate_key_alias(alias) {
+                if !crate::platform::get_injector().simulate_key_alias(alias) {
                     debug!("Unknown key alias '{}', skipping", alias);
                 }
             }
             ExpansionStep::MouseClick => {
-                simulate_mouse_click(MouseButton::Left);
+                crate::platform::get_injector().simulate_mouse_click(MouseButton::Left);
             }
             ExpansionStep::MouseRClick => {
-                simulate_mouse_click(MouseButton::Right);
+                crate::platform::get_injector().simulate_mouse_click(MouseButton::Right);
             }
             ExpansionStep::MouseMClick => {
-                simulate_mouse_click(MouseButton::Middle);
+                crate::platform::get_injector().simulate_mouse_click(MouseButton::Middle);
             }
             ExpansionStep::MouseMove(x, y) => {
-                simulate_mouse_move(*x, *y);
+                crate::platform::get_injector().simulate_mouse_move(*x, *y);
             }
             ExpansionStep::MouseScroll(delta) => {
-                simulate_mouse_scroll(*delta);
+                crate::platform::get_injector().simulate_mouse_scroll(*delta);
             }
             ExpansionStep::MouseHold => {
-                simulate_mouse_hold(MouseButton::Left, true);
+                crate::platform::get_injector().simulate_mouse_hold(MouseButton::Left, true);
             }
             ExpansionStep::MouseRelease => {
-                simulate_mouse_hold(MouseButton::Left, false);
+                crate::platform::get_injector().simulate_mouse_hold(MouseButton::Left, false);
             }
             ExpansionStep::Delay(ms) => {
                 // Split long delays into smaller chunks so abort is responsive.
@@ -630,6 +487,6 @@ pub fn inject_expansion(
     }
 
     // Panic Release: ensure all modifiers are logically released.
-    pre_release_modifiers();
+    crate::platform::get_injector().pre_release_modifiers();
     report
 }

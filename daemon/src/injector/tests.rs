@@ -4,8 +4,8 @@ use super::gate::{
     InjectionGate, inject_mutex,
 };
 use super::inject::{InjectionReport, inject_expansion, inject_text_segment};
-use super::simulate::MouseButton;
 use crate::platform::ClipboardManager;
+use crate::platform::MouseButton;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
@@ -291,20 +291,20 @@ fn mock_clipboard_operation_order_matches_protocol() {
 
 #[cfg(target_os = "linux")]
 fn resolve_alias(alias: &str) -> bool {
-    super::simulate::alias_to_evdev_key(alias).is_some()
+    crate::platform::linux::injector::alias_to_evdev_key(alias).is_some()
 }
 #[cfg(not(target_os = "linux"))]
 fn resolve_alias(alias: &str) -> bool {
-    super::simulate::alias_to_rdev_key(alias).is_some()
+    crate::platform::rdev_injector::alias_to_rdev_key(alias).is_some()
 }
 
 #[cfg(target_os = "linux")]
 fn resolve_modifier(alias: &str) -> bool {
-    super::simulate::modifier_alias_to_evdev_key(alias).is_some()
+    crate::platform::linux::injector::modifier_alias_to_evdev_key(alias).is_some()
 }
 #[cfg(not(target_os = "linux"))]
 fn resolve_modifier(alias: &str) -> bool {
-    super::simulate::modifier_alias_to_rdev_key(alias).is_some()
+    crate::platform::rdev_injector::modifier_alias_to_rdev_key(alias).is_some()
 }
 
 #[test]

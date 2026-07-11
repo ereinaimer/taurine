@@ -41,36 +41,14 @@ pub(super) fn prepare_clipboard_for_expansion(
 
 /// Restores the user's original clipboard content.
 pub(super) fn restore_clipboard(original: &str) {
-    #[cfg(windows)]
-    {
-        let mut clip = crate::platform::windows::WindowsClipboard;
-        if let Err(e) = clip.set_text(original) {
-            error!("Failed to restore clipboard: {}", e);
+    match crate::platform::get_clipboard_manager() {
+        Ok(mut clip) => {
+            if let Err(e) = clip.set_text(original) {
+                error!("Failed to restore clipboard: {}", e);
+            }
         }
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let mut clipboard = crate::platform::linux::LinuxClipboard;
-        if let Err(e) = clipboard.set_text(original) {
-            error!("Failed to restore clipboard: {}", e);
-        }
-    }
-
-    #[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
-    {
-        if let Ok(mut clipboard) = Clipboard::new()
-            && let Err(e) = clipboard.set_text(original)
-        {
-            error!("Failed to restore clipboard: {}", e);
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        let mut clipboard = crate::platform::macos::clipboard::MacosClipboard;
-        if let Err(e) = clipboard.set_text(original) {
-            error!("Failed to restore clipboard: {}", e);
+        Err(e) => {
+            error!("Failed to get clipboard manager: {}", e);
         }
     }
 }

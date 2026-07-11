@@ -7,6 +7,7 @@ use std::sync::{Mutex, OnceLock};
 
 pub mod evdev;
 pub mod fullscreen;
+pub mod injector;
 pub mod input_supervisor;
 pub mod security;
 pub mod uinput;
