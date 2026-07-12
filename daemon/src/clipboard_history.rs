@@ -26,13 +26,7 @@ pub fn start_listener() {
     #[cfg(not(target_os = "macos"))]
     const POLL_INTERVAL: Duration = Duration::from_millis(350);
 
-    let mut clip = match arboard::Clipboard::new() {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!("Failed to initialize clipboard listener: {}", e);
-            return;
-        }
-    };
+    let mut clip_opt: Option<arboard::Clipboard> = None;
 
     #[cfg(target_os = "macos")]
     // SAFETY: generalPasteboard is thread-safe and always returns a valid pasteboard instance.
@@ -65,14 +59,36 @@ pub fn start_listener() {
             last_change_count = current;
         }
 
-        match try_read_clipboard_text_bounded(&mut clip) {
+        let clip = match &mut clip_opt {
+            Some(c) => c,
+            None => match arboard::Clipboard::new() {
+                Ok(c) => {
+                    clip_opt = Some(c);
+                    clip_opt.as_mut().unwrap()
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to initialize clipboard listener: {}. Retrying...",
+                        e
+                    );
+                    thread::sleep(INIT_RETRY_INTERVAL);
+                    continue;
+                }
+            },
+        };
+
+        match try_read_clipboard_text_bounded(clip) {
             Ok(Some(text)) => {
                 let _ = clip_manager().record_text(text);
                 thread::sleep(POLL_INTERVAL);
             }
             Ok(None) => thread::sleep(POLL_INTERVAL),
             Err(error) => {
-                tracing::warn!("Clipboard history listener error: {}", error);
+                tracing::warn!(
+                    "Clipboard history listener error: {}. Resetting connection.",
+                    error
+                );
+                clip_opt = None;
                 thread::sleep(INIT_RETRY_INTERVAL);
             }
         }

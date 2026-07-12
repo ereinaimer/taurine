@@ -152,7 +152,17 @@ pub fn resolve(key: &str) -> Option<String> {
         return Some(mocked.get(index).cloned().unwrap_or_default());
     }
 
-    Some(clip_manager().get(index).unwrap_or_default())
+    if let Some(val) = clip_manager().get(index) {
+        Some(val)
+    } else if index == 0 {
+        let text_opt = arboard::Clipboard::new()
+            .ok()
+            .and_then(|mut clip| clip.get_text().ok())
+            .filter(|text| text.len() <= MAX_PAYLOAD_BYTES);
+        Some(text_opt.unwrap_or_default())
+    } else {
+        Some(String::new())
+    }
 }
 
 /// Sets the mock clip content for the current thread.

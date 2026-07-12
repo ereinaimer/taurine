@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Unused Dependencies**: Clean up workspace dependency bloat (`chrono`, `sha1`, `crc32fast`).
 
 ### Fixed
+- **Linux Clipboard Listener Resilience**: Implement self-healing and startup retries for the clipboard history listener on non-Windows platforms.
+- **Live Clipboard Fallback**: Resolve the [clip] variable from the live clipboard when history is empty or disabled.
 - **Slash Normalization**: Normalize mixed forward and backward slashes in application filter paths.
 - **Single-Instance Enforcement**: Fix transport hijacking and socket handle collisions for duplicate daemon processes.
 - **Keyboard Layout Supervisor**: Gracefully compile default US keymap fallback and propagate listener errors.
