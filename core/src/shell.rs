@@ -72,37 +72,68 @@ pub fn line_exists_in_rc_file(path: &Path, line: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Append a PATH configuration line appropriate for the shell profile.
+pub fn ensure_path_in_profile(path: &Path, bin_dir: &str) -> std::io::Result<bool> {
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    if name.contains("fish") {
+        let line = format!("fish_add_path \"{bin_dir}\"");
+        append_line_to_rc_file(path, &line)
+    } else if name.contains("csh") {
+        let line = format!("set path = ( $path \"{bin_dir}\" )");
+        append_line_to_rc_file(path, &line)
+    } else {
+        let line = format!("export PATH=\"{bin_dir}:$PATH\"");
+        append_line_to_rc_file(path, &line)
+    }
+}
+
 /// Return a list of shell profile file paths for the current OS.
 ///
 /// The list may contain paths that do not yet exist on disk; callers should
 /// check existence or pass them directly to [`append_line_to_rc_file`] (which
 /// creates files on demand).
 pub fn detect_shell_profiles() -> Vec<PathBuf> {
+    if cfg!(target_os = "windows") {
+        return Vec::new();
+    }
+
     let home = std::env::var("HOME").unwrap_or_default();
+    if home.is_empty() {
+        return Vec::new();
+    }
     let home_path = PathBuf::from(&home);
     let mut profiles = Vec::new();
 
-    if cfg!(target_os = "windows") {
-        // Windows does not have Unix-style RC files.
-        // PowerShell profile is handled directly in completions.rs / install.ps1.
-    } else if cfg!(target_os = "macos") {
-        profiles.push(home_path.join(".zprofile"));
+    // 1. Detect active shell to ensure we cover its profile
+    let shell = std::env::var("SHELL").unwrap_or_default();
+    if shell.contains("zsh") {
         profiles.push(home_path.join(".zshrc"));
-        profiles.push(home_path.join(".bash_profile"));
-    } else {
-        // Linux / others
-        let shell = std::env::var("SHELL").unwrap_or_default();
-        if shell.contains("zsh") {
-            profiles.push(home_path.join(".zshrc"));
-        } else if shell.contains("fish") {
-            profiles.push(home_path.join(".config/fish/config.fish"));
-        } else {
-            profiles.push(home_path.join(".bashrc"));
-        }
-        // Also include the alternatives so we catch multi-shell setups
+    } else if shell.contains("fish") {
+        profiles.push(home_path.join(".config/fish/config.fish"));
+    } else if shell.contains("csh") || shell.contains("tcsh") {
+        profiles.push(home_path.join(".cshrc"));
+    } else if shell.contains("bash") {
         profiles.push(home_path.join(".bashrc"));
-        profiles.push(home_path.join(".zshrc"));
-        profiles.push(home_path.join(".bash_profile"));
+    } else {
+        profiles.push(home_path.join(".profile"));
+    }
+
+    // 2. Add other existing shell profiles to support multi-shell configurations
+    let candidates = [
+        home_path.join(".zshrc"),
+        home_path.join(".zprofile"),
+        home_path.join(".bashrc"),
+        home_path.join(".bash_profile"),
+        home_path.join(".profile"),
+        home_path.join(".config/fish/config.fish"),
+        home_path.join(".tcshrc"),
+        home_path.join(".cshrc"),
+    ];
+
+    for path in candidates {
+        if path.exists() {
+            profiles.push(path);
+        }
     }
 
     // Deduplicate while preserving order

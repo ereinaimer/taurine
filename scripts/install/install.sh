@@ -36,12 +36,6 @@ for cmd in curl tar; do
     fi
 done
 
-# Check if already installed
-if [ -x "$INSTALL_DIR/taurine" ]; then
-    echo "Taurine is already installed at $INSTALL_DIR/taurine. Skipping installation."
-    exit 0
-fi
-
 # Cleanup handler — always remove temp dir on exit
 TMP_DIR=$(mktemp -d)
 cleanup() {
@@ -128,6 +122,116 @@ invoke_with_retry() {
     return 1
 }
 
+version_gt() {
+    # Returns 0 if $1 > $2, 1 otherwise
+    local v1="${1%%-*}"
+    local v2="${2%%-*}"
+
+    local IFS=.
+    set -f
+    local parts1=($v1) parts2=($v2)
+    set +f
+
+    for i in 0 1 2 3; do
+        local a="${parts1[$i]:-0}"
+        local b="${parts2[$i]:-0}"
+        a="${a%%[!0-9]*}"
+        b="${b%%[!0-9]*}"
+        a="${a:-0}"
+        b="${b:-0}"
+        if [ "$a" -gt "$b" ] 2>/dev/null; then return 0; fi
+        if [ "$a" -lt "$b" ] 2>/dev/null; then return 1; fi
+    done
+    return 1
+}
+
+trim() {
+    echo "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+
+configure_profile() {
+    local profile="$1"
+    local shell_type="$2"
+    local modified=false
+
+    # Ensure profile directory exists
+    mkdir -p "$(dirname "$profile")"
+
+    # 1. Handle PATH (idempotent)
+    if [ "$shell_type" = "fish" ]; then
+        local path_line="fish_add_path \"$INSTALL_DIR\""
+        if [ -f "$profile" ]; then
+            if ! grep -Fq "$path_line" "$profile" 2>/dev/null; then
+                printf "\n%s\n" "$path_line" >> "$profile"
+                modified=true
+            fi
+        else
+            printf "\n%s\n" "$path_line" >> "$profile"
+            modified=true
+        fi
+    elif [ "$shell_type" = "csh" ]; then
+        local path_line="set path = ( \$path \"$INSTALL_DIR\" )"
+        if [ -f "$profile" ]; then
+            if ! grep -Fq "$path_line" "$profile" 2>/dev/null; then
+                printf "\n%s\n" "$path_line" >> "$profile"
+                modified=true
+            fi
+        else
+            printf "\n%s\n" "$path_line" >> "$profile"
+            modified=true
+        fi
+    else
+        local path_line="export PATH=\"$INSTALL_DIR:\$PATH\""
+        if [ -f "$profile" ]; then
+            if ! grep -Fxq "$path_line" "$profile" 2>/dev/null; then
+                printf "\n%s\n" "$path_line" >> "$profile"
+                modified=true
+            fi
+        else
+            printf "\n%s\n" "$path_line" >> "$profile"
+            modified=true
+        fi
+    fi
+
+    # 2. Handle Alias (Ensure only ONE entry of the alias exists, and it's correct)
+    local alias_line="alias tau='taurine'"
+    local alias_prefix="alias tau="
+    if [ "$shell_type" = "csh" ]; then
+        alias_line="alias tau taurine"
+        alias_prefix="alias tau "
+    fi
+
+    if [ -f "$profile" ]; then
+        local matches
+        matches=$(grep -F "$alias_prefix" "$profile" || true)
+        local count
+        count=$(echo "$matches" | grep -c . || true)
+        local trimmed_match
+        trimmed_match=$(trim "$matches")
+
+        if [ "$count" -eq 1 ] && [ "$trimmed_match" = "$alias_line" ]; then
+            : # Already correct
+        else
+            local tmp_profile
+            tmp_profile=$(mktemp)
+            grep -Fv "$alias_prefix" "$profile" > "$tmp_profile" || true
+            cat "$tmp_profile" > "$profile"
+            rm -f "$tmp_profile"
+            printf "\n%s\n" "$alias_line" >> "$profile"
+            modified=true
+        fi
+    else
+        printf "\n%s\n" "$alias_line" >> "$profile"
+        modified=true
+    fi
+
+    if [ "$modified" = true ]; then
+        return 0 # Modified
+    else
+        return 1 # Not modified
+    fi
+}
+
 # Fetch latest release manifest
 invoke_with_retry "Fetching latest release manifest" "curl -fsSL https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json -o \"$TMP_DIR/manifest.json\"" || exit 1
 
@@ -141,68 +245,121 @@ if [ -z "$VERSION" ] || [ -z "$URL" ]; then
     exit 1
 fi
 
-ARCHIVE="$TMP_DIR/taurine.tar.xz"
-
-# Download archive with retry
-invoke_with_retry "Downloading taurine v$VERSION" "curl -fsSL \"$URL\" -o \"$ARCHIVE\"" || exit 1
-
-# Verify checksum if available
-if [ -n "$SHA256" ]; then
-    verify_checksum "$ARCHIVE" "$SHA256" || {
-        echo "Error: Checksum verification failed for downloaded archive."
-        exit 1
-    }
+IS_INSTALLED=false
+IS_FRESH_INSTALL=false
+if [ -x "$INSTALL_DIR/taurine" ]; then
+    LOCAL_VERSION=$("$INSTALL_DIR/taurine" --version 2>/dev/null | awk '{print $2}') || true
+    if [ -n "$LOCAL_VERSION" ]; then
+        if [ "$LOCAL_VERSION" = "$VERSION" ]; then
+            printf "\x1b[32m✓\x1b[0m Taurine is already installed, up to date (v%s), and configured properly.\n" "$LOCAL_VERSION"
+        elif version_gt "$LOCAL_VERSION" "$VERSION"; then
+            printf "\x1b[32m✓\x1b[0m Taurine is already installed, up to date (v%s), and configured properly.\n" "$LOCAL_VERSION"
+        else
+            printf "Taurine is already installed but a newer version (v%s) is available. Please run 'tau update' to update.\n" "$VERSION"
+        fi
+    else
+        printf "Taurine is already installed. If you want to update to the latest version (v%s), please run 'tau update'.\n" "$VERSION"
+    fi
+    IS_INSTALLED=true
 fi
 
-# Extract
-mkdir -p "$INSTALL_DIR"
-run_with_spinner "Extracting" "tar -xf \"$ARCHIVE\" -C \"$TMP_DIR\"" || {
-    echo "Error: Extraction failed." >&2
-    exit 1
-}
+if [ "$IS_INSTALLED" = false ]; then
+    ARCHIVE="$TMP_DIR/taurine.tar.xz"
 
-# Copy binary
-cp "$TMP_DIR/taurine" "$INSTALL_DIR/"
-chmod +x "$INSTALL_DIR/taurine"
+    # Download archive with retry
+    invoke_with_retry "Downloading taurine v$VERSION" "curl -fsSL \"$URL\" -o \"$ARCHIVE\"" || exit 1
 
-# Add to PATH
-ADDED_PATH=false
-if [ "$OS" = "Darwin" ]; then
-    for profile in "$HOME/.zprofile" "$HOME/.bash_profile"; do
-        touch "$profile"
-        if ! grep -Fxq "export PATH=\"$INSTALL_DIR:\$PATH\"" "$profile"; then
-            printf "\nexport PATH=\"%s:\$PATH\"\n" "$INSTALL_DIR" >> "$profile"
-            ADDED_PATH=true
-        fi
-    done
-else
-    for profile in "$HOME/.bashrc" "$HOME/.zshrc"; do
+    # Verify checksum if available
+    if [ -n "$SHA256" ]; then
+        verify_checksum "$ARCHIVE" "$SHA256" || {
+            echo "Error: Checksum verification failed for downloaded archive."
+            exit 1
+        }
+    fi
+
+    # Extract
+    mkdir -p "$INSTALL_DIR"
+    run_with_spinner "Extracting" "tar -xf \"$ARCHIVE\" -C \"$TMP_DIR\"" || {
+        echo "Error: Extraction failed." >&2
+        exit 1
+    }
+
+    # Copy binary
+    cp "$TMP_DIR/taurine" "$INSTALL_DIR/"
+    chmod +x "$INSTALL_DIR/taurine"
+    IS_INSTALLED=true
+    IS_FRESH_INSTALL=true
+
+    printf "\x1b[32m✓\x1b[0m taurine v%s installed\n" "$VERSION"
+fi
+
+# Configure shell profiles if installation succeeded (either fresh or pre-existing)
+if [ "$IS_INSTALLED" = true ]; then
+    # Determine active shell to ensure we have at least one profile file
+    ACTIVE_SHELL=$(basename "${SHELL:-bash}")
+    case "$ACTIVE_SHELL" in
+        zsh)   touch "$HOME/.zshrc" ;;
+        fish)  mkdir -p "$HOME/.config/fish" && touch "$HOME/.config/fish/config.fish" ;;
+        csh|tcsh) touch "$HOME/.cshrc" ;;
+        bash)  touch "$HOME/.bashrc" ;;
+        *)     touch "$HOME/.profile" ;;
+    esac
+
+    ADDED_PATH=false
+    MODIFIED_PROFILES=()
+
+    # POSIX profiles
+    for profile in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.bash_profile" "$HOME/.zprofile" "$HOME/.profile"; do
         if [ -f "$profile" ]; then
-            if ! grep -Fxq "export PATH=\"$INSTALL_DIR:\$PATH\"" "$profile"; then
-                printf "\nexport PATH=\"%s:\$PATH\"\n" "$INSTALL_DIR" >> "$profile"
+            if configure_profile "$profile" "posix"; then
                 ADDED_PATH=true
+                MODIFIED_PROFILES+=("$profile")
             fi
         fi
     done
-fi
 
-# Set up tau alias
-printf "\nSetting up 'tau' alias...\n"
-ALIAS_LINE="alias tau='taurine'"
-for profile in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zprofile"; do
-    if [ -f "$profile" ] && ! grep -Fq "alias tau=" "$profile" 2>/dev/null; then
-        printf "\n%s\n" "$ALIAS_LINE" >> "$profile"
+    # Fish profile
+    FISH_PROFILE="$HOME/.config/fish/config.fish"
+    if [ -f "$FISH_PROFILE" ]; then
+        if configure_profile "$FISH_PROFILE" "fish"; then
+            ADDED_PATH=true
+            MODIFIED_PROFILES+=("$FISH_PROFILE")
+        fi
     fi
-done
 
-printf "\x1b[32m✓\x1b[0m taurine v%s installed\n" "$VERSION"
-if [ "$ADDED_PATH" = true ]; then
-    printf "Added to PATH. Please restart your shell or run:\n"
-    if [ "$OS" = "Darwin" ]; then
-        printf "  source ~/.zprofile\n"
-    else
-        printf "  source ~/.bashrc\n"
+    # Csh/Tcsh profiles
+    for profile in "$HOME/.tcshrc" "$HOME/.cshrc"; do
+        if [ -f "$profile" ]; then
+            if configure_profile "$profile" "csh"; then
+                ADDED_PATH=true
+                MODIFIED_PROFILES+=("$profile")
+            fi
+        fi
+    done
+
+    if [ "$IS_FRESH_INSTALL" = true ]; then
+        if [ "$ADDED_PATH" = true ]; then
+            printf "Added to PATH and set up alias tau in your shell profiles:\n"
+            for p in "${MODIFIED_PROFILES[@]}"; do
+                printf "  %s\n" "$p"
+            done
+            printf "Please restart your shell or source your profile to apply the changes.\n"
+        else
+            ON_PATH=false
+            if command -v taurine >/dev/null 2>&1; then
+                ON_PATH=true
+            fi
+            case ":$PATH:" in
+                *:"$INSTALL_DIR":*) ON_PATH=true ;;
+            esac
+
+            if [ "$ON_PATH" = true ]; then
+                printf "\x1b[32m✓\x1b[0m Taurine binary is already on your PATH.\n"
+            else
+                printf "Taurine binary is configured in your profile, but not in your current shell session.\n"
+                printf "Please restart your shell or source your profile.\n"
+            fi
+            printf "\x1b[32m✓\x1b[0m alias 'tau' is already set up.\n"
+        fi
     fi
 fi
-printf "Added alias tau to your shell profile.\n"
-printf "Now you can run 'tau --help' for more details.\n"

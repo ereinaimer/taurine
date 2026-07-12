@@ -9,16 +9,31 @@ use tracing::{debug, info};
 
 use crate::shell;
 
-// Platform-specific alias line and removal prefix.
-#[cfg(not(target_os = "windows"))]
-const TAU_ALIAS_LINE: &str = "alias tau='taurine'";
-#[cfg(not(target_os = "windows"))]
-const TAU_REMOVE_PREFIX: &str = "alias tau=";
+fn get_alias_line_for_profile(path: &std::path::Path) -> &'static str {
+    if cfg!(target_os = "windows") {
+        "function tau { taurine @args }"
+    } else {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if name.contains("csh") {
+            "alias tau taurine"
+        } else {
+            "alias tau='taurine'"
+        }
+    }
+}
 
-#[cfg(target_os = "windows")]
-const TAU_ALIAS_LINE: &str = "function tau { taurine @args }";
-#[cfg(target_os = "windows")]
-const TAU_REMOVE_PREFIX: &str = "function tau";
+fn get_remove_prefix_for_profile(path: &std::path::Path) -> &'static str {
+    if cfg!(target_os = "windows") {
+        "function tau"
+    } else {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if name.contains("csh") {
+            "alias tau "
+        } else {
+            "alias tau="
+        }
+    }
+}
 
 /// Return the shell profiles relevant for the tau alias on the current OS.
 ///
@@ -69,7 +84,7 @@ pub fn tau_alias_is_set() -> bool {
 fn tau_alias_is_set_in(profiles: &[PathBuf]) -> bool {
     profiles
         .iter()
-        .any(|p| shell::line_exists_in_rc_file(p, TAU_ALIAS_LINE))
+        .any(|p| shell::line_exists_in_rc_file(p, get_alias_line_for_profile(p)))
 }
 
 /// Ensure the `tau` alias exists in all detected shell profiles.
@@ -95,16 +110,53 @@ fn ensure_tau_alias_in(profiles: &[PathBuf]) -> bool {
     let mut modified = false;
 
     for profile in profiles {
-        match shell::append_line_to_rc_file(profile, TAU_ALIAS_LINE) {
-            Ok(true) => {
+        let expected_line = get_alias_line_for_profile(profile);
+        let remove_prefix = get_remove_prefix_for_profile(profile);
+
+        if !profile.exists() {
+            if let Ok(true) = shell::append_line_to_rc_file(profile, expected_line) {
                 debug!("Added tau alias to: {}", profile.display());
                 modified = true;
             }
-            Ok(false) => {
-                // Already present — nothing to do.
+            continue;
+        }
+
+        match std::fs::read_to_string(profile) {
+            Ok(content) => {
+                let lines: Vec<&str> = content.lines().collect();
+                let matches: Vec<&str> = lines
+                    .iter()
+                    .copied()
+                    .filter(|line| line.contains(remove_prefix))
+                    .collect();
+
+                // If there is exactly one match and it matches expected_line exactly (when trimmed), we are done
+                if matches.len() == 1 && matches[0].trim() == expected_line {
+                    continue;
+                }
+
+                // Filter out all matching lines and write back with exactly one clean alias line
+                let clean_lines: Vec<&str> = lines
+                    .into_iter()
+                    .filter(|line| !line.contains(remove_prefix))
+                    .collect();
+
+                let mut new_content = clean_lines.join("\n");
+                if !new_content.is_empty() {
+                    new_content.push_str("\n\n");
+                }
+                new_content.push_str(expected_line);
+                new_content.push('\n');
+
+                if let Err(e) = std::fs::write(profile, new_content) {
+                    debug!("Could not write to {}: {e}", profile.display());
+                } else {
+                    debug!("Cleaned and set tau alias in: {}", profile.display());
+                    modified = true;
+                }
             }
             Err(e) => {
-                debug!("Could not write to {}: {e}", profile.display());
+                debug!("Could not read {}: {e}", profile.display());
             }
         }
     }
@@ -127,7 +179,8 @@ fn remove_tau_alias_in(profiles: &[PathBuf]) -> bool {
     let mut modified = false;
 
     for profile in profiles {
-        match shell::remove_lines_from_rc_file(profile, TAU_REMOVE_PREFIX) {
+        let remove_prefix = get_remove_prefix_for_profile(profile);
+        match shell::remove_lines_from_rc_file(profile, remove_prefix) {
             Ok(true) => {
                 debug!("Removed tau alias from: {}", profile.display());
                 modified = true;
@@ -248,5 +301,31 @@ mod tests {
         // On non-Windows without HOME it may be empty; on Windows without PROFILE it may be empty
         // Just verify it returns without panicking and is a Vec
         assert!(profiles.is_empty() || !profiles.is_empty());
+    }
+
+    #[test]
+    fn test_ensure_tau_alias_in_cleans_duplicates_and_mismatch() {
+        let dir = tempfile::tempdir().unwrap();
+        let rc = dir.path().join(".bashrc");
+
+        let initial_content = if cfg!(target_os = "windows") {
+            "function tau { foo }\nexport EDITOR=vim\nfunction tau { bar }\n"
+        } else {
+            "alias tau='foo'\nexport EDITOR=vim\nalias tau='bar'\n"
+        };
+        fs::write(&rc, initial_content).unwrap();
+
+        let modified = ensure_tau_alias_in(std::slice::from_ref(&rc));
+        assert!(modified);
+
+        let content = fs::read_to_string(&rc).unwrap();
+        assert!(content.contains("export EDITOR=vim"));
+
+        let prefix = get_remove_prefix_for_profile(&rc);
+        let count = content.lines().filter(|line| line.contains(prefix)).count();
+        assert_eq!(count, 1);
+
+        let expected = get_alias_line_for_profile(&rc);
+        assert!(content.contains(expected));
     }
 }

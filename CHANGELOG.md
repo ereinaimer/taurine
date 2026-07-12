@@ -5,58 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+### [Unreleased]
 
 ### Added
-- **App-Specific Triggers**: Restrict word and hotkey expansions to specific applications, window classes, or window titles.
-  - Added new CLI flags `--include-apps` and `--exclude-apps` (accepting comma-separated lists) to `taurine add` and `taurine script`.
-  - Added support for prefix specifiers: `exe:<name>` (process name exact match, or full path if it contains separators), `class:<name>` (window class or bundle ID exact match), and `title:<substring>` (window title substring match), defaulting to `exe:` if no prefix is supplied.
-  - The same hotkey can be mapped to different actions for different applications, as long as their app filters do not overlap.
-  - Implemented secure fail-safe: if the operating system fails to query the focused application or window title, restricted automations are safely blocked from executing.
-- **Zeroize AI API Keys**: Utilized self-erasing memory (`Zeroizing`) to automatically clear AI API keys from system memory as soon as they are no longer needed, reducing potential exposure in core, daemon, and CLI processes.
-- **Configurable RPC Settings and Token-Based Authentication**: Implemented customizable RPC communication settings with secure token-based authentication.
-  - Added new configuration keys: `rpc_mode`, `rpc_host`, and `rpc_token`.
-  - Added a gRPC interceptor to the daemon that validates requests against a secure Bearer token across all transport modes (TCP, sockets, and named pipes) for defense-in-depth security.
-  - Automatically generates a secure cryptographically random UUID v4 token if the RPC token setting is empty.
-  - Exposed these settings in the TUI Settings screen and CLI with platform-specific visibility rules (hiding TCP settings when UDS or Named Pipes are active).
-  - Allowed overriding the connection token on clients using the `TAURINE_RPC_TOKEN` environment variable.
-- **Linux and macOS Clipboard History Support**: Wired up full clipboard history tracking on non-Windows platforms. Uses AppKit's `changeCount` API on macOS for zero-overhead change detection, and polls `arboard` on Linux at an optimized 350ms interval to eliminate idle CPU battery drain.
-- **Configurable Clipboard History and Exclusions**: Implemented customizable settings to control clipboard history recording and retention.
-  - Added new configuration keys: `clipboard_history_enabled` and `clipboard_history_retention_secs`.
-  - Added automated in-memory pruning and expiration of clipboard history items based on the retention duration.
-  - Added warnings to TUI library screen and CLI automation addition command when users define snippets containing `[clip]` variables while clipboard history is disabled.
-  - Integrated native macOS clipboard exclusions by setting standard transient pasteboard types (`org.nspasteboard.TransientType`, etc.) with empty data to prevent third-party clipboard managers from capturing sensitive expansions.
-  - Exposed these settings in the TUI Settings screen and CLI configuration commands.
-- **`tau` shell alias**: The install scripts now automatically set up a `tau` shell alias for `taurine`. The `update` command also ensures the alias is present after an update. A new `core::shell` module centralizes RC file manipulation logic, reused by the update, completions, and alias modules.
+- **App-Specific Triggers**: Restrict word/hotkey expansions to specific applications, window classes, or window titles.
+- **Zeroize AI API Keys**: Clear AI API keys from system memory automatically after use.
+- **Configurable RPC & Authentication**: Add secure Bearer token validation and configurable RPC settings.
+- **Unix Clipboard History**: Enable clipboard history support on Linux and macOS with optimized resource utilization.
+- **Configurable Clipboard Exclusions**: Provide options to configure history retention, exclusions, and transient pasteboard safety.
+- **`tau` Shell Alias**: Configure PATH and `tau` alias across POSIX shells, Fish, Csh/Tcsh, and PowerShell with automatic duplicate cleanup.
 
 ### Changed
-- **Lock-Free Completion Checking & Decoupled Undo State**: Eliminated keyboard hook input lag and typing stuttering by making the inline trigger-assist completion check completely lock-free. In addition, de-coupled the undo state check and clearing logic from the central evaluator mutex, allowing the keyboard hook listener to bypass evaluator locking on 99.9% of normal keystrokes.
-- **Default Unix Domain Sockets and Windows Named Pipes for IPC**: Changed the default gRPC communication channel from local loopback TCP to local owner-only socket connections (Unix Domain Sockets on Linux/macOS and Named Pipes on Windows) to prevent port scanning and enforce kernel-level owner-only access permissions.
-- **Secure File and Directory Permissions on Unix**: Enforced owner-only permissions (`0700` for the app data directory and `0600` for the SQLite database file) on Linux and macOS to prevent unauthorized local users from reading sensitive macros, snippets, or credentials.
-- **Database Optimizations on Hot paths**: Significantly reduced typing latency and eliminated keypress stuttering by optimizing SQLite interactions:
-  - Switched to a shared, thread-safe connection pool (`r2d2`) configured with WAL mode, normal synchronicity, and a 5-second busy timeout to eliminate connection overhead and prevent database locking errors.
-  - Implemented lock-free atomic settings caching for typing speed (WPM), clipboard delay, and script timeouts, completely bypassing database reads during expansions.
-  - Offloaded daily metric logging writes from the hot keyboard hook thread to a non-blocking background worker thread.
-  - Isolated parallel database tests using thread-local connection pools.
-- **Tokio Runtime Reuse in `notify_daemon_reload`**: Optimized the gRPC reload notification logic to attempt to reuse the thread's existing Tokio runtime handle before falling back to a lightweight, single-threaded runtime. This prevents spawning a full multi-threaded runtime on every reload.
+- **Lock-Free Input Evaluation**: Decouple undo state logic and make trigger completion check lock-free to remove typing lag.
+- **Local IPC Defaults**: Default gRPC Loopback to owner-only sockets (Unix Domain Sockets or Windows Named Pipes).
+- **Secure File Permissions**: Enforce owner-only permissions (0600/0700) on database and application directories.
+- **Database Performance**: Use `r2d2` connection pool, WAL mode, atomic caching, and background logging.
+- **Tokio Runtime Reuse**: Attempt to reuse active runtime handle before allocating a new thread-local runtime.
 
 ### Removed
-- **Unused dependencies**: Cleaned up workspace dependency bloat by removing unused crates (`chrono` from the CLI, and `sha1` and `crc32fast` from the core library) to improve compile times.
-
+- **Unused Dependencies**: Clean up workspace dependency bloat (`chrono`, `sha1`, `crc32fast`).
 
 ### Fixed
-- **Slash normalization in application filter paths**: Fixed application filter matching (e.g. `--include-apps` and `--exclude-apps`) when rule paths contain mixed slashes (forward `/` vs backward `\`). Both configured and active window path separators are normalized to backward slashes for comparison.
-- **Single-Instance Enforcement & gRPC Error Propagation**: Fixed issues where launching duplicate daemon instances would result in silent transport hijacking or infinite high-CPU busy-loops.
-  - Added Unix Domain Socket active listener detection (Unix/macOS) using connection testing before socket file cleanup to prevent duplicate daemons from stealing socket handles.
-  - Implemented early Named Pipe collision check on Windows by pre-allocating the first pipe instance with exclusive access on the main thread.
-  - Propagated gRPC server socket binding and runtime execution errors out of the Tokio runtime, stopping the duplicate process cleanly with exit code `1` instead of indefinitely retrying.
-- **Linux keyboard layout supervisor gating**: Fixed a silent failure on headless Linux and remote SSH sessions where XkbMapper would panic if default system keymap compilation failed, killing the input listener thread without notifying the supervisor. XkbMapper now falls back gracefully to a standard US layout (`evdev/pc105/us`) if system defaults fail to compile, and device listener initialization errors are propagated back to the supervisor instead of panicking silently.
-- **Windows Keyboard Hook Supervisor Reliability**: Fixed a 5-second UI freeze on sleep/wake transitions by reducing the WM_QUIT retry limit from 500 to 50 (max 500ms blocking). Added a watchdog timer that checks the hook listener health every second, automatically restarting it if it hangs during startup (no grab after 3s) or terminates silently without notification.
-- **Missing graceful shutdown for hook and background threads**: Resolved issues where the daemon process would forcibly terminate via `process::exit(0)`. The daemon now coordinates a clean shutdown sequence on Windows, macOS, and Linux by signaling and joining all spawned background threads (including the keyboard hook, clipboard history, power, and fullscreen monitors), permitting standard Rust drop cleanups for database connections and system-level resources.
-- **Buffer expansion capacity safety**: Fixed keyboard buffer overflow issues when typing long paths or URLs. The text input ring buffer now dynamically resizes (doubles in capacity) and unrolls its contents when full rather than silently overwriting the oldest characters, preserving trigger recognition. Added a capacity warning when the buffer reaches 80% usage.
-- **Install script reliability & logic simplification**: Streamlined the installation flow in both `install.sh` and `install.ps1` to prevent automatic updates and downgrade comparisons.
-  - `install.sh`: Replaced `sha256sum` with a portable checksum function supporting both `sha256sum` (Linux) and `shasum -a 256` (macOS). Refactored background retry jobs and spinner animation into synchronous-like operations (`run_with_spinner` and `invoke_with_retry`) using `kill -0` checks, preventing `set -e` wait exit bugs. Improved error reporting to print actual curl/tar errors when they fail, checking for required command availability (`curl`, `tar`) upfront. Replaced unportable `echo -e` commands with `printf`, switched to exact line matching for PATH shell profile configuration to avoid false positive substring matches. Additionally, minified the fetched manifest JSON using `tr` before extraction, preventing regex parsing failures on pretty-printed or multi-line formats. If a pre-existing binary is found at the installation path, the script now immediately exits with 0 and skips network and installation steps.
-  - `install.ps1`: Wrapped main logic in a `Main()` function and replaced `exit` with `return`/`throw` to prevent the PowerShell host from terminating when the script is run via `irm ... | iex`. Fixed PATH check to use case-insensitive comparison on Windows. Added `try/finally` block to ensure temp files are cleaned up on errors. Added red `Write-Host` before error throws for better user visibility. Added TLS 1.2 security protocol configuration at startup to prevent SSL negotiation failures on older Windows hosts, and added a fallback `ConvertFrom-Json` parser to handle cases where the server returns the manifest JSON as a raw string (e.g. via text/plain Content-Type). If a pre-existing binary is found at the installation path, the script now immediately returns and skips network and installation steps.
+- **Slash Normalization**: Normalize mixed forward and backward slashes in application filter paths.
+- **Single-Instance Enforcement**: Fix transport hijacking and socket handle collisions for duplicate daemon processes.
+- **Keyboard Layout Supervisor**: Gracefully compile default US keymap fallback and propagate listener errors.
+- **Windows Hook Watchdog**: Avoid sleep/wake freezes by reducing retry timeouts and adding a hook watchdog timer.
+- **Graceful Shutdown**: Coordinate background threads (hook, clipboard, monitors) to join and drop resources on shutdown.
+- **Buffer Capacity Safety**: Ring buffer dynamically resizes and alerts users at 80% usage to prevent trigger loss.
+- **Install Script Reliability**: Streamline version updates and configuration checks in `install.sh` and `install.ps1`. Prevent trim method errors and encoding crashes on Windows PowerShell 5.1, restrict profile setup logs to fresh installs, and scope green color styling to success checkmarks.
 
 ## [1.0.0-alpha.12] - 2026-07-08
 

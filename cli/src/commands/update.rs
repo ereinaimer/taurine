@@ -361,9 +361,8 @@ fn ensure_on_path(dir: PathBuf) {
         }
     } else {
         let dir_str = dir.to_string_lossy().to_string();
-        let path_line = format!("export PATH=\"{dir_str}:$PATH\"");
         for profile in taurine_core::shell::detect_shell_profiles() {
-            let _ = taurine_core::shell::append_line_to_rc_file(&profile, &path_line);
+            let _ = taurine_core::shell::ensure_path_in_profile(&profile, &dir_str);
         }
     }
 }

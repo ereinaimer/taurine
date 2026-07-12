@@ -16,6 +16,13 @@
 - **Changelog Maintenance:** Whenever a user-facing change is implemented, you must modify `CHANGELOG.md`. You are writing for the public end-user, not a developer. 
   - **DO document:** New features, changes to user workflows/configurations, breaking changes, and bug fixes (translate technical root causes into the symptom the user experienced).
   - **DO NOT document:** Internal code refactoring, CI/CD pipeline updates, GitHub Actions, dependency/crate swaps, or test data modifications. If a implementation only affects internal changes, do not touch the changelog.
+  - **Compactness Constraint:** Changelog entries must be extremely compact, concise, and direct (one high-level bullet point per feature or fix). Do not include sub-bullets or overly verbose implementation details.
+    - *Verbose (Bad):*
+      - **App-Specific Triggers**: Restrict word and hotkey expansions to specific applications, window classes, or window titles.
+        - Added new CLI flags `--include-apps` and `--exclude-apps` (accepting comma-separated lists) to `taurine add` and `taurine script`.
+        - Added support for prefix specifiers: `exe:<name>` (process name exact match), `class:<name>`, and `title:<substring>`.
+    - *Compact (Good):*
+      - **App-Specific Triggers**: Restrict word/hotkey expansions to specific applications, window classes, or window titles via new CLI flags.
 
 # Git Commit Standards
 We strictly follow Conventional Commits. When proposing a commit message, you must adhere to these exact rules:
