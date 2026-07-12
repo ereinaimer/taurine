@@ -45,7 +45,10 @@ pub async fn connect_to_daemon_with_settings(
             tonic::transport::Endpoint::try_from("http://[::]:50051")?
                 .connect_with_connector(service_fn(move |_: tonic::transport::Uri| {
                     let socket_path = socket_path.clone();
-                    async move { UnixStream::connect(socket_path).await }
+                    async move {
+                        let stream = UnixStream::connect(socket_path).await?;
+                        Ok::<_, std::io::Error>(hyper_util::rt::tokio::TokioIo::new(stream))
+                    }
                 }))
                 .await
         }

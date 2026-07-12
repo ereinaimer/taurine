@@ -37,7 +37,7 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
             // Force UTF-8 stdout so non-ASCII chars (e.g. °, →, ✓) round-trip correctly.
             // PowerShell defaults to the system OEM code page which corrupts Unicode output.
             let utf8_prefix = "[Console]::OutputEncoding = [Text.Encoding]::UTF8; ";
-            let full_cmd = format!("{}{}", utf8_prefix, &script_content);
+            let full_cmd = format!("{}{}", utf8_prefix, script_content);
             c.arg("-NoProfile")
                 .arg("-ExecutionPolicy")
                 .arg("Bypass")
