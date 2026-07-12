@@ -28,6 +28,20 @@ else
     exit 1
 fi
 
+# Verify required commands
+for cmd in curl tar; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        echo "Error: $cmd is required but was not found. Please install it and try again." >&2
+        exit 1
+    fi
+done
+
+# Check if already installed
+if [ -x "$INSTALL_DIR/taurine" ]; then
+    echo "Taurine is already installed at $INSTALL_DIR/taurine. Skipping installation."
+    exit 0
+fi
+
 # Cleanup handler — always remove temp dir on exit
 TMP_DIR=$(mktemp -d)
 cleanup() {
@@ -35,18 +49,40 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-show_spinner() {
-    local pid=$1
-    local label=$2
+run_with_spinner() {
+    local label=$1
+    local cmd=$2
+    local err_file="${TMP_DIR}/spinner_err.$$"
+
+    eval "$cmd" >/dev/null 2>"$err_file" &
+    local pid=$!
     local delay=0.08
     local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-    while ps -p $pid > /dev/null 2>&1; do
+
+    # Disable set -e temporarily to safely manage spinner loop and wait
+    set +e
+    while kill -0 $pid 2>/dev/null; do
         local temp=${spinstr#?}
         printf "\r%c %s" "$spinstr" "$label"
-        local spinstr=$temp${spinstr%"$temp"}
+        spinstr=$temp${spinstr%"$temp"}
         sleep $delay
     done
-    printf "\r\x1b[32m✓\x1b[0m %s\n" "$label"
+
+    wait $pid
+    local exit_code=$?
+    set -e
+
+    if [ $exit_code -eq 0 ]; then
+        printf "\r\x1b[32m✓\x1b[0m %s\n" "$label"
+    else
+        printf "\r\x1b[31m✗\x1b[0m %s\n" "$label"
+        if [ -s "$err_file" ]; then
+            sed 's/^/  /' "$err_file" >&2
+        fi
+    fi
+
+    rm -f "$err_file"
+    return $exit_code
 }
 
 verify_checksum() {
@@ -62,60 +98,40 @@ verify_checksum() {
     fi
 }
 
-version_gt() {
-    # Returns 0 if $1 > $2, 1 otherwise
-    # Strips pre-release suffixes for comparison
-    local v1="${1%%-*}"
-    local v2="${2%%-*}"
-
-    # Split into components and zero-pad for reliable numeric comparison
-    local IFS=.
-    set -f
-    # shellcheck disable=SC2206
-    local parts1=($v1) parts2=($v2)
-    set +f
-
-    for i in 0 1 2 3; do
-        local a="${parts1[$i]:-0}"
-        local b="${parts2[$i]:-0}"
-        # Strip any non-numeric suffix
-        a="${a%%[!0-9]*}"
-        b="${b%%[!0-9]*}"
-        a="${a:-0}"
-        b="${b:-0}"
-        if [ "$a" -gt "$b" ] 2>/dev/null; then return 0; fi
-        if [ "$a" -lt "$b" ] 2>/dev/null; then return 1; fi
-    done
-    return 1
-}
-
-# Retry a command up to N times with exponential backoff
-retry() {
-    local max_attempts=$1
-    local cmd="$2"
+# Invoke a command with retry and spinner
+invoke_with_retry() {
+    local label=$1
+    local cmd=$2
+    local max_attempts=3
     local attempt=1
     local delay=2
 
     while [ $attempt -le $max_attempts ]; do
-        if eval "$cmd" 2>/dev/null; then
+        local current_label="$label"
+        if [ $attempt -gt 1 ]; then
+            current_label="$label (attempt $attempt/$max_attempts)"
+        fi
+
+        if run_with_spinner "$current_label" "$cmd"; then
             return 0
         fi
+
         if [ $attempt -lt $max_attempts ]; then
+            echo "  Retrying in ${delay}s..." >&2
             sleep $delay
             delay=$((delay * 2))
         fi
         attempt=$((attempt + 1))
     done
+
+    echo "Error: Failed after $max_attempts attempts: $label" >&2
     return 1
 }
 
 # Fetch latest release manifest
-retry 3 "curl -fsSL https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json -o \"$TMP_DIR/manifest.json\"" &
-PID=$!
-show_spinner $PID "Fetching latest release manifest"
-wait $PID || { echo "Error: Could not fetch release manifest after 3 retries."; exit 1; }
+invoke_with_retry "Fetching latest release manifest" "curl -fsSL https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json -o \"$TMP_DIR/manifest.json\"" || exit 1
 
-MANIFEST=$(cat "$TMP_DIR/manifest.json")
+MANIFEST=$(tr -d '\n\r\t ' < "$TMP_DIR/manifest.json")
 VERSION=$(echo "$MANIFEST" | grep -o '"version":"[^"]*"' | head -n 1 | cut -d'"' -f4 || true)
 URL=$(echo "$MANIFEST" | grep -o "\"$PLATFORM\":{[^}]*}" | grep -o '"url":"[^"]*"' | cut -d'"' -f4 || true)
 SHA256=$(echo "$MANIFEST" | grep -o "\"$PLATFORM\":{[^}]*}" | grep -o '"sha256":"[^"]*"' | cut -d'"' -f4 || true)
@@ -125,31 +141,10 @@ if [ -z "$VERSION" ] || [ -z "$URL" ]; then
     exit 1
 fi
 
-# Check if already installed — gracefully handle old binaries without --version
-LOCAL_VERSION=""
-if [ -x "$INSTALL_DIR/taurine" ]; then
-    LOCAL_VERSION=$("$INSTALL_DIR/taurine" --version 2>/dev/null | awk '{print $2}') || true
-fi
-
-if [ -n "$LOCAL_VERSION" ]; then
-    if [ "$LOCAL_VERSION" = "$VERSION" ]; then
-        echo "Taurine is already installed and up to date (v$LOCAL_VERSION)."
-        exit 0
-    fi
-    # Prevent downgrade: if local version is newer than manifest, skip
-    if version_gt "$LOCAL_VERSION" "$VERSION"; then
-        echo "Taurine v$LOCAL_VERSION is newer than the latest release (v$VERSION). Skipping update."
-        exit 0
-    fi
-fi
-
 ARCHIVE="$TMP_DIR/taurine.tar.xz"
 
 # Download archive with retry
-retry 3 "curl -fsSL \"$URL\" -o \"$ARCHIVE\"" &
-PID=$!
-show_spinner $PID "Downloading taurine v$VERSION"
-wait $PID || { echo "Error: Could not download taurine v$VERSION after 3 retries."; exit 1; }
+invoke_with_retry "Downloading taurine v$VERSION" "curl -fsSL \"$URL\" -o \"$ARCHIVE\"" || exit 1
 
 # Verify checksum if available
 if [ -n "$SHA256" ]; then
@@ -161,11 +156,12 @@ fi
 
 # Extract
 mkdir -p "$INSTALL_DIR"
-tar -xf "$ARCHIVE" -C "$TMP_DIR" &
-PID=$!
-show_spinner $PID "Extracting"
-wait $PID
+run_with_spinner "Extracting" "tar -xf \"$ARCHIVE\" -C \"$TMP_DIR\"" || {
+    echo "Error: Extraction failed." >&2
+    exit 1
+}
 
+# Copy binary
 cp "$TMP_DIR/taurine" "$INSTALL_DIR/"
 chmod +x "$INSTALL_DIR/taurine"
 
@@ -174,16 +170,16 @@ ADDED_PATH=false
 if [ "$OS" = "Darwin" ]; then
     for profile in "$HOME/.zprofile" "$HOME/.bash_profile"; do
         touch "$profile"
-        if ! grep -Fq "$INSTALL_DIR" "$profile"; then
-            echo -e "\nexport PATH=\"$INSTALL_DIR:\$PATH\"" >> "$profile"
+        if ! grep -Fxq "export PATH=\"$INSTALL_DIR:\$PATH\"" "$profile"; then
+            printf "\nexport PATH=\"%s:\$PATH\"\n" "$INSTALL_DIR" >> "$profile"
             ADDED_PATH=true
         fi
     done
 else
     for profile in "$HOME/.bashrc" "$HOME/.zshrc"; do
         if [ -f "$profile" ]; then
-            if ! grep -Fq "$INSTALL_DIR" "$profile"; then
-                echo -e "\nexport PATH=\"$INSTALL_DIR:\$PATH\"" >> "$profile"
+            if ! grep -Fxq "export PATH=\"$INSTALL_DIR:\$PATH\"" "$profile"; then
+                printf "\nexport PATH=\"%s:\$PATH\"\n" "$INSTALL_DIR" >> "$profile"
                 ADDED_PATH=true
             fi
         fi
@@ -191,22 +187,22 @@ else
 fi
 
 # Set up tau alias
-echo -e "\nSetting up 'tau' alias..."
+printf "\nSetting up 'tau' alias...\n"
 ALIAS_LINE="alias tau='taurine'"
 for profile in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zprofile"; do
     if [ -f "$profile" ] && ! grep -Fq "alias tau=" "$profile" 2>/dev/null; then
-        echo -e "\n$ALIAS_LINE" >> "$profile"
+        printf "\n%s\n" "$ALIAS_LINE" >> "$profile"
     fi
 done
 
-echo -e "\x1b[32m✓\x1b[0m taurine v$VERSION installed"
+printf "\x1b[32m✓\x1b[0m taurine v%s installed\n" "$VERSION"
 if [ "$ADDED_PATH" = true ]; then
-    echo "Added to PATH. Please restart your shell or run:"
+    printf "Added to PATH. Please restart your shell or run:\n"
     if [ "$OS" = "Darwin" ]; then
-        echo "  source ~/.zprofile"
+        printf "  source ~/.zprofile\n"
     else
-        echo "  source ~/.bashrc"
+        printf "  source ~/.bashrc\n"
     fi
 fi
-echo "Added alias tau to your shell profile."
-echo "Now you can run 'tau --help' for more details."
+printf "Added alias tau to your shell profile.\n"
+printf "Now you can run 'tau --help' for more details.\n"

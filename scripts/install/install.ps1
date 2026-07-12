@@ -1,5 +1,8 @@
 $ErrorActionPreference = "Stop"
 
+# Ensure TLS 1.2 is enabled for secure downloads
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+
 $Platform = "windows-x86_64"
 $MaxRetries = 3
 $RetryDelay = 2
@@ -40,19 +43,24 @@ function Invoke-WithRetry ($ScriptBlock, $ArgumentList, $Label) {
     throw "Failed after $MaxRetries attempts: $Label"
 }
 
-function Get-VersionBase {
-    param([string]$v)
-    $idx = $v.IndexOf('-')
-    if ($idx -ge 0) { return $v.Substring(0, $idx) } else { return $v }
-}
-
 function Main {
+    $InstallDir = Join-Path $env:LOCALAPPDATA "Taurine\bin"
+    $ExePath = Join-Path $InstallDir "taurine.exe"
+
+    if (Test-Path $ExePath) {
+        Write-Host "Taurine is already installed at $ExePath. Skipping installation."
+        return
+    }
+
     # Fetch manifest with retry
     $ManifestJob = {
         param($url)
         Invoke-RestMethod -Uri $url
     }
     $Manifest = Invoke-WithRetry -ScriptBlock $ManifestJob -ArgumentList @("https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json") -Label "Fetching latest release manifest"
+    if ($Manifest -is [string]) {
+        $Manifest = $Manifest | ConvertFrom-Json
+    }
     $Version = $Manifest.version
     $Url = $Manifest.artifacts.$Platform.url
     $Sha256 = $Manifest.artifacts.$Platform.sha256
@@ -60,42 +68,6 @@ function Main {
     if (-not $Version -or -not $Url) {
         Write-Host -ForegroundColor Red "Error: Could not determine latest version or download URL."
         throw "Could not determine latest version or download URL."
-    }
-
-    $InstallDir = Join-Path $env:LOCALAPPDATA "Taurine\bin"
-    $ExePath = Join-Path $InstallDir "taurine.exe"
-
-    # Check if already installed — gracefully handle old binaries without --version
-    $LocalVersion = $null
-    if (Test-Path $ExePath) {
-        try {
-            $versionOutput = & $ExePath --version 2>$null
-            if ($versionOutput) {
-                $LocalVersion = ($versionOutput -split " ")[1]
-            }
-        } catch {
-            # --version flag not supported, treat as unknown version
-            Write-Host "  Existing binary does not support --version check — will reinstall"
-        }
-    }
-
-    if ($LocalVersion) {
-        if ($LocalVersion -eq $Version) {
-            Write-Host "Taurine is already installed and up to date (v$LocalVersion)."
-            return
-        }
-        # Prevent downgrade (strip pre-release suffix for version comparison)
-        try {
-            $localBase = [version](Get-VersionBase $LocalVersion)
-            $remoteBase = [version](Get-VersionBase $Version)
-            if ($localBase -gt $remoteBase) {
-                Write-Host "Taurine v$LocalVersion is newer than the latest release (v$Version). Skipping update."
-                return
-            }
-        } catch {
-            # Malformed version string — can't compare, proceed with install
-            Write-Host "  Unable to compare versions ($LocalVersion vs $Version) — will reinstall."
-        }
     }
 
     $TempZip = $null
