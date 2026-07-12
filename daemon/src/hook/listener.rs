@@ -252,7 +252,7 @@ pub(super) fn run_listener_once(
                     return Some(event);
                 }
                 let _ = with_evaluator_lock(&evaluator, "button_interrupt", |lock| {
-                    let _ = lock.process_event(EngineEvent::Interrupt);
+                    let _ = lock.process_event(EngineEvent::Interrupt, None);
                 });
             }
             EventType::KeyPress(key) => {
@@ -491,12 +491,24 @@ pub(super) fn run_listener_once(
                         engine_event = engine_event_label(&ev),
                         "Dispatching engine event from hook callback"
                     );
+                    let needs_window = matches!(ev, EngineEvent::ActionDelimiter)
+                        || (matches!(ev, EngineEvent::Char(_))
+                            && (state.instant_expand.load(Ordering::Relaxed)
+                                || state.triggerless_mode.load(Ordering::Relaxed)));
+
+                    let active_window = if needs_window {
+                        crate::platform::get_active_window_label()
+                    } else {
+                        None
+                    };
+
                     if let Some((expansion, state)) =
                         with_evaluator_lock(&evaluator, "process_engine_event", |lock| {
-                            lock.process_event(ev).map(|expansion| {
-                                let state = lock.state.clone();
-                                (expansion, state)
-                            })
+                            lock.process_event(ev, active_window.as_deref())
+                                .map(|expansion| {
+                                    let state = lock.state.clone();
+                                    (expansion, state)
+                                })
                         })
                         .flatten()
                     {

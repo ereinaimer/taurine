@@ -16,8 +16,9 @@ pub use automation_set::{
     add_automation_by_trigger, add_automation_by_trigger_type, audit_payload_tags,
     create_automation, find_trigger_overlap_conflict, increment_usage_count_by_trigger,
     prepare_trigger, prepare_trigger_with_type, record_expansion_usage, target_os_values_overlap,
-    update_existing_automation, upsert_automation, upsert_automation_with_trigger_type,
-    upsert_script, validate_trigger_not_reserved, validate_trigger_target_os_conflict,
+    update_automation_app_filters, update_existing_automation, upsert_automation,
+    upsert_automation_with_trigger_type, upsert_script, validate_trigger_not_reserved,
+    validate_trigger_target_os_conflict,
 };
 pub use automation_sync::get_syncable_automations;
 pub use automation_types::{
@@ -872,8 +873,16 @@ mod tests {
         )
         .unwrap();
 
-        let err = validate_trigger_target_os_conflict(&conn, TriggerType::Word, "gm", "win", None)
-            .unwrap_err();
+        let err = validate_trigger_target_os_conflict(
+            &conn,
+            TriggerType::Word,
+            "gm",
+            "win",
+            None,
+            None,
+            None,
+        )
+        .unwrap_err();
         assert!(
             err.to_string()
                 .contains("overlaps existing target_os 'all'")
@@ -991,9 +1000,16 @@ mod tests {
         )
         .unwrap();
 
-        let err =
-            validate_trigger_target_os_conflict(&conn, TriggerType::Hotkey, "ralt+m", "win", None)
-                .unwrap_err();
+        let err = validate_trigger_target_os_conflict(
+            &conn,
+            TriggerType::Hotkey,
+            "ralt+m",
+            "win",
+            None,
+            None,
+            None,
+        )
+        .unwrap_err();
         assert!(
             err.to_string().contains("Trigger conflict"),
             "unexpected error: {err}"
@@ -1004,6 +1020,8 @@ mod tests {
             TriggerType::Hotkey,
             "lalt+m",
             "linux",
+            None,
+            None,
             None,
         )
         .unwrap_err();
@@ -1034,8 +1052,16 @@ mod tests {
         )
         .unwrap();
 
-        validate_trigger_target_os_conflict(&conn, TriggerType::Hotkey, "ralt+m", "all", None)
-            .unwrap();
+        validate_trigger_target_os_conflict(
+            &conn,
+            TriggerType::Hotkey,
+            "ralt+m",
+            "all",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
     }
 
     #[test]
@@ -1059,17 +1085,65 @@ mod tests {
         )
         .unwrap();
 
-        validate_trigger_target_os_conflict(&conn, TriggerType::Hotkey, "ralt+m", "linux", None)
-            .unwrap();
+        validate_trigger_target_os_conflict(
+            &conn,
+            TriggerType::Hotkey,
+            "ralt+m",
+            "linux",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
-        let err =
-            validate_trigger_target_os_conflict(&conn, TriggerType::Hotkey, "ralt+m", "all", None)
-                .unwrap_err();
+        let err = validate_trigger_target_os_conflict(
+            &conn,
+            TriggerType::Hotkey,
+            "ralt+m",
+            "all",
+            None,
+            None,
+            None,
+        )
+        .unwrap_err();
         assert!(
             err.to_string()
                 .contains("overlaps existing target_os 'win'"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn add_automation_allows_same_hotkey_with_distinct_app_filters() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+        conn.execute("DELETE FROM automations", []).unwrap();
+
+        // First: ctrl+alt+p restricted to notepad
+        let outcome = add_automation_by_trigger_type(
+            &conn,
+            TriggerType::Hotkey,
+            "ctrl+alt+p",
+            "Action for Notepad",
+            "all",
+            Some("exe:notepad"),
+            None,
+        )
+        .expect("first add should succeed");
+        assert_eq!(outcome, AddOutcome::Created);
+
+        // Second: same hotkey restricted to code — should NOT conflict
+        let outcome2 = add_automation_by_trigger_type(
+            &conn,
+            TriggerType::Hotkey,
+            "ctrl+alt+p",
+            "Action for VS Code",
+            "all",
+            Some("exe:code"),
+            None,
+        )
+        .expect("second add with distinct app filter should succeed");
+        assert_eq!(outcome2, AddOutcome::Created);
     }
 
     #[test]
@@ -1718,7 +1792,8 @@ mod tests {
         let manager = SettingsManager::new(&conn);
         manager.update_setting("trigger_char", "#").unwrap();
 
-        let err = add_automation_by_trigger(&conn, "#ai", "payload", "all").unwrap_err();
+        let err =
+            add_automation_by_trigger(&conn, "#ai", "payload", "all", None, None).unwrap_err();
         assert!(
             err.to_string()
                 .contains("reserved for Taurine Inline AI Copilot"),

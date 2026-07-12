@@ -293,11 +293,43 @@ pub fn target_os_values_overlap(left: &str, right: &str) -> bool {
     left == right || left == "all" || right == "all"
 }
 
+pub fn app_filters_overlap(
+    only_a: Option<&str>,
+    except_a: Option<&str>,
+    only_b: Option<&str>,
+    except_b: Option<&str>,
+) -> bool {
+    let clean_list = |s: &str| -> Vec<String> {
+        s.split(',')
+            .map(|x| x.trim().to_lowercase())
+            .filter(|x| !x.is_empty())
+            .collect()
+    };
+
+    let o_a = only_a.map(clean_list);
+    let e_a = except_a.map(clean_list);
+    let o_b = only_b.map(clean_list);
+    let e_b = except_b.map(clean_list);
+
+    if o_a.is_none() && e_a.is_none() && o_b.is_none() && e_b.is_none() {
+        return true;
+    }
+
+    match (o_a, e_a, o_b, e_b) {
+        (Some(only_a), None, Some(only_b), None) => only_a.iter().any(|a| only_b.contains(a)),
+        (Some(only_a), None, None, Some(except_b)) => only_a.iter().any(|a| !except_b.contains(a)),
+        (None, Some(except_a), Some(only_b), None) => only_b.iter().any(|b| !except_a.contains(b)),
+        _ => true,
+    }
+}
+
 pub fn find_trigger_overlap_conflict(
     conn: &Connection,
     trigger_type: TriggerType,
     trigger: &str,
     target_os: &str,
+    only_apps: Option<&str>,
+    except_apps: Option<&str>,
     exclude_id: Option<&str>,
 ) -> Result<Option<TriggerConflict>> {
     if matches!(trigger_type, TriggerType::Hotkey) {
@@ -310,7 +342,7 @@ pub fn find_trigger_overlap_conflict(
     }
 
     let mut stmt = conn.prepare_cached(
-        "SELECT id, trigger_type, trigger, target_os
+        "SELECT id, trigger_type, trigger, target_os, only_apps, except_apps
          FROM automations
          WHERE trigger_type = ?1
            AND is_deleted = 0
@@ -323,11 +355,20 @@ pub fn find_trigger_overlap_conflict(
             row.get::<_, String>(1)?,
             row.get::<_, String>(2)?,
             row.get::<_, String>(3)?,
+            row.get::<_, Option<String>>(4)?,
+            row.get::<_, Option<String>>(5)?,
         ))
     })?;
 
     for row in rows {
-        let (id, trigger_type_raw, existing_trigger, existing_target_os) = row?;
+        let (
+            id,
+            trigger_type_raw,
+            existing_trigger,
+            existing_target_os,
+            existing_only,
+            existing_except,
+        ) = row?;
         if exclude_id.is_some_and(|excluded| excluded == id) {
             continue;
         }
@@ -343,7 +384,15 @@ pub fn find_trigger_overlap_conflict(
             trigger == existing_trigger
         };
 
-        if overlaps && target_os_values_overlap(&existing_target_os, target_os) {
+        if overlaps
+            && target_os_values_overlap(&existing_target_os, target_os)
+            && app_filters_overlap(
+                only_apps,
+                except_apps,
+                existing_only.as_deref(),
+                existing_except.as_deref(),
+            )
+        {
             return Ok(Some(TriggerConflict {
                 id,
                 trigger_type: TriggerType::parse_db(&trigger_type_raw)?,
@@ -361,15 +410,23 @@ pub fn validate_trigger_target_os_conflict(
     trigger_type: TriggerType,
     trigger: &str,
     target_os: &str,
+    only_apps: Option<&str>,
+    except_apps: Option<&str>,
     exclude_id: Option<&str>,
 ) -> Result<()> {
     validate_trigger_type(trigger_type, target_os)?;
 
-    if let Some(conflict) =
-        find_trigger_overlap_conflict(conn, trigger_type, trigger, target_os, exclude_id)?
-    {
+    if let Some(conflict) = find_trigger_overlap_conflict(
+        conn,
+        trigger_type,
+        trigger,
+        target_os,
+        only_apps,
+        except_apps,
+        exclude_id,
+    )? {
         return Err(crate::Error::Config(format!(
-            "Trigger conflict for {} '{}' on target_os '{}': overlaps existing target_os '{}'",
+            "Trigger conflict for {} '{}' on target_os '{}': overlaps existing target_os '{}' with overlapping app filters",
             trigger_type.as_db_str(),
             trigger,
             target_os,
@@ -435,7 +492,6 @@ pub fn upsert_automation_with_trigger_type(
     last_used_at: Option<i64>,
 ) -> Result<()> {
     validate_trigger_not_reserved(conn, trigger)?;
-    validate_trigger_target_os_conflict(conn, trigger_type, trigger, target_os, Some(id))?;
 
     let now = now_unix_secs();
 
@@ -721,6 +777,18 @@ pub fn update_existing_automation(
 
     let prepared =
         prepare_trigger_with_type(update.trigger, update.trigger_type, update.target_os)?;
+
+    // Validate conflict before opening the transaction, excluding the row being updated.
+    validate_trigger_target_os_conflict(
+        conn,
+        prepared.trigger_type,
+        &prepared.stored_trigger,
+        update.target_os,
+        None,
+        None,
+        Some(update.id),
+    )?;
+
     let tx = conn.transaction()?;
 
     if action_kind == AutomationActionKind::Script {
@@ -810,6 +878,17 @@ pub fn create_automation(
         .name
         .filter(|name| !name.trim().is_empty())
         .unwrap_or(generated_name.as_str());
+    // Validate conflict before opening the transaction so no partial writes happen.
+    validate_trigger_target_os_conflict(
+        conn,
+        prepared.trigger_type,
+        &prepared.stored_trigger,
+        new_automation.target_os,
+        None,
+        None,
+        None,
+    )?;
+
     let tx = conn.transaction()?;
 
     if action_kind == AutomationActionKind::Script {
@@ -1095,6 +1174,21 @@ pub enum AddOutcome {
     Updated,
 }
 
+pub fn update_automation_app_filters(
+    conn: &Connection,
+    id: &str,
+    only_apps: Option<String>,
+    except_apps: Option<String>,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE automations
+         SET only_apps = ?1, except_apps = ?2
+         WHERE id = ?3 AND is_deleted = 0",
+        rusqlite::params![only_apps, except_apps, id],
+    )?;
+    Ok(())
+}
+
 /// Creates or updates an automation using only its trigger and output.
 ///
 /// - If no active automation exists for the trigger, a new row is inserted
@@ -1109,8 +1203,18 @@ pub fn add_automation_by_trigger(
     trigger: &str,
     output: &str,
     target_os: &str,
+    only_apps: Option<&str>,
+    except_apps: Option<&str>,
 ) -> Result<AddOutcome> {
-    add_automation_by_trigger_type(conn, TriggerType::Word, trigger, output, target_os)
+    add_automation_by_trigger_type(
+        conn,
+        TriggerType::Word,
+        trigger,
+        output,
+        target_os,
+        only_apps,
+        except_apps,
+    )
 }
 
 pub fn add_automation_by_trigger_type(
@@ -1119,10 +1223,11 @@ pub fn add_automation_by_trigger_type(
     trigger: &str,
     output: &str,
     target_os: &str,
+    only_apps: Option<&str>,
+    except_apps: Option<&str>,
 ) -> Result<AddOutcome> {
     validate_trigger_not_reserved(conn, trigger)?;
 
-    // Check for an existing active row with this trigger and target_os.
     let existing: Option<(String, String, String)> = conn
         .query_row(
             "SELECT id, output, action_type
@@ -1130,10 +1235,18 @@ pub fn add_automation_by_trigger_type(
              WHERE trigger_type = ?1
                AND trigger = ?2
                AND target_os = ?3
+               AND COALESCE(only_apps, '') = ?4
+               AND COALESCE(except_apps, '') = ?5
                AND is_deleted = 0
              ORDER BY updated_at DESC
              LIMIT 1",
-            [trigger_type.as_db_str(), trigger, target_os],
+            [
+                trigger_type.as_db_str(),
+                trigger,
+                target_os,
+                only_apps.unwrap_or(""),
+                except_apps.unwrap_or(""),
+            ],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .ok();
@@ -1142,11 +1255,9 @@ pub fn add_automation_by_trigger_type(
         Some((_, existing_output, existing_action))
             if existing_output == output && existing_action == "text" =>
         {
-            // Trigger, OS, output, and action_type are identical — nothing to do.
             Ok(AddOutcome::AlreadyExists)
         }
         Some((id, _, _)) => {
-            // Same trigger/OS, different output or action_type — update it.
             let now = now_unix_secs();
             conn.execute(
                 "UPDATE automations
@@ -1157,7 +1268,6 @@ pub fn add_automation_by_trigger_type(
                  WHERE id = ?3",
                 rusqlite::params![output, now, id],
             )?;
-            // Clean up any script attachments if it was previously a script.
             conn.execute(
                 "DELETE FROM scripts WHERE automation_id = ?1",
                 rusqlite::params![id],
@@ -1165,9 +1275,16 @@ pub fn add_automation_by_trigger_type(
             Ok(AddOutcome::Updated)
         }
         None => {
-            validate_trigger_target_os_conflict(conn, trigger_type, trigger, target_os, None)?;
+            validate_trigger_target_os_conflict(
+                conn,
+                trigger_type,
+                trigger,
+                target_os,
+                only_apps,
+                except_apps,
+                None,
+            )?;
 
-            // No existing row — create a new one.
             let id = uuid::Uuid::new_v4().to_string();
             upsert_automation_with_trigger_type(
                 conn,
@@ -1183,6 +1300,14 @@ pub fn add_automation_by_trigger_type(
                 0,
                 None,
             )?;
+
+            conn.execute(
+                "UPDATE automations
+                 SET only_apps = ?1, except_apps = ?2
+                 WHERE id = ?3",
+                rusqlite::params![only_apps, except_apps, id],
+            )?;
+
             Ok(AddOutcome::Created)
         }
     }
@@ -1309,5 +1434,47 @@ mod tests {
                 .to_string()
                 .contains("exceeds the limit of 3")
         );
+    }
+
+    #[test]
+    fn test_app_filters_overlap_logic() {
+        // No filters -> overlaps
+        assert!(app_filters_overlap(None, None, None, None));
+
+        // One only_apps vs no filters -> overlaps
+        assert!(app_filters_overlap(Some("exe:code"), None, None, None));
+        assert!(app_filters_overlap(None, None, Some("exe:notepad"), None));
+
+        // Non-intersecting only_apps -> no overlap
+        assert!(!app_filters_overlap(
+            Some("exe:code"),
+            None,
+            Some("exe:notepad"),
+            None
+        ));
+
+        // Intersecting only_apps -> overlaps
+        assert!(app_filters_overlap(
+            Some("exe:code,exe:notepad"),
+            None,
+            Some("exe:notepad"),
+            None
+        ));
+
+        // Non-intersecting only_apps vs except_apps -> overlaps
+        assert!(app_filters_overlap(
+            Some("exe:code"),
+            None,
+            None,
+            Some("exe:notepad")
+        ));
+
+        // Intersecting only_apps vs except_apps -> no overlap (if only_a is in except_b)
+        assert!(!app_filters_overlap(
+            Some("exe:code"),
+            None,
+            None,
+            Some("exe:code")
+        ));
     }
 }

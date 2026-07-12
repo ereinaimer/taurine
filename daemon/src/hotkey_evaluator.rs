@@ -61,7 +61,10 @@ impl HotkeyEvaluator {
         }
 
         let hotkey = KeyPress { modifiers, key };
-        let Some((trigger, expansion)) = state.fetch_hotkey_expansion(hotkey) else {
+        let active_window = crate::platform::get_active_window_label();
+        let Some((trigger, expansion)) =
+            state.fetch_hotkey_expansion(hotkey, active_window.as_deref())
+        else {
             return HotkeyEvaluation::NoMatch;
         };
         let metric_kind = if matches!(
@@ -435,16 +438,19 @@ mod tests {
         let mut text = Evaluator::new(state);
         for ch in ">gm".chars() {
             assert_eq!(
-                text.process_event(if ch == ' ' {
-                    EngineEvent::ActionDelimiter
-                } else {
-                    EngineEvent::Char(ch)
-                }),
+                text.process_event(
+                    if ch == ' ' {
+                        EngineEvent::ActionDelimiter
+                    } else {
+                        EngineEvent::Char(ch)
+                    },
+                    None
+                ),
                 None
             );
         }
         let expansion = text
-            .process_event(EngineEvent::ActionDelimiter)
+            .process_event(EngineEvent::ActionDelimiter, None)
             .expect("word trigger should still expand on hotkey miss");
         assert_eq!(
             expansion.steps,
@@ -469,7 +475,7 @@ mod tests {
         );
 
         assert!(matches!(result, HotkeyEvaluation::Matched(_)));
-        assert_eq!(text.process_event(EngineEvent::ActionDelimiter), None);
+        assert_eq!(text.process_event(EngineEvent::ActionDelimiter, None), None);
         assert!(state.take_active_undo_state().is_none());
     }
 

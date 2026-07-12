@@ -8,6 +8,7 @@ use taurine_core::db::crud::{
 use taurine_core::db::init;
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter, compress};
 
+#[allow(clippy::too_many_arguments)]
 pub fn execute(
     trigger: String,
     use_hotkey: bool,
@@ -16,6 +17,8 @@ pub fn execute(
     lang: Option<ScriptInterpreter>,
     mode: ScriptBehavior,
     os: String,
+    include_apps: Option<String>,
+    exclude_apps: Option<String>,
 ) -> taurine_core::error::Result<()> {
     // 1. Resolve content and source description
     let (content, source_desc) = if let Some(ref path) = file_path {
@@ -55,21 +58,25 @@ pub fn execute(
     let conn = init::setup()?;
     validate_trigger_not_reserved(&conn, &stored_trigger)?;
 
-    // Check for an existing active automation with the same trigger tuple.
+    // Check for an existing active automation with the same trigger tuple and app filters.
     let existing_record: Option<(String, i64, Option<i64>)> = conn
         .query_row(
             "SELECT id, usage_count, last_used_at
-         FROM automations
-         WHERE trigger_type = ?1
-           AND trigger = ?2
-           AND target_os = ?3
-           AND is_deleted = 0
-         ORDER BY updated_at DESC
-         LIMIT 1",
+          FROM automations
+          WHERE trigger_type = ?1
+            AND trigger = ?2
+            AND target_os = ?3
+            AND COALESCE(only_apps, '') = ?4
+            AND COALESCE(except_apps, '') = ?5
+            AND is_deleted = 0
+          ORDER BY updated_at DESC
+          LIMIT 1",
             rusqlite::params![
                 prepared.trigger_type.as_db_str(),
                 stored_trigger.as_str(),
-                os.as_str()
+                os.as_str(),
+                include_apps.as_deref().unwrap_or(""),
+                exclude_apps.as_deref().unwrap_or(""),
             ],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
@@ -79,7 +86,18 @@ pub fn execute(
         Some((existing_id, existing_usage, existing_last_used)) => {
             (existing_id, existing_usage, existing_last_used, true)
         }
-        None => (uuid::Uuid::new_v4().to_string(), 0, None, false),
+        None => {
+            taurine_core::db::crud::validate_trigger_target_os_conflict(
+                &conn,
+                prepared.trigger_type,
+                &stored_trigger,
+                &os,
+                include_apps.as_deref(),
+                exclude_apps.as_deref(),
+                None,
+            )?;
+            (uuid::Uuid::new_v4().to_string(), 0, None, false)
+        }
     };
 
     if is_update {
@@ -138,6 +156,8 @@ pub fn execute(
 
     // 5. Upsert script attachment
     upsert_script(&conn, &id, lang, mode, &compressed)?;
+
+    taurine_core::db::crud::update_automation_app_filters(&conn, &id, include_apps, exclude_apps)?;
 
     taurine_core::rpc::notify_daemon_reload();
 
@@ -297,6 +317,8 @@ mod tests {
                 Some(ScriptInterpreter::Bash),
                 ScriptBehavior::Inline,
                 "linux".to_string(),
+                None,
+                None,
             )
             .unwrap();
 
@@ -326,6 +348,8 @@ mod tests {
                 Some(ScriptInterpreter::PowerShell),
                 ScriptBehavior::Inline,
                 "win".to_string(),
+                None,
+                None,
             )
             .unwrap();
 
@@ -356,6 +380,8 @@ mod tests {
                 Some(ScriptInterpreter::Bash),
                 ScriptBehavior::Inline,
                 "linux".to_string(),
+                None,
+                None,
             )
             .unwrap();
 
@@ -368,6 +394,8 @@ mod tests {
                 Some(ScriptInterpreter::Bash),
                 ScriptBehavior::Inline,
                 "linux".to_string(),
+                None,
+                None,
             )
             .unwrap();
 
@@ -409,6 +437,8 @@ mod tests {
                 Some(ScriptInterpreter::Bash),
                 ScriptBehavior::Inline,
                 "linux".to_string(),
+                None,
+                None,
             )
             .unwrap();
 
@@ -421,6 +451,8 @@ mod tests {
                 Some(ScriptInterpreter::Bash),
                 ScriptBehavior::Inline,
                 "linux".to_string(),
+                None,
+                None,
             )
             .unwrap();
 
@@ -455,6 +487,8 @@ mod tests {
                 Some(ScriptInterpreter::Bash),
                 ScriptBehavior::Inline,
                 "all".to_string(),
+                None,
+                None,
             )
             .unwrap();
 
@@ -479,6 +513,8 @@ mod tests {
                 "git status".to_string(),
                 "all".to_string(),
                 false,
+                None,
+                None,
             )
             .unwrap();
 
@@ -536,6 +572,8 @@ mod tests {
                 "git status".to_string(),
                 "all".to_string(),
                 false,
+                None,
+                None,
             )
             .unwrap();
 
@@ -563,6 +601,8 @@ mod tests {
                 Some(ScriptInterpreter::Bash),
                 ScriptBehavior::Inline,
                 "all".to_string(),
+                None,
+                None,
             )
             .unwrap();
 

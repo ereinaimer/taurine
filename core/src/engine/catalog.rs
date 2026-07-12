@@ -23,7 +23,6 @@ pub struct HotkeyCatalog {
 
 #[derive(Default)]
 struct CatalogSnapshot {
-    actions: std::collections::HashMap<String, ParsedHotkeyAction>,
     parsed_actions: std::collections::HashMap<LogicalKey, Vec<ParsedHotkeyAction>>,
 }
 
@@ -52,10 +51,10 @@ impl HotkeyCatalog {
                     action: action.clone(),
                 };
 
-                snapshot
-                    .actions
-                    .insert(hotkey.canonical_string(), entry.clone());
-                snapshot.actions.insert(trigger.clone(), entry.clone());
+                // Only bucket into parsed_actions so that multiple automations
+                // sharing the same hotkey but different app filters all survive.
+                // The old canonical_string fast-path HashMap silently overwrote
+                // earlier entries whenever two triggers parsed to the same hotkey.
                 snapshot
                     .parsed_actions
                     .entry(hotkey.logical_key())
@@ -70,26 +69,46 @@ impl HotkeyCatalog {
     }
 
     pub fn get_action(&self, trigger: &str) -> Option<AutomationAction> {
-        self.snapshot
-            .read()
-            .ok()
-            .and_then(|guard| guard.actions.get(trigger).map(|entry| entry.action.clone()))
-    }
-
-    pub fn match_action(&self, pressed: Hotkey) -> Option<(String, AutomationAction)> {
-        let exact_trigger = pressed.canonical_string();
-        let base_key = pressed.logical_key();
+        let hotkey = parse_hotkey(trigger).ok()?;
+        let base_key = hotkey.logical_key();
         self.snapshot.read().ok().and_then(|guard| {
-            if let Some(entry) = guard.actions.get(&exact_trigger) {
-                return Some((entry.configured_trigger.clone(), entry.action.clone()));
-            }
-
             guard.parsed_actions.get(&base_key).and_then(|bucket| {
                 bucket
                     .iter()
-                    .find(|entry| hotkey_matches(entry.hotkey, pressed))
-                    .map(|entry| (entry.configured_trigger.clone(), entry.action.clone()))
+                    .find(|entry| entry.configured_trigger == trigger || entry.hotkey == hotkey)
+                    .map(|entry| entry.action.clone())
             })
+        })
+    }
+
+    pub fn match_action(
+        &self,
+        pressed: Hotkey,
+        active_window: Option<&str>,
+    ) -> Option<(String, AutomationAction)> {
+        let base_key = pressed.logical_key();
+        let pressed_canonical = pressed.canonical_string();
+        self.snapshot.read().ok().and_then(|guard| {
+            let bucket = guard.parsed_actions.get(&base_key)?;
+
+            // First pass: prefer an entry whose hotkey canonically matches the
+            // pressed combo exactly (e.g. `ralt+m` wins over `alt+m` when the
+            // right Alt key is pressed).
+            if let Some(entry) = bucket.iter().find(|e| {
+                e.hotkey.canonical_string() == pressed_canonical
+                    && is_app_allowed(&e.action, active_window)
+            }) {
+                return Some((entry.configured_trigger.clone(), entry.action.clone()));
+            }
+
+            // Second pass: accept any entry whose hotkey overlaps the pressed combo
+            // (handles generic modifiers like `alt+m` matching `lalt+m` presses).
+            bucket
+                .iter()
+                .find(|e| {
+                    hotkey_matches(e.hotkey, pressed) && is_app_allowed(&e.action, active_window)
+                })
+                .map(|e| (e.configured_trigger.clone(), e.action.clone()))
         })
     }
 }
@@ -211,14 +230,23 @@ impl ExpansionCatalog {
         }
     }
 
-    fn get_raw_action(&self, keyword: &str) -> Option<AutomationAction> {
-        if let Some(action) = self.source.get_action(keyword) {
+    fn get_raw_action(
+        &self,
+        keyword: &str,
+        active_window: Option<&str>,
+    ) -> Option<AutomationAction> {
+        if let Some(action) = self.source.get_action(keyword)
+            && is_app_allowed(&action, active_window)
+        {
             return Some(action);
         }
 
         let lower_keyword = keyword.to_lowercase();
-        if lower_keyword != keyword {
-            return self.source.get_action(&lower_keyword);
+        if lower_keyword != keyword
+            && let Some(action) = self.source.get_action(&lower_keyword)
+            && is_app_allowed(&action, active_window)
+        {
+            return Some(action);
         }
 
         None
@@ -233,19 +261,27 @@ impl ExpansionCatalog {
         expand_automation_action_with_args(action, args, matched_keyword)
     }
 
-    fn fetch_exact_match(&self, keyword: &str) -> Option<FinalExpansion> {
-        let action = self.get_raw_action(keyword)?;
+    fn fetch_exact_match(
+        &self,
+        keyword: &str,
+        active_window: Option<&str>,
+    ) -> Option<FinalExpansion> {
+        let action = self.get_raw_action(keyword, active_window)?;
         self.expand_action(action, &ArgMap::default(), keyword)
     }
 
-    fn fetch_hybrid_arguments(&self, keyword: &str) -> Option<FinalExpansion> {
+    fn fetch_hybrid_arguments(
+        &self,
+        keyword: &str,
+        active_window: Option<&str>,
+    ) -> Option<FinalExpansion> {
         let tokens = tokenize(keyword, ':');
         if tokens.len() <= 1 {
             return None;
         }
 
         let base = tokens.first()?.trim();
-        let action = self.get_raw_action(base)?;
+        let action = self.get_raw_action(base, active_window)?;
         let args = parse_tokens(&tokens[1..]);
         self.expand_action(action, &args, base)
     }
@@ -260,9 +296,14 @@ impl ExpansionCatalog {
         Some(expansion)
     }
 
-    pub fn fetch_expansion(&self, keyword: &str, instant_expand: bool) -> Option<FinalExpansion> {
-        self.fetch_exact_match(keyword)
-            .or_else(|| self.fetch_hybrid_arguments(keyword))
+    pub fn fetch_expansion(
+        &self,
+        keyword: &str,
+        instant_expand: bool,
+        active_window: Option<&str>,
+    ) -> Option<FinalExpansion> {
+        self.fetch_exact_match(keyword, active_window)
+            .or_else(|| self.fetch_hybrid_arguments(keyword, active_window))
             .or_else(|| self.fetch_math_fallback(keyword, instant_expand))
     }
 }
@@ -280,6 +321,132 @@ fn sort_completion_triggers(triggers: &mut Vec<String>) {
             .then_with(|| left.cmp(right))
     });
     triggers.dedup();
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct ActiveWindowInfo {
+    pub title: Option<String>,
+    pub class: Option<String>,
+    pub exec_name: Option<String>,
+    pub exec_path: Option<String>,
+}
+
+fn match_rules(filter_list: &str, info: &ActiveWindowInfo) -> bool {
+    let rules: Vec<&str> = filter_list
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if rules.is_empty() {
+        return false;
+    }
+
+    rules.iter().any(|rule| {
+        let (prefix, value) = if let Some(pos) = rule.find(':') {
+            let (p, v) = rule.split_at(pos);
+            let p_lower = p.to_lowercase();
+            if matches!(p_lower.as_str(), "exe" | "class" | "title") {
+                (p_lower, &v[1..])
+            } else {
+                ("exe".to_string(), *rule)
+            }
+        } else {
+            ("exe".to_string(), *rule)
+        };
+
+        let val_lower = value.to_lowercase();
+
+        match prefix.as_str() {
+            "exe" => {
+                if let Some(path) = &info.exec_path
+                    && (value.contains('/') || value.contains('\\'))
+                {
+                    path.to_lowercase() == val_lower
+                } else if let Some(name) = &info.exec_name {
+                    let clean_name = name.to_lowercase();
+                    let clean_name = clean_name.strip_suffix(".exe").unwrap_or(&clean_name);
+                    let clean_val = val_lower.strip_suffix(".exe").unwrap_or(&val_lower);
+                    clean_name == clean_val
+                } else {
+                    false
+                }
+            }
+            "class" => {
+                if let Some(class) = &info.class {
+                    class.to_lowercase() == val_lower
+                } else {
+                    false
+                }
+            }
+            "title" => {
+                if let Some(title) = &info.title {
+                    title.to_lowercase().contains(&val_lower)
+                } else {
+                    false
+                }
+            }
+            _ => {
+                if let Some(name) = &info.exec_name {
+                    let clean_name = name.to_lowercase();
+                    let clean_name = clean_name.strip_suffix(".exe").unwrap_or(&clean_name);
+                    let clean_val = val_lower.strip_suffix(".exe").unwrap_or(&val_lower);
+                    clean_name == clean_val
+                } else {
+                    false
+                }
+            }
+        }
+    })
+}
+
+pub(crate) fn is_app_allowed(action: &AutomationAction, active_window: Option<&str>) -> bool {
+    let has_only = action
+        .only_apps
+        .as_ref()
+        .is_some_and(|s| !s.trim().is_empty());
+    let has_except = action
+        .except_apps
+        .as_ref()
+        .is_some_and(|s| !s.trim().is_empty());
+
+    if !has_only && !has_except {
+        return true;
+    }
+
+    let info = match active_window {
+        Some(s) => {
+            if s.starts_with('{') {
+                serde_json::from_str::<ActiveWindowInfo>(s).unwrap_or_else(|_| ActiveWindowInfo {
+                    exec_name: Some(s.to_string()),
+                    ..Default::default()
+                })
+            } else {
+                ActiveWindowInfo {
+                    exec_name: Some(s.to_string()),
+                    ..Default::default()
+                }
+            }
+        }
+        None => {
+            return false;
+        }
+    };
+
+    if has_only {
+        let allowed = action.only_apps.as_ref().unwrap();
+        if !match_rules(allowed, &info) {
+            return false;
+        }
+    }
+
+    if has_except {
+        let denied = action.except_apps.as_ref().unwrap();
+        if match_rules(denied, &info) {
+            return false;
+        }
+    }
+
+    true
 }
 
 pub(crate) fn expand_automation_action(
@@ -355,7 +522,7 @@ mod tests {
             ),
         ]);
 
-        let expansion = catalog.fetch_expansion("hi:erin", false).unwrap();
+        let expansion = catalog.fetch_expansion("hi:erin", false, None).unwrap();
         assert_eq!(
             expansion.steps[0],
             ExpansionStep::Text("exact trigger wins".to_string())
@@ -378,23 +545,26 @@ mod tests {
         ]);
 
         assert_eq!(
-            catalog.fetch_expansion("gm", false).unwrap().steps[0],
+            catalog.fetch_expansion("gm", false, None).unwrap().steps[0],
             ExpansionStep::Text("lowercase".to_string())
         );
         assert_eq!(
-            catalog.fetch_expansion("GM", false).unwrap().steps[0],
+            catalog.fetch_expansion("GM", false, None).unwrap().steps[0],
             ExpansionStep::Text("UPPERCASE".to_string())
         );
         assert_eq!(
-            catalog.fetch_expansion("Gm", false).unwrap().steps[0],
+            catalog.fetch_expansion("Gm", false, None).unwrap().steps[0],
             ExpansionStep::Text("lowercase".to_string())
         );
         assert_eq!(
-            catalog.fetch_expansion("ONLY_LOW", false).unwrap().steps[0],
+            catalog
+                .fetch_expansion("ONLY_LOW", false, None)
+                .unwrap()
+                .steps[0],
             ExpansionStep::Text("only lowercase".to_string())
         );
-        assert!(catalog.fetch_expansion("unknown", false).is_none());
-        assert!(catalog.fetch_expansion("UNKNOWN", false).is_none());
+        assert!(catalog.fetch_expansion("unknown", false, None).is_none());
+        assert!(catalog.fetch_expansion("UNKNOWN", false, None).is_none());
     }
 
     #[test]
@@ -408,6 +578,8 @@ mod tests {
         let action = AutomationAction {
             output: String::new(),
             action_type: "script".to_string(),
+            only_apps: None,
+            except_apps: None,
             interpreter: Some(ScriptInterpreter::PowerShell),
             behavior: Some(ScriptBehavior::Inline),
             script_binary: Some(compressed),
@@ -416,7 +588,7 @@ mod tests {
         memory.load_actions(vec![("opendir".to_string(), action)]);
 
         let expansion = catalog
-            .fetch_expansion("opendir:\"C:\\Temp\"", false)
+            .fetch_expansion("opendir:\"C:\\Temp\"", false, None)
             .unwrap();
         if let ExpansionStep::Script(md) = &expansion.steps[0] {
             let decompressed = decompress(&md.compressed_content).unwrap();
@@ -437,6 +609,8 @@ mod tests {
         let action = AutomationAction {
             output: String::new(),
             action_type: "script".to_string(),
+            only_apps: None,
+            except_apps: None,
             interpreter: Some(ScriptInterpreter::Bash),
             behavior: Some(ScriptBehavior::Silent),
             script_binary: Some(compressed),
@@ -444,7 +618,9 @@ mod tests {
 
         memory.load_actions(vec![("api".to_string(), action)]);
 
-        let expansion = catalog.fetch_expansion("api:env=prod", false).unwrap();
+        let expansion = catalog
+            .fetch_expansion("api:env=prod", false, None)
+            .unwrap();
         if let ExpansionStep::Script(md) = &expansion.steps[0] {
             let decompressed = decompress(&md.compressed_content).unwrap();
             assert_eq!(decompressed, "curl https://prod.example.com");
@@ -463,14 +639,14 @@ mod tests {
             AutomationAction::text("exact snippet"),
         )]);
 
-        let expansion = catalog.fetch_expansion("5+2", false).unwrap();
+        let expansion = catalog.fetch_expansion("5+2", false, None).unwrap();
         assert_eq!(
             expansion.steps[0],
             ExpansionStep::Text("exact snippet".to_string())
         );
         assert!(!expansion.is_calculation);
 
-        let fallback = catalog.fetch_expansion("7*6", false).unwrap();
+        let fallback = catalog.fetch_expansion("7*6", false, None).unwrap();
         assert_eq!(fallback.steps[0], ExpansionStep::Text("42".to_string()));
         assert!(fallback.is_calculation);
     }
@@ -479,7 +655,7 @@ mod tests {
     fn math_fallback_skipped_in_instant_expand() {
         let memory = Arc::new(MemorySource::new());
         let catalog = ExpansionCatalog::with_source(memory.clone());
-        assert!(catalog.fetch_expansion("7*6", true).is_none());
+        assert!(catalog.fetch_expansion("7*6", true, None).is_none());
     }
 
     #[test]
@@ -593,7 +769,7 @@ mod tests {
         let word_catalog = ExpansionCatalog::new();
         assert!(
             word_catalog
-                .fetch_expansion("ctrl+shift+g", false)
+                .fetch_expansion("ctrl+shift+g", false, None)
                 .is_none()
         );
     }
@@ -607,7 +783,7 @@ mod tests {
         )]);
 
         let (trigger, action) = hotkeys
-            .match_action(parse_hotkey("ralt+m").unwrap())
+            .match_action(parse_hotkey("ralt+m").unwrap(), None)
             .unwrap();
         assert_eq!(trigger, "alt+m");
         assert_eq!(action.output, "generic alt");
@@ -622,7 +798,7 @@ mod tests {
         ]);
 
         let (trigger, action) = hotkeys
-            .match_action(parse_hotkey("ralt+m").unwrap())
+            .match_action(parse_hotkey("ralt+m").unwrap(), None)
             .unwrap();
         assert_eq!(trigger, "ralt+m");
         assert_eq!(action.output, "right alt");
@@ -637,9 +813,123 @@ mod tests {
         )]);
 
         let (trigger, action) = hotkeys
-            .match_action(parse_hotkey("ralt+m").unwrap())
+            .match_action(parse_hotkey("ralt+m").unwrap(), None)
             .unwrap();
         assert_eq!(trigger, "altgr+m");
         assert_eq!(action.output, "configured alias");
+    }
+
+    #[test]
+    fn test_app_gating_prefix_rules() {
+        let mut action = AutomationAction::text("dummy");
+
+        // 1. exe: prefix (exact match, case-insensitive, strips .exe)
+        action.only_apps = Some("exe:chrome,exe:firefox".to_string());
+
+        let info_chrome = serde_json::to_string(&ActiveWindowInfo {
+            exec_name: Some("Chrome.exe".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+        let info_firefox = serde_json::to_string(&ActiveWindowInfo {
+            exec_name: Some("firefox".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+        let info_notepad = serde_json::to_string(&ActiveWindowInfo {
+            exec_name: Some("notepad.exe".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+
+        assert!(is_app_allowed(&action, Some(&info_chrome)));
+        assert!(is_app_allowed(&action, Some(&info_firefox)));
+        assert!(!is_app_allowed(&action, Some(&info_notepad)));
+
+        // 2. class: prefix (exact match, case-insensitive)
+        action.only_apps = Some("class:CabinetWClass".to_string());
+        let info_class_match = serde_json::to_string(&ActiveWindowInfo {
+            class: Some("cabinetwclass".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+        let info_class_miss = serde_json::to_string(&ActiveWindowInfo {
+            class: Some("Chrome_WidgetWin_1".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+
+        assert!(is_app_allowed(&action, Some(&info_class_match)));
+        assert!(!is_app_allowed(&action, Some(&info_class_miss)));
+
+        // 3. title: prefix (substring match, case-insensitive)
+        action.only_apps = Some("title:Github,title:Google".to_string());
+        let info_title_match = serde_json::to_string(&ActiveWindowInfo {
+            title: Some("Taurine Pull Request - GitHub - Google Chrome".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+        let info_title_miss = serde_json::to_string(&ActiveWindowInfo {
+            title: Some("Index of /docs".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+
+        assert!(is_app_allowed(&action, Some(&info_title_match)));
+        assert!(!is_app_allowed(&action, Some(&info_title_miss)));
+
+        // 4. Default no prefix (exe match)
+        action.only_apps = Some("chrome".to_string());
+        assert!(is_app_allowed(&action, Some(&info_chrome)));
+        assert!(!is_app_allowed(&action, Some(&info_notepad)));
+
+        // 5. Exclude filters
+        action.only_apps = None;
+        action.except_apps = Some("title:Gmail,exe:doom".to_string());
+
+        let info_gmail = serde_json::to_string(&ActiveWindowInfo {
+            title: Some("Inbox (1) - Gmail".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+        let info_doom = serde_json::to_string(&ActiveWindowInfo {
+            exec_name: Some("doom.exe".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+
+        assert!(!is_app_allowed(&action, Some(&info_gmail)));
+        assert!(!is_app_allowed(&action, Some(&info_doom)));
+        assert!(is_app_allowed(&action, Some(&info_chrome)));
+
+        // 6. Strict mode (None active window blocks if filters are active)
+        assert!(!is_app_allowed(&action, None));
+
+        // 7. Full path match (contains path separators)
+        action.except_apps = Some("exe:/usr/bin/python3,exe:C:\\bin\\python.exe".to_string());
+        let info_python_linux = serde_json::to_string(&ActiveWindowInfo {
+            exec_path: Some("/usr/bin/python3".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+        let info_python_win = serde_json::to_string(&ActiveWindowInfo {
+            exec_path: Some("c:\\bin\\python.exe".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+        let info_python_other = serde_json::to_string(&ActiveWindowInfo {
+            exec_path: Some("/usr/local/bin/python3".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+
+        assert!(!is_app_allowed(&action, Some(&info_python_linux)));
+        assert!(!is_app_allowed(&action, Some(&info_python_win)));
+        assert!(is_app_allowed(&action, Some(&info_python_other)));
+
+        // 8. Path without prefix containing colon (Windows path edge case)
+        action.except_apps = Some("C:\\bin\\python.exe".to_string());
+        assert!(!is_app_allowed(&action, Some(&info_python_win)));
+        assert!(is_app_allowed(&action, Some(&info_python_other)));
     }
 }

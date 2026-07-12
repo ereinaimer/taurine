@@ -46,7 +46,7 @@ By wrapping the text in quotes, you can preserve complex strings, including thos
 If a placeholder is not numbered and does not match a named argument, Taurine will **not** consume positional values sequentially. Instead, it strictly respects the variable mapping, leaving the placeholder to use its default value.
 
 <Transformation
-  template="Repo: [repo=\"taurine\"] / User: [0=\"erein\"]"
+  template='Repo: [repo="taurine"] / User: [0="erein"]'
   input=">gh:aimer"
   result="Repo: taurine / User: aimer"
 />

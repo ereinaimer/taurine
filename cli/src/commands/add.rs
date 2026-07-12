@@ -7,6 +7,8 @@ pub fn execute(
     output: String,
     os: String,
     use_hotkey: bool,
+    include_apps: Option<String>,
+    exclude_apps: Option<String>,
 ) -> taurine_core::error::Result<()> {
     use crate::commands::validate::{audit_payload_tags, prepare_trigger};
     use taurine_core::db::crud::{
@@ -32,13 +34,22 @@ pub fn execute(
     }
     validate_trigger_not_reserved(&conn, &stored_trigger)?;
     let outcome = match prepared.trigger_type {
-        TriggerType::Word => add_automation_by_trigger(&conn, &stored_trigger, &output, &os)?,
+        TriggerType::Word => add_automation_by_trigger(
+            &conn,
+            &stored_trigger,
+            &output,
+            &os,
+            include_apps.as_deref(),
+            exclude_apps.as_deref(),
+        )?,
         TriggerType::Hotkey => add_automation_by_trigger_type(
             &conn,
             TriggerType::Hotkey,
             &stored_trigger,
             &output,
             &os,
+            include_apps.as_deref(),
+            exclude_apps.as_deref(),
         )?,
     };
 
@@ -108,6 +119,8 @@ mod tests {
                 "git status".to_string(),
                 "all".to_string(),
                 false,
+                None,
+                None,
             )
             .unwrap();
 
@@ -134,6 +147,8 @@ mod tests {
                 "git status[key.enter]".to_string(),
                 "all".to_string(),
                 true,
+                None,
+                None,
             )
             .unwrap();
 
@@ -160,6 +175,8 @@ mod tests {
                 "one".to_string(),
                 "all".to_string(),
                 true,
+                None,
+                None,
             )
             .unwrap();
 
@@ -168,6 +185,8 @@ mod tests {
                 "two".to_string(),
                 "win".to_string(),
                 true,
+                None,
+                None,
             )
             .unwrap_err();
             assert!(error.to_string().contains("Trigger conflict"));
@@ -179,6 +198,8 @@ mod tests {
                 "windows".to_string(),
                 "win".to_string(),
                 true,
+                None,
+                None,
             )
             .unwrap();
             execute(
@@ -186,6 +207,8 @@ mod tests {
                 "linux".to_string(),
                 "linux".to_string(),
                 true,
+                None,
+                None,
             )
             .unwrap();
 
@@ -211,6 +234,8 @@ mod tests {
                 "one".to_string(),
                 "all".to_string(),
                 true,
+                None,
+                None,
             )
             .unwrap();
 
@@ -219,6 +244,8 @@ mod tests {
                 "two".to_string(),
                 "win".to_string(),
                 true,
+                None,
+                None,
             )
             .unwrap_err();
             assert!(error.to_string().contains("Trigger conflict"));
@@ -230,6 +257,8 @@ mod tests {
                 "left".to_string(),
                 "all".to_string(),
                 true,
+                None,
+                None,
             )
             .unwrap();
             execute(
@@ -237,6 +266,8 @@ mod tests {
                 "right".to_string(),
                 "all".to_string(),
                 true,
+                None,
+                None,
             )
             .unwrap();
 
@@ -262,6 +293,8 @@ mod tests {
                 "one".to_string(),
                 "win".to_string(),
                 true,
+                None,
+                None,
             )
             .unwrap();
 
@@ -271,6 +304,8 @@ mod tests {
                 "two".to_string(),
                 "win".to_string(),
                 true,
+                None,
+                None,
             )
             .unwrap();
 
@@ -297,6 +332,8 @@ mod tests {
                 "one".to_string(),
                 "all".to_string(),
                 false,
+                None,
+                None,
             )
             .unwrap();
 
@@ -305,6 +342,8 @@ mod tests {
                 "two".to_string(),
                 "all".to_string(),
                 false,
+                None,
+                None,
             )
             .unwrap();
 
@@ -331,6 +370,8 @@ mod tests {
                 "one".to_string(),
                 "win".to_string(),
                 true,
+                None,
+                None,
             )
             .unwrap();
 
@@ -340,6 +381,8 @@ mod tests {
                 "two".to_string(),
                 "win".to_string(),
                 true,
+                None,
+                None,
             )
             .unwrap();
 
@@ -366,6 +409,8 @@ mod tests {
                 "word".to_string(),
                 "all".to_string(),
                 false,
+                None,
+                None,
             )
             .unwrap();
             execute(
@@ -373,6 +418,8 @@ mod tests {
                 "hotkey".to_string(),
                 "all".to_string(),
                 true,
+                None,
+                None,
             )
             .unwrap();
 

@@ -12,8 +12,9 @@ pub use automations::{
     get_automation, get_automations_list, get_syncable_automations,
     increment_usage_count_by_trigger, prepare_trigger, prepare_trigger_with_type,
     record_expansion_usage, search_automations, target_os_values_overlap,
-    update_existing_automation, upsert_automation, upsert_automation_with_trigger_type,
-    upsert_script, validate_trigger_not_reserved, validate_trigger_target_os_conflict,
+    update_automation_app_filters, update_existing_automation, upsert_automation,
+    upsert_automation_with_trigger_type, upsert_script, validate_trigger_not_reserved,
+    validate_trigger_target_os_conflict,
 };
 
 pub use crate::metrics::AutomationMetricKind;

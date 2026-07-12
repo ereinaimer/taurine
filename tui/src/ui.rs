@@ -2072,6 +2072,8 @@ mod tests {
             output: "[Script: powershell]".to_string(),
             action_type: "script".to_string(),
             target_os: "win".to_string(),
+            only_apps: None,
+            except_apps: None,
             tags: "[]".to_string(),
             usage_count: 6,
             last_used_at: Some(1),

@@ -38,6 +38,8 @@ pub struct AutomationRow {
     pub output: String,
     pub action_type: String,
     pub target_os: String,
+    pub only_apps: Option<String>,
+    pub except_apps: Option<String>,
     pub tags: String, // JSON
     pub usage_count: i64,
     pub last_used_at: Option<i64>,
@@ -59,6 +61,8 @@ pub struct AutomationRow {
 pub struct AutomationAction {
     pub output: String,
     pub action_type: String,
+    pub only_apps: Option<String>,
+    pub except_apps: Option<String>,
 
     pub interpreter: Option<ScriptInterpreter>,
     pub behavior: Option<ScriptBehavior>,
@@ -70,6 +74,8 @@ impl AutomationAction {
         Self {
             output: output.to_string(),
             action_type: "text".to_string(),
+            only_apps: None,
+            except_apps: None,
             interpreter: None,
             behavior: None,
             script_binary: None,
@@ -99,6 +105,8 @@ pub struct AutomationListItem {
     pub output: String,
     pub action_type: String,
     pub target_os: String,
+    pub only_apps: Option<String>,
+    pub except_apps: Option<String>,
     pub usage_count: i64,
     pub last_used_at: Option<i64>,
     pub created_at: i64,

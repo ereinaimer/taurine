@@ -73,6 +73,8 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     action_type  TEXT    DEFAULT 'text',
                     is_enabled   BOOLEAN DEFAULT 1,
                     target_os    TEXT    DEFAULT 'all',
+                    only_apps    TEXT,
+                    except_apps  TEXT,
                     tags         JSON    DEFAULT '[]',
                     usage_count  INTEGER DEFAULT 0,
                     last_used_at INTEGER,
@@ -108,11 +110,6 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     ON automations(trigger_type, trigger)
                  WHERE is_deleted = 0 AND is_enabled = 1;
 
-                -- Exact duplicate guard for active rows only.
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_active_trigger_uniqueness
-                    ON automations(trigger_type, trigger, target_os)
-                 WHERE is_deleted = 0;
-
                 -- Sync index: version is the LWW arbiter; updated_at breaks clock-drift ties.
                 CREATE INDEX IF NOT EXISTS idx_sync_queue
                     ON automations(version, updated_at, is_synced);
@@ -129,6 +126,12 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     name   TEXT PRIMARY KEY,
                     prompt TEXT NOT NULL
                 );
+
+                DROP INDEX IF EXISTS idx_active_trigger_uniqueness;
+
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_active_trigger_uniqueness
+                    ON automations(trigger_type, trigger, target_os, COALESCE(only_apps, ''), COALESCE(except_apps, ''))
+                 WHERE is_deleted = 0;
 
                 PRAGMA user_version = 1;",
                     )

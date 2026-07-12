@@ -173,11 +173,16 @@ impl EngineState {
         self.hotkey_catalog.load_actions(actions);
     }
 
-    pub fn fetch_expansion(&self, keyword: &str) -> Option<FinalExpansion> {
+    pub fn fetch_expansion(
+        &self,
+        keyword: &str,
+        active_window: Option<&str>,
+    ) -> Option<FinalExpansion> {
         let instant = self
             .instant_expand
             .load(std::sync::atomic::Ordering::Relaxed);
-        self.word_catalog.fetch_expansion(keyword, instant)
+        self.word_catalog
+            .fetch_expansion(keyword, instant, active_window)
     }
 
     pub fn matching_word_triggers(&self, prefix: &str) -> Vec<String> {
@@ -196,8 +201,12 @@ impl EngineState {
         self.hotkey_catalog.get_action(trigger)
     }
 
-    pub fn fetch_hotkey_expansion(&self, hotkey: Hotkey) -> Option<(String, FinalExpansion)> {
-        let (trigger, action) = self.hotkey_catalog.match_action(hotkey)?;
+    pub fn fetch_hotkey_expansion(
+        &self,
+        hotkey: Hotkey,
+        active_window: Option<&str>,
+    ) -> Option<(String, FinalExpansion)> {
+        let (trigger, action) = self.hotkey_catalog.match_action(hotkey, active_window)?;
         let expansion = expand_automation_action(action, &trigger)?;
         Some((trigger, expansion))
     }
@@ -381,7 +390,7 @@ mod tests {
             AutomationAction::text("git status"),
         )]);
 
-        assert!(state.fetch_expansion("ctrl+shift+g").is_none());
+        assert!(state.fetch_expansion("ctrl+shift+g", None).is_none());
         assert_eq!(
             state.get_hotkey_action("ctrl+shift+g").unwrap().output,
             "git status"
@@ -403,14 +412,17 @@ mod tests {
         )]);
 
         let (trigger, expansion) = state
-            .fetch_hotkey_expansion(KeyPress {
-                modifiers: modifiers_with(&[Modifier::Ctrl, Modifier::Shift]),
-                key: LogicalKey::Letter('g'),
-            })
+            .fetch_hotkey_expansion(
+                KeyPress {
+                    modifiers: modifiers_with(&[Modifier::Ctrl, Modifier::Shift]),
+                    key: LogicalKey::Letter('g'),
+                },
+                None,
+            )
             .expect("hotkey expansion should resolve");
 
         assert_eq!(trigger, "ctrl+shift+g");
-        assert!(state.fetch_expansion("ctrl+shift+g").is_none());
+        assert!(state.fetch_expansion("ctrl+shift+g", None).is_none());
         assert!(
             expansion.steps.iter().any(
                 |step| matches!(step, crate::engine::variables::ExpansionStep::KeyPress(alias) if alias == "enter")
@@ -427,10 +439,13 @@ mod tests {
         )]);
 
         let (trigger, expansion) = state
-            .fetch_hotkey_expansion(KeyPress {
-                modifiers: modifiers_with(&[Modifier::RightAlt]),
-                key: LogicalKey::Letter('m'),
-            })
+            .fetch_hotkey_expansion(
+                KeyPress {
+                    modifiers: modifiers_with(&[Modifier::RightAlt]),
+                    key: LogicalKey::Letter('m'),
+                },
+                None,
+            )
             .expect("generic alt hotkey should match right alt");
 
         assert_eq!(trigger, "alt+m");
@@ -449,10 +464,13 @@ mod tests {
         ]);
 
         let (trigger, expansion) = state
-            .fetch_hotkey_expansion(KeyPress {
-                modifiers: modifiers_with(&[Modifier::RightAlt]),
-                key: LogicalKey::Letter('m'),
-            })
+            .fetch_hotkey_expansion(
+                KeyPress {
+                    modifiers: modifiers_with(&[Modifier::RightAlt]),
+                    key: LogicalKey::Letter('m'),
+                },
+                None,
+            )
             .expect("side-specific hotkey should resolve");
 
         assert_eq!(trigger, "ralt+m");

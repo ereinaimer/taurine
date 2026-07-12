@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **App-Specific Triggers**: Restrict word and hotkey expansions to specific applications, window classes, or window titles.
+  - Added new CLI flags `--include-apps` and `--exclude-apps` (accepting comma-separated lists) to `taurine add` and `taurine script`.
+  - Added support for prefix specifiers: `exe:<name>` (process name exact match, or full path if it contains separators), `class:<name>` (window class or bundle ID exact match), and `title:<substring>` (window title substring match), defaulting to `exe:` if no prefix is supplied.
+  - The same hotkey can be mapped to different actions for different applications, as long as their app filters do not overlap.
+  - Implemented secure fail-safe: if the operating system fails to query the focused application or window title, restricted automations are safely blocked from executing.
 - **Zeroize AI API Keys**: Utilized self-erasing memory (`Zeroizing`) to automatically clear AI API keys from system memory as soon as they are no longer needed, reducing potential exposure in core, daemon, and CLI processes.
 - **Configurable RPC Settings and Token-Based Authentication**: Implemented customizable RPC communication settings with secure token-based authentication.
   - Added new configuration keys: `rpc_mode`, `rpc_host`, and `rpc_token`.

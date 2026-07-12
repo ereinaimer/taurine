@@ -252,6 +252,18 @@ pub struct AddArgs {
     #[arg(long)]
     pub hotkey: bool,
 
+    /// Limit execution to specific applications (comma-separated list).
+    /// Labels are exact and case-insensitive: Windows executables without .exe (e.g. 'code'),
+    /// Linux WM_CLASS (e.g. 'google-chrome'), macOS localized names (e.g. 'Visual Studio Code').
+    #[arg(long)]
+    pub include_apps: Option<String>,
+
+    /// Prevent execution in specific applications (comma-separated list).
+    /// Labels are exact and case-insensitive: Windows executables without .exe (e.g. 'code'),
+    /// Linux WM_CLASS (e.g. 'google-chrome'), macOS localized names (e.g. 'Visual Studio Code').
+    #[arg(long)]
+    pub exclude_apps: Option<String>,
+
     /// Trigger for standard text expansion
     pub trigger: Option<String>,
     /// Output for standard text expansion
@@ -290,6 +302,16 @@ pub enum AddSubcommand {
         /// The target operating system (windows, linux, macos, all, android, ios)
         #[arg(long, value_enum, default_value = "current")]
         os: TargetOsCli,
+        /// Limit execution to specific applications (comma-separated list).
+        /// Labels are exact and case-insensitive: Windows executables without .exe (e.g. 'code'),
+        /// Linux WM_CLASS (e.g. 'google-chrome'), macOS localized names (e.g. 'Visual Studio Code').
+        #[arg(long)]
+        include_apps: Option<String>,
+        /// Prevent execution in specific applications (comma-separated list).
+        /// Labels are exact and case-insensitive: Windows executables without .exe (e.g. 'code'),
+        /// Linux WM_CLASS (e.g. 'google-chrome'), macOS localized names (e.g. 'Visual Studio Code').
+        #[arg(long)]
+        exclude_apps: Option<String>,
     },
 }
 
@@ -494,6 +516,8 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
                 lang,
                 mode,
                 os,
+                include_apps,
+                exclude_apps,
             }) = args.sub
             {
                 commands::script::execute(
@@ -506,6 +530,8 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
                     os.to_db_str().map(|s| s.to_string()).unwrap_or_else(|| {
                         taurine_core::db::get_current_os_db_string().to_string()
                     }),
+                    include_apps,
+                    exclude_apps,
                 )?;
             } else if let (Some(t), Some(o)) = (args.trigger, args.output) {
                 let os = args
@@ -513,7 +539,14 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
                     .to_db_str()
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| taurine_core::db::get_current_os_db_string().to_string());
-                commands::add::execute(t, o, os, args.hotkey)?;
+                commands::add::execute(
+                    t,
+                    o,
+                    os,
+                    args.hotkey,
+                    args.include_apps,
+                    args.exclude_apps,
+                )?;
             } else {
                 // Show help for add command if neither subcommand nor positional args are valid
                 use clap::CommandFactory;

@@ -14,7 +14,7 @@ Taurine uses a smart parser that makes your life easier:
 - **Required:** You **must** wrap your default value in quotes (`"` or `'`) if it contains spaces, commas, or closing brackets. E.g., `[message="No content provided"]`
 
 <Transformation
-  template="Message: [content=\"No content provided\"]"
+  template='Message: [content="No content provided"]'
   cases={[
     { input: ">msg", result: "Message: No content provided" },
     { input: ">msg:\"Hello World\"", result: "Message: Hello World" },

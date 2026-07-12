@@ -383,10 +383,11 @@ mod tests {
             .build();
 
         // Initially state should be empty
-        assert_eq!(state.fetch_expansion("hello"), None);
+        assert_eq!(state.fetch_expansion("hello", None), None);
 
         // Add a snippet to DB
-        add_automation_by_trigger(&conn, "hello", "world", "all").expect("Failed to add to DB");
+        add_automation_by_trigger(&conn, "hello", "world", "all", None, None)
+            .expect("Failed to add to DB");
 
         // trigger reload directly via gRPC service method
         let req = Request::new(taurine_core::rpc::ReloadRequest {});
@@ -399,7 +400,7 @@ mod tests {
 
         // Now the in-memory cache should have the expansion
         let expansion = state
-            .fetch_expansion("hello")
+            .fetch_expansion("hello", None)
             .expect("reload should repopulate cache");
         assert_eq!(
             expansion.steps,
@@ -438,7 +439,7 @@ mod tests {
             state.get_hotkey_action("ctrl+shift+g").unwrap().output,
             "git status"
         );
-        assert!(state.fetch_expansion("ctrl+shift+g").is_none());
+        assert!(state.fetch_expansion("ctrl+shift+g", None).is_none());
 
         taurine_core::settings::SettingsManager::new(&conn)
             .update_setting("inline_tab_completion_enabled", false)

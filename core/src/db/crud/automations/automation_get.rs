@@ -30,6 +30,8 @@ pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRo
             a.output,
             a.action_type,
             a.target_os,
+            a.only_apps,
+            a.except_apps,
             a.tags,
             a.usage_count,
             a.last_used_at,
@@ -48,8 +50,8 @@ pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRo
     )?;
 
     let result = stmt.query_row([id], |row| {
-        let interpreter = parse_json_variant(row.get(17)?);
-        let behavior = parse_json_variant(row.get(18)?);
+        let interpreter = parse_json_variant(row.get(19)?);
+        let behavior = parse_json_variant(row.get(20)?);
 
         Ok(AutomationRow {
             id: row.get(0)?,
@@ -60,18 +62,20 @@ pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRo
             output: row.get(5)?,
             action_type: row.get(6)?,
             target_os: row.get(7)?,
-            tags: row.get(8)?,
-            usage_count: row.get(9)?,
-            last_used_at: row.get(10)?,
-            created_at: row.get(11)?,
-            updated_at: row.get(12)?,
-            version: row.get(13)?,
-            is_deleted: row.get(14)?,
-            is_synced: row.get(15)?,
-            is_enabled: row.get(16)?,
+            only_apps: row.get(8)?,
+            except_apps: row.get(9)?,
+            tags: row.get(10)?,
+            usage_count: row.get(11)?,
+            last_used_at: row.get(12)?,
+            created_at: row.get(13)?,
+            updated_at: row.get(14)?,
+            version: row.get(15)?,
+            is_deleted: row.get(16)?,
+            is_synced: row.get(17)?,
+            is_enabled: row.get(18)?,
             interpreter,
             behavior,
-            script_binary: row.get(19)?,
+            script_binary: row.get(21)?,
         })
     });
 
@@ -89,7 +93,7 @@ pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRo
 pub fn get_action_by_trigger(conn: &Connection, trigger: &str) -> Result<Option<AutomationAction>> {
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
-        "SELECT a.output, a.action_type, s.interpreter, s.behavior, s.compressed_content
+        "SELECT a.output, a.action_type, a.only_apps, a.except_apps, s.interpreter, s.behavior, s.compressed_content
          FROM   automations a
          LEFT JOIN scripts s ON a.id = s.automation_id
          WHERE  a.trigger_type = 'word'
@@ -102,15 +106,17 @@ pub fn get_action_by_trigger(conn: &Connection, trigger: &str) -> Result<Option<
     )?;
 
     let result = stmt.query_row(rusqlite::params![trigger, os_str], |row| {
-        let interpreter = parse_json_variant(row.get(2)?);
-        let behavior = parse_json_variant(row.get(3)?);
+        let interpreter = parse_json_variant(row.get(4)?);
+        let behavior = parse_json_variant(row.get(5)?);
 
         Ok(AutomationAction {
             output: row.get(0)?,
             action_type: row.get(1)?,
+            only_apps: row.get(2)?,
+            except_apps: row.get(3)?,
             interpreter,
             behavior,
-            script_binary: row.get(4)?,
+            script_binary: row.get(6)?,
         })
     });
 
@@ -127,7 +133,7 @@ pub fn get_action_by_trigger(conn: &Connection, trigger: &str) -> Result<Option<
 pub fn get_all_active_automations(conn: &Connection) -> Result<Vec<(String, AutomationAction)>> {
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
-        "SELECT a.trigger, a.output, a.action_type, s.interpreter, s.behavior, s.compressed_content
+        "SELECT a.trigger, a.output, a.action_type, a.only_apps, a.except_apps, s.interpreter, s.behavior, s.compressed_content
          FROM automations a
          LEFT JOIN scripts s ON a.id = s.automation_id
          WHERE a.trigger_type = 'word'
@@ -137,17 +143,19 @@ pub fn get_all_active_automations(conn: &Connection) -> Result<Vec<(String, Auto
     )?;
 
     let rows = stmt.query_map([os_str], |row| {
-        let interpreter = parse_json_variant(row.get(3)?);
-        let behavior = parse_json_variant(row.get(4)?);
+        let interpreter = parse_json_variant(row.get(5)?);
+        let behavior = parse_json_variant(row.get(6)?);
 
         Ok((
             row.get(0)?,
             AutomationAction {
                 output: row.get(1)?,
                 action_type: row.get(2)?,
+                only_apps: row.get(3)?,
+                except_apps: row.get(4)?,
                 interpreter,
                 behavior,
-                script_binary: row.get(5)?,
+                script_binary: row.get(7)?,
             },
         ))
     })?;
@@ -202,7 +210,7 @@ pub fn get_all_active_hotkey_automations(
 ) -> Result<Vec<(String, AutomationAction)>> {
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
-        "SELECT a.trigger, a.output, a.action_type, s.interpreter, s.behavior, s.compressed_content
+        "SELECT a.trigger, a.output, a.action_type, a.only_apps, a.except_apps, s.interpreter, s.behavior, s.compressed_content
          FROM automations a
          LEFT JOIN scripts s ON a.id = s.automation_id
          WHERE a.trigger_type = 'hotkey'
@@ -212,17 +220,19 @@ pub fn get_all_active_hotkey_automations(
     )?;
 
     let rows = stmt.query_map([os_str], |row| {
-        let interpreter = parse_json_variant(row.get(3)?);
-        let behavior = parse_json_variant(row.get(4)?);
+        let interpreter = parse_json_variant(row.get(5)?);
+        let behavior = parse_json_variant(row.get(6)?);
 
         Ok((
             row.get(0)?,
             AutomationAction {
                 output: row.get(1)?,
                 action_type: row.get(2)?,
+                only_apps: row.get(3)?,
+                except_apps: row.get(4)?,
                 interpreter,
                 behavior,
-                script_binary: row.get(5)?,
+                script_binary: row.get(7)?,
             },
         ))
     })?;
@@ -240,8 +250,8 @@ pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
         "SELECT a.id, a.name, a.description, a.trigger, a.output, a.action_type, a.target_os,
-                a.usage_count, a.last_used_at, a.created_at, a.trigger_type, s.interpreter,
-                s.behavior, s.compressed_content
+                a.only_apps, a.except_apps, a.usage_count, a.last_used_at, a.created_at, a.trigger_type,
+                s.interpreter, s.behavior, s.compressed_content
          FROM   automations a
          LEFT JOIN scripts s ON a.id = s.automation_id
          WHERE  a.is_deleted = 0
@@ -250,14 +260,14 @@ pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>
     )?;
 
     let rows = stmt.query_map([os_str], |row| {
-        let trigger_type = parse_trigger_type_row(row.get(10)?)?;
-        let interpreter = parse_json_variant(row.get(11)?);
-        let behavior = parse_json_variant(row.get(12)?);
+        let trigger_type = parse_trigger_type_row(row.get(12)?)?;
+        let interpreter = parse_json_variant(row.get(13)?);
+        let behavior = parse_json_variant(row.get(14)?);
         let script_content = row
-            .get::<_, Option<Vec<u8>>>(13)?
+            .get::<_, Option<Vec<u8>>>(15)?
             .map(|compressed| {
                 decompress(&compressed).map_err(|err| {
-                    rusqlite::Error::FromSqlConversionFailure(13, Type::Blob, Box::new(err))
+                    rusqlite::Error::FromSqlConversionFailure(15, Type::Blob, Box::new(err))
                 })
             })
             .transpose()?;
@@ -271,9 +281,11 @@ pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>
             output: row.get(4)?,
             action_type: row.get(5)?,
             target_os: row.get(6)?,
-            usage_count: row.get(7)?,
-            last_used_at: row.get(8)?,
-            created_at: row.get(9)?,
+            only_apps: row.get(7)?,
+            except_apps: row.get(8)?,
+            usage_count: row.get(9)?,
+            last_used_at: row.get(10)?,
+            created_at: row.get(11)?,
             script_content,
             interpreter,
             behavior,

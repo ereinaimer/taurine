@@ -499,11 +499,14 @@ impl Evaluator {
         Some(rewrite)
     }
 
-    fn evaluate_buffer_for_expansion(&mut self) -> Option<ExpansionResult> {
+    fn evaluate_buffer_for_expansion(
+        &mut self,
+        active_window: Option<&str>,
+    ) -> Option<ExpansionResult> {
         let trigger_char = self.trigger_prefix();
 
         if let Some(keyword) = self.buffer.extract_trigger_word(trigger_char)
-            && let Some(expansion) = self.state.fetch_expansion(&keyword)
+            && let Some(expansion) = self.state.fetch_expansion(&keyword, active_window)
         {
             let delete_count = 1 + keyword.chars().count();
             let metric_kind = metric_kind_for_steps(expansion.is_calculation, &expansion.steps);
@@ -545,7 +548,7 @@ impl Evaluator {
             .triggerless_mode
             .load(std::sync::atomic::Ordering::Relaxed)
             && let Some(word) = self.buffer.extract_tail_word()
-            && let Some(expansion) = self.state.fetch_expansion(&word)
+            && let Some(expansion) = self.state.fetch_expansion(&word, active_window)
         {
             let delete_count = word.chars().count();
             let metric_kind = metric_kind_for_steps(expansion.is_calculation, &expansion.steps);
@@ -581,7 +584,11 @@ impl Evaluator {
         None
     }
 
-    pub fn process_event(&mut self, event: EngineEvent) -> Option<ExpansionResult> {
+    pub fn process_event(
+        &mut self,
+        event: EngineEvent,
+        active_window: Option<&str>,
+    ) -> Option<ExpansionResult> {
         use std::sync::atomic::Ordering;
         if self.state.ignore_fullscreen_enabled.load(Ordering::Relaxed)
             && self.state.is_os_fullscreen.load(Ordering::Relaxed)
@@ -624,7 +631,7 @@ impl Evaluator {
             }
             EngineEvent::ActionDelimiter => {
                 let was_completion_active = self.completion.active;
-                let result = self.evaluate_buffer_for_expansion();
+                let result = self.evaluate_buffer_for_expansion(active_window);
                 if was_completion_active {
                     self.completion.deactivate(&self.state.completion_active);
                 }
@@ -655,7 +662,7 @@ impl Evaluator {
                 }
 
                 if self.state.instant_expand.load(Ordering::Relaxed)
-                    && let Some(result) = self.evaluate_buffer_for_expansion()
+                    && let Some(result) = self.evaluate_buffer_for_expansion(active_window)
                 {
                     if self.completion.active {
                         self.completion.deactivate(&self.state.completion_active);
@@ -839,6 +846,16 @@ fn pop_word_from_query(query: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    trait EvaluatorTestExt {
+        fn process(&mut self, event: EngineEvent) -> Option<ExpansionResult>;
+    }
+    impl EvaluatorTestExt for Evaluator {
+        fn process(&mut self, event: EngineEvent) -> Option<ExpansionResult> {
+            self.process_event(event, None)
+        }
+    }
+
     use tracing::error;
 
     fn assert_no_follow_up(result: &ExpansionResult) {
@@ -893,7 +910,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         let mut eval = Evaluator::new(state);
 
-        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
 
         assert!(eval.is_completion_active());
         assert_eq!(eval.completion.original_query, "");
@@ -926,7 +943,7 @@ mod tests {
 
         for c in ">g".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -949,7 +966,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         let mut eval = Evaluator::new(state);
 
-        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
         assert_eq!(eval.cycle_completion_next(), None);
         assert!(eval.is_completion_active());
         assert_eq!(eval.completion.current_text, "");
@@ -977,7 +994,7 @@ mod tests {
 
         for c in ">g".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -1037,7 +1054,7 @@ mod tests {
 
         for c in ">g".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -1067,7 +1084,7 @@ mod tests {
 
         for c in ">z".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -1089,7 +1106,7 @@ mod tests {
 
         for c in ">gs".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -1124,7 +1141,7 @@ mod tests {
 
         for c in ">gs".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -1133,7 +1150,7 @@ mod tests {
             );
         }
 
-        assert_eq!(eval.process_event(EngineEvent::Backspace), None);
+        assert_eq!(eval.process(EngineEvent::Backspace), None);
         assert!(eval.is_completion_active());
         assert_eq!(eval.completion.current_text, "g");
         assert_eq!(eval.completion.original_query, "g");
@@ -1142,12 +1159,12 @@ mod tests {
             vec!["gpush".to_string(), "gs".to_string()]
         );
 
-        assert_eq!(eval.process_event(EngineEvent::Backspace), None);
+        assert_eq!(eval.process(EngineEvent::Backspace), None);
         assert!(eval.is_completion_active());
         assert_eq!(eval.completion.current_text, "");
         assert_eq!(eval.buffer.extract_trigger_word('>'), Some(String::new()));
 
-        assert_eq!(eval.process_event(EngineEvent::Backspace), None);
+        assert_eq!(eval.process(EngineEvent::Backspace), None);
         assert!(!eval.is_completion_active());
         assert_eq!(eval.buffer.extract_trigger_word('>'), None);
         assert_eq!(eval.cycle_completion_next(), None);
@@ -1170,7 +1187,7 @@ mod tests {
 
         for c in ">g".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -1181,7 +1198,7 @@ mod tests {
 
         assert_completion_rewrite(eval.cycle_completion_next(), 1, "gco");
         let result = eval
-            .process_event(EngineEvent::ActionDelimiter)
+            .process(EngineEvent::ActionDelimiter)
             .expect("space should expand the selected completion");
 
         assert_eq!(result.trigger, "gco");
@@ -1197,9 +1214,9 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         let mut eval = Evaluator::new(state.clone());
 
-        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
         let result = eval
-            .process_event(EngineEvent::Char('>'))
+            .process(EngineEvent::Char('>'))
             .expect("inline ai capture should start");
 
         assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
@@ -1233,7 +1250,7 @@ mod tests {
         ]);
         let mut eval = Evaluator::new(state);
 
-        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
 
         assert_completion_rewrite(eval.navigate_history_older(), 0, "gs");
         assert_eq!(eval.completion.history_index, Some(0));
@@ -1283,7 +1300,7 @@ mod tests {
 
         for c in ">g".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -1331,7 +1348,7 @@ mod tests {
 
         for c in ">g".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -1343,7 +1360,7 @@ mod tests {
         assert_completion_rewrite(eval.navigate_history_older(), 1, "gs");
         assert_eq!(eval.completion.history_index, Some(0));
 
-        assert_eq!(eval.process_event(EngineEvent::Backspace), None);
+        assert_eq!(eval.process(EngineEvent::Backspace), None);
         assert_eq!(eval.completion.current_text, "");
         assert_eq!(eval.completion.original_query, "");
         assert_eq!(eval.completion.history_index, None);
@@ -1367,7 +1384,7 @@ mod tests {
 
         for c in ">git".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -1379,7 +1396,7 @@ mod tests {
         assert_completion_rewrite(eval.navigate_history_older(), 3, "gitstatus");
         assert_eq!(eval.completion.current_text, "gitstatus");
 
-        assert_eq!(eval.process_event(EngineEvent::Backspace), None);
+        assert_eq!(eval.process(EngineEvent::Backspace), None);
         assert_eq!(eval.completion.original_query, "gi");
         assert_eq!(eval.completion.current_text, "gi");
         assert_eq!(
@@ -1407,7 +1424,7 @@ mod tests {
 
         for c in ">g".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -1419,7 +1436,7 @@ mod tests {
         let _ = eval
             .cycle_completion_next()
             .expect("completion should select");
-        assert_eq!(eval.process_event(EngineEvent::Backspace), None);
+        assert_eq!(eval.process(EngineEvent::Backspace), None);
         assert_eq!(eval.completion.original_query, "");
         assert_eq!(eval.completion.current_text, "");
         assert_eq!(eval.completion.selected_index, None);
@@ -1437,11 +1454,11 @@ mod tests {
         state.load_word_trigger_history(vec!["gs".to_string()]);
         let mut eval = Evaluator::new(state);
 
-        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
         assert_completion_rewrite(eval.navigate_history_older(), 0, "gs");
 
         let result = eval
-            .process_event(EngineEvent::ActionDelimiter)
+            .process(EngineEvent::ActionDelimiter)
             .expect("space should expand the selected history entry");
 
         assert_eq!(result.trigger, "gs");
@@ -1474,7 +1491,7 @@ mod tests {
 
         for c in ">g".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -1517,7 +1534,7 @@ mod tests {
 
         for c in ">g".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -1560,7 +1577,7 @@ mod tests {
 
         for c in ">g".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -1596,7 +1613,7 @@ mod tests {
 
         for c in ">g".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -1609,7 +1626,7 @@ mod tests {
         assert_completion_rewrite(eval.cycle_completion_next(), 2, "gaa");
 
         let result = eval
-            .process_event(EngineEvent::ActionDelimiter)
+            .process(EngineEvent::ActionDelimiter)
             .expect("space should expand the currently visible completion");
 
         assert_eq!(result.trigger, "gaa");
@@ -1635,7 +1652,7 @@ mod tests {
 
         for c in ">g".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -1665,7 +1682,7 @@ mod tests {
         state.load_word_trigger_history(vec!["gs".to_string()]);
         let mut eval = Evaluator::new(state);
 
-        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
 
         assert_eq!(eval.navigate_history_older(), None);
         assert_eq!(eval.navigate_history_newer(), None);
@@ -1695,7 +1712,7 @@ mod tests {
 
         for c in ">g".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -1722,7 +1739,7 @@ mod tests {
         state.load_word_trigger_history(vec!["gs".to_string()]);
         let mut eval = Evaluator::new(state);
 
-        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
 
         assert_completion_rewrite(eval.navigate_history_older(), 0, "gs");
     }
@@ -1744,7 +1761,7 @@ mod tests {
         let mut eval = Evaluator::new(state.clone());
         for c in ">gs".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -1754,14 +1771,14 @@ mod tests {
         }
 
         let expansion = eval
-            .process_event(EngineEvent::ActionDelimiter)
+            .process(EngineEvent::ActionDelimiter)
             .expect("word trigger expansion should still work");
         assert_eq!(expansion.trigger, "gs");
 
         let mut ai_eval = Evaluator::new(state.clone());
-        assert_eq!(ai_eval.process_event(EngineEvent::Char('>')), None);
+        assert_eq!(ai_eval.process(EngineEvent::Char('>')), None);
         let ai_result = ai_eval
-            .process_event(EngineEvent::Char('>'))
+            .process(EngineEvent::Char('>'))
             .expect("inline ai should start");
         assert_eq!(ai_result.trigger, ">>");
         assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
@@ -1772,7 +1789,7 @@ mod tests {
         let mut eval = setup();
         for c in "hello world".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -1790,7 +1807,7 @@ mod tests {
         // Type standard string leading to a trigger
         for c in "Hello /gm".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -1800,7 +1817,7 @@ mod tests {
         }
 
         // Exact sequence matching should occur when space fires
-        let result = eval.process_event(EngineEvent::ActionDelimiter).unwrap();
+        let result = eval.process(EngineEvent::ActionDelimiter).unwrap();
         // delete_count = '/' (1) + "gm" (2) = 3
         assert_eq!(result.delete_count, 3);
         assert_eq!(
@@ -1819,7 +1836,7 @@ mod tests {
         let mut eval = setup();
         // Type half of a sequence
         for c in "/gm".chars() {
-            eval.process_event(if c == ' ' {
+            eval.process(if c == ' ' {
                 EngineEvent::ActionDelimiter
             } else {
                 EngineEvent::Char(c)
@@ -1827,10 +1844,10 @@ mod tests {
         }
 
         // An interrupt (e.g. mouse click) happens
-        eval.process_event(EngineEvent::Interrupt);
+        eval.process(EngineEvent::Interrupt);
 
         // The space no longer expands because the buffer was wiped
-        assert_eq!(eval.process_event(EngineEvent::ActionDelimiter), None);
+        assert_eq!(eval.process(EngineEvent::ActionDelimiter), None);
     }
 
     #[test]
@@ -1838,7 +1855,7 @@ mod tests {
         let mut eval = setup();
         // Type string with typo: /gn
         for c in "/gn".chars() {
-            eval.process_event(if c == ' ' {
+            eval.process(if c == ' ' {
                 EngineEvent::ActionDelimiter
             } else {
                 EngineEvent::Char(c)
@@ -1846,13 +1863,13 @@ mod tests {
         }
 
         // Delete 'n'
-        eval.process_event(EngineEvent::Backspace);
+        eval.process(EngineEvent::Backspace);
 
         // Retype 'm'
-        eval.process_event(EngineEvent::Char('m'));
+        eval.process(EngineEvent::Char('m'));
 
         // Fire expansion
-        let result = eval.process_event(EngineEvent::ActionDelimiter).unwrap();
+        let result = eval.process(EngineEvent::ActionDelimiter).unwrap();
         assert_eq!(result.delete_count, 3);
         assert_eq!(
             result.steps,
@@ -1875,7 +1892,7 @@ mod tests {
 
         for c in ">sig".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -1885,7 +1902,7 @@ mod tests {
         }
 
         let result = eval
-            .process_event(EngineEvent::ActionDelimiter)
+            .process(EngineEvent::ActionDelimiter)
             .expect("cursor template should expand");
         assert_eq!(result.undo_trigger, None);
         assert!(
@@ -1907,7 +1924,7 @@ mod tests {
 
         for c in ">runme".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -1917,7 +1934,7 @@ mod tests {
         }
 
         let result = eval
-            .process_event(EngineEvent::ActionDelimiter)
+            .process(EngineEvent::ActionDelimiter)
             .expect("run template should expand");
         assert_eq!(result.undo_trigger, None);
         assert!(
@@ -1941,7 +1958,7 @@ mod tests {
 
         for c in ">clip".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -1951,7 +1968,7 @@ mod tests {
         }
 
         let result = eval
-            .process_event(EngineEvent::ActionDelimiter)
+            .process(EngineEvent::ActionDelimiter)
             .expect("clipboard template should expand");
         assert_eq!(result.undo_trigger, None);
 
@@ -1963,13 +1980,13 @@ mod tests {
         let mut eval = setup();
         // "/shrug" = 1 trigger + 5 keyword + 1 space = 7
         for c in "/shrug".chars() {
-            eval.process_event(if c == ' ' {
+            eval.process(if c == ' ' {
                 EngineEvent::ActionDelimiter
             } else {
                 EngineEvent::Char(c)
             });
         }
-        let result = eval.process_event(EngineEvent::ActionDelimiter).unwrap();
+        let result = eval.process(EngineEvent::ActionDelimiter).unwrap();
         assert_eq!(result.delete_count, 6);
         assert_eq!(
             result.steps,
@@ -1983,13 +2000,13 @@ mod tests {
     fn test_unknown_trigger_does_not_expand() {
         let mut eval = setup();
         for c in "/unknown".chars() {
-            eval.process_event(if c == ' ' {
+            eval.process(if c == ' ' {
                 EngineEvent::ActionDelimiter
             } else {
                 EngineEvent::Char(c)
             });
         }
-        assert_eq!(eval.process_event(EngineEvent::ActionDelimiter), None);
+        assert_eq!(eval.process(EngineEvent::ActionDelimiter), None);
     }
 
     #[test]
@@ -2009,7 +2026,7 @@ mod tests {
 
         for c in ">brb>gm".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -2018,7 +2035,7 @@ mod tests {
             );
         }
         // Ambiguous: two `>` in one span — do not expand with a partial delete.
-        assert_eq!(eval.process_event(EngineEvent::ActionDelimiter), None);
+        assert_eq!(eval.process(EngineEvent::ActionDelimiter), None);
     }
 
     /// Simulates two separate expansions in a row: first snippet finishes (buffer cleared), then
@@ -2040,7 +2057,7 @@ mod tests {
 
         for c in ">brb ".chars() {
             if c == ' ' {
-                let r = eval.process_event(EngineEvent::ActionDelimiter).unwrap();
+                let r = eval.process(EngineEvent::ActionDelimiter).unwrap();
                 assert_eq!(
                     r.steps,
                     vec![ExpansionStep::Text("Be right back!".to_string())]
@@ -2048,7 +2065,7 @@ mod tests {
                 assert_eq!(r.delete_count, 1 + "brb".len());
             } else {
                 assert_eq!(
-                    eval.process_event(if c == ' ' {
+                    eval.process(if c == ' ' {
                         EngineEvent::ActionDelimiter
                     } else {
                         EngineEvent::Char(c)
@@ -2061,7 +2078,7 @@ mod tests {
 
         for c in ">gm ".chars() {
             if c == ' ' {
-                let r = eval.process_event(EngineEvent::ActionDelimiter).unwrap();
+                let r = eval.process(EngineEvent::ActionDelimiter).unwrap();
                 assert_eq!(
                     r.steps,
                     vec![ExpansionStep::Text("Good morning!".to_string())]
@@ -2069,7 +2086,7 @@ mod tests {
                 assert_eq!(r.delete_count, 1 + "gm".len());
             } else {
                 assert_eq!(
-                    eval.process_event(if c == ' ' {
+                    eval.process(if c == ' ' {
                         EngineEvent::ActionDelimiter
                     } else {
                         EngineEvent::Char(c)
@@ -2094,7 +2111,7 @@ mod tests {
         for _ in 0..2 {
             for c in ">gm ".chars() {
                 if c == ' ' {
-                    let r = eval.process_event(EngineEvent::ActionDelimiter).unwrap();
+                    let r = eval.process(EngineEvent::ActionDelimiter).unwrap();
                     assert_eq!(
                         r.steps,
                         vec![ExpansionStep::Text("Good morning!".to_string())]
@@ -2102,7 +2119,7 @@ mod tests {
                     assert_eq!(r.delete_count, 1 + 2);
                 } else {
                     assert_eq!(
-                        eval.process_event(if c == ' ' {
+                        eval.process(if c == ' ' {
                             EngineEvent::ActionDelimiter
                         } else {
                             EngineEvent::Char(c)
@@ -2127,10 +2144,10 @@ mod tests {
 
         for c in ">nope ".chars() {
             if c == ' ' {
-                assert_eq!(eval.process_event(EngineEvent::ActionDelimiter), None);
+                assert_eq!(eval.process(EngineEvent::ActionDelimiter), None);
             } else {
                 assert_eq!(
-                    eval.process_event(if c == ' ' {
+                    eval.process(if c == ' ' {
                         EngineEvent::ActionDelimiter
                     } else {
                         EngineEvent::Char(c)
@@ -2141,17 +2158,17 @@ mod tests {
         }
         assert!(eval.buffer.len > 0);
 
-        eval.process_event(EngineEvent::Interrupt);
+        eval.process(EngineEvent::Interrupt);
         for c in ">gm ".chars() {
             if c == ' ' {
-                let r = eval.process_event(EngineEvent::ActionDelimiter).unwrap();
+                let r = eval.process(EngineEvent::ActionDelimiter).unwrap();
                 assert_eq!(
                     r.steps,
                     vec![ExpansionStep::Text("Good morning!".to_string())]
                 );
             } else {
                 assert_eq!(
-                    eval.process_event(if c == ' ' {
+                    eval.process(if c == ' ' {
                         EngineEvent::ActionDelimiter
                     } else {
                         EngineEvent::Char(c)
@@ -2175,7 +2192,7 @@ mod tests {
         let mut last_result = None;
 
         for c in input.chars() {
-            if let Some(res) = eval.process_event(if c == ' ' {
+            if let Some(res) = eval.process(if c == ' ' {
                 EngineEvent::ActionDelimiter
             } else {
                 EngineEvent::Char(c)
@@ -2209,7 +2226,7 @@ mod tests {
         let mut last_result = None;
 
         for c in input.chars() {
-            if let Some(res) = eval.process_event(if c == ' ' {
+            if let Some(res) = eval.process(if c == ' ' {
                 EngineEvent::ActionDelimiter
             } else {
                 EngineEvent::Char(c)
@@ -2238,7 +2255,7 @@ mod tests {
 
         let input = ">gh:blah";
         for c in input.chars() {
-            eval.process_event(if c == ' ' {
+            eval.process(if c == ' ' {
                 EngineEvent::ActionDelimiter
             } else {
                 EngineEvent::Char(c)
@@ -2246,18 +2263,18 @@ mod tests {
         }
 
         // Backspace blah (WordBackspace)
-        eval.process_event(EngineEvent::WordBackspace);
+        eval.process(EngineEvent::WordBackspace);
 
         let input2 = "irrelevant";
         for c in input2.chars() {
-            eval.process_event(if c == ' ' {
+            eval.process(if c == ' ' {
                 EngineEvent::ActionDelimiter
             } else {
                 EngineEvent::Char(c)
             });
         }
 
-        let result = eval.process_event(EngineEvent::ActionDelimiter);
+        let result = eval.process(EngineEvent::ActionDelimiter);
         let result = result.expect("Expansion should have triggered");
         assert_eq!(
             result.steps,
@@ -2277,7 +2294,7 @@ mod tests {
         let mut last_result = None;
 
         for c in input.chars() {
-            if let Some(res) = eval.process_event(if c == ' ' {
+            if let Some(res) = eval.process(if c == ' ' {
                 EngineEvent::ActionDelimiter
             } else {
                 EngineEvent::Char(c)
@@ -2304,7 +2321,7 @@ mod tests {
         let mut last_result = None;
 
         for c in input.chars() {
-            if let Some(res) = eval.process_event(if c == ' ' {
+            if let Some(res) = eval.process(if c == ' ' {
                 EngineEvent::ActionDelimiter
             } else {
                 EngineEvent::Char(c)
@@ -2330,7 +2347,7 @@ mod tests {
         let mut last_result = None;
 
         for c in input.chars() {
-            if let Some(res) = eval.process_event(if c == ' ' {
+            if let Some(res) = eval.process(if c == ' ' {
                 EngineEvent::ActionDelimiter
             } else {
                 EngineEvent::Char(c)
@@ -2380,7 +2397,7 @@ mod tests {
             eval.buffer.clear();
             let mut result = None;
             for c in format!(">{} ", input_str).chars() {
-                if let Some(res) = eval.process_event(if c == ' ' {
+                if let Some(res) = eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -2406,9 +2423,9 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         let mut eval = Evaluator::new(state.clone());
 
-        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
         let result = eval
-            .process_event(EngineEvent::Char('>'))
+            .process(EngineEvent::Char('>'))
             .expect("Should enter capture");
 
         assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
@@ -2424,12 +2441,12 @@ mod tests {
         *state.action_delimiter.write().unwrap() = crate::settings::ActionDelimiter::Space;
         let mut eval = Evaluator::new(state.clone());
 
-        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
-        let _ = eval.process_event(EngineEvent::Char('>'));
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
+        let _ = eval.process(EngineEvent::Char('>'));
 
         for c in "What is Rust?<<".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -2439,7 +2456,7 @@ mod tests {
         }
 
         let result = eval
-            .process_event(EngineEvent::ActionDelimiter)
+            .process(EngineEvent::ActionDelimiter)
             .expect("closing backtick plus space should submit captured prompt");
 
         assert_eq!(state.engine_mode(), EngineMode::Normal);
@@ -2463,11 +2480,11 @@ mod tests {
         )]);
         let mut eval = Evaluator::new(state.clone());
 
-        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
-        let _ = eval.process_event(EngineEvent::Char('>'));
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
+        let _ = eval.process(EngineEvent::Char('>'));
         for c in "What is Rust?<<".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -2477,14 +2494,14 @@ mod tests {
         }
 
         let ai_result = eval
-            .process_event(EngineEvent::ActionDelimiter)
+            .process(EngineEvent::ActionDelimiter)
             .expect("inline ai follow-up should dispatch on closing delimiter plus space");
         assert_eq!(state.engine_mode(), EngineMode::Normal);
         assert_inline_ai_follow_up(&ai_result, "What is Rust?", None);
 
         for c in ">gm".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -2494,7 +2511,7 @@ mod tests {
         }
 
         let expansion = eval
-            .process_event(EngineEvent::ActionDelimiter)
+            .process(EngineEvent::ActionDelimiter)
             .expect("normal word trigger should still expand after inline ai success");
         assert_eq!(
             expansion.steps,
@@ -2511,11 +2528,11 @@ mod tests {
         )]);
         let mut eval = Evaluator::new(state.clone());
 
-        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
-        let _ = eval.process_event(EngineEvent::Char('>'));
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
+        let _ = eval.process(EngineEvent::Char('>'));
         for c in "draft".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -2524,13 +2541,13 @@ mod tests {
             );
         }
 
-        assert_eq!(eval.process_event(EngineEvent::Interrupt), None);
+        assert_eq!(eval.process(EngineEvent::Interrupt), None);
         assert_eq!(state.engine_mode(), EngineMode::Normal);
         assert!(state.is_ai_prompt_empty());
 
         for c in ">gm".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -2540,7 +2557,7 @@ mod tests {
         }
 
         let expansion = eval
-            .process_event(EngineEvent::ActionDelimiter)
+            .process(EngineEvent::ActionDelimiter)
             .expect("normal word trigger should still expand after inline ai cancelled");
         assert_eq!(
             expansion.steps,
@@ -2557,18 +2574,18 @@ mod tests {
         )]);
         let mut eval = Evaluator::new(state.clone());
 
-        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
-        let _ = eval.process_event(EngineEvent::Char('>'));
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
+        let _ = eval.process(EngineEvent::Char('>'));
 
         assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
         assert!(state.is_ai_prompt_empty());
-        assert_eq!(eval.process_event(EngineEvent::Backspace), None);
+        assert_eq!(eval.process(EngineEvent::Backspace), None);
         assert_eq!(state.engine_mode(), EngineMode::Normal);
         assert!(state.is_ai_prompt_empty());
 
         for c in ">gm".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -2577,7 +2594,7 @@ mod tests {
             );
         }
         let result = eval
-            .process_event(EngineEvent::ActionDelimiter)
+            .process(EngineEvent::ActionDelimiter)
             .expect("normal trigger should work after empty-buffer backspace exits capture");
         assert_eq!(
             result.steps,
@@ -2594,17 +2611,17 @@ mod tests {
         )]);
         let mut eval = Evaluator::new(state.clone());
 
-        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
-        let _ = eval.process_event(EngineEvent::Char('>'));
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
+        let _ = eval.process(EngineEvent::Char('>'));
 
         assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
         assert!(state.is_ai_prompt_empty());
-        assert_eq!(eval.process_event(EngineEvent::WordBackspace), None);
+        assert_eq!(eval.process(EngineEvent::WordBackspace), None);
         assert_eq!(state.engine_mode(), EngineMode::Normal);
 
         for c in ">gm".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -2613,7 +2630,7 @@ mod tests {
             );
         }
         let result = eval
-            .process_event(EngineEvent::ActionDelimiter)
+            .process(EngineEvent::ActionDelimiter)
             .expect("normal trigger should work after empty-buffer word-backspace exits capture");
         assert_eq!(
             result.steps,
@@ -2626,11 +2643,11 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         let mut eval = Evaluator::new(state.clone());
 
-        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
-        let _ = eval.process_event(EngineEvent::Char('>'));
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
+        let _ = eval.process(EngineEvent::Char('>'));
         for c in "prompt<<".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -2640,7 +2657,7 @@ mod tests {
         }
 
         let result = eval
-            .process_event(EngineEvent::ActionDelimiter)
+            .process(EngineEvent::ActionDelimiter)
             .expect("action delimiter should submit captured asymmetric prompt");
 
         assert_eq!(state.engine_mode(), EngineMode::Normal);
@@ -2660,10 +2677,10 @@ mod tests {
         state.set_ai_symmetric_delimiter("^".to_string());
         let mut eval = Evaluator::new(state.clone());
 
-        let _ = eval.process_event(EngineEvent::Char('^'));
+        let _ = eval.process(EngineEvent::Char('^'));
         for c in "prompt^".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -2673,7 +2690,7 @@ mod tests {
         }
 
         let result = eval
-            .process_event(EngineEvent::ActionDelimiter)
+            .process(EngineEvent::ActionDelimiter)
             .expect("action delimiter should submit captured symmetric prompt");
 
         assert_eq!(state.engine_mode(), EngineMode::Normal);
@@ -2692,12 +2709,12 @@ mod tests {
         *state.action_delimiter.write().unwrap() = crate::settings::ActionDelimiter::Space;
         let mut eval = Evaluator::new(state.clone());
 
-        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
-        let _ = eval.process_event(EngineEvent::Char('>'));
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
+        let _ = eval.process(EngineEvent::Char('>'));
 
         for c in "draft prompt ".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -2727,9 +2744,9 @@ mod tests {
         let mut eval = Evaluator::new(state.clone());
 
         // 1. Enter capture
-        assert_eq!(eval.process_event(EngineEvent::Char('[')), None);
+        assert_eq!(eval.process(EngineEvent::Char('[')), None);
         let start_res = eval
-            .process_event(EngineEvent::Char('['))
+            .process(EngineEvent::Char('['))
             .expect("Should enter capture");
 
         assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
@@ -2738,7 +2755,7 @@ mod tests {
         // 2. Type prompt
         for c in "Hello AI]]".chars() {
             assert_eq!(
-                eval.process_event(if c == ' ' {
+                eval.process(if c == ' ' {
                     EngineEvent::ActionDelimiter
                 } else {
                     EngineEvent::Char(c)
@@ -2749,7 +2766,7 @@ mod tests {
 
         // 3. Finish capture
         let finish_res = eval
-            .process_event(EngineEvent::ActionDelimiter)
+            .process(EngineEvent::ActionDelimiter)
             .expect("Should finish capture");
         assert_eq!(state.engine_mode(), EngineMode::Normal);
         assert_inline_ai_follow_up(&finish_res, "Hello AI", None);
@@ -2767,11 +2784,11 @@ mod tests {
         let mut eval = Evaluator::new(state);
 
         for c in "gs".chars() {
-            eval.process_event(EngineEvent::Char(c));
+            eval.process(EngineEvent::Char(c));
         }
 
         let result = eval
-            .process_event(EngineEvent::ActionDelimiter)
+            .process(EngineEvent::ActionDelimiter)
             .expect("triggerless match");
         assert_eq!(result.delete_count, 2);
         assert_eq!(result.trigger, "gs");
@@ -2790,10 +2807,10 @@ mod tests {
         let mut eval = Evaluator::new(state);
 
         for c in "gs".chars() {
-            eval.process_event(EngineEvent::Char(c));
+            eval.process(EngineEvent::Char(c));
         }
 
-        assert_eq!(eval.process_event(EngineEvent::ActionDelimiter), None);
+        assert_eq!(eval.process(EngineEvent::ActionDelimiter), None);
     }
 
     #[test]
@@ -2808,10 +2825,10 @@ mod tests {
         let mut eval = Evaluator::new(state);
 
         for c in "(gs".chars() {
-            eval.process_event(EngineEvent::Char(c));
+            eval.process(EngineEvent::Char(c));
         }
 
-        assert_eq!(eval.process_event(EngineEvent::ActionDelimiter), None);
+        assert_eq!(eval.process(EngineEvent::ActionDelimiter), None);
     }
 
     #[test]
@@ -2826,11 +2843,11 @@ mod tests {
         let mut eval = Evaluator::new(state);
 
         for c in ">gs".chars() {
-            eval.process_event(EngineEvent::Char(c));
+            eval.process(EngineEvent::Char(c));
         }
 
         let result = eval
-            .process_event(EngineEvent::ActionDelimiter)
+            .process(EngineEvent::ActionDelimiter)
             .expect("triggered match");
         assert_eq!(result.delete_count, 3);
         assert_eq!(result.trigger, "gs");
@@ -2848,11 +2865,11 @@ mod tests {
         )]);
         let mut eval = Evaluator::new(state);
 
-        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
-        assert_eq!(eval.process_event(EngineEvent::Char('g')), None);
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
+        assert_eq!(eval.process(EngineEvent::Char('g')), None);
 
         let result = eval
-            .process_event(EngineEvent::Char('s'))
+            .process(EngineEvent::Char('s'))
             .expect("Should expand instantly");
         assert_eq!(result.delete_count, 3);
         assert_eq!(result.trigger, "gs");
@@ -2870,10 +2887,10 @@ mod tests {
         )]);
         let mut eval = Evaluator::new(state);
 
-        assert_eq!(eval.process_event(EngineEvent::Char('g')), None);
+        assert_eq!(eval.process(EngineEvent::Char('g')), None);
 
         let result = eval
-            .process_event(EngineEvent::Char('s'))
+            .process(EngineEvent::Char('s'))
             .expect("Should expand instantly");
         assert_eq!(result.delete_count, 2);
         assert_eq!(result.trigger, "gs");
@@ -2888,12 +2905,12 @@ mod tests {
         )]);
         let mut eval = Evaluator::new(state);
 
-        assert_eq!(eval.process_event(EngineEvent::Char('>')), None);
-        assert_eq!(eval.process_event(EngineEvent::Char('g')), None);
-        assert_eq!(eval.process_event(EngineEvent::Char('s')), None);
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
+        assert_eq!(eval.process(EngineEvent::Char('g')), None);
+        assert_eq!(eval.process(EngineEvent::Char('s')), None);
 
         let result = eval
-            .process_event(EngineEvent::ActionDelimiter)
+            .process(EngineEvent::ActionDelimiter)
             .expect("Should expand on delimiter");
         assert_eq!(result.delete_count, 3);
     }

@@ -314,20 +314,23 @@ fn completion_is_inactive_after_trigger_character_is_deleted() {
     let mut evaluator = taurine_core::engine::Evaluator::new(state);
     for ch in ">g".chars() {
         assert_eq!(
-            evaluator.process_event(if ch == ' ' {
-                taurine_core::engine::EngineEvent::ActionDelimiter
-            } else {
-                taurine_core::engine::EngineEvent::Char(ch)
-            }),
+            evaluator.process_event(
+                if ch == ' ' {
+                    taurine_core::engine::EngineEvent::ActionDelimiter
+                } else {
+                    taurine_core::engine::EngineEvent::Char(ch)
+                },
+                None
+            ),
             None
         );
     }
     assert_eq!(
-        evaluator.process_event(taurine_core::engine::EngineEvent::Backspace),
+        evaluator.process_event(taurine_core::engine::EngineEvent::Backspace, None),
         None
     );
     assert_eq!(
-        evaluator.process_event(taurine_core::engine::EngineEvent::Backspace),
+        evaluator.process_event(taurine_core::engine::EngineEvent::Backspace, None),
         None
     );
 
@@ -393,9 +396,9 @@ fn trigger_assist_is_inactive_while_inline_ai_capture_mode_is_active() {
     let state = Arc::new(taurine_core::engine::EngineState::new('>'));
     let mut evaluator = taurine_core::engine::Evaluator::new(state.clone());
 
-    let _ = evaluator.process_event(taurine_core::engine::EngineEvent::Char('>'));
+    let _ = evaluator.process_event(taurine_core::engine::EngineEvent::Char('>'), None);
     let expansion = evaluator
-        .process_event(taurine_core::engine::EngineEvent::Char('>'))
+        .process_event(taurine_core::engine::EngineEvent::Char('>'), None)
         .expect("inline ai capture should start on >>");
     assert_eq!(expansion.trigger, ">>");
 

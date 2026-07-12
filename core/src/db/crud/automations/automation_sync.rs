@@ -25,6 +25,8 @@ pub fn get_syncable_automations(conn: &Connection) -> Result<Vec<AutomationRow>>
             a.output,
             a.action_type,
             a.target_os,
+            a.only_apps,
+            a.except_apps,
             a.tags,
             a.usage_count,
             a.last_used_at,
@@ -44,8 +46,8 @@ pub fn get_syncable_automations(conn: &Connection) -> Result<Vec<AutomationRow>>
     )?;
 
     let rows = stmt.query_map([], |row| {
-        let interpreter_str: Option<String> = row.get(17)?;
-        let behavior_str: Option<String> = row.get(18)?;
+        let interpreter_str: Option<String> = row.get(19)?;
+        let behavior_str: Option<String> = row.get(20)?;
 
         let interpreter = interpreter_str
             .and_then(|s| serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s)).ok());
@@ -61,18 +63,20 @@ pub fn get_syncable_automations(conn: &Connection) -> Result<Vec<AutomationRow>>
             output: row.get(5)?,
             action_type: row.get(6)?,
             target_os: row.get(7)?,
-            tags: row.get(8)?,
-            usage_count: row.get(9)?,
-            last_used_at: row.get(10)?,
-            created_at: row.get(11)?,
-            updated_at: row.get(12)?,
-            version: row.get(13)?,
-            is_deleted: row.get(14)?,
-            is_synced: row.get(15)?,
-            is_enabled: row.get(16)?,
+            only_apps: row.get(8)?,
+            except_apps: row.get(9)?,
+            tags: row.get(10)?,
+            usage_count: row.get(11)?,
+            last_used_at: row.get(12)?,
+            created_at: row.get(13)?,
+            updated_at: row.get(14)?,
+            version: row.get(15)?,
+            is_deleted: row.get(16)?,
+            is_synced: row.get(17)?,
+            is_enabled: row.get(18)?,
             interpreter,
             behavior,
-            script_binary: row.get(19)?,
+            script_binary: row.get(21)?,
         })
     })?;
 

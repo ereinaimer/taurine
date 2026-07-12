@@ -13,7 +13,7 @@ pub use source::SnippetSource;
 
 pub use ai_session::{EngineMode, InlineAiSession};
 pub use buffer::FastBuffer;
-pub use catalog::{ExpansionCatalog, HotkeyCatalog};
+pub use catalog::{ActiveWindowInfo, ExpansionCatalog, HotkeyCatalog};
 pub use evaluator::{
     CompletionRewrite, EngineEvent, Evaluator, ExpansionFollowUp, ExpansionResult,
 };

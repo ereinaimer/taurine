@@ -12,6 +12,7 @@
     "service-management",
     "automation-management",
     "hotkey-triggers",
+    "app-specific-triggers",
     "backspace-undo",
     "configuration",
     "---Variable Engine---",

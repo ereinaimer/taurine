@@ -140,3 +140,139 @@ pub fn get_mouse_pos() -> Option<(i32, i32)> {
 pub fn get_mouse_pos() -> Option<(i32, i32)> {
     None
 }
+
+pub fn get_active_window_label() -> Option<String> {
+    #[cfg(windows)]
+    {
+        windows::active_window::get_active_window_label()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var("WAYLAND_DISPLAY").is_ok() {
+            return None;
+        }
+        use x11rb::connection::Connection;
+        use x11rb::protocol::xproto::{AtomEnum, ConnectionExt};
+
+        let (conn, screen_num) = x11rb::connect(None).ok()?;
+        let screen = &conn.setup().roots[screen_num];
+        let root = screen.root;
+
+        let net_active_window = conn
+            .intern_atom(false, b"_NET_ACTIVE_WINDOW")
+            .ok()?
+            .reply()
+            .ok()?
+            .atom;
+
+        let active_window = conn
+            .get_property(false, root, net_active_window, AtomEnum::WINDOW, 0, 1)
+            .ok()?
+            .reply()
+            .ok()?
+            .value32()
+            .and_then(|mut iter| iter.next())?;
+
+        if active_window == 0 {
+            return None;
+        }
+
+        // 1. Get class name (from WM_CLASS)
+        let wm_class = conn
+            .intern_atom(false, b"WM_CLASS")
+            .ok()?
+            .reply()
+            .ok()?
+            .atom;
+
+        let class_reply = conn
+            .get_property(false, active_window, wm_class, AtomEnum::STRING, 0, 1024)
+            .ok()?
+            .reply()
+            .ok()?;
+
+        let mut class_name = None;
+        let mut exec_name = None;
+        if !class_reply.value.is_empty() {
+            if let Ok(s) = std::str::from_utf8(&class_reply.value) {
+                let parts: Vec<&str> = s.split('\0').filter(|p| !p.is_empty()).collect();
+                if let Some(last) = parts.last() {
+                    class_name = Some(last.to_string());
+                    exec_name = Some(last.to_string());
+                }
+            }
+        }
+
+        // 2. Get window title (from _NET_WM_NAME or WM_NAME)
+        let net_wm_name = conn
+            .intern_atom(false, b"_NET_WM_NAME")
+            .ok()?
+            .reply()
+            .ok()?
+            .atom;
+        let utf8_string = conn
+            .intern_atom(false, b"UTF8_STRING")
+            .ok()?
+            .reply()
+            .ok()?
+            .atom;
+
+        let mut title_reply = conn
+            .get_property(false, active_window, net_wm_name, utf8_string, 0, 1024)
+            .ok()?
+            .reply()
+            .ok()?;
+
+        if title_reply.value.is_empty() {
+            let wm_name = conn.intern_atom(false, b"WM_NAME").ok()?.reply().ok()?.atom;
+            title_reply = conn
+                .get_property(false, active_window, wm_name, AtomEnum::STRING, 0, 1024)
+                .ok()?
+                .reply()
+                .ok()?;
+        }
+
+        let title = if !title_reply.value.is_empty() {
+            std::str::from_utf8(&title_reply.value)
+                .ok()
+                .map(|s| s.to_string())
+        } else {
+            None
+        };
+
+        let info = taurine_core::engine::ActiveWindowInfo {
+            title,
+            class: class_name,
+            exec_name,
+            exec_path: None,
+        };
+
+        serde_json::to_string(&info).ok()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::NSWorkspace;
+
+        // SAFETY: Cocoa APIs called within safety bounds of objc2/objc2-app-kit
+        unsafe {
+            let workspace = NSWorkspace::sharedWorkspace();
+            let frontmost_app = workspace.frontmostApplication()?;
+
+            let localized_name = frontmost_app.localizedName().map(|s| s.to_string());
+            let bundle_id = frontmost_app.bundleIdentifier().map(|s| s.to_string());
+
+            let info = taurine_core::engine::ActiveWindowInfo {
+                title: None,
+                class: bundle_id,
+                exec_name: localized_name,
+                exec_path: None,
+            };
+
+            serde_json::to_string(&info).ok()
+        }
+    }
+    #[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
+    {
+        None
+    }
+}
