@@ -146,7 +146,10 @@ pub fn start() -> taurine_core::error::Result<()> {
     let runtime_handle_clone = runtime_handle.clone();
     let pause_audio_enabled_clone = pause_audio_enabled.clone();
     let audio_tx_clone = audio_tx.clone();
-    let supervisor_handle = Arc::new(Mutex::new(None));
+    #[cfg(windows)]
+    let supervisor_handle: Arc<Mutex<Option<std::thread::JoinHandle<()>>>> =
+        Arc::new(Mutex::new(None));
+    #[cfg(windows)]
     let supervisor_handle_clone = supervisor_handle.clone();
 
     #[cfg(windows)]

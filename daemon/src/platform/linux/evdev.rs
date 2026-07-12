@@ -6,7 +6,7 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use tokio::runtime::Handle;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use super::xkb::XkbMapper;
 use crate::hotkey::{HotkeySpec, is_pause_chord_evdev};
@@ -179,7 +179,7 @@ pub(crate) fn spawn_device_listener(
     context: ListenerContext,
     exit_tx: Sender<DeviceExit>,
 ) -> io::Result<()> {
-    let xkb = XkbMapper::new().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    let xkb = XkbMapper::new().map_err(io::Error::other)?;
 
     thread::Builder::new()
         .name("tau-lnx-evdev".to_string())
@@ -323,7 +323,7 @@ fn process_frame(
                 clear_undo_state(state);
                 hotkey_evaluator.clear();
                 let mut lock = evaluator.lock().unwrap();
-                let _ = lock.process_event(EngineEvent::Interrupt);
+                let _ = lock.process_event(EngineEvent::Interrupt, None);
             }
             continue;
         }
@@ -579,8 +579,19 @@ fn process_frame(
         }
 
         if let Some(ev) = engine_event {
+            let needs_window = matches!(ev, EngineEvent::ActionDelimiter)
+                || (matches!(ev, EngineEvent::Char(_))
+                    && (state.instant_expand.load(Ordering::Relaxed)
+                        || state.triggerless_mode.load(Ordering::Relaxed)));
+
+            let active_window = if needs_window {
+                crate::platform::get_active_window_label()
+            } else {
+                None
+            };
+
             let mut lock = evaluator.lock().unwrap();
-            if let Some(expansion) = lock.process_event(ev) {
+            if let Some(expansion) = lock.process_event(ev, active_window.as_deref()) {
                 let state = lock.state.clone();
                 drop(lock);
 

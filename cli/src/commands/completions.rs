@@ -266,13 +266,14 @@ fn append_to_rc_file(path: &std::path::Path, content: &str) {
     // Keep the fpath-aware duplicate check used by Zsh completions
     let needs_fpath_check = content.contains("fpath");
 
-    if needs_fpath_check && path.exists() {
-        if let Ok(existing) = fs::read_to_string(path) {
-            let fpath_prefix = content.split_once(' ').map(|(prefix, _)| prefix);
-            if fpath_prefix.is_some_and(|p| existing.contains(p)) {
-                debug!("File {} already contains the fpath line.", path.display());
-                return;
-            }
+    if needs_fpath_check
+        && path.exists()
+        && let Ok(existing) = fs::read_to_string(path)
+    {
+        let fpath_prefix = content.split_once(' ').map(|(prefix, _)| prefix);
+        if fpath_prefix.is_some_and(|p| existing.contains(p)) {
+            debug!("File {} already contains the fpath line.", path.display());
+            return;
         }
     }
 

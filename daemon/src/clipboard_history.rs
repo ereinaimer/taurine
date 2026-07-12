@@ -1,7 +1,7 @@
 #[cfg(not(windows))]
 use std::thread;
 #[cfg(not(windows))]
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use taurine_core::engine::variables::system::clip::MAX_PAYLOAD_BYTES;
 use taurine_core::engine::variables::system::clip::clip_manager;
 
@@ -29,8 +29,7 @@ pub fn start_listener() {
     let mut clip_opt: Option<arboard::Clipboard> = None;
 
     #[cfg(target_os = "macos")]
-    // SAFETY: generalPasteboard is thread-safe and always returns a valid pasteboard instance.
-    let mut last_change_count = unsafe { NSPasteboard::generalPasteboard().changeCount() };
+    let mut last_change_count = NSPasteboard::generalPasteboard().changeCount();
 
     CLIPBOARD_SHOULD_SHUTDOWN.store(false, std::sync::atomic::Ordering::Relaxed);
 
@@ -50,8 +49,7 @@ pub fn start_listener() {
 
         #[cfg(target_os = "macos")]
         {
-            // SAFETY: generalPasteboard is thread-safe and always returns a valid pasteboard instance.
-            let current = unsafe { NSPasteboard::generalPasteboard().changeCount() };
+            let current = NSPasteboard::generalPasteboard().changeCount();
             if current == last_change_count {
                 thread::sleep(POLL_INTERVAL);
                 continue;
@@ -401,6 +399,7 @@ fn try_read_clipboard_text_bounded(
                 }
             }
         }
+        #[cfg(windows)]
         Err(arboard::Error::ContentNotReady) => Ok(None),
         Err(e) => Err(e.to_string()),
     }

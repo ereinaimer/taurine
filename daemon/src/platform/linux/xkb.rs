@@ -10,6 +10,9 @@ pub struct XkbMapper {
     reverse_map: HashMap<char, (KeyCode, bool)>,
 }
 
+// SAFETY: XkbMapper is moved to and owned by a single thread at a time, so its internal non-thread-safe state is never accessed concurrently.
+unsafe impl Send for XkbMapper {}
+
 impl Default for XkbMapper {
     fn default() -> Self {
         Self::new().unwrap_or_else(|e| {
@@ -227,7 +230,7 @@ mod tests {
             let event = mapper.process_key(
                 KeyCode::KEY_SPACE,
                 true,
-                EngineMode::Standard,
+                EngineMode::Normal,
                 taurine_core::settings::ActionDelimiter::Enter,
             );
             assert_eq!(event, Some(EngineEvent::Char(' ')));

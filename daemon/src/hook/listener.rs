@@ -6,36 +6,50 @@ use tracing::{debug, error, info, trace, warn};
 
 #[cfg(target_os = "macos")]
 #[link(name = "CoreFoundation", kind = "framework")]
-extern "C" {
+// SAFETY: The CoreFoundation run loop APIs are stable system APIs.
+unsafe extern "C" {
     fn CFRunLoopGetCurrent() -> *mut std::ffi::c_void;
     fn CFRunLoopStop(rl: *mut std::ffi::c_void);
 }
 
 #[cfg(target_os = "macos")]
-static MACOS_RUN_LOOP: std::sync::Mutex<Option<*mut std::ffi::c_void>> =
-    std::sync::Mutex::new(None);
+#[derive(Copy, Clone)]
+struct SendPtr(*mut std::ffi::c_void);
+
+#[cfg(target_os = "macos")]
+// SAFETY: CoreFoundation run loop references are thread-safe to send between threads.
+unsafe impl Send for SendPtr {}
+
+#[cfg(target_os = "macos")]
+static MACOS_RUN_LOOP: std::sync::Mutex<Option<SendPtr>> = std::sync::Mutex::new(None);
 
 #[cfg(not(target_os = "linux"))]
 use rdev::{Event, EventType, Key};
 
+#[cfg(not(target_os = "linux"))]
 use crate::hook_health::HookHealth;
 use crate::hotkey;
+#[cfg(not(target_os = "linux"))]
 use crate::hotkey_evaluator::{
     HotkeyEvaluation, HotkeyEvaluator, logical_key_from_rdev, modifiers_from_sides,
 };
 use crate::injector;
+#[cfg(not(target_os = "linux"))]
 use crate::injector::{IS_INJECTING, consume_simulated_event};
+#[cfg(not(target_os = "linux"))]
 use crate::notify;
-use taurine_core::engine::{EngineEvent, EngineMode, Evaluator};
+use taurine_core::engine::Evaluator;
+#[cfg(not(target_os = "linux"))]
+use taurine_core::engine::{EngineEvent, EngineMode};
 
+#[cfg(not(target_os = "linux"))]
 use super::completion::{
     completion_key_kind_from_tab_like, should_swallow_trigger_assist_key_release,
     trigger_assist_is_active, trigger_assist_key_action,
 };
-use super::dispatch::{
-    clear_undo_state, spawn_completion_rewrite_dispatch, spawn_expansion_dispatch,
-    spawn_undo_dispatch, take_active_undo_state,
-};
+#[cfg(not(target_os = "linux"))]
+use super::dispatch::{clear_undo_state, spawn_undo_dispatch, take_active_undo_state};
+use super::dispatch::{spawn_completion_rewrite_dispatch, spawn_expansion_dispatch};
 
 #[cfg(not(target_os = "linux"))]
 pub(super) static LISTENER_EPOCH: std::sync::atomic::AtomicU64 =
@@ -567,7 +581,7 @@ pub(super) fn run_listener_once(
         // SAFETY: CFRunLoopGetCurrent always returns a valid run loop reference for the current thread.
         let rl = unsafe { CFRunLoopGetCurrent() };
         if let Ok(mut lock) = MACOS_RUN_LOOP.lock() {
-            *lock = Some(rl);
+            *lock = Some(SendPtr(rl));
         }
     }
 
@@ -580,12 +594,12 @@ pub(super) fn run_listener_once(
 pub fn stop_listener() {
     #[cfg(target_os = "macos")]
     {
-        if let Ok(mut lock) = MACOS_RUN_LOOP.lock() {
-            if let Some(rl) = lock.take() {
-                // SAFETY: CFRunLoopStop is safe to call from any thread with a valid CFRunLoopRef.
-                unsafe {
-                    CFRunLoopStop(rl);
-                }
+        if let Ok(mut lock) = MACOS_RUN_LOOP.lock()
+            && let Some(SendPtr(rl)) = lock.take()
+        {
+            // SAFETY: CFRunLoopStop is safe to call from any thread with a valid CFRunLoopRef.
+            unsafe {
+                CFRunLoopStop(rl);
             }
         }
     }
