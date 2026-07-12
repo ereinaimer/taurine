@@ -45,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ### Fixed
+- **Slash normalization in application filter paths**: Fixed application filter matching (e.g. `--include-apps` and `--exclude-apps`) when rule paths contain mixed slashes (forward `/` vs backward `\`). Both configured and active window path separators are normalized to backward slashes for comparison.
 - **Single-Instance Enforcement & gRPC Error Propagation**: Fixed issues where launching duplicate daemon instances would result in silent transport hijacking or infinite high-CPU busy-loops.
   - Added Unix Domain Socket active listener detection (Unix/macOS) using connection testing before socket file cleanup to prevent duplicate daemons from stealing socket handles.
   - Implemented early Named Pipe collision check on Windows by pre-allocating the first pipe instance with exclusive access on the main thread.

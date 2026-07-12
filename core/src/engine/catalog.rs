@@ -361,7 +361,7 @@ fn match_rules(filter_list: &str, info: &ActiveWindowInfo) -> bool {
                 if let Some(path) = &info.exec_path
                     && (value.contains('/') || value.contains('\\'))
                 {
-                    path.to_lowercase() == val_lower
+                    path.replace('/', "\\").to_lowercase() == val_lower.replace('/', "\\")
                 } else if let Some(name) = &info.exec_name {
                     let clean_name = name.to_lowercase();
                     let clean_name = clean_name.strip_suffix(".exe").unwrap_or(&clean_name);
@@ -931,5 +931,9 @@ mod tests {
         action.except_apps = Some("C:\\bin\\python.exe".to_string());
         assert!(!is_app_allowed(&action, Some(&info_python_win)));
         assert!(is_app_allowed(&action, Some(&info_python_other)));
+
+        // 9. Slash normalization (forward vs backward slashes)
+        action.except_apps = Some("exe:C:/bin/python.exe".to_string());
+        assert!(!is_app_allowed(&action, Some(&info_python_win)));
     }
 }
