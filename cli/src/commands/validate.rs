@@ -1,6 +1,8 @@
 #[cfg(test)]
 use taurine_core::db::crud::TriggerType;
-pub use taurine_core::db::crud::{PreparedTrigger, audit_payload_tags, prepare_trigger};
+pub use taurine_core::db::crud::{
+    PreparedTrigger, audit_payload_tags, audit_payload_tags_with_trigger_type, prepare_trigger,
+};
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
 pub fn format_automation_log(
@@ -246,6 +248,13 @@ mod tests {
     fn test_template_syntax_spec_compliance_validation() {
         // Positive Test Cases
         assert!(audit_payload_tags("Hello [0=friend]! You live in [1='San Francisco'] and work as [role='Software Engineer'].").is_ok());
+        assert!(
+            audit_payload_tags_with_trigger_type(
+                "Hello [0]! You live in [1] and [2]",
+                TriggerType::Regex
+            )
+            .is_ok()
+        );
         assert!(audit_payload_tags("Escaped brackets: \\[0=ignored\\] | Literal pipe: [0='default value' \\| upper] | Parsed pipe: [0='hello' | upper]").is_ok());
         assert!(audit_payload_tags("Local: [date] [time] | UTC +1w: [date.utc.calc(+1w).format('Today is' dddd, MMMM D, YYYY)] | UTC Time -2h: [time.utc.calc(-2h).format(hh:mm A)] | Cased AM/PM: [time.format(A) | lower]").is_ok());
         assert!(audit_payload_tags("User (Title Case): [env(USERNAME) | title] | Home Path (Lowercase): [env(USERPROFILE) | lower]").is_ok());
@@ -263,6 +272,7 @@ mod tests {
         // Negative Test Cases
         assert!(audit_payload_tags("User: [name=]").is_err());
         assert!(audit_payload_tags("User: [name]").is_err());
+        assert!(audit_payload_tags("Hello [0]!").is_err());
         assert!(audit_payload_tags("User: [my.custom.var=there]").is_err());
         assert!(audit_payload_tags("Start: [cursor] End: [cursor]").is_err());
         assert!(audit_payload_tags("Hello: [cursor] [key(tab)]").is_err());

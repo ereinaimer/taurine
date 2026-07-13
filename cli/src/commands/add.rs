@@ -33,14 +33,15 @@ pub fn execute_with_trigger_type(
     include_apps: Option<String>,
     exclude_apps: Option<String>,
 ) -> taurine_core::error::Result<()> {
-    use crate::commands::validate::{audit_payload_tags, format_automation_log};
+    use crate::commands::validate::format_automation_log;
     use taurine_core::db::crud::{
-        add_automation_by_trigger, add_automation_by_trigger_type, prepare_trigger_with_type,
+        add_automation_by_trigger, add_automation_by_trigger_type,
+        audit_payload_tags_with_trigger_type, prepare_trigger_with_type,
         validate_trigger_not_reserved,
     };
     use taurine_core::engine::variables::system::validate_output;
 
-    audit_payload_tags(&output)?;
+    audit_payload_tags_with_trigger_type(&output, trigger_type)?;
 
     if matches!(trigger_type, TriggerType::Regex) {
         regex::Regex::new(&trigger)

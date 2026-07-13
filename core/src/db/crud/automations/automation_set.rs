@@ -90,13 +90,21 @@ fn collect_defined_variables(payload: &str) -> std::collections::HashSet<String>
 }
 
 pub fn audit_payload_tags(payload: &str) -> Result<()> {
+    audit_payload_tags_with_trigger_type(payload, TriggerType::Word)
+}
+
+pub fn audit_payload_tags_with_trigger_type(
+    payload: &str,
+    trigger_type: TriggerType,
+) -> Result<()> {
     let defined_vars = collect_defined_variables(payload);
-    audit_payload_tags_impl(payload, &defined_vars)
+    audit_payload_tags_impl(payload, &defined_vars, trigger_type)
 }
 
 fn audit_payload_tags_impl(
     payload: &str,
     defined_vars: &std::collections::HashSet<String>,
+    trigger_type: TriggerType,
 ) -> Result<()> {
     let mut ptr = 0;
     let mut cursor_count = 0;
@@ -111,7 +119,7 @@ fn audit_payload_tags_impl(
         let is_nested = key.contains('[') || key.contains(']') || key.starts_with('\x03');
 
         if is_nested && inner.contains('[') {
-            audit_payload_tags_impl(inner, defined_vars)?;
+            audit_payload_tags_impl(inner, defined_vars, trigger_type)?;
         } else if !is_nested {
             if let Some((root, modifier)) = split_system_tag(key) {
                 if root == "cursor" {
@@ -151,7 +159,11 @@ fn audit_payload_tags_impl(
                 }
                 match default_value {
                     None => {
-                        if !defined_vars.contains(key_unquoted) {
+                        let is_positional = !key_unquoted.is_empty()
+                            && key_unquoted.chars().all(|c| c.is_ascii_digit());
+                        let is_allowed_regex_positional =
+                            matches!(trigger_type, TriggerType::Regex) && is_positional;
+                        if !defined_vars.contains(key_unquoted) && !is_allowed_regex_positional {
                             return Err(crate::Error::Config(format!(
                                 "Invalid variable [{}]: dynamic variables must have a default value assignment (e.g., [key=default]). If you intended to write literal text, escape the brackets like \\[{}\\].",
                                 inner, inner
@@ -769,7 +781,7 @@ pub fn update_existing_automation(
     validate_target_os_value(update.target_os)?;
     let action_kind = parse_action_kind(update.action_type)?;
     if action_kind == AutomationActionKind::Text {
-        audit_payload_tags(update.content)?;
+        audit_payload_tags_with_trigger_type(update.content, update.trigger_type)?;
     }
 
     // We only enforce limits for text snippets, as nested limits apply to the `use` variable
@@ -857,7 +869,7 @@ pub fn create_automation(
     validate_target_os_value(new_automation.target_os)?;
     let action_kind = parse_action_kind(new_automation.action_type)?;
     if action_kind == AutomationActionKind::Text {
-        audit_payload_tags(new_automation.content)?;
+        audit_payload_tags_with_trigger_type(new_automation.content, new_automation.trigger_type)?;
     }
 
     validate_automation_limits(
