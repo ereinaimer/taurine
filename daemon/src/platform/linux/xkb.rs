@@ -6,8 +6,12 @@ use tracing::warn;
 use xkbcommon::xkb;
 
 pub struct XkbMapper {
-    state: xkb::State,
+    state: Option<xkb::State>,
     reverse_map: HashMap<char, (KeyCode, bool)>,
+    ctrl_pressed: bool,
+    shift_pressed: bool,
+    alt_pressed: bool,
+    meta_pressed: bool,
 }
 
 // SAFETY: XkbMapper is moved to and owned by a single thread at a time, so its internal non-thread-safe state is never accessed concurrently.
@@ -16,15 +20,148 @@ unsafe impl Send for XkbMapper {}
 impl Default for XkbMapper {
     fn default() -> Self {
         Self::new().unwrap_or_else(|e| {
-            panic!("Failed to initialize XKB mapper: {}", e);
+            warn!(
+                "Failed to initialize XKB mapper: {}. Initializing headless mock XkbMapper.",
+                e
+            );
+            Self::new_mock()
         })
+    }
+}
+
+fn keycode_to_char(key: KeyCode, shift: bool) -> Option<char> {
+    match key {
+        KeyCode::KEY_A => Some(if shift { 'A' } else { 'a' }),
+        KeyCode::KEY_B => Some(if shift { 'B' } else { 'b' }),
+        KeyCode::KEY_C => Some(if shift { 'C' } else { 'c' }),
+        KeyCode::KEY_D => Some(if shift { 'D' } else { 'd' }),
+        KeyCode::KEY_E => Some(if shift { 'E' } else { 'e' }),
+        KeyCode::KEY_F => Some(if shift { 'F' } else { 'f' }),
+        KeyCode::KEY_G => Some(if shift { 'G' } else { 'g' }),
+        KeyCode::KEY_H => Some(if shift { 'H' } else { 'h' }),
+        KeyCode::KEY_I => Some(if shift { 'I' } else { 'i' }),
+        KeyCode::KEY_J => Some(if shift { 'J' } else { 'j' }),
+        KeyCode::KEY_K => Some(if shift { 'K' } else { 'k' }),
+        KeyCode::KEY_L => Some(if shift { 'L' } else { 'l' }),
+        KeyCode::KEY_M => Some(if shift { 'M' } else { 'm' }),
+        KeyCode::KEY_N => Some(if shift { 'N' } else { 'n' }),
+        KeyCode::KEY_O => Some(if shift { 'O' } else { 'o' }),
+        KeyCode::KEY_P => Some(if shift { 'P' } else { 'p' }),
+        KeyCode::KEY_Q => Some(if shift { 'Q' } else { 'q' }),
+        KeyCode::KEY_R => Some(if shift { 'R' } else { 'r' }),
+        KeyCode::KEY_S => Some(if shift { 'S' } else { 's' }),
+        KeyCode::KEY_T => Some(if shift { 'T' } else { 't' }),
+        KeyCode::KEY_U => Some(if shift { 'U' } else { 'u' }),
+        KeyCode::KEY_V => Some(if shift { 'V' } else { 'v' }),
+        KeyCode::KEY_W => Some(if shift { 'W' } else { 'w' }),
+        KeyCode::KEY_X => Some(if shift { 'X' } else { 'x' }),
+        KeyCode::KEY_Y => Some(if shift { 'Y' } else { 'y' }),
+        KeyCode::KEY_Z => Some(if shift { 'Z' } else { 'z' }),
+        KeyCode::KEY_1 => Some(if shift { '!' } else { '1' }),
+        KeyCode::KEY_2 => Some(if shift { '@' } else { '2' }),
+        KeyCode::KEY_3 => Some(if shift { '#' } else { '3' }),
+        KeyCode::KEY_4 => Some(if shift { '$' } else { '4' }),
+        KeyCode::KEY_5 => Some(if shift { '%' } else { '5' }),
+        KeyCode::KEY_6 => Some(if shift { '^' } else { '6' }),
+        KeyCode::KEY_7 => Some(if shift { '&' } else { '7' }),
+        KeyCode::KEY_8 => Some(if shift { '*' } else { '8' }),
+        KeyCode::KEY_9 => Some(if shift { '(' } else { '9' }),
+        KeyCode::KEY_0 => Some(if shift { ')' } else { '0' }),
+        KeyCode::KEY_SPACE => Some(' '),
+        KeyCode::KEY_MINUS => Some(if shift { '_' } else { '-' }),
+        KeyCode::KEY_EQUAL => Some(if shift { '+' } else { '=' }),
+        KeyCode::KEY_LEFTBRACE => Some(if shift { '{' } else { '[' }),
+        KeyCode::KEY_RIGHTBRACE => Some(if shift { '}' } else { ']' }),
+        KeyCode::KEY_SEMICOLON => Some(if shift { ':' } else { ';' }),
+        KeyCode::KEY_APOSTROPHE => Some(if shift { '"' } else { '\'' }),
+        KeyCode::KEY_GRAVE => Some(if shift { '~' } else { '`' }),
+        KeyCode::KEY_BACKSLASH => Some(if shift { '|' } else { '\\' }),
+        KeyCode::KEY_COMMA => Some(if shift { '<' } else { ',' }),
+        KeyCode::KEY_DOT => Some(if shift { '>' } else { '.' }),
+        KeyCode::KEY_SLASH => Some(if shift { '?' } else { '/' }),
+        _ => None,
     }
 }
 
 impl XkbMapper {
     fn modifier_is_active(&self, modifier: &str) -> bool {
-        self.state
-            .mod_name_is_active(modifier, xkb::STATE_MODS_EFFECTIVE)
+        if let Some(state) = &self.state {
+            state.mod_name_is_active(modifier, xkb::STATE_MODS_EFFECTIVE)
+        } else {
+            false
+        }
+    }
+
+    pub fn new_mock() -> Self {
+        let mut reverse_map = HashMap::new();
+        let keys = [
+            (KeyCode::KEY_A, 'a', 'A'),
+            (KeyCode::KEY_B, 'b', 'B'),
+            (KeyCode::KEY_C, 'c', 'C'),
+            (KeyCode::KEY_D, 'd', 'D'),
+            (KeyCode::KEY_E, 'e', 'E'),
+            (KeyCode::KEY_F, 'f', 'F'),
+            (KeyCode::KEY_G, 'g', 'G'),
+            (KeyCode::KEY_H, 'h', 'H'),
+            (KeyCode::KEY_I, 'i', 'I'),
+            (KeyCode::KEY_J, 'j', 'J'),
+            (KeyCode::KEY_K, 'k', 'K'),
+            (KeyCode::KEY_L, 'l', 'L'),
+            (KeyCode::KEY_M, 'm', 'M'),
+            (KeyCode::KEY_N, 'n', 'N'),
+            (KeyCode::KEY_O, 'o', 'O'),
+            (KeyCode::KEY_P, 'p', 'P'),
+            (KeyCode::KEY_Q, 'q', 'Q'),
+            (KeyCode::KEY_R, 'r', 'R'),
+            (KeyCode::KEY_S, 's', 'S'),
+            (KeyCode::KEY_T, 't', 'T'),
+            (KeyCode::KEY_U, 'u', 'U'),
+            (KeyCode::KEY_V, 'v', 'V'),
+            (KeyCode::KEY_W, 'w', 'W'),
+            (KeyCode::KEY_X, 'x', 'X'),
+            (KeyCode::KEY_Y, 'y', 'Y'),
+            (KeyCode::KEY_Z, 'z', 'Z'),
+            (KeyCode::KEY_1, '1', '!'),
+            (KeyCode::KEY_2, '2', '@'),
+            (KeyCode::KEY_3, '3', '#'),
+            (KeyCode::KEY_4, '4', '$'),
+            (KeyCode::KEY_5, '5', '%'),
+            (KeyCode::KEY_6, '6', '^'),
+            (KeyCode::KEY_7, '7', '&'),
+            (KeyCode::KEY_8, '8', '*'),
+            (KeyCode::KEY_9, '9', '('),
+            (KeyCode::KEY_0, '0', ')'),
+            (KeyCode::KEY_MINUS, '-', '_'),
+            (KeyCode::KEY_EQUAL, '=', '+'),
+            (KeyCode::KEY_LEFTBRACE, '[', '{'),
+            (KeyCode::KEY_RIGHTBRACE, ']', '}'),
+            (KeyCode::KEY_SEMICOLON, ';', ':'),
+            (KeyCode::KEY_APOSTROPHE, '\'', '"'),
+            (KeyCode::KEY_GRAVE, '`', '~'),
+            (KeyCode::KEY_BACKSLASH, '\\', '|'),
+            (KeyCode::KEY_COMMA, ',', '<'),
+            (KeyCode::KEY_DOT, '.', '>'),
+            (KeyCode::KEY_SLASH, '/', '?'),
+        ];
+
+        for &(keycode, unshifted, shifted) in &keys {
+            reverse_map.insert(unshifted, (keycode, false));
+            reverse_map.insert(shifted, (keycode, true));
+        }
+
+        reverse_map.insert(' ', (KeyCode::KEY_SPACE, false));
+        reverse_map.insert('\t', (KeyCode::KEY_TAB, false));
+        reverse_map.insert('\n', (KeyCode::KEY_ENTER, false));
+        reverse_map.insert('\r', (KeyCode::KEY_ENTER, false));
+
+        Self {
+            state: None,
+            reverse_map,
+            ctrl_pressed: false,
+            shift_pressed: false,
+            alt_pressed: false,
+            meta_pressed: false,
+        }
     }
 
     pub fn new() -> Result<Self, String> {
@@ -103,7 +240,14 @@ impl XkbMapper {
             .entry('\r')
             .or_insert((KeyCode::KEY_ENTER, false));
 
-        Ok(Self { state, reverse_map })
+        Ok(Self {
+            state: Some(state),
+            reverse_map,
+            ctrl_pressed: false,
+            shift_pressed: false,
+            alt_pressed: false,
+            meta_pressed: false,
+        })
     }
 
     pub fn get_reverse_map(&self) -> &HashMap<char, (KeyCode, bool)> {
@@ -121,14 +265,32 @@ impl XkbMapper {
         let keycode = key.code() as u32 + 8;
 
         // Update modifiers on key press/release
-        self.state.update_key(
-            keycode.into(),
-            if is_press {
-                xkb::KeyDirection::Down
-            } else {
-                xkb::KeyDirection::Up
-            },
-        );
+        if let Some(state) = &mut self.state {
+            state.update_key(
+                keycode.into(),
+                if is_press {
+                    xkb::KeyDirection::Down
+                } else {
+                    xkb::KeyDirection::Up
+                },
+            );
+        } else {
+            match key {
+                KeyCode::KEY_LEFTCTRL | KeyCode::KEY_RIGHTCTRL => {
+                    self.ctrl_pressed = is_press;
+                }
+                KeyCode::KEY_LEFTSHIFT | KeyCode::KEY_RIGHTSHIFT => {
+                    self.shift_pressed = is_press;
+                }
+                KeyCode::KEY_LEFTALT | KeyCode::KEY_RIGHTALT => {
+                    self.alt_pressed = is_press;
+                }
+                KeyCode::KEY_LEFTMETA | KeyCode::KEY_RIGHTMETA => {
+                    self.meta_pressed = is_press;
+                }
+                _ => {}
+            }
+        }
 
         if is_press {
             let ctrl_active = self.is_ctrl_down();
@@ -177,28 +339,57 @@ impl XkbMapper {
                 return None;
             }
 
-            let s = self.state.key_get_utf8(keycode.into());
-            if s.chars().count() == 1 {
-                return Some(EngineEvent::Char(s.chars().next().unwrap()));
+            let opt_char = if let Some(state) = &self.state {
+                let s = state.key_get_utf8(keycode.into());
+                let mut chars = s.chars();
+                if let Some(c) = chars.next()
+                    && chars.next().is_none()
+                {
+                    Some(c)
+                } else {
+                    None
+                }
+            } else {
+                keycode_to_char(key, self.is_shift_down())
+            };
+
+            if let Some(c) = opt_char {
+                return Some(EngineEvent::Char(c));
             }
         }
         None
     }
 
     pub fn is_alt_down(&self) -> bool {
-        self.modifier_is_active(xkb::MOD_NAME_ALT)
+        if self.state.is_some() {
+            self.modifier_is_active(xkb::MOD_NAME_ALT)
+        } else {
+            self.alt_pressed
+        }
     }
 
     pub fn is_ctrl_down(&self) -> bool {
-        self.modifier_is_active(xkb::MOD_NAME_CTRL)
+        if self.state.is_some() {
+            self.modifier_is_active(xkb::MOD_NAME_CTRL)
+        } else {
+            self.ctrl_pressed
+        }
     }
 
     pub fn is_shift_down(&self) -> bool {
-        self.modifier_is_active(xkb::MOD_NAME_SHIFT)
+        if self.state.is_some() {
+            self.modifier_is_active(xkb::MOD_NAME_SHIFT)
+        } else {
+            self.shift_pressed
+        }
     }
 
     pub fn is_meta_down(&self) -> bool {
-        self.modifier_is_active(xkb::MOD_NAME_LOGO)
+        if self.state.is_some() {
+            self.modifier_is_active(xkb::MOD_NAME_LOGO)
+        } else {
+            self.meta_pressed
+        }
     }
 
     pub fn current_modifiers(&self) -> Modifiers {
@@ -235,5 +426,60 @@ mod tests {
             );
             assert_eq!(event, Some(EngineEvent::Char(' ')));
         }
+    }
+
+    #[test]
+    fn test_xkb_mapper_mock() {
+        let mut mapper = XkbMapper::new_mock();
+
+        // Test unshifted character
+        let event = mapper.process_key(
+            KeyCode::KEY_A,
+            true,
+            EngineMode::Normal,
+            taurine_core::settings::ActionDelimiter::Enter,
+        );
+        assert_eq!(event, Some(EngineEvent::Char('a')));
+
+        // Test shifted character
+        mapper.process_key(
+            KeyCode::KEY_LEFTSHIFT,
+            true,
+            EngineMode::Normal,
+            taurine_core::settings::ActionDelimiter::Enter,
+        );
+        assert!(mapper.is_shift_down());
+
+        let event2 = mapper.process_key(
+            KeyCode::KEY_B,
+            true,
+            EngineMode::Normal,
+            taurine_core::settings::ActionDelimiter::Enter,
+        );
+        assert_eq!(event2, Some(EngineEvent::Char('B')));
+
+        mapper.process_key(
+            KeyCode::KEY_LEFTSHIFT,
+            false,
+            EngineMode::Normal,
+            taurine_core::settings::ActionDelimiter::Enter,
+        );
+        assert!(!mapper.is_shift_down());
+
+        // Test modifier chords don't output characters
+        mapper.process_key(
+            KeyCode::KEY_LEFTCTRL,
+            true,
+            EngineMode::Normal,
+            taurine_core::settings::ActionDelimiter::Enter,
+        );
+        assert!(mapper.is_ctrl_down());
+        let event3 = mapper.process_key(
+            KeyCode::KEY_C,
+            true,
+            EngineMode::Normal,
+            taurine_core::settings::ActionDelimiter::Enter,
+        );
+        assert_eq!(event3, None);
     }
 }
