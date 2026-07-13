@@ -126,8 +126,11 @@ fn is_valid_user_reference(key: &str, default_value: Option<&str>, args: &ArgMap
         return false;
     }
 
-    (key_unquoted.parse::<usize>().is_ok() && has_valid_default_value(default_value))
-        || args.named.contains_key(key_unquoted)
+    if let Ok(index) = key_unquoted.parse::<usize>() {
+        return index < args.positional.len() || has_valid_default_value(default_value);
+    }
+
+    args.named.contains_key(key_unquoted)
         || (has_valid_default_value(default_value)
             && !system::is_reserved(key_unquoted)
             && !key_unquoted.contains('[')
@@ -494,6 +497,12 @@ mod tests {
         let tpl = "https://github.com/[0=org]/[1=repo]";
         assert_eq!(
             interpolate(tpl, &args),
+            "https://github.com/ereinaimer/taurine"
+        );
+
+        let tpl_no_defaults = "https://github.com/[0]/[1]";
+        assert_eq!(
+            interpolate(tpl_no_defaults, &args),
             "https://github.com/ereinaimer/taurine"
         );
     }

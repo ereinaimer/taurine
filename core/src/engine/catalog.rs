@@ -1028,8 +1028,21 @@ mod tests {
         ]);
         let matched = catalog.match_action("my issue-102", None);
         assert!(matched.is_some());
-        let (trigger, _action, caps) = matched.unwrap();
+        let (trigger, action, caps) = matched.unwrap();
         assert_eq!(trigger, "issue-102");
         assert_eq!(caps, vec!["102".to_string()]);
+
+        use crate::engine::variables::{ArgMap, ExpansionStep};
+        let arg_map = ArgMap {
+            positional: caps,
+            ..Default::default()
+        };
+        let expansion = expand_automation_action_with_args(action, &arg_map, &trigger).unwrap();
+        assert_eq!(expansion.steps.len(), 1);
+        if let ExpansionStep::Text(ref text) = expansion.steps[0] {
+            assert_eq!(text, "https://github.com/issues/102");
+        } else {
+            panic!("Expected text expansion step");
+        }
     }
 }
