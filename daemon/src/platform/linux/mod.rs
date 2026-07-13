@@ -13,7 +13,7 @@ pub mod security;
 pub mod uinput;
 pub mod xkb;
 
-static CLIPBOARD: OnceLock<Mutex<Clipboard>> = OnceLock::new();
+static CLIPBOARD: Mutex<Option<Clipboard>> = Mutex::new(None);
 static REVERSE_LOOKUP: OnceLock<HashMap<char, (KeyCode, bool)>> = OnceLock::new();
 
 pub const VIRTUAL_DEVICE_NAME: &str = "Taurine Virtual Keyboard";
@@ -32,22 +32,38 @@ pub fn get_reverse_lookup() -> Option<&'static HashMap<char, (KeyCode, bool)>> {
     REVERSE_LOOKUP.get()
 }
 
+/// Safely runs a closure with the shared Linux clipboard connection.
+/// Initializes the connection on-demand, returning a Result instead of panicking on failure.
+/// Resets the connection cache if the closure returns an Err, allowing future retries.
+pub fn with_clipboard<F, R>(f: F) -> Result<R, String>
+where
+    F: FnOnce(&mut Clipboard) -> Result<R, String>,
+{
+    let mut lock = CLIPBOARD
+        .lock()
+        .map_err(|e| format!("Clipboard mutex poisoned: {}", e))?;
+
+    if lock.is_none() {
+        let clipboard = Clipboard::new().map_err(|e| format!("Failed to open clipboard: {}", e))?;
+        *lock = Some(clipboard);
+    }
+
+    let clip = lock.as_mut().unwrap();
+    let result = f(clip);
+    if result.is_err() {
+        *lock = None;
+    }
+    result
+}
+
 pub struct LinuxClipboard;
 
 impl ClipboardManager for LinuxClipboard {
     fn get_text(&mut self) -> Result<String, String> {
-        let mut clip = CLIPBOARD
-            .get_or_init(|| Mutex::new(Clipboard::new().expect("Failed to open clipboard")))
-            .lock()
-            .map_err(|e| format!("Clipboard mutex poisoned: {}", e))?;
-        clip.get_text().map_err(|e| e.to_string())
+        with_clipboard(|clip| clip.get_text().map_err(|e| e.to_string()))
     }
 
     fn set_text(&mut self, text: &str) -> Result<(), String> {
-        let mut clip = CLIPBOARD
-            .get_or_init(|| Mutex::new(Clipboard::new().expect("Failed to open clipboard")))
-            .lock()
-            .map_err(|e| format!("Clipboard mutex poisoned: {}", e))?;
-        clip.set_text(text.to_owned()).map_err(|e| e.to_string())
+        with_clipboard(|clip| clip.set_text(text.to_owned()).map_err(|e| e.to_string()))
     }
 }
