@@ -66,6 +66,12 @@ pub fn emit_batch(events: &[InputEvent]) {
         return;
     }
 
+    let mut retries = 0;
+    while !UINPUT_INITIALIZED.load(Ordering::SeqCst) && retries < 50 {
+        thread::sleep(Duration::from_millis(10));
+        retries += 1;
+    }
+
     if let Some(mutex) = UINPUT_DEVICE.get() {
         if let Ok(mut device) = mutex.lock()
             && let Err(e) = device.emit(events)

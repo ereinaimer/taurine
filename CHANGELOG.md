@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Linux Permissions Setup GUI**: Show a graphical password prompt via Polkit when configuring system permissions on desktops.
 
 ### Fixed
+- **Linux Virtual Device Race**: Prevent events from being dropped during startup by waiting for the uinput virtual keyboard to finish initializing.
 - **Linux Fullscreen Listener Leak**: Fix a bug where the fullscreen listener thread was leaked on shutdown, preventing the daemon from exiting cleanly.
 - **Linux Clipboard Init**: Prevent daemon crashes on startup in headless environments or when no X11/Wayland display server is running.
 - **Linux Clipboard Connection Conflicts**: Resolve clipboard unresponsiveness and connection conflicts under X11 by sharing the global clipboard connection.
