@@ -1,6 +1,73 @@
 #[cfg(test)]
 use taurine_core::db::crud::TriggerType;
 pub use taurine_core::db::crud::{PreparedTrigger, audit_payload_tags, prepare_trigger};
+use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
+
+pub fn format_automation_log(
+    action: &str,
+    trigger: &str,
+    script_info: Option<(ScriptBehavior, ScriptInterpreter)>,
+    os: &str,
+    include_apps: Option<&str>,
+    exclude_apps: Option<&str>,
+) -> String {
+    let mut parts = Vec::new();
+
+    // Base action & type
+    if let Some((behavior, interpreter)) = script_info {
+        let behavior_str = match behavior {
+            ScriptBehavior::Inline => "inline",
+            ScriptBehavior::Silent => "silent",
+        };
+        let lang_str = match interpreter {
+            ScriptInterpreter::Bash => "bash",
+            ScriptInterpreter::PowerShell => "powershell",
+            ScriptInterpreter::Python => "python",
+            ScriptInterpreter::Node => "node",
+            ScriptInterpreter::NodeEsm => "node-esm",
+            ScriptInterpreter::Cmd => "cmd",
+        };
+        parts.push(format!(
+            "{} {} script automation using {} for '{}'",
+            action, behavior_str, lang_str, trigger
+        ));
+    } else {
+        parts.push(format!("{} automation for '{}'", action, trigger));
+    }
+
+    // Target OS filter
+    if os != "all" {
+        let os_name = match os {
+            "win" => "Windows",
+            "mac" => "macOS",
+            "linux" => "Linux",
+            "android" => "Android",
+            "ios" => "iOS",
+            other => other,
+        };
+        parts.push(format!("on {}", os_name));
+    }
+
+    // App filters
+    match (include_apps, exclude_apps) {
+        (Some(inc), Some(exc)) if !inc.is_empty() && !exc.is_empty() => {
+            parts.push(format!(
+                "when active in '{}' and except when active in '{}'",
+                inc, exc
+            ));
+        }
+        (Some(inc), _) if !inc.is_empty() => {
+            parts.push(format!("when active in '{}'", inc));
+        }
+        (_, Some(exc)) if !exc.is_empty() => {
+            parts.push(format!("except when active in '{}'", exc));
+        }
+        _ => {}
+    }
+
+    // Join sections and terminate with a period
+    format!("{}.", parts.join(" "))
+}
 
 #[cfg(test)]
 mod tests {
@@ -200,5 +267,70 @@ mod tests {
         assert!(audit_payload_tags("Start: [cursor] End: [cursor]").is_err());
         assert!(audit_payload_tags("Hello: [cursor] [key(tab)]").is_err());
         assert!(audit_payload_tags("Time: [time=12:00]").is_err());
+    }
+
+    #[test]
+    fn test_format_automation_log_sentences() {
+        use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
+
+        // Text automation tests
+        assert_eq!(
+            format_automation_log("Added", "ctrl+alt+p", None, "all", None, None),
+            "Added automation for 'ctrl+alt+p'."
+        );
+        assert_eq!(
+            format_automation_log("Updated", "ctrl+alt+p", None, "win", None, None),
+            "Updated automation for 'ctrl+alt+p' on Windows."
+        );
+        assert_eq!(
+            format_automation_log(
+                "Added",
+                "ctrl+alt+p",
+                None,
+                "mac",
+                Some("exe:notepad"),
+                None
+            ),
+            "Added automation for 'ctrl+alt+p' on macOS when active in 'exe:notepad'."
+        );
+        assert_eq!(
+            format_automation_log("Added", "ctrl+alt+p", None, "linux", None, Some("exe:code")),
+            "Added automation for 'ctrl+alt+p' on Linux except when active in 'exe:code'."
+        );
+        assert_eq!(
+            format_automation_log(
+                "Added",
+                "ctrl+alt+p",
+                None,
+                "win",
+                Some("exe:notepad"),
+                Some("exe:code")
+            ),
+            "Added automation for 'ctrl+alt+p' on Windows when active in 'exe:notepad' and except when active in 'exe:code'."
+        );
+
+        // Script automation tests
+        assert_eq!(
+            format_automation_log(
+                "Added",
+                "ctrl+alt+p",
+                Some((ScriptBehavior::Inline, ScriptInterpreter::Bash)),
+                "all",
+                None,
+                None
+            ),
+            "Added inline script automation using bash for 'ctrl+alt+p'."
+        );
+        assert_eq!(
+            format_automation_log(
+                "Updated",
+                "ctrl+alt+p",
+                Some((ScriptBehavior::Silent, ScriptInterpreter::PowerShell)),
+                "win",
+                Some("exe:notepad"),
+                None
+            ),
+            "Updated silent script automation using powershell for 'ctrl+alt+p' on Windows when active in 'exe:notepad'."
+        );
     }
 }

@@ -10,7 +10,7 @@ pub fn execute(
     include_apps: Option<String>,
     exclude_apps: Option<String>,
 ) -> taurine_core::error::Result<()> {
-    use crate::commands::validate::{audit_payload_tags, prepare_trigger};
+    use crate::commands::validate::{audit_payload_tags, format_automation_log, prepare_trigger};
     use taurine_core::db::crud::{
         TriggerType, add_automation_by_trigger, add_automation_by_trigger_type,
         validate_trigger_not_reserved,
@@ -55,14 +55,38 @@ pub fn execute(
 
     match outcome {
         AddOutcome::Created => {
-            info!("Added automation: {}", stored_trigger);
+            let log_msg = format_automation_log(
+                "Added",
+                &stored_trigger,
+                None,
+                &os,
+                include_apps.as_deref(),
+                exclude_apps.as_deref(),
+            );
+            info!("{}", log_msg);
             taurine_core::rpc::notify_daemon_reload();
         }
         AddOutcome::AlreadyExists => {
-            info!("Automation already exists: {}", stored_trigger);
+            let log_msg = format_automation_log(
+                "Automation already exists for",
+                &stored_trigger,
+                None,
+                &os,
+                include_apps.as_deref(),
+                exclude_apps.as_deref(),
+            );
+            info!("{}", log_msg);
         }
         AddOutcome::Updated => {
-            info!("Updated automation: {}", stored_trigger);
+            let log_msg = format_automation_log(
+                "Updated",
+                &stored_trigger,
+                None,
+                &os,
+                include_apps.as_deref(),
+                exclude_apps.as_deref(),
+            );
+            info!("{}", log_msg);
             taurine_core::rpc::notify_daemon_reload();
         }
     }

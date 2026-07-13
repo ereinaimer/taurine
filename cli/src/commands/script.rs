@@ -1,4 +1,4 @@
-use crate::commands::validate::{audit_payload_tags, prepare_trigger};
+use crate::commands::validate::{audit_payload_tags, format_automation_log, prepare_trigger};
 use std::fs;
 use std::path::PathBuf;
 use taurine_core::db::crud::{
@@ -100,21 +100,16 @@ pub fn execute(
         }
     };
 
-    if is_update {
-        tracing::info!(
-            "Updated script automation: {} ({} via {})",
-            stored_trigger,
-            mode_to_str(mode),
-            lang_to_str(lang)
-        );
-    } else {
-        tracing::info!(
-            "Added script automation: {} ({} via {})",
-            stored_trigger,
-            mode_to_str(mode),
-            lang_to_str(lang)
-        );
-    }
+    let action = if is_update { "Updated" } else { "Added" };
+    let log_msg = format_automation_log(
+        action,
+        &stored_trigger,
+        Some((mode, lang)),
+        &os,
+        include_apps.as_deref(),
+        exclude_apps.as_deref(),
+    );
+    tracing::info!("{}", log_msg);
 
     // 3. Compress the script
     let compressed = compress(&content)?;
@@ -176,13 +171,6 @@ fn lang_to_str(i: ScriptInterpreter) -> &'static str {
         ScriptInterpreter::Node => "node",
         ScriptInterpreter::NodeEsm => "node-esm",
         ScriptInterpreter::Cmd => "cmd",
-    }
-}
-
-fn mode_to_str(b: ScriptBehavior) -> &'static str {
-    match b {
-        ScriptBehavior::Inline => "inline",
-        ScriptBehavior::Silent => "silent",
     }
 }
 
