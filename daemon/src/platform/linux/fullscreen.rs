@@ -5,6 +5,10 @@ use tracing::{debug, error};
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{ConnectionExt, EventMask};
 
+static DUMMY_WINDOW: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static JOIN_HANDLE: std::sync::Mutex<Option<std::thread::JoinHandle<()>>> =
+    std::sync::Mutex::new(None);
+
 pub fn start_listener(state: Arc<EngineState>) {
     if std::env::var("WAYLAND_DISPLAY").is_ok() {
         debug!("Wayland detected. Fullscreen detection is disabled. Defaulting to false.");
@@ -12,7 +16,7 @@ pub fn start_listener(state: Arc<EngineState>) {
         return;
     }
 
-    std::thread::Builder::new()
+    let handle = std::thread::Builder::new()
         .name("tau-lnx-full".to_string())
         .spawn(move || {
             let (conn, screen_num) = match x11rb::connect(None) {
@@ -54,6 +58,44 @@ pub fn start_listener(state: Arc<EngineState>) {
                 .unwrap()
                 .atom;
 
+            let dummy_window = match conn.generate_id() {
+                Ok(id) => id,
+                Err(e) => {
+                    error!("Failed to generate dummy window ID: {:?}", e);
+                    return;
+                }
+            };
+
+            if let Err(e) = conn.create_window(
+                x11rb::COPY_FROM_PARENT,
+                dummy_window,
+                root,
+                0,
+                0,
+                1,
+                1,
+                0,
+                x11rb::protocol::xproto::WindowClass::INPUT_ONLY,
+                x11rb::COPY_FROM_PARENT,
+                &x11rb::protocol::xproto::CreateWindowAux::new(),
+            ) {
+                error!("Failed to create dummy window: {:?}", e);
+                return;
+            }
+
+            let taurine_shutdown_atom = match conn
+                .intern_atom(false, b"TAURINE_SHUTDOWN")
+                .and_then(|cookie| cookie.reply())
+            {
+                Ok(reply) => reply.atom,
+                Err(e) => {
+                    error!("Failed to intern TAURINE_SHUTDOWN atom: {:?}", e);
+                    return;
+                }
+            };
+
+            DUMMY_WINDOW.store(dummy_window, Ordering::Relaxed);
+
             let _ = conn.flush();
 
             update_fullscreen_state(
@@ -79,11 +121,65 @@ pub fn start_listener(state: Arc<EngineState>) {
                             &state,
                         );
                     }
+                    x11rb::protocol::Event::ClientMessage(ev)
+                        if ev.window == dummy_window && ev.type_ == taurine_shutdown_atom =>
+                    {
+                        debug!("Shutdown client message received. Exiting X11 fullscreen listener thread.");
+                        let _ = conn.destroy_window(dummy_window);
+                        let _ = conn.flush();
+                        break;
+                    }
                     _ => {}
                 }
             }
         })
         .expect("Failed to spawn Linux fullscreen listener thread");
+
+    if let Ok(mut lock) = JOIN_HANDLE.lock() {
+        *lock = Some(handle);
+    }
+}
+
+pub fn stop_listener() {
+    let dummy_window = DUMMY_WINDOW.swap(0, Ordering::Relaxed);
+    if dummy_window != 0 {
+        if let Ok((conn, _)) = x11rb::connect(None) {
+            if let Ok(taurine_shutdown_atom) = conn
+                .intern_atom(false, b"TAURINE_SHUTDOWN")
+                .and_then(|c| c.reply())
+            {
+                let event = x11rb::protocol::xproto::ClientMessageEvent {
+                    response_type: x11rb::protocol::xproto::CLIENT_MESSAGE_EVENT,
+                    format: 32,
+                    sequence: 0,
+                    window: dummy_window,
+                    type_: taurine_shutdown_atom.atom,
+                    data: x11rb::protocol::xproto::ClientMessageData::from([0u32; 5]),
+                };
+                let raw_event = event.serialize();
+                let _ = conn.send_event(
+                    false,
+                    dummy_window,
+                    x11rb::protocol::xproto::EventMask::NO_EVENT,
+                    raw_event,
+                );
+                let _ = conn.flush();
+            }
+        }
+    }
+
+    let handle = if let Ok(mut lock) = JOIN_HANDLE.lock() {
+        lock.take()
+    } else {
+        None
+    };
+
+    if let Some(h) = handle {
+        let res = h.join();
+        if let Err(e) = res {
+            error!("Error joining Linux fullscreen listener thread: {:?}", e);
+        }
+    }
 }
 
 fn update_fullscreen_state(

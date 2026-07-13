@@ -523,6 +523,10 @@ pub fn start() -> taurine_core::error::Result<()> {
     {
         crate::platform::windows::fullscreen::stop_listener();
     }
+    #[cfg(target_os = "linux")]
+    {
+        crate::platform::linux::fullscreen::stop_listener();
+    }
 
     info!("Daemon stopped cleanly. Exiting.");
     run_result
