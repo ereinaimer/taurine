@@ -1,4 +1,4 @@
-use taurine_core::db::crud::AddOutcome;
+use taurine_core::db::crud::{AddOutcome, TriggerType};
 use taurine_core::db::init;
 use tracing::info;
 
@@ -10,15 +10,44 @@ pub fn execute(
     include_apps: Option<String>,
     exclude_apps: Option<String>,
 ) -> taurine_core::error::Result<()> {
-    use crate::commands::validate::{audit_payload_tags, format_automation_log, prepare_trigger};
+    let trigger_type = if use_hotkey {
+        TriggerType::Hotkey
+    } else {
+        TriggerType::Word
+    };
+    execute_with_trigger_type(
+        trigger,
+        output,
+        os,
+        trigger_type,
+        include_apps,
+        exclude_apps,
+    )
+}
+
+pub fn execute_with_trigger_type(
+    trigger: String,
+    output: String,
+    os: String,
+    trigger_type: TriggerType,
+    include_apps: Option<String>,
+    exclude_apps: Option<String>,
+) -> taurine_core::error::Result<()> {
+    use crate::commands::validate::{audit_payload_tags, format_automation_log};
     use taurine_core::db::crud::{
-        TriggerType, add_automation_by_trigger, add_automation_by_trigger_type,
+        add_automation_by_trigger, add_automation_by_trigger_type, prepare_trigger_with_type,
         validate_trigger_not_reserved,
     };
     use taurine_core::engine::variables::system::validate_output;
 
     audit_payload_tags(&output)?;
-    let prepared = prepare_trigger(&trigger, use_hotkey, &os)?;
+
+    if matches!(trigger_type, TriggerType::Regex) {
+        regex::Regex::new(&trigger)
+            .map_err(|e| taurine_core::Error::Config(format!("Invalid regular expression: {e}")))?;
+    }
+
+    let prepared = prepare_trigger_with_type(&trigger, trigger_type, &os)?;
     let stored_trigger = prepared.stored_trigger;
 
     // Validate the snippet output for potential issues (cursors, conflicts, etc.)
@@ -45,6 +74,15 @@ pub fn execute(
         TriggerType::Hotkey => add_automation_by_trigger_type(
             &conn,
             TriggerType::Hotkey,
+            &stored_trigger,
+            &output,
+            &os,
+            include_apps.as_deref(),
+            exclude_apps.as_deref(),
+        )?,
+        TriggerType::Regex => add_automation_by_trigger_type(
+            &conn,
+            TriggerType::Regex,
             &stored_trigger,
             &output,
             &os,

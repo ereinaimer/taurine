@@ -9,7 +9,8 @@ pub use automation_delete::{
 };
 pub use automation_get::{
     get_action_by_trigger, get_active_word_trigger_history, get_all_active_automations,
-    get_all_active_hotkey_automations, get_automation, get_automations_list, search_automations,
+    get_all_active_hotkey_automations, get_all_active_regex_automations, get_automation,
+    get_automations_list, search_automations,
 };
 pub use automation_set::{
     AddOutcome, ExistingAutomationUpdate, NewAutomation, PreparedTrigger,

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Regex Triggers**: Support pattern-based triggers with positional capture group interpolation.
+
 ### Changed
 - **Linux Permission Model**: Run the daemon securely without `CAP_DAC_OVERRIDE` capabilities by utilizing group permissions and udev rules.
 - **Linux Permissions Setup GUI**: Show a graphical password prompt via Polkit when configuring system permissions on desktops.

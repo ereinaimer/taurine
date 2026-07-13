@@ -189,6 +189,7 @@ fn format_trigger_kind(trigger_type: TriggerType) -> &'static str {
     match trigger_type {
         TriggerType::Word => "word",
         TriggerType::Hotkey => "hotkey",
+        TriggerType::Regex => "regex",
     }
 }
 

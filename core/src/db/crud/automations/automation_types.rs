@@ -7,6 +7,7 @@ pub enum TriggerType {
     #[default]
     Word,
     Hotkey,
+    Regex,
 }
 
 impl TriggerType {
@@ -14,6 +15,7 @@ impl TriggerType {
         match self {
             Self::Word => "word",
             Self::Hotkey => "hotkey",
+            Self::Regex => "regex",
         }
     }
 
@@ -21,8 +23,9 @@ impl TriggerType {
         match value {
             "word" => Ok(Self::Word),
             "hotkey" => Ok(Self::Hotkey),
+            "regex" => Ok(Self::Regex),
             other => Err(crate::Error::Config(format!(
-                "Invalid trigger_type '{other}'. Expected 'word' or 'hotkey'."
+                "Invalid trigger_type '{other}'. Expected 'word', 'hotkey', or 'regex'."
             ))),
         }
     }
@@ -122,4 +125,16 @@ pub struct TriggerConflict {
     pub trigger_type: TriggerType,
     pub trigger: String,
     pub target_os: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_regex_trigger_type_serialization() {
+        let t = TriggerType::Regex;
+        assert_eq!(t.as_db_str(), "regex");
+        assert_eq!(TriggerType::parse_db("regex").unwrap(), TriggerType::Regex);
+    }
 }

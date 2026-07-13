@@ -221,10 +221,15 @@ impl DaemonControl for DaemonService {
                 .map_err(|e| {
                     Status::internal(format!("Failed to retrieve hotkey automations: {}", e))
                 })?;
+            let regexes =
+                taurine_core::db::crud::get_all_active_regex_automations(&conn).map_err(|e| {
+                    Status::internal(format!("Failed to retrieve regex automations: {}", e))
+                })?;
 
             self.state.load_actions(active);
             self.state.load_word_trigger_history(history);
             self.state.load_hotkey_actions(hotkeys);
+            self.state.load_regex_actions(regexes);
 
             // 3. Reload Settings
             use taurine_core::settings::SettingsManager;

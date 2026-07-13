@@ -1,9 +1,9 @@
-use crate::commands::validate::{audit_payload_tags, format_automation_log, prepare_trigger};
+use crate::commands::validate::{audit_payload_tags, format_automation_log};
 use std::fs;
 use std::path::PathBuf;
 use taurine_core::db::crud::{
-    TriggerType, upsert_automation, upsert_automation_with_trigger_type, upsert_script,
-    validate_trigger_not_reserved,
+    TriggerType, prepare_trigger_with_type, upsert_automation, upsert_automation_with_trigger_type,
+    upsert_script, validate_trigger_not_reserved,
 };
 use taurine_core::db::init;
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter, compress};
@@ -12,6 +12,36 @@ use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter, compress};
 pub fn execute(
     trigger: String,
     use_hotkey: bool,
+    content: Option<String>,
+    file_path: Option<PathBuf>,
+    lang: Option<ScriptInterpreter>,
+    mode: ScriptBehavior,
+    os: String,
+    include_apps: Option<String>,
+    exclude_apps: Option<String>,
+) -> taurine_core::error::Result<()> {
+    let trigger_type = if use_hotkey {
+        TriggerType::Hotkey
+    } else {
+        TriggerType::Word
+    };
+    execute_with_trigger_type(
+        trigger,
+        trigger_type,
+        content,
+        file_path,
+        lang,
+        mode,
+        os,
+        include_apps,
+        exclude_apps,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn execute_with_trigger_type(
+    trigger: String,
+    trigger_type: TriggerType,
     content: Option<String>,
     file_path: Option<PathBuf>,
     lang: Option<ScriptInterpreter>,
@@ -42,7 +72,13 @@ pub fn execute(
     };
 
     audit_payload_tags(&content)?;
-    let prepared = prepare_trigger(&trigger, use_hotkey, &os)?;
+
+    if matches!(trigger_type, TriggerType::Regex) {
+        regex::Regex::new(&trigger)
+            .map_err(|e| taurine_core::Error::Config(format!("Invalid regular expression: {e}")))?;
+    }
+
+    let prepared = prepare_trigger_with_type(&trigger, trigger_type, &os)?;
     let stored_trigger = prepared.stored_trigger;
 
     // 2. Infer interpreter if not provided
@@ -138,6 +174,22 @@ pub fn execute(
                 &stored_trigger,
                 Some(&format!("Shell script ({})", source_desc)),
                 TriggerType::Hotkey,
+                &stored_trigger,
+                &format!("[Script: {}]", lang_to_str(lang)),
+                "script",
+                &os,
+                "[]",
+                usage_count,
+                last_used_at,
+            )?;
+        }
+        TriggerType::Regex => {
+            upsert_automation_with_trigger_type(
+                &conn,
+                &id,
+                &stored_trigger,
+                Some(&format!("Shell script ({})", source_desc)),
+                TriggerType::Regex,
                 &stored_trigger,
                 &format!("[Script: {}]", lang_to_str(lang)),
                 "script",

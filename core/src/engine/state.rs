@@ -1,7 +1,9 @@
 use crate::db::crud::AutomationAction;
 pub use crate::engine::ai_session::EngineMode;
 use crate::engine::ai_session::InlineAiSession;
-use crate::engine::catalog::{ExpansionCatalog, HotkeyCatalog, expand_automation_action};
+use crate::engine::catalog::{
+    ExpansionCatalog, HotkeyCatalog, RegexCatalog, expand_automation_action,
+};
 use crate::engine::source::SnippetSource;
 use crate::engine::variables::FinalExpansion;
 use crate::keys::Hotkey;
@@ -58,6 +60,7 @@ pub struct EngineState {
     ai_session: InlineAiSession,
     word_catalog: ExpansionCatalog,
     hotkey_catalog: HotkeyCatalog,
+    pub regex_catalog: RegexCatalog,
 }
 
 impl EngineState {
@@ -85,6 +88,7 @@ impl EngineState {
             ai_session: InlineAiSession::new(),
             word_catalog: ExpansionCatalog::new(),
             hotkey_catalog: HotkeyCatalog::new(),
+            regex_catalog: RegexCatalog::new(),
         }
     }
 
@@ -113,6 +117,7 @@ impl EngineState {
             ai_session: InlineAiSession::new(),
             word_catalog: ExpansionCatalog::with_source(source),
             hotkey_catalog: HotkeyCatalog::new(),
+            regex_catalog: RegexCatalog::new(),
         }
     }
 
@@ -171,6 +176,22 @@ impl EngineState {
         actions: impl IntoIterator<Item = (String, AutomationAction)>,
     ) {
         self.hotkey_catalog.load_actions(actions);
+    }
+
+    pub fn load_regex_actions(
+        &self,
+        actions: impl IntoIterator<Item = (String, AutomationAction)>,
+    ) {
+        self.regex_catalog.load_actions(actions);
+    }
+
+    pub fn match_regex_action(
+        &self,
+        buffer_string: &str,
+        active_window: Option<&str>,
+    ) -> Option<(String, AutomationAction, Vec<String>)> {
+        self.regex_catalog
+            .match_action(buffer_string, active_window)
     }
 
     pub fn fetch_expansion(

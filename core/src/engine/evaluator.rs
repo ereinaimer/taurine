@@ -581,6 +581,58 @@ impl Evaluator {
             });
         }
 
+        // Regex matching fallback
+        let buf_str = self.buffer.buffer_string();
+        if let Some((keyword, action, captures)) =
+            self.state.match_regex_action(&buf_str, active_window)
+        {
+            use crate::engine::catalog::expand_automation_action_with_args;
+            use crate::engine::variables::ArgMap;
+
+            let arg_map = ArgMap {
+                positional: captures,
+                ..Default::default()
+            };
+
+            if let Some(expansion) = expand_automation_action_with_args(action, &arg_map, &keyword)
+            {
+                let delete_count = keyword.chars().count();
+                let metric_kind = metric_kind_for_steps(expansion.is_calculation, &expansion.steps);
+                self.buffer.clear();
+
+                if let Some(template) = expansion.ai_transformer_template {
+                    let initial_text = self.get_initial_spinner_text(&template);
+                    return Some(ExpansionResult {
+                        delete_count,
+                        steps: vec![ExpansionStep::Text(initial_text)],
+                        trigger: keyword.clone(),
+                        undo_trigger: None,
+                        is_calculation: false,
+                        metric_kind: AutomationMetricKind::InlineAi,
+                        track_usage: true,
+                        follow_up: Some(ExpansionFollowUp::AiTransformer {
+                            template_with_markers: template,
+                        }),
+                    });
+                }
+
+                let undo_trigger = self
+                    .allows_blind_undo(&expansion.steps)
+                    .then(|| keyword.clone());
+
+                return Some(ExpansionResult {
+                    delete_count,
+                    steps: expansion.steps,
+                    trigger: keyword,
+                    undo_trigger,
+                    is_calculation: expansion.is_calculation,
+                    metric_kind,
+                    track_usage: true,
+                    follow_up: None,
+                });
+            }
+        }
+
         None
     }
 
@@ -2913,5 +2965,27 @@ mod tests {
             .process(EngineEvent::ActionDelimiter)
             .expect("Should expand on delimiter");
         assert_eq!(result.delete_count, 3);
+    }
+
+    #[test]
+    fn test_evaluator_regex_expansion_and_undo() {
+        let state = Arc::new(EngineState::new('>'));
+        state.load_regex_actions(vec![(
+            "issue-(\\d+)".to_string(),
+            crate::db::crud::AutomationAction::text("https://github.com/issues/[0]"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        // Simulate typing 'issue-42'
+        for c in "issue-42".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+
+        // Delimiter triggers evaluation
+        let result = eval.process(EngineEvent::ActionDelimiter);
+        assert!(result.is_some());
+        let res = result.unwrap();
+        assert_eq!(res.delete_count, 8); // 'issue-42' length
+        assert_eq!(res.undo_trigger.as_deref(), Some("issue-42"));
     }
 }

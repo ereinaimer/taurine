@@ -40,7 +40,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     use std::sync::{Arc, Mutex, RwLock};
     use taurine_core::db::crud::{
         get_active_word_trigger_history, get_all_active_automations,
-        get_all_active_hotkey_automations,
+        get_all_active_hotkey_automations, get_all_active_regex_automations,
     };
     use taurine_core::engine::{EngineState, Evaluator};
     use taurine_core::settings::SettingsManager;
@@ -102,6 +102,9 @@ pub fn start() -> taurine_core::error::Result<()> {
     }
     if let Ok(active_hotkeys) = get_all_active_hotkey_automations(&conn) {
         state.load_hotkey_actions(active_hotkeys);
+    }
+    if let Ok(active_regex) = get_all_active_regex_automations(&conn) {
+        state.load_regex_actions(active_regex);
     }
 
     let evaluator = Arc::new(Mutex::new(Evaluator::new(state.clone())));

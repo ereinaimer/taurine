@@ -113,6 +113,82 @@ impl HotkeyCatalog {
     }
 }
 
+pub struct RegexCatalog {
+    snapshot: RwLock<RegexCatalogSnapshot>,
+}
+
+#[derive(Default)]
+struct RegexCatalogSnapshot {
+    entries: Vec<ParsedRegexAction>,
+}
+
+#[derive(Clone)]
+struct ParsedRegexAction {
+    #[allow(dead_code)]
+    pattern_string: String,
+    regex: regex::Regex,
+    action: AutomationAction,
+}
+
+impl RegexCatalog {
+    pub fn new() -> Self {
+        Self {
+            snapshot: RwLock::new(RegexCatalogSnapshot::default()),
+        }
+    }
+
+    pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, AutomationAction)>) {
+        let mut entries = Vec::new();
+        for (pattern, action) in actions {
+            if let Ok(re) = regex::Regex::new(&pattern) {
+                entries.push(ParsedRegexAction {
+                    pattern_string: pattern,
+                    regex: re,
+                    action,
+                });
+            }
+        }
+        if let Ok(mut guard) = self.snapshot.write() {
+            guard.entries = entries;
+        }
+    }
+
+    pub fn match_action(
+        &self,
+        buffer_string: &str,
+        active_window: Option<&str>,
+    ) -> Option<(String, AutomationAction, Vec<String>)> {
+        let guard = self.snapshot.read().ok()?;
+        for entry in &guard.entries {
+            if is_app_allowed(&entry.action, active_window)
+                && let Some(m) = entry.regex.find_iter(buffer_string).last()
+                && m.end() == buffer_string.len()
+                && !m.as_str().is_empty()
+            {
+                let matched_str = m.as_str();
+                let mut captures_list = Vec::new();
+                if let Some(caps) = entry.regex.captures(matched_str) {
+                    for i in 1..caps.len() {
+                        let val = caps
+                            .get(i)
+                            .map(|c| c.as_str().to_string())
+                            .unwrap_or_default();
+                        captures_list.push(val);
+                    }
+                }
+                return Some((matched_str.to_string(), entry.action.clone(), captures_list));
+            }
+        }
+        None
+    }
+}
+
+impl Default for RegexCatalog {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ExpansionCatalog {
     pub fn new() -> Self {
         let memory = Arc::new(MemorySource::new());
@@ -456,7 +532,7 @@ pub(crate) fn expand_automation_action(
     expand_automation_action_with_args(action, &ArgMap::default(), matched_keyword)
 }
 
-fn expand_automation_action_with_args(
+pub(crate) fn expand_automation_action_with_args(
     action: AutomationAction,
     args: &ArgMap,
     matched_keyword: &str,
@@ -935,5 +1011,25 @@ mod tests {
         // 9. Slash normalization (forward vs backward slashes)
         action.except_apps = Some("exe:C:/bin/python.exe".to_string());
         assert!(!is_app_allowed(&action, Some(&info_python_win)));
+    }
+
+    #[test]
+    fn test_regex_catalog_compilation_and_match() {
+        let catalog = RegexCatalog::new();
+        catalog.load_actions(vec![
+            (
+                "issue-(\\d+)".to_string(),
+                AutomationAction::text("https://github.com/issues/[0]"),
+            ),
+            (
+                "invalid(pattern".to_string(),
+                AutomationAction::text("skipped"),
+            ),
+        ]);
+        let matched = catalog.match_action("my issue-102", None);
+        assert!(matched.is_some());
+        let (trigger, _action, caps) = matched.unwrap();
+        assert_eq!(trigger, "issue-102");
+        assert_eq!(caps, vec!["102".to_string()]);
     }
 }

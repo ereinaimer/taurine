@@ -91,6 +91,8 @@ impl LibraryKind {
             (TriggerType::Hotkey, false) => Self::HotkeySnippet,
             (TriggerType::Word, true) => Self::Script,
             (TriggerType::Word, false) => Self::Snippet,
+            (TriggerType::Regex, true) => Self::Script,
+            (TriggerType::Regex, false) => Self::Snippet,
         }
     }
 

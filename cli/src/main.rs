@@ -256,6 +256,10 @@ pub struct AddArgs {
     #[arg(long)]
     pub hotkey: bool,
 
+    /// Interpret the trigger positional as a regex trigger
+    #[arg(long, conflicts_with = "hotkey")]
+    pub regex: bool,
+
     /// Limit execution to specific applications (comma-separated list).
     /// Labels are exact and case-insensitive: Windows executables without .exe (e.g. 'code'),
     /// Linux WM_CLASS (e.g. 'google-chrome'), macOS localized names (e.g. 'Visual Studio Code').
@@ -286,6 +290,9 @@ pub enum AddSubcommand {
         /// Interpret the trigger positional as a hotkey trigger
         #[arg(long)]
         hotkey: bool,
+        /// Interpret the trigger positional as a regex trigger
+        #[arg(long, conflicts_with = "hotkey")]
+        regex: bool,
         /// The script content (optional if --file is used)
         #[arg(required_unless_present = "file")]
         content: Option<String>,
@@ -519,6 +526,7 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
             if let Some(AddSubcommand::Script {
                 trigger,
                 hotkey,
+                regex,
                 content,
                 file,
                 lang,
@@ -528,9 +536,16 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
                 exclude_apps,
             }) = args.sub
             {
-                commands::script::execute(
+                let trigger_type = if hotkey {
+                    taurine_core::db::crud::TriggerType::Hotkey
+                } else if regex {
+                    taurine_core::db::crud::TriggerType::Regex
+                } else {
+                    taurine_core::db::crud::TriggerType::Word
+                };
+                commands::script::execute_with_trigger_type(
                     trigger,
-                    hotkey,
+                    trigger_type,
                     content,
                     file,
                     lang.map(Into::into),
@@ -547,11 +562,18 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
                     .to_db_str()
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| taurine_core::db::get_current_os_db_string().to_string());
-                commands::add::execute(
+                let trigger_type = if args.hotkey {
+                    taurine_core::db::crud::TriggerType::Hotkey
+                } else if args.regex {
+                    taurine_core::db::crud::TriggerType::Regex
+                } else {
+                    taurine_core::db::crud::TriggerType::Word
+                };
+                commands::add::execute_with_trigger_type(
                     t,
                     o,
                     os,
-                    args.hotkey,
+                    trigger_type,
                     args.include_apps,
                     args.exclude_apps,
                 )?;
@@ -782,5 +804,19 @@ mod tests {
         let cli =
             Cli::try_parse_from(["taurine", "-q"]).expect("flag-only invocation should parse");
         assert_eq!(launch_target(&cli), LaunchTarget::Tui);
+    }
+
+    #[test]
+    fn cli_add_regex_flag_parses() {
+        let cli = Cli::try_parse_from(["taurine", "add", "--regex", "issue-(\\d+)", "link/[0]"])
+            .expect("add --regex should parse");
+        match cli.command {
+            Some(Commands::Add(args)) => {
+                assert!(args.regex);
+                assert_eq!(args.trigger.as_deref(), Some("issue-(\\d+)"));
+                assert_eq!(args.output.as_deref(), Some("link/[0]"));
+            }
+            other => panic!("unexpected parse output: {other:?}"),
+        }
     }
 }

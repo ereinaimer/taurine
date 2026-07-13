@@ -168,6 +168,47 @@ pub fn get_all_active_automations(conn: &Connection) -> Result<Vec<(String, Auto
     Ok(actions)
 }
 
+/// Fetches all active regex triggers for the current desktop target.
+pub fn get_all_active_regex_automations(
+    conn: &Connection,
+) -> Result<Vec<(String, AutomationAction)>> {
+    let os_str = get_current_os_db_string();
+    let mut stmt = conn.prepare_cached(
+        "SELECT a.trigger, a.output, a.action_type, a.only_apps, a.except_apps, s.interpreter, s.behavior, s.compressed_content
+         FROM automations a
+         LEFT JOIN scripts s ON a.id = s.automation_id
+         WHERE a.trigger_type = 'regex'
+           AND a.is_deleted = 0
+           AND a.is_enabled = 1
+           AND (a.target_os = 'all' OR a.target_os = ?1)",
+    )?;
+
+    let rows = stmt.query_map([os_str], |row| {
+        let interpreter = parse_json_variant(row.get(5)?);
+        let behavior = parse_json_variant(row.get(6)?);
+
+        Ok((
+            row.get(0)?,
+            AutomationAction {
+                output: row.get(1)?,
+                action_type: row.get(2)?,
+                only_apps: row.get(3)?,
+                except_apps: row.get(4)?,
+                interpreter,
+                behavior,
+                script_binary: row.get(7)?,
+            },
+        ))
+    })?;
+
+    let mut actions = Vec::new();
+    for action in rows {
+        actions.push(action?);
+    }
+
+    Ok(actions)
+}
+
 /// Fetches active word triggers ordered for inline history navigation.
 ///
 /// Ordering preference:

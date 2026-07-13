@@ -1,0 +1,75 @@
+---
+title: Regex Triggers
+description: Learn how to trigger automations using regular expression patterns and positional capture groups.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Taurine supports three trigger types: **Word Triggers**, **Hotkey Triggers**, and **Regex Triggers**.
+
+While Word Triggers are static words (e.g., `gs`), **Regex Triggers** allow you to match complex text patterns (e.g., `issue-(\d+)` or `[^@]+@[^@]+\.[^@]+`) and dynamically interpolate captured groups into your automation output.
+
+<Callout title="Anchor Behavior" type="info">
+  Regex triggers are automatically matched against the end of your keystroke buffer (suffix-anchored). This means the pattern will trigger as soon as the suffix of the typed buffer matches the regular expression.
+</Callout>
+
+## Creating Regex Automations
+
+To create a regex-triggered automation, use the `--regex` flag with the `add` command.
+
+### Standard Text Expansion with Capture Groups
+Capture groups in your regular expression are mapped directly to positional parameters (`[0]`, `[1]`, etc.) in the expansion output.
+
+```bash
+# Add a regex expansion for issue tracking links
+taurine add --regex "issue-(\d+)" "https://github.com/issues/[0]"
+```
+
+When you type `issue-42`, it will instantly expand to `https://github.com/issues/42`.
+
+### Script Automations with Capture Groups
+Pass capture groups directly into shell script automations.
+
+```bash
+# Trigger a shell script to fetch user details
+taurine add script --regex "user:([a-zA-Z0-9]+)" user-details -l powershell "Get-UserDetail -Username [0]"
+```
+
+## How Capture Groups Work
+
+Taurine maps standard regular expression capture groups to positional placeholders:
+
+*   **Group 1** maps to **`[0]`**
+*   **Group 2** maps to **`[1]`**
+*   **Group 3** maps to **`[2]`**
+*   And so on.
+
+<Callout title="Zero-Index Mapping" type="info">
+  Positional variables start at `[0]` to align with Taurine's existing positional variables used in standard word triggers.
+</Callout>
+
+### Example of Multiple Capture Groups
+
+```bash
+# Bind regex trigger matching: key=value
+taurine add --regex "bind:(\w+)=(\w+)" "Mapping [0] to [1]"
+```
+
+If you type `bind:foo=bar`, it will expand to `Mapping foo to bar`.
+
+## Compatibility & Features
+
+### Backspace Undo
+Regex triggers are fully compatible with Taurine's Backspace Undo. If an expansion occurs, pressing `Backspace` immediately afterwards will restore the matched keyword (e.g., restoring `issue-42` rather than the regex pattern `issue-(\d+)`).
+
+### Space & Multi-word Matching
+Keystroke delimiters (like spaces) do not automatically clear the keystroke buffer. Patterns that contain spaces (e.g., `hello\s+world`) are fully supported and will match successfully across word boundaries.
+
+### Autocomplete & History
+Autocomplete and inline history navigation are **not compatible** with Regex Triggers. These features are exclusive to prefix-based static word triggers.
+
+## Performance Guidelines
+
+Regex triggers are evaluated on every keystroke. To ensure a smooth typing experience:
+1.  **Avoid Exponential Backtracking**: Do not write nested quantifiers or highly complex patterns (e.g., `(a+)+`).
+2.  **Keep it Simple**: Use simple character classes, word boundaries, and explicit patterns where possible.
