@@ -16,19 +16,53 @@ static CLIPBOARD_THREAD_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::At
 #[cfg(not(windows))]
 const INIT_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 pub fn start_listener() {
-    #[cfg(target_os = "macos")]
-    use objc2_app_kit::NSPasteboard;
-
-    #[cfg(target_os = "macos")]
-    const POLL_INTERVAL: Duration = Duration::from_millis(200);
-    #[cfg(not(target_os = "macos"))]
     const POLL_INTERVAL: Duration = Duration::from_millis(350);
 
-    let mut clip_opt: Option<arboard::Clipboard> = None;
+    CLIPBOARD_SHOULD_SHUTDOWN.store(false, std::sync::atomic::Ordering::Relaxed);
 
-    #[cfg(target_os = "macos")]
+    loop {
+        if CLIPBOARD_SHOULD_SHUTDOWN.load(std::sync::atomic::Ordering::Relaxed) {
+            break;
+        }
+        if !taurine_core::settings::get_cached_clipboard_history_enabled() {
+            thread::sleep(POLL_INTERVAL);
+            continue;
+        }
+
+        if IS_INJECTING.load(std::sync::atomic::Ordering::Relaxed) {
+            thread::sleep(POLL_INTERVAL);
+            continue;
+        }
+
+        let read_result =
+            crate::platform::linux::with_clipboard(|clip| try_read_clipboard_text_bounded(clip));
+
+        match read_result {
+            Ok(Some(text)) => {
+                let _ = clip_manager().record_text(text);
+                thread::sleep(POLL_INTERVAL);
+            }
+            Ok(None) => thread::sleep(POLL_INTERVAL),
+            Err(error) => {
+                tracing::warn!(
+                    "Clipboard history listener error: {}. Resetting connection.",
+                    error
+                );
+                thread::sleep(INIT_RETRY_INTERVAL);
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn start_listener() {
+    use objc2_app_kit::NSPasteboard;
+
+    const POLL_INTERVAL: Duration = Duration::from_millis(200);
+
+    let mut clip_opt: Option<arboard::Clipboard> = None;
     let mut last_change_count = NSPasteboard::generalPasteboard().changeCount();
 
     CLIPBOARD_SHOULD_SHUTDOWN.store(false, std::sync::atomic::Ordering::Relaxed);
@@ -47,15 +81,12 @@ pub fn start_listener() {
             continue;
         }
 
-        #[cfg(target_os = "macos")]
-        {
-            let current = NSPasteboard::generalPasteboard().changeCount();
-            if current == last_change_count {
-                thread::sleep(POLL_INTERVAL);
-                continue;
-            }
-            last_change_count = current;
+        let current = NSPasteboard::generalPasteboard().changeCount();
+        if current == last_change_count {
+            thread::sleep(POLL_INTERVAL);
+            continue;
         }
+        last_change_count = current;
 
         let clip = match &mut clip_opt {
             Some(c) => c,
