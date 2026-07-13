@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Linux Permission Model**: Run the daemon securely without `CAP_DAC_OVERRIDE` capabilities by utilizing group permissions and udev rules.
+- **Linux Permissions Setup GUI**: Show a graphical password prompt via Polkit when configuring system permissions on desktops.
+
 ### Fixed
 - **Linux Clipboard Init**: Prevent daemon crashes on startup in headless environments or when no X11/Wayland display server is running.
 - **Linux Clipboard Connection Conflicts**: Resolve clipboard unresponsiveness and connection conflicts under X11 by sharing the global clipboard connection.

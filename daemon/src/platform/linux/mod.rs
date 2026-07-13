@@ -9,7 +9,6 @@ pub mod evdev;
 pub mod fullscreen;
 pub mod injector;
 pub mod input_supervisor;
-pub mod security;
 pub mod uinput;
 pub mod xkb;
 
@@ -24,8 +23,7 @@ pub fn init() -> Result<(), String> {
     REVERSE_LOOKUP
         .set(mapper.get_reverse_map().clone())
         .map_err(|_| "REVERSE_LOOKUP already initialized".to_string())?;
-    // For now, immediately drop privileges
-    security::drop_privileges()
+    Ok(())
 }
 
 pub fn get_reverse_lookup() -> Option<&'static HashMap<char, (KeyCode, bool)>> {

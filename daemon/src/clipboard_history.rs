@@ -36,8 +36,7 @@ pub fn start_listener() {
             continue;
         }
 
-        let read_result =
-            crate::platform::linux::with_clipboard(|clip| try_read_clipboard_text_bounded(clip));
+        let read_result = crate::platform::linux::with_clipboard(try_read_clipboard_text_bounded);
 
         match read_result {
             Ok(Some(text)) => {

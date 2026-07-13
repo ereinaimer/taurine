@@ -57,6 +57,10 @@ enum Commands {
     Update,
     /// Check if Taurine is currently running
     Status,
+    #[cfg(target_os = "linux")]
+    /// Configure system permissions for hardware access
+    #[command(hide = true)]
+    Setup,
     /// Add a new automation
     #[command(alias = "set")]
     Add(AddArgs),
@@ -485,6 +489,10 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
     }
 
     match cli.command {
+        #[cfg(target_os = "linux")]
+        Some(Commands::Setup) => {
+            taurine_core::service::linux_setup()?;
+        }
         Some(Commands::Up) | Some(Commands::Restart) => {
             // Open the DB (idempotent: runs migrations + seeds if needed) and
             // read the user's start_on_boot preference before handing off to

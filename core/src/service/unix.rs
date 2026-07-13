@@ -5,8 +5,6 @@ use service_manager::{
 use std::env;
 
 use tokio::runtime::Runtime;
-#[cfg(target_os = "linux")]
-use tracing::warn;
 use tracing::{debug, error, info};
 
 use crate::rpc::{ShutdownRequest, StatusRequest};
@@ -28,122 +26,92 @@ fn get_manager() -> crate::error::Result<Box<dyn ServiceManager>> {
 
 #[cfg(target_os = "linux")]
 fn ensure_linux_permissions() -> crate::error::Result<()> {
-    let exe = env::current_exe()?;
-    let mut needs_fix = false;
-    let mut capability_missing = false;
-    let mut group_missing = false;
+    use std::io::IsTerminal;
 
-    let cap_output = std::process::Command::new("getcap").arg(&exe).output();
-    match cap_output {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            if !stdout.contains("cap_dac_override") {
-                capability_missing = true;
+    let mut needs_fix = false;
+
+    // 1. Check udev rules
+    let udev_path = std::path::Path::new("/etc/udev/rules.d/99-taurine.rules");
+    if !udev_path.exists() {
+        needs_fix = true;
+    } else {
+        match std::fs::read_to_string(udev_path) {
+            Ok(content) => {
+                if !content.contains("KERNEL==\"uinput\"") || !content.contains("GROUP=\"input\"") {
+                    needs_fix = true;
+                }
+            }
+            Err(_) => {
                 needs_fix = true;
             }
         }
-        Err(err) => {
-            warn!("Failed to probe Linux capabilities with getcap: {}", err);
-            capability_missing = true;
-            needs_fix = true;
-        }
     }
 
+    // 2. Check input group membership
     let groups_output = std::process::Command::new("id").arg("-Gn").output();
     match groups_output {
         Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout);
             if !stdout.split_whitespace().any(|g| g == "input") {
-                group_missing = true;
                 needs_fix = true;
             }
         }
         Err(err) => {
-            warn!("Failed to probe Linux groups with id -Gn: {}", err);
-            group_missing = true;
+            tracing::warn!("Failed to probe Linux groups with id -Gn: {}", err);
             needs_fix = true;
         }
     }
 
     if needs_fix {
-        info!(
-            "Taurine requires additional kernel-level permissions to operate on Linux (Wayland/X11)."
-        );
+        tracing::info!("Configuring system permissions for hardware access...");
 
-        if capability_missing {
-            info!(
-                "Requesting administrative access to grant cap_dac_override to {}",
-                exe.display()
-            );
-            let status = std::process::Command::new("sudo")
-                .arg("setcap")
-                .arg("cap_dac_override+ep")
+        let exe = std::env::current_exe()?;
+
+        // Detect if we are in a GUI session (X11 or Wayland) and run from an interactive terminal (non-headless)
+        let is_gui = (std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok())
+            && std::io::stdin().is_terminal();
+
+        let status = if is_gui {
+            tracing::info!("Requesting administrative access...");
+            match std::process::Command::new("pkexec")
                 .arg(&exe)
+                .arg("setup")
                 .status()
-                .map_err(|err| {
-                    crate::Error::Service(format!(
-                        "Failed to invoke sudo setcap for {}: {}",
-                        exe.display(),
+            {
+                Ok(status) => status,
+                Err(err) => {
+                    tracing::debug!(
+                        "Polkit (pkexec) failed or not found: {}. Falling back to sudo...",
                         err
-                    ))
-                })?;
-            if !status.success() {
-                return Err(crate::Error::Service(
-                    "Failed to grant hardware access permissions. Taurine cannot start without these privileges.".to_string(),
-                ));
+                    );
+                    std::process::Command::new("sudo")
+                        .arg(&exe)
+                        .arg("setup")
+                        .status()
+                        .map_err(|e| {
+                            crate::Error::Service(format!("Failed to invoke sudo: {}", e))
+                        })?
+                }
             }
-        }
-        if group_missing {
-            let user = std::process::Command::new("id")
-                .arg("-un")
-                .output()
-                .map_err(|err| {
-                    crate::Error::Service(format!(
-                        "Failed to resolve the current user for Linux input-group setup: {}",
-                        err
-                    ))
-                })?;
-            let user = String::from_utf8_lossy(&user.stdout).trim().to_string();
-            if user.is_empty() {
-                return Err(crate::Error::Service(
-                    "Failed to resolve the current user for Linux input-group setup.".to_string(),
-                ));
-            }
-
-            info!(
-                "Requesting administrative access to add {} to the Linux input group",
-                user
-            );
-            let status = std::process::Command::new("sudo")
-                .arg("usermod")
-                .arg("-aG")
-                .arg("input")
-                .arg(&user)
-                .status()
-                .map_err(|err| {
-                    crate::Error::Service(format!(
-                        "Failed to invoke sudo usermod for {}: {}",
-                        user, err
-                    ))
-                })?;
-            if !status.success() {
-                return Err(crate::Error::Service(
-                    "Failed to grant hardware access permissions. Taurine cannot start without these privileges.".to_string(),
-                ));
-            }
-        }
-
-        if group_missing {
-            warn!(
-                "User added to 'input' group. You MUST log out and back in for these changes to take effect."
-            );
         } else {
-            info!("Hardware access permissions granted successfully.");
+            tracing::info!("Requesting administrative access...");
+            std::process::Command::new("sudo")
+                .arg(&exe)
+                .arg("setup")
+                .status()
+                .map_err(|e| crate::Error::Service(format!("Failed to invoke sudo: {}", e)))?
+        };
+
+        if !status.success() {
+            return Err(crate::Error::Service(
+                "Failed to obtain administrative permissions. Taurine cannot start without these privileges.".to_string(),
+            ));
         }
-        return Err(crate::Error::Service(
-            "Permissions updated. Please re-run 'taurine up' after restarting your session."
-                .to_string(),
-        ));
+
+        tracing::info!(
+            "System permissions configured successfully. Please reboot your computer to apply the changes."
+        );
+        std::process::exit(0);
     }
 
     debug!("Linux input permissions verified and active.");
@@ -461,6 +429,76 @@ pub fn status() -> crate::error::Result<()> {
         Ok(ServiceStatus::Running) => info!("Taurine is running."),
         _ => info!("Taurine is stopped."),
     }
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub fn linux_setup() -> crate::error::Result<()> {
+    let user = std::process::Command::new("id")
+        .arg("-un")
+        .output()
+        .map_err(|err| crate::Error::Service(format!("Failed to resolve current user: {}", err)))?;
+    let user = String::from_utf8_lossy(&user.stdout).trim().to_string();
+    if user.is_empty() {
+        return Err(crate::Error::Service(
+            "Failed to resolve current user name.".to_string(),
+        ));
+    }
+
+    // 1. Add user to input group
+    let status = std::process::Command::new("usermod")
+        .arg("-aG")
+        .arg("input")
+        .arg(&user)
+        .status()
+        .map_err(|err| {
+            crate::Error::Service(format!("Failed to add user to input group: {}", err))
+        })?;
+    if !status.success() {
+        return Err(crate::Error::Service(
+            "Failed to execute usermod.".to_string(),
+        ));
+    }
+
+    // 2. Write udev rules
+    let rule_content =
+        "KERNEL==\"uinput\", GROUP=\"input\", MODE=\"0660\", OPTIONS+=\"static_node=uinput\"\n";
+    std::fs::write("/etc/udev/rules.d/99-taurine.rules", rule_content)
+        .map_err(|err| crate::Error::Service(format!("Failed to write udev rule: {}", err)))?;
+
+    // 3. Write Polkit policy file
+    let policy_content = r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+"http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <action id="com.ereinaimer.taurine.setup">
+    <description>Configure system permissions for Taurine</description>
+    <message>Taurine needs administrative access to configure hardware permissions.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/taurine</annotate>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/taurine</annotate>
+  </action>
+</policyconfig>
+"#;
+    std::fs::write(
+        "/usr/share/polkit-1/actions/com.ereinaimer.taurine.policy",
+        policy_content,
+    )
+    .map_err(|err| crate::Error::Service(format!("Failed to write Polkit policy: {}", err)))?;
+
+    // 4. Reload udev rules
+    let _ = std::process::Command::new("udevadm")
+        .arg("control")
+        .arg("--reload-rules")
+        .status();
+    let _ = std::process::Command::new("udevadm")
+        .arg("trigger")
+        .status();
 
     Ok(())
 }

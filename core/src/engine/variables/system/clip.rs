@@ -228,6 +228,10 @@ mod tests {
 
     #[test]
     fn test_clip_manager_ignores_empty_large_and_duplicate_payloads() {
+        let _guard = crate::utils::test_utils::TEST_LOCK.lock().unwrap();
+        crate::settings::set_cached_clipboard_history_enabled(true);
+        crate::settings::set_cached_clipboard_history_retention_secs(300);
+
         let manager = ClipManager::new();
 
         assert!(manager.record_text("alpha".to_string()));
@@ -241,6 +245,10 @@ mod tests {
 
     #[test]
     fn test_clip_manager_keeps_three_items_in_ring_order() {
+        let _guard = crate::utils::test_utils::TEST_LOCK.lock().unwrap();
+        crate::settings::set_cached_clipboard_history_enabled(true);
+        crate::settings::set_cached_clipboard_history_retention_secs(300);
+
         let manager = ClipManager::new();
 
         assert!(manager.record_text("one".to_string()));
@@ -256,6 +264,9 @@ mod tests {
 
     #[test]
     fn test_clip_manager_respects_history_toggle() {
+        let _guard = crate::utils::test_utils::TEST_LOCK.lock().unwrap();
+        crate::settings::set_cached_clipboard_history_retention_secs(300);
+
         let manager = ClipManager::new();
 
         crate::settings::set_cached_clipboard_history_enabled(false);
@@ -269,8 +280,11 @@ mod tests {
 
     #[test]
     fn test_clip_manager_clears_history() {
-        let manager = ClipManager::new();
+        let _guard = crate::utils::test_utils::TEST_LOCK.lock().unwrap();
         crate::settings::set_cached_clipboard_history_enabled(true);
+        crate::settings::set_cached_clipboard_history_retention_secs(300);
+
+        let manager = ClipManager::new();
         manager.record_text("one".to_string());
         manager.record_text("two".to_string());
 
@@ -280,8 +294,10 @@ mod tests {
 
     #[test]
     fn test_clip_manager_prunes_expired_entries() {
-        let manager = ClipManager::new();
+        let _guard = crate::utils::test_utils::TEST_LOCK.lock().unwrap();
         crate::settings::set_cached_clipboard_history_enabled(true);
+
+        let manager = ClipManager::new();
 
         // 0 seconds retention means everything is expired instantly
         crate::settings::set_cached_clipboard_history_retention_secs(0);
@@ -293,5 +309,8 @@ mod tests {
         crate::settings::set_cached_clipboard_history_retention_secs(5);
         manager.record_text("fresh".to_string());
         assert_eq!(manager.get(0), Some("fresh".to_string()));
+
+        // Restore default settings
+        crate::settings::set_cached_clipboard_history_retention_secs(300);
     }
 }
