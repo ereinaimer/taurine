@@ -435,11 +435,26 @@ pub fn status() -> crate::error::Result<()> {
 
 #[cfg(target_os = "linux")]
 pub fn linux_setup() -> crate::error::Result<()> {
-    let user = std::process::Command::new("id")
-        .arg("-un")
-        .output()
-        .map_err(|err| crate::Error::Service(format!("Failed to resolve current user: {}", err)))?;
-    let user = String::from_utf8_lossy(&user.stdout).trim().to_string();
+    let user = if let Ok(sudo_user) = std::env::var("SUDO_USER") {
+        sudo_user
+    } else if let Ok(pkexec_uid) = std::env::var("PKEXEC_UID") {
+        let output = std::process::Command::new("id")
+            .arg("-nu")
+            .arg(&pkexec_uid)
+            .output()
+            .map_err(|err| {
+                crate::Error::Service(format!("Failed to resolve pkexec user: {}", err))
+            })?;
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    } else {
+        let output = std::process::Command::new("id")
+            .arg("-un")
+            .output()
+            .map_err(|err| {
+                crate::Error::Service(format!("Failed to resolve current user: {}", err))
+            })?;
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    };
     if user.is_empty() {
         return Err(crate::Error::Service(
             "Failed to resolve current user name.".to_string(),
