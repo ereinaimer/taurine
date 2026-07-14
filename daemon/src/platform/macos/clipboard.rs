@@ -1,6 +1,6 @@
 use crate::platform::ClipboardManager;
 use objc2_app_kit::NSPasteboard;
-use objc2_foundation::{NSData, NSString};
+use objc2_foundation::{NSArray, NSData, NSString};
 
 pub struct MacosClipboard;
 
@@ -55,27 +55,32 @@ impl ClipboardManager for MacosClipboard {
         }
     }
 
-    fn set_image(&mut self, bytes: &[u8], mime_type: &str) -> Result<(), String> {
-        // SAFETY: Interaction with the Objective-C AppKit runtime. We invoke `clearContents` and `setData_forType:`
-        // to write the raw PNG/JPEG image bytes. Local references are managed by `objc2`.
+    fn set_image_file(&mut self, path: &std::path::Path) -> Result<(), String> {
+        let bytes = std::fs::read(path).map_err(|e| format!("Failed to read image file: {}", e))?;
+        let path_str = path.to_string_lossy();
+
+        // SAFETY: Interaction with the Objective-C AppKit runtime. We invoke `clearContents`,
+        // and `setData_forType` / `setPropertyList_forType` to write raw image bytes and file path.
         unsafe {
             let pb = NSPasteboard::generalPasteboard();
             pb.clearContents();
 
-            let ns_data = NSData::with_bytes(bytes);
+            let ns_data = NSData::with_bytes(&bytes);
 
-            // Map MIME type to standard macOS pasteboard types
-            let pb_type = if mime_type == "image/jpeg" {
+            // Map file extension to standard macOS pasteboard types
+            let pb_type = if path_str.ends_with(".jpg") || path_str.ends_with(".jpeg") {
                 // "public.jpeg"
                 &NSString::from_str("public.jpeg")
             } else {
                 objc2_app_kit::NSPasteboardTypePNG
             };
 
-            let success = pb.setData_forType(Some(&ns_data), pb_type);
-            if !success {
-                return Err("Failed to set pasteboard image data".to_string());
-            }
+            pb.setData_forType(Some(&ns_data), pb_type);
+
+            // Write filenames plist array for drag-and-drop / file paste compatibility
+            let ns_path = NSString::from_str(&path_str);
+            let ns_paths = NSArray::from_retained_slice(&[ns_path]);
+            pb.setPropertyList_forType(Some(&ns_paths), objc2_app_kit::NSFilenamesPboardType);
 
             // Also set transient pasteboard types to prevent clipboard managers from recording the image
             let ns_empty = NSData::new();

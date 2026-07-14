@@ -67,7 +67,7 @@ impl crate::platform::ClipboardManager for MockClipboard {
         Ok(())
     }
 
-    fn set_image(&mut self, _bytes: &[u8], _mime_type: &str) -> Result<(), String> {
+    fn set_image_file(&mut self, _path: &std::path::Path) -> Result<(), String> {
         self.ops.push("set_image");
         Ok(())
     }

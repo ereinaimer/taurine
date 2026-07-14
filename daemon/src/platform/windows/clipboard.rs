@@ -253,43 +253,142 @@ fn set_clipboard_bytes(format: u32, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-pub fn set_image_bytes_exclude_from_history(bytes: &[u8], mime_type: &str) -> Result<(), String> {
-    if mime_type == "image/png" {
-        let cf_png = format_png()?;
-        let cf_exclude = format_exclude_monitor()?;
-        let cf_history = format_can_include_history()?;
-        let cf_cloud = format_can_upload_cloud()?;
+#[repr(C, packed)]
+struct BitmapInfoHeader {
+    bi_size: u32,
+    bi_width: i32,
+    bi_height: i32,
+    bi_planes: u16,
+    bi_bit_count: u16,
+    bi_compression: u32,
+    bi_size_image: u32,
+    bi_xpels_per_meter: i32,
+    bi_ypels_per_meter: i32,
+    bi_clr_used: u32,
+    bi_clr_important: u32,
+}
 
-        open_clipboard_with_retry(5, Duration::from_millis(20))?;
-        // SAFETY: Clipboard write within OpenClipboard/CloseClipboard bracket.
-        // EmptyClipboard() clears clipboard. Exclude flags and raw PNG bytes are written.
-        // CloseClipboard releases ownership.
-        unsafe {
-            let result = (|| {
-                if EmptyClipboard() == 0 {
-                    return Err(format!("EmptyClipboard failed: {}", GetLastError()));
-                }
-                set_clipboard_dword(cf_exclude, 1)?;
-                set_clipboard_dword(cf_history, 0)?;
-                set_clipboard_dword(cf_cloud, 0)?;
-                set_clipboard_bytes(cf_png, bytes)?;
-                Ok(())
-            })();
-            let _ = CloseClipboard();
-            result
-        }
-    } else {
-        // Fallback: decode and use arboard
-        let img =
-            image::load_from_memory(bytes).map_err(|e| format!("Failed to decode image: {}", e))?;
-        let rgba = img.to_rgba8();
-        let (width, height) = rgba.dimensions();
-        let mut clip = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-        let img_data = arboard::ImageData {
-            width: width as usize,
-            height: height as usize,
-            bytes: std::borrow::Cow::Borrowed(&rgba),
-        };
-        clip.set_image(img_data).map_err(|e| e.to_string())
+fn create_dib_payload(rgba: &[u8], width: u32, height: u32) -> Vec<u8> {
+    let header = BitmapInfoHeader {
+        bi_size: 40,
+        bi_width: width as i32,
+        bi_height: -(height as i32), // Negative height = top-down DIB (matches RGBA layout)
+        bi_planes: 1,
+        bi_bit_count: 32,
+        bi_compression: 0, // BI_RGB (uncompressed)
+        bi_size_image: width * height * 4,
+        bi_xpels_per_meter: 0,
+        bi_ypels_per_meter: 0,
+        bi_clr_used: 0,
+        bi_clr_important: 0,
+    };
+
+    let mut payload = Vec::with_capacity(40 + (width * height * 4) as usize);
+    // SAFETY: Transmuting BitmapInfoHeader to bytes is safe as it is repr(C, packed)
+    // and contains only plain-old-data integers.
+    let header_bytes: &[u8] = unsafe {
+        std::slice::from_raw_parts(
+            &header as *const BitmapInfoHeader as *const u8,
+            std::mem::size_of::<BitmapInfoHeader>(),
+        )
+    };
+    payload.extend_from_slice(header_bytes);
+
+    // Swap red and blue channels (RGBA -> BGRA) for Windows DIB format
+    for chunk in rgba.chunks_exact(4) {
+        payload.push(chunk[2]); // B
+        payload.push(chunk[1]); // G
+        payload.push(chunk[0]); // R
+        payload.push(chunk[3]); // A
+    }
+
+    payload
+}
+
+pub fn set_image_file_exclude_from_history(path: &std::path::Path) -> Result<(), String> {
+    let cf_exclude = format_exclude_monitor()?;
+    let cf_history = format_can_include_history()?;
+    let cf_cloud = format_can_upload_cloud()?;
+
+    let bytes = std::fs::read(path).map_err(|e| format!("Failed to read image file: {}", e))?;
+    let path_str = path.to_string_lossy();
+
+    // Check if it's a PNG
+    let is_png = path_str.ends_with(".png");
+
+    // Decode to RGBA first, so we have the fallback DIB format
+    let img =
+        image::load_from_memory(&bytes).map_err(|e| format!("Failed to decode image: {}", e))?;
+    let rgba = img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+
+    // Create DIB payload (standard device-independent bitmap)
+    let dib_payload = create_dib_payload(&rgba, width, height);
+    const CF_DIB: u32 = 8;
+    const CF_HDROP: u32 = 15;
+
+    // Create DROPFILES payload for CF_HDROP
+    let mut path_buffer = Vec::new();
+    let wide: Vec<u16> = path_str.encode_utf16().collect();
+    path_buffer.extend_from_slice(&wide);
+    path_buffer.push(0); // single null
+    path_buffer.push(0); // double null
+
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::UI::Shell::DROPFILES;
+
+    let dropfiles_size = std::mem::size_of::<DROPFILES>();
+    let hdrop_len = dropfiles_size + (path_buffer.len() * std::mem::size_of::<u16>());
+
+    let mut hdrop_payload = Vec::with_capacity(hdrop_len);
+    let dropfiles = DROPFILES {
+        pFiles: dropfiles_size as u32,
+        pt: POINT { x: 0, y: 0 },
+        fNC: 0,
+        fWide: 1, // UTF-16
+    };
+    let dropfiles_bytes: &[u8] = unsafe {
+        std::slice::from_raw_parts(&dropfiles as *const DROPFILES as *const u8, dropfiles_size)
+    };
+    hdrop_payload.extend_from_slice(dropfiles_bytes);
+
+    // Append wide path bytes
+    let path_bytes: &[u8] = unsafe {
+        std::slice::from_raw_parts(
+            path_buffer.as_ptr() as *const u8,
+            path_buffer.len() * std::mem::size_of::<u16>(),
+        )
+    };
+    hdrop_payload.extend_from_slice(path_bytes);
+
+    open_clipboard_with_retry(5, Duration::from_millis(20))?;
+    // SAFETY: Clipboard write within OpenClipboard/CloseClipboard bracket.
+    // EmptyClipboard() clears clipboard. Exclude flags, CF_HDROP, raw PNG bytes,
+    // and standard CF_DIB bytes are written. CloseClipboard releases ownership.
+    unsafe {
+        let result = (|| {
+            if EmptyClipboard() == 0 {
+                return Err(format!("EmptyClipboard failed: {}", GetLastError()));
+            }
+            set_clipboard_dword(cf_exclude, 1)?;
+            set_clipboard_dword(cf_history, 0)?;
+            set_clipboard_dword(cf_cloud, 0)?;
+
+            // 1. Write CF_HDROP (file path drop)
+            set_clipboard_bytes(CF_HDROP, &hdrop_payload)?;
+
+            // 2. If it's a PNG, write the high-fidelity PNG format
+            if is_png {
+                let cf_png = format_png()?;
+                set_clipboard_bytes(cf_png, &bytes)?;
+            }
+
+            // 3. Write standard CF_DIB format
+            set_clipboard_bytes(CF_DIB, &dib_payload)?;
+
+            Ok(())
+        })();
+        let _ = CloseClipboard();
+        result
     }
 }

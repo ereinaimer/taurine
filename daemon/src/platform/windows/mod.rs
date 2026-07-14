@@ -14,7 +14,7 @@ impl crate::platform::ClipboardManager for WindowsClipboard {
         clipboard::set_unicode_text_exclude_from_history(text)
     }
 
-    fn set_image(&mut self, bytes: &[u8], mime_type: &str) -> Result<(), String> {
-        clipboard::set_image_bytes_exclude_from_history(bytes, mime_type)
+    fn set_image_file(&mut self, path: &std::path::Path) -> Result<(), String> {
+        clipboard::set_image_file_exclude_from_history(path)
     }
 }

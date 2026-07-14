@@ -161,8 +161,32 @@ pub fn inject_image_segment(
         clipboard.get_text().unwrap_or_default()
     };
 
-    if let Err(e) = clipboard.set_image(bytes, mime_type) {
-        error!("Failed to set clipboard image: {}", e);
+    let ext = match mime_type {
+        "image/png" => "png",
+        "image/jpeg" => "jpg",
+        "image/gif" => "gif",
+        "image/bmp" => "bmp",
+        _ => "png",
+    };
+
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    let hash = hasher.finish();
+    let temp_path = std::env::temp_dir().join(format!("tau_img_{hash}.{ext}"));
+
+    if let Err(e) = std::fs::write(&temp_path, bytes) {
+        error!("Failed to write temporary image file: {}", e);
+        return TextSegmentInjection {
+            original_clipboard: Some(orig),
+            injected_chars: 0,
+            success: false,
+        };
+    }
+
+    if let Err(e) = clipboard.set_image_file(&temp_path) {
+        error!("Failed to set clipboard image file: {}", e);
         return TextSegmentInjection {
             original_clipboard: Some(orig),
             injected_chars: 0,

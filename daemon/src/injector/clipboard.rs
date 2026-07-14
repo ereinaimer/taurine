@@ -14,8 +14,10 @@ impl ClipboardManager for Clipboard {
         Clipboard::set_text(self, text).map_err(|e| e.to_string())
     }
 
-    fn set_image(&mut self, bytes: &[u8], _mime_type: &str) -> Result<(), String> {
-        let img = image::load_from_memory(bytes)
+    fn set_image_file(&mut self, path: &std::path::Path) -> Result<(), String> {
+        let bytes = std::fs::read(path)
+            .map_err(|e| format!("Failed to read image file for arboard: {}", e))?;
+        let img = image::load_from_memory(&bytes)
             .map_err(|e| format!("Failed to decode image for arboard: {}", e))?;
         let rgba = img.to_rgba8();
         let (width, height) = rgba.dimensions();
