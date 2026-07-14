@@ -67,3 +67,24 @@ pub fn delete_automations_by_triggers(conn: &Connection, triggers: &[String]) ->
 
     Ok(rows_changed)
 }
+
+/// Disables or tombstones all automations containing the specified tag.
+/// Returns the number of affected rows.
+pub fn delete_automations_by_tag(conn: &Connection, tag: &str) -> Result<usize> {
+    let now = now_unix_secs();
+
+    let sql = "UPDATE automations
+               SET is_deleted = 1,
+                   version    = version + 1,
+                   updated_at = ?1
+               WHERE is_deleted = 0
+                 AND EXISTS (
+                     SELECT 1
+                     FROM json_each(automations.tags)
+                     WHERE json_each.value = ?2
+                 )";
+
+    let rows_changed = conn.execute(sql, rusqlite::params![now, tag])?;
+
+    Ok(rows_changed)
+}

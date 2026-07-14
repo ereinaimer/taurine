@@ -63,11 +63,15 @@ enum Commands {
     Setup,
     /// Add a new automation
     #[command(alias = "set")]
-    Add(AddArgs),
+    Add(Box<AddArgs>),
     /// Remove an existing automation by trigger
     #[command(aliases = ["rm", "remove"])]
     Delete {
-        #[arg(required = true, num_args = 1..)]
+        /// Remove all automations matching the specified tag
+        #[arg(long)]
+        tag: Option<String>,
+
+        #[arg(required_unless_present = "tag", num_args = 0..)]
         triggers: Vec<String>,
     },
     /// List all automations
@@ -88,6 +92,10 @@ enum Commands {
         /// Disable table decorations and borders
         #[arg(long)]
         plain: bool,
+
+        /// Filter listed automations by tag
+        #[arg(long)]
+        tag: Option<String>,
     },
     /// Export automations to a file
     Export {
@@ -279,6 +287,10 @@ pub struct AddArgs {
     /// The target operating system (windows, linux, macos, all, android, ios)
     #[arg(long, value_enum, default_value = "all")]
     pub os: TargetOsCli,
+
+    /// Tags associated with the automation (comma-separated or repeated)
+    #[arg(long = "tag", value_delimiter = ',', num_args = 1..)]
+    pub tag: Option<Vec<String>>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -323,6 +335,10 @@ pub enum AddSubcommand {
         /// Linux WM_CLASS (e.g. 'google-chrome'), macOS localized names (e.g. 'Visual Studio Code').
         #[arg(long)]
         exclude_apps: Option<String>,
+
+        /// Tags associated with the automation (comma-separated or repeated)
+        #[arg(long = "tag", value_delimiter = ',', num_args = 1..)]
+        tag: Option<Vec<String>>,
     },
 }
 
@@ -534,6 +550,7 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
                 os,
                 include_apps,
                 exclude_apps,
+                tag,
             }) = args.sub
             {
                 let trigger_type = if hotkey {
@@ -555,6 +572,7 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
                     }),
                     include_apps,
                     exclude_apps,
+                    tag,
                 )?;
             } else if let (Some(t), Some(o)) = (args.trigger, args.output) {
                 let os = args
@@ -576,6 +594,7 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
                     trigger_type,
                     args.include_apps,
                     args.exclude_apps,
+                    args.tag,
                 )?;
             } else {
                 // Show help for add command if neither subcommand nor positional args are valid
@@ -586,16 +605,17 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
                 }
             }
         }
-        Some(Commands::Delete { triggers }) => {
-            commands::delete::execute(triggers)?;
+        Some(Commands::Delete { triggers, tag }) => {
+            commands::delete::execute(triggers, tag)?;
         }
         Some(Commands::List {
             sort,
             asc,
             desc,
             plain,
+            tag,
         }) => {
-            commands::list::execute(sort, asc, desc, plain)?;
+            commands::list::execute(sort, asc, desc, plain, tag)?;
         }
         Some(Commands::Export {
             path,
@@ -736,19 +756,20 @@ mod tests {
         .expect("add script --hotkey should parse");
 
         match cli.command {
-            Some(Commands::Add(AddArgs {
-                sub:
-                    Some(AddSubcommand::Script {
-                        trigger,
-                        hotkey,
-                        content,
-                        ..
-                    }),
-                ..
-            })) => {
-                assert!(hotkey);
-                assert_eq!(trigger, "ctrl+shift+w");
-                assert_eq!(content.as_deref(), Some("winget install [0]"));
+            Some(Commands::Add(args)) => {
+                if let Some(AddSubcommand::Script {
+                    trigger,
+                    hotkey,
+                    content,
+                    ..
+                }) = &args.sub
+                {
+                    assert!(hotkey);
+                    assert_eq!(trigger, "ctrl+shift+w");
+                    assert_eq!(content.as_deref(), Some("winget install [0]"));
+                } else {
+                    panic!("expected script subcommand");
+                }
             }
             other => panic!("unexpected command parse: {other:?}"),
         }

@@ -292,7 +292,7 @@ pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>
     let mut stmt = conn.prepare_cached(
         "SELECT a.id, a.name, a.description, a.trigger, a.output, a.action_type, a.target_os,
                 a.only_apps, a.except_apps, a.usage_count, a.last_used_at, a.created_at, a.trigger_type,
-                s.interpreter, s.behavior, s.compressed_content
+                a.tags, s.interpreter, s.behavior, s.compressed_content
          FROM   automations a
          LEFT JOIN scripts s ON a.id = s.automation_id
          WHERE  a.is_deleted = 0
@@ -302,13 +302,13 @@ pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>
 
     let rows = stmt.query_map([os_str], |row| {
         let trigger_type = parse_trigger_type_row(row.get(12)?)?;
-        let interpreter = parse_json_variant(row.get(13)?);
-        let behavior = parse_json_variant(row.get(14)?);
+        let interpreter = parse_json_variant(row.get(14)?);
+        let behavior = parse_json_variant(row.get(15)?);
         let script_content = row
-            .get::<_, Option<Vec<u8>>>(15)?
+            .get::<_, Option<Vec<u8>>>(16)?
             .map(|compressed| {
                 decompress(&compressed).map_err(|err| {
-                    rusqlite::Error::FromSqlConversionFailure(15, Type::Blob, Box::new(err))
+                    rusqlite::Error::FromSqlConversionFailure(16, Type::Blob, Box::new(err))
                 })
             })
             .transpose()?;
@@ -327,6 +327,7 @@ pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>
             usage_count: row.get(9)?,
             last_used_at: row.get(10)?,
             created_at: row.get(11)?,
+            tags: row.get(13)?,
             script_content,
             interpreter,
             behavior,

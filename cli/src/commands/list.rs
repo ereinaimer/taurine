@@ -8,11 +8,19 @@ pub fn execute(
     asc: bool,
     desc: bool,
     plain: bool,
+    tag: Option<String>,
 ) -> taurine_core::error::Result<()> {
     use taurine_core::db::crud::get_automations_list;
 
     let conn = init::setup()?;
     let mut automations = get_automations_list(&conn)?;
+
+    if let Some(ref t) = tag {
+        automations.retain(|auto| {
+            let tags: Vec<String> = serde_json::from_str(&auto.tags).unwrap_or_default();
+            tags.contains(t)
+        });
+    }
 
     // Determine default direction based on sort type
     // If no sort specified, it's Alpha Asc.
@@ -69,6 +77,7 @@ pub fn execute(
         Some(SortBy::Created) => headers.push("CREATED AT"),
         _ => {}
     }
+    headers.push("TAGS");
     table.set_header(headers);
 
     for auto in automations {
@@ -92,6 +101,9 @@ pub fn execute(
             auto.output
         };
 
+        let tags: Vec<String> = serde_json::from_str(&auto.tags).unwrap_or_default();
+        let tags_str = tags.join(", ");
+
         let mut row = vec![auto.trigger, display_output];
         match sort {
             Some(SortBy::Usage) => {
@@ -102,6 +114,7 @@ pub fn execute(
             }
             _ => {}
         }
+        row.push(tags_str);
         table.add_row(row);
     }
 

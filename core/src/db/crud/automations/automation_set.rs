@@ -1210,6 +1210,7 @@ pub fn update_automation_app_filters(
 /// - If an active automation exists with a **different** output, the output
 ///   is updated (along with `updated_at` and `version`) and
 ///   `AddOutcome::Updated` is returned.
+#[allow(clippy::too_many_arguments)]
 pub fn add_automation_by_trigger(
     conn: &Connection,
     trigger: &str,
@@ -1217,6 +1218,7 @@ pub fn add_automation_by_trigger(
     target_os: &str,
     only_apps: Option<&str>,
     except_apps: Option<&str>,
+    tags: Option<Vec<String>>,
 ) -> Result<AddOutcome> {
     add_automation_by_trigger_type(
         conn,
@@ -1226,9 +1228,11 @@ pub fn add_automation_by_trigger(
         target_os,
         only_apps,
         except_apps,
+        tags,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn add_automation_by_trigger_type(
     conn: &Connection,
     trigger_type: TriggerType,
@@ -1237,6 +1241,7 @@ pub fn add_automation_by_trigger_type(
     target_os: &str,
     only_apps: Option<&str>,
     except_apps: Option<&str>,
+    tags: Option<Vec<String>>,
 ) -> Result<AddOutcome> {
     validate_trigger_not_reserved(conn, trigger)?;
 
@@ -1264,22 +1269,52 @@ pub fn add_automation_by_trigger_type(
         .ok();
 
     match existing {
-        Some((_, existing_output, existing_action))
+        Some((id, existing_output, existing_action))
             if existing_output == output && existing_action == "text" =>
         {
-            Ok(AddOutcome::AlreadyExists)
+            if let Some(ref t) = tags {
+                let now = now_unix_secs();
+                let t_json =
+                    serde_json::to_string(t).map_err(|e| crate::Error::Config(e.to_string()))?;
+                conn.execute(
+                    "UPDATE automations
+                     SET tags        = ?1,
+                         updated_at  = ?2,
+                         version     = version + 1
+                     WHERE id = ?3",
+                    rusqlite::params![t_json, now, id],
+                )?;
+                Ok(AddOutcome::Updated)
+            } else {
+                Ok(AddOutcome::AlreadyExists)
+            }
         }
         Some((id, _, _)) => {
             let now = now_unix_secs();
-            conn.execute(
-                "UPDATE automations
-                 SET output      = ?1,
-                     action_type = 'text',
-                     updated_at  = ?2,
-                     version     = version + 1
-                 WHERE id = ?3",
-                rusqlite::params![output, now, id],
-            )?;
+            if let Some(ref t) = tags {
+                let t_json =
+                    serde_json::to_string(t).map_err(|e| crate::Error::Config(e.to_string()))?;
+                conn.execute(
+                    "UPDATE automations
+                     SET output      = ?1,
+                         action_type = 'text',
+                         tags        = ?2,
+                         updated_at  = ?3,
+                         version     = version + 1
+                     WHERE id = ?4",
+                    rusqlite::params![output, t_json, now, id],
+                )?;
+            } else {
+                conn.execute(
+                    "UPDATE automations
+                     SET output      = ?1,
+                         action_type = 'text',
+                         updated_at  = ?2,
+                         version     = version + 1
+                     WHERE id = ?3",
+                    rusqlite::params![output, now, id],
+                )?;
+            }
             conn.execute(
                 "DELETE FROM scripts WHERE automation_id = ?1",
                 rusqlite::params![id],
@@ -1298,6 +1333,11 @@ pub fn add_automation_by_trigger_type(
             )?;
 
             let id = uuid::Uuid::new_v4().to_string();
+            let tags_str = if let Some(ref t) = tags {
+                serde_json::to_string(t).map_err(|e| crate::Error::Config(e.to_string()))?
+            } else {
+                "[]".to_string()
+            };
             upsert_automation_with_trigger_type(
                 conn,
                 &id,
@@ -1308,7 +1348,7 @@ pub fn add_automation_by_trigger_type(
                 output,
                 "text",
                 target_os,
-                "[]",
+                &tags_str,
                 0,
                 None,
             )?;

@@ -5,7 +5,8 @@ mod automation_sync;
 mod automation_types;
 
 pub use automation_delete::{
-    delete_automation, delete_automation_by_trigger, delete_automations_by_triggers,
+    delete_automation, delete_automation_by_trigger, delete_automations_by_tag,
+    delete_automations_by_triggers,
 };
 pub use automation_get::{
     get_action_by_trigger, get_active_word_trigger_history, get_all_active_automations,
@@ -1129,6 +1130,7 @@ mod tests {
             "all",
             Some("exe:notepad"),
             None,
+            None,
         )
         .expect("first add should succeed");
         assert_eq!(outcome, AddOutcome::Created);
@@ -1141,6 +1143,7 @@ mod tests {
             "Action for VS Code",
             "all",
             Some("exe:code"),
+            None,
             None,
         )
         .expect("second add with distinct app filter should succeed");
@@ -1793,12 +1796,68 @@ mod tests {
         let manager = SettingsManager::new(&conn);
         manager.update_setting("trigger_char", "#").unwrap();
 
-        let err =
-            add_automation_by_trigger(&conn, "#ai", "payload", "all", None, None).unwrap_err();
+        let err = add_automation_by_trigger(&conn, "#ai", "payload", "all", None, None, None)
+            .unwrap_err();
         assert!(
             err.to_string()
                 .contains("reserved for Taurine Inline AI Copilot"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn test_add_and_delete_with_tags() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+        conn.execute("DELETE FROM automations", []).unwrap();
+
+        // Add with tags
+        let outcome = add_automation_by_trigger(
+            &conn,
+            "t1",
+            "output1",
+            "all",
+            None,
+            None,
+            Some(vec!["test-tag".to_string(), "shared-tag".to_string()]),
+        )
+        .unwrap();
+        assert_eq!(outcome, AddOutcome::Created);
+
+        let outcome2 = add_automation_by_trigger(
+            &conn,
+            "t2",
+            "output2",
+            "all",
+            None,
+            None,
+            Some(vec!["other-tag".to_string(), "shared-tag".to_string()]),
+        )
+        .unwrap();
+        assert_eq!(outcome2, AddOutcome::Created);
+
+        // Retrieve and check tags
+        let tags: String = conn
+            .query_row(
+                "SELECT tags FROM automations WHERE trigger = 't1' AND is_deleted = 0",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(tags, r#"["test-tag","shared-tag"]"#);
+
+        // Delete by shared-tag
+        let deleted = delete_automations_by_tag(&conn, "shared-tag").unwrap();
+        assert_eq!(deleted, 2);
+
+        // Retrieve and verify tombstoned
+        let is_deleted: bool = conn
+            .query_row(
+                "SELECT is_deleted FROM automations WHERE trigger = 't1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(is_deleted);
     }
 }

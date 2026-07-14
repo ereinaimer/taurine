@@ -40,6 +40,16 @@ taurine add sig "Sent from Taurine" --os all      # Works everywhere
 taurine add sig "Sent from Windows" --os windows  # Windows only
 ```
 
+### Tagging Snippets
+You can organize your automations using tags. Add tags using the `--tag` flag when adding a word trigger, hotkey trigger, or script:
+
+```bash
+taurine add gm "Good morning!" --tag work,email
+taurine add brb "Be right back" --tag casual --tag priority
+```
+
+You can specify the `--tag` option multiple times or pass a comma-separated list of tags.
+
 ## How to Trigger
 
 ### Word Triggers
@@ -128,6 +138,13 @@ taurine list --sort usage --desc  # See your most used triggers first
 taurine ls --sort recent          # Alias 'ls' also works
 ```
 
+### Filtering by Tag
+You can filter listed automations to only show those that have a specific tag:
+
+```bash
+taurine list --tag work
+```
+
 ## Deleting Automations
 
 Remove one or more triggers using the `rm` command (aliases: `remove`, `delete`):
@@ -135,5 +152,12 @@ Remove one or more triggers using the `rm` command (aliases: `remove`, `delete`)
 ```bash
 taurine rm brb gm sig
 taurine delete obsolete_trigger
+```
+
+### Deleting by Tag
+You can remove all automations that have a specific tag by using the `--tag` flag:
+
+```bash
+taurine delete --tag obsolete_trigger
 ```
 

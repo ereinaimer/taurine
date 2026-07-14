@@ -22,6 +22,7 @@ pub fn execute(
         trigger_type,
         include_apps,
         exclude_apps,
+        None,
     )
 }
 
@@ -32,6 +33,7 @@ pub fn execute_with_trigger_type(
     trigger_type: TriggerType,
     include_apps: Option<String>,
     exclude_apps: Option<String>,
+    tags: Option<Vec<String>>,
 ) -> taurine_core::error::Result<()> {
     use crate::commands::validate::format_automation_log;
     use taurine_core::db::crud::{
@@ -71,6 +73,7 @@ pub fn execute_with_trigger_type(
             &os,
             include_apps.as_deref(),
             exclude_apps.as_deref(),
+            tags,
         )?,
         TriggerType::Hotkey => add_automation_by_trigger_type(
             &conn,
@@ -80,6 +83,7 @@ pub fn execute_with_trigger_type(
             &os,
             include_apps.as_deref(),
             exclude_apps.as_deref(),
+            tags,
         )?,
         TriggerType::Regex => add_automation_by_trigger_type(
             &conn,
@@ -89,6 +93,7 @@ pub fn execute_with_trigger_type(
             &os,
             include_apps.as_deref(),
             exclude_apps.as_deref(),
+            tags,
         )?,
     };
 

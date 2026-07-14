@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Regex Triggers**: Support pattern-based triggers with positional capture group interpolation.
+- **Tagging Support**: Add CLI options to categorize snippets and filter/delete automations by tag.
 
 ### Changed
 - **Linux Permission Model**: Run the daemon securely without `CAP_DAC_OVERRIDE` capabilities by utilizing group permissions and udev rules.

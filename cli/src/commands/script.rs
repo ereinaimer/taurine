@@ -36,6 +36,7 @@ pub fn execute(
         os,
         include_apps,
         exclude_apps,
+        None,
     )
 }
 
@@ -50,6 +51,7 @@ pub fn execute_with_trigger_type(
     os: String,
     include_apps: Option<String>,
     exclude_apps: Option<String>,
+    tags: Option<Vec<String>>,
 ) -> taurine_core::error::Result<()> {
     // 1. Resolve content and source description
     let (content, source_desc) = if let Some(ref path) = file_path {
@@ -151,6 +153,17 @@ pub fn execute_with_trigger_type(
     // 3. Compress the script
     let compressed = compress(&content)?;
 
+    let tags_str = if let Some(ref t) = tags {
+        serde_json::to_string(t).map_err(|e| taurine_core::Error::Config(e.to_string()))?
+    } else if is_update {
+        conn.query_row("SELECT tags FROM automations WHERE id = ?1", [&id], |r| {
+            r.get(0)
+        })
+        .unwrap_or_else(|_| "[]".to_string())
+    } else {
+        "[]".to_string()
+    };
+
     // 4. Upsert automation row (type = "script")
     match prepared.trigger_type {
         TriggerType::Word => {
@@ -163,7 +176,7 @@ pub fn execute_with_trigger_type(
                 &format!("[Script: {}]", lang_to_str(lang)),
                 "script",
                 &os,
-                "[]",
+                &tags_str,
                 usage_count,
                 last_used_at,
             )?;
@@ -179,7 +192,7 @@ pub fn execute_with_trigger_type(
                 &format!("[Script: {}]", lang_to_str(lang)),
                 "script",
                 &os,
-                "[]",
+                &tags_str,
                 usage_count,
                 last_used_at,
             )?;
@@ -195,7 +208,7 @@ pub fn execute_with_trigger_type(
                 &format!("[Script: {}]", lang_to_str(lang)),
                 "script",
                 &os,
-                "[]",
+                &tags_str,
                 usage_count,
                 last_used_at,
             )?;

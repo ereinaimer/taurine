@@ -391,7 +391,7 @@ mod tests {
         assert_eq!(state.fetch_expansion("hello", None), None);
 
         // Add a snippet to DB
-        add_automation_by_trigger(&conn, "hello", "world", "all", None, None)
+        add_automation_by_trigger(&conn, "hello", "world", "all", None, None, None)
             .expect("Failed to add to DB");
 
         // trigger reload directly via gRPC service method
