@@ -268,15 +268,11 @@ pub struct AddArgs {
     #[arg(long, conflicts_with = "hotkey")]
     pub regex: bool,
 
-    /// Limit execution to specific applications (comma-separated list).
-    /// Labels are exact and case-insensitive: Windows executables without .exe (e.g. 'code'),
-    /// Linux WM_CLASS (e.g. 'google-chrome'), macOS localized names (e.g. 'Visual Studio Code').
+    /// Limit execution to specific apps (comma-separated)
     #[arg(long)]
     pub include_apps: Option<String>,
 
-    /// Prevent execution in specific applications (comma-separated list).
-    /// Labels are exact and case-insensitive: Windows executables without .exe (e.g. 'code'),
-    /// Linux WM_CLASS (e.g. 'google-chrome'), macOS localized names (e.g. 'Visual Studio Code').
+    /// Prevent execution in specific apps (comma-separated)
     #[arg(long)]
     pub exclude_apps: Option<String>,
 
@@ -284,7 +280,7 @@ pub struct AddArgs {
     pub trigger: Option<String>,
     /// Output for standard text expansion
     pub output: Option<String>,
-    /// The target operating system (windows, linux, macos, all, android, ios)
+    /// Target operating system
     #[arg(long, value_enum, default_value = "all")]
     pub os: TargetOsCli,
 
@@ -322,17 +318,13 @@ pub enum AddSubcommand {
         /// Execution mode (inline, silent)
         #[arg(short = 'm', long = "mode", value_enum, default_value = "inline")]
         mode: ScriptBehaviorCli,
-        /// The target operating system (windows, linux, macos, all, android, ios)
+        /// Target operating system
         #[arg(long, value_enum, default_value = "current")]
         os: TargetOsCli,
-        /// Limit execution to specific applications (comma-separated list).
-        /// Labels are exact and case-insensitive: Windows executables without .exe (e.g. 'code'),
-        /// Linux WM_CLASS (e.g. 'google-chrome'), macOS localized names (e.g. 'Visual Studio Code').
+        /// Limit execution to specific apps (comma-separated)
         #[arg(long)]
         include_apps: Option<String>,
-        /// Prevent execution in specific applications (comma-separated list).
-        /// Labels are exact and case-insensitive: Windows executables without .exe (e.g. 'code'),
-        /// Linux WM_CLASS (e.g. 'google-chrome'), macOS localized names (e.g. 'Visual Studio Code').
+        /// Prevent execution in specific apps (comma-separated)
         #[arg(long)]
         exclude_apps: Option<String>,
 

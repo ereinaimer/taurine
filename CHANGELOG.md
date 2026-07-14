@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Tagging Support**: Add CLI options to categorize snippets and filter/delete automations by tag.
 
 ### Changed
+- **Concise CLI Help Messages**: Simplify help descriptions for the app-filtering and operating system options to reduce clutter.
 - **Frictionless Install Scripts**: Move install scripts to the repository root, rewrite for POSIX sh compliance, and optimize check order for instant local-first version checks.
 - **Linux Permission Model**: Run the daemon securely without `CAP_DAC_OVERRIDE` capabilities by utilizing group permissions and udev rules.
 - **Linux Permissions Setup GUI**: Show a graphical password prompt via Polkit when configuring system permissions on desktops.
