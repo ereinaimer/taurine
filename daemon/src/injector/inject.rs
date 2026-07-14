@@ -140,9 +140,8 @@ pub fn inject_text_segment(
 }
 
 pub fn inject_image_segment(
-    rgba: &[u8],
-    width: u32,
-    height: u32,
+    bytes: &[u8],
+    mime_type: &str,
     original_clipboard: &Option<String>,
 ) -> TextSegmentInjection {
     let delay_ms = taurine_core::settings::get_cached_clipboard_restore_delay();
@@ -162,7 +161,7 @@ pub fn inject_image_segment(
         clipboard.get_text().unwrap_or_default()
     };
 
-    if let Err(e) = clipboard.set_image(rgba, width, height) {
+    if let Err(e) = clipboard.set_image(bytes, mime_type) {
         error!("Failed to set clipboard image: {}", e);
         return TextSegmentInjection {
             original_clipboard: Some(orig),
@@ -333,8 +332,8 @@ pub fn inject_expansion(
                     report.completed = false;
                 }
             }
-            ExpansionStep::Image(rgba, w, h) => {
-                let injection = inject_image_segment(rgba, *w, *h, &original_clipboard);
+            ExpansionStep::Image(bytes, mime_type) => {
+                let injection = inject_image_segment(bytes, mime_type, &original_clipboard);
                 report.successful_chars = report
                     .successful_chars
                     .saturating_add(injection.injected_chars);

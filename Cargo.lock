@@ -4980,6 +4980,7 @@ dependencies = [
  "evdev",
  "futures",
  "genai",
+ "image",
  "notify-rust",
  "objc2",
  "objc2-app-kit",

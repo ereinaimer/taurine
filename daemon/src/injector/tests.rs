@@ -67,7 +67,7 @@ impl crate::platform::ClipboardManager for MockClipboard {
         Ok(())
     }
 
-    fn set_image(&mut self, _rgba: &[u8], _width: u32, _height: u32) -> Result<(), String> {
+    fn set_image(&mut self, _bytes: &[u8], _mime_type: &str) -> Result<(), String> {
         self.ops.push("set_image");
         Ok(())
     }

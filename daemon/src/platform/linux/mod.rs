@@ -65,12 +65,16 @@ impl ClipboardManager for LinuxClipboard {
         with_clipboard(|clip| clip.set_text(text.to_owned()).map_err(|e| e.to_string()))
     }
 
-    fn set_image(&mut self, rgba: &[u8], width: u32, height: u32) -> Result<(), String> {
+    fn set_image(&mut self, bytes: &[u8], _mime_type: &str) -> Result<(), String> {
+        let img = image::load_from_memory(bytes)
+            .map_err(|e| format!("Failed to decode image for Linux clipboard: {}", e))?;
+        let rgba = img.to_rgba8();
+        let (width, height) = rgba.dimensions();
         with_clipboard(|clip| {
             let img_data = arboard::ImageData {
                 width: width as usize,
                 height: height as usize,
-                bytes: std::borrow::Cow::Borrowed(rgba),
+                bytes: std::borrow::Cow::Borrowed(&rgba),
             };
             clip.set_image(img_data).map_err(|e| e.to_string())
         })

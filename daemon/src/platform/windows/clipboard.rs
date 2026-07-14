@@ -216,3 +216,80 @@ pub fn set_unicode_text_exclude_from_history(text: &str) -> Result<(), String> {
         result
     }
 }
+
+fn format_png() -> Result<u32, String> {
+    static F: OnceLock<Result<u32, String>> = OnceLock::new();
+    F.get_or_init(|| register_format("PNG")).clone()
+}
+
+fn set_clipboard_bytes(format: u32, bytes: &[u8]) -> Result<(), String> {
+    if format == 0 {
+        return Err("clipboard format id is zero".to_string());
+    }
+    // SAFETY: GlobalAlloc allocates GMEM_MOVEABLE memory of the exact byte length.
+    // The HGLOBAL is checked for null. ptr::copy_nonoverlapping copies the raw bytes
+    // into the locked memory region. SetClipboardData transfers ownership to clipboard.
+    unsafe {
+        let h = GlobalAlloc(GMEM_MOVEABLE, bytes.len()) as HGLOBAL;
+        if h.is_null() {
+            return Err(format!("GlobalAlloc (bytes) failed: {}", GetLastError()));
+        }
+        let p = GlobalLock(h);
+        if p.is_null() {
+            let _ = GlobalFree(h);
+            return Err(format!("GlobalLock (bytes) failed: {}", GetLastError()));
+        }
+        ptr::copy_nonoverlapping(bytes.as_ptr(), p as *mut u8, bytes.len());
+        let _ = GlobalUnlock(h);
+
+        if SetClipboardData(format, h as HANDLE).is_null() {
+            let _ = GlobalFree(h);
+            return Err(format!(
+                "SetClipboardData(format {format}) failed: {}",
+                GetLastError()
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub fn set_image_bytes_exclude_from_history(bytes: &[u8], mime_type: &str) -> Result<(), String> {
+    if mime_type == "image/png" {
+        let cf_png = format_png()?;
+        let cf_exclude = format_exclude_monitor()?;
+        let cf_history = format_can_include_history()?;
+        let cf_cloud = format_can_upload_cloud()?;
+
+        open_clipboard_with_retry(5, Duration::from_millis(20))?;
+        // SAFETY: Clipboard write within OpenClipboard/CloseClipboard bracket.
+        // EmptyClipboard() clears clipboard. Exclude flags and raw PNG bytes are written.
+        // CloseClipboard releases ownership.
+        unsafe {
+            let result = (|| {
+                if EmptyClipboard() == 0 {
+                    return Err(format!("EmptyClipboard failed: {}", GetLastError()));
+                }
+                set_clipboard_dword(cf_exclude, 1)?;
+                set_clipboard_dword(cf_history, 0)?;
+                set_clipboard_dword(cf_cloud, 0)?;
+                set_clipboard_bytes(cf_png, bytes)?;
+                Ok(())
+            })();
+            let _ = CloseClipboard();
+            result
+        }
+    } else {
+        // Fallback: decode and use arboard
+        let img =
+            image::load_from_memory(bytes).map_err(|e| format!("Failed to decode image: {}", e))?;
+        let rgba = img.to_rgba8();
+        let (width, height) = rgba.dimensions();
+        let mut clip = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+        let img_data = arboard::ImageData {
+            width: width as usize,
+            height: height as usize,
+            bytes: std::borrow::Cow::Borrowed(&rgba),
+        };
+        clip.set_image(img_data).map_err(|e| e.to_string())
+    }
+}

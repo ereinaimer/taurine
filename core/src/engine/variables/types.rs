@@ -15,8 +15,8 @@ pub struct ArgMap {
 pub enum ExpansionStep {
     /// A text segment to be injected via clipboard paste.
     Text(String),
-    /// An image to be injected via clipboard paste (raw RGBA bytes, width, height).
-    Image(Vec<u8>, u32, u32),
+    /// An image to be injected via clipboard paste (raw file bytes, mime type).
+    Image(Vec<u8>, String),
     /// A single key (or key combination) to simulate.
     /// The string is the raw alias (e.g. "tab", "ctrl+a", "left").
     KeyPress(String),
