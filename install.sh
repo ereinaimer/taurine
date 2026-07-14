@@ -1,5 +1,5 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
 # Detect OS and Architecture
 OS="$(uname -s)"
@@ -46,6 +46,7 @@ trap cleanup EXIT INT TERM
 run_with_spinner() {
     local label=$1
     local cmd=$2
+    local success_label=${3:-$label}
     local err_file="${TMP_DIR}/spinner_err.$$"
 
     eval "$cmd" >/dev/null 2>"$err_file" &
@@ -67,9 +68,9 @@ run_with_spinner() {
     set -e
 
     if [ $exit_code -eq 0 ]; then
-        printf "\r\x1b[32m✓\x1b[0m %s\n" "$label"
+        printf "\r\x1b[32m✓\x1b[0m %s\x1b[K\n" "$success_label"
     else
-        printf "\r\x1b[31m✗\x1b[0m %s\n" "$label"
+        printf "\r\x1b[31m✗\x1b[0m %s\x1b[K\n" "$label"
         if [ -s "$err_file" ]; then
             sed 's/^/  /' "$err_file" >&2
         fi
@@ -96,6 +97,7 @@ verify_checksum() {
 invoke_with_retry() {
     local label=$1
     local cmd=$2
+    local success_label=${3:-$label}
     local max_attempts=3
     local attempt=1
     local delay=2
@@ -106,7 +108,7 @@ invoke_with_retry() {
             current_label="$label (attempt $attempt/$max_attempts)"
         fi
 
-        if run_with_spinner "$current_label" "$cmd"; then
+        if run_with_spinner "$current_label" "$cmd" "$success_label"; then
             return 0
         fi
 
@@ -127,20 +129,19 @@ version_gt() {
     local v1="${1%%-*}"
     local v2="${2%%-*}"
 
-    local IFS=.
-    set -f
-    local parts1=($v1) parts2=($v2)
-    set +f
-
-    for i in 0 1 2 3; do
-        local a="${parts1[$i]:-0}"
-        local b="${parts2[$i]:-0}"
+    local i=1
+    while [ $i -le 4 ]; do
+        local a
+        local b
+        a=$(echo "$v1" | cut -d. -f$i)
+        b=$(echo "$v2" | cut -d. -f$i)
         a="${a%%[!0-9]*}"
         b="${b%%[!0-9]*}"
         a="${a:-0}"
         b="${b:-0}"
         if [ "$a" -gt "$b" ] 2>/dev/null; then return 0; fi
         if [ "$a" -lt "$b" ] 2>/dev/null; then return 1; fi
+        i=$((i + 1))
     done
     return 1
 }
@@ -232,42 +233,65 @@ configure_profile() {
     fi
 }
 
-# Fetch latest release manifest
-invoke_with_retry "Fetching latest release manifest" "curl -fsSL https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json -o \"$TMP_DIR/manifest.json\"" || exit 1
-
-MANIFEST=$(tr -d '\n\r\t ' < "$TMP_DIR/manifest.json")
-VERSION=$(echo "$MANIFEST" | grep -o '"version":"[^"]*"' | head -n 1 | cut -d'"' -f4 || true)
-URL=$(echo "$MANIFEST" | grep -o "\"$PLATFORM\":{[^}]*}" | grep -o '"url":"[^"]*"' | cut -d'"' -f4 || true)
-SHA256=$(echo "$MANIFEST" | grep -o "\"$PLATFORM\":{[^}]*}" | grep -o '"sha256":"[^"]*"' | cut -d'"' -f4 || true)
-
-if [ -z "$VERSION" ] || [ -z "$URL" ]; then
-    echo "Error: Could not determine latest version or download URL."
-    exit 1
-fi
-
 IS_INSTALLED=false
 IS_FRESH_INSTALL=false
+VERSION=""
+URL=""
+SHA256=""
+
+# 1. Local Check First
 if [ -x "$INSTALL_DIR/taurine" ]; then
+    IS_INSTALLED=true
     LOCAL_VERSION=$("$INSTALL_DIR/taurine" --version 2>/dev/null | awk '{print $2}') || true
     if [ -n "$LOCAL_VERSION" ]; then
-        if [ "$LOCAL_VERSION" = "$VERSION" ]; then
-            printf "\x1b[32m✓\x1b[0m Taurine is already installed, up to date (v%s), and configured properly.\n" "$LOCAL_VERSION"
-        elif version_gt "$LOCAL_VERSION" "$VERSION"; then
-            printf "\x1b[32m✓\x1b[0m Taurine is already installed, up to date (v%s), and configured properly.\n" "$LOCAL_VERSION"
-        else
-            printf "Taurine is already installed but a newer version (v%s) is available. Please run 'tau update' to update.\n" "$VERSION"
+        # Try fetching manifest silently to check if up to date
+        if curl -fsSL https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json -o "$TMP_DIR/manifest.json" >/dev/null 2>&1; then
+            MANIFEST=$(tr -d '\n\r\t ' < "$TMP_DIR/manifest.json")
+            VERSION=$(echo "$MANIFEST" | grep -o '"version":"[^"]*"' | head -n 1 | cut -d'"' -f4 || true)
+            URL=$(echo "$MANIFEST" | grep -o "\"$PLATFORM\":{[^}]*}" | grep -o '"url":"[^"]*"' | cut -d'"' -f4 || true)
+            SHA256=$(echo "$MANIFEST" | grep -o "\"$PLATFORM\":{[^}]*}" | grep -o '"sha256":"[^"]*"' | cut -d'"' -f4 || true)
+
+            if [ -n "$VERSION" ]; then
+                if [ "$LOCAL_VERSION" = "$VERSION" ] || version_gt "$LOCAL_VERSION" "$VERSION"; then
+                    printf "\x1b[32m✓\x1b[0m Taurine is up to date (v%s)\n" "$LOCAL_VERSION"
+                fi
+            fi
         fi
-    else
-        printf "Taurine is already installed. If you want to update to the latest version (v%s), please run 'tau update'.\n" "$VERSION"
     fi
-    IS_INSTALLED=true
 fi
 
+# 2. Manifest fetch if not already populated (e.g. fresh install or silent check failed)
+if [ -z "$VERSION" ]; then
+    invoke_with_retry "Fetching latest release manifest" "curl -fsSL https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json -o \"$TMP_DIR/manifest.json\"" "Fetched latest release manifest" || exit 1
+
+    MANIFEST=$(tr -d '\n\r\t ' < "$TMP_DIR/manifest.json")
+    VERSION=$(echo "$MANIFEST" | grep -o '"version":"[^"]*"' | head -n 1 | cut -d'"' -f4 || true)
+    URL=$(echo "$MANIFEST" | grep -o "\"$PLATFORM\":{[^}]*}" | grep -o '"url":"[^"]*"' | cut -d'"' -f4 || true)
+    SHA256=$(echo "$MANIFEST" | grep -o "\"$PLATFORM\":{[^}]*}" | grep -o '"sha256":"[^"]*"' | cut -d'"' -f4 || true)
+
+    if [ -z "$VERSION" ] || [ -z "$URL" ]; then
+        echo "Error: Could not determine latest version or download URL."
+        exit 1
+    fi
+fi
+
+# 3. Handle already installed but outdated/failed checks
+if [ "$IS_INSTALLED" = true ]; then
+    if [ -n "${VERSION:-}" ] && [ -n "${LOCAL_VERSION:-}" ]; then
+        if [ "$LOCAL_VERSION" != "$VERSION" ] && ! version_gt "$LOCAL_VERSION" "$VERSION"; then
+            printf "Taurine is already installed but a newer version (v%s) is available. Please run 'tau update' to update.\n" "$VERSION"
+        fi
+    elif [ -z "${LOCAL_VERSION:-}" ]; then
+        printf "Taurine is already installed. If you want to update to the latest version (v%s), please run 'tau update'.\n" "$VERSION"
+    fi
+fi
+
+# 4. Perform fresh install if not installed
 if [ "$IS_INSTALLED" = false ]; then
     ARCHIVE="$TMP_DIR/taurine.tar.xz"
 
     # Download archive with retry
-    invoke_with_retry "Downloading taurine v$VERSION" "curl -fsSL \"$URL\" -o \"$ARCHIVE\"" || exit 1
+    invoke_with_retry "Downloading taurine v$VERSION" "curl -fsSL \"$URL\" -o \"$ARCHIVE\"" "Downloaded taurine v$VERSION" || exit 1
 
     # Verify checksum if available
     if [ -n "$SHA256" ]; then
@@ -279,7 +303,7 @@ if [ "$IS_INSTALLED" = false ]; then
 
     # Extract
     mkdir -p "$INSTALL_DIR"
-    run_with_spinner "Extracting" "tar -xf \"$ARCHIVE\" -C \"$TMP_DIR\"" || {
+    run_with_spinner "Extracting" "tar -xf \"$ARCHIVE\" -C \"$TMP_DIR\"" "Extracted" || {
         echo "Error: Extraction failed." >&2
         exit 1
     }
@@ -306,14 +330,14 @@ if [ "$IS_INSTALLED" = true ]; then
     esac
 
     ADDED_PATH=false
-    MODIFIED_PROFILES=()
+    MODIFIED_PROFILES=""
 
     # POSIX profiles
     for profile in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.bash_profile" "$HOME/.zprofile" "$HOME/.profile"; do
         if [ -f "$profile" ]; then
             if configure_profile "$profile" "posix"; then
                 ADDED_PATH=true
-                MODIFIED_PROFILES+=("$profile")
+                MODIFIED_PROFILES="$MODIFIED_PROFILES $profile"
             fi
         fi
     done
@@ -323,7 +347,7 @@ if [ "$IS_INSTALLED" = true ]; then
     if [ -f "$FISH_PROFILE" ]; then
         if configure_profile "$FISH_PROFILE" "fish"; then
             ADDED_PATH=true
-            MODIFIED_PROFILES+=("$FISH_PROFILE")
+            MODIFIED_PROFILES="$MODIFIED_PROFILES $FISH_PROFILE"
         fi
     fi
 
@@ -332,7 +356,7 @@ if [ "$IS_INSTALLED" = true ]; then
         if [ -f "$profile" ]; then
             if configure_profile "$profile" "csh"; then
                 ADDED_PATH=true
-                MODIFIED_PROFILES+=("$profile")
+                MODIFIED_PROFILES="$MODIFIED_PROFILES $profile"
             fi
         fi
     done
@@ -340,7 +364,7 @@ if [ "$IS_INSTALLED" = true ]; then
     if [ "$IS_FRESH_INSTALL" = true ]; then
         if [ "$ADDED_PATH" = true ]; then
             printf "Added to PATH and set up alias tau in your shell profiles:\n"
-            for p in "${MODIFIED_PROFILES[@]}"; do
+            for p in $MODIFIED_PROFILES; do
                 printf "  %s\n" "$p"
             done
             printf "Please restart your shell or source your profile to apply the changes.\n"

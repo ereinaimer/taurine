@@ -7,7 +7,7 @@ $Platform = "windows-x86_64"
 $MaxRetries = 3
 $RetryDelay = 2
 
-function Show-SpinnerJob ($Job, $Label) {
+function Show-SpinnerJob ($Job, $Label, $SuccessLabel = $null) {
     $spinstr = @(
         [char]0x280b, [char]0x2819, [char]0x2839, [char]0x2838, [char]0x283c,
         [char]0x2834, [char]0x2826, [char]0x2827, [char]0x2807, [char]0x280f
@@ -21,18 +21,25 @@ function Show-SpinnerJob ($Job, $Label) {
     }
     Write-Host -NoNewline "`r"
     Write-Host -ForegroundColor Green -NoNewline "$([char]0x2713) "
-    Write-Host $Label
+    if ($null -eq $SuccessLabel) {
+        $SuccessLabel = $Label
+    }
+    $diff = $Label.Length - $SuccessLabel.Length
+    if ($diff -gt 0) {
+        $SuccessLabel = $SuccessLabel + (" " * $diff)
+    }
+    Write-Host $SuccessLabel
     $result = Receive-Job -Job $Job
     Remove-Job -Job $Job
     return $result
 }
 
-function Invoke-WithRetry ($ScriptBlock, $ArgumentList, $Label) {
+function Invoke-WithRetry ($ScriptBlock, $ArgumentList, $Label, $SuccessLabel = $null) {
     $attempt = 0
     $delay = $RetryDelay
     while ($attempt -lt $MaxRetries) {
         $job = Start-Job -ScriptBlock $ScriptBlock -ArgumentList $ArgumentList
-        $result = Show-SpinnerJob $job $Label
+        $result = Show-SpinnerJob $job $Label $SuccessLabel
         if ($null -ne $result -and ($result -is [string] -or $result.PSObject.Properties.Name -contains 'version')) {
             return $result
         }
@@ -90,33 +97,70 @@ function Update-PowerShellProfile {
     return $modified
 }
 
+function Compare-Versions ($v1, $v2) {
+    if ($v1 -eq $v2) { return 0 }
+    
+    $v1HasHyphen = $v1.Contains('-')
+    $v2HasHyphen = $v2.Contains('-')
+    
+    $v1Base = Get-VersionBase $v1
+    $v2Base = Get-VersionBase $v2
+    
+    $localBase = [version]$v1Base
+    $remoteBase = [version]$v2Base
+    
+    if ($localBase -lt $remoteBase) { return -1 }
+    if ($localBase -gt $remoteBase) { return 1 }
+    
+    if ($v1HasHyphen -and -not $v2HasHyphen) { return -1 }
+    if (-not $v1HasHyphen -and $v2HasHyphen) { return 1 }
+    
+    $v1Suffix = $v1.Substring($v1.IndexOf('-') + 1)
+    $v2Suffix = $v2.Substring($v2.IndexOf('-') + 1)
+    
+    $v1Parts = $v1Suffix -split '\.'
+    $v2Parts = $v2Suffix -split '\.'
+    
+    $max = [Math]::Max($v1Parts.Length, $v2Parts.Length)
+    for ($i = 0; $i -lt $max; $i++) {
+        $p1 = if ($i -lt $v1Parts.Length) { $v1Parts[$i] } else { $null }
+        $p2 = if ($i -lt $v2Parts.Length) { $v2Parts[$i] } else { $null }
+        
+        if ($null -eq $p1 -and $null -ne $p2) { return -1 }
+        if ($null -ne $p1 -and $null -eq $p2) { return 1 }
+        if ($p1 -eq $p2) { continue }
+        
+        $p1IsNum = $p1 -match '^\d+$'
+        $p2IsNum = $p2 -match '^\d+$'
+        
+        if ($p1IsNum -and $p2IsNum) {
+            $n1 = [int]$p1
+            $n2 = [int]$p2
+            if ($n1 -lt $n2) { return -1 }
+            if ($n1 -gt $n2) { return 1 }
+        } else {
+            $cmp = [String]::Compare($p1, $p2, $true)
+            if ($cmp -lt 0) { return -1 }
+            if ($cmp -gt 0) { return 1 }
+        }
+    }
+    return 0
+}
+
 function Main {
     $InstallDir = Join-Path $env:LOCALAPPDATA "Taurine\bin"
     $ExePath = Join-Path $InstallDir "taurine.exe"
 
-    # Fetch manifest with retry
-    $ManifestJob = {
-        param($url)
-        Invoke-RestMethod -Uri $url
-    }
-    $Manifest = Invoke-WithRetry -ScriptBlock $ManifestJob -ArgumentList @("https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json") -Label "Fetching latest release manifest"
-    if ($Manifest -is [string]) {
-        $Manifest = $Manifest | ConvertFrom-Json
-    }
-    $Version = $Manifest.version
-    $Url = $Manifest.artifacts.$Platform.url
-    $Sha256 = $Manifest.artifacts.$Platform.sha256
-
-    if (-not $Version -or -not $Url) {
-        Write-Host -ForegroundColor Red "Error: Could not determine latest version or download URL."
-        throw "Could not determine latest version or download URL."
-    }
-
     $IsInstalled = $false
     $IsFreshInstall = $false
+    $LocalVersion = $null
+    $Version = $null
+    $Url = $null
+    $Sha256 = $null
 
+    # 1. Local Check First
     if (Test-Path $ExePath) {
-        $LocalVersion = $null
+        $IsInstalled = $true
         try {
             $versionOutput = & $ExePath --version 2>$null
             if ($versionOutput) {
@@ -127,27 +171,61 @@ function Main {
         }
 
         if ($LocalVersion) {
-            if ($LocalVersion -eq $Version) {
-                Write-Host -ForegroundColor Green -NoNewline "$([char]0x2713) "
-                Write-Host "Taurine is already installed, up to date (v$LocalVersion), and configured properly."
-            } else {
-                try {
-                    $localBase = [version](Get-VersionBase $LocalVersion)
-                    $remoteBase = [version](Get-VersionBase $Version)
-                    if ($localBase -lt $remoteBase) {
-                        Write-Host "A newer version of Taurine (v$Version) is available. Please run 'tau update' to update."
-                    } else {
+            try {
+                $Manifest = Invoke-RestMethod -Uri "https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json" -ErrorAction SilentlyContinue
+                if ($Manifest -is [string]) {
+                    $Manifest = $Manifest | ConvertFrom-Json
+                }
+                $Version = $Manifest.version
+                $Url = $Manifest.artifacts.$Platform.url
+                $Sha256 = $Manifest.artifacts.$Platform.sha256
+
+                if ($Version) {
+                    $cmp = Compare-Versions $LocalVersion $Version
+                    if ($cmp -ge 0) {
                         Write-Host -ForegroundColor Green -NoNewline "$([char]0x2713) "
-                        Write-Host "Taurine is already installed, up to date (v$LocalVersion), and configured properly."
+                        Write-Host "Taurine is up to date (v$LocalVersion)"
                     }
-                } catch {
+                }
+            } catch {
+                # Fall back to standard flow
+            }
+        }
+    }
+
+    # 2. Manifest fetch if not already populated (e.g. fresh install or silent check failed)
+    if ($null -eq $Version) {
+        $ManifestJob = {
+            param($url)
+            Invoke-RestMethod -Uri $url
+        }
+        $Manifest = Invoke-WithRetry -ScriptBlock $ManifestJob -ArgumentList @("https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json") -Label "Fetching latest release manifest" -SuccessLabel "Fetched latest release manifest"
+        if ($Manifest -is [string]) {
+            $Manifest = $Manifest | ConvertFrom-Json
+        }
+        $Version = $Manifest.version
+        $Url = $Manifest.artifacts.$Platform.url
+        $Sha256 = $Manifest.artifacts.$Platform.sha256
+
+        if (-not $Version -or -not $Url) {
+            Write-Host -ForegroundColor Red "Error: Could not determine latest version or download URL."
+            throw "Could not determine latest version or download URL."
+        }
+    }
+
+    # 3. Handle already installed but outdated/failed checks
+    if ($IsInstalled) {
+        if ($LocalVersion) {
+            if ($Version) {
+                if ((Compare-Versions $LocalVersion $Version) -lt 0) {
                     Write-Host "A newer version of Taurine (v$Version) is available. Please run 'tau update' to update."
                 }
+            } else {
+                Write-Host "Taurine is already installed. If you want to update to the latest version, please run 'tau update'."
             }
         } else {
             Write-Host "Taurine is already installed. If you want to update to the latest version (v$Version), please run 'tau update'."
         }
-        $IsInstalled = $true
     }
 
     $TempZip = $null
@@ -163,7 +241,7 @@ function Main {
                 Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing
                 return $out
             }
-            Invoke-WithRetry -ScriptBlock $DownloadJob -ArgumentList @($Url, $TempZip) -Label "Downloading taurine v$Version" | Out-Null
+            Invoke-WithRetry -ScriptBlock $DownloadJob -ArgumentList @($Url, $TempZip) -Label "Downloading taurine v$Version" -SuccessLabel "Downloaded taurine v$Version" | Out-Null
 
             # Verify checksum if available
             if ($Sha256) {
@@ -173,7 +251,7 @@ function Main {
                     return ($computed -eq $expected.ToLower())
                 }
                 $job = Start-Job -ScriptBlock $ChecksumJob -ArgumentList @($TempZip, $Sha256)
-                $result = Show-SpinnerJob $job "Verifying checksum"
+                $result = Show-SpinnerJob $job "Verifying checksum" "Verified checksum"
                 if ($result -isnot [bool] -or -not $result) {
                     if ($result -isnot [bool]) {
                         Write-Host -ForegroundColor Red "Error: Checksum verification tool failed for downloaded archive."
@@ -190,7 +268,7 @@ function Main {
                 Expand-Archive -Path $zip -DestinationPath $dest -Force
                 return $dest
             }
-            Invoke-WithRetry -ScriptBlock $ExtractJob -ArgumentList @($TempZip, $TempDir) -Label "Extracting" | Out-Null
+            Invoke-WithRetry -ScriptBlock $ExtractJob -ArgumentList @($TempZip, $TempDir) -Label "Extracting" -SuccessLabel "Extracted" | Out-Null
 
             if (-not (Test-Path $InstallDir)) {
                 New-Item -ItemType Directory -Path $InstallDir | Out-Null
