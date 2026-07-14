@@ -548,38 +548,48 @@ impl Evaluator {
             .state
             .triggerless_mode
             .load(std::sync::atomic::Ordering::Relaxed)
-            && let Some(word) = self.buffer.extract_tail_word()
-            && let Some(expansion) = self.state.fetch_expansion(&word, active_window)
         {
-            let delete_count = word.chars().count();
-            let metric_kind = metric_kind_for_steps(expansion.is_calculation, &expansion.steps);
-            self.buffer.clear();
-            if let Some(template) = expansion.ai_transformer_template {
-                let initial_text = self.get_initial_spinner_text(&template);
-                return Some(ExpansionResult {
-                    delete_count,
-                    steps: vec![ExpansionStep::Text(initial_text)],
-                    trigger: word,
-                    undo_trigger: None,
-                    is_calculation: false,
-                    metric_kind: AutomationMetricKind::InlineAi,
-                    track_usage: true,
-                    follow_up: Some(ExpansionFollowUp::AiTransformer {
-                        template_with_markers: template,
-                    }),
-                });
-            }
+            let mut candidates = self.buffer.extract_suffix_candidates();
+            candidates.sort_by_key(|a| std::cmp::Reverse(a.0.len()));
 
-            return Some(ExpansionResult {
-                delete_count,
-                steps: expansion.steps,
-                trigger: word,
-                undo_trigger: None,
-                is_calculation: expansion.is_calculation,
-                metric_kind,
-                track_usage: true,
-                follow_up: None,
-            });
+            for (word, prev_char) in candidates {
+                let is_boundary =
+                    prev_char.is_none_or(|c| c.is_whitespace() || c.is_ascii_punctuation());
+                if is_boundary
+                    && let Some(expansion) = self.state.fetch_expansion(&word, active_window)
+                {
+                    let delete_count = word.chars().count();
+                    let metric_kind =
+                        metric_kind_for_steps(expansion.is_calculation, &expansion.steps);
+                    self.buffer.clear();
+                    if let Some(template) = expansion.ai_transformer_template {
+                        let initial_text = self.get_initial_spinner_text(&template);
+                        return Some(ExpansionResult {
+                            delete_count,
+                            steps: vec![ExpansionStep::Text(initial_text)],
+                            trigger: word,
+                            undo_trigger: None,
+                            is_calculation: false,
+                            metric_kind: AutomationMetricKind::InlineAi,
+                            track_usage: true,
+                            follow_up: Some(ExpansionFollowUp::AiTransformer {
+                                template_with_markers: template,
+                            }),
+                        });
+                    }
+
+                    return Some(ExpansionResult {
+                        delete_count,
+                        steps: expansion.steps,
+                        trigger: word,
+                        undo_trigger: None,
+                        is_calculation: expansion.is_calculation,
+                        metric_kind,
+                        track_usage: true,
+                        follow_up: None,
+                    });
+                }
+            }
         }
 
         // Regex matching fallback
@@ -2867,7 +2877,7 @@ mod tests {
     }
 
     #[test]
-    fn triggerless_mode_does_not_fire_with_punctuation_prefix() {
+    fn triggerless_mode_fires_with_punctuation_prefix() {
         use std::sync::atomic::Ordering;
         let state = Arc::new(EngineState::new('>'));
         state.triggerless_mode.store(true, Ordering::Relaxed);
@@ -2881,7 +2891,11 @@ mod tests {
             eval.process(EngineEvent::Char(c));
         }
 
-        assert_eq!(eval.process(EngineEvent::ActionDelimiter), None);
+        let result = eval
+            .process(EngineEvent::ActionDelimiter)
+            .expect("should expand triggerless with punctuation prefix");
+        assert_eq!(result.delete_count, 2);
+        assert_eq!(result.trigger, "gs");
     }
 
     #[test]

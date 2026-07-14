@@ -273,6 +273,44 @@ impl FastBuffer {
         collected.reverse();
         Some(collected.into_iter().collect())
     }
+
+    pub fn extract_suffix_candidates(&self) -> Vec<(String, Option<char>)> {
+        let mut candidates = Vec::new();
+        if self.len == 0 {
+            return candidates;
+        }
+
+        let capacity = self.data.len();
+        let mut collected = Vec::new();
+        let mut curr = (self.head + capacity - 1) % capacity;
+        let mut n = 0;
+
+        while n < self.len && n < 30 {
+            let c = self.data[curr];
+
+            if c.is_whitespace() {
+                break;
+            }
+
+            collected.push(c);
+
+            let prev_idx = (curr + capacity - 1) % capacity;
+            let prev_char = if n + 1 < self.len {
+                Some(self.data[prev_idx])
+            } else {
+                None
+            };
+
+            let mut word = collected.clone();
+            word.reverse();
+            candidates.push((word.into_iter().collect(), prev_char));
+
+            curr = (curr + capacity - 1) % capacity;
+            n += 1;
+        }
+
+        candidates
+    }
 }
 
 #[cfg(test)]
@@ -485,5 +523,19 @@ mod tests {
         assert_eq!(s.len(), 513);
         assert!(s.starts_with("xxxxxxxxxx"));
         assert!(s.ends_with("xxxxxxxxy"));
+    }
+
+    #[test]
+    fn test_extract_suffix_candidates() {
+        let mut b = FastBuffer::new();
+        for c in "hello,btw".chars() {
+            b.push(c);
+        }
+        let candidates = b.extract_suffix_candidates();
+        assert!(
+            candidates
+                .iter()
+                .any(|(s, prev)| s == "btw" && *prev == Some(','))
+        );
     }
 }
