@@ -2,8 +2,7 @@ use crate::commands::validate::format_automation_log;
 use std::fs;
 use std::path::PathBuf;
 use taurine_core::db::crud::{
-    TriggerType, audit_payload_tags_with_trigger_type, prepare_trigger_with_type,
-    upsert_automation, upsert_automation_with_trigger_type, upsert_script,
+    TriggerType, audit_payload_tags_with_trigger_type, prepare_trigger_with_type, upsert_script,
     validate_trigger_not_reserved,
 };
 use taurine_core::db::init;
@@ -37,6 +36,7 @@ pub fn execute(
         include_apps,
         exclude_apps,
         None,
+        false,
     )
 }
 
@@ -52,6 +52,7 @@ pub fn execute_with_trigger_type(
     include_apps: Option<String>,
     exclude_apps: Option<String>,
     tags: Option<Vec<String>>,
+    auto_case: bool,
 ) -> taurine_core::error::Result<()> {
     // 1. Resolve content and source description
     let (content, source_desc) = if let Some(ref path) = file_path {
@@ -72,6 +73,12 @@ pub fn execute_with_trigger_type(
         return Err(taurine_core::error::Error::Service(
             "Neither script file nor content provided".to_string(),
         ));
+    };
+
+    let trigger = if auto_case {
+        trigger.to_lowercase()
+    } else {
+        trigger
     };
 
     audit_payload_tags_with_trigger_type(&content, trigger_type)?;
@@ -164,14 +171,79 @@ pub fn execute_with_trigger_type(
         "[]".to_string()
     };
 
+    // Case conflict check
+    if auto_case {
+        let conflict_exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM automations
+                    WHERE trigger_type = ?1
+                      AND LOWER(trigger) = LOWER(?2)
+                      AND target_os = ?3
+                      AND COALESCE(only_apps, '') = ?4
+                      AND COALESCE(except_apps, '') = ?5
+                      AND is_deleted = 0
+                      AND id != ?6
+                 )",
+                [
+                    prepared.trigger_type.as_db_str(),
+                    &stored_trigger,
+                    &os,
+                    include_apps.as_deref().unwrap_or(""),
+                    exclude_apps.as_deref().unwrap_or(""),
+                    &id,
+                ],
+                |r| r.get(0),
+            )
+            .unwrap_or(false);
+        if conflict_exists {
+            return Err(taurine_core::Error::Config(format!(
+                "Trigger conflict: An automation matching '{}' case-insensitively already exists.",
+                stored_trigger
+            )));
+        }
+    } else {
+        let conflict_exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM automations
+                    WHERE trigger_type = ?1
+                      AND LOWER(trigger) = LOWER(?2)
+                      AND target_os = ?3
+                      AND COALESCE(only_apps, '') = ?4
+                      AND COALESCE(except_apps, '') = ?5
+                      AND auto_case = 1
+                      AND is_deleted = 0
+                      AND id != ?6
+                 )",
+                [
+                    prepared.trigger_type.as_db_str(),
+                    &stored_trigger,
+                    &os,
+                    include_apps.as_deref().unwrap_or(""),
+                    exclude_apps.as_deref().unwrap_or(""),
+                    &id,
+                ],
+                |r| r.get(0),
+            )
+            .unwrap_or(false);
+        if conflict_exists {
+            return Err(taurine_core::Error::Config(format!(
+                "Trigger conflict: A case-propagating automation matching '{}' case-insensitively already exists.",
+                stored_trigger
+            )));
+        }
+    }
+
     // 4. Upsert automation row (type = "script")
     match prepared.trigger_type {
         TriggerType::Word => {
-            upsert_automation(
+            taurine_core::db::crud::upsert_automation_with_trigger_type_and_case(
                 &conn,
                 &id,
                 &stored_trigger,
                 Some(&format!("Shell script ({})", source_desc)),
+                TriggerType::Word,
                 &stored_trigger,
                 &format!("[Script: {}]", lang_to_str(lang)),
                 "script",
@@ -179,10 +251,11 @@ pub fn execute_with_trigger_type(
                 &tags_str,
                 usage_count,
                 last_used_at,
+                auto_case,
             )?;
         }
         TriggerType::Hotkey => {
-            upsert_automation_with_trigger_type(
+            taurine_core::db::crud::upsert_automation_with_trigger_type_and_case(
                 &conn,
                 &id,
                 &stored_trigger,
@@ -195,10 +268,11 @@ pub fn execute_with_trigger_type(
                 &tags_str,
                 usage_count,
                 last_used_at,
+                auto_case,
             )?;
         }
         TriggerType::Regex => {
-            upsert_automation_with_trigger_type(
+            taurine_core::db::crud::upsert_automation_with_trigger_type_and_case(
                 &conn,
                 &id,
                 &stored_trigger,
@@ -211,6 +285,7 @@ pub fn execute_with_trigger_type(
                 &tags_str,
                 usage_count,
                 last_used_at,
+                auto_case,
             )?;
         }
     }

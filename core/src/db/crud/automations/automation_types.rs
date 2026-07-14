@@ -52,6 +52,7 @@ pub struct AutomationRow {
     pub is_deleted: bool,
     pub is_synced: bool,
     pub is_enabled: bool,
+    pub auto_case: bool,
 
     // Script Metadata from joined scripts table
     pub interpreter: Option<ScriptInterpreter>,
@@ -66,6 +67,7 @@ pub struct AutomationAction {
     pub action_type: String,
     pub only_apps: Option<String>,
     pub except_apps: Option<String>,
+    pub auto_case: bool,
 
     pub interpreter: Option<ScriptInterpreter>,
     pub behavior: Option<ScriptBehavior>,
@@ -79,6 +81,7 @@ impl AutomationAction {
             action_type: "text".to_string(),
             only_apps: None,
             except_apps: None,
+            auto_case: false,
             interpreter: None,
             behavior: None,
             script_binary: None,

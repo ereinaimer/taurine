@@ -287,6 +287,10 @@ pub struct AddArgs {
     /// Tags associated with the automation (comma-separated or repeated)
     #[arg(long = "tag", value_delimiter = ',', num_args = 1..)]
     pub tag: Option<Vec<String>>,
+
+    /// Automatically mirror trigger casing in expansion output
+    #[arg(long)]
+    pub auto_case: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -331,6 +335,10 @@ pub enum AddSubcommand {
         /// Tags associated with the automation (comma-separated or repeated)
         #[arg(long = "tag", value_delimiter = ',', num_args = 1..)]
         tag: Option<Vec<String>>,
+
+        /// Automatically mirror trigger casing in expansion output
+        #[arg(long)]
+        auto_case: bool,
     },
 }
 
@@ -543,6 +551,7 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
                 include_apps,
                 exclude_apps,
                 tag,
+                auto_case,
             }) = args.sub
             {
                 let trigger_type = if hotkey {
@@ -565,6 +574,7 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
                     include_apps,
                     exclude_apps,
                     tag,
+                    auto_case,
                 )?;
             } else if let (Some(t), Some(o)) = (args.trigger, args.output) {
                 let os = args
@@ -587,6 +597,7 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
                     args.include_apps,
                     args.exclude_apps,
                     args.tag,
+                    args.auto_case,
                 )?;
             } else {
                 // Show help for add command if neither subcommand nor positional args are valid

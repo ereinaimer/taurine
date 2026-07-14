@@ -1960,6 +1960,14 @@ impl PendingLibrarySave {
                 interpreter,
                 behavior,
             } => {
+                let existing_auto_case: bool = conn
+                    .query_row(
+                        "SELECT auto_case FROM automations WHERE id = ?1",
+                        [id],
+                        |r| r.get(0),
+                    )
+                    .unwrap_or(false);
+
                 update_existing_automation(
                     &mut conn,
                     ExistingAutomationUpdate {
@@ -1972,6 +1980,7 @@ impl PendingLibrarySave {
                         action_type: self.kind.action_type(),
                         target_os: &self.target_os,
                         tags_json,
+                        auto_case: existing_auto_case,
                         usage_count: *usage_count,
                         last_used_at: *last_used_at,
                         interpreter: self.interpreter.or(*interpreter),
@@ -1991,6 +2000,7 @@ impl PendingLibrarySave {
                     action_type: self.kind.action_type(),
                     target_os: &self.target_os,
                     tags_json: "[]",
+                    auto_case: false,
                     interpreter: self.interpreter,
                     behavior: self.behavior.or(Some(ScriptBehavior::Inline)),
                 },
@@ -3184,6 +3194,7 @@ mod tests {
             is_deleted: false,
             is_synced: true,
             is_enabled: true,
+            auto_case: false,
             interpreter: Some(ScriptInterpreter::PowerShell),
             behavior: Some(ScriptBehavior::Silent),
             script_binary: script_content

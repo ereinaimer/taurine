@@ -532,6 +532,29 @@ pub(crate) fn expand_automation_action(
     expand_automation_action_with_args(action, &ArgMap::default(), matched_keyword)
 }
 
+fn apply_auto_case(output: &str, typed_trigger: &str) -> String {
+    let is_all_uppercase = typed_trigger
+        .chars()
+        .all(|c| !c.is_alphabetic() || c.is_uppercase());
+    if is_all_uppercase {
+        output.to_uppercase()
+    } else {
+        let starts_uppercase = typed_trigger
+            .chars()
+            .find(|c| c.is_alphabetic())
+            .is_some_and(|c| c.is_uppercase());
+        if starts_uppercase {
+            let mut chars = output.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+            }
+        } else {
+            output.to_string()
+        }
+    }
+}
+
 pub(crate) fn expand_automation_action_with_args(
     action: AutomationAction,
     args: &ArgMap,
@@ -552,7 +575,15 @@ pub(crate) fn expand_automation_action_with_args(
         });
     }
 
-    Some(finalize(&interpolated, Some(matched_keyword)))
+    let mut final_exp = finalize(&interpolated, Some(matched_keyword));
+    if action.auto_case {
+        for step in &mut final_exp.steps {
+            if let ExpansionStep::Text(text) = step {
+                *text = apply_auto_case(text, matched_keyword);
+            }
+        }
+    }
+    Some(final_exp)
 }
 
 fn interpolate_script_action(action: AutomationAction, args: &ArgMap) -> Option<FinalExpansion> {
@@ -656,6 +687,7 @@ mod tests {
             action_type: "script".to_string(),
             only_apps: None,
             except_apps: None,
+            auto_case: false,
             interpreter: Some(ScriptInterpreter::PowerShell),
             behavior: Some(ScriptBehavior::Inline),
             script_binary: Some(compressed),
@@ -687,6 +719,7 @@ mod tests {
             action_type: "script".to_string(),
             only_apps: None,
             except_apps: None,
+            auto_case: false,
             interpreter: Some(ScriptInterpreter::Bash),
             behavior: Some(ScriptBehavior::Silent),
             script_binary: Some(compressed),

@@ -72,6 +72,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     output       TEXT    NOT NULL,
                     action_type  TEXT    DEFAULT 'text',
                     is_enabled   BOOLEAN DEFAULT 1,
+                    auto_case    BOOLEAN DEFAULT 0,
                     target_os    TEXT    DEFAULT 'all',
                     only_apps    TEXT,
                     except_apps  TEXT,

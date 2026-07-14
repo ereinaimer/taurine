@@ -15,12 +15,14 @@ pub use automation_get::{
 };
 pub use automation_set::{
     AddOutcome, ExistingAutomationUpdate, NewAutomation, PreparedTrigger,
-    add_automation_by_trigger, add_automation_by_trigger_type, audit_payload_tags,
+    add_automation_by_trigger, add_automation_by_trigger_and_case, add_automation_by_trigger_type,
+    add_automation_by_trigger_type_and_case, audit_payload_tags,
     audit_payload_tags_with_trigger_type, create_automation, find_trigger_overlap_conflict,
     increment_usage_count_by_trigger, prepare_trigger, prepare_trigger_with_type,
     record_expansion_usage, target_os_values_overlap, update_automation_app_filters,
     update_existing_automation, upsert_automation, upsert_automation_with_trigger_type,
-    upsert_script, validate_trigger_not_reserved, validate_trigger_target_os_conflict,
+    upsert_automation_with_trigger_type_and_case, upsert_script, validate_trigger_not_reserved,
+    validate_trigger_target_os_conflict,
 };
 pub use automation_sync::get_syncable_automations;
 pub use automation_types::{
@@ -1331,6 +1333,7 @@ mod tests {
                 action_type: "text",
                 target_os: "all",
                 tags_json: "[]",
+                auto_case: false,
                 usage_count: 4,
                 last_used_at: None,
                 interpreter: None,
@@ -1394,6 +1397,7 @@ mod tests {
                 action_type: "script",
                 target_os: "win",
                 tags_json: "[]",
+                auto_case: false,
                 usage_count: 6,
                 last_used_at: Some(10),
                 interpreter: Some(ScriptInterpreter::PowerShell),
@@ -1456,6 +1460,7 @@ mod tests {
                 action_type: "text",
                 target_os: "linux",
                 tags_json: "[]",
+                auto_case: false,
                 usage_count: 0,
                 last_used_at: None,
                 interpreter: Some(ScriptInterpreter::Bash),
@@ -1515,6 +1520,7 @@ mod tests {
                 action_type: "text",
                 target_os: "all",
                 tags_json: "[]",
+                auto_case: false,
                 usage_count: 0,
                 last_used_at: None,
                 interpreter: None,
@@ -1542,6 +1548,7 @@ mod tests {
                 action_type: "text",
                 target_os: "all",
                 tags_json: "[]",
+                auto_case: false,
                 interpreter: None,
                 behavior: None,
             },
@@ -1571,6 +1578,7 @@ mod tests {
                 action_type: "script",
                 target_os: "all",
                 tags_json: "[]",
+                auto_case: false,
                 interpreter: None,
                 behavior: None,
             },
@@ -1604,6 +1612,7 @@ mod tests {
                 action_type: "text",
                 target_os: "all",
                 tags_json: "[]",
+                auto_case: false,
                 interpreter: None,
                 behavior: None,
             },
@@ -1621,6 +1630,7 @@ mod tests {
                 action_type: "text",
                 target_os: "win",
                 tags_json: "[]",
+                auto_case: false,
                 interpreter: None,
                 behavior: None,
             },
@@ -1648,6 +1658,7 @@ mod tests {
                 action_type: "text",
                 target_os: "all",
                 tags_json: "[]",
+                auto_case: false,
                 interpreter: None,
                 behavior: None,
             },
@@ -1859,5 +1870,41 @@ mod tests {
             )
             .unwrap();
         assert!(is_deleted);
+    }
+
+    #[test]
+    fn test_add_and_retrieve_with_auto_case() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+        conn.execute("DELETE FROM automations", []).unwrap();
+
+        // Add with auto_case: true
+        let outcome = add_automation_by_trigger_and_case(
+            &conn,
+            "btw",
+            "by the way",
+            "all",
+            None,
+            None,
+            None,
+            true,
+        )
+        .unwrap();
+        assert_eq!(outcome, AddOutcome::Created);
+
+        // Retrieve and check auto_case
+        let action = get_action_by_trigger(&conn, "btw").unwrap().unwrap();
+        assert!(action.auto_case);
+
+        // Retrieve row and check auto_case
+        let row_id: String = conn
+            .query_row(
+                "SELECT id FROM automations WHERE trigger = 'btw' AND is_deleted = 0",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let row = get_automation(&conn, &row_id).unwrap().unwrap();
+        assert!(row.auto_case);
     }
 }

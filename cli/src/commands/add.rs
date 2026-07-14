@@ -23,9 +23,11 @@ pub fn execute(
         include_apps,
         exclude_apps,
         None,
+        false,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn execute_with_trigger_type(
     trigger: String,
     output: String,
@@ -34,14 +36,21 @@ pub fn execute_with_trigger_type(
     include_apps: Option<String>,
     exclude_apps: Option<String>,
     tags: Option<Vec<String>>,
+    auto_case: bool,
 ) -> taurine_core::error::Result<()> {
     use crate::commands::validate::format_automation_log;
     use taurine_core::db::crud::{
-        add_automation_by_trigger, add_automation_by_trigger_type,
+        add_automation_by_trigger_and_case, add_automation_by_trigger_type_and_case,
         audit_payload_tags_with_trigger_type, prepare_trigger_with_type,
         validate_trigger_not_reserved,
     };
     use taurine_core::engine::variables::system::validate_output;
+
+    let trigger = if auto_case {
+        trigger.to_lowercase()
+    } else {
+        trigger
+    };
 
     audit_payload_tags_with_trigger_type(&output, trigger_type)?;
 
@@ -65,8 +74,69 @@ pub fn execute_with_trigger_type(
         );
     }
     validate_trigger_not_reserved(&conn, &stored_trigger)?;
+
+    // Case conflict check
+    if auto_case {
+        let conflict_exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM automations
+                    WHERE trigger_type = ?1
+                      AND LOWER(trigger) = LOWER(?2)
+                      AND target_os = ?3
+                      AND COALESCE(only_apps, '') = ?4
+                      AND COALESCE(except_apps, '') = ?5
+                      AND is_deleted = 0
+                 )",
+                [
+                    trigger_type.as_db_str(),
+                    &stored_trigger,
+                    &os,
+                    include_apps.as_deref().unwrap_or(""),
+                    exclude_apps.as_deref().unwrap_or(""),
+                ],
+                |r| r.get(0),
+            )
+            .unwrap_or(false);
+        if conflict_exists {
+            return Err(taurine_core::Error::Config(format!(
+                "Trigger conflict: An automation matching '{}' case-insensitively already exists.",
+                stored_trigger
+            )));
+        }
+    } else {
+        let conflict_exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM automations
+                    WHERE trigger_type = ?1
+                      AND LOWER(trigger) = LOWER(?2)
+                      AND target_os = ?3
+                      AND COALESCE(only_apps, '') = ?4
+                      AND COALESCE(except_apps, '') = ?5
+                      AND auto_case = 1
+                      AND is_deleted = 0
+                 )",
+                [
+                    trigger_type.as_db_str(),
+                    &stored_trigger,
+                    &os,
+                    include_apps.as_deref().unwrap_or(""),
+                    exclude_apps.as_deref().unwrap_or(""),
+                ],
+                |r| r.get(0),
+            )
+            .unwrap_or(false);
+        if conflict_exists {
+            return Err(taurine_core::Error::Config(format!(
+                "Trigger conflict: A case-propagating automation matching '{}' case-insensitively already exists.",
+                stored_trigger
+            )));
+        }
+    }
+
     let outcome = match prepared.trigger_type {
-        TriggerType::Word => add_automation_by_trigger(
+        TriggerType::Word => add_automation_by_trigger_and_case(
             &conn,
             &stored_trigger,
             &output,
@@ -74,8 +144,9 @@ pub fn execute_with_trigger_type(
             include_apps.as_deref(),
             exclude_apps.as_deref(),
             tags,
+            auto_case,
         )?,
-        TriggerType::Hotkey => add_automation_by_trigger_type(
+        TriggerType::Hotkey => add_automation_by_trigger_type_and_case(
             &conn,
             TriggerType::Hotkey,
             &stored_trigger,
@@ -84,8 +155,9 @@ pub fn execute_with_trigger_type(
             include_apps.as_deref(),
             exclude_apps.as_deref(),
             tags,
+            auto_case,
         )?,
-        TriggerType::Regex => add_automation_by_trigger_type(
+        TriggerType::Regex => add_automation_by_trigger_type_and_case(
             &conn,
             TriggerType::Regex,
             &stored_trigger,
@@ -94,6 +166,7 @@ pub fn execute_with_trigger_type(
             include_apps.as_deref(),
             exclude_apps.as_deref(),
             tags,
+            auto_case,
         )?,
     };
 

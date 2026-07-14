@@ -36,6 +36,7 @@ pub fn get_syncable_automations(conn: &Connection) -> Result<Vec<AutomationRow>>
             a.is_deleted,
             a.is_synced,
             a.is_enabled,
+            a.auto_case,
             s.interpreter,
             s.behavior,
             s.compressed_content
@@ -46,8 +47,8 @@ pub fn get_syncable_automations(conn: &Connection) -> Result<Vec<AutomationRow>>
     )?;
 
     let rows = stmt.query_map([], |row| {
-        let interpreter_str: Option<String> = row.get(19)?;
-        let behavior_str: Option<String> = row.get(20)?;
+        let interpreter_str: Option<String> = row.get(20)?;
+        let behavior_str: Option<String> = row.get(21)?;
 
         let interpreter = interpreter_str
             .and_then(|s| serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s)).ok());
@@ -74,9 +75,10 @@ pub fn get_syncable_automations(conn: &Connection) -> Result<Vec<AutomationRow>>
             is_deleted: row.get(16)?,
             is_synced: row.get(17)?,
             is_enabled: row.get(18)?,
+            auto_case: row.get(19)?,
             interpreter,
             behavior,
-            script_binary: row.get(21)?,
+            script_binary: row.get(22)?,
         })
     })?;
 
