@@ -13,6 +13,15 @@ impl ClipboardManager for Clipboard {
     fn set_text(&mut self, text: &str) -> Result<(), String> {
         Clipboard::set_text(self, text).map_err(|e| e.to_string())
     }
+
+    fn set_image(&mut self, rgba: &[u8], width: u32, height: u32) -> Result<(), String> {
+        let img_data = arboard::ImageData {
+            width: width as usize,
+            height: height as usize,
+            bytes: std::borrow::Cow::Borrowed(rgba),
+        };
+        self.set_image(img_data).map_err(|e| e.to_string())
+    }
 }
 
 /// Reads the user's current clipboard, writes `payload`, waits, then verifies the clipboard

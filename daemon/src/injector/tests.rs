@@ -66,6 +66,11 @@ impl crate::platform::ClipboardManager for MockClipboard {
         self.text = text.to_string();
         Ok(())
     }
+
+    fn set_image(&mut self, _rgba: &[u8], _width: u32, _height: u32) -> Result<(), String> {
+        self.ops.push("set_image");
+        Ok(())
+    }
 }
 
 fn assert_normal_expansion_still_works() {

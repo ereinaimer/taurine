@@ -139,6 +139,49 @@ pub fn inject_text_segment(
     }
 }
 
+pub fn inject_image_segment(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    original_clipboard: &Option<String>,
+) -> TextSegmentInjection {
+    let delay_ms = taurine_core::settings::get_cached_clipboard_restore_delay();
+    let post_paste_wait = Duration::from_millis(delay_ms as u64);
+
+    let mut clipboard = match crate::platform::get_clipboard_manager() {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Failed to initialize clipboard for image injection: {}", e);
+            return TextSegmentInjection::default();
+        }
+    };
+
+    let orig = if let Some(orig) = original_clipboard {
+        orig.clone()
+    } else {
+        clipboard.get_text().unwrap_or_default()
+    };
+
+    if let Err(e) = clipboard.set_image(rgba, width, height) {
+        error!("Failed to set clipboard image: {}", e);
+        return TextSegmentInjection {
+            original_clipboard: Some(orig),
+            injected_chars: 0,
+            success: false,
+        };
+    }
+
+    thread::sleep(Duration::from_millis(50));
+    crate::platform::get_injector().simulate_paste();
+    thread::sleep(post_paste_wait);
+
+    TextSegmentInjection {
+        original_clipboard: Some(orig),
+        injected_chars: 1,
+        success: true,
+    }
+}
+
 pub fn inject_undo(trigger_string: String, output_length: usize) {
     let _state_guard = InjectionFlagGuard::begin();
     let _inject_guard = inject_mutex().lock().expect("inject mutex poisoned");
@@ -283,6 +326,22 @@ pub fn inject_expansion(
                 }
                 if !injection.success && original_clipboard.is_none() {
                     // First text segment failed entirely — abort.
+                    report.completed = false;
+                    break;
+                }
+                if !injection.success {
+                    report.completed = false;
+                }
+            }
+            ExpansionStep::Image(rgba, w, h) => {
+                let injection = inject_image_segment(rgba, *w, *h, &original_clipboard);
+                report.successful_chars = report
+                    .successful_chars
+                    .saturating_add(injection.injected_chars);
+                if original_clipboard.is_none() {
+                    original_clipboard = injection.original_clipboard;
+                }
+                if !injection.success && original_clipboard.is_none() {
                     report.completed = false;
                     break;
                 }

@@ -95,6 +95,13 @@ pub fn decompress(compressed: &[u8]) -> crate::Result<String> {
     })
 }
 
+/// Decompresses binary asset content back into a raw byte vector.
+pub fn decompress_bytes(compressed: &[u8]) -> crate::Result<Vec<u8>> {
+    const MAX_ASSET_SIZE: usize = 16 * 1024 * 1024; // 16MB limit for assets
+    zstd::bulk::decompress(compressed, MAX_ASSET_SIZE)
+        .map_err(|e| crate::Error::Service(format!("zstd decompression failed: {}", e)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

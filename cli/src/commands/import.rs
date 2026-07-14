@@ -261,6 +261,7 @@ mod tests {
             usage_count: None,
             last_used_at: None,
             script: None,
+            assets: Vec::new(),
         }
     }
 

@@ -83,7 +83,7 @@ fn scan_parenthesized(input: &str) -> Result<(String, &str), FileParseError> {
     Err(FileParseError::UnbalancedParentheses)
 }
 
-fn expand_path(path_str: &str) -> Option<PathBuf> {
+pub(crate) fn expand_path(path_str: &str) -> Option<PathBuf> {
     if let Some(rest) = path_str.strip_prefix("~/") {
         UserDirs::new()
             .map(|d| d.home_dir().to_path_buf())

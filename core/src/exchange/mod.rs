@@ -78,6 +78,15 @@ pub struct AutomationExport {
     pub last_used_at: Option<i64>,
     #[serde(default)]
     pub script: Option<ScriptExport>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub assets: Vec<AssetExport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AssetExport {
+    pub id: String,
+    pub mime_type: String,
+    pub compressed_content_hex: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -352,6 +361,7 @@ mod tests {
             usage_count: None,
             last_used_at: None,
             script: None,
+            assets: Vec::new(),
         }]);
 
         let encoded = encode_plaintext_payload(&payload).unwrap();
@@ -412,6 +422,7 @@ mod tests {
             usage_count: None,
             last_used_at: None,
             script: None,
+            assets: Vec::new(),
         }]);
         assert!(payload_contains_run_variables(&payload));
 
@@ -602,5 +613,88 @@ mod tests {
         .unwrap_err();
 
         assert!(err.to_string().contains("gesture"));
+    }
+
+    #[test]
+    fn export_and_import_with_assets_round_trips() {
+        init_tracing_for_tests();
+        let (dir, mut conn) = open_test_db();
+
+        const TINY_PNG: &[u8] = &[
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
+            0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78,
+            0x9C, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+            0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ];
+        let img_path = dir.path().join("logo.png");
+        std::fs::write(&img_path, TINY_PNG).unwrap();
+
+        let script_path = dir.path().join("script.sh");
+        std::fs::write(&script_path, "echo Hello from Script!").unwrap();
+
+        let trigger = "asset_test";
+        let output = format!(
+            "Img: [img({})] Script: [exec.bash.file({})]",
+            img_path.to_string_lossy(),
+            script_path.to_string_lossy()
+        );
+
+        upsert_automation_with_trigger_type(
+            &conn,
+            "uuid-asset-test",
+            "Asset Test",
+            Some("Testing img and script file compilation"),
+            TriggerType::Word,
+            trigger,
+            &output,
+            "text",
+            "all",
+            "[]",
+            0,
+            None,
+        )
+        .unwrap();
+
+        let assets_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM assets", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(assets_count, 2);
+
+        let rewritten_output: String = conn
+            .query_row(
+                "SELECT output FROM automations WHERE id = 'uuid-asset-test'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(rewritten_output.contains("[img(asset("));
+        assert!(rewritten_output.contains("file(asset("));
+
+        let payload = export_automations(&conn, ExportOptions::default()).unwrap();
+        assert_eq!(payload.automations.len(), 1);
+        assert_eq!(payload.automations[0].assets.len(), 2);
+
+        conn.execute("DELETE FROM assets", []).unwrap();
+        conn.execute("DELETE FROM automations", []).unwrap();
+
+        let tx = conn.transaction().unwrap();
+        let imported = import_automations(&tx, &payload, ImportOptions::default(), |_, _| {
+            Ok(ImportConflictAction::Overwrite)
+        })
+        .unwrap();
+        tx.commit().unwrap();
+        assert_eq!(imported, 1);
+
+        let restored_assets_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM assets", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(restored_assets_count, 2);
+
+        let restored_output: String = conn
+            .query_row("SELECT output FROM automations", [], |row| row.get(0))
+            .unwrap();
+        assert!(restored_output.contains("[img(asset("));
+        assert!(restored_output.contains("file(asset("));
     }
 }

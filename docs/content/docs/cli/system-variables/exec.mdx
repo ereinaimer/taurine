@@ -60,8 +60,14 @@ Use the `.file(...)` variant to run an external script from disk instead of an i
 [exec.bash.file(/absolute/path/to/script.sh)]
 ```
 
-<Callout title="File Not Found" type="warn">
-  If the path does not exist at expansion time, Taurine injects an inline error instead of failing silently: `[Error: path to script not found!]`
+### Compiled Script Portability
+
+When you create or update an automation containing a script file variable, Taurine reads the script from disk, compresses it using ZStandard, and packs it into the database as a compiled asset. The template is updated to point to the asset hash.
+
+At expansion time, Taurine loads the script content directly from the database and executes it. This means your script automations are completely self-contained and portable—they will continue to function even if you delete, move, or modify the original script file on disk.
+
+<Callout title="File Not Found on Creation" type="warn">
+  If the script file path does not exist on disk at the time you add or update the automation, Taurine will return an error and block creation.
 </Callout>
 
 ### Passing Arguments to a File

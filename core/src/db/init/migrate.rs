@@ -105,6 +105,15 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     FOREIGN KEY(automation_id) REFERENCES automations(id) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS assets (
+                    id                 TEXT    PRIMARY KEY,
+                    automation_id      TEXT    NOT NULL,
+                    mime_type          TEXT    NOT NULL,
+                    compressed_content BLOB    NOT NULL,
+                    updated_at         INTEGER NOT NULL,
+                    FOREIGN KEY(automation_id) REFERENCES automations(id) ON DELETE CASCADE
+                );
+
                 -- Partial index: hot-path word-trigger lookup, tombstoned rows excluded.
                 CREATE INDEX IF NOT EXISTS idx_active_triggers
                     ON automations(trigger_type, trigger)

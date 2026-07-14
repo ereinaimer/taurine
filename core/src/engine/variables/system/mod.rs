@@ -4,12 +4,12 @@
 //! and future variables like `[time]`.
 
 pub mod clip;
-
 pub mod date;
 pub mod env;
 pub mod exec;
 pub mod file;
 pub mod http;
+pub mod img;
 pub mod lorem;
 pub mod mock;
 pub mod net;
@@ -49,6 +49,7 @@ pub fn is_reserved(key: &str) -> bool {
         || key.starts_with("net.")
         || key.starts_with("http.")
         || key.starts_with("exec.")
+        || key.starts_with("img(")
         || key.starts_with("random.")
         || key.starts_with("lorem.")
         || key.starts_with("mock.")
@@ -425,6 +426,9 @@ fn split_into_steps(text: &str) -> Vec<ExpansionStep> {
             flush_text(&mut steps, &mut current_text);
             steps.push(ExpansionStep::Delay(ms));
         } else if let Some(step) = parse_mouse_directive(inner) {
+            flush_text(&mut steps, &mut current_text);
+            steps.push(step);
+        } else if let Some(step) = img::parse_img_directive(inner) {
             flush_text(&mut steps, &mut current_text);
             steps.push(step);
         } else {

@@ -64,4 +64,15 @@ impl ClipboardManager for LinuxClipboard {
     fn set_text(&mut self, text: &str) -> Result<(), String> {
         with_clipboard(|clip| clip.set_text(text.to_owned()).map_err(|e| e.to_string()))
     }
+
+    fn set_image(&mut self, rgba: &[u8], width: u32, height: u32) -> Result<(), String> {
+        with_clipboard(|clip| {
+            let img_data = arboard::ImageData {
+                width: width as usize,
+                height: height as usize,
+                bytes: std::borrow::Cow::Borrowed(rgba),
+            };
+            clip.set_image(img_data).map_err(|e| e.to_string())
+        })
+    }
 }

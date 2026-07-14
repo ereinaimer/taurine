@@ -106,10 +106,43 @@ pub fn resolve(key: &str) -> Option<String> {
 }
 
 pub(crate) fn to_script_metadata(key: &str) -> Result<ScriptMetadata, String> {
-    let invocation = parse_invocation(key).map_err(|_| "invalid exec syntax".to_string())?;
+    let mut invocation = parse_invocation(key).map_err(|_| "invalid exec syntax".to_string())?;
 
-    if invocation.file && !Path::new(invocation.subject.trim()).exists() {
-        return Err(SCRIPT_NOT_FOUND.to_string());
+    if invocation.file {
+        let subject = invocation.subject.trim();
+        if subject.starts_with("asset(") && subject.ends_with(')') {
+            let hash = subject[6..subject.len() - 1].trim();
+
+            let conn = crate::db::get_conn().map_err(|e| e.to_string())?;
+            let (mime_type, compressed): (String, Vec<u8>) = conn
+                .query_row(
+                    "SELECT mime_type, compressed_content FROM assets WHERE id = ?1",
+                    [hash],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .map_err(|e| format!("Asset not found in database: {}", e))?;
+
+            let decompressed = crate::engine::shell::decompress_bytes(&compressed)
+                .map_err(|e| format!("Failed to decompress script asset: {}", e))?;
+
+            let ext = match mime_type.as_str() {
+                "text/x-shellscript" => "sh",
+                "text/x-python" => "py",
+                "text/javascript" => "js",
+                "text/x-powershell" => "ps1",
+                _ => "tmp",
+            };
+
+            let temp_path = std::env::temp_dir().join(format!("tau_asset_{}.{}", hash, ext));
+            if !temp_path.exists() {
+                std::fs::write(&temp_path, decompressed)
+                    .map_err(|e| format!("Failed to write temp script: {}", e))?;
+            }
+
+            invocation.subject = temp_path.to_string_lossy().to_string();
+        } else if !Path::new(subject).exists() {
+            return Err(SCRIPT_NOT_FOUND.to_string());
+        }
     }
 
     let content = invocation_script_content(&invocation);

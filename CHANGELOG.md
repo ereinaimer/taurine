@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Image & Script Assets**: Support cross-platform image expansion and compiled, portable script file assets packed into the database.
 - **Regex Triggers**: Support pattern-based triggers with positional capture group interpolation.
 - **Tagging Support**: Add CLI options to categorize snippets and filter/delete automations by tag.
 

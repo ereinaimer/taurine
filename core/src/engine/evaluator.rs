@@ -192,8 +192,10 @@ impl Evaluator {
                 | ExpansionStep::MouseScroll(_)
                 | ExpansionStep::MouseHold
                 | ExpansionStep::MouseRelease => return false,
-                // Shell/script side effects are not reversible through text deletion alone.
-                ExpansionStep::Script(_) | ExpansionStep::InlineRun(_, _) => return false,
+                // Shell/script/image side effects are not reversible through text deletion alone.
+                ExpansionStep::Script(_)
+                | ExpansionStep::InlineRun(_, _)
+                | ExpansionStep::Image(_, _, _) => return false,
             }
         }
 

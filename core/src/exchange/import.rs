@@ -161,6 +161,23 @@ fn insert_imported_automation(
         upsert_script(tx, &id, script.interpreter, script.behavior, &compressed)?;
     }
 
+    let now = crate::db::now_unix_secs();
+    for asset in &automation.assets {
+        let compressed = hex::decode(&asset.compressed_content_hex)
+            .map_err(|e| crate::Error::Config(format!("Failed to decode asset hex: {}", e)))?;
+        tx.execute(
+            "INSERT OR REPLACE INTO assets (id, automation_id, mime_type, compressed_content, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            (
+                &asset.id,
+                &id,
+                &asset.mime_type,
+                &compressed,
+                now,
+            ),
+        )?;
+    }
+
     Ok(())
 }
 
@@ -409,6 +426,7 @@ mod tests {
             usage_count: None,
             last_used_at: None,
             script: None,
+            assets: Vec::new(),
         }
     }
 
@@ -622,6 +640,7 @@ mod tests {
                 behavior: ScriptBehavior::Inline,
                 content: "echo ok".to_string(),
             }),
+            assets: Vec::new(),
         };
         let invalid_script = AutomationExport {
             name: "Broken Script".to_string(),
@@ -636,6 +655,7 @@ mod tests {
             usage_count: None,
             last_used_at: None,
             script: None,
+            assets: Vec::new(),
         };
 
         let payload = ExchangePayload::new(vec![valid_script, invalid_script]);

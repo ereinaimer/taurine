@@ -53,6 +53,7 @@ ureq = { version = "2.9", features = ["tls", "json"] }
 scraper = "0.27"
 serde_yml = { package = "yaml_serde", version = "0.10" }
 toml = "1.1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
 [build-dependencies]
 tonic-prost-build = "0.14"

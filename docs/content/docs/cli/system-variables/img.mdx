@@ -1,0 +1,55 @@
+---
+title: Image System
+description: Inject images directly into your automation templates.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+The `[img(path)]` system variable allows you to seamlessly read images from local files and expand/inject them directly into any text field via clipboard paste. This is highly useful for automated email signatures with logos, inserting rich assets, or pasting custom illustrations.
+
+---
+
+## Syntax
+
+```text
+[img(path)]
+```
+
+When an automation is created or updated, Taurine automatically reads the image from the specified local path, compresses it using ZStandard, and stores it in the internal database as a compiled asset. At expansion time, the asset is loaded from the database, decoded, and injected into the active application.
+
+This design ensures the automation remains fully functional even if the original image file is deleted, modified, or moved from its original path.
+
+---
+
+## Path Resolution
+
+When specifying image paths, you can use the `~` symbol. Taurine will automatically expand `~` to your native OS home directory. 
+
+For example, `~/Pictures/logo.png` will safely resolve to `C:\Users\Username\Pictures\logo.png` on Windows, or `/Users/Username/Pictures/logo.png` on macOS.
+
+---
+
+## Technical Constraints
+
+<Callout type="warn" title="Size Limit">
+  To prevent memory exhaustion and maintain zero-latency execution, **compiled image assets are strictly limited to 16MB.**
+</Callout>
+
+Taurine currently supports decoding standard **PNG** and **JPEG** image formats. If a file cannot be found, has an unsupported format, or exceeds the size limit, Taurine will inject an inline error rather than failing silently.
+
+For example, if the image is missing, the engine will expand to `[Error: File does not exist: <path>]` directly in your text field.
+
+---
+
+## Examples
+
+### Signature with a Logo
+You can store your email signature layout with a logo image and expand it effortlessly.
+
+```text
+Best regards,
+
+John Doe
+Senior Engineer | Taurine Inc.
+[img(~/Pictures/signature-logo.png)]
+```

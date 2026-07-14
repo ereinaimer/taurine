@@ -19,6 +19,7 @@ pub struct ExportOptions {
 }
 
 struct RawAutomationExport {
+    id: String,
     name: String,
     description: Option<String>,
     trigger_type: TriggerType,
@@ -41,6 +42,7 @@ pub fn export_automations(
 ) -> crate::Result<ExchangePayload> {
     let mut stmt = conn.prepare_cached(
         "SELECT
+            a.id,
             a.name,
             a.description,
             a.trigger_type,
@@ -63,28 +65,29 @@ pub fn export_automations(
 
     let rows = stmt.query_map([], |row| {
         Ok(RawAutomationExport {
-            name: row.get(0)?,
-            description: row.get(1)?,
-            trigger_type: TriggerType::parse_db(&row.get::<_, String>(2)?).map_err(|err| {
-                rusqlite::Error::FromSqlConversionFailure(2, Type::Text, Box::new(err))
+            id: row.get(0)?,
+            name: row.get(1)?,
+            description: row.get(2)?,
+            trigger_type: TriggerType::parse_db(&row.get::<_, String>(3)?).map_err(|err| {
+                rusqlite::Error::FromSqlConversionFailure(3, Type::Text, Box::new(err))
             })?,
-            trigger: row.get(3)?,
-            output: row.get(4)?,
-            action_type: row.get(5)?,
-            is_enabled: row.get(6)?,
-            target_os: row.get(7)?,
-            tags: row.get(8)?,
-            usage_count: row.get(9)?,
-            last_used_at: row.get(10)?,
-            interpreter: row.get(11)?,
-            behavior: row.get(12)?,
-            script_binary: row.get(13)?,
+            trigger: row.get(4)?,
+            output: row.get(5)?,
+            action_type: row.get(6)?,
+            is_enabled: row.get(7)?,
+            target_os: row.get(8)?,
+            tags: row.get(9)?,
+            usage_count: row.get(10)?,
+            last_used_at: row.get(11)?,
+            interpreter: row.get(12)?,
+            behavior: row.get(13)?,
+            script_binary: row.get(14)?,
         })
     })?;
 
     let mut automations = Vec::new();
     for row in rows {
-        automations.push(to_automation_export(row?, options)?);
+        automations.push(to_automation_export(conn, row?, options)?);
     }
 
     let settings = if options.include_settings {
@@ -153,6 +156,7 @@ pub fn encode_exchange_blob(
 }
 
 fn to_automation_export(
+    conn: &Connection,
     row: RawAutomationExport,
     options: ExportOptions,
 ) -> crate::Result<AutomationExport> {
@@ -188,6 +192,25 @@ fn to_automation_export(
         None
     };
 
+    let mut asset_stmt = conn.prepare_cached(
+        "SELECT id, mime_type, compressed_content FROM assets WHERE automation_id = ?1",
+    )?;
+    let asset_rows = asset_stmt.query_map([&row.id], |r| {
+        let id: String = r.get(0)?;
+        let mime_type: String = r.get(1)?;
+        let compressed: Vec<u8> = r.get(2)?;
+        Ok(super::AssetExport {
+            id,
+            mime_type,
+            compressed_content_hex: hex::encode(compressed),
+        })
+    })?;
+
+    let mut assets = Vec::new();
+    for asset in asset_rows {
+        assets.push(asset?);
+    }
+
     Ok(AutomationExport {
         name: row.name,
         description: row.description,
@@ -205,6 +228,7 @@ fn to_automation_export(
             None
         },
         script,
+        assets,
     })
 }
 

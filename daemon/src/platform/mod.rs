@@ -25,6 +25,7 @@ pub enum MouseButton {
 pub trait ClipboardManager {
     fn get_text(&mut self) -> Result<String, String>;
     fn set_text(&mut self, text: &str) -> Result<(), String>;
+    fn set_image(&mut self, rgba: &[u8], width: u32, height: u32) -> Result<(), String>;
 }
 
 pub trait InputHook {

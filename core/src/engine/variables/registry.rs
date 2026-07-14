@@ -19,7 +19,7 @@ pub enum ValidationError {
 
 const SYSTEM_ROOTS: &[&str] = &[
     "cursor", "clip", "time", "date", "uuid", "env", "net", "exec", "random", "key", "delay",
-    "lorem", "mock", "file", "use", "http", "mouse",
+    "lorem", "mock", "file", "use", "http", "mouse", "img",
 ];
 
 const TIME_METHODS: &[&str] = &["utc", "calc(±...)", "format(...)"];
@@ -136,6 +136,11 @@ pub fn split_system_tag(key: &str) -> Option<(&str, Option<&str>)> {
     {
         return Some(("use", Some(inner)));
     }
+    if let Some(rest) = base.strip_prefix("img(")
+        && let Some(inner) = rest.strip_suffix(')')
+    {
+        return Some(("img", Some(inner)));
+    }
 
     let (root, modifier) = match base.split_once('.') {
         Some((root, modifier)) => (root, Some(modifier.trim()).filter(|m| !m.is_empty())),
@@ -191,8 +196,17 @@ pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), Val
         "use" => validate_use_modifier(modifier),
         "http" => validate_http_modifier(modifier),
         "mouse" => validate_mouse_modifier(modifier),
+        "img" => validate_img_modifier(modifier),
         _ => Err(ValidationError::UnknownRoot(root.to_string())),
     }
+}
+
+fn validate_img_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
+    let raw = modifier.unwrap_or_default().trim();
+    if raw.is_empty() {
+        return Err(ValidationError::MissingModifier { root: "img" });
+    }
+    Ok(())
 }
 
 fn validate_no_modifier(root: &'static str, modifier: Option<&str>) -> Result<(), ValidationError> {
@@ -1038,6 +1052,42 @@ mod tests {
         assert_eq!(
             validate_system_tag("timezone", Some("utc")),
             Err(ValidationError::UnknownRoot("timezone".to_string()))
+        );
+    }
+
+    #[test]
+    fn validates_img_modifier_accepts_any_nonempty_path() {
+        // Any non-empty string is accepted; format validation happens at compile time when the
+        // file is read, not during static template validation.
+        assert_eq!(
+            validate_system_tag("img", Some(r"C:\Users\aimer\Pictures\logo.png")),
+            Ok(())
+        );
+        assert_eq!(
+            validate_system_tag("img", Some("/home/user/logo.png")),
+            Ok(())
+        );
+        // asset references are also valid path strings
+        assert_eq!(validate_system_tag("img", Some("asset(abc123)")), Ok(()));
+        assert_eq!(
+            validate_system_tag("img", None),
+            Err(ValidationError::MissingModifier { root: "img" })
+        );
+    }
+
+    #[test]
+    fn split_system_tag_recognises_img_prefix() {
+        assert_eq!(
+            split_system_tag("img(/path/to/logo.png)"),
+            Some(("img", Some("/path/to/logo.png")))
+        );
+        assert_eq!(
+            split_system_tag(r"img(C:\Users\aimer\Pictures\Screenshots\hi.png)"),
+            Some(("img", Some(r"C:\Users\aimer\Pictures\Screenshots\hi.png")))
+        );
+        assert_eq!(
+            split_system_tag("img(asset(deadbeef))"),
+            Some(("img", Some("asset(deadbeef)")))
         );
     }
 }

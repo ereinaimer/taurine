@@ -2248,6 +2248,8 @@ dependencies = [
  "num-traits",
  "png",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -4930,6 +4932,7 @@ dependencies = [
  "heck",
  "hex",
  "hyper-util",
+ "image",
  "indexmap 2.14.0",
  "keyring",
  "md5",
