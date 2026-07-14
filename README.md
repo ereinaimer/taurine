@@ -117,13 +117,13 @@ Prebuilt binaries are available for Windows, macOS, and Linux. You can download 
 ### Windows (PowerShell)
 
 ```powershell
-irm https://raw.githubusercontent.com/ereinaimer/taurine/main/scripts/install/install.ps1 | iex
+irm https://raw.githubusercontent.com/ereinaimer/taurine/main/install.ps1 | iex
 ```
 
 ### macOS / Linux (Bash)
 
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/ereinaimer/taurine/main/scripts/install/install.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/ereinaimer/taurine/main/install.sh | sh
 ```
 
 After installation, you can use `tau` as a handy alias for `taurine` — try `tau --help`!
