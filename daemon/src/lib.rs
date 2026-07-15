@@ -57,6 +57,10 @@ pub fn start() -> taurine_core::error::Result<()> {
     taurine_core::settings::set_cached_clipboard_history_retention_secs(
         settings.clipboard_history_retention_secs,
     );
+    taurine_core::settings::set_cached_inline_emoji_enabled(settings.inline_emoji_enabled);
+    taurine_core::settings::set_cached_inline_emoji_trigger_char(
+        settings.inline_emoji_trigger_char,
+    );
 
     let trigger_char = settings.trigger_char;
     let state = Arc::new(EngineState::new(trigger_char));

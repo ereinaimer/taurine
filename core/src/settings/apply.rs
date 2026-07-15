@@ -87,6 +87,8 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "clipboard_history_retention_secs" => {
             Ok(Some(defaults.clipboard_history_retention_secs.to_string()))
         }
+        "inline_emoji_enabled" => Ok(Some(defaults.inline_emoji_enabled.to_string())),
+        "inline_emoji_trigger_char" => Ok(Some(defaults.inline_emoji_trigger_char.to_string())),
         _ => Err(Error::Config(format!("Unknown setting key: {actual_key}"))),
     }
 }
@@ -230,6 +232,18 @@ pub fn apply_setting_input_with_manager(
                 actual_key,
                 Settings::sanitize_clipboard_history_retention_secs(parsed),
             )?;
+            ApplySettingOutcome::default()
+        }
+        "inline_emoji_enabled" => {
+            let enabled = parse_boolean_setting_value(require_non_empty(value, actual_key)?)?;
+            crate::settings::set_cached_inline_emoji_enabled(enabled);
+            manager.update_setting(actual_key, enabled)?;
+            ApplySettingOutcome::default()
+        }
+        "inline_emoji_trigger_char" => {
+            let c = parse_char_setting(value, actual_key)?;
+            crate::settings::set_cached_inline_emoji_trigger_char(c);
+            manager.update_setting(actual_key, c)?;
             ApplySettingOutcome::default()
         }
         "rpc_port" => {
@@ -508,5 +522,32 @@ mod tests {
         let token_str = default_val.unwrap();
         assert!(!token_str.is_empty());
         assert!(uuid::Uuid::parse_str(&token_str).is_ok());
+    }
+
+    #[test]
+    fn test_inline_emoji_settings() {
+        let (_dir, conn) = open_test_db();
+        let manager = SettingsManager::new(&conn);
+
+        // Verify default setting input
+        assert_eq!(
+            default_setting_input("inline_emoji_enabled").unwrap(),
+            Some("true".to_string())
+        );
+        assert_eq!(
+            default_setting_input("inline_emoji_trigger_char").unwrap(),
+            Some(":".to_string())
+        );
+
+        // Apply new values
+        apply_setting_input_with_manager(&manager, "inline_emoji_enabled", Some("false")).unwrap();
+        apply_setting_input_with_manager(&manager, "inline_emoji_trigger_char", Some(";")).unwrap();
+
+        let loaded = manager.load_all();
+        assert!(!loaded.inline_emoji_enabled);
+        assert_eq!(loaded.inline_emoji_trigger_char, ';');
+
+        assert!(!crate::settings::get_cached_inline_emoji_enabled());
+        assert_eq!(crate::settings::get_cached_inline_emoji_trigger_char(), ';');
     }
 }

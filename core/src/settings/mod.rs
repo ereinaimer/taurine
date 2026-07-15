@@ -7,6 +7,26 @@ static CACHED_WPM: AtomicU32 = AtomicU32::new(60);
 static CACHED_CLIPBOARD_HISTORY_ENABLED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(true);
 static CACHED_CLIPBOARD_HISTORY_RETENTION_SECS: AtomicU32 = AtomicU32::new(300);
+static CACHED_INLINE_EMOJI_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(true);
+static CACHED_INLINE_EMOJI_TRIGGER_CHAR: AtomicU32 = AtomicU32::new(':' as u32);
+
+pub fn set_cached_inline_emoji_enabled(enabled: bool) {
+    CACHED_INLINE_EMOJI_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub fn set_cached_inline_emoji_trigger_char(c: char) {
+    CACHED_INLINE_EMOJI_TRIGGER_CHAR.store(c as u32, Ordering::Relaxed);
+}
+
+pub fn get_cached_inline_emoji_enabled() -> bool {
+    CACHED_INLINE_EMOJI_ENABLED.load(Ordering::Relaxed)
+}
+
+pub fn get_cached_inline_emoji_trigger_char() -> char {
+    let u = CACHED_INLINE_EMOJI_TRIGGER_CHAR.load(Ordering::Relaxed);
+    std::char::from_u32(u).unwrap_or(':')
+}
 
 pub fn set_cached_script_timeout(timeout: u32) {
     CACHED_SCRIPT_TIMEOUT.store(timeout, Ordering::Relaxed);
@@ -123,6 +143,8 @@ pub struct Settings {
     pub auto_update: bool,
     pub clipboard_history_enabled: bool,
     pub clipboard_history_retention_secs: u32,
+    pub inline_emoji_enabled: bool,
+    pub inline_emoji_trigger_char: char,
 }
 
 impl Settings {
@@ -166,6 +188,8 @@ impl Settings {
             "clipboard_history_retention" | "clipboard_history_retention_secs" => {
                 "clipboard_history_retention_secs"
             }
+            "inline_emoji" | "inline_emoji_enabled" => "inline_emoji_enabled",
+            "inline_emoji_trigger_char" | "emoji_trigger" => "inline_emoji_trigger_char",
             _ => key,
         }
     }
@@ -260,6 +284,8 @@ impl Default for Settings {
             auto_update: true,
             clipboard_history_enabled: true,
             clipboard_history_retention_secs: 300,
+            inline_emoji_enabled: true,
+            inline_emoji_trigger_char: ':',
         }
     }
 }

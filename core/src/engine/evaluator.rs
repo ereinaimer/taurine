@@ -66,6 +66,7 @@ pub struct CompletionRewrite {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct TriggerCompletionState {
     active: bool,
+    is_emoji: bool,
     original_query: String,
     current_text: String,
     suggestions: Vec<String>,
@@ -82,8 +83,9 @@ enum TriggerAssistSelectionMode {
 }
 
 impl TriggerCompletionState {
-    fn activate(&mut self, active_atomic: &std::sync::atomic::AtomicBool) {
+    fn activate(&mut self, active_atomic: &std::sync::atomic::AtomicBool, is_emoji: bool) {
         self.active = true;
+        self.is_emoji = is_emoji;
         active_atomic.store(true, std::sync::atomic::Ordering::Relaxed);
         self.original_query.clear();
         self.current_text.clear();
@@ -96,6 +98,7 @@ impl TriggerCompletionState {
 
     fn deactivate(&mut self, active_atomic: &std::sync::atomic::AtomicBool) {
         self.active = false;
+        self.is_emoji = false;
         active_atomic.store(false, std::sync::atomic::Ordering::Relaxed);
         self.original_query.clear();
         self.current_text.clear();
@@ -209,11 +212,15 @@ impl Evaluator {
     }
 
     pub fn is_completion_active(&self) -> bool {
-        self.completion.active
-            && self
-                .buffer
-                .extract_trigger_word(self.trigger_prefix())
-                .is_some()
+        if !self.completion.active {
+            return false;
+        }
+        let active_trigger = if self.completion.is_emoji {
+            self.state.inline_emoji_trigger_char()
+        } else {
+            self.trigger_prefix()
+        };
+        self.buffer.extract_trigger_word(active_trigger).is_some()
     }
 
     pub fn cancel_completion(&mut self) {
@@ -248,10 +255,37 @@ impl Evaluator {
         self.rewrite_selected_query(true)
     }
 
+    fn is_word_boundary(&self) -> bool {
+        let buf = self.buffer.buffer_string();
+        let chars: Vec<char> = buf.chars().collect();
+        if chars.len() < 2 {
+            return true;
+        }
+        let prev = chars[chars.len() - 2];
+        prev.is_whitespace()
+    }
+
     fn update_completion_after_char(&mut self, c: char) {
         let trigger_char = self.trigger_prefix();
+        let emoji_trigger = self.state.inline_emoji_trigger_char();
+        let emoji_enabled = self.state.inline_emoji_enabled();
+
+        if emoji_enabled && c == emoji_trigger && !self.completion.active && self.is_word_boundary()
+        {
+            if emoji_trigger == trigger_char {
+                self.completion
+                    .activate(&self.state.completion_active, false);
+            } else {
+                self.completion
+                    .activate(&self.state.completion_active, true);
+            }
+            self.rebuild_history_items("");
+            return;
+        }
+
         if c == trigger_char && !self.completion.active {
-            self.completion.activate(&self.state.completion_active);
+            self.completion
+                .activate(&self.state.completion_active, false);
             self.rebuild_history_items("");
             return;
         }
@@ -270,17 +304,39 @@ impl Evaluator {
             return;
         }
 
-        let trigger_char = self.trigger_prefix();
-        let Some(query) = self.buffer.extract_trigger_word(trigger_char) else {
+        let active_trigger = if self.completion.is_emoji {
+            self.state.inline_emoji_trigger_char()
+        } else {
+            self.trigger_prefix()
+        };
+        let Some(query) = self.buffer.extract_trigger_word(active_trigger) else {
             self.completion.deactivate(&self.state.completion_active);
             return;
         };
+
+        if self.completion.is_emoji {
+            // Check for invalid characters in emoji shortcode
+            if query.chars().any(|ch| !ch.is_alphanumeric() && ch != '-') {
+                self.completion.deactivate(&self.state.completion_active);
+                return;
+            }
+        }
 
         self.apply_user_query(query);
     }
 
     fn apply_user_query(&mut self, query: String) {
-        self.completion.current_text = query.clone();
+        if self.completion.is_emoji {
+            let emoji_trigger = self.state.inline_emoji_trigger_char();
+            let query_with_trigger = if query.starts_with(emoji_trigger) {
+                query.clone()
+            } else {
+                format!("{}{}", emoji_trigger, query)
+            };
+            self.completion.current_text = query_with_trigger;
+        } else {
+            self.completion.current_text = query.clone();
+        }
         self.completion.original_query = query.clone();
         self.completion.clear_selection();
         self.rebuild_completion_suggestions(&query);
@@ -326,11 +382,24 @@ impl Evaluator {
             return;
         }
 
-        self.completion.suggestions = self.state.matching_word_triggers(query);
+        if self.completion.is_emoji {
+            let emoji_trigger = self.state.inline_emoji_trigger_char();
+            let clean_query = query.strip_prefix(emoji_trigger).unwrap_or(query);
+            let raw_suggestions = crate::engine::emoji::search_emoji_shortcodes(clean_query);
+            self.completion.suggestions = raw_suggestions
+                .into_iter()
+                .map(|s| format!("{}{}", emoji_trigger, s))
+                .collect();
+        } else {
+            self.completion.suggestions = self.state.matching_word_triggers(query);
+        }
     }
 
     fn rebuild_history_items(&mut self, query: &str) {
-        if !self.completion.active || !self.state.inline_history_enabled() {
+        if !self.completion.active
+            || !self.state.inline_history_enabled()
+            || self.completion.is_emoji
+        {
             self.completion.history_items.clear();
             return;
         }
@@ -354,11 +423,13 @@ impl Evaluator {
     }
 
     fn rewrite_selected_query(&mut self, word: bool) -> Option<CompletionRewrite> {
-        if self
-            .buffer
-            .extract_trigger_word(self.trigger_prefix())
-            .is_none()
-        {
+        let active_trigger = if self.completion.is_emoji {
+            self.state.inline_emoji_trigger_char()
+        } else {
+            self.trigger_prefix()
+        };
+
+        if self.buffer.extract_trigger_word(active_trigger).is_none() {
             self.completion.deactivate(&self.state.completion_active);
             return None;
         }
@@ -390,11 +461,13 @@ impl Evaluator {
             return None;
         }
 
-        if self
-            .buffer
-            .extract_trigger_word(self.trigger_prefix())
-            .is_none()
-        {
+        let active_trigger = if self.completion.is_emoji {
+            self.state.inline_emoji_trigger_char()
+        } else {
+            self.trigger_prefix()
+        };
+
+        if self.buffer.extract_trigger_word(active_trigger).is_none() {
             self.completion.deactivate(&self.state.completion_active);
             return None;
         }
@@ -405,7 +478,21 @@ impl Evaluator {
 
         self.reset_history_selection_for_completion_lookup();
         let base_query = self.lookup_query().to_string();
-        let suggestions = self.state.matching_word_triggers(&base_query);
+
+        let suggestions = if self.completion.is_emoji {
+            let emoji_trigger = self.state.inline_emoji_trigger_char();
+            let clean_query = base_query
+                .strip_prefix(emoji_trigger)
+                .unwrap_or(&base_query);
+            let raw_suggestions = crate::engine::emoji::search_emoji_shortcodes(clean_query);
+            raw_suggestions
+                .into_iter()
+                .map(|s| format!("{}{}", emoji_trigger, s))
+                .collect()
+        } else {
+            self.state.matching_word_triggers(&base_query)
+        };
+
         if suggestions.is_empty() {
             self.completion.suggestions.clear();
             self.completion.selected_index = None;
@@ -432,6 +519,10 @@ impl Evaluator {
     }
 
     fn navigate_history(&mut self, older: bool) -> Option<CompletionRewrite> {
+        if self.completion.is_emoji {
+            return None;
+        }
+
         if !self.state.inline_history_enabled() {
             self.completion.history_items.clear();
             self.completion.history_index = None;
@@ -505,6 +596,8 @@ impl Evaluator {
         active_window: Option<&str>,
     ) -> Option<ExpansionResult> {
         let trigger_char = self.trigger_prefix();
+        let emoji_trigger = self.state.inline_emoji_trigger_char();
+        let emoji_enabled = self.state.inline_emoji_enabled();
 
         if let Some(keyword) = self.buffer.extract_trigger_word(trigger_char)
             && let Some(expansion) = self.state.fetch_expansion(&keyword, active_window)
@@ -538,6 +631,24 @@ impl Evaluator {
                 undo_trigger,
                 is_calculation: expansion.is_calculation,
                 metric_kind,
+                track_usage: true,
+                follow_up: None,
+            });
+        }
+
+        if emoji_enabled
+            && let Some(word) = self.buffer.extract_trigger_word(emoji_trigger)
+            && let Some(emoji_char) = crate::engine::emoji::lookup_emoji(&word)
+        {
+            let delete_count = 1 + word.chars().count();
+            self.buffer.clear();
+            return Some(ExpansionResult {
+                delete_count,
+                steps: vec![ExpansionStep::Text(emoji_char)],
+                trigger: word.clone(),
+                undo_trigger: Some(format!("{}{}", emoji_trigger, word)),
+                is_calculation: false,
+                metric_kind: AutomationMetricKind::Snippet,
                 track_usage: true,
                 follow_up: None,
             });
@@ -3002,5 +3113,93 @@ mod tests {
         let res = result.unwrap();
         assert_eq!(res.delete_count, 8); // 'issue-42' length
         assert_eq!(res.undo_trigger.as_deref(), Some("issue-42"));
+    }
+
+    #[test]
+    fn test_emoji_word_boundary_activation() {
+        let state = Arc::new(EngineState::new('>'));
+        crate::settings::set_cached_inline_emoji_enabled(true);
+        crate::settings::set_cached_inline_emoji_trigger_char(':');
+        let mut eval = Evaluator::new(state);
+
+        // Typing colon at start of buffer should activate completion
+        assert_eq!(eval.process(EngineEvent::Char(':')), None);
+        assert!(eval.is_completion_active());
+        assert!(eval.completion.is_emoji);
+
+        // Reset
+        eval.cancel_completion();
+        eval.buffer.clear();
+
+        // Typing colon after a non-whitespace char should NOT activate
+        eval.buffer.push('a');
+        assert_eq!(eval.process(EngineEvent::Char(':')), None);
+        assert!(!eval.is_completion_active());
+    }
+
+    #[test]
+    fn test_emoji_expansion_on_action_delimiter() {
+        let state = Arc::new(EngineState::new('>'));
+        crate::settings::set_cached_inline_emoji_enabled(true);
+        crate::settings::set_cached_inline_emoji_trigger_char(':');
+        let mut eval = Evaluator::new(state);
+
+        for c in ":rocket".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res = eval.process(EngineEvent::ActionDelimiter);
+        assert!(res.is_some());
+        let exp = res.unwrap();
+        assert_eq!(exp.steps, vec![ExpansionStep::Text("🚀".to_string())]);
+        assert_eq!(exp.delete_count, 7);
+    }
+
+    #[test]
+    fn test_emoji_tab_completion_cycles_labels() {
+        let state = Arc::new(EngineState::new('>'));
+        crate::settings::set_cached_inline_emoji_enabled(true);
+        crate::settings::set_cached_inline_emoji_trigger_char(':');
+        let mut eval = Evaluator::new(state);
+
+        for c in ":rocke".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+
+        // Cycling next should replace with `:rocket` (the label, not the emoji)
+        assert_completion_rewrite(eval.cycle_completion_next(), 6, ":rocket");
+        assert_eq!(eval.completion.current_text, ":rocket");
+
+        // Finally, pressing space/action delimiter expands
+        let res = eval.process(EngineEvent::ActionDelimiter);
+        assert!(res.is_some());
+        assert_eq!(
+            res.unwrap().steps,
+            vec![ExpansionStep::Text("🚀".to_string())]
+        );
+    }
+
+    #[test]
+    fn test_snippet_precedence_when_triggers_match() {
+        let state = Arc::new(EngineState::new(':'));
+        crate::settings::set_cached_inline_emoji_enabled(true);
+        crate::settings::set_cached_inline_emoji_trigger_char(':');
+        state.load_actions(vec![(
+            "rocket".to_string(),
+            crate::db::crud::AutomationAction::text("snippet_won"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ":rocket".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+
+        // ActionDelimiter should expand snippet instead of emoji rocket 🚀
+        let res = eval.process(EngineEvent::ActionDelimiter);
+        assert!(res.is_some());
+        let exp = res.unwrap();
+        assert_eq!(
+            exp.steps,
+            vec![ExpansionStep::Text("snippet_won".to_string())]
+        );
     }
 }

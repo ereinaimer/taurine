@@ -41,10 +41,12 @@ pub(crate) enum SettingKey {
     AiSystemPrompt,
     ClipboardHistoryEnabled,
     ClipboardHistoryRetentionSecs,
+    InlineEmojiEnabled,
+    InlineEmojiTriggerChar,
 }
 
 impl SettingKey {
-    pub(crate) const ALL: [Self; 32] = [
+    pub(crate) const ALL: [Self; 34] = [
         Self::TriggerChar,
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
@@ -77,6 +79,8 @@ impl SettingKey {
         Self::AiSystemPrompt,
         Self::ClipboardHistoryEnabled,
         Self::ClipboardHistoryRetentionSecs,
+        Self::InlineEmojiEnabled,
+        Self::InlineEmojiTriggerChar,
     ];
 
     pub(crate) const fn storage_key(self) -> &'static str {
@@ -113,6 +117,8 @@ impl SettingKey {
             Self::AiSystemPrompt => "ai_system_prompt",
             Self::ClipboardHistoryEnabled => "clipboard_history_enabled",
             Self::ClipboardHistoryRetentionSecs => "clipboard_history_retention_secs",
+            Self::InlineEmojiEnabled => "inline_emoji_enabled",
+            Self::InlineEmojiTriggerChar => "inline_emoji_trigger_char",
         }
     }
 
@@ -150,6 +156,8 @@ impl SettingKey {
             Self::AiSystemPrompt => "AI System Prompt",
             Self::ClipboardHistoryEnabled => "Clipboard History",
             Self::ClipboardHistoryRetentionSecs => "Clipboard History Retention (s)",
+            Self::InlineEmojiEnabled => "Inline Emoji",
+            Self::InlineEmojiTriggerChar => "Inline Emoji Trigger Character",
         }
     }
 
@@ -215,6 +223,8 @@ impl SettingKey {
             Self::ClipboardHistoryRetentionSecs => {
                 "Delete history items automatically after this time (in seconds)"
             }
+            Self::InlineEmojiEnabled => "Enable inline emoji picker and completion",
+            Self::InlineEmojiTriggerChar => "The character used to trigger the inline emoji picker",
         }
     }
 
@@ -229,7 +239,8 @@ impl SettingKey {
             | Self::TriggerlessMode
             | Self::InstantExpand
             | Self::IgnoreFullscreen
-            | Self::ClipboardHistoryEnabled => EditorKind::Toggle,
+            | Self::ClipboardHistoryEnabled
+            | Self::InlineEmojiEnabled => EditorKind::Toggle,
             Self::Wpm
             | Self::ClipboardRestoreDelayMs
             | Self::RpcPort
@@ -244,7 +255,7 @@ impl SettingKey {
             }
             Self::AiDelimiterMode => EditorKind::AiDelimiterModeSelect,
             Self::RpcMode => EditorKind::RpcModeSelect,
-            Self::TriggerChar => EditorKind::SingleCharInput,
+            Self::TriggerChar | Self::InlineEmojiTriggerChar => EditorKind::SingleCharInput,
             Self::PauseHotkey
             | Self::AiModel
             | Self::AiSymmetricDelimiter
@@ -309,6 +320,8 @@ impl SettingKey {
             Self::ClipboardHistoryRetentionSecs => {
                 settings.clipboard_history_retention_secs.to_string()
             }
+            Self::InlineEmojiEnabled => settings.inline_emoji_enabled.to_string(),
+            Self::InlineEmojiTriggerChar => settings.inline_emoji_trigger_char.to_string(),
         }
     }
 
@@ -342,7 +355,9 @@ impl SettingKey {
             | Self::RpcPort
             | Self::ScriptTimeout
             | Self::ClipboardHistoryEnabled
-            | Self::ClipboardHistoryRetentionSecs => self.display_value(settings),
+            | Self::ClipboardHistoryRetentionSecs
+            | Self::InlineEmojiEnabled
+            | Self::InlineEmojiTriggerChar => self.display_value(settings),
             Self::AiTemperature => {
                 optional_value_label(settings.ai_temperature.map(|v| v.to_string()).as_deref())
                     .to_string()
@@ -519,6 +534,7 @@ impl SettingsPageState {
             SettingKey::ClipboardHistoryEnabled => {
                 (!self.settings.clipboard_history_enabled).to_string()
             }
+            SettingKey::InlineEmojiEnabled => (!self.settings.inline_emoji_enabled).to_string(),
             _ => return SettingsInteraction::handled(),
         };
 
@@ -943,7 +959,7 @@ mod tests {
 
     #[test]
     fn every_setting_has_a_descriptor() {
-        assert_eq!(SettingKey::ALL.len(), 32);
+        assert_eq!(SettingKey::ALL.len(), 34);
     }
 
     #[test]

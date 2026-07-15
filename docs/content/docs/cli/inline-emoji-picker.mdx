@@ -1,0 +1,35 @@
+---
+title: Inline Emoji Picker
+description: Search and insert Unicode emojis directly from any text field using shortcode autocomplete.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Taurine features a built-in lightweight **Inline Emoji Picker** that lets you search and insert Unicode emojis directly as you type. Simply type a configurable trigger character (default `:`) followed by a shortcode prefix, select a match, and press **Space** or **Enter**.
+
+<Callout title="Snippet Priority" type="info">
+  If your configured emoji trigger is the same as the global snippet trigger, snippets take absolute precedence. If your input matches an active snippet trigger, the snippet expands instead of the emoji.
+</Callout>
+
+## Usage
+
+1. **Trigger Autocomplete**: Type the emoji trigger (default `:`) at a word boundary (start of line or after whitespace) followed by letters or numbers.
+2. **Cycle Matches**: Press **Tab** (or **Shift + Tab** to go backward) to cycle through matching emoji shortcode labels (e.g., `:rock` cycles through `:rocket`, `:rooster`, etc.).
+3. **Expand**: Press Enter (or your configured Action Delimiter) to replace the shortcode label with the actual Unicode emoji (e.g. `:rocket` becomes `🚀`).
+
+## Hyphen-Only Standardization
+
+All emoji shortcodes are standardized to use hyphens (`-`) rather than underscores (`_`). For example:
+- Type `:heart-eyes` for 😍
+- Type `:face-palm` for 🤦
+
+<Callout title="Underscore Deactivation" type="warning">
+  Typing an underscore (`_`) during autocomplete will deactivate the emoji picker. Always use hyphens (`-`) for multi-word shortcodes.
+</Callout>
+
+## Configuration
+
+You can configure or turn off this feature by modifying the settings:
+
+- **Inline Emoji**: A global toggle (`inline_emoji_enabled`) to enable or disable the feature (default `true`).
+- **Inline Emoji Trigger Character**: The character used to trigger the emoji autocomplete (`inline_emoji_trigger_char`, default `:`).

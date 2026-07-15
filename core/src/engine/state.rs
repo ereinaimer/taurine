@@ -159,6 +159,14 @@ impl EngineState {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    pub fn inline_emoji_enabled(&self) -> bool {
+        crate::settings::get_cached_inline_emoji_enabled()
+    }
+
+    pub fn inline_emoji_trigger_char(&self) -> char {
+        crate::settings::get_cached_inline_emoji_trigger_char()
+    }
+
     pub fn is_ai_prompt_empty(&self) -> bool {
         self.ai_session.is_prompt_empty()
     }

@@ -1,6 +1,7 @@
 pub mod ai_session;
 pub mod buffer;
 pub mod catalog;
+pub mod emoji;
 pub mod evaluator;
 pub mod math;
 pub mod shell;

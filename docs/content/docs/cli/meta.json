@@ -21,6 +21,7 @@
     "system-variables",
     "transformers",
     "inline-math",
+    "inline-emoji-picker",
     "---Integrations & Tools---",
     "inline-ai-copilot",
     "shell-script-automations",
