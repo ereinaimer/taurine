@@ -38,7 +38,7 @@ impl HookHealthSnapshot {
 
         let now = now_unix_ms();
         let stale = self.last_keyboard_event_at_unix_ms > 0
-            && now > self.last_keyboard_event_at_unix_ms + 30_000;
+            && now > self.last_keyboard_event_at_unix_ms + 35_000;
 
         if !self.listener_running && self.hook_thread_started_at_unix_ms != 0 {
             KeyboardCaptureState::Unhealthy
@@ -57,7 +57,7 @@ impl HookHealthSnapshot {
     pub fn recovery_suggestion(&self) -> Option<String> {
         let now = now_unix_ms();
         let stale = self.last_keyboard_event_at_unix_ms > 0
-            && now > self.last_keyboard_event_at_unix_ms + 30_000;
+            && now > self.last_keyboard_event_at_unix_ms + 35_000;
 
         if !self.listener_running && self.hook_thread_started_at_unix_ms != 0 {
             Some("run `taurine restart` to reinitialize keyboard capture".to_string())

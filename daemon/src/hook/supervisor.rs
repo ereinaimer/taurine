@@ -76,6 +76,8 @@ pub fn start_windows_supervisor(
                 hook_health.clone(),
                 tx.clone(),
             ));
+            let mut last_ping_sent_at_unix_ms: u64 = 0;
+            let mut ping_pending = false;
 
             loop {
                 let event = rx.recv_timeout(Duration::from_secs(1));
@@ -149,32 +151,30 @@ pub fn start_windows_supervisor(
                         // Watchdog timer: periodically check listener health.
                         // Compute restart decision without holding a borrow on
                         // listener_handle so tear_down_listener can borrow it mutably.
-                        let needs_restart = listener_handle.as_ref().is_some_and(|handle| {
+                        let mut needs_restart = false;
+
+                        if let Some(ref handle) = listener_handle {
                             let snapshot = hook_health.snapshot();
+                            let now = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as u64;
 
                             // Check 1: Startup/Reinstall Hang — listener started
                             // but hasn't entered rdev::grab within 3 seconds.
                             let startup_hang = snapshot.hook_thread_started_at_unix_ms > 0
                                 && snapshot.hook_entered_grab_at_unix_ms == 0
-                                && std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_millis() as u64
-                                    >= snapshot.hook_thread_started_at_unix_ms + 3000;
+                                && now >= snapshot.hook_thread_started_at_unix_ms + 3000;
 
                             // Check 2: Silent Thread Termination — thread exited
                             // without sending ListenerExited.
                             let silent_exit = handle.join.is_finished();
 
-                            // Check 3: Stale Hook — hook entered grab, but last keyboard event is too old
+                            // Check 3: Hook seems stale — hook entered grab, but last keyboard event is too old
                             // and we are not currently awaiting a recovery.
-                            let stale_hook = snapshot.hook_entered_grab_at_unix_ms > 0
+                            let seems_stale = snapshot.hook_entered_grab_at_unix_ms > 0
                                 && snapshot.last_keyboard_event_at_unix_ms > 0
-                                && std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_millis() as u64
-                                    >= snapshot.last_keyboard_event_at_unix_ms + 30_000
+                                && now >= snapshot.last_keyboard_event_at_unix_ms + 30_000
                                 && snapshot.pending_recovery_reason.is_none();
 
                             if startup_hang {
@@ -189,16 +189,31 @@ pub fn start_windows_supervisor(
                                 );
                                 hook_health.mark_recovery_signal("watchdog: silent termination");
                             }
-                            if stale_hook {
-                                warn!(
-                                    "Watchdog: hook listener stale (no keyboard event for 30s); restarting"
-                                );
-                                hook_health.mark_recovery_signal("watchdog: stale hook");
-                                LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
-                            }
 
-                            startup_hang || silent_exit || stale_hook
-                        });
+                            needs_restart = startup_hang || silent_exit;
+
+                            if seems_stale && !needs_restart {
+                                if !ping_pending {
+                                    warn!(
+                                        "Watchdog: hook inactive for 30s; sending active verification ping"
+                                    );
+                                    ping_pending = true;
+                                    last_ping_sent_at_unix_ms = now;
+                                    let _ = rdev::simulate(&rdev::EventType::KeyPress(rdev::Key::Unknown(255)));
+                                    let _ = rdev::simulate(&rdev::EventType::KeyRelease(rdev::Key::Unknown(255)));
+                                } else if now >= last_ping_sent_at_unix_ms + 500 {
+                                    warn!(
+                                        "Watchdog: verification ping failed to roundtrip within 500ms; restarting stale hook"
+                                    );
+                                    hook_health.mark_recovery_signal("watchdog: stale hook");
+                                    LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
+                                    needs_restart = true;
+                                    ping_pending = false;
+                                }
+                            } else {
+                                ping_pending = false;
+                            }
+                        }
 
                         if needs_restart {
                             tear_down_listener(&mut listener_handle);

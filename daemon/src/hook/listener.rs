@@ -142,6 +142,17 @@ pub(super) fn run_listener_once(
             return Some(event);
         }
 
+        #[cfg(windows)]
+        if matches!(
+            event.event_type,
+            EventType::KeyPress(Key::Unknown(255)) | EventType::KeyRelease(Key::Unknown(255))
+        ) {
+            if let Some(health) = callback_health.as_ref() {
+                health.record_keyboard_event();
+            }
+            return None;
+        }
+
         if consume_simulated_event(&event.event_type) {
             return Some(event);
         }
