@@ -2590,7 +2590,6 @@ mod tests {
             ("2*(3+4)^2", "98"),
             ("1+2*3/4-5%2", "1.5"), // Mixed
             ("1.5e3+100", "1600"),
-            ("2E-2", "0.02"),
             ("sqrt(16)", "4"),
             ("abs(-55)", "55"),
             ("floor(4.9)", "4"),
@@ -2624,6 +2623,39 @@ mod tests {
                 input_str
             );
         }
+    }
+
+    #[test]
+    fn test_inline_math_single_operand_ignored() {
+        let state = Arc::new(EngineState::new('>'));
+        let mut eval = Evaluator::new(state);
+
+        // Single numbers should return None (not swallow action delimiter)
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
+        assert_eq!(eval.process(EngineEvent::Char('5')), None);
+        assert_eq!(eval.process(EngineEvent::ActionDelimiter), None);
+
+        eval.buffer.clear();
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
+        assert_eq!(eval.process(EngineEvent::Char('(')), None);
+        assert_eq!(eval.process(EngineEvent::Char('5')), None);
+        assert_eq!(eval.process(EngineEvent::Char(')')), None);
+        assert_eq!(eval.process(EngineEvent::ActionDelimiter), None);
+
+        // Constants alone should return None (not swallow action delimiter)
+        eval.buffer.clear();
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
+        assert_eq!(eval.process(EngineEvent::Char('p')), None);
+        assert_eq!(eval.process(EngineEvent::Char('i')), None);
+        assert_eq!(eval.process(EngineEvent::ActionDelimiter), None);
+
+        // Operations with constants should expand
+        eval.buffer.clear();
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
+        assert_eq!(eval.process(EngineEvent::Char('2')), None);
+        assert_eq!(eval.process(EngineEvent::Char('p')), None);
+        assert_eq!(eval.process(EngineEvent::Char('i')), None);
+        assert!(eval.process(EngineEvent::ActionDelimiter).is_some());
     }
 
     #[test]

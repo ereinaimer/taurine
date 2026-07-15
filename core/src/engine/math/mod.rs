@@ -10,6 +10,9 @@ pub fn evaluate(expr: &str) -> Option<String> {
     }
 
     let tokens = parser::tokenize(expr)?;
+    if parser::is_single_operand(&tokens) {
+        return None;
+    }
     let result = parser::parse_expression(&tokens)?;
 
     // Format to at most 4 decimal places, trimming trailing zeros and the decimal point if unnecessary.

@@ -258,3 +258,19 @@ fn parse_primary(tokens: &[Token], pos: &mut usize) -> Option<f64> {
         _ => None,
     }
 }
+
+pub fn is_single_operand(tokens: &[Token]) -> bool {
+    let mut operand_count = 0;
+    for token in tokens {
+        match token {
+            Token::Number(_) | Token::Ident(_) => {
+                operand_count += 1;
+            }
+            Token::OpenParen | Token::CloseParen => {}
+            _ => {
+                return false;
+            }
+        }
+    }
+    operand_count == 1
+}
