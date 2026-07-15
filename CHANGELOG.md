@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Inline Emoji Picker**: Support quick-expanding Unicode emojis by typing a configurable trigger character (e.g. `:rocket` becomes `🚀`). Supports cycling shortcodes with Tab completion (standardized to use hyphens only) and snippet precedence.
+- **Inline Emoji Picker**: Support quick-expanding Unicode emojis by typing a configurable trigger character (e.g. `:rocket` becomes `🚀`). Supports cycling shortcodes with Tab completion (supporting both hyphens and underscores while typing, standardizing completion suggestions to hyphens) and snippet precedence.
 - **Auto-Case Snippets**: Add `--auto-case` option to match snippets case-insensitively and mirror the typed trigger's casing.
 - **Image & Script Assets**: Support cross-platform image expansion and compiled, portable script file assets packed into the database.
 - **Regex Triggers**: Support pattern-based triggers with positional capture group interpolation.

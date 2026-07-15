@@ -247,6 +247,10 @@ impl DaemonControl for DaemonService {
             taurine_core::settings::set_cached_clipboard_history_retention_secs(
                 settings.clipboard_history_retention_secs,
             );
+            taurine_core::settings::set_cached_inline_emoji_enabled(settings.inline_emoji_enabled);
+            taurine_core::settings::set_cached_inline_emoji_trigger_char(
+                settings.inline_emoji_trigger_char,
+            );
 
             // Update trigger char (atomic)
             self.state

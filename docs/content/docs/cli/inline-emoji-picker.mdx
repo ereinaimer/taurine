@@ -19,13 +19,20 @@ Taurine features a built-in lightweight **Inline Emoji Picker** that lets you se
 
 ## Hyphen-Only Standardization
 
-All emoji shortcodes are standardized to use hyphens (`-`) rather than underscores (`_`). For example:
-- Type `:heart-eyes` for 😍
-- Type `:face-palm` for 🤦
+All emoji shortcode suggestions are standardized to use hyphens (`-`) rather than underscores (`_`). For example, the suggested completion will show `:heart-eyes` rather than `:heart_eyes`.
 
-<Callout title="Underscore Deactivation" type="warning">
-  Typing an underscore (`_`) during autocomplete will deactivate the emoji picker. Always use hyphens (`-`) for multi-word shortcodes.
+To make typing easier, you can input underscores (`_`) or hyphens (`-`) interchangeably when typing queries. For example, typing `:heart_ey` or `:heart-ey` will both match and suggest `:heart-eyes`.
+
+<Callout title="Inline Tab Completion & Instant Expand Conflicts" type="warning">
+  - **Inline Tab Completion**: Cycling through matched suggestions relies on the global **Inline Tab Completion** setting (`inline_tab_completion_enabled`, default `true`). If this is disabled, pressing Tab will not cycle matches.
+  - **Instant Expand**: If **Instant Expand** (`instant_expand`, default `false`) is enabled, typing the full name of an emoji (e.g. `:rocket`) will instantly replace it with the emoji, bypassing autocomplete cycling. To cycle suggestions under Instant Expand, press Tab on a partial match (e.g. `:rock`).
 </Callout>
+
+## Emoji Shortcode Reference
+
+Taurine uses standard Unicode shortcode labels (the same shortcode format used by GitHub, Slack, and Discord). To find the exact label for any emoji:
+- You can reference standard emoji cheat sheets or lists (such as the GitHub Emoji List).
+- Keep in mind that Taurine maps all underscores (`_`) in these standard lists to hyphens (`-`). For example, the standard `heart_eyes` shortcode is written and autocompleted as `heart-eyes` in Taurine.
 
 ## Configuration
 

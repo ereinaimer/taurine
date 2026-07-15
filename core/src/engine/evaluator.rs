@@ -316,7 +316,10 @@ impl Evaluator {
 
         if self.completion.is_emoji {
             // Check for invalid characters in emoji shortcode
-            if query.chars().any(|ch| !ch.is_alphanumeric() && ch != '-') {
+            if query
+                .chars()
+                .any(|ch| !ch.is_alphanumeric() && ch != '-' && ch != '_')
+            {
                 self.completion.deactivate(&self.state.completion_active);
                 return;
             }
@@ -3200,6 +3203,36 @@ mod tests {
         assert_eq!(
             exp.steps,
             vec![ExpansionStep::Text("snippet_won".to_string())]
+        );
+    }
+
+    #[test]
+    fn test_emoji_underscore_matching_and_expansion() {
+        let state = Arc::new(EngineState::new('>'));
+        crate::settings::set_cached_inline_emoji_enabled(true);
+        crate::settings::set_cached_inline_emoji_trigger_char(':');
+        let mut eval = Evaluator::new(state);
+
+        // Typing with underscore should allow completion
+        for c in ":heart_ey".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        assert!(eval.is_completion_active());
+
+        // Cycling should suggest the hyphenated label `heart-eyes`
+        assert_completion_rewrite(eval.cycle_completion_next(), 9, ":heart-eyes");
+
+        // Typing and expanding directly with underscore should also work
+        eval.cancel_completion();
+        eval.buffer.clear();
+        for c in ":heart_eyes".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res = eval.process(EngineEvent::ActionDelimiter);
+        assert!(res.is_some());
+        assert_eq!(
+            res.unwrap().steps,
+            vec![ExpansionStep::Text("😍".to_string())]
         );
     }
 }
