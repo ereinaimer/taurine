@@ -19,6 +19,7 @@ pub enum WindowsSupervisorEvent {
     ResumeFromSuspend,
     SessionUnlock,
     SessionLogon,
+    DisplayChange,
     ListenerExited { error: Option<String> },
     Shutdown,
 }
@@ -131,6 +132,15 @@ pub fn start_windows_supervisor(
                         tear_down_listener(&mut listener_handle);
                         delay_restart = true;
                     }
+                    Ok(WindowsSupervisorEvent::DisplayChange) => {
+                        hook_health.mark_recovery_signal("display change");
+                        LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
+                        warn!(
+                            "Windows display change detected; tearing down old listener hook before reinstall"
+                        );
+                        tear_down_listener(&mut listener_handle);
+                        delay_restart = true;
+                    }
                     Ok(WindowsSupervisorEvent::Shutdown) => {
                         info!("Windows hook supervisor received Shutdown event");
                         break;
@@ -156,6 +166,17 @@ pub fn start_windows_supervisor(
                             // without sending ListenerExited.
                             let silent_exit = handle.join.is_finished();
 
+                            // Check 3: Stale Hook — hook entered grab, but last keyboard event is too old
+                            // and we are not currently awaiting a recovery.
+                            let stale_hook = snapshot.hook_entered_grab_at_unix_ms > 0
+                                && snapshot.last_keyboard_event_at_unix_ms > 0
+                                && std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_millis() as u64
+                                    >= snapshot.last_keyboard_event_at_unix_ms + 30_000
+                                && snapshot.pending_recovery_reason.is_none();
+
                             if startup_hang {
                                 warn!(
                                     "Watchdog: hook listener started but hasn't entered grab after 3s; restarting"
@@ -168,8 +189,15 @@ pub fn start_windows_supervisor(
                                 );
                                 hook_health.mark_recovery_signal("watchdog: silent termination");
                             }
+                            if stale_hook {
+                                warn!(
+                                    "Watchdog: hook listener stale (no keyboard event for 30s); restarting"
+                                );
+                                hook_health.mark_recovery_signal("watchdog: stale hook");
+                                LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
+                            }
 
-                            startup_hang || silent_exit
+                            startup_hang || silent_exit || stale_hook
                         });
 
                         if needs_restart {

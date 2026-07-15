@@ -12,7 +12,7 @@ use windows_sys::Win32::System::RemoteDesktop::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, MSG, PBT_APMRESUMEAUTOMATIC,
     PBT_APMRESUMESUSPEND, PostQuitMessage, RegisterClassW, TranslateMessage, WM_DESTROY,
-    WM_POWERBROADCAST, WM_WTSSESSION_CHANGE, WNDCLASSW,
+    WM_DISPLAYCHANGE, WM_POWERBROADCAST, WM_WTSSESSION_CHANGE, WNDCLASSW,
 };
 
 use crate::hook::WindowsSupervisorEvent;
@@ -155,6 +155,11 @@ unsafe extern "system" fn window_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     match message {
+        WM_DISPLAYCHANGE => {
+            info!("Detected Windows display change event");
+            send_event(WindowsSupervisorEvent::DisplayChange);
+            0
+        }
         WM_POWERBROADCAST => match wparam as u32 {
             PBT_APMRESUMEAUTOMATIC => {
                 info!("Detected Windows automatic resume event");

@@ -36,12 +36,17 @@ impl HookHealthSnapshot {
         let awaiting_post_recovery_event = self.pending_recovery_reason.is_some()
             && self.last_keyboard_event_at_unix_ms < self.last_recovery_signal_at_unix_ms;
 
+        let now = now_unix_ms();
+        let stale = self.last_keyboard_event_at_unix_ms > 0
+            && now > self.last_keyboard_event_at_unix_ms + 30_000;
+
         if !self.listener_running && self.hook_thread_started_at_unix_ms != 0 {
             KeyboardCaptureState::Unhealthy
         } else if self.hook_thread_started_at_unix_ms == 0
             || self.hook_entered_grab_at_unix_ms == 0
             || self.last_keyboard_event_at_unix_ms == 0
             || awaiting_post_recovery_event
+            || stale
         {
             KeyboardCaptureState::Unknown
         } else {
@@ -50,12 +55,18 @@ impl HookHealthSnapshot {
     }
 
     pub fn recovery_suggestion(&self) -> Option<String> {
+        let now = now_unix_ms();
+        let stale = self.last_keyboard_event_at_unix_ms > 0
+            && now > self.last_keyboard_event_at_unix_ms + 30_000;
+
         if !self.listener_running && self.hook_thread_started_at_unix_ms != 0 {
             Some("run `taurine restart` to reinitialize keyboard capture".to_string())
         } else if self.pending_recovery_reason.is_some()
             && self.last_keyboard_event_at_unix_ms < self.last_recovery_signal_at_unix_ms
         {
             Some("press a few keys; if capture does not recover, run `taurine restart`".to_string())
+        } else if stale {
+            Some("press a key to verify keyboard capture is active".to_string())
         } else {
             None
         }
@@ -170,4 +181,43 @@ fn now_unix_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_stale_hook_classification() {
+        let now = now_unix_ms();
+        let mut snapshot = HookHealthSnapshot {
+            listener_running: true,
+            hook_thread_started_at_unix_ms: now - 5000,
+            hook_entered_grab_at_unix_ms: now - 4000,
+            last_keyboard_event_at_unix_ms: now - 2000,
+            last_recovery_signal_at_unix_ms: 0,
+            last_hook_exit_at_unix_ms: 0,
+            last_hook_error: None,
+            pending_recovery_reason: None,
+        };
+
+        // Healthy state initially
+        assert_eq!(
+            snapshot.keyboard_capture_state(),
+            KeyboardCaptureState::Healthy
+        );
+
+        // Force last keyboard event to be old (stale)
+        snapshot.last_keyboard_event_at_unix_ms = now - 40_000;
+        assert_eq!(
+            snapshot.keyboard_capture_state(),
+            KeyboardCaptureState::Unknown
+        );
+        assert!(
+            snapshot
+                .recovery_suggestion()
+                .unwrap()
+                .contains("press a key")
+        );
+    }
 }
