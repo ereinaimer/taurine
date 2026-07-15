@@ -78,11 +78,12 @@ pub fn start_windows_supervisor(
             ));
             let mut last_ping_sent_at_unix_ms: u64 = 0;
             let mut ping_pending = false;
+            let mut force_ping_at_unix_ms: u64 = 0;
 
             loop {
                 let event = rx.recv_timeout(Duration::from_secs(1));
 
-                let mut delay_restart = false;
+                let delay_restart = false;
 
                 match event {
                     Ok(WindowsSupervisorEvent::ListenerExited { error }) => {
@@ -100,48 +101,48 @@ pub fn start_windows_supervisor(
                     }
                     Ok(WindowsSupervisorEvent::ResumeAutomatic) => {
                         hook_health.mark_recovery_signal("automatic resume");
-                        LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
-                        warn!(
-                            "Windows automatic resume detected; tearing down old listener hook before reinstall"
-                        );
-                        tear_down_listener(&mut listener_handle);
-                        delay_restart = true;
+                        warn!("Windows automatic resume detected; scheduling liveness verification");
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+                        force_ping_at_unix_ms = now + 3000;
                     }
                     Ok(WindowsSupervisorEvent::ResumeFromSuspend) => {
                         hook_health.mark_recovery_signal("resume from suspend");
-                        LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
-                        warn!(
-                            "Windows resume from suspend detected; tearing down old listener hook before reinstall"
-                        );
-                        tear_down_listener(&mut listener_handle);
-                        delay_restart = true;
+                        warn!("Windows resume from suspend detected; scheduling liveness verification");
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+                        force_ping_at_unix_ms = now + 3000;
                     }
                     Ok(WindowsSupervisorEvent::SessionUnlock) => {
                         hook_health.mark_recovery_signal("session unlock");
-                        LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
-                        warn!(
-                            "Windows session unlock detected; tearing down old listener hook before reinstall"
-                        );
-                        tear_down_listener(&mut listener_handle);
-                        delay_restart = true;
+                        warn!("Windows session unlock detected; scheduling liveness verification");
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+                        force_ping_at_unix_ms = now + 3000;
                     }
                     Ok(WindowsSupervisorEvent::SessionLogon) => {
                         hook_health.mark_recovery_signal("session logon");
-                        LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
-                        warn!(
-                            "Windows session logon detected; tearing down old listener hook before reinstall"
-                        );
-                        tear_down_listener(&mut listener_handle);
-                        delay_restart = true;
+                        warn!("Windows session logon detected; scheduling liveness verification");
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+                        force_ping_at_unix_ms = now + 3000;
                     }
                     Ok(WindowsSupervisorEvent::DisplayChange) => {
                         hook_health.mark_recovery_signal("display change");
-                        LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
-                        warn!(
-                            "Windows display change detected; tearing down old listener hook before reinstall"
-                        );
-                        tear_down_listener(&mut listener_handle);
-                        delay_restart = true;
+                        warn!("Windows display change detected; scheduling liveness verification");
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+                        force_ping_at_unix_ms = now + 3000;
                     }
                     Ok(WindowsSupervisorEvent::Shutdown) => {
                         info!("Windows hook supervisor received Shutdown event");
@@ -177,6 +178,9 @@ pub fn start_windows_supervisor(
                                 && now >= snapshot.last_keyboard_event_at_unix_ms + 30_000
                                 && snapshot.pending_recovery_reason.is_none();
 
+                            let scheduled_ping_due = force_ping_at_unix_ms > 0 && now >= force_ping_at_unix_ms;
+                            let should_ping = seems_stale || scheduled_ping_due;
+
                             if startup_hang {
                                 warn!(
                                     "Watchdog: hook listener started but hasn't entered grab after 3s; restarting"
@@ -192,13 +196,18 @@ pub fn start_windows_supervisor(
 
                             needs_restart = startup_hang || silent_exit;
 
-                            if seems_stale && !needs_restart {
+                            if should_ping && !needs_restart {
                                 if !ping_pending {
-                                    warn!(
-                                        "Watchdog: hook inactive for 30s; sending active verification ping"
-                                    );
+                                    if scheduled_ping_due {
+                                        info!("Watchdog: executing scheduled liveness verification ping");
+                                    } else {
+                                        warn!(
+                                            "Watchdog: hook inactive for 30s; sending active verification ping"
+                                        );
+                                    }
                                     ping_pending = true;
                                     last_ping_sent_at_unix_ms = now;
+                                    force_ping_at_unix_ms = 0; // Clear scheduled ping
                                     let _ = rdev::simulate(&rdev::EventType::KeyPress(rdev::Key::Unknown(255)));
                                     let _ = rdev::simulate(&rdev::EventType::KeyRelease(rdev::Key::Unknown(255)));
                                 } else if now >= last_ping_sent_at_unix_ms + 500 {
@@ -210,7 +219,7 @@ pub fn start_windows_supervisor(
                                     needs_restart = true;
                                     ping_pending = false;
                                 }
-                            } else {
+                            } else if !seems_stale && !scheduled_ping_due {
                                 ping_pending = false;
                             }
                         }
