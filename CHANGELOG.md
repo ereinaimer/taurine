@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Linux Fullscreen Listener Leak**: Fix a bug where the fullscreen listener thread was leaked on shutdown, preventing the daemon from exiting cleanly.
 - **Linux Clipboard Init**: Prevent daemon crashes on startup in headless environments or when no X11/Wayland display server is running.
 - **Linux Clipboard Connection Conflicts**: Resolve clipboard unresponsiveness and connection conflicts under X11 by sharing the global clipboard connection.
-- **Windows Keyboard Hook Recovery**: Reinstall low-level keyboard hook automatically after display topology changes (such as laptop lid close/open) or when no keyboard events are received for 30 seconds.
+- **Windows Keyboard Hook Recovery**: Reinstall low-level keyboard hook automatically after display topology changes (such as laptop lid close/open) or when no keyboard events are received for 30 seconds. Boost the hook listener thread priority to minimize dropouts under high load.
 
 ## [1.0.0-alpha.13] - 2026-07-12
 

@@ -650,6 +650,23 @@ pub(super) fn spawn_windows_hook_listener(
                 return;
             }
 
+            // SAFETY: GetCurrentThread() returns a pseudo-handle for the current thread
+            // which always succeeds. SetThreadPriority boosts the priority of this thread
+            // to THREAD_PRIORITY_HIGHEST so that DWM and the OS scheduler prioritize delivering
+            // events to the hook, preventing silent hook termination due to timeout under load.
+            unsafe {
+                let current_thread = windows_sys::Win32::System::Threading::GetCurrentThread();
+                if windows_sys::Win32::System::Threading::SetThreadPriority(
+                    current_thread,
+                    windows_sys::Win32::System::Threading::THREAD_PRIORITY_HIGHEST,
+                ) == 0
+                {
+                    warn!("Failed to boost hook listener thread priority");
+                } else {
+                    info!("Successfully boosted hook listener thread priority to HIGHEST");
+                }
+            }
+
             let result = catch_unwind(AssertUnwindSafe(|| {
                 run_listener_once(
                     evaluator,
