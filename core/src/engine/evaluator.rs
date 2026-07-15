@@ -220,7 +220,9 @@ impl Evaluator {
         } else {
             self.trigger_prefix()
         };
-        self.buffer.extract_trigger_word(active_trigger).is_some()
+        self.buffer
+            .extract_trigger_word(active_trigger, false)
+            .is_some()
     }
 
     pub fn cancel_completion(&mut self) {
@@ -309,7 +311,7 @@ impl Evaluator {
         } else {
             self.trigger_prefix()
         };
-        let Some(query) = self.buffer.extract_trigger_word(active_trigger) else {
+        let Some(query) = self.buffer.extract_trigger_word(active_trigger, false) else {
             self.completion.deactivate(&self.state.completion_active);
             return;
         };
@@ -432,7 +434,11 @@ impl Evaluator {
             self.trigger_prefix()
         };
 
-        if self.buffer.extract_trigger_word(active_trigger).is_none() {
+        if self
+            .buffer
+            .extract_trigger_word(active_trigger, false)
+            .is_none()
+        {
             self.completion.deactivate(&self.state.completion_active);
             return None;
         }
@@ -470,7 +476,11 @@ impl Evaluator {
             self.trigger_prefix()
         };
 
-        if self.buffer.extract_trigger_word(active_trigger).is_none() {
+        if self
+            .buffer
+            .extract_trigger_word(active_trigger, false)
+            .is_none()
+        {
             self.completion.deactivate(&self.state.completion_active);
             return None;
         }
@@ -540,7 +550,7 @@ impl Evaluator {
 
         if self
             .buffer
-            .extract_trigger_word(self.trigger_prefix())
+            .extract_trigger_word(self.trigger_prefix(), false)
             .is_none()
         {
             self.completion.deactivate(&self.state.completion_active);
@@ -598,11 +608,17 @@ impl Evaluator {
         &mut self,
         active_window: Option<&str>,
     ) -> Option<ExpansionResult> {
+        if self.buffer.is_inside_open_quote() {
+            return None;
+        }
+
         let trigger_char = self.trigger_prefix();
         let emoji_trigger = self.state.inline_emoji_trigger_char();
         let emoji_enabled = self.state.inline_emoji_enabled();
+        let action_delimiter = *self.state.action_delimiter.read().unwrap();
+        let allow_spaces = action_delimiter == crate::settings::ActionDelimiter::Enter;
 
-        if let Some(keyword) = self.buffer.extract_trigger_word(trigger_char)
+        if let Some(keyword) = self.buffer.extract_trigger_word(trigger_char, allow_spaces)
             && let Some(expansion) = self.state.fetch_expansion(&keyword, active_window)
         {
             let delete_count = 1 + keyword.chars().count();
@@ -640,7 +656,7 @@ impl Evaluator {
         }
 
         if emoji_enabled
-            && let Some(word) = self.buffer.extract_trigger_word(emoji_trigger)
+            && let Some(word) = self.buffer.extract_trigger_word(emoji_trigger, false)
             && let Some(emoji_char) = crate::engine::emoji::lookup_emoji(&word)
         {
             let delete_count = 1 + word.chars().count();
@@ -1182,7 +1198,7 @@ mod tests {
 
         assert_completion_rewrite(eval.cycle_completion_next(), 1, "gco");
         assert_eq!(
-            eval.buffer.extract_trigger_word('>'),
+            eval.buffer.extract_trigger_word('>', false),
             Some("gco".to_string())
         );
         assert_eq!(eval.completion.current_text, "gco");
@@ -1190,21 +1206,21 @@ mod tests {
 
         assert_completion_rewrite(eval.cycle_completion_next(), 3, "gpush");
         assert_eq!(
-            eval.buffer.extract_trigger_word('>'),
+            eval.buffer.extract_trigger_word('>', false),
             Some("gpush".to_string())
         );
         assert_eq!(eval.completion.selected_index, Some(1));
 
         assert_completion_rewrite(eval.cycle_completion_next(), 5, "gs");
         assert_eq!(
-            eval.buffer.extract_trigger_word('>'),
+            eval.buffer.extract_trigger_word('>', false),
             Some("gs".to_string())
         );
         assert_eq!(eval.completion.selected_index, Some(2));
 
         assert_completion_rewrite(eval.cycle_completion_next(), 2, "gco");
         assert_eq!(
-            eval.buffer.extract_trigger_word('>'),
+            eval.buffer.extract_trigger_word('>', false),
             Some("gco".to_string())
         );
         assert_eq!(eval.completion.selected_index, Some(0));
@@ -1296,7 +1312,7 @@ mod tests {
 
         assert!(!eval.is_completion_active());
         assert_eq!(
-            eval.buffer.extract_trigger_word('>'),
+            eval.buffer.extract_trigger_word('>', false),
             Some("gs".to_string())
         );
     }
@@ -1339,11 +1355,14 @@ mod tests {
         assert_eq!(eval.process(EngineEvent::Backspace), None);
         assert!(eval.is_completion_active());
         assert_eq!(eval.completion.current_text, "");
-        assert_eq!(eval.buffer.extract_trigger_word('>'), Some(String::new()));
+        assert_eq!(
+            eval.buffer.extract_trigger_word('>', false),
+            Some(String::new())
+        );
 
         assert_eq!(eval.process(EngineEvent::Backspace), None);
         assert!(!eval.is_completion_active());
-        assert_eq!(eval.buffer.extract_trigger_word('>'), None);
+        assert_eq!(eval.buffer.extract_trigger_word('>', false), None);
         assert_eq!(eval.cycle_completion_next(), None);
     }
 
@@ -1546,7 +1565,10 @@ mod tests {
             eval.completion.history_items,
             vec!["gs".to_string(), "gpush".to_string()]
         );
-        assert_eq!(eval.buffer.extract_trigger_word('>'), Some(String::new()));
+        assert_eq!(
+            eval.buffer.extract_trigger_word('>', false),
+            Some(String::new())
+        );
     }
 
     #[test]
@@ -1577,7 +1599,7 @@ mod tests {
         assert_eq!(eval.completion.original_query, "gi");
         assert_eq!(eval.completion.current_text, "gi");
         assert_eq!(
-            eval.buffer.extract_trigger_word('>'),
+            eval.buffer.extract_trigger_word('>', false),
             Some("gi".to_string())
         );
         assert_eq!(eval.completion.history_index, None);
@@ -1618,7 +1640,10 @@ mod tests {
         assert_eq!(eval.completion.current_text, "");
         assert_eq!(eval.completion.selected_index, None);
         assert_eq!(eval.completion.selection_mode, None);
-        assert_eq!(eval.buffer.extract_trigger_word('>'), Some(String::new()));
+        assert_eq!(
+            eval.buffer.extract_trigger_word('>', false),
+            Some(String::new())
+        );
     }
 
     #[test]
@@ -1843,7 +1868,10 @@ mod tests {
         assert_eq!(eval.completion.current_text, "g");
         assert_eq!(eval.completion.original_query, "g");
         assert!(eval.completion.suggestions.is_empty());
-        assert_eq!(eval.buffer.extract_trigger_word('>'), Some("g".to_string()));
+        assert_eq!(
+            eval.buffer.extract_trigger_word('>', false),
+            Some("g".to_string())
+        );
     }
 
     #[test]
@@ -1866,7 +1894,10 @@ mod tests {
         assert_eq!(eval.completion.current_text, "");
         assert_eq!(eval.completion.original_query, "");
         assert!(eval.completion.history_items.is_empty());
-        assert_eq!(eval.buffer.extract_trigger_word('>'), Some(String::new()));
+        assert_eq!(
+            eval.buffer.extract_trigger_word('>', false),
+            Some(String::new())
+        );
     }
 
     #[test]
@@ -3234,5 +3265,71 @@ mod tests {
             res.unwrap().steps,
             vec![ExpansionStep::Text("😍".to_string())]
         );
+    }
+
+    #[test]
+    fn test_spaces_in_arguments_with_enter_delimiter() {
+        let state = Arc::new(EngineState::new('>'));
+        *state.action_delimiter.write().unwrap() = crate::settings::ActionDelimiter::Enter;
+        state.load_actions(vec![(
+            "hi".to_string(),
+            crate::db::crud::AutomationAction::text("Hello [0=default], [1=msg]!"),
+        )]);
+
+        let mut eval = Evaluator::new(state);
+        for c in ">hi:erein aimer:how was your day".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+
+        let res = eval.process(EngineEvent::ActionDelimiter);
+        assert!(res.is_some());
+        let exp = res.unwrap();
+        assert_eq!(
+            exp.steps,
+            vec![ExpansionStep::Text(
+                "Hello erein aimer, how was your day!".to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn test_spaces_in_arguments_with_space_delimiter_fails() {
+        let state = Arc::new(EngineState::new('>'));
+        *state.action_delimiter.write().unwrap() = crate::settings::ActionDelimiter::Space;
+        state.load_actions(vec![(
+            "hi".to_string(),
+            crate::db::crud::AutomationAction::text("Hello [0=default], [1=msg]!"),
+        )]);
+
+        let mut eval = Evaluator::new(state);
+        for c in ">hi:erein".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res = eval.process(EngineEvent::ActionDelimiter);
+        assert!(res.is_some());
+        assert_eq!(
+            res.unwrap().steps,
+            vec![ExpansionStep::Text("Hello erein, msg!".to_string())]
+        );
+    }
+
+    #[test]
+    fn test_space_after_quote_with_space_delimiter() {
+        use std::sync::atomic::Ordering;
+        let state = Arc::new(EngineState::new('>'));
+        state.triggerless_mode.store(true, Ordering::Relaxed);
+        *state.action_delimiter.write().unwrap() = crate::settings::ActionDelimiter::Space;
+        state.load_actions(vec![(
+            "meet".to_string(),
+            crate::db::crud::AutomationAction::text("Let's meet at [0=default]"),
+        )]);
+
+        let mut eval = Evaluator::new(state);
+        for c in ">meet:\"".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+
+        let res = eval.process(EngineEvent::ActionDelimiter);
+        assert!(res.is_none());
     }
 }

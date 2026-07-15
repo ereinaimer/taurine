@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Image & Script Assets**: Support cross-platform image expansion and compiled, portable script file assets packed into the database.
 - **Regex Triggers**: Support pattern-based triggers with positional capture group interpolation.
 - **Tagging Support**: Add CLI options to categorize snippets and filter/delete automations by tag.
+- **Unquoted Spaces in Arguments**: Support spaces in dynamic variable arguments without quoting when using the `Enter` action delimiter.
 
 ### Changed
 - **Upgrade Word Boundary Matching**: Support word expansions after punctuation symbols (e.g. `.`, `,`, `(`, etc.) rather than only whitespace characters.
