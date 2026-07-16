@@ -17,12 +17,12 @@ pub use automation_set::{
     AddOutcome, ExistingAutomationUpdate, NewAutomation, PreparedTrigger,
     add_automation_by_trigger, add_automation_by_trigger_and_case, add_automation_by_trigger_type,
     add_automation_by_trigger_type_and_case, audit_payload_tags,
-    audit_payload_tags_with_trigger_type, create_automation, find_trigger_overlap_conflict,
-    increment_usage_count_by_trigger, prepare_trigger, prepare_trigger_with_type,
-    record_expansion_usage, target_os_values_overlap, update_automation_app_filters,
-    update_existing_automation, upsert_automation, upsert_automation_with_trigger_type,
-    upsert_automation_with_trigger_type_and_case, upsert_script, validate_trigger_not_reserved,
-    validate_trigger_target_os_conflict,
+    audit_payload_tags_with_trigger_type, audit_script_payload_tags, create_automation,
+    find_trigger_overlap_conflict, increment_usage_count_by_trigger, prepare_trigger,
+    prepare_trigger_with_type, record_expansion_usage, target_os_values_overlap,
+    update_automation_app_filters, update_existing_automation, upsert_automation,
+    upsert_automation_with_trigger_type, upsert_automation_with_trigger_type_and_case,
+    upsert_script, validate_trigger_not_reserved, validate_trigger_target_os_conflict,
 };
 pub use automation_sync::get_syncable_automations;
 pub use automation_types::{

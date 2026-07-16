@@ -343,4 +343,24 @@ mod tests {
             "Updated silent script automation using powershell for 'ctrl+alt+p' on Windows when active in 'exe:notepad'."
         );
     }
+
+    #[test]
+    fn test_script_payload_lax_validation() {
+        use taurine_core::db::crud::audit_script_payload_tags;
+
+        // Validating PowerShell script payload with type literals using audit_script_payload_tags should pass
+        let powershell_script = r#"Add-Type -Assembly System.Windows.Forms; [System.Windows.Forms.Application]::SetSuspendState("Suspend", $false, $false)"#;
+        assert!(audit_script_payload_tags(powershell_script, TriggerType::Word).is_ok());
+
+        // Array brackets in scripts should also pass
+        let array_script = r#"val = args[0]; echo $val"#;
+        assert!(audit_script_payload_tags(array_script, TriggerType::Word).is_ok());
+
+        // Traditional invalid dot-namespace variable still fails if we treat it as word payload
+        assert!(super::audit_payload_tags("User: [my.custom.var=there]").is_err());
+
+        // System variables and defined variables in scripts should still be checked
+        assert!(audit_script_payload_tags("[time.invalid_modifier]", TriggerType::Word).is_err());
+        assert!(audit_script_payload_tags("[my_var]", TriggerType::Word).is_ok()); // undefined var is allowed as literal text in scripts
+    }
 }

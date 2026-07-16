@@ -2,7 +2,7 @@ use crate::commands::validate::format_automation_log;
 use std::fs;
 use std::path::PathBuf;
 use taurine_core::db::crud::{
-    TriggerType, audit_payload_tags_with_trigger_type, prepare_trigger_with_type, upsert_script,
+    TriggerType, audit_script_payload_tags, prepare_trigger_with_type, upsert_script,
     validate_trigger_not_reserved,
 };
 use taurine_core::db::init;
@@ -81,7 +81,7 @@ pub fn execute_with_trigger_type(
         trigger
     };
 
-    audit_payload_tags_with_trigger_type(&content, trigger_type)?;
+    audit_script_payload_tags(&content, trigger_type)?;
 
     if matches!(trigger_type, TriggerType::Regex) {
         regex::Regex::new(&trigger)
