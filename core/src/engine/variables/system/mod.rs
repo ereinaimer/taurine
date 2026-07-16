@@ -255,7 +255,19 @@ fn append_unescaped_segment(segment: &str, output: &mut String) {
     while ptr < bytes.len() {
         if bytes[ptr] == b'\\' && ptr + 1 < bytes.len() {
             let next = bytes[ptr + 1];
-            if next == TAG_OPEN
+            if next == b'n' {
+                output.push('\n');
+                ptr += 2;
+                continue;
+            } else if next == b't' {
+                output.push('\t');
+                ptr += 2;
+                continue;
+            } else if next == b'r' {
+                output.push('\r');
+                ptr += 2;
+                continue;
+            } else if next == TAG_OPEN
                 || next == TAG_CLOSE
                 || next == b'\\'
                 || next == b'\''
@@ -786,6 +798,22 @@ mod tests {
         assert_eq!(parse_delay_ms("0.5s"), Some(500));
         assert_eq!(parse_delay_ms("0s"), Some(0));
         assert_eq!(parse_delay_ms("60s"), Some(60000));
+    }
+
+    #[test]
+    fn test_append_unescaped_segment_control_chars() {
+        let mut out = String::new();
+        append_unescaped_segment("hello\\nworld\\tgoodbye\\r!", &mut out);
+        assert_eq!(out, "hello\nworld\tgoodbye\r!");
+    }
+
+    #[test]
+    fn test_finalize_with_control_char_escapes() {
+        let res = finalize("first\\nsecond\\tthird", None);
+        assert_eq!(
+            res.steps,
+            vec![ExpansionStep::Text("first\nsecond\tthird".to_string())]
+        );
     }
 
     #[test]
