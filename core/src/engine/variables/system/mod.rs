@@ -514,6 +514,10 @@ fn parse_delay_ms(s: &str) -> Option<u64> {
     let s = s.trim();
     if let Some(n) = s.strip_suffix("ms") {
         n.parse::<u64>().ok()
+    } else if let Some(n) = s.strip_suffix('s') {
+        n.parse::<f64>()
+            .ok()
+            .map(|seconds| (seconds * 1000.0) as u64)
     } else {
         s.parse::<u64>().ok()
     }
@@ -775,8 +779,13 @@ mod tests {
         assert_eq!(parse_delay_ms("0ms"), Some(0));
         assert_eq!(parse_delay_ms("1000ms"), Some(1000));
         assert_eq!(parse_delay_ms("invalid"), None);
-        assert_eq!(parse_delay_ms("200s"), None);
         assert_eq!(parse_delay_ms("ms"), None);
+        // New test cases for seconds:
+        assert_eq!(parse_delay_ms("1s"), Some(1000));
+        assert_eq!(parse_delay_ms("1.5s"), Some(1500));
+        assert_eq!(parse_delay_ms("0.5s"), Some(500));
+        assert_eq!(parse_delay_ms("0s"), Some(0));
+        assert_eq!(parse_delay_ms("60s"), Some(60000));
     }
 
     #[test]

@@ -32,10 +32,12 @@ Combine keys using the `+` symbol. Modifiers should come first. You can chain mu
 
 ## Delay Directives
 
-Use `[delay(...)]` to pause the execution of a snippet for a specific number of milliseconds. This is essential when a snippet performs an action (like tabbing) that requires the UI to catch up. You can pass either a millisecond count or include the `ms` suffix.
+Use `[delay(...)]` to pause the execution of a snippet for a specific duration. This is essential when a snippet performs an action (like tabbing) that requires the UI to catch up. You can pass a millisecond count, include the `ms` suffix, or specify seconds using the `s` suffix (which also supports decimals).
 
 ```text
 [key(tab)][delay(100ms)][key(tab)]
+[key(tab)][delay(1.5s)][key(tab)]
+[key(tab)][delay(2s)][key(tab)]
 ```
 
 ## Advanced Example: Form Auto-Fill
