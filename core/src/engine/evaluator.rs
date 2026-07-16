@@ -268,6 +268,13 @@ impl Evaluator {
     }
 
     fn update_completion_after_char(&mut self, c: char) {
+        if self
+            .state
+            .instant_expand
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            return;
+        }
         let trigger_char = self.trigger_prefix();
         let emoji_trigger = self.state.inline_emoji_trigger_char();
         let emoji_enabled = self.state.inline_emoji_enabled();
@@ -617,6 +624,30 @@ impl Evaluator {
         let emoji_enabled = self.state.inline_emoji_enabled();
         let action_delimiter = *self.state.action_delimiter.read().unwrap();
         let allow_spaces = action_delimiter == crate::settings::ActionDelimiter::Enter;
+        let instant_expand = self
+            .state
+            .instant_expand
+            .load(std::sync::atomic::Ordering::Relaxed);
+
+        // Try inline unit conversion fallback (disabled in instant expand mode)
+        if !instant_expand
+            && let Some(word) = self.buffer.extract_tail_word()
+            && crate::engine::conversion::is_conversion_pattern(&word)
+            && let Some(result_text) = crate::engine::conversion::convert(&word, &self.state)
+        {
+            let delete_count = word.chars().count();
+            self.buffer.clear();
+            return Some(ExpansionResult {
+                delete_count,
+                steps: vec![ExpansionStep::Text(result_text)],
+                trigger: word.clone(),
+                undo_trigger: Some(word),
+                is_calculation: true,
+                metric_kind: AutomationMetricKind::Calculation,
+                track_usage: true,
+                follow_up: None,
+            });
+        }
 
         if let Some(keyword) = self.buffer.extract_trigger_word(trigger_char, allow_spaces)
             && let Some(expansion) = self.state.fetch_expansion(&keyword, active_window)
@@ -655,7 +686,8 @@ impl Evaluator {
             });
         }
 
-        if emoji_enabled
+        if !instant_expand
+            && emoji_enabled
             && let Some(word) = self.buffer.extract_trigger_word(emoji_trigger, false)
             && let Some(emoji_char) = crate::engine::emoji::lookup_emoji(&word)
         {
@@ -3363,5 +3395,56 @@ mod tests {
 
         let res = eval.process(EngineEvent::ActionDelimiter);
         assert!(res.is_none());
+    }
+
+    #[test]
+    fn test_inline_unit_conversion_simple() {
+        let state = Arc::new(EngineState::new('>'));
+        let mut eval = Evaluator::new(state);
+
+        let input = "100c=f ";
+        let mut last_result = None;
+
+        for c in input.chars() {
+            if let Some(res) = eval.process(if c == ' ' {
+                EngineEvent::ActionDelimiter
+            } else {
+                EngineEvent::Char(c)
+            }) {
+                last_result = Some(res);
+            }
+        }
+
+        let result = last_result.expect("Unit conversion should have triggered");
+        assert_eq!(result.steps, vec![ExpansionStep::Text("212f".to_string())]);
+        assert_eq!(result.trigger, "100c=f");
+        assert_eq!(result.undo_trigger.as_deref(), Some("100c=f"));
+    }
+
+    #[test]
+    fn test_inline_unit_conversion_instant_expand_disabled() {
+        let state = Arc::new(EngineState::new('>'));
+        state
+            .instant_expand
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        let mut eval = Evaluator::new(state);
+
+        let input = "100c=f ";
+        let mut last_result = None;
+
+        for c in input.chars() {
+            if let Some(res) = eval.process(if c == ' ' {
+                EngineEvent::ActionDelimiter
+            } else {
+                EngineEvent::Char(c)
+            }) {
+                last_result = Some(res);
+            }
+        }
+
+        assert!(
+            last_result.is_none(),
+            "Unit conversion must be skipped when instant_expand is active"
+        );
     }
 }

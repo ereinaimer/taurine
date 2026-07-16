@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Inline Unit Converter**: Support inline unit, temperature, and currency conversions directly in any text field via action delimiters, and disable all inline features (including math, emojis, completions, and history) when instant expand mode is enabled.
 - **Inline Emoji Picker**: Support quick-expanding Unicode emojis by typing a configurable trigger character (e.g. `:rocket` becomes `🚀`). Supports cycling shortcodes with Tab completion (supporting both hyphens and underscores while typing, standardizing completion suggestions to hyphens) and snippet precedence.
 - **Auto-Case Snippets**: Add `--auto-case` option to match snippets case-insensitively and mirror the typed trigger's casing.
 - **Image & Script Assets**: Support cross-platform image expansion and compiled, portable script file assets packed into the database.

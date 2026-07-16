@@ -1,0 +1,111 @@
+---
+title: Inline Unit Converter
+description: Convert everyday physical units and currencies directly in any text field without needing a snippet.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Taurine features a built-in unit conversion engine that lets you convert physical units and currencies directly as you type. Simply type a conversion pattern and press **Space** or **Enter** (depending on your configured Action Delimiter).
+
+For example, typing `100c=f ` will instantly expand to `212f`.
+
+<Callout title="Instant Expand Conflict" type="warning">
+  If **Instant Expand** mode is enabled, the Inline Unit Converter (as well as Inline Math, Inline Emojis, and Inline completions/history) is automatically disabled to prevent conflicts during real-time character processing.
+</Callout>
+
+## How It Works
+
+Type a value followed by a unit, an equals sign `=`, and the target unit:
+`<value><from_unit>=<to_unit>`
+
+* **Example:** `100c=f`, `1.5gb=mb`, `-40c=f`, `32psi=bar`.
+* **Case Insensitive:** Units are case-insensitive (`100C=F` works identically to `100c=f`).
+* **Format:** The converted value is output with up to 2 decimal places by default (or up to 4 decimal places for values less than 0.01).
+
+---
+
+## Supported Physical Units
+
+Taurine supports both standard short abbreviations and their corresponding long aliases.
+
+### Temperature
+* **Celsius:** `c`, `celsius`
+* **Fahrenheit:** `f`, `fahrenheit`
+* **Kelvin:** `k`, `kelvin`
+
+### Length & Distance
+* **Millimeters:** `mm`, `millimeter`, `millimeters`
+* **Centimeters:** `cm`, `centimeter`, `centimeters`
+* **Meters:** `m`, `meter`, `meters`
+* **Kilometers:** `km`, `kilometer`, `kilometers`
+* **Inches:** `in`, `inch`, `inches`
+* **Feet:** `ft`, `foot`, `feet`
+* **Yards:** `yd`, `yard`, `yards`
+* **Miles:** `mi`, `mile`, `miles`
+
+### Weight & Mass
+* **Milligrams:** `mg`, `milligram`, `milligrams`
+* **Grams:** `g`, `gram`, `grams`
+* **Kilograms:** `kg`, `kilogram`, `kilograms`
+* **Ounces:** `oz`, `ounce`, `ounces`
+* **Pounds:** `lb`, `lbs`, `pound`, `pounds`
+* **Stones:** `st`, `stone`, `stones`
+* **Short Tons:** `ton`, `tons`
+* **Metric Tonnes:** `t`, `tonne`, `tonnes`
+
+### Volume & Capacity
+* **Milliliters:** `ml`, `mL`, `milliliter`, `milliliters`
+* **Liters:** `l`, `L`, `liter`, `liters`
+* **Teaspoons:** `tsp`, `teaspoon`, `teaspoons`
+* **Tablespoons:** `tbsp`, `tablespoon`, `tablespoons`
+* **Fluid Ounces:** `floz`, `fl_oz`
+* **Cups:** `cup`, `cups`
+* **Pints:** `pt`, `pint`, `pints`
+* **Quarts:** `qt`, `quart`, `quarts`
+* **Gallons:** `gal`, `gallon`, `gallons`
+
+### Area
+* **Square Meters:** `m2`, `sqm`
+* **Square Centimeters:** `cm2`
+* **Square Kilometers:** `km2`
+* **Square Feet:** `sqft`, `ft2`
+* **Acres:** `ac`, `acre`, `acres`
+* **Square Miles:** `sqmi`, `mi2`
+
+### Time
+* **Seconds:** `s`, `sec`, `secs`, `second`, `seconds`
+* **Minutes:** `min`, `mins`, `minute`, `minutes`
+* **Hours:** `h`, `hr`, `hrs`, `hour`, `hours`
+* **Days:** `d`, `day`, `days`
+* **Weeks:** `wk`, `week`, `weeks`
+* **Months:** `mo`, `month`, `months`
+* **Years:** `yr`, `year`, `years`
+
+### Speed
+* **Meters per second:** `m/s`
+* **Kilometers per hour:** `km/h`, `kph`
+* **Miles per hour:** `mph`
+* **Knots:** `kt`, `knot`, `knots`
+
+### Data Storage
+* **Decimal:** Bytes (`b`/`byte`/`bytes`), `kb`, `mb`, `gb`, `tb`, `pb` (kilobyte, megabyte, etc.)
+* **Binary:** `kib` (kibibyte), `mib`, `gib`, `tib`, `pib` (powers of 1024)
+
+### Tire Pressure
+* **PSI:** `psi`
+* **Bar:** `bar`
+* **Pascals:** `pa`, `pascal`, `pascals`
+
+### Power
+* **Watts:** `w`, `watt`, `watts`
+* **Kilowatts:** `kw`, `kilowatt`, `kilowatts`
+* **Horsepower:** `hp`, `horsepower`
+
+---
+
+## Dynamic Currency Conversions
+
+Taurine can convert between any standard 3-letter ISO currency codes (e.g. `usd=eur`, `eur=inr`, `gbp=jpy`).
+
+* **Dynamic Caching:** Taurine fetches real-time rates dynamically from a public API and caches them locally. To prevent UI delays, conversions are served instantly from the local cache. If the cache is older than 24 hours, a background thread updates it in the background.
+* **Offline Fallback:** If you are offline and have no cache file, Taurine automatically falls back to built-in, approximate exchange rates for major currencies (USD, EUR, INR, GBP, JPY, CAD, AUD, CNY).
