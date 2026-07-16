@@ -83,8 +83,6 @@ pub fn start_windows_supervisor(
             loop {
                 let event = rx.recv_timeout(Duration::from_secs(1));
 
-                let delay_restart = false;
-
                 match event {
                     Ok(WindowsSupervisorEvent::ListenerExited { error }) => {
                         hook_health.mark_listener_exit(error.clone());
@@ -101,39 +99,27 @@ pub fn start_windows_supervisor(
                     }
                     Ok(WindowsSupervisorEvent::ResumeAutomatic) => {
                         hook_health.mark_recovery_signal("automatic resume");
-                        warn!("Windows automatic resume detected; scheduling liveness verification");
-                        let now = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as u64;
-                        force_ping_at_unix_ms = now + 3000;
+                        warn!("Windows automatic resume detected; tearing down stale hook listener");
+                        tear_down_listener(&mut listener_handle);
+                        force_ping_at_unix_ms = 0;
                     }
                     Ok(WindowsSupervisorEvent::ResumeFromSuspend) => {
                         hook_health.mark_recovery_signal("resume from suspend");
-                        warn!("Windows resume from suspend detected; scheduling liveness verification");
-                        let now = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as u64;
-                        force_ping_at_unix_ms = now + 3000;
+                        warn!("Windows resume from suspend detected; tearing down stale hook listener");
+                        tear_down_listener(&mut listener_handle);
+                        force_ping_at_unix_ms = 0;
                     }
                     Ok(WindowsSupervisorEvent::SessionUnlock) => {
                         hook_health.mark_recovery_signal("session unlock");
-                        warn!("Windows session unlock detected; scheduling liveness verification");
-                        let now = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as u64;
-                        force_ping_at_unix_ms = now + 3000;
+                        warn!("Windows session unlock detected; tearing down stale hook listener");
+                        tear_down_listener(&mut listener_handle);
+                        force_ping_at_unix_ms = 0;
                     }
                     Ok(WindowsSupervisorEvent::SessionLogon) => {
                         hook_health.mark_recovery_signal("session logon");
-                        warn!("Windows session logon detected; scheduling liveness verification");
-                        let now = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as u64;
-                        force_ping_at_unix_ms = now + 3000;
+                        warn!("Windows session logon detected; tearing down stale hook listener");
+                        tear_down_listener(&mut listener_handle);
+                        force_ping_at_unix_ms = 0;
                     }
                     Ok(WindowsSupervisorEvent::DisplayChange) => {
                         hook_health.mark_recovery_signal("display change");
@@ -235,9 +221,6 @@ pub fn start_windows_supervisor(
                 }
 
                 if listener_handle.is_none() {
-                    if delay_restart {
-                        std::thread::sleep(RESTART_BACKOFF);
-                    }
                     info!("Reinstalling Windows hook listener");
                     listener_handle = Some(spawn_windows_hook_listener(
                         evaluator.clone(),
@@ -285,8 +268,23 @@ fn tear_down_listener(listener_handle: &mut Option<ListenerHandle>) {
         return;
     };
     send_wm_quit_to_thread(handle.thread_id, &handle.join);
-    if let Err(_error) = handle.join.join() {
-        warn!("Listener thread panicked during teardown; hook chain may be inconsistent");
+
+    // Give the thread up to 2 seconds to exit, then detach if unresponsive.
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        if handle.join.is_finished() {
+            if let Err(_error) = handle.join.join() {
+                warn!("Listener thread panicked during teardown; hook chain may be inconsistent");
+            }
+            return;
+        }
+        if std::time::Instant::now() >= deadline {
+            warn!("Listener thread did not exit within 2s after WM_QUIT; detaching thread");
+            // ponytail: leaked thread exits at process death; upgrade path is a
+            // cooperative cancellation token if this becomes a resource concern.
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
     }
 }
 
