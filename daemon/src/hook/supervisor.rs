@@ -62,7 +62,15 @@ pub fn start_windows_supervisor(
         .name("tau-hook-super".to_string())
         .spawn(move || {
             const RESTART_BACKOFF: Duration = Duration::from_secs(2);
+            // Fast-failure threshold: if a listener exits within this many ms of
+            // being spawned, it counts as a startup failure and gets a shorter
+            // retry delay rather than the full RESTART_BACKOFF.
+            const FAST_FAILURE_THRESHOLD_MS: u64 = 5000;
 
+            let supervisor_start_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
             let mut listener_handle: Option<ListenerHandle> = Some(spawn_windows_hook_listener(
                 evaluator.clone(),
                 state.clone(),
@@ -76,12 +84,15 @@ pub fn start_windows_supervisor(
                 hook_health.clone(),
                 tx.clone(),
             ));
+            let mut listener_spawned_at_unix_ms: u64 = supervisor_start_ms;
+            let mut consecutive_fast_failures: u32 = 0;
             let mut last_ping_sent_at_unix_ms: u64 = 0;
             let mut ping_pending = false;
             let mut force_ping_at_unix_ms: u64 = 0;
+            let mut next_spawn_allowed_after = std::time::Instant::now();
 
             loop {
-                let event = rx.recv_timeout(Duration::from_secs(1));
+                let event = rx.recv_timeout(Duration::from_millis(100));
 
                 match event {
                     Ok(WindowsSupervisorEvent::ListenerExited { error }) => {
@@ -94,32 +105,68 @@ pub fn start_windows_supervisor(
                         }
 
                         listener_handle.take();
-                        std::thread::sleep(RESTART_BACKOFF);
-                        info!("Restarting Windows hook listener after backoff");
+
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+                        let is_fast_failure = listener_spawned_at_unix_ms > 0
+                            && now < listener_spawned_at_unix_ms + FAST_FAILURE_THRESHOLD_MS;
+
+                        if is_fast_failure {
+                            consecutive_fast_failures += 1;
+                            if consecutive_fast_failures <= 3 {
+                                warn!(
+                                    consecutive_fast_failures,
+                                    "Hook listener fast failure; retrying in 1s"
+                                );
+                                std::thread::sleep(Duration::from_secs(1));
+                            } else {
+                                error!(
+                                    consecutive_fast_failures,
+                                    "Hook listener failed repeatedly on startup; backing off 5s"
+                                );
+                                std::thread::sleep(Duration::from_secs(5));
+                            }
+                        } else {
+                            consecutive_fast_failures = 0;
+                            std::thread::sleep(RESTART_BACKOFF);
+                            info!("Restarting Windows hook listener after backoff");
+                        }
                     }
                     Ok(WindowsSupervisorEvent::ResumeAutomatic) => {
                         hook_health.mark_recovery_signal("automatic resume");
                         warn!("Windows automatic resume detected; tearing down stale hook listener");
                         tear_down_listener(&mut listener_handle);
+                        // Coalesce sequential wakeup/session events by setting a 1s delay
+                        // before the supervisor is allowed to spawn a new listener.
+                        next_spawn_allowed_after = std::time::Instant::now() + Duration::from_secs(1);
                         force_ping_at_unix_ms = 0;
+                        consecutive_fast_failures = 0;
                     }
                     Ok(WindowsSupervisorEvent::ResumeFromSuspend) => {
                         hook_health.mark_recovery_signal("resume from suspend");
                         warn!("Windows resume from suspend detected; tearing down stale hook listener");
                         tear_down_listener(&mut listener_handle);
+                        next_spawn_allowed_after = std::time::Instant::now() + Duration::from_secs(1);
                         force_ping_at_unix_ms = 0;
+                        consecutive_fast_failures = 0;
                     }
                     Ok(WindowsSupervisorEvent::SessionUnlock) => {
                         hook_health.mark_recovery_signal("session unlock");
                         warn!("Windows session unlock detected; tearing down stale hook listener");
                         tear_down_listener(&mut listener_handle);
+                        next_spawn_allowed_after = std::time::Instant::now() + Duration::from_secs(1);
                         force_ping_at_unix_ms = 0;
+                        consecutive_fast_failures = 0;
                     }
                     Ok(WindowsSupervisorEvent::SessionLogon) => {
                         hook_health.mark_recovery_signal("session logon");
                         warn!("Windows session logon detected; tearing down stale hook listener");
                         tear_down_listener(&mut listener_handle);
+                        next_spawn_allowed_after = std::time::Instant::now() + Duration::from_secs(1);
                         force_ping_at_unix_ms = 0;
+                        consecutive_fast_failures = 0;
                     }
                     Ok(WindowsSupervisorEvent::DisplayChange) => {
                         hook_health.mark_recovery_signal("display change");
@@ -220,8 +267,12 @@ pub fn start_windows_supervisor(
                     }
                 }
 
-                if listener_handle.is_none() {
+                if listener_handle.is_none() && std::time::Instant::now() >= next_spawn_allowed_after {
                     info!("Reinstalling Windows hook listener");
+                    listener_spawned_at_unix_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
                     listener_handle = Some(spawn_windows_hook_listener(
                         evaluator.clone(),
                         state.clone(),

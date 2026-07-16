@@ -32,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Linux Fullscreen Listener Leak**: Fix a bug where the fullscreen listener thread was leaked on shutdown, preventing the daemon from exiting cleanly.
 - **Linux Clipboard Init**: Prevent daemon crashes on startup in headless environments or when no X11/Wayland display server is running.
 - **Linux Clipboard Connection Conflicts**: Resolve clipboard unresponsiveness and connection conflicts under X11 by sharing the global clipboard connection.
-- **Windows Resume Hook Resilience**: Instantly reinstall the keyboard hook on sleep, resume, logon, or session unlock events and prevent supervisor thread deadlocks.
+- **Windows Resume Hook Resilience**: Fix hook unresponsiveness and daemon crashes after sleep/resume by replacing the rdev keyboard hook with a custom thread-local Win32 low-level keyboard hook, coalescing rapid wakeup events to prevent spawn-and-destroy loops, and synchronizing modifier key states with the foreground window.
 
 ## [1.0.0-alpha.13] - 2026-07-12
 
