@@ -86,8 +86,8 @@ pub fn start() -> taurine_core::error::Result<()> {
         .ignore_fullscreen_enabled
         .store(settings.ignore_fullscreen, Ordering::Relaxed);
 
-    if let Ok(mut lock) = state.action_delimiter.write() {
-        *lock = settings.action_delimiter;
+    if let Ok(mut lock) = state.action_key.write() {
+        *lock = settings.action_key;
     }
 
     // Global pause toggle hotkey (display + parse).

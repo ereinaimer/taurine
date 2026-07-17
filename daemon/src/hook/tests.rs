@@ -313,7 +313,7 @@ fn completion_is_inactive_after_trigger_character_is_deleted() {
         assert_eq!(
             evaluator.process_event(
                 if ch == ' ' {
-                    taurine_core::engine::EngineEvent::ActionDelimiter
+                    taurine_core::engine::EngineEvent::ActionKey
                 } else {
                     taurine_core::engine::EngineEvent::Char(ch)
                 },

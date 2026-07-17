@@ -87,7 +87,7 @@ pub enum SpinnerStyle {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
-pub enum ActionDelimiter {
+pub enum ActionKey {
     Space,
     #[default]
     Enter,
@@ -128,7 +128,7 @@ pub struct Settings {
     pub ai_open_delimiter: String,
     pub ai_close_delimiter: String,
     pub clipboard_restore_delay_ms: u32,
-    pub action_delimiter: ActionDelimiter,
+    pub action_key: ActionKey,
     pub triggerless_mode: bool,
     pub instant_expand: bool,
     pub rpc_mode: RpcMode,
@@ -170,7 +170,7 @@ impl Settings {
             "ai_custom_endpoint" => "ai_custom_endpoint",
             "clipboard_restore_delay_ms" => "clipboard_restore_delay_ms",
             "clipboard_delay" => "clipboard_restore_delay_ms",
-            "action_delimiter" => "action_delimiter",
+            "action_key" => "action_key",
             "triggerless" => "triggerless_mode",
             "triggerless_mode" => "triggerless_mode",
             "instant_expand" => "instant_expand",
@@ -269,7 +269,7 @@ impl Default for Settings {
             ai_open_delimiter: ">>".to_string(),
             ai_close_delimiter: "<<".to_string(),
             clipboard_restore_delay_ms: Self::default_clipboard_restore_delay_ms(),
-            action_delimiter: ActionDelimiter::default(),
+            action_key: ActionKey::default(),
             triggerless_mode: true,
             instant_expand: false,
             rpc_mode: RpcMode::default(),

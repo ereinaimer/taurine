@@ -10,15 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Template Escape Sequences**: Support standard escape sequences (\n for newlines, \t for tabs, \r for carriage returns) in text expansions to allow formatting complex multi-line and tabular outputs easily.
 - **Delay Time Units**: Support seconds (`s`) and decimal/fractional seconds (e.g. `1.5s`, `0.5s`) in the `delay` system variable to make pauses in keyboard macro expansions more human-readable.
-- **Inline Unit Converter**: Support inline unit, temperature, and currency conversions directly in any text field via action delimiters, and disable all inline features (including math, emojis, completions, and history) when instant expand mode is enabled.
+- **Inline Unit Converter**: Support inline unit, temperature, and currency conversions directly in any text field via action keys, and disable all inline features (including math, emojis, completions, and history) when instant expand mode is enabled.
 - **Inline Emoji Picker**: Support quick-expanding Unicode emojis by typing a configurable trigger character (e.g. `:rocket` becomes `🚀`). Supports cycling shortcodes with Tab completion (supporting both hyphens and underscores while typing, standardizing completion suggestions to hyphens) and snippet precedence.
 - **Auto-Case Snippets**: Add `--auto-case` option to match snippets case-insensitively and mirror the typed trigger's casing.
 - **Image & Script Assets**: Support cross-platform image expansion and compiled, portable script file assets packed into the database.
 - **Regex Triggers**: Support pattern-based triggers with positional capture group interpolation.
 - **Tagging Support**: Add CLI options to categorize snippets and filter/delete automations by tag.
-- **Unquoted Spaces in Arguments**: Support spaces in dynamic variable arguments without quoting when using the `Enter` action delimiter.
+- **Unquoted Spaces in Arguments**: Support spaces in dynamic variable arguments without quoting when using the `Enter` action key.
 
 ### Changed
+- **Action Key Config**: Rename the `action_delimiter` configuration setting to `action_key` (representing the key, Space or Enter, that triggers automation expansions).
 - **Upgrade Word Boundary Matching**: Support word expansions after punctuation symbols (e.g. `.`, `,`, `(`, etc.) rather than only whitespace characters.
 - **Concise CLI Help Messages**: Simplify help descriptions for the app-filtering and operating system options to reduce clutter.
 - **Frictionless Install Scripts**: Move install scripts to the repository root, rewrite for POSIX sh compliance, and optimize check order for instant local-first version checks.

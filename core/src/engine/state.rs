@@ -55,7 +55,7 @@ pub struct EngineState {
     pub script_timeout: AtomicU32,
 
     pub spinner_style: RwLock<crate::settings::SpinnerStyle>,
-    pub action_delimiter: RwLock<crate::settings::ActionDelimiter>,
+    pub action_key: RwLock<crate::settings::ActionKey>,
     undo_state: RwLock<Option<UndoState>>,
     ai_session: InlineAiSession,
     word_catalog: ExpansionCatalog,
@@ -83,7 +83,7 @@ impl EngineState {
             script_timeout: AtomicU32::new(15),
 
             spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
-            action_delimiter: RwLock::new(crate::settings::ActionDelimiter::default()),
+            action_key: RwLock::new(crate::settings::ActionKey::default()),
             undo_state: RwLock::new(None),
             ai_session: InlineAiSession::new(),
             word_catalog: ExpansionCatalog::new(),
@@ -112,7 +112,7 @@ impl EngineState {
             script_timeout: AtomicU32::new(15),
 
             spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
-            action_delimiter: RwLock::new(crate::settings::ActionDelimiter::default()),
+            action_key: RwLock::new(crate::settings::ActionKey::default()),
             undo_state: RwLock::new(None),
             ai_session: InlineAiSession::new(),
             word_catalog: ExpansionCatalog::with_source(source),
@@ -251,9 +251,9 @@ impl EngineState {
         }
     }
 
-    pub fn set_action_delimiter(&self, delimiter: crate::settings::ActionDelimiter) {
-        if let Ok(mut guard) = self.action_delimiter.write() {
-            *guard = delimiter;
+    pub fn set_action_key(&self, key: crate::settings::ActionKey) {
+        if let Ok(mut guard) = self.action_key.write() {
+            *guard = key;
         }
     }
 

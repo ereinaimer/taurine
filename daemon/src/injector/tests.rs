@@ -85,7 +85,7 @@ fn assert_normal_expansion_still_works() {
         assert_eq!(
             evaluator.process_event(
                 if ch == ' ' {
-                    EngineEvent::ActionDelimiter
+                    EngineEvent::ActionKey
                 } else {
                     EngineEvent::Char(ch)
                 },
@@ -96,7 +96,7 @@ fn assert_normal_expansion_still_works() {
     }
 
     let expansion = evaluator
-        .process_event(EngineEvent::ActionDelimiter, None)
+        .process_event(EngineEvent::ActionKey, None)
         .expect("word trigger should still expand after AI cleanup");
     assert_eq!(
         expansion.steps,

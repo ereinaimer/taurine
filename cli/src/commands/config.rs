@@ -92,8 +92,8 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
         &settings.clipboard_history_retention_secs.to_string(),
     ]);
     table.add_row(vec![
-        "action_delimiter",
-        &format!("{:?}", settings.action_delimiter).to_lowercase(),
+        "action_key",
+        &format!("{:?}", settings.action_key).to_lowercase(),
     ]);
     table.add_row(vec![
         "triggerless_mode",
@@ -192,20 +192,17 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
             manager.update_setting(actual_key, s)?;
             info!("Updated spinner_style to: {}", value);
         }
-        "action_delimiter" => {
+        "action_key" => {
             let s = match value.to_lowercase().as_str() {
-                "space" => taurine_core::settings::ActionDelimiter::Space,
-                "enter" => taurine_core::settings::ActionDelimiter::Enter,
+                "space" => taurine_core::settings::ActionKey::Space,
+                "enter" => taurine_core::settings::ActionKey::Enter,
                 _ => {
-                    warn!(
-                        "Invalid action delimiter: {}. Supported: space, enter",
-                        value
-                    );
+                    warn!("Invalid action key: {}. Supported: space, enter", value);
                     return Ok(());
                 }
             };
             manager.update_setting(actual_key, s)?;
-            info!("Updated action_delimiter to: {}", value);
+            info!("Updated action_key to: {}", value);
         }
         "ai_provider" => {
             let provider = taurine_core::ai::AiProvider::try_from(value.as_str())?;
@@ -394,12 +391,9 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
                 defaults.spinner_style
             );
         }
-        "action_delimiter" => {
-            manager.update_setting(actual_key, defaults.action_delimiter)?;
-            info!(
-                "Reset action_delimiter to default: {:?}",
-                defaults.action_delimiter
-            );
+        "action_key" => {
+            manager.update_setting(actual_key, defaults.action_key)?;
+            info!("Reset action_key to default: {:?}", defaults.action_key);
         }
         "triggerless_mode" => {
             manager.update_setting(actual_key, defaults.triggerless_mode)?;
@@ -546,7 +540,7 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
         "clipboard_history_retention_secs",
         defaults.clipboard_history_retention_secs,
     )?;
-    manager.update_setting("action_delimiter", defaults.action_delimiter)?;
+    manager.update_setting("action_key", defaults.action_key)?;
     manager.update_setting("ignore_fullscreen", defaults.ignore_fullscreen)?;
     manager.update_setting("script_timeout", defaults.script_timeout)?;
     manager.update_setting("ai_temperature", defaults.ai_temperature)?;

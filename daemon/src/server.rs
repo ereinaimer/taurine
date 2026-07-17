@@ -306,8 +306,8 @@ impl DaemonControl for DaemonService {
                 *lock = settings.spinner_style;
             }
 
-            if let Ok(mut lock) = self.state.action_delimiter.write() {
-                *lock = settings.action_delimiter;
+            if let Ok(mut lock) = self.state.action_key.write() {
+                *lock = settings.action_key;
             }
 
             settings

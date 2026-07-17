@@ -259,7 +259,7 @@ impl XkbMapper {
         key: KeyCode,
         is_press: bool,
         engine_mode: EngineMode,
-        action_delimiter: taurine_core::settings::ActionDelimiter,
+        action_key: taurine_core::settings::ActionKey,
     ) -> Option<EngineEvent> {
         // evdev keycodes map to XKB keycodes by adding 8.
         let keycode = key.code() as u32 + 8;
@@ -306,15 +306,15 @@ impl XkbMapper {
                     }
                 }
                 KeyCode::KEY_SPACE => {
-                    if action_delimiter == taurine_core::settings::ActionDelimiter::Space {
-                        return Some(EngineEvent::ActionDelimiter);
+                    if action_key == taurine_core::settings::ActionKey::Space {
+                        return Some(EngineEvent::ActionKey);
                     }
                     return Some(EngineEvent::Char(' '));
                 }
                 // Structural keys — break any active typing sequence.
                 KeyCode::KEY_ENTER | KeyCode::KEY_KPENTER => {
-                    if action_delimiter == taurine_core::settings::ActionDelimiter::Enter {
-                        return Some(EngineEvent::ActionDelimiter);
+                    if action_key == taurine_core::settings::ActionKey::Enter {
+                        return Some(EngineEvent::ActionKey);
                     }
                     if matches!(engine_mode, EngineMode::AiCapture { .. }) {
                         return Some(EngineEvent::Char('\n'));
@@ -422,7 +422,7 @@ mod tests {
                 KeyCode::KEY_SPACE,
                 true,
                 EngineMode::Normal,
-                taurine_core::settings::ActionDelimiter::Enter,
+                taurine_core::settings::ActionKey::Enter,
             );
             assert_eq!(event, Some(EngineEvent::Char(' ')));
         }
@@ -437,7 +437,7 @@ mod tests {
             KeyCode::KEY_A,
             true,
             EngineMode::Normal,
-            taurine_core::settings::ActionDelimiter::Enter,
+            taurine_core::settings::ActionKey::Enter,
         );
         assert_eq!(event, Some(EngineEvent::Char('a')));
 
@@ -446,7 +446,7 @@ mod tests {
             KeyCode::KEY_LEFTSHIFT,
             true,
             EngineMode::Normal,
-            taurine_core::settings::ActionDelimiter::Enter,
+            taurine_core::settings::ActionKey::Enter,
         );
         assert!(mapper.is_shift_down());
 
@@ -454,7 +454,7 @@ mod tests {
             KeyCode::KEY_B,
             true,
             EngineMode::Normal,
-            taurine_core::settings::ActionDelimiter::Enter,
+            taurine_core::settings::ActionKey::Enter,
         );
         assert_eq!(event2, Some(EngineEvent::Char('B')));
 
@@ -462,7 +462,7 @@ mod tests {
             KeyCode::KEY_LEFTSHIFT,
             false,
             EngineMode::Normal,
-            taurine_core::settings::ActionDelimiter::Enter,
+            taurine_core::settings::ActionKey::Enter,
         );
         assert!(!mapper.is_shift_down());
 
@@ -471,14 +471,14 @@ mod tests {
             KeyCode::KEY_LEFTCTRL,
             true,
             EngineMode::Normal,
-            taurine_core::settings::ActionDelimiter::Enter,
+            taurine_core::settings::ActionKey::Enter,
         );
         assert!(mapper.is_ctrl_down());
         let event3 = mapper.process_key(
             KeyCode::KEY_C,
             true,
             EngineMode::Normal,
-            taurine_core::settings::ActionDelimiter::Enter,
+            taurine_core::settings::ActionKey::Enter,
         );
         assert_eq!(event3, None);
     }

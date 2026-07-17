@@ -322,8 +322,8 @@ fn process_frame(
 
         let logical_key = logical_key_from_evdev(key);
         let engine_mode = state.engine_mode();
-        let action_delimiter = *state.action_delimiter.read().unwrap();
-        let engine_event = xkb.process_key(key, is_press, engine_mode, action_delimiter);
+        let action_key = *state.action_key.read().unwrap();
+        let engine_event = xkb.process_key(key, is_press, engine_mode, action_key);
         let modifiers = modifier_sides.current_modifiers();
 
         if IS_INJECTING.load(Ordering::SeqCst) {
@@ -570,7 +570,7 @@ fn process_frame(
         }
 
         if let Some(ev) = engine_event {
-            let needs_window = matches!(ev, EngineEvent::ActionDelimiter)
+            let needs_window = matches!(ev, EngineEvent::ActionKey)
                 || (matches!(ev, EngineEvent::Char(_))
                     && (state.instant_expand.load(Ordering::Relaxed)
                         || state.triggerless_mode.load(Ordering::Relaxed)));
@@ -592,7 +592,7 @@ fn process_frame(
 
                 crate::hook::spawn_expansion_dispatch(expansion, spinner_style_inner, state);
 
-                if ev == EngineEvent::ActionDelimiter {
+                if ev == EngineEvent::ActionKey {
                     swallow_frame = true;
                 }
             }

@@ -458,19 +458,19 @@ pub(super) fn run_listener_once(
                         }
                     }
                     Key::Space => {
-                        if *state.action_delimiter.read().unwrap()
-                            == taurine_core::settings::ActionDelimiter::Space
+                        if *state.action_key.read().unwrap()
+                            == taurine_core::settings::ActionKey::Space
                         {
-                            Some(EngineEvent::ActionDelimiter)
+                            Some(EngineEvent::ActionKey)
                         } else {
                             Some(EngineEvent::Char(' '))
                         }
                     }
                     Key::Return => {
-                        if *state.action_delimiter.read().unwrap()
-                            == taurine_core::settings::ActionDelimiter::Enter
+                        if *state.action_key.read().unwrap()
+                            == taurine_core::settings::ActionKey::Enter
                         {
-                            Some(EngineEvent::ActionDelimiter)
+                            Some(EngineEvent::ActionKey)
                         } else {
                             Some(map_return_key(engine_mode))
                         }
@@ -506,7 +506,7 @@ pub(super) fn run_listener_once(
                         engine_event = engine_event_label(&ev),
                         "Dispatching engine event from hook callback"
                     );
-                    let needs_window = matches!(ev, EngineEvent::ActionDelimiter)
+                    let needs_window = matches!(ev, EngineEvent::ActionKey)
                         || (matches!(ev, EngineEvent::Char(_))
                             && (state.instant_expand.load(Ordering::Relaxed)
                                 || state.triggerless_mode.load(Ordering::Relaxed)));
@@ -534,7 +534,7 @@ pub(super) fn run_listener_once(
 
                         spawn_expansion_dispatch(expansion, spinner_style_inner, state);
 
-                        if ev == EngineEvent::ActionDelimiter {
+                        if ev == EngineEvent::ActionKey {
                             return None;
                         }
                     }
@@ -1246,7 +1246,7 @@ fn engine_event_label(event: &EngineEvent) -> &'static str {
         EngineEvent::Interrupt => "interrupt",
         EngineEvent::Backspace => "backspace",
         EngineEvent::WordBackspace => "word_backspace",
-        EngineEvent::ActionDelimiter => "action_delimiter",
+        EngineEvent::ActionKey => "action_key",
         EngineEvent::Char(_) => "char",
     }
 }

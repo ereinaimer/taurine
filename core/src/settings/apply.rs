@@ -64,9 +64,9 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "ai_open_delimiter" => Ok(Some(defaults.ai_open_delimiter)),
         "ai_close_delimiter" => Ok(Some(defaults.ai_close_delimiter)),
         "clipboard_restore_delay_ms" => Ok(Some(defaults.clipboard_restore_delay_ms.to_string())),
-        "action_delimiter" => Ok(Some(match defaults.action_delimiter {
-            super::ActionDelimiter::Space => "space".to_string(),
-            super::ActionDelimiter::Enter => "enter".to_string(),
+        "action_key" => Ok(Some(match defaults.action_key {
+            super::ActionKey::Space => "space".to_string(),
+            super::ActionKey::Enter => "enter".to_string(),
         })),
         "triggerless_mode" => Ok(Some(defaults.triggerless_mode.to_string())),
         "instant_expand" => Ok(Some(defaults.instant_expand.to_string())),
@@ -187,10 +187,10 @@ pub fn apply_setting_input_with_manager(
             )?;
             ApplySettingOutcome::default()
         }
-        "action_delimiter" => {
+        "action_key" => {
             manager.update_setting(
                 actual_key,
-                parse_action_delimiter(require_non_empty(value, actual_key)?)?,
+                parse_action_key(require_non_empty(value, actual_key)?)?,
             )?;
             ApplySettingOutcome::default()
         }
@@ -341,12 +341,12 @@ pub fn parse_spinner_style(value: &str) -> Result<SpinnerStyle> {
     }
 }
 
-pub fn parse_action_delimiter(value: &str) -> Result<super::ActionDelimiter> {
+pub fn parse_action_key(value: &str) -> Result<super::ActionKey> {
     match value.trim().to_ascii_lowercase().as_str() {
-        "space" => Ok(super::ActionDelimiter::Space),
-        "enter" => Ok(super::ActionDelimiter::Enter),
+        "space" => Ok(super::ActionKey::Space),
+        "enter" => Ok(super::ActionKey::Enter),
         other => Err(Error::Config(format!(
-            "Invalid action_delimiter value '{other}'. Supported values: space, enter"
+            "Invalid action_key value '{other}'. Supported values: space, enter"
         ))),
     }
 }

@@ -5,7 +5,7 @@ use taurine_core::{
 };
 
 const SPINNER_STYLE_OPTIONS: [&str; 3] = ["classic", "braille", "arc"];
-const ACTION_DELIMITER_OPTIONS: [&str; 2] = ["space", "enter"];
+const ACTION_KEY_OPTIONS: [&str; 2] = ["space", "enter"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SettingKey {
@@ -27,7 +27,7 @@ pub(crate) enum SettingKey {
     AiOpenDelimiter,
     AiCloseDelimiter,
     ClipboardRestoreDelayMs,
-    ActionDelimiter,
+    ActionKey,
     TriggerlessMode,
     InstantExpand,
     IgnoreFullscreen,
@@ -65,7 +65,7 @@ impl SettingKey {
         Self::AiOpenDelimiter,
         Self::AiCloseDelimiter,
         Self::ClipboardRestoreDelayMs,
-        Self::ActionDelimiter,
+        Self::ActionKey,
         Self::TriggerlessMode,
         Self::InstantExpand,
         Self::IgnoreFullscreen,
@@ -103,7 +103,7 @@ impl SettingKey {
             Self::AiOpenDelimiter => "ai_open_delimiter",
             Self::AiCloseDelimiter => "ai_close_delimiter",
             Self::ClipboardRestoreDelayMs => "clipboard_restore_delay_ms",
-            Self::ActionDelimiter => "action_delimiter",
+            Self::ActionKey => "action_key",
             Self::TriggerlessMode => "triggerless_mode",
             Self::InstantExpand => "instant_expand",
             Self::IgnoreFullscreen => "ignore_fullscreen",
@@ -142,7 +142,7 @@ impl SettingKey {
             Self::AiOpenDelimiter => "Inline AI Open Delimiter",
             Self::AiCloseDelimiter => "Inline AI Close Delimiter",
             Self::ClipboardRestoreDelayMs => "Clipboard Restore Delay (ms)",
-            Self::ActionDelimiter => "Action Delimiter",
+            Self::ActionKey => "Action Key",
             Self::TriggerlessMode => "Triggerless Mode",
             Self::InstantExpand => "Instant Expand",
             Self::IgnoreFullscreen => "Ignore Fullscreen on Windows",
@@ -195,7 +195,7 @@ impl SettingKey {
             Self::ClipboardRestoreDelayMs => {
                 "The delay in milliseconds between pasting and restoring the clipboard"
             }
-            Self::ActionDelimiter => {
+            Self::ActionKey => {
                 "The keystroke used to trigger a text expansion after the trigger character"
             }
             Self::TriggerlessMode => {
@@ -248,7 +248,7 @@ impl SettingKey {
             | Self::AiMaxTokens
             | Self::ClipboardHistoryRetentionSecs => EditorKind::NumberInput,
             Self::SpinnerStyle => EditorKind::SpinnerSelect,
-            Self::ActionDelimiter => EditorKind::ActionDelimiterSelect,
+            Self::ActionKey => EditorKind::ActionKeySelect,
             Self::AiProvider => EditorKind::AiProviderSelect,
             Self::AiCustomEndpoint | Self::AiTemperature | Self::AiSystemPrompt => {
                 EditorKind::OptionalTextInput
@@ -291,7 +291,7 @@ impl SettingKey {
             Self::AiOpenDelimiter => settings.ai_open_delimiter.clone(),
             Self::AiCloseDelimiter => settings.ai_close_delimiter.clone(),
             Self::ClipboardRestoreDelayMs => settings.clipboard_restore_delay_ms.to_string(),
-            Self::ActionDelimiter => format!("{:?}", settings.action_delimiter).to_lowercase(),
+            Self::ActionKey => format!("{:?}", settings.action_key).to_lowercase(),
             Self::TriggerlessMode => settings.triggerless_mode.to_string(),
             Self::InstantExpand => settings.instant_expand.to_string(),
             Self::IgnoreFullscreen => settings.ignore_fullscreen.to_string(),
@@ -348,7 +348,7 @@ impl SettingKey {
             | Self::InstantExpand
             | Self::IgnoreFullscreen
             | Self::SpinnerStyle
-            | Self::ActionDelimiter
+            | Self::ActionKey
             | Self::AiDelimiterMode
             | Self::RpcMode
             | Self::ClipboardRestoreDelayMs
@@ -383,7 +383,7 @@ pub(crate) enum EditorKind {
     OptionalTextInput,
     NumberInput,
     SpinnerSelect,
-    ActionDelimiterSelect,
+    ActionKeySelect,
     AiProviderSelect,
     AiDelimiterModeSelect,
     RpcModeSelect,
@@ -553,16 +553,14 @@ impl SettingsPageState {
                     .collect(),
                 key.display_value(&self.settings),
             ))),
-            EditorKind::ActionDelimiterSelect => {
-                Some(SettingsModal::Select(SelectModalState::new(
-                    key,
-                    ACTION_DELIMITER_OPTIONS
-                        .iter()
-                        .map(|value| (*value).to_string())
-                        .collect(),
-                    key.display_value(&self.settings),
-                )))
-            }
+            EditorKind::ActionKeySelect => Some(SettingsModal::Select(SelectModalState::new(
+                key,
+                ACTION_KEY_OPTIONS
+                    .iter()
+                    .map(|value| (*value).to_string())
+                    .collect(),
+                key.display_value(&self.settings),
+            ))),
             EditorKind::AiProviderSelect => Some(SettingsModal::Select(SelectModalState::new(
                 key,
                 supported_providers()
