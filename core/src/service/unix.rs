@@ -155,6 +155,67 @@ fn ensure_linux_permissions() -> crate::error::Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
+fn linux_direct_install(autostart: bool) -> crate::error::Result<()> {
+    let current_exe = env::current_exe()?;
+    let exe_path = current_exe.to_string_lossy();
+    let service_content = format!(
+        "[Unit]\n\
+         Description=Taurine\n\n\
+         [Service]\n\
+         ExecStart={} --daemon\n\
+         Restart=always\n\n\
+         [Install]\n\
+         WantedBy=default.target\n",
+        exe_path
+    );
+
+    let config_dir = if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+        std::path::PathBuf::from(xdg)
+    } else if let Ok(home) = std::env::var("HOME") {
+        std::path::PathBuf::from(home).join(".config")
+    } else {
+        return Err(crate::Error::Service(
+            "Could not determine user config directory (HOME or XDG_CONFIG_HOME not set)"
+                .to_string(),
+        ));
+    };
+
+    let systemd_user_dir = config_dir.join("systemd").join("user");
+    std::fs::create_dir_all(&systemd_user_dir).map_err(|e| crate::Error::Service(e.to_string()))?;
+
+    let service_path = systemd_user_dir.join("taurine.service");
+    std::fs::write(&service_path, service_content)
+        .map_err(|e| crate::Error::Service(e.to_string()))?;
+
+    let wants_dir = systemd_user_dir.join("default.target.wants");
+    std::fs::create_dir_all(&wants_dir).map_err(|e| crate::Error::Service(e.to_string()))?;
+
+    let link_path = wants_dir.join("taurine.service");
+
+    if autostart {
+        if !link_path.exists() {
+            std::os::unix::fs::symlink(&service_path, &link_path).unwrap_or_else(|e| {
+                tracing::warn!(
+                    "Failed to create symlink for taurine.service autostart: {}",
+                    e
+                );
+            });
+        }
+    } else {
+        if link_path.exists() {
+            std::fs::remove_file(&link_path).unwrap_or_else(|e| {
+                tracing::warn!(
+                    "Failed to remove symlink for taurine.service autostart: {}",
+                    e
+                );
+            });
+        }
+    }
+
+    Ok(())
+}
+
 pub fn sync_boot(enabled: bool) -> crate::error::Result<()> {
     let manager = get_manager()?;
     let label: ServiceLabel =
@@ -176,21 +237,28 @@ pub fn sync_boot(enabled: bool) -> crate::error::Result<()> {
                 "Syncing boot (autostart={}) for installed service...",
                 enabled
             );
-            let current_exe = env::current_exe()?;
 
-            manager
-                .install(ServiceInstallCtx {
-                    label: label.clone(),
-                    program: current_exe,
-                    args: vec!["--daemon".into()],
-                    contents: None,
-                    username: None,
-                    working_directory: None,
-                    environment: None,
-                    autostart: enabled,
-                    restart_policy: Default::default(),
-                })
-                .map_err(|e| crate::Error::Service(e.to_string()))?;
+            #[cfg(target_os = "linux")]
+            {
+                linux_direct_install(enabled)?;
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let current_exe = env::current_exe()?;
+                manager
+                    .install(ServiceInstallCtx {
+                        label: label.clone(),
+                        program: current_exe,
+                        args: vec!["--daemon".into()],
+                        contents: None,
+                        username: None,
+                        working_directory: None,
+                        environment: None,
+                        autostart: enabled,
+                        restart_policy: Default::default(),
+                    })
+                    .map_err(|e| crate::Error::Service(e.to_string()))?;
+            }
             Ok(())
         }
     }
@@ -226,21 +294,27 @@ pub fn up(start_on_boot: bool) -> crate::error::Result<()> {
         Ok(ServiceStatus::NotInstalled) | Err(_) => {
             debug!("Taurine service not found. Installing...");
 
-            let current_exe = env::current_exe()?;
-
-            manager
-                .install(ServiceInstallCtx {
-                    label: label.clone(),
-                    program: current_exe,
-                    args: vec!["--daemon".into()],
-                    contents: None,
-                    username: None,
-                    working_directory: None,
-                    environment: None,
-                    autostart: start_on_boot,
-                    restart_policy: Default::default(),
-                })
-                .map_err(|e| crate::Error::Service(e.to_string()))?;
+            #[cfg(target_os = "linux")]
+            {
+                linux_direct_install(start_on_boot)?;
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let current_exe = env::current_exe()?;
+                manager
+                    .install(ServiceInstallCtx {
+                        label: label.clone(),
+                        program: current_exe,
+                        args: vec!["--daemon".into()],
+                        contents: None,
+                        username: None,
+                        working_directory: None,
+                        environment: None,
+                        autostart: start_on_boot,
+                        restart_policy: Default::default(),
+                    })
+                    .map_err(|e| crate::Error::Service(e.to_string()))?;
+            }
 
             debug!("Install successful. Starting...");
             manager
@@ -395,20 +469,27 @@ pub fn restart(start_on_boot: bool) -> crate::error::Result<()> {
         label: label.clone(),
     }) {
         Ok(ServiceStatus::NotInstalled) | Err(_) => {
-            let current_exe = env::current_exe()?;
-            manager
-                .install(ServiceInstallCtx {
-                    label: label.clone(),
-                    program: current_exe,
-                    args: vec!["--daemon".into()],
-                    contents: None,
-                    username: None,
-                    working_directory: None,
-                    environment: None,
-                    autostart: start_on_boot,
-                    restart_policy: Default::default(),
-                })
-                .map_err(|e| crate::Error::Service(e.to_string()))?;
+            #[cfg(target_os = "linux")]
+            {
+                linux_direct_install(start_on_boot)?;
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let current_exe = env::current_exe()?;
+                manager
+                    .install(ServiceInstallCtx {
+                        label: label.clone(),
+                        program: current_exe,
+                        args: vec!["--daemon".into()],
+                        contents: None,
+                        username: None,
+                        working_directory: None,
+                        environment: None,
+                        autostart: start_on_boot,
+                        restart_policy: Default::default(),
+                    })
+                    .map_err(|e| crate::Error::Service(e.to_string()))?;
+            }
         }
         _ => {}
     }
