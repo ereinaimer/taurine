@@ -10,12 +10,11 @@ pub mod x11;
 static ACTIVE_WINDOW: std::sync::OnceLock<Arc<Mutex<Option<String>>>> = std::sync::OnceLock::new();
 
 pub fn get_active_window_label() -> Option<String> {
-    if let Some(lock) = ACTIVE_WINDOW.get() {
-        if let Ok(guard) = lock.lock() {
-            if guard.is_some() {
-                return guard.clone();
-            }
-        }
+    if let Some(lock) = ACTIVE_WINDOW.get()
+        && let Ok(guard) = lock.lock()
+        && guard.is_some()
+    {
+        return guard.clone();
     }
     // Fallback to synchronous X11 query if the listener isn't active, fails, or hasn't updated yet
     x11::get_active_window_label_sync()

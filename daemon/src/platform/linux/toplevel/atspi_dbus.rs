@@ -69,19 +69,19 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                     .interface("org.a11y.atspi.Event.Window")
                     .unwrap()
                     .member("Activate")
-                    .unwrap();
+                    .unwrap()
+                    .build();
 
-                let mut stream = match zbus::MessageStream::for_match_rule(
-                    match_rule_builder,
-                    &a11y_conn,
-                    None,
-                ).await {
-                    Ok(s) => s,
-                    Err(e) => {
-                        error!("Failed to create stream for AT-SPI2 match rule: {:?}", e);
-                        return;
-                    }
-                };
+                let mut stream =
+                    match zbus::MessageStream::for_match_rule(match_rule_builder, &a11y_conn, None)
+                        .await
+                    {
+                        Ok(s) => s,
+                        Err(e) => {
+                            error!("Failed to create stream for AT-SPI2 match rule: {:?}", e);
+                            return;
+                        }
+                    };
 
                 info!("AT-SPI2 toplevel listener started");
                 SHUTDOWN.store(false, Ordering::Relaxed);
@@ -94,7 +94,8 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                         match msg_opt {
                             Some(Ok(msg)) => {
                                 let header = msg.header();
-                                if let (Some(sender), Some(path)) = (header.sender(), header.path()) {
+                                if let (Some(sender), Some(path)) = (header.sender(), header.path())
+                                {
                                     let sender_str = sender.as_str().to_string();
                                     let path_str = path.as_str().to_string();
                                     let a11y_conn_clone = a11y_conn.clone();
@@ -105,30 +106,43 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                                     tokio::spawn(async move {
                                         if let Ok(node_proxy) = zbus::Proxy::new(
                                             &a11y_conn_clone,
-                                            sender_str,
-                                            &path_str,
+                                            sender_str.as_str(),
+                                            path_str.as_str(),
                                             "org.a11y.atspi.Accessible",
                                         )
                                         .await
                                         {
-                                            let title = node_proxy.get_property::<String>("Name").await.ok();
+                                            let title = node_proxy
+                                                .get_property::<String>("Name")
+                                                .await
+                                                .ok();
 
                                             let mut class = None;
-                                            if let Ok(app_ref) = node_proxy.call::<(String, zbus::zvariant::OwnedObjectPath), _, _>("GetApplication", &()).await {
-                                                if let Ok(app_proxy) = zbus::Proxy::new(
+                                            let app_ref_result: zbus::Result<(
+                                                String,
+                                                zbus::zvariant::OwnedObjectPath,
+                                            )> = node_proxy.call("GetApplication", &()).await;
+                                            if let Ok(app_ref) = app_ref_result
+                                                && let Ok(app_proxy) = zbus::Proxy::new(
                                                     &a11y_conn_clone,
-                                                    app_ref.0,
-                                                    app_ref.1,
-                                                    "org.a11y.atspi.Accessible"
-                                                ).await {
-                                                    class = app_proxy.get_property::<String>("Name").await.ok();
-                                                }
+                                                    app_ref.0.as_str(),
+                                                    &app_ref.1,
+                                                    "org.a11y.atspi.Accessible",
+                                                )
+                                                .await
+                                            {
+                                                class = app_proxy
+                                                    .get_property::<String>("Name")
+                                                    .await
+                                                    .ok();
                                             }
 
                                             // We don't have a reliable way to get AT-SPI2 fullscreen state
                                             // without importing the entire atspi state table, so we gracefully
                                             // default to false to allow macros to run.
-                                            state_clone.is_os_fullscreen.store(false, Ordering::Relaxed);
+                                            state_clone
+                                                .is_os_fullscreen
+                                                .store(false, Ordering::Relaxed);
 
                                             if let Ok(mut lock) = store_clone.lock() {
                                                 let info = ActiveWindowInfo {

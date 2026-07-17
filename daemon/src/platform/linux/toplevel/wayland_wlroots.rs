@@ -74,16 +74,15 @@ impl Dispatch<wl_registry::WlRegistry, ()> for AppState {
         if let wl_registry::Event::Global {
             name, interface, ..
         } = event
+            && interface == "zwlr_foreign_toplevel_manager_v1"
         {
-            if interface == "zwlr_foreign_toplevel_manager_v1" {
-                let manager = registry.bind::<ZwlrForeignToplevelManagerV1, _, _>(
-                    name,
-                    3, // Bind version 3
-                    qh,
-                    (),
-                );
-                state.manager = Some(manager);
-            }
+            let manager = registry.bind::<ZwlrForeignToplevelManagerV1, _, _>(
+                name,
+                3, // Bind version 3
+                qh,
+                (),
+            );
+            state.manager = Some(manager);
         }
     }
 }

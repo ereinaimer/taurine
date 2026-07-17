@@ -1,6 +1,6 @@
 use crate::platform::ClipboardManager;
 use objc2_app_kit::NSPasteboard;
-use objc2_foundation::{NSArray, NSData, NSString};
+use objc2_foundation::{NSData, NSString};
 
 pub struct MacosClipboard;
 

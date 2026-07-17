@@ -241,31 +241,28 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
 
 pub fn stop_listener() {
     let dummy_window = DUMMY_WINDOW.swap(0, Ordering::Relaxed);
-    if dummy_window != 0 {
-        if let Ok((conn, _)) = x11rb::connect(None) {
-            if let Ok(cookie) = conn.intern_atom(false, b"TAURINE_SHUTDOWN") {
-                if let Ok(taurine_shutdown_atom) = cookie.reply() {
-                    let event = x11rb::protocol::xproto::ClientMessageEvent {
-                        response_type: x11rb::protocol::xproto::CLIENT_MESSAGE_EVENT,
-                        format: 32,
-                        sequence: 0,
-                        window: dummy_window,
-                        type_: taurine_shutdown_atom.atom,
-                        data: x11rb::protocol::xproto::ClientMessageData::from([0u32; 5]),
-                    };
-                    let raw_event = event.serialize();
-                    let _ = conn.send_event(
-                        false,
-                        dummy_window,
-                        x11rb::protocol::xproto::EventMask::NO_EVENT,
-                        raw_event,
-                    );
-                    let _ = conn.flush();
-                }
-            }
-        }
+    if dummy_window != 0
+        && let Ok((conn, _)) = x11rb::connect(None)
+        && let Ok(cookie) = conn.intern_atom(false, b"TAURINE_SHUTDOWN")
+        && let Ok(taurine_shutdown_atom) = cookie.reply()
+    {
+        let event = x11rb::protocol::xproto::ClientMessageEvent {
+            response_type: x11rb::protocol::xproto::CLIENT_MESSAGE_EVENT,
+            format: 32,
+            sequence: 0,
+            window: dummy_window,
+            type_: taurine_shutdown_atom.atom,
+            data: x11rb::protocol::xproto::ClientMessageData::from([0u32; 5]),
+        };
+        let raw_event = event.serialize();
+        let _ = conn.send_event(
+            false,
+            dummy_window,
+            x11rb::protocol::xproto::EventMask::NO_EVENT,
+            raw_event,
+        );
+        let _ = conn.flush();
     }
-
     let handle = if let Ok(mut lock) = JOIN_HANDLE.lock() {
         lock.take()
     } else {

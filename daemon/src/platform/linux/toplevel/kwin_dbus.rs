@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use taurine_core::engine::{ActiveWindowInfo, EngineState};
 use tracing::{debug, error, info};
-use zbus::{Connection, MessageStream};
+use zbus::Connection;
 
 static JOIN_HANDLE: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None);
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
@@ -109,7 +109,8 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                     .interface("com.taurine.WindowTracker")
                     .unwrap()
                     .member("ActiveWindowChanged")
-                    .unwrap();
+                    .unwrap()
+                    .build();
 
                 let mut stream = match zbus::MessageStream::for_match_rule(
                     match_rule_builder,
@@ -129,45 +130,33 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                 SHUTDOWN.store(false, Ordering::Relaxed);
 
                 while !SHUTDOWN.load(Ordering::Relaxed) {
-                    if let Ok(Some(msg)) =
+                    if let Ok(Some(Ok(msg))) =
                         tokio::time::timeout(std::time::Duration::from_millis(500), stream.next())
                             .await
                     {
-                        if let Ok(msg) = msg {
-                            let header = msg.header();
-                            if header.interface().map(|i| i.as_str())
-                                == Some("com.taurine.WindowTracker")
-                            {
-                                if let Ok(body) = msg.body().deserialize::<(String, String, bool)>()
-                                {
-                                    let (title, class, is_fullscreen) = body;
+                        let header = msg.header();
+                        if header.interface().map(|i| i.as_str())
+                            == Some("com.taurine.WindowTracker")
+                            && let Ok(body) = msg.body().deserialize::<(String, String, bool)>()
+                        {
+                            let (title, class, is_fullscreen) = body;
 
-                                    state
-                                        .is_os_fullscreen
-                                        .store(is_fullscreen, Ordering::Relaxed);
+                            state
+                                .is_os_fullscreen
+                                .store(is_fullscreen, Ordering::Relaxed);
 
-                                    if let Ok(mut lock) = active_window_store.lock() {
-                                        let info = ActiveWindowInfo {
-                                            title: if title.is_empty() {
-                                                None
-                                            } else {
-                                                Some(title)
-                                            },
-                                            class: if class.is_empty() {
-                                                None
-                                            } else {
-                                                Some(class.clone())
-                                            },
-                                            exec_name: if class.is_empty() {
-                                                None
-                                            } else {
-                                                Some(class)
-                                            },
-                                            exec_path: None,
-                                        };
-                                        *lock = serde_json::to_string(&info).ok();
-                                    }
-                                }
+                            if let Ok(mut lock) = active_window_store.lock() {
+                                let info = ActiveWindowInfo {
+                                    title: if title.is_empty() { None } else { Some(title) },
+                                    class: if class.is_empty() {
+                                        None
+                                    } else {
+                                        Some(class.clone())
+                                    },
+                                    exec_name: if class.is_empty() { None } else { Some(class) },
+                                    exec_path: None,
+                                };
+                                *lock = serde_json::to_string(&info).ok();
                             }
                         }
                     }
