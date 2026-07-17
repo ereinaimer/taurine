@@ -1,6 +1,6 @@
 use service_manager::{
-    ServiceInstallCtx, ServiceLabel, ServiceLevel, ServiceManager, ServiceStartCtx, ServiceStatus,
-    ServiceStatusCtx, ServiceStopCtx, native_service_manager,
+    ServiceLabel, ServiceLevel, ServiceManager, ServiceStartCtx, ServiceStatus, ServiceStatusCtx,
+    ServiceStopCtx, native_service_manager,
 };
 use std::env;
 
@@ -60,10 +60,10 @@ fn is_current_user_in_group(group_name: &str) -> bool {
 
             if res == 0 && !grp_res.is_null() && !grp.gr_name.is_null() {
                 let name = std::ffi::CStr::from_ptr(grp.gr_name);
-                if let Ok(name_str) = name.to_str() {
-                    if name_str == group_name {
-                        return true;
-                    }
+                if let Ok(name_str) = name.to_str()
+                    && name_str == group_name
+                {
+                    return true;
                 }
             }
         }

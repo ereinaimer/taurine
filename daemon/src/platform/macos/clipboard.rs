@@ -118,10 +118,10 @@ impl ClipboardManager for MacosClipboard {
 
             pb.setData_forType(Some(&ns_data), pb_type);
 
-            // Write filenames plist array for drag-and-drop / file paste compatibility
-            let ns_path = NSString::from_str(&path_str);
-            let ns_paths = NSArray::from_retained_slice(&[ns_path]);
-            pb.setPropertyList_forType(Some(&ns_paths), objc2_app_kit::NSFilenamesPboardType);
+            // Write file URL for drag-and-drop / file paste compatibility
+            let url_string = format!("file://{}", path_str);
+            let ns_url = NSString::from_str(&url_string);
+            pb.setString_forType(&ns_url, objc2_app_kit::NSPasteboardTypeFileURL);
 
             // Also set transient pasteboard types to prevent clipboard managers from recording the image
             let ns_empty = NSData::new();
