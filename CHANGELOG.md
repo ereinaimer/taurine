@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Triggerless Backspace Undo**: Support Backspace Undo for expansions in triggerless mode to easily revert accidental matches.
 - **Rich Text Support**: Support HTML-based styled text pasting with automatic plain text fallbacks.
 - **Wayland Compatibility**: Support active window detection and fullscreen detection natively across Sway, Hyprland, KDE Plasma, and GNOME on Linux via a unified tracking backend.
 - **Delay Time Units**: Support seconds (`s`) and decimal/fractional seconds (e.g. `1.5s`, `0.5s`) in the `delay` system variable to make pauses in keyboard macro expansions more human-readable.
@@ -23,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Template Escape Sequences**: Remove support for legacy unescaped control characters (\n, \t, \r) in favor of HTML layout tags.
 
 ### Changed
+- **Triggerless Suffix Matching**: Bypass word boundary restrictions when `Enter` is the action key, allowing suffix expansions (e.g. `notegm` expanding `gm`) while keeping the boundary guard active for `Space`.
 - **Inline AI Trigger Config**: Rename the AI delimiter settings (`ai_delimiter_mode` etc) to inline AI trigger settings (`inline_ai_trigger_mode` etc) to standardize with other inline features and reduce parser jargon.
 - **Action Key Config**: Rename the `action_delimiter` configuration setting to `action_key` (representing the key, Space or Enter, that triggers automation expansions).
 - **Upgrade Word Boundary Matching**: Support word expansions after punctuation symbols (e.g. `.`, `,`, `(`, etc.) rather than only whitespace characters.

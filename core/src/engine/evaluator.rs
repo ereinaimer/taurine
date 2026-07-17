@@ -711,8 +711,8 @@ impl Evaluator {
             candidates.sort_by_key(|a| std::cmp::Reverse(a.0.len()));
 
             for (word, prev_char) in candidates {
-                let is_boundary =
-                    prev_char.is_none_or(|c| c.is_whitespace() || c.is_ascii_punctuation());
+                let is_boundary = action_key == crate::settings::ActionKey::Enter
+                    || prev_char.is_none_or(|c| c.is_whitespace() || c.is_ascii_punctuation());
                 if is_boundary
                     && let Some(expansion) = self.state.fetch_expansion(&word, active_window)
                 {
@@ -736,11 +736,15 @@ impl Evaluator {
                         });
                     }
 
+                    let undo_trigger = self
+                        .allows_blind_undo(&expansion.steps)
+                        .then(|| word.clone());
+
                     return Some(ExpansionResult {
                         delete_count,
                         steps: expansion.steps,
                         trigger: word,
-                        undo_trigger: None,
+                        undo_trigger,
                         is_calculation: expansion.is_calculation,
                         metric_kind,
                         track_usage: true,
@@ -3064,7 +3068,7 @@ mod tests {
             .expect("triggerless match");
         assert_eq!(result.delete_count, 2);
         assert_eq!(result.trigger, "gs");
-        assert_eq!(result.undo_trigger, None);
+        assert_eq!(result.undo_trigger, Some("gs".to_string()));
     }
 
     #[test]
@@ -3105,6 +3109,49 @@ mod tests {
             .expect("should expand triggerless with punctuation prefix");
         assert_eq!(result.delete_count, 2);
         assert_eq!(result.trigger, "gs");
+    }
+
+    #[test]
+    fn triggerless_mode_expands_middle_word_with_enter_action_key() {
+        use std::sync::atomic::Ordering;
+        let state = Arc::new(EngineState::new('>'));
+        state.triggerless_mode.store(true, Ordering::Relaxed);
+        *state.action_key.write().unwrap() = crate::settings::ActionKey::Enter;
+        state.load_actions(vec![(
+            "gm".to_string(),
+            crate::db::crud::AutomationAction::text("Good Morning"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        for c in "notegm".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+
+        let result = eval
+            .process(EngineEvent::ActionKey)
+            .expect("should expand triggerless with Enter action key despite boundary prefix");
+        assert_eq!(result.delete_count, 2);
+        assert_eq!(result.trigger, "gm");
+        assert_eq!(result.undo_trigger, Some("gm".to_string()));
+    }
+
+    #[test]
+    fn triggerless_mode_does_not_expand_middle_word_with_space_action_key() {
+        use std::sync::atomic::Ordering;
+        let state = Arc::new(EngineState::new('>'));
+        state.triggerless_mode.store(true, Ordering::Relaxed);
+        *state.action_key.write().unwrap() = crate::settings::ActionKey::Space;
+        state.load_actions(vec![(
+            "gm".to_string(),
+            crate::db::crud::AutomationAction::text("Good Morning"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        for c in "notegm".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+
+        assert_eq!(eval.process(EngineEvent::ActionKey), None);
     }
 
     #[test]
