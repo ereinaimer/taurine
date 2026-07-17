@@ -22,6 +22,63 @@ static QUIET_CONSOLE: OnceLock<bool> = OnceLock::new();
 static NO_LOG_FILE: OnceLock<bool> = OnceLock::new();
 static ACTIVE_COMPONENT: OnceLock<LogComponent> = OnceLock::new();
 
+static LAZY_WRITER: OnceLock<tracing_appender::non_blocking::NonBlocking> = OnceLock::new();
+
+#[derive(Clone, Copy)]
+pub struct LazyLogWriter;
+
+impl io::Write for LazyLogWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if let Some(writer) = LAZY_WRITER.get() {
+            // Under load, non_blocking can drop if buffer is full, but we need to forward it.
+            // Since NonBlocking implements Write, we can just call write on a clone of it or a mut ref to it.
+            // Since OnceLock holds NonBlocking which implements Write for &NonBlocking, we can write directly.
+            let mut w = writer.clone();
+            return w.write(buf);
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        if let Some(writer) = LAZY_WRITER.get() {
+            let mut w = writer.clone();
+            return w.flush();
+        }
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::writer::MakeWriter<'a> for LazyLogWriter {
+    type Writer = LazyLogWriter;
+
+    fn make_writer(&self) -> Self::Writer {
+        *self
+    }
+}
+
+pub fn activate_file_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
+    let quiet = QUIET_CONSOLE.get().copied().unwrap_or(false);
+    let no_log_file = NO_LOG_FILE.get().copied().unwrap_or(false);
+    if quiet || no_log_file {
+        return None;
+    }
+    let component = ACTIVE_COMPONENT
+        .get()
+        .copied()
+        .unwrap_or(LogComponent::Daemon);
+    let component_logs_dir = logs_dir().join(component.dir_name());
+    let retention_days = DEFAULT_RETENTION_DAYS;
+
+    let file_writer = DailyRotatingLogWriter::new(component_logs_dir, retention_days, component);
+    let (non_blocking, guard) = tracing_appender::non_blocking(file_writer);
+
+    if LAZY_WRITER.set(non_blocking).is_ok() {
+        Some(guard)
+    } else {
+        None
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct LoggingPlan {
     console_enabled: bool,
@@ -81,27 +138,41 @@ pub fn init_tracing_for_app(
                 EnvFilter::new("debug,h2=warn,hyper=warn,tower=warn,tonic=warn")
             });
 
-            let file_writer =
-                DailyRotatingLogWriter::new(component_logs_dir, retention_days, component);
-            let (non_blocking, guard) = tracing_appender::non_blocking(file_writer);
-            returned_guard = Some(guard);
-
             let file_timer = tracing_subscriber::fmt::time::LocalTime::new(
                 time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]"),
             );
-            let file_layer = tracing_subscriber::fmt::layer()
-                .with_writer(non_blocking)
-                .with_timer(file_timer)
-                .with_ansi(false)
-                .with_target(false)
-                .with_file(false)
-                .with_line_number(false)
-                .with_filter(file_filter);
 
-            let subscriber = tracing_subscriber::registry()
-                .with(file_layer)
-                .with(ErrorLayer::default());
-            let _ = tracing::subscriber::set_global_default(subscriber);
+            let subscriber = tracing_subscriber::registry().with(ErrorLayer::default());
+
+            match component {
+                LogComponent::Daemon => {
+                    let file_layer = tracing_subscriber::fmt::layer()
+                        .with_writer(LazyLogWriter)
+                        .with_timer(file_timer)
+                        .with_ansi(false)
+                        .with_target(false)
+                        .with_file(false)
+                        .with_line_number(false)
+                        .with_filter(file_filter);
+                    let _ = tracing::subscriber::set_global_default(subscriber.with(file_layer));
+                }
+                _ => {
+                    let file_writer =
+                        DailyRotatingLogWriter::new(component_logs_dir, retention_days, component);
+                    let (non_blocking, guard) = tracing_appender::non_blocking(file_writer);
+                    returned_guard = Some(guard);
+
+                    let file_layer = tracing_subscriber::fmt::layer()
+                        .with_writer(non_blocking)
+                        .with_timer(file_timer)
+                        .with_ansi(false)
+                        .with_target(false)
+                        .with_file(false)
+                        .with_line_number(false)
+                        .with_filter(file_filter);
+                    let _ = tracing::subscriber::set_global_default(subscriber.with(file_layer));
+                }
+            }
         } else if !plan.file_enabled {
             // No log file: only console logging.
             let console_level = match verbosity {
@@ -153,11 +224,6 @@ pub fn init_tracing_for_app(
                 EnvFilter::new("debug,h2=warn,hyper=warn,tower=warn,tonic=warn")
             });
 
-            let file_writer =
-                DailyRotatingLogWriter::new(component_logs_dir, retention_days, component);
-            let (non_blocking, guard) = tracing_appender::non_blocking(file_writer);
-            returned_guard = Some(guard);
-
             let console_level = match verbosity {
                 0 => "info,h2=error,hyper=error,tower=error,tonic=error",
                 1 => "debug,h2=warn,hyper=warn,tower=warn,tonic=warn",
@@ -165,13 +231,16 @@ pub fn init_tracing_for_app(
             };
             let console_filter = env_filter.unwrap_or_else(|| EnvFilter::new(console_level));
 
+            let console_timer = tracing_subscriber::fmt::time::LocalTime::new(
+                time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]"),
+            );
+            let file_timer = tracing_subscriber::fmt::time::LocalTime::new(
+                time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]"),
+            );
+
             let use_timestamp = verbosity > 0;
+
             if use_timestamp {
-                let console_timer = tracing_subscriber::fmt::time::LocalTime::new(
-                    time::macros::format_description!(
-                        "[year]-[month]-[day] [hour]:[minute]:[second]"
-                    ),
-                );
                 let console_layer = tracing_subscriber::fmt::layer()
                     .with_timer(console_timer)
                     .with_ansi(!no_color)
@@ -181,25 +250,44 @@ pub fn init_tracing_for_app(
                     .with_level(show_log_prefixes)
                     .with_filter(console_filter);
 
-                let file_timer = tracing_subscriber::fmt::time::LocalTime::new(
-                    time::macros::format_description!(
-                        "[year]-[month]-[day] [hour]:[minute]:[second]"
-                    ),
-                );
-                let file_layer = tracing_subscriber::fmt::layer()
-                    .with_writer(non_blocking)
-                    .with_timer(file_timer)
-                    .with_ansi(false)
-                    .with_target(false)
-                    .with_file(false)
-                    .with_line_number(false)
-                    .with_filter(file_filter);
-
                 let subscriber = tracing_subscriber::registry()
                     .with(console_layer)
-                    .with(file_layer)
                     .with(ErrorLayer::default());
-                let _ = tracing::subscriber::set_global_default(subscriber);
+
+                match component {
+                    LogComponent::Daemon => {
+                        let file_layer = tracing_subscriber::fmt::layer()
+                            .with_writer(LazyLogWriter)
+                            .with_timer(file_timer)
+                            .with_ansi(false)
+                            .with_target(false)
+                            .with_file(false)
+                            .with_line_number(false)
+                            .with_filter(file_filter);
+                        let _ =
+                            tracing::subscriber::set_global_default(subscriber.with(file_layer));
+                    }
+                    _ => {
+                        let file_writer = DailyRotatingLogWriter::new(
+                            component_logs_dir,
+                            retention_days,
+                            component,
+                        );
+                        let (non_blocking, guard) = tracing_appender::non_blocking(file_writer);
+                        returned_guard = Some(guard);
+
+                        let file_layer = tracing_subscriber::fmt::layer()
+                            .with_writer(non_blocking)
+                            .with_timer(file_timer)
+                            .with_ansi(false)
+                            .with_target(false)
+                            .with_file(false)
+                            .with_line_number(false)
+                            .with_filter(file_filter);
+                        let _ =
+                            tracing::subscriber::set_global_default(subscriber.with(file_layer));
+                    }
+                }
             } else {
                 let console_layer = tracing_subscriber::fmt::layer()
                     .compact()
@@ -211,27 +299,45 @@ pub fn init_tracing_for_app(
                     .without_time()
                     .with_filter(console_filter);
 
-                // File logs are always on debug level
-                let file_timer = tracing_subscriber::fmt::time::LocalTime::new(
-                    time::macros::format_description!(
-                        "[year]-[month]-[day] [hour]:[minute]:[second]"
-                    ),
-                );
-                let file_layer = tracing_subscriber::fmt::layer()
-                    .with_writer(non_blocking)
-                    .with_timer(file_timer)
-                    .with_ansi(false)
-                    .with_target(false)
-                    .with_file(false)
-                    .with_line_number(false)
-                    .with_filter(file_filter);
-
                 let subscriber = tracing_subscriber::registry()
                     .with(console_layer)
-                    .with(file_layer)
                     .with(ErrorLayer::default());
-                let _ = tracing::subscriber::set_global_default(subscriber);
-            }
+
+                match component {
+                    LogComponent::Daemon => {
+                        let file_layer = tracing_subscriber::fmt::layer()
+                            .with_writer(LazyLogWriter)
+                            .with_timer(file_timer)
+                            .with_ansi(false)
+                            .with_target(false)
+                            .with_file(false)
+                            .with_line_number(false)
+                            .with_filter(file_filter);
+                        let _ =
+                            tracing::subscriber::set_global_default(subscriber.with(file_layer));
+                    }
+                    _ => {
+                        let file_writer = DailyRotatingLogWriter::new(
+                            component_logs_dir,
+                            retention_days,
+                            component,
+                        );
+                        let (non_blocking, guard) = tracing_appender::non_blocking(file_writer);
+                        returned_guard = Some(guard);
+
+                        let file_layer = tracing_subscriber::fmt::layer()
+                            .with_writer(non_blocking)
+                            .with_timer(file_timer)
+                            .with_ansi(false)
+                            .with_target(false)
+                            .with_file(false)
+                            .with_line_number(false)
+                            .with_filter(file_filter);
+                        let _ =
+                            tracing::subscriber::set_global_default(subscriber.with(file_layer));
+                    }
+                }
+            };
         }
     });
 

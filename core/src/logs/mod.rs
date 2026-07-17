@@ -4,7 +4,8 @@ mod daily_log;
 mod init_log;
 
 pub use init_log::{
-    handle_panic_info, init_tracing_for_app, init_tracing_for_tests, install_tracing_panic_hook,
+    activate_file_logging, handle_panic_info, init_tracing_for_app, init_tracing_for_tests,
+    install_tracing_panic_hook,
 };
 
 /// Identifies which part of the application is logging.

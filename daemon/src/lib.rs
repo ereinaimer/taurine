@@ -23,6 +23,9 @@ mod server;
 
 pub use server::DaemonService;
 
+static FILE_LOG_GUARD: std::sync::OnceLock<Option<tracing_appender::non_blocking::WorkerGuard>> =
+    std::sync::OnceLock::new();
+
 pub fn start() -> taurine_core::error::Result<()> {
     let conn = init::setup()?;
 
@@ -200,6 +203,10 @@ pub fn start() -> taurine_core::error::Result<()> {
                 );
             }
         })?;
+
+    // Activate daemon file logging immediately after hook thread starts capturing
+    let guard = taurine_core::logs::activate_file_logging();
+    let _ = FILE_LOG_GUARD.set(guard);
 
     let run_result = rt.block_on(async {
         let (mut shutdown_tx, mut shutdown_rx) = mpsc::channel(1);

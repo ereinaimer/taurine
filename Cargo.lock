@@ -5023,6 +5023,7 @@ dependencies = [
  "tokio-stream",
  "tonic",
  "tracing",
+ "tracing-appender",
  "windows-sys 0.61.2",
  "x11rb",
  "xkbcommon",
