@@ -25,6 +25,53 @@ fn get_manager() -> crate::error::Result<Box<dyn ServiceManager>> {
 }
 
 #[cfg(target_os = "linux")]
+fn is_current_user_in_group(group_name: &str) -> bool {
+    // SAFETY: We use standard Unix APIs to get the current user's groups
+    unsafe {
+        let egid = libc::getegid();
+        let ngroups = libc::getgroups(0, std::ptr::null_mut());
+        if ngroups < 0 {
+            return false;
+        }
+
+        let mut groups = vec![0; ngroups as usize];
+        let res = libc::getgroups(ngroups, groups.as_mut_ptr());
+        if res < 0 {
+            return false;
+        }
+
+        // Add primary/effective group as well
+        if !groups.contains(&egid) {
+            groups.push(egid);
+        }
+
+        let mut name_buf = vec![0; 2048];
+        for &gid in &groups {
+            let mut grp = std::mem::zeroed::<libc::group>();
+            let mut grp_res = std::ptr::null_mut();
+
+            let res = libc::getgrgid_r(
+                gid,
+                &mut grp,
+                name_buf.as_mut_ptr() as *mut libc::c_char,
+                name_buf.len(),
+                &mut grp_res,
+            );
+
+            if res == 0 && !grp_res.is_null() && !grp.gr_name.is_null() {
+                let name = std::ffi::CStr::from_ptr(grp.gr_name);
+                if let Ok(name_str) = name.to_str() {
+                    if name_str == group_name {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+#[cfg(target_os = "linux")]
 fn ensure_linux_permissions() -> crate::error::Result<()> {
     use std::io::IsTerminal;
 
@@ -48,18 +95,8 @@ fn ensure_linux_permissions() -> crate::error::Result<()> {
     }
 
     // 2. Check input group membership
-    let groups_output = std::process::Command::new("id").arg("-Gn").output();
-    match groups_output {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            if !stdout.split_whitespace().any(|g| g == "input") {
-                needs_fix = true;
-            }
-        }
-        Err(err) => {
-            tracing::warn!("Failed to probe Linux groups with id -Gn: {}", err);
-            needs_fix = true;
-        }
+    if !is_current_user_in_group("input") {
+        needs_fix = true;
     }
 
     if needs_fix {

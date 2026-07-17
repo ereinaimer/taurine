@@ -68,3 +68,6 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
 [target."cfg(windows)".dependencies]
 sysinfo = "0.39.0"
 winreg = "0.56.0"
+
+[target."cfg(unix)".dependencies]
+libc = "0.2"

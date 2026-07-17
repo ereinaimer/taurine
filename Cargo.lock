@@ -4963,6 +4963,7 @@ dependencies = [
  "image",
  "indexmap 2.14.0",
  "keyring",
+ "libc",
  "md5",
  "os_info",
  "parking_lot",
