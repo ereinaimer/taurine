@@ -206,7 +206,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     #[cfg(windows)]
     crate::platform::windows::fullscreen::start_listener(state.clone());
     #[cfg(target_os = "linux")]
-    crate::platform::linux::fullscreen::start_listener(state.clone());
+    crate::platform::linux::toplevel::start_listener(state.clone());
     #[cfg(target_os = "macos")]
     crate::platform::macos::fullscreen::start_listener(state.clone());
 
@@ -553,7 +553,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     }
     #[cfg(target_os = "linux")]
     {
-        crate::platform::linux::fullscreen::stop_listener();
+        crate::platform::linux::toplevel::stop_listener();
     }
 
     info!("Daemon stopped cleanly. Exiting.");

@@ -1,23 +1,114 @@
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use taurine_core::engine::EngineState;
+use std::sync::{Arc, Mutex};
+use taurine_core::engine::{ActiveWindowInfo, EngineState};
 use tracing::{debug, error};
 use x11rb::connection::Connection;
-use x11rb::protocol::xproto::{ConnectionExt, EventMask};
+use x11rb::protocol::xproto::{AtomEnum, ConnectionExt, EventMask};
 
 static DUMMY_WINDOW: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-static JOIN_HANDLE: std::sync::Mutex<Option<std::thread::JoinHandle<()>>> =
-    std::sync::Mutex::new(None);
+static JOIN_HANDLE: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None);
 
-pub fn start_listener(state: Arc<EngineState>) {
-    if std::env::var("WAYLAND_DISPLAY").is_ok() {
-        debug!("Wayland detected. Fullscreen detection is disabled. Defaulting to false.");
-        state.is_os_fullscreen.store(false, Ordering::Relaxed);
-        return;
+pub fn get_active_window_label_sync() -> Option<String> {
+    let (conn, screen_num) = x11rb::connect(None).ok()?;
+    let screen = &conn.setup().roots[screen_num];
+    let root = screen.root;
+
+    let net_active_window = conn
+        .intern_atom(false, b"_NET_ACTIVE_WINDOW")
+        .ok()?
+        .reply()
+        .ok()?
+        .atom;
+
+    let active_window = conn
+        .get_property(false, root, net_active_window, AtomEnum::WINDOW, 0, 1)
+        .ok()?
+        .reply()
+        .ok()?
+        .value32()
+        .and_then(|mut iter| iter.next())?;
+
+    if active_window == 0 {
+        return None;
     }
 
+    let wm_class = conn
+        .intern_atom(false, b"WM_CLASS")
+        .ok()?
+        .reply()
+        .ok()?
+        .atom;
+
+    let class_reply = conn
+        .get_property(false, active_window, wm_class, AtomEnum::STRING, 0, 1024)
+        .ok()?
+        .reply()
+        .ok()?;
+
+    let class_name = if !class_reply.value.is_empty() {
+        let parts: Vec<&str> = std::str::from_utf8(&class_reply.value)
+            .ok()?
+            .split('\0')
+            .collect();
+        if parts.len() > 1 && !parts[1].is_empty() {
+            parts[1].to_string()
+        } else {
+            parts[0].to_string()
+        }
+    } else {
+        String::new()
+    };
+
+    let wm_name = conn
+        .intern_atom(false, b"_NET_WM_NAME")
+        .ok()?
+        .reply()
+        .ok()?
+        .atom;
+
+    let title_reply = conn
+        .get_property(
+            false,
+            active_window,
+            wm_name,
+            conn.intern_atom(false, b"UTF8_STRING")
+                .ok()?
+                .reply()
+                .ok()?
+                .atom,
+            0,
+            1024,
+        )
+        .ok()?
+        .reply()
+        .ok()?;
+
+    let title = if !title_reply.value.is_empty() {
+        Some(String::from_utf8_lossy(&title_reply.value).to_string())
+    } else {
+        None
+    };
+
+    let class_opt = if class_name.is_empty() {
+        None
+    } else {
+        Some(class_name.clone())
+    };
+    let exec_name = class_opt.clone();
+
+    let info = ActiveWindowInfo {
+        title,
+        class: class_opt,
+        exec_name,
+        exec_path: None,
+    };
+
+    serde_json::to_string(&info).ok()
+}
+
+pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Option<String>>>) {
     let handle = std::thread::Builder::new()
-        .name("tau-lnx-full".to_string())
+        .name("tau-lnx-x11".to_string())
         .spawn(move || {
             let (conn, screen_num) = match x11rb::connect(None) {
                 Ok(c) => c,
@@ -105,6 +196,7 @@ pub fn start_listener(state: Arc<EngineState>) {
                 net_wm_state,
                 net_wm_state_fullscreen,
                 &state,
+                &active_window_store,
             );
 
             while let Ok(event) = conn.wait_for_event() {
@@ -119,6 +211,7 @@ pub fn start_listener(state: Arc<EngineState>) {
                             net_wm_state,
                             net_wm_state_fullscreen,
                             &state,
+                            &active_window_store,
                         );
                     }
                     x11rb::protocol::Event::ClientMessage(ev)
@@ -133,7 +226,7 @@ pub fn start_listener(state: Arc<EngineState>) {
                 }
             }
         })
-        .expect("Failed to spawn Linux fullscreen listener thread");
+        .expect("Failed to spawn Linux X11 listener thread");
 
     if let Ok(mut lock) = JOIN_HANDLE.lock() {
         *lock = Some(handle);
@@ -177,7 +270,7 @@ pub fn stop_listener() {
     if let Some(h) = handle {
         let res = h.join();
         if let Err(e) = res {
-            error!("Error joining Linux fullscreen listener thread: {:?}", e);
+            error!("Error joining Linux X11 listener thread: {:?}", e);
         }
     }
 }
@@ -189,6 +282,7 @@ fn update_fullscreen_state(
     net_wm_state: u32,
     net_wm_state_fullscreen: u32,
     state: &Arc<EngineState>,
+    active_window_store: &Arc<Mutex<Option<String>>>,
 ) {
     let mut is_full = false;
     let active_window_val = conn
@@ -205,7 +299,11 @@ fn update_fullscreen_state(
         .and_then(|reply| reply.value32().and_then(|mut iter| iter.next()));
 
     if let Some(active_window) = active_window_val {
-        // Register to catch when the window goes fullscreen without losing focus
+        // We can optionally update the store here, but we also fall back to sync query if we miss it.
+        // For sync querying we actually do a better job getting title and class.
+        // For simplicity, we just trigger the async update in the background if we can, but since X11 is synchronous,
+        // it's easier to just let `get_active_window_label_sync` do it. We'll leave the store unchanged so it falls back to sync.
+
         let _ = conn.change_window_attributes(
             active_window,
             &x11rb::protocol::xproto::ChangeWindowAttributesAux::new()

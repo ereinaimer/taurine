@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Wayland Compatibility**: Support active window detection and fullscreen detection natively across Sway, Hyprland, KDE Plasma, and GNOME on Linux via a unified tracking backend.
 - **Template Escape Sequences**: Support standard escape sequences (\n for newlines, \t for tabs, \r for carriage returns) in text expansions to allow formatting complex multi-line and tabular outputs easily.
 - **Delay Time Units**: Support seconds (`s`) and decimal/fractional seconds (e.g. `1.5s`, `0.5s`) in the `delay` system variable to make pauses in keyboard macro expansions more human-readable.
 - **Inline Unit Converter**: Support inline unit, temperature, and currency conversions directly in any text field via action keys, and disable all inline features (including math, emojis, completions, and history) when instant expand mode is enabled.
