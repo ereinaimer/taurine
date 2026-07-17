@@ -119,6 +119,47 @@ pub fn logs_dir() -> PathBuf {
     data_dir.join(LOGS_DIR_NAME)
 }
 
+/// Resolves the app cache directory.
+/// - Windows:  %LOCALAPPDATA%\APP_NAME\cache
+/// - macOS:    ~/Library/Application Support/APP_NAME/cache
+/// - Linux:    ~/.local/share/APP_NAME_SLUG/cache
+/// - Android:  `ANDROID_DATA_PATH/cache`
+pub fn get_cache_dir() -> PathBuf {
+    get_data_dir().join("cache")
+}
+
+/// Gets the app cache directory and guarantees it exists on disk.
+pub fn ensure_cache_dir() -> PathBuf {
+    let cache_dir = get_cache_dir();
+    if !cache_dir.exists() {
+        debug!(
+            "Creating {} cache directory: {}",
+            APP_NAME,
+            cache_dir.display()
+        );
+        fs::create_dir_all(&cache_dir).expect("Failed to create app cache directory");
+    }
+
+    #[cfg(all(unix, not(target_os = "android")))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = fs::metadata(&cache_dir) {
+            let mut perms = metadata.permissions();
+            if perms.mode() & 0o777 != 0o700 {
+                perms.set_mode(0o700);
+                if let Err(e) = fs::set_permissions(&cache_dir, perms) {
+                    debug!(
+                        "Failed to set permissions 0700 on app cache directory: {}",
+                        e
+                    );
+                }
+            }
+        }
+    }
+
+    cache_dir
+}
+
 /// Resolves the exact file path for the daemon startup executable.
 pub fn get_startup_exe_path() -> PathBuf {
     let data_dir = ensure_data_dir();
@@ -158,9 +199,9 @@ pub fn get_install_exe_path() -> PathBuf {
 }
 
 /// Path to the file storing the last auto-update check timestamp (Unix seconds).
-/// Located at get_data_dir()/.last_update_check
+/// Located at get_cache_dir()/last_update_check
 pub fn get_last_update_check_path() -> PathBuf {
-    get_data_dir().join(".last_update_check")
+    ensure_cache_dir().join("last_update_check")
 }
 
 #[cfg(test)]
@@ -283,6 +324,36 @@ mod tests {
         {
             use std::os::unix::fs::PermissionsExt;
             let metadata = fs::metadata(&data_dir).unwrap();
+            assert_eq!(metadata.permissions().mode() & 0o777, 0o700);
+        }
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&test_dir);
+        unsafe { env::remove_var("TAURINE_DATA_DIR") };
+    }
+
+    #[test]
+    fn test_ensure_cache_dir_permissions() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        crate::testing::init_tracing_for_tests();
+
+        let test_dir = std::env::temp_dir().join("taurine_cache_test");
+        let _ = fs::remove_dir_all(&test_dir);
+
+        unsafe { env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
+
+        let cache_dir = ensure_cache_dir();
+        assert!(cache_dir.exists());
+        assert!(cache_dir.ends_with("cache"));
+
+        let update_path = get_last_update_check_path();
+        assert_eq!(update_path.parent().unwrap(), cache_dir.as_path());
+        assert!(update_path.ends_with("last_update_check"));
+
+        #[cfg(all(unix, not(target_os = "android")))]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let metadata = fs::metadata(&cache_dir).unwrap();
             assert_eq!(metadata.permissions().mode() & 0o777, 0o700);
         }
 
