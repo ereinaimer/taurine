@@ -257,14 +257,15 @@ impl DaemonControl for DaemonService {
                 .trigger_char
                 .store(settings.trigger_char as u32, Ordering::Relaxed);
 
-            // Update AI delimiters
-            self.state.set_ai_delimiter_mode(settings.ai_delimiter_mode);
+            // Update AI triggers
             self.state
-                .set_ai_symmetric_delimiter(settings.ai_symmetric_delimiter.clone());
+                .set_inline_ai_trigger_mode(settings.inline_ai_trigger_mode);
             self.state
-                .set_ai_open_delimiter(settings.ai_open_delimiter.clone());
+                .set_inline_ai_trigger(settings.inline_ai_trigger.clone());
             self.state
-                .set_ai_close_delimiter(settings.ai_close_delimiter.clone());
+                .set_inline_ai_trigger_open(settings.inline_ai_trigger_open.clone());
+            self.state
+                .set_inline_ai_trigger_close(settings.inline_ai_trigger_close.clone());
 
             self.state
                 .inline_tab_completion_enabled

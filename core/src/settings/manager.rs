@@ -91,28 +91,28 @@ impl<'a> SettingsManager<'a> {
             settings.ai_custom_endpoint = v;
         }
 
-        if let Some(val) = map.get("ai_delimiter_mode")
-            && let Ok(v) = serde_json::from_str::<super::AiDelimiterMode>(val)
+        if let Some(val) = map.get("inline_ai_trigger_mode")
+            && let Ok(v) = serde_json::from_str::<super::InlineAiTriggerMode>(val)
         {
-            settings.ai_delimiter_mode = v;
+            settings.inline_ai_trigger_mode = v;
         }
 
-        if let Some(val) = map.get("ai_symmetric_delimiter")
+        if let Some(val) = map.get("inline_ai_trigger")
             && let Ok(v) = serde_json::from_str::<String>(val)
         {
-            settings.ai_symmetric_delimiter = v;
+            settings.inline_ai_trigger = v;
         }
 
-        if let Some(val) = map.get("ai_open_delimiter")
+        if let Some(val) = map.get("inline_ai_trigger_open")
             && let Ok(v) = serde_json::from_str::<String>(val)
         {
-            settings.ai_open_delimiter = v;
+            settings.inline_ai_trigger_open = v;
         }
 
-        if let Some(val) = map.get("ai_close_delimiter")
+        if let Some(val) = map.get("inline_ai_trigger_close")
             && let Ok(v) = serde_json::from_str::<String>(val)
         {
-            settings.ai_close_delimiter = v;
+            settings.inline_ai_trigger_close = v;
         }
 
         if let Some(val) = map.get("clipboard_restore_delay_ms")

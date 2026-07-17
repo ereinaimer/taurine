@@ -15,7 +15,7 @@ taurine config ls
 ```bash
 taurine config set trigger_char /
 taurine config set start_on_boot true
-taurine config set ai_delimiter_mode Asymmetric
+taurine config set inline_ai_trigger_mode Asymmetric
 ```
 
 ## Reset A Value
@@ -42,9 +42,9 @@ taurine config reset --all
 | `ai_provider` | - | The default AI provider for Inline AI commands. |
 | `ai_model` | - | The default model for the selected AI provider. |
 | `ai_custom_endpoint` | - | Custom OpenAI-compatible URL for the `custom` provider. |
-| `ai_delimiter_mode` | `Symmetric` | The behavior mode (`Symmetric` or `Asymmetric`) for inline AI delimiters. |
-| `ai_open_delimiter` | `>>` | The opening text boundary for inline AI prompts. |
-| `ai_close_delimiter` | `<<` | The closing text boundary for inline AI prompts. |
+| `inline_ai_trigger_mode` | `Symmetric` | The behavior mode (`Symmetric` or `Asymmetric`) for inline AI triggers. |
+| `inline_ai_trigger_open` | `>>` | The opening trigger text boundary for inline AI prompts. |
+| `inline_ai_trigger_close` | `<<` | The closing trigger text boundary for inline AI prompts. |
 | `inline_tab_completion_enabled` | `true` | Enables or disables inline `Tab` / `Shift+Tab` completion. |
 | `inline_history_enabled` | `true` | Enables or disables inline `Up Arrow` / `Down Arrow` trigger history. |
 | `rpc_mode` | `socket` | RPC transport mode (`socket` using Unix domain sockets / Windows named pipes, or `tcp`). |
@@ -63,9 +63,9 @@ You can use these shorter aliases when running `taurine config set`:
 | `notifications` | `pause_notifications_enabled` |
 | `boot` | `start_on_boot` |
 | `spinner` | `spinner_style` |
-| `delimiter_mode` | `ai_delimiter_mode` |
-| `open_delimiter` | `ai_open_delimiter` |
-| `close_delimiter` | `ai_close_delimiter` |
+| `delimiter_mode` | `inline_ai_trigger_mode` |
+| `open_delimiter` | `inline_ai_trigger_open` |
+| `close_delimiter` | `inline_ai_trigger_close` |
 | `endpoint` | `ai_custom_endpoint` |
 | `custom_endpoint` | `ai_custom_endpoint` |
 | `inline_tab_completion` | `inline_tab_completion_enabled` |

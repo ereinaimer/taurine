@@ -22,10 +22,10 @@ pub(crate) enum SettingKey {
     AiProvider,
     AiModel,
     AiCustomEndpoint,
-    AiDelimiterMode,
-    AiSymmetricDelimiter,
-    AiOpenDelimiter,
-    AiCloseDelimiter,
+    InlineAiTriggerMode,
+    InlineAiTrigger,
+    InlineAiTriggerOpen,
+    InlineAiTriggerClose,
     ClipboardRestoreDelayMs,
     ActionKey,
     TriggerlessMode,
@@ -60,10 +60,10 @@ impl SettingKey {
         Self::AiProvider,
         Self::AiModel,
         Self::AiCustomEndpoint,
-        Self::AiDelimiterMode,
-        Self::AiSymmetricDelimiter,
-        Self::AiOpenDelimiter,
-        Self::AiCloseDelimiter,
+        Self::InlineAiTriggerMode,
+        Self::InlineAiTrigger,
+        Self::InlineAiTriggerOpen,
+        Self::InlineAiTriggerClose,
         Self::ClipboardRestoreDelayMs,
         Self::ActionKey,
         Self::TriggerlessMode,
@@ -98,10 +98,10 @@ impl SettingKey {
             Self::AiProvider => "ai_provider",
             Self::AiModel => "ai_model",
             Self::AiCustomEndpoint => "ai_custom_endpoint",
-            Self::AiDelimiterMode => "ai_delimiter_mode",
-            Self::AiSymmetricDelimiter => "ai_symmetric_delimiter",
-            Self::AiOpenDelimiter => "ai_open_delimiter",
-            Self::AiCloseDelimiter => "ai_close_delimiter",
+            Self::InlineAiTriggerMode => "inline_ai_trigger_mode",
+            Self::InlineAiTrigger => "inline_ai_trigger",
+            Self::InlineAiTriggerOpen => "inline_ai_trigger_open",
+            Self::InlineAiTriggerClose => "inline_ai_trigger_close",
             Self::ClipboardRestoreDelayMs => "clipboard_restore_delay_ms",
             Self::ActionKey => "action_key",
             Self::TriggerlessMode => "triggerless_mode",
@@ -137,10 +137,10 @@ impl SettingKey {
             Self::AiProvider => "AI Provider",
             Self::AiModel => "AI Model",
             Self::AiCustomEndpoint => "AI Custom Endpoint",
-            Self::AiDelimiterMode => "Inline AI Delimiter Mode",
-            Self::AiSymmetricDelimiter => "Inline AI Symmetric Delimiter",
-            Self::AiOpenDelimiter => "Inline AI Open Delimiter",
-            Self::AiCloseDelimiter => "Inline AI Close Delimiter",
+            Self::InlineAiTriggerMode => "Inline AI Trigger Mode",
+            Self::InlineAiTrigger => "Inline AI Trigger",
+            Self::InlineAiTriggerOpen => "Inline AI Trigger Open",
+            Self::InlineAiTriggerClose => "Inline AI Trigger Close",
             Self::ClipboardRestoreDelayMs => "Clipboard Restore Delay (ms)",
             Self::ActionKey => "Action Key",
             Self::TriggerlessMode => "Triggerless Mode",
@@ -184,14 +184,14 @@ impl SettingKey {
             Self::AiProvider => "Default AI provider used for inline AI",
             Self::AiModel => "Default AI model used for inline AI",
             Self::AiCustomEndpoint => "Optional custom API endpoint for AI requests",
-            Self::AiDelimiterMode => {
-                "The behavior style of inline AI delimiters (Symmetric or Asymmetric)"
+            Self::InlineAiTriggerMode => {
+                "The behavior style of inline AI triggers (Symmetric or Asymmetric)"
             }
-            Self::AiSymmetricDelimiter => {
-                "The delimiter used to both open and close an inline AI prompt in symmetric mode"
+            Self::InlineAiTrigger => {
+                "The trigger symbol used to both open and close an inline AI prompt in symmetric mode"
             }
-            Self::AiOpenDelimiter => "The boundary text used to start an inline AI prompt",
-            Self::AiCloseDelimiter => "The boundary text used to end an inline AI prompt",
+            Self::InlineAiTriggerOpen => "The trigger text used to start an inline AI prompt",
+            Self::InlineAiTriggerClose => "The trigger text used to end an inline AI prompt",
             Self::ClipboardRestoreDelayMs => {
                 "The delay in milliseconds between pasting and restoring the clipboard"
             }
@@ -253,14 +253,14 @@ impl SettingKey {
             Self::AiCustomEndpoint | Self::AiTemperature | Self::AiSystemPrompt => {
                 EditorKind::OptionalTextInput
             }
-            Self::AiDelimiterMode => EditorKind::AiDelimiterModeSelect,
+            Self::InlineAiTriggerMode => EditorKind::InlineAiTriggerModeSelect,
             Self::RpcMode => EditorKind::RpcModeSelect,
             Self::TriggerChar | Self::InlineEmojiTriggerChar => EditorKind::SingleCharInput,
             Self::PauseHotkey
             | Self::AiModel
-            | Self::AiSymmetricDelimiter
-            | Self::AiOpenDelimiter
-            | Self::AiCloseDelimiter
+            | Self::InlineAiTrigger
+            | Self::InlineAiTriggerOpen
+            | Self::InlineAiTriggerClose
             | Self::RpcHost
             | Self::RpcToken => EditorKind::TextInput,
         }
@@ -283,13 +283,13 @@ impl SettingKey {
             Self::AiCustomEndpoint => {
                 optional_value_label(settings.ai_custom_endpoint.as_deref()).to_string()
             }
-            Self::AiDelimiterMode => match settings.ai_delimiter_mode {
-                taurine_core::settings::AiDelimiterMode::Symmetric => "symmetric".to_string(),
-                taurine_core::settings::AiDelimiterMode::Asymmetric => "asymmetric".to_string(),
+            Self::InlineAiTriggerMode => match settings.inline_ai_trigger_mode {
+                taurine_core::settings::InlineAiTriggerMode::Symmetric => "symmetric".to_string(),
+                taurine_core::settings::InlineAiTriggerMode::Asymmetric => "asymmetric".to_string(),
             },
-            Self::AiSymmetricDelimiter => settings.ai_symmetric_delimiter.clone(),
-            Self::AiOpenDelimiter => settings.ai_open_delimiter.clone(),
-            Self::AiCloseDelimiter => settings.ai_close_delimiter.clone(),
+            Self::InlineAiTrigger => settings.inline_ai_trigger.clone(),
+            Self::InlineAiTriggerOpen => settings.inline_ai_trigger_open.clone(),
+            Self::InlineAiTriggerClose => settings.inline_ai_trigger_close.clone(),
             Self::ClipboardRestoreDelayMs => settings.clipboard_restore_delay_ms.to_string(),
             Self::ActionKey => format!("{:?}", settings.action_key).to_lowercase(),
             Self::TriggerlessMode => settings.triggerless_mode.to_string(),
@@ -333,9 +333,9 @@ impl SettingKey {
             Self::AiProvider => settings.ai_provider.clone().unwrap_or_default(),
             Self::AiModel => settings.ai_model.clone().unwrap_or_default(),
             Self::AiCustomEndpoint => settings.ai_custom_endpoint.clone().unwrap_or_default(),
-            Self::AiSymmetricDelimiter => settings.ai_symmetric_delimiter.clone(),
-            Self::AiOpenDelimiter => settings.ai_open_delimiter.clone(),
-            Self::AiCloseDelimiter => settings.ai_close_delimiter.clone(),
+            Self::InlineAiTrigger => settings.inline_ai_trigger.clone(),
+            Self::InlineAiTriggerOpen => settings.inline_ai_trigger_open.clone(),
+            Self::InlineAiTriggerClose => settings.inline_ai_trigger_close.clone(),
             Self::RpcHost => settings.rpc_host.clone(),
             Self::RpcToken => settings.rpc_token.clone(),
             Self::PauseNotificationsEnabled
@@ -349,7 +349,7 @@ impl SettingKey {
             | Self::IgnoreFullscreen
             | Self::SpinnerStyle
             | Self::ActionKey
-            | Self::AiDelimiterMode
+            | Self::InlineAiTriggerMode
             | Self::RpcMode
             | Self::ClipboardRestoreDelayMs
             | Self::RpcPort
@@ -385,7 +385,7 @@ pub(crate) enum EditorKind {
     SpinnerSelect,
     ActionKeySelect,
     AiProviderSelect,
-    AiDelimiterModeSelect,
+    InlineAiTriggerModeSelect,
     RpcModeSelect,
 }
 
@@ -409,14 +409,16 @@ impl SettingsPageState {
 
     pub(crate) fn visible_keys(&self) -> Vec<SettingKey> {
         let mut keys = SettingKey::ALL.to_vec();
-        if self.settings.ai_delimiter_mode == taurine_core::settings::AiDelimiterMode::Symmetric {
-            // In symmetric mode: show AiSymmetricDelimiter, hide asymmetric-only keys
+        if self.settings.inline_ai_trigger_mode
+            == taurine_core::settings::InlineAiTriggerMode::Symmetric
+        {
+            // In symmetric mode: show InlineAiTrigger, hide asymmetric-only keys
             keys.retain(|k| {
-                *k != SettingKey::AiOpenDelimiter && *k != SettingKey::AiCloseDelimiter
+                *k != SettingKey::InlineAiTriggerOpen && *k != SettingKey::InlineAiTriggerClose
             });
         } else {
-            // In asymmetric mode: show AiOpenDelimiter + AiCloseDelimiter, hide symmetric-only key
-            keys.retain(|k| *k != SettingKey::AiSymmetricDelimiter);
+            // In asymmetric mode: show InlineAiTriggerOpen + InlineAiTriggerClose, hide symmetric-only key
+            keys.retain(|k| *k != SettingKey::InlineAiTrigger);
         }
 
         // If mode is Socket, hide host/port (keep token visible)
@@ -569,7 +571,7 @@ impl SettingsPageState {
                     .collect(),
                 self.settings.ai_provider.clone().unwrap_or_default(),
             ))),
-            EditorKind::AiDelimiterModeSelect => {
+            EditorKind::InlineAiTriggerModeSelect => {
                 Some(SettingsModal::Select(SelectModalState::new(
                     key,
                     vec!["symmetric".to_string(), "asymmetric".to_string()],
@@ -1010,15 +1012,15 @@ mod tests {
             EditorKind::SingleCharInput
         );
         assert_eq!(
-            SettingKey::AiSymmetricDelimiter.editor_kind(),
+            SettingKey::InlineAiTrigger.editor_kind(),
             EditorKind::TextInput
         );
         assert_eq!(
-            SettingKey::AiOpenDelimiter.editor_kind(),
+            SettingKey::InlineAiTriggerOpen.editor_kind(),
             EditorKind::TextInput
         );
         assert_eq!(
-            SettingKey::AiCloseDelimiter.editor_kind(),
+            SettingKey::InlineAiTriggerClose.editor_kind(),
             EditorKind::TextInput
         );
     }

@@ -56,13 +56,13 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "ai_provider" => Ok(defaults.ai_provider),
         "ai_model" => Ok(defaults.ai_model),
         "ai_custom_endpoint" => Ok(defaults.ai_custom_endpoint),
-        "ai_delimiter_mode" => Ok(Some(match defaults.ai_delimiter_mode {
-            super::AiDelimiterMode::Symmetric => "symmetric".to_string(),
-            super::AiDelimiterMode::Asymmetric => "asymmetric".to_string(),
+        "inline_ai_trigger_mode" => Ok(Some(match defaults.inline_ai_trigger_mode {
+            super::InlineAiTriggerMode::Symmetric => "symmetric".to_string(),
+            super::InlineAiTriggerMode::Asymmetric => "asymmetric".to_string(),
         })),
-        "ai_symmetric_delimiter" => Ok(Some(defaults.ai_symmetric_delimiter)),
-        "ai_open_delimiter" => Ok(Some(defaults.ai_open_delimiter)),
-        "ai_close_delimiter" => Ok(Some(defaults.ai_close_delimiter)),
+        "inline_ai_trigger" => Ok(Some(defaults.inline_ai_trigger)),
+        "inline_ai_trigger_open" => Ok(Some(defaults.inline_ai_trigger_open)),
+        "inline_ai_trigger_close" => Ok(Some(defaults.inline_ai_trigger_close)),
         "clipboard_restore_delay_ms" => Ok(Some(defaults.clipboard_restore_delay_ms.to_string())),
         "action_key" => Ok(Some(match defaults.action_key {
             super::ActionKey::Space => "space".to_string(),
@@ -164,14 +164,14 @@ pub fn apply_setting_input_with_manager(
             manager.update_setting(actual_key, endpoint)?;
             ApplySettingOutcome::default()
         }
-        "ai_delimiter_mode" => {
+        "inline_ai_trigger_mode" => {
             manager.update_setting(
                 actual_key,
-                parse_ai_delimiter_mode(require_non_empty(value, actual_key)?)?,
+                parse_inline_ai_trigger_mode(require_non_empty(value, actual_key)?)?,
             )?;
             ApplySettingOutcome::default()
         }
-        "ai_open_delimiter" | "ai_close_delimiter" | "ai_symmetric_delimiter" => {
+        "inline_ai_trigger_open" | "inline_ai_trigger_close" | "inline_ai_trigger" => {
             let parsed = require_non_empty(value, actual_key)?;
             manager.update_setting(actual_key, parsed.to_string())?;
             ApplySettingOutcome::default()
@@ -341,22 +341,22 @@ pub fn parse_spinner_style(value: &str) -> Result<SpinnerStyle> {
     }
 }
 
+pub fn parse_inline_ai_trigger_mode(value: &str) -> Result<super::InlineAiTriggerMode> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "symmetric" => Ok(super::InlineAiTriggerMode::Symmetric),
+        "asymmetric" => Ok(super::InlineAiTriggerMode::Asymmetric),
+        other => Err(Error::Config(format!(
+            "Invalid inline_ai_trigger_mode value '{other}'. Supported values: symmetric, asymmetric"
+        ))),
+    }
+}
+
 pub fn parse_action_key(value: &str) -> Result<super::ActionKey> {
     match value.trim().to_ascii_lowercase().as_str() {
         "space" => Ok(super::ActionKey::Space),
         "enter" => Ok(super::ActionKey::Enter),
         other => Err(Error::Config(format!(
             "Invalid action_key value '{other}'. Supported values: space, enter"
-        ))),
-    }
-}
-
-pub fn parse_ai_delimiter_mode(value: &str) -> Result<super::AiDelimiterMode> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "symmetric" => Ok(super::AiDelimiterMode::Symmetric),
-        "asymmetric" => Ok(super::AiDelimiterMode::Asymmetric),
-        other => Err(Error::Config(format!(
-            "Invalid ai_delimiter_mode value '{other}'. Supported values: symmetric, asymmetric"
         ))),
     }
 }

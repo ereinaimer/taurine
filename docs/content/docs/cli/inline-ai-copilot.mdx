@@ -69,22 +69,22 @@ If you are using the `custom` provider (e.g., Local LLMs via Ollama or LM Studio
 taurine config set ai_custom_endpoint http://localhost:11434/v1
 ```
 
-### Custom Delimiters
+### Custom Triggers
 You can customize the text boundaries used to trigger and close the AI copilot. Taurine supports both **Symmetric** (same boundary for open/close) and **Asymmetric** (different boundaries) modes.
 
 To configure an asymmetric setup (e.g., `[[` to open and `]]` to close):
 
 ```bash
-taurine config set ai_delimiter_mode asymmetric
-taurine config set ai_open_delimiter "[["
-taurine config set ai_close_delimiter "]]"
+taurine config set inline_ai_trigger_mode asymmetric
+taurine config set inline_ai_trigger_open "[["
+taurine config set inline_ai_trigger_close "]]"
 ```
 
 To configure a symmetric setup (e.g., `~` for both):
 
 ```bash
-taurine config set ai_delimiter_mode symmetric
-taurine config set ai_open_delimiter "~"
+taurine config set inline_ai_trigger_mode symmetric
+taurine config set inline_ai_trigger "~"
 ```
 
 ## Provider Selection

@@ -870,13 +870,13 @@ impl Evaluator {
                 self.buffer.push(c);
                 self.update_completion_after_char(c);
 
-                let mode = self.state.get_ai_delimiter_mode();
+                let mode = self.state.get_inline_ai_trigger_mode();
                 let open_delim = match mode {
-                    crate::settings::AiDelimiterMode::Symmetric => {
-                        self.state.get_ai_symmetric_delimiter()
+                    crate::settings::InlineAiTriggerMode::Symmetric => {
+                        self.state.get_inline_ai_trigger()
                     }
-                    crate::settings::AiDelimiterMode::Asymmetric => {
-                        self.state.get_ai_open_delimiter()
+                    crate::settings::InlineAiTriggerMode::Asymmetric => {
+                        self.state.get_inline_ai_trigger_open()
                     }
                 };
                 if self.buffer.buffer_string().ends_with(&open_delim) {
@@ -972,10 +972,12 @@ impl Evaluator {
     }
 
     fn finish_inline_ai_capture_if_ready(&mut self) -> Option<ExpansionResult> {
-        let mode = self.state.get_ai_delimiter_mode();
+        let mode = self.state.get_inline_ai_trigger_mode();
         let close_delim = match mode {
-            crate::settings::AiDelimiterMode::Symmetric => self.state.get_ai_symmetric_delimiter(),
-            crate::settings::AiDelimiterMode::Asymmetric => self.state.get_ai_close_delimiter(),
+            crate::settings::InlineAiTriggerMode::Symmetric => self.state.get_inline_ai_trigger(),
+            crate::settings::InlineAiTriggerMode::Asymmetric => {
+                self.state.get_inline_ai_trigger_close()
+            }
         };
 
         let captured = self.state.ai_prompt_buffer();
@@ -989,8 +991,10 @@ impl Evaluator {
         }
 
         let open_delim = match mode {
-            crate::settings::AiDelimiterMode::Symmetric => self.state.get_ai_symmetric_delimiter(),
-            crate::settings::AiDelimiterMode::Asymmetric => self.state.get_ai_open_delimiter(),
+            crate::settings::InlineAiTriggerMode::Symmetric => self.state.get_inline_ai_trigger(),
+            crate::settings::InlineAiTriggerMode::Asymmetric => {
+                self.state.get_inline_ai_trigger_open()
+            }
         };
         let delete_count = captured.chars().count() + open_delim.chars().count();
 
@@ -2945,8 +2949,8 @@ mod tests {
     #[test]
     fn test_ai_capture_finish_with_symmetric_delimiters() {
         let state = Arc::new(EngineState::new('>'));
-        state.set_ai_delimiter_mode(crate::settings::AiDelimiterMode::Symmetric);
-        state.set_ai_symmetric_delimiter("^".to_string());
+        state.set_inline_ai_trigger_mode(crate::settings::InlineAiTriggerMode::Symmetric);
+        state.set_inline_ai_trigger("^".to_string());
         let mut eval = Evaluator::new(state.clone());
 
         let _ = eval.process(EngineEvent::Char('^'));
@@ -3010,9 +3014,9 @@ mod tests {
     fn inline_ai_capture_works_with_custom_delimiter() {
         let state = Arc::new(EngineState::new('>'));
         *state.action_key.write().unwrap() = crate::settings::ActionKey::Space;
-        state.set_ai_delimiter_mode(crate::settings::AiDelimiterMode::Asymmetric);
-        state.set_ai_open_delimiter("[[".to_string());
-        state.set_ai_close_delimiter("]]".to_string());
+        state.set_inline_ai_trigger_mode(crate::settings::InlineAiTriggerMode::Asymmetric);
+        state.set_inline_ai_trigger_open("[[".to_string());
+        state.set_inline_ai_trigger_close("]]".to_string());
         let mut eval = Evaluator::new(state.clone());
 
         // 1. Enter capture

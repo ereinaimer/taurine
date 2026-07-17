@@ -39,10 +39,10 @@ impl UndoState {
 
 pub struct EngineState {
     pub trigger_char: AtomicU32,
-    ai_delimiter_mode: RwLock<crate::settings::AiDelimiterMode>,
-    ai_symmetric_delimiter: RwLock<String>,
-    ai_open_delimiter: RwLock<String>,
-    ai_close_delimiter: RwLock<String>,
+    inline_ai_trigger_mode: RwLock<crate::settings::InlineAiTriggerMode>,
+    inline_ai_trigger: RwLock<String>,
+    inline_ai_trigger_open: RwLock<String>,
+    inline_ai_trigger_close: RwLock<String>,
     pub inline_tab_completion_enabled: AtomicBool,
     pub inline_history_enabled: AtomicBool,
     pub triggerless_mode: AtomicBool,
@@ -67,10 +67,10 @@ impl EngineState {
     pub fn new(trigger_char: char) -> Self {
         Self {
             trigger_char: AtomicU32::new(trigger_char as u32),
-            ai_delimiter_mode: RwLock::new(crate::settings::AiDelimiterMode::default()),
-            ai_symmetric_delimiter: RwLock::new("^".to_string()),
-            ai_open_delimiter: RwLock::new(">>".to_string()),
-            ai_close_delimiter: RwLock::new("<<".to_string()),
+            inline_ai_trigger_mode: RwLock::new(crate::settings::InlineAiTriggerMode::default()),
+            inline_ai_trigger: RwLock::new("^".to_string()),
+            inline_ai_trigger_open: RwLock::new(">>".to_string()),
+            inline_ai_trigger_close: RwLock::new("<<".to_string()),
             inline_tab_completion_enabled: AtomicBool::new(true),
             inline_history_enabled: AtomicBool::new(true),
             triggerless_mode: AtomicBool::new(false),
@@ -96,10 +96,10 @@ impl EngineState {
     pub fn with_source(trigger_char: char, source: Arc<dyn SnippetSource>) -> Self {
         Self {
             trigger_char: AtomicU32::new(trigger_char as u32),
-            ai_delimiter_mode: RwLock::new(crate::settings::AiDelimiterMode::default()),
-            ai_symmetric_delimiter: RwLock::new("^".to_string()),
-            ai_open_delimiter: RwLock::new(">>".to_string()),
-            ai_close_delimiter: RwLock::new("<<".to_string()),
+            inline_ai_trigger_mode: RwLock::new(crate::settings::InlineAiTriggerMode::default()),
+            inline_ai_trigger: RwLock::new("^".to_string()),
+            inline_ai_trigger_open: RwLock::new(">>".to_string()),
+            inline_ai_trigger_close: RwLock::new("<<".to_string()),
             inline_tab_completion_enabled: AtomicBool::new(true),
             inline_history_enabled: AtomicBool::new(true),
             triggerless_mode: AtomicBool::new(false),
@@ -257,53 +257,53 @@ impl EngineState {
         }
     }
 
-    pub fn set_ai_delimiter_mode(&self, mode: crate::settings::AiDelimiterMode) {
-        if let Ok(mut guard) = self.ai_delimiter_mode.write() {
+    pub fn set_inline_ai_trigger_mode(&self, mode: crate::settings::InlineAiTriggerMode) {
+        if let Ok(mut guard) = self.inline_ai_trigger_mode.write() {
             *guard = mode;
         }
     }
 
-    pub fn set_ai_open_delimiter(&self, open: String) {
-        if let Ok(mut guard) = self.ai_open_delimiter.write() {
+    pub fn set_inline_ai_trigger_open(&self, open: String) {
+        if let Ok(mut guard) = self.inline_ai_trigger_open.write() {
             *guard = open;
         }
     }
 
-    pub fn set_ai_symmetric_delimiter(&self, delim: String) {
-        if let Ok(mut guard) = self.ai_symmetric_delimiter.write() {
+    pub fn set_inline_ai_trigger(&self, delim: String) {
+        if let Ok(mut guard) = self.inline_ai_trigger.write() {
             *guard = delim;
         }
     }
 
-    pub fn set_ai_close_delimiter(&self, close: String) {
-        if let Ok(mut guard) = self.ai_close_delimiter.write() {
+    pub fn set_inline_ai_trigger_close(&self, close: String) {
+        if let Ok(mut guard) = self.inline_ai_trigger_close.write() {
             *guard = close;
         }
     }
 
-    pub fn get_ai_delimiter_mode(&self) -> crate::settings::AiDelimiterMode {
-        self.ai_delimiter_mode
+    pub fn get_inline_ai_trigger_mode(&self) -> crate::settings::InlineAiTriggerMode {
+        self.inline_ai_trigger_mode
             .read()
             .map(|guard| *guard)
             .unwrap_or_default()
     }
 
-    pub fn get_ai_open_delimiter(&self) -> String {
-        self.ai_open_delimiter
+    pub fn get_inline_ai_trigger_open(&self) -> String {
+        self.inline_ai_trigger_open
             .read()
             .map(|guard| guard.clone())
             .unwrap_or_else(|_| ">>".to_string())
     }
 
-    pub fn get_ai_symmetric_delimiter(&self) -> String {
-        self.ai_symmetric_delimiter
+    pub fn get_inline_ai_trigger(&self) -> String {
+        self.inline_ai_trigger
             .read()
             .map(|guard| guard.clone())
             .unwrap_or_else(|_| "^".to_string())
     }
 
-    pub fn get_ai_close_delimiter(&self) -> String {
-        self.ai_close_delimiter
+    pub fn get_inline_ai_trigger_close(&self) -> String {
+        self.inline_ai_trigger_close
             .read()
             .map(|guard| guard.clone())
             .unwrap_or_else(|_| "<<".to_string())

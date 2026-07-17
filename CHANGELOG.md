@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Unquoted Spaces in Arguments**: Support spaces in dynamic variable arguments without quoting when using the `Enter` action key.
 
 ### Changed
+- **Inline AI Trigger Config**: Rename the AI delimiter settings (`ai_delimiter_mode` etc) to inline AI trigger settings (`inline_ai_trigger_mode` etc) to standardize with other inline features and reduce parser jargon.
 - **Action Key Config**: Rename the `action_delimiter` configuration setting to `action_key` (representing the key, Space or Enter, that triggers automation expansions).
 - **Upgrade Word Boundary Matching**: Support word expansions after punctuation symbols (e.g. `.`, `,`, `(`, etc.) rather than only whitespace characters.
 - **Concise CLI Help Messages**: Simplify help descriptions for the app-filtering and operating system options to reduce clutter.

@@ -95,7 +95,7 @@ pub enum ActionKey {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
-pub enum AiDelimiterMode {
+pub enum InlineAiTriggerMode {
     Symmetric,
     #[default]
     Asymmetric,
@@ -123,10 +123,10 @@ pub struct Settings {
     pub ai_provider: Option<String>,
     pub ai_model: Option<String>,
     pub ai_custom_endpoint: Option<String>,
-    pub ai_delimiter_mode: AiDelimiterMode,
-    pub ai_symmetric_delimiter: String,
-    pub ai_open_delimiter: String,
-    pub ai_close_delimiter: String,
+    pub inline_ai_trigger_mode: InlineAiTriggerMode,
+    pub inline_ai_trigger: String,
+    pub inline_ai_trigger_open: String,
+    pub inline_ai_trigger_close: String,
     pub clipboard_restore_delay_ms: u32,
     pub action_key: ActionKey,
     pub triggerless_mode: bool,
@@ -161,10 +161,18 @@ impl Settings {
             "spinner" => "spinner_style",
             "ai_provider" => "ai_provider",
             "ai_model" => "ai_model",
-            "ai_delimiter_mode" | "delimiter_mode" => "ai_delimiter_mode",
-            "ai_symmetric_delimiter" | "symmetric_delimiter" => "ai_symmetric_delimiter",
-            "ai_open_delimiter" | "open_delimiter" | "delimiter" => "ai_open_delimiter",
-            "ai_close_delimiter" | "close_delimiter" => "ai_close_delimiter",
+            "inline_ai_trigger_mode" | "ai_delimiter_mode" | "delimiter_mode" => {
+                "inline_ai_trigger_mode"
+            }
+            "inline_ai_trigger" | "ai_symmetric_delimiter" | "symmetric_delimiter" => {
+                "inline_ai_trigger"
+            }
+            "inline_ai_trigger_open" | "ai_open_delimiter" | "open_delimiter" | "delimiter" => {
+                "inline_ai_trigger_open"
+            }
+            "inline_ai_trigger_close" | "ai_close_delimiter" | "close_delimiter" => {
+                "inline_ai_trigger_close"
+            }
             "endpoint" => "ai_custom_endpoint",
             "custom_endpoint" => "ai_custom_endpoint",
             "ai_custom_endpoint" => "ai_custom_endpoint",
@@ -264,10 +272,10 @@ impl Default for Settings {
             ai_provider: None,
             ai_model: None,
             ai_custom_endpoint: None,
-            ai_delimiter_mode: AiDelimiterMode::default(),
-            ai_symmetric_delimiter: "^".to_string(),
-            ai_open_delimiter: ">>".to_string(),
-            ai_close_delimiter: "<<".to_string(),
+            inline_ai_trigger_mode: InlineAiTriggerMode::default(),
+            inline_ai_trigger: "^".to_string(),
+            inline_ai_trigger_open: ">>".to_string(),
+            inline_ai_trigger_close: "<<".to_string(),
             clipboard_restore_delay_ms: Self::default_clipboard_restore_delay_ms(),
             action_key: ActionKey::default(),
             triggerless_mode: true,
