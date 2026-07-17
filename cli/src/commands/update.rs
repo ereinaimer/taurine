@@ -7,7 +7,7 @@ use taurine_core::error::{Error, Result};
 use taurine_core::paths::{get_install_bin_dir, get_install_exe_path, get_last_update_check_path};
 use taurine_core::settings::SpinnerStyle;
 use taurine_core::utils::spinner::{SpinnerRenderer, ThreadSpinnerHandle, spawn_threaded};
-use tracing::info;
+use tracing::{error, info};
 
 fn platform_key() -> &'static str {
     if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
@@ -94,18 +94,30 @@ pub fn should_check_now() -> bool {
     if !path.exists() {
         return true;
     }
-    if let Ok(metadata) = fs::metadata(&path)
-        && let Ok(modified) = metadata.modified()
-        && let Ok(elapsed) = modified.elapsed()
+    if let Ok(content) = fs::read_to_string(&path)
+        && let Ok(last_check) = content.trim().parse::<u64>()
     {
-        return elapsed.as_secs() > 24 * 60 * 60;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        return now.saturating_sub(last_check) > 24 * 60 * 60;
     }
     true
 }
 
 pub fn run_auto_update() -> Result<()> {
-    let _ = fs::write(get_last_update_check_path(), "");
-    let _ = execute_inner(true);
+    if let Err(e) = execute_inner(true) {
+        error!("Auto-update check failed: {}", e);
+        return Err(e);
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if let Err(e) = fs::write(get_last_update_check_path(), now.to_string()) {
+        error!("Failed to write last update check timestamp: {}", e);
+    }
     Ok(())
 }
 
@@ -364,5 +376,57 @@ fn ensure_on_path(dir: PathBuf) {
         for profile in taurine_core::shell::detect_shell_profiles() {
             let _ = taurine_core::shell::ensure_path_in_profile(&profile, &dir_str);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use std::fs;
+
+    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn test_should_check_now_and_timestamps() {
+        let _guard = TEST_LOCK.lock().unwrap();
+
+        // Create temporary test directory
+        let temp_dir = std::env::temp_dir();
+        let test_dir = temp_dir.join(format!("taurine-update-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&test_dir).unwrap();
+
+        // Set env override
+        unsafe { env::set_var("TAURINE_DATA_DIR", &test_dir) };
+
+        // 1. When the file does not exist, should_check_now should return true
+        let path = get_last_update_check_path();
+        if path.exists() {
+            let _ = fs::remove_file(&path);
+        }
+        assert!(should_check_now());
+
+        // 2. Write a timestamp from 25 hours ago
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let past_timestamp = now - (25 * 60 * 60);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, past_timestamp.to_string()).unwrap();
+        assert!(should_check_now());
+
+        // 3. Write a timestamp from 23 hours ago
+        let recent_timestamp = now - (23 * 60 * 60);
+        fs::write(&path, recent_timestamp.to_string()).unwrap();
+        assert!(!should_check_now());
+
+        // 4. Write an invalid (corrupted) timestamp
+        fs::write(&path, "not-a-number").unwrap();
+        assert!(should_check_now());
+
+        // Clean up
+        unsafe { env::remove_var("TAURINE_DATA_DIR") };
+        let _ = fs::remove_dir_all(&test_dir);
     }
 }

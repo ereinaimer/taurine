@@ -3,7 +3,7 @@ use crate::constants::APP_NAME_SLUG;
 use crate::constants::{APP_NAME, BIN_DIR_NAME, DB_FILENAME, LOGS_DIR_NAME, STARTUP_DIR_NAME};
 use std::fs;
 use std::path::PathBuf;
-use tracing::debug;
+use tracing::{debug, error};
 
 #[cfg(target_os = "android")]
 use std::sync::OnceLock;
@@ -137,7 +137,9 @@ pub fn ensure_cache_dir() -> PathBuf {
             APP_NAME,
             cache_dir.display()
         );
-        fs::create_dir_all(&cache_dir).expect("Failed to create app cache directory");
+        if let Err(e) = fs::create_dir_all(&cache_dir) {
+            error!("Failed to create app cache directory: {}", e);
+        }
     }
 
     #[cfg(all(unix, not(target_os = "android")))]
@@ -360,5 +362,28 @@ mod tests {
         // Cleanup
         let _ = fs::remove_dir_all(&test_dir);
         unsafe { env::remove_var("TAURINE_DATA_DIR") };
+    }
+
+    #[test]
+    fn test_ensure_cache_dir_error_handling() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        crate::testing::init_tracing_for_tests();
+
+        // Create a temporary file to block directory creation
+        let temp_dir = std::env::temp_dir();
+        let file_path = temp_dir.join(format!("taurine-test-file-{}", uuid::Uuid::new_v4()));
+        fs::write(&file_path, "").unwrap();
+
+        // Set TAURINE_DATA_DIR to a subdirectory of the file (which is invalid)
+        let invalid_data_dir = file_path.join("invalid_dir");
+        unsafe { env::set_var("TAURINE_DATA_DIR", &invalid_data_dir) };
+
+        // Calling ensure_cache_dir should not panic, even though dir creation fails
+        let cache_dir = ensure_cache_dir();
+        assert_eq!(cache_dir, invalid_data_dir.join("cache"));
+
+        // Clean up
+        unsafe { env::remove_var("TAURINE_DATA_DIR") };
+        let _ = fs::remove_file(&file_path);
     }
 }
