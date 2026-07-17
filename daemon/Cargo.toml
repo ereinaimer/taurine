@@ -54,3 +54,4 @@ x11rb = "0.13"
 wayland-client = "0.31"
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 zbus = "4"
+libc = "0.2"

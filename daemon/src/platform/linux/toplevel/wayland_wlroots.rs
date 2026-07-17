@@ -216,7 +216,7 @@ pub fn start_listener(
                 match event_queue.dispatch_pending(&mut state) {
                     Ok(0) => {
                         // no events pending, wait for events
-                        if let Ok(guard) = event_queue.prepare_read() {
+                        if let Some(guard) = event_queue.prepare_read() {
                             let _ = conn.flush();
 
                             // Simple polling loop with timeout to check shutdown flag

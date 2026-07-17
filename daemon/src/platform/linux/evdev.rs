@@ -703,7 +703,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        let handle = rt.handle().clone();
+        let _handle = rt.handle().clone();
 
         let mut xkb = crate::platform::linux::xkb::XkbMapper::default();
         let mut modifier_sides = ModifierSides::default();

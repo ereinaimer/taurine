@@ -50,7 +50,7 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                     }
                 };
 
-                let a11y_conn = match zbus::connection::Builder::address(&a11y_address) {
+                let a11y_conn = match zbus::connection::Builder::address(a11y_address.as_str()) {
                     Ok(builder) => match builder.build().await {
                         Ok(c) => c,
                         Err(e) => {
@@ -65,19 +65,23 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                 };
 
                 // Listen to window focus events
-                let match_rule = MatchRule::builder()
+                let match_rule_builder = MatchRule::builder()
                     .interface("org.a11y.atspi.Event.Window")
                     .unwrap()
                     .member("Activate")
-                    .unwrap()
-                    .build();
+                    .unwrap();
 
-                if let Err(e) = a11y_conn.add_match_rule(match_rule).await {
-                    error!("Failed to add AT-SPI2 match rule: {:?}", e);
-                    return;
-                }
-
-                let mut stream = zbus::MessageStream::from(a11y_conn.clone());
+                let mut stream = match zbus::MessageStream::for_match_rule(
+                    match_rule_builder,
+                    &a11y_conn,
+                    None,
+                ).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        error!("Failed to create stream for AT-SPI2 match rule: {:?}", e);
+                        return;
+                    }
+                };
 
                 info!("AT-SPI2 toplevel listener started");
                 SHUTDOWN.store(false, Ordering::Relaxed);
@@ -89,10 +93,8 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                     {
                         match msg_opt {
                             Some(Ok(msg)) => {
-                                if let (Ok(sender), Ok(path)) = (
-                                    msg.header().and_then(|h| h.sender().map(|s| s.clone())),
-                                    msg.header().and_then(|h| h.path().map(|p| p.clone())),
-                                ) {
+                                let header = msg.header();
+                                if let (Some(sender), Some(path)) = (header.sender(), header.path()) {
                                     let sender_str = sender.as_str().to_string();
                                     let path_str = path.as_str().to_string();
                                     let a11y_conn_clone = a11y_conn.clone();

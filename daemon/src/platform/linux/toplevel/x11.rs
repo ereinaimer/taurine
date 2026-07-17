@@ -4,6 +4,7 @@ use taurine_core::engine::{ActiveWindowInfo, EngineState};
 use tracing::{debug, error};
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{AtomEnum, ConnectionExt, EventMask};
+use x11rb::x11_utils::Serialize;
 
 static DUMMY_WINDOW: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 static JOIN_HANDLE: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None);
@@ -158,7 +159,7 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
             };
 
             if let Err(e) = conn.create_window(
-                x11rb::COPY_FROM_PARENT,
+                0,
                 dummy_window,
                 root,
                 0,
@@ -176,9 +177,14 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
 
             let taurine_shutdown_atom = match conn
                 .intern_atom(false, b"TAURINE_SHUTDOWN")
-                .and_then(|cookie| cookie.reply())
             {
-                Ok(reply) => reply.atom,
+                Ok(cookie) => match cookie.reply() {
+                    Ok(reply) => reply.atom,
+                    Err(e) => {
+                        error!("Failed to reply TAURINE_SHUTDOWN atom: {:?}", e);
+                        return;
+                    }
+                },
                 Err(e) => {
                     error!("Failed to intern TAURINE_SHUTDOWN atom: {:?}", e);
                     return;
@@ -237,26 +243,25 @@ pub fn stop_listener() {
     let dummy_window = DUMMY_WINDOW.swap(0, Ordering::Relaxed);
     if dummy_window != 0 {
         if let Ok((conn, _)) = x11rb::connect(None) {
-            if let Ok(taurine_shutdown_atom) = conn
-                .intern_atom(false, b"TAURINE_SHUTDOWN")
-                .and_then(|c| c.reply())
-            {
-                let event = x11rb::protocol::xproto::ClientMessageEvent {
-                    response_type: x11rb::protocol::xproto::CLIENT_MESSAGE_EVENT,
-                    format: 32,
-                    sequence: 0,
-                    window: dummy_window,
-                    type_: taurine_shutdown_atom.atom,
-                    data: x11rb::protocol::xproto::ClientMessageData::from([0u32; 5]),
-                };
-                let raw_event = event.serialize();
-                let _ = conn.send_event(
-                    false,
-                    dummy_window,
-                    x11rb::protocol::xproto::EventMask::NO_EVENT,
-                    raw_event,
-                );
-                let _ = conn.flush();
+            if let Ok(cookie) = conn.intern_atom(false, b"TAURINE_SHUTDOWN") {
+                if let Ok(taurine_shutdown_atom) = cookie.reply() {
+                    let event = x11rb::protocol::xproto::ClientMessageEvent {
+                        response_type: x11rb::protocol::xproto::CLIENT_MESSAGE_EVENT,
+                        format: 32,
+                        sequence: 0,
+                        window: dummy_window,
+                        type_: taurine_shutdown_atom.atom,
+                        data: x11rb::protocol::xproto::ClientMessageData::from([0u32; 5]),
+                    };
+                    let raw_event = event.serialize();
+                    let _ = conn.send_event(
+                        false,
+                        dummy_window,
+                        x11rb::protocol::xproto::EventMask::NO_EVENT,
+                        raw_event,
+                    );
+                    let _ = conn.flush();
+                }
             }
         }
     }

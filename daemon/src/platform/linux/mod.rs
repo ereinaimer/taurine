@@ -65,6 +65,17 @@ impl ClipboardManager for LinuxClipboard {
         with_clipboard(|clip| clip.set_text(text.to_owned()).map_err(|e| e.to_string()))
     }
 
+    fn set_image_file(&mut self, path: &std::path::Path) -> Result<(), String> {
+        let bytes = std::fs::read(path).map_err(|e| format!("Failed to read image: {}", e))?;
+        self.set_image(&bytes, "")
+    }
+
+    fn set_html(&mut self, _html: &str, plaintext: &str) -> Result<(), String> {
+        self.set_text(plaintext)
+    }
+}
+
+impl LinuxClipboard {
     fn set_image(&mut self, bytes: &[u8], _mime_type: &str) -> Result<(), String> {
         let img = image::load_from_memory(bytes)
             .map_err(|e| format!("Failed to decode image for Linux clipboard: {}", e))?;
@@ -78,14 +89,5 @@ impl ClipboardManager for LinuxClipboard {
             };
             clip.set_image(img_data).map_err(|e| e.to_string())
         })
-    }
-
-    fn set_image_file(&mut self, path: &std::path::Path) -> Result<(), String> {
-        let bytes = std::fs::read(path).map_err(|e| format!("Failed to read image: {}", e))?;
-        self.set_image(&bytes, "")
-    }
-
-    fn set_html(&mut self, _html: &str, plaintext: &str) -> Result<(), String> {
-        self.set_text(plaintext)
     }
 }

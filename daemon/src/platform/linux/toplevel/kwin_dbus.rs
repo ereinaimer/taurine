@@ -91,33 +91,39 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                         proxy.call("loadScript", &(script_path, plugin_name)).await;
                     if let Ok(id) = reply {
                         loaded_script_id = Some(id);
+                        let path = format!("/Scripting/Script{}", id);
                         if let Ok(start_proxy) = zbus::Proxy::new(
                             &conn,
                             "org.kde.KWin",
-                            &format!("/Scripting/Script{}", id),
+                            path.as_str(),
                             "org.kde.kwin.Script",
                         )
                         .await
                         {
-                            let _ = start_proxy.call::<_, ()>("run", &()).await;
+                            let _ = start_proxy.call::<_, _, ()>("run", &()).await;
                         }
                     }
                 }
 
-                // Listen for our custom signal
-                let mut stream = zbus::MessageStream::from(conn.clone());
-
-                // Setup match rule for the signal
-                let match_rule = zbus::MatchRule::builder()
+                let match_rule_builder = zbus::MatchRule::builder()
                     .interface("com.taurine.WindowTracker")
                     .unwrap()
                     .member("ActiveWindowChanged")
-                    .unwrap()
-                    .build();
+                    .unwrap();
 
-                if let Err(e) = conn.add_match_rule(match_rule).await {
-                    error!("Failed to add match rule: {}", e);
-                }
+                let mut stream = match zbus::MessageStream::for_match_rule(
+                    match_rule_builder,
+                    &conn,
+                    None,
+                )
+                .await
+                {
+                    Ok(s) => s,
+                    Err(e) => {
+                        error!("Failed to add match rule: {}", e);
+                        return;
+                    }
+                };
 
                 info!("KWin D-Bus toplevel listener started");
                 SHUTDOWN.store(false, Ordering::Relaxed);
@@ -128,40 +134,38 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                             .await
                     {
                         if let Ok(msg) = msg {
-                            if let Ok(header) = msg.header() {
-                                if header.interface().map(|i| i.as_str())
-                                    == Some("com.taurine.WindowTracker")
+                            let header = msg.header();
+                            if header.interface().map(|i| i.as_str())
+                                == Some("com.taurine.WindowTracker")
+                            {
+                                if let Ok(body) = msg.body().deserialize::<(String, String, bool)>()
                                 {
-                                    if let Ok(body) =
-                                        msg.body().deserialize::<(String, String, bool)>()
-                                    {
-                                        let (title, class, is_fullscreen) = body;
+                                    let (title, class, is_fullscreen) = body;
 
-                                        state
-                                            .is_os_fullscreen
-                                            .store(is_fullscreen, Ordering::Relaxed);
+                                    state
+                                        .is_os_fullscreen
+                                        .store(is_fullscreen, Ordering::Relaxed);
 
-                                        if let Ok(mut lock) = active_window_store.lock() {
-                                            let info = ActiveWindowInfo {
-                                                title: if title.is_empty() {
-                                                    None
-                                                } else {
-                                                    Some(title)
-                                                },
-                                                class: if class.is_empty() {
-                                                    None
-                                                } else {
-                                                    Some(class.clone())
-                                                },
-                                                exec_name: if class.is_empty() {
-                                                    None
-                                                } else {
-                                                    Some(class)
-                                                },
-                                                exec_path: None,
-                                            };
-                                            *lock = serde_json::to_string(&info).ok();
-                                        }
+                                    if let Ok(mut lock) = active_window_store.lock() {
+                                        let info = ActiveWindowInfo {
+                                            title: if title.is_empty() {
+                                                None
+                                            } else {
+                                                Some(title)
+                                            },
+                                            class: if class.is_empty() {
+                                                None
+                                            } else {
+                                                Some(class.clone())
+                                            },
+                                            exec_name: if class.is_empty() {
+                                                None
+                                            } else {
+                                                Some(class)
+                                            },
+                                            exec_path: None,
+                                        };
+                                        *lock = serde_json::to_string(&info).ok();
                                     }
                                 }
                             }
@@ -170,15 +174,16 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                 }
 
                 if let Some(id) = loaded_script_id {
+                    let path = format!("/Scripting/Script{}", id);
                     if let Ok(start_proxy) = zbus::Proxy::new(
                         &conn,
                         "org.kde.KWin",
-                        &format!("/Scripting/Script{}", id),
+                        path.as_str(),
                         "org.kde.kwin.Script",
                     )
                     .await
                     {
-                        let _ = start_proxy.call::<_, ()>("stop", &()).await;
+                        let _ = start_proxy.call::<_, _, ()>("stop", &()).await;
                     }
                 }
                 let _ = fs::remove_dir_all(&temp_dir);

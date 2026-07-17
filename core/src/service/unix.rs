@@ -2,6 +2,10 @@ use service_manager::{
     ServiceLabel, ServiceLevel, ServiceManager, ServiceStartCtx, ServiceStatus, ServiceStatusCtx,
     ServiceStopCtx, native_service_manager,
 };
+
+#[cfg(not(target_os = "linux"))]
+use service_manager::ServiceInstallCtx;
+
 use std::env;
 
 use tokio::runtime::Runtime;
