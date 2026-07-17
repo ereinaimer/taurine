@@ -103,20 +103,6 @@ pub fn start() -> taurine_core::error::Result<()> {
     let pause_notifications_enabled = settings.pause_notifications_enabled;
     let spinner_style = Arc::new(RwLock::new(settings.spinner_style));
 
-    // Load snippets efficiently!
-    if let Ok(active) = get_all_active_automations(&conn) {
-        state.load_actions(active);
-    }
-    if let Ok(history) = get_active_word_trigger_history(&conn) {
-        state.load_word_trigger_history(history);
-    }
-    if let Ok(active_hotkeys) = get_all_active_hotkey_automations(&conn) {
-        state.load_hotkey_actions(active_hotkeys);
-    }
-    if let Ok(active_regex) = get_all_active_regex_automations(&conn) {
-        state.load_regex_actions(active_regex);
-    }
-
     let evaluator = Arc::new(Mutex::new(Evaluator::new(state.clone())));
 
     let paused = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -128,21 +114,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     ));
     let hook_health = hook_health::HookHealth::new();
 
-    let audio_tx = audio::init_audio_system();
-
-    let clipboard_thread = std::thread::Builder::new()
-        .name("tau-clip".to_string())
-        .spawn(|| {
-            info!("Starting clipboard history listener...");
-            clipboard_history::start_listener();
-        })?;
-
-    #[cfg(windows)]
-    crate::platform::windows::fullscreen::start_listener(state.clone());
-    #[cfg(target_os = "linux")]
-    crate::platform::linux::fullscreen::start_listener(state.clone());
-    #[cfg(target_os = "macos")]
-    crate::platform::macos::fullscreen::start_listener(state.clone());
+    let (audio_tx, audio_rx) = audio::create_channel();
 
     // Fire up listener in OS thread
     let eval_clone = evaluator.clone();
@@ -198,6 +170,48 @@ pub fn start() -> taurine_core::error::Result<()> {
                 );
             }
         })?;
+
+    // Start deferred heavy initializations
+
+    // 1. Load snippets efficiently in background
+    let state_for_bg = state.clone();
+    std::thread::Builder::new()
+        .name("tau-db-load".to_string())
+        .spawn(move || {
+            if let Ok(conn) = taurine_core::db::init::setup() {
+                if let Ok(active) = get_all_active_automations(&conn) {
+                    state_for_bg.load_actions(active);
+                }
+                if let Ok(history) = get_active_word_trigger_history(&conn) {
+                    state_for_bg.load_word_trigger_history(history);
+                }
+                if let Ok(active_hotkeys) = get_all_active_hotkey_automations(&conn) {
+                    state_for_bg.load_hotkey_actions(active_hotkeys);
+                }
+                if let Ok(active_regex) = get_all_active_regex_automations(&conn) {
+                    state_for_bg.load_regex_actions(active_regex);
+                }
+            }
+        })?;
+
+    // 2. Start clipboard history listener
+    let clipboard_thread = std::thread::Builder::new()
+        .name("tau-clip".to_string())
+        .spawn(|| {
+            info!("Starting clipboard history listener...");
+            clipboard_history::start_listener();
+        })?;
+
+    // 3. Start fullscreen listeners
+    #[cfg(windows)]
+    crate::platform::windows::fullscreen::start_listener(state.clone());
+    #[cfg(target_os = "linux")]
+    crate::platform::linux::fullscreen::start_listener(state.clone());
+    #[cfg(target_os = "macos")]
+    crate::platform::macos::fullscreen::start_listener(state.clone());
+
+    // 4. Start audio worker
+    audio::start_worker(audio_rx);
 
     // Activate daemon file logging immediately after hook thread starts capturing
     let guard = taurine_core::logs::activate_file_logging();

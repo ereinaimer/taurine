@@ -14,9 +14,11 @@ fn load_wav_source(
     Decoder::new(cursor)
 }
 
-pub fn init_audio_system() -> mpsc::Sender<bool> {
-    let (tx, mut rx) = mpsc::channel::<bool>(4);
+pub fn create_channel() -> (mpsc::Sender<bool>, mpsc::Receiver<bool>) {
+    mpsc::channel::<bool>(4)
+}
 
+pub fn start_worker(mut rx: mpsc::Receiver<bool>) {
     std::thread::Builder::new()
         .name("tau-audio".to_string())
         .spawn(move || {
@@ -53,6 +55,4 @@ pub fn init_audio_system() -> mpsc::Sender<bool> {
             }
         })
         .expect("Failed to spawn audio thread");
-
-    tx
 }
