@@ -10,14 +10,20 @@ static JOIN_HANDLE: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
 const KWIN_SCRIPT: &str = r#"
-workspace.windowActivated.connect(function(client) {
+function emitActive(client) {
     if (client) {
         callDBus("com.taurine.WindowTracker", "/WindowTracker", "com.taurine.WindowTracker", "ActiveWindowChanged", 
                  client.caption || "", 
                  client.resourceClass || "", 
                  client.fullScreen ? true : false);
     }
-});
+}
+workspace.windowActivated.connect(emitActive);
+if (workspace.activeWindow) {
+    emitActive(workspace.activeWindow);
+} else if (workspace.activeClient) {
+    emitActive(workspace.activeClient);
+}
 "#;
 
 pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Option<String>>>) {
@@ -43,6 +49,8 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
 
                 let mut temp_dir = std::env::temp_dir();
                 temp_dir.push("taurine_kwin_script");
+
+                let _ = fs::remove_dir_all(&temp_dir);
 
                 let mut code_dir = temp_dir.clone();
                 code_dir.push("contents");
