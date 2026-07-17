@@ -1,7 +1,5 @@
 use futures::StreamExt;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use taurine_core::engine::{ActiveWindowInfo, EngineState};
@@ -43,15 +41,32 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                 // Request a name so the script can send signals to us, or we just listen to signals globally
                 // Actually, the script broadcasts via callDBus. We can just listen to the signal.
 
-                // Write script to temp file
                 let mut temp_dir = std::env::temp_dir();
-                temp_dir.push("taurine_kwin_script.js");
-                if let Err(e) = fs::write(&temp_dir, KWIN_SCRIPT) {
-                    error!("Failed to write KWin script: {}", e);
-                    return;
-                }
+                temp_dir.push("taurine_kwin_script");
 
-                // load script
+                let mut code_dir = temp_dir.clone();
+                code_dir.push("contents");
+                code_dir.push("code");
+
+                let _ = fs::create_dir_all(&code_dir);
+
+                let mut meta_path = temp_dir.clone();
+                meta_path.push("metadata.json");
+                let meta_json = r#"{
+    "KPlugin": {
+        "Id": "taurine_window_tracker",
+        "Name": "Taurine Window Tracker",
+        "Description": "Taurine Window Tracker"
+    }
+}"#;
+                let _ = fs::write(&meta_path, meta_json);
+
+                let mut js_path = code_dir.clone();
+                js_path.push("main.js");
+                let _ = fs::write(&js_path, KWIN_SCRIPT);
+
+                let mut loaded_script_id = None;
+
                 let proxy = zbus::Proxy::new(
                     &conn,
                     "org.kde.KWin",
@@ -61,24 +76,21 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                 .await;
 
                 if let Ok(proxy) = proxy {
-                    // Call loadScript(path, name)
                     let script_path = temp_dir.to_string_lossy().to_string();
                     let plugin_name = "taurine_window_tracker".to_string();
 
                     let reply: Result<i32, _> =
                         proxy.call("loadScript", &(script_path, plugin_name)).await;
                     if let Ok(id) = reply {
-                        // KWin 5 returns an ID, KWin 6 might be different, but let's assume it loads.
-                        // We also need to start it.
-                        let start_proxy = zbus::Proxy::new(
+                        loaded_script_id = Some(id);
+                        if let Ok(start_proxy) = zbus::Proxy::new(
                             &conn,
                             "org.kde.KWin",
                             &format!("/Scripting/Script{}", id),
                             "org.kde.kwin.Script",
                         )
-                        .await;
-
-                        if let Ok(start_proxy) = start_proxy {
+                        .await
+                        {
                             let _ = start_proxy.call::<_, ()>("run", &()).await;
                         }
                     }
@@ -148,6 +160,20 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                         }
                     }
                 }
+
+                if let Some(id) = loaded_script_id {
+                    if let Ok(start_proxy) = zbus::Proxy::new(
+                        &conn,
+                        "org.kde.KWin",
+                        &format!("/Scripting/Script{}", id),
+                        "org.kde.kwin.Script",
+                    )
+                    .await
+                    {
+                        let _ = start_proxy.call::<_, ()>("stop", &()).await;
+                    }
+                }
+                let _ = fs::remove_dir_all(&temp_dir);
 
                 debug!("KWin D-Bus toplevel listener shutdown");
             });

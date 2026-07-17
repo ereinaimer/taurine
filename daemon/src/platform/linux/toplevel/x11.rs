@@ -299,11 +299,6 @@ fn update_fullscreen_state(
         .and_then(|reply| reply.value32().and_then(|mut iter| iter.next()));
 
     if let Some(active_window) = active_window_val {
-        // We can optionally update the store here, but we also fall back to sync query if we miss it.
-        // For sync querying we actually do a better job getting title and class.
-        // For simplicity, we just trigger the async update in the background if we can, but since X11 is synchronous,
-        // it's easier to just let `get_active_window_label_sync` do it. We'll leave the store unchanged so it falls back to sync.
-
         let _ = conn.change_window_attributes(
             active_window,
             &x11rb::protocol::xproto::ChangeWindowAttributesAux::new()
@@ -331,5 +326,10 @@ fn update_fullscreen_state(
             }
         }
     }
+
     state.is_os_fullscreen.store(is_full, Ordering::Relaxed);
+
+    if let Ok(mut lock) = active_window_store.lock() {
+        *lock = get_active_window_label_sync();
+    }
 }

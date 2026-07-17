@@ -1,6 +1,6 @@
+use std::os::unix::io::AsRawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use taurine_core::engine::{ActiveWindowInfo, EngineState};
 use tracing::{debug, error, info};
 use wayland_client::{Connection, Dispatch, QueueHandle, protocol::wl_registry};
@@ -97,14 +97,20 @@ impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for AppState {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        if let zwlr_foreign_toplevel_manager_v1::Event::Toplevel { toplevel } = event {
-            state.toplevels.push(ToplevelInfo {
-                handle: toplevel,
-                title: None,
-                app_id: None,
-                is_active: false,
-                is_fullscreen: false,
-            });
+        match event {
+            zwlr_foreign_toplevel_manager_v1::Event::Toplevel { toplevel } => {
+                state.toplevels.push(ToplevelInfo {
+                    handle: toplevel,
+                    title: None,
+                    app_id: None,
+                    is_active: false,
+                    is_fullscreen: false,
+                });
+            }
+            zwlr_foreign_toplevel_manager_v1::Event::Finished => {
+                SHUTDOWN.store(true, Ordering::Relaxed);
+            }
+            _ => {}
         }
     }
 }
@@ -201,6 +207,8 @@ pub fn start_listener(
                 return;
             }
 
+            state.update_global_state();
+
             info!("wlroots toplevel listener started");
             SHUTDOWN.store(false, Ordering::Relaxed);
 
@@ -218,11 +226,21 @@ pub fn start_listener(
                                 revents: 0,
                             }];
 
+                            // SAFETY: fds is properly initialized and points to a valid local array.
+                            // The timeout (500ms) is a safe integer.
                             let ret = unsafe { libc::poll(fds.as_mut_ptr(), 1, 500) };
                             if ret > 0 {
                                 let _ = guard.read();
+                            } else if ret < 0 {
+                                let err = std::io::Error::last_os_error();
+                                if err.raw_os_error() == Some(libc::EINTR) {
+                                    drop(guard);
+                                } else {
+                                    error!("wlroots poll error: {:?}", err);
+                                    break;
+                                }
                             } else {
-                                guard.drop();
+                                drop(guard);
                             }
                         }
                     }

@@ -66,9 +66,9 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
 
                 // Listen to window focus events
                 let match_rule = MatchRule::builder()
-                    .interface("org.a11y.atspi.Event.Object")
+                    .interface("org.a11y.atspi.Event.Window")
                     .unwrap()
-                    .member("StateChanged")
+                    .member("Activate")
                     .unwrap()
                     .build();
 
@@ -83,60 +83,71 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                 SHUTDOWN.store(false, Ordering::Relaxed);
 
                 while !SHUTDOWN.load(Ordering::Relaxed) {
-                    if let Ok(Some(msg)) =
+                    if let Ok(msg_opt) =
                         tokio::time::timeout(std::time::Duration::from_millis(500), stream.next())
                             .await
                     {
-                        if let Ok(msg) = msg {
-                            if let Ok(body) = msg
-                                .body()
-                                .deserialize::<(String, i32, i32, zbus::zvariant::Value)>()
-                            {
-                                let (state_name, detail1, _detail2, _any_data) = body;
+                        match msg_opt {
+                            Some(Ok(msg)) => {
+                                if let (Ok(sender), Ok(path)) = (
+                                    msg.header().and_then(|h| h.sender().map(|s| s.clone())),
+                                    msg.header().and_then(|h| h.path().map(|p| p.clone())),
+                                ) {
+                                    let sender_str = sender.as_str().to_string();
+                                    let path_str = path.as_str().to_string();
+                                    let a11y_conn_clone = a11y_conn.clone();
+                                    let store_clone = active_window_store.clone();
+                                    let state_clone = state.clone();
 
-                                if state_name == "focused" && detail1 == 1 {
-                                    // A window or widget just got focus.
-                                    // Query the name of the focused object
-                                    if let (Ok(sender), Ok(path)) = (
-                                        msg.header().and_then(|h| h.sender().map(|s| s.clone())),
-                                        msg.header().and_then(|h| h.path().map(|p| p.clone())),
-                                    ) {
-                                        let sender_str = sender.as_str().to_string();
-                                        let path_str = path.as_str().to_string();
-                                        let a11y_conn_clone = a11y_conn.clone();
-                                        let store_clone = active_window_store.clone();
+                                    // Spawn a quick task to query the name without blocking the event loop
+                                    tokio::spawn(async move {
+                                        if let Ok(node_proxy) = zbus::Proxy::new(
+                                            &a11y_conn_clone,
+                                            sender_str,
+                                            &path_str,
+                                            "org.a11y.atspi.Accessible",
+                                        )
+                                        .await
+                                        {
+                                            let title = node_proxy.get_property::<String>("Name").await.ok();
 
-                                        // Spawn a quick task to query the name without blocking the event loop
-                                        tokio::spawn(async move {
-                                            if let Ok(node_proxy) = zbus::Proxy::new(
-                                                &a11y_conn_clone,
-                                                sender_str,
-                                                path_str,
-                                                "org.a11y.atspi.Accessible",
-                                            )
-                                            .await
-                                            {
-                                                if let Ok(name) =
-                                                    node_proxy.get_property::<String>("Name").await
-                                                {
-                                                    // Simple heuristic: if name is non-empty, use it as title
-                                                    if !name.is_empty() {
-                                                        if let Ok(mut lock) = store_clone.lock() {
-                                                            let info = ActiveWindowInfo {
-                                                                title: Some(name),
-                                                                class: None, // Getting class from AT-SPI2 is complex (requires traversing up to Application role)
-                                                                exec_name: None,
-                                                                exec_path: None,
-                                                            };
-                                                            *lock =
-                                                                serde_json::to_string(&info).ok();
-                                                        }
-                                                    }
+                                            let mut class = None;
+                                            if let Ok(app_ref) = node_proxy.call::<(String, zbus::zvariant::OwnedObjectPath), _, _>("GetApplication", &()).await {
+                                                if let Ok(app_proxy) = zbus::Proxy::new(
+                                                    &a11y_conn_clone,
+                                                    app_ref.0,
+                                                    app_ref.1,
+                                                    "org.a11y.atspi.Accessible"
+                                                ).await {
+                                                    class = app_proxy.get_property::<String>("Name").await.ok();
                                                 }
                                             }
-                                        });
-                                    }
+
+                                            // We don't have a reliable way to get AT-SPI2 fullscreen state
+                                            // without importing the entire atspi state table, so we gracefully
+                                            // default to false to allow macros to run.
+                                            state_clone.is_os_fullscreen.store(false, Ordering::Relaxed);
+
+                                            if let Ok(mut lock) = store_clone.lock() {
+                                                let info = ActiveWindowInfo {
+                                                    title: title.clone().filter(|t| !t.is_empty()),
+                                                    class: class.clone().filter(|c| !c.is_empty()),
+                                                    exec_name: class.filter(|c| !c.is_empty()),
+                                                    exec_path: None,
+                                                };
+                                                *lock = serde_json::to_string(&info).ok();
+                                            }
+                                        }
+                                    });
                                 }
+                            }
+                            Some(Err(e)) => {
+                                error!("AT-SPI2 stream error: {:?}", e);
+                                break;
+                            }
+                            None => {
+                                error!("AT-SPI2 bus disconnected");
+                                break;
                             }
                         }
                     }
