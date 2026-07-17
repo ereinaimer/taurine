@@ -615,10 +615,6 @@ impl Evaluator {
         &mut self,
         active_window: Option<&str>,
     ) -> Option<ExpansionResult> {
-        if self.buffer.is_inside_open_quote() {
-            return None;
-        }
-
         let trigger_char = self.trigger_prefix();
         let emoji_trigger = self.state.inline_emoji_trigger_char();
         let emoji_enabled = self.state.inline_emoji_enabled();
@@ -3379,26 +3375,6 @@ mod tests {
             res.unwrap().steps,
             vec![ExpansionStep::Text("Hello erein, msg!".to_string())]
         );
-    }
-
-    #[test]
-    fn test_space_after_quote_with_space_delimiter() {
-        use std::sync::atomic::Ordering;
-        let state = Arc::new(EngineState::new('>'));
-        state.triggerless_mode.store(true, Ordering::Relaxed);
-        *state.action_key.write().unwrap() = crate::settings::ActionKey::Space;
-        state.load_actions(vec![(
-            "meet".to_string(),
-            crate::db::crud::AutomationAction::text("Let's meet at [0=default]"),
-        )]);
-
-        let mut eval = Evaluator::new(state);
-        for c in ">meet:\"".chars() {
-            eval.process(EngineEvent::Char(c));
-        }
-
-        let res = eval.process(EngineEvent::ActionKey);
-        assert!(res.is_none());
     }
 
     #[test]

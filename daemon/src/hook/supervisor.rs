@@ -206,7 +206,7 @@ pub fn start_windows_supervisor(
                             // and we are not currently awaiting a recovery.
                             let seems_stale = snapshot.hook_entered_grab_at_unix_ms > 0
                                 && snapshot.last_keyboard_event_at_unix_ms > 0
-                                && now >= snapshot.last_keyboard_event_at_unix_ms + 30_000
+                                && now >= snapshot.last_keyboard_event_at_unix_ms + 300_000
                                 && snapshot.pending_recovery_reason.is_none();
 
                             let scheduled_ping_due = force_ping_at_unix_ms > 0 && now >= force_ping_at_unix_ms;
@@ -233,7 +233,7 @@ pub fn start_windows_supervisor(
                                         info!("Watchdog: executing scheduled liveness verification ping");
                                     } else {
                                         warn!(
-                                            "Watchdog: hook inactive for 30s; sending active verification ping"
+                                            "Watchdog: hook inactive for 5m; sending active verification ping"
                                         );
                                     }
                                     ping_pending = true;
