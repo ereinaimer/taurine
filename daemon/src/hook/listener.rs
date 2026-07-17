@@ -785,41 +785,62 @@ impl KeyboardDecoder {
         }
     }
 
-    // SAFETY: Must be called from within the WH_KEYBOARD_LL hook proc, where
-    // GetForegroundWindow, GetWindowThreadProcessId, GetKeyboardLayout, and
-    // GetKeyboardState are all valid to call.
+    // SAFETY: Must be called from within the WH_KEYBOARD_LL hook proc.
     unsafe fn get_name(&mut self, vk_code: u32, scan_code: u32) -> Option<String> {
-        use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
         use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-            GetKeyboardLayout, GetKeyboardState, ToUnicodeEx,
+            GetAsyncKeyState, GetKeyState, GetKeyboardState, VK_CAPITAL, VK_CONTROL, VK_MENU,
+            VK_SHIFT,
         };
+
+        let mut state = [0u8; 256];
+        unsafe { GetKeyboardState(state.as_mut_ptr()) };
+
+        unsafe {
+            let shift = GetAsyncKeyState(VK_SHIFT as i32);
+            state[VK_SHIFT as usize] = if (shift & 0x8000_u16 as i16) != 0 {
+                0x80
+            } else {
+                0
+            };
+
+            let ctrl = GetAsyncKeyState(VK_CONTROL as i32);
+            state[VK_CONTROL as usize] = if (ctrl & 0x8000_u16 as i16) != 0 {
+                0x80
+            } else {
+                0
+            };
+
+            let alt = GetAsyncKeyState(VK_MENU as i32);
+            state[VK_MENU as usize] = if (alt & 0x8000_u16 as i16) != 0 {
+                0x80
+            } else {
+                0
+            };
+
+            let caps = GetKeyState(VK_CAPITAL as i32);
+            state[VK_CAPITAL as usize] = if (caps & 0x0001) != 0 { 0x01 } else { 0 };
+        }
+
+        unsafe { self.get_name_with_state(vk_code, scan_code, &state) }
+    }
+
+    // SAFETY: Must be called from a thread where GetKeyboardLayout is valid.
+    unsafe fn get_name_with_state(
+        &mut self,
+        vk_code: u32,
+        scan_code: u32,
+        state: &[u8; 256],
+    ) -> Option<String> {
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetKeyboardLayout, ToUnicodeEx};
         use windows_sys::Win32::UI::WindowsAndMessaging::{
             GetForegroundWindow, GetWindowThreadProcessId,
         };
 
         unsafe {
-            let mut state = [0u8; 256];
+            self.last_state = *state;
+
             let fg_window = GetForegroundWindow();
             let fg_thread = GetWindowThreadProcessId(fg_window, std::ptr::null_mut());
-            let current_thread = GetCurrentThreadId();
-
-            // Attach to the foreground window's input thread to retrieve its synchronized keyboard state.
-            // If attachment fails (e.g. if the foreground window is in a different desktop or elevated),
-            // fallback to the current thread's state.
-            let attached = fg_thread != 0
-                && fg_thread != current_thread
-                && AttachThreadInput(current_thread, fg_thread, 1) != 0;
-
-            let ok = GetKeyboardState(state.as_mut_ptr());
-
-            if attached {
-                AttachThreadInput(current_thread, fg_thread, 0);
-            }
-
-            if ok == 0 {
-                return None;
-            }
-            self.last_state = state;
 
             // SAFETY: GetKeyboardLayout returns the layout for the given thread.
             let layout = GetKeyboardLayout(fg_thread);
@@ -1285,5 +1306,35 @@ fn is_solo_modifier_press(
         Key::Alt | Key::AltGr => !shift_active && !ctrl_active && !meta_active,
         Key::MetaLeft | Key::MetaRight => !shift_active && !ctrl_active && !alt_active,
         _ => is_modifier_key(key) && !shift_active && !ctrl_active && !alt_active && !meta_active,
+    }
+}
+
+#[cfg(test)]
+#[cfg(windows)]
+mod tests {
+    use super::*;
+    use std::mem::size_of;
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput, VK_SHIFT,
+    };
+
+    #[test]
+    fn test_keyboard_decoder_get_name_unshifted() {
+        let mut decoder = KeyboardDecoder::new();
+        let state = [0u8; 256]; // No modifiers pressed
+        // 0x41 is 'A'. scan_code 0x1E
+        let name = unsafe { decoder.get_name_with_state(0x41, 0x1E, &state) };
+        assert_eq!(name.as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn test_keyboard_decoder_get_name_shifted() {
+        let mut decoder = KeyboardDecoder::new();
+        let mut state = [0u8; 256];
+        state[VK_SHIFT as usize] = 0x80; // Mock Shift key down
+
+        // 0xBB is '='. Shift + '=' is '+'
+        let name = unsafe { decoder.get_name_with_state(0xBB, 0x0D, &state) };
+        assert_eq!(name.as_deref(), Some("+"));
     }
 }
