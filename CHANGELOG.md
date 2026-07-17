@@ -8,8 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Rich Text Support**: Support HTML-based styled text pasting with automatic plain text fallbacks.
 - **Wayland Compatibility**: Support active window detection and fullscreen detection natively across Sway, Hyprland, KDE Plasma, and GNOME on Linux via a unified tracking backend.
-- **Template Escape Sequences**: Support standard escape sequences (\n for newlines, \t for tabs, \r for carriage returns) in text expansions to allow formatting complex multi-line and tabular outputs easily.
 - **Delay Time Units**: Support seconds (`s`) and decimal/fractional seconds (e.g. `1.5s`, `0.5s`) in the `delay` system variable to make pauses in keyboard macro expansions more human-readable.
 - **Inline Unit Converter**: Support inline unit, temperature, and currency conversions directly in any text field via action keys, and disable all inline features (including math, emojis, completions, and history) when instant expand mode is enabled.
 - **Inline Emoji Picker**: Support quick-expanding Unicode emojis by typing a configurable trigger character (e.g. `:rocket` becomes `🚀`). Supports cycling shortcodes with Tab completion (supporting both hyphens and underscores while typing, standardizing completion suggestions to hyphens) and snippet precedence.
@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Regex Triggers**: Support pattern-based triggers with positional capture group interpolation.
 - **Tagging Support**: Add CLI options to categorize snippets and filter/delete automations by tag.
 - **Unquoted Spaces in Arguments**: Support spaces in dynamic variable arguments without quoting when using the `Enter` action key.
+
+### Removed
+- **Template Escape Sequences**: Remove support for legacy unescaped control characters (\n, \t, \r) in favor of HTML layout tags.
 
 ### Changed
 - **Inline AI Trigger Config**: Rename the AI delimiter settings (`ai_delimiter_mode` etc) to inline AI trigger settings (`inline_ai_trigger_mode` etc) to standardize with other inline features and reduce parser jargon.

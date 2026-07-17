@@ -1,0 +1,47 @@
+---
+title: Rich Text Support
+description: Learn how to write and format rich text expansions in Taurine.
+---
+
+Taurine supports rich text formatting inside text expansions using standard HTML. This allows you to insert styled text (bold, italic, colors, links) directly into supported rich text editors (e.g. Microsoft Outlook, Gmail, Word, Slack, Google Docs).
+
+## How it Works
+
+When you define a snippet, you can include HTML tags. Taurine automatically detects the presence of HTML. When the expansion is triggered, it writes two formats to the clipboard:
+1. **Styled HTML**: Read by rich text target applications.
+2. **Plain Text Fallback**: A clean version of the snippet with HTML tags stripped out, used if you expand into a plain-text editor (like Notepad, terminal, or IDE).
+
+## Formatting Syntax
+
+Use standard HTML tags for layout and formatting.
+
+### Line Breaks
+Legacy escape characters like `\n` are **no longer supported**. Instead, use the `<br>` tag for line breaks:
+
+```html
+Hello World<br>This is a new line.
+```
+
+### Text Styling
+You can use standard styling tags:
+
+*   **Bold**: `<b>bold text</b>` or `<strong>bold text</strong>`
+*   **Italic**: `<i>italic text</i>` or `<em>italic text</em>`
+*   **Underline**: `<u>underlined text</u>`
+*   **Links**: `<a href="https://example.com">Click Here</a>`
+*   **Paragraphs**: `<p>First paragraph</p><p>Second paragraph</p>`
+
+### Example Snippet
+
+To add a signature with rich styling, you can add it via CLI like so:
+
+```bash
+taurine add ";sig" "<b>My Name</b><br><i>Software Engineer</i><br><a href='https://example.com'>example.com</a>"
+```
+
+When expanded, rich text apps will display a styled signature, while plain text apps will fall back to:
+```
+My Name
+Software Engineer
+example.com
+```

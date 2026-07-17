@@ -17,4 +17,8 @@ impl crate::platform::ClipboardManager for WindowsClipboard {
     fn set_image_file(&mut self, path: &std::path::Path) -> Result<(), String> {
         clipboard::set_image_file_exclude_from_history(path)
     }
+
+    fn set_html(&mut self, html: &str, plaintext: &str) -> Result<(), String> {
+        clipboard::set_html_exclude_from_history(html, plaintext)
+    }
 }

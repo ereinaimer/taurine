@@ -71,6 +71,12 @@ impl crate::platform::ClipboardManager for MockClipboard {
         self.ops.push("set_image");
         Ok(())
     }
+
+    fn set_html(&mut self, _html: &str, plaintext: &str) -> Result<(), String> {
+        self.ops.push("set_html");
+        self.text = plaintext.to_string();
+        Ok(())
+    }
 }
 
 fn assert_normal_expansion_still_works() {
@@ -260,6 +266,19 @@ fn prepare_fails_if_clipboard_raced_before_paste_so_stale_clip_is_never_intended
         "expected verify error, got {:?}",
         err
     );
+}
+
+#[test]
+fn prepare_uses_html_and_verifies_with_plaintext() {
+    let mut mock = MockClipboard::new("old clipboard");
+    let payload = "<b>Hello</b><br>World";
+
+    let original = prepare_clipboard_for_expansion(&mut mock, payload).unwrap();
+    assert_eq!(original, "old clipboard");
+
+    // Check that set_html was called by verifying the MockClipboard text contains the stripped fallback
+    assert_eq!(mock.text, "Hello\nWorld");
+    assert!(mock.ops.contains(&"set_html"));
 }
 
 #[test]

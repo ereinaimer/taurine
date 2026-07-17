@@ -120,7 +120,14 @@ pub fn inject_text_segment(
             }
         }
     } else {
-        if let Err(e) = clipboard.set_text(text) {
+        let is_html = taurine_core::utils::html::has_html_tags(text);
+        let set_res = if is_html {
+            let plaintext = taurine_core::utils::html::strip_html(text);
+            clipboard.set_html(text, &plaintext)
+        } else {
+            clipboard.set_text(text)
+        };
+        if let Err(e) = set_res {
             error!("Failed to set clipboard for text segment: {}", e);
             return TextSegmentInjection {
                 original_clipboard: original_clipboard.clone(),

@@ -217,6 +217,70 @@ pub fn set_unicode_text_exclude_from_history(text: &str) -> Result<(), String> {
     }
 }
 
+fn format_html() -> Result<u32, String> {
+    static F: OnceLock<Result<u32, String>> = OnceLock::new();
+    F.get_or_init(|| register_format("HTML Format")).clone()
+}
+
+fn format_windows_html(html: &str) -> String {
+    let mut fragment = String::new();
+    fragment.push_str("<!--StartFragment-->\n");
+    fragment.push_str(html);
+    fragment.push_str("\n<!--EndFragment-->");
+
+    let mut body = String::new();
+    body.push_str("<!DOCTYPE html>\n<html>\n<body>\n");
+    body.push_str(&fragment);
+    body.push_str("\n</body>\n</html>");
+
+    let header_len = 105;
+    let start_html = header_len;
+    let end_html = start_html + body.len();
+    let start_fragment = start_html + body.find("<!--StartFragment-->").unwrap();
+    let end_fragment =
+        start_html + body.find("<!--EndFragment-->").unwrap() + "<!--EndFragment-->".len();
+
+    format!(
+        "Version:0.9\r\n\
+         StartHTML:{:010}\r\n\
+         EndHTML:{:010}\r\n\
+         StartFragment:{:010}\r\n\
+         EndFragment:{:010}\r\n\
+         {}",
+        start_html, end_html, start_fragment, end_fragment, body
+    )
+}
+
+/// Replaces clipboard contents with HTML and fallback plaintext, excluding the operation from history.
+pub fn set_html_exclude_from_history(html: &str, plaintext: &str) -> Result<(), String> {
+    let cf_exclude = format_exclude_monitor()?;
+    let cf_history = format_can_include_history()?;
+    let cf_cloud = format_can_upload_cloud()?;
+    let cf_html = format_html()?;
+
+    let windows_html = format_windows_html(html);
+
+    open_clipboard_with_retry(5, Duration::from_millis(20))?;
+    // SAFETY: Write within OpenClipboard/CloseClipboard bracket.
+    // EmptyClipboard clears all formats. Payload setting allocations are managed by
+    // the system when transferred via SetClipboardData. CloseClipboard releases ownership.
+    unsafe {
+        let result = (|| {
+            if EmptyClipboard() == 0 {
+                return Err(format!("EmptyClipboard failed: {}", GetLastError()));
+            }
+            set_clipboard_dword(cf_exclude, 1)?;
+            set_clipboard_dword(cf_history, 0)?;
+            set_clipboard_dword(cf_cloud, 0)?;
+            set_clipboard_unicode_nul_terminated(plaintext)?;
+            set_clipboard_bytes(cf_html, windows_html.as_bytes())?;
+            Ok(())
+        })();
+        let _ = CloseClipboard();
+        result
+    }
+}
+
 fn format_png() -> Result<u32, String> {
     static F: OnceLock<Result<u32, String>> = OnceLock::new();
     F.get_or_init(|| register_format("PNG")).clone()

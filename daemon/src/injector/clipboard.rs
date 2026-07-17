@@ -28,6 +28,11 @@ impl ClipboardManager for Clipboard {
         };
         self.set_image(img_data).map_err(|e| e.to_string())
     }
+
+    fn set_html(&mut self, _html: &str, plaintext: &str) -> Result<(), String> {
+        // arboard doesn't support HTML, fallback to plaintext
+        ClipboardManager::set_text(self, plaintext)
+    }
 }
 
 /// Reads the user's current clipboard, writes `payload`, waits, then verifies the clipboard
@@ -39,16 +44,25 @@ pub(super) fn prepare_clipboard_for_expansion(
     payload: &str,
 ) -> Result<String, String> {
     let original = clipboard.get_text()?;
-    clipboard.set_text(payload)?;
+
+    let is_html = taurine_core::utils::html::has_html_tags(payload);
+    let expected = if is_html {
+        let plaintext = taurine_core::utils::html::strip_html(payload);
+        clipboard.set_html(payload, &plaintext)?;
+        plaintext
+    } else {
+        clipboard.set_text(payload)?;
+        payload.to_string()
+    };
 
     // Same delay as production: OS listeners may not see the write immediately.
     thread::sleep(Duration::from_millis(25));
 
     match clipboard.get_text() {
-        Ok(ref actual) if actual == payload => Ok(original),
+        Ok(ref actual) if actual == &expected => Ok(original),
         Ok(actual) => Err(format!(
             "clipboard verify failed: expected {:?}, got {:?}",
-            payload, actual
+            expected, actual
         )),
         Err(e) => Err(e),
     }

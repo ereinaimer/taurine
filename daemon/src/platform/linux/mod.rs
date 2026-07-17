@@ -79,4 +79,13 @@ impl ClipboardManager for LinuxClipboard {
             clip.set_image(img_data).map_err(|e| e.to_string())
         })
     }
+
+    fn set_image_file(&mut self, path: &std::path::Path) -> Result<(), String> {
+        let bytes = std::fs::read(path).map_err(|e| format!("Failed to read image: {}", e))?;
+        self.set_image(&bytes, "")
+    }
+
+    fn set_html(&mut self, _html: &str, plaintext: &str) -> Result<(), String> {
+        self.set_text(plaintext)
+    }
 }
