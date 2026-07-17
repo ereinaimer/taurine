@@ -13,7 +13,7 @@ fn dispatch_expansion_runs_injection_before_follow_up_consumption() {
     let follow_up_events = events.clone();
     let state = Arc::new(taurine_core::engine::EngineState::new('>'));
 
-    let rt = tokio::runtime::Builder::new_current_thread()
+    let _rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("runtime should build");
@@ -37,7 +37,6 @@ fn dispatch_expansion_runs_injection_before_follow_up_consumption() {
     dispatch_expansion_with(
         expansion,
         taurine_core::settings::SpinnerStyle::default(),
-        rt.handle().clone(),
         state,
         move |_, _, _| {
             inject_events
@@ -46,7 +45,7 @@ fn dispatch_expansion_runs_injection_before_follow_up_consumption() {
                 .push("inject");
             crate::injector::InjectionReport::default()
         },
-        move |follow_up, _, _| {
+        move |follow_up, _| {
             follow_up_events
                 .lock()
                 .expect("follow-up events poisoned")
@@ -70,7 +69,7 @@ fn dispatch_expansion_runs_injection_before_follow_up_consumption() {
 #[test]
 fn dispatch_expansion_records_undo_state_for_plain_text_output() {
     let state = Arc::new(taurine_core::engine::EngineState::new('>'));
-    let rt = tokio::runtime::Builder::new_current_thread()
+    let _rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("runtime should build");
@@ -91,13 +90,12 @@ fn dispatch_expansion_records_undo_state_for_plain_text_output() {
     dispatch_expansion_with(
         expansion,
         taurine_core::settings::SpinnerStyle::default(),
-        rt.handle().clone(),
         state.clone(),
         move |_, _, _| crate::injector::InjectionReport {
             successful_chars: "Good Morning".chars().count(),
             completed: true,
         },
-        move |_, _, _| {},
+        move |_, _| {},
     );
 
     let undo = state
@@ -111,7 +109,7 @@ fn dispatch_expansion_records_undo_state_for_plain_text_output() {
 #[test]
 fn dispatch_expansion_skips_undo_registration_for_hotkey_results() {
     let state = Arc::new(taurine_core::engine::EngineState::new('>'));
-    let rt = tokio::runtime::Builder::new_current_thread()
+    let _rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("runtime should build");
@@ -132,13 +130,12 @@ fn dispatch_expansion_skips_undo_registration_for_hotkey_results() {
     dispatch_expansion_with(
         expansion,
         taurine_core::settings::SpinnerStyle::default(),
-        rt.handle().clone(),
         state.clone(),
         move |_, _, _| crate::injector::InjectionReport {
             successful_chars: "git status".chars().count(),
             completed: true,
         },
-        move |_, _, _| {},
+        move |_, _| {},
     );
 
     assert!(state.take_active_undo_state().is_none());
@@ -355,7 +352,7 @@ fn dispatch_expansion_promotes_word_trigger_history_on_success() {
         ),
     ]);
     state.load_word_trigger_history(vec!["email".to_string(), "gs".to_string()]);
-    let rt = tokio::runtime::Builder::new_current_thread()
+    let _rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("runtime should build");
@@ -376,13 +373,12 @@ fn dispatch_expansion_promotes_word_trigger_history_on_success() {
     dispatch_expansion_with(
         expansion,
         taurine_core::settings::SpinnerStyle::default(),
-        rt.handle().clone(),
         state.clone(),
         move |_, _, _| crate::injector::InjectionReport {
             successful_chars: "git status".chars().count(),
             completed: true,
         },
-        move |_, _, _| {},
+        move |_, _| {},
     );
 
     assert_eq!(

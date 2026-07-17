@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
-use tokio::runtime::Handle;
+
 use tracing::{debug, error, info, warn};
 
 use super::xkb::XkbMapper;
@@ -31,7 +31,6 @@ pub(crate) struct ListenerContext {
     pause_notifications_enabled: Arc<AtomicBool>,
     pause_hotkey: Arc<RwLock<HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
-    runtime_handle: Handle,
     pause_audio_enabled: Arc<AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
 }
@@ -45,7 +44,6 @@ impl ListenerContext {
         pause_notifications_enabled: Arc<AtomicBool>,
         pause_hotkey: Arc<RwLock<HotkeySpec>>,
         spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
-        runtime_handle: Handle,
         pause_audio_enabled: Arc<AtomicBool>,
         audio_tx: tokio::sync::mpsc::Sender<bool>,
     ) -> Self {
@@ -56,7 +54,6 @@ impl ListenerContext {
             pause_notifications_enabled,
             pause_hotkey,
             spinner_style,
-            runtime_handle,
             pause_audio_enabled,
             audio_tx,
         }
@@ -136,7 +133,6 @@ pub fn start_listener(
     pause_notifications_enabled: Arc<AtomicBool>,
     pause_hotkey: Arc<RwLock<HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
-    runtime_handle: Handle,
     pause_audio_enabled: Arc<AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
 ) {
@@ -147,7 +143,6 @@ pub fn start_listener(
         pause_notifications_enabled,
         pause_hotkey,
         spinner_style,
-        runtime_handle,
         pause_audio_enabled,
         audio_tx,
     );
@@ -221,7 +216,6 @@ pub(crate) fn spawn_device_listener(
                                     &context.pause_notifications_enabled,
                                     &context.pause_hotkey,
                                     &context.spinner_style,
-                                    &context.runtime_handle,
                                     &context.pause_audio_enabled,
                                     &context.audio_tx,
                                     &mut xkb,
@@ -246,7 +240,6 @@ pub(crate) fn spawn_device_listener(
                                 &context.pause_notifications_enabled,
                                 &context.pause_hotkey,
                                 &context.spinner_style,
-                                &context.runtime_handle,
                                 &context.pause_audio_enabled,
                                 &context.audio_tx,
                                 &mut xkb,
@@ -286,7 +279,6 @@ fn process_frame(
     pause_notifications_enabled: &Arc<AtomicBool>,
     pause_hotkey: &Arc<RwLock<HotkeySpec>>,
     spinner_style: &Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
-    runtime_handle: &Handle,
     pause_audio_enabled: &Arc<AtomicBool>,
     audio_tx: &tokio::sync::mpsc::Sender<bool>,
     xkb: &mut XkbMapper,
@@ -512,7 +504,6 @@ fn process_frame(
                         crate::hook::spawn_expansion_dispatch(
                             expansion,
                             spinner_style_inner,
-                            runtime_handle.clone(),
                             state.clone(),
                         );
                         continue;
@@ -599,12 +590,7 @@ fn process_frame(
 
                 let spinner_style_inner = spinner_style.read().map(|s| *s).unwrap_or_default();
 
-                crate::hook::spawn_expansion_dispatch(
-                    expansion,
-                    spinner_style_inner,
-                    runtime_handle.clone(),
-                    state,
-                );
+                crate::hook::spawn_expansion_dispatch(expansion, spinner_style_inner, state);
 
                 if ev == EngineEvent::ActionDelimiter {
                     swallow_frame = true;
@@ -742,7 +728,6 @@ mod tests {
             &pause_notifications,
             &pause_hotkey,
             &spinner_style,
-            &handle,
             &pause_audio,
             &audio_tx,
             &mut xkb,

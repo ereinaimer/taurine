@@ -64,7 +64,6 @@ pub fn start_listener(
     pause_notifications_enabled: Arc<std::sync::atomic::AtomicBool>,
     pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
-    runtime_handle: Handle,
     pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
 ) {
@@ -75,7 +74,6 @@ pub fn start_listener(
         pause_notifications_enabled,
         pause_hotkey,
         spinner_style,
-        runtime_handle,
         pause_audio_enabled,
         audio_tx,
     );
@@ -91,7 +89,6 @@ pub fn start_listener(
     pause_notifications_enabled: Arc<std::sync::atomic::AtomicBool>,
     pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
-    runtime_handle: Handle,
     pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
 ) {
@@ -102,7 +99,6 @@ pub fn start_listener(
         pause_notifications_enabled,
         pause_hotkey,
         spinner_style,
-        runtime_handle,
         pause_audio_enabled,
         audio_tx,
         None,
@@ -120,7 +116,6 @@ pub(super) fn run_listener_once(
     pause_notifications_enabled: Arc<std::sync::atomic::AtomicBool>,
     pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
-    runtime_handle: Handle,
     pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
     hook_health: Option<HookHealth>,
@@ -418,12 +413,7 @@ pub(super) fn run_listener_once(
                             let spinner_style_inner =
                                 spinner_style.read().map(|s| *s).unwrap_or_default();
 
-                            spawn_expansion_dispatch(
-                                expansion,
-                                spinner_style_inner,
-                                runtime_handle.clone(),
-                                state.clone(),
-                            );
+                            spawn_expansion_dispatch(expansion, spinner_style_inner, state.clone());
                             return None;
                         }
                         HotkeyEvaluation::Swallow => return None,
@@ -542,12 +532,7 @@ pub(super) fn run_listener_once(
                         let spinner_style_inner =
                             spinner_style.read().map(|s| *s).unwrap_or_default();
 
-                        spawn_expansion_dispatch(
-                            expansion,
-                            spinner_style_inner,
-                            runtime_handle.clone(),
-                            state,
-                        );
+                        spawn_expansion_dispatch(expansion, spinner_style_inner, state);
 
                         if ev == EngineEvent::ActionDelimiter {
                             return None;
@@ -1050,7 +1035,6 @@ pub(super) fn spawn_windows_hook_listener(
     pause_notifications_enabled: Arc<std::sync::atomic::AtomicBool>,
     pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
-    runtime_handle: Handle,
     pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
     hook_health: HookHealth,
@@ -1106,7 +1090,6 @@ pub(super) fn spawn_windows_hook_listener(
                     pause_notifications_enabled,
                     pause_hotkey,
                     spinner_style,
-                    runtime_handle,
                     pause_audio_enabled,
                     audio_tx,
                     Some(listener_health.clone()),

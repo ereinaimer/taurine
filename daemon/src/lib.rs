@@ -26,6 +26,9 @@ pub use server::DaemonService;
 static FILE_LOG_GUARD: std::sync::OnceLock<Option<tracing_appender::non_blocking::WorkerGuard>> =
     std::sync::OnceLock::new();
 
+pub(crate) static TOKIO_HANDLE: std::sync::OnceLock<tokio::runtime::Handle> =
+    std::sync::OnceLock::new();
+
 pub fn start() -> taurine_core::error::Result<()> {
     let conn = init::setup()?;
 
@@ -125,11 +128,6 @@ pub fn start() -> taurine_core::error::Result<()> {
     ));
     let hook_health = hook_health::HookHealth::new();
 
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?;
-    let runtime_handle = rt.handle().clone();
-
     let audio_tx = audio::init_audio_system();
 
     let clipboard_thread = std::thread::Builder::new()
@@ -153,7 +151,6 @@ pub fn start() -> taurine_core::error::Result<()> {
     let pause_notifications_enabled_clone = pause_notifications_enabled.clone();
     let pause_hotkey_spec_clone = pause_hotkey_spec.clone();
     let spinner_style_clone = spinner_style.clone();
-    let runtime_handle_clone = runtime_handle.clone();
     let pause_audio_enabled_clone = pause_audio_enabled.clone();
     let audio_tx_clone = audio_tx.clone();
     #[cfg(windows)]
@@ -177,7 +174,6 @@ pub fn start() -> taurine_core::error::Result<()> {
                     pause_notifications_enabled_clone,
                     pause_hotkey_spec_clone,
                     spinner_style_clone,
-                    runtime_handle_clone,
                     pause_audio_enabled_clone,
                     audio_tx_clone,
                     hook_health_clone,
@@ -197,7 +193,6 @@ pub fn start() -> taurine_core::error::Result<()> {
                     pause_notifications_enabled_clone,
                     pause_hotkey_spec_clone,
                     spinner_style_clone,
-                    runtime_handle_clone,
                     pause_audio_enabled_clone,
                     audio_tx_clone,
                 );
@@ -207,6 +202,11 @@ pub fn start() -> taurine_core::error::Result<()> {
     // Activate daemon file logging immediately after hook thread starts capturing
     let guard = taurine_core::logs::activate_file_logging();
     let _ = FILE_LOG_GUARD.set(guard);
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let _ = TOKIO_HANDLE.set(rt.handle().clone());
 
     let run_result = rt.block_on(async {
         let (mut shutdown_tx, mut shutdown_rx) = mpsc::channel(1);

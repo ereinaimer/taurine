@@ -30,14 +30,12 @@ pub(super) fn spawn_undo_dispatch(trigger_string: String, output_length: usize) 
 pub(crate) fn spawn_expansion_dispatch(
     expansion: taurine_core::engine::ExpansionResult,
     spinner_style: taurine_core::settings::SpinnerStyle,
-    runtime_handle: Handle,
     state: Arc<taurine_core::engine::EngineState>,
 ) {
     injector::spawn_guarded_injection_thread("tau-exp-disp", move || {
         dispatch_expansion_with(
             expansion,
             spinner_style,
-            runtime_handle,
             state,
             crate::injector::inject_expansion,
             launch_follow_up,
@@ -92,7 +90,6 @@ pub(super) fn dispatch_completion_rewrite_with<I>(
 pub(super) fn dispatch_expansion_with<I, L>(
     expansion: taurine_core::engine::ExpansionResult,
     spinner_style: taurine_core::settings::SpinnerStyle,
-    runtime_handle: Handle,
     state: Arc<taurine_core::engine::EngineState>,
     inject_expansion: I,
     launch_follow_up_fn: L,
@@ -105,7 +102,6 @@ pub(super) fn dispatch_expansion_with<I, L>(
     L: FnOnce(
         Option<taurine_core::engine::ExpansionFollowUp>,
         taurine_core::settings::SpinnerStyle,
-        Handle,
     ),
 {
     let taurine_core::engine::ExpansionResult {
@@ -144,7 +140,7 @@ pub(super) fn dispatch_expansion_with<I, L>(
     {
         state.set_undo_state(undo_trigger, injection.successful_chars);
     }
-    launch_follow_up_fn(follow_up, spinner_style, runtime_handle);
+    launch_follow_up_fn(follow_up, spinner_style);
 
     if track_usage {
         taurine_core::db::crud::record_automation_metric(
@@ -167,8 +163,11 @@ pub(super) fn dispatch_expansion_with<I, L>(
 pub(super) fn launch_follow_up(
     follow_up: Option<taurine_core::engine::ExpansionFollowUp>,
     spinner_style: taurine_core::settings::SpinnerStyle,
-    runtime_handle: Handle,
 ) {
+    let runtime_handle = crate::TOKIO_HANDLE
+        .get()
+        .expect("Tokio handle initialized")
+        .clone();
     if let Some(taurine_core::engine::ExpansionFollowUp::InlineAi {
         prompt,
         system_prompt_override,
