@@ -76,32 +76,79 @@ fn is_current_user_in_group(group_name: &str) -> bool {
 }
 
 #[cfg(target_os = "linux")]
+fn check_user_in_etc_group(group_name: &str) -> bool {
+    let mut username = String::new();
+    // SAFETY: Using standard Unix APIs to get the current user's name
+    unsafe {
+        let uid = libc::getuid();
+        let pw = libc::getpwuid(uid);
+        if !pw.is_null() && !(*pw).pw_name.is_null() {
+            if let Ok(name_str) = std::ffi::CStr::from_ptr((*pw).pw_name).to_str() {
+                username = name_str.to_string();
+            }
+        }
+    }
+
+    if username.is_empty() {
+        username = std::env::var("USER").unwrap_or_default();
+    }
+
+    if username.is_empty() {
+        return false;
+    }
+
+    if let Ok(content) = std::fs::read_to_string("/etc/group") {
+        for line in content.lines() {
+            let parts: Vec<&str> = line.split(':').collect();
+            if parts.len() >= 4 && parts[0] == group_name {
+                let users: Vec<&str> = parts[3].split(',').collect();
+                if users.contains(&username.as_str()) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
+#[cfg(target_os = "linux")]
 fn ensure_linux_permissions() -> crate::error::Result<()> {
     use std::io::IsTerminal;
 
-    let mut needs_fix = false;
+    let mut needs_udev_fix = false;
 
     // 1. Check udev rules
     let udev_path = std::path::Path::new("/etc/udev/rules.d/99-taurine.rules");
     if !udev_path.exists() {
-        needs_fix = true;
+        needs_udev_fix = true;
     } else {
         match std::fs::read_to_string(udev_path) {
             Ok(content) => {
                 if !content.contains("KERNEL==\"uinput\"") || !content.contains("GROUP=\"input\"") {
-                    needs_fix = true;
+                    needs_udev_fix = true;
                 }
             }
             Err(_) => {
-                needs_fix = true;
+                needs_udev_fix = true;
             }
         }
     }
 
     // 2. Check input group membership
-    if !is_current_user_in_group("input") {
-        needs_fix = true;
+    let active_group = is_current_user_in_group("input");
+
+    if !needs_udev_fix && !active_group {
+        if check_user_in_etc_group("input") {
+            tracing::info!(
+                "System permissions are already configured, but have not been applied to the current session."
+            );
+            tracing::info!("Please reboot your computer to apply the changes.");
+            std::process::exit(0);
+        }
     }
+
+    let needs_fix = needs_udev_fix || !active_group;
 
     if needs_fix {
         tracing::info!("Configuring system permissions for hardware access...");
