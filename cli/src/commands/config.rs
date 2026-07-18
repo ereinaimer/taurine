@@ -145,7 +145,18 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
             manager.update_setting(actual_key, value.clone())?;
             info!("Updated pause_hotkey to: {}", value);
         }
-        "triggerless_mode" | "instant_expand" | "clipboard_history_enabled" => {
+        "start_on_boot"
+        | "pause_notifications_enabled"
+        | "pause_audio_enabled"
+        | "inline_tab_completion_enabled"
+        | "inline_history_enabled"
+        | "ignore_fullscreen"
+        | "auto_update"
+        | "inline_emoji_enabled"
+        | "triggerless_mode"
+        | "instant_expand"
+        | "clipboard_history_enabled"
+        | "scripts_enabled" => {
             let b = parse_boolean_setting_value(&value)?;
             manager.update_setting(actual_key, b)?;
             info!("Updated {} to: {}", actual_key, b);
