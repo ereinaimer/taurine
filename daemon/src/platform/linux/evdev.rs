@@ -721,6 +721,7 @@ mod tests {
         let spinner_style = Arc::new(RwLock::new(taurine_core::settings::SpinnerStyle::default()));
         let pause_audio = Arc::new(AtomicBool::new(false));
         let (audio_tx, _) = tokio::sync::mpsc::channel(1);
+        let (pause_transition_tx, _) = tokio::sync::mpsc::channel(1);
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -753,6 +754,7 @@ mod tests {
             &spinner_style,
             &pause_audio,
             &audio_tx,
+            &pause_transition_tx,
             &mut xkb,
             &mut modifier_sides,
             &mut hotkey_evaluator,
