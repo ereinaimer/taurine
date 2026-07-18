@@ -45,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Windows Resume Hook Resilience**: Fix hook unresponsiveness and daemon crashes after sleep/resume by replacing the rdev keyboard hook with a custom thread-local Win32 low-level keyboard hook, coalescing rapid wakeup events to prevent spawn-and-destroy loops, and synchronizing modifier key states with the foreground window.
 - **Linux Service Startup**: Fix an issue where Taurine failed to start on Linux (`Unit not found`) due to a mismatch between the installed service file name and the expected label name.
 - **Auto-Update Reliability**: Fix auto-update checks failing to retry on network issues, log check errors to the daemon, and prevent daemon panics if the cache folder cannot be created.
+- **Scripts Enabled Wireup**: Fix an issue where the `scripts_enabled` configuration setting failed to load from the database or apply when updated via the CLI or TUI.
 
 ## [1.0.0-alpha.13] - 2026-07-12
 

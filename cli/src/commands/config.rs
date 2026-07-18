@@ -427,6 +427,13 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
                 defaults.instant_expand
             );
         }
+        "scripts_enabled" => {
+            manager.update_setting(actual_key, defaults.scripts_enabled)?;
+            info!(
+                "Reset scripts_enabled to default: {}",
+                defaults.scripts_enabled
+            );
+        }
         "ai_provider" => {
             manager.update_setting(actual_key, defaults.ai_provider.clone())?;
             info!("Reset ai_provider to default: <unset>");
