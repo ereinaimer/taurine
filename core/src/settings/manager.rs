@@ -224,6 +224,12 @@ impl<'a> SettingsManager<'a> {
             settings.inline_emoji_trigger_char = v;
         }
 
+        if let Some(val) = map.get("scripts_enabled")
+            && let Ok(v) = serde_json::from_str::<bool>(val)
+        {
+            settings.scripts_enabled = v;
+        }
+
         if settings.rpc_token.is_empty() {
             let token = uuid::Uuid::new_v4().to_string();
             settings.rpc_token = token.clone();
