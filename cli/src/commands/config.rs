@@ -102,6 +102,10 @@ pub fn execute_list() -> taurine_core::error::Result<()> {
         "triggerless_mode",
         &settings.triggerless_mode.to_string(),
     ]);
+    table.add_row(vec![
+        "scripts_enabled",
+        &settings.scripts_enabled.to_string(),
+    ]);
     table.add_row(vec!["instant_expand", &settings.instant_expand.to_string()]);
     let show_tcp_settings = settings.rpc_mode == taurine_core::settings::RpcMode::Tcp;
 

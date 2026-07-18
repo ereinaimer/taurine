@@ -35,6 +35,7 @@ pub(crate) enum SettingKey {
     RpcHost,
     RpcPort,
     RpcToken,
+    ScriptsEnabled,
     ScriptTimeout,
     AiTemperature,
     AiMaxTokens,
@@ -46,7 +47,7 @@ pub(crate) enum SettingKey {
 }
 
 impl SettingKey {
-    pub(crate) const ALL: [Self; 34] = [
+    pub(crate) const ALL: [Self; 35] = [
         Self::TriggerChar,
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
@@ -73,6 +74,7 @@ impl SettingKey {
         Self::RpcHost,
         Self::RpcPort,
         Self::RpcToken,
+        Self::ScriptsEnabled,
         Self::ScriptTimeout,
         Self::AiTemperature,
         Self::AiMaxTokens,
@@ -111,6 +113,7 @@ impl SettingKey {
             Self::RpcHost => "rpc_host",
             Self::RpcPort => "rpc_port",
             Self::RpcToken => "rpc_token",
+            Self::ScriptsEnabled => "scripts_enabled",
             Self::ScriptTimeout => "script_timeout",
             Self::AiTemperature => "ai_temperature",
             Self::AiMaxTokens => "ai_max_tokens",
@@ -150,6 +153,7 @@ impl SettingKey {
             Self::RpcHost => "Daemon RPC Host",
             Self::RpcPort => "Daemon RPC Port",
             Self::RpcToken => "Daemon RPC Token",
+            Self::ScriptsEnabled => "Scripts Enabled",
             Self::ScriptTimeout => "Script Execution Timeout",
             Self::AiTemperature => "AI Temperature",
             Self::AiMaxTokens => "AI Max Tokens",
@@ -211,6 +215,7 @@ impl SettingKey {
             Self::RpcHost => "The network interface IP address the daemon binds to",
             Self::RpcPort => "The network port the gRPC RPC server listens on (1024-65535)",
             Self::RpcToken => "The secret authorization token required to control the daemon",
+            Self::ScriptsEnabled => "Allow execution of shell scripts in automations",
             Self::ScriptTimeout => {
                 "Maximum script execution time before termination (0 for infinite)"
             }
@@ -239,6 +244,7 @@ impl SettingKey {
             | Self::TriggerlessMode
             | Self::InstantExpand
             | Self::IgnoreFullscreen
+            | Self::ScriptsEnabled
             | Self::ClipboardHistoryEnabled
             | Self::InlineEmojiEnabled => EditorKind::Toggle,
             Self::Wpm
@@ -316,6 +322,7 @@ impl SettingKey {
             },
             Self::RpcHost => settings.rpc_host.clone(),
             Self::RpcToken => settings.rpc_token.clone(),
+            Self::ScriptsEnabled => settings.scripts_enabled.to_string(),
             Self::ClipboardHistoryEnabled => settings.clipboard_history_enabled.to_string(),
             Self::ClipboardHistoryRetentionSecs => {
                 settings.clipboard_history_retention_secs.to_string()
@@ -351,6 +358,7 @@ impl SettingKey {
             | Self::ActionKey
             | Self::InlineAiTriggerMode
             | Self::RpcMode
+            | Self::ScriptsEnabled
             | Self::ClipboardRestoreDelayMs
             | Self::RpcPort
             | Self::ScriptTimeout
@@ -533,6 +541,7 @@ impl SettingsPageState {
             SettingKey::TriggerlessMode => (!self.settings.triggerless_mode).to_string(),
             SettingKey::InstantExpand => (!self.settings.instant_expand).to_string(),
             SettingKey::IgnoreFullscreen => (!self.settings.ignore_fullscreen).to_string(),
+            SettingKey::ScriptsEnabled => (!self.settings.scripts_enabled).to_string(),
             SettingKey::ClipboardHistoryEnabled => {
                 (!self.settings.clipboard_history_enabled).to_string()
             }
@@ -959,7 +968,7 @@ mod tests {
 
     #[test]
     fn every_setting_has_a_descriptor() {
-        assert_eq!(SettingKey::ALL.len(), 34);
+        assert_eq!(SettingKey::ALL.len(), 35);
     }
 
     #[test]
@@ -993,6 +1002,7 @@ mod tests {
             SettingKey::InlineHistoryEnabled.editor_kind(),
             EditorKind::Toggle
         );
+        assert_eq!(SettingKey::ScriptsEnabled.editor_kind(), EditorKind::Toggle);
     }
 
     #[test]
