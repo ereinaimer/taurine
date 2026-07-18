@@ -40,16 +40,6 @@ impl FastBuffer {
         }
 
         let capacity = self.data.len();
-        let threshold = (capacity * 8) / 10;
-        if self.len >= threshold {
-            tracing::warn!(
-                "FastBuffer capacity warning: {}/{} ({}%) reached",
-                self.len,
-                capacity,
-                (self.len * 100) / capacity
-            );
-        }
-
         self.data[self.head] = c;
         self.head = (self.head + 1) % capacity;
         if self.len < capacity {
