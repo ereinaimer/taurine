@@ -229,6 +229,7 @@ pub fn start() -> taurine_core::error::Result<()> {
 
     let run_result = rt.block_on(async move {
         let evaluator_for_coordinator = evaluator.clone();
+        #[cfg(any(windows, target_os = "linux"))]
         let state_for_coordinator = state.clone();
         tokio::spawn(async move {
             while let Some(is_paused) = pause_transition_rx.recv().await {

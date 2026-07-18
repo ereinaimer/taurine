@@ -83,7 +83,8 @@ fn check_user_in_etc_group(group_name: &str) -> bool {
         let uid = libc::getuid();
         let pw = libc::getpwuid(uid);
         if !pw.is_null() && !(*pw).pw_name.is_null() {
-            if let Ok(name_str) = std::ffi::CStr::from_ptr((*pw).pw_name).to_str() {
+            let name_cstr = std::ffi::CStr::from_ptr((*pw).pw_name);
+            if let Ok(name_str) = name_cstr.to_str() {
                 username = name_str.to_string();
             }
         }
@@ -138,14 +139,12 @@ fn ensure_linux_permissions() -> crate::error::Result<()> {
     // 2. Check input group membership
     let active_group = is_current_user_in_group("input");
 
-    if !needs_udev_fix && !active_group {
-        if check_user_in_etc_group("input") {
-            tracing::info!(
-                "System permissions are already configured, but have not been applied to the current session."
-            );
-            tracing::info!("Please reboot your computer to apply the changes.");
-            std::process::exit(0);
-        }
+    if !needs_udev_fix && !active_group && check_user_in_etc_group("input") {
+        tracing::info!(
+            "System permissions are already configured, but have not been applied to the current session."
+        );
+        tracing::info!("Please reboot your computer to apply the changes.");
+        std::process::exit(0);
     }
 
     let needs_fix = needs_udev_fix || !active_group;
