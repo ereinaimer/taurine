@@ -79,7 +79,7 @@ impl EngineState {
             is_os_fullscreen: AtomicBool::new(false),
             completion_active: AtomicBool::new(false),
             wpm: AtomicU32::new(60),
-            clipboard_restore_delay_ms: AtomicU32::new(160),
+            clipboard_restore_delay_ms: AtomicU32::new(250),
             script_timeout: AtomicU32::new(15),
 
             spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
@@ -108,7 +108,7 @@ impl EngineState {
             is_os_fullscreen: AtomicBool::new(false),
             completion_active: AtomicBool::new(false),
             wpm: AtomicU32::new(60),
-            clipboard_restore_delay_ms: AtomicU32::new(160),
+            clipboard_restore_delay_ms: AtomicU32::new(250),
             script_timeout: AtomicU32::new(15),
 
             spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),

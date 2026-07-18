@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 static CACHED_SCRIPT_TIMEOUT: AtomicU32 = AtomicU32::new(15);
-static CACHED_CLIPBOARD_RESTORE_DELAY: AtomicU32 = AtomicU32::new(160);
+static CACHED_CLIPBOARD_RESTORE_DELAY: AtomicU32 = AtomicU32::new(250);
 static CACHED_WPM: AtomicU32 = AtomicU32::new(60);
 static CACHED_CLIPBOARD_HISTORY_ENABLED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(true);
@@ -251,11 +251,11 @@ impl Settings {
                         s.contains("Windows 10") && !s.contains("Windows 11")
                     }
                 };
-                if is_win10 { 450 } else { 220 }
+                if is_win10 { 600 } else { 350 }
             } else if cfg!(target_os = "linux") {
-                300
+                400
             } else {
-                160
+                250
             }
         })
     }

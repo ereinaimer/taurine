@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Linux Permissions Setup GUI**: Show a graphical password prompt via Polkit when configuring system permissions on desktops.
 
 ### Fixed
+- **Clipboard History Injection**: Fix an issue where the temporary expansion payload would end up in the clipboard history instead of the restored original text due to timing conflicts between the injector and history listener.
 - **Action Key Expansion Reliability**: Fix an issue where pressing the action key (Enter) would sporadically fail to expand triggers after typing sentences with apostrophes.
 - **Inline Math Delimiters**: Prevent the inline math engine from swallowing delimiters when typing plain numbers or constants without operations.
 - **Linux Keyboard Layout Fallback**: Prevent daemon crashes on startup in headless environments or CI by falling back to a mock US layout when system XKB files are missing.
