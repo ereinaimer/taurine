@@ -104,6 +104,13 @@ pub fn execute_with_trigger_type(
     let conn = init::setup()?;
     validate_trigger_not_reserved(&conn, &stored_trigger)?;
 
+    let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
+    if !settings.scripts_enabled {
+        tracing::warn!(
+            "Warning: Global script execution is currently disabled. This script automation will not trigger until `scripts_enabled` is set to true."
+        );
+    }
+
     // Check for an existing active automation with the same trigger tuple and app filters.
     let existing_record: Option<(String, i64, Option<i64>)> = conn
         .query_row(

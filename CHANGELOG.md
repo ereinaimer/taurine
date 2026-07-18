@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Script Security Switch**: Add a global `scripts_enabled` configuration setting to allow IT administrators to safely block all shell script executions.
 - **Triggerless Backspace Undo**: Support Backspace Undo for expansions in triggerless mode to easily revert accidental matches.
 - **Rich Text Support**: Support HTML-based styled text pasting with automatic plain text fallbacks.
 - **Wayland Compatibility**: Support active window detection and fullscreen detection natively across Sway, Hyprland, KDE Plasma, and GNOME on Linux via a unified tracking backend.

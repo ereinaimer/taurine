@@ -711,7 +711,8 @@ impl Evaluator {
             candidates.sort_by_key(|a| std::cmp::Reverse(a.0.len()));
 
             for (word, prev_char) in candidates {
-                let is_boundary = action_key == crate::settings::ActionKey::Enter
+                let is_boundary = (!instant_expand
+                    && action_key == crate::settings::ActionKey::Enter)
                     || prev_char.is_none_or(|c| c.is_whitespace() || c.is_ascii_punctuation());
                 if is_boundary
                     && let Some(expansion) = self.state.fetch_expansion(&word, active_window)
@@ -3152,6 +3153,26 @@ mod tests {
         }
 
         assert_eq!(eval.process(EngineEvent::ActionKey), None);
+    }
+
+    #[test]
+    fn triggerless_mode_with_instant_expand_enforces_boundary_even_for_enter_action_key() {
+        use std::sync::atomic::Ordering;
+        let state = Arc::new(EngineState::new('>'));
+        state.triggerless_mode.store(true, Ordering::Relaxed);
+        state.instant_expand.store(true, Ordering::Relaxed);
+        *state.action_key.write().unwrap() = crate::settings::ActionKey::Enter;
+        state.load_actions(vec![(
+            "gm".to_string(),
+            crate::db::crud::AutomationAction::text("Good Morning"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        for c in "noteg".chars() {
+            assert_eq!(eval.process(EngineEvent::Char(c)), None);
+        }
+
+        assert_eq!(eval.process(EngineEvent::Char('m')), None);
     }
 
     #[test]

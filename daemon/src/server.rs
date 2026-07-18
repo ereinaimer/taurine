@@ -251,6 +251,7 @@ impl DaemonControl for DaemonService {
             taurine_core::settings::set_cached_inline_emoji_trigger_char(
                 settings.inline_emoji_trigger_char,
             );
+            taurine_core::settings::set_cached_scripts_enabled(settings.scripts_enabled);
 
             // Update trigger char (atomic)
             self.state

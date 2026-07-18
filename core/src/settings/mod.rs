@@ -10,6 +10,8 @@ static CACHED_CLIPBOARD_HISTORY_RETENTION_SECS: AtomicU32 = AtomicU32::new(300);
 static CACHED_INLINE_EMOJI_ENABLED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(true);
 static CACHED_INLINE_EMOJI_TRIGGER_CHAR: AtomicU32 = AtomicU32::new(':' as u32);
+static CACHED_SCRIPTS_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(true);
 
 pub fn set_cached_inline_emoji_enabled(enabled: bool) {
     CACHED_INLINE_EMOJI_ENABLED.store(enabled, Ordering::Relaxed);
@@ -26,6 +28,14 @@ pub fn get_cached_inline_emoji_enabled() -> bool {
 pub fn get_cached_inline_emoji_trigger_char() -> char {
     let u = CACHED_INLINE_EMOJI_TRIGGER_CHAR.load(Ordering::Relaxed);
     std::char::from_u32(u).unwrap_or(':')
+}
+
+pub fn set_cached_scripts_enabled(enabled: bool) {
+    CACHED_SCRIPTS_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub fn get_cached_scripts_enabled() -> bool {
+    CACHED_SCRIPTS_ENABLED.load(Ordering::Relaxed)
 }
 
 pub fn set_cached_script_timeout(timeout: u32) {
@@ -145,6 +155,7 @@ pub struct Settings {
     pub clipboard_history_retention_secs: u32,
     pub inline_emoji_enabled: bool,
     pub inline_emoji_trigger_char: char,
+    pub scripts_enabled: bool,
 }
 
 impl Settings {
@@ -198,6 +209,7 @@ impl Settings {
             }
             "inline_emoji" | "inline_emoji_enabled" => "inline_emoji_enabled",
             "inline_emoji_trigger_char" | "emoji_trigger" => "inline_emoji_trigger_char",
+            "scripts_enabled" => "scripts_enabled",
             _ => key,
         }
     }
@@ -294,6 +306,7 @@ impl Default for Settings {
             clipboard_history_retention_secs: 300,
             inline_emoji_enabled: true,
             inline_emoji_trigger_char: ':',
+            scripts_enabled: true,
         }
     }
 }

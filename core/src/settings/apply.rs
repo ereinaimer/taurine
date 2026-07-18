@@ -89,6 +89,7 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         }
         "inline_emoji_enabled" => Ok(Some(defaults.inline_emoji_enabled.to_string())),
         "inline_emoji_trigger_char" => Ok(Some(defaults.inline_emoji_trigger_char.to_string())),
+        "scripts_enabled" => Ok(Some(defaults.scripts_enabled.to_string())),
         _ => Err(Error::Config(format!("Unknown setting key: {actual_key}"))),
     }
 }
@@ -117,7 +118,8 @@ pub fn apply_setting_input_with_manager(
         | "pause_audio_enabled"
         | "inline_tab_completion_enabled"
         | "inline_history_enabled"
-        | "ignore_fullscreen" => {
+        | "ignore_fullscreen"
+        | "scripts_enabled" => {
             manager.update_setting(
                 actual_key,
                 parse_boolean_setting_value(require_non_empty(value, actual_key)?)?,

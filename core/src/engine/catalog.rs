@@ -599,11 +599,24 @@ fn interpolate_script_action(action: AutomationAction, args: &ArgMap) -> Option<
         compressed_content: recompressed,
     };
 
-    Some(FinalExpansion {
-        steps: vec![ExpansionStep::Script(md)],
-        is_calculation: false,
-        ai_transformer_template: None,
-    })
+    if !crate::settings::get_cached_scripts_enabled() {
+        tracing::warn!(
+            "Blocked execution of Script automation because scripts are disabled globally."
+        );
+        Some(FinalExpansion {
+            steps: vec![ExpansionStep::Text(
+                "[Error: Script execution is disabled globally]".to_string(),
+            )],
+            is_calculation: false,
+            ai_transformer_template: None,
+        })
+    } else {
+        Some(FinalExpansion {
+            steps: vec![ExpansionStep::Script(md)],
+            is_calculation: false,
+            ai_transformer_template: None,
+        })
+    }
 }
 
 #[cfg(test)]

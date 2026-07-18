@@ -67,6 +67,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     taurine_core::settings::set_cached_inline_emoji_trigger_char(
         settings.inline_emoji_trigger_char,
     );
+    taurine_core::settings::set_cached_scripts_enabled(settings.scripts_enabled);
 
     let trigger_char = settings.trigger_char;
     let state = Arc::new(EngineState::new(trigger_char));

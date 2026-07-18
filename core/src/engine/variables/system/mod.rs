@@ -415,9 +415,18 @@ fn split_into_steps(text: &str) -> Vec<ExpansionStep> {
 
         if base_expr.starts_with("exec.") {
             flush_text(&mut steps, &mut current_text);
-            match exec::to_script_metadata(base_expr) {
-                Ok(metadata) => steps.push(ExpansionStep::InlineRun(metadata, transformers)),
-                Err(error) => steps.push(ExpansionStep::Text(format_run_error(error))),
+            if !crate::settings::get_cached_scripts_enabled() {
+                tracing::warn!(
+                    "Blocked execution of [exec.*] block because scripts are disabled globally."
+                );
+                steps.push(ExpansionStep::Text(
+                    "[Error: Script execution is disabled globally]".to_string(),
+                ));
+            } else {
+                match exec::to_script_metadata(base_expr) {
+                    Ok(metadata) => steps.push(ExpansionStep::InlineRun(metadata, transformers)),
+                    Err(error) => steps.push(ExpansionStep::Text(format_run_error(error))),
+                }
             }
         } else if let Some(alias) = parse_key_directive(inner) {
             flush_text(&mut steps, &mut current_text);
