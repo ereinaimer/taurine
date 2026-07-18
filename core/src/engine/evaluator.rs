@@ -138,6 +138,11 @@ impl Evaluator {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.buffer.clear();
+        self.completion.deactivate(&self.state.completion_active);
+    }
+
     fn get_thinking_text(&self) -> String {
         let style = self
             .state
@@ -1076,6 +1081,19 @@ fn pop_word_from_query(query: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_evaluator_reset_clears_buffer_and_deactivates_completions() {
+        let state = Arc::new(EngineState::new(';'));
+        let mut eval = Evaluator::new(state.clone());
+        eval.buffer.push('a');
+        eval.completion.activate(&state.completion_active, false);
+
+        eval.reset();
+
+        assert_eq!(eval.buffer.buffer_string(), "");
+        assert!(!eval.is_completion_active());
+    }
 
     trait EvaluatorTestExt {
         fn process(&mut self, event: EngineEvent) -> Option<ExpansionResult>;

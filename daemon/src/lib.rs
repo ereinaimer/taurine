@@ -116,6 +116,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     let hook_health = hook_health::HookHealth::new();
 
     let (audio_tx, audio_rx) = audio::create_channel();
+    let (pause_transition_tx, mut pause_transition_rx) = tokio::sync::mpsc::channel::<bool>(8);
 
     // Fire up listener in OS thread
     let eval_clone = evaluator.clone();
@@ -126,6 +127,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     let spinner_style_clone = spinner_style.clone();
     let pause_audio_enabled_clone = pause_audio_enabled.clone();
     let audio_tx_clone = audio_tx.clone();
+    let pause_transition_tx_clone = pause_transition_tx.clone();
     #[cfg(windows)]
     let supervisor_handle: Arc<Mutex<Option<std::thread::JoinHandle<()>>>> =
         Arc::new(Mutex::new(None));
@@ -149,6 +151,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                     spinner_style_clone,
                     pause_audio_enabled_clone,
                     audio_tx_clone,
+                    pause_transition_tx_clone,
                     hook_health_clone,
                 );
                 if let Ok(mut lock) = supervisor_handle_clone.lock() {
@@ -168,6 +171,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                     spinner_style_clone,
                     pause_audio_enabled_clone,
                     audio_tx_clone,
+                    pause_transition_tx_clone,
                 );
             }
         })?;
@@ -223,7 +227,42 @@ pub fn start() -> taurine_core::error::Result<()> {
         .build()?;
     let _ = TOKIO_HANDLE.set(rt.handle().clone());
 
-    let run_result = rt.block_on(async {
+    let run_result = rt.block_on(async move {
+        let evaluator_for_coordinator = evaluator.clone();
+        let state_for_coordinator = state.clone();
+        tokio::spawn(async move {
+            while let Some(is_paused) = pause_transition_rx.recv().await {
+                if is_paused {
+                    info!("Taurine paused: entering deep idle state...");
+                    // 1. Stop fullscreen detection
+                    #[cfg(windows)]
+                    crate::platform::windows::fullscreen::stop_listener();
+                    #[cfg(target_os = "linux")]
+                    crate::platform::linux::toplevel::stop_listener();
+
+                    // 2. Suspend clipboard listener
+                    crate::clipboard_history::suspend_listener();
+
+                    // 3. Clear transient evaluator state
+                    if let Ok(mut lock) = evaluator_for_coordinator.lock() {
+                        lock.reset();
+                    }
+                } else {
+                    info!("Taurine resumed: restoring subsystems...");
+                    // 1. Resume clipboard listener
+                    crate::clipboard_history::resume_listener();
+
+                    // 2. Restart fullscreen detection
+                    #[cfg(windows)]
+                    crate::platform::windows::fullscreen::start_listener(
+                        state_for_coordinator.clone(),
+                    );
+                    #[cfg(target_os = "linux")]
+                    crate::platform::linux::toplevel::start_listener(state_for_coordinator.clone());
+                }
+            }
+        });
+
         let (mut shutdown_tx, mut shutdown_rx) = mpsc::channel(1);
         let (mut rpc_reload_tx, mut rpc_reload_rx) = mpsc::channel(1);
 

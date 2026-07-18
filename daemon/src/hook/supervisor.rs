@@ -42,6 +42,7 @@ pub fn start_windows_supervisor(
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
+    pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
     hook_health: HookHealth,
 ) -> Option<std::thread::JoinHandle<()>> {
     let (tx, rx) = mpsc::channel::<WindowsSupervisorEvent>();
@@ -79,6 +80,7 @@ pub fn start_windows_supervisor(
                 spinner_style.clone(),
                 pause_audio_enabled.clone(),
                 audio_tx.clone(),
+                pause_transition_tx.clone(),
                 hook_health.clone(),
                 tx.clone(),
             ));
@@ -280,6 +282,7 @@ pub fn start_windows_supervisor(
                         spinner_style.clone(),
                         pause_audio_enabled.clone(),
                         audio_tx.clone(),
+                        pause_transition_tx.clone(),
                         hook_health.clone(),
                         tx.clone(),
                     ));

@@ -23,6 +23,8 @@ pub(crate) struct DeviceExit {
     pub worker_id: u64,
 }
 
+static LAST_PAUSE_TOGGLE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 #[derive(Clone)]
 pub(crate) struct ListenerContext {
     evaluator: Arc<Mutex<Evaluator>>,
@@ -33,6 +35,7 @@ pub(crate) struct ListenerContext {
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
+    pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
 }
 
 impl ListenerContext {
@@ -46,6 +49,7 @@ impl ListenerContext {
         spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
         pause_audio_enabled: Arc<AtomicBool>,
         audio_tx: tokio::sync::mpsc::Sender<bool>,
+        pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
     ) -> Self {
         Self {
             evaluator,
@@ -56,6 +60,7 @@ impl ListenerContext {
             spinner_style,
             pause_audio_enabled,
             audio_tx,
+            pause_transition_tx,
         }
     }
 }
@@ -135,6 +140,7 @@ pub fn start_listener(
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
+    pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
 ) {
     let context = ListenerContext::new(
         evaluator,
@@ -145,6 +151,7 @@ pub fn start_listener(
         spinner_style,
         pause_audio_enabled,
         audio_tx,
+        pause_transition_tx,
     );
 
     super::input_supervisor::start(context);
@@ -343,20 +350,33 @@ fn process_frame(
             .is_some_and(|spec| is_pause_chord_evdev(key, is_press, modifiers, &spec));
 
         if is_pause_chord {
-            clear_undo_state(state);
-            hotkey_evaluator.clear();
-            let now_paused = !paused.load(Ordering::Relaxed);
-            paused.store(now_paused, Ordering::Relaxed);
-            if pause_notifications_enabled.load(Ordering::Relaxed) {
-                notify::notify_pause_toggled(now_paused);
-            }
-            if pause_audio_enabled.load(Ordering::Relaxed) {
-                let _ = audio_tx.try_send(now_paused);
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            let last_ms = LAST_PAUSE_TOGGLE_MS.load(Ordering::Relaxed);
+            if now_ms.saturating_sub(last_ms) >= 300 {
+                LAST_PAUSE_TOGGLE_MS.store(now_ms, Ordering::Relaxed);
+
+                clear_undo_state(state);
+                hotkey_evaluator.clear();
+                let now_paused = !paused.load(Ordering::Relaxed);
+                paused.store(now_paused, Ordering::Relaxed);
+
+                // Notify coordinator
+                let _ = context.pause_transition_tx.try_send(now_paused);
+
+                if pause_notifications_enabled.load(Ordering::Relaxed) {
+                    notify::notify_pause_toggled(now_paused);
+                }
+                if pause_audio_enabled.load(Ordering::Relaxed) {
+                    let _ = audio_tx.try_send(now_paused);
+                }
             }
             continue;
         }
 
-        if is_press && paused.load(Ordering::Relaxed) {
+        if paused.load(Ordering::Relaxed) {
             continue;
         }
 

@@ -54,7 +54,7 @@ impl crate::platform::ClipboardManager for MockClipboard {
     fn get_text(&mut self) -> Result<String, String> {
         self.get_count += 1;
         self.ops.push("get_text");
-        if self.sabotage_second_read && self.get_count == 2 {
+        if self.sabotage_second_read && self.get_count >= 2 {
             // Verify read (after set_text): another writer won the race.
             return Ok("STALE_FROM_ANOTHER_PROCESS".to_string());
         }

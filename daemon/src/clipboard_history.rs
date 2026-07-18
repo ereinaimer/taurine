@@ -7,11 +7,58 @@ use taurine_core::engine::variables::system::clip::clip_manager;
 
 use crate::injector::IS_INJECTING;
 use std::sync::atomic::AtomicBool;
+use std::sync::{Condvar, Mutex};
 
 pub static CLIPBOARD_SHOULD_SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
+static CLIPBOARD_SUSPENDED: Mutex<bool> = Mutex::new(false);
+static CLIPBOARD_CONDVAR: Condvar = Condvar::new();
+
+#[cfg(windows)]
+static CLIPBOARD_HWND: std::sync::atomic::AtomicPtr<std::ffi::c_void> =
+    std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+
 #[cfg(windows)]
 static CLIPBOARD_THREAD_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+pub fn suspend_listener() {
+    {
+        let mut suspended = CLIPBOARD_SUSPENDED.lock().unwrap();
+        *suspended = true;
+    }
+    #[cfg(windows)]
+    {
+        let hwnd = CLIPBOARD_HWND.load(std::sync::atomic::Ordering::Relaxed);
+        if !hwnd.is_null() {
+            use windows_sys::Win32::System::DataExchange::RemoveClipboardFormatListener;
+            // SAFETY: RemoveClipboardFormatListener is safe to call on a valid window handle.
+            unsafe {
+                let _ = RemoveClipboardFormatListener(hwnd as _);
+            }
+            tracing::info!("Windows clipboard format listener removed (suspended)");
+        }
+    }
+}
+
+pub fn resume_listener() {
+    {
+        let mut suspended = CLIPBOARD_SUSPENDED.lock().unwrap();
+        *suspended = false;
+    }
+    CLIPBOARD_CONDVAR.notify_all();
+    #[cfg(windows)]
+    {
+        let hwnd = CLIPBOARD_HWND.load(std::sync::atomic::Ordering::Relaxed);
+        if !hwnd.is_null() {
+            use windows_sys::Win32::System::DataExchange::AddClipboardFormatListener;
+            // SAFETY: AddClipboardFormatListener is safe to call on a valid window handle.
+            unsafe {
+                let _ = AddClipboardFormatListener(hwnd as _);
+            }
+            tracing::info!("Windows clipboard format listener added (resumed)");
+        }
+    }
+}
 
 #[cfg(not(windows))]
 const INIT_RETRY_INTERVAL: Duration = Duration::from_secs(1);
@@ -25,6 +72,12 @@ pub fn start_listener() {
     loop {
         if CLIPBOARD_SHOULD_SHUTDOWN.load(std::sync::atomic::Ordering::Relaxed) {
             break;
+        }
+        {
+            let mut suspended = CLIPBOARD_SUSPENDED.lock().unwrap();
+            while *suspended {
+                suspended = CLIPBOARD_CONDVAR.wait(suspended).unwrap();
+            }
         }
         if !taurine_core::settings::get_cached_clipboard_history_enabled() {
             thread::sleep(POLL_INTERVAL);
@@ -69,6 +122,12 @@ pub fn start_listener() {
     loop {
         if CLIPBOARD_SHOULD_SHUTDOWN.load(std::sync::atomic::Ordering::Relaxed) {
             break;
+        }
+        {
+            let mut suspended = CLIPBOARD_SUSPENDED.lock().unwrap();
+            while *suspended {
+                suspended = CLIPBOARD_CONDVAR.wait(suspended).unwrap();
+            }
         }
         if !taurine_core::settings::get_cached_clipboard_history_enabled() {
             thread::sleep(POLL_INTERVAL);
@@ -221,8 +280,12 @@ pub fn start_listener() {
     // on failure, which we check below.
     let atom = unsafe { RegisterClassW(&window_class) };
     if atom == 0 {
-        tracing::error!("Failed to register clipboard monitor window class");
-        return;
+        let err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+        if err != 1410 {
+            // ERROR_CLASS_ALREADY_EXISTS
+            tracing::error!("Failed to register clipboard monitor window class: {}", err);
+            return;
+        }
     }
 
     // SAFETY: CreateWindowExW creates a message-only window (HWND_MESSAGE) that
@@ -260,6 +323,8 @@ pub fn start_listener() {
         return;
     }
 
+    CLIPBOARD_HWND.store(hwnd as _, std::sync::atomic::Ordering::Relaxed);
+
     tracing::info!("Windows clipboard monitor is listening for WM_CLIPBOARDUPDATE");
 
     let mut message = MSG::default();
@@ -296,10 +361,16 @@ pub fn start_listener() {
     unsafe {
         let _ = RemoveClipboardFormatListener(hwnd);
     }
+    CLIPBOARD_HWND.store(std::ptr::null_mut(), std::sync::atomic::Ordering::Relaxed);
 }
 
 pub fn stop_listener() {
     CLIPBOARD_SHOULD_SHUTDOWN.store(true, std::sync::atomic::Ordering::Relaxed);
+    {
+        let mut suspended = CLIPBOARD_SUSPENDED.lock().unwrap();
+        *suspended = false;
+    }
+    CLIPBOARD_CONDVAR.notify_all();
     #[cfg(windows)]
     {
         let tid = CLIPBOARD_THREAD_ID.load(std::sync::atomic::Ordering::Relaxed);

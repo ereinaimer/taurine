@@ -55,6 +55,12 @@ use super::dispatch::{spawn_completion_rewrite_dispatch, spawn_expansion_dispatc
 pub(super) static LISTENER_EPOCH: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 
+#[cfg(not(target_os = "linux"))]
+static LAST_PAUSE_TOGGLE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(not(target_os = "linux"))]
+static PAUSE_KEY_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 #[cfg(target_os = "linux")]
 #[allow(clippy::too_many_arguments)]
 pub fn start_listener(
@@ -66,6 +72,7 @@ pub fn start_listener(
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
+    pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
 ) {
     crate::platform::linux::evdev::start_listener(
         evaluator,
@@ -76,6 +83,7 @@ pub fn start_listener(
         spinner_style,
         pause_audio_enabled,
         audio_tx,
+        pause_transition_tx,
     );
 }
 
@@ -91,6 +99,7 @@ pub fn start_listener(
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
+    pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
 ) {
     if let Err(error) = run_listener_once(
         evaluator,
@@ -101,6 +110,7 @@ pub fn start_listener(
         spinner_style,
         pause_audio_enabled,
         audio_tx,
+        pause_transition_tx,
         None,
     ) {
         error!(error = %error, "Fatal OS global hook crash");
@@ -118,6 +128,7 @@ pub(super) fn run_listener_once(
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
+    pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
     hook_health: Option<HookHealth>,
 ) -> Result<u64, String> {
     let left_alt_down = std::sync::atomic::AtomicBool::new(false);
@@ -249,17 +260,56 @@ pub(super) fn run_listener_once(
             false
         };
 
-        if is_chord {
-            clear_undo_state(state.as_ref());
-            let now_paused = !paused.load(Ordering::Relaxed);
-            paused.store(now_paused, Ordering::Relaxed);
-            if pause_notifications_enabled.load(Ordering::Relaxed) {
-                notify::notify_pause_toggled(now_paused);
+        let is_release_chord = if let Ok(spec) = pause_hotkey.read() {
+            if let EventType::KeyRelease(rdev_key) = event.event_type
+                && let Some(logical_key) = logical_key_from_rdev(rdev_key)
+            {
+                logical_key == spec.hotkey.key
+            } else {
+                false
             }
-            if pause_audio_enabled.load(Ordering::Relaxed) {
-                let _ = audio_tx.try_send(now_paused);
+        } else {
+            false
+        };
+
+        if is_release_chord {
+            PAUSE_KEY_DOWN.store(false, Ordering::Relaxed);
+        }
+
+        if is_chord {
+            let was_down = PAUSE_KEY_DOWN.swap(true, Ordering::Relaxed);
+            if was_down {
+                return None; // Ignore repeating keys
+            }
+
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            let last_ms = LAST_PAUSE_TOGGLE_MS.load(Ordering::Relaxed);
+            if now_ms.saturating_sub(last_ms) >= 300 {
+                LAST_PAUSE_TOGGLE_MS.store(now_ms, Ordering::Relaxed);
+
+                clear_undo_state(state.as_ref());
+                let now_paused = !paused.load(Ordering::Relaxed);
+                paused.store(now_paused, Ordering::Relaxed);
+
+                // Notify coordinator
+                let _ = pause_transition_tx.try_send(now_paused);
+
+                if pause_notifications_enabled.load(Ordering::Relaxed) {
+                    notify::notify_pause_toggled(now_paused);
+                }
+                if pause_audio_enabled.load(Ordering::Relaxed) {
+                    let _ = audio_tx.try_send(now_paused);
+                }
             }
             return None;
+        }
+
+        // If we are currently paused and this is not the pause chord, immediately bypass
+        if paused.load(Ordering::Relaxed) {
+            return Some(event);
         }
 
         match event.event_type {
@@ -1037,6 +1087,7 @@ pub(super) fn spawn_windows_hook_listener(
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
+    pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
     hook_health: HookHealth,
     supervisor_tx: std::sync::mpsc::Sender<super::supervisor::WindowsSupervisorEvent>,
 ) -> super::supervisor::ListenerHandle {
@@ -1092,6 +1143,7 @@ pub(super) fn spawn_windows_hook_listener(
                     spinner_style,
                     pause_audio_enabled,
                     audio_tx,
+                    pause_transition_tx,
                     Some(listener_health.clone()),
                 )
             }));

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Deep Idle When Paused**: Release active background resources like fullscreen polling and clipboard updates when paused to achieve near-zero CPU/battery consumption.
 - **Script Security Switch**: Add a global `scripts_enabled` configuration setting to allow IT administrators to safely block all shell script executions.
 - **Triggerless Backspace Undo**: Support Backspace Undo for expansions in triggerless mode to easily revert accidental matches.
 - **Rich Text Support**: Support HTML-based styled text pasting with automatic plain text fallbacks.
