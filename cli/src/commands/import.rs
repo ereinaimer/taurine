@@ -18,8 +18,9 @@ use crate::{ImportConflictCli, ImportMetricsCli};
 pub fn execute(
     path: PathBuf,
     on_conflict: Option<ImportConflictCli>,
-    include_settings: bool,
-    include_metrics: Option<ImportMetricsCli>,
+    settings: bool,
+    metrics: Option<ImportMetricsCli>,
+    sensitive: bool,
 ) -> taurine_core::error::Result<()> {
     let bytes = std::fs::read(&path)?;
     let format = detect_exchange_format(&bytes)?;
@@ -39,8 +40,9 @@ pub fn execute(
         &payload,
         on_conflict,
         ImportOptions {
-            include_settings,
-            metrics_mode: map_import_metrics_mode(include_metrics),
+            include_settings: settings,
+            metrics_mode: map_import_metrics_mode(metrics),
+            include_sensitive_settings: sensitive,
         },
     )?;
 

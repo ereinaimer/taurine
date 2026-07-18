@@ -556,6 +556,7 @@ fn render_library_export_modal(frame: &mut Frame, area: Rect, state: &LibraryExp
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
+            Constraint::Length(1),
             Constraint::Min(0),
         ])
         .split(inner);
@@ -609,6 +610,17 @@ fn render_library_export_modal(frame: &mut Frame, area: Rect, state: &LibraryExp
         state.focus() == LibraryExportModalField::IncludeSettings,
         false,
     );
+    if state.encrypt() {
+        render_modal_key_value_row(
+            frame,
+            sections[next_row + 1],
+            "Sensitive",
+            yes_no_label(state.include_sensitive_settings()),
+            state.focus() == LibraryExportModalField::IncludeSensitiveSettings,
+            false,
+        );
+        next_row += 1;
+    }
     render_modal_key_value_row(
         frame,
         sections[next_row + 1],
@@ -660,13 +672,14 @@ fn render_library_import_modal(frame: &mut Frame, area: Rect, state: &LibraryImp
     } else {
         area.width.max(1)
     };
-    let popup = centered_rect(width, 12.min(area.height.max(1)), area);
+    let popup = centered_rect(width, 13.min(area.height.max(1)), area);
     frame.render_widget(Clear, popup);
     let inner = render_modal_block(frame, popup, "Import Automations");
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
+            Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
@@ -718,6 +731,14 @@ fn render_library_import_modal(frame: &mut Frame, area: Rect, state: &LibraryImp
     render_modal_key_value_row(
         frame,
         sections[5],
+        "Sensitive",
+        yes_no_label(state.include_sensitive_settings()),
+        state.focus() == LibraryImportModalField::IncludeSensitiveSettings,
+        false,
+    );
+    render_modal_key_value_row(
+        frame,
+        sections[6],
         "Metrics",
         state.metrics_mode_label(),
         state.focus() == LibraryImportModalField::MetricsMode,
@@ -725,7 +746,7 @@ fn render_library_import_modal(frame: &mut Frame, area: Rect, state: &LibraryImp
     );
     render_modal_key_value_row(
         frame,
-        sections[6],
+        sections[7],
         "Conflicts",
         state.conflict_mode_label(),
         state.focus() == LibraryImportModalField::ConflictMode,
@@ -747,7 +768,7 @@ fn render_library_import_modal(frame: &mut Frame, area: Rect, state: &LibraryImp
                 .add_modifier(Modifier::DIM),
         )
     };
-    frame.render_widget(Paragraph::new(text).style(style), sections[7]);
+    frame.render_widget(Paragraph::new(text).style(style), sections[8]);
 
     match state.focus() {
         LibraryImportModalField::Path => {

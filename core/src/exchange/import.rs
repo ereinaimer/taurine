@@ -25,6 +25,7 @@ pub enum ImportMetricsMode {
 pub struct ImportOptions {
     pub include_settings: bool,
     pub metrics_mode: ImportMetricsMode,
+    pub include_sensitive_settings: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,7 +82,7 @@ where
     }
 
     if options.include_settings {
-        import_settings(tx, payload)?;
+        import_settings(tx, payload, options.include_sensitive_settings)?;
     }
 
     import_global_metrics(tx, payload, options.metrics_mode)?;
@@ -162,20 +163,57 @@ fn insert_imported_automation(
     }
 
     let now = crate::db::now_unix_secs();
+    // To prevent asset link corruption, rewrite asset UUIDs.
+    // Map of old asset ID to new asset ID
+    let mut asset_id_map = std::collections::HashMap::new();
+
     for asset in &automation.assets {
+        let new_asset_id = Uuid::new_v4().to_string();
+        asset_id_map.insert(asset.id.clone(), new_asset_id.clone());
+
         let compressed = hex::decode(&asset.compressed_content_hex)
             .map_err(|e| crate::Error::Config(format!("Failed to decode asset hex: {}", e)))?;
         tx.execute(
             "INSERT OR REPLACE INTO assets (id, automation_id, mime_type, compressed_content, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
             (
-                &asset.id,
+                &new_asset_id,
                 &id,
                 &asset.mime_type,
                 &compressed,
                 now,
             ),
         )?;
+    }
+
+    // Now, rewrite any references to the old asset UUIDs in the output and script content
+    if !asset_id_map.is_empty() {
+        let mut final_output = automation.output.clone();
+        for (old_id, new_id) in &asset_id_map {
+            final_output = final_output.replace(old_id, new_id);
+        }
+
+        if final_output != automation.output {
+            tx.execute(
+                "UPDATE automations SET output = ?1 WHERE id = ?2",
+                [&final_output, &id],
+            )?;
+        }
+
+        if automation.action_type == "script" {
+            let script = automation.script.as_ref().unwrap();
+            let mut final_script_content = script.content.clone();
+            for (old_id, new_id) in &asset_id_map {
+                final_script_content = final_script_content.replace(old_id, new_id);
+            }
+            if final_script_content != script.content {
+                let compressed = compress(&final_script_content)?;
+                tx.execute(
+                    "UPDATE scripts SET content = ?1 WHERE automation_id = ?2",
+                    rusqlite::params![&compressed, &id],
+                )?;
+            }
+        }
     }
 
     Ok(())
@@ -289,9 +327,18 @@ fn resolve_automation_metrics(
     }
 }
 
-fn import_settings(tx: &Transaction<'_>, payload: &ExchangePayload) -> crate::Result<()> {
+fn import_settings(
+    tx: &Transaction<'_>,
+    payload: &ExchangePayload,
+    include_sensitive_settings: bool,
+) -> crate::Result<()> {
     if let Some(settings) = payload.settings.as_ref() {
         for setting in settings {
+            if !include_sensitive_settings
+                && crate::exchange::export::is_sensitive_setting_key(&setting.key)
+            {
+                continue;
+            }
             upsert_setting(tx, &setting.key, &setting.value)?;
         }
     }
@@ -380,6 +427,7 @@ mod tests {
         TriggerType, get_automation, upsert_automation, upsert_automation_with_trigger_type,
     };
     use crate::engine::shell::{ScriptBehavior, ScriptInterpreter};
+    use crate::exchange::AssetExport;
     use crate::testing::{init_tracing_for_tests, open_test_db};
 
     fn insert_raw_word_automation(
@@ -830,6 +878,7 @@ mod tests {
             ImportOptions {
                 include_settings: false,
                 metrics_mode: ImportMetricsMode::Merge,
+                ..Default::default()
             },
             |_, _| Ok(ImportConflictAction::Overwrite),
         )
@@ -881,6 +930,7 @@ mod tests {
             ImportOptions {
                 include_settings: false,
                 metrics_mode: ImportMetricsMode::Overwrite,
+                ..Default::default()
             },
             |_, _| Ok(ImportConflictAction::Overwrite),
         )
@@ -932,6 +982,7 @@ mod tests {
             ImportOptions {
                 include_settings: false,
                 metrics_mode: ImportMetricsMode::Merge,
+                ..Default::default()
             },
             |_, _| Ok(ImportConflictAction::Skip),
         )
@@ -966,6 +1017,7 @@ mod tests {
             ImportOptions {
                 include_settings: true,
                 metrics_mode: ImportMetricsMode::Ignore,
+                ..Default::default()
             },
             |_, _| Ok(ImportConflictAction::Overwrite),
         )
@@ -1022,6 +1074,7 @@ mod tests {
             ImportOptions {
                 include_settings: false,
                 metrics_mode: ImportMetricsMode::Merge,
+                ..Default::default()
             },
             |_, _| Ok(ImportConflictAction::Overwrite),
         )
@@ -1083,6 +1136,7 @@ mod tests {
             ImportOptions {
                 include_settings: false,
                 metrics_mode: ImportMetricsMode::Overwrite,
+                ..Default::default()
             },
             |_, _| Ok(ImportConflictAction::Overwrite),
         )
@@ -1102,5 +1156,109 @@ mod tests {
         assert_eq!(ai_executions, 5);
         assert_eq!(saved, 500);
         assert_eq!(time_saved_ms, 50_000);
+    }
+
+    #[test]
+    fn test_import_rewrites_asset_uuids() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        let old_asset_id = "11111111-2222-3333-4444-555555555555".to_string();
+        let payload = ExchangePayload {
+            schema_version: super::super::EXCHANGE_SCHEMA_VERSION,
+            automations: vec![AutomationExport {
+                name: "Test Asset".to_string(),
+                description: None,
+                trigger_type: TriggerType::Word,
+                trigger: "test_asset".to_string(),
+                output: format!("Asset here: [asset:{}]", old_asset_id),
+                action_type: "text".to_string(),
+                is_enabled: true,
+                target_os: "all".to_string(),
+                tags: vec![],
+                usage_count: None,
+                last_used_at: None,
+                script: None,
+                assets: vec![AssetExport {
+                    id: old_asset_id.clone(),
+                    mime_type: "image/png".to_string(),
+                    compressed_content_hex: "89504e470d0a1a0a".to_string(),
+                }],
+            }],
+            settings: None,
+            metrics: None,
+        };
+
+        // First import
+        let tx1 = conn.transaction().unwrap();
+        import_automations(&tx1, &payload, ImportOptions::default(), |_, _| {
+            Ok(ImportConflictAction::Overwrite)
+        })
+        .unwrap();
+        tx1.commit().unwrap();
+
+        // Second import (duplicate trigger, but let's import it with overwrite)
+        let tx2 = conn.transaction().unwrap();
+        import_automations(&tx2, &payload, ImportOptions::default(), |_, _| {
+            Ok(ImportConflictAction::Overwrite)
+        })
+        .unwrap();
+        tx2.commit().unwrap();
+
+        // Retrieve both automations and assets
+        let mut stmt = conn
+            .prepare("SELECT id, output FROM automations WHERE trigger = 'test_asset'")
+            .unwrap();
+        let autos: Vec<(String, String)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(autos.len(), 2);
+
+        let auto1_id = &autos[0].0;
+        let auto1_output = &autos[0].1;
+        let auto2_id = &autos[1].0;
+        let auto2_output = &autos[1].1;
+
+        assert_ne!(auto1_id, auto2_id);
+        assert_ne!(auto1_output, auto2_output);
+
+        // Verify that the assets in the DB are mapped to these new UUIDs
+        let auto1_asset_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM assets WHERE automation_id = ?1",
+                [auto1_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let auto2_asset_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM assets WHERE automation_id = ?1",
+                [auto2_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(auto1_asset_count, 1);
+        assert_eq!(auto2_asset_count, 1);
+    }
+
+    #[test]
+    fn test_import_allows_older_schema_version() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        let payload = ExchangePayload {
+            schema_version: super::super::EXCHANGE_SCHEMA_VERSION - 1,
+            automations: vec![],
+            settings: None,
+            metrics: None,
+        };
+
+        let tx = conn.transaction().unwrap();
+        let res = import_automations(&tx, &payload, ImportOptions::default(), |_, _| {
+            Ok(ImportConflictAction::Overwrite)
+        });
+        assert!(res.is_ok());
     }
 }

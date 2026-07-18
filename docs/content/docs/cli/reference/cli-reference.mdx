@@ -108,14 +108,14 @@ Commands for backing up and restoring your Taurine environment.
 <Accordion title="export">
   Exports automations, settings, and metrics to a encrypted or plaintext file.
   ```bash
-  taurine export [path] [--no-encrypt] [--with-settings] [--with-metrics]
+  taurine export [path] [-p, --plain] [-s, --settings] [-m, --metrics] [-x, --sensitive]
   ```
 </Accordion>
 
 <Accordion title="import">
   Imports data from a Taurine exchange file.
   ```bash
-  taurine import <path> [--on-conflict <prompt|skip|overwrite>] [--include-settings] [--include-metrics <ignore|merge|overwrite>]
+  taurine import <path> [--on-conflict <prompt|skip|overwrite>] [-s, --settings] [-m, --metrics <ignore|merge|overwrite>] [-x, --sensitive]
   ```
 </Accordion>
 </Accordions>

@@ -124,7 +124,17 @@ pub fn default_export_path() -> crate::Result<PathBuf> {
 
 pub fn resolve_export_path(path: Option<PathBuf>) -> crate::Result<PathBuf> {
     match path {
-        Some(path) => Ok(ensure_tau_extension(path)),
+        Some(path) => {
+            let is_dir = path.is_dir()
+                || path.to_string_lossy().ends_with('/')
+                || path.to_string_lossy().ends_with('\\');
+            if is_dir {
+                let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
+                Ok(get_unique_export_path(&path, now))
+            } else {
+                Ok(ensure_tau_extension(path))
+            }
+        }
         None => default_export_path(),
     }
 }
@@ -299,7 +309,7 @@ fn export_metrics(conn: &Connection) -> crate::Result<Vec<MetricExport>> {
     Ok(metrics)
 }
 
-fn is_sensitive_setting_key(key: &str) -> bool {
+pub(crate) fn is_sensitive_setting_key(key: &str) -> bool {
     let key = key.to_ascii_lowercase();
     [
         "password",
@@ -315,16 +325,25 @@ fn is_sensitive_setting_key(key: &str) -> bool {
 }
 
 fn default_export_filename_for_timestamp(now: OffsetDateTime) -> String {
-    format!(
-        "taurine-export-{:04}-{:02}-{:02}.tau",
-        now.year(),
-        now.month() as u8,
-        now.day()
-    )
+    let year = now.year() % 100;
+    format!("tx-{:02}{:02}{:02}.tau", year, now.month() as u8, now.day())
+}
+
+fn get_unique_export_path(directory: &Path, now: OffsetDateTime) -> PathBuf {
+    let year = now.year() % 100;
+    let base_name = format!("tx-{:02}{:02}{:02}", year, now.month() as u8, now.day());
+
+    let mut candidate = directory.join(format!("{}.tau", base_name));
+    let mut counter = 1;
+    while candidate.exists() {
+        candidate = directory.join(format!("{}_{}.tau", base_name, counter));
+        counter += 1;
+    }
+    candidate
 }
 
 fn default_export_path_for_cwd(cwd: &Path, now: OffsetDateTime) -> PathBuf {
-    cwd.join(default_export_filename_for_timestamp(now))
+    get_unique_export_path(cwd, now)
 }
 
 #[cfg(test)]
@@ -348,14 +367,14 @@ mod tests {
     #[test]
     fn default_export_filename_uses_tau_extension() {
         let filename = default_export_filename_for_timestamp(datetime!(2026-04-30 09:15:00 +05:30));
-        assert_eq!(filename, "taurine-export-2026-04-30.tau");
+        assert_eq!(filename, "tx-260430.tau");
     }
 
     #[test]
     fn default_export_path_uses_current_working_directory() {
         let path =
             default_export_path_for_cwd(Path::new("C:/tmp"), datetime!(2026-04-30 09:15:00 +05:30));
-        assert_eq!(path, PathBuf::from("C:/tmp/taurine-export-2026-04-30.tau"));
+        assert_eq!(path, PathBuf::from("C:/tmp/tx-260430.tau"));
     }
 
     #[test]

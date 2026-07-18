@@ -44,12 +44,13 @@ const SCRIPT_LANGUAGE_OPTIONS: [ScriptInterpreter; 6] = [
     ScriptInterpreter::Cmd,
 ];
 const SCRIPT_MODE_OPTIONS: [ScriptBehavior; 2] = [ScriptBehavior::Inline, ScriptBehavior::Silent];
-const EXPORT_ENCRYPTION_OPTIONS: [LibraryExportModalField; 6] = [
+const EXPORT_ENCRYPTION_OPTIONS: [LibraryExportModalField; 7] = [
     LibraryExportModalField::Path,
     LibraryExportModalField::Encrypt,
     LibraryExportModalField::Password,
     LibraryExportModalField::PasswordToggle,
     LibraryExportModalField::IncludeSettings,
+    LibraryExportModalField::IncludeSensitiveSettings,
     LibraryExportModalField::IncludeMetrics,
 ];
 const EXPORT_PLAINTEXT_OPTIONS: [LibraryExportModalField; 4] = [
@@ -58,11 +59,12 @@ const EXPORT_PLAINTEXT_OPTIONS: [LibraryExportModalField; 4] = [
     LibraryExportModalField::IncludeSettings,
     LibraryExportModalField::IncludeMetrics,
 ];
-const IMPORT_MODAL_FIELDS: [LibraryImportModalField; 6] = [
+const IMPORT_MODAL_FIELDS: [LibraryImportModalField; 7] = [
     LibraryImportModalField::Path,
     LibraryImportModalField::Password,
     LibraryImportModalField::PasswordToggle,
     LibraryImportModalField::IncludeSettings,
+    LibraryImportModalField::IncludeSensitiveSettings,
     LibraryImportModalField::MetricsMode,
     LibraryImportModalField::ConflictMode,
 ];
@@ -208,6 +210,7 @@ pub(crate) enum LibraryExportModalField {
     Password,
     PasswordToggle,
     IncludeSettings,
+    IncludeSensitiveSettings,
     IncludeMetrics,
 }
 
@@ -217,6 +220,7 @@ pub(crate) enum LibraryImportModalField {
     Password,
     PasswordToggle,
     IncludeSettings,
+    IncludeSensitiveSettings,
     MetricsMode,
     ConflictMode,
 }
@@ -319,6 +323,7 @@ pub(crate) struct LibraryExportModalState {
     password_cursor: usize,
     show_password: bool,
     include_settings: bool,
+    include_sensitive_settings: bool,
     include_metrics: bool,
     focus: LibraryExportModalField,
     error: Option<String>,
@@ -337,6 +342,7 @@ impl LibraryExportModalState {
             password_cursor: 0,
             show_password: false,
             include_settings: false,
+            include_sensitive_settings: false,
             include_metrics: false,
             focus: LibraryExportModalField::Path,
             error: None,
@@ -382,6 +388,10 @@ impl LibraryExportModalState {
 
     pub(crate) const fn include_settings(&self) -> bool {
         self.include_settings
+    }
+
+    pub(crate) const fn include_sensitive_settings(&self) -> bool {
+        self.include_sensitive_settings
     }
 
     pub(crate) const fn include_metrics(&self) -> bool {
@@ -463,6 +473,7 @@ impl LibraryExportModalState {
             encrypt: self.encrypt,
             password: self.encrypt.then(|| self.password.clone()),
             include_settings: self.include_settings,
+            include_sensitive_settings: self.include_sensitive_settings,
             include_metrics: self.include_metrics,
         })
     }
@@ -474,6 +485,9 @@ impl LibraryExportModalState {
             LibraryExportModalField::Password => self.handle_password_key(key),
             LibraryExportModalField::PasswordToggle => self.handle_password_toggle_key(key),
             LibraryExportModalField::IncludeSettings => self.handle_include_settings_key(key),
+            LibraryExportModalField::IncludeSensitiveSettings => {
+                self.handle_include_sensitive_settings_key(key)
+            }
             LibraryExportModalField::IncludeMetrics => self.handle_include_metrics_key(key),
         }
     }
@@ -520,6 +534,7 @@ impl LibraryExportModalState {
                 self.encrypt = !self.encrypt;
                 if !self.encrypt {
                     self.show_password = false;
+                    self.include_sensitive_settings = false;
                 }
                 self.ensure_focus_visible();
                 LibraryInteraction::handled()
@@ -579,6 +594,16 @@ impl LibraryExportModalState {
         match (key.code, key.modifiers) {
             (KeyCode::Char(' '), KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
                 self.include_settings = !self.include_settings;
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    fn handle_include_sensitive_settings_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Char(' '), KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
+                self.include_sensitive_settings = !self.include_sensitive_settings;
                 LibraryInteraction::handled()
             }
             _ => LibraryInteraction::handled(),
@@ -682,6 +707,7 @@ pub(crate) struct LibraryImportModalState {
     password_cursor: usize,
     show_password: bool,
     include_settings: bool,
+    include_sensitive_settings: bool,
     metrics_mode: ImportMetricsMode,
     conflict_mode: LibraryImportConflictMode,
     focus: LibraryImportModalField,
@@ -698,6 +724,7 @@ impl LibraryImportModalState {
             password_cursor: 0,
             show_password: false,
             include_settings: false,
+            include_sensitive_settings: false,
             metrics_mode: ImportMetricsMode::Ignore,
             conflict_mode: LibraryImportConflictMode::Skip,
             focus: LibraryImportModalField::Path,
@@ -737,6 +764,10 @@ impl LibraryImportModalState {
 
     pub(crate) const fn include_settings(&self) -> bool {
         self.include_settings
+    }
+
+    pub(crate) const fn include_sensitive_settings(&self) -> bool {
+        self.include_sensitive_settings
     }
 
     #[cfg(test)]
@@ -837,6 +868,7 @@ impl LibraryImportModalState {
             options: ImportOptions {
                 include_settings: self.include_settings,
                 metrics_mode: self.metrics_mode,
+                include_sensitive_settings: self.include_sensitive_settings,
             },
             conflict_mode: self.conflict_mode,
             return_to_modal: self.clone(),
@@ -849,6 +881,9 @@ impl LibraryImportModalState {
             LibraryImportModalField::Password => self.handle_password_key(key),
             LibraryImportModalField::PasswordToggle => self.handle_password_toggle_key(key),
             LibraryImportModalField::IncludeSettings => self.handle_include_settings_key(key),
+            LibraryImportModalField::IncludeSensitiveSettings => {
+                self.handle_include_sensitive_settings_key(key)
+            }
             LibraryImportModalField::MetricsMode => self.handle_metrics_mode_key(key),
             LibraryImportModalField::ConflictMode => self.handle_conflict_mode_key(key),
         }
@@ -988,6 +1023,16 @@ impl LibraryImportModalState {
         match (key.code, key.modifiers) {
             (KeyCode::Char(' '), KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
                 self.include_settings = !self.include_settings;
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    fn handle_include_sensitive_settings_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Char(' '), KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
+                self.include_sensitive_settings = !self.include_sensitive_settings;
                 LibraryInteraction::handled()
             }
             _ => LibraryInteraction::handled(),
@@ -2041,6 +2086,7 @@ pub(crate) struct PendingLibraryExport {
     encrypt: bool,
     password: Option<String>,
     include_settings: bool,
+    include_sensitive_settings: bool,
     include_metrics: bool,
 }
 
@@ -2053,7 +2099,7 @@ impl PendingLibraryExport {
             ExportOptions {
                 include_settings: self.include_settings,
                 include_metrics: self.include_metrics,
-                include_sensitive_settings: false,
+                include_sensitive_settings: self.include_sensitive_settings,
             },
         )?;
         let encoded = encode_exchange_blob(&payload, self.encrypt, self.password.as_deref())?;
@@ -2219,7 +2265,7 @@ impl PendingLibraryImportPrepare {
 
         let payload = decode_exchange_blob(&bytes, self.password.as_deref())?;
         let prepared = PreparedLibraryImport {
-            path: path.to_string(),
+            path: self.path.clone(),
             payload,
             options: self.options,
             conflict_mode: self.conflict_mode,
@@ -3805,6 +3851,7 @@ mod tests {
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
         let selector = modal.selector().expect("metrics selector");
@@ -3820,6 +3867,7 @@ mod tests {
         let Some(LibraryModal::Import(modal)) = state.modal.as_mut() else {
             panic!("expected import modal");
         };
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));

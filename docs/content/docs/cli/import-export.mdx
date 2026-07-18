@@ -13,21 +13,23 @@ Taurine provides a robust exchange system that allows you to back up your local 
 The `export` command bundles your automations and optionally your global settings and metrics into a single portable file.
 
 ```bash
-# Basic encrypted export (creates taurine-export-YYYY-MM-DD.tau)
+# Basic encrypted export (creates tx-YYMMDD.tau)
 taurine export
 
 # Export to a specific file with extras
-taurine export backup.tau --with-settings --with-metrics
+taurine export backup.tau -sm
 ```
 
 ### Encryption & Security
 By default, exports are encrypted using **AES-256-GCM**. You will be prompted to enter and confirm an encryption password. 
 
 - **TAU1**: Encrypted binary format.
-- **TAUP**: Plaintext JSON format (use `--no-encrypt`).
+- **TAUP**: Plaintext JSON format (use `--plain` / `-p`).
 
 <Callout title="Sensitive Data Filtering" type="warn">
-  To protect your privacy, Taurine automatically filters out "sensitive" settings during export. Any setting key containing `password`, `secret`, `token`, or `api_key` is excluded from the exchange file.
+  To protect your privacy, Taurine automatically filters out "sensitive" settings during export. Any setting key containing `password`, `secret`, `token`, or `api_key` is excluded from the exchange file by default. 
+  
+  To include sensitive settings, use the `-x` or `--sensitive` flag during export (e.g., `taurine export -msx`). This flag requires encryption to be active.
 </Callout>
 
 ## Importing Data

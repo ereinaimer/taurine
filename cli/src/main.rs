@@ -102,14 +102,17 @@ enum Commands {
         /// Destination file path
         path: Option<std::path::PathBuf>,
         /// Write a plaintext export without encryption
-        #[arg(long)]
-        no_encrypt: bool,
+        #[arg(short = 'p', long)]
+        plain: bool,
         /// Include settings in the exported payload
-        #[arg(long)]
-        with_settings: bool,
+        #[arg(short = 's', long)]
+        settings: bool,
         /// Include automation usage stats and daily metrics in the exported payload
-        #[arg(long)]
-        with_metrics: bool,
+        #[arg(short = 'm', long)]
+        metrics: bool,
+        /// Include sensitive settings in the exported payload (requires encryption)
+        #[arg(short = 'x', long)]
+        sensitive: bool,
     },
     /// Import automations from a file
     Import {
@@ -119,11 +122,14 @@ enum Commands {
         #[arg(long, value_enum)]
         on_conflict: Option<ImportConflictCli>,
         /// Overwrite local settings with imported values
-        #[arg(long)]
-        include_settings: bool,
-        /// Include imported metrics. Omit the flag to ignore metrics entirely; `--include-metrics` alone uses `merge`.
-        #[arg(long, value_enum, num_args = 0..=1, require_equals = true, default_missing_value = "merge")]
-        include_metrics: Option<ImportMetricsCli>,
+        #[arg(short = 's', long)]
+        settings: bool,
+        /// Include imported metrics. Omit the flag to ignore metrics entirely; `--metrics` alone uses `merge`.
+        #[arg(short = 'm', long, value_enum, num_args = 0..=1, require_equals = true, default_missing_value = "merge")]
+        metrics: Option<ImportMetricsCli>,
+        /// Import sensitive settings from the payload
+        #[arg(short = 'x', long)]
+        sensitive: bool,
     },
     /// Manage application settings
     Config {
@@ -622,19 +628,21 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
         }
         Some(Commands::Export {
             path,
-            no_encrypt,
-            with_settings,
-            with_metrics,
+            plain,
+            settings,
+            metrics,
+            sensitive,
         }) => {
-            commands::export::execute(path, no_encrypt, with_settings, with_metrics)?;
+            commands::export::execute(path, plain, settings, metrics, sensitive)?;
         }
         Some(Commands::Import {
             path,
             on_conflict,
-            include_settings,
-            include_metrics,
+            settings,
+            metrics,
+            sensitive,
         }) => {
-            commands::import::execute(path, on_conflict, include_settings, include_metrics)?;
+            commands::import::execute(path, on_conflict, settings, metrics, sensitive)?;
         }
         Some(Commands::Config { action }) => match action {
             ConfigAction::Set { key, value } => commands::config::execute_set(key, value)?,

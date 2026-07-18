@@ -42,13 +42,12 @@ impl ExchangePayload {
     }
 
     fn validate_schema_version(&self) -> crate::Result<()> {
-        if self.schema_version != EXCHANGE_SCHEMA_VERSION {
+        if self.schema_version > EXCHANGE_SCHEMA_VERSION {
             return Err(crate::Error::Config(format!(
-                "Unsupported exchange schema version: {}",
-                self.schema_version
+                "Unsupported exchange schema version: {} (maximum supported is {})",
+                self.schema_version, EXCHANGE_SCHEMA_VERSION
             )));
         }
-
         Ok(())
     }
 }
@@ -182,11 +181,22 @@ pub fn payload_contains_run_variables(payload: &ExchangePayload) -> bool {
 
 pub fn serialize_payload(payload: &ExchangePayload) -> crate::Result<Vec<u8>> {
     payload.validate_schema_version()?;
-    Ok(serde_json::to_vec(payload)?)
+    let json = serde_json::to_vec(payload)?;
+    zstd::bulk::compress(&json, 3).map_err(|e| {
+        crate::Error::Service(format!("zstd exchange payload compression failed: {}", e))
+    })
 }
 
 pub fn deserialize_payload(bytes: &[u8]) -> crate::Result<ExchangePayload> {
-    let payload: ExchangePayload = serde_json::from_slice(bytes)?;
+    const MAX_PAYLOAD_SIZE: usize = 128 * 1024 * 1024; // 128MB safety limit
+
+    // Attempt zstd decompression. If it fails, fall back to raw JSON deserialization.
+    let payload_bytes = match zstd::bulk::decompress(bytes, MAX_PAYLOAD_SIZE) {
+        Ok(decompressed) => decompressed,
+        Err(_) => bytes.to_vec(),
+    };
+
+    let payload: ExchangePayload = serde_json::from_slice(&payload_bytes)?;
     payload.validate_schema_version()?;
     Ok(payload)
 }

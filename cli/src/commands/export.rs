@@ -10,21 +10,28 @@ use zeroize::Zeroize;
 
 pub fn execute(
     path: Option<PathBuf>,
-    no_encrypt: bool,
-    with_settings: bool,
-    with_metrics: bool,
+    plain: bool,
+    settings: bool,
+    metrics: bool,
+    sensitive: bool,
 ) -> taurine_core::error::Result<()> {
+    if sensitive && plain {
+        return Err(taurine_core::error::Error::Config(
+            "Cannot export sensitive settings without encryption. Remove the --plain / -p flag to securely export sensitive data.".to_string(),
+        ));
+    }
+
     let path = resolve_export_path(path)?;
     let conn = init::setup()?;
     let payload = export_automations(
         &conn,
         ExportOptions {
-            include_settings: with_settings,
-            include_metrics: with_metrics,
-            include_sensitive_settings: false,
+            include_settings: settings,
+            include_metrics: metrics,
+            include_sensitive_settings: sensitive,
         },
     )?;
-    let encoded = if no_encrypt {
+    let encoded = if plain {
         encode_exchange_blob(&payload, false, None)?
     } else {
         let mut password = prompt_export_password()?;
