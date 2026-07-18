@@ -55,16 +55,28 @@ pub(super) fn prepare_clipboard_for_expansion(
         payload.to_string()
     };
 
-    // Same delay as production: OS listeners may not see the write immediately.
-    thread::sleep(Duration::from_millis(25));
+    // Poll clipboard to ensure the OS has registered the write
+    let mut actual = String::new();
+    let mut success = false;
+    for _ in 0..15 {
+        thread::sleep(Duration::from_millis(10));
+        match clipboard.get_text() {
+            Ok(ref text) if text == &expected => {
+                success = true;
+                break;
+            }
+            Ok(text) => actual = text,
+            Err(_) => {}
+        }
+    }
 
-    match clipboard.get_text() {
-        Ok(ref actual) if actual == &expected => Ok(original),
-        Ok(actual) => Err(format!(
-            "clipboard verify failed: expected {:?}, got {:?}",
+    if success {
+        Ok(original)
+    } else {
+        Err(format!(
+            "clipboard verify failed after polling: expected {:?}, got {:?}",
             expected, actual
-        )),
-        Err(e) => Err(e),
+        ))
     }
 }
 
@@ -74,6 +86,29 @@ pub(super) fn restore_clipboard(original: &str) {
         Ok(mut clip) => {
             if let Err(e) = clip.set_text(original) {
                 error!("Failed to restore clipboard: {}", e);
+                return;
+            }
+            // Poll to verify clipboard was restored correctly
+            // This also holds the IS_INJECTING guard open until the clipboard is ready
+            let mut actual = String::new();
+            let mut success = false;
+            for _ in 0..15 {
+                thread::sleep(Duration::from_millis(10));
+                match clip.get_text() {
+                    Ok(ref text) if text == original => {
+                        success = true;
+                        break;
+                    }
+                    Ok(text) => actual = text,
+                    Err(_) => {}
+                }
+            }
+
+            if !success {
+                error!(
+                    "Clipboard restore verify failed after polling: expected {:?}, got {:?}",
+                    original, actual
+                );
             }
         }
         Err(e) => {
