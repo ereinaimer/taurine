@@ -225,6 +225,7 @@ pub(crate) fn spawn_device_listener(
                                     &context.spinner_style,
                                     &context.pause_audio_enabled,
                                     &context.audio_tx,
+                                    &context.pause_transition_tx,
                                     &mut xkb,
                                     &mut modifier_sides,
                                     &mut hotkey_evaluator,
@@ -249,6 +250,7 @@ pub(crate) fn spawn_device_listener(
                                 &context.spinner_style,
                                 &context.pause_audio_enabled,
                                 &context.audio_tx,
+                                &context.pause_transition_tx,
                                 &mut xkb,
                                 &mut modifier_sides,
                                 &mut hotkey_evaluator,
@@ -288,6 +290,7 @@ fn process_frame(
     spinner_style: &Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     pause_audio_enabled: &Arc<AtomicBool>,
     audio_tx: &tokio::sync::mpsc::Sender<bool>,
+    pause_transition_tx: &tokio::sync::mpsc::Sender<bool>,
     xkb: &mut XkbMapper,
     modifier_sides: &mut ModifierSides,
     hotkey_evaluator: &mut HotkeyEvaluator,
@@ -364,7 +367,7 @@ fn process_frame(
                 paused.store(now_paused, Ordering::Relaxed);
 
                 // Notify coordinator
-                let _ = context.pause_transition_tx.try_send(now_paused);
+                let _ = pause_transition_tx.try_send(now_paused);
 
                 if pause_notifications_enabled.load(Ordering::Relaxed) {
                     notify::notify_pause_toggled(now_paused);
