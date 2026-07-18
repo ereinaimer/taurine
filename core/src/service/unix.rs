@@ -160,7 +160,7 @@ fn ensure_linux_permissions() -> crate::error::Result<()> {
 }
 
 #[cfg(target_os = "linux")]
-fn linux_direct_install(autostart: bool) -> crate::error::Result<()> {
+fn linux_direct_install(autostart: bool, label: &ServiceLabel) -> crate::error::Result<()> {
     let current_exe = env::current_exe()?;
     let exe_path = current_exe.to_string_lossy();
     let service_content = format!(
@@ -188,20 +188,22 @@ fn linux_direct_install(autostart: bool) -> crate::error::Result<()> {
     let systemd_user_dir = config_dir.join("systemd").join("user");
     std::fs::create_dir_all(&systemd_user_dir).map_err(|e| crate::Error::Service(e.to_string()))?;
 
-    let service_path = systemd_user_dir.join("taurine.service");
+    let service_name = format!("{}.service", label.to_script_name());
+    let service_path = systemd_user_dir.join(&service_name);
     std::fs::write(&service_path, service_content)
         .map_err(|e| crate::Error::Service(e.to_string()))?;
 
     let wants_dir = systemd_user_dir.join("default.target.wants");
     std::fs::create_dir_all(&wants_dir).map_err(|e| crate::Error::Service(e.to_string()))?;
 
-    let link_path = wants_dir.join("taurine.service");
+    let link_path = wants_dir.join(&service_name);
 
     if autostart {
         if !link_path.exists() {
             std::os::unix::fs::symlink(&service_path, &link_path).unwrap_or_else(|e| {
                 tracing::warn!(
-                    "Failed to create symlink for taurine.service autostart: {}",
+                    "Failed to create symlink for {} autostart: {}",
+                    service_name,
                     e
                 );
             });
@@ -210,7 +212,8 @@ fn linux_direct_install(autostart: bool) -> crate::error::Result<()> {
         if link_path.exists() {
             std::fs::remove_file(&link_path).unwrap_or_else(|e| {
                 tracing::warn!(
-                    "Failed to remove symlink for taurine.service autostart: {}",
+                    "Failed to remove symlink for {} autostart: {}",
+                    service_name,
                     e
                 );
             });
@@ -244,7 +247,7 @@ pub fn sync_boot(enabled: bool) -> crate::error::Result<()> {
 
             #[cfg(target_os = "linux")]
             {
-                linux_direct_install(enabled)?;
+                linux_direct_install(enabled, &label)?;
             }
             #[cfg(not(target_os = "linux"))]
             {
@@ -300,7 +303,7 @@ pub fn up(start_on_boot: bool) -> crate::error::Result<()> {
 
             #[cfg(target_os = "linux")]
             {
-                linux_direct_install(start_on_boot)?;
+                linux_direct_install(start_on_boot, &label)?;
             }
             #[cfg(not(target_os = "linux"))]
             {
@@ -475,7 +478,7 @@ pub fn restart(start_on_boot: bool) -> crate::error::Result<()> {
         Ok(ServiceStatus::NotInstalled) | Err(_) => {
             #[cfg(target_os = "linux")]
             {
-                linux_direct_install(start_on_boot)?;
+                linux_direct_install(start_on_boot, &label)?;
             }
             #[cfg(not(target_os = "linux"))]
             {
@@ -638,4 +641,16 @@ pub fn linux_setup() -> crate::error::Result<()> {
         .status();
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_service_name_matches_label() {
+        let label: ServiceLabel = TAURINE_SERVICE_LABEL.parse().unwrap();
+        assert_eq!(label.to_script_name(), "ereinaimer-taurine");
+        // Verify that the file name used in linux_direct_install will match this expected script name
+    }
 }
