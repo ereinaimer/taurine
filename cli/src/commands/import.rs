@@ -50,9 +50,35 @@ pub fn execute(
         taurine_core::rpc::notify_daemon_reload();
     }
 
+    let mut parts = Vec::new();
+    if settings {
+        if sensitive && payload.settings.is_some() {
+            parts.push("sensitive settings");
+        } else if payload.settings.is_some() {
+            parts.push("settings");
+        }
+    }
+    if metrics.is_some() && metrics != Some(ImportMetricsCli::Ignore) && payload.metrics.is_some() {
+        parts.push("metrics");
+    }
+
+    let details = if parts.is_empty() {
+        "".to_string()
+    } else {
+        format!(" with {}", parts.join(" and "))
+    };
+
+    let automation_word = if imported == 1 {
+        "automation"
+    } else {
+        "automations"
+    };
+
     info!(
-        "Imported {} automation(s) from {}",
+        "Imported {} {}{} from {}",
         imported,
+        automation_word,
+        details,
         path.display()
     );
     Ok(())

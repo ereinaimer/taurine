@@ -42,9 +42,35 @@ pub fn execute(
 
     std::fs::write(&path, encoded)?;
 
+    let mut parts = Vec::new();
+    if settings {
+        if sensitive {
+            parts.push("sensitive settings");
+        } else {
+            parts.push("settings");
+        }
+    }
+    if metrics {
+        parts.push("metrics");
+    }
+
+    let details = if parts.is_empty() {
+        "".to_string()
+    } else {
+        format!(" with {}", parts.join(" and "))
+    };
+
+    let automation_word = if payload.automations.len() == 1 {
+        "automation"
+    } else {
+        "automations"
+    };
+
     info!(
-        "Exported {} automation(s) to {}",
+        "Exported {} {}{} to {}",
         payload.automations.len(),
+        automation_word,
+        details,
         path.display()
     );
 
