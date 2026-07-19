@@ -119,8 +119,8 @@ enum Commands {
         /// Source file path
         path: std::path::PathBuf,
         /// How to resolve trigger + target_os collisions during import
-        #[arg(long, value_enum)]
-        on_conflict: Option<ImportConflictCli>,
+        #[arg(short = 'c', long, value_enum)]
+        conflict: Option<ImportConflictCli>,
         /// Overwrite local settings with imported values
         #[arg(short = 's', long)]
         settings: bool,
@@ -637,12 +637,12 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
         }
         Some(Commands::Import {
             path,
-            on_conflict,
+            conflict,
             settings,
             stats,
             sensitive,
         }) => {
-            commands::import::execute(path, on_conflict, settings, stats, sensitive)?;
+            commands::import::execute(path, conflict, settings, stats, sensitive)?;
         }
         Some(Commands::Config { action }) => match action {
             ConfigAction::Set { key, value } => commands::config::execute_set(key, value)?,
@@ -849,6 +849,29 @@ mod tests {
                 assert_eq!(args.output.as_deref(), Some("link/[0]"));
             }
             other => panic!("unexpected parse output: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_import_conflict_flags() {
+        // Test long flag --conflict
+        let cli = Cli::try_parse_from(["taurine", "import", "backup.tau", "--conflict", "skip"])
+            .expect("import --conflict should parse");
+        match cli.command {
+            Some(Commands::Import { conflict, .. }) => {
+                assert_eq!(conflict, Some(ImportConflictCli::Skip));
+            }
+            other => panic!("unexpected command parse: {other:?}"),
+        }
+
+        // Test short flag -c
+        let cli = Cli::try_parse_from(["taurine", "import", "backup.tau", "-c", "overwrite"])
+            .expect("import -c should parse");
+        match cli.command {
+            Some(Commands::Import { conflict, .. }) => {
+                assert_eq!(conflict, Some(ImportConflictCli::Overwrite));
+            }
+            other => panic!("unexpected command parse: {other:?}"),
         }
     }
 }

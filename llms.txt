@@ -45,7 +45,7 @@ A fast, secure and easy-to-use automation software for text expansion and keyboa
 
 ### 2.3 Import / Export
 *   `taurine export [path]`: Exports automations to a file. Supports `--no-encrypt`, `--with-settings`, and `--with-metrics`.
-*   `taurine import <path>`: Imports automations. Supports `--on-conflict` (`prompt`, `skip`, `overwrite`), `--include-settings`, and `--include-metrics`.
+*   `taurine import <path>`: Imports automations. Supports `--conflict` (`prompt`, `skip`, `overwrite`), `--include-settings`, and `--include-metrics`.
 
 ### 2.4 Configuration
 *   `taurine config set <key> <value>`: Updates a specific setting.

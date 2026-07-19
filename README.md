@@ -455,7 +455,7 @@ taurine import <path> <flags>
 ```
 
 Options:
-* `--on-conflict <action>`: How to resolve trigger collisions (prompt, skip, overwrite).
+* `-c, --conflict <action>`: How to resolve trigger collisions (prompt, skip, overwrite).
 * `--include-settings`: Overwrite local settings with imported values.
 * `--include-metrics [mode]`: Include imported metrics (ignore, merge, overwrite).
 

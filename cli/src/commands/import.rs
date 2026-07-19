@@ -17,7 +17,7 @@ use crate::{ImportConflictCli, ImportStatsCli};
 
 pub fn execute(
     path: PathBuf,
-    on_conflict: Option<ImportConflictCli>,
+    conflict: Option<ImportConflictCli>,
     settings: bool,
     stats: Option<ImportStatsCli>,
     sensitive: bool,
@@ -38,7 +38,7 @@ pub fn execute(
     let imported = import_payload_transactionally(
         &mut conn,
         &payload,
-        on_conflict,
+        conflict,
         ImportOptions {
             include_settings: settings,
             stats_mode: map_import_stats_mode(stats),
@@ -87,12 +87,12 @@ pub fn execute(
 fn import_payload_transactionally(
     conn: &mut rusqlite::Connection,
     payload: &ExchangePayload,
-    on_conflict: Option<ImportConflictCli>,
+    conflict: Option<ImportConflictCli>,
     options: ImportOptions,
 ) -> taurine_core::error::Result<usize> {
     let mut remembered_choice = None;
     import_payload_transactionally_core(conn, payload, options, |incoming, existing| {
-        resolve_conflict_action(incoming, existing, on_conflict, &mut remembered_choice)
+        resolve_conflict_action(incoming, existing, conflict, &mut remembered_choice)
     })
 }
 
@@ -144,10 +144,10 @@ fn payload_contains_run_variables(payload: &ExchangePayload) -> bool {
 fn resolve_conflict_action(
     incoming: &AutomationExport,
     existing: &ExistingAutomationConflict,
-    on_conflict: Option<ImportConflictCli>,
+    conflict: Option<ImportConflictCli>,
     remembered_choice: &mut Option<RememberedConflictChoice>,
 ) -> taurine_core::error::Result<ImportConflictAction> {
-    match on_conflict {
+    match conflict {
         Some(ImportConflictCli::Skip) => Ok(ImportConflictAction::Skip),
         Some(ImportConflictCli::Overwrite) => Ok(ImportConflictAction::Overwrite),
         Some(ImportConflictCli::Prompt) | None => {
