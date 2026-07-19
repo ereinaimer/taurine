@@ -1,6 +1,6 @@
 pub mod automations;
-pub mod metrics;
 pub mod settings;
+pub mod stats;
 
 pub use automations::{
     AddOutcome, AutomationAction, AutomationListItem, AutomationRow, AutomationSummary,
@@ -20,14 +20,13 @@ pub use automations::{
     validate_trigger_target_os_conflict,
 };
 
-pub use crate::metrics::AutomationMetricKind;
-pub use metrics::{
-    AutomationMetricEvent, MetricRow, delete_metric, get_metric, get_metric_counters,
-    increment_metric, record_automation_metric, record_automation_metric_with_conn,
-    record_calculation_usage,
-};
+pub use crate::stats::AutomationStatKind;
 pub use settings::{
     SettingRow, delete_setting, get_all_settings, get_setting, get_setting_value, upsert_setting,
+};
+pub use stats::{
+    AutomationStatEvent, StatRow, delete_stat, get_stat, get_stat_counters, increment_stat,
+    record_automation_stat, record_automation_stat_with_conn, record_calculation_usage,
 };
 
 pub const SUPPORTED_TARGET_OS_VALUES: [&str; 6] = ["all", "win", "linux", "mac", "android", "ios"];

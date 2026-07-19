@@ -703,20 +703,18 @@ fn record_inline_ai_completion(output_chars: usize) {
         return;
     }
 
-    taurine_core::db::crud::record_automation_metric(
-        taurine_core::db::crud::AutomationMetricEvent {
-            automation_trigger: None,
-            trigger_chars: 0,
-            success: true,
-            output_chars,
-            kind: taurine_core::db::crud::AutomationMetricKind::InlineAi,
-            wpm: None,
-        },
-    );
+    taurine_core::db::crud::record_automation_stat(taurine_core::db::crud::AutomationStatEvent {
+        automation_trigger: None,
+        trigger_chars: 0,
+        success: true,
+        output_chars,
+        kind: taurine_core::db::crud::AutomationStatKind::InlineAi,
+        wpm: None,
+    });
 }
 
 enum LiveOutputCommand {
-    Text { text: String, track_metrics: bool },
+    Text { text: String, track_stats: bool },
     Finish,
 }
 
@@ -735,11 +733,8 @@ impl LiveOutputHandle {
 
                 while let Ok(command) = rx.recv() {
                     match command {
-                        LiveOutputCommand::Text {
-                            text,
-                            track_metrics,
-                        } => {
-                            if !session.push_text(&text, track_metrics) {
+                        LiveOutputCommand::Text { text, track_stats } => {
+                            if !session.push_text(&text, track_stats) {
                                 break;
                             }
                         }
@@ -761,12 +756,9 @@ impl LiveOutputHandle {
         }
     }
 
-    fn send_text(&self, text: String, track_metrics: bool) -> taurine_core::error::Result<()> {
+    fn send_text(&self, text: String, track_stats: bool) -> taurine_core::error::Result<()> {
         self.tx
-            .send(LiveOutputCommand::Text {
-                text,
-                track_metrics,
-            })
+            .send(LiveOutputCommand::Text { text, track_stats })
             .map_err(|_| {
                 taurine_core::error::Error::Service("Error: AI output interrupted.".to_string())
             })

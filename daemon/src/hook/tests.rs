@@ -26,7 +26,7 @@ fn dispatch_expansion_runs_injection_before_follow_up_consumption() {
         trigger: "ai".to_string(),
         undo_trigger: Some(">ai".to_string()),
         is_calculation: false,
-        metric_kind: taurine_core::db::crud::AutomationMetricKind::InlineAi,
+        stat_kind: taurine_core::db::crud::AutomationStatKind::InlineAi,
         track_usage: false,
         follow_up: Some(taurine_core::engine::ExpansionFollowUp::InlineAi {
             prompt: "prompt".to_string(),
@@ -82,7 +82,7 @@ fn dispatch_expansion_records_undo_state_for_plain_text_output() {
         trigger: "gm".to_string(),
         undo_trigger: Some(">gm".to_string()),
         is_calculation: false,
-        metric_kind: taurine_core::db::crud::AutomationMetricKind::Snippet,
+        stat_kind: taurine_core::db::crud::AutomationStatKind::Snippet,
         track_usage: false,
         follow_up: None,
     };
@@ -122,7 +122,7 @@ fn dispatch_expansion_skips_undo_registration_for_hotkey_results() {
         trigger: "ctrl+shift+g".to_string(),
         undo_trigger: None,
         is_calculation: false,
-        metric_kind: taurine_core::db::crud::AutomationMetricKind::Hotkey,
+        stat_kind: taurine_core::db::crud::AutomationStatKind::Hotkey,
         track_usage: false,
         follow_up: None,
     };
@@ -340,6 +340,7 @@ fn completion_is_inactive_after_trigger_character_is_deleted() {
 
 #[test]
 fn dispatch_expansion_promotes_word_trigger_history_on_success() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let state = Arc::new(taurine_core::engine::EngineState::new('>'));
     state.load_actions(vec![
         (
@@ -365,7 +366,7 @@ fn dispatch_expansion_promotes_word_trigger_history_on_success() {
         trigger: "gs".to_string(),
         undo_trigger: Some(">gs".to_string()),
         is_calculation: false,
-        metric_kind: taurine_core::db::crud::AutomationMetricKind::Snippet,
+        stat_kind: taurine_core::db::crud::AutomationStatKind::InlineAi,
         track_usage: true,
         follow_up: None,
     };
@@ -405,20 +406,24 @@ fn trigger_assist_is_inactive_while_inline_ai_capture_mode_is_active() {
     );
 }
 
+pub(crate) static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
-fn test_dispatch_expansion_skips_ai_metrics() {
-    let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+fn test_dispatch_expansion_skips_ai_stats() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    taurine_core::logs::init_tracing_for_tests();
     let _rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("runtime should build");
+    let state = Arc::new(taurine_core::engine::EngineState::new('>'));
 
-    // Initialize/clear db metrics for today to have a clean slate
-    let conn = taurine_core::db::get_conn().unwrap();
-    let today = taurine_core::metrics::get_current_date_string();
-    let _ = conn.execute("DELETE FROM metrics WHERE date = ?1", [&today]);
+    // Initialize/clear db stats for today to have a clean slate
+    let conn = taurine_core::db::init::setup().unwrap();
+    let today = taurine_core::stats::get_current_date_string();
+    let _ = conn.execute("DELETE FROM stats WHERE date = ?1", [&today]);
 
-    // 1. Dispatch Snippet expansion -> should write to metrics
+    // 1. Dispatch Snippet expansion -> should write to stats
     let expansion_snippet = taurine_core::engine::ExpansionResult {
         delete_count: 2,
         steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
@@ -427,7 +432,7 @@ fn test_dispatch_expansion_skips_ai_metrics() {
         trigger: "h".to_string(),
         undo_trigger: None,
         is_calculation: false,
-        metric_kind: taurine_core::db::crud::AutomationMetricKind::Snippet,
+        stat_kind: taurine_core::db::crud::AutomationStatKind::Snippet,
         track_usage: true,
         follow_up: None,
     };
@@ -443,14 +448,19 @@ fn test_dispatch_expansion_skips_ai_metrics() {
     );
 
     // Verify snippet execution was counted (allow background thread to write)
-    std::thread::sleep(std::time::Duration::from_millis(100));
-    let row = taurine_core::db::crud::get_metric(&conn, &today)
-        .unwrap()
-        .unwrap();
+    let mut row = None;
+    for _ in 0..30 {
+        if let Ok(Some(r)) = taurine_core::db::crud::get_stat(&conn, &today) {
+            row = Some(r);
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let row = row.expect("Stats row was not written in time");
     assert_eq!(row.executions, 1);
     assert_eq!(row.ai_executions, 0);
 
-    // 2. Dispatch InlineAi expansion -> should NOT write additional metrics during dispatch
+    // 2. Dispatch InlineAi expansion -> should NOT write additional stats during dispatch
     let expansion_ai = taurine_core::engine::ExpansionResult {
         delete_count: 2,
         steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
@@ -459,7 +469,7 @@ fn test_dispatch_expansion_skips_ai_metrics() {
         trigger: "ai".to_string(),
         undo_trigger: None,
         is_calculation: false,
-        metric_kind: taurine_core::db::crud::AutomationMetricKind::InlineAi,
+        stat_kind: taurine_core::db::crud::AutomationStatKind::InlineAi,
         track_usage: true,
         follow_up: None,
     };
@@ -476,7 +486,7 @@ fn test_dispatch_expansion_skips_ai_metrics() {
 
     // Verify executions/ai_executions remain unchanged after AI dispatch (allow sleep anyway to be sure)
     std::thread::sleep(std::time::Duration::from_millis(100));
-    let row = taurine_core::db::crud::get_metric(&conn, &today)
+    let row = taurine_core::db::crud::get_stat(&conn, &today)
         .unwrap()
         .unwrap();
     assert_eq!(row.executions, 1);

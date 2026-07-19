@@ -8,11 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- **Metrics Time-Saved Cap**: Cap calculated time saved at a maximum of 5 minutes per expansion to prevent unrealistic productivity stats for large templates.
-- **Metrics Typing Speed Bounds**: Limit typing speed configuration (WPM) to a maximum of 150 WPM to prevent invalid or zeroed metric calculations.
+- **Telemetry Renamed to Stats**: Rename the "Metrics" system to "Stats" throughout the application (database tables, TUI, CLI options, and documentation) to provide more user-friendly terminology. Changed the CLI data exchange option from `--metrics` (`-m`) to `--stats` (`-t`).
+- **Stats Time-Saved Cap**: Cap calculated time saved at a maximum of 5 minutes per expansion to prevent unrealistic productivity stats for large templates.
+- **Stats Typing Speed Bounds**: Limit typing speed configuration (WPM) to a maximum of 150 WPM to prevent invalid or zeroed stat calculations.
 
 ### Fixed
-- **AI Executions Double-Counting**: Fix an issue where AI-assisted expansions counted twice in the dashboard metrics.
+- **AI Executions Double-Counting**: Fix an issue where AI-assisted expansions counted twice in the dashboard stats.
 - **Hotkey & Script Keystrokes Counting**: Prevent hotkey triggers and shell scripts from falsely inflating keystrokes and time saved statistics.
 
 ## [1.0.0-alpha.14] - 2026-07-18

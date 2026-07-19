@@ -1,6 +1,6 @@
-use super::{AutomationExport, ExchangePayload, MetricExport};
+use super::{AutomationExport, ExchangePayload, StatExport};
 use crate::db::crud::{
-    TriggerType, increment_metric, target_os_values_overlap, upsert_automation_with_trigger_type,
+    TriggerType, increment_stat, target_os_values_overlap, upsert_automation_with_trigger_type,
     upsert_script, upsert_setting,
 };
 use crate::engine::shell::compress;
@@ -14,7 +14,7 @@ pub enum ImportConflictAction {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ImportMetricsMode {
+pub enum ImportStatsMode {
     #[default]
     Ignore,
     Merge,
@@ -24,7 +24,7 @@ pub enum ImportMetricsMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ImportOptions {
     pub include_settings: bool,
-    pub metrics_mode: ImportMetricsMode,
+    pub stats_mode: ImportStatsMode,
     pub include_sensitive_settings: bool,
 }
 
@@ -77,7 +77,7 @@ where
             }
         }
 
-        insert_imported_automation(tx, automation, existing.as_ref(), options.metrics_mode)?;
+        insert_imported_automation(tx, automation, existing.as_ref(), options.stats_mode)?;
         imported += 1;
     }
 
@@ -85,7 +85,7 @@ where
         import_settings(tx, payload, options.include_sensitive_settings)?;
     }
 
-    import_global_metrics(tx, payload, options.metrics_mode)?;
+    import_global_stats(tx, payload, options.stats_mode)?;
 
     Ok(imported)
 }
@@ -120,12 +120,11 @@ fn insert_imported_automation(
     tx: &Transaction<'_>,
     automation: &AutomationExport,
     existing: Option<&ExistingAutomationConflict>,
-    metrics_mode: ImportMetricsMode,
+    stats_mode: ImportStatsMode,
 ) -> crate::Result<()> {
     let id = Uuid::new_v4().to_string();
     let tags_json = serde_json::to_string(&automation.tags)?;
-    let (usage_count, last_used_at) =
-        resolve_automation_metrics(automation, existing, metrics_mode);
+    let (usage_count, last_used_at) = resolve_automation_stats(automation, existing, stats_mode);
 
     upsert_automation_with_trigger_type(
         tx,
@@ -303,18 +302,18 @@ fn tombstone_conflicting_automations(
     Ok(())
 }
 
-fn resolve_automation_metrics(
+fn resolve_automation_stats(
     automation: &AutomationExport,
     existing: Option<&ExistingAutomationConflict>,
-    metrics_mode: ImportMetricsMode,
+    stats_mode: ImportStatsMode,
 ) -> (i64, Option<i64>) {
     let imported_usage_count = automation.usage_count.unwrap_or(0);
     let imported_last_used_at = automation.last_used_at;
 
-    match metrics_mode {
-        ImportMetricsMode::Ignore => (0, None),
-        ImportMetricsMode::Overwrite => (imported_usage_count, imported_last_used_at),
-        ImportMetricsMode::Merge => {
+    match stats_mode {
+        ImportStatsMode::Ignore => (0, None),
+        ImportStatsMode::Overwrite => (imported_usage_count, imported_last_used_at),
+        ImportStatsMode::Merge => {
             if let Some(existing) = existing {
                 (
                     existing.usage_count + imported_usage_count,
@@ -346,42 +345,42 @@ fn import_settings(
     Ok(())
 }
 
-fn import_global_metrics(
+fn import_global_stats(
     tx: &Transaction<'_>,
     payload: &ExchangePayload,
-    metrics_mode: ImportMetricsMode,
+    stats_mode: ImportStatsMode,
 ) -> crate::Result<()> {
-    let Some(metrics) = payload.metrics.as_ref() else {
+    let Some(stats) = payload.stats.as_ref() else {
         return Ok(());
     };
 
-    match metrics_mode {
-        ImportMetricsMode::Ignore => Ok(()),
-        ImportMetricsMode::Merge => {
-            for metric in metrics {
-                increment_metric(
+    match stats_mode {
+        ImportStatsMode::Ignore => Ok(()),
+        ImportStatsMode::Merge => {
+            for stat in stats {
+                increment_stat(
                     tx,
-                    &metric.date,
-                    metric.executions,
-                    metric.ai_executions,
-                    metric.keystrokes_saved,
-                    metric.time_saved_ms,
+                    &stat.date,
+                    stat.executions,
+                    stat.ai_executions,
+                    stat.keystrokes_saved,
+                    stat.time_saved_ms,
                 )?;
             }
             Ok(())
         }
-        ImportMetricsMode::Overwrite => {
-            for metric in metrics {
-                overwrite_metric_row(tx, metric)?;
+        ImportStatsMode::Overwrite => {
+            for stat in stats {
+                overwrite_stat_row(tx, stat)?;
             }
             Ok(())
         }
     }
 }
 
-fn overwrite_metric_row(tx: &Transaction<'_>, metric: &MetricExport) -> crate::Result<()> {
+fn overwrite_stat_row(tx: &Transaction<'_>, stat: &StatExport) -> crate::Result<()> {
     tx.execute(
-        "INSERT INTO metrics (
+        "INSERT INTO stats (
              date,
              executions,
              ai_executions,
@@ -399,11 +398,11 @@ fn overwrite_metric_row(tx: &Transaction<'_>, metric: &MetricExport) -> crate::R
              version = version + 1,
              updated_at = excluded.updated_at",
         (
-            &metric.date,
-            metric.executions,
-            metric.ai_executions,
-            metric.keystrokes_saved,
-            metric.time_saved_ms,
+            &stat.date,
+            stat.executions,
+            stat.ai_executions,
+            stat.keystrokes_saved,
+            stat.time_saved_ms,
             crate::db::now_unix_secs(),
         ),
     )?;
@@ -848,7 +847,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_metrics_combines_local_and_imported_automation_stats() {
+    fn merge_stats_combines_local_and_imported_automation_stats() {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
@@ -877,7 +876,7 @@ mod tests {
             &ExchangePayload::new(vec![imported]),
             ImportOptions {
                 include_settings: false,
-                metrics_mode: ImportMetricsMode::Merge,
+                stats_mode: ImportStatsMode::Merge,
                 ..Default::default()
             },
             |_, _| Ok(ImportConflictAction::Overwrite),
@@ -900,7 +899,7 @@ mod tests {
     }
 
     #[test]
-    fn overwrite_metrics_replaces_local_automation_stats() {
+    fn overwrite_stats_replaces_local_automation_stats() {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
@@ -929,7 +928,7 @@ mod tests {
             &ExchangePayload::new(vec![imported]),
             ImportOptions {
                 include_settings: false,
-                metrics_mode: ImportMetricsMode::Overwrite,
+                stats_mode: ImportStatsMode::Overwrite,
                 ..Default::default()
             },
             |_, _| Ok(ImportConflictAction::Overwrite),
@@ -952,7 +951,7 @@ mod tests {
     }
 
     #[test]
-    fn skip_conflict_also_skips_imported_metrics() {
+    fn skip_conflict_also_skips_imported_stats() {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
@@ -981,7 +980,7 @@ mod tests {
             &ExchangePayload::new(vec![imported]),
             ImportOptions {
                 include_settings: false,
-                metrics_mode: ImportMetricsMode::Merge,
+                stats_mode: ImportStatsMode::Merge,
                 ..Default::default()
             },
             |_, _| Ok(ImportConflictAction::Skip),
@@ -1007,7 +1006,7 @@ mod tests {
                 key: "trigger_char".to_string(),
                 value: r#"">""#.to_string(),
             }]),
-            metrics: None,
+            stats: None,
         };
 
         let tx = conn.transaction().unwrap();
@@ -1016,7 +1015,7 @@ mod tests {
             &payload,
             ImportOptions {
                 include_settings: true,
-                metrics_mode: ImportMetricsMode::Ignore,
+                stats_mode: ImportStatsMode::Ignore,
                 ..Default::default()
             },
             |_, _| Ok(ImportConflictAction::Overwrite),
@@ -1035,12 +1034,12 @@ mod tests {
     }
 
     #[test]
-    fn merge_global_metrics_sums_rows_by_date() {
+    fn merge_global_stats_sums_rows_by_date() {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
         conn.execute(
-            "INSERT INTO metrics (
+            "INSERT INTO stats (
                 date, executions, ai_executions, keystrokes_saved, time_saved_ms, updated_at
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             (
@@ -1058,7 +1057,7 @@ mod tests {
             schema_version: super::super::EXCHANGE_SCHEMA_VERSION,
             automations: vec![],
             settings: None,
-            metrics: Some(vec![MetricExport {
+            stats: Some(vec![StatExport {
                 date: "2026-04-01".to_string(),
                 executions: 50,
                 ai_executions: 5,
@@ -1073,7 +1072,7 @@ mod tests {
             &payload,
             ImportOptions {
                 include_settings: false,
-                metrics_mode: ImportMetricsMode::Merge,
+                stats_mode: ImportStatsMode::Merge,
                 ..Default::default()
             },
             |_, _| Ok(ImportConflictAction::Overwrite),
@@ -1084,7 +1083,7 @@ mod tests {
         let (executions, ai_executions, saved, time_saved_ms): (i64, i64, i64, i64) = conn
             .query_row(
                 "SELECT executions, ai_executions, keystrokes_saved, time_saved_ms
-                 FROM metrics
+                 FROM stats
                  WHERE date = ?1",
                 ["2026-04-01"],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
@@ -1097,12 +1096,12 @@ mod tests {
     }
 
     #[test]
-    fn overwrite_global_metrics_replaces_rows_by_date() {
+    fn overwrite_global_stats_replaces_rows_by_date() {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
         conn.execute(
-            "INSERT INTO metrics (
+            "INSERT INTO stats (
                 date, executions, ai_executions, keystrokes_saved, time_saved_ms, updated_at
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             (
@@ -1120,7 +1119,7 @@ mod tests {
             schema_version: super::super::EXCHANGE_SCHEMA_VERSION,
             automations: vec![],
             settings: None,
-            metrics: Some(vec![MetricExport {
+            stats: Some(vec![StatExport {
                 date: "2026-04-01".to_string(),
                 executions: 50,
                 ai_executions: 5,
@@ -1135,7 +1134,7 @@ mod tests {
             &payload,
             ImportOptions {
                 include_settings: false,
-                metrics_mode: ImportMetricsMode::Overwrite,
+                stats_mode: ImportStatsMode::Overwrite,
                 ..Default::default()
             },
             |_, _| Ok(ImportConflictAction::Overwrite),
@@ -1146,7 +1145,7 @@ mod tests {
         let (executions, ai_executions, saved, time_saved_ms): (i64, i64, i64, i64) = conn
             .query_row(
                 "SELECT executions, ai_executions, keystrokes_saved, time_saved_ms
-                 FROM metrics
+                 FROM stats
                  WHERE date = ?1",
                 ["2026-04-01"],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
@@ -1186,7 +1185,7 @@ mod tests {
                 }],
             }],
             settings: None,
-            metrics: None,
+            stats: None,
         };
 
         // First import
@@ -1252,7 +1251,7 @@ mod tests {
             schema_version: super::super::EXCHANGE_SCHEMA_VERSION - 1,
             automations: vec![],
             settings: None,
-            metrics: None,
+            stats: None,
         };
 
         let tx = conn.transaction().unwrap();

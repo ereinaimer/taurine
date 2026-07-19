@@ -1697,7 +1697,7 @@ mod tests {
     }
 
     #[test]
-    fn test_record_expansion_usage_updates_automation_and_metrics() {
+    fn test_record_expansion_usage_updates_automation_and_stats() {
         let _guard = crate::testing::TEST_LOCK.lock().unwrap();
         init_tracing_for_tests();
         let (dir, conn) = open_test_db();
@@ -1709,11 +1709,11 @@ mod tests {
         // 1. Setup an automation
         upsert_automation(
             &conn,
-            "uuid-metrics-1",
-            "Test Metrics",
+            "uuid-stats-1",
+            "Test Stats",
             None,
             "m",
-            "Metrics worked!",
+            "Stats worked!",
             "text",
             "all",
             "[]",
@@ -1723,22 +1723,22 @@ mod tests {
         .unwrap();
 
         // 2. Call record_expansion_usage
-        // trigger="m" (len 1), output="Metrics worked!" (len 15), delete_count=3 (">m "), cursors=2
-        record_expansion_usage("m", 15, 3, 2);
+        // trigger="m" (len 1), output="Stats worked!" (len 13), delete_count=3 (">m "), cursors=2
+        record_expansion_usage("m", 13, 3, 2);
 
         // 3. Verify automation usage_count
-        let row = get_automation(&conn, "uuid-metrics-1").unwrap().unwrap();
+        let row = get_automation(&conn, "uuid-stats-1").unwrap().unwrap();
         assert_eq!(row.usage_count, 1);
 
-        // 4. Verify metrics
-        let date = crate::metrics::get_current_date_string();
+        // 4. Verify stats
+        let date = crate::stats::get_current_date_string();
         let (executions, ai_executions, saved, time_saved_ms) =
-            crate::db::crud::get_metric_counters(&conn, &date)
+            crate::db::crud::get_stat_counters(&conn, &date)
                 .unwrap()
                 .unwrap();
         assert_eq!(executions, 1);
         assert_eq!(ai_executions, 0);
-        assert_eq!(saved, 14);
+        assert_eq!(saved, 12);
         assert!(time_saved_ms > 0);
 
         // Cleanup

@@ -1,5 +1,5 @@
-/// Logic for calculating metrics based on expansion events.
-pub struct ExpansionMetrics {
+/// Logic for calculating stats based on expansion events.
+pub struct ExpansionStats {
     pub keystrokes_saved: i64,
     pub time_saved_ms: i64,
 }
@@ -26,15 +26,15 @@ pub fn calculate_time_saved_ms(keystrokes_saved: i64, wpm: u32) -> i64 {
     time_saved_ms.min(300_000)
 }
 
-pub fn calculate_expansion_metrics(
+pub fn calculate_expansion_stats(
     output_char_count: usize,
     trigger_char_count: usize,
     wpm: u32,
-) -> ExpansionMetrics {
+) -> ExpansionStats {
     let keystrokes_saved = calculate_saved_keystrokes(output_char_count, trigger_char_count);
     let time_saved_ms = calculate_time_saved_ms(keystrokes_saved, wpm);
 
-    ExpansionMetrics {
+    ExpansionStats {
         keystrokes_saved,
         time_saved_ms,
     }
@@ -45,7 +45,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn snippet_metric_subtracts_trigger_chars() {
+    fn snippet_stat_subtracts_trigger_chars() {
         assert_eq!(calculate_saved_keystrokes(100, 5), 95);
     }
 

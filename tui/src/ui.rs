@@ -8,7 +8,7 @@ use ratatui::{
         Block, Borders, Cell, Clear, List, ListItem, ListState, Padding, Paragraph, Row, Table,
     },
 };
-use taurine_core::metrics::{HomeMetrics, MostUsedAutomation};
+use taurine_core::stats::{HomeStats, MostUsedAutomation};
 
 use crate::{
     app::{App, Page},
@@ -189,7 +189,7 @@ fn render_content(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(content_block, area);
 
     match app.active_page() {
-        Page::Home => render_home_content(frame, inner, app.home_metrics()),
+        Page::Home => render_home_content(frame, inner, app.home_stats()),
         Page::Library => {
             render_library_content(frame, inner, app.library_page());
             if let Some(modal) = app.library_page().modal() {
@@ -271,7 +271,7 @@ fn settings_footer_with_nav(settings_footer: &str) -> String {
     }
 }
 
-fn render_home_content(frame: &mut Frame, area: Rect, metrics: &HomeMetrics) {
+fn render_home_content(frame: &mut Frame, area: Rect, stats: &HomeStats) {
     let sections = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -281,7 +281,7 @@ fn render_home_content(frame: &mut Frame, area: Rect, metrics: &HomeMetrics) {
         ])
         .split(area);
 
-    render_metric_cards(frame, sections[0], metrics);
+    render_stat_cards(frame, sections[0], stats);
 
     let activity_sections = Layout::default()
         .direction(Direction::Horizontal)
@@ -296,13 +296,13 @@ fn render_home_content(frame: &mut Frame, area: Rect, metrics: &HomeMetrics) {
         frame,
         activity_sections[0],
         "TOP AUTOMATIONS",
-        &metrics.most_used_words,
+        &stats.most_used_words,
     );
     render_most_used_list(
         frame,
         activity_sections[2],
         "TOP HOTKEYS",
-        &metrics.most_used_hotkeys,
+        &stats.most_used_hotkeys,
     );
 }
 
@@ -624,9 +624,9 @@ fn render_library_export_modal(frame: &mut Frame, area: Rect, state: &LibraryExp
     render_modal_key_value_row(
         frame,
         sections[next_row + 1],
-        "Metrics",
-        yes_no_label(state.include_metrics()),
-        state.focus() == LibraryExportModalField::IncludeMetrics,
+        "Stats",
+        yes_no_label(state.include_stats()),
+        state.focus() == LibraryExportModalField::IncludeStats,
         false,
     );
 
@@ -739,9 +739,9 @@ fn render_library_import_modal(frame: &mut Frame, area: Rect, state: &LibraryImp
     render_modal_key_value_row(
         frame,
         sections[6],
-        "Metrics",
-        state.metrics_mode_label(),
-        state.focus() == LibraryImportModalField::MetricsMode,
+        "Stats",
+        state.stats_mode_label(),
+        state.focus() == LibraryImportModalField::StatsMode,
         false,
     );
     render_modal_key_value_row(
@@ -1387,7 +1387,7 @@ fn yes_no_label(value: bool) -> &'static str {
     if value { "yes" } else { "no" }
 }
 
-fn render_metric_cards(frame: &mut Frame, area: Rect, metrics: &HomeMetrics) {
+fn render_stat_cards(frame: &mut Frame, area: Rect, stats: &HomeStats) {
     let sections = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -1399,27 +1399,27 @@ fn render_metric_cards(frame: &mut Frame, area: Rect, metrics: &HomeMetrics) {
         ])
         .split(area);
 
-    render_metric_card(
+    render_stat_card(
         frame,
         sections[0],
         "keystrokes saved",
-        &format_number(metrics.keystrokes_saved),
+        &format_number(stats.keystrokes_saved),
     );
-    render_metric_card(
+    render_stat_card(
         frame,
         sections[2],
         "time saved",
-        &format_time_saved(metrics.time_saved_ms),
+        &format_time_saved(stats.time_saved_ms),
     );
-    render_metric_card(
+    render_stat_card(
         frame,
         sections[4],
         "expansions run",
-        &format_number(metrics.expansions_run),
+        &format_number(stats.expansions_run),
     );
 }
 
-fn render_metric_card(frame: &mut Frame, area: Rect, label: &str, value: &str) {
+fn render_stat_card(frame: &mut Frame, area: Rect, label: &str, value: &str) {
     let block = Block::default()
         .style(Style::default().bg(INPUT_BG_COLOR))
         .padding(Padding::new(2, 2, 1, 1));

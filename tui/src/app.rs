@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use taurine_core::metrics::HomeMetrics;
+use taurine_core::stats::HomeStats;
 
 use crate::library::LibraryPageState;
 use crate::settings::SettingsPageState;
@@ -38,7 +38,7 @@ pub(crate) struct App {
     active_page: Page,
     nav_visible: bool,
     daemon_status: DaemonStatus,
-    home_metrics: HomeMetrics,
+    home_stats: HomeStats,
     library_page: LibraryPageState,
     settings_page: SettingsPageState,
     should_quit: bool,
@@ -50,7 +50,7 @@ impl Default for App {
             active_page: Page::Home,
             nav_visible: true,
             daemon_status: DaemonStatus::Stopped,
-            home_metrics: HomeMetrics::default(),
+            home_stats: HomeStats::default(),
             library_page: LibraryPageState::default(),
             settings_page: SettingsPageState::default(),
             should_quit: false,
@@ -71,8 +71,8 @@ impl App {
         self.nav_visible
     }
 
-    pub(crate) const fn home_metrics(&self) -> &HomeMetrics {
-        &self.home_metrics
+    pub(crate) const fn home_stats(&self) -> &HomeStats {
+        &self.home_stats
     }
 
     pub(crate) const fn library_page(&self) -> &LibraryPageState {
@@ -99,8 +99,8 @@ impl App {
         self.daemon_status = daemon_status;
     }
 
-    pub(crate) fn set_home_metrics(&mut self, home_metrics: HomeMetrics) {
-        self.home_metrics = home_metrics;
+    pub(crate) fn set_home_stats(&mut self, home_stats: HomeStats) {
+        self.home_stats = home_stats;
     }
 
     pub(crate) fn toggle_nav_visibility(&mut self) {
@@ -178,9 +178,9 @@ mod tests {
     }
 
     #[test]
-    fn defaults_home_metrics_to_empty_state() {
+    fn defaults_home_stats_to_empty_state() {
         let app = App::default();
-        assert_eq!(app.home_metrics(), &HomeMetrics::default());
+        assert_eq!(app.home_stats(), &HomeStats::default());
     }
 
     #[test]

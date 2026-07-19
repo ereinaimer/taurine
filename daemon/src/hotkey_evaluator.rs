@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use taurine_core::db::crud::AutomationMetricKind;
+use taurine_core::db::crud::AutomationStatKind;
 use taurine_core::engine::{EngineState, ExpansionResult};
 use taurine_core::keys::{KeyPress, LogicalKey, Modifier, Modifiers};
 
@@ -67,13 +67,13 @@ impl HotkeyEvaluator {
         else {
             return HotkeyEvaluation::NoMatch;
         };
-        let metric_kind = if matches!(
+        let stat_kind = if matches!(
             expansion.steps.as_slice(),
             [taurine_core::engine::variables::ExpansionStep::Script(_)]
         ) {
-            AutomationMetricKind::Script
+            AutomationStatKind::Script
         } else {
-            AutomationMetricKind::Hotkey
+            AutomationStatKind::Hotkey
         };
 
         self.swallowed_keys.insert(key);
@@ -83,7 +83,7 @@ impl HotkeyEvaluator {
             trigger,
             undo_trigger: None,
             is_calculation: expansion.is_calculation,
-            metric_kind,
+            stat_kind,
             track_usage: true,
             follow_up: None,
         })
@@ -421,6 +421,9 @@ mod tests {
 
     #[test]
     fn hotkey_miss_falls_through_and_preserves_word_evaluator_behavior() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let state = std::sync::Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "gm".to_string(),

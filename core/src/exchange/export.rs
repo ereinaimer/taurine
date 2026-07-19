@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use super::{
-    AutomationExport, ExchangePayload, MetricExport, ScriptExport, SettingExport, crypto,
+    AutomationExport, ExchangePayload, ScriptExport, SettingExport, StatExport, crypto,
     encode_plaintext_payload, serialize_payload,
 };
 use crate::db::crud::TriggerType;
@@ -14,7 +14,7 @@ use zeroize::Zeroize;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ExportOptions {
     pub include_settings: bool,
-    pub include_metrics: bool,
+    pub include_stats: bool,
     pub include_sensitive_settings: bool,
 }
 
@@ -96,8 +96,8 @@ pub fn export_automations(
         None
     };
 
-    let metrics = if options.include_metrics {
-        Some(export_metrics(conn)?)
+    let stats = if options.include_stats {
+        Some(export_stats(conn)?)
     } else {
         None
     };
@@ -106,7 +106,7 @@ pub fn export_automations(
         schema_version: super::EXCHANGE_SCHEMA_VERSION,
         automations,
         settings,
-        metrics,
+        stats,
     })
 }
 
@@ -231,8 +231,8 @@ fn to_automation_export(
         is_enabled: row.is_enabled,
         target_os: row.target_os,
         tags,
-        usage_count: options.include_metrics.then_some(row.usage_count),
-        last_used_at: if options.include_metrics {
+        usage_count: options.include_stats.then_some(row.usage_count),
+        last_used_at: if options.include_stats {
             row.last_used_at
         } else {
             None
@@ -284,15 +284,15 @@ fn export_settings(
     Ok(settings)
 }
 
-fn export_metrics(conn: &Connection) -> crate::Result<Vec<MetricExport>> {
+fn export_stats(conn: &Connection) -> crate::Result<Vec<StatExport>> {
     let mut stmt = conn.prepare_cached(
         "SELECT date, executions, ai_executions, keystrokes_saved, time_saved_ms
-         FROM metrics
+         FROM stats
          ORDER BY date ASC",
     )?;
 
     let rows = stmt.query_map([], |row| {
-        Ok(MetricExport {
+        Ok(StatExport {
             date: row.get(0)?,
             executions: row.get(1)?,
             ai_executions: row.get(2)?,
@@ -301,12 +301,12 @@ fn export_metrics(conn: &Connection) -> crate::Result<Vec<MetricExport>> {
         })
     })?;
 
-    let mut metrics = Vec::new();
+    let mut stats = Vec::new();
     for row in rows {
-        metrics.push(row?);
+        stats.push(row?);
     }
 
-    Ok(metrics)
+    Ok(stats)
 }
 
 pub(crate) fn is_sensitive_setting_key(key: &str) -> bool {

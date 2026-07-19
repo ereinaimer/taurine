@@ -5,7 +5,7 @@ use taurine_core::db::crud::TriggerType;
 use taurine_core::db::init;
 use taurine_core::exchange::{
     AutomationExport, ExchangeFormat, ExchangePayload, ExistingAutomationConflict,
-    ImportConflictAction, ImportMetricsMode, ImportOptions,
+    ImportConflictAction, ImportOptions, ImportStatsMode,
     decode_exchange_blob as decode_exchange_blob_core, detect_exchange_format,
     import_payload_transactionally as import_payload_transactionally_core,
     payload_contains_run_variables as payload_contains_run_variables_core,
@@ -13,13 +13,13 @@ use taurine_core::exchange::{
 use tracing::info;
 use zeroize::Zeroize;
 
-use crate::{ImportConflictCli, ImportMetricsCli};
+use crate::{ImportConflictCli, ImportStatsCli};
 
 pub fn execute(
     path: PathBuf,
     on_conflict: Option<ImportConflictCli>,
     settings: bool,
-    metrics: Option<ImportMetricsCli>,
+    stats: Option<ImportStatsCli>,
     sensitive: bool,
 ) -> taurine_core::error::Result<()> {
     let bytes = std::fs::read(&path)?;
@@ -41,7 +41,7 @@ pub fn execute(
         on_conflict,
         ImportOptions {
             include_settings: settings,
-            metrics_mode: map_import_metrics_mode(metrics),
+            stats_mode: map_import_stats_mode(stats),
             include_sensitive_settings: sensitive,
         },
     )?;
@@ -58,8 +58,8 @@ pub fn execute(
             parts.push("settings");
         }
     }
-    if metrics.is_some() && metrics != Some(ImportMetricsCli::Ignore) && payload.metrics.is_some() {
-        parts.push("metrics");
+    if stats.is_some() && stats != Some(ImportStatsCli::Ignore) && payload.stats.is_some() {
+        parts.push("stats");
     }
 
     let details = if parts.is_empty() {
@@ -96,11 +96,11 @@ fn import_payload_transactionally(
     })
 }
 
-fn map_import_metrics_mode(include_metrics: Option<ImportMetricsCli>) -> ImportMetricsMode {
-    match include_metrics.unwrap_or(ImportMetricsCli::Ignore) {
-        ImportMetricsCli::Ignore => ImportMetricsMode::Ignore,
-        ImportMetricsCli::Merge => ImportMetricsMode::Merge,
-        ImportMetricsCli::Overwrite => ImportMetricsMode::Overwrite,
+fn map_import_stats_mode(include_stats: Option<ImportStatsCli>) -> ImportStatsMode {
+    match include_stats.unwrap_or(ImportStatsCli::Ignore) {
+        ImportStatsCli::Ignore => ImportStatsMode::Ignore,
+        ImportStatsCli::Merge => ImportStatsMode::Merge,
+        ImportStatsCli::Overwrite => ImportStatsMode::Overwrite,
     }
 }
 
@@ -359,11 +359,11 @@ mod tests {
     }
 
     #[test]
-    fn map_import_metrics_mode_defaults_to_ignore() {
-        assert_eq!(map_import_metrics_mode(None), ImportMetricsMode::Ignore);
+    fn map_import_stats_mode_defaults_to_ignore() {
+        assert_eq!(map_import_stats_mode(None), ImportStatsMode::Ignore);
         assert_eq!(
-            map_import_metrics_mode(Some(ImportMetricsCli::Merge)),
-            ImportMetricsMode::Merge
+            map_import_stats_mode(Some(ImportStatsCli::Merge)),
+            ImportStatsMode::Merge
         );
     }
 

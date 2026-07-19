@@ -1,6 +1,6 @@
-/// A single row from the `metrics` table.
+/// A single row from the `stats` table.
 #[derive(Debug, Clone, PartialEq)]
-pub struct MetricRow {
+pub struct StatRow {
     pub date: String,
     pub executions: i64,
     pub ai_executions: i64,

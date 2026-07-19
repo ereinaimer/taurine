@@ -1372,7 +1372,7 @@ pub fn increment_usage_count_by_trigger(conn: &Connection, trigger: &str) -> Res
 }
 
 /// Opens the production DB and increments `usage_count` for every active row
-/// whose trigger matches, while also updating the daily metrics.
+/// whose trigger matches, while also updating the daily stats.
 ///
 /// Intended for callers (e.g. the daemon hook thread) that do not hold an open
 /// `Connection` and do not want a direct dependency on `rusqlite`.
@@ -1382,12 +1382,12 @@ pub fn record_expansion_usage(
     _delete_count: usize,
     _left_arrow_count: usize,
 ) {
-    crate::db::crud::record_automation_metric(crate::db::crud::AutomationMetricEvent {
+    crate::db::crud::record_automation_stat(crate::db::crud::AutomationStatEvent {
         automation_trigger: Some(trigger.to_string()),
         trigger_chars: trigger.chars().count(),
         success: output_len > 0,
         output_chars: output_len,
-        kind: crate::db::crud::AutomationMetricKind::Snippet,
+        kind: crate::db::crud::AutomationStatKind::Snippet,
         wpm: None,
     });
 }

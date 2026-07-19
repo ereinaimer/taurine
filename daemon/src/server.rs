@@ -351,10 +351,15 @@ mod tests {
     use tonic::Request;
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)] // TEST_LOCK must be held for the full test to serialize env var mutation
     async fn test_daemon_reload_syncs_with_db() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         // Setup tracing + env override for test dir
         taurine_core::logs::init_tracing_for_tests();
         let test_dir = std::env::temp_dir().join("taurine_reload_test");
+        // SAFETY: Setting environment variable for database isolation in server test.
         unsafe { std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
         let test_db = test_dir.join("test_taurine.db");
         unsafe { std::env::set_var("TAURINE_DB_PATH", test_db.to_str().unwrap()) };

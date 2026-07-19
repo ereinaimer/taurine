@@ -110,7 +110,7 @@ pub(super) fn dispatch_expansion_with<I, L>(
         trigger,
         undo_trigger,
         is_calculation,
-        metric_kind,
+        stat_kind,
         track_usage,
         follow_up,
     } = expansion;
@@ -142,17 +142,17 @@ pub(super) fn dispatch_expansion_with<I, L>(
     }
     launch_follow_up_fn(follow_up, spinner_style);
 
-    if track_usage && metric_kind != taurine_core::db::crud::AutomationMetricKind::InlineAi {
-        taurine_core::db::crud::record_automation_metric(
-            taurine_core::db::crud::AutomationMetricEvent {
+    if track_usage && stat_kind != taurine_core::db::crud::AutomationStatKind::InlineAi {
+        taurine_core::db::crud::record_automation_stat(
+            taurine_core::db::crud::AutomationStatEvent {
                 automation_trigger: Some(trigger.clone()),
                 trigger_chars: trigger.chars().count(),
                 success: injection.completed,
                 output_chars: injection.successful_chars,
                 kind: if is_calculation {
-                    taurine_core::db::crud::AutomationMetricKind::Calculation
+                    taurine_core::db::crud::AutomationStatKind::Calculation
                 } else {
-                    metric_kind
+                    stat_kind
                 },
                 wpm: None,
             },

@@ -2,8 +2,8 @@ pub mod crud;
 pub mod init;
 
 pub use crud::{
-    AutomationRow, MetricRow, TriggerType, delete_automation, delete_metric, get_automation,
-    get_current_os_db_string, get_metric, get_metric_counters, increment_metric, normalize_os,
+    AutomationRow, StatRow, TriggerType, delete_automation, delete_stat, get_automation,
+    get_current_os_db_string, get_stat, get_stat_counters, increment_stat, normalize_os,
     upsert_automation,
 };
 pub use crud::{SettingRow, delete_setting, get_setting, get_setting_value, upsert_setting};
@@ -244,13 +244,13 @@ mod tests {
     }
 
     #[test]
-    fn test_metrics_table() {
+    fn test_stats_table() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         let now = 1_700_000_000_i64;
         conn.execute(
-            "INSERT INTO metrics (
+            "INSERT INTO stats (
                 date, executions, ai_executions, keystrokes_saved, time_saved_ms, updated_at
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             ("2026-03-30", 42_i64, 4_i64, 500_i64, 60_000_i64, now),
@@ -260,7 +260,7 @@ mod tests {
         let mut stmt = conn
             .prepare(
                 "SELECT executions, ai_executions, keystrokes_saved, time_saved_ms
-                 FROM metrics
+                 FROM stats
                  WHERE date = ?1",
             )
             .unwrap();
@@ -292,7 +292,7 @@ mod tests {
         let version: u32 = conn
             .query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))
             .unwrap();
-        assert_eq!(version, 1);
+        assert_eq!(version, 2);
     }
 
     #[test]

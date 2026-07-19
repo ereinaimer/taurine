@@ -5067,6 +5067,7 @@ dependencies = [
  "rodio",
  "serde_json",
  "taurine_core",
+ "tempfile",
  "tokio",
  "tokio-stream",
  "tonic",

@@ -80,6 +80,9 @@ impl crate::platform::ClipboardManager for MockClipboard {
 }
 
 fn assert_normal_expansion_still_works() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let state = Arc::new(EngineState::new('>'));
     state.load_actions(vec![(
         "gm".to_string(),

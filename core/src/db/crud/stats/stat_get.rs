@@ -1,17 +1,17 @@
 use rusqlite::{Connection, Result};
 
-use super::MetricRow;
+use super::StatRow;
 
 /// Returns the full row for `date`, or `None` if it does not exist.
-pub fn get_metric(conn: &Connection, date: &str) -> Result<Option<MetricRow>> {
+pub fn get_stat(conn: &Connection, date: &str) -> Result<Option<StatRow>> {
     let mut stmt = conn.prepare_cached(
         "SELECT date, executions, ai_executions, keystrokes_saved, time_saved_ms, version, updated_at
-         FROM   metrics
+         FROM   stats
          WHERE  date = ?1",
     )?;
 
     let result = stmt.query_row([date], |row| {
-        Ok(MetricRow {
+        Ok(StatRow {
             date: row.get(0)?,
             executions: row.get(1)?,
             ai_executions: row.get(2)?,
@@ -31,8 +31,8 @@ pub fn get_metric(conn: &Connection, date: &str) -> Result<Option<MetricRow>> {
 
 /// Convenience wrapper: returns `(executions, ai_executions, keystrokes_saved, time_saved_ms)` for `date`,
 /// or `None` if the row does not exist.
-pub fn get_metric_counters(conn: &Connection, date: &str) -> Result<Option<(i64, i64, i64, i64)>> {
-    Ok(get_metric(conn, date)?.map(|row| {
+pub fn get_stat_counters(conn: &Connection, date: &str) -> Result<Option<(i64, i64, i64, i64)>> {
+    Ok(get_stat(conn, date)?.map(|row| {
         (
             row.executions,
             row.ai_executions,

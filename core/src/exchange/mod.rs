@@ -11,7 +11,7 @@ pub use export::{
     ensure_tau_extension, export_automations, resolve_export_path,
 };
 pub use import::{
-    ExistingAutomationConflict, ImportConflictAction, ImportMetricsMode, ImportOptions,
+    ExistingAutomationConflict, ImportConflictAction, ImportOptions, ImportStatsMode,
     import_automations, import_payload_transactionally,
 };
 
@@ -28,7 +28,7 @@ pub struct ExchangePayload {
     #[serde(default)]
     pub settings: Option<Vec<SettingExport>>,
     #[serde(default)]
-    pub metrics: Option<Vec<MetricExport>>,
+    pub stats: Option<Vec<StatExport>>,
 }
 
 impl ExchangePayload {
@@ -37,7 +37,7 @@ impl ExchangePayload {
             schema_version: EXCHANGE_SCHEMA_VERSION,
             automations,
             settings: None,
-            metrics: None,
+            stats: None,
         }
     }
 
@@ -102,7 +102,7 @@ pub struct SettingExport {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MetricExport {
+pub struct StatExport {
     pub date: String,
     pub executions: i64,
     #[serde(default)]
@@ -295,7 +295,7 @@ mod tests {
         let payload = export_automations(&conn, ExportOptions::default()).unwrap();
         assert_eq!(payload.schema_version, EXCHANGE_SCHEMA_VERSION);
         assert_eq!(payload.settings, None);
-        assert_eq!(payload.metrics, None);
+        assert_eq!(payload.stats, None);
         assert_eq!(payload.automations.len(), 1);
 
         let automation = &payload.automations[0];
@@ -525,13 +525,13 @@ mod tests {
     }
 
     #[test]
-    fn export_with_settings_and_metrics_includes_requested_sections() {
+    fn export_with_settings_and_stats_includes_requested_sections() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         insert_text_automation(&conn);
         conn.execute(
-            "INSERT INTO metrics (
+            "INSERT INTO stats (
                 date, executions, ai_executions, keystrokes_saved, time_saved_ms, updated_at
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             (
@@ -549,7 +549,7 @@ mod tests {
             &conn,
             ExportOptions {
                 include_settings: true,
-                include_metrics: true,
+                include_stats: true,
                 include_sensitive_settings: false,
             },
         )
@@ -567,10 +567,10 @@ mod tests {
         let settings = payload.settings.unwrap();
         assert!(settings.iter().any(|setting| setting.key == "trigger_char"));
 
-        let metrics = payload.metrics.unwrap();
+        let stats = payload.stats.unwrap();
         assert_eq!(
-            metrics,
-            vec![MetricExport {
+            stats,
+            vec![StatExport {
                 date: "2026-04-01".to_string(),
                 executions: 5,
                 ai_executions: 2,

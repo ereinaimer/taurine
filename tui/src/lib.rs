@@ -32,7 +32,7 @@ const STATUS_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
 pub fn run() -> taurine_core::Result<()> {
     let mut app = App::default();
     app.set_daemon_status(status::probe_daemon_status());
-    refresh_home_metrics(&mut app);
+    refresh_home_stats(&mut app);
     refresh_library_page(&mut app);
     refresh_settings_page(&mut app);
     let daemon_controller = SystemDaemonController;
@@ -49,7 +49,7 @@ pub fn run() -> taurine_core::Result<()> {
             Event::Tick => {
                 if last_status_refresh.elapsed() >= STATUS_REFRESH_INTERVAL {
                     app.set_daemon_status(status::probe_daemon_status());
-                    refresh_home_metrics(&mut app);
+                    refresh_home_stats(&mut app);
                     last_status_refresh = Instant::now();
                 }
             }
@@ -176,7 +176,7 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
                     refresh_settings_page(app);
                 }
                 if should_refresh_home_after_import(&outcome) {
-                    refresh_home_metrics(app);
+                    refresh_home_stats(app);
                 }
                 app.library_page_mut().open_import_result_modal(&outcome);
             }
@@ -197,7 +197,7 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
                     refresh_settings_page(app);
                 }
                 if should_refresh_home_after_import(&outcome) {
-                    refresh_home_metrics(app);
+                    refresh_home_stats(app);
                 }
                 app.library_page_mut().open_import_result_modal(&outcome);
             }
@@ -214,7 +214,7 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
                     &path,
                     pending_export.encrypt(),
                     pending_export.include_settings(),
-                    pending_export.include_metrics(),
+                    pending_export.include_stats(),
                 );
             }
             Err(error) => app.library_page_mut().set_save_error(error.to_string()),
@@ -277,15 +277,15 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
 }
 
 fn should_refresh_home_after_import(outcome: &library::LibraryImportOutcome) -> bool {
-    outcome.imported_settings() || outcome.imported_metrics()
+    outcome.imported_settings() || outcome.imported_stats()
 }
 
-fn refresh_home_metrics(app: &mut App) {
+fn refresh_home_stats(app: &mut App) {
     match taurine_core::db::init::setup()
-        .and_then(|conn| taurine_core::metrics::load_home_metrics(&conn))
+        .and_then(|conn| taurine_core::stats::load_home_stats(&conn))
     {
-        Ok(home_metrics) => app.set_home_metrics(home_metrics),
-        Err(err) => error!(error = %err, "Failed to refresh TUI home metrics"),
+        Ok(home_stats) => app.set_home_stats(home_stats),
+        Err(err) => error!(error = %err, "Failed to refresh TUI home stats"),
     }
 }
 
@@ -450,9 +450,9 @@ mod tests {
     fn sample_import_outcome(
         imported: usize,
         imported_settings: bool,
-        imported_metrics: bool,
+        imported_stats: bool,
     ) -> library::LibraryImportOutcome {
-        library::LibraryImportOutcome::new(imported, imported_settings, imported_metrics)
+        library::LibraryImportOutcome::new(imported, imported_settings, imported_stats)
     }
 
     #[test]
@@ -517,21 +517,21 @@ mod tests {
     }
 
     #[test]
-    fn home_metrics_refreshes_after_import_when_settings_are_imported() {
+    fn home_stats_refreshes_after_import_when_settings_are_imported() {
         let outcome = sample_import_outcome(0, true, false);
 
         assert!(should_refresh_home_after_import(&outcome));
     }
 
     #[test]
-    fn home_metrics_refreshes_after_import_when_metrics_are_imported() {
+    fn home_stats_refreshes_after_import_when_stats_are_imported() {
         let outcome = sample_import_outcome(0, false, true);
 
         assert!(should_refresh_home_after_import(&outcome));
     }
 
     #[test]
-    fn home_metrics_does_not_refresh_when_neither_settings_nor_metrics_are_imported() {
+    fn home_stats_does_not_refresh_when_neither_settings_nor_stats_are_imported() {
         let outcome = sample_import_outcome(0, false, false);
 
         assert!(!should_refresh_home_after_import(&outcome));

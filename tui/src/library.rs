@@ -12,8 +12,8 @@ use taurine_core::{
     },
     engine::shell::{ScriptBehavior, ScriptInterpreter, decompress},
     exchange::{
-        ExchangeFormat, ExchangePayload, ExportOptions, ImportConflictAction, ImportMetricsMode,
-        ImportOptions, decode_exchange_blob, detect_exchange_format, encode_exchange_blob,
+        ExchangeFormat, ExchangePayload, ExportOptions, ImportConflictAction, ImportOptions,
+        ImportStatsMode, decode_exchange_blob, detect_exchange_format, encode_exchange_blob,
         export_automations, import_payload_transactionally, payload_contains_run_variables,
         resolve_export_path,
     },
@@ -51,13 +51,13 @@ const EXPORT_ENCRYPTION_OPTIONS: [LibraryExportModalField; 7] = [
     LibraryExportModalField::PasswordToggle,
     LibraryExportModalField::IncludeSettings,
     LibraryExportModalField::IncludeSensitiveSettings,
-    LibraryExportModalField::IncludeMetrics,
+    LibraryExportModalField::IncludeStats,
 ];
 const EXPORT_PLAINTEXT_OPTIONS: [LibraryExportModalField; 4] = [
     LibraryExportModalField::Path,
     LibraryExportModalField::Encrypt,
     LibraryExportModalField::IncludeSettings,
-    LibraryExportModalField::IncludeMetrics,
+    LibraryExportModalField::IncludeStats,
 ];
 const IMPORT_MODAL_FIELDS: [LibraryImportModalField; 7] = [
     LibraryImportModalField::Path,
@@ -65,7 +65,7 @@ const IMPORT_MODAL_FIELDS: [LibraryImportModalField; 7] = [
     LibraryImportModalField::PasswordToggle,
     LibraryImportModalField::IncludeSettings,
     LibraryImportModalField::IncludeSensitiveSettings,
-    LibraryImportModalField::MetricsMode,
+    LibraryImportModalField::StatsMode,
     LibraryImportModalField::ConflictMode,
 ];
 
@@ -211,7 +211,7 @@ pub(crate) enum LibraryExportModalField {
     PasswordToggle,
     IncludeSettings,
     IncludeSensitiveSettings,
-    IncludeMetrics,
+    IncludeStats,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -221,7 +221,7 @@ pub(crate) enum LibraryImportModalField {
     PasswordToggle,
     IncludeSettings,
     IncludeSensitiveSettings,
-    MetricsMode,
+    StatsMode,
     ConflictMode,
 }
 
@@ -324,7 +324,7 @@ pub(crate) struct LibraryExportModalState {
     show_password: bool,
     include_settings: bool,
     include_sensitive_settings: bool,
-    include_metrics: bool,
+    include_stats: bool,
     focus: LibraryExportModalField,
     error: Option<String>,
 }
@@ -343,7 +343,7 @@ impl LibraryExportModalState {
             show_password: false,
             include_settings: false,
             include_sensitive_settings: false,
-            include_metrics: false,
+            include_stats: false,
             focus: LibraryExportModalField::Path,
             error: None,
         })
@@ -394,8 +394,8 @@ impl LibraryExportModalState {
         self.include_sensitive_settings
     }
 
-    pub(crate) const fn include_metrics(&self) -> bool {
-        self.include_metrics
+    pub(crate) const fn include_stats(&self) -> bool {
+        self.include_stats
     }
 
     pub(crate) const fn focus(&self) -> LibraryExportModalField {
@@ -474,7 +474,7 @@ impl LibraryExportModalState {
             password: self.encrypt.then(|| self.password.clone()),
             include_settings: self.include_settings,
             include_sensitive_settings: self.include_sensitive_settings,
-            include_metrics: self.include_metrics,
+            include_stats: self.include_stats,
         })
     }
 
@@ -488,7 +488,7 @@ impl LibraryExportModalState {
             LibraryExportModalField::IncludeSensitiveSettings => {
                 self.handle_include_sensitive_settings_key(key)
             }
-            LibraryExportModalField::IncludeMetrics => self.handle_include_metrics_key(key),
+            LibraryExportModalField::IncludeStats => self.handle_include_stats_key(key),
         }
     }
 
@@ -610,10 +610,10 @@ impl LibraryExportModalState {
         }
     }
 
-    fn handle_include_metrics_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+    fn handle_include_stats_key(&mut self, key: KeyEvent) -> LibraryInteraction {
         match (key.code, key.modifiers) {
             (KeyCode::Char(' '), KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
-                self.include_metrics = !self.include_metrics;
+                self.include_stats = !self.include_stats;
                 LibraryInteraction::handled()
             }
             _ => LibraryInteraction::handled(),
@@ -708,7 +708,7 @@ pub(crate) struct LibraryImportModalState {
     show_password: bool,
     include_settings: bool,
     include_sensitive_settings: bool,
-    metrics_mode: ImportMetricsMode,
+    stats_mode: ImportStatsMode,
     conflict_mode: LibraryImportConflictMode,
     focus: LibraryImportModalField,
     error: Option<String>,
@@ -725,7 +725,7 @@ impl LibraryImportModalState {
             show_password: false,
             include_settings: false,
             include_sensitive_settings: false,
-            metrics_mode: ImportMetricsMode::Ignore,
+            stats_mode: ImportStatsMode::Ignore,
             conflict_mode: LibraryImportConflictMode::Skip,
             focus: LibraryImportModalField::Path,
             error: None,
@@ -771,8 +771,8 @@ impl LibraryImportModalState {
     }
 
     #[cfg(test)]
-    pub(crate) const fn metrics_mode(&self) -> ImportMetricsMode {
-        self.metrics_mode
+    pub(crate) const fn stats_mode(&self) -> ImportStatsMode {
+        self.stats_mode
     }
 
     #[cfg(test)]
@@ -806,11 +806,11 @@ impl LibraryImportModalState {
         self.selector.as_ref()
     }
 
-    pub(crate) const fn metrics_mode_label(&self) -> &'static str {
-        match self.metrics_mode {
-            ImportMetricsMode::Ignore => "ignore",
-            ImportMetricsMode::Merge => "merge",
-            ImportMetricsMode::Overwrite => "overwrite",
+    pub(crate) const fn stats_mode_label(&self) -> &'static str {
+        match self.stats_mode {
+            ImportStatsMode::Ignore => "ignore",
+            ImportStatsMode::Merge => "merge",
+            ImportStatsMode::Overwrite => "overwrite",
         }
     }
 
@@ -867,7 +867,7 @@ impl LibraryImportModalState {
             password: (!self.password.is_empty()).then(|| self.password.clone()),
             options: ImportOptions {
                 include_settings: self.include_settings,
-                metrics_mode: self.metrics_mode,
+                stats_mode: self.stats_mode,
                 include_sensitive_settings: self.include_sensitive_settings,
             },
             conflict_mode: self.conflict_mode,
@@ -884,7 +884,7 @@ impl LibraryImportModalState {
             LibraryImportModalField::IncludeSensitiveSettings => {
                 self.handle_include_sensitive_settings_key(key)
             }
-            LibraryImportModalField::MetricsMode => self.handle_metrics_mode_key(key),
+            LibraryImportModalField::StatsMode => self.handle_stats_mode_key(key),
             LibraryImportModalField::ConflictMode => self.handle_conflict_mode_key(key),
         }
     }
@@ -912,11 +912,11 @@ impl LibraryImportModalState {
             }
             (KeyCode::Enter, KeyModifiers::NONE) => {
                 match self.focus {
-                    LibraryImportModalField::MetricsMode => {
-                        self.metrics_mode = match selector.selected {
-                            0 => ImportMetricsMode::Ignore,
-                            1 => ImportMetricsMode::Merge,
-                            _ => ImportMetricsMode::Overwrite,
+                    LibraryImportModalField::StatsMode => {
+                        self.stats_mode = match selector.selected {
+                            0 => ImportStatsMode::Ignore,
+                            1 => ImportStatsMode::Merge,
+                            _ => ImportStatsMode::Overwrite,
                         };
                     }
                     LibraryImportModalField::ConflictMode => {
@@ -1039,20 +1039,20 @@ impl LibraryImportModalState {
         }
     }
 
-    fn handle_metrics_mode_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+    fn handle_stats_mode_key(&mut self, key: KeyEvent) -> LibraryInteraction {
         match (key.code, key.modifiers) {
             (KeyCode::Char(' '), KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
                 self.selector = Some(LibrarySelectState {
-                    title: "Select Metrics Mode",
+                    title: "Select Stats Mode",
                     options: vec![
                         "ignore".to_string(),
                         "merge".to_string(),
                         "overwrite".to_string(),
                     ],
-                    selected: match self.metrics_mode {
-                        ImportMetricsMode::Ignore => 0,
-                        ImportMetricsMode::Merge => 1,
-                        ImportMetricsMode::Overwrite => 2,
+                    selected: match self.stats_mode {
+                        ImportStatsMode::Ignore => 0,
+                        ImportStatsMode::Merge => 1,
+                        ImportStatsMode::Overwrite => 2,
                     },
                 });
                 LibraryInteraction::handled()
@@ -2087,7 +2087,7 @@ pub(crate) struct PendingLibraryExport {
     password: Option<String>,
     include_settings: bool,
     include_sensitive_settings: bool,
-    include_metrics: bool,
+    include_stats: bool,
 }
 
 impl PendingLibraryExport {
@@ -2098,7 +2098,7 @@ impl PendingLibraryExport {
             &conn,
             ExportOptions {
                 include_settings: self.include_settings,
-                include_metrics: self.include_metrics,
+                include_stats: self.include_stats,
                 include_sensitive_settings: self.include_sensitive_settings,
             },
         )?;
@@ -2115,8 +2115,8 @@ impl PendingLibraryExport {
         self.include_settings
     }
 
-    pub(crate) const fn include_metrics(&self) -> bool {
-        self.include_metrics
+    pub(crate) const fn include_stats(&self) -> bool {
+        self.include_stats
     }
 }
 
@@ -2141,7 +2141,7 @@ pub(crate) struct PreparedLibraryImport {
 pub(crate) struct LibraryImportOutcome {
     imported: usize,
     imported_settings: bool,
-    imported_metrics: bool,
+    imported_stats: bool,
 }
 
 impl LibraryImportOutcome {
@@ -2149,12 +2149,12 @@ impl LibraryImportOutcome {
     pub(crate) const fn new(
         imported: usize,
         imported_settings: bool,
-        imported_metrics: bool,
+        imported_stats: bool,
     ) -> Self {
         Self {
             imported,
             imported_settings,
-            imported_metrics,
+            imported_stats,
         }
     }
 
@@ -2166,8 +2166,8 @@ impl LibraryImportOutcome {
         self.imported_settings
     }
 
-    pub(crate) const fn imported_metrics(&self) -> bool {
-        self.imported_metrics
+    pub(crate) const fn imported_stats(&self) -> bool {
+        self.imported_stats
     }
 }
 
@@ -2177,15 +2177,15 @@ pub(crate) struct LibraryExportResultModalState {
 }
 
 impl LibraryExportResultModalState {
-    fn new(path: &Path, encrypt: bool, include_settings: bool, include_metrics: bool) -> Self {
-        let subject = match (include_settings, include_metrics) {
+    fn new(path: &Path, encrypt: bool, include_settings: bool, include_stats: bool) -> Self {
+        let subject = match (include_settings, include_stats) {
             (false, false) => "Automations".to_string(),
             (true, false) => "Automations and Settings".to_string(),
-            (false, true) => "Automations and Metrics".to_string(),
-            (true, true) => "Automations, Settings and Metrics".to_string(),
+            (false, true) => "Automations and Stats".to_string(),
+            (true, true) => "Automations, Settings and Stats".to_string(),
         };
 
-        let body = match (include_settings, include_metrics, encrypt) {
+        let body = match (include_settings, include_stats, encrypt) {
             (false, false, false) => format!("{} are exported to: {}", subject, path.display()),
             (false, false, true) => format!(
                 "{} are exported to: {} as an encrypted export.",
@@ -2225,8 +2225,8 @@ impl LibraryImportResultModalState {
         if outcome.imported_settings() {
             lines.push("Settings imported.".to_string());
         }
-        if outcome.imported_metrics() {
-            lines.push("Metrics updated.".to_string());
+        if outcome.imported_stats() {
+            lines.push("Stats updated.".to_string());
         }
         Self { lines }
     }
@@ -2298,8 +2298,8 @@ impl PreparedLibraryImport {
         Ok(LibraryImportOutcome {
             imported,
             imported_settings: self.options.include_settings && self.payload.settings.is_some(),
-            imported_metrics: self.options.metrics_mode != ImportMetricsMode::Ignore
-                && self.payload.metrics.is_some(),
+            imported_stats: self.options.stats_mode != ImportStatsMode::Ignore
+                && self.payload.stats.is_some(),
         })
     }
 }
@@ -2556,10 +2556,10 @@ impl LibraryPageState {
         path: &Path,
         encrypt: bool,
         include_settings: bool,
-        include_metrics: bool,
+        include_stats: bool,
     ) {
         self.modal = Some(LibraryModal::ExportResult(
-            LibraryExportResultModalState::new(path, encrypt, include_settings, include_metrics),
+            LibraryExportResultModalState::new(path, encrypt, include_settings, include_stats),
         ));
     }
 
@@ -3777,7 +3777,7 @@ mod tests {
         assert_eq!(modal.password_display_value(), "");
         assert!(!modal.show_password());
         assert!(!modal.include_settings());
-        assert_eq!(modal.metrics_mode(), ImportMetricsMode::Ignore);
+        assert_eq!(modal.stats_mode(), ImportStatsMode::Ignore);
         assert_eq!(modal.conflict_mode(), LibraryImportConflictMode::Skip);
         assert_eq!(state.footer_text(), LIBRARY_IMPORT_MODAL_FOOTER);
     }
@@ -3840,7 +3840,7 @@ mod tests {
     }
 
     #[test]
-    fn import_modal_metrics_selector_uses_existing_modes() {
+    fn import_modal_stats_selector_uses_existing_modes() {
         let mut state = sample_state();
         state.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
 
@@ -3854,8 +3854,8 @@ mod tests {
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
-        let selector = modal.selector().expect("metrics selector");
-        assert_eq!(selector.title(), "Select Metrics Mode");
+        let selector = modal.selector().expect("stats selector");
+        assert_eq!(selector.title(), "Select Stats Mode");
         assert_eq!(selector.options, vec!["ignore", "merge", "overwrite"]);
     }
 
@@ -3908,7 +3908,7 @@ mod tests {
                 .iter()
                 .any(|line| line == "Settings imported.")
         );
-        assert!(modal.lines().iter().any(|line| line == "Metrics updated."));
+        assert!(modal.lines().iter().any(|line| line == "Stats updated."));
         assert_eq!(state.footer_text(), LIBRARY_IMPORT_RESULT_FOOTER);
     }
 
@@ -4008,7 +4008,7 @@ mod tests {
     }
 
     #[test]
-    fn export_result_modal_body_for_automations_and_metrics_matches_exactly() {
+    fn export_result_modal_body_for_automations_and_stats_matches_exactly() {
         let mut state = sample_state();
         let path = PathBuf::from("backup.tau");
 
@@ -4019,12 +4019,12 @@ mod tests {
         };
         assert_eq!(
             modal.body(),
-            "Automations and Metrics were exported to: backup.tau"
+            "Automations and Stats were exported to: backup.tau"
         );
     }
 
     #[test]
-    fn export_result_modal_body_for_automations_and_metrics_with_encryption_matches_exactly() {
+    fn export_result_modal_body_for_automations_and_stats_with_encryption_matches_exactly() {
         let mut state = sample_state();
         let path = PathBuf::from("backup.tau");
 
@@ -4035,7 +4035,7 @@ mod tests {
         };
         assert_eq!(
             modal.body(),
-            "Automations and Metrics were exported to: backup.tau with encryption."
+            "Automations and Stats were exported to: backup.tau with encryption."
         );
     }
 
@@ -4051,7 +4051,7 @@ mod tests {
         };
         assert_eq!(
             modal.body(),
-            "Automations, Settings and Metrics were exported to: backup.tau"
+            "Automations, Settings and Stats were exported to: backup.tau"
         );
     }
 
@@ -4067,7 +4067,7 @@ mod tests {
         };
         assert_eq!(
             modal.body(),
-            "Automations, Settings and Metrics were exported to: backup.tau with encryption."
+            "Automations, Settings and Stats were exported to: backup.tau with encryption."
         );
     }
 
@@ -4134,7 +4134,7 @@ mod tests {
         assert!(!modal.show_password());
         assert_eq!(modal.password_toggle_label(), "show");
         assert!(!modal.include_settings());
-        assert!(!modal.include_metrics());
+        assert!(!modal.include_stats());
         assert_eq!(state.footer_text(), LIBRARY_EXPORT_MODAL_FOOTER);
     }
 
@@ -4294,7 +4294,7 @@ mod tests {
         assert!(!pending.encrypt);
         assert_eq!(pending.password, None);
         assert!(!pending.include_settings);
-        assert!(!pending.include_metrics);
+        assert!(!pending.include_stats);
     }
 
     #[test]

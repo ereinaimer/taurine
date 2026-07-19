@@ -263,7 +263,7 @@ impl StreamingTextSession {
         }
     }
 
-    pub fn push_text(&mut self, text: &str, track_metrics: bool) -> bool {
+    pub fn push_text(&mut self, text: &str, track_stats: bool) -> bool {
         if text.is_empty() || INJECTION_ABORT.load(Ordering::SeqCst) {
             return !INJECTION_ABORT.load(Ordering::SeqCst);
         }
@@ -272,7 +272,7 @@ impl StreamingTextSession {
         if self.original_clipboard.is_none() {
             self.original_clipboard = injection.original_clipboard;
         }
-        if track_metrics {
+        if track_stats {
             self.tracked_chars = self.tracked_chars.saturating_add(injection.injected_chars);
         }
 

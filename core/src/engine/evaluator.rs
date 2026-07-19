@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::engine::variables::ExpansionStep;
 use crate::engine::variables::system::clip::MAX_PAYLOAD_BYTES;
-use crate::metrics::AutomationMetricKind;
+use crate::stats::AutomationStatKind;
 
 use crate::engine::buffer::FastBuffer;
 use crate::engine::state::{EngineMode, EngineState};
@@ -50,7 +50,7 @@ pub struct ExpansionResult {
     /// Whether this expansion was a mathematical calculation.
     pub is_calculation: bool,
     /// Metric policy classification for this expansion.
-    pub metric_kind: AutomationMetricKind,
+    pub stat_kind: AutomationStatKind,
     /// Whether the daemon should record snippet/calculation usage for this expansion.
     pub track_usage: bool,
     /// Optional daemon-side follow-up that should run after expansion injection.
@@ -644,7 +644,7 @@ impl Evaluator {
                 trigger: word.clone(),
                 undo_trigger: Some(word),
                 is_calculation: true,
-                metric_kind: AutomationMetricKind::Calculation,
+                stat_kind: AutomationStatKind::Calculation,
                 track_usage: true,
                 follow_up: None,
             });
@@ -654,7 +654,7 @@ impl Evaluator {
             && let Some(expansion) = self.state.fetch_expansion(&keyword, active_window)
         {
             let delete_count = 1 + keyword.chars().count();
-            let metric_kind = metric_kind_for_steps(expansion.is_calculation, &expansion.steps);
+            let stat_kind = stat_kind_for_steps(expansion.is_calculation, &expansion.steps);
             self.buffer.clear();
 
             if let Some(template) = expansion.ai_transformer_template {
@@ -666,7 +666,7 @@ impl Evaluator {
                     trigger: keyword,
                     undo_trigger: None,
                     is_calculation: false,
-                    metric_kind: AutomationMetricKind::InlineAi,
+                    stat_kind: AutomationStatKind::InlineAi,
                     track_usage: true,
                     follow_up: Some(ExpansionFollowUp::AiTransformer {
                         template_with_markers: template,
@@ -681,7 +681,7 @@ impl Evaluator {
                 trigger: keyword,
                 undo_trigger,
                 is_calculation: expansion.is_calculation,
-                metric_kind,
+                stat_kind,
                 track_usage: true,
                 follow_up: None,
             });
@@ -700,7 +700,7 @@ impl Evaluator {
                 trigger: word.clone(),
                 undo_trigger: Some(format!("{}{}", emoji_trigger, word)),
                 is_calculation: false,
-                metric_kind: AutomationMetricKind::Snippet,
+                stat_kind: AutomationStatKind::Snippet,
                 track_usage: true,
                 follow_up: None,
             });
@@ -723,8 +723,7 @@ impl Evaluator {
                     && let Some(expansion) = self.state.fetch_expansion(&word, active_window)
                 {
                     let delete_count = word.chars().count();
-                    let metric_kind =
-                        metric_kind_for_steps(expansion.is_calculation, &expansion.steps);
+                    let stat_kind = stat_kind_for_steps(expansion.is_calculation, &expansion.steps);
                     self.buffer.clear();
                     if let Some(template) = expansion.ai_transformer_template {
                         let initial_text = self.get_initial_spinner_text(&template);
@@ -734,7 +733,7 @@ impl Evaluator {
                             trigger: word,
                             undo_trigger: None,
                             is_calculation: false,
-                            metric_kind: AutomationMetricKind::InlineAi,
+                            stat_kind: AutomationStatKind::InlineAi,
                             track_usage: true,
                             follow_up: Some(ExpansionFollowUp::AiTransformer {
                                 template_with_markers: template,
@@ -752,7 +751,7 @@ impl Evaluator {
                         trigger: word,
                         undo_trigger,
                         is_calculation: expansion.is_calculation,
-                        metric_kind,
+                        stat_kind,
                         track_usage: true,
                         follow_up: None,
                     });
@@ -776,7 +775,7 @@ impl Evaluator {
             if let Some(expansion) = expand_automation_action_with_args(action, &arg_map, &keyword)
             {
                 let delete_count = keyword.chars().count();
-                let metric_kind = metric_kind_for_steps(expansion.is_calculation, &expansion.steps);
+                let stat_kind = stat_kind_for_steps(expansion.is_calculation, &expansion.steps);
                 self.buffer.clear();
 
                 if let Some(template) = expansion.ai_transformer_template {
@@ -787,7 +786,7 @@ impl Evaluator {
                         trigger: keyword.clone(),
                         undo_trigger: None,
                         is_calculation: false,
-                        metric_kind: AutomationMetricKind::InlineAi,
+                        stat_kind: AutomationStatKind::InlineAi,
                         track_usage: true,
                         follow_up: Some(ExpansionFollowUp::AiTransformer {
                             template_with_markers: template,
@@ -805,7 +804,7 @@ impl Evaluator {
                     trigger: keyword,
                     undo_trigger,
                     is_calculation: expansion.is_calculation,
-                    metric_kind,
+                    stat_kind,
                     track_usage: true,
                     follow_up: None,
                 });
@@ -971,7 +970,7 @@ impl Evaluator {
             trigger: open_delim.to_string(),
             undo_trigger: None,
             is_calculation: false,
-            metric_kind: AutomationMetricKind::InlineAi,
+            stat_kind: AutomationStatKind::InlineAi,
             track_usage: false,
             follow_up: None,
         }
@@ -1023,7 +1022,7 @@ impl Evaluator {
             trigger: "inline_ai".to_string(),
             undo_trigger: None,
             is_calculation: false,
-            metric_kind: AutomationMetricKind::InlineAi,
+            stat_kind: AutomationStatKind::InlineAi,
             track_usage: false,
             follow_up: Some(ExpansionFollowUp::InlineAi {
                 prompt: prompt.to_string(),
@@ -1033,16 +1032,16 @@ impl Evaluator {
     }
 }
 
-fn metric_kind_for_steps(is_calculation: bool, steps: &[ExpansionStep]) -> AutomationMetricKind {
+fn stat_kind_for_steps(is_calculation: bool, steps: &[ExpansionStep]) -> AutomationStatKind {
     if is_calculation {
-        return AutomationMetricKind::Calculation;
+        return AutomationStatKind::Calculation;
     }
 
     if matches!(steps, [ExpansionStep::Script(_)]) {
-        return AutomationMetricKind::Script;
+        return AutomationStatKind::Script;
     }
 
-    AutomationMetricKind::Snippet
+    AutomationStatKind::Snippet
 }
 
 fn pop_char_from_query(query: &str) -> String {

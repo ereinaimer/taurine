@@ -2,12 +2,12 @@ use rusqlite::{Connection, Result};
 
 use crate::db::now_unix_secs;
 
-/// Inserts a new metrics row or updates an existing one.
+/// Inserts a new stats row or updates an existing one.
 ///
 /// - On **insert**: `version` starts at `1`.
 /// - On **update**: `version` is incremented by `1` atomically.
 /// - `updated_at` is always set to the current Unix timestamp.
-pub fn increment_metric(
+pub fn increment_stat(
     conn: &Connection,
     date: &str,
     delta_executions: i64,
@@ -18,7 +18,7 @@ pub fn increment_metric(
     let now = now_unix_secs();
 
     conn.execute(
-        "INSERT INTO metrics (
+        "INSERT INTO stats (
              date,
              executions,
              ai_executions,

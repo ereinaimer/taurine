@@ -12,7 +12,7 @@ pub fn execute(
     path: Option<PathBuf>,
     plain: bool,
     settings: bool,
-    metrics: bool,
+    stats: bool,
     sensitive: bool,
 ) -> taurine_core::error::Result<()> {
     if sensitive && plain {
@@ -27,7 +27,7 @@ pub fn execute(
         &conn,
         ExportOptions {
             include_settings: settings,
-            include_metrics: metrics,
+            include_stats: stats,
             include_sensitive_settings: sensitive,
         },
     )?;
@@ -50,8 +50,8 @@ pub fn execute(
             parts.push("settings");
         }
     }
-    if metrics {
-        parts.push("metrics");
+    if stats {
+        parts.push("stats");
     }
 
     let details = if parts.is_empty() {

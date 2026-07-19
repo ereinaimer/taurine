@@ -21,4 +21,4 @@ pub use listener::{start_listener, stop_listener};
 pub use supervisor::{WindowsSupervisorEvent, start_windows_supervisor, stop_windows_supervisor};
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

@@ -5,7 +5,7 @@ use crate::db::crud::{TriggerType, get_current_os_db_string};
 const DEFAULT_MOST_USED_LIMIT: usize = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct HomeMetrics {
+pub struct HomeStats {
     pub keystrokes_saved: u64,
     pub time_saved_ms: u64,
     pub expansions_run: u64,
@@ -20,17 +20,17 @@ pub struct MostUsedAutomation {
     pub uses: u64,
 }
 
-pub fn load_home_metrics(conn: &Connection) -> crate::Result<HomeMetrics> {
-    load_home_metrics_with_limit(conn, DEFAULT_MOST_USED_LIMIT)
+pub fn load_home_stats(conn: &Connection) -> crate::Result<HomeStats> {
+    load_home_stats_with_limit(conn, DEFAULT_MOST_USED_LIMIT)
 }
 
-pub fn load_home_metrics_with_limit(conn: &Connection, limit: usize) -> crate::Result<HomeMetrics> {
+pub fn load_home_stats_with_limit(conn: &Connection, limit: usize) -> crate::Result<HomeStats> {
     let (expansions_run, keystrokes_saved, time_saved_ms) = conn.query_row(
         "SELECT
             COALESCE(SUM(executions + ai_executions), 0),
             COALESCE(SUM(keystrokes_saved), 0),
             COALESCE(SUM(time_saved_ms), 0)
-         FROM metrics",
+         FROM stats",
         [],
         |row| {
             Ok((
@@ -45,7 +45,7 @@ pub fn load_home_metrics_with_limit(conn: &Connection, limit: usize) -> crate::R
     let most_used_words = fetch_most_used(conn, os_str, TriggerType::Word, limit)?;
     let most_used_hotkeys = fetch_most_used(conn, os_str, TriggerType::Hotkey, limit)?;
 
-    Ok(HomeMetrics {
+    Ok(HomeStats {
         keystrokes_saved: keystrokes_saved.max(0) as u64,
         time_saved_ms: time_saved_ms.max(0) as u64,
         expansions_run: expansions_run.max(0) as u64,
@@ -103,32 +103,32 @@ fn fetch_most_used(
 mod tests {
     use super::*;
     use crate::db::crud::{
-        TriggerType, delete_automation, increment_metric, upsert_automation,
+        TriggerType, delete_automation, increment_stat, upsert_automation,
         upsert_automation_with_trigger_type,
     };
     use crate::testing::{init_tracing_for_tests, open_test_db};
 
     #[test]
-    fn empty_home_metrics_returns_zero_totals_and_no_automations() {
+    fn empty_home_stats_returns_zero_totals_and_no_automations() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        let metrics = load_home_metrics(&conn).unwrap();
+        let stats = load_home_stats(&conn).unwrap();
 
-        assert_eq!(metrics.keystrokes_saved, 0);
-        assert_eq!(metrics.time_saved_ms, 0);
-        assert_eq!(metrics.expansions_run, 0);
-        assert!(metrics.most_used_words.is_empty());
-        assert!(metrics.most_used_hotkeys.is_empty());
+        assert_eq!(stats.keystrokes_saved, 0);
+        assert_eq!(stats.time_saved_ms, 0);
+        assert_eq!(stats.expansions_run, 0);
+        assert!(stats.most_used_words.is_empty());
+        assert!(stats.most_used_hotkeys.is_empty());
     }
 
     #[test]
-    fn home_metrics_aggregate_totals_and_sort_automations() {
+    fn home_stats_aggregate_totals_and_sort_automations() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        increment_metric(&conn, "2026-04-01", 4, 0, 120, 180_000).unwrap();
-        increment_metric(&conn, "2026-04-02", 2, 1, 30, 60_000).unwrap();
+        increment_stat(&conn, "2026-04-01", 4, 0, 120, 180_000).unwrap();
+        increment_stat(&conn, "2026-04-02", 2, 1, 30, 60_000).unwrap();
 
         upsert_automation(
             &conn,
@@ -175,17 +175,17 @@ mod tests {
         .unwrap();
         delete_automation(&conn, "uuid-deleted").unwrap();
 
-        let metrics = load_home_metrics(&conn).unwrap();
+        let stats = load_home_stats(&conn).unwrap();
 
-        assert_eq!(metrics.expansions_run, 7);
-        assert_eq!(metrics.keystrokes_saved, 150);
-        assert_eq!(metrics.time_saved_ms, 240_000);
-        assert_eq!(metrics.most_used_words.len(), 1);
-        assert_eq!(metrics.most_used_words[0].trigger, "gs");
-        assert_eq!(metrics.most_used_words[0].uses, 12);
-        assert_eq!(metrics.most_used_hotkeys.len(), 1);
-        assert_eq!(metrics.most_used_hotkeys[0].trigger, "ralt+m");
-        assert_eq!(metrics.most_used_hotkeys[0].uses, 20);
+        assert_eq!(stats.expansions_run, 7);
+        assert_eq!(stats.keystrokes_saved, 150);
+        assert_eq!(stats.time_saved_ms, 240_000);
+        assert_eq!(stats.most_used_words.len(), 1);
+        assert_eq!(stats.most_used_words[0].trigger, "gs");
+        assert_eq!(stats.most_used_words[0].uses, 12);
+        assert_eq!(stats.most_used_hotkeys.len(), 1);
+        assert_eq!(stats.most_used_hotkeys[0].trigger, "ralt+m");
+        assert_eq!(stats.most_used_hotkeys[0].uses, 20);
     }
 
     #[test]
@@ -212,10 +212,10 @@ mod tests {
             .unwrap();
         }
 
-        let metrics = load_home_metrics_with_limit(&conn, 5).unwrap();
+        let stats = load_home_stats_with_limit(&conn, 5).unwrap();
 
-        assert_eq!(metrics.most_used_words.len(), 5);
-        assert_eq!(metrics.most_used_words[0].uses, 10);
-        assert_eq!(metrics.most_used_words[4].uses, 6);
+        assert_eq!(stats.most_used_words.len(), 5);
+        assert_eq!(stats.most_used_words[0].uses, 10);
+        assert_eq!(stats.most_used_words[4].uses, 6);
     }
 }
