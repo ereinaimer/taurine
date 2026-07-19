@@ -20,16 +20,25 @@ function Show-SpinnerJob ($Job, $Label, $SuccessLabel = $null) {
         Start-Sleep -Milliseconds 80
     }
     Write-Host -NoNewline "`r"
-    Write-Host -ForegroundColor Green -NoNewline "$([char]0x2713) "
-    if ($null -eq $SuccessLabel) {
-        $SuccessLabel = $Label
+
+    $jobError = $Job.Error
+    $jobState = $Job.State
+    $result = Receive-Job -Job $Job -ErrorAction SilentlyContinue
+    $hasError = ($null -ne $jobError -and $jobError.Count -gt 0) -or ($jobState -eq "Failed") -or ($result -eq $false)
+
+    if ($hasError) {
+        Write-Host -ForegroundColor Yellow -NoNewline "$([char]0x2713) "
+        $DisplayLabel = $Label
+    } else {
+        Write-Host -ForegroundColor Green -NoNewline "$([char]0x2713) "
+        $DisplayLabel = if ($null -eq $SuccessLabel) { $Label } else { $SuccessLabel }
     }
-    $diff = $Label.Length - $SuccessLabel.Length
+
+    $diff = $Label.Length - $DisplayLabel.Length
     if ($diff -gt 0) {
-        $SuccessLabel = $SuccessLabel + (" " * $diff)
+        $DisplayLabel = $DisplayLabel + (" " * $diff)
     }
-    Write-Host $SuccessLabel
-    $result = Receive-Job -Job $Job
+    Write-Host $DisplayLabel
     Remove-Job -Job $Job
     return $result
 }
@@ -197,6 +206,7 @@ function Main {
     if ($null -eq $Version) {
         $ManifestJob = {
             param($url)
+            $ErrorActionPreference = "Stop"
             Invoke-RestMethod -Uri $url
         }
         $Manifest = Invoke-WithRetry -ScriptBlock $ManifestJob -ArgumentList @("https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json") -Label "Fetching latest release manifest" -SuccessLabel "Fetched latest release manifest"
@@ -238,6 +248,7 @@ function Main {
             # Download archive with retry
             $DownloadJob = {
                 param($url, $out)
+                $ErrorActionPreference = "Stop"
                 Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing
                 return $out
             }
@@ -247,6 +258,7 @@ function Main {
             if ($Sha256) {
                 $ChecksumJob = {
                     param($zip, $expected)
+                    $ErrorActionPreference = "Stop"
                     $computed = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLower()
                     return ($computed -eq $expected.ToLower())
                 }
@@ -265,6 +277,7 @@ function Main {
             $TempDir = Join-Path $env:TEMP "taurine-ext-$([guid]::NewGuid())"
             $ExtractJob = {
                 param($zip, $dest)
+                $ErrorActionPreference = "Stop"
                 Expand-Archive -Path $zip -DestinationPath $dest -Force
                 return $dest
             }
@@ -275,6 +288,17 @@ function Main {
             }
 
             Copy-Item -Path (Join-Path $TempDir "taurine.exe") -Destination $InstallDir -Force
+
+            # Download uninstall.ps1 script silently in the background
+            $UninstallScriptPath = Join-Path $InstallDir "uninstall.ps1"
+            try {
+                $null = Start-Job -ScriptBlock {
+                    param($url, $out)
+                    $ErrorActionPreference = "Stop"
+                    Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing
+                } -ArgumentList @("https://raw.githubusercontent.com/ereinaimer/taurine/dev/uninstall.ps1", $UninstallScriptPath)
+            } catch {}
+
             $IsInstalled = $true
             $IsFreshInstall = $true
 
@@ -313,7 +337,10 @@ public static extern IntPtr SendMessageTimeout(
     IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam,
     uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
 '@
-            $User32 = Add-Type -MemberDefinition $Signature -Name "User32" -Namespace "Win32" -PassThru
+            if (-not ([System.Management.Automation.PSTypeName]'Win32.User32').Type) {
+                Add-Type -MemberDefinition $Signature -Name "User32" -Namespace "Win32" | Out-Null
+            }
+            $User32 = [Win32.User32]
             $HWND_BROADCAST = [IntPtr]0xffff
             $WM_SETTINGCHANGE = 0x001A
             $SMTO_ABORTIFHUNG = 0x0002
@@ -328,12 +355,18 @@ public static extern IntPtr SendMessageTimeout(
 
         if ($IsFreshInstall) {
             if ($PathUpdated) {
-                Write-Host "PATH updated in registry. You may need to restart your terminal to use taurine directly."
+                Write-Host -ForegroundColor Green -NoNewline "$([char]0x2713) "
+                Write-Host "PATH updated in registry."
+                Write-Host -ForegroundColor Yellow -NoNewline "$([char]0x2713) "
+                Write-Host "You may need to restart your terminal to use taurine directly."
             } elseif ($PathInEnv) {
                 Write-Host -ForegroundColor Green -NoNewline "$([char]0x2713) "
                 Write-Host "Taurine binary is already on your PATH."
             } else {
-                Write-Host "Taurine binary is configured in registry PATH, but not in your current shell session. Please restart your terminal."
+                Write-Host -ForegroundColor Green -NoNewline "$([char]0x2713) "
+                Write-Host "Taurine binary is configured in registry PATH."
+                Write-Host -ForegroundColor Yellow -NoNewline "$([char]0x2713) "
+                Write-Host "Please restart your terminal to apply the change."
             }
         }
 
@@ -377,13 +410,34 @@ public static extern IntPtr SendMessageTimeout(
         }
 
         if ($IsFreshInstall) {
+            Write-Host -ForegroundColor Green -NoNewline "$([char]0x2713) "
             if ($AliasUpdated) {
-                Write-Host "Added or updated alias tau in your PowerShell profile(s)."
+                Write-Host "Added alias 'tau' to your PowerShell profile(s)."
             } else {
-                Write-Host -ForegroundColor Green -NoNewline "$([char]0x2713) "
                 Write-Host "alias 'tau' is already set up in your profile(s)."
             }
             Write-Host "Now you can run 'tau --help' for more details."
+        }
+
+        if ($IsFreshInstall) {
+            try {
+                Start-Process -FilePath $ExePath -ArgumentList "up" -WindowStyle Hidden
+            } catch {}
+        }
+
+        # Write registry uninstall keys to register in Add or Remove Programs
+        $UninstallScriptPath = Join-Path $InstallDir "uninstall.ps1"
+        try {
+            $UninstallKeyPath = "Software\Microsoft\Windows\CurrentVersion\Uninstall\Taurine"
+            $UninstallKey = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($UninstallKeyPath)
+            $UninstallKey.SetValue("DisplayName", "Taurine")
+            $UninstallKey.SetValue("DisplayVersion", $Version)
+            $UninstallKey.SetValue("Publisher", "Erein Aimer")
+            $UninstallKey.SetValue("InstallLocation", $InstallDir)
+            $UninstallKey.SetValue("DisplayIcon", $ExePath)
+            $UninstallKey.SetValue("UninstallString", "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$UninstallScriptPath`"")
+        } catch {
+            Write-Host "Warning: Failed to register Taurine in Add or Remove Programs."
         }
     }
 }

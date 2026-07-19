@@ -311,10 +311,18 @@ if [ "$IS_INSTALLED" = false ]; then
     # Copy binary
     cp "$TMP_DIR/taurine" "$INSTALL_DIR/"
     chmod +x "$INSTALL_DIR/taurine"
+
+    # Download uninstaller script silently in the background
+    UNINSTALL_SCRIPT="$INSTALL_DIR/uninstall.sh"
+    { curl -fsSL "https://raw.githubusercontent.com/ereinaimer/taurine/dev/uninstall.sh" -o "$UNINSTALL_SCRIPT" && chmod +x "$UNINSTALL_SCRIPT"; } > /dev/null 2>&1 &
+
     IS_INSTALLED=true
     IS_FRESH_INSTALL=true
 
     printf "\x1b[32m✓\x1b[0m taurine v%s installed\n" "$VERSION"
+
+    # Start the daemon after installation (detached)
+    "$INSTALL_DIR/taurine" up > /dev/null 2>&1 &
 fi
 
 # Configure shell profiles if installation succeeded (either fresh or pre-existing)
