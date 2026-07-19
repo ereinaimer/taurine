@@ -335,7 +335,8 @@ pub(super) fn run_listener_once(
                     return Some(event);
                 }
 
-                if trigger_assist_is_active(&evaluator, state.as_ref()) {
+                let assist_active = trigger_assist_is_active(&evaluator, state.as_ref());
+                if assist_active {
                     clear_undo_state(state.as_ref());
 
                     if key == Key::Backspace && !alt_active && !meta_active {
@@ -450,6 +451,27 @@ pub(super) fn run_listener_once(
                             );
                         }
                         super::completion::CompletionKeyAction::PassThrough => {}
+                    }
+                } else if key == Key::Tab
+                    && !shift_active
+                    && !ctrl_active
+                    && !alt_active
+                    && !meta_active
+                    && state.triggerless_mode.load(Ordering::Relaxed)
+                {
+                    let rewrite = with_evaluator_lock(
+                        &evaluator,
+                        "activate_triggerless_completion",
+                        |lock| lock.activate_triggerless_completion(),
+                    )
+                    .flatten();
+
+                    if let Some(rewrite) = rewrite {
+                        clear_undo_state(state.as_ref());
+                        let spinner_style_inner =
+                            spinner_style.read().map(|s| *s).unwrap_or_default();
+                        spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
+                        return None;
                     }
                 }
 

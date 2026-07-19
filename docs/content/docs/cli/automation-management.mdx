@@ -90,6 +90,18 @@ After typing at least one character of a trigger (e.g., `>g`), press `Tab` to cy
 * **Wraparound**: Cycling is infinite; reaching the end of the list wraps back to the beginning.
 * **Word Triggers Only**: Completion only suggests word triggers. Hotkey triggers are never suggested.
 
+### Triggerless Tab Completion
+
+When `triggerless_mode` is enabled (i.e., you do not use a trigger character like `>`), you can trigger completions interactively by typing a word prefix and pressing `Tab`:
+
+1. Type a word prefix (e.g., `g`).
+2. Press **Tab**.
+3. If any of your word triggers start with `g` (e.g., `gc` or `gs`), completion activates immediately, rewriting the word in your active buffer to the first sorted suggestion (e.g., `gc`).
+4. Pressing **Tab** cycles forward through the matching suggestions. All cycled Tab keystrokes are swallowed to prevent OS focus shifts.
+5. Pressing **Shift + Tab** cycles backward through suggestions.
+6. Pressing **Enter** or **Space** (depending on your configured `action_key`) will expand the selected suggestion.
+7. If no triggers match the prefix when you press **Tab**, the key event passes through to the OS normally (e.g., to insert an indentation tab or move focus).
+
 ### History Navigation
 
 History allows you to access your most frequently and recently used triggers.

@@ -67,6 +67,7 @@ pub struct CompletionRewrite {
 struct TriggerCompletionState {
     active: bool,
     is_emoji: bool,
+    is_triggerless: bool,
     original_query: String,
     current_text: String,
     suggestions: Vec<String>,
@@ -83,9 +84,15 @@ enum TriggerAssistSelectionMode {
 }
 
 impl TriggerCompletionState {
-    fn activate(&mut self, active_atomic: &std::sync::atomic::AtomicBool, is_emoji: bool) {
+    fn activate(
+        &mut self,
+        active_atomic: &std::sync::atomic::AtomicBool,
+        is_emoji: bool,
+        is_triggerless: bool,
+    ) {
         self.active = true;
         self.is_emoji = is_emoji;
+        self.is_triggerless = is_triggerless;
         active_atomic.store(true, std::sync::atomic::Ordering::Relaxed);
         self.original_query.clear();
         self.current_text.clear();
@@ -99,6 +106,7 @@ impl TriggerCompletionState {
     fn deactivate(&mut self, active_atomic: &std::sync::atomic::AtomicBool) {
         self.active = false;
         self.is_emoji = false;
+        self.is_triggerless = false;
         active_atomic.store(false, std::sync::atomic::Ordering::Relaxed);
         self.original_query.clear();
         self.current_text.clear();
@@ -220,14 +228,18 @@ impl Evaluator {
         if !self.completion.active {
             return false;
         }
-        let active_trigger = if self.completion.is_emoji {
-            self.state.inline_emoji_trigger_char()
+        if self.completion.is_triggerless {
+            self.buffer.extract_tail_word().is_some()
         } else {
-            self.trigger_prefix()
-        };
-        self.buffer
-            .extract_trigger_word(active_trigger, false)
-            .is_some()
+            let active_trigger = if self.completion.is_emoji {
+                self.state.inline_emoji_trigger_char()
+            } else {
+                self.trigger_prefix()
+            };
+            self.buffer
+                .extract_trigger_word(active_trigger, false)
+                .is_some()
+        }
     }
 
     pub fn cancel_completion(&mut self) {
@@ -236,6 +248,22 @@ impl Evaluator {
 
     pub fn has_active_selection(&self) -> bool {
         self.is_completion_active() && self.completion.has_selection()
+    }
+
+    pub fn activate_triggerless_completion(&mut self) -> Option<CompletionRewrite> {
+        let tail_word = self.buffer.extract_tail_word()?;
+        let suggestions = self.state.matching_word_triggers(&tail_word);
+        if suggestions.is_empty() {
+            return None;
+        }
+
+        self.completion
+            .activate(&self.state.completion_active, false, true);
+        self.completion.current_text = tail_word.clone();
+        self.completion.original_query = tail_word;
+        self.completion.suggestions = suggestions;
+
+        self.cycle_completion_next()
     }
 
     pub fn cycle_completion_next(&mut self) -> Option<CompletionRewrite> {
@@ -288,10 +316,10 @@ impl Evaluator {
         {
             if emoji_trigger == trigger_char {
                 self.completion
-                    .activate(&self.state.completion_active, false);
+                    .activate(&self.state.completion_active, false, false);
             } else {
                 self.completion
-                    .activate(&self.state.completion_active, true);
+                    .activate(&self.state.completion_active, true, false);
             }
             self.rebuild_history_items("");
             return;
@@ -299,7 +327,7 @@ impl Evaluator {
 
         if c == trigger_char && !self.completion.active {
             self.completion
-                .activate(&self.state.completion_active, false);
+                .activate(&self.state.completion_active, false, false);
             self.rebuild_history_items("");
             return;
         }
@@ -318,26 +346,33 @@ impl Evaluator {
             return;
         }
 
-        let active_trigger = if self.completion.is_emoji {
-            self.state.inline_emoji_trigger_char()
+        let query = if self.completion.is_triggerless {
+            let Some(tail) = self.buffer.extract_tail_word() else {
+                self.completion.deactivate(&self.state.completion_active);
+                return;
+            };
+            tail
         } else {
-            self.trigger_prefix()
-        };
-        let Some(query) = self.buffer.extract_trigger_word(active_trigger, false) else {
-            self.completion.deactivate(&self.state.completion_active);
-            return;
-        };
+            let active_trigger = if self.completion.is_emoji {
+                self.state.inline_emoji_trigger_char()
+            } else {
+                self.trigger_prefix()
+            };
+            let Some(query) = self.buffer.extract_trigger_word(active_trigger, false) else {
+                self.completion.deactivate(&self.state.completion_active);
+                return;
+            };
 
-        if self.completion.is_emoji {
-            // Check for invalid characters in emoji shortcode
-            if query
-                .chars()
-                .any(|ch| !ch.is_alphanumeric() && ch != '-' && ch != '_')
+            if self.completion.is_emoji
+                && query
+                    .chars()
+                    .any(|ch| !ch.is_alphanumeric() && ch != '-' && ch != '_')
             {
                 self.completion.deactivate(&self.state.completion_active);
                 return;
             }
-        }
+            query
+        };
 
         self.apply_user_query(query);
     }
@@ -440,17 +475,20 @@ impl Evaluator {
     }
 
     fn rewrite_selected_query(&mut self, word: bool) -> Option<CompletionRewrite> {
-        let active_trigger = if self.completion.is_emoji {
-            self.state.inline_emoji_trigger_char()
+        let is_valid = if self.completion.is_triggerless {
+            self.buffer.extract_tail_word().is_some()
         } else {
-            self.trigger_prefix()
+            let active_trigger = if self.completion.is_emoji {
+                self.state.inline_emoji_trigger_char()
+            } else {
+                self.trigger_prefix()
+            };
+            self.buffer
+                .extract_trigger_word(active_trigger, false)
+                .is_some()
         };
 
-        if self
-            .buffer
-            .extract_trigger_word(active_trigger, false)
-            .is_none()
-        {
+        if !is_valid {
             self.completion.deactivate(&self.state.completion_active);
             return None;
         }
@@ -482,17 +520,20 @@ impl Evaluator {
             return None;
         }
 
-        let active_trigger = if self.completion.is_emoji {
-            self.state.inline_emoji_trigger_char()
+        let is_valid = if self.completion.is_triggerless {
+            self.buffer.extract_tail_word().is_some()
         } else {
-            self.trigger_prefix()
+            let active_trigger = if self.completion.is_emoji {
+                self.state.inline_emoji_trigger_char()
+            } else {
+                self.trigger_prefix()
+            };
+            self.buffer
+                .extract_trigger_word(active_trigger, false)
+                .is_some()
         };
 
-        if self
-            .buffer
-            .extract_trigger_word(active_trigger, false)
-            .is_none()
-        {
+        if !is_valid {
             self.completion.deactivate(&self.state.completion_active);
             return None;
         }
@@ -1086,7 +1127,8 @@ mod tests {
         let state = Arc::new(EngineState::new(';'));
         let mut eval = Evaluator::new(state.clone());
         eval.buffer.push('a');
-        eval.completion.activate(&state.completion_active, false);
+        eval.completion
+            .activate(&state.completion_active, false, false);
 
         eval.reset();
 
@@ -3511,5 +3553,48 @@ mod tests {
             last_result.is_none(),
             "Unit conversion must be skipped when instant_expand is active"
         );
+    }
+
+    #[test]
+    fn test_triggerless_completion() {
+        let state = Arc::new(EngineState::new('>'));
+        state
+            .triggerless_mode
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        state.load_actions(vec![
+            (
+                "gpush".to_string(),
+                crate::db::crud::AutomationAction::text("git push"),
+            ),
+            (
+                "gs".to_string(),
+                crate::db::crud::AutomationAction::text("git status"),
+            ),
+            (
+                "gco".to_string(),
+                crate::db::crud::AutomationAction::text("git checkout"),
+            ),
+        ]);
+        let mut eval = Evaluator::new(state);
+
+        // Type "gp"
+        eval.process(EngineEvent::Char('g'));
+        eval.process(EngineEvent::Char('p'));
+
+        assert!(!eval.is_completion_active());
+
+        // Activate completion
+        let rewrite = eval.activate_triggerless_completion();
+        assert_completion_rewrite(rewrite, 2, "gpush");
+
+        assert!(eval.is_completion_active());
+        assert_eq!(eval.completion.original_query, "gp");
+        assert_eq!(eval.completion.current_text, "gpush");
+
+        // Backspace should revert back to original query (which gets updated to "g")
+        let rewrite = eval.rewrite_backspace_query();
+        assert_completion_rewrite(rewrite, 5, "g");
+        assert_eq!(eval.completion.original_query, "g");
+        assert_eq!(eval.completion.current_text, "g");
     }
 }
