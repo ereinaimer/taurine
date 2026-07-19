@@ -8,29 +8,29 @@ use tracing::{error, info};
 /// Taurine Command Line Interface
 #[derive(Parser, Debug)]
 #[command(name = "taurine", version = env!("CARGO_PKG_VERSION"), disable_version_flag = true)]
-#[command(about = "Fast, secure and easy to use text expander and keyboard automation tool")]
+#[command(about = "Text expander")]
 struct Cli {
     /// Increase console verbosity
     #[arg(short, long, global = true, action = clap::ArgAction::Count)]
     verbose: u8,
 
-    /// Disable console logging output
+    /// Suppress console output
     #[arg(short, long, global = true, conflicts_with = "verbose")]
     quiet: bool,
 
-    /// Disable writing logs to the log file
+    /// Disable log file
     #[arg(long, global = true)]
     no_log_file: bool,
 
-    /// Disable showing colors in console output
+    /// Disable colored output
     #[arg(long, global = true)]
     no_color: bool,
 
-    /// Show log level prefixes (INFO, DEBUG, WARN) in console output
+    /// Show log prefixes
     #[arg(long, global = true)]
     show_log_prefixes: bool,
 
-    /// Print version information and exit
+    /// Print version
     #[arg(long, global = true)]
     version: bool,
 
@@ -53,9 +53,9 @@ enum Commands {
     /// Restart Taurine
     #[command(alias = "reboot")]
     Restart,
-    /// Update Taurine to the latest version
+    /// Update Taurine
     Update,
-    /// Check if Taurine is currently running
+    /// Check Taurine status
     Status,
     #[cfg(target_os = "linux")]
     /// Configure system permissions for hardware access
@@ -64,10 +64,10 @@ enum Commands {
     /// Add a new automation
     #[command(alias = "set")]
     Add(Box<AddArgs>),
-    /// Remove an existing automation by trigger
+    /// Remove an automation
     #[command(aliases = ["rm", "remove"])]
     Delete {
-        /// Remove all automations matching the specified tag
+        /// Remove by tag
         #[arg(long)]
         tag: Option<String>,
 
@@ -77,23 +77,23 @@ enum Commands {
     /// List all automations
     #[command(alias = "ls")]
     List {
-        /// Sort the list by a specific criteria
+        /// Sort results by
         #[arg(long, value_enum, hide_possible_values = true)]
         sort: Option<SortBy>,
 
-        /// Sort in ascending order
+        /// Ascending order
         #[arg(long, conflicts_with = "desc")]
         asc: bool,
 
-        /// Sort in descending order
+        /// Descending order
         #[arg(long, conflicts_with = "asc")]
         desc: bool,
 
-        /// Disable table decorations and borders
+        /// Plain output
         #[arg(long)]
         plain: bool,
 
-        /// Filter listed automations by tag
+        /// Filter by tag
         #[arg(long)]
         tag: Option<String>,
     },
@@ -101,16 +101,16 @@ enum Commands {
     Export {
         /// Destination file path
         path: Option<std::path::PathBuf>,
-        /// Write a plaintext export without encryption
+        /// Plaintext (no encryption)
         #[arg(short = 'p', long)]
         plain: bool,
-        /// Include settings in the exported payload
+        /// Include settings
         #[arg(short = 's', long)]
         settings: bool,
-        /// Include automation usage stats and daily stats in the exported payload
+        /// Include stats
         #[arg(short = 't', long)]
         stats: bool,
-        /// Include sensitive settings in the exported payload (requires encryption)
+        /// Include sensitive settings
         #[arg(short = 'x', long)]
         sensitive: bool,
     },
@@ -118,16 +118,16 @@ enum Commands {
     Import {
         /// Source file path
         path: std::path::PathBuf,
-        /// How to resolve trigger + target_os collisions during import
+        /// Collision resolution
         #[arg(short = 'c', long, value_enum)]
         conflict: Option<ImportConflictCli>,
-        /// Overwrite local settings with imported values
+        /// Overwrite local settings
         #[arg(short = 's', long)]
         settings: bool,
-        /// Include imported stats. Omit the flag to ignore stats entirely; `--stats` alone uses `merge`.
+        /// Import stats strategy
         #[arg(short = 't', long, value_enum, num_args = 0..=1, require_equals = true, default_missing_value = "merge")]
         stats: Option<ImportStatsCli>,
-        /// Import sensitive settings from the payload
+        /// Import sensitive settings
         #[arg(short = 'x', long)]
         sensitive: bool,
     },
@@ -136,7 +136,7 @@ enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
-    /// Configure AI settings
+    /// Configure AI
     Ai {
         #[command(subcommand)]
         action: AiAction,
@@ -152,14 +152,14 @@ enum Commands {
 enum ConfigAction {
     /// Set a configuration value
     Set { key: String, value: String },
-    /// List all current configuration values
+    /// List configuration
     #[command(alias = "ls")]
     List,
-    /// Reset a configuration value to default. Use --all to reset everything.
+    /// Reset a configuration value
     Reset {
         /// The setting key to reset
         key: Option<String>,
-        /// Reset all settings to factory defaults
+        /// Reset all settings
         #[arg(long)]
         all: bool,
     },
@@ -178,19 +178,19 @@ enum ShellCompletionAction {
 
 #[derive(Subcommand, Debug)]
 enum AiAction {
-    /// Add or update a provider credential in the OS keyring
+    /// Add/update AI provider
     Add {
         #[arg(long, value_enum)]
         provider: AiProvider,
     },
-    /// List configured AI providers
+    /// List providers
     List,
-    /// List models known for a provider
+    /// List provider models
     Models {
         #[arg(long, value_enum)]
         provider: AiProvider,
     },
-    /// Remove a provider credential from the OS keyring
+    /// Remove AI provider
     Remove {
         #[arg(long, value_enum)]
         provider: AiProvider,
@@ -266,58 +266,58 @@ pub struct AddArgs {
     #[command(subcommand)]
     pub sub: Option<AddSubcommand>,
 
-    /// Interpret the trigger positional as a hotkey trigger
+    /// Hotkey trigger
     #[arg(long)]
     pub hotkey: bool,
 
-    /// Interpret the trigger positional as a regex trigger
+    /// Regex trigger
     #[arg(long, conflicts_with = "hotkey")]
     pub regex: bool,
 
-    /// Limit execution to specific apps (comma-separated)
+    /// Allowed apps
     #[arg(long)]
     pub include_apps: Option<String>,
 
-    /// Prevent execution in specific apps (comma-separated)
+    /// Excluded apps
     #[arg(long)]
     pub exclude_apps: Option<String>,
 
-    /// Trigger for standard text expansion
+    /// Trigger
     pub trigger: Option<String>,
-    /// Output for standard text expansion
+    /// Output
     pub output: Option<String>,
-    /// Target operating system
+    /// Target OS
     #[arg(long, value_enum, default_value = "all")]
     pub os: TargetOsCli,
 
-    /// Tags associated with the automation (comma-separated or repeated)
+    /// Tags
     #[arg(long = "tag", value_delimiter = ',', num_args = 1..)]
     pub tag: Option<Vec<String>>,
 
-    /// Automatically mirror trigger casing in expansion output
+    /// Auto-case
     #[arg(long)]
     pub auto_case: bool,
 }
 
 #[derive(Subcommand, Debug)]
 pub enum AddSubcommand {
-    /// Add a shell script automation
+    /// Add script automation
     Script {
-        /// The trigger string
+        /// Trigger
         trigger: String,
-        /// Interpret the trigger positional as a hotkey trigger
+        /// Hotkey trigger
         #[arg(long)]
         hotkey: bool,
-        /// Interpret the trigger positional as a regex trigger
+        /// Regex trigger
         #[arg(long, conflicts_with = "hotkey")]
         regex: bool,
-        /// The script content (optional if --file is used)
+        /// Script content
         #[arg(required_unless_present = "file")]
         content: Option<String>,
-        /// Path to the script file
+        /// Script file
         #[arg(short, long)]
         file: Option<std::path::PathBuf>,
-        /// Interpreter to use (bash, powershell, python, node, node-esm, cmd)
+        /// Interpreter
         #[arg(
             short = 'l',
             long = "lang",
@@ -325,24 +325,24 @@ pub enum AddSubcommand {
             required_unless_present = "file"
         )]
         lang: Option<ScriptInterpreterCli>,
-        /// Execution mode (inline, silent)
+        /// Run mode
         #[arg(short = 'm', long = "mode", value_enum, default_value = "inline")]
         mode: ScriptBehaviorCli,
-        /// Target operating system
+        /// Target OS
         #[arg(long, value_enum, default_value = "current")]
         os: TargetOsCli,
-        /// Limit execution to specific apps (comma-separated)
+        /// Allowed apps
         #[arg(long)]
         include_apps: Option<String>,
-        /// Prevent execution in specific apps (comma-separated)
+        /// Excluded apps
         #[arg(long)]
         exclude_apps: Option<String>,
 
-        /// Tags associated with the automation (comma-separated or repeated)
+        /// Tags
         #[arg(long = "tag", value_delimiter = ',', num_args = 1..)]
         tag: Option<Vec<String>>,
 
-        /// Automatically mirror trigger casing in expansion output
+        /// Auto-case
         #[arg(long)]
         auto_case: bool,
     },
