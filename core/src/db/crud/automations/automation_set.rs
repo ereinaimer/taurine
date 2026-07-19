@@ -233,6 +233,14 @@ pub fn prepare_trigger_with_type(
         return Err(crate::Error::Config("Trigger cannot be empty.".to_string()));
     }
 
+    if trigger_type == TriggerType::Word
+        && (trigger.contains(' ') || trigger.contains('\n') || trigger.contains('\r'))
+    {
+        return Err(crate::Error::Config(
+            "Word triggers cannot contain spaces or newlines.".to_string(),
+        ));
+    }
+
     if matches!(trigger_type, TriggerType::Word | TriggerType::Regex) {
         return Ok(PreparedTrigger {
             trigger_type,

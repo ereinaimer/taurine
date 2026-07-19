@@ -239,6 +239,30 @@ mod tests {
     }
 
     #[test]
+    fn prepare_trigger_rejects_word_triggers_with_spaces_or_newlines() {
+        let error_space = prepare_trigger("hello world", false, "all").unwrap_err();
+        assert!(
+            error_space
+                .to_string()
+                .contains("cannot contain spaces or newlines")
+        );
+
+        let error_newline = prepare_trigger("hello\nworld", false, "all").unwrap_err();
+        assert!(
+            error_newline
+                .to_string()
+                .contains("cannot contain spaces or newlines")
+        );
+
+        let error_cr = prepare_trigger("hello\rworld", false, "all").unwrap_err();
+        assert!(
+            error_cr
+                .to_string()
+                .contains("cannot contain spaces or newlines")
+        );
+    }
+
+    #[test]
     fn accepts_nested_and_reused_variables() {
         assert!(audit_payload_tags("Status: [http.status(https://httpbin.org/status/200)] | UA: [[http.get(https://httpbin.org/headers)] | json.get('headers.User-Agent') | truncate(15)]").is_ok());
         assert!(audit_payload_tags("User [name='Developer'] checked [url='httpbin.org/json'] at [time.utc.format(HH:mm)] UTC. Title of JSON: [http.get([url]) | json.get('slideshow.title') | upper]").is_ok());
