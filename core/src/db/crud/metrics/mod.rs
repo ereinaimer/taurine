@@ -204,4 +204,44 @@ mod tests {
             .unwrap();
         assert_eq!(automation.usage_count, 1);
     }
+
+    #[test]
+    fn recorder_tracks_hotkey_and_script_events_with_zero_savings() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        record_automation_metric_with_conn(
+            &mut conn,
+            &AutomationMetricEvent {
+                automation_trigger: None,
+                trigger_chars: 0,
+                success: true,
+                output_chars: 150,
+                kind: AutomationMetricKind::Hotkey,
+                wpm: Some(60),
+            },
+        )
+        .unwrap();
+
+        record_automation_metric_with_conn(
+            &mut conn,
+            &AutomationMetricEvent {
+                automation_trigger: None,
+                trigger_chars: 0,
+                success: true,
+                output_chars: 200,
+                kind: AutomationMetricKind::Script,
+                wpm: Some(60),
+            },
+        )
+        .unwrap();
+
+        let row = get_metric(&conn, &crate::metrics::get_current_date_string())
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.executions, 2);
+        assert_eq!(row.ai_executions, 0);
+        assert_eq!(row.keystrokes_saved, 0);
+        assert_eq!(row.time_saved_ms, 0);
+    }
 }

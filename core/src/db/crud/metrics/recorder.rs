@@ -94,11 +94,7 @@ pub fn record_automation_metric_with_conn(
             );
             (1, 0, metrics.keystrokes_saved, metrics.time_saved_ms)
         }
-        AutomationMetricKind::Hotkey | AutomationMetricKind::Script => {
-            let metrics =
-                calculate_expansion_metrics(event.output_chars, 0, effective_wpm(&tx, event.wpm));
-            (1, 0, metrics.keystrokes_saved, metrics.time_saved_ms)
-        }
+        AutomationMetricKind::Hotkey | AutomationMetricKind::Script => (1, 0, 0, 0),
     };
 
     if let Some(trigger) = event.automation_trigger.as_deref() {

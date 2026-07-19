@@ -219,7 +219,13 @@ impl Settings {
     }
 
     pub const fn sanitize_wpm(wpm: u32) -> u32 {
-        if wpm == 0 { Self::default_wpm() } else { wpm }
+        if wpm == 0 {
+            Self::default_wpm()
+        } else if wpm > 150 {
+            150
+        } else {
+            wpm
+        }
     }
 
     pub const fn default_rpc_port() -> u16 {
@@ -319,5 +325,12 @@ mod tests {
     fn test_clipboard_restore_delay_ms_clamping() {
         assert_eq!(Settings::sanitize_clipboard_restore_delay_ms(1500), 1500);
         assert_eq!(Settings::sanitize_clipboard_restore_delay_ms(2500), 2000);
+    }
+
+    #[test]
+    fn test_wpm_clamping() {
+        assert_eq!(Settings::sanitize_wpm(0), 60);
+        assert_eq!(Settings::sanitize_wpm(120), 120);
+        assert_eq!(Settings::sanitize_wpm(200), 150);
     }
 }

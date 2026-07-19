@@ -404,3 +404,81 @@ fn trigger_assist_is_inactive_while_inline_ai_capture_mode_is_active() {
         "history and completion keys must not be hijacked once AI capture is active"
     );
 }
+
+#[test]
+fn test_dispatch_expansion_skips_ai_metrics() {
+    let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+    let _rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime should build");
+
+    // Initialize/clear db metrics for today to have a clean slate
+    let conn = taurine_core::db::get_conn().unwrap();
+    let today = taurine_core::metrics::get_current_date_string();
+    let _ = conn.execute("DELETE FROM metrics WHERE date = ?1", [&today]);
+
+    // 1. Dispatch Snippet expansion -> should write to metrics
+    let expansion_snippet = taurine_core::engine::ExpansionResult {
+        delete_count: 2,
+        steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
+            "hello".to_string(),
+        )],
+        trigger: "h".to_string(),
+        undo_trigger: None,
+        is_calculation: false,
+        metric_kind: taurine_core::db::crud::AutomationMetricKind::Snippet,
+        track_usage: true,
+        follow_up: None,
+    };
+    dispatch_expansion_with(
+        expansion_snippet,
+        taurine_core::settings::SpinnerStyle::default(),
+        state.clone(),
+        move |_, _, _| crate::injector::InjectionReport {
+            successful_chars: 5,
+            completed: true,
+        },
+        move |_, _| {},
+    );
+
+    // Verify snippet execution was counted (allow background thread to write)
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    let row = taurine_core::db::crud::get_metric(&conn, &today)
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.executions, 1);
+    assert_eq!(row.ai_executions, 0);
+
+    // 2. Dispatch InlineAi expansion -> should NOT write additional metrics during dispatch
+    let expansion_ai = taurine_core::engine::ExpansionResult {
+        delete_count: 2,
+        steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
+            "thinking".to_string(),
+        )],
+        trigger: "ai".to_string(),
+        undo_trigger: None,
+        is_calculation: false,
+        metric_kind: taurine_core::db::crud::AutomationMetricKind::InlineAi,
+        track_usage: true,
+        follow_up: None,
+    };
+    dispatch_expansion_with(
+        expansion_ai,
+        taurine_core::settings::SpinnerStyle::default(),
+        state,
+        move |_, _, _| crate::injector::InjectionReport {
+            successful_chars: 1,
+            completed: true,
+        },
+        move |_, _| {},
+    );
+
+    // Verify executions/ai_executions remain unchanged after AI dispatch (allow sleep anyway to be sure)
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    let row = taurine_core::db::crud::get_metric(&conn, &today)
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.executions, 1);
+    assert_eq!(row.ai_executions, 0); // We expect this to fail right now because it's currently recorded as 1
+}

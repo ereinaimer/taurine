@@ -22,7 +22,8 @@ pub fn calculate_time_saved_ms(keystrokes_saved: i64, wpm: u32) -> i64 {
     }
 
     let saved = keystrokes_saved as u64;
-    ((saved.saturating_mul(60_000)) / chars_per_minute) as i64
+    let time_saved_ms = ((saved.saturating_mul(60_000)) / chars_per_minute) as i64;
+    time_saved_ms.min(300_000)
 }
 
 pub fn calculate_expansion_metrics(
@@ -63,6 +64,12 @@ mod tests {
         let fast = calculate_time_saved_ms(120, 60);
         let slow = calculate_time_saved_ms(120, 30);
         assert!(slow > fast);
+    }
+
+    #[test]
+    fn time_saved_caps_at_five_minutes() {
+        // At 60 WPM, 100000 keystrokes would take massive time, but should cap at 5 mins (300,000 ms)
+        assert_eq!(calculate_time_saved_ms(100_000, 60), 300_000);
     }
 
     #[test]

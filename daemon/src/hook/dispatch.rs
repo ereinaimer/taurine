@@ -142,7 +142,7 @@ pub(super) fn dispatch_expansion_with<I, L>(
     }
     launch_follow_up_fn(follow_up, spinner_style);
 
-    if track_usage {
+    if track_usage && metric_kind != taurine_core::db::crud::AutomationMetricKind::InlineAi {
         taurine_core::db::crud::record_automation_metric(
             taurine_core::db::crud::AutomationMetricEvent {
                 automation_trigger: Some(trigger.clone()),
