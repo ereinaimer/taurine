@@ -4,6 +4,7 @@ use crate::db::crud::{
     upsert_script, upsert_setting,
 };
 use crate::engine::shell::compress;
+use crate::keys::normalize_hotkey;
 use rusqlite::{Connection, Transaction};
 use uuid::Uuid;
 
@@ -56,10 +57,17 @@ where
 
     let mut imported = 0usize;
     for automation in &payload.automations {
+        let canonical_trigger = match automation.trigger_type {
+            TriggerType::Hotkey => {
+                normalize_hotkey(&automation.trigger).unwrap_or_else(|_| automation.trigger.clone())
+            }
+            _ => automation.trigger.clone(),
+        };
+
         let existing = find_conflicting_automation(
             tx,
             automation.trigger_type,
-            automation.trigger.as_str(),
+            &canonical_trigger,
             automation.target_os.as_str(),
         )?;
 
@@ -69,7 +77,7 @@ where
                     tombstone_conflicting_automations(
                         tx,
                         automation.trigger_type,
-                        automation.trigger.as_str(),
+                        &canonical_trigger,
                         automation.target_os.as_str(),
                     )?;
                 }
@@ -77,7 +85,14 @@ where
             }
         }
 
-        insert_imported_automation(tx, automation, existing.as_ref(), options.stats_mode)?;
+        let mut canonical_automation = automation.clone();
+        canonical_automation.trigger = canonical_trigger;
+        insert_imported_automation(
+            tx,
+            &canonical_automation,
+            existing.as_ref(),
+            options.stats_mode,
+        )?;
         imported += 1;
     }
 
@@ -618,6 +633,88 @@ mod tests {
             .unwrap();
         assert_eq!(row.0, "hotkey");
         assert_eq!(row.1, "ctrl+shift+g");
+    }
+
+    #[test]
+    fn import_canonicalizes_hotkey_trigger_order() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        let payload = ExchangePayload::new(vec![text_export(
+            TriggerType::Hotkey,
+            "alt+shift+2",
+            "all",
+            "echo works",
+        )]);
+        let tx = conn.transaction().unwrap();
+        let imported = import_automations(&tx, &payload, ImportOptions::default(), |_, _| {
+            Ok(ImportConflictAction::Overwrite)
+        })
+        .unwrap();
+        tx.commit().unwrap();
+
+        assert_eq!(imported, 1);
+
+        let stored_trigger: String = conn
+            .query_row(
+                "SELECT trigger FROM automations WHERE is_deleted = 0",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored_trigger, "shift+alt+2");
+    }
+
+    #[test]
+    fn import_non_canonical_hotkey_detects_conflict_with_canonical_stored() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        upsert_automation_with_trigger_type(
+            &conn,
+            "local-hotkey",
+            "Existing",
+            None,
+            TriggerType::Hotkey,
+            "shift+alt+2",
+            "local output",
+            "text",
+            "all",
+            "[]",
+            0,
+            None,
+        )
+        .unwrap();
+
+        let payload = ExchangePayload::new(vec![text_export(
+            TriggerType::Hotkey,
+            "alt+shift+2",
+            "all",
+            "imported output",
+        )]);
+        let tx = conn.transaction().unwrap();
+        let imported = import_automations(&tx, &payload, ImportOptions::default(), |_, _| {
+            Ok(ImportConflictAction::Overwrite)
+        })
+        .unwrap();
+        tx.commit().unwrap();
+
+        assert_eq!(imported, 1);
+
+        let local_row = crate::db::crud::get_automation(&conn, "local-hotkey")
+            .unwrap()
+            .unwrap();
+        assert!(local_row.is_deleted);
+
+        let (new_id, new_trigger): (String, String) = conn
+            .query_row(
+                "SELECT id, trigger FROM automations WHERE trigger = 'shift+alt+2' AND is_deleted = 0",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_ne!(new_id, "local-hotkey");
+        assert_eq!(new_trigger, "shift+alt+2");
     }
 
     #[test]
