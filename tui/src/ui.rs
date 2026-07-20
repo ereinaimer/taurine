@@ -593,11 +593,6 @@ fn render_library_export_modal(frame: &mut Frame, area: Rect, state: &LibraryExp
             "Password",
             &state.password_display_value(),
             state.password_cursor(),
-            state.password_toggle_label(),
-            PasswordRowFocus {
-                password: state.focus() == LibraryExportModalField::Password,
-                toggle: state.focus() == LibraryExportModalField::PasswordToggle,
-            },
         );
         next_row = 4;
     }
@@ -713,11 +708,6 @@ fn render_library_import_modal(frame: &mut Frame, area: Rect, state: &LibraryImp
         "Password",
         &state.password_display_value(),
         state.password_cursor(),
-        state.password_toggle_label(),
-        PasswordRowFocus {
-            password: state.focus() == LibraryImportModalField::Password,
-            toggle: state.focus() == LibraryImportModalField::PasswordToggle,
-        },
     );
 
     render_modal_key_value_row(
@@ -1136,89 +1126,30 @@ fn render_modal_input_field(
     frame.render_widget(text.style(text_style), inner);
 }
 
-struct PasswordRowFocus {
-    password: bool,
-    toggle: bool,
-}
-
 fn render_modal_password_row(
     frame: &mut Frame,
     area: Rect,
     label: &str,
     value: &str,
     cursor: usize,
-    toggle_label: &str,
-    focus: PasswordRowFocus,
 ) {
-    let password_focused = focus.password;
-    let toggle_focused = focus.toggle;
-    let selected = password_focused || toggle_focused;
-    let bg = if selected {
-        SELECTED_ROW_BG_COLOR
-    } else {
-        Color::Reset
-    };
-    frame.render_widget(Block::default().style(Style::default().bg(bg)), area);
-
     let label_width = area.width.min(12);
-    let toggle_width = (toggle_label.chars().count() as u16)
-        .saturating_add(1)
-        .min(area.width.saturating_sub(label_width));
     let sections = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length(label_width),
-            Constraint::Min(0),
-            Constraint::Length(toggle_width),
-        ])
+        .constraints([Constraint::Length(label_width), Constraint::Min(0)])
         .split(area);
 
-    let label_style = if selected {
-        Style::default()
-            .fg(ACCENT_COLOR)
-            .bg(bg)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(MUTED_TEXT_COLOR)
-    };
-    let value_style = if password_focused {
-        Style::default()
-            .fg(ACCENT_COLOR)
-            .bg(bg)
-            .add_modifier(Modifier::BOLD)
-    } else if selected {
-        Style::default().fg(ACCENT_COLOR).bg(bg)
-    } else {
-        Style::default().fg(ACCENT_COLOR)
-    };
-    let toggle_style = if toggle_focused {
-        Style::default()
-            .fg(ACCENT_COLOR)
-            .bg(bg)
-            .add_modifier(Modifier::BOLD)
-    } else if selected {
-        Style::default().fg(MUTED_TEXT_COLOR).bg(bg)
-    } else {
-        Style::default()
-            .fg(MUTED_TEXT_COLOR)
-            .add_modifier(Modifier::DIM)
-    };
+    let label_style = Style::default()
+        .fg(ACCENT_COLOR)
+        .add_modifier(Modifier::BOLD);
+    let value_style = Style::default()
+        .fg(ACCENT_COLOR)
+        .add_modifier(Modifier::BOLD);
 
     frame.render_widget(Paragraph::new(label).style(label_style), sections[0]);
 
-    let text = if password_focused {
-        Paragraph::new(input_cursor_line(value, cursor))
-    } else {
-        Paragraph::new(truncate_to_width(value, sections[1].width))
-    };
+    let text = Paragraph::new(input_cursor_line(value, cursor));
     frame.render_widget(text.style(value_style), sections[1]);
-
-    frame.render_widget(
-        Paragraph::new(toggle_label)
-            .alignment(Alignment::Right)
-            .style(toggle_style),
-        sections[2],
-    );
 }
 
 fn render_modal_content_field(frame: &mut Frame, area: Rect, state: &LibraryEditorModalState) {
@@ -2243,37 +2174,7 @@ mod tests {
 
         assert_eq!(
             footer_text(&app),
-            "Ctrl+B Nav   Ctrl+S Export   Esc Cancel   Tab Next   Shift+Tab Prev"
-        );
-    }
-
-    #[test]
-    fn library_export_password_footer_includes_show_hide_hint() {
-        let mut app = App::default();
-        app.handle_key(
-            crossterm::event::KeyCode::Char('2'),
-            crossterm::event::KeyModifiers::NONE,
-        );
-        app.library_page_mut().open_export_modal();
-        app.library_page_mut()
-            .handle_key(crossterm::event::KeyEvent::new(
-                crossterm::event::KeyCode::Tab,
-                crossterm::event::KeyModifiers::NONE,
-            ));
-        app.library_page_mut()
-            .handle_key(crossterm::event::KeyEvent::new(
-                crossterm::event::KeyCode::Tab,
-                crossterm::event::KeyModifiers::NONE,
-            ));
-        app.library_page_mut()
-            .handle_key(crossterm::event::KeyEvent::new(
-                crossterm::event::KeyCode::Tab,
-                crossterm::event::KeyModifiers::NONE,
-            ));
-
-        assert_eq!(
-            footer_text(&app),
-            "Ctrl+B Nav   Ctrl+S Export   Esc Cancel   Tab Next   Shift+Tab Prev   Enter Show/Hide"
+            "Ctrl+B Nav   Ctrl+S Export   Esc Cancel   ↑/↓ Move"
         );
     }
 
@@ -2310,7 +2211,7 @@ mod tests {
 
         assert_eq!(
             footer_text(&app),
-            "Ctrl+B Nav   Ctrl+S Import   Esc Cancel   Tab Next   Shift+Tab Prev"
+            "Ctrl+B Nav   Ctrl+S Import   Esc Cancel   ↑/↓ Move"
         );
     }
 

@@ -1,11 +1,9 @@
 use std::path::PathBuf;
 
-use inquire::{Password, PasswordDisplayMode};
 use taurine_core::db::init;
 use taurine_core::exchange::{
     ExportOptions, encode_exchange_blob, export_automations, resolve_export_path,
 };
-use tracing::info;
 use zeroize::Zeroize;
 
 pub fn execute(
@@ -14,12 +12,28 @@ pub fn execute(
     settings: bool,
     stats: bool,
     sensitive: bool,
+    yes: bool,
 ) -> taurine_core::error::Result<()> {
-    if sensitive && plain {
-        return Err(taurine_core::error::Error::Config(
-            "Cannot export sensitive settings without encryption. Remove the --plain / -p flag to securely export sensitive data.".to_string(),
-        ));
-    }
+    let (path, plain, settings, stats, sensitive, password) = if !yes {
+        match taurine_tui::run_export_overlay()? {
+            Some(result) => (
+                Some(result.path),
+                !result.encrypt,
+                result.include_settings,
+                result.include_stats,
+                result.include_sensitive_settings,
+                result.password,
+            ),
+            None => return Ok(()),
+        }
+    } else {
+        if sensitive && plain {
+            return Err(taurine_core::error::Error::Config(
+                    "Cannot export sensitive settings without encryption. Remove the --plain / -p flag to securely export sensitive data.".to_string(),
+                ));
+        }
+        (path, plain, settings, stats, sensitive, None)
+    };
 
     let path = resolve_export_path(path)?;
     let conn = init::setup()?;
@@ -33,8 +47,18 @@ pub fn execute(
     )?;
     let encoded = if plain {
         encode_exchange_blob(&payload, false, None)?
+    } else if yes {
+        return Err(taurine_core::error::Error::Config(
+            "Encryption password is required. Use --plain for unencrypted export.".into(),
+        ));
     } else {
-        let mut password = prompt_export_password()?;
+        let mut password =
+            match password {
+                Some(pw) => pw,
+                None => taurine_tui::prompt_password("Encryption password:", true)?.ok_or_else(
+                    || taurine_core::error::Error::Config("Export cancelled.".to_string()),
+                )?,
+            };
         let result = encode_exchange_blob(&payload, true, Some(password.as_str()));
         password.zeroize();
         result?
@@ -66,7 +90,7 @@ pub fn execute(
         "automations"
     };
 
-    info!(
+    println!(
         "Exported {} {}{} to {}",
         payload.automations.len(),
         automation_word,
@@ -75,17 +99,6 @@ pub fn execute(
     );
 
     Ok(())
-}
-
-fn prompt_export_password() -> taurine_core::error::Result<String> {
-    Password::new("Encryption password:")
-        .with_display_mode(PasswordDisplayMode::Masked)
-        .with_custom_confirmation_message("Confirm encryption password:")
-        .with_custom_confirmation_error_message("Passwords do not match.")
-        .prompt()
-        .map_err(|e| {
-            taurine_core::error::Error::Service(format!("Failed to read encryption password: {e}"))
-        })
 }
 
 #[cfg(test)]

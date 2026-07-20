@@ -1,48 +1,100 @@
 use std::path::PathBuf;
 
-use inquire::{Confirm, Password, PasswordDisplayMode, Select};
-use taurine_core::db::crud::TriggerType;
 use taurine_core::db::init;
 use taurine_core::exchange::{
     AutomationExport, ExchangeFormat, ExchangePayload, ExistingAutomationConflict,
     ImportConflictAction, ImportOptions, ImportStatsMode,
     decode_exchange_blob as decode_exchange_blob_core, detect_exchange_format,
     import_payload_transactionally as import_payload_transactionally_core,
-    payload_contains_run_variables as payload_contains_run_variables_core,
 };
-use tracing::info;
 use zeroize::Zeroize;
 
 use crate::{ImportConflictCli, ImportStatsCli};
 
 pub fn execute(
-    path: PathBuf,
+    path: Option<PathBuf>,
     conflict: Option<ImportConflictCli>,
     settings: bool,
     stats: Option<ImportStatsCli>,
     sensitive: bool,
+    yes: bool,
 ) -> taurine_core::error::Result<()> {
-    let bytes = std::fs::read(&path)?;
+    let (
+        resolved_path,
+        resolved_settings,
+        resolved_sensitive,
+        resolved_stats,
+        resolved_conflict,
+        overlay_password,
+    ) = if !yes {
+        let path_str = path.as_ref().map(|p| p.to_string_lossy().into_owned());
+        match taurine_tui::run_import_overlay(path_str.as_deref())? {
+            Some(result) => {
+                let stats_cli = match result.stats_mode {
+                    ImportStatsMode::Ignore => ImportStatsCli::Ignore,
+                    ImportStatsMode::Merge => ImportStatsCli::Merge,
+                    ImportStatsMode::Overwrite => ImportStatsCli::Overwrite,
+                };
+                let conflict_cli = match result.conflict_mode {
+                    taurine_tui::LibraryImportConflictMode::Skip => ImportConflictCli::Skip,
+                    taurine_tui::LibraryImportConflictMode::Overwrite => {
+                        ImportConflictCli::Overwrite
+                    }
+                };
+                (
+                    result.path,
+                    result.include_settings,
+                    result.include_sensitive_settings,
+                    Some(stats_cli),
+                    Some(conflict_cli),
+                    result.password,
+                )
+            }
+            None => return Ok(()),
+        }
+    } else {
+        let path = path.ok_or_else(|| {
+            taurine_core::error::Error::Config(
+                "a PATH is required for non-interactive import".into(),
+            )
+        })?;
+        (path, settings, sensitive, stats, conflict, None)
+    };
+
+    let bytes = std::fs::read(&resolved_path)?;
     let format = detect_exchange_format(&bytes)?;
+    let mut password = match format {
+        ExchangeFormat::Encrypted => Some(match overlay_password {
+            Some(pw) => pw,
+            None if yes => {
+                return Err(taurine_core::error::Error::Config(
+                    "File is encrypted. Use interactive import or import a plaintext file.".into(),
+                ));
+            }
+            None => prompt_import_password()?,
+        }),
+        ExchangeFormat::Plaintext => overlay_password,
+    };
     let payload = match format {
         ExchangeFormat::Plaintext => decode_exchange_blob(&bytes, None)?,
         ExchangeFormat::Encrypted => {
-            let mut password = prompt_import_password()?;
-            let result = decode_exchange_blob(&bytes, Some(password.as_str()));
-            password.zeroize();
-            result?
+            let pw = password.as_deref().unwrap();
+            decode_exchange_blob(&bytes, Some(pw))?
         }
     };
-    confirm_run_variable_import(&payload)?;
+    if let Some(ref mut pw) = password {
+        pw.zeroize();
+    }
+    drop(password);
     let mut conn = init::setup()?;
     let imported = import_payload_transactionally(
         &mut conn,
         &payload,
-        conflict,
+        resolved_conflict,
         ImportOptions {
-            include_settings: settings,
-            stats_mode: map_import_stats_mode(stats),
-            include_sensitive_settings: sensitive,
+            include_settings: resolved_settings,
+            stats_mode: map_import_stats_mode(resolved_stats),
+            include_sensitive_settings: resolved_sensitive,
         },
     )?;
 
@@ -51,14 +103,15 @@ pub fn execute(
     }
 
     let mut parts = Vec::new();
-    if settings {
-        if sensitive && payload.settings.is_some() {
+    if resolved_settings {
+        if resolved_sensitive && payload.settings.is_some() {
             parts.push("sensitive settings");
         } else if payload.settings.is_some() {
             parts.push("settings");
         }
     }
-    if stats.is_some() && stats != Some(ImportStatsCli::Ignore) && payload.stats.is_some() {
+    let stats_cli = resolved_stats;
+    if stats_cli.is_some() && stats_cli != Some(ImportStatsCli::Ignore) && payload.stats.is_some() {
         parts.push("stats");
     }
 
@@ -68,19 +121,24 @@ pub fn execute(
         format!(" with {}", parts.join(" and "))
     };
 
-    let automation_word = if imported == 1 {
-        "automation"
+    if imported == 0 {
+        println!("No automations were imported.");
     } else {
-        "automations"
-    };
+        let automation_word = if imported == 1 {
+            "automation"
+        } else {
+            "automations"
+        };
 
-    info!(
-        "Imported {} {}{} from {}",
-        imported,
-        automation_word,
-        details,
-        path.display()
-    );
+        println!(
+            "Imported {} {}{} from {}",
+            imported,
+            automation_word,
+            details,
+            resolved_path.display()
+        );
+    }
+
     Ok(())
 }
 
@@ -90,7 +148,7 @@ fn import_payload_transactionally(
     conflict: Option<ImportConflictCli>,
     options: ImportOptions,
 ) -> taurine_core::error::Result<usize> {
-    let mut remembered_choice = None;
+    let mut remembered_choice: Option<taurine_tui::RememberedConflictChoice> = None;
     import_payload_transactionally_core(conn, payload, options, |incoming, existing| {
         resolve_conflict_action(incoming, existing, conflict, &mut remembered_choice)
     })
@@ -111,41 +169,11 @@ fn decode_exchange_blob(
     decode_exchange_blob_core(bytes, password)
 }
 
-fn confirm_run_variable_import(payload: &ExchangePayload) -> taurine_core::error::Result<()> {
-    if !payload_contains_run_variables(payload) {
-        return Ok(());
-    }
-
-    let confirmed = Confirm::new(
-        "**CAUTION**: This import contains [execute] variables that execute shell commands.\n\
-Untrusted scripts can damage your system. Continue? [y/N]",
-    )
-    .with_default(false)
-    .prompt()
-    .map_err(|e| {
-        taurine_core::error::Error::Service(format!(
-            "Failed to read execute variable import confirmation: {e}"
-        ))
-    })?;
-
-    if confirmed {
-        Ok(())
-    } else {
-        Err(taurine_core::error::Error::Config(
-            "Import cancelled because it contains [execute] variables".to_string(),
-        ))
-    }
-}
-
-fn payload_contains_run_variables(payload: &ExchangePayload) -> bool {
-    payload_contains_run_variables_core(payload)
-}
-
 fn resolve_conflict_action(
     incoming: &AutomationExport,
     existing: &ExistingAutomationConflict,
     conflict: Option<ImportConflictCli>,
-    remembered_choice: &mut Option<RememberedConflictChoice>,
+    remembered_choice: &mut Option<taurine_tui::RememberedConflictChoice>,
 ) -> taurine_core::error::Result<ImportConflictAction> {
     match conflict {
         Some(ImportConflictCli::Skip) => Ok(ImportConflictAction::Skip),
@@ -159,116 +187,20 @@ fn resolve_conflict_action(
 fn prompt_conflict_action(
     incoming: &AutomationExport,
     existing: &ExistingAutomationConflict,
-    remembered_choice: &mut Option<RememberedConflictChoice>,
+    remembered_choice: &mut Option<taurine_tui::RememberedConflictChoice>,
 ) -> taurine_core::error::Result<ImportConflictAction> {
-    if let Some(choice) = remembered_choice {
-        return Ok(choice.to_action());
-    }
-
-    let prompt = format_conflict_prompt(incoming, existing);
-
-    let selection = Select::new(
-        &prompt,
-        vec![
-            ConflictPromptOption::Yes,
-            ConflictPromptOption::No,
-            ConflictPromptOption::All,
-            ConflictPromptOption::SkipAll,
-        ],
-    )
-    .prompt()
-    .map_err(|e| {
-        taurine_core::error::Error::Service(format!(
-            "Failed to resolve import conflict interactively: {e}"
-        ))
-    })?;
-
-    match selection {
-        ConflictPromptOption::Yes => Ok(ImportConflictAction::Overwrite),
-        ConflictPromptOption::No => Ok(ImportConflictAction::Skip),
-        ConflictPromptOption::All => {
-            *remembered_choice = Some(RememberedConflictChoice::OverwriteAll);
-            Ok(ImportConflictAction::Overwrite)
-        }
-        ConflictPromptOption::SkipAll => {
-            *remembered_choice = Some(RememberedConflictChoice::SkipAll);
-            Ok(ImportConflictAction::Skip)
-        }
-    }
-}
-
-fn format_conflict_prompt(
-    incoming: &AutomationExport,
-    existing: &ExistingAutomationConflict,
-) -> String {
-    format!(
-        "Conflict for {} trigger '{}' on target_os '{}': local '{}' -> '{}' vs imported '{}' -> '{}'. How should Taurine proceed?",
-        format_trigger_kind(existing.trigger_type),
-        existing.trigger,
-        existing.target_os,
-        existing.name,
-        existing.output,
-        incoming.name,
-        incoming.output
-    )
-}
-
-fn format_trigger_kind(trigger_type: TriggerType) -> &'static str {
-    match trigger_type {
-        TriggerType::Word => "word",
-        TriggerType::Hotkey => "hotkey",
-        TriggerType::Regex => "regex",
-    }
+    taurine_tui::run_conflict_prompt(incoming, existing, remembered_choice)
 }
 
 fn prompt_import_password() -> taurine_core::error::Result<String> {
-    Password::new("Decryption password:")
-        .with_display_mode(PasswordDisplayMode::Masked)
-        .without_confirmation()
-        .prompt()
-        .map_err(|e| {
-            taurine_core::error::Error::Service(format!("Failed to read decryption password: {e}"))
-        })
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RememberedConflictChoice {
-    OverwriteAll,
-    SkipAll,
-}
-
-impl RememberedConflictChoice {
-    fn to_action(self) -> ImportConflictAction {
-        match self {
-            Self::OverwriteAll => ImportConflictAction::Overwrite,
-            Self::SkipAll => ImportConflictAction::Skip,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ConflictPromptOption {
-    Yes,
-    No,
-    All,
-    SkipAll,
-}
-
-impl std::fmt::Display for ConflictPromptOption {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let label = match self {
-            Self::Yes => "[y]es - overwrite this local automation",
-            Self::No => "[n]o - skip this imported automation",
-            Self::All => "[A]ll - overwrite all remaining conflicts",
-            Self::SkipAll => "[S]kip all - keep all remaining local conflicts",
-        };
-        write!(f, "{label}")
-    }
+    taurine_tui::prompt_password("Decryption password:", false)?
+        .ok_or_else(|| taurine_core::error::Error::Config("Import cancelled.".to_string()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use taurine_core::db::crud::TriggerType;
     use taurine_core::exchange::{ExchangePayload, crypto, serialize_payload};
 
     fn sample_payload() -> ExchangePayload {
@@ -349,74 +281,11 @@ mod tests {
     }
 
     #[test]
-    fn remembered_conflict_choice_applies_without_prompting() {
-        let mut remembered = Some(RememberedConflictChoice::OverwriteAll);
-        let action =
-            prompt_conflict_action(&sample_automation(), &sample_existing(), &mut remembered)
-                .unwrap();
-
-        assert_eq!(action, ImportConflictAction::Overwrite);
-    }
-
-    #[test]
     fn map_import_stats_mode_defaults_to_ignore() {
         assert_eq!(map_import_stats_mode(None), ImportStatsMode::Ignore);
         assert_eq!(
             map_import_stats_mode(Some(ImportStatsCli::Merge)),
             ImportStatsMode::Merge
         );
-    }
-
-    #[test]
-    fn detects_run_variables_case_insensitively() {
-        let mut payload = sample_payload();
-        payload.automations.push(AutomationExport {
-            trigger_type: TriggerType::Word,
-            output: "before [EXEC.bash(echo hi)] after".to_string(),
-            ..sample_automation()
-        });
-
-        assert!(payload_contains_run_variables(&payload));
-    }
-
-    #[test]
-    fn detects_run_variables_in_script_content() {
-        let mut payload = sample_payload();
-        let mut automation = sample_automation();
-        automation.script = Some(taurine_core::exchange::ScriptExport {
-            interpreter: taurine_core::engine::shell::ScriptInterpreter::Bash,
-            behavior: taurine_core::engine::shell::ScriptBehavior::Inline,
-            content: "echo [exec.bash(echo nested)]".to_string(),
-        });
-        payload.automations.push(automation);
-
-        assert!(payload_contains_run_variables(&payload));
-    }
-
-    #[test]
-    fn ignores_content_without_run_variables() {
-        let mut payload = sample_payload();
-        payload.automations.push(sample_automation());
-
-        assert!(!payload_contains_run_variables(&payload));
-    }
-
-    #[test]
-    fn conflict_prompt_mentions_trigger_type_trigger_and_target_os() {
-        let mut incoming = sample_automation();
-        incoming.trigger_type = TriggerType::Hotkey;
-        incoming.trigger = "ctrl+shift+g".to_string();
-        incoming.output = "git push".to_string();
-
-        let mut existing = sample_existing();
-        existing.trigger_type = TriggerType::Hotkey;
-        existing.trigger = "ctrl+shift+g".to_string();
-        existing.target_os = "all".to_string();
-        existing.output = "git status".to_string();
-
-        let prompt = format_conflict_prompt(&incoming, &existing);
-
-        assert!(prompt.contains("hotkey trigger 'ctrl+shift+g'"));
-        assert!(prompt.contains("target_os 'all'"));
     }
 }

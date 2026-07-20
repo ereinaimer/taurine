@@ -113,11 +113,14 @@ enum Commands {
         /// Include sensitive settings
         #[arg(short = 'x', long)]
         sensitive: bool,
+        /// Skip interactive prompts
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
     /// Import automations from a file
     Import {
         /// Source file path
-        path: std::path::PathBuf,
+        path: Option<std::path::PathBuf>,
         /// Collision resolution
         #[arg(short = 'c', long, value_enum)]
         conflict: Option<ImportConflictCli>,
@@ -130,6 +133,9 @@ enum Commands {
         /// Import sensitive settings
         #[arg(short = 'x', long)]
         sensitive: bool,
+        /// Skip interactive prompts
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
     /// Manage application settings
     Config {
@@ -456,6 +462,14 @@ fn main() -> std::process::ExitCode {
 
     let launch_target = launch_target(&cli);
 
+    // Suppress console tracing for interactive import/export commands
+    // to prevent tracing output from interleaving with prompts.
+    let is_interactive_command = matches!(
+        &cli.command,
+        Some(Commands::Import { .. }) | Some(Commands::Export { .. })
+    );
+    let quiet = cli.quiet || (is_interactive_command && cli.verbose == 0);
+
     let component = if cli.daemon {
         taurine_core::logs::LogComponent::Daemon
     } else {
@@ -464,7 +478,7 @@ fn main() -> std::process::ExitCode {
 
     let _guard = taurine_core::logs::init_tracing_for_app(
         cli.verbose,
-        cli.quiet,
+        quiet,
         cli.no_log_file,
         cli.no_color,
         cli.show_log_prefixes,
@@ -632,8 +646,9 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
             settings,
             stats,
             sensitive,
+            yes,
         }) => {
-            commands::export::execute(path, plain, settings, stats, sensitive)?;
+            commands::export::execute(path, plain, settings, stats, sensitive, yes)?;
         }
         Some(Commands::Import {
             path,
@@ -641,8 +656,9 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
             settings,
             stats,
             sensitive,
+            yes,
         }) => {
-            commands::import::execute(path, conflict, settings, stats, sensitive)?;
+            commands::import::execute(path, conflict, settings, stats, sensitive, yes)?;
         }
         Some(Commands::Config { action }) => match action {
             ConfigAction::Set { key, value } => commands::config::execute_set(key, value)?,
