@@ -6,7 +6,6 @@ use crate::engine::variables::{
 };
 use crate::keys::{Hotkey, LogicalKey, hotkey_matches, parse_hotkey};
 
-use std::collections::HashSet;
 use std::sync::{Arc, OnceLock, RwLock};
 
 use arc_swap::ArcSwap;
@@ -37,8 +36,8 @@ impl WindowResolver {
 
 pub struct ExpansionCatalog {
     source: Arc<dyn SnippetSource>,
-    triggers: RwLock<Vec<String>>,
-    history_triggers: RwLock<Vec<String>>,
+    triggers: RwLock<Vec<Arc<str>>>,
+    history_triggers: RwLock<Vec<Arc<str>>>,
 }
 
 pub struct HotkeyCatalog {
@@ -54,7 +53,7 @@ struct CatalogSnapshot {
 struct ParsedHotkeyAction {
     configured_trigger: String,
     hotkey: Hotkey,
-    action: AutomationAction,
+    action: Arc<AutomationAction>,
 }
 
 impl Default for HotkeyCatalog {
@@ -78,7 +77,7 @@ impl HotkeyCatalog {
                 let entry = ParsedHotkeyAction {
                     configured_trigger: trigger.clone(),
                     hotkey,
-                    action: action.clone(),
+                    action: Arc::new(action),
                 };
 
                 // Only bucket into parsed_actions so that multiple automations
@@ -108,7 +107,7 @@ impl HotkeyCatalog {
             bucket
                 .iter()
                 .find(|entry| entry.configured_trigger == trigger || entry.hotkey == hotkey)
-                .map(|entry| entry.action.clone())
+                .map(|entry| entry.action.as_ref().clone())
         })
     }
 
@@ -129,7 +128,10 @@ impl HotkeyCatalog {
             e.hotkey.canonical_string() == pressed_canonical
                 && is_app_allowed(&e.action, active_window)
         }) {
-            return Some((entry.configured_trigger.clone(), entry.action.clone()));
+            return Some((
+                entry.configured_trigger.clone(),
+                entry.action.as_ref().clone(),
+            ));
         }
 
         // Second pass: accept any entry whose hotkey overlaps the pressed combo
@@ -137,7 +139,7 @@ impl HotkeyCatalog {
         bucket
             .iter()
             .find(|e| hotkey_matches(e.hotkey, pressed) && is_app_allowed(&e.action, active_window))
-            .map(|e| (e.configured_trigger.clone(), e.action.clone()))
+            .map(|e| (e.configured_trigger.clone(), e.action.as_ref().clone()))
     }
 
     pub fn match_action_lazy(
@@ -158,13 +160,19 @@ impl HotkeyCatalog {
                 continue;
             }
             if !entry_has_app_filters(&entry.action) {
-                return Some((entry.configured_trigger.clone(), entry.action.clone()));
+                return Some((
+                    entry.configured_trigger.clone(),
+                    entry.action.as_ref().clone(),
+                ));
             }
             let Some(w) = window.resolve(|| fetch_window.take().unwrap()()) else {
                 continue;
             };
             if is_app_allowed(&entry.action, Some(w)) {
-                return Some((entry.configured_trigger.clone(), entry.action.clone()));
+                return Some((
+                    entry.configured_trigger.clone(),
+                    entry.action.as_ref().clone(),
+                ));
             }
         }
 
@@ -174,13 +182,19 @@ impl HotkeyCatalog {
                 continue;
             }
             if !entry_has_app_filters(&entry.action) {
-                return Some((entry.configured_trigger.clone(), entry.action.clone()));
+                return Some((
+                    entry.configured_trigger.clone(),
+                    entry.action.as_ref().clone(),
+                ));
             }
             let Some(w) = window.resolve(|| fetch_window.take().unwrap()()) else {
                 continue;
             };
             if is_app_allowed(&entry.action, Some(w)) {
-                return Some((entry.configured_trigger.clone(), entry.action.clone()));
+                return Some((
+                    entry.configured_trigger.clone(),
+                    entry.action.as_ref().clone(),
+                ));
             }
         }
 
@@ -289,8 +303,10 @@ impl ExpansionCatalog {
 
     pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, AutomationAction)>) {
         let actions: Vec<_> = actions.into_iter().collect();
-        let mut triggers: Vec<String> =
-            actions.iter().map(|(trigger, _)| trigger.clone()).collect();
+        let mut triggers: Vec<Arc<str>> = actions
+            .iter()
+            .map(|(trigger, _)| Arc::from(trigger.as_str()))
+            .collect();
         sort_completion_triggers(&mut triggers);
 
         self.source.load_actions(actions);
@@ -306,7 +322,6 @@ impl ExpansionCatalog {
         if prefix.is_empty() {
             return Vec::new();
         }
-
         let normalized_prefix = prefix.to_lowercase();
         self.triggers
             .read()
@@ -314,31 +329,28 @@ impl ExpansionCatalog {
                 guard
                     .iter()
                     .filter(|trigger| trigger.to_lowercase().starts_with(&normalized_prefix))
-                    .cloned()
+                    .map(|arc| arc.as_ref().to_string())
                     .collect()
             })
             .unwrap_or_default()
     }
 
     pub fn load_history_triggers(&self, triggers: impl IntoIterator<Item = String>) {
-        let known_triggers = self
+        let known = self
             .triggers
             .read()
             .map(|guard| guard.clone())
             .unwrap_or_default();
-        let known_lookup: HashSet<String> = known_triggers.iter().cloned().collect();
-        let mut seen = HashSet::new();
-        let mut ordered_history = Vec::new();
 
-        for trigger in triggers {
-            if known_lookup.contains(&trigger) && seen.insert(trigger.clone()) {
-                ordered_history.push(trigger);
-            }
-        }
-
-        for trigger in known_triggers {
-            if seen.insert(trigger.clone()) {
-                ordered_history.push(trigger);
+        let mut seen = std::collections::HashSet::new();
+        let mut ordered_history: Vec<Arc<str>> = triggers
+            .into_iter()
+            .filter(|t| known.iter().any(|k| k.as_ref() == t.as_str()) && seen.insert(t.clone()))
+            .map(|t| Arc::from(t.as_str()))
+            .collect();
+        for k in known {
+            if seen.insert(k.to_string()) {
+                ordered_history.push(k);
             }
         }
 
@@ -358,7 +370,7 @@ impl ExpansionCatalog {
                         normalized_prefix.is_empty()
                             || trigger.to_lowercase().starts_with(&normalized_prefix)
                     })
-                    .cloned()
+                    .map(|arc| arc.as_ref().to_string())
                     .collect()
             })
             .unwrap_or_default()
@@ -368,19 +380,19 @@ impl ExpansionCatalog {
         let known = self
             .triggers
             .read()
-            .ok()
-            .is_some_and(|guard| guard.iter().any(|candidate| candidate == trigger));
+            .map(|guard| guard.iter().any(|k| k.as_ref() == trigger))
+            .unwrap_or(false);
 
         if !known {
             return;
         }
 
         if let Ok(mut guard) = self.history_triggers.write() {
-            if let Some(index) = guard.iter().position(|candidate| candidate == trigger) {
+            if let Some(index) = guard.iter().position(|t| t.as_ref() == trigger) {
                 let entry = guard.remove(index);
                 guard.insert(0, entry);
             } else {
-                guard.insert(0, trigger.to_string());
+                guard.insert(0, Arc::from(trigger));
             }
         }
     }
@@ -469,7 +481,7 @@ impl Default for ExpansionCatalog {
     }
 }
 
-fn sort_completion_triggers(triggers: &mut Vec<String>) {
+fn sort_completion_triggers(triggers: &mut Vec<Arc<str>>) {
     triggers.sort_by(|left, right| {
         left.to_lowercase()
             .cmp(&right.to_lowercase())
