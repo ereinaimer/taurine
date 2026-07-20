@@ -13,12 +13,23 @@ Taurine provides a robust exchange system that allows you to back up your local 
 The `export` command bundles your automations and optionally your global settings and stats into a single portable file.
 
 ```bash
-# Basic encrypted export (creates tx-YYMMDD.tau)
+# Opens an interactive TUI (default)
 taurine export
 
-# Export to a specific file with extras
+# Export to a specific file with extras (opens TUI)
 taurine export backup.tau -st
+
+# Non-interactive — skips the TUI, uses provided flags directly
+taurine export backup.tau -y --plain -stx
 ```
+
+### Interactive vs Headless
+
+By default, `export` opens an interactive TUI overlay where you can configure all options — encryption, file path, settings, stats, and sensitive data — before proceeding. All CLI flags are optional and pre-fill the form.
+
+Pass `-y` / `--yes` to skip the TUI entirely and run non-interactively. With `--yes`:
+- The file path defaults to `tx-YYMMDD.tau` if not provided.
+- `--plain` is required for unencrypted export; otherwise the command errors because an encryption password can't be prompted for.
 
 ### Encryption & Security
 By default, exports are encrypted using **AES-256-GCM**. You will be prompted to enter and confirm an encryption password. 
@@ -37,8 +48,18 @@ By default, exports are encrypted using **AES-256-GCM**. You will be prompted to
 The `import` command allows you to load an exchange file into your local Taurine database.
 
 ```bash
-taurine import backup.tau --conflict prompt
+# Opens an interactive TUI (default)
+taurine import backup.tau
+
+# Non-interactive — skips the TUI
+taurine import backup.tau -y --conflict skip --settings
 ```
+
+### Interactive vs Headless
+
+Like `export`, `import` opens an interactive TUI overlay by default. All CLI flags (`--conflict`, `--settings`, `--stats`, `--sensitive`) are optional and pre-fill the form.
+
+Pass `-y` / `--yes` to skip the TUI. A file path is always required with `--yes`. If the file is encrypted, the command errors because a decryption password can't be prompted for — use the interactive TUI or import a plaintext file.
 
 ### Conflict Resolution
 When an imported automation shares the same **Trigger** and **Target OS** as an existing local automation, Taurine triggers a conflict resolution flow.

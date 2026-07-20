@@ -6,7 +6,6 @@ use std::sync::Mutex;
 use genai::adapter::AdapterKind;
 use genai::resolver::AuthData;
 use genai::{Client, ServiceTarget};
-use inquire::{Password, PasswordDisplayMode};
 use tokio::runtime::Builder;
 use tracing::info;
 use zeroize::Zeroize;
@@ -113,16 +112,8 @@ where
 }
 
 fn prompt_provider_secret(provider: AiProvider) -> taurine_core::error::Result<String> {
-    Password::new(&format!("{} API key:", provider.as_str()))
-        .with_display_mode(PasswordDisplayMode::Masked)
-        .without_confirmation()
-        .prompt()
-        .map_err(|e| {
-            taurine_core::error::Error::Service(format!(
-                "Failed to read {} API key: {e}",
-                provider.as_str()
-            ))
-        })
+    taurine_tui::prompt_password(&format!("{} API key:", provider.as_str()), false)?
+        .ok_or_else(|| taurine_core::error::Error::Config("API key entry cancelled.".to_string()))
 }
 
 struct GenaiModelCatalog;
