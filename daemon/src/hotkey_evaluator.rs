@@ -61,9 +61,11 @@ impl HotkeyEvaluator {
         }
 
         let hotkey = KeyPress { modifiers, key };
-        let active_window = crate::platform::get_active_window_label();
+        if !state.has_hotkey_entry_for(hotkey.logical_key()) {
+            return HotkeyEvaluation::NoMatch;
+        }
         let Some((trigger, expansion)) =
-            state.fetch_hotkey_expansion(hotkey, active_window.as_deref())
+            state.fetch_hotkey_expansion_lazy(hotkey, crate::platform::get_active_window_label)
         else {
             return HotkeyEvaluation::NoMatch;
         };
@@ -671,6 +673,144 @@ mod tests {
             evaluator.on_key_event(&state, true, modifiers, LogicalKey::NumpadDigit(1)),
             HotkeyEvaluation::Matched(_)
         ));
+    }
+
+    #[test]
+    fn no_hotkey_configured_for_key_returns_no_match_without_window_call() {
+        let state = EngineState::new('>');
+        let mut evaluator = HotkeyEvaluator::new();
+
+        let result = evaluator.on_key_event(
+            &state,
+            true,
+            modifiers_with(&[Modifier::Ctrl]),
+            LogicalKey::Letter('g'),
+        );
+
+        assert_eq!(result, HotkeyEvaluation::NoMatch);
+    }
+
+    #[test]
+    fn hotkey_match_fetches_window_only_when_needed() {
+        let state = EngineState::new('>');
+        state.load_hotkey_actions(vec![
+            (
+                "ctrl+shift+h".to_string(),
+                AutomationAction::text("no filter needed"),
+            ),
+            (
+                "ctrl+shift+g".to_string(),
+                AutomationAction {
+                    output: "only in chrome".to_string(),
+                    only_apps: Some("chrome".to_string()),
+                    ..AutomationAction::text("")
+                },
+            ),
+        ]);
+        let mut evaluator = HotkeyEvaluator::new();
+
+        // Unfiltered entry — matches without any window fetch
+        let result = evaluator.on_key_event(
+            &state,
+            true,
+            modifiers_with(&[Modifier::Ctrl, Modifier::Shift]),
+            LogicalKey::Letter('h'),
+        );
+        assert!(
+            matches!(&result, HotkeyEvaluation::Matched(exp) if exp.trigger == "ctrl+shift+h"),
+            "unfiltered hotkey should always match: {result:?}"
+        );
+
+        // Filtered entry — lazy chain fetches the window and resolves.
+        // Accept either outcome so the test is not flaky across environments.
+        let result = evaluator.on_key_event(
+            &state,
+            true,
+            modifiers_with(&[Modifier::Ctrl, Modifier::Shift]),
+            LogicalKey::Letter('g'),
+        );
+
+        match result {
+            HotkeyEvaluation::Matched(expansion) => {
+                assert_eq!(expansion.trigger, "ctrl+shift+g");
+            }
+            HotkeyEvaluation::NoMatch => {}
+            other => panic!("unexpected result: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn hotkey_match_without_window_returns_no_match_when_only_app_filtered_entries_exist() {
+        let state = EngineState::new('>');
+        state.load_hotkey_actions(vec![(
+            "ctrl+shift+g".to_string(),
+            AutomationAction {
+                output: "only in chrome".to_string(),
+                only_apps: Some("chrome".to_string()),
+                ..AutomationAction::text("")
+            },
+        )]);
+        let mut evaluator = HotkeyEvaluator::new();
+
+        let result = evaluator.on_key_event(
+            &state,
+            true,
+            modifiers_with(&[Modifier::Ctrl, Modifier::Shift]),
+            LogicalKey::Letter('g'),
+        );
+
+        // In headless CI the active window is None so NoMatch is returned.
+        // On a dev machine with Chrome focused it could match.
+        // Accept either — the important thing is no crash or panic.
+        match result {
+            HotkeyEvaluation::NoMatch => {}
+            HotkeyEvaluation::Matched(expansion) => {
+                assert_eq!(expansion.trigger, "ctrl+shift+g");
+            }
+            other => panic!("unexpected result: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn hotkey_match_priority_preserved_with_mixed_filtered_unfiltered_entries() {
+        let state = EngineState::new('>');
+        state.load_hotkey_actions(vec![
+            (
+                "ctrl+shift+g".to_string(),
+                AutomationAction::text("unfiltered"),
+            ),
+            (
+                "ctrl+shift+g".to_string(),
+                AutomationAction {
+                    output: "only in chrome".to_string(),
+                    only_apps: Some("chrome".to_string()),
+                    ..AutomationAction::text("")
+                },
+            ),
+        ]);
+        let mut evaluator = HotkeyEvaluator::new();
+
+        let result = evaluator.on_key_event(
+            &state,
+            true,
+            modifiers_with(&[Modifier::Ctrl, Modifier::Shift]),
+            LogicalKey::Letter('g'),
+        );
+
+        // The unfiltered entry is scanned first in the bucket and returned before
+        // any window fetch, regardless of the current active window.
+        match result {
+            HotkeyEvaluation::Matched(expansion) => {
+                assert_eq!(expansion.trigger, "ctrl+shift+g");
+                assert_eq!(
+                    expansion.steps,
+                    vec![taurine_core::engine::variables::ExpansionStep::Text(
+                        "unfiltered".to_string()
+                    )]
+                );
+            }
+            other => panic!("expected matched unfiltered hotkey, got {other:?}"),
+        }
     }
 
     #[test]

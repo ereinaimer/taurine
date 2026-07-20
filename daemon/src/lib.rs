@@ -87,9 +87,7 @@ pub fn start() -> taurine_core::error::Result<()> {
         .ignore_fullscreen_enabled
         .store(settings.ignore_fullscreen, Ordering::Relaxed);
 
-    if let Ok(mut lock) = state.action_key.write() {
-        *lock = settings.action_key;
-    }
+    state.set_action_key(settings.action_key);
 
     // Global pause toggle hotkey (display + parse).
     let pause_hotkey = Arc::new(RwLock::new(settings.pause_hotkey.clone()));

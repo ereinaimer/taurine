@@ -11,6 +11,7 @@ use crate::keys::Hotkey;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicU8;
 use std::sync::atomic::AtomicU32;
 use std::time::{Duration, Instant};
 
@@ -55,7 +56,7 @@ pub struct EngineState {
     pub script_timeout: AtomicU32,
 
     pub spinner_style: RwLock<crate::settings::SpinnerStyle>,
-    pub action_key: RwLock<crate::settings::ActionKey>,
+    action_key: AtomicU8,
     undo_state: RwLock<Option<UndoState>>,
     ai_session: InlineAiSession,
     word_catalog: ExpansionCatalog,
@@ -83,7 +84,7 @@ impl EngineState {
             script_timeout: AtomicU32::new(15),
 
             spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
-            action_key: RwLock::new(crate::settings::ActionKey::default()),
+            action_key: AtomicU8::new(1),
             undo_state: RwLock::new(None),
             ai_session: InlineAiSession::new(),
             word_catalog: ExpansionCatalog::new(),
@@ -112,7 +113,7 @@ impl EngineState {
             script_timeout: AtomicU32::new(15),
 
             spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
-            action_key: RwLock::new(crate::settings::ActionKey::default()),
+            action_key: AtomicU8::new(1),
             undo_state: RwLock::new(None),
             ai_session: InlineAiSession::new(),
             word_catalog: ExpansionCatalog::with_source(source),
@@ -226,6 +227,10 @@ impl EngineState {
         self.word_catalog.promote_history_trigger(trigger);
     }
 
+    pub fn has_hotkey_entry_for(&self, key: crate::keys::LogicalKey) -> bool {
+        self.hotkey_catalog.has_entry_for(key)
+    }
+
     pub fn get_hotkey_action(&self, trigger: &str) -> Option<AutomationAction> {
         self.hotkey_catalog.get_action(trigger)
     }
@@ -236,6 +241,18 @@ impl EngineState {
         active_window: Option<&str>,
     ) -> Option<(String, FinalExpansion)> {
         let (trigger, action) = self.hotkey_catalog.match_action(hotkey, active_window)?;
+        let expansion = expand_automation_action(action, &trigger)?;
+        Some((trigger, expansion))
+    }
+
+    pub fn fetch_hotkey_expansion_lazy(
+        &self,
+        hotkey: Hotkey,
+        fetch_window: impl FnOnce() -> Option<String>,
+    ) -> Option<(String, FinalExpansion)> {
+        let (trigger, action) = self
+            .hotkey_catalog
+            .match_action_lazy(hotkey, fetch_window)?;
         let expansion = expand_automation_action(action, &trigger)?;
         Some((trigger, expansion))
     }
@@ -251,10 +268,21 @@ impl EngineState {
         }
     }
 
-    pub fn set_action_key(&self, key: crate::settings::ActionKey) {
-        if let Ok(mut guard) = self.action_key.write() {
-            *guard = key;
+    pub fn action_key(&self) -> crate::settings::ActionKey {
+        match self.action_key.load(std::sync::atomic::Ordering::Relaxed) {
+            1 => crate::settings::ActionKey::Enter,
+            _ => crate::settings::ActionKey::Space,
         }
+    }
+
+    pub fn set_action_key(&self, key: crate::settings::ActionKey) {
+        self.action_key.store(
+            match key {
+                crate::settings::ActionKey::Space => 0,
+                crate::settings::ActionKey::Enter => 1,
+            },
+            std::sync::atomic::Ordering::Relaxed,
+        );
     }
 
     pub fn set_inline_ai_trigger_mode(&self, mode: crate::settings::InlineAiTriggerMode) {

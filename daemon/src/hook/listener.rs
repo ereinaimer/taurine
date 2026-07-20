@@ -530,18 +530,14 @@ pub(super) fn run_listener_once(
                         }
                     }
                     Key::Space => {
-                        if *state.action_key.read().unwrap()
-                            == taurine_core::settings::ActionKey::Space
-                        {
+                        if state.action_key() == taurine_core::settings::ActionKey::Space {
                             Some(EngineEvent::ActionKey)
                         } else {
                             Some(EngineEvent::Char(' '))
                         }
                     }
                     Key::Return => {
-                        if *state.action_key.read().unwrap()
-                            == taurine_core::settings::ActionKey::Enter
-                        {
+                        if state.action_key() == taurine_core::settings::ActionKey::Enter {
                             Some(EngineEvent::ActionKey)
                         } else {
                             Some(map_return_key(engine_mode))

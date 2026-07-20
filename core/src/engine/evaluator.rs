@@ -664,7 +664,7 @@ impl Evaluator {
         let trigger_char = self.trigger_prefix();
         let emoji_trigger = self.state.inline_emoji_trigger_char();
         let emoji_enabled = self.state.inline_emoji_enabled();
-        let action_key = *self.state.action_key.read().unwrap();
+        let action_key = self.state.action_key();
         let allow_spaces = action_key == crate::settings::ActionKey::Enter;
         let instant_expand = self
             .state
@@ -975,7 +975,7 @@ impl Evaluator {
                 if let Some(expansion) = self.finish_inline_ai_capture_if_ready() {
                     return Some(expansion);
                 }
-                let action_key = *self.state.action_key.read().unwrap();
+                let action_key = self.state.action_key();
                 let char_rep = match action_key {
                     crate::settings::ActionKey::Space => ' ',
                     crate::settings::ActionKey::Enter => '\n',
@@ -2774,7 +2774,7 @@ mod tests {
     #[test]
     fn inline_ai_capture_exits_on_backtick_then_space_and_hands_prompt_to_stream() {
         let state = Arc::new(EngineState::new('>'));
-        *state.action_key.write().unwrap() = crate::settings::ActionKey::Space;
+        state.set_action_key(crate::settings::ActionKey::Space);
         let mut eval = Evaluator::new(state.clone());
 
         assert_eq!(eval.process(EngineEvent::Char('>')), None);
@@ -2809,7 +2809,7 @@ mod tests {
     #[test]
     fn inline_ai_success_path_returns_to_normal_and_allows_later_word_expansion() {
         let state = Arc::new(EngineState::new('>'));
-        *state.action_key.write().unwrap() = crate::settings::ActionKey::Space;
+        state.set_action_key(crate::settings::ActionKey::Space);
         state.load_actions(vec![(
             "gm".to_string(),
             crate::db::crud::AutomationAction::text("Good morning!"),
@@ -3042,7 +3042,7 @@ mod tests {
     #[test]
     fn inline_ai_capture_keeps_collecting_without_closing_backtick_space() {
         let state = Arc::new(EngineState::new('>'));
-        *state.action_key.write().unwrap() = crate::settings::ActionKey::Space;
+        state.set_action_key(crate::settings::ActionKey::Space);
         let mut eval = Evaluator::new(state.clone());
 
         assert_eq!(eval.process(EngineEvent::Char('>')), None);
@@ -3073,7 +3073,7 @@ mod tests {
     #[test]
     fn inline_ai_capture_works_with_custom_delimiter() {
         let state = Arc::new(EngineState::new('>'));
-        *state.action_key.write().unwrap() = crate::settings::ActionKey::Space;
+        state.set_action_key(crate::settings::ActionKey::Space);
         state.set_inline_ai_trigger_mode(crate::settings::InlineAiTriggerMode::Asymmetric);
         state.set_inline_ai_trigger_open("[[".to_string());
         state.set_inline_ai_trigger_close("]]".to_string());
@@ -3176,7 +3176,7 @@ mod tests {
         use std::sync::atomic::Ordering;
         let state = Arc::new(EngineState::new('>'));
         state.triggerless_mode.store(true, Ordering::Relaxed);
-        *state.action_key.write().unwrap() = crate::settings::ActionKey::Enter;
+        state.set_action_key(crate::settings::ActionKey::Enter);
         state.load_actions(vec![(
             "gm".to_string(),
             crate::db::crud::AutomationAction::text("Good Morning"),
@@ -3200,7 +3200,7 @@ mod tests {
         use std::sync::atomic::Ordering;
         let state = Arc::new(EngineState::new('>'));
         state.triggerless_mode.store(true, Ordering::Relaxed);
-        *state.action_key.write().unwrap() = crate::settings::ActionKey::Space;
+        state.set_action_key(crate::settings::ActionKey::Space);
         state.load_actions(vec![(
             "gm".to_string(),
             crate::db::crud::AutomationAction::text("Good Morning"),
@@ -3220,7 +3220,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         state.triggerless_mode.store(true, Ordering::Relaxed);
         state.instant_expand.store(true, Ordering::Relaxed);
-        *state.action_key.write().unwrap() = crate::settings::ActionKey::Enter;
+        state.set_action_key(crate::settings::ActionKey::Enter);
         state.load_actions(vec![(
             "gm".to_string(),
             crate::db::crud::AutomationAction::text("Good Morning"),
@@ -3461,7 +3461,7 @@ mod tests {
     #[test]
     fn test_spaces_in_arguments_with_enter_delimiter() {
         let state = Arc::new(EngineState::new('>'));
-        *state.action_key.write().unwrap() = crate::settings::ActionKey::Enter;
+        state.set_action_key(crate::settings::ActionKey::Enter);
         state.load_actions(vec![(
             "hi".to_string(),
             crate::db::crud::AutomationAction::text("Hello [0=default], [1=msg]!"),
@@ -3486,7 +3486,7 @@ mod tests {
     #[test]
     fn test_spaces_in_arguments_with_space_delimiter_fails() {
         let state = Arc::new(EngineState::new('>'));
-        *state.action_key.write().unwrap() = crate::settings::ActionKey::Space;
+        state.set_action_key(crate::settings::ActionKey::Space);
         state.load_actions(vec![(
             "hi".to_string(),
             crate::db::crud::AutomationAction::text("Hello [0=default], [1=msg]!"),

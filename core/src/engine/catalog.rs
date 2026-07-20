@@ -8,7 +8,34 @@ use crate::keys::{Hotkey, LogicalKey, hotkey_matches, parse_hotkey};
 
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::RwLock;
+
+use arc_swap::ArcSwap;
+
+/// Lazily resolves the active window label.
+/// The OS fetch happens at most once — only when a matching entry
+/// with app filters is found.
+pub(crate) struct WindowResolver {
+    cached: OnceLock<Option<String>>,
+}
+
+impl WindowResolver {
+    pub fn lazy() -> Self {
+        Self {
+            cached: OnceLock::new(),
+        }
+    }
+
+    pub fn resolve(&self, fetcher: impl FnOnce() -> Option<String>) -> Option<&str> {
+        self.cached.get_or_init(fetcher).as_deref()
+    }
+
+    #[allow(dead_code)]
+    pub fn get_cached(&self) -> Option<&str> {
+        self.cached.get().and_then(|o| o.as_deref())
+    }
+}
 
 pub struct ExpansionCatalog {
     source: Arc<dyn SnippetSource>,
@@ -16,9 +43,8 @@ pub struct ExpansionCatalog {
     history_triggers: RwLock<Vec<String>>,
 }
 
-#[derive(Default)]
 pub struct HotkeyCatalog {
-    snapshot: RwLock<CatalogSnapshot>,
+    snapshot: ArcSwap<CatalogSnapshot>,
 }
 
 #[derive(Default)]
@@ -33,10 +59,16 @@ struct ParsedHotkeyAction {
     action: AutomationAction,
 }
 
+impl Default for HotkeyCatalog {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HotkeyCatalog {
     pub fn new() -> Self {
         Self {
-            snapshot: RwLock::new(CatalogSnapshot::default()),
+            snapshot: ArcSwap::new(Arc::new(CatalogSnapshot::default())),
         }
     }
 
@@ -63,21 +95,22 @@ impl HotkeyCatalog {
             }
         }
 
-        if let Ok(mut guard) = self.snapshot.write() {
-            *guard = snapshot;
-        }
+        self.snapshot.store(Arc::new(snapshot));
+    }
+
+    pub fn has_entry_for(&self, key: LogicalKey) -> bool {
+        self.snapshot.load().parsed_actions.contains_key(&key)
     }
 
     pub fn get_action(&self, trigger: &str) -> Option<AutomationAction> {
         let hotkey = parse_hotkey(trigger).ok()?;
         let base_key = hotkey.logical_key();
-        self.snapshot.read().ok().and_then(|guard| {
-            guard.parsed_actions.get(&base_key).and_then(|bucket| {
-                bucket
-                    .iter()
-                    .find(|entry| entry.configured_trigger == trigger || entry.hotkey == hotkey)
-                    .map(|entry| entry.action.clone())
-            })
+        let guard = self.snapshot.load();
+        guard.parsed_actions.get(&base_key).and_then(|bucket| {
+            bucket
+                .iter()
+                .find(|entry| entry.configured_trigger == trigger || entry.hotkey == hotkey)
+                .map(|entry| entry.action.clone())
         })
     }
 
@@ -87,29 +120,73 @@ impl HotkeyCatalog {
         active_window: Option<&str>,
     ) -> Option<(String, AutomationAction)> {
         let base_key = pressed.logical_key();
+        let guard = self.snapshot.load();
+        let bucket = guard.parsed_actions.get(&base_key)?;
         let pressed_canonical = pressed.canonical_string();
-        self.snapshot.read().ok().and_then(|guard| {
-            let bucket = guard.parsed_actions.get(&base_key)?;
 
-            // First pass: prefer an entry whose hotkey canonically matches the
-            // pressed combo exactly (e.g. `ralt+m` wins over `alt+m` when the
-            // right Alt key is pressed).
-            if let Some(entry) = bucket.iter().find(|e| {
-                e.hotkey.canonical_string() == pressed_canonical
-                    && is_app_allowed(&e.action, active_window)
-            }) {
+        // First pass: prefer an entry whose hotkey canonically matches the
+        // pressed combo exactly (e.g. `ralt+m` wins over `alt+m` when the
+        // right Alt key is pressed).
+        if let Some(entry) = bucket.iter().find(|e| {
+            e.hotkey.canonical_string() == pressed_canonical
+                && is_app_allowed(&e.action, active_window)
+        }) {
+            return Some((entry.configured_trigger.clone(), entry.action.clone()));
+        }
+
+        // Second pass: accept any entry whose hotkey overlaps the pressed combo
+        // (handles generic modifiers like `alt+m` matching `lalt+m` presses).
+        bucket
+            .iter()
+            .find(|e| hotkey_matches(e.hotkey, pressed) && is_app_allowed(&e.action, active_window))
+            .map(|e| (e.configured_trigger.clone(), e.action.clone()))
+    }
+
+    pub fn match_action_lazy(
+        &self,
+        pressed: Hotkey,
+        fetch_window: impl FnOnce() -> Option<String>,
+    ) -> Option<(String, AutomationAction)> {
+        let base_key = pressed.logical_key();
+        let guard = self.snapshot.load();
+        let bucket = guard.parsed_actions.get(&base_key)?;
+        let pressed_canonical = pressed.canonical_string();
+        let window = WindowResolver::lazy();
+        let mut fetch_window = Some(fetch_window);
+
+        // Pass 1: exact canonical match — resolved iteratively
+        for entry in bucket.iter() {
+            if entry.hotkey.canonical_string() != pressed_canonical {
+                continue;
+            }
+            if !entry_has_app_filters(&entry.action) {
                 return Some((entry.configured_trigger.clone(), entry.action.clone()));
             }
+            let Some(w) = window.resolve(|| fetch_window.take().unwrap()()) else {
+                continue;
+            };
+            if is_app_allowed(&entry.action, Some(w)) {
+                return Some((entry.configured_trigger.clone(), entry.action.clone()));
+            }
+        }
 
-            // Second pass: accept any entry whose hotkey overlaps the pressed combo
-            // (handles generic modifiers like `alt+m` matching `lalt+m` presses).
-            bucket
-                .iter()
-                .find(|e| {
-                    hotkey_matches(e.hotkey, pressed) && is_app_allowed(&e.action, active_window)
-                })
-                .map(|e| (e.configured_trigger.clone(), e.action.clone()))
-        })
+        // Pass 2: hotkey_matches fallback — resolved iteratively
+        for entry in bucket.iter() {
+            if !hotkey_matches(entry.hotkey, pressed) {
+                continue;
+            }
+            if !entry_has_app_filters(&entry.action) {
+                return Some((entry.configured_trigger.clone(), entry.action.clone()));
+            }
+            let Some(w) = window.resolve(|| fetch_window.take().unwrap()()) else {
+                continue;
+            };
+            if is_app_allowed(&entry.action, Some(w)) {
+                return Some((entry.configured_trigger.clone(), entry.action.clone()));
+            }
+        }
+
+        None
     }
 }
 
@@ -473,6 +550,17 @@ fn match_rules(filter_list: &str, info: &ActiveWindowInfo) -> bool {
             }
         }
     })
+}
+
+fn entry_has_app_filters(action: &AutomationAction) -> bool {
+    action
+        .only_apps
+        .as_ref()
+        .is_some_and(|s| !s.trim().is_empty())
+        || action
+            .except_apps
+            .as_ref()
+            .is_some_and(|s| !s.trim().is_empty())
 }
 
 pub(crate) fn is_app_allowed(action: &AutomationAction, active_window: Option<&str>) -> bool {
@@ -1057,6 +1145,148 @@ mod tests {
         // 9. Slash normalization (forward vs backward slashes)
         action.except_apps = Some("exe:C:/bin/python.exe".to_string());
         assert!(!is_app_allowed(&action, Some(&info_python_win)));
+    }
+
+    #[test]
+    fn entry_has_app_filters_returns_true_when_only_apps_set() {
+        let action = AutomationAction {
+            only_apps: Some("chrome".to_string()),
+            ..AutomationAction::text("dummy")
+        };
+        assert!(entry_has_app_filters(&action));
+    }
+
+    #[test]
+    fn entry_has_app_filters_returns_true_when_except_apps_set() {
+        let action = AutomationAction {
+            except_apps: Some("notepad".to_string()),
+            ..AutomationAction::text("dummy")
+        };
+        assert!(entry_has_app_filters(&action));
+    }
+
+    #[test]
+    fn entry_has_app_filters_returns_false_when_no_filters() {
+        let action = AutomationAction::text("dummy");
+        assert!(!entry_has_app_filters(&action));
+    }
+
+    #[test]
+    fn match_action_lazy_matches_entry_without_filters_without_calling_fetcher() {
+        let hotkeys = HotkeyCatalog::new();
+        hotkeys.load_actions(vec![(
+            "ctrl+shift+g".to_string(),
+            AutomationAction::text("git status"),
+        )]);
+
+        let called = std::cell::Cell::new(false);
+        let result = hotkeys.match_action_lazy(parse_hotkey("ctrl+shift+g").unwrap(), || {
+            called.set(true);
+            Some("chrome.exe".to_string())
+        });
+        assert!(
+            !called.get(),
+            "fetcher should not be called for filterless entry"
+        );
+        let (trigger, action) = result.unwrap();
+        assert_eq!(trigger, "ctrl+shift+g");
+        assert_eq!(action.output, "git status");
+    }
+
+    #[test]
+    fn match_action_lazy_prefers_canonical_match_over_hotkey_matches_when_both_have_filters() {
+        let hotkeys = HotkeyCatalog::new();
+        hotkeys.load_actions(vec![
+            (
+                "alt+m".to_string(),
+                AutomationAction {
+                    output: "generic alt".to_string(),
+                    only_apps: Some("chrome".to_string()),
+                    ..AutomationAction::text("")
+                },
+            ),
+            (
+                "ralt+m".to_string(),
+                AutomationAction {
+                    output: "right alt".to_string(),
+                    only_apps: Some("chrome".to_string()),
+                    ..AutomationAction::text("")
+                },
+            ),
+        ]);
+
+        let (trigger, action) = hotkeys
+            .match_action_lazy(parse_hotkey("ralt+m").unwrap(), || {
+                Some("chrome.exe".to_string())
+            })
+            .unwrap();
+        assert_eq!(trigger, "ralt+m");
+        assert_eq!(action.output, "right alt");
+    }
+
+    #[test]
+    fn match_action_lazy_matches_app_filtered_entry_in_correct_window() {
+        let hotkeys = HotkeyCatalog::new();
+        hotkeys.load_actions(vec![(
+            "ctrl+shift+g".to_string(),
+            AutomationAction {
+                output: "only in chrome".to_string(),
+                only_apps: Some("chrome".to_string()),
+                ..AutomationAction::text("")
+            },
+        )]);
+
+        let (trigger, action) = hotkeys
+            .match_action_lazy(parse_hotkey("ctrl+shift+g").unwrap(), || {
+                Some("chrome.exe".to_string())
+            })
+            .unwrap();
+        assert_eq!(trigger, "ctrl+shift+g");
+        assert_eq!(action.output, "only in chrome");
+    }
+
+    #[test]
+    fn match_action_lazy_does_not_match_app_filtered_entry_in_wrong_window() {
+        let hotkeys = HotkeyCatalog::new();
+        hotkeys.load_actions(vec![(
+            "ctrl+shift+g".to_string(),
+            AutomationAction {
+                output: "chrome only".to_string(),
+                only_apps: Some("chrome".to_string()),
+                ..AutomationAction::text("")
+            },
+        )]);
+
+        let result = hotkeys.match_action_lazy(parse_hotkey("ctrl+shift+g").unwrap(), || {
+            Some("notepad.exe".to_string())
+        });
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn match_action_lazy_returns_none_on_empty_catalog() {
+        let hotkeys = HotkeyCatalog::new();
+        let result = hotkeys.match_action_lazy(parse_hotkey("ctrl+shift+g").unwrap(), || {
+            Some("chrome.exe".to_string())
+        });
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn hotkey_catalog_has_entry_for_returns_false_when_empty() {
+        let hotkeys = HotkeyCatalog::new();
+        assert!(!hotkeys.has_entry_for(LogicalKey::Letter('g')));
+    }
+
+    #[test]
+    fn hotkey_catalog_has_entry_for_returns_true_when_entries_exist() {
+        let hotkeys = HotkeyCatalog::new();
+        hotkeys.load_actions(vec![(
+            "ctrl+shift+g".to_string(),
+            AutomationAction::text("git status"),
+        )]);
+        assert!(hotkeys.has_entry_for(LogicalKey::Letter('g')));
+        assert!(!hotkeys.has_entry_for(LogicalKey::Letter('x')));
     }
 
     #[test]
