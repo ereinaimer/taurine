@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Stats Typing Speed Bounds**: Limit typing speed configuration (WPM) to a maximum of 150 WPM to prevent invalid or zeroed stat calculations.
 
 ### Fixed
+- **Hotkey Delete Order Sensitivity**: Fix `tau rm` not matching hotkeys when modifier key order differs from how they were added (e.g. `alt+shift+2` vs `shift+alt+2`).
 - **AI Executions Double-Counting**: Fix an issue where AI-assisted expansions counted twice in the dashboard stats.
 - **Hotkey & Script Keystrokes Counting**: Prevent hotkey triggers and shell scripts from falsely inflating keystrokes and time saved statistics.
 
