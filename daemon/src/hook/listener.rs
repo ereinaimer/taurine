@@ -823,7 +823,7 @@ where
 struct KeyboardDecoder {
     last_code: u32,
     last_scan_code: u32,
-    last_state: [u8; 256],
+    last_state: Box<[u8; 256]>,
     last_is_dead: bool,
 }
 
@@ -833,7 +833,7 @@ impl KeyboardDecoder {
         Self {
             last_code: 0,
             last_scan_code: 0,
-            last_state: [0u8; 256],
+            last_state: Box::new([0u8; 256]),
             last_is_dead: false,
         }
     }
@@ -890,7 +890,7 @@ impl KeyboardDecoder {
         };
 
         unsafe {
-            self.last_state = *state;
+            *self.last_state = *state;
 
             let fg_window = GetForegroundWindow();
             let fg_thread = GetWindowThreadProcessId(fg_window, std::ptr::null_mut());

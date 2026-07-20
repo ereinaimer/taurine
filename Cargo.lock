@@ -4970,6 +4970,7 @@ dependencies = [
  "serde_json",
  "service-manager",
  "sha2",
+ "smallvec",
  "sysinfo",
  "tempfile",
  "thiserror 2.0.18",

@@ -7,9 +7,7 @@ use crate::engine::variables::{
 use crate::keys::{Hotkey, LogicalKey, hotkey_matches, parse_hotkey};
 
 use std::collections::HashSet;
-use std::sync::Arc;
-use std::sync::OnceLock;
-use std::sync::RwLock;
+use std::sync::{Arc, OnceLock, RwLock};
 
 use arc_swap::ArcSwap;
 
@@ -201,9 +199,8 @@ struct RegexCatalogSnapshot {
 
 #[derive(Clone)]
 struct ParsedRegexAction {
-    #[allow(dead_code)]
-    pattern_string: String,
-    regex: regex::Regex,
+    pattern: String,
+    regex: OnceLock<Result<regex::Regex, ()>>,
     action: AutomationAction,
 }
 
@@ -217,13 +214,11 @@ impl RegexCatalog {
     pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, AutomationAction)>) {
         let mut entries = Vec::new();
         for (pattern, action) in actions {
-            if let Ok(re) = regex::Regex::new(&pattern) {
-                entries.push(ParsedRegexAction {
-                    pattern_string: pattern,
-                    regex: re,
-                    action,
-                });
-            }
+            entries.push(ParsedRegexAction {
+                pattern,
+                regex: OnceLock::new(),
+                action,
+            });
         }
         if let Ok(mut guard) = self.snapshot.write() {
             guard.entries = entries;
@@ -237,14 +232,21 @@ impl RegexCatalog {
     ) -> Option<(String, AutomationAction, Vec<String>)> {
         let guard = self.snapshot.read().ok()?;
         for entry in &guard.entries {
+            let re = match entry
+                .regex
+                .get_or_init(|| regex::Regex::new(&entry.pattern).map_err(|_| ()))
+            {
+                Ok(re) => re,
+                Err(_) => continue,
+            };
             if is_app_allowed(&entry.action, active_window)
-                && let Some(m) = entry.regex.find_iter(buffer_string).last()
+                && let Some(m) = re.find_iter(buffer_string).last()
                 && m.end() == buffer_string.len()
                 && !m.as_str().is_empty()
             {
                 let matched_str = m.as_str();
                 let mut captures_list = Vec::new();
-                if let Some(caps) = entry.regex.captures(matched_str) {
+                if let Some(caps) = re.captures(matched_str) {
                     for i in 1..caps.len() {
                         let val = caps
                             .get(i)

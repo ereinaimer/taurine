@@ -1,5 +1,7 @@
 use std::sync::{Mutex, RwLock};
 
+const MAX_AI_PROMPT_LEN: usize = 64 * 1024; // 64 KB
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum EngineMode {
     #[default]
@@ -36,7 +38,9 @@ impl InlineAiSession {
     }
 
     pub fn append_prompt_char(&self, c: char) {
-        if let Ok(mut prompt) = self.prompt_buffer.lock() {
+        if let Ok(mut prompt) = self.prompt_buffer.lock()
+            && prompt.len() < MAX_AI_PROMPT_LEN
+        {
             prompt.push(c);
         }
     }
@@ -114,6 +118,15 @@ fn pop_last_word_from_prompt(prompt: &mut String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ai_prompt_buffer_enforces_cap() {
+        let session = InlineAiSession::new();
+        for _ in 0..100_000 {
+            session.append_prompt_char('a');
+        }
+        assert_eq!(session.prompt_buffer().len(), MAX_AI_PROMPT_LEN);
+    }
 
     #[test]
     fn inline_ai_session_defaults_to_normal_mode_with_empty_prompt() {

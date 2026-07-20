@@ -1,4 +1,8 @@
+use std::borrow::Cow;
+
 const FAST_BUFFER_CAPACITY: usize = 512;
+
+use smallvec::SmallVec;
 
 #[derive(Debug, Clone)]
 pub struct FastBuffer {
@@ -117,6 +121,36 @@ impl FastBuffer {
             result.push(self.data[(start + i) % capacity]);
         }
         result
+    }
+
+    pub fn as_str(&self) -> Cow<'_, str> {
+        if self.len == 0 {
+            return Cow::Borrowed("");
+        }
+        let capacity = self.data.len();
+        let start = (self.head + capacity - self.len) % capacity;
+        let end = start + self.len;
+
+        if end <= capacity {
+            // Contiguous in underlying vec - iterate slice directly
+            let slice = &self.data[start..end];
+            let mut s = String::with_capacity(self.len);
+            for &ch in slice {
+                s.push(ch);
+            }
+            Cow::Owned(s)
+        } else {
+            // Wrapped - must allocate
+            let mut s = String::with_capacity(self.len);
+            let first_part = capacity - start;
+            for &ch in &self.data[start..] {
+                s.push(ch);
+            }
+            for &ch in &self.data[..self.len - first_part] {
+                s.push(ch);
+            }
+            Cow::Owned(s)
+        }
     }
 
     pub fn is_inside_open_quote(&self) -> bool {
@@ -311,8 +345,8 @@ impl FastBuffer {
         Some(collected.into_iter().collect())
     }
 
-    pub fn extract_suffix_candidates(&self) -> Vec<(String, Option<char>)> {
-        let mut candidates = Vec::new();
+    pub fn extract_suffix_candidates(&self) -> SmallVec<[(String, Option<char>); 4]> {
+        let mut candidates = SmallVec::new();
         if self.len == 0 {
             return candidates;
         }
@@ -353,6 +387,7 @@ impl FastBuffer {
 #[cfg(test)]
 mod tests {
     use super::{FAST_BUFFER_CAPACITY, FastBuffer};
+    use std::borrow::Cow;
 
     fn type_str(buf: &mut FastBuffer, s: &str) {
         for c in s.chars() {
@@ -596,5 +631,39 @@ mod tests {
                 .iter()
                 .any(|(s, prev)| s == "btw" && *prev == Some(','))
         );
+    }
+
+    #[test]
+    fn test_as_str_contiguous() {
+        let mut b = FastBuffer::new();
+        for c in "hello".chars() {
+            b.push(c);
+        }
+        let cow = b.as_str();
+        assert!(matches!(cow, Cow::Owned(_)));
+        assert_eq!(cow.as_ref(), "hello");
+    }
+
+    #[test]
+    fn test_as_str_wrapped() {
+        let mut b = FastBuffer::new();
+        // Fill to capacity then wrap
+        for _ in 0..512 {
+            b.push('x');
+        }
+        b.push('y');
+        b.push('z');
+        let cow = b.as_str();
+        assert!(matches!(cow, Cow::Owned(_)));
+        assert_eq!(cow.as_ref().len(), 514);
+        assert!(cow.as_ref().ends_with("yz"));
+    }
+
+    #[test]
+    fn test_as_str_empty() {
+        let b = FastBuffer::new();
+        let cow = b.as_str();
+        assert!(matches!(cow, Cow::Borrowed(_)));
+        assert_eq!(cow.as_ref(), "");
     }
 }
