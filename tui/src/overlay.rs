@@ -1,9 +1,12 @@
 use crate::library::{
     LibraryExportModalField, LibraryExportModalState, LibraryImportConflictMode,
-    LibraryImportModalField, LibraryImportModalState, RememberedConflictChoice,
+    LibraryImportModalField, LibraryImportModalState, LibraryInteraction, RememberedConflictChoice,
 };
 use crate::theme::DARK_THEME;
-use crossterm::event::{Event, KeyCode, KeyEventKind};
+use crossterm::event::{
+    DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
+    MouseButton, MouseEventKind,
+};
 use crossterm::{
     cursor::SetCursorStyle,
     execute,
@@ -36,6 +39,7 @@ impl OverlaySession {
         enable_raw_mode()?;
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen)?;
+        execute!(stdout, EnableMouseCapture)?;
         execute!(stdout, SetCursorStyle::SteadyBar)?;
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
@@ -49,6 +53,7 @@ impl Drop for OverlaySession {
     fn drop(&mut self) {
         let _ = self.terminal.show_cursor();
         let _ = disable_raw_mode();
+        let _ = execute!(self.terminal.backend_mut(), DisableMouseCapture);
         let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
     }
 }
@@ -80,30 +85,32 @@ pub fn run_export_overlay() -> CoreResult<Option<ExportFormResult>> {
     let mut last_move = Instant::now();
     const MOVE_DEBOUNCE: Duration = Duration::from_millis(100);
 
-    let result =
-        loop {
-            let text_focused = state.focus() == LibraryExportModalField::Path
-                || (state.focus() == LibraryExportModalField::Password && state.encrypt());
-            if text_focused {
-                session.terminal.show_cursor().map_err(|e| {
-                    taurine_core::Error::Service(format!("Cursor show failed: {e}"))
-                })?;
-            }
-            session.terminal.draw(|f| {
-                crate::overlay_ui::render_export_popup(f, &state);
-            })?;
-            if !text_focused {
-                session.terminal.hide_cursor().map_err(|e| {
-                    taurine_core::Error::Service(format!("Cursor hide failed: {e}"))
-                })?;
-            }
+    let mut last_click = (0u16, 0u16, Instant::now());
 
-            if let Event::Key(key) = crossterm::event::read().map_err(|e| {
-                taurine_core::Error::Service(format!("Overlay event read failed: {e}"))
-            })? {
-                if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
-                    continue;
-                }
+    let result = loop {
+        let text_focused = state.focus() == LibraryExportModalField::Path
+            || (state.focus() == LibraryExportModalField::Password && state.encrypt());
+        if text_focused {
+            session
+                .terminal
+                .show_cursor()
+                .map_err(|e| taurine_core::Error::Service(format!("Cursor show failed: {e}")))?;
+        }
+        session.terminal.draw(|f| {
+            crate::overlay_ui::render_export_popup(f, &state);
+        })?;
+        if !text_focused {
+            session
+                .terminal
+                .hide_cursor()
+                .map_err(|e| taurine_core::Error::Service(format!("Cursor hide failed: {e}")))?;
+        }
+
+        let event = crossterm::event::read()
+            .map_err(|e| taurine_core::Error::Service(format!("Overlay event read failed: {e}")))?;
+
+        let interaction = match event {
+            Event::Key(key) if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) => {
                 let is_debounced = matches!(
                     key.code,
                     KeyCode::Up | KeyCode::Down | KeyCode::Char('j' | 'k')
@@ -114,22 +121,55 @@ pub fn run_export_overlay() -> CoreResult<Option<ExportFormResult>> {
                 if is_debounced {
                     last_move = Instant::now();
                 }
-                let interaction = state.handle_key(key);
-                if let Some(pending) = interaction.pending_export() {
-                    break Some(ExportFormResult {
-                        path: pending.path.clone().into(),
-                        encrypt: pending.encrypt,
-                        password: pending.password.clone(),
-                        include_settings: pending.include_settings,
-                        include_sensitive_settings: pending.include_sensitive_settings,
-                        include_stats: pending.include_stats,
-                    });
-                }
-                if interaction.should_close_modal() {
-                    break None;
+                state.handle_key(key)
+            }
+            Event::Mouse(mouse) if mouse.kind == MouseEventKind::Down(MouseButton::Left) => {
+                let term_size = session.terminal.size().map_err(|e| {
+                    taurine_core::Error::Service(format!("Terminal size query failed: {e}"))
+                })?;
+                if let Some((field, button)) = crate::overlay_ui::export_field_at(
+                    mouse.column,
+                    mouse.row,
+                    term_size.width,
+                    term_size.height,
+                ) {
+                    state.set_focus(field);
+                    if let Some(btn) = button {
+                        state.set_button_selection(btn);
+                        let now = Instant::now();
+                        let is_double = mouse.column == last_click.0
+                            && mouse.row == last_click.1
+                            && now.duration_since(last_click.2) <= Duration::from_millis(300);
+                        last_click = (mouse.column, mouse.row, now);
+                        if is_double {
+                            state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+                        } else {
+                            LibraryInteraction::handled()
+                        }
+                    } else {
+                        LibraryInteraction::handled()
+                    }
+                } else {
+                    LibraryInteraction::handled()
                 }
             }
+            _ => continue,
         };
+
+        if let Some(pending) = interaction.pending_export() {
+            break Some(ExportFormResult {
+                path: pending.path.clone().into(),
+                encrypt: pending.encrypt,
+                password: pending.password.clone(),
+                include_settings: pending.include_settings,
+                include_sensitive_settings: pending.include_sensitive_settings,
+                include_stats: pending.include_stats,
+            });
+        }
+        if interaction.should_close_modal() {
+            break None;
+        }
+    };
 
     Ok(result)
 }
@@ -142,37 +182,38 @@ pub fn run_import_overlay(path: Option<&str>) -> CoreResult<Option<ImportFormRes
         None => LibraryImportModalState::new(),
     };
     let mut last_move = Instant::now();
+    let mut last_click = (0u16, 0u16, Instant::now());
     let mut notification: Option<String> = None;
     const MOVE_DEBOUNCE: Duration = Duration::from_millis(100);
 
-    let result =
-        loop {
-            let text_focused = state.focus() == LibraryImportModalField::Path
-                || (state.focus() == LibraryImportModalField::Password
-                    && state.is_encrypted() != Some(false));
-            if text_focused {
-                session.terminal.show_cursor().map_err(|e| {
-                    taurine_core::Error::Service(format!("Cursor show failed: {e}"))
-                })?;
+    let result = loop {
+        let text_focused = state.focus() == LibraryImportModalField::Path
+            || (state.focus() == LibraryImportModalField::Password
+                && state.is_encrypted() != Some(false));
+        if text_focused {
+            session
+                .terminal
+                .show_cursor()
+                .map_err(|e| taurine_core::Error::Service(format!("Cursor show failed: {e}")))?;
+        }
+        session.terminal.draw(|f| {
+            crate::overlay_ui::render_import_popup(f, &state);
+            if let Some(msg) = &notification {
+                render_overlay_notification(f, msg);
             }
-            session.terminal.draw(|f| {
-                crate::overlay_ui::render_import_popup(f, &state);
-                if let Some(msg) = &notification {
-                    render_overlay_notification(f, msg);
-                }
-            })?;
-            if !text_focused {
-                session.terminal.hide_cursor().map_err(|e| {
-                    taurine_core::Error::Service(format!("Cursor hide failed: {e}"))
-                })?;
-            }
+        })?;
+        if !text_focused {
+            session
+                .terminal
+                .hide_cursor()
+                .map_err(|e| taurine_core::Error::Service(format!("Cursor hide failed: {e}")))?;
+        }
 
-            if let Event::Key(key) = crossterm::event::read().map_err(|e| {
-                taurine_core::Error::Service(format!("Overlay event read failed: {e}"))
-            })? {
-                if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
-                    continue;
-                }
+        let event = crossterm::event::read()
+            .map_err(|e| taurine_core::Error::Service(format!("Overlay event read failed: {e}")))?;
+
+        let interaction = match event {
+            Event::Key(key) if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) => {
                 notification = None;
                 let is_debounced = matches!(
                     key.code,
@@ -184,53 +225,87 @@ pub fn run_import_overlay(path: Option<&str>) -> CoreResult<Option<ImportFormRes
                 if is_debounced {
                     last_move = Instant::now();
                 }
-                let interaction = state.handle_key(key);
-                if interaction.pending_import_prepare().is_some() {
-                    let (
-                        path,
-                        password,
-                        include_settings,
-                        include_sensitive_settings,
-                        stats_mode,
-                        conflict_mode,
-                    ) = {
-                        let p = interaction.pending_import_prepare().unwrap();
-                        (
-                            p.path.clone(),
-                            p.password.clone(),
-                            p.options.include_settings,
-                            p.options.include_sensitive_settings,
-                            p.options.stats_mode,
-                            p.conflict_mode,
-                        )
-                    };
-                    match std::fs::read(path.trim()) {
-                        Ok(bytes) => match decode_exchange_blob(&bytes, password.as_deref()) {
-                            Ok(_) => {
-                                break Some(ImportFormResult {
-                                    path: path.into(),
-                                    password,
-                                    include_settings,
-                                    include_sensitive_settings,
-                                    stats_mode,
-                                    conflict_mode,
-                                });
-                            }
-                            Err(e) => {
-                                notification = Some(e.to_string());
-                            }
-                        },
-                        Err(e) => {
-                            notification = Some(format!("Failed to read file: {e}"));
+                state.handle_key(key)
+            }
+            Event::Mouse(mouse) if mouse.kind == MouseEventKind::Down(MouseButton::Left) => {
+                notification = None;
+                let term_size = session.terminal.size().map_err(|e| {
+                    taurine_core::Error::Service(format!("Terminal size query failed: {e}"))
+                })?;
+                if let Some((field, button)) = crate::overlay_ui::import_field_at(
+                    mouse.column,
+                    mouse.row,
+                    term_size.width,
+                    term_size.height,
+                ) {
+                    state.set_focus(field);
+                    if let Some(btn) = button {
+                        state.set_button_selection(btn);
+                        let now = Instant::now();
+                        let is_double = mouse.column == last_click.0
+                            && mouse.row == last_click.1
+                            && now.duration_since(last_click.2) <= Duration::from_millis(300);
+                        last_click = (mouse.column, mouse.row, now);
+                        if is_double {
+                            state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+                        } else {
+                            LibraryInteraction::handled()
                         }
+                    } else {
+                        LibraryInteraction::handled()
                     }
-                } else if interaction.should_close_modal() {
-                    break None;
-                } else if let Some(err) = state.error().map(String::from) {
-                    notification = Some(err);
+                } else {
+                    LibraryInteraction::handled()
                 }
             }
+            _ => continue,
         };
+
+        if interaction.pending_import_prepare().is_some() {
+            let (
+                path,
+                password,
+                include_settings,
+                include_sensitive_settings,
+                stats_mode,
+                conflict_mode,
+            ) = {
+                let p = interaction.pending_import_prepare().unwrap();
+                (
+                    p.path.clone(),
+                    p.password.clone(),
+                    p.options.include_settings,
+                    p.options.include_sensitive_settings,
+                    p.options.stats_mode,
+                    p.conflict_mode,
+                )
+            };
+            match std::fs::read(path.trim()) {
+                Ok(bytes) => match decode_exchange_blob(&bytes, password.as_deref()) {
+                    Ok(_) => {
+                        break Some(ImportFormResult {
+                            path: path.into(),
+                            password,
+                            include_settings,
+                            include_sensitive_settings,
+                            stats_mode,
+                            conflict_mode,
+                        });
+                    }
+                    Err(e) => {
+                        notification = Some(e.to_string());
+                    }
+                },
+                Err(e) => {
+                    notification = Some(format!("Failed to read file: {e}"));
+                }
+            }
+        } else if interaction.should_close_modal() {
+            break None;
+        } else if let Some(err) = state.error().map(String::from) {
+            notification = Some(err);
+        }
+    };
 
     Ok(result)
 }

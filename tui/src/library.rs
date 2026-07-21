@@ -401,12 +401,20 @@ impl LibraryExportModalState {
         self.focus
     }
 
+    pub(crate) fn set_focus(&mut self, field: LibraryExportModalField) {
+        self.focus = field;
+    }
+
     pub(crate) fn error(&self) -> Option<&str> {
         self.error.as_deref()
     }
 
     pub(crate) const fn button_selection(&self) -> ButtonSelection {
         self.button_selection
+    }
+
+    pub(crate) fn set_button_selection(&mut self, selection: ButtonSelection) {
+        self.button_selection = selection;
     }
 
     fn set_error(&mut self, error: String) {
@@ -855,12 +863,20 @@ impl LibraryImportModalState {
         self.focus
     }
 
+    pub(crate) fn set_focus(&mut self, field: LibraryImportModalField) {
+        self.focus = field;
+    }
+
     pub(crate) fn error(&self) -> Option<&str> {
         self.error.as_deref()
     }
 
     pub(crate) const fn button_selection(&self) -> ButtonSelection {
         self.button_selection
+    }
+
+    pub(crate) fn set_button_selection(&mut self, selection: ButtonSelection) {
+        self.button_selection = selection;
     }
 
     pub(crate) fn set_error(&mut self, error: String) {
@@ -2475,7 +2491,7 @@ impl LibraryInteraction {
         self.close_modal
     }
 
-    fn handled() -> Self {
+    pub(crate) fn handled() -> Self {
         Self::default()
     }
 

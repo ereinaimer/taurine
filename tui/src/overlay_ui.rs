@@ -793,6 +793,104 @@ pub(crate) fn render_password_popup(
     }
 }
 
+pub(crate) fn export_field_at(
+    col: u16,
+    row: u16,
+    term_width: u16,
+    term_height: u16,
+) -> Option<(LibraryExportModalField, Option<ButtonSelection>)> {
+    let inner_x = 1u16;
+    let inner_y = 1u16;
+    let inner_w = term_width.saturating_sub(2);
+    if col < inner_x || col >= inner_x + inner_w {
+        return None;
+    }
+    if row < inner_y || row >= inner_y + term_height.saturating_sub(2) {
+        return None;
+    }
+    let inner_row = row - inner_y;
+    let section = match inner_row {
+        2..=3 => 2,
+        4..=5 => 3,
+        6..=7 => 4,
+        8..=9 => 5,
+        10..=11 => 6,
+        12..=13 => 7,
+        15..=15 => 9,
+        _ => return None,
+    };
+    let field = match section {
+        2 => LibraryExportModalField::Path,
+        3 => LibraryExportModalField::Encrypt,
+        4 => LibraryExportModalField::Password,
+        5 => LibraryExportModalField::IncludeSettings,
+        6 => LibraryExportModalField::IncludeSensitiveSettings,
+        7 => LibraryExportModalField::IncludeStats,
+        9 => LibraryExportModalField::ActionButton,
+        _ => return None,
+    };
+    let button = if section == 9 {
+        let center = inner_x + inner_w / 2;
+        Some(if col < center {
+            ButtonSelection::Cancel
+        } else {
+            ButtonSelection::Confirm
+        })
+    } else {
+        None
+    };
+    Some((field, button))
+}
+
+pub(crate) fn import_field_at(
+    col: u16,
+    row: u16,
+    term_width: u16,
+    term_height: u16,
+) -> Option<(LibraryImportModalField, Option<ButtonSelection>)> {
+    let inner_x = 1u16;
+    let inner_y = 1u16;
+    let inner_w = term_width.saturating_sub(2);
+    if col < inner_x || col >= inner_x + inner_w {
+        return None;
+    }
+    if row < inner_y || row >= inner_y + term_height.saturating_sub(2) {
+        return None;
+    }
+    let inner_row = row - inner_y;
+    let section = match inner_row {
+        2..=3 => 2,
+        4..=5 => 3,
+        6..=7 => 4,
+        8..=9 => 5,
+        10..=11 => 6,
+        12..=13 => 7,
+        16..=16 => 10,
+        _ => return None,
+    };
+    let field = match section {
+        2 => LibraryImportModalField::Path,
+        3 => LibraryImportModalField::Password,
+        4 => LibraryImportModalField::IncludeSettings,
+        5 => LibraryImportModalField::IncludeSensitiveSettings,
+        6 => LibraryImportModalField::StatsMode,
+        7 => LibraryImportModalField::ConflictMode,
+        10 => LibraryImportModalField::ActionButton,
+        _ => return None,
+    };
+    let button = if section == 10 {
+        let center = inner_x + inner_w / 2;
+        Some(if col < center {
+            ButtonSelection::Cancel
+        } else {
+            ButtonSelection::Confirm
+        })
+    } else {
+        None
+    };
+    Some((field, button))
+}
+
 pub(crate) fn render_conflict_popup(
     frame: &mut Frame,
     incoming: &AutomationExport,
