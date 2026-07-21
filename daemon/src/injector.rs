@@ -7,7 +7,7 @@ mod simulate;
 
 pub use gate::{
     INJECTION_ABORT, IS_INJECTING, IS_SIMULATING, InjectionFlagGuard, InjectionVisibilityGuard,
-    abort_injection, spawn_guarded_injection_thread,
+    abort_injection, init_injection_pool, spawn_guarded_injection_thread,
 };
 
 #[cfg(not(target_os = "linux"))]

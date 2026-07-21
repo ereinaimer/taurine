@@ -32,6 +32,9 @@ pub(crate) static TOKIO_HANDLE: std::sync::OnceLock<tokio::runtime::Handle> =
 pub fn start() -> taurine_core::error::Result<()> {
     let conn = init::setup()?;
 
+    // Initialize injection thread pool (replaces per-expansion thread spawning)
+    crate::injector::init_injection_pool();
+
     #[cfg(target_os = "linux")]
     {
         if let Err(e) = crate::platform::linux::init() {

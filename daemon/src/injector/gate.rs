@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::thread;
 use tracing::{error, trace};
 
@@ -143,20 +143,28 @@ pub fn spawn_guarded_injection_thread<F>(thread_name: &str, task: F)
 where
     F: FnOnce() + Send + 'static,
 {
-    let guard = InjectionFlagGuard::begin();
-    let spawn_result = thread::Builder::new()
-        .name(thread_name.to_string())
-        .spawn(move || {
-            let _guard = guard;
-            task();
-        });
+    if let Some(tx) = INJECTION_POOL.get() {
+        let task = Box::new(task);
+        if tx.send(task).is_err() {
+            error!(thread_name, "Injection pool channel closed, dropping task");
+        }
+    } else {
+        // Fallback: direct spawn (happens before pool is initialized)
+        let guard = InjectionFlagGuard::begin();
+        let spawn_result = thread::Builder::new()
+            .name(thread_name.to_string())
+            .spawn(move || {
+                let _guard = guard;
+                task();
+            });
 
-    if let Err(error) = spawn_result {
-        error!(
-            thread_name,
-            error = %error,
-            "Failed to spawn guarded injection thread"
-        );
+        if let Err(error) = spawn_result {
+            error!(
+                thread_name,
+                error = %error,
+                "Failed to spawn guarded injection thread"
+            );
+        }
     }
 }
 
@@ -164,7 +172,66 @@ pub fn abort_injection() {
     INJECTION_ABORT.store(true, Ordering::SeqCst);
 }
 
+static INJECTION_POOL: OnceLock<mpsc::Sender<Box<dyn FnOnce() + Send>>> = OnceLock::new();
+
+pub fn init_injection_pool() {
+    let (tx, rx) = mpsc::channel::<Box<dyn FnOnce() + Send>>();
+    let rx = Arc::new(Mutex::new(rx));
+    for i in 0..2 {
+        let rx = rx.clone();
+        std::thread::Builder::new()
+            .name(format!("tau-inject-{i}"))
+            .spawn(move || {
+                loop {
+                    let task = rx.lock().unwrap().recv();
+                    match task {
+                        Ok(task) => {
+                            let _guard = InjectionFlagGuard::begin();
+                            task();
+                        }
+                        Err(_) => break,
+                    }
+                }
+            })
+            .expect("failed to spawn injection pool thread");
+    }
+    INJECTION_POOL.set(tx).ok();
+}
+
 pub(super) fn inject_mutex() -> &'static Mutex<()> {
     static M: OnceLock<Mutex<()>> = OnceLock::new();
     M.get_or_init(|| Mutex::new(()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_injection_pool_executes_task() {
+        init_injection_pool();
+        let executed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let executed_clone = executed.clone();
+        spawn_guarded_injection_thread("test-pool", move || {
+            executed_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(executed.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_injection_pool_sets_injecting_flag() {
+        init_injection_pool();
+        let flag_was_set = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag_clone = flag_was_set.clone();
+        spawn_guarded_injection_thread("test-flag", move || {
+            flag_clone.store(
+                IS_INJECTING.load(std::sync::atomic::Ordering::SeqCst),
+                std::sync::atomic::Ordering::SeqCst,
+            );
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(flag_was_set.load(std::sync::atomic::Ordering::SeqCst));
+    }
 }

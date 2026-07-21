@@ -800,55 +800,58 @@ impl Evaluator {
             }
         }
 
-        // Regex matching fallback
-        let buf_str = self.buffer.buffer_string();
-        if let Some((keyword, action, captures)) =
-            self.state.match_regex_action(&buf_str, active_window)
-        {
-            use crate::engine::catalog::expand_automation_action_with_args;
-            use crate::engine::variables::ArgMap;
-
-            let arg_map = ArgMap {
-                positional: captures,
-                ..Default::default()
-            };
-
-            if let Some(expansion) = expand_automation_action_with_args(action, &arg_map, &keyword)
+        // Regex matching fallback — skip allocation if no regex patterns loaded
+        if !self.state.regex_catalog.is_empty() {
+            let buf_str = self.buffer.buffer_string();
+            if let Some((keyword, action, captures)) =
+                self.state.match_regex_action(&buf_str, active_window)
             {
-                let delete_count = keyword.chars().count();
-                let stat_kind = stat_kind_for_steps(expansion.is_calculation, &expansion.steps);
-                self.buffer.clear();
+                use crate::engine::catalog::expand_automation_action_with_args;
+                use crate::engine::variables::ArgMap;
 
-                if let Some(template) = expansion.ai_transformer_template {
-                    let initial_text = self.get_initial_spinner_text(&template);
+                let arg_map = ArgMap {
+                    positional: captures,
+                    ..Default::default()
+                };
+
+                if let Some(expansion) =
+                    expand_automation_action_with_args(action, &arg_map, &keyword)
+                {
+                    let delete_count = keyword.chars().count();
+                    let stat_kind = stat_kind_for_steps(expansion.is_calculation, &expansion.steps);
+                    self.buffer.clear();
+
+                    if let Some(template) = expansion.ai_transformer_template {
+                        let initial_text = self.get_initial_spinner_text(&template);
+                        return Some(ExpansionResult {
+                            delete_count,
+                            steps: vec![ExpansionStep::Text(initial_text)],
+                            trigger: keyword.clone(),
+                            undo_trigger: None,
+                            is_calculation: false,
+                            stat_kind: AutomationStatKind::InlineAi,
+                            track_usage: true,
+                            follow_up: Some(ExpansionFollowUp::AiTransformer {
+                                template_with_markers: template,
+                            }),
+                        });
+                    }
+
+                    let undo_trigger = self
+                        .allows_blind_undo(&expansion.steps)
+                        .then(|| keyword.clone());
+
                     return Some(ExpansionResult {
                         delete_count,
-                        steps: vec![ExpansionStep::Text(initial_text)],
-                        trigger: keyword.clone(),
-                        undo_trigger: None,
-                        is_calculation: false,
-                        stat_kind: AutomationStatKind::InlineAi,
+                        steps: expansion.steps,
+                        trigger: keyword,
+                        undo_trigger,
+                        is_calculation: expansion.is_calculation,
+                        stat_kind,
                         track_usage: true,
-                        follow_up: Some(ExpansionFollowUp::AiTransformer {
-                            template_with_markers: template,
-                        }),
+                        follow_up: None,
                     });
                 }
-
-                let undo_trigger = self
-                    .allows_blind_undo(&expansion.steps)
-                    .then(|| keyword.clone());
-
-                return Some(ExpansionResult {
-                    delete_count,
-                    steps: expansion.steps,
-                    trigger: keyword,
-                    undo_trigger,
-                    is_calculation: expansion.is_calculation,
-                    stat_kind,
-                    track_usage: true,
-                    follow_up: None,
-                });
             }
         }
 
@@ -3338,6 +3341,24 @@ mod tests {
         let res = result.unwrap();
         assert_eq!(res.delete_count, 8); // 'issue-42' length
         assert_eq!(res.undo_trigger.as_deref(), Some("issue-42"));
+    }
+
+    #[test]
+    fn test_no_regex_allocation_when_catalog_empty() {
+        let state = Arc::new(EngineState::new('/'));
+        state.load_actions(vec![(
+            "hi".to_string(),
+            crate::db::crud::AutomationAction::text("hello"),
+        )]);
+        let mut eval = Evaluator::new(state);
+        for c in "/hi".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let result = eval.process(EngineEvent::ActionKey);
+        assert!(result.is_some());
+        let res = result.unwrap();
+        assert_eq!(res.delete_count, 3); // '/' + "hi" = 3
+        assert_eq!(res.steps, vec![ExpansionStep::Text("hello".to_string())]);
     }
 
     #[test]

@@ -225,6 +225,13 @@ impl RegexCatalog {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        if let Ok(guard) = self.snapshot.read() {
+            return guard.entries.is_empty();
+        }
+        true
+    }
+
     pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, AutomationAction)>) {
         let mut entries = Vec::new();
         for (pattern, action) in actions {

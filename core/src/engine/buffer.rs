@@ -352,32 +352,25 @@ impl FastBuffer {
         }
 
         let capacity = self.data.len();
-        let mut collected = Vec::new();
+        let mut collected: Vec<char> = Vec::with_capacity(30.min(self.len));
         let mut curr = (self.head + capacity - 1) % capacity;
         let mut n = 0;
 
         while n < self.len && n < 30 {
             let c = self.data[curr];
-
             if c.is_whitespace() {
                 break;
             }
-
             collected.push(c);
-
-            let prev_idx = (curr + capacity - 1) % capacity;
-            let prev_char = if n + 1 < self.len {
-                Some(self.data[prev_idx])
-            } else {
-                None
-            };
-
-            let mut word = collected.clone();
-            word.reverse();
-            candidates.push((word.into_iter().collect(), prev_char));
-
             curr = (curr + capacity - 1) % capacity;
             n += 1;
+        }
+
+        // Build candidates in one pass (no O(n²) cloning)
+        for len in 1..=collected.len() {
+            let word: String = collected[..len].iter().rev().collect();
+            let prev_char = collected.get(len).copied();
+            candidates.push((word, prev_char));
         }
 
         candidates
@@ -631,6 +624,47 @@ mod tests {
                 .iter()
                 .any(|(s, prev)| s == "btw" && *prev == Some(','))
         );
+        // Full list: b,tw,btw each with their preceding char
+        assert!(candidates.iter().any(|(s, _)| s == "w"));
+        assert!(candidates.iter().any(|(s, _)| s == "tw"));
+        assert!(candidates.iter().any(|(s, _)| s == "btw"));
+        // Longest candidate (scan continues past non-whitespace separators)
+        assert_eq!(
+            candidates.last().map(|(s, _)| s.as_str()),
+            Some("hello,btw")
+        );
+    }
+
+    #[test]
+    fn test_extract_suffix_candidates_empty_buffer() {
+        let b = FastBuffer::new();
+        let candidates = b.extract_suffix_candidates();
+        assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn test_extract_suffix_candidates_whitespace_boundary() {
+        let mut b = FastBuffer::new();
+        for c in "hello world".chars() {
+            b.push(c);
+        }
+        let candidates = b.extract_suffix_candidates();
+        // Only "world" should be extracted (stops at whitespace)
+        assert!(candidates.iter().any(|(s, _)| s == "world"));
+        assert!(!candidates.iter().any(|(s, _)| s == "hello world"));
+    }
+
+    #[test]
+    fn test_extract_suffix_candidates_caps_at_30() {
+        let mut b = FastBuffer::new();
+        for c in "abcdefghijklmnopqrstuvwxyz0123456789".chars() {
+            b.push(c);
+        }
+        let candidates = b.extract_suffix_candidates();
+        // Max 30 candidates
+        assert!(candidates.len() <= 30);
+        // The longest should be 30 chars
+        assert_eq!(candidates.last().map(|(s, _)| s.len()), Some(30));
     }
 
     #[test]
