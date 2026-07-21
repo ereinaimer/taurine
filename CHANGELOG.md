@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Interactive Import Options**: When importing from the CLI without any optional flags, Taurine now opens an interactive overlay where you can choose whether to include settings, sensitive settings, and stats, and pick a conflict resolution strategy.
 
 ### Changed
-- **Hot Path CPU Optimizations**: Reduce CPU overhead on the input processing hot path by deferring regex buffer allocation, eliminating O(n²) string cloning in suffix matching, and replacing per-expansion thread spawning with a fixed 2-thread pool.
+- **Hot Path CPU & RAM Optimizations**: Reduce CPU overhead on the input processing hot path by deferring regex buffer allocation, eliminating O(n²) string cloning in suffix matching, and replacing per-expansion thread spawning with a fixed 2-thread pool. Cap tokio async runtime to 2 worker threads and 4 blocking threads to cut idle memory reservation.
 - **Rename Conflict Resolution Flag**: Rename the database collision resolution CLI option in the import command from `--on-conflict` to `--conflict` (`-c`) for better consistency.
 - **Trigger Input Validation**: Disallow spaces and newlines in word triggers when creating or updating automations.
 - **Telemetry Renamed to Stats**: Rename the "Metrics" system to "Stats" throughout the application (database tables, TUI, CLI options, and documentation) to provide more user-friendly terminology. Changed the CLI data exchange option from `--metrics` (`-m`) to `--stats` (`-t`).

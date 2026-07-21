@@ -224,6 +224,8 @@ pub fn start() -> taurine_core::error::Result<()> {
     let _ = FILE_LOG_GUARD.set(guard);
 
     let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .max_blocking_threads(4)
         .enable_all()
         .build()?;
     let _ = TOKIO_HANDLE.set(rt.handle().clone());
