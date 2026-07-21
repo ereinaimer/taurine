@@ -453,7 +453,7 @@ pub(crate) fn render_export_popup(frame: &mut Frame, state: &LibraryExportModalS
 
     render_action_buttons_overlay(
         frame,
-        sections[10],
+        sections[9],
         "Cancel",
         "Export",
         state.focus() == LibraryExportModalField::ActionButton,

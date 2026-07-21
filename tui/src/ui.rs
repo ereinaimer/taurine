@@ -546,7 +546,7 @@ fn render_library_export_modal(frame: &mut Frame, area: Rect, state: &LibraryExp
     } else {
         area.width.max(1)
     };
-    let height = if state.encrypt() { 14 } else { 13 };
+    let height = area.height.clamp(1, 14);
     let popup = centered_rect(width, height, area);
     frame.render_widget(Clear, popup);
     let inner = render_modal_block(frame, popup, "Export Automations");
@@ -554,8 +554,6 @@ fn render_library_export_modal(frame: &mut Frame, area: Rect, state: &LibraryExp
     let sections = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
@@ -654,9 +652,9 @@ fn render_library_export_modal(frame: &mut Frame, area: Rect, state: &LibraryExp
     let buttons_area = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
+            Constraint::Length(0),
             Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
+            Constraint::Length(0),
         ])
         .split(sections[8]);
     render_action_buttons(
@@ -692,15 +690,13 @@ fn render_library_import_modal(frame: &mut Frame, area: Rect, state: &LibraryImp
     } else {
         area.width.max(1)
     };
-    let popup = centered_rect(width, 16.min(area.height.max(1)), area);
+    let popup = centered_rect(width, area.height.clamp(1, 14), area);
     frame.render_widget(Clear, popup);
     let inner = render_modal_block(frame, popup, "Import Automations");
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
@@ -790,9 +786,9 @@ fn render_library_import_modal(frame: &mut Frame, area: Rect, state: &LibraryImp
     let buttons_area = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
+            Constraint::Length(0),
             Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
+            Constraint::Length(0),
         ])
         .split(sections[9]);
     render_action_buttons(
