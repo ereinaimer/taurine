@@ -71,6 +71,10 @@ enum Commands {
         #[arg(long)]
         tag: Option<String>,
 
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long)]
+        yes: bool,
+
         #[arg(required_unless_present = "tag", num_args = 0..)]
         triggers: Vec<String>,
     },
@@ -628,8 +632,8 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
                 }
             }
         }
-        Some(Commands::Delete { triggers, tag }) => {
-            commands::delete::execute(triggers, tag)?;
+        Some(Commands::Delete { triggers, tag, yes }) => {
+            commands::delete::execute(triggers, tag, yes)?;
         }
         Some(Commands::List {
             sort,

@@ -5,9 +5,10 @@ mod automation_sync;
 mod automation_types;
 
 pub use automation_delete::{
-    delete_automation, delete_automation_by_trigger, delete_automations_by_tag,
-    delete_automations_by_triggers,
+    count_automations_by_pattern, delete_automation, delete_automation_by_trigger,
+    delete_automations_by_pattern, delete_automations_by_tag, delete_automations_by_triggers,
 };
+
 pub use automation_get::{
     get_action_by_trigger, get_active_word_trigger_history, get_all_active_automations,
     get_all_active_hotkey_automations, get_all_active_regex_automations, get_automation,
@@ -1906,5 +1907,72 @@ mod tests {
             .unwrap();
         let row = get_automation(&conn, &row_id).unwrap().unwrap();
         assert!(row.auto_case);
+    }
+
+    #[test]
+    fn delete_automations_by_pattern_matches_glob_prefix() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+        conn.execute("DELETE FROM automations", []).unwrap();
+
+        insert_raw_automation(&conn, "uuid-1", "word", "test_foo", "all").unwrap();
+        insert_raw_automation(&conn, "uuid-2", "word", "test_bar", "all").unwrap();
+        insert_raw_automation(&conn, "uuid-3", "word", "other", "all").unwrap();
+
+        let count = crate::db::crud::count_automations_by_pattern(&conn, "test_*").unwrap();
+        assert_eq!(count, 2);
+
+        let deleted = crate::db::crud::delete_automations_by_pattern(&conn, "test_*").unwrap();
+        assert_eq!(deleted, 2);
+
+        assert!(
+            crate::db::crud::get_automation(&conn, "uuid-1")
+                .unwrap()
+                .unwrap()
+                .is_deleted
+        );
+        assert!(
+            crate::db::crud::get_automation(&conn, "uuid-2")
+                .unwrap()
+                .unwrap()
+                .is_deleted
+        );
+        assert!(
+            !crate::db::crud::get_automation(&conn, "uuid-3")
+                .unwrap()
+                .unwrap()
+                .is_deleted
+        );
+    }
+
+    #[test]
+    fn count_automations_by_pattern_returns_zero_for_no_match() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+        conn.execute("DELETE FROM automations", []).unwrap();
+
+        insert_raw_automation(&conn, "uuid-1", "word", "test_foo", "all").unwrap();
+
+        let count = crate::db::crud::count_automations_by_pattern(&conn, "nomatch_*").unwrap();
+        assert_eq!(count, 0);
+
+        let deleted = crate::db::crud::delete_automations_by_pattern(&conn, "nomatch_*").unwrap();
+        assert_eq!(deleted, 0);
+    }
+
+    #[test]
+    fn delete_automations_by_pattern_ignores_already_deleted() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+        conn.execute("DELETE FROM automations", []).unwrap();
+
+        insert_raw_automation(&conn, "uuid-1", "word", "test_foo", "all").unwrap();
+        crate::db::crud::delete_automation(&conn, "uuid-1").unwrap();
+
+        let count = crate::db::crud::count_automations_by_pattern(&conn, "test_*").unwrap();
+        assert_eq!(count, 0);
+
+        let deleted = crate::db::crud::delete_automations_by_pattern(&conn, "test_*").unwrap();
+        assert_eq!(deleted, 0);
     }
 }

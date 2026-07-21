@@ -68,6 +68,37 @@ pub fn delete_automations_by_triggers(conn: &Connection, triggers: &[String]) ->
     Ok(rows_changed)
 }
 
+/// Counts active automations whose trigger matches the given glob pattern.
+/// The `*` wildcard is converted to the SQL `%` LIKE wildcard.
+pub fn count_automations_by_pattern(conn: &Connection, pattern: &str) -> Result<usize> {
+    let sql_pattern = pattern.replace('*', "%");
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM automations WHERE trigger LIKE ?1 AND is_deleted = 0",
+        [&sql_pattern],
+        |row| row.get(0),
+    )?;
+    Ok(count as usize)
+}
+
+/// Soft-deletes active automations whose trigger matches the given glob pattern.
+/// The `*` wildcard is converted to the SQL `%` LIKE wildcard.
+/// Returns the number of rows tombstoned.
+pub fn delete_automations_by_pattern(conn: &Connection, pattern: &str) -> Result<usize> {
+    let now = now_unix_secs();
+    let sql_pattern = pattern.replace('*', "%");
+
+    let rows_changed = conn.execute(
+        "UPDATE automations
+            SET is_deleted = 1,
+                version    = version + 1,
+                updated_at = ?1
+         WHERE trigger LIKE ?2 AND is_deleted = 0",
+        (now, &sql_pattern),
+    )?;
+
+    Ok(rows_changed)
+}
+
 /// Disables or tombstones all automations containing the specified tag.
 /// Returns the number of affected rows.
 pub fn delete_automations_by_tag(conn: &Connection, tag: &str) -> Result<usize> {
