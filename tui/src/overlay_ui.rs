@@ -316,10 +316,12 @@ fn render_action_buttons_overlay(
     let cancel_style = if is_focused && selection == ButtonSelection::Cancel {
         Style::default()
             .fg(DARK_THEME.text)
-            .bg(DARK_THEME.highlight)
+            .bg(DARK_THEME.button_active)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(DARK_THEME.text)
+        Style::default()
+            .fg(DARK_THEME.text)
+            .bg(DARK_THEME.highlight)
     };
     frame.render_widget(
         Paragraph::new(cancel_text).style(cancel_style),
@@ -329,10 +331,12 @@ fn render_action_buttons_overlay(
     let confirm_style = if is_focused && selection == ButtonSelection::Confirm {
         Style::default()
             .fg(DARK_THEME.text)
-            .bg(DARK_THEME.highlight)
+            .bg(DARK_THEME.button_active)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(DARK_THEME.text)
+        Style::default()
+            .fg(DARK_THEME.text)
+            .bg(DARK_THEME.highlight)
     };
     frame.render_widget(
         Paragraph::new(confirm_text).style(confirm_style),

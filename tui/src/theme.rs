@@ -9,6 +9,7 @@ pub struct Theme {
     pub highlight: Color,
     pub border: Color,
     pub error: Color,
+    pub button_active: Color,
 }
 
 pub const DARK_THEME: Theme = Theme {
@@ -19,4 +20,5 @@ pub const DARK_THEME: Theme = Theme {
     highlight: Color::Rgb(0x1E, 0x1E, 0x1E),
     border: Color::Rgb(0x1E, 0x1E, 0x1E),
     error: Color::Red,
+    button_active: Color::Rgb(0x3A, 0x3A, 0x3A),
 };
