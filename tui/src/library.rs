@@ -40,19 +40,12 @@ const SCRIPT_LANGUAGE_OPTIONS: [ScriptInterpreter; 6] = [
     ScriptInterpreter::Cmd,
 ];
 const SCRIPT_MODE_OPTIONS: [ScriptBehavior; 2] = [ScriptBehavior::Inline, ScriptBehavior::Silent];
-const EXPORT_ENCRYPTION_OPTIONS: [LibraryExportModalField; 7] = [
+const EXPORT_MODAL_FIELDS: [LibraryExportModalField; 7] = [
     LibraryExportModalField::Path,
     LibraryExportModalField::Encrypt,
     LibraryExportModalField::Password,
     LibraryExportModalField::IncludeSettings,
     LibraryExportModalField::IncludeSensitiveSettings,
-    LibraryExportModalField::IncludeStats,
-    LibraryExportModalField::ActionButton,
-];
-const EXPORT_PLAINTEXT_OPTIONS: [LibraryExportModalField; 5] = [
-    LibraryExportModalField::Path,
-    LibraryExportModalField::Encrypt,
-    LibraryExportModalField::IncludeSettings,
     LibraryExportModalField::IncludeStats,
     LibraryExportModalField::ActionButton,
 ];
@@ -421,11 +414,16 @@ impl LibraryExportModalState {
     }
 
     fn visible_fields(&self) -> &'static [LibraryExportModalField] {
-        if self.encrypt {
-            &EXPORT_ENCRYPTION_OPTIONS
-        } else {
-            &EXPORT_PLAINTEXT_OPTIONS
-        }
+        &EXPORT_MODAL_FIELDS
+    }
+
+    fn should_skip_field(&self, field: LibraryExportModalField) -> bool {
+        !self.encrypt
+            && matches!(
+                field,
+                LibraryExportModalField::Password
+                    | LibraryExportModalField::IncludeSensitiveSettings
+            )
     }
 
     pub(crate) fn footer_text(&self) -> &'static str {
@@ -571,9 +569,10 @@ impl LibraryExportModalState {
             (KeyCode::Char(' '), KeyModifiers::NONE) => {
                 self.encrypt = !self.encrypt;
                 if !self.encrypt {
+                    self.password.clear();
+                    self.password_cursor = 0;
                     self.include_sensitive_settings = false;
                 }
-                self.ensure_focus_visible();
                 LibraryInteraction::handled()
             }
             _ => LibraryInteraction::handled(),
@@ -629,7 +628,7 @@ impl LibraryExportModalState {
 
     fn handle_include_sensitive_settings_key(&mut self, key: KeyEvent) -> LibraryInteraction {
         match (key.code, key.modifiers) {
-            (KeyCode::Char(' '), KeyModifiers::NONE) => {
+            (KeyCode::Char(' '), KeyModifiers::NONE) if self.encrypt => {
                 self.include_sensitive_settings = !self.include_sensitive_settings;
                 LibraryInteraction::handled()
             }
@@ -658,22 +657,21 @@ impl LibraryExportModalState {
             if self.focus == LibraryExportModalField::ActionButton {
                 return;
             }
-            let next_index = (current_index + 1).min(fields.len() - 1);
-            self.focus = fields[next_index];
+            let mut next = current_index + 1;
+            while next < fields.len() && self.should_skip_field(fields[next]) {
+                next += 1;
+            }
+            self.focus = fields[next.min(fields.len() - 1)];
         } else {
             if current_index == 0 {
                 return;
             }
-            self.focus = fields[current_index - 1];
+            let mut prev = current_index - 1;
+            while prev > 0 && self.should_skip_field(fields[prev]) {
+                prev -= 1;
+            }
+            self.focus = fields[prev];
         }
-    }
-
-    fn ensure_focus_visible(&mut self) {
-        if self.visible_fields().contains(&self.focus) {
-            return;
-        }
-
-        self.focus = LibraryExportModalField::IncludeSettings;
     }
 
     fn insert_path_char(&mut self, ch: char) {
@@ -745,6 +743,7 @@ pub(crate) struct LibraryImportModalState {
     error: Option<String>,
     selector: Option<LibrarySelectState>,
     button_selection: ButtonSelection,
+    file_is_encrypted: Option<bool>,
 }
 
 impl LibraryImportModalState {
@@ -762,13 +761,14 @@ impl LibraryImportModalState {
             error: None,
             selector: None,
             button_selection: ButtonSelection::Cancel,
+            file_is_encrypted: None,
         }
     }
 
     pub(crate) fn with_path(path: impl Into<String>) -> Self {
         let path = path.into();
         let path_cursor = path.chars().count();
-        Self {
+        let mut state = Self {
             path,
             path_cursor,
             password: String::new(),
@@ -781,6 +781,35 @@ impl LibraryImportModalState {
             error: None,
             selector: None,
             button_selection: ButtonSelection::Cancel,
+            file_is_encrypted: None,
+        };
+        state.detect_file_encryption();
+        state
+    }
+
+    pub(crate) fn is_encrypted(&self) -> Option<bool> {
+        self.file_is_encrypted
+    }
+
+    fn detect_file_encryption(&mut self) {
+        let path = self.path.trim();
+        if path.is_empty() {
+            self.file_is_encrypted = None;
+            return;
+        }
+        self.file_is_encrypted = std::fs::File::open(path).ok().and_then(|mut f| {
+            use std::io::Read;
+            let mut header = [0u8; 4];
+            f.read_exact(&mut header).ok()?;
+            match &header {
+                b"TAUP" => Some(false),
+                b"TAU1" => Some(true),
+                _ => None,
+            }
+        });
+        if self.file_is_encrypted == Some(false) && self.focus == LibraryImportModalField::Password
+        {
+            self.advance_focus(true);
         }
     }
 
@@ -834,7 +863,7 @@ impl LibraryImportModalState {
         self.button_selection
     }
 
-    fn set_error(&mut self, error: String) {
+    pub(crate) fn set_error(&mut self, error: String) {
         self.error = Some(error);
     }
 
@@ -936,9 +965,20 @@ impl LibraryImportModalState {
             ));
         }
 
+        if self.file_is_encrypted == Some(true) && self.password.is_empty() {
+            return Err(taurine_core::Error::Config(
+                "Password is required for encrypted file.".to_string(),
+            ));
+        }
+
+        let password = match self.file_is_encrypted {
+            Some(false) => None,
+            _ => (!self.password.is_empty()).then(|| self.password.clone()),
+        };
+
         Ok(PendingLibraryImportPrepare {
             path: self.path.clone(),
-            password: (!self.password.is_empty()).then(|| self.password.clone()),
+            password,
             options: ImportOptions {
                 include_settings: self.include_settings,
                 stats_mode: self.stats_mode,
@@ -1158,20 +1198,32 @@ impl LibraryImportModalState {
             if self.focus == LibraryImportModalField::ActionButton {
                 return;
             }
-            let next_index = (current_index + 1).min(fields.len() - 1);
-            self.focus = fields[next_index];
+            let mut next = current_index + 1;
+            while next < fields.len() && self.should_skip_field(fields[next]) {
+                next += 1;
+            }
+            self.focus = fields[next.min(fields.len() - 1)];
         } else {
             if current_index == 0 {
                 return;
             }
-            self.focus = fields[current_index - 1];
+            let mut prev = current_index - 1;
+            while prev > 0 && self.should_skip_field(fields[prev]) {
+                prev -= 1;
+            }
+            self.focus = fields[prev];
         }
+    }
+
+    fn should_skip_field(&self, field: LibraryImportModalField) -> bool {
+        field == LibraryImportModalField::Password && self.file_is_encrypted == Some(false)
     }
 
     fn insert_path_char(&mut self, ch: char) {
         let byte_index = char_index_to_byte_index(&self.path, self.path_cursor);
         self.path.insert(byte_index, ch);
         self.path_cursor += 1;
+        self.detect_file_encryption();
     }
 
     fn delete_path_backward(&mut self) {
@@ -1182,6 +1234,7 @@ impl LibraryImportModalState {
         let start = char_index_to_byte_index(&self.path, self.path_cursor - 1);
         self.path.replace_range(start..end, "");
         self.path_cursor -= 1;
+        self.detect_file_encryption();
     }
 
     fn delete_path_forward(&mut self) {
@@ -1191,6 +1244,7 @@ impl LibraryImportModalState {
         let start = char_index_to_byte_index(&self.path, self.path_cursor);
         let end = char_index_to_byte_index(&self.path, self.path_cursor + 1);
         self.path.replace_range(start..end, "");
+        self.detect_file_encryption();
     }
 
     fn insert_password_char(&mut self, ch: char) {

@@ -42,6 +42,7 @@ pub(crate) struct App {
     library_page: LibraryPageState,
     settings_page: SettingsPageState,
     should_quit: bool,
+    notification: Option<String>,
 }
 
 impl Default for App {
@@ -54,6 +55,7 @@ impl Default for App {
             library_page: LibraryPageState::default(),
             settings_page: SettingsPageState::default(),
             should_quit: false,
+            notification: None,
         }
     }
 }
@@ -105,6 +107,18 @@ impl App {
 
     pub(crate) fn toggle_nav_visibility(&mut self) {
         self.nav_visible = !self.nav_visible;
+    }
+
+    pub(crate) fn notification(&self) -> Option<&str> {
+        self.notification.as_deref()
+    }
+
+    pub(crate) fn clear_notification(&mut self) {
+        self.notification = None;
+    }
+
+    pub(crate) fn set_notification(&mut self, message: String) {
+        self.notification = Some(message);
     }
 
     pub(crate) fn handle_key_event(&mut self, key: KeyEvent) {

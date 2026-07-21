@@ -102,7 +102,25 @@ fn row_key_value(frame: &mut Frame, area: Rect, label: &str, value: &str, focuse
     );
 }
 
-fn row_password(frame: &mut Frame, area: Rect, label: &str, value: &str, focused: bool) {
+fn row_password(
+    frame: &mut Frame,
+    area: Rect,
+    label: &str,
+    value: &str,
+    focused: bool,
+    disabled: bool,
+    red_asterisk: bool,
+) {
+    if disabled {
+        let dimmed = Style::default().fg(MUTED).add_modifier(Modifier::DIM);
+        frame.render_widget(
+            Block::default().style(Style::default().bg(Color::Reset)),
+            area,
+        );
+        frame.render_widget(Paragraph::new(label).style(dimmed), area);
+        frame.render_widget(Paragraph::new(value).style(dimmed), area);
+        return;
+    }
     let bg = if focused { SELECTED_BG } else { Color::Reset };
     let label_style = if focused {
         Style::default()
@@ -123,8 +141,17 @@ fn row_password(frame: &mut Frame, area: Rect, label: &str, value: &str, focused
 
     frame.render_widget(Block::default().style(Style::default().bg(bg)), area);
 
+    let label_line = if red_asterisk {
+        Line::from(vec![
+            Span::styled(label, label_style),
+            Span::styled("*", Style::default().fg(Color::Red)),
+        ])
+    } else {
+        Line::from(vec![Span::styled(label, label_style)])
+    };
+    frame.render_widget(Paragraph::new(label_line), area);
+
     let value_width = value.chars().count() as u16;
-    frame.render_widget(Paragraph::new(label).style(label_style), area);
     frame.render_widget(
         Paragraph::new(format!(" {value} ")).style(val_style),
         Rect {
@@ -343,23 +370,28 @@ pub(crate) fn render_export_popup(frame: &mut Frame, state: &LibraryExportModalS
         encrypt_focused,
     );
 
-    if state.encrypt() {
-        let (pw_area, pw_desc) = desc_area(sections[4]);
-        let password_focused = state.focus() == LibraryExportModalField::Password;
-        row_password(
-            frame,
-            pw_area,
-            " Password",
-            state.password(),
-            password_focused,
-        );
-        render_desc(
-            frame,
-            pw_desc,
-            "password used for encryption",
-            password_focused,
-        );
-    }
+    let encrypt = state.encrypt();
+    let (pw_area, pw_desc) = desc_area(sections[4]);
+    let password_focused = state.focus() == LibraryExportModalField::Password;
+    row_password(
+        frame,
+        pw_area,
+        " Password",
+        state.password(),
+        password_focused && encrypt,
+        !encrypt,
+        false,
+    );
+    render_desc(
+        frame,
+        pw_desc,
+        if encrypt {
+            "password used for encryption"
+        } else {
+            "encryption disabled"
+        },
+        password_focused && encrypt,
+    );
 
     let (set_area, set_desc) = desc_area(sections[5]);
     let settings_focused = state.focus() == LibraryExportModalField::IncludeSettings;
@@ -389,13 +421,17 @@ pub(crate) fn render_export_popup(frame: &mut Frame, state: &LibraryExportModalS
         sen_area,
         " Sensitive",
         sensitive_label,
-        sensitive_focused,
+        sensitive_focused && encrypt,
     );
     render_desc(
         frame,
         sen_desc,
-        "include sensitive data (API keys)",
-        sensitive_focused,
+        if encrypt {
+            "include sensitive data (API keys)"
+        } else {
+            "encryption disabled"
+        },
+        sensitive_focused && encrypt,
     );
 
     let (stat_area, stat_desc) = desc_area(sections[7]);
@@ -489,18 +525,28 @@ pub(crate) fn render_import_popup(frame: &mut Frame, state: &LibraryImportModalS
 
     let (pw_area, pw_desc) = desc_area(sections[3]);
     let password_focused = state.focus() == LibraryImportModalField::Password;
+    let password_disabled = state.is_encrypted() == Some(false);
+    let show_red_asterisk = state.is_encrypted() == Some(true)
+        && state.password().is_empty()
+        && state.error().is_some();
     row_password(
         frame,
         pw_area,
         " Password",
         state.password(),
-        password_focused,
+        password_focused && !password_disabled,
+        password_disabled,
+        show_red_asterisk,
     );
     render_desc(
         frame,
         pw_desc,
-        "password to decrypt the file",
-        password_focused,
+        if password_disabled {
+            "file is not encrypted"
+        } else {
+            "password to decrypt the file"
+        },
+        password_focused && !password_disabled,
     );
 
     let (set_area, set_desc) = desc_area(sections[4]);
@@ -572,14 +618,8 @@ pub(crate) fn render_import_popup(frame: &mut Frame, state: &LibraryImportModalS
         conflict_focused,
     );
 
-    let feedback_style = if state.error().is_some() {
-        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(MUTED).add_modifier(Modifier::DIM)
-    };
-    let feedback_text = state.error().unwrap_or("");
     frame.render_widget(
-        Paragraph::new(feedback_text).style(feedback_style),
+        Paragraph::new("").style(Style::default().fg(MUTED).add_modifier(Modifier::DIM)),
         sections[8],
     );
 
@@ -598,7 +638,7 @@ pub(crate) fn render_import_popup(frame: &mut Frame, state: &LibraryImportModalS
                 frame.set_cursor_position((cx, cy));
             }
         }
-        LibraryImportModalField::Password => {
+        LibraryImportModalField::Password if state.is_encrypted() != Some(false) => {
             let (pw_area, _) = desc_area(sections[3]);
             let val_x = pw_area.x
                 + pw_area

@@ -13,7 +13,9 @@ use std::io;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use taurine_core::error::Result as CoreResult;
-use taurine_core::exchange::{AutomationExport, ExistingAutomationConflict, ImportConflictAction};
+use taurine_core::exchange::{
+    AutomationExport, ExistingAutomationConflict, ImportConflictAction, decode_exchange_blob,
+};
 
 fn drain_stale_events() {
     loop {
@@ -79,10 +81,8 @@ pub fn run_export_overlay() -> CoreResult<Option<ExportFormResult>> {
 
     let result =
         loop {
-            let text_focused = matches!(
-                state.focus(),
-                LibraryExportModalField::Path | LibraryExportModalField::Password
-            );
+            let text_focused = state.focus() == LibraryExportModalField::Path
+                || (state.focus() == LibraryExportModalField::Password && state.encrypt());
             if text_focused {
                 session.terminal.show_cursor().map_err(|e| {
                     taurine_core::Error::Service(format!("Cursor show failed: {e}"))
@@ -141,14 +141,14 @@ pub fn run_import_overlay(path: Option<&str>) -> CoreResult<Option<ImportFormRes
         None => LibraryImportModalState::new(),
     };
     let mut last_move = Instant::now();
+    let mut notification: Option<String> = None;
     const MOVE_DEBOUNCE: Duration = Duration::from_millis(100);
 
     let result =
         loop {
-            let text_focused = matches!(
-                state.focus(),
-                LibraryImportModalField::Path | LibraryImportModalField::Password
-            );
+            let text_focused = state.focus() == LibraryImportModalField::Path
+                || (state.focus() == LibraryImportModalField::Password
+                    && state.is_encrypted() != Some(false));
             if text_focused {
                 session.terminal.show_cursor().map_err(|e| {
                     taurine_core::Error::Service(format!("Cursor show failed: {e}"))
@@ -156,6 +156,9 @@ pub fn run_import_overlay(path: Option<&str>) -> CoreResult<Option<ImportFormRes
             }
             session.terminal.draw(|f| {
                 crate::overlay_ui::render_import_popup(f, &state);
+                if let Some(msg) = &notification {
+                    render_overlay_notification(f, msg);
+                }
             })?;
             if !text_focused {
                 session.terminal.hide_cursor().map_err(|e| {
@@ -169,6 +172,7 @@ pub fn run_import_overlay(path: Option<&str>) -> CoreResult<Option<ImportFormRes
                 if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
                     continue;
                 }
+                notification = None;
                 let is_debounced = matches!(
                     key.code,
                     KeyCode::Up | KeyCode::Down | KeyCode::Char('j' | 'k')
@@ -180,23 +184,85 @@ pub fn run_import_overlay(path: Option<&str>) -> CoreResult<Option<ImportFormRes
                     last_move = Instant::now();
                 }
                 let interaction = state.handle_key(key);
-                if let Some(prepare) = interaction.pending_import_prepare() {
-                    break Some(ImportFormResult {
-                        path: prepare.path.clone().into(),
-                        password: prepare.password.clone(),
-                        include_settings: prepare.options.include_settings,
-                        include_sensitive_settings: prepare.options.include_sensitive_settings,
-                        stats_mode: prepare.options.stats_mode,
-                        conflict_mode: prepare.conflict_mode,
-                    });
-                }
-                if interaction.should_close_modal() {
+                if interaction.pending_import_prepare().is_some() {
+                    let (
+                        path,
+                        password,
+                        include_settings,
+                        include_sensitive_settings,
+                        stats_mode,
+                        conflict_mode,
+                    ) = {
+                        let p = interaction.pending_import_prepare().unwrap();
+                        (
+                            p.path.clone(),
+                            p.password.clone(),
+                            p.options.include_settings,
+                            p.options.include_sensitive_settings,
+                            p.options.stats_mode,
+                            p.conflict_mode,
+                        )
+                    };
+                    match std::fs::read(path.trim()) {
+                        Ok(bytes) => match decode_exchange_blob(&bytes, password.as_deref()) {
+                            Ok(_) => {
+                                break Some(ImportFormResult {
+                                    path: path.into(),
+                                    password,
+                                    include_settings,
+                                    include_sensitive_settings,
+                                    stats_mode,
+                                    conflict_mode,
+                                });
+                            }
+                            Err(e) => {
+                                notification = Some(e.to_string());
+                            }
+                        },
+                        Err(e) => {
+                            notification = Some(format!("Failed to read file: {e}"));
+                        }
+                    }
+                } else if interaction.should_close_modal() {
                     break None;
+                } else if let Some(err) = state.error().map(String::from) {
+                    notification = Some(err);
                 }
             }
         };
 
     Ok(result)
+}
+
+fn render_overlay_notification(frame: &mut ratatui::Frame, message: &str) {
+    use ratatui::layout::Rect;
+    use ratatui::style::{Color, Modifier, Style};
+    use ratatui::symbols::border;
+    use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+    let area = frame.area();
+    let width = (message.len() as u16 + 4).min(area.width.saturating_sub(4));
+    let x = area.right().saturating_sub(width).saturating_sub(2);
+    let y = area.y.saturating_add(2);
+    let popup = Rect {
+        x,
+        y,
+        width,
+        height: 3,
+    };
+    if popup.width < 3 {
+        return;
+    }
+    frame.render_widget(Clear, popup);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(border::ROUNDED)
+        .border_style(Style::default().fg(Color::Red));
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+    frame.render_widget(
+        Paragraph::new(message).style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+        inner,
+    );
 }
 
 pub fn prompt_password(label: &str, with_confirmation: bool) -> CoreResult<Option<String>> {

@@ -68,6 +68,10 @@ pub(crate) fn render(frame: &mut Frame, app: &App) {
     render_header(frame, sections[0], app);
     render_body(frame, sections[2], app);
     render_footer(frame, sections[4], app);
+
+    if let Some(msg) = app.notification() {
+        render_notification(frame, msg);
+    }
 }
 
 fn render_header(frame: &mut Frame, area: Rect, app: &App) {
@@ -579,56 +583,57 @@ fn render_library_export_modal(frame: &mut Frame, area: Rect, state: &LibraryExp
         state.focus() == LibraryExportModalField::Path,
     );
 
+    let encrypt = state.encrypt();
+    let focused = |field| state.focus() == field;
+
     render_modal_key_value_row(
         frame,
         sections[2],
         "Encrypt",
-        yes_no_label(state.encrypt()),
-        state.focus() == LibraryExportModalField::Encrypt,
+        yes_no_label(encrypt),
+        focused(LibraryExportModalField::Encrypt),
         false,
     );
 
-    let mut next_row = 3usize;
-    if state.encrypt() {
-        render_modal_password_row(
-            frame,
-            sections[3],
-            "Password",
-            &state.password_display_value(),
-            state.password_cursor(),
-        );
-        next_row = 4;
-    }
+    let password_focused = focused(LibraryExportModalField::Password);
+    render_modal_password_row(
+        frame,
+        sections[3],
+        "Password",
+        &state.password_display_value(),
+        state.password_cursor(),
+        password_focused && encrypt,
+        !encrypt,
+        false,
+    );
 
     render_modal_key_value_row(
         frame,
-        sections[next_row],
+        sections[4],
         "Settings",
         yes_no_label(state.include_settings()),
-        state.focus() == LibraryExportModalField::IncludeSettings,
+        focused(LibraryExportModalField::IncludeSettings),
         false,
     );
-    if state.encrypt() {
-        render_modal_key_value_row(
-            frame,
-            sections[next_row + 1],
-            "Sensitive",
-            yes_no_label(state.include_sensitive_settings()),
-            state.focus() == LibraryExportModalField::IncludeSensitiveSettings,
-            false,
-        );
-        next_row += 1;
-    }
+    let sensitive_focused = focused(LibraryExportModalField::IncludeSensitiveSettings);
     render_modal_key_value_row(
         frame,
-        sections[next_row + 1],
+        sections[5],
+        "Sensitive",
+        yes_no_label(state.include_sensitive_settings()),
+        sensitive_focused && encrypt,
+        !encrypt,
+    );
+    render_modal_key_value_row(
+        frame,
+        sections[6],
         "Stats",
         yes_no_label(state.include_stats()),
-        state.focus() == LibraryExportModalField::IncludeStats,
+        focused(LibraryExportModalField::IncludeStats),
         false,
     );
 
-    let feedback_area = sections[next_row + 2];
+    let feedback_area = sections[7];
     let (text, style) = if let Some(error) = state.error() {
         (
             error,
@@ -653,13 +658,13 @@ fn render_library_export_modal(frame: &mut Frame, area: Rect, state: &LibraryExp
             Constraint::Length(1),
             Constraint::Length(1),
         ])
-        .split(sections[next_row + 3]);
+        .split(sections[8]);
     render_action_buttons(
         frame,
         buttons_area[1],
         "Cancel",
         "Export",
-        state.focus() == LibraryExportModalField::ActionButton,
+        focused(LibraryExportModalField::ActionButton),
         state.button_selection(),
     );
 
@@ -670,7 +675,7 @@ fn render_library_export_modal(frame: &mut Frame, area: Rect, state: &LibraryExp
                 sections[1].y,
             ));
         }
-        LibraryExportModalField::Password if state.encrypt() => {
+        LibraryExportModalField::Password if encrypt => {
             let label_width = sections[3].width.min(12);
             frame.set_cursor_position((
                 sections[3].x + label_width + state.password_cursor() as u16,
@@ -724,12 +729,20 @@ fn render_library_import_modal(frame: &mut Frame, area: Rect, state: &LibraryImp
         state.focus() == LibraryImportModalField::Path,
     );
 
+    let password_focused = state.focus() == LibraryImportModalField::Password;
+    let password_disabled = state.is_encrypted() == Some(false);
+    let show_red_asterisk = state.is_encrypted() == Some(true)
+        && state.password().is_empty()
+        && state.error().is_some();
     render_modal_password_row(
         frame,
         sections[3],
         "Password",
         &state.password_display_value(),
         state.password_cursor(),
+        password_focused && !password_disabled,
+        password_disabled,
+        show_red_asterisk,
     );
 
     render_modal_key_value_row(
@@ -765,22 +778,14 @@ fn render_library_import_modal(frame: &mut Frame, area: Rect, state: &LibraryImp
         false,
     );
 
-    let (text, style) = if let Some(error) = state.error() {
-        (
-            error,
-            Style::default()
-                .fg(ERROR_COLOR)
-                .add_modifier(Modifier::BOLD),
-        )
-    } else {
-        (
-            "",
+    frame.render_widget(
+        Paragraph::new("").style(
             Style::default()
                 .fg(MUTED_TEXT_COLOR)
                 .add_modifier(Modifier::DIM),
-        )
-    };
-    frame.render_widget(Paragraph::new(text).style(style), sections[8]);
+        ),
+        sections[8],
+    );
 
     let buttons_area = Layout::default()
         .direction(Direction::Vertical)
@@ -806,7 +811,7 @@ fn render_library_import_modal(frame: &mut Frame, area: Rect, state: &LibraryImp
                 sections[1].y,
             ));
         }
-        LibraryImportModalField::Password => {
+        LibraryImportModalField::Password if state.is_encrypted() != Some(false) => {
             let label_width = sections[3].width.min(12);
             frame.set_cursor_position((
                 sections[3].x + label_width + state.password_cursor() as u16,
@@ -1165,12 +1170,16 @@ fn render_modal_input_field(
     frame.render_widget(text.style(text_style), inner);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_modal_password_row(
     frame: &mut Frame,
     area: Rect,
     label: &str,
     value: &str,
     cursor: usize,
+    focused: bool,
+    disabled: bool,
+    red_asterisk: bool,
 ) {
     let label_width = area.width.min(12);
     let sections = Layout::default()
@@ -1178,14 +1187,36 @@ fn render_modal_password_row(
         .constraints([Constraint::Length(label_width), Constraint::Min(0)])
         .split(area);
 
-    let label_style = Style::default()
-        .fg(ACCENT_COLOR)
-        .add_modifier(Modifier::BOLD);
-    let value_style = Style::default()
-        .fg(ACCENT_COLOR)
-        .add_modifier(Modifier::BOLD);
+    let (label_style, value_style) = if disabled {
+        let dimmed = Style::default()
+            .fg(MUTED_TEXT_COLOR)
+            .add_modifier(Modifier::DIM);
+        (dimmed, dimmed)
+    } else if focused {
+        (
+            Style::default()
+                .fg(ACCENT_COLOR)
+                .add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(ACCENT_COLOR)
+                .add_modifier(Modifier::BOLD),
+        )
+    } else {
+        (
+            Style::default().fg(ACCENT_COLOR),
+            Style::default().fg(ACCENT_COLOR),
+        )
+    };
 
-    frame.render_widget(Paragraph::new(label).style(label_style), sections[0]);
+    let label_line = if red_asterisk {
+        Line::from(vec![
+            Span::styled(label, label_style),
+            Span::styled("*", Style::default().fg(ERROR_COLOR)),
+        ])
+    } else {
+        Line::from(vec![Span::styled(label, label_style)])
+    };
+    frame.render_widget(Paragraph::new(label_line), sections[0]);
 
     let text = Paragraph::new(input_cursor_line(value, cursor));
     frame.render_widget(text.style(value_style), sections[1]);
@@ -2095,6 +2126,38 @@ fn format_time_saved(time_saved_ms: u64) -> String {
     } else {
         format!("{total_minutes}m")
     }
+}
+
+fn render_notification(frame: &mut Frame, message: &str) {
+    let area = frame.area();
+    let width = message.len() as u16 + 4;
+    let x = area.right().saturating_sub(width).saturating_sub(2);
+    let y = area.y.saturating_add(2);
+    let popup = Rect {
+        x,
+        y,
+        width: width.min(area.width.saturating_sub(x)),
+        height: 3,
+    };
+    if popup.width < 3 {
+        return;
+    }
+    frame.render_widget(Clear, popup);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(border::ROUNDED)
+        .border_style(Style::default().fg(ERROR_COLOR))
+        .style(Style::default().bg(Color::Black).fg(ERROR_COLOR));
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+    frame.render_widget(
+        Paragraph::new(message).style(
+            Style::default()
+                .fg(ERROR_COLOR)
+                .add_modifier(Modifier::BOLD),
+        ),
+        inner,
+    );
 }
 
 #[cfg(test)]

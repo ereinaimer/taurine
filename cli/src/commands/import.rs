@@ -66,12 +66,11 @@ pub fn execute(
     let mut password = match format {
         ExchangeFormat::Encrypted => Some(match overlay_password {
             Some(pw) => pw,
-            None if yes => {
+            None => {
                 return Err(taurine_core::error::Error::Config(
-                    "File is encrypted. Use interactive import or import a plaintext file.".into(),
+                    "File is encrypted. Enter the decryption password in the import form.".into(),
                 ));
             }
-            None => prompt_import_password()?,
         }),
         ExchangeFormat::Plaintext => overlay_password,
     };
@@ -190,11 +189,6 @@ fn prompt_conflict_action(
     remembered_choice: &mut Option<taurine_tui::RememberedConflictChoice>,
 ) -> taurine_core::error::Result<ImportConflictAction> {
     taurine_tui::run_conflict_prompt(incoming, existing, remembered_choice)
-}
-
-fn prompt_import_password() -> taurine_core::error::Result<String> {
-    taurine_tui::prompt_password("Decryption password:", false)?
-        .ok_or_else(|| taurine_core::error::Error::Config("Import cancelled.".to_string()))
 }
 
 #[cfg(test)]

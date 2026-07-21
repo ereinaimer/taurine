@@ -75,6 +75,8 @@ fn handle_tui_key_event<C: DaemonController>(
     key: crossterm::event::KeyEvent,
     daemon_controller: &C,
 ) {
+    app.clear_notification();
+
     if matches!(key.code, crossterm::event::KeyCode::Char('b' | 'B'))
         && key
             .modifiers
@@ -95,6 +97,11 @@ fn handle_tui_key_event<C: DaemonController>(
     {
         let interaction = app.library_page_mut().handle_key(key);
         apply_library_interaction(app, interaction);
+        if let Some(crate::library::LibraryModal::Import(state)) = app.library_page().modal()
+            && let Some(err) = state.error()
+        {
+            app.set_notification(err.to_string());
+        }
         return;
     }
 
@@ -187,7 +194,10 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
                 }
                 app.library_page_mut().open_import_result_modal(&outcome);
             }
-            Err(error) => app.library_page_mut().set_save_error(error.to_string()),
+            Err(error) => {
+                app.library_page_mut().set_save_error(error.to_string());
+                app.set_notification(error.to_string());
+            }
         }
         return;
     }
