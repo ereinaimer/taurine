@@ -378,7 +378,7 @@ pub(crate) fn render_export_popup(frame: &mut Frame, state: &LibraryExportModalS
         .fg(DARK_THEME.text)
         .add_modifier(Modifier::BOLD);
     frame.render_widget(
-        Paragraph::new("Export Automation").style(title_style),
+        Paragraph::new(" Export Automation").style(title_style),
         sections[0],
     );
 
@@ -549,7 +549,7 @@ pub(crate) fn render_import_popup(frame: &mut Frame, state: &LibraryImportModalS
         .fg(DARK_THEME.text)
         .add_modifier(Modifier::BOLD);
     frame.render_widget(
-        Paragraph::new("Import Automations").style(title_style),
+        Paragraph::new(" Import Automations").style(title_style),
         sections[0],
     );
 

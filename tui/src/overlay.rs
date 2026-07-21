@@ -153,6 +153,20 @@ pub fn run_export_overlay() -> CoreResult<Option<ExportFormResult>> {
                     LibraryInteraction::handled()
                 }
             }
+            Event::Mouse(mouse) if mouse.kind == MouseEventKind::ScrollDown => {
+                if last_move.elapsed() >= MOVE_DEBOUNCE {
+                    last_move = Instant::now();
+                    state.focus_next();
+                }
+                LibraryInteraction::handled()
+            }
+            Event::Mouse(mouse) if mouse.kind == MouseEventKind::ScrollUp => {
+                if last_move.elapsed() >= MOVE_DEBOUNCE {
+                    last_move = Instant::now();
+                    state.focus_prev();
+                }
+                LibraryInteraction::handled()
+            }
             _ => continue,
         };
 
@@ -257,6 +271,20 @@ pub fn run_import_overlay(path: Option<&str>) -> CoreResult<Option<ImportFormRes
                 } else {
                     LibraryInteraction::handled()
                 }
+            }
+            Event::Mouse(mouse) if mouse.kind == MouseEventKind::ScrollDown => {
+                if last_move.elapsed() >= MOVE_DEBOUNCE {
+                    last_move = Instant::now();
+                    state.focus_next();
+                }
+                LibraryInteraction::handled()
+            }
+            Event::Mouse(mouse) if mouse.kind == MouseEventKind::ScrollUp => {
+                if last_move.elapsed() >= MOVE_DEBOUNCE {
+                    last_move = Instant::now();
+                    state.focus_prev();
+                }
+                LibraryInteraction::handled()
             }
             _ => continue,
         };

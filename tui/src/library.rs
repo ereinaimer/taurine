@@ -405,6 +405,14 @@ impl LibraryExportModalState {
         self.focus = field;
     }
 
+    pub(crate) fn focus_next(&mut self) {
+        self.advance_focus(true);
+    }
+
+    pub(crate) fn focus_prev(&mut self) {
+        self.advance_focus(false);
+    }
+
     pub(crate) fn error(&self) -> Option<&str> {
         self.error.as_deref()
     }
@@ -865,6 +873,14 @@ impl LibraryImportModalState {
 
     pub(crate) fn set_focus(&mut self, field: LibraryImportModalField) {
         self.focus = field;
+    }
+
+    pub(crate) fn focus_next(&mut self) {
+        self.advance_focus(true);
+    }
+
+    pub(crate) fn focus_prev(&mut self) {
+        self.advance_focus(false);
     }
 
     pub(crate) fn error(&self) -> Option<&str> {

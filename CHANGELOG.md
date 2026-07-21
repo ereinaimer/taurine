@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Mouse Support in Import/Export Modals**: Click to select fields and double-click to execute actions in the import and export overlays.
+- **Mouse Support in Import/Export Modals**: Click to select fields, scroll to navigate, and double-click to execute actions in the import and export overlays.
 - **OS-Native Uninstallation**: Support standard system uninstallation, registering Taurine in the Windows Installed Apps list and providing clean uninstall scripts for all platforms.
 - **Triggerless Tab Completion**: Intercept the Tab key in triggerless mode to trigger completion suggestions for the typed word tail, while passing through to the OS when no matches exist.
 - **Interactive Import Options**: When importing from the CLI without any optional flags, Taurine now opens an interactive overlay where you can choose whether to include settings, sensitive settings, and stats, and pick a conflict resolution strategy.
