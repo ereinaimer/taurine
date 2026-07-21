@@ -4,22 +4,23 @@
 mod app;
 mod control;
 mod event;
-mod library;
 mod overlay;
 mod overlay_ui;
 mod theme;
-pub use library::{LibraryImportConflictMode, RememberedConflictChoice};
+pub use crate::widgets::library::actions::{LibraryImportConflictMode, RememberedConflictChoice};
 pub use overlay::{
     ExportFormResult, ImportFormResult, prompt_password, run_conflict_prompt, run_export_overlay,
     run_import_overlay,
 };
-mod settings;
 mod status;
-mod ui;
+mod widgets;
 
 use std::io;
 use std::time::{Duration, Instant};
 
+use crate::theme::Theme;
+use crate::widgets::library;
+use crate::widgets::settings;
 use app::{App, Page};
 use control::{
     DaemonController, SystemDaemonController, action_for_status, toggle_daemon,
@@ -31,8 +32,15 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use event::{Event, EventHandler};
-use ratatui::{Terminal, backend::CrosstermBackend};
+use ratatui::{
+    Terminal,
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout, Margin},
+    style::Style,
+    widgets::Block,
+};
 use tracing::error;
+use widgets::{footer::FooterWidget, header::HeaderWidget, home, nav, notification};
 
 const EVENT_TICK_RATE: Duration = Duration::from_millis(250);
 const STATUS_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
@@ -50,7 +58,61 @@ pub fn run() -> taurine_core::Result<()> {
     let mut last_status_refresh = Instant::now();
 
     loop {
-        terminal.terminal.draw(|frame| ui::render(frame, &app))?;
+        terminal.terminal.draw(|frame| {
+            let area = frame.area();
+            let theme = app.theme();
+
+            frame.render_widget(
+                Block::default().style(Style::default().bg(theme.background)),
+                area,
+            );
+
+            let inner = area.inner(Margin {
+                vertical: 1,
+                horizontal: 2,
+            });
+
+            let sections = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(1),
+                    Constraint::Length(1),
+                    Constraint::Min(0),
+                    Constraint::Length(1),
+                    Constraint::Length(1),
+                ])
+                .split(inner);
+
+            frame.render_widget(
+                HeaderWidget {
+                    theme,
+                    daemon_status: app.daemon_status(),
+                },
+                sections[0],
+            );
+
+            if app.nav_visible() {
+                let body = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([
+                        Constraint::Length(22),
+                        Constraint::Length(1),
+                        Constraint::Min(0),
+                    ])
+                    .split(sections[2]);
+
+                nav::render_navigation(frame, body[0], theme, app.active_page());
+                render_page_content(frame, body[2], &app, theme);
+            } else {
+                render_page_content(frame, sections[2], &app, theme);
+            }
+
+            frame.render_widget(FooterWidget { theme, app: &app }, sections[4]);
+
+            if let Some(msg) = app.notification() {
+                notification::render_notification(frame, area, theme, msg);
+            }
+        })?;
 
         match events.next()? {
             Event::Key(key) => handle_tui_key_event(&mut app, key, &daemon_controller),
@@ -69,6 +131,50 @@ pub fn run() -> taurine_core::Result<()> {
     }
 
     Ok(())
+}
+
+fn render_page_content(
+    frame: &mut ratatui::Frame,
+    area: ratatui::layout::Rect,
+    app: &App,
+    theme: &Theme,
+) {
+    use ratatui::{
+        style::Modifier,
+        symbols::border,
+        text::Span,
+        widgets::{Block, Borders},
+    };
+    let content_block = Block::default()
+        .title(Span::styled(
+            format!(" {} ", app.active_page().title()),
+            ratatui::style::Style::default()
+                .fg(theme.text)
+                .add_modifier(Modifier::BOLD),
+        ))
+        .borders(Borders::ALL)
+        .border_set(border::ROUNDED)
+        .border_style(ratatui::style::Style::default().fg(theme.border));
+    let inner = content_block.inner(area);
+    frame.render_widget(content_block, area);
+
+    match app.active_page() {
+        Page::Home => {
+            home::render_home_content(frame, inner, theme, app.home_stats());
+        }
+        Page::Library => {
+            library::render_library_content(frame, inner, theme, app.library_page());
+            if let Some(modal) = app.library_page().modal() {
+                library::modals::render_library_modal(frame, area, theme, modal);
+            }
+        }
+        Page::Settings => {
+            settings::render_settings_content(frame, inner, theme, app.settings_page());
+            if let Some(modal) = app.settings_page().modal() {
+                settings::modals::render_settings_modal(frame, area, theme, modal);
+            }
+        }
+    }
 }
 
 fn handle_tui_key_event<C: DaemonController>(
@@ -98,7 +204,7 @@ fn handle_tui_key_event<C: DaemonController>(
     {
         let interaction = app.library_page_mut().handle_key(key);
         apply_library_interaction(app, interaction);
-        if let Some(crate::library::LibraryModal::Import(state)) = app.library_page().modal()
+        if let Some(library::LibraryModal::Import(state)) = app.library_page().modal()
             && let Some(err) = state.error()
         {
             app.set_notification(err.to_string());
@@ -412,7 +518,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::library::LibraryAutomation;
+    use crate::widgets::library::LibraryAutomation;
 
     #[derive(Default)]
     struct MockController {

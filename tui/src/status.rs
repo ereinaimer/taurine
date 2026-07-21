@@ -34,6 +34,7 @@ impl DaemonStatus {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) const fn color(self) -> Color {
         match self {
             Self::Running => Color::Green,
@@ -44,6 +45,7 @@ impl DaemonStatus {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn style(self) -> Style {
         Style::default().fg(self.color())
     }

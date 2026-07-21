@@ -1,9 +1,11 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use taurine_core::stats::HomeStats;
 
-use crate::library::LibraryPageState;
-use crate::settings::SettingsPageState;
 use crate::status::DaemonStatus;
+use crate::theme::Theme;
+use crate::theme::builtin::{DARK_THEME, LIGHT_THEME};
+use crate::widgets::library::LibraryPageState;
+use crate::widgets::settings::state::SettingsPageState;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum Page {
@@ -24,6 +26,7 @@ impl Page {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) const fn nav_index(self) -> usize {
         match self {
             Self::Home => 0,
@@ -43,6 +46,7 @@ pub(crate) struct App {
     settings_page: SettingsPageState,
     should_quit: bool,
     notification: Option<String>,
+    current_theme: &'static Theme,
 }
 
 impl Default for App {
@@ -56,11 +60,27 @@ impl Default for App {
             settings_page: SettingsPageState::default(),
             should_quit: false,
             notification: None,
+            current_theme: &DARK_THEME,
         }
     }
 }
 
 impl App {
+    pub(crate) const fn theme(&self) -> &'static Theme {
+        self.current_theme
+    }
+    #[allow(dead_code)]
+    pub(crate) fn set_theme(&mut self, theme: &'static Theme) {
+        self.current_theme = theme;
+    }
+    pub(crate) fn toggle_theme(&mut self) {
+        self.current_theme = if self.current_theme.dark {
+            &LIGHT_THEME
+        } else {
+            &DARK_THEME
+        };
+    }
+
     pub(crate) const fn active_page(&self) -> Page {
         self.active_page
     }
@@ -130,6 +150,7 @@ impl App {
             (KeyCode::Char('1'), _) => self.active_page = Page::Home,
             (KeyCode::Char('2'), _) => self.active_page = Page::Library,
             (KeyCode::Char('3'), _) => self.active_page = Page::Settings,
+            (KeyCode::Char('t'), KeyModifiers::CONTROL) => self.toggle_theme(),
             (KeyCode::Char('q'), KeyModifiers::NONE) => self.should_quit = true,
             _ => {}
         }

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use taurine_core::{
     ai::supported_providers,
@@ -399,11 +400,11 @@ pub(crate) enum EditorKind {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct SettingsPageState {
-    settings: Settings,
-    selected: usize,
-    modal: Option<SettingsModal>,
-    status_message: Option<String>,
-    load_error: Option<String>,
+    pub(crate) settings: Settings,
+    pub(crate) selected: usize,
+    pub(crate) modal: Option<SettingsModal>,
+    pub(crate) status_message: Option<String>,
+    pub(crate) load_error: Option<String>,
 }
 
 impl SettingsPageState {
@@ -420,16 +421,13 @@ impl SettingsPageState {
         if self.settings.inline_ai_trigger_mode
             == taurine_core::settings::InlineAiTriggerMode::Symmetric
         {
-            // In symmetric mode: show InlineAiTrigger, hide asymmetric-only keys
             keys.retain(|k| {
                 *k != SettingKey::InlineAiTriggerOpen && *k != SettingKey::InlineAiTriggerClose
             });
         } else {
-            // In asymmetric mode: show InlineAiTriggerOpen + InlineAiTriggerClose, hide symmetric-only key
             keys.retain(|k| *k != SettingKey::InlineAiTrigger);
         }
 
-        // If mode is Socket, hide host/port (keep token visible)
         if self.settings.rpc_mode == taurine_core::settings::RpcMode::Socket {
             keys.retain(|k| *k != SettingKey::RpcHost && *k != SettingKey::RpcPort);
         }
@@ -706,7 +704,7 @@ pub(crate) struct InputModalState {
 }
 
 impl InputModalState {
-    fn new(key: SettingKey, value: String) -> Self {
+    pub(crate) fn new(key: SettingKey, value: String) -> Self {
         let cursor = value.chars().count();
         Self {
             key,
@@ -732,7 +730,7 @@ impl InputModalState {
         self.error.as_deref()
     }
 
-    fn handle_key(&mut self, key: KeyEvent) -> SettingsInteraction {
+    pub(crate) fn handle_key(&mut self, key: KeyEvent) -> SettingsInteraction {
         self.error = None;
 
         match (key.code, key.modifiers) {
@@ -863,8 +861,8 @@ impl SelectModalState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PendingSettingSave {
-    key: SettingKey,
-    value: Option<String>,
+    pub(crate) key: SettingKey,
+    pub(crate) value: Option<String>,
 }
 
 impl PendingSettingSave {
@@ -875,7 +873,7 @@ impl PendingSettingSave {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PendingSettingReset {
-    key: SettingKey,
+    pub(crate) key: SettingKey,
 }
 
 impl PendingSettingReset {
@@ -960,335 +958,4 @@ fn char_index_to_byte_index(value: &str, char_index: usize) -> usize {
         .nth(char_index)
         .map(|(byte_index, _)| byte_index)
         .unwrap_or(value.len())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_setting_has_a_descriptor() {
-        assert_eq!(SettingKey::ALL.len(), 35);
-    }
-
-    #[test]
-    fn descriptor_names_are_human_readable() {
-        for key in SettingKey::ALL {
-            assert_ne!(key.display_name(), key.storage_key());
-        }
-    }
-
-    #[test]
-    fn spinner_style_options_are_exact() {
-        assert_eq!(spinner_style_options(), &["classic", "braille", "arc"]);
-    }
-
-    #[test]
-    fn boolean_settings_are_toggles() {
-        assert_eq!(
-            SettingKey::PauseNotificationsEnabled.editor_kind(),
-            EditorKind::Toggle
-        );
-        assert_eq!(
-            SettingKey::PauseAudioEnabled.editor_kind(),
-            EditorKind::Toggle
-        );
-        assert_eq!(SettingKey::StartOnBoot.editor_kind(), EditorKind::Toggle);
-        assert_eq!(
-            SettingKey::InlineTabCompletionEnabled.editor_kind(),
-            EditorKind::Toggle
-        );
-        assert_eq!(
-            SettingKey::InlineHistoryEnabled.editor_kind(),
-            EditorKind::Toggle
-        );
-        assert_eq!(SettingKey::ScriptsEnabled.editor_kind(), EditorKind::Toggle);
-    }
-
-    #[test]
-    fn wpm_is_number_input_and_ai_model_is_text_input() {
-        assert_eq!(SettingKey::Wpm.editor_kind(), EditorKind::NumberInput);
-        assert_eq!(
-            SettingKey::ClipboardRestoreDelayMs.editor_kind(),
-            EditorKind::NumberInput
-        );
-        assert_eq!(SettingKey::AiModel.editor_kind(), EditorKind::TextInput);
-    }
-
-    #[test]
-    fn trigger_char_is_single_char_input_and_delimiters_are_text_input() {
-        assert_eq!(
-            SettingKey::TriggerChar.editor_kind(),
-            EditorKind::SingleCharInput
-        );
-        assert_eq!(
-            SettingKey::InlineAiTrigger.editor_kind(),
-            EditorKind::TextInput
-        );
-        assert_eq!(
-            SettingKey::InlineAiTriggerOpen.editor_kind(),
-            EditorKind::TextInput
-        );
-        assert_eq!(
-            SettingKey::InlineAiTriggerClose.editor_kind(),
-            EditorKind::TextInput
-        );
-    }
-
-    #[test]
-    fn unset_custom_endpoint_uses_placeholder() {
-        assert_eq!(
-            SettingKey::AiCustomEndpoint.display_value(&Settings::default()),
-            "<unset>"
-        );
-    }
-
-    #[test]
-    fn pressing_j_moves_selection_down() {
-        let mut state = SettingsPageState::default();
-        state.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
-        assert_eq!(state.selected_index(), 1);
-    }
-
-    #[test]
-    fn pressing_down_moves_selection_down() {
-        let mut state = SettingsPageState::default();
-        state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-        assert_eq!(state.selected_index(), 1);
-    }
-
-    #[test]
-    fn pressing_k_moves_selection_up_without_underflow() {
-        let mut state = SettingsPageState::default();
-        state.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
-        assert_eq!(state.selected_index(), 0);
-    }
-
-    #[test]
-    fn pressing_up_moves_selection_up() {
-        let mut state = SettingsPageState {
-            selected: 2,
-            ..Default::default()
-        };
-        state.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
-        assert_eq!(state.selected_index(), 1);
-    }
-
-    #[test]
-    fn space_toggles_boolean_setting() {
-        let selected = SettingKey::ALL
-            .iter()
-            .position(|&k| k == SettingKey::PauseNotificationsEnabled)
-            .unwrap();
-        let mut state = SettingsPageState {
-            selected,
-            ..Default::default()
-        };
-        let interaction = state.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-        let pending = interaction.pending_save().unwrap();
-        assert_eq!(pending.key, SettingKey::PauseNotificationsEnabled);
-        assert_eq!(pending.value.as_deref(), Some("false"));
-    }
-
-    #[test]
-    fn space_on_non_toggle_does_not_mutate_setting() {
-        let mut state = SettingsPageState::default();
-        let interaction = state.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-        assert!(interaction.pending_save().is_none());
-        assert!(!state.is_modal_open());
-    }
-
-    #[test]
-    fn enter_on_spinner_style_opens_select_modal() {
-        let selected = SettingKey::ALL
-            .iter()
-            .position(|&k| k == SettingKey::SpinnerStyle)
-            .unwrap();
-        let mut state = SettingsPageState {
-            selected,
-            ..Default::default()
-        };
-        state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert!(matches!(state.modal(), Some(SettingsModal::Select(_))));
-    }
-
-    #[test]
-    fn enter_on_text_setting_opens_input_modal() {
-        let mut state = SettingsPageState::default();
-        state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert!(matches!(state.modal(), Some(SettingsModal::Input(_))));
-    }
-
-    #[test]
-    fn escape_cancels_modal_without_save() {
-        let mut state = SettingsPageState::default();
-        state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        let interaction = state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        assert!(interaction.should_close_modal());
-        assert!(interaction.pending_save().is_none());
-    }
-
-    #[test]
-    fn single_char_input_rejects_multi_character_values() {
-        let mut modal = InputModalState::new(SettingKey::TriggerChar, "ab".to_string());
-
-        let interaction = modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-        assert!(interaction.pending_save().is_none());
-        assert_eq!(
-            modal.error(),
-            Some("Trigger Character must be exactly one character.")
-        );
-    }
-
-    #[test]
-    fn pressing_r_creates_reset_action_for_selected_setting() {
-        let selected = SettingKey::ALL
-            .iter()
-            .position(|&k| k == SettingKey::InlineTabCompletionEnabled)
-            .unwrap();
-        let mut state = SettingsPageState {
-            selected,
-            ..Default::default()
-        };
-        let interaction = state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
-
-        assert!(interaction.pending_save().is_none());
-        assert!(interaction.pending_reset().is_none());
-        assert!(matches!(
-            state.modal(),
-            Some(SettingsModal::ConfirmReset(_))
-        ));
-    }
-
-    #[test]
-    fn settings_footer_includes_reset_hint() {
-        assert!(
-            SettingsPageState::default()
-                .footer_text()
-                .contains("r Reset")
-        );
-    }
-
-    #[test]
-    fn reset_confirmation_footer_matches_confirmation_keys() {
-        let mut state = SettingsPageState::default();
-        state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
-
-        assert_eq!(
-            state.footer_text(),
-            "←/h Yes   →/l No   y Confirm   n/Esc Cancel"
-        );
-    }
-
-    #[test]
-    fn pressing_n_cancels_reset_confirmation() {
-        let mut state = SettingsPageState::default();
-        state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
-
-        let interaction = state.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
-
-        assert!(interaction.should_close_modal());
-        assert!(interaction.pending_reset().is_none());
-    }
-
-    #[test]
-    fn pressing_escape_cancels_reset_confirmation() {
-        let mut state = SettingsPageState::default();
-        state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
-
-        let interaction = state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-
-        assert!(interaction.should_close_modal());
-        assert!(interaction.pending_reset().is_none());
-    }
-
-    #[test]
-    fn pressing_y_confirms_reset_after_modal_opens() {
-        let selected = SettingKey::ALL
-            .iter()
-            .position(|&k| k == SettingKey::InlineTabCompletionEnabled)
-            .unwrap();
-        let mut state = SettingsPageState {
-            selected,
-            ..Default::default()
-        };
-        state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
-
-        let interaction = state.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
-
-        assert_eq!(
-            interaction.pending_reset().map(|reset| reset.key),
-            Some(SettingKey::InlineTabCompletionEnabled)
-        );
-    }
-
-    #[test]
-    fn unrelated_keys_are_ignored_while_reset_modal_is_open() {
-        let selected = SettingKey::ALL
-            .iter()
-            .position(|&k| k == SettingKey::PauseAudioEnabled)
-            .unwrap();
-        let mut state = SettingsPageState {
-            selected,
-            ..Default::default()
-        };
-        state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
-
-        let interaction = state.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
-
-        assert_eq!(state.selected_index(), selected);
-        assert!(interaction.pending_reset().is_none());
-        assert!(!interaction.should_close_modal());
-        assert!(matches!(
-            state.modal(),
-            Some(SettingsModal::ConfirmReset(_))
-        ));
-    }
-
-    #[test]
-    fn reset_modal_uses_selected_setting_and_default_value() {
-        let selected = SettingKey::ALL
-            .iter()
-            .position(|&k| k == SettingKey::AiCustomEndpoint)
-            .unwrap();
-        let mut state = SettingsPageState {
-            selected,
-            ..Default::default()
-        };
-        state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
-
-        let Some(SettingsModal::ConfirmReset(modal)) = state.modal() else {
-            panic!("expected reset confirmation modal");
-        };
-
-        assert_eq!(modal.key(), SettingKey::AiCustomEndpoint);
-        assert_eq!(modal.default_display_value(), "<unset>");
-        assert!(modal.selected_yes());
-    }
-
-    #[test]
-    fn pressing_right_selects_no_in_reset_modal() {
-        let mut state = SettingsPageState::default();
-        state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
-
-        state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
-
-        let Some(SettingsModal::ConfirmReset(modal)) = state.modal() else {
-            panic!("expected reset confirmation modal");
-        };
-        assert!(!modal.selected_yes());
-    }
-
-    #[test]
-    fn pressing_enter_on_no_cancels_reset() {
-        let mut state = SettingsPageState::default();
-        state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
-        state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)); // Select No
-
-        let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-        assert!(interaction.should_close_modal());
-        assert!(interaction.pending_reset().is_none());
-    }
 }

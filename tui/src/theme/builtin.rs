@@ -1,0 +1,86 @@
+use crate::theme::{ButtonTheme, HeaderTheme, ModalTheme, SelectionTheme, Theme};
+use ratatui::style::Color;
+
+pub const DARK_THEME: Theme = Theme {
+    name: "dark",
+    dark: true,
+    primary: Color::Rgb(0x1E, 0x90, 0xFF),
+    secondary: Color::Rgb(0x80, 0x80, 0x80),
+    border: Color::Rgb(0x1E, 0x1E, 0x1E),
+    background: Color::Rgb(0x0A, 0x0A, 0x0A),
+    surface: Color::Rgb(0x1E, 0x1E, 0x1E),
+    text: Color::Rgb(0xE5, 0xE5, 0xE5),
+    text_muted: Color::Rgb(0x80, 0x80, 0x80),
+    accent: Color::Rgb(0x1E, 0x90, 0xFF),
+    error: Color::Red,
+    warning: Color::Yellow,
+    success: Color::Green,
+    header: HeaderTheme {
+        bg: Color::Rgb(0x1E, 0x1E, 0x1E),
+        text: Color::Rgb(0xE5, 0xE5, 0xE5),
+        daemon_running: Color::Green,
+        daemon_stopped: Color::Red,
+        daemon_paused: Color::Yellow,
+        daemon_starting: Color::Cyan,
+        daemon_stopping: Color::LightYellow,
+    },
+    button: ButtonTheme {
+        active_bg: Color::Rgb(0x3A, 0x3A, 0x3A),
+        inactive_bg: Color::Rgb(0x1E, 0x1E, 0x1E),
+        danger_bg: Color::Rgb(0x5C, 0x00, 0x00),
+        text: Color::Rgb(0xE5, 0xE5, 0xE5),
+    },
+    modal: ModalTheme {
+        overlay_bg: Color::Rgb(0x0A, 0x0A, 0x0A),
+        border: Color::Rgb(0x1E, 0x1E, 0x1E),
+        title_fg: Color::Rgb(0xE5, 0xE5, 0xE5),
+        surface_bg: Color::Rgb(0x1E, 0x1E, 0x1E),
+    },
+    selection: SelectionTheme {
+        bg: Color::Rgb(0x33, 0x33, 0x33),
+        text: Color::Rgb(0xE5, 0xE5, 0xE5),
+        border: Color::Rgb(0x1E, 0x1E, 0x1E),
+    },
+};
+
+pub const LIGHT_THEME: Theme = Theme {
+    name: "light",
+    dark: false,
+    primary: Color::Rgb(0x1E, 0x90, 0xFF),
+    secondary: Color::Rgb(0x66, 0x66, 0x66),
+    border: Color::Rgb(0xCC, 0xCC, 0xCC),
+    background: Color::Rgb(0xF5, 0xF5, 0xF5),
+    surface: Color::Rgb(0xFF, 0xFF, 0xFF),
+    text: Color::Rgb(0x1A, 0x1A, 0x1A),
+    text_muted: Color::Rgb(0x99, 0x99, 0x99),
+    accent: Color::Rgb(0x1E, 0x90, 0xFF),
+    error: Color::Rgb(0xCC, 0x00, 0x00),
+    warning: Color::Rgb(0xCC, 0x88, 0x00),
+    success: Color::Rgb(0x00, 0x80, 0x00),
+    header: HeaderTheme {
+        bg: Color::Rgb(0xE0, 0xE0, 0xE0),
+        text: Color::Rgb(0x1A, 0x1A, 0x1A),
+        daemon_running: Color::Green,
+        daemon_stopped: Color::Red,
+        daemon_paused: Color::Rgb(0xCC, 0x88, 0x00),
+        daemon_starting: Color::Cyan,
+        daemon_stopping: Color::LightYellow,
+    },
+    button: ButtonTheme {
+        active_bg: Color::Rgb(0xD0, 0xD0, 0xD0),
+        inactive_bg: Color::Rgb(0xF0, 0xF0, 0xF0),
+        danger_bg: Color::Rgb(0xFF, 0xCC, 0xCC),
+        text: Color::Rgb(0x1A, 0x1A, 0x1A),
+    },
+    modal: ModalTheme {
+        overlay_bg: Color::Rgb(0xF5, 0xF5, 0xF5),
+        border: Color::Rgb(0xCC, 0xCC, 0xCC),
+        title_fg: Color::Rgb(0x1A, 0x1A, 0x1A),
+        surface_bg: Color::Rgb(0xFF, 0xFF, 0xFF),
+    },
+    selection: SelectionTheme {
+        bg: Color::Rgb(0xD0, 0xD0, 0xD0),
+        text: Color::Rgb(0x1A, 0x1A, 0x1A),
+        border: Color::Rgb(0xAA, 0xAA, 0xAA),
+    },
+};

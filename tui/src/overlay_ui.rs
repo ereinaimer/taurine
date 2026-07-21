@@ -1,4 +1,4 @@
-use crate::library::{
+use crate::widgets::library::{
     ButtonSelection, LibraryExportModalField, LibraryExportModalState, LibraryImportModalField,
     LibraryImportModalState, LibrarySelectState,
 };
@@ -11,7 +11,7 @@ use ratatui::{
 };
 use taurine_core::exchange::{AutomationExport, ExistingAutomationConflict};
 
-use crate::theme::DARK_THEME;
+use crate::theme::builtin::DARK_THEME;
 
 fn padded(area: Rect) -> Rect {
     Rect {
@@ -24,9 +24,9 @@ fn padded(area: Rect) -> Rect {
 
 fn row_input(frame: &mut Frame, area: Rect, value: &str, cursor: usize, focused: bool) {
     let bg = if focused {
-        DARK_THEME.highlight
+        DARK_THEME.surface
     } else {
-        DARK_THEME.bg
+        DARK_THEME.background
     };
     let text_style = if focused {
         Style::default()
@@ -58,7 +58,7 @@ fn row_input(frame: &mut Frame, area: Rect, value: &str, cursor: usize, focused:
                     at_cursor.to_string(),
                     Style::default()
                         .fg(DARK_THEME.text)
-                        .bg(DARK_THEME.highlight)
+                        .bg(DARK_THEME.surface)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(after),
@@ -72,9 +72,9 @@ fn row_input(frame: &mut Frame, area: Rect, value: &str, cursor: usize, focused:
 
 fn row_key_value(frame: &mut Frame, area: Rect, label: &str, value: &str, focused: bool) {
     let bg = if focused {
-        DARK_THEME.highlight
+        DARK_THEME.surface
     } else {
-        DARK_THEME.bg
+        DARK_THEME.background
     };
     let text_style = if focused {
         Style::default()
@@ -86,11 +86,11 @@ fn row_key_value(frame: &mut Frame, area: Rect, label: &str, value: &str, focuse
     };
     let value_style = if focused {
         Style::default()
-            .fg(DARK_THEME.muted)
+            .fg(DARK_THEME.text_muted)
             .bg(bg)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(DARK_THEME.muted)
+        Style::default().fg(DARK_THEME.text_muted)
     };
 
     frame.render_widget(Block::default().style(Style::default().bg(bg)), area);
@@ -119,10 +119,10 @@ fn row_password(
 ) {
     if disabled {
         let dimmed = Style::default()
-            .fg(DARK_THEME.muted)
+            .fg(DARK_THEME.text_muted)
             .add_modifier(Modifier::DIM);
         frame.render_widget(
-            Block::default().style(Style::default().bg(DARK_THEME.bg)),
+            Block::default().style(Style::default().bg(DARK_THEME.background)),
             area,
         );
         frame.render_widget(Paragraph::new(label).style(dimmed), area);
@@ -130,9 +130,9 @@ fn row_password(
         return;
     }
     let bg = if focused {
-        DARK_THEME.highlight
+        DARK_THEME.surface
     } else {
-        DARK_THEME.bg
+        DARK_THEME.background
     };
     let label_style = if focused {
         Style::default()
@@ -140,7 +140,7 @@ fn row_password(
             .bg(bg)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(DARK_THEME.muted)
+        Style::default().fg(DARK_THEME.text_muted)
     };
     let val_style = if focused {
         Style::default()
@@ -194,7 +194,7 @@ fn render_select_list(frame: &mut Frame, selector: &LibrarySelectState) {
                     format!("> {opt}"),
                     Style::default()
                         .fg(DARK_THEME.text)
-                        .bg(DARK_THEME.highlight)
+                        .bg(DARK_THEME.surface)
                         .add_modifier(Modifier::BOLD),
                 )])
             } else {
@@ -217,9 +217,9 @@ fn render_path_row(
     focused: bool,
 ) -> Option<(u16, u16)> {
     let bg = if focused {
-        DARK_THEME.highlight
+        DARK_THEME.surface
     } else {
-        DARK_THEME.bg
+        DARK_THEME.background
     };
     let label_style = if focused {
         Style::default()
@@ -235,7 +235,7 @@ fn render_path_row(
             .bg(bg)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(DARK_THEME.muted)
+        Style::default().fg(DARK_THEME.text_muted)
     };
 
     frame.render_widget(Block::default().style(Style::default().bg(bg)), area);
@@ -272,15 +272,15 @@ fn desc_area(section: Rect) -> (Rect, Rect) {
 
 fn render_desc(frame: &mut Frame, area: Rect, text: &str, focused: bool) {
     let bg = if focused {
-        DARK_THEME.highlight
+        DARK_THEME.surface
     } else {
-        DARK_THEME.bg
+        DARK_THEME.background
     };
     frame.render_widget(Block::default().style(Style::default().bg(bg)), area);
     frame.render_widget(
         Paragraph::new(Line::from(vec![Span::raw(format!(" {text} "))])).style(
             Style::default()
-                .fg(DARK_THEME.muted)
+                .fg(DARK_THEME.text_muted)
                 .bg(bg)
                 .add_modifier(Modifier::DIM),
         ),
@@ -316,12 +316,10 @@ fn render_action_buttons_overlay(
     let cancel_style = if is_focused && selection == ButtonSelection::Cancel {
         Style::default()
             .fg(DARK_THEME.text)
-            .bg(DARK_THEME.button_active)
+            .bg(DARK_THEME.button.active_bg)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default()
-            .fg(DARK_THEME.text)
-            .bg(DARK_THEME.highlight)
+        Style::default().fg(DARK_THEME.text).bg(DARK_THEME.surface)
     };
     frame.render_widget(
         Paragraph::new(cancel_text).style(cancel_style),
@@ -331,12 +329,10 @@ fn render_action_buttons_overlay(
     let confirm_style = if is_focused && selection == ButtonSelection::Confirm {
         Style::default()
             .fg(DARK_THEME.text)
-            .bg(DARK_THEME.button_active)
+            .bg(DARK_THEME.button.active_bg)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default()
-            .fg(DARK_THEME.text)
-            .bg(DARK_THEME.highlight)
+        Style::default().fg(DARK_THEME.text).bg(DARK_THEME.surface)
     };
     frame.render_widget(
         Paragraph::new(confirm_text).style(confirm_style),
@@ -346,7 +342,7 @@ fn render_action_buttons_overlay(
 
 fn fill_bg(frame: &mut Frame) {
     frame.render_widget(
-        Block::default().style(Style::default().bg(DARK_THEME.bg)),
+        Block::default().style(Style::default().bg(DARK_THEME.background)),
         frame.area(),
     );
 }
@@ -480,7 +476,7 @@ pub(crate) fn render_export_popup(frame: &mut Frame, state: &LibraryExportModalS
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
-            .fg(DARK_THEME.muted)
+            .fg(DARK_THEME.text_muted)
             .add_modifier(Modifier::DIM)
     };
     let feedback_text = state.error().unwrap_or("");
@@ -662,7 +658,7 @@ pub(crate) fn render_import_popup(frame: &mut Frame, state: &LibraryImportModalS
     frame.render_widget(
         Paragraph::new("").style(
             Style::default()
-                .fg(DARK_THEME.muted)
+                .fg(DARK_THEME.text_muted)
                 .add_modifier(Modifier::DIM),
         ),
         sections[8],
@@ -726,7 +722,7 @@ pub(crate) fn render_password_popup(
         .add_modifier(Modifier::BOLD);
     frame.render_widget(Paragraph::new(label).style(title_style), sections[0]);
 
-    let pw_label_style = Style::default().fg(DARK_THEME.muted);
+    let pw_label_style = Style::default().fg(DARK_THEME.text_muted);
     frame.render_widget(
         Paragraph::new(" Password").style(pw_label_style),
         sections[2],
@@ -742,7 +738,7 @@ pub(crate) fn render_password_popup(
     );
 
     if with_confirmation {
-        let confirm_label_style = Style::default().fg(DARK_THEME.muted);
+        let confirm_label_style = Style::default().fg(DARK_THEME.text_muted);
         frame.render_widget(
             Paragraph::new(" Confirm").style(confirm_label_style),
             sections[4],
@@ -774,7 +770,7 @@ pub(crate) fn render_password_popup(
         (
             "Enter Next Field   Tab Switch   Ctrl+S Confirm   Esc Cancel".to_string(),
             Style::default()
-                .fg(DARK_THEME.muted)
+                .fg(DARK_THEME.text_muted)
                 .add_modifier(Modifier::DIM),
         )
     };
@@ -913,7 +909,7 @@ pub(crate) fn render_conflict_popup(
         },
     );
 
-    let sub_style = Style::default().fg(DARK_THEME.muted);
+    let sub_style = Style::default().fg(DARK_THEME.text_muted);
     frame.render_widget(
         Paragraph::new(format!("  \"{}\" already exists.", incoming.name)).style(sub_style),
         Rect {
@@ -927,7 +923,7 @@ pub(crate) fn render_conflict_popup(
     let header_style = Style::default()
         .fg(DARK_THEME.text)
         .add_modifier(Modifier::BOLD);
-    let val_style = Style::default().fg(DARK_THEME.muted);
+    let val_style = Style::default().fg(DARK_THEME.text_muted);
 
     let incoming_start = inner.y + 3;
     let incoming_lines = vec![
@@ -975,7 +971,7 @@ pub(crate) fn render_conflict_popup(
         let opt_style = if i == selected {
             Style::default()
                 .fg(DARK_THEME.text)
-                .bg(DARK_THEME.highlight)
+                .bg(DARK_THEME.surface)
                 .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(DARK_THEME.text)

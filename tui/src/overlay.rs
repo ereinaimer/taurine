@@ -1,8 +1,8 @@
-use crate::library::{
+use crate::theme::builtin::DARK_THEME;
+use crate::widgets::library::{
     LibraryExportModalField, LibraryExportModalState, LibraryImportConflictMode,
     LibraryImportModalField, LibraryImportModalState, LibraryInteraction, RememberedConflictChoice,
 };
-use crate::theme::DARK_THEME;
 use crossterm::event::{
     DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
     MouseButton, MouseEventKind,
@@ -361,7 +361,7 @@ fn render_overlay_notification(frame: &mut ratatui::Frame, message: &str) {
         .borders(Borders::ALL)
         .border_set(border::ROUNDED)
         .border_style(Style::default().fg(DARK_THEME.error))
-        .style(Style::default().bg(DARK_THEME.bg));
+        .style(Style::default().bg(DARK_THEME.background));
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
     frame.render_widget(

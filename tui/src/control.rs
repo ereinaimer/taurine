@@ -47,6 +47,7 @@ pub(crate) const fn action_for_status(status: DaemonStatus) -> LifecycleAction {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) const fn home_footer_label(status: DaemonStatus) -> &'static str {
     match status {
         DaemonStatus::Starting => "Starting...   q Quit",
