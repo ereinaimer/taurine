@@ -23,8 +23,8 @@ const LIBRARY_FOOTER: &str =
     "/ Search   n New   i Import   x Export   d Delete   Enter Edit   q Quit";
 const LIBRARY_EDIT_MODAL_FOOTER: &str = "Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev";
 const LIBRARY_CREATE_MODAL_FOOTER: &str = "Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev";
-const LIBRARY_EXPORT_MODAL_FOOTER: &str = "Ctrl+S Export   Esc Cancel   ↑/↓ Move";
-const LIBRARY_IMPORT_MODAL_FOOTER: &str = "Ctrl+S Import   Esc Cancel   ↑/↓ Move";
+const LIBRARY_EXPORT_MODAL_FOOTER: &str = "↑/↓ Move   Tab Next";
+const LIBRARY_IMPORT_MODAL_FOOTER: &str = "↑/↓ Move   Tab Next";
 const LIBRARY_IMPORT_RESULT_FOOTER: &str = "Enter Close   Esc Close";
 const LIBRARY_EXPORT_RESULT_FOOTER: &str = "Enter Close   Esc Close";
 const LIBRARY_DELETE_MODAL_FOOTER: &str = "Esc Cancel";
@@ -40,27 +40,30 @@ const SCRIPT_LANGUAGE_OPTIONS: [ScriptInterpreter; 6] = [
     ScriptInterpreter::Cmd,
 ];
 const SCRIPT_MODE_OPTIONS: [ScriptBehavior; 2] = [ScriptBehavior::Inline, ScriptBehavior::Silent];
-const EXPORT_ENCRYPTION_OPTIONS: [LibraryExportModalField; 6] = [
+const EXPORT_ENCRYPTION_OPTIONS: [LibraryExportModalField; 7] = [
     LibraryExportModalField::Path,
     LibraryExportModalField::Encrypt,
     LibraryExportModalField::Password,
     LibraryExportModalField::IncludeSettings,
     LibraryExportModalField::IncludeSensitiveSettings,
     LibraryExportModalField::IncludeStats,
+    LibraryExportModalField::ActionButton,
 ];
-const EXPORT_PLAINTEXT_OPTIONS: [LibraryExportModalField; 4] = [
+const EXPORT_PLAINTEXT_OPTIONS: [LibraryExportModalField; 5] = [
     LibraryExportModalField::Path,
     LibraryExportModalField::Encrypt,
     LibraryExportModalField::IncludeSettings,
     LibraryExportModalField::IncludeStats,
+    LibraryExportModalField::ActionButton,
 ];
-const IMPORT_MODAL_FIELDS: [LibraryImportModalField; 6] = [
+const IMPORT_MODAL_FIELDS: [LibraryImportModalField; 7] = [
     LibraryImportModalField::Path,
     LibraryImportModalField::Password,
     LibraryImportModalField::IncludeSettings,
     LibraryImportModalField::IncludeSensitiveSettings,
     LibraryImportModalField::StatsMode,
     LibraryImportModalField::ConflictMode,
+    LibraryImportModalField::ActionButton,
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -198,6 +201,12 @@ pub(crate) enum LibraryModalField {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ButtonSelection {
+    Cancel,
+    Confirm,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LibraryExportModalField {
     Path,
     Encrypt,
@@ -205,6 +214,13 @@ pub(crate) enum LibraryExportModalField {
     IncludeSettings,
     IncludeSensitiveSettings,
     IncludeStats,
+    ActionButton,
+}
+
+impl LibraryExportModalField {
+    fn is_action_button(self) -> bool {
+        matches!(self, Self::ActionButton)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -215,6 +231,7 @@ pub(crate) enum LibraryImportModalField {
     IncludeSensitiveSettings,
     StatsMode,
     ConflictMode,
+    ActionButton,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -324,6 +341,7 @@ pub(crate) struct LibraryExportModalState {
     include_stats: bool,
     focus: LibraryExportModalField,
     error: Option<String>,
+    button_selection: ButtonSelection,
 }
 
 impl LibraryExportModalState {
@@ -342,6 +360,7 @@ impl LibraryExportModalState {
             include_stats: false,
             focus: LibraryExportModalField::Path,
             error: None,
+            button_selection: ButtonSelection::Cancel,
         })
     }
 
@@ -393,6 +412,10 @@ impl LibraryExportModalState {
         self.error.as_deref()
     }
 
+    pub(crate) const fn button_selection(&self) -> ButtonSelection {
+        self.button_selection
+    }
+
     fn set_error(&mut self, error: String) {
         self.error = Some(error);
     }
@@ -412,16 +435,8 @@ impl LibraryExportModalState {
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> LibraryInteraction {
         self.error = None;
 
-        if matches!(key.code, KeyCode::Char('s' | 'S'))
-            && key.modifiers.contains(KeyModifiers::CONTROL)
-        {
-            return match self.build_pending_export() {
-                Ok(pending_export) => LibraryInteraction::export(pending_export),
-                Err(error) => {
-                    self.error = Some(error.to_string());
-                    LibraryInteraction::handled()
-                }
-            };
+        if self.focus.is_action_button() {
+            return self.handle_action_button_key(key);
         }
 
         match (key.code, key.modifiers) {
@@ -443,6 +458,36 @@ impl LibraryExportModalState {
                 LibraryInteraction::handled()
             }
             _ => self.handle_focused_key(key),
+        }
+    }
+
+    fn handle_action_button_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Left | KeyCode::Char('h'), KeyModifiers::NONE) => {
+                self.button_selection = ButtonSelection::Cancel;
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Right | KeyCode::Char('l'), KeyModifiers::NONE) => {
+                self.button_selection = ButtonSelection::Confirm;
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Up | KeyCode::Char('k') | KeyCode::BackTab, _) => {
+                self.advance_focus(false);
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Enter | KeyCode::Char(' '), KeyModifiers::NONE) => {
+                match self.button_selection {
+                    ButtonSelection::Cancel => LibraryInteraction::close(),
+                    ButtonSelection::Confirm => match self.build_pending_export() {
+                        Ok(pending_export) => LibraryInteraction::export(pending_export),
+                        Err(error) => {
+                            self.error = Some(error.to_string());
+                            LibraryInteraction::handled()
+                        }
+                    },
+                }
+            }
+            _ => LibraryInteraction::handled(),
         }
     }
 
@@ -479,6 +524,9 @@ impl LibraryExportModalState {
                 self.handle_include_sensitive_settings_key(key)
             }
             LibraryExportModalField::IncludeStats => self.handle_include_stats_key(key),
+            LibraryExportModalField::ActionButton => {
+                unreachable!("ActionButton is handled before focused key dispatch")
+            }
         }
     }
 
@@ -605,14 +653,19 @@ impl LibraryExportModalState {
             .iter()
             .position(|field| *field == self.focus)
             .unwrap_or(0);
-        let next_index = if forward {
-            (current_index + 1) % fields.len()
-        } else if current_index == 0 {
-            fields.len().saturating_sub(1)
+
+        if forward {
+            if self.focus == LibraryExportModalField::ActionButton {
+                return;
+            }
+            let next_index = (current_index + 1).min(fields.len() - 1);
+            self.focus = fields[next_index];
         } else {
-            current_index - 1
-        };
-        self.focus = fields[next_index];
+            if current_index == 0 {
+                return;
+            }
+            self.focus = fields[current_index - 1];
+        }
     }
 
     fn ensure_focus_visible(&mut self) {
@@ -691,6 +744,7 @@ pub(crate) struct LibraryImportModalState {
     focus: LibraryImportModalField,
     error: Option<String>,
     selector: Option<LibrarySelectState>,
+    button_selection: ButtonSelection,
 }
 
 impl LibraryImportModalState {
@@ -707,6 +761,7 @@ impl LibraryImportModalState {
             focus: LibraryImportModalField::Path,
             error: None,
             selector: None,
+            button_selection: ButtonSelection::Cancel,
         }
     }
 
@@ -725,6 +780,7 @@ impl LibraryImportModalState {
             focus: LibraryImportModalField::IncludeSettings,
             error: None,
             selector: None,
+            button_selection: ButtonSelection::Cancel,
         }
     }
 
@@ -774,6 +830,10 @@ impl LibraryImportModalState {
         self.error.as_deref()
     }
 
+    pub(crate) const fn button_selection(&self) -> ButtonSelection {
+        self.button_selection
+    }
+
     fn set_error(&mut self, error: String) {
         self.error = Some(error);
     }
@@ -813,16 +873,8 @@ impl LibraryImportModalState {
 
         self.error = None;
 
-        if matches!(key.code, KeyCode::Char('s' | 'S'))
-            && key.modifiers.contains(KeyModifiers::CONTROL)
-        {
-            return match self.build_pending_prepare() {
-                Ok(pending_prepare) => LibraryInteraction::prepare_import(pending_prepare),
-                Err(error) => {
-                    self.error = Some(error.to_string());
-                    LibraryInteraction::handled()
-                }
-            };
+        if self.focus == LibraryImportModalField::ActionButton {
+            return self.handle_action_button_key(key);
         }
 
         match (key.code, key.modifiers) {
@@ -844,6 +896,36 @@ impl LibraryImportModalState {
                 LibraryInteraction::handled()
             }
             _ => self.handle_focused_key(key),
+        }
+    }
+
+    fn handle_action_button_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Left | KeyCode::Char('h'), KeyModifiers::NONE) => {
+                self.button_selection = ButtonSelection::Cancel;
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Right | KeyCode::Char('l'), KeyModifiers::NONE) => {
+                self.button_selection = ButtonSelection::Confirm;
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Up | KeyCode::Char('k') | KeyCode::BackTab, _) => {
+                self.advance_focus(false);
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Enter | KeyCode::Char(' '), KeyModifiers::NONE) => {
+                match self.button_selection {
+                    ButtonSelection::Cancel => LibraryInteraction::close(),
+                    ButtonSelection::Confirm => match self.build_pending_prepare() {
+                        Ok(pending_prepare) => LibraryInteraction::prepare_import(pending_prepare),
+                        Err(error) => {
+                            self.error = Some(error.to_string());
+                            LibraryInteraction::handled()
+                        }
+                    },
+                }
+            }
+            _ => LibraryInteraction::handled(),
         }
     }
 
@@ -877,6 +959,9 @@ impl LibraryImportModalState {
             }
             LibraryImportModalField::StatsMode => self.handle_stats_mode_key(key),
             LibraryImportModalField::ConflictMode => self.handle_conflict_mode_key(key),
+            LibraryImportModalField::ActionButton => {
+                unreachable!("ActionButton is handled before focused key dispatch")
+            }
         }
     }
 
@@ -1068,14 +1153,19 @@ impl LibraryImportModalState {
             .iter()
             .position(|field| *field == self.focus)
             .unwrap_or(0);
-        let next_index = if forward {
-            (current_index + 1) % fields.len()
-        } else if current_index == 0 {
-            fields.len().saturating_sub(1)
+
+        if forward {
+            if self.focus == LibraryImportModalField::ActionButton {
+                return;
+            }
+            let next_index = (current_index + 1).min(fields.len() - 1);
+            self.focus = fields[next_index];
         } else {
-            current_index - 1
-        };
-        self.focus = fields[next_index];
+            if current_index == 0 {
+                return;
+            }
+            self.focus = fields[current_index - 1];
+        }
     }
 
     fn insert_path_char(&mut self, ch: char) {
@@ -3770,8 +3860,12 @@ mod tests {
         let Some(LibraryModal::Import(modal)) = state.modal.as_mut() else {
             panic!("expected import modal");
         };
-        let interaction =
-            modal.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+        // Tab through all fields to ActionButton
+        for _ in 0..6 {
+            modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        }
+        modal.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        let interaction = modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
         assert!(interaction.pending_import_prepare().is_none());
         assert_eq!(
@@ -4116,8 +4210,12 @@ mod tests {
         let Some(LibraryModal::Export(modal)) = state.modal.as_mut() else {
             panic!("expected export modal");
         };
-        let interaction =
-            modal.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+        // Tab through all fields to ActionButton
+        for _ in 0..6 {
+            modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        }
+        modal.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        let interaction = modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
         assert!(interaction.pending_export().is_none());
         assert_eq!(
@@ -4144,7 +4242,7 @@ mod tests {
     }
 
     #[test]
-    fn export_modal_ctrl_s_creates_pending_export_when_plaintext() {
+    fn enter_on_confirm_creates_pending_export_when_plaintext() {
         let mut state = sample_state();
         state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
 
@@ -4153,9 +4251,13 @@ mod tests {
         };
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         modal.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        // Tab through remaining fields to ActionButton
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        modal.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
 
-        let interaction =
-            modal.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+        let interaction = modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
         let pending = interaction.pending_export().expect("pending export");
         assert!(!pending.encrypt);

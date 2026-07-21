@@ -1,5 +1,5 @@
 use crate::library::{
-    LibraryExportModalField, LibraryExportModalState, LibraryImportModalField,
+    ButtonSelection, LibraryExportModalField, LibraryExportModalState, LibraryImportModalField,
     LibraryImportModalState, LibrarySelectState,
 };
 use ratatui::{
@@ -241,6 +241,58 @@ fn render_desc(frame: &mut Frame, area: Rect, text: &str, focused: bool) {
     );
 }
 
+fn render_action_buttons_overlay(
+    frame: &mut Frame,
+    area: Rect,
+    cancel_label: &str,
+    confirm_label: &str,
+    is_focused: bool,
+    selection: ButtonSelection,
+) {
+    let cancel_text = format!("  {cancel_label}  ");
+    let confirm_text = format!("  {confirm_label}  ");
+    let cancel_width = cancel_text.len() as u16;
+    let confirm_width = confirm_text.len() as u16;
+    let gap: u16 = 3;
+
+    let btn_layout = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Min(1),
+            Constraint::Length(cancel_width),
+            Constraint::Length(gap),
+            Constraint::Length(confirm_width),
+            Constraint::Min(1),
+        ])
+        .split(area);
+
+    let cancel_style = if is_focused && selection == ButtonSelection::Cancel {
+        Style::default()
+            .fg(ACCENT)
+            .bg(SELECTED_BG)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(MUTED)
+    };
+    frame.render_widget(
+        Paragraph::new(cancel_text).style(cancel_style),
+        btn_layout[1],
+    );
+
+    let confirm_style = if is_focused && selection == ButtonSelection::Confirm {
+        Style::default()
+            .fg(ACCENT)
+            .bg(SELECTED_BG)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(MUTED)
+    };
+    frame.render_widget(
+        Paragraph::new(confirm_text).style(confirm_style),
+        btn_layout[3],
+    );
+}
+
 pub(crate) fn render_export_popup(frame: &mut Frame, state: &LibraryExportModalState) {
     let inner = padded(frame.area());
 
@@ -255,8 +307,11 @@ pub(crate) fn render_export_popup(frame: &mut Frame, state: &LibraryExportModalS
             Constraint::Length(2),
             Constraint::Length(2),
             Constraint::Length(2),
-            Constraint::Min(0),
             Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
         ])
         .split(inner);
 
@@ -349,18 +404,25 @@ pub(crate) fn render_export_popup(frame: &mut Frame, state: &LibraryExportModalS
     row_key_value(frame, stat_area, " Stats", stats_label, stats_focused);
     render_desc(frame, stat_desc, "include usage history", stats_focused);
 
-    let (text, style) = if let Some(err) = state.error() {
-        (
-            err.to_string(),
-            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-        )
+    let feedback_style = if state.error().is_some() {
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
     } else {
-        (
-            state.footer_text().to_string(),
-            Style::default().fg(MUTED).add_modifier(Modifier::DIM),
-        )
+        Style::default().fg(MUTED).add_modifier(Modifier::DIM)
     };
-    frame.render_widget(Paragraph::new(text).style(style), sections[9]);
+    let feedback_text = state.error().unwrap_or("");
+    frame.render_widget(
+        Paragraph::new(feedback_text).style(feedback_style),
+        sections[8],
+    );
+
+    render_action_buttons_overlay(
+        frame,
+        sections[10],
+        "Cancel",
+        "Export",
+        state.focus() == LibraryExportModalField::ActionButton,
+        state.button_selection(),
+    );
 
     match state.focus() {
         LibraryExportModalField::Path => {
@@ -400,8 +462,11 @@ pub(crate) fn render_import_popup(frame: &mut Frame, state: &LibraryImportModalS
             Constraint::Length(2),
             Constraint::Length(2),
             Constraint::Length(2),
-            Constraint::Min(0),
             Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
         ])
         .split(inner);
 
@@ -507,18 +572,25 @@ pub(crate) fn render_import_popup(frame: &mut Frame, state: &LibraryImportModalS
         conflict_focused,
     );
 
-    let (text, style) = if let Some(err) = state.error() {
-        (
-            err.to_string(),
-            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-        )
+    let feedback_style = if state.error().is_some() {
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
     } else {
-        (
-            state.footer_text().to_string(),
-            Style::default().fg(MUTED).add_modifier(Modifier::DIM),
-        )
+        Style::default().fg(MUTED).add_modifier(Modifier::DIM)
     };
-    frame.render_widget(Paragraph::new(text).style(style), sections[9]);
+    let feedback_text = state.error().unwrap_or("");
+    frame.render_widget(
+        Paragraph::new(feedback_text).style(feedback_style),
+        sections[8],
+    );
+
+    render_action_buttons_overlay(
+        frame,
+        sections[10],
+        "Cancel",
+        "Import",
+        state.focus() == LibraryImportModalField::ActionButton,
+        state.button_selection(),
+    );
 
     match state.focus() {
         LibraryImportModalField::Path => {

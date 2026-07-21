@@ -14,7 +14,7 @@ use crate::{
     app::{App, Page},
     control,
     library::{
-        LibraryAutomation, LibraryDeleteModalState, LibraryEditorModalState,
+        ButtonSelection, LibraryAutomation, LibraryDeleteModalState, LibraryEditorModalState,
         LibraryExportModalField, LibraryExportModalState, LibraryExportResultModalState,
         LibraryImportModalField, LibraryImportModalState, LibraryImportResultModalState,
         LibraryImportRunVariablesModalState, LibraryMetadataRow, LibraryModal, LibraryModalField,
@@ -542,7 +542,7 @@ fn render_library_export_modal(frame: &mut Frame, area: Rect, state: &LibraryExp
     } else {
         area.width.max(1)
     };
-    let height = if state.encrypt() { 11 } else { 10 };
+    let height = if state.encrypt() { 14 } else { 13 };
     let popup = centered_rect(width, height, area);
     frame.render_widget(Clear, popup);
     let inner = render_modal_block(frame, popup, "Export Automations");
@@ -550,6 +550,9 @@ fn render_library_export_modal(frame: &mut Frame, area: Rect, state: &LibraryExp
     let sections = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
@@ -643,6 +646,23 @@ fn render_library_export_modal(frame: &mut Frame, area: Rect, state: &LibraryExp
     };
     frame.render_widget(Paragraph::new(text).style(style), feedback_area);
 
+    let buttons_area = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(sections[next_row + 3]);
+    render_action_buttons(
+        frame,
+        buttons_area[1],
+        "Cancel",
+        "Export",
+        state.focus() == LibraryExportModalField::ActionButton,
+        state.button_selection(),
+    );
+
     match state.focus() {
         LibraryExportModalField::Path => {
             frame.set_cursor_position((
@@ -667,13 +687,15 @@ fn render_library_import_modal(frame: &mut Frame, area: Rect, state: &LibraryImp
     } else {
         area.width.max(1)
     };
-    let popup = centered_rect(width, 13.min(area.height.max(1)), area);
+    let popup = centered_rect(width, 16.min(area.height.max(1)), area);
     frame.render_widget(Clear, popup);
     let inner = render_modal_block(frame, popup, "Import Automations");
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
@@ -759,6 +781,23 @@ fn render_library_import_modal(frame: &mut Frame, area: Rect, state: &LibraryImp
         )
     };
     frame.render_widget(Paragraph::new(text).style(style), sections[8]);
+
+    let buttons_area = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(sections[9]);
+    render_action_buttons(
+        frame,
+        buttons_area[1],
+        "Cancel",
+        "Import",
+        state.focus() == LibraryImportModalField::ActionButton,
+        state.button_selection(),
+    );
 
     match state.focus() {
         LibraryImportModalField::Path => {
@@ -1816,6 +1855,58 @@ fn render_confirm_reset_modal(frame: &mut Frame, area: Rect, state: &ConfirmRese
     );
 }
 
+fn render_action_buttons(
+    frame: &mut Frame,
+    area: Rect,
+    cancel_label: &str,
+    confirm_label: &str,
+    is_focused: bool,
+    selection: ButtonSelection,
+) {
+    let cancel_text = format!("  {cancel_label}  ");
+    let confirm_text = format!("  {confirm_label}  ");
+    let cancel_width = cancel_text.len() as u16;
+    let confirm_width = confirm_text.len() as u16;
+    let gap: u16 = 3;
+
+    let btn_layout = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Min(1),
+            Constraint::Length(cancel_width),
+            Constraint::Length(gap),
+            Constraint::Length(confirm_width),
+            Constraint::Min(1),
+        ])
+        .split(area);
+
+    let cancel_style = if is_focused && selection == ButtonSelection::Cancel {
+        Style::default()
+            .fg(ACCENT_COLOR)
+            .bg(SELECTED_ROW_BG_COLOR)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(MUTED_TEXT_COLOR)
+    };
+    frame.render_widget(
+        Paragraph::new(cancel_text).style(cancel_style),
+        btn_layout[1],
+    );
+
+    let confirm_style = if is_focused && selection == ButtonSelection::Confirm {
+        Style::default()
+            .fg(ACCENT_COLOR)
+            .bg(SELECTED_ROW_BG_COLOR)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(MUTED_TEXT_COLOR)
+    };
+    frame.render_widget(
+        Paragraph::new(confirm_text).style(confirm_style),
+        btn_layout[3],
+    );
+}
+
 fn render_modal_block(frame: &mut Frame, popup: Rect, title: &str) -> Rect {
     let block = Block::default()
         .title(Span::styled(
@@ -2172,10 +2263,7 @@ mod tests {
         );
         app.library_page_mut().open_export_modal();
 
-        assert_eq!(
-            footer_text(&app),
-            "Ctrl+B Nav   Ctrl+S Export   Esc Cancel   ↑/↓ Move"
-        );
+        assert_eq!(footer_text(&app), "Ctrl+B Nav   ↑/↓ Move   Tab Next");
     }
 
     #[test]
@@ -2209,10 +2297,7 @@ mod tests {
         );
         app.library_page_mut().open_import_modal();
 
-        assert_eq!(
-            footer_text(&app),
-            "Ctrl+B Nav   Ctrl+S Import   Esc Cancel   ↑/↓ Move"
-        );
+        assert_eq!(footer_text(&app), "Ctrl+B Nav   ↑/↓ Move   Tab Next");
     }
 
     #[test]
