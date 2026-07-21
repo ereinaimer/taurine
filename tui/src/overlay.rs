@@ -2,6 +2,7 @@ use crate::library::{
     LibraryExportModalField, LibraryExportModalState, LibraryImportConflictMode,
     LibraryImportModalField, LibraryImportModalState, RememberedConflictChoice,
 };
+use crate::theme::DARK_THEME;
 use crossterm::event::{Event, KeyCode, KeyEventKind};
 use crossterm::{
     cursor::SetCursorStyle,
@@ -236,7 +237,7 @@ pub fn run_import_overlay(path: Option<&str>) -> CoreResult<Option<ImportFormRes
 
 fn render_overlay_notification(frame: &mut ratatui::Frame, message: &str) {
     use ratatui::layout::Rect;
-    use ratatui::style::{Color, Modifier, Style};
+    use ratatui::style::{Modifier, Style};
     use ratatui::symbols::border;
     use ratatui::widgets::{Block, Borders, Clear, Paragraph};
     let area = frame.area();
@@ -256,11 +257,16 @@ fn render_overlay_notification(frame: &mut ratatui::Frame, message: &str) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_set(border::ROUNDED)
-        .border_style(Style::default().fg(Color::Red));
+        .border_style(Style::default().fg(DARK_THEME.error))
+        .style(Style::default().bg(DARK_THEME.bg));
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
     frame.render_widget(
-        Paragraph::new(message).style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+        Paragraph::new(message).style(
+            Style::default()
+                .fg(DARK_THEME.error)
+                .add_modifier(Modifier::BOLD),
+        ),
         inner,
     );
 }

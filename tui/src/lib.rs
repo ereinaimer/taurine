@@ -7,6 +7,7 @@ mod event;
 mod library;
 mod overlay;
 mod overlay_ui;
+mod theme;
 pub use library::{LibraryImportConflictMode, RememberedConflictChoice};
 pub use overlay::{
     ExportFormResult, ImportFormResult, prompt_password, run_conflict_prompt, run_export_overlay,

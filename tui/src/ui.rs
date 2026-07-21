@@ -25,6 +25,8 @@ use crate::{
     },
 };
 
+use crate::theme::DARK_THEME;
+
 const OUTER_HORIZONTAL_PADDING: u16 = 2;
 const OUTER_VERTICAL_PADDING: u16 = 1;
 const HEADER_GAP_HEIGHT: u16 = 1;
@@ -40,16 +42,14 @@ const PANEL_GAP_WIDTH: u16 = 1;
 const NAV_WIDTH: u16 = 22;
 const PANEL_PADDING: u16 = 1;
 const NAV_TOGGLE_HINT: &str = "Ctrl+B Nav";
-const ACCENT_COLOR: Color = Color::White;
-const PANEL_BORDER_COLOR: Color = Color::DarkGray;
-const MUTED_TEXT_COLOR: Color = Color::Gray;
-const ERROR_COLOR: Color = Color::Red;
-const INPUT_BG_COLOR: Color = Color::Indexed(235);
-const SELECTED_ROW_BG_COLOR: Color = Color::Indexed(236);
 const LIBRARY_ITEM_HEIGHT: u16 = 2;
 const LIBRARY_ITEM_GAP: u16 = 1;
 
 pub(crate) fn render(frame: &mut Frame, app: &App) {
+    frame.render_widget(
+        ratatui::widgets::Block::default().style(Style::default().bg(DARK_THEME.bg)),
+        frame.area(),
+    );
     let area = frame.area().inner(Margin {
         vertical: OUTER_VERTICAL_PADDING,
         horizontal: OUTER_HORIZONTAL_PADDING,
@@ -86,14 +86,14 @@ fn render_header(frame: &mut Frame, area: Rect, app: &App) {
             Span::styled(
                 "Taurine",
                 Style::default()
-                    .fg(ACCENT_COLOR)
+                    .fg(DARK_THEME.text)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" "),
             Span::styled(
                 format!("v{}", env!("CARGO_PKG_VERSION")),
                 Style::default()
-                    .fg(MUTED_TEXT_COLOR)
+                    .fg(DARK_THEME.muted)
                     .add_modifier(Modifier::DIM),
             ),
         ])),
@@ -135,7 +135,7 @@ fn render_navigation(frame: &mut Frame, area: Rect, app: &App) {
                 Span::styled(
                     shortcut.to_string(),
                     Style::default()
-                        .fg(MUTED_TEXT_COLOR)
+                        .fg(DARK_THEME.muted)
                         .add_modifier(Modifier::DIM),
                 ),
                 Span::raw(" "),
@@ -149,7 +149,7 @@ fn render_navigation(frame: &mut Frame, area: Rect, app: &App) {
     let navigation_block = Block::default()
         .borders(Borders::ALL)
         .border_set(border::ROUNDED)
-        .border_style(Style::default().fg(PANEL_BORDER_COLOR))
+        .border_style(Style::default().fg(DARK_THEME.border))
         .padding(Padding::new(
             PANEL_PADDING,
             PANEL_PADDING,
@@ -162,8 +162,8 @@ fn render_navigation(frame: &mut Frame, area: Rect, app: &App) {
         .highlight_symbol("")
         .highlight_style(
             Style::default()
-                .bg(PANEL_BORDER_COLOR)
-                .fg(ACCENT_COLOR)
+                .bg(DARK_THEME.border)
+                .fg(DARK_THEME.text)
                 .add_modifier(Modifier::BOLD),
         );
     let mut state = ListState::default();
@@ -176,12 +176,12 @@ fn render_content(frame: &mut Frame, area: Rect, app: &App) {
         .title(Span::styled(
             format!(" {} ", app.active_page().title()),
             Style::default()
-                .fg(ACCENT_COLOR)
+                .fg(DARK_THEME.text)
                 .add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)
         .border_set(border::ROUNDED)
-        .border_style(Style::default().fg(PANEL_BORDER_COLOR))
+        .border_style(Style::default().fg(DARK_THEME.border))
         .padding(Padding::new(
             PANEL_PADDING,
             PANEL_PADDING,
@@ -230,7 +230,7 @@ fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
     let footer_line = Line::from(vec![Span::styled(
         footer_text,
         Style::default()
-            .fg(MUTED_TEXT_COLOR)
+            .fg(DARK_THEME.muted)
             .add_modifier(Modifier::DIM),
     )]);
 
@@ -315,7 +315,7 @@ fn render_library_content(frame: &mut Frame, area: Rect, library_page: &LibraryP
         frame.render_widget(
             Paragraph::new(message).style(
                 Style::default()
-                    .fg(ERROR_COLOR)
+                    .fg(DARK_THEME.error)
                     .add_modifier(Modifier::BOLD),
             ),
             area,
@@ -350,7 +350,7 @@ fn render_library_content(frame: &mut Frame, area: Rect, library_page: &LibraryP
             frame.render_widget(
                 Paragraph::new(message).style(
                     Style::default()
-                        .fg(ACCENT_COLOR)
+                        .fg(DARK_THEME.text)
                         .add_modifier(Modifier::BOLD),
                 ),
                 sections[0],
@@ -372,7 +372,7 @@ fn render_library_content(frame: &mut Frame, area: Rect, library_page: &LibraryP
         frame.render_widget(
             Paragraph::new(message).style(
                 Style::default()
-                    .fg(MUTED_TEXT_COLOR)
+                    .fg(DARK_THEME.muted)
                     .add_modifier(Modifier::DIM),
             ),
             list_area,
@@ -412,7 +412,7 @@ fn render_library_content(frame: &mut Frame, area: Rect, library_page: &LibraryP
 
 fn render_library_search_bar(frame: &mut Frame, area: Rect, library_page: &LibraryPageState) {
     frame.render_widget(
-        Block::default().style(Style::default().bg(INPUT_BG_COLOR)),
+        Block::default().style(Style::default().bg(DARK_THEME.highlight)),
         area,
     );
 
@@ -423,13 +423,13 @@ fn render_library_search_bar(frame: &mut Frame, area: Rect, library_page: &Libra
 
     let label_style = if library_page.is_search_active() {
         Style::default()
-            .fg(ACCENT_COLOR)
-            .bg(INPUT_BG_COLOR)
+            .fg(DARK_THEME.text)
+            .bg(DARK_THEME.highlight)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
-            .fg(MUTED_TEXT_COLOR)
-            .bg(INPUT_BG_COLOR)
+            .fg(DARK_THEME.muted)
+            .bg(DARK_THEME.highlight)
             .add_modifier(Modifier::BOLD)
     };
     frame.render_widget(Paragraph::new("Search").style(label_style), sections[0]);
@@ -437,11 +437,13 @@ fn render_library_search_bar(frame: &mut Frame, area: Rect, library_page: &Libra
     let query_style = if library_page.search_query().is_empty() && !library_page.is_search_active()
     {
         Style::default()
-            .fg(MUTED_TEXT_COLOR)
-            .bg(INPUT_BG_COLOR)
+            .fg(DARK_THEME.muted)
+            .bg(DARK_THEME.highlight)
             .add_modifier(Modifier::DIM)
     } else {
-        Style::default().fg(ACCENT_COLOR).bg(INPUT_BG_COLOR)
+        Style::default()
+            .fg(DARK_THEME.text)
+            .bg(DARK_THEME.highlight)
     };
     let query = if library_page.is_search_active() {
         input_cursor_line(
@@ -458,7 +460,7 @@ fn render_library_search_bar(frame: &mut Frame, area: Rect, library_page: &Libra
 
 fn render_library_item(frame: &mut Frame, area: Rect, item: &LibraryAutomation, selected: bool) {
     let row_bg = if selected {
-        SELECTED_ROW_BG_COLOR
+        DARK_THEME.highlight
     } else {
         Color::Reset
     };
@@ -492,27 +494,27 @@ fn render_library_item(frame: &mut Frame, area: Rect, item: &LibraryAutomation, 
 
     let trigger_style = if selected {
         Style::default()
-            .fg(ACCENT_COLOR)
+            .fg(DARK_THEME.text)
             .bg(row_bg)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
-            .fg(ACCENT_COLOR)
+            .fg(DARK_THEME.text)
             .add_modifier(Modifier::BOLD)
     };
     let kind_style = if selected {
-        Style::default().fg(MUTED_TEXT_COLOR).bg(row_bg)
+        Style::default().fg(DARK_THEME.muted).bg(row_bg)
     } else {
-        Style::default().fg(MUTED_TEXT_COLOR)
+        Style::default().fg(DARK_THEME.muted)
     };
     let preview_style = if selected {
         Style::default()
-            .fg(MUTED_TEXT_COLOR)
+            .fg(DARK_THEME.muted)
             .bg(row_bg)
             .add_modifier(Modifier::DIM)
     } else {
         Style::default()
-            .fg(MUTED_TEXT_COLOR)
+            .fg(DARK_THEME.muted)
             .add_modifier(Modifier::DIM)
     };
 
@@ -636,14 +638,14 @@ fn render_library_export_modal(frame: &mut Frame, area: Rect, state: &LibraryExp
         (
             error,
             Style::default()
-                .fg(ERROR_COLOR)
+                .fg(DARK_THEME.error)
                 .add_modifier(Modifier::BOLD),
         )
     } else {
         (
             "",
             Style::default()
-                .fg(MUTED_TEXT_COLOR)
+                .fg(DARK_THEME.muted)
                 .add_modifier(Modifier::DIM),
         )
     };
@@ -777,7 +779,7 @@ fn render_library_import_modal(frame: &mut Frame, area: Rect, state: &LibraryImp
     frame.render_widget(
         Paragraph::new("").style(
             Style::default()
-                .fg(MUTED_TEXT_COLOR)
+                .fg(DARK_THEME.muted)
                 .add_modifier(Modifier::DIM),
         ),
         sections[8],
@@ -852,13 +854,13 @@ fn render_library_import_run_variables_modal(
             Line::from(IMPORT_RUN_VARIABLES_WARNING_LINES[1]),
             Line::from(IMPORT_RUN_VARIABLES_WARNING_LINES[2]),
         ])
-        .style(Style::default().fg(MUTED_TEXT_COLOR)),
+        .style(Style::default().fg(DARK_THEME.muted)),
         sections[0],
     );
     frame.render_widget(
         Paragraph::new(truncate_to_width(state.path(), sections[1].width)).style(
             Style::default()
-                .fg(ACCENT_COLOR)
+                .fg(DARK_THEME.text)
                 .add_modifier(Modifier::BOLD),
         ),
         sections[1],
@@ -866,11 +868,11 @@ fn render_library_import_run_variables_modal(
 
     let feedback_style = if state.error().is_some() {
         Style::default()
-            .fg(ERROR_COLOR)
+            .fg(DARK_THEME.error)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
-            .fg(MUTED_TEXT_COLOR)
+            .fg(DARK_THEME.muted)
             .add_modifier(Modifier::DIM)
     };
     frame.render_widget(
@@ -911,7 +913,7 @@ fn render_library_import_result_modal(
         .map(|line| Line::from(line.as_str()))
         .collect::<Vec<_>>();
     frame.render_widget(
-        Paragraph::new(lines).style(Style::default().fg(MUTED_TEXT_COLOR)),
+        Paragraph::new(lines).style(Style::default().fg(DARK_THEME.muted)),
         sections[0],
     );
 }
@@ -931,7 +933,7 @@ fn render_library_export_result_modal(
     let inner = render_modal_block(frame, popup, EXPORT_RESULT_MODAL_TITLE);
 
     frame.render_widget(
-        Paragraph::new(vec![Line::from(state.body())]).style(Style::default().fg(MUTED_TEXT_COLOR)),
+        Paragraph::new(vec![Line::from(state.body())]).style(Style::default().fg(DARK_THEME.muted)),
         inner,
     );
 }
@@ -1041,14 +1043,14 @@ fn render_library_delete_modal(frame: &mut Frame, area: Rect, state: &LibraryDel
 
     frame.render_widget(
         Paragraph::new("Do you want to delete this automation?")
-            .style(Style::default().fg(MUTED_TEXT_COLOR)),
+            .style(Style::default().fg(DARK_THEME.muted)),
         sections[0],
     );
 
     frame.render_widget(
         Paragraph::new(truncate_to_width(state.name(), sections[1].width)).style(
             Style::default()
-                .fg(ACCENT_COLOR)
+                .fg(DARK_THEME.text)
                 .add_modifier(Modifier::BOLD),
         ),
         sections[1],
@@ -1056,19 +1058,19 @@ fn render_library_delete_modal(frame: &mut Frame, area: Rect, state: &LibraryDel
 
     let yes_style = if state.selected_yes() {
         Style::default()
-            .fg(ACCENT_COLOR)
-            .bg(SELECTED_ROW_BG_COLOR)
+            .fg(DARK_THEME.text)
+            .bg(DARK_THEME.highlight)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(MUTED_TEXT_COLOR)
+        Style::default().fg(DARK_THEME.muted)
     };
     let no_style = if !state.selected_yes() {
         Style::default()
-            .fg(ACCENT_COLOR)
-            .bg(SELECTED_ROW_BG_COLOR)
+            .fg(DARK_THEME.text)
+            .bg(DARK_THEME.highlight)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(MUTED_TEXT_COLOR)
+        Style::default().fg(DARK_THEME.muted)
     };
     frame.render_widget(
         Paragraph::new(Line::from(vec![
@@ -1082,11 +1084,11 @@ fn render_library_delete_modal(frame: &mut Frame, area: Rect, state: &LibraryDel
 
     let feedback_style = if state.error().is_some() {
         Style::default()
-            .fg(ERROR_COLOR)
+            .fg(DARK_THEME.error)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
-            .fg(MUTED_TEXT_COLOR)
+            .fg(DARK_THEME.muted)
             .add_modifier(Modifier::DIM)
     };
     frame.render_widget(
@@ -1113,10 +1115,10 @@ fn render_modal_field_label(
 
     let label_style = if focused {
         Style::default()
-            .fg(ACCENT_COLOR)
+            .fg(DARK_THEME.text)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(MUTED_TEXT_COLOR)
+        Style::default().fg(DARK_THEME.muted)
     };
     frame.render_widget(Paragraph::new(label).style(label_style), sections[0]);
 
@@ -1124,7 +1126,7 @@ fn render_modal_field_label(
         frame.render_widget(
             Paragraph::new(indicator).alignment(Alignment::Right).style(
                 Style::default()
-                    .fg(MUTED_TEXT_COLOR)
+                    .fg(DARK_THEME.muted)
                     .add_modifier(Modifier::DIM),
             ),
             sections[1],
@@ -1140,17 +1142,17 @@ fn render_modal_input_field(
     focused: bool,
 ) {
     let bg = if focused {
-        SELECTED_ROW_BG_COLOR
+        DARK_THEME.highlight
     } else {
-        INPUT_BG_COLOR
+        DARK_THEME.bg
     };
     let text_style = if focused {
         Style::default()
-            .fg(ACCENT_COLOR)
+            .fg(DARK_THEME.text)
             .bg(bg)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(ACCENT_COLOR).bg(bg)
+        Style::default().fg(DARK_THEME.text).bg(bg)
     };
 
     let block = Block::default()
@@ -1185,29 +1187,29 @@ fn render_modal_password_row(
 
     let (label_style, value_style) = if disabled {
         let dimmed = Style::default()
-            .fg(MUTED_TEXT_COLOR)
+            .fg(DARK_THEME.muted)
             .add_modifier(Modifier::DIM);
         (dimmed, dimmed)
     } else if focused {
         (
             Style::default()
-                .fg(ACCENT_COLOR)
+                .fg(DARK_THEME.text)
                 .add_modifier(Modifier::BOLD),
             Style::default()
-                .fg(ACCENT_COLOR)
+                .fg(DARK_THEME.text)
                 .add_modifier(Modifier::BOLD),
         )
     } else {
         (
-            Style::default().fg(ACCENT_COLOR),
-            Style::default().fg(ACCENT_COLOR),
+            Style::default().fg(DARK_THEME.text),
+            Style::default().fg(DARK_THEME.text),
         )
     };
 
     let label_line = if red_asterisk {
         Line::from(vec![
             Span::styled(label, label_style),
-            Span::styled("*", Style::default().fg(ERROR_COLOR)),
+            Span::styled("*", Style::default().fg(DARK_THEME.error)),
         ])
     } else {
         Line::from(vec![Span::styled(label, label_style)])
@@ -1221,9 +1223,9 @@ fn render_modal_password_row(
 fn render_modal_content_field(frame: &mut Frame, area: Rect, state: &LibraryEditorModalState) {
     let focused = state.focus() == LibraryModalField::Content;
     let bg = if focused {
-        SELECTED_ROW_BG_COLOR
+        DARK_THEME.highlight
     } else {
-        INPUT_BG_COLOR
+        DARK_THEME.bg
     };
     let block = Block::default()
         .style(Style::default().bg(bg))
@@ -1250,11 +1252,11 @@ fn render_modal_content_field(frame: &mut Frame, area: Rect, state: &LibraryEdit
 
     let content_style = if focused {
         Style::default()
-            .fg(ACCENT_COLOR)
+            .fg(DARK_THEME.text)
             .bg(bg)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(ACCENT_COLOR).bg(bg)
+        Style::default().fg(DARK_THEME.text).bg(bg)
     };
     frame.render_widget(Paragraph::new(rendered).style(content_style), inner);
 }
@@ -1315,14 +1317,14 @@ fn render_library_editor_feedback(frame: &mut Frame, area: Rect, state: &Library
         (
             error,
             Style::default()
-                .fg(ERROR_COLOR)
+                .fg(DARK_THEME.error)
                 .add_modifier(Modifier::BOLD),
         )
     } else {
         (
             "",
             Style::default()
-                .fg(MUTED_TEXT_COLOR)
+                .fg(DARK_THEME.muted)
                 .add_modifier(Modifier::DIM),
         )
     };
@@ -1339,7 +1341,7 @@ fn render_modal_key_value_row(
     quiet: bool,
 ) {
     let bg = if focused {
-        SELECTED_ROW_BG_COLOR
+        DARK_THEME.highlight
     } else {
         Color::Reset
     };
@@ -1353,24 +1355,24 @@ fn render_modal_key_value_row(
 
     let label_style = if focused {
         Style::default()
-            .fg(ACCENT_COLOR)
+            .fg(DARK_THEME.text)
             .bg(bg)
             .add_modifier(Modifier::BOLD)
     } else if quiet {
         Style::default()
-            .fg(MUTED_TEXT_COLOR)
+            .fg(DARK_THEME.muted)
             .add_modifier(Modifier::DIM)
     } else {
-        Style::default().fg(MUTED_TEXT_COLOR)
+        Style::default().fg(DARK_THEME.muted)
     };
     let value_style = if focused {
-        Style::default().fg(ACCENT_COLOR).bg(bg)
+        Style::default().fg(DARK_THEME.text).bg(bg)
     } else if quiet {
         Style::default()
-            .fg(MUTED_TEXT_COLOR)
+            .fg(DARK_THEME.muted)
             .add_modifier(Modifier::DIM)
     } else {
-        Style::default().fg(ACCENT_COLOR)
+        Style::default().fg(DARK_THEME.text)
     };
 
     frame.render_widget(Paragraph::new(label).style(label_style), sections[0]);
@@ -1418,7 +1420,7 @@ fn render_stat_cards(frame: &mut Frame, area: Rect, stats: &HomeStats) {
 
 fn render_stat_card(frame: &mut Frame, area: Rect, label: &str, value: &str) {
     let block = Block::default()
-        .style(Style::default().bg(INPUT_BG_COLOR))
+        .style(Style::default().bg(DARK_THEME.highlight))
         .padding(Padding::new(2, 2, 1, 1));
 
     let inner = block.inner(area);
@@ -1432,13 +1434,13 @@ fn render_stat_card(frame: &mut Frame, area: Rect, label: &str, value: &str) {
     frame.render_widget(
         Paragraph::new(value).style(
             Style::default()
-                .fg(ACCENT_COLOR)
+                .fg(DARK_THEME.text)
                 .add_modifier(Modifier::BOLD),
         ),
         sections[0],
     );
     frame.render_widget(
-        Paragraph::new(label).style(Style::default().fg(MUTED_TEXT_COLOR)),
+        Paragraph::new(label).style(Style::default().fg(DARK_THEME.muted)),
         sections[1],
     );
 }
@@ -1456,7 +1458,7 @@ fn render_most_used_list(frame: &mut Frame, area: Rect, title: &str, rows: &[Mos
     frame.render_widget(
         Paragraph::new(title).style(
             Style::default()
-                .fg(MUTED_TEXT_COLOR)
+                .fg(DARK_THEME.muted)
                 .add_modifier(Modifier::BOLD),
         ),
         sections[0],
@@ -1466,7 +1468,7 @@ fn render_most_used_list(frame: &mut Frame, area: Rect, title: &str, rows: &[Mos
         frame.render_widget(
             Paragraph::new("No activity recorded yet.").style(
                 Style::default()
-                    .fg(MUTED_TEXT_COLOR)
+                    .fg(DARK_THEME.muted)
                     .add_modifier(Modifier::DIM),
             ),
             sections[2],
@@ -1477,17 +1479,18 @@ fn render_most_used_list(frame: &mut Frame, area: Rect, title: &str, rows: &[Mos
     let header = Row::new([Cell::from(" TRIGGER"), Cell::from("USES ")])
         .style(
             Style::default()
-                .fg(ACCENT_COLOR)
-                .bg(SELECTED_ROW_BG_COLOR)
+                .fg(DARK_THEME.text)
+                .bg(DARK_THEME.highlight)
                 .add_modifier(Modifier::BOLD),
         )
         .height(1);
 
     let table_rows = rows.iter().take(8).map(|automation| {
         Row::new([
-            Cell::from(format!(" {}", automation.trigger)).style(Style::default().fg(ACCENT_COLOR)),
+            Cell::from(format!(" {}", automation.trigger))
+                .style(Style::default().fg(DARK_THEME.text)),
             Cell::from(format!("{} ", format_number(automation.uses)))
-                .style(Style::default().fg(MUTED_TEXT_COLOR)),
+                .style(Style::default().fg(DARK_THEME.muted)),
         ])
     });
 
@@ -1504,7 +1507,7 @@ fn render_settings_content(frame: &mut Frame, area: Rect, app: &App) {
         frame.render_widget(
             Paragraph::new(message).style(
                 Style::default()
-                    .fg(ERROR_COLOR)
+                    .fg(DARK_THEME.error)
                     .add_modifier(Modifier::BOLD),
             ),
             area,
@@ -1535,7 +1538,7 @@ fn render_settings_content(frame: &mut Frame, area: Rect, app: &App) {
         frame.render_widget(
             Paragraph::new(message).style(
                 Style::default()
-                    .fg(ERROR_COLOR)
+                    .fg(DARK_THEME.error)
                     .add_modifier(Modifier::BOLD),
             ),
             sections[0],
@@ -1588,7 +1591,7 @@ fn render_setting_row(
     control_width: u16,
 ) {
     let row_style = if selected {
-        Style::default().bg(SELECTED_ROW_BG_COLOR)
+        Style::default().bg(DARK_THEME.highlight)
     } else {
         Style::default()
     };
@@ -1601,19 +1604,19 @@ fn render_setting_row(
 
     let label_style = if selected {
         Style::default()
-            .fg(ACCENT_COLOR)
-            .bg(SELECTED_ROW_BG_COLOR)
+            .fg(DARK_THEME.text)
+            .bg(DARK_THEME.highlight)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(ACCENT_COLOR)
+        Style::default().fg(DARK_THEME.text)
     };
     let value_style = if selected {
         Style::default()
-            .fg(ACCENT_COLOR)
-            .bg(SELECTED_ROW_BG_COLOR)
+            .fg(DARK_THEME.text)
+            .bg(DARK_THEME.highlight)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(MUTED_TEXT_COLOR)
+        Style::default().fg(DARK_THEME.muted)
     };
 
     frame.render_widget(
@@ -1643,9 +1646,9 @@ fn render_setting_row(
         frame.render_widget(
             Paragraph::new(key.description()).style(
                 Style::default()
-                    .fg(MUTED_TEXT_COLOR)
+                    .fg(DARK_THEME.muted)
                     .bg(if selected {
-                        SELECTED_ROW_BG_COLOR
+                        DARK_THEME.highlight
                     } else {
                         Color::Reset
                     })
@@ -1692,25 +1695,28 @@ fn render_input_modal(frame: &mut Frame, area: Rect, state: &InputModalState) {
     frame.render_widget(
         Paragraph::new(state.key().description()).style(
             Style::default()
-                .fg(MUTED_TEXT_COLOR)
+                .fg(DARK_THEME.muted)
                 .add_modifier(Modifier::DIM),
         ),
         sections[0],
     );
     frame.render_widget(
-        Paragraph::new(input_cursor_line(state.value(), state.cursor()))
-            .style(Style::default().fg(ACCENT_COLOR).bg(INPUT_BG_COLOR)),
+        Paragraph::new(input_cursor_line(state.value(), state.cursor())).style(
+            Style::default()
+                .fg(DARK_THEME.text)
+                .bg(DARK_THEME.highlight),
+        ),
         sections[1],
     );
 
     let feedback = state.error().unwrap_or("Enter Save   Esc Cancel");
     let feedback_style = if state.error().is_some() {
         Style::default()
-            .fg(ERROR_COLOR)
+            .fg(DARK_THEME.error)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
-            .fg(MUTED_TEXT_COLOR)
+            .fg(DARK_THEME.muted)
             .add_modifier(Modifier::DIM)
     };
     frame.render_widget(Paragraph::new(feedback).style(feedback_style), sections[2]);
@@ -1743,8 +1749,8 @@ fn render_library_select_modal(frame: &mut Frame, area: Rect, state: &LibrarySel
 
     let list = List::new(items).highlight_symbol("").highlight_style(
         Style::default()
-            .bg(SELECTED_ROW_BG_COLOR)
-            .fg(ACCENT_COLOR)
+            .bg(DARK_THEME.highlight)
+            .fg(DARK_THEME.text)
             .add_modifier(Modifier::BOLD),
     );
     frame.render_stateful_widget(list, inner, &mut list_state);
@@ -1784,8 +1790,8 @@ fn render_select_modal(frame: &mut Frame, area: Rect, state: &SelectModalState) 
 
     let list = List::new(items).highlight_symbol("").highlight_style(
         Style::default()
-            .bg(SELECTED_ROW_BG_COLOR)
-            .fg(ACCENT_COLOR)
+            .bg(DARK_THEME.highlight)
+            .fg(DARK_THEME.text)
             .add_modifier(Modifier::BOLD),
     );
     frame.render_stateful_widget(list, sections[0], &mut list_state);
@@ -1793,11 +1799,11 @@ fn render_select_modal(frame: &mut Frame, area: Rect, state: &SelectModalState) 
     let feedback = state.error().unwrap_or("Enter Save   Esc Cancel");
     let feedback_style = if state.error().is_some() {
         Style::default()
-            .fg(ERROR_COLOR)
+            .fg(DARK_THEME.error)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
-            .fg(MUTED_TEXT_COLOR)
+            .fg(DARK_THEME.muted)
             .add_modifier(Modifier::DIM)
     };
     frame.render_widget(Paragraph::new(feedback).style(feedback_style), sections[1]);
@@ -1837,25 +1843,25 @@ fn render_confirm_reset_modal(frame: &mut Frame, area: Rect, state: &ConfirmRese
             )),
             Line::from("Do you want to continue?"),
         ])
-        .style(Style::default().fg(MUTED_TEXT_COLOR)),
+        .style(Style::default().fg(DARK_THEME.muted)),
         sections[0],
     );
 
     let yes_style = if state.selected_yes() {
         Style::default()
-            .fg(ACCENT_COLOR)
-            .bg(SELECTED_ROW_BG_COLOR)
+            .fg(DARK_THEME.text)
+            .bg(DARK_THEME.highlight)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(MUTED_TEXT_COLOR)
+        Style::default().fg(DARK_THEME.muted)
     };
     let no_style = if !state.selected_yes() {
         Style::default()
-            .fg(ACCENT_COLOR)
-            .bg(SELECTED_ROW_BG_COLOR)
+            .fg(DARK_THEME.text)
+            .bg(DARK_THEME.highlight)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(MUTED_TEXT_COLOR)
+        Style::default().fg(DARK_THEME.muted)
     };
 
     let buttons = Line::from(vec![
@@ -1869,7 +1875,7 @@ fn render_confirm_reset_modal(frame: &mut Frame, area: Rect, state: &ConfirmRese
         frame.render_widget(
             Paragraph::new(feedback).style(
                 Style::default()
-                    .fg(ERROR_COLOR)
+                    .fg(DARK_THEME.error)
                     .add_modifier(Modifier::BOLD),
             ),
             sections[1],
@@ -1909,11 +1915,11 @@ fn render_action_buttons(
 
     let cancel_style = if is_focused && selection == ButtonSelection::Cancel {
         Style::default()
-            .fg(ACCENT_COLOR)
-            .bg(SELECTED_ROW_BG_COLOR)
+            .fg(DARK_THEME.text)
+            .bg(DARK_THEME.highlight)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(MUTED_TEXT_COLOR)
+        Style::default().fg(DARK_THEME.text)
     };
     frame.render_widget(
         Paragraph::new(cancel_text).style(cancel_style),
@@ -1922,11 +1928,11 @@ fn render_action_buttons(
 
     let confirm_style = if is_focused && selection == ButtonSelection::Confirm {
         Style::default()
-            .fg(ACCENT_COLOR)
-            .bg(SELECTED_ROW_BG_COLOR)
+            .fg(DARK_THEME.text)
+            .bg(DARK_THEME.highlight)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(MUTED_TEXT_COLOR)
+        Style::default().fg(DARK_THEME.text)
     };
     frame.render_widget(
         Paragraph::new(confirm_text).style(confirm_style),
@@ -1939,12 +1945,12 @@ fn render_modal_block(frame: &mut Frame, popup: Rect, title: &str) -> Rect {
         .title(Span::styled(
             format!(" {title} "),
             Style::default()
-                .fg(ACCENT_COLOR)
+                .fg(DARK_THEME.text)
                 .add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)
         .border_set(border::ROUNDED)
-        .border_style(Style::default().fg(PANEL_BORDER_COLOR))
+        .border_style(Style::default().fg(DARK_THEME.border))
         .padding(Padding::new(1, 1, 1, 1));
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
@@ -2034,8 +2040,8 @@ fn input_cursor_line(value: &str, cursor: usize) -> Line<'static> {
         return Line::from(vec![Span::styled(
             " ",
             Style::default()
-                .fg(ACCENT_COLOR)
-                .bg(SELECTED_ROW_BG_COLOR)
+                .fg(DARK_THEME.text)
+                .bg(DARK_THEME.highlight)
                 .add_modifier(Modifier::BOLD),
         )]);
     }
@@ -2050,8 +2056,8 @@ fn input_cursor_line(value: &str, cursor: usize) -> Line<'static> {
             Span::styled(
                 " ",
                 Style::default()
-                    .fg(ACCENT_COLOR)
-                    .bg(SELECTED_ROW_BG_COLOR)
+                    .fg(DARK_THEME.text)
+                    .bg(DARK_THEME.highlight)
                     .add_modifier(Modifier::BOLD),
             ),
         ]);
@@ -2064,8 +2070,8 @@ fn input_cursor_line(value: &str, cursor: usize) -> Line<'static> {
         Span::styled(
             current.to_string(),
             Style::default()
-                .fg(ACCENT_COLOR)
-                .bg(SELECTED_ROW_BG_COLOR)
+                .fg(DARK_THEME.text)
+                .bg(DARK_THEME.highlight)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw(after),
@@ -2142,14 +2148,14 @@ fn render_notification(frame: &mut Frame, message: &str) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_set(border::ROUNDED)
-        .border_style(Style::default().fg(ERROR_COLOR))
-        .style(Style::default().bg(Color::Black).fg(ERROR_COLOR));
+        .border_style(Style::default().fg(DARK_THEME.error))
+        .style(Style::default().bg(DARK_THEME.bg).fg(DARK_THEME.error));
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
     frame.render_widget(
         Paragraph::new(message).style(
             Style::default()
-                .fg(ERROR_COLOR)
+                .fg(DARK_THEME.error)
                 .add_modifier(Modifier::BOLD),
         ),
         inner,
