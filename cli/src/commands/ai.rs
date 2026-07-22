@@ -6,6 +6,7 @@ use std::sync::Mutex;
 use genai::adapter::AdapterKind;
 use genai::resolver::AuthData;
 use genai::{Client, ServiceTarget};
+use std::io::Write;
 use tokio::runtime::Builder;
 use tracing::info;
 use zeroize::Zeroize;
@@ -130,6 +131,72 @@ where
     S: CredentialStore,
 {
     store.delete_secret(provider)
+}
+
+fn remove_all_providers<S: CredentialStore>(
+    store: &S,
+) -> taurine_core::error::Result<Vec<&'static str>> {
+    let configured = configured_providers(store)?;
+    let mut removed = Vec::new();
+    for provider in &configured {
+        if remove_provider_credential(store, *provider)? {
+            removed.push(provider.as_str());
+        }
+    }
+    Ok(removed)
+}
+
+pub fn execute_remove_all(yes: bool, json: bool) -> taurine_core::error::Result<()> {
+    let configured = configured_providers(&OsKeyringStore)?;
+    if configured.is_empty() {
+        if json {
+            println!(r#"{{"status":"removed","providers":[]}}"#);
+        } else {
+            info!("no providers configured");
+        }
+        return Ok(());
+    }
+
+    if !yes {
+        let label = if configured.len() == 1 {
+            "provider"
+        } else {
+            "providers"
+        };
+        eprint!(
+            "This will remove {} {} ({}). Continue? [y/N] ",
+            configured.len(),
+            label,
+            configured
+                .iter()
+                .map(|p| p.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        std::io::stdout().flush()?;
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        if input.trim().to_lowercase() != "y" {
+            info!("Operation cancelled");
+            return Ok(());
+        }
+    }
+
+    let removed = remove_all_providers(&OsKeyringStore)?;
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({"status": "removed", "providers": removed})
+        );
+    } else {
+        let label = if removed.len() == 1 {
+            "provider"
+        } else {
+            "providers"
+        };
+        info!("removed {} {}", removed.len(), label);
+    }
+    Ok(())
 }
 
 fn store_provider_secret<S>(
@@ -450,6 +517,44 @@ mod tests {
         assert!(
             !remove_provider_credential(&store, AiProvider::Claude)
                 .expect("second delete should report missing")
+        );
+    }
+
+    #[test]
+    fn remove_all_clears_all_configured() {
+        let store = MemoryCredentialStore::default();
+        store.set_secret(AiProvider::Openai, "sk-openai").unwrap();
+        store.set_secret(AiProvider::Claude, "sk-claude").unwrap();
+        store.set_secret(AiProvider::Gemini, "sk-gemini").unwrap();
+
+        let removed = remove_all_providers(&store).expect("remove_all should succeed");
+        assert_eq!(removed.len(), 3);
+
+        assert_eq!(store.get_secret(AiProvider::Openai).unwrap(), None);
+        assert_eq!(store.get_secret(AiProvider::Claude).unwrap(), None);
+        assert_eq!(store.get_secret(AiProvider::Gemini).unwrap(), None);
+    }
+
+    #[test]
+    fn remove_all_returns_empty_on_none() {
+        let store = MemoryCredentialStore::default();
+
+        let removed = remove_all_providers(&store).expect("remove_all should succeed");
+        assert!(removed.is_empty());
+    }
+
+    #[test]
+    fn remove_all_json_output_shape() {
+        let store = MemoryCredentialStore::default();
+        store.set_secret(AiProvider::Openai, "sk-openai").unwrap();
+        store.set_secret(AiProvider::Claude, "sk-claude").unwrap();
+
+        let removed = remove_all_providers(&store).expect("remove_all should succeed");
+        let response = serde_json::json!({"status": "removed", "providers": removed});
+        assert_eq!(response["status"], "removed");
+        assert_eq!(
+            response["providers"],
+            serde_json::json!(["openai", "claude"])
         );
     }
 }

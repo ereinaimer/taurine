@@ -200,10 +200,22 @@ enum AiAction {
         #[arg(long, value_enum)]
         provider: AiProvider,
     },
-    /// Remove AI provider
+    /// Remove AI provider(s)
     Remove {
-        #[arg(long, value_enum)]
-        provider: AiProvider,
+        /// Provider name (required unless --all is set)
+        #[arg(
+            long,
+            value_enum,
+            required_unless_present = "all",
+            conflicts_with = "all"
+        )]
+        provider: Option<AiProvider>,
+        /// Remove all configured providers
+        #[arg(short, long)]
+        all: bool,
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 }
 
@@ -731,7 +743,13 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
             AiAction::Add { provider } => commands::ai::execute_add(provider.into(), json)?,
             AiAction::List => commands::ai::execute_list(json)?,
             AiAction::Models { provider } => commands::ai::execute_models(provider.into(), json)?,
-            AiAction::Remove { provider } => commands::ai::execute_remove(provider.into(), json)?,
+            AiAction::Remove { provider, all, yes } => {
+                if all {
+                    commands::ai::execute_remove_all(yes, json)?;
+                } else if let Some(p) = provider {
+                    commands::ai::execute_remove(p.into(), json)?;
+                }
+            }
         },
         Some(Commands::Completions { action }) => {
             commands::completions::handle_completion(&action)?;

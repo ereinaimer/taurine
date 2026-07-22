@@ -134,6 +134,12 @@ Run-Step "Removing registry entry" {
     }
 }
 
+# Remove all configured API keys from OS keyring
+$exe = Join-Path $env:LOCALAPPDATA "Taurine\bin\taurine.exe"
+if (Test-Path $exe) {
+    try { & $exe ai remove --all --yes --json | Out-Null } catch {}
+}
+
 # Delete all data (config, database, logs, binary) via background process to avoid file locking
 Run-Step "Removing Taurine files" {
     $DataDir = Join-Path $env:LOCALAPPDATA "Taurine"

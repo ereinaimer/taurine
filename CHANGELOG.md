@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **AI Remove All**: `taurine ai remove --all` removes all configured provider API keys at once. Uninstall scripts now purge keyring entries automatically.
 - **Empty Output Validation**: Prevent creating triggers with empty or whitespace-only content across all creation paths (CLI, TUI, import).
 - **Global `--json` Flag**: All CLI commands support a `--json` flag for machine-readable JSON output. List commands return structured data (triggers, settings, AI providers/models), action commands return status objects.
 - **Mouse Support in Import/Export Modals**: Click to select fields, scroll to navigate, and double-click to execute actions in the import and export overlays.

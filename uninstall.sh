@@ -65,6 +65,11 @@ for profile in "$HOME/.tcshrc" "$HOME/.cshrc"; do
     clean_profile "$profile"
 done
 
+# Remove all configured API keys from OS keyring
+if [ -x "$INSTALL_DIR/taurine" ]; then
+    "$INSTALL_DIR/taurine" ai remove --all --yes --json >/dev/null 2>&1 || true
+fi
+
 # Delete all data (config, database, logs, binary)
 rm -rf "$DATA_DIR"
 
