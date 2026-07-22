@@ -173,3 +173,45 @@ You can remove all triggers that have a specific tag by using the `--tag` flag:
 taurine delete --tag obsolete_trigger
 ```
 
+## Validation & Limits
+
+Taurine enforces several guardrails when creating or updating triggers to prevent data corruption and ensure reliable behavior across all platforms.
+
+### Size Limits
+
+| Field | Maximum |
+|-------|---------|
+| Trigger string (word, hotkey, regex) | 200 characters |
+| Text output | 100 KB |
+| Script content | 1 MB |
+| Trigger display name | 200 characters |
+| Description | 1000 characters |
+
+### Tags
+
+Tags are automatically normalized on save:
+- Leading/trailing whitespace is stripped
+- All tags are lowercased
+- Duplicates are removed
+- Maximum 20 tags per trigger
+- Maximum 50 characters per tag
+
+### App Filters
+
+Application filters (`--include-apps` / `--exclude-apps`) are automatically cleaned:
+- Whitespace around each entry is trimmed
+- Empty entries from stray commas are removed
+- Only `exe:`, `class:`, and `title:` prefixes are allowed
+
+### Dead Reference Detection
+
+If a trigger's output contains a `[use("name")]` reference to a trigger that doesn't exist, the creation is rejected at save time.
+
+### Duplicate Name Warning
+
+Creating or updating a trigger whose display name matches an existing trigger produces a warning (not an error), visible in daemon logs and CLI output.
+
+### Unicode Normalization
+
+All trigger strings and keyboard input are NFC-normalized, ensuring accented characters (like `é`) typed via dead-key sequences on Windows match their stored form reliably.
+
