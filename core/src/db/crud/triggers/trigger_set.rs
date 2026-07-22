@@ -19,6 +19,41 @@ use super::{TriggerConflict, TriggerType};
 const INLINE_AI_RESERVED_TRIGGER: &str = "ai";
 const TAG_OPEN: u8 = b'[';
 const TAG_CLOSE: u8 = b']';
+const MAX_TAG_LENGTH: usize = 50;
+const MAX_TAGS_COUNT: usize = 20;
+
+pub fn normalize_tags(tags_json: &str) -> Result<String> {
+    let tags: Vec<String> = serde_json::from_str(tags_json)
+        .map_err(|e| crate::Error::Config(format!("Invalid tags JSON: {}", e)))?;
+
+    let mut normalized: Vec<String> = Vec::new();
+    for tag in tags {
+        let trimmed = tag.trim().to_lowercase();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.len() > MAX_TAG_LENGTH {
+            return Err(crate::Error::Config(format!(
+                "Tag '{}' exceeds maximum length of {} characters.",
+                trimmed, MAX_TAG_LENGTH,
+            )));
+        }
+        if !normalized.contains(&trimmed) {
+            normalized.push(trimmed);
+        }
+    }
+
+    if normalized.len() > MAX_TAGS_COUNT {
+        return Err(crate::Error::Config(format!(
+            "Number of tags ({}) exceeds maximum of {}.",
+            normalized.len(),
+            MAX_TAGS_COUNT,
+        )));
+    }
+
+    serde_json::to_string(&normalized)
+        .map_err(|e| crate::Error::Config(format!("Failed to serialize tags: {}", e)))
+}
 const MAX_TRIGGER_LENGTH: usize = 200;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -993,6 +1028,22 @@ pub fn validate_trigger_limits(
         }
     }
 
+    let mut all_referenced = std::collections::HashSet::new();
+    for template in catalog.values() {
+        for r in get_referenced_triggers(template) {
+            all_referenced.insert(r);
+        }
+    }
+
+    for ref_trigger in &all_referenced {
+        if !catalog.contains_key(ref_trigger) {
+            return Err(crate::Error::Config(format!(
+                "Trigger uses '[use(\"{}\")]' which does not exist.",
+                ref_trigger
+            )));
+        }
+    }
+
     Ok(())
 }
 
@@ -1022,6 +1073,23 @@ pub fn update_existing_trigger(
             "Trigger description exceeds maximum length of {} characters.",
             trigger_types::MAX_DESCRIPTION_LENGTH
         )));
+    }
+
+    let tags_json = normalize_tags(update.tags_json)?;
+
+    let duplicate_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM triggers WHERE name = ?1 AND is_deleted = 0 AND id != ?2",
+            rusqlite::params![update.name, update.id],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    if duplicate_count > 0 {
+        tracing::warn!(
+            "Trigger name '{}' is already used by {} other trigger(s).",
+            update.name,
+            duplicate_count,
+        );
     }
 
     let prepared =
@@ -1062,7 +1130,7 @@ pub fn update_existing_trigger(
             &script_output,
             "script",
             update.target_os,
-            update.tags_json,
+            &tags_json,
             update.usage_count,
             update.last_used_at,
             update.auto_case,
@@ -1086,7 +1154,7 @@ pub fn update_existing_trigger(
             update.content,
             "text",
             update.target_os,
-            update.tags_json,
+            &tags_json,
             update.usage_count,
             update.last_used_at,
             update.auto_case,
@@ -1140,6 +1208,23 @@ pub fn create_trigger(conn: &mut Connection, new_trigger: NewTrigger<'_>) -> Res
             trigger_types::MAX_DESCRIPTION_LENGTH
         )));
     }
+    let tags_json = normalize_tags(new_trigger.tags_json)?;
+
+    let duplicate_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM triggers WHERE name = ?1 AND is_deleted = 0",
+            [name],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    if duplicate_count > 0 {
+        tracing::warn!(
+            "Trigger name '{}' is already used by {} other trigger(s).",
+            name,
+            duplicate_count,
+        );
+    }
+
     // Validate conflict before opening the transaction so no partial writes happen.
     validate_trigger_target_os_conflict(
         conn,
@@ -1175,7 +1260,7 @@ pub fn create_trigger(conn: &mut Connection, new_trigger: NewTrigger<'_>) -> Res
             &script_output,
             "script",
             new_trigger.target_os,
-            new_trigger.tags_json,
+            &tags_json,
             0,
             None,
             new_trigger.auto_case,
@@ -1199,7 +1284,7 @@ pub fn create_trigger(conn: &mut Connection, new_trigger: NewTrigger<'_>) -> Res
             new_trigger.content,
             "text",
             new_trigger.target_os,
-            new_trigger.tags_json,
+            &tags_json,
             0,
             None,
             new_trigger.auto_case,
@@ -1444,11 +1529,39 @@ pub fn update_trigger_app_filters(
     only_apps: Option<String>,
     except_apps: Option<String>,
 ) -> Result<()> {
+    let clean = |s: String| -> Result<Option<String>> {
+        let mut items = Vec::new();
+        for entry in s.split(',') {
+            let trimmed = entry.trim().to_string();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if let Some(pos) = trimmed.find(':') {
+                let prefix = &trimmed[..pos];
+                if !matches!(prefix.to_lowercase().as_str(), "exe" | "class" | "title") {
+                    return Err(crate::Error::Config(format!(
+                        "Unknown app filter prefix '{}'. Allowed: exe:, class:, title:.",
+                        prefix
+                    )));
+                }
+            }
+            items.push(trimmed);
+        }
+        if items.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(items.join(",")))
+        }
+    };
+
+    let only_cleaned = only_apps.map(clean).transpose()?;
+    let except_cleaned = except_apps.map(clean).transpose()?;
+
     conn.execute(
         "UPDATE triggers
          SET only_apps = ?1, except_apps = ?2
          WHERE id = ?3 AND is_deleted = 0",
-        rusqlite::params![only_apps, except_apps, id],
+        rusqlite::params![only_cleaned, except_cleaned, id],
     )?;
     Ok(())
 }
@@ -1546,6 +1659,27 @@ pub fn add_trigger_by_type_with_case(
     auto_case: bool,
 ) -> Result<AddOutcome> {
     validate_trigger_not_reserved(conn, trigger)?;
+
+    let tags = tags.map(|t| {
+        let mut seen = std::collections::HashSet::new();
+        let mut normalized: Vec<String> = Vec::new();
+        for s in t {
+            let trimmed = s.trim().to_lowercase();
+            if trimmed.is_empty() || !seen.insert(trimmed.clone()) {
+                continue;
+            }
+            if trimmed.len() > MAX_TAG_LENGTH {
+                // Silently reject over-length tags in this path (add-trigger will
+                // still create the trigger; the user isn't directly managing tags).
+                continue;
+            }
+            normalized.push(trimmed);
+        }
+        if normalized.len() > MAX_TAGS_COUNT {
+            normalized.truncate(MAX_TAGS_COUNT);
+        }
+        normalized
+    });
 
     let existing: Option<(String, String, String, bool)> = conn
         .query_row(
@@ -1660,11 +1794,11 @@ pub fn add_trigger_by_type_with_case(
                 auto_case,
             )?;
 
-            conn.execute(
-                "UPDATE triggers
-                 SET only_apps = ?1, except_apps = ?2
-                 WHERE id = ?3",
-                rusqlite::params![only_apps, except_apps, id],
+            update_trigger_app_filters(
+                conn,
+                &id,
+                only_apps.map(|s| s.to_string()),
+                except_apps.map(|s| s.to_string()),
             )?;
 
             Ok(AddOutcome::Created)
@@ -1997,6 +2131,330 @@ mod tests {
                 .to_string()
                 .contains("exceeds the limit of 3")
         );
+    }
+
+    #[test]
+    fn test_validate_dead_use_reference() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, conn) = crate::testing::open_test_db();
+
+        let now = crate::db::now_unix_secs();
+        let id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO triggers (id, name, trigger_type, trigger, output, action_type, target_os, is_deleted, created_at, updated_at)
+             VALUES (?1, 'existing', 'word', 'existing', 'hello', 'text', 'all', 0, ?2, ?2)",
+            rusqlite::params![id, now],
+        ).unwrap();
+
+        let result = validate_trigger_limits(
+            &conn,
+            "new_trigger",
+            "greeting [use(\"nonexistent\")]",
+            "text",
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("does not exist"));
+    }
+
+    #[test]
+    fn test_validate_live_reference_passes() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, conn) = crate::testing::open_test_db();
+
+        let now = crate::db::now_unix_secs();
+        let id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO triggers (id, name, trigger_type, trigger, output, action_type, target_os, is_deleted, created_at, updated_at)
+             VALUES (?1, 'other', 'word', 'other', 'world', 'text', 'all', 0, ?2, ?2)",
+            rusqlite::params![id, now],
+        ).unwrap();
+
+        let result = validate_trigger_limits(&conn, "greeting", "hello [use(\"other\")]", "text");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_self_reference_is_error() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, conn) = crate::testing::open_test_db();
+
+        // Self-reference is a circular reference — correctly caught by
+        // check_limits_recursive before the dead-reference scan runs.
+        let result =
+            validate_trigger_limits(&conn, "greeting", "hello [use(\"greeting\")]", "text");
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Circular reference")
+        );
+    }
+
+    #[test]
+    fn test_validate_no_references_passes() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, conn) = crate::testing::open_test_db();
+
+        let result = validate_trigger_limits(&conn, "simple", "just plain text no refs", "text");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_update_app_filters_trims_whitespace() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, conn) = crate::testing::open_test_db();
+
+        let now = crate::db::now_unix_secs();
+        let id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO triggers (id, name, trigger_type, trigger, output, action_type, target_os, is_deleted, created_at, updated_at)
+             VALUES (?1, 'test', 'word', 'test', 'out', 'text', 'all', 0, ?2, ?2)",
+            rusqlite::params![id, now],
+        ).unwrap();
+
+        update_trigger_app_filters(&conn, &id, Some("chrome, ".to_string()), None).unwrap();
+
+        let stored: String = conn
+            .query_row("SELECT only_apps FROM triggers WHERE id = ?1", [&id], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(stored, "chrome");
+    }
+
+    #[test]
+    fn test_update_app_filters_removes_empty() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, conn) = crate::testing::open_test_db();
+
+        let now = crate::db::now_unix_secs();
+        let id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO triggers (id, name, trigger_type, trigger, output, action_type, target_os, is_deleted, created_at, updated_at)
+             VALUES (?1, 'test', 'word', 'test', 'out', 'text', 'all', 0, ?2, ?2)",
+            rusqlite::params![id, now],
+        ).unwrap();
+
+        update_trigger_app_filters(&conn, &id, Some("chrome,,".to_string()), None).unwrap();
+
+        let stored: String = conn
+            .query_row("SELECT only_apps FROM triggers WHERE id = ?1", [&id], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(stored, "chrome");
+    }
+
+    #[test]
+    fn test_update_app_filters_rejects_unknown_prefix() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, conn) = crate::testing::open_test_db();
+
+        let result =
+            update_trigger_app_filters(&conn, "fake-id", Some("foo:bar".to_string()), None);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Unknown app filter prefix")
+        );
+    }
+
+    #[test]
+    fn test_update_app_filters_accepts_valid_prefixes() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, conn) = crate::testing::open_test_db();
+
+        let now = crate::db::now_unix_secs();
+        let id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO triggers (id, name, trigger_type, trigger, output, action_type, target_os, is_deleted, created_at, updated_at)
+             VALUES (?1, 'test', 'word', 'test', 'out', 'text', 'all', 0, ?2, ?2)",
+            rusqlite::params![id, now],
+        ).unwrap();
+
+        update_trigger_app_filters(
+            &conn,
+            &id,
+            Some("exe:code, class:Chrome_WidgetWin_1".to_string()),
+            None,
+        )
+        .unwrap();
+
+        let stored: String = conn
+            .query_row("SELECT only_apps FROM triggers WHERE id = ?1", [&id], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(stored, "exe:code,class:Chrome_WidgetWin_1");
+    }
+
+    #[test]
+    fn test_update_app_filters_none_stays_none() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, conn) = crate::testing::open_test_db();
+
+        let now = crate::db::now_unix_secs();
+        let id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO triggers (id, name, trigger_type, trigger, output, action_type, target_os, is_deleted, created_at, updated_at)
+             VALUES (?1, 'test', 'word', 'test', 'out', 'text', 'all', 0, ?2, ?2)",
+            rusqlite::params![id, now],
+        ).unwrap();
+
+        update_trigger_app_filters(&conn, &id, None, None).unwrap();
+
+        let stored: Option<String> = conn
+            .query_row("SELECT only_apps FROM triggers WHERE id = ?1", [&id], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(stored, None);
+    }
+
+    #[test]
+    fn test_normalize_tags_trims_and_lowercases() {
+        let result = normalize_tags(r#"["  WORK ", "HeLLo"]"#).unwrap();
+        assert_eq!(result, r#"["work","hello"]"#);
+    }
+
+    #[test]
+    fn test_normalize_tags_deduplicates() {
+        let result = normalize_tags(r#"["a", "A", "a"]"#).unwrap();
+        assert_eq!(result, r#"["a"]"#);
+    }
+
+    #[test]
+    fn test_normalize_tags_removes_empty() {
+        let result = normalize_tags(r#"["a", "", "b"]"#).unwrap();
+        assert_eq!(result, r#"["a","b"]"#);
+    }
+
+    #[test]
+    fn test_normalize_tags_rejects_long_tag() {
+        let long_tag = "a".repeat(51);
+        let json = serde_json::to_string(&vec![long_tag]).unwrap();
+        let result = normalize_tags(&json);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("exceeds maximum length")
+        );
+    }
+
+    #[test]
+    fn test_normalize_tags_rejects_excessive_count() {
+        let tags: Vec<String> = (0..21).map(|i| format!("tag{}", i)).collect();
+        let json = serde_json::to_string(&tags).unwrap();
+        let result = normalize_tags(&json);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("exceeds maximum of")
+        );
+    }
+
+    #[test]
+    fn test_normalize_tags_identity_for_clean() {
+        let result = normalize_tags(r#"["work","hello"]"#).unwrap();
+        assert_eq!(result, r#"["work","hello"]"#);
+    }
+
+    #[test]
+    fn test_duplicate_name_warns() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, mut conn) = crate::testing::open_test_db();
+
+        create_trigger(
+            &mut conn,
+            NewTrigger {
+                name: Some("Duplicate"),
+                description: None,
+                trigger_type: TriggerType::Word,
+                trigger: "first",
+                content: "hello",
+                action_type: "text",
+                target_os: "all",
+                tags_json: "[]",
+                auto_case: false,
+                interpreter: None,
+                behavior: None,
+            },
+        )
+        .unwrap();
+
+        // Second trigger with same name should succeed (warning, not error)
+        let id = create_trigger(
+            &mut conn,
+            NewTrigger {
+                name: Some("Duplicate"),
+                description: None,
+                trigger_type: TriggerType::Word,
+                trigger: "second",
+                content: "world",
+                action_type: "text",
+                target_os: "all",
+                tags_json: "[]",
+                auto_case: false,
+                interpreter: None,
+                behavior: None,
+            },
+        )
+        .unwrap();
+
+        assert!(!id.is_empty());
+    }
+
+    #[test]
+    fn test_duplicate_name_warn_update_excludes_self() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, mut conn) = crate::testing::open_test_db();
+
+        let id = create_trigger(
+            &mut conn,
+            NewTrigger {
+                name: Some("Unique"),
+                description: None,
+                trigger_type: TriggerType::Word,
+                trigger: "uniq",
+                content: "hello",
+                action_type: "text",
+                target_os: "all",
+                tags_json: "[]",
+                auto_case: false,
+                interpreter: None,
+                behavior: None,
+            },
+        )
+        .unwrap();
+
+        // Updating the same trigger to keep its own name should not warn
+        update_existing_trigger(
+            &mut conn,
+            ExistingTriggerUpdate {
+                id: &id,
+                name: "Unique",
+                description: None,
+                trigger_type: TriggerType::Word,
+                trigger: "uniq",
+                content: "world",
+                action_type: "text",
+                target_os: "all",
+                tags_json: "[]",
+                auto_case: false,
+                usage_count: 0,
+                last_used_at: None,
+                interpreter: None,
+                behavior: None,
+            },
+        )
+        .unwrap();
     }
 
     #[test]

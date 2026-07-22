@@ -11,7 +11,7 @@ pub use triggers::{
     delete_triggers_by_tag, delete_triggers_by_values, find_trigger_overlap_conflict,
     get_action_by_trigger, get_active_word_trigger_history, get_all_active_hotkey_triggers,
     get_all_active_regex_triggers, get_all_active_triggers, get_syncable_triggers, get_trigger,
-    get_triggers_list, increment_usage_count_by_trigger, prepare_trigger,
+    get_triggers_list, increment_usage_count_by_trigger, normalize_tags, prepare_trigger,
     prepare_trigger_with_type, record_expansion_usage, search_triggers, target_os_values_overlap,
     update_existing_trigger, update_trigger_app_filters, upsert_script, upsert_trigger,
     upsert_trigger_with_type, upsert_trigger_with_type_and_case, validate_trigger_not_reserved,

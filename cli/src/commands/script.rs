@@ -177,7 +177,9 @@ pub fn execute_with_trigger_type(
     let compressed = compress(&content)?;
 
     let tags_str = if let Some(ref t) = tags {
-        serde_json::to_string(t).map_err(|e| taurine_core::Error::Config(e.to_string()))?
+        let raw_json =
+            serde_json::to_string(t).map_err(|e| taurine_core::Error::Config(e.to_string()))?;
+        taurine_core::db::crud::normalize_tags(&raw_json)?
     } else if is_update {
         conn.query_row("SELECT tags FROM triggers WHERE id = ?1", [&id], |r| {
             r.get(0)
