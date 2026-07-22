@@ -159,7 +159,7 @@ pub async fn get_client() -> Result<
 }
 
 pub fn notify_daemon_reload() {
-    tracing::debug!("Dispatching Reload instruction to daemon...");
+    tracing::debug!("Dispatching Reload instruction to service...");
 
     let perform_reload = async {
         let settings = if let Ok(conn) = crate::db::get_conn() {
@@ -174,7 +174,7 @@ pub fn notify_daemon_reload() {
         if let Ok(mut client) = get_client_with_settings(&settings).await {
             let req = tonic::Request::new(ReloadRequest {});
             if client.reload(req).await.is_ok() {
-                tracing::info!("Daemon state reloaded successfully.");
+                tracing::info!("Service state reloaded successfully.");
                 reload_success = true;
             }
         }
@@ -189,7 +189,7 @@ pub fn notify_daemon_reload() {
             if let Ok(mut client) = get_client_with_settings(&fallback_settings).await {
                 let req = tonic::Request::new(ReloadRequest {});
                 if client.reload(req).await.is_ok() {
-                    tracing::info!("Daemon state reloaded successfully via fallback channel.");
+                    tracing::info!("Service state reloaded successfully via fallback channel.");
                 }
             }
         }
@@ -207,7 +207,7 @@ pub fn notify_daemon_reload() {
             }
             Err(e) => {
                 tracing::error!(
-                    "Failed to create tokio runtime for daemon notification: {}",
+                    "Failed to create tokio runtime for service notification: {}",
                     e
                 );
             }

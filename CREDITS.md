@@ -8,7 +8,7 @@ Taurine is built on the shoulders of some outstanding open source projects.
 |---|---|
 | [ratatui](https://ratatui.rs/) | Terminal UI framework powering the interactive TUI |
 | [crossterm](https://github.com/crossterm-rs/crossterm) | Cross-platform terminal backend for ratatui |
-| [tokio](https://tokio.rs/) | Async runtime for the daemon and gRPC server |
+| [tokio](https://tokio.rs/) | Async runtime for the service and gRPC server |
 | [clap](https://docs.rs/clap) | CLI argument parsing and subcommand routing |
 | [tonic](https://github.com/hyperium/tonic) + [prost](https://github.com/tokio-rs/prost) | gRPC transport and protobuf encoding for IPC |
 | [rdev](https://github.com/Narsil/rdev) | Low-level keyboard and mouse event capture |

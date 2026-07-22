@@ -10,15 +10,15 @@ Taurine is built with a high-performance, split-process architecture designed to
 
 Despite being a single binary file, the application behaves differently depending on how it is invoked.
 
-1.  **The Daemon (Background)**: The core engine that listens for keyboard events, manages the expansion pipeline, and executes triggers. It runs silently in the background when the `--daemon` flag is passed.
+1.  **The Service (Background)**: The core engine that listens for keyboard events, manages the expansion pipeline, and executes triggers. It runs silently in the background when the `--daemon` flag is passed.
 2.  **The CLI (Frontend)**: The command-line interface you use to add, remove, and list triggers.
 
 ## gRPC Communication
 
-The CLI and the Daemon communicate using **gRPC** (Google Remote Procedure Call) over a local loopback connection. 
+The CLI and the service communicate using **gRPC** (Google Remote Procedure Call) over a local loopback connection. 
 
-- When you run `taurine add ...`, the CLI serializes your request and sends it to the Daemon.
-- The Daemon validates the request, updates its internal database, and reloads its state instantly without needing a restart.
+- When you run `taurine add ...`, the CLI serializes your request and sends it to the service.
+- The service validates the request, updates its internal database, and reloads its state instantly without needing a restart.
 - This ensures that your triggers are available system-wide the moment you press Enter on a CLI command.
 
 ## The Engine Toggle
@@ -31,7 +31,7 @@ Taurine provides a configurable global system hotkey to toggle the expansion eng
 | :--- | :--- |
 | **Toggle Engine** | `Alt` + `` ` `` (Backtick) |
 
-When the engine is toggled off, the Daemon continues to run but stops intercepting keyboard events. Pressing the hotkey again restores full functionality immediately.
+When the engine is toggled off, the service continues to run but stops intercepting keyboard events. Pressing the hotkey again restores full functionality immediately.
 
 ## Performance & Security
 

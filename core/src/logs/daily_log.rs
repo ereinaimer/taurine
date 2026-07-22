@@ -263,7 +263,7 @@ mod tests {
             "expected session banner in log file"
         );
         assert!(
-            contents.contains("Component: daemon"),
+            contents.contains("Component: service"),
             "expected component name in session banner"
         );
         assert!(

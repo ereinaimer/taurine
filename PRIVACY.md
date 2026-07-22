@@ -11,9 +11,9 @@ All of your data is stored locally on your device. Taurine does not have a centr
 - **Metrics**: Your usage statistics (how many times a snippet was expanded, time saved) are calculated and stored locally.
 
 ## 2. Keystroke Monitoring & Clipboard
-As a text expander, the Taurine background daemon requires system-level permissions to monitor your keystrokes and read your clipboard.
-- **Keystrokes**: The daemon actively listens to keystrokes to detect your configured trigger sequences. However, **no keystrokes are ever logged, saved, or transmitted.** The engine only keeps a tiny, rolling, in-memory buffer of your most recent keystrokes, which is immediately discarded.
-- **Clipboard**: The daemon only reads your clipboard at the exact moment a script trigger needs to inject its output, or when a snippet specifically uses the `[clip]` variable. It does not monitor or store clipboard history.
+As a text expander, the Taurine background service requires system-level permissions to monitor your keystrokes and read your clipboard.
+- **Keystrokes**: The service actively listens to keystrokes to detect your configured trigger sequences. However, **no keystrokes are ever logged, saved, or transmitted.** The engine only keeps a tiny, rolling, in-memory buffer of your most recent keystrokes, which is immediately discarded.
+- **Clipboard**: The service only reads your clipboard at the exact moment a script trigger needs to inject its output, or when a snippet specifically uses the `[clip]` variable. It does not monitor or store clipboard history.
 
 ## 3. Telemetry & Analytics
 **Taurine collects absolutely zero telemetry.**

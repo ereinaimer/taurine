@@ -73,7 +73,7 @@ If you have a file named `quotes.txt` with one quote per line, you can configure
 ## Technical Constraints
 
 <Callout type="warn" title="5MB Size Limit">
-To prevent memory exhaustion on the daemon thread and ensure zero-latency execution, **all file reads are strictly limited to 5MB.** 
+To prevent memory exhaustion on the service thread and ensure zero-latency execution, **all file reads are strictly limited to 5MB.** 
 </Callout>
 
 Taurine is designed for stability. If a file cannot be found, permissions are denied, or the file size exceeds the 5MB limit, the engine **will not crash**. Instead, it intercepts the error and returns a formatted inline text string.

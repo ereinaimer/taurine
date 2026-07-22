@@ -330,7 +330,7 @@ impl DaemonControl for DaemonService {
             let _ = self.rpc_reload_sender.try_send(());
         }
 
-        debug!("Successfully reloaded snippets and settings into daemon.");
+        debug!("Successfully reloaded snippets and settings into service.");
         Ok(Response::new(ReloadResponse { success: true }))
     }
 }

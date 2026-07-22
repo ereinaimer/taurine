@@ -14,7 +14,7 @@ A fast, secure and easy-to-use text expander built in Rust. Taurine helps you ty
 
 | Command | Action | One-liner |
 |---------|--------|-----------|
-| **up** | Start the daemon | `taurine up` |
+| **up** | Start the service | `taurine up` |
 | **add** | Create a new text expansion | `taurine add "trigger" "output"` |
 | **add script** | Create a script trigger | `taurine add script "trigger" -f script.ps1` |
 | **hotkey** | Create a global hotkey | `taurine add "trigger" "output" --hotkey` |
@@ -22,8 +22,8 @@ A fast, secure and easy-to-use text expander built in Rust. Taurine helps you ty
 | **update** | Self-update to latest release | `taurine update` |
 | **ai add** | Add AI provider keys | `taurine ai add --provider gemini` |
 | **config** | Manage system settings | `taurine config ls` |
-| **status** | Check daemon health | `taurine status` |
-| **down** | Stop the daemon | `taurine down` |
+| **status** | Check service health | `taurine status` |
+| **down** | Stop the service | `taurine down` |
 
 ---
 
@@ -33,7 +33,7 @@ A fast, secure and easy-to-use text expander built in Rust. Taurine helps you ty
 *   `taurine up`: Installs and starts the background service. Use `taurine down` to stop it.
 *   `taurine restart`: Restarts the service to apply changes or refresh the engine.
 *   `taurine status`: Reports whether the engine is online and if it's currently paused.
-*   `taurine update`: Self-updates the CLI and daemon to the latest version.
+*   `taurine update`: Self-updates the CLI and service to the latest version.
 
 ### 2.2 Managing Triggers
 *   `taurine add <trigger> <output>`: Adds a new snippet. Use the `--hotkey` flag to treat the trigger as a global keyboard shortcut (e.g., `alt+y`).
@@ -131,7 +131,7 @@ Headless assist features for word triggers, managed via config:
 Taurine is a modular Rust workspace designed for performance and safety.
 *   **core**: Foundations, database layer (rusqlite), and the custom interpolation/math engine.
 *   **cli**: Front-facing tool (clap) and OS service manager (`axoupdater` for updates).
-*   **daemon**: Background logic responsible for keyboard monitoring and text injection.
+*   **service**: Background logic responsible for keyboard monitoring and text injection.
     *   Windows/macOS: Uses `rdev` for global hooks.
     *   Linux (Wayland/X11): Bypasses display servers entirely using `evdev` and `uinput` with kernel capabilities (`sudo setcap 'cap_dac_override+ep'`).
 *   **tui**: Interactive terminal interface (built with `ratatui`).
@@ -148,6 +148,6 @@ Taurine is a modular Rust workspace designed for performance and safety.
 
 When assisting with Taurine's codebase or usage, strictly adhere to these rules:
 1.  **User Interaction**: Use the `taurine` CLI commands directly for trigger management. Do not suggest manual edits to `taurine.db`.
-2.  **Linux Permissions**: Never suggest X11 tools (`xdotool`, `xmodmap`) or running the daemon as root. The daemon uses `setcap` for permissions and drops them after acquiring file descriptors.
+2.  **Linux Permissions**: Never suggest X11 tools (`xdotool`, `xmodmap`) or running the service as root. The service uses `setcap` for permissions and drops them after acquiring file descriptors.
 3.  **Error Handling**: Use `color-eyre` for application-level error reporting and `tracing` for logging.
 4.  **Performance**: Prefer zero-copy string references (`&str`) over allocations (`String`) in the hot path of the `FastBuffer` keystroke evaluator.

@@ -43,7 +43,7 @@ pub fn start() -> taurine_core::error::Result<()> {
         }
     }
 
-    debug!("Daemon initialization complete!");
+    debug!("Service initialization complete!");
 
     // Instantiate the Core Engine State
     use std::sync::{Arc, Mutex, RwLock};
@@ -385,11 +385,11 @@ pub fn start() -> taurine_core::error::Result<()> {
                         && std::os::unix::net::UnixStream::connect(&socket_path).is_ok()
                     {
                         error!(
-                            "Another daemon instance is already listening on UDS socket: {}",
+                            "Another service instance is already listening on UDS socket: {}",
                             socket_path.display()
                         );
                         return Err(taurine_core::error::Error::Service(format!(
-                            "Another daemon instance is already listening on UDS socket: {}",
+                            "Another service instance is already listening on UDS socket: {}",
                             socket_path.display()
                         )));
                     }
@@ -600,7 +600,7 @@ pub fn start() -> taurine_core::error::Result<()> {
         crate::platform::linux::toplevel::stop_listener();
     }
 
-    info!("Daemon stopped cleanly. Exiting.");
+    info!("Service stopped cleanly. Exiting.");
     run_result
 }
 

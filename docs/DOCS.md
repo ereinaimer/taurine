@@ -153,7 +153,7 @@ Use callouts for notes, warnings, ideas, or success messages.
 
 ```mdx
 <Callout title="Heads up" type="warn">
-  The daemon must be running before this command can attach to a session.
+  The service must be running before this command can attach to a session.
 </Callout>
 ```
 

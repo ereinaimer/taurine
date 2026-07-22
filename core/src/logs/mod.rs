@@ -23,7 +23,7 @@ impl LogComponent {
     pub fn dir_name(&self) -> &'static str {
         match self {
             LogComponent::Cli => "cli",
-            LogComponent::Daemon => "daemon",
+            LogComponent::Daemon => "service",
         }
     }
 }

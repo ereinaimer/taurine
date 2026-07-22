@@ -166,7 +166,7 @@ pub fn down() -> crate::error::Result<()> {
                 }
             } else {
                 debug!(
-                    "Failed to connect to daemon for graceful shutdown. It may already be stopped."
+                    "Failed to connect to service for graceful shutdown. It may already be stopped."
                 );
             }
         });
@@ -235,7 +235,7 @@ pub fn restart(start_on_boot: bool) -> crate::error::Result<()> {
         }
 
         if is_daemon_running(&mut sys) {
-            debug!("Daemon did not exit gracefully; force-killing for restart.");
+            debug!("Service did not exit gracefully; force-killing for restart.");
             kill_daemon(&mut sys);
             std::thread::sleep(std::time::Duration::from_millis(500));
         }

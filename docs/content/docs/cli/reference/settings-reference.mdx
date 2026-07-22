@@ -22,7 +22,7 @@ Manage the basic behavior and interaction of the Taurine engine.
 </Accordion>
 
 <Accordion title="pause_hotkey">
-  The global keyboard shortcut used to toggle the Taurine daemon on and off.
+  The global keyboard shortcut used to toggle the Taurine service on and off.
   
   - **Key**: `pause_hotkey`
   - **Alias**: `hotkey`
@@ -196,13 +196,13 @@ Control the behavior of the headless assist features for word triggers.
 </Accordion>
 </Accordions>
 
-## Daemon RPC
+## Service RPC
 
-Configure communication and security settings for the gRPC connection between the clients (TUI / CLI) and the background daemon process.
+Configure communication and security settings for the gRPC connection between the clients (TUI / CLI) and the background service process.
 
 <Accordions>
 <Accordion title="rpc_mode">
-  The transport protocol used for daemon RPC. Local owner-only sockets (Unix domain sockets on macOS/Linux, and Named Pipes on Windows) are recommended for local owner-only security. TCP loopback mode can be used if cross-machine RPC is required.
+  The transport protocol used for service RPC. Local owner-only sockets (Unix domain sockets on macOS/Linux, and Named Pipes on Windows) are recommended for local owner-only security. TCP loopback mode can be used if cross-machine RPC is required.
   
   - **Key**: `rpc_mode`
   - **Alias**: `mode`
@@ -211,7 +211,7 @@ Configure communication and security settings for the gRPC connection between th
 </Accordion>
 
 <Accordion title="rpc_host">
-  The IP address / network interface the background daemon binds to in TCP mode.
+  The IP address / network interface the background service binds to in TCP mode.
   
   - **Key**: `rpc_host`
   - **Alias**: `host`

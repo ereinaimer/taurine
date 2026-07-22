@@ -258,7 +258,7 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
             }
             manager.update_setting(actual_key, parsed)?;
             info!(
-                "Updated rpc_port to: {}. Note: please restart the Taurine daemon for this to take effect.",
+                "Updated rpc_port to: {}. Note: please restart the Taurine service for this to take effect.",
                 parsed
             );
         }
@@ -489,7 +489,7 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
         "rpc_port" => {
             manager.update_setting(actual_key, defaults.rpc_port)?;
             info!(
-                "Reset rpc_port to default: {}. Note: please restart the Taurine daemon for this to take effect.",
+                "Reset rpc_port to default: {}. Note: please restart the Taurine service for this to take effect.",
                 defaults.rpc_port
             );
         }

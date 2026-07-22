@@ -321,7 +321,7 @@ if [ "$IS_INSTALLED" = false ]; then
 
     printf "\x1b[32m✓\x1b[0m taurine v%s installed\n" "$VERSION"
 
-    # Start the daemon after installation (detached)
+    # Start the service after installation (detached)
     "$INSTALL_DIR/taurine" up > /dev/null 2>&1 &
 fi
 

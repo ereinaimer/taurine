@@ -150,10 +150,10 @@ impl SettingKey {
             Self::TriggerlessMode => "Triggerless Mode",
             Self::InstantExpand => "Instant Expand",
             Self::IgnoreFullscreen => "Ignore Fullscreen on Windows",
-            Self::RpcMode => "Daemon RPC Mode",
-            Self::RpcHost => "Daemon RPC Host",
-            Self::RpcPort => "Daemon RPC Port",
-            Self::RpcToken => "Daemon RPC Token",
+            Self::RpcMode => "Service RPC Mode",
+            Self::RpcHost => "Service RPC Host",
+            Self::RpcPort => "Service RPC Port",
+            Self::RpcToken => "Service RPC Token",
             Self::ScriptsEnabled => "Scripts Enabled",
             Self::ScriptTimeout => "Script Execution Timeout",
             Self::AiTemperature => "AI Temperature",
@@ -176,7 +176,7 @@ impl SettingKey {
             Self::PauseAudioEnabled => "Play an audio cue when Taurine is paused or resumed",
             Self::StartOnBoot => "Start Taurine automatically when the system starts",
             Self::AutoUpdate => {
-                "Automatically check for and install updates when the daemon starts"
+                "Automatically check for and install updates when the service starts"
             }
             Self::InlineTabCompletionEnabled => {
                 "Use Tab and Shift+Tab to cycle trigger completions after the trigger character"
@@ -212,10 +212,10 @@ impl SettingKey {
             Self::IgnoreFullscreen => {
                 "Pause macro evaluation when running a full-screen application (e.g. games)"
             }
-            Self::RpcMode => "The transport protocol used for daemon RPC (socket or tcp)",
-            Self::RpcHost => "The network interface IP address the daemon binds to",
+            Self::RpcMode => "The transport protocol used for service RPC (socket or tcp)",
+            Self::RpcHost => "The network interface IP address the service binds to",
             Self::RpcPort => "The network port the gRPC RPC server listens on (1024-65535)",
-            Self::RpcToken => "The secret authorization token required to control the daemon",
+            Self::RpcToken => "The secret authorization token required to control the service",
             Self::ScriptsEnabled => "Allow execution of shell scripts in triggers",
             Self::ScriptTimeout => {
                 "Maximum script execution time before termination (0 for infinite)"

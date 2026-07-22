@@ -178,12 +178,12 @@ Run Taurine:
 
 ## Managing the service
 
-The Taurine daemon must be running in the background for text expansion and hotkeys to work.
+The Taurine service must be running in the background for text expansion and hotkeys to work.
 
-*   **Start the daemon**: `taurine up`
+*   **Start the service**: `taurine up`
 *   **Check the status**: `taurine status`
-*   **Stop the daemon**: `taurine down`
-*   **Restart the daemon**: `taurine restart`
+*   **Stop the service**: `taurine down`
+*   **Restart the service**: `taurine restart`
 
 ## Text expansion
 

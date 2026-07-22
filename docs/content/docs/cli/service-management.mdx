@@ -5,7 +5,7 @@ description: How to start, stop, and monitor the Taurine background service.
 
 ## Lifecycle Commands
 
-You can control the background daemon using these core commands:
+You can control the background service using these core commands:
 
 <Steps>
 ### Start the Service
@@ -18,7 +18,7 @@ This boots the engine and starts listening for your triggers.
 ```bash
 taurine status
 ```
-Verify if the daemon is running and check if the engine is currently paused.
+Verify if the service is running and check if the engine is currently paused.
 
 ### Restart the Service
 ```bash
@@ -34,7 +34,7 @@ Useful for picking up configuration changes or resetting the engine state.
 ```bash
 taurine down
 ```
-Gracefully shuts down the background daemon.
+Gracefully shuts down the background service.
 </Steps>
 
 ### Aliases
@@ -49,7 +49,7 @@ If you prefer more traditional naming, these aliases are also available:
 
 ## Windows
 
-- `taurine up` starts the background daemon if it is not already running.
+- `taurine up` starts the background service if it is not already running.
 - If `start_on_boot` is enabled, Taurine creates a startup hook in the Windows Run registry key and uses a small VBS launcher to start `taurine --daemon` silently.
 - `taurine down` tries a graceful shutdown first, then falls back to killing the process if needed.
 

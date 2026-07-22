@@ -401,7 +401,7 @@ pub fn down() -> crate::error::Result<()> {
                 }
             } else {
                 debug!(
-                    "Failed to connect to daemon for graceful shutdown. It may already be stopped."
+                    "Failed to connect to service for graceful shutdown. It may already be stopped."
                 );
             }
         });
@@ -510,7 +510,7 @@ pub fn restart(start_on_boot: bool) -> crate::error::Result<()> {
         );
 
         if still_running {
-            debug!("Daemon did not exit gracefully; hard-stopping for restart.");
+            debug!("Service did not exit gracefully; hard-stopping for restart.");
             let _ = manager.stop(ServiceStopCtx {
                 label: label.clone(),
             });

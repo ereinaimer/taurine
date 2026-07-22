@@ -118,7 +118,7 @@ The snippet injects `Deployment triggered.` and exits. The notification fires in
 ## Technical Details
 
 - **Timeout**: Every `exec` command has a maximum execution time of **20 seconds**. If it exceeds this limit, Taurine terminates the process and injects `[Error: script timed out after 20s]`.
-- **Environment**: Commands run with the same environment as the Taurine daemon. Ensure your interpreter (`python`, `node`, etc.) is available in your system's `PATH`.
+- **Environment**: Commands run with the same environment as the Taurine service. Ensure your interpreter (`python`, `node`, etc.) is available in your system's `PATH`.
 - **Abort**: If you click the mouse while the spinner is active, Taurine will kill the running process and stop injection immediately.
 - **Transformers come last**: When chaining transformers, they must always appear after the closing `)` of the command using pipe syntax. For example, `[exec.bash(whoami) | upper]` is valid.
 

@@ -14,7 +14,7 @@ else
     exit 1
 fi
 
-# Stop daemon if running via the installed binary
+# Stop service if running via the installed binary
 if [ -x "$INSTALL_DIR/taurine" ]; then
     "$INSTALL_DIR/taurine" down >/dev/null 2>&1 || true
 fi

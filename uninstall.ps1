@@ -37,8 +37,8 @@ $InstallDir = Join-Path $env:LOCALAPPDATA "Taurine\bin"
 $ExePath = Join-Path $InstallDir "taurine.exe"
 $DataDir = Join-Path $env:LOCALAPPDATA "Taurine"
 
-# Stop daemon and kill leftover processes
-Run-Step "Stopping Taurine daemon" {
+# Stop service and kill leftover processes
+Run-Step "Stopping Taurine service" {
     $exe = Join-Path $env:LOCALAPPDATA "Taurine\bin\taurine.exe"
     if (Test-Path $exe) {
         try { & $exe down | Out-Null } catch {}
