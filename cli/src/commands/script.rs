@@ -7,6 +7,7 @@ use taurine_core::db::crud::{
 };
 use taurine_core::db::init;
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter, compress};
+use unicode_normalization::UnicodeNormalization;
 
 #[allow(clippy::too_many_arguments)]
 pub fn execute(
@@ -91,7 +92,7 @@ pub fn execute_with_trigger_type(
     }
 
     let prepared = prepare_trigger_with_type(&trigger, trigger_type, &os)?;
-    let stored_trigger = prepared.stored_trigger;
+    let stored_trigger = prepared.stored_trigger.nfc().collect::<String>();
 
     // 2. Infer interpreter if not provided
     let lang = match lang {

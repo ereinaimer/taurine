@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **OS-Native Uninstallation**: Support standard system uninstallation, registering Taurine in the Windows Installed Apps list and providing clean uninstall scripts for all platforms.
 - **Triggerless Tab Completion**: Intercept the Tab key in triggerless mode to trigger completion suggestions for the typed word tail, while passing through to the OS when no matches exist.
 - **Interactive Import Options**: When importing from the CLI without any optional flags, Taurine now opens an interactive overlay where you can choose whether to include settings, sensitive settings, and stats, and pick a conflict resolution strategy.
+- **Input Validation Limits**: Enforce maximum lengths for trigger strings (200 chars), output content (100KB), script content (1MB), trigger names (200 chars), and descriptions (1000 chars).
+- **Dead Reference Detection**: Warn when a trigger references a non-existent trigger via [use()], preventing silent runtime failures.
+- **App Filter Cleaning**: Automatically trim whitespace and validate prefix specifiers (exe:, class:, title:) in app filter settings.
+- **Tag Normalization**: Tags are trimmed, lowercased, and deduplicated on save. Maximum 20 tags per trigger, 50 characters per tag.
+- **Duplicate Name Warning**: Warn when creating or updating a trigger whose display name is already used by another trigger.
+- **Unicode Normalization**: NFC-normalize trigger strings and keyboard input for reliable matching of accented characters across different input methods.
 
 ### Changed
 - **Plain Output as Default**: Removed table borders from `list` and `config list` commands. Output is now plain text by default (`--plain` flag removed).

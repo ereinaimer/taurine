@@ -1,3 +1,5 @@
+use unicode_normalization::UnicodeNormalization;
+
 use crate::Result;
 use rusqlite::Connection;
 use sha2::{Digest, Sha256};
@@ -1053,12 +1055,14 @@ pub fn update_existing_trigger(
 ) -> Result<()> {
     validate_target_os_value(update.target_os)?;
     let is_text = is_text_action(update.action_type)?;
+    let trigger_nfc: String = update.trigger.nfc().collect();
+    let content_nfc: String = update.content.nfc().collect();
     if is_text {
-        audit_payload_tags_with_trigger_type(update.content, update.trigger_type)?;
+        audit_payload_tags_with_trigger_type(&content_nfc, update.trigger_type)?;
     }
 
     // We only enforce limits for text snippets, as nested limits apply to the `use` variable
-    validate_trigger_limits(conn, update.trigger, update.content, update.action_type)?;
+    validate_trigger_limits(conn, &trigger_nfc, &content_nfc, update.action_type)?;
 
     if update.name.len() > trigger_types::MAX_NAME_LENGTH {
         return Err(crate::Error::Config(format!(
@@ -1092,8 +1096,7 @@ pub fn update_existing_trigger(
         );
     }
 
-    let prepared =
-        prepare_trigger_with_type(update.trigger, update.trigger_type, update.target_os)?;
+    let prepared = prepare_trigger_with_type(&trigger_nfc, update.trigger_type, update.target_os)?;
 
     // Validate conflict before opening the transaction, excluding the row being updated.
     validate_trigger_target_os_conflict(
@@ -1111,7 +1114,7 @@ pub fn update_existing_trigger(
     if !is_text {
         let interpreter = update
             .interpreter
-            .or_else(|| infer_interpreter(None, update.content))
+            .or_else(|| infer_interpreter(None, &content_nfc))
             .ok_or_else(|| {
                 crate::Error::Config(
                     "Unable to determine a script language for this trigger.".to_string(),
@@ -1140,10 +1143,10 @@ pub fn update_existing_trigger(
             update.id,
             interpreter,
             behavior,
-            &compress(update.content)?,
+            &compress(&content_nfc)?,
         )?;
     } else {
-        validate_output(update.content, Some(&prepared.stored_trigger))?;
+        validate_output(&content_nfc, Some(&prepared.stored_trigger))?;
         upsert_trigger_with_type_and_case(
             &tx,
             update.id,
@@ -1151,7 +1154,7 @@ pub fn update_existing_trigger(
             update.description,
             prepared.trigger_type,
             &prepared.stored_trigger,
-            update.content,
+            &content_nfc,
             "text",
             update.target_os,
             &tags_json,
@@ -1172,19 +1175,16 @@ pub fn update_existing_trigger(
 pub fn create_trigger(conn: &mut Connection, new_trigger: NewTrigger<'_>) -> Result<String> {
     validate_target_os_value(new_trigger.target_os)?;
     let is_text = is_text_action(new_trigger.action_type)?;
+    let trigger_nfc: String = new_trigger.trigger.nfc().collect();
+    let content_nfc: String = new_trigger.content.nfc().collect();
     if is_text {
-        audit_payload_tags_with_trigger_type(new_trigger.content, new_trigger.trigger_type)?;
+        audit_payload_tags_with_trigger_type(&content_nfc, new_trigger.trigger_type)?;
     }
 
-    validate_trigger_limits(
-        conn,
-        new_trigger.trigger,
-        new_trigger.content,
-        new_trigger.action_type,
-    )?;
+    validate_trigger_limits(conn, &trigger_nfc, &content_nfc, new_trigger.action_type)?;
 
     let prepared = prepare_trigger_with_type(
-        new_trigger.trigger,
+        &trigger_nfc,
         new_trigger.trigger_type,
         new_trigger.target_os,
     )?;
@@ -1241,7 +1241,7 @@ pub fn create_trigger(conn: &mut Connection, new_trigger: NewTrigger<'_>) -> Res
     if !is_text {
         let interpreter = new_trigger
             .interpreter
-            .or_else(|| infer_interpreter(None, new_trigger.content))
+            .or_else(|| infer_interpreter(None, &content_nfc))
             .ok_or_else(|| {
                 crate::Error::Config(
                     "Unable to determine a script language for this trigger.".to_string(),
@@ -1265,15 +1265,9 @@ pub fn create_trigger(conn: &mut Connection, new_trigger: NewTrigger<'_>) -> Res
             None,
             new_trigger.auto_case,
         )?;
-        upsert_script(
-            &tx,
-            &id,
-            interpreter,
-            behavior,
-            &compress(new_trigger.content)?,
-        )?;
+        upsert_script(&tx, &id, interpreter, behavior, &compress(&content_nfc)?)?;
     } else {
-        validate_output(new_trigger.content, Some(&prepared.stored_trigger))?;
+        validate_output(&content_nfc, Some(&prepared.stored_trigger))?;
         upsert_trigger_with_type_and_case(
             &tx,
             &id,
@@ -1281,7 +1275,7 @@ pub fn create_trigger(conn: &mut Connection, new_trigger: NewTrigger<'_>) -> Res
             new_trigger.description,
             prepared.trigger_type,
             &prepared.stored_trigger,
-            new_trigger.content,
+            &content_nfc,
             "text",
             new_trigger.target_os,
             &tags_json,
@@ -1658,7 +1652,11 @@ pub fn add_trigger_by_type_with_case(
     tags: Option<Vec<String>>,
     auto_case: bool,
 ) -> Result<AddOutcome> {
-    validate_trigger_not_reserved(conn, trigger)?;
+    let trigger_nfc: String = trigger.nfc().collect();
+    let output_nfc: String = output.nfc().collect();
+
+    validate_trigger_not_reserved(conn, &trigger_nfc)?;
+    validate_trigger_limits(conn, &trigger_nfc, &output_nfc, "text")?;
 
     let tags = tags.map(|t| {
         let mut seen = std::collections::HashSet::new();
@@ -1695,7 +1693,7 @@ pub fn add_trigger_by_type_with_case(
              LIMIT 1",
             [
                 trigger_type.as_db_str(),
-                trigger,
+                &trigger_nfc,
                 target_os,
                 only_apps.unwrap_or(""),
                 except_apps.unwrap_or(""),
@@ -1706,7 +1704,7 @@ pub fn add_trigger_by_type_with_case(
 
     match existing {
         Some((id, existing_output, existing_action, existing_auto_case))
-            if existing_output == output
+            if existing_output == output_nfc
                 && existing_action == "text"
                 && existing_auto_case == auto_case =>
         {
@@ -1741,7 +1739,7 @@ pub fn add_trigger_by_type_with_case(
                          auto_case   = ?4,
                          version     = version + 1
                      WHERE id = ?5",
-                    rusqlite::params![output, t_json, now, auto_case, id],
+                    rusqlite::params![&output_nfc, t_json, now, auto_case, id],
                 )?;
             } else {
                 conn.execute(
@@ -1752,7 +1750,7 @@ pub fn add_trigger_by_type_with_case(
                          auto_case   = ?3,
                          version     = version + 1
                      WHERE id = ?4",
-                    rusqlite::params![output, now, auto_case, id],
+                    rusqlite::params![&output_nfc, now, auto_case, id],
                 )?;
             }
             conn.execute(
@@ -1765,7 +1763,7 @@ pub fn add_trigger_by_type_with_case(
             validate_trigger_target_os_conflict(
                 conn,
                 trigger_type,
-                trigger,
+                &trigger_nfc,
                 target_os,
                 only_apps,
                 except_apps,
@@ -1781,11 +1779,11 @@ pub fn add_trigger_by_type_with_case(
             upsert_trigger_with_type_and_case(
                 conn,
                 &id,
-                trigger,
+                &trigger_nfc,
                 None,
                 trigger_type,
-                trigger,
-                output,
+                &trigger_nfc,
+                &output_nfc,
                 "text",
                 target_os,
                 &tags_str,
@@ -2364,6 +2362,93 @@ mod tests {
     fn test_normalize_tags_identity_for_clean() {
         let result = normalize_tags(r#"["work","hello"]"#).unwrap();
         assert_eq!(result, r#"["work","hello"]"#);
+    }
+
+    #[test]
+    fn test_normalize_trigger_nfc() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, mut conn) = crate::testing::open_test_db();
+
+        let nfd_e = "e\u{301}";
+        let nfc_e = "\u{e9}";
+        let id = create_trigger(
+            &mut conn,
+            NewTrigger {
+                name: Some("accent"),
+                description: None,
+                trigger_type: TriggerType::Word,
+                trigger: nfd_e,
+                content: nfc_e,
+                action_type: "text",
+                target_os: "all",
+                tags_json: "[]",
+                auto_case: false,
+                interpreter: None,
+                behavior: None,
+            },
+        )
+        .unwrap();
+
+        let (stored_trigger, stored_output): (String, String) = conn
+            .query_row(
+                "SELECT trigger, output FROM triggers WHERE id = ?1",
+                [&id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(stored_trigger, nfc_e, "trigger should be NFC-normalized");
+        assert_eq!(stored_output, nfc_e, "output should be NFC-normalized");
+    }
+
+    #[test]
+    fn test_add_trigger_by_type_normalizes_nfc() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, conn) = crate::testing::open_test_db();
+
+        let nfd_e = "e\u{301}";
+        let nfc_e = "\u{e9}";
+        add_trigger_by_type_with_case(
+            &conn,
+            TriggerType::Word,
+            nfd_e,
+            nfc_e,
+            "all",
+            None,
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+
+        let (stored_trigger, stored_output): (String, String) = conn
+            .query_row(
+                "SELECT trigger, output FROM triggers WHERE trigger = ?1",
+                [nfc_e],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(stored_trigger, nfc_e, "trigger should be NFC-normalized");
+        assert_eq!(stored_output, nfc_e, "output should be NFC-normalized");
+    }
+
+    #[test]
+    fn test_add_trigger_by_type_rejects_dead_ref() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, conn) = crate::testing::open_test_db();
+
+        let result = add_trigger_by_type_with_case(
+            &conn,
+            TriggerType::Word,
+            "hello",
+            "greeting [use(\"nonexistent\")]",
+            "all",
+            None,
+            None,
+            None,
+            false,
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("does not exist"));
     }
 
     #[test]

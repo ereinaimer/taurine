@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use tokio::runtime::Handle;
 use tracing::{debug, error, info, trace, warn};
+use unicode_normalization::UnicodeNormalization;
 
 #[cfg(target_os = "macos")]
 #[link(name = "CoreFoundation", kind = "framework")]
@@ -558,8 +559,9 @@ pub(super) fn run_listener_once(
                         }
 
                         if let Some(ref text) = event.name {
-                            if text.chars().count() == 1 {
-                                Some(EngineEvent::Char(text.chars().next().unwrap()))
+                            let normalized: String = text.nfc().collect();
+                            if normalized.chars().count() == 1 {
+                                Some(EngineEvent::Char(normalized.chars().next().unwrap()))
                             } else {
                                 None
                             }
