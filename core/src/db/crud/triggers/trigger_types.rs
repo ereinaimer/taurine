@@ -131,6 +131,9 @@ pub struct TriggerConflict {
     pub target_os: String,
 }
 
+pub const MAX_NAME_LENGTH: usize = 200;
+pub const MAX_DESCRIPTION_LENGTH: usize = 1000;
+
 #[cfg(test)]
 mod tests {
     use super::*;

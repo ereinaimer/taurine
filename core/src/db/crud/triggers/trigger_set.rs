@@ -13,11 +13,13 @@ use crate::keys::{
     hotkey_strings_overlap, parse_hotkey,
 };
 
+use super::trigger_types;
 use super::{TriggerConflict, TriggerType};
 
 const INLINE_AI_RESERVED_TRIGGER: &str = "ai";
 const TAG_OPEN: u8 = b'[';
 const TAG_CLOSE: u8 = b']';
+const MAX_TRIGGER_LENGTH: usize = 200;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TagBounds {
@@ -225,6 +227,13 @@ pub fn prepare_trigger_with_type(
 ) -> Result<PreparedTrigger> {
     if trigger.trim().is_empty() {
         return Err(crate::Error::Config("Trigger cannot be empty.".to_string()));
+    }
+
+    if trigger.len() > MAX_TRIGGER_LENGTH {
+        return Err(crate::Error::Config(format!(
+            "Trigger exceeds maximum length of {} characters.",
+            MAX_TRIGGER_LENGTH
+        )));
     }
 
     if trigger_type == TriggerType::Word
@@ -1000,6 +1009,21 @@ pub fn update_existing_trigger(
     // We only enforce limits for text snippets, as nested limits apply to the `use` variable
     validate_trigger_limits(conn, update.trigger, update.content, update.action_type)?;
 
+    if update.name.len() > trigger_types::MAX_NAME_LENGTH {
+        return Err(crate::Error::Config(format!(
+            "Trigger name exceeds maximum length of {} characters.",
+            trigger_types::MAX_NAME_LENGTH
+        )));
+    }
+    if let Some(desc) = update.description
+        && desc.len() > trigger_types::MAX_DESCRIPTION_LENGTH
+    {
+        return Err(crate::Error::Config(format!(
+            "Trigger description exceeds maximum length of {} characters.",
+            trigger_types::MAX_DESCRIPTION_LENGTH
+        )));
+    }
+
     let prepared =
         prepare_trigger_with_type(update.trigger, update.trigger_type, update.target_os)?;
 
@@ -1102,6 +1126,20 @@ pub fn create_trigger(conn: &mut Connection, new_trigger: NewTrigger<'_>) -> Res
         .name
         .filter(|name| !name.trim().is_empty())
         .unwrap_or(generated_name.as_str());
+    if name.len() > trigger_types::MAX_NAME_LENGTH {
+        return Err(crate::Error::Config(format!(
+            "Trigger name exceeds maximum length of {} characters.",
+            trigger_types::MAX_NAME_LENGTH
+        )));
+    }
+    if let Some(desc) = new_trigger.description
+        && desc.len() > trigger_types::MAX_DESCRIPTION_LENGTH
+    {
+        return Err(crate::Error::Config(format!(
+            "Trigger description exceeds maximum length of {} characters.",
+            trigger_types::MAX_DESCRIPTION_LENGTH
+        )));
+    }
     // Validate conflict before opening the transaction so no partial writes happen.
     validate_trigger_target_os_conflict(
         conn,
@@ -1637,6 +1675,210 @@ pub fn add_trigger_by_type_with_case(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_create_trigger_name_exceeds_max_length() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, mut conn) = crate::testing::open_test_db();
+
+        let long_name = "a".repeat(201);
+        let new_trigger = NewTrigger {
+            name: Some(&long_name),
+            description: None,
+            trigger_type: TriggerType::Word,
+            trigger: "test_trigger",
+            content: "test output",
+            action_type: "text",
+            target_os: "all",
+            tags_json: "[]",
+            auto_case: false,
+            interpreter: None,
+            behavior: None,
+        };
+        let result = create_trigger(&mut conn, new_trigger);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("exceeds maximum length")
+        );
+    }
+
+    #[test]
+    fn test_create_trigger_description_exceeds_max_length() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, mut conn) = crate::testing::open_test_db();
+
+        let long_desc = "a".repeat(1001);
+        let new_trigger = NewTrigger {
+            name: Some("short name"),
+            description: Some(&long_desc),
+            trigger_type: TriggerType::Word,
+            trigger: "test_trigger2",
+            content: "test output",
+            action_type: "text",
+            target_os: "all",
+            tags_json: "[]",
+            auto_case: false,
+            interpreter: None,
+            behavior: None,
+        };
+        let result = create_trigger(&mut conn, new_trigger);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("exceeds maximum length")
+        );
+    }
+
+    #[test]
+    fn test_create_trigger_short_name_succeeds() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, mut conn) = crate::testing::open_test_db();
+
+        let new_trigger = NewTrigger {
+            name: Some("short name"),
+            description: Some("short description"),
+            trigger_type: TriggerType::Word,
+            trigger: "test_trigger3",
+            content: "test output",
+            action_type: "text",
+            target_os: "all",
+            tags_json: "[]",
+            auto_case: false,
+            interpreter: None,
+            behavior: None,
+        };
+        let result = create_trigger(&mut conn, new_trigger);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_update_trigger_name_exceeds_max_length() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, mut conn) = crate::testing::open_test_db();
+
+        let id = create_trigger(
+            &mut conn,
+            NewTrigger {
+                name: Some("original"),
+                description: None,
+                trigger_type: TriggerType::Word,
+                trigger: "update_test_trigger",
+                content: "test output",
+                action_type: "text",
+                target_os: "all",
+                tags_json: "[]",
+                auto_case: false,
+                interpreter: None,
+                behavior: None,
+            },
+        )
+        .unwrap();
+
+        let long_name = "a".repeat(201);
+        let result = update_existing_trigger(
+            &mut conn,
+            ExistingTriggerUpdate {
+                id: &id,
+                name: &long_name,
+                description: None,
+                trigger_type: TriggerType::Word,
+                trigger: "update_test_trigger",
+                content: "test output",
+                action_type: "text",
+                target_os: "all",
+                tags_json: "[]",
+                auto_case: false,
+                usage_count: 0,
+                last_used_at: None,
+                interpreter: None,
+                behavior: None,
+            },
+        );
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("exceeds maximum length")
+        );
+    }
+
+    #[test]
+    fn test_update_trigger_description_exceeds_max_length() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, mut conn) = crate::testing::open_test_db();
+
+        let id = create_trigger(
+            &mut conn,
+            NewTrigger {
+                name: Some("original"),
+                description: None,
+                trigger_type: TriggerType::Word,
+                trigger: "update_desc_test",
+                content: "test output",
+                action_type: "text",
+                target_os: "all",
+                tags_json: "[]",
+                auto_case: false,
+                interpreter: None,
+                behavior: None,
+            },
+        )
+        .unwrap();
+
+        let long_desc = "a".repeat(1001);
+        let result = update_existing_trigger(
+            &mut conn,
+            ExistingTriggerUpdate {
+                id: &id,
+                name: "original",
+                description: Some(&long_desc),
+                trigger_type: TriggerType::Word,
+                trigger: "update_desc_test",
+                content: "test output",
+                action_type: "text",
+                target_os: "all",
+                tags_json: "[]",
+                auto_case: false,
+                usage_count: 1,
+                last_used_at: None,
+                interpreter: None,
+                behavior: None,
+            },
+        );
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("exceeds maximum length")
+        );
+    }
+
+    #[test]
+    fn test_prepare_trigger_exceeds_max_length() {
+        let long_trigger = "a".repeat(201);
+        let result = prepare_trigger_with_type(&long_trigger, TriggerType::Word, "all");
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("exceeds maximum length")
+        );
+    }
+
+    #[test]
+    fn test_prepare_trigger_at_max_length() {
+        let max_trigger = "a".repeat(200);
+        let result = prepare_trigger_with_type(&max_trigger, TriggerType::Word, "all");
+        assert!(result.is_ok());
+    }
 
     #[test]
     fn test_count_ai_calls_in_template() {

@@ -75,8 +75,16 @@ pub fn infer_interpreter(
     None
 }
 
+const MAX_SCRIPT_SIZE: usize = 1_048_576; // 1MB
+
 /// Compresses a script string using zstd for efficient storage.
 pub fn compress(content: &str) -> crate::Result<Vec<u8>> {
+    if content.len() > MAX_SCRIPT_SIZE {
+        return Err(crate::Error::Service(format!(
+            "Script content exceeds maximum size of {} bytes.",
+            MAX_SCRIPT_SIZE
+        )));
+    }
     zstd::bulk::compress(content.as_bytes(), 3)
         .map_err(|e| crate::Error::Service(format!("zstd compression failed: {}", e)))
 }
@@ -105,6 +113,26 @@ pub fn decompress_bytes(compressed: &[u8]) -> crate::Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_compress_exceeds_max_size() {
+        let large_content = "a".repeat(1_048_577);
+        let result = compress(&large_content);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("exceeds maximum size")
+        );
+    }
+
+    #[test]
+    fn test_compress_at_max_size() {
+        let max_content = "a".repeat(1_048_576);
+        let result = compress(&max_content);
+        assert!(result.is_ok());
+    }
 
     #[test]
     fn test_compression_round_trip() {

@@ -24,6 +24,7 @@ const TAG_OPEN: u8 = b'[';
 const TAG_CLOSE: u8 = b']';
 const CURSOR_TAG: &str = "[cursor]";
 const ESCAPED_CURSOR_LITERAL: &str = r#"\[cursor\]"#;
+const MAX_OUTPUT_LENGTH: usize = 100_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TagBounds {
@@ -348,6 +349,13 @@ pub fn validate_output(output: &str, trigger: Option<&str>) -> crate::error::Res
         return Err(crate::Error::Config(format!(
             "Output cannot be empty{}.",
             trigger_ctx
+        )));
+    }
+
+    if output.len() > MAX_OUTPUT_LENGTH {
+        return Err(crate::Error::Config(format!(
+            "Output exceeds maximum length of {} characters{}.",
+            MAX_OUTPUT_LENGTH, trigger_ctx,
         )));
     }
 
@@ -888,6 +896,18 @@ mod tests {
         validate_output("[lorem.word([num=5])]", Some("nested")).unwrap();
         validate_output(r#"\[cursor\] [cursor]"#, Some("escaped")).unwrap();
         validate_output("[clip=invalid]", None).unwrap();
+    }
+
+    #[test]
+    fn test_validate_output_exceeds_max_length() {
+        let long_output = "a".repeat(100_001);
+        assert!(validate_output(&long_output, None).is_err());
+    }
+
+    #[test]
+    fn test_validate_output_at_max_length() {
+        let max_output = "a".repeat(100_000);
+        assert!(validate_output(&max_output, None).is_ok());
     }
 
     #[test]
