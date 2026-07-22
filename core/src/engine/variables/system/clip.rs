@@ -46,7 +46,7 @@ impl ClipManager {
         self.prune_expired();
 
         let Ok(mut history) = self.history.write() else {
-            tracing::error!("clip history write lock poisoned");
+            tracing::warn!("clip history write lock poisoned");
             return false;
         };
 
@@ -70,7 +70,7 @@ impl ClipManager {
         }
         self.prune_expired();
         let Ok(history) = self.history.read() else {
-            tracing::error!("clip history read lock poisoned");
+            tracing::warn!("clip history read lock poisoned");
             return None;
         };
 

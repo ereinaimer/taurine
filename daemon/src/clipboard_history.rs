@@ -35,7 +35,7 @@ pub fn suspend_listener() {
             unsafe {
                 let _ = RemoveClipboardFormatListener(hwnd as _);
             }
-            tracing::info!("Windows clipboard format listener removed (suspended)");
+            tracing::debug!("Windows clipboard format listener removed (suspended)");
         }
     }
 }
@@ -55,7 +55,7 @@ pub fn resume_listener() {
             unsafe {
                 let _ = AddClipboardFormatListener(hwnd as _);
             }
-            tracing::info!("Windows clipboard format listener added (resumed)");
+            tracing::debug!("Windows clipboard format listener added (resumed)");
         }
     }
 }
@@ -325,7 +325,7 @@ pub fn start_listener() {
 
     CLIPBOARD_HWND.store(hwnd as _, std::sync::atomic::Ordering::Relaxed);
 
-    tracing::info!("Windows clipboard monitor is listening for WM_CLIPBOARDUPDATE");
+    tracing::debug!("Windows clipboard monitor is listening for WM_CLIPBOARDUPDATE");
 
     let mut message = MSG::default();
     loop {

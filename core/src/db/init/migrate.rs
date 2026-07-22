@@ -1,5 +1,5 @@
 use rusqlite::{Connection, Result};
-use tracing::{error, info};
+use tracing::{debug, error};
 
 /// Runs all pending schema migrations against an open connection.
 ///
@@ -38,7 +38,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         })?;
 
     if version < CURRENT_SCHEMA_VERSION {
-        info!(
+        debug!(
             from_schema_version = version,
             to_schema_version = CURRENT_SCHEMA_VERSION,
             "Running database migrations"

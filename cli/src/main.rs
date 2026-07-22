@@ -529,7 +529,7 @@ fn main() -> std::process::ExitCode {
     }));
 
     if let Err(e) = run(cli, launch_target) {
-        error!(error=%e, "Taurine exited with an error");
+        error!("Error: {}", e);
         return std::process::ExitCode::from(1);
     }
 

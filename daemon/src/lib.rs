@@ -329,11 +329,11 @@ pub fn start() -> taurine_core::error::Result<()> {
             let shutdown_signal = async move {
                 loop {
                     if shutdown_requested_for_signal.load(Ordering::Relaxed) {
-                        info!("Shutdown signal received, initiating gRPC server shutdown...");
+                        debug!("Shutdown signal received, initiating gRPC server shutdown...");
                         break;
                     }
                     if rpc_reload_requested_for_signal.load(Ordering::Relaxed) {
-                        info!("RPC settings changed, reloading gRPC server...");
+                        debug!("RPC settings changed, reloading gRPC server...");
                         break;
                     }
                     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -405,7 +405,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                             }
 
                             let stream = UnixListenerStream::new(uds);
-                            info!(
+                            debug!(
                                 "Starting gRPC server on UDS socket: {}",
                                 socket_path.display()
                             );
@@ -447,7 +447,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                         }
                     };
 
-                    info!(
+                    debug!(
                         "Starting gRPC server on Named Pipe UDS equivalent: {}",
                         pipe_path
                     );
@@ -557,7 +557,7 @@ pub fn start() -> taurine_core::error::Result<()> {
         Ok(())
     });
 
-    info!("Initiating clean shutdown of all background threads...");
+    debug!("Initiating clean shutdown of all background threads...");
 
     // 1. Signal shutdown to all hook listeners/supervisors
     #[cfg(windows)]

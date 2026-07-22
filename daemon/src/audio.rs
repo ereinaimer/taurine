@@ -1,7 +1,7 @@
 use rodio::{Decoder, DeviceSinkBuilder, Player};
 use std::io::Cursor;
 use tokio::sync::mpsc;
-use tracing::{info, warn};
+use tracing::{debug, warn};
 
 const PAUSE_WAV: &[u8] = include_bytes!("../../assets/audio/pause.wav");
 const RESUME_WAV: &[u8] = include_bytes!("../../assets/audio/resume.wav");
@@ -22,7 +22,7 @@ pub fn start_worker(mut rx: mpsc::Receiver<bool>) {
     std::thread::Builder::new()
         .name("tau-audio".to_string())
         .spawn(move || {
-            info!("Audio worker thread started (per-trigger device acquisition)");
+            debug!("Audio worker thread started (per-trigger device acquisition)");
 
             while let Some(is_paused) = rx.blocking_recv() {
                 let data = if is_paused { PAUSE_WAV } else { RESUME_WAV };

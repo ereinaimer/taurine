@@ -5,7 +5,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio::runtime::Handle;
-use tracing::{error, info, warn};
+use tracing::{debug, error, warn};
 
 use crate::hook_health::HookHealth;
 use crate::hotkey;
@@ -131,7 +131,7 @@ pub fn start_windows_supervisor(
                         } else {
                             consecutive_fast_failures = 0;
                             std::thread::sleep(RESTART_BACKOFF);
-                            info!("Restarting Windows hook listener after backoff");
+                            debug!("Restarting Windows hook listener after backoff");
                         }
                     }
                     Ok(WindowsSupervisorEvent::ResumeAutomatic) => {
@@ -178,7 +178,7 @@ pub fn start_windows_supervisor(
                         force_ping_at_unix_ms = now + 3000;
                     }
                     Ok(WindowsSupervisorEvent::Shutdown) => {
-                        info!("Windows hook supervisor received Shutdown event");
+                        debug!("Windows hook supervisor received Shutdown event");
                         break;
                     }
                     Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -232,7 +232,7 @@ pub fn start_windows_supervisor(
                             if should_ping && !needs_restart {
                                 if !ping_pending {
                                     if scheduled_ping_due {
-                                        info!("Watchdog: executing scheduled liveness verification ping");
+                                        debug!("Watchdog: executing scheduled liveness verification ping");
                                     } else {
                                         warn!(
                                             "Watchdog: hook inactive for 5m; sending active verification ping"
@@ -268,7 +268,7 @@ pub fn start_windows_supervisor(
                 }
 
                 if listener_handle.is_none() && std::time::Instant::now() >= next_spawn_allowed_after {
-                    info!("Reinstalling Windows hook listener");
+                    debug!("Reinstalling Windows hook listener");
                     listener_spawned_at_unix_ms = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
@@ -289,7 +289,7 @@ pub fn start_windows_supervisor(
                 }
             }
 
-            info!("Hook supervisor thread is shutting down");
+            debug!("Hook supervisor thread is shutting down");
             tear_down_listener(&mut listener_handle);
         });
 

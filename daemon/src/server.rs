@@ -8,7 +8,7 @@ use taurine_core::rpc::{
 };
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
-use tracing::{debug, info};
+use tracing::debug;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RpcServerSettings {
@@ -195,7 +195,7 @@ impl DaemonControl for DaemonService {
         &self,
         _request: Request<ShutdownRequest>,
     ) -> Result<Response<ShutdownResponse>, Status> {
-        info!("Received gRPC shutdown request, signaling background process...");
+        debug!("Received gRPC shutdown request, signaling background process...");
         let _ = self.shutdown_sender.send(()).await;
         Ok(Response::new(ShutdownResponse { success: true }))
     }

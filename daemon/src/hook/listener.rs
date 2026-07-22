@@ -651,7 +651,7 @@ pub(super) fn run_listener_once(
         }
     }
 
-    info!("Hook listener entering rdev::grab");
+    debug!("Hook listener entering rdev::grab");
     #[cfg(windows)]
     windows_grab(callback).map_err(|error| format!("{error:?}"))?;
     #[cfg(not(windows))]
@@ -1149,7 +1149,7 @@ pub(super) fn spawn_windows_hook_listener(
                 {
                     warn!("Failed to boost hook listener thread priority");
                 } else {
-                    info!("Successfully boosted hook listener thread priority to HIGHEST");
+                    debug!("Successfully boosted hook listener thread priority to HIGHEST");
                 }
             }
 

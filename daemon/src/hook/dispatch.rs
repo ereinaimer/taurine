@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Handle;
-use tracing::{info, trace};
+use tracing::{debug, trace};
 
 use crate::injector;
 use crate::platform::spinner_renderer::OsSpinnerRenderer;
@@ -171,7 +171,7 @@ pub(super) fn launch_follow_up(
         system_prompt_override,
     }) = follow_up
     {
-        info!("Starting inline AI follow-up dispatch");
+        debug!("Starting inline AI follow-up dispatch");
         let injection_guard = crate::injector::InjectionFlagGuard::begin();
 
         let spinner_handle = taurine_core::utils::spinner::spawn_async(
@@ -187,7 +187,7 @@ pub(super) fn launch_follow_up(
                 spinner_handle,
             )
             .await;
-            info!("Finished inline AI follow-up dispatch");
+            debug!("Finished inline AI follow-up dispatch");
         });
         return;
     }
@@ -196,7 +196,7 @@ pub(super) fn launch_follow_up(
         template_with_markers,
     }) = follow_up
     {
-        info!("Starting AI transformer follow-up dispatch");
+        debug!("Starting AI transformer follow-up dispatch");
         let injection_guard = crate::injector::InjectionFlagGuard::begin();
 
         let spinner_handle = taurine_core::utils::spinner::spawn_async(
@@ -211,7 +211,7 @@ pub(super) fn launch_follow_up(
                 spinner_handle,
             )
             .await;
-            info!("Finished AI transformer follow-up dispatch");
+            debug!("Finished AI transformer follow-up dispatch");
         });
     }
 }
