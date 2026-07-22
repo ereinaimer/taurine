@@ -174,7 +174,7 @@ pub fn notify_daemon_reload() {
         if let Ok(mut client) = get_client_with_settings(&settings).await {
             let req = tonic::Request::new(ReloadRequest {});
             if client.reload(req).await.is_ok() {
-                tracing::info!("Service state reloaded successfully.");
+                tracing::debug!("Service state reloaded successfully.");
                 reload_success = true;
             }
         }
@@ -189,7 +189,7 @@ pub fn notify_daemon_reload() {
             if let Ok(mut client) = get_client_with_settings(&fallback_settings).await {
                 let req = tonic::Request::new(ReloadRequest {});
                 if client.reload(req).await.is_ok() {
-                    tracing::info!("Service state reloaded successfully via fallback channel.");
+                    tracing::debug!("Service state reloaded successfully via fallback channel.");
                 }
             }
         }
