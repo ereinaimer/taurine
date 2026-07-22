@@ -1051,7 +1051,7 @@ pub fn update_existing_trigger(
             &compress(update.content)?,
         )?;
     } else {
-        validate_output(update.content, Some(&prepared.stored_trigger));
+        validate_output(update.content, Some(&prepared.stored_trigger))?;
         upsert_trigger_with_type_and_case(
             &tx,
             update.id,
@@ -1150,7 +1150,7 @@ pub fn create_trigger(conn: &mut Connection, new_trigger: NewTrigger<'_>) -> Res
             &compress(new_trigger.content)?,
         )?;
     } else {
-        validate_output(new_trigger.content, Some(&prepared.stored_trigger));
+        validate_output(new_trigger.content, Some(&prepared.stored_trigger))?;
         upsert_trigger_with_type_and_case(
             &tx,
             &id,

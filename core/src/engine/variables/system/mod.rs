@@ -145,7 +145,7 @@ pub fn strip_argument_quotes(arg: &str) -> &str {
 /// **Conflict rule**: `[cursor]` and `[key.*]` directives cannot coexist.
 /// If any `[key.*]` directive is present, `[cursor]` is treated as literal text.
 pub fn finalize(interpolated: &str, trigger: Option<&str>) -> FinalExpansion {
-    validate_output(interpolated, trigger);
+    let _ = validate_output(interpolated, trigger);
 
     let has_key_directives = contains_key_or_delay_directives(interpolated);
 
@@ -338,14 +338,18 @@ fn contains_key_or_delay_directives(text: &str) -> bool {
     false
 }
 
-/// Validates an expansion output for common mistakes like multiple cursors or conflicts.
-///
-/// This serves as an early-warning system during trigger creation (CLI)
-/// and a failsafe during actual expansion.
-pub fn validate_output(output: &str, trigger: Option<&str>) {
+/// Validates an expansion output for common mistakes like empty output, multiple cursors, or conflicts.
+pub fn validate_output(output: &str, trigger: Option<&str>) -> crate::error::Result<()> {
     let trigger_ctx = trigger
         .map(|t| format!(" for trigger '{}'", t))
         .unwrap_or_default();
+
+    if output.trim().is_empty() {
+        return Err(crate::Error::Config(format!(
+            "Output cannot be empty{}.",
+            trigger_ctx
+        )));
+    }
 
     let mut cursor_count = 0usize;
     let mut has_key_or_delay = false;
@@ -391,6 +395,8 @@ pub fn validate_output(output: &str, trigger: Option<&str>) {
             trigger_ctx
         );
     }
+
+    Ok(())
 }
 
 /// Splits an interpolated string into a sequence of [`ExpansionStep`] actions.
@@ -875,13 +881,20 @@ mod tests {
     #[test]
     fn test_validate_output_logic_paths() {
         // These calls shouldn't panic. We are primarily testing the path coverage.
-        validate_output("valid", None);
-        validate_output("[cursor] [cursor]", Some("multi"));
-        validate_output("[key(tab)] [cursor]", Some("conflict"));
-        validate_output("[cursor=invalid]", Some("default"));
-        validate_output("[lorem.word([num=5])]", Some("nested"));
-        validate_output(r#"\[cursor\] [cursor]"#, Some("escaped"));
-        validate_output("[clip=invalid]", None);
+        validate_output("valid", None).unwrap();
+        validate_output("[cursor] [cursor]", Some("multi")).unwrap();
+        validate_output("[key(tab)] [cursor]", Some("conflict")).unwrap();
+        validate_output("[cursor=invalid]", Some("default")).unwrap();
+        validate_output("[lorem.word([num=5])]", Some("nested")).unwrap();
+        validate_output(r#"\[cursor\] [cursor]"#, Some("escaped")).unwrap();
+        validate_output("[clip=invalid]", None).unwrap();
+    }
+
+    #[test]
+    fn test_validate_output_rejects_empty() {
+        assert!(validate_output("", None).is_err());
+        assert!(validate_output("   ", None).is_err());
+        assert!(validate_output("\t\n", None).is_err());
     }
 
     #[test]

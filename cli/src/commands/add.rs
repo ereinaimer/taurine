@@ -62,9 +62,7 @@ pub fn execute_with_trigger_type(
     let prepared = prepare_trigger_with_type(&trigger, trigger_type, &os)?;
     let stored_trigger = prepared.stored_trigger;
 
-    // Validate the snippet output for potential issues (cursors, conflicts, etc.)
-    // Warnings are printed to the console via tracing::warn!
-    validate_output(&output, Some(&stored_trigger));
+    validate_output(&output, Some(&stored_trigger))?;
 
     let conn = init::setup()?;
     let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
