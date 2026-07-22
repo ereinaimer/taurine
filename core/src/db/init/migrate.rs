@@ -27,7 +27,7 @@ use tracing::{error, info};
 /// 4. Bump `CURRENT_SCHEMA_VERSION` by one.
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Bump this whenever you add a new match arm below.
-    const CURRENT_SCHEMA_VERSION: u32 = 2;
+    const CURRENT_SCHEMA_VERSION: u32 = 1;
 
     // Read the stamp baked into the file header (0 for a fresh database).
     let version: u32 = conn
@@ -52,7 +52,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                 // ----------------------------------------------------------------
                 // settings     — domain-keyed JSON config store
                 // triggers     — trigger rules with sync/tombstone metadata
-                // metrics      — daily usage counters (renamed to stats in v2)
+                // stats        — daily usage counters
                 // ----------------------------------------------------------------
                 0 => conn
                     .execute_batch(
@@ -86,7 +86,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     is_synced    BOOLEAN DEFAULT 1
                 );
 
-                CREATE TABLE IF NOT EXISTS metrics (
+                CREATE TABLE IF NOT EXISTS stats (
                     date             TEXT    PRIMARY KEY,
                     executions       INTEGER DEFAULT 0,
                     ai_executions    INTEGER DEFAULT 0,
@@ -128,9 +128,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                 CREATE INDEX IF NOT EXISTS idx_triggers_usage_count
                     ON triggers(usage_count DESC);
 
-                -- Metrics sync: same LWW ordering as triggers.
-                CREATE INDEX IF NOT EXISTS idx_metrics_sync
-                    ON metrics(version, updated_at);
+                -- Stats sync: same LWW ordering as triggers.
+                CREATE INDEX IF NOT EXISTS idx_stats_sync
+                    ON stats(version, updated_at);
 
                 CREATE TABLE IF NOT EXISTS ai_presets (
                     name   TEXT PRIMARY KEY,
@@ -147,21 +147,6 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     )
                     .map_err(|e| {
                         error!(error=%e, "Schema migration v0 -> v1 failed");
-                        e
-                    })?,
-
-                // ----------------------------------------------------------------
-                // v1 → v2 : Rename metrics table to stats
-                // ----------------------------------------------------------------
-                1 => conn
-                    .execute_batch(
-                        "ALTER TABLE metrics RENAME TO stats;
-                         DROP INDEX IF EXISTS idx_metrics_sync;
-                         CREATE INDEX IF NOT EXISTS idx_stats_sync ON stats(version, updated_at);
-                         PRAGMA user_version = 2;",
-                    )
-                    .map_err(|e| {
-                        error!(error=%e, "Schema migration v1 -> v2 failed");
                         e
                     })?,
 
