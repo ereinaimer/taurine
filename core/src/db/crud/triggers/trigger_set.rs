@@ -1588,6 +1588,8 @@ pub fn add_trigger(
         only_apps,
         except_apps,
         tags,
+        None,
+        None,
         false,
     )
 }
@@ -1612,6 +1614,8 @@ pub fn add_trigger_by_type(
         only_apps,
         except_apps,
         tags,
+        None,
+        None,
         false,
     )
 }
@@ -1625,6 +1629,8 @@ pub fn add_trigger_with_case(
     only_apps: Option<&str>,
     except_apps: Option<&str>,
     tags: Option<Vec<String>>,
+    name: Option<&str>,
+    description: Option<&str>,
     auto_case: bool,
 ) -> Result<AddOutcome> {
     add_trigger_by_type_with_case(
@@ -1636,6 +1642,8 @@ pub fn add_trigger_with_case(
         only_apps,
         except_apps,
         tags,
+        name,
+        description,
         auto_case,
     )
 }
@@ -1650,6 +1658,8 @@ pub fn add_trigger_by_type_with_case(
     only_apps: Option<&str>,
     except_apps: Option<&str>,
     tags: Option<Vec<String>>,
+    name: Option<&str>,
+    description: Option<&str>,
     auto_case: bool,
 ) -> Result<AddOutcome> {
     let trigger_nfc: String = trigger.nfc().collect();
@@ -1657,6 +1667,21 @@ pub fn add_trigger_by_type_with_case(
 
     validate_trigger_not_reserved(conn, &trigger_nfc)?;
     validate_trigger_limits(conn, &trigger_nfc, &output_nfc, "text")?;
+
+    if name.is_some_and(|n| n.len() > trigger_types::MAX_NAME_LENGTH) {
+        return Err(crate::Error::Config(
+            "Name exceeds maximum length of ".to_string()
+                + &trigger_types::MAX_NAME_LENGTH.to_string()
+                + " characters",
+        ));
+    }
+    if description.is_some_and(|d| d.len() > trigger_types::MAX_DESCRIPTION_LENGTH) {
+        return Err(crate::Error::Config(
+            "Description exceeds maximum length of ".to_string()
+                + &trigger_types::MAX_DESCRIPTION_LENGTH.to_string()
+                + " characters",
+        ));
+    }
 
     let tags = tags.map(|t| {
         let mut seen = std::collections::HashSet::new();
@@ -1708,22 +1733,35 @@ pub fn add_trigger_by_type_with_case(
                 && existing_action == "text"
                 && existing_auto_case == auto_case =>
         {
+            if name.is_none() && description.is_none() && tags.is_none() {
+                return Ok(AddOutcome::AlreadyExists);
+            }
+            let now = now_unix_secs();
             if let Some(ref t) = tags {
-                let now = now_unix_secs();
                 let t_json =
                     serde_json::to_string(t).map_err(|e| crate::Error::Config(e.to_string()))?;
                 conn.execute(
                     "UPDATE triggers
-                     SET tags        = ?1,
-                         updated_at  = ?2,
+                     SET name        = COALESCE(?1, name),
+                         description = COALESCE(?2, description),
+                         tags        = ?3,
+                         updated_at  = ?4,
                          version     = version + 1
-                     WHERE id = ?3",
-                    rusqlite::params![t_json, now, id],
+                     WHERE id = ?5",
+                    rusqlite::params![name, description, t_json, now, id],
                 )?;
-                Ok(AddOutcome::Updated)
             } else {
-                Ok(AddOutcome::AlreadyExists)
+                conn.execute(
+                    "UPDATE triggers
+                     SET name        = COALESCE(?1, name),
+                         description = COALESCE(?2, description),
+                         updated_at  = ?3,
+                         version     = version + 1
+                     WHERE id = ?4",
+                    rusqlite::params![name, description, now, id],
+                )?;
             }
+            Ok(AddOutcome::Updated)
         }
         Some((id, _, _, _)) => {
             let now = now_unix_secs();
@@ -1732,25 +1770,29 @@ pub fn add_trigger_by_type_with_case(
                     serde_json::to_string(t).map_err(|e| crate::Error::Config(e.to_string()))?;
                 conn.execute(
                     "UPDATE triggers
-                     SET output      = ?1,
+                     SET name        = COALESCE(?1, name),
+                         description = COALESCE(?2, description),
+                         output      = ?3,
                          action_type = 'text',
-                         tags        = ?2,
-                         updated_at  = ?3,
-                         auto_case   = ?4,
+                         tags        = ?4,
+                         updated_at  = ?5,
+                         auto_case   = ?6,
                          version     = version + 1
-                     WHERE id = ?5",
-                    rusqlite::params![&output_nfc, t_json, now, auto_case, id],
+                     WHERE id = ?7",
+                    rusqlite::params![name, description, &output_nfc, t_json, now, auto_case, id],
                 )?;
             } else {
                 conn.execute(
                     "UPDATE triggers
-                     SET output      = ?1,
+                     SET name        = COALESCE(?1, name),
+                         description = COALESCE(?2, description),
+                         output      = ?3,
                          action_type = 'text',
-                         updated_at  = ?2,
-                         auto_case   = ?3,
+                         updated_at  = ?4,
+                         auto_case   = ?5,
                          version     = version + 1
-                     WHERE id = ?4",
-                    rusqlite::params![&output_nfc, now, auto_case, id],
+                     WHERE id = ?6",
+                    rusqlite::params![name, description, &output_nfc, now, auto_case, id],
                 )?;
             }
             conn.execute(
@@ -1771,6 +1813,7 @@ pub fn add_trigger_by_type_with_case(
             )?;
 
             let id = uuid::Uuid::new_v4().to_string();
+            let trigger_name = name.unwrap_or(&trigger_nfc);
             let tags_str = if let Some(ref t) = tags {
                 serde_json::to_string(t).map_err(|e| crate::Error::Config(e.to_string()))?
             } else {
@@ -1779,8 +1822,8 @@ pub fn add_trigger_by_type_with_case(
             upsert_trigger_with_type_and_case(
                 conn,
                 &id,
-                &trigger_nfc,
-                None,
+                trigger_name,
+                description,
                 trigger_type,
                 &trigger_nfc,
                 &output_nfc,
@@ -2416,6 +2459,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
             false,
         )
         .unwrap();
@@ -2445,10 +2490,223 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
             false,
         );
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("does not exist"));
+    }
+
+    #[test]
+    fn test_add_trigger_with_name_and_description() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, conn) = crate::testing::open_test_db();
+
+        add_trigger_by_type_with_case(
+            &conn,
+            TriggerType::Word,
+            "greeting",
+            "hello",
+            "all",
+            None,
+            None,
+            None,
+            Some("My Greeting"),
+            Some("A friendly salutation"),
+            false,
+        )
+        .unwrap();
+
+        let (stored_name, stored_desc): (String, Option<String>) = conn
+            .query_row(
+                "SELECT name, description FROM triggers WHERE trigger = 'greeting'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(stored_name, "My Greeting");
+        assert_eq!(stored_desc.as_deref(), Some("A friendly salutation"));
+    }
+
+    #[test]
+    fn test_update_name_and_description_on_re_add() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, conn) = crate::testing::open_test_db();
+
+        // First add — no custom name/description
+        add_trigger_by_type_with_case(
+            &conn,
+            TriggerType::Word,
+            "greeting2",
+            "hello",
+            "all",
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+
+        let (name1, desc1): (String, Option<String>) = conn
+            .query_row(
+                "SELECT name, description FROM triggers WHERE trigger = 'greeting2'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(name1, "greeting2"); // Defaults to trigger
+        assert_eq!(desc1, None);
+
+        // Re-add with same output but custom name/description
+        let outcome = add_trigger_by_type_with_case(
+            &conn,
+            TriggerType::Word,
+            "greeting2",
+            "hello",
+            "all",
+            None,
+            None,
+            None,
+            Some("Updated Name"),
+            Some("Now has a description"),
+            false,
+        )
+        .unwrap();
+        assert_eq!(outcome, AddOutcome::Updated);
+
+        let (name2, desc2): (String, Option<String>) = conn
+            .query_row(
+                "SELECT name, description FROM triggers WHERE trigger = 'greeting2'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(name2, "Updated Name");
+        assert_eq!(desc2.as_deref(), Some("Now has a description"));
+
+        // Re-add with different output + name override
+        let outcome2 = add_trigger_by_type_with_case(
+            &conn,
+            TriggerType::Word,
+            "greeting2",
+            "bonjour",
+            "all",
+            None,
+            None,
+            None,
+            Some("French Greeting"),
+            None,
+            false,
+        )
+        .unwrap();
+        assert_eq!(outcome2, AddOutcome::Updated);
+
+        let (name3, desc3, output3): (String, Option<String>, String) = conn
+            .query_row(
+                "SELECT name, description, output FROM triggers WHERE trigger = 'greeting2'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(name3, "French Greeting");
+        assert_eq!(desc3.as_deref(), Some("Now has a description")); // Preserved from before
+        assert_eq!(output3, "bonjour");
+    }
+
+    #[test]
+    fn test_add_trigger_by_type_with_case_rejects_long_name() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, conn) = crate::testing::open_test_db();
+
+        let long_name = "a".repeat(201);
+        let result = add_trigger_by_type_with_case(
+            &conn,
+            TriggerType::Word,
+            "len_test",
+            "out",
+            "all",
+            None,
+            None,
+            None,
+            Some(&long_name),
+            None,
+            false,
+        );
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("exceeds maximum length")
+        );
+    }
+
+    #[test]
+    fn test_add_trigger_by_type_with_case_rejects_long_description() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, conn) = crate::testing::open_test_db();
+
+        let long_desc = "a".repeat(1001);
+        let result = add_trigger_by_type_with_case(
+            &conn,
+            TriggerType::Word,
+            "len_test2",
+            "out",
+            "all",
+            None,
+            None,
+            None,
+            Some("ok"),
+            Some(&long_desc),
+            false,
+        );
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("exceeds maximum length")
+        );
+    }
+
+    #[test]
+    fn test_re_add_same_output_no_name_returns_already_exists() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, conn) = crate::testing::open_test_db();
+
+        add_trigger_by_type_with_case(
+            &conn,
+            TriggerType::Word,
+            "foo",
+            "bar",
+            "all",
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+
+        let outcome = add_trigger_by_type_with_case(
+            &conn,
+            TriggerType::Word,
+            "foo",
+            "bar",
+            "all",
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+        assert_eq!(outcome, AddOutcome::AlreadyExists);
     }
 
     #[test]

@@ -37,6 +37,8 @@ pub fn execute(
         include_apps,
         exclude_apps,
         None,
+        None,
+        None,
         false,
         false,
     )
@@ -54,6 +56,8 @@ pub fn execute_with_trigger_type(
     include_apps: Option<String>,
     exclude_apps: Option<String>,
     tags: Option<Vec<String>>,
+    name: Option<String>,
+    description: Option<String>,
     auto_case: bool,
     json: bool,
 ) -> taurine_core::error::Result<()> {
@@ -93,6 +97,22 @@ pub fn execute_with_trigger_type(
 
     let prepared = prepare_trigger_with_type(&trigger, trigger_type, &os)?;
     let stored_trigger = prepared.stored_trigger.nfc().collect::<String>();
+    let trigger_name: String = name.unwrap_or_else(|| stored_trigger.clone());
+    let description: Option<String> =
+        description.or_else(|| Some(format!("Shell script ({})", source_desc)));
+
+    if trigger_name.len() > 200 {
+        return Err(taurine_core::error::Error::Config(
+            "Name exceeds maximum length of 200 characters".into(),
+        ));
+    }
+    if description.as_deref().is_some_and(|d| d.len() > 1000) {
+        return Err(taurine_core::error::Error::Config(
+            "Description exceeds maximum length of 1000 characters".into(),
+        ));
+    }
+
+    let description = description.as_deref();
 
     // 2. Infer interpreter if not provided
     let lang = match lang {
@@ -260,8 +280,8 @@ pub fn execute_with_trigger_type(
             taurine_core::db::crud::upsert_trigger_with_type_and_case(
                 &conn,
                 &id,
-                &stored_trigger,
-                Some(&format!("Shell script ({})", source_desc)),
+                &trigger_name,
+                description,
                 TriggerType::Word,
                 &stored_trigger,
                 &format!("[Script: {}]", lang_to_str(lang)),
@@ -277,8 +297,8 @@ pub fn execute_with_trigger_type(
             taurine_core::db::crud::upsert_trigger_with_type_and_case(
                 &conn,
                 &id,
-                &stored_trigger,
-                Some(&format!("Shell script ({})", source_desc)),
+                &trigger_name,
+                description,
                 TriggerType::Hotkey,
                 &stored_trigger,
                 &format!("[Script: {}]", lang_to_str(lang)),
@@ -294,8 +314,8 @@ pub fn execute_with_trigger_type(
             taurine_core::db::crud::upsert_trigger_with_type_and_case(
                 &conn,
                 &id,
-                &stored_trigger,
-                Some(&format!("Shell script ({})", source_desc)),
+                &trigger_name,
+                description,
                 TriggerType::Regex,
                 &stored_trigger,
                 &format!("[Script: {}]", lang_to_str(lang)),

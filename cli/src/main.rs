@@ -316,6 +316,14 @@ pub struct AddArgs {
     #[arg(long = "tag", value_delimiter = ',', num_args = 1..)]
     pub tag: Option<Vec<String>>,
 
+    /// Display name (defaults to the trigger string)
+    #[arg(long)]
+    pub name: Option<String>,
+
+    /// Description for the trigger
+    #[arg(long)]
+    pub description: Option<String>,
+
     /// Auto-case
     #[arg(long)]
     pub auto_case: bool,
@@ -363,6 +371,14 @@ pub enum AddSubcommand {
         /// Tags
         #[arg(long = "tag", value_delimiter = ',', num_args = 1..)]
         tag: Option<Vec<String>>,
+
+        /// Display name (defaults to the trigger string)
+        #[arg(long)]
+        name: Option<String>,
+
+        /// Description for the trigger
+        #[arg(long)]
+        description: Option<String>,
 
         /// Auto-case
         #[arg(long)]
@@ -635,6 +651,8 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
                 include_apps,
                 exclude_apps,
                 tag,
+                name,
+                description,
                 auto_case,
             }) = args.sub
             {
@@ -658,6 +676,8 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
                     include_apps,
                     exclude_apps,
                     tag,
+                    name,
+                    description,
                     auto_case,
                     json,
                 )?;
@@ -682,6 +702,8 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
                     args.include_apps,
                     args.exclude_apps,
                     args.tag,
+                    args.name,
+                    args.description,
                     args.auto_case,
                     json,
                 )?;

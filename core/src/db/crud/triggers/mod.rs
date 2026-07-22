@@ -1874,9 +1874,19 @@ mod tests {
         conn.execute("DELETE FROM triggers", []).unwrap();
 
         // Add with auto_case: true
-        let outcome =
-            add_trigger_with_case(&conn, "btw", "by the way", "all", None, None, None, true)
-                .unwrap();
+        let outcome = add_trigger_with_case(
+            &conn,
+            "btw",
+            "by the way",
+            "all",
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .unwrap();
         assert_eq!(outcome, AddOutcome::Created);
 
         // Retrieve and check auto_case

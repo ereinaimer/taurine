@@ -22,6 +22,8 @@ pub fn execute(
         include_apps,
         exclude_apps,
         None,
+        None,
+        None,
         false,
         false,
     )
@@ -36,6 +38,8 @@ pub fn execute_with_trigger_type(
     include_apps: Option<String>,
     exclude_apps: Option<String>,
     tags: Option<Vec<String>>,
+    name: Option<String>,
+    description: Option<String>,
     auto_case: bool,
     json: bool,
 ) -> taurine_core::error::Result<()> {
@@ -142,6 +146,8 @@ pub fn execute_with_trigger_type(
             include_apps.as_deref(),
             exclude_apps.as_deref(),
             tags,
+            name.as_deref(),
+            description.as_deref(),
             auto_case,
         )?,
         TriggerType::Hotkey => add_trigger_by_type_with_case(
@@ -153,6 +159,8 @@ pub fn execute_with_trigger_type(
             include_apps.as_deref(),
             exclude_apps.as_deref(),
             tags,
+            name.as_deref(),
+            description.as_deref(),
             auto_case,
         )?,
         TriggerType::Regex => add_trigger_by_type_with_case(
@@ -164,6 +172,8 @@ pub fn execute_with_trigger_type(
             include_apps.as_deref(),
             exclude_apps.as_deref(),
             tags,
+            name.as_deref(),
+            description.as_deref(),
             auto_case,
         )?,
     };
