@@ -9,7 +9,7 @@ use wait_timeout::ChildExt;
 const SCRIPT_NOT_FOUND: &str = "[Error: path to script not found!]";
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ExecuteInvocation {
+pub struct ExecuteInvocation {
     pub silent: bool,
     pub interpreter: ScriptInterpreter,
     pub file: bool,
@@ -18,14 +18,14 @@ pub(crate) struct ExecuteInvocation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ExecuteParseError {
+pub enum ExecuteParseError {
     MissingSubject,
     InvalidLanguage,
     UnbalancedParentheses,
     InvalidTrailingSyntax,
 }
 
-pub(crate) fn parse_invocation(key: &str) -> Result<ExecuteInvocation, ExecuteParseError> {
+pub fn parse_invocation(key: &str) -> Result<ExecuteInvocation, ExecuteParseError> {
     let mut rest = key
         .strip_prefix("exec.")
         .ok_or(ExecuteParseError::InvalidLanguage)?;

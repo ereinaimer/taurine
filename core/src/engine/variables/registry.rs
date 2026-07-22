@@ -1,4 +1,5 @@
 use super::system;
+use crate::engine::variables::system::exec::parse_invocation;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationError {
@@ -27,7 +28,6 @@ const DATE_METHODS: &[&str] = &["utc", "calc(±...)", "format(...)"];
 
 const UUID_MODIFIERS: &[&str] = &["v4", "v7"];
 const NET_MODIFIERS: &[&str] = &["ip", "lip", "online", "port(n)"];
-const EXEC_LANGUAGES: &[&str] = &["bash", "powershell", "python", "node", "node_esm", "cmd"];
 const EXEC_MODIFIERS: &[&str] = &[
     "exec.<lang>(...)",
     "exec.silent.<lang>(...)",
@@ -331,68 +331,15 @@ fn validate_exec_modifier(modifier: Option<&str>) -> Result<(), ValidationError>
         normalize_modifier(modifier.ok_or(ValidationError::MissingModifier { root: "exec" })?)
             .ok_or(ValidationError::MissingModifier { root: "exec" })?;
 
-    let mut rest = modifier;
-    if let Some(suffix) = rest.strip_prefix("silent.") {
-        rest = suffix;
-    }
-
-    let (language, after_language) =
-        parse_exec_language(rest).ok_or_else(|| ValidationError::InvalidModifier {
+    // Delegate to the real order-independent parser from exec.rs
+    match parse_invocation(&format!("exec.{}", modifier)) {
+        Ok(_) => Ok(()),
+        Err(_) => Err(ValidationError::InvalidModifier {
             root: "exec",
             modifier: modifier.to_string(),
             allowed: EXEC_MODIFIERS,
-        })?;
-
-    if !EXEC_LANGUAGES.contains(&language) {
-        return Err(ValidationError::InvalidModifier {
-            root: "exec",
-            modifier: modifier.to_string(),
-            allowed: EXEC_MODIFIERS,
-        });
+        }),
     }
-
-    let after_file = after_language
-        .strip_prefix(".file")
-        .unwrap_or(after_language);
-    let (_, trailing) =
-        scan_exec_parenthesized(after_file).ok_or_else(|| ValidationError::InvalidModifier {
-            root: "exec",
-            modifier: modifier.to_string(),
-            allowed: EXEC_MODIFIERS,
-        })?;
-
-    let trailing = if let Some(args) = trailing.strip_prefix(".args") {
-        let (_, trailing) =
-            scan_exec_parenthesized(args).ok_or_else(|| ValidationError::InvalidModifier {
-                root: "exec",
-                modifier: modifier.to_string(),
-                allowed: EXEC_MODIFIERS,
-            })?;
-        trailing
-    } else {
-        trailing
-    };
-
-    if trailing.trim().is_empty() {
-        Ok(())
-    } else {
-        Err(ValidationError::InvalidModifier {
-            root: "exec",
-            modifier: modifier.to_string(),
-            allowed: EXEC_MODIFIERS,
-        })
-    }
-}
-
-fn parse_exec_language(input: &str) -> Option<(&str, &str)> {
-    for language in EXEC_LANGUAGES {
-        if let Some(rest) = input.strip_prefix(language)
-            && (rest.starts_with('(') || rest.starts_with(".file"))
-        {
-            return Some((language, rest));
-        }
-    }
-    None
 }
 
 fn scan_exec_parenthesized(input: &str) -> Option<(&str, &str)> {
@@ -877,6 +824,7 @@ mod tests {
 
     #[test]
     fn validates_exec_modifier_syntax() {
+        // Standard forms
         assert_eq!(validate_system_tag("exec", Some("bash(echo 42)")), Ok(()));
         assert_eq!(
             validate_system_tag("exec", Some("silent.bash(echo start)")),
@@ -890,6 +838,40 @@ mod tests {
             validate_system_tag("exec", Some("node_esm(console.log((1 + 2)))")),
             Ok(())
         );
+
+        // Order-independence: language can come after .file()
+        assert_eq!(
+            validate_system_tag("exec", Some("file(/tmp/test.sh).bash")),
+            Ok(())
+        );
+        assert_eq!(
+            validate_system_tag("exec", Some("file(/tmp/test.sh).bash.args(a, b)")),
+            Ok(())
+        );
+        assert_eq!(
+            validate_system_tag("exec", Some("file(/tmp/test.sh).python.silent")),
+            Ok(())
+        );
+        assert_eq!(
+            validate_system_tag("exec", Some("file(/tmp/test.sh).silent.bash")),
+            Ok(())
+        );
+
+        // Order-independence: .silent after the language or subject
+        assert_eq!(
+            validate_system_tag("exec", Some("bash(echo 1).silent")),
+            Ok(())
+        );
+        assert_eq!(
+            validate_system_tag("exec", Some("bash(echo 1).silent.args(a, b)")),
+            Ok(())
+        );
+        assert_eq!(
+            validate_system_tag("exec", Some("file(/tmp/test.sh).python.silent.args(a, b)")),
+            Ok(())
+        );
+
+        // Error cases remain the same
         assert_eq!(
             validate_system_tag("exec", Some("ruby(puts 1)")),
             Err(ValidationError::InvalidModifier {
