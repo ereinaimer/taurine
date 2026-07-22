@@ -8,12 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Global `--json` Flag**: All CLI commands support a `--json` flag for machine-readable JSON output. List commands return structured data (triggers, settings, AI providers/models), action commands return status objects.
 - **Mouse Support in Import/Export Modals**: Click to select fields, scroll to navigate, and double-click to execute actions in the import and export overlays.
 - **OS-Native Uninstallation**: Support standard system uninstallation, registering Taurine in the Windows Installed Apps list and providing clean uninstall scripts for all platforms.
 - **Triggerless Tab Completion**: Intercept the Tab key in triggerless mode to trigger completion suggestions for the typed word tail, while passing through to the OS when no matches exist.
 - **Interactive Import Options**: When importing from the CLI without any optional flags, Taurine now opens an interactive overlay where you can choose whether to include settings, sensitive settings, and stats, and pick a conflict resolution strategy.
 
 ### Changed
+- **Plain Output as Default**: Removed table borders from `list` and `config list` commands. Output is now plain text by default (`--plain` flag removed).
 - **Rename Automations to Triggers**: Standardize terminology across CLI commands, TUI, and data exchange format by renaming automations to triggers.
 - **Hot Path CPU & RAM Optimizations**: Reduce CPU overhead on the input processing hot path by deferring regex buffer allocation, eliminating O(n²) string cloning in suffix matching, and replacing per-expansion thread spawning with a fixed 2-thread pool. Cap tokio async runtime to 2 worker threads and 4 blocking threads to cut idle memory reservation.
 - **Rename Conflict Resolution Flag**: Rename the database collision resolution CLI option in the import command from `--on-conflict` to `--conflict` (`-c`) for better consistency.

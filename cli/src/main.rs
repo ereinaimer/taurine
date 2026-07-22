@@ -38,6 +38,10 @@ struct Cli {
     #[arg(long, hide = true)]
     daemon: bool,
 
+    /// Output in JSON format
+    #[arg(long, global = true)]
+    json: bool,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -92,10 +96,6 @@ enum Commands {
         /// Descending order
         #[arg(long, conflicts_with = "asc")]
         desc: bool,
-
-        /// Plain output
-        #[arg(long)]
-        plain: bool,
 
         /// Filter by tag
         #[arg(long)]
@@ -487,7 +487,7 @@ fn main() -> std::process::ExitCode {
         cli.no_color,
         cli.show_log_prefixes,
         component,
-        launch_target == LaunchTarget::Tui,
+        launch_target == LaunchTarget::Tui || cli.json,
     );
 
     // Install a panic hook that:
@@ -509,6 +509,7 @@ fn main() -> std::process::ExitCode {
 }
 
 fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()> {
+    let json = cli.json;
     match launch_target {
         LaunchTarget::Daemon => {
             info!("Initializing Taurine v{VERSION}");
@@ -555,12 +556,59 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
 
             if matches!(cli.command, Some(Commands::Restart)) {
                 taurine_core::service::restart(start_on_boot)?;
+                if json {
+                    println!("{}", serde_json::json!({"status": "restarted"}));
+                }
             } else {
                 taurine_core::service::up(start_on_boot)?;
+                if json {
+                    println!("{}", serde_json::json!({"status": "started"}));
+                }
             }
         }
-        Some(Commands::Down) => taurine_core::service::down()?,
-        Some(Commands::Status) => taurine_core::service::status()?,
+        Some(Commands::Down) => {
+            taurine_core::service::down()?;
+            if json {
+                println!("{}", serde_json::json!({"status": "stopped"}));
+            }
+        }
+        Some(Commands::Status) => {
+            if json {
+                use taurine_core::rpc;
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?;
+                let status_json = rt.block_on(async {
+                    if let Ok(mut client) = rpc::get_client().await {
+                        let request = tonic::Request::new(rpc::StatusRequest {});
+                        if let Ok(resp) = client.get_status(request).await {
+                            let s = resp.into_inner();
+                            Some(serde_json::json!({
+                                "running": s.online,
+                                "paused": s.paused,
+                                "hook_listener_running": s.hook_listener_running,
+                                "last_hook_error": if s.last_hook_error.is_empty() {
+                                    serde_json::Value::Null
+                                } else {
+                                    serde_json::Value::String(s.last_hook_error)
+                                },
+                                "keyboard_capture": s.keyboard_capture,
+                            }))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                });
+                match status_json {
+                    Some(json) => println!("{}", json),
+                    None => println!("{}", serde_json::json!({"running": false})),
+                }
+            } else {
+                taurine_core::service::status()?;
+            }
+        }
         Some(Commands::Update) => commands::update::execute()?,
         Some(Commands::Add(args)) => {
             if let Some(AddSubcommand::Script {
@@ -599,6 +647,7 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
                     exclude_apps,
                     tag,
                     auto_case,
+                    json,
                 )?;
             } else if let (Some(t), Some(o)) = (args.trigger, args.output) {
                 let os = args
@@ -622,6 +671,7 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
                     args.exclude_apps,
                     args.tag,
                     args.auto_case,
+                    json,
                 )?;
             } else {
                 // Show help for add command if neither subcommand nor positional args are valid
@@ -633,16 +683,15 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
             }
         }
         Some(Commands::Delete { triggers, tag, yes }) => {
-            commands::delete::execute(triggers, tag, yes)?;
+            commands::delete::execute(triggers, tag, yes, json)?;
         }
         Some(Commands::List {
             sort,
             asc,
             desc,
-            plain,
             tag,
         }) => {
-            commands::list::execute(sort, asc, desc, plain, tag)?;
+            commands::list::execute(sort, asc, desc, json, tag)?;
         }
         Some(Commands::Export {
             path,
@@ -665,13 +714,13 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
             commands::import::execute(path, conflict, settings, stats, sensitive, yes)?;
         }
         Some(Commands::Config { action }) => match action {
-            ConfigAction::Set { key, value } => commands::config::execute_set(key, value)?,
-            ConfigAction::List => commands::config::execute_list()?,
+            ConfigAction::Set { key, value } => commands::config::execute_set(key, value, json)?,
+            ConfigAction::List => commands::config::execute_list(json)?,
             ConfigAction::Reset { key, all } => {
                 if all {
-                    commands::config::execute_reset_all()?;
+                    commands::config::execute_reset_all(json)?;
                 } else if let Some(k) = key {
-                    commands::config::execute_reset(k)?;
+                    commands::config::execute_reset(k, json)?;
                 } else {
                     error!("error: provide a key to reset or use --all to reset everything");
                     std::process::exit(1);
@@ -679,10 +728,10 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
             }
         },
         Some(Commands::Ai { action }) => match action {
-            AiAction::Add { provider } => commands::ai::execute_add(provider.into())?,
-            AiAction::List => commands::ai::execute_list()?,
-            AiAction::Models { provider } => commands::ai::execute_models(provider.into())?,
-            AiAction::Remove { provider } => commands::ai::execute_remove(provider.into())?,
+            AiAction::Add { provider } => commands::ai::execute_add(provider.into(), json)?,
+            AiAction::List => commands::ai::execute_list(json)?,
+            AiAction::Models { provider } => commands::ai::execute_models(provider.into(), json)?,
+            AiAction::Remove { provider } => commands::ai::execute_remove(provider.into(), json)?,
         },
         Some(Commands::Completions { action }) => {
             commands::completions::handle_completion(&action)?;
@@ -856,6 +905,180 @@ mod tests {
         let cli =
             Cli::try_parse_from(["taurine", "-q"]).expect("flag-only invocation should parse");
         assert_eq!(launch_target(&cli), LaunchTarget::Tui);
+    }
+
+    #[test]
+    fn global_json_flag_on_list() {
+        let cli = Cli::try_parse_from(["taurine", "ls", "--json"]).expect("ls --json should parse");
+        assert!(cli.json);
+        assert!(matches!(cli.command, Some(Commands::List { .. })));
+    }
+
+    #[test]
+    fn global_json_flag_on_config_list() {
+        let cli = Cli::try_parse_from(["taurine", "config", "list", "--json"])
+            .expect("config list --json should parse");
+        assert!(cli.json);
+    }
+
+    #[test]
+    fn global_json_flag_on_ai_list() {
+        let cli = Cli::try_parse_from(["taurine", "ai", "list", "--json"])
+            .expect("ai list --json should parse");
+        assert!(cli.json);
+    }
+
+    #[test]
+    fn global_json_flag_on_ai_models() {
+        let cli =
+            Cli::try_parse_from(["taurine", "ai", "models", "--provider", "gemini", "--json"])
+                .expect("ai models --json should parse");
+        assert!(cli.json);
+    }
+
+    #[test]
+    fn global_json_flag_on_add() {
+        let cli = Cli::try_parse_from(["taurine", "add", "gs", "git status", "--json"])
+            .expect("add --json should parse");
+        assert!(cli.json);
+    }
+
+    #[test]
+    fn global_json_flag_on_delete() {
+        let cli = Cli::try_parse_from(["taurine", "delete", "gs", "--json"])
+            .expect("delete --json should parse");
+        assert!(cli.json);
+    }
+
+    #[test]
+    fn global_json_flag_on_up() {
+        let cli = Cli::try_parse_from(["taurine", "up", "--json"]).expect("up --json should parse");
+        assert!(cli.json);
+    }
+
+    #[test]
+    fn global_json_flag_on_down() {
+        let cli =
+            Cli::try_parse_from(["taurine", "down", "--json"]).expect("down --json should parse");
+        assert!(cli.json);
+    }
+
+    #[test]
+    fn global_json_flag_on_status() {
+        let cli = Cli::try_parse_from(["taurine", "status", "--json"])
+            .expect("status --json should parse");
+        assert!(cli.json);
+    }
+
+    #[test]
+    fn global_json_flag_on_config_set() {
+        let cli = Cli::try_parse_from(["taurine", "config", "set", "wpm", "100", "--json"])
+            .expect("config set --json should parse");
+        assert!(cli.json);
+    }
+
+    #[test]
+    fn global_json_flag_on_config_reset() {
+        let cli = Cli::try_parse_from(["taurine", "config", "reset", "wpm", "--json"])
+            .expect("config reset --json should parse");
+        assert!(cli.json);
+    }
+
+    #[test]
+    fn global_json_flag_on_ai_add() {
+        let cli = Cli::try_parse_from(["taurine", "ai", "add", "--provider", "openai", "--json"])
+            .expect("ai add --json should parse");
+        assert!(cli.json);
+    }
+
+    #[test]
+    fn global_json_flag_position_independent() {
+        // --json before subcommand
+        let cli = Cli::try_parse_from(["taurine", "--json", "ls"])
+            .expect("--json before ls should parse");
+        assert!(cli.json);
+    }
+
+    #[test]
+    fn global_json_false_by_default() {
+        let cli = Cli::try_parse_from(["taurine", "ls"]).expect("ls without --json should parse");
+        assert!(!cli.json);
+    }
+
+    #[test]
+    fn global_json_on_update_parses() {
+        let cli = Cli::try_parse_from(["taurine", "update", "--json"])
+            .expect("update --json should parse");
+        assert!(cli.json);
+    }
+
+    #[test]
+    fn global_json_on_completions_parses() {
+        let cli = Cli::try_parse_from(["taurine", "completions", "bash", "--json"])
+            .expect("completions --json should parse");
+        assert!(cli.json);
+    }
+
+    #[test]
+    fn action_command_json_status_format() {
+        use serde_json::json;
+
+        // add command status objects
+        let created = json!({"status": "created", "trigger": "gs"});
+        assert_eq!(created["status"], "created");
+        assert_eq!(created["trigger"], "gs");
+
+        let exists = json!({"status": "exists", "trigger": "gs"});
+        assert_eq!(exists["status"], "exists");
+
+        let updated = json!({"status": "updated", "trigger": "gs"});
+        assert_eq!(updated["status"], "updated");
+
+        // delete command status objects
+        let deleted = json!({"status": "deleted", "count": 3});
+        assert_eq!(deleted["status"], "deleted");
+        assert_eq!(deleted["count"], 3);
+
+        let not_found = json!({"status": "not_found", "tag": "dev"});
+        assert_eq!(not_found["status"], "not_found");
+        assert_eq!(not_found["tag"], "dev");
+
+        // service command status objects
+        let started = json!({"status": "started"});
+        assert_eq!(started["status"], "started");
+
+        let stopped = json!({"status": "stopped"});
+        assert_eq!(stopped["status"], "stopped");
+
+        let restarted = json!({"status": "restarted"});
+        assert_eq!(restarted["status"], "restarted");
+    }
+
+    #[test]
+    fn action_command_json_script_format() {
+        use serde_json::json;
+
+        let created = json!({"status": "created", "trigger": "deploy", "action_type": "script"});
+        assert_eq!(created["action_type"], "script");
+        assert_eq!(created["trigger"], "deploy");
+
+        let updated = json!({"status": "updated", "trigger": "deploy", "action_type": "script"});
+        assert_eq!(updated["status"], "updated");
+    }
+
+    #[test]
+    fn action_command_json_config_format() {
+        use serde_json::json;
+
+        let updated = json!({"status": "updated", "key": "wpm"});
+        assert_eq!(updated["status"], "updated");
+        assert_eq!(updated["key"], "wpm");
+
+        let reset = json!({"status": "reset", "key": "wpm"});
+        assert_eq!(reset["status"], "reset");
+
+        let reset_all = json!({"status": "reset_all"});
+        assert_eq!(reset_all["status"], "reset_all");
     }
 
     #[test]

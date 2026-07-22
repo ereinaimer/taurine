@@ -1,132 +1,163 @@
-use comfy_table::{Table, TableComponent, modifiers, presets};
 use taurine_core::db::init;
 use taurine_core::settings::{Settings, SettingsManager};
 use tracing::{info, warn};
 
-pub fn execute_list() -> taurine_core::error::Result<()> {
+pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
     let conn = init::setup()?;
     let manager = SettingsManager::new(&conn);
     let settings = manager.load_all();
 
-    let mut table = Table::new();
-    table
-        .load_preset(presets::UTF8_FULL_CONDENSED)
-        .apply_modifier(modifiers::UTF8_ROUND_CORNERS);
+    if json {
+        println!("{}", serde_json::to_string(&settings).unwrap());
+        return Ok(());
+    }
 
-    table.set_style(TableComponent::HeaderLines, '─');
-    table.set_style(TableComponent::LeftHeaderIntersection, '├');
-    table.set_style(TableComponent::MiddleHeaderIntersections, '┼');
-    table.set_style(TableComponent::RightHeaderIntersection, '┤');
-    table.set_style(TableComponent::VerticalLines, '│');
+    // Helper to build each line as (key, value) pair
+    let pairs: Vec<(&str, String)> = vec![
+        ("trigger_char", settings.trigger_char.to_string()),
+        ("pause_hotkey", settings.pause_hotkey.clone()),
+        (
+            "pause_notifications_enabled",
+            settings.pause_notifications_enabled.to_string(),
+        ),
+        (
+            "pause_audio_enabled",
+            settings.pause_audio_enabled.to_string(),
+        ),
+        ("start_on_boot", settings.start_on_boot.to_string()),
+        (
+            "inline_tab_completion_enabled",
+            settings.inline_tab_completion_enabled.to_string(),
+        ),
+        (
+            "inline_history_enabled",
+            settings.inline_history_enabled.to_string(),
+        ),
+        ("wpm", settings.wpm.to_string()),
+        (
+            "spinner_style",
+            format!("{:?}", settings.spinner_style).to_lowercase(),
+        ),
+        (
+            "ai_provider",
+            render_optional_setting(settings.ai_provider.as_deref()).to_string(),
+        ),
+        (
+            "ai_model",
+            render_optional_setting(settings.ai_model.as_deref()).to_string(),
+        ),
+        (
+            "ai_temperature",
+            render_optional_setting(settings.ai_temperature.map(|v| v.to_string()).as_deref())
+                .to_string(),
+        ),
+        (
+            "ai_max_tokens",
+            render_optional_setting(settings.ai_max_tokens.map(|v| v.to_string()).as_deref())
+                .to_string(),
+        ),
+        (
+            "ai_system_prompt",
+            render_optional_setting(settings.ai_system_prompt.as_deref()).to_string(),
+        ),
+        (
+            "ai_custom_endpoint",
+            render_optional_setting(settings.ai_custom_endpoint.as_deref()).to_string(),
+        ),
+        (
+            "inline_ai_trigger_mode",
+            format!("{:?}", settings.inline_ai_trigger_mode).to_lowercase(),
+        ),
+        ("inline_ai_trigger", settings.inline_ai_trigger.clone()),
+        (
+            "inline_ai_trigger_open",
+            settings.inline_ai_trigger_open.clone(),
+        ),
+        (
+            "inline_ai_trigger_close",
+            settings.inline_ai_trigger_close.clone(),
+        ),
+        (
+            "clipboard_restore_delay_ms",
+            settings.clipboard_restore_delay_ms.to_string(),
+        ),
+        (
+            "clipboard_history_enabled",
+            settings.clipboard_history_enabled.to_string(),
+        ),
+        (
+            "clipboard_history_retention_secs",
+            settings.clipboard_history_retention_secs.to_string(),
+        ),
+        (
+            "action_key",
+            format!("{:?}", settings.action_key).to_lowercase(),
+        ),
+        ("triggerless_mode", settings.triggerless_mode.to_string()),
+        ("scripts_enabled", settings.scripts_enabled.to_string()),
+        ("instant_expand", settings.instant_expand.to_string()),
+        (
+            "rpc_mode",
+            format!("{:?}", settings.rpc_mode).to_lowercase(),
+        ),
+    ];
 
-    table.set_header(vec!["KEY", "VALUE"]);
-
-    table.add_row(vec!["trigger_char", &settings.trigger_char.to_string()]);
-    table.add_row(vec!["pause_hotkey", &settings.pause_hotkey]);
-    table.add_row(vec![
-        "pause_notifications_enabled",
-        &settings.pause_notifications_enabled.to_string(),
-    ]);
-    table.add_row(vec![
-        "pause_audio_enabled",
-        &settings.pause_audio_enabled.to_string(),
-    ]);
-    table.add_row(vec!["start_on_boot", &settings.start_on_boot.to_string()]);
-    table.add_row(vec![
-        "inline_tab_completion_enabled",
-        &settings.inline_tab_completion_enabled.to_string(),
-    ]);
-    table.add_row(vec![
-        "inline_history_enabled",
-        &settings.inline_history_enabled.to_string(),
-    ]);
-    table.add_row(vec!["wpm", &settings.wpm.to_string()]);
-    table.add_row(vec![
-        "spinner_style",
-        &format!("{:?}", settings.spinner_style).to_lowercase(),
-    ]);
-    table.add_row(vec![
-        "ai_provider",
-        render_optional_setting(settings.ai_provider.as_deref()),
-    ]);
-    table.add_row(vec![
-        "ai_model",
-        render_optional_setting(settings.ai_model.as_deref()),
-    ]);
-    table.add_row(vec![
-        "ai_temperature",
-        render_optional_setting(settings.ai_temperature.map(|v| v.to_string()).as_deref()),
-    ]);
-    table.add_row(vec![
-        "ai_max_tokens",
-        render_optional_setting(settings.ai_max_tokens.map(|v| v.to_string()).as_deref()),
-    ]);
-    table.add_row(vec![
-        "ai_system_prompt",
-        render_optional_setting(settings.ai_system_prompt.as_deref()),
-    ]);
-    table.add_row(vec![
-        "ai_custom_endpoint",
-        render_optional_setting(settings.ai_custom_endpoint.as_deref()),
-    ]);
-    table.add_row(vec![
-        "inline_ai_trigger_mode",
-        &format!("{:?}", settings.inline_ai_trigger_mode).to_lowercase(),
-    ]);
-    table.add_row(vec!["inline_ai_trigger", &settings.inline_ai_trigger]);
-    table.add_row(vec![
-        "inline_ai_trigger_open",
-        &settings.inline_ai_trigger_open,
-    ]);
-    table.add_row(vec![
-        "inline_ai_trigger_close",
-        &settings.inline_ai_trigger_close,
-    ]);
-    table.add_row(vec![
-        "clipboard_restore_delay_ms",
-        &settings.clipboard_restore_delay_ms.to_string(),
-    ]);
-    table.add_row(vec![
-        "clipboard_history_enabled",
-        &settings.clipboard_history_enabled.to_string(),
-    ]);
-    table.add_row(vec![
-        "clipboard_history_retention_secs",
-        &settings.clipboard_history_retention_secs.to_string(),
-    ]);
-    table.add_row(vec![
-        "action_key",
-        &format!("{:?}", settings.action_key).to_lowercase(),
-    ]);
-    table.add_row(vec![
-        "triggerless_mode",
-        &settings.triggerless_mode.to_string(),
-    ]);
-    table.add_row(vec![
-        "scripts_enabled",
-        &settings.scripts_enabled.to_string(),
-    ]);
-    table.add_row(vec!["instant_expand", &settings.instant_expand.to_string()]);
     let show_tcp_settings = settings.rpc_mode == taurine_core::settings::RpcMode::Tcp;
 
-    table.add_row(vec![
-        "rpc_mode",
-        &format!("{:?}", settings.rpc_mode).to_lowercase(),
-    ]);
+    // Calculate key column width
+    let max_key_len = pairs.iter().map(|(k, _)| k.len()).max().unwrap_or(10);
+    let pad = 2;
+
+    for (key, value) in &pairs {
+        println!(
+            "{:<kw$}{:pad$}{}",
+            key,
+            "",
+            value,
+            kw = max_key_len,
+            pad = pad
+        );
+    }
 
     if show_tcp_settings {
-        table.add_row(vec!["rpc_host", &settings.rpc_host]);
-        table.add_row(vec!["rpc_port", &settings.rpc_port.to_string()]);
-        table.add_row(vec!["rpc_token", &settings.rpc_token]);
+        println!(
+            "{:<kw$}{:pad$}{}",
+            "rpc_host",
+            "",
+            settings.rpc_host,
+            kw = max_key_len,
+            pad = pad
+        );
+        println!(
+            "{:<kw$}{:pad$}{}",
+            "rpc_port",
+            "",
+            settings.rpc_port,
+            kw = max_key_len,
+            pad = pad
+        );
+        println!(
+            "{:<kw$}{:pad$}{}",
+            "rpc_token",
+            "",
+            settings.rpc_token,
+            kw = max_key_len,
+            pad = pad
+        );
     }
-    table.add_row(vec!["script_timeout", &settings.script_timeout.to_string()]);
-
-    println!("{}", table);
+    println!(
+        "{:<kw$}{:pad$}{}",
+        "script_timeout",
+        "",
+        settings.script_timeout,
+        kw = max_key_len,
+        pad = pad
+    );
 
     Ok(())
 }
 
-pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()> {
+pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::error::Result<()> {
     let conn = init::setup()?;
     let manager = SettingsManager::new(&conn);
 
@@ -323,9 +354,15 @@ pub fn execute_set(key: String, value: String) -> taurine_core::error::Result<()
     }
 
     taurine_core::rpc::notify_daemon_reload();
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({"status": "updated", "key": actual_key})
+        );
+    }
     Ok(())
 }
-pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
+pub fn execute_reset(key: String, json: bool) -> taurine_core::error::Result<()> {
     let conn = init::setup()?;
     let manager = SettingsManager::new(&conn);
     let defaults = Settings::default();
@@ -520,10 +557,16 @@ pub fn execute_reset(key: String) -> taurine_core::error::Result<()> {
     }
 
     taurine_core::rpc::notify_daemon_reload();
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({"status": "reset", "key": actual_key})
+        );
+    }
     Ok(())
 }
 
-pub fn execute_reset_all() -> taurine_core::error::Result<()> {
+pub fn execute_reset_all(json: bool) -> taurine_core::error::Result<()> {
     let conn = init::setup()?;
     let manager = SettingsManager::new(&conn);
     let defaults = Settings::default();
@@ -588,6 +631,9 @@ pub fn execute_reset_all() -> taurine_core::error::Result<()> {
     }
 
     taurine_core::rpc::notify_daemon_reload();
+    if json {
+        println!("{}", serde_json::json!({"status": "reset_all"}));
+    }
     Ok(())
 }
 
@@ -635,5 +681,79 @@ mod tests {
     #[test]
     fn parse_boolean_setting_value_rejects_invalid_trigger_assist_boolean() {
         assert!(parse_boolean_setting_value("definitely").is_err());
+    }
+
+    #[test]
+    fn test_settings_json_serializes_all_keys() {
+        let settings = Settings::default();
+        let json = serde_json::to_string(&settings).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let map = value.as_object().unwrap();
+
+        assert!(map.contains_key("trigger_char"));
+        assert!(map.contains_key("pause_hotkey"));
+        assert!(map.contains_key("wpm"));
+        assert!(map.contains_key("spinner_style"));
+        assert!(map.contains_key("rpc_mode"));
+        assert!(map.contains_key("script_timeout"));
+
+        assert_eq!(map["trigger_char"], ">");
+        assert_eq!(map["wpm"], 60);
+        assert_eq!(map["rpc_mode"], "socket");
+    }
+
+    #[test]
+    fn test_settings_json_optional_fields() {
+        let settings = Settings {
+            ai_provider: Some("openai".to_string()),
+            ai_model: Some("gpt-4".to_string()),
+            ai_temperature: Some(0.7),
+            ai_max_tokens: Some(2048),
+            ai_custom_endpoint: None,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(value["ai_provider"], "openai");
+        assert_eq!(value["ai_model"], "gpt-4");
+        assert_eq!(value["ai_custom_endpoint"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn test_settings_json_with_unset_optionals() {
+        let settings = Settings {
+            ai_provider: None,
+            ai_model: None,
+            ai_temperature: None,
+            ai_max_tokens: None,
+            ai_system_prompt: None,
+            ai_custom_endpoint: None,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(value["ai_provider"], serde_json::Value::Null);
+        assert_eq!(value["ai_model"], serde_json::Value::Null);
+        assert_eq!(value["ai_temperature"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn test_settings_all_enum_variants_serialize() {
+        let settings = Settings {
+            spinner_style: taurine_core::settings::SpinnerStyle::Arc,
+            action_key: taurine_core::settings::ActionKey::Space,
+            inline_ai_trigger_mode: taurine_core::settings::InlineAiTriggerMode::Symmetric,
+            rpc_mode: taurine_core::settings::RpcMode::Tcp,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(value["spinner_style"], "arc");
+        assert_eq!(value["action_key"], "space");
+        assert_eq!(value["inline_ai_trigger_mode"], "symmetric");
+        assert_eq!(value["rpc_mode"], "tcp");
     }
 }

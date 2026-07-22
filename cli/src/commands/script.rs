@@ -37,6 +37,7 @@ pub fn execute(
         exclude_apps,
         None,
         false,
+        false,
     )
 }
 
@@ -53,6 +54,7 @@ pub fn execute_with_trigger_type(
     exclude_apps: Option<String>,
     tags: Option<Vec<String>>,
     auto_case: bool,
+    json: bool,
 ) -> taurine_core::error::Result<()> {
     // 1. Resolve content and source description
     let (content, source_desc) = if let Some(ref path) = file_path {
@@ -163,6 +165,13 @@ pub fn execute_with_trigger_type(
         exclude_apps.as_deref(),
     );
     tracing::info!("{}", log_msg);
+    if json {
+        let status = if is_update { "updated" } else { "created" };
+        println!(
+            "{}",
+            serde_json::json!({"status": status, "trigger": stored_trigger, "action_type": "script"})
+        );
+    }
 
     // 3. Compress the script
     let compressed = compress(&content)?;

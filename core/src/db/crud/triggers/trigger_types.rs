@@ -101,7 +101,7 @@ pub struct TriggerSummary {
 }
 
 /// Data structure for the CLI list view.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TriggerListItem {
     pub id: String,
     pub name: String,
@@ -140,5 +140,121 @@ mod tests {
         let t = TriggerType::Regex;
         assert_eq!(t.as_db_str(), "regex");
         assert_eq!(TriggerType::parse_db("regex").unwrap(), TriggerType::Regex);
+    }
+
+    #[test]
+    fn test_trigger_list_item_json_serializes_all_fields() {
+        let item = TriggerListItem {
+            id: "abc-123".to_string(),
+            name: "my trigger".to_string(),
+            description: Some("does a thing".to_string()),
+            trigger_type: TriggerType::Hotkey,
+            trigger: "ctrl+shift+g".to_string(),
+            output: "git status".to_string(),
+            action_type: "text".to_string(),
+            target_os: "all".to_string(),
+            only_apps: Some("terminal".to_string()),
+            except_apps: None,
+            usage_count: 42,
+            last_used_at: Some(1720000000),
+            created_at: 1710000000,
+            tags: "[\"dev\",\"git\"]".to_string(),
+            script_content: None,
+            interpreter: None,
+            behavior: None,
+        };
+        let json = serde_json::to_string(&item).unwrap();
+        assert!(json.contains("\"id\":\"abc-123\""));
+        assert!(json.contains("\"trigger\":\"ctrl+shift+g\""));
+        assert!(json.contains("\"output\":\"git status\""));
+        assert!(json.contains("\"action_type\":\"text\""));
+        assert!(json.contains("\"usage_count\":42"));
+        assert!(json.contains("\"target_os\":\"all\""));
+        assert!(json.contains("\"only_apps\":\"terminal\""));
+        assert!(json.contains("\"trigger_type\":\"hotkey\""));
+        assert!(json.contains("\"script_content\":null"));
+        assert!(json.contains("\"interpreter\":null"));
+    }
+
+    #[test]
+    fn test_trigger_list_item_json_with_script_fields() {
+        let item = TriggerListItem {
+            id: "script-1".to_string(),
+            name: "".to_string(),
+            description: None,
+            trigger_type: TriggerType::Word,
+            trigger: "deploy".to_string(),
+            output: "Inline Bash".to_string(),
+            action_type: "script".to_string(),
+            target_os: "linux".to_string(),
+            only_apps: None,
+            except_apps: None,
+            usage_count: 7,
+            last_used_at: None,
+            created_at: 1700000000,
+            tags: "[]".to_string(),
+            script_content: Some("echo deployed".to_string()),
+            interpreter: Some(crate::engine::shell::ScriptInterpreter::Bash),
+            behavior: Some(crate::engine::shell::ScriptBehavior::Inline),
+        };
+        let json = serde_json::to_string(&item).unwrap();
+        assert!(json.contains("\"action_type\":\"script\""));
+        assert!(json.contains("\"script_content\":\"echo deployed\""));
+        assert!(json.contains("\"interpreter\":\"bash\""));
+        assert!(json.contains("\"behavior\":\"inline\""));
+        assert!(json.contains("\"last_used_at\":null"));
+    }
+
+    #[test]
+    fn test_trigger_list_item_empty_tag_list_serializes() {
+        let item = TriggerListItem {
+            id: "empty-tags".to_string(),
+            name: "".to_string(),
+            description: None,
+            trigger_type: TriggerType::Word,
+            trigger: "x".to_string(),
+            output: "y".to_string(),
+            action_type: "text".to_string(),
+            target_os: "all".to_string(),
+            only_apps: None,
+            except_apps: None,
+            usage_count: 0,
+            last_used_at: None,
+            created_at: 0,
+            tags: "[]".to_string(),
+            script_content: None,
+            interpreter: None,
+            behavior: None,
+        };
+        let json = serde_json::to_string(&item).unwrap();
+        assert!(json.contains("\"tags\":\"[]\""));
+        assert!(json.contains("\"usage_count\":0"));
+    }
+
+    #[test]
+    fn test_trigger_list_item_regex_trigger_type() {
+        let item = TriggerListItem {
+            id: "r1".to_string(),
+            name: "".to_string(),
+            description: None,
+            trigger_type: TriggerType::Regex,
+            trigger: "issue-(\\d+)".to_string(),
+            output: "https://bugs.example.com/[0]".to_string(),
+            action_type: "text".to_string(),
+            target_os: "all".to_string(),
+            only_apps: None,
+            except_apps: None,
+            usage_count: 100,
+            last_used_at: Some(1730000000),
+            created_at: 1720000000,
+            tags: "[\"regex\"]".to_string(),
+            script_content: None,
+            interpreter: None,
+            behavior: None,
+        };
+        let json = serde_json::to_string(&item).unwrap();
+        assert!(json.contains("\"trigger_type\":\"regex\""));
+        assert!(json.contains("\"trigger\":\"issue-(\\\\d+)\""));
+        assert!(json.contains("\"last_used_at\":1730000000"));
     }
 }

@@ -10,19 +10,19 @@ pub fn execute(
     include_apps: Option<String>,
     exclude_apps: Option<String>,
 ) -> taurine_core::error::Result<()> {
-    let trigger_type = if use_hotkey {
-        TriggerType::Hotkey
-    } else {
-        TriggerType::Word
-    };
     execute_with_trigger_type(
         trigger,
         output,
         os,
-        trigger_type,
+        if use_hotkey {
+            TriggerType::Hotkey
+        } else {
+            TriggerType::Word
+        },
         include_apps,
         exclude_apps,
         None,
+        false,
         false,
     )
 }
@@ -37,6 +37,7 @@ pub fn execute_with_trigger_type(
     exclude_apps: Option<String>,
     tags: Option<Vec<String>>,
     auto_case: bool,
+    json: bool,
 ) -> taurine_core::error::Result<()> {
     use crate::commands::validate::format_trigger_log;
     use taurine_core::db::crud::{
@@ -181,6 +182,12 @@ pub fn execute_with_trigger_type(
             );
             info!("{}", log_msg);
             taurine_core::rpc::notify_daemon_reload();
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({"status": "created", "trigger": stored_trigger})
+                );
+            }
         }
         AddOutcome::AlreadyExists => {
             let log_msg = format_trigger_log(
@@ -192,6 +199,12 @@ pub fn execute_with_trigger_type(
                 exclude_apps.as_deref(),
             );
             info!("{}", log_msg);
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({"status": "exists", "trigger": stored_trigger})
+                );
+            }
         }
         AddOutcome::Updated => {
             let log_msg = format_trigger_log(
@@ -204,6 +217,12 @@ pub fn execute_with_trigger_type(
             );
             info!("{}", log_msg);
             taurine_core::rpc::notify_daemon_reload();
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({"status": "updated", "trigger": stored_trigger})
+                );
+            }
         }
     }
 

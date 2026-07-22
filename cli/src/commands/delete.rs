@@ -11,6 +11,7 @@ pub fn execute(
     triggers: Vec<String>,
     tag: Option<String>,
     yes: bool,
+    json: bool,
 ) -> taurine_core::error::Result<()> {
     let conn = init::setup()?;
     let is_glob = tag.is_none() && triggers.iter().any(|t| t.contains('*'));
@@ -51,18 +52,46 @@ pub fn execute(
     if removed_count == 0 {
         if let Some(ref t) = tag {
             warn!("No active trigger found with tag: {}", t);
+            if json {
+                println!("{}", serde_json::json!({"status": "not_found", "tag": t}));
+            }
         } else if !is_glob {
             let triggers_str = triggers.join(", ");
             warn!("No active trigger found for triggers: {}", triggers_str);
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({"status": "not_found", "triggers": triggers_str})
+                );
+            }
+        } else if json {
+            println!("{}", serde_json::json!({"status": "deleted", "count": 0}));
         }
     } else {
         if let Some(ref t) = tag {
             info!("Removed {} triggers with tag: {}", removed_count, t);
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({"status": "deleted", "count": removed_count, "tag": t})
+                );
+            }
         } else if !is_glob {
             let triggers_str = triggers.join(", ");
             info!(
                 "Removed {} triggers for triggers: {}",
                 removed_count, triggers_str
+            );
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({"status": "deleted", "count": removed_count, "triggers": triggers_str})
+                );
+            }
+        } else if json {
+            println!(
+                "{}",
+                serde_json::json!({"status": "deleted", "count": removed_count})
             );
         }
         taurine_core::rpc::notify_daemon_reload();
@@ -138,7 +167,7 @@ mod tests {
 
             drop(conn);
 
-            execute(vec!["alt+shift+2".to_string()], None, false).unwrap();
+            execute(vec!["alt+shift+2".to_string()], None, false, false).unwrap();
 
             let conn = rusqlite::Connection::open(db_path).unwrap();
             let is_deleted: bool = conn
@@ -178,7 +207,7 @@ mod tests {
 
             drop(conn);
 
-            execute(vec!["gs".to_string()], None, false).unwrap();
+            execute(vec!["gs".to_string()], None, false, false).unwrap();
 
             let conn = rusqlite::Connection::open(db_path).unwrap();
             let is_deleted: bool = conn
@@ -253,7 +282,7 @@ mod tests {
         drop(conn);
 
         // yes=true skips the prompt — only way to test non-interactively
-        execute(vec!["test_*".to_string()], None, true).unwrap();
+        execute(vec!["test_*".to_string()], None, true, false).unwrap();
 
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         assert!(
@@ -306,9 +335,9 @@ mod tests {
         .unwrap();
         drop(conn);
 
-        execute(vec!["gs".to_string()], None, true).unwrap();
+        execute(vec!["gs".to_string()], None, true, false).unwrap();
 
-        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let conn = rusqlite::Connection::open(db_path).unwrap();
         assert!(
             taurine_core::db::crud::get_trigger(&conn, "uuid-1")
                 .unwrap()
@@ -363,7 +392,7 @@ mod tests {
         drop(conn);
 
         // yes=true to skip prompt
-        execute(vec!["*".to_string()], None, true).unwrap();
+        execute(vec!["*".to_string()], None, true, false).unwrap();
 
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         assert!(
@@ -395,6 +424,6 @@ mod tests {
         drop(conn);
 
         // Should not error, just warn
-        execute(vec!["nomatch_*".to_string()], None, true).unwrap();
+        execute(vec!["nomatch_*".to_string()], None, true, false).unwrap();
     }
 }

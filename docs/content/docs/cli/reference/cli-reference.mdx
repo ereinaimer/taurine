@@ -17,6 +17,7 @@ These flags can be used with any command to modify the CLI's behavior.
 | `-q, --quiet` | Disable all console logging output. |
 | `--no-log-file` | Disable writing logs to the daily log file. |
 | `--no-color` | Disable colorized output in the terminal. |
+| `--json` | Output results in JSON format instead of human-readable text. |
 
 ---
 
@@ -86,7 +87,7 @@ Commands for creating, viewing, and deleting your snippets and scripts.
 <Accordion title="list / ls">
   Lists all active triggers.
   ```bash
-  taurine list [--sort <alpha|usage|created|recent>] [--asc|--desc] [--plain]
+  taurine list [--sort <alpha|usage|created|recent>] [--asc|--desc] [--json]
   ```
 </Accordion>
 

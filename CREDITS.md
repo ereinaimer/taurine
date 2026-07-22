@@ -22,7 +22,6 @@ Taurine is built on the shoulders of some outstanding open source projects.
 | [axoupdater](https://github.com/axodotdev/axoupdater) | Self-updating client for cargo-dist releases |
 | [color-eyre](https://github.com/eyre-rs/color-eyre) | Application-level error reporting and panic handling |
 | [tracing](https://github.com/tokio-rs/tracing) | Application-level logging and diagnostics |
-| [comfy-table](https://github.com/Nukesor/comfy-table) | Dynamic terminal table formatting for the CLI |
 
 ### Tooling
 

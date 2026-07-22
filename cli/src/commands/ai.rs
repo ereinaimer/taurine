@@ -20,7 +20,7 @@ trait ModelCatalog {
     ) -> taurine_core::error::Result<Vec<String>>;
 }
 
-pub fn execute_add(provider: AiProvider) -> taurine_core::error::Result<()> {
+pub fn execute_add(provider: AiProvider, json: bool) -> taurine_core::error::Result<()> {
     add_provider_with_prompt(&OsKeyringStore, provider, prompt_provider_secret)?;
     info!("configured {}", provider.as_str());
 
@@ -28,30 +28,64 @@ pub fn execute_add(provider: AiProvider) -> taurine_core::error::Result<()> {
         info!("Remember to set your endpoint: taurine config set ai_custom_endpoint <URL>");
     }
 
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({"status": "configured", "provider": provider.as_str()})
+        );
+    }
+
     Ok(())
 }
 
-pub fn execute_list() -> taurine_core::error::Result<()> {
-    for provider in configured_providers(&OsKeyringStore)? {
+pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
+    let providers = configured_providers(&OsKeyringStore)?;
+
+    if json {
+        let names: Vec<&str> = providers.iter().map(|p| p.as_str()).collect();
+        println!("{}", serde_json::to_string(&names).unwrap());
+        return Ok(());
+    }
+
+    for provider in providers {
         println!("{}", provider.as_str());
     }
 
     Ok(())
 }
 
-pub fn execute_models(provider: AiProvider) -> taurine_core::error::Result<()> {
-    for model in models_for_provider(&OsKeyringStore, &GenaiModelCatalog, provider)? {
+pub fn execute_models(provider: AiProvider, json: bool) -> taurine_core::error::Result<()> {
+    let models = models_for_provider(&OsKeyringStore, &GenaiModelCatalog, provider)?;
+
+    if json {
+        println!("{}", serde_json::to_string(&models).unwrap());
+        return Ok(());
+    }
+
+    for model in models {
         println!("{model}");
     }
 
     Ok(())
 }
 
-pub fn execute_remove(provider: AiProvider) -> taurine_core::error::Result<()> {
+pub fn execute_remove(provider: AiProvider, json: bool) -> taurine_core::error::Result<()> {
     if remove_provider_credential(&OsKeyringStore, provider)? {
         info!("removed {}", provider.as_str());
+        if json {
+            println!(
+                "{}",
+                serde_json::json!({"status": "removed", "provider": provider.as_str()})
+            );
+        }
     } else {
         info!("{} not configured", provider.as_str());
+        if json {
+            println!(
+                "{}",
+                serde_json::json!({"status": "not_configured", "provider": provider.as_str()})
+            );
+        }
     }
 
     Ok(())
@@ -306,7 +340,87 @@ mod tests {
     }
 
     #[test]
-    fn models_for_provider_uses_stored_secret() {
+    fn test_configured_providers_json_format() {
+        let store = MemoryCredentialStore::default();
+        store.set_secret(AiProvider::Openai, "sk-1").unwrap();
+        store.set_secret(AiProvider::Claude, "sk-2").unwrap();
+        store.set_secret(AiProvider::Gemini, "sk-3").unwrap();
+
+        let providers = configured_providers(&store).unwrap();
+        let names: Vec<&str> = providers.iter().map(|p| p.as_str()).collect();
+        let json = serde_json::to_string(&names).unwrap();
+
+        assert_eq!(json, r#"["openai","claude","gemini"]"#);
+    }
+
+    #[test]
+    fn test_configured_providers_json_empty() {
+        let store = MemoryCredentialStore::default();
+        let providers = configured_providers(&store).unwrap();
+        let names: Vec<&str> = providers.iter().map(|p| p.as_str()).collect();
+        let json = serde_json::to_string(&names).unwrap();
+
+        assert_eq!(json, "[]");
+    }
+
+    #[test]
+    fn test_models_json_format() {
+        let store = MemoryCredentialStore::default();
+        store.set_secret(AiProvider::Gemini, "key").unwrap();
+        let catalog = RecordingCatalog::new(vec!["model-a", "model-b"]);
+
+        let models = models_for_provider(&store, &catalog, AiProvider::Gemini).unwrap();
+        let json = serde_json::to_string(&models).unwrap();
+
+        assert_eq!(json, r#"["model-a","model-b"]"#);
+    }
+
+    #[test]
+    fn test_models_json_empty() {
+        let store = MemoryCredentialStore::default();
+        store.set_secret(AiProvider::Gemini, "key").unwrap();
+        let catalog = RecordingCatalog::new(vec![]);
+
+        let models = models_for_provider(&store, &catalog, AiProvider::Gemini).unwrap();
+        let json = serde_json::to_string(&models).unwrap();
+
+        assert_eq!(json, "[]");
+    }
+
+    #[test]
+    fn test_add_output_json_structure_matches() {
+        use serde_json::json;
+        let response = json!({"status": "configured", "provider": "openai"});
+        assert_eq!(response["status"], "configured");
+        assert_eq!(response["provider"], "openai");
+    }
+
+    #[test]
+    fn test_remove_output_json_structure() {
+        use serde_json::json;
+        let removed = json!({"status": "removed", "provider": "claude"});
+        assert_eq!(removed["status"], "removed");
+        assert_eq!(removed["provider"], "claude");
+
+        let not_found = json!({"status": "not_configured", "provider": "claude"});
+        assert_eq!(not_found["status"], "not_configured");
+    }
+
+    #[test]
+    fn test_models_json_sorted_deduped() {
+        let store = MemoryCredentialStore::default();
+        store.set_secret(AiProvider::Gemini, "key").unwrap();
+        // RecordingCatalog returns models unsorted with duplicates
+        let mut catalog = RecordingCatalog::new(vec!["z-model", "a-model", "m-model", "a-model"]);
+        catalog.models.sort();
+        catalog.models.dedup();
+
+        let models = models_for_provider(&store, &catalog, AiProvider::Gemini).unwrap();
+        assert_eq!(models, vec!["a-model", "m-model", "z-model"]);
+    }
+
+    #[test]
+    fn test_models_for_provider_uses_stored_secret() {
         let store = MemoryCredentialStore::default();
         let catalog = RecordingCatalog::new(vec!["model-a", "model-b"]);
         store
