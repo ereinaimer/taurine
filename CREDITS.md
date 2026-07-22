@@ -12,7 +12,7 @@ Taurine is built on the shoulders of some outstanding open source projects.
 | [clap](https://docs.rs/clap) | CLI argument parsing and subcommand routing |
 | [tonic](https://github.com/hyperium/tonic) + [prost](https://github.com/tokio-rs/prost) | gRPC transport and protobuf encoding for IPC |
 | [rdev](https://github.com/Narsil/rdev) | Low-level keyboard and mouse event capture |
-| [rusqlite](https://github.com/rusqlite/rusqlite) | Embedded SQLite database for storing automations |
+| [rusqlite](https://github.com/rusqlite/rusqlite) | Embedded SQLite database for storing triggers |
 | [serde](https://serde.rs/) | Serialization and deserialization across the codebase |
 | [keyring](https://github.com/hwchen/keyring-rs) | Secure OS keychain storage for API keys |
 | [genai](https://github.com/jeremychone/rust-genai) | Unified client for AI provider integrations |

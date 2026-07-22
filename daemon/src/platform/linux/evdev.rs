@@ -709,7 +709,7 @@ mod tests {
         // Mock a basic hotkey to ensure it WOULD match if not bypassing
         state.load_hotkey_actions(vec![(
             "ctrl+shift+g".to_string(),
-            taurine_core::db::crud::AutomationAction::text("test"),
+            taurine_core::db::crud::TriggerAction::text("test"),
         )]);
 
         let evaluator = Arc::new(Mutex::new(Evaluator::new(state.clone())));

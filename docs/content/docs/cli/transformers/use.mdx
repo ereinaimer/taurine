@@ -56,5 +56,5 @@ For more details on Taurine's architectural boundaries, read the [Rules & Limits
 Taurine handles missing or invalid nested snippets gracefully during runtime interpolation:
 
 - If you reference a snippet that does not exist in your database, the placeholder evaluates to: `[Error: Snippet 'name' does not exist]`.
-- If you reference a script automation instead of a text snippet, it evaluates to: `[Error: Cannot invoke non-text snippet 'name']`. 
+- If you reference a script trigger instead of a text snippet, it evaluates to: `[Error: Cannot invoke non-text snippet 'name']`. 
 *(Note: Nested script execution is disabled to prevent severe thread-locking and race conditions).*

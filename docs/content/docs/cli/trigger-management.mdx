@@ -1,16 +1,16 @@
 ---
-title: Managing Automations
-description: How to add, list, and remove your Taurine automations
+title: Managing Triggers
+description: How to add, list, and remove your Taurine triggers
 ---
 
 ## Trigger Types
 
-Taurine supports two ways to trigger an automation:
+Taurine supports two ways to activate a trigger:
 
 1. **Word Triggers**: Typed words preceded by a trigger character (e.g., `>brb`).
 2. **Hotkey Triggers**: Global keyboard shortcuts (e.g., `ctrl+shift+g`).
 
-## Adding Automations
+## Adding Triggers
 
 ### Word Triggers (Default)
 
@@ -24,7 +24,7 @@ If you add a trigger that already exists, Taurine will automatically update it w
 
 ### Hotkey Triggers
 
-To create an automation triggered by a keyboard shortcut, use the `--hotkey` flag:
+To create a trigger configured as a keyboard shortcut, use the `--hotkey` flag:
 
 ```bash
 taurine add --hotkey "ctrl+shift+g" "git status[key.enter]"
@@ -33,7 +33,7 @@ taurine add --hotkey "ctrl+shift+g" "git status[key.enter]"
 For more details on hotkey syntax and validation, see the [Hotkey Triggers](/docs/cli/hotkey-triggers) page.
 
 ### Multi-OS Support
-You can restrict automations to specific operating systems, or make them universal:
+You can restrict triggers to specific operating systems, or make them universal:
 
 ```bash
 taurine add sig "Sent from Taurine" --os all      # Works everywhere
@@ -41,7 +41,7 @@ taurine add sig "Sent from Windows" --os windows  # Windows only
 ```
 
 ### Tagging Snippets
-You can organize your automations using tags. Add tags using the `--tag` flag when adding a word trigger, hotkey trigger, or script:
+You can organize your triggers using tags. Add tags using the `--tag` flag when adding a word trigger, hotkey trigger, or script:
 
 ```bash
 taurine add gm "Good morning!" --tag work,email
@@ -141,9 +141,9 @@ taurine config set inline_history false
 
 When disabled, the relevant keys (`Tab`, `Up`, `Down`) are passed through to the system normally. Disabling these assist features does not affect your ability to expand word triggers using `Space` or use the inline AI copilot.
 
-## Viewing Your Automations
+## Viewing Your Triggers
 
-List all configured automations with `taurine list` (alias: `ls`). You can sort them to find your most used snippets:
+List all configured triggers with `taurine list` (alias: `ls`). You can sort them to find your most used snippets:
 
 ```bash
 taurine list --sort usage --desc  # See your most used triggers first
@@ -151,13 +151,13 @@ taurine ls --sort recent          # Alias 'ls' also works
 ```
 
 ### Filtering by Tag
-You can filter listed automations to only show those that have a specific tag:
+You can filter listed triggers to only show those that have a specific tag:
 
 ```bash
 taurine list --tag work
 ```
 
-## Deleting Automations
+## Deleting Triggers
 
 Remove one or more triggers using the `rm` command (aliases: `remove`, `delete`):
 
@@ -167,7 +167,7 @@ taurine delete obsolete_trigger
 ```
 
 ### Deleting by Tag
-You can remove all automations that have a specific tag by using the `--tag` flag:
+You can remove all triggers that have a specific tag by using the `--tag` flag:
 
 ```bash
 taurine delete --tag obsolete_trigger

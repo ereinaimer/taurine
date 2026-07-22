@@ -1,7 +1,7 @@
 use rusqlite::types::Type;
 use rusqlite::{Connection, Result};
 
-use super::{AutomationAction, AutomationListItem, AutomationRow, AutomationSummary, TriggerType};
+use super::{TriggerAction, TriggerListItem, TriggerRow, TriggerSummary, TriggerType};
 use crate::db::crud::get_current_os_db_string;
 use crate::engine::shell::decompress;
 
@@ -19,7 +19,7 @@ fn parse_trigger_type_row(value: String) -> rusqlite::Result<TriggerType> {
 }
 
 /// Returns the full row for `id`, or `None` if it does not exist.
-pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRow>> {
+pub fn get_trigger(conn: &Connection, id: &str) -> Result<Option<TriggerRow>> {
     let mut stmt = conn.prepare_cached(
         "SELECT
             a.id,
@@ -45,8 +45,8 @@ pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRo
             s.interpreter,
             s.behavior,
             s.compressed_content
-         FROM automations a
-         LEFT JOIN scripts s ON a.id = s.automation_id
+         FROM triggers a
+         LEFT JOIN scripts s ON a.id = s.trigger_id
          WHERE a.id = ?1",
     )?;
 
@@ -54,7 +54,7 @@ pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRo
         let interpreter = parse_json_variant(row.get(20)?);
         let behavior = parse_json_variant(row.get(21)?);
 
-        Ok(AutomationRow {
+        Ok(TriggerRow {
             id: row.get(0)?,
             name: row.get(1)?,
             description: row.get(2)?,
@@ -92,12 +92,12 @@ pub fn get_automation(conn: &Connection, id: &str) -> Result<Option<AutomationRo
 ///
 /// Uses the `idx_active_triggers` partial index by matching its predicate:
 /// `WHERE is_deleted = 0 AND is_enabled = 1 AND trigger_type = 'word' AND trigger = ?`.
-pub fn get_action_by_trigger(conn: &Connection, trigger: &str) -> Result<Option<AutomationAction>> {
+pub fn get_action_by_trigger(conn: &Connection, trigger: &str) -> Result<Option<TriggerAction>> {
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
         "SELECT a.output, a.action_type, a.only_apps, a.except_apps, a.auto_case, s.interpreter, s.behavior, s.compressed_content
-         FROM   automations a
-         LEFT JOIN scripts s ON a.id = s.automation_id
+         FROM   triggers a
+         LEFT JOIN scripts s ON a.id = s.trigger_id
          WHERE  a.trigger_type = 'word'
            AND  a.trigger = ?1
            AND  a.is_deleted = 0
@@ -111,7 +111,7 @@ pub fn get_action_by_trigger(conn: &Connection, trigger: &str) -> Result<Option<
         let interpreter = parse_json_variant(row.get(5)?);
         let behavior = parse_json_variant(row.get(6)?);
 
-        Ok(AutomationAction {
+        Ok(TriggerAction {
             output: row.get(0)?,
             action_type: row.get(1)?,
             only_apps: row.get(2)?,
@@ -130,15 +130,15 @@ pub fn get_action_by_trigger(conn: &Connection, trigger: &str) -> Result<Option<
     }
 }
 
-/// Fetches just the trigger strings for all active automations.
+/// Fetches just the trigger strings for all active triggers.
 ///
 /// Use this at app startup to build a fast in-memory lookup cache.
-pub fn get_all_active_automations(conn: &Connection) -> Result<Vec<(String, AutomationAction)>> {
+pub fn get_all_active_triggers(conn: &Connection) -> Result<Vec<(String, TriggerAction)>> {
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
         "SELECT a.trigger, a.output, a.action_type, a.only_apps, a.except_apps, a.auto_case, s.interpreter, s.behavior, s.compressed_content
-         FROM automations a
-         LEFT JOIN scripts s ON a.id = s.automation_id
+         FROM triggers a
+         LEFT JOIN scripts s ON a.id = s.trigger_id
          WHERE a.trigger_type = 'word'
            AND a.is_deleted = 0
            AND a.is_enabled = 1
@@ -151,7 +151,7 @@ pub fn get_all_active_automations(conn: &Connection) -> Result<Vec<(String, Auto
 
         Ok((
             row.get(0)?,
-            AutomationAction {
+            TriggerAction {
                 output: row.get(1)?,
                 action_type: row.get(2)?,
                 only_apps: row.get(3)?,
@@ -173,14 +173,12 @@ pub fn get_all_active_automations(conn: &Connection) -> Result<Vec<(String, Auto
 }
 
 /// Fetches all active regex triggers for the current desktop target.
-pub fn get_all_active_regex_automations(
-    conn: &Connection,
-) -> Result<Vec<(String, AutomationAction)>> {
+pub fn get_all_active_regex_triggers(conn: &Connection) -> Result<Vec<(String, TriggerAction)>> {
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
         "SELECT a.trigger, a.output, a.action_type, a.only_apps, a.except_apps, a.auto_case, s.interpreter, s.behavior, s.compressed_content
-         FROM automations a
-         LEFT JOIN scripts s ON a.id = s.automation_id
+         FROM triggers a
+         LEFT JOIN scripts s ON a.id = s.trigger_id
          WHERE a.trigger_type = 'regex'
            AND a.is_deleted = 0
            AND a.is_enabled = 1
@@ -193,7 +191,7 @@ pub fn get_all_active_regex_automations(
 
         Ok((
             row.get(0)?,
-            AutomationAction {
+            TriggerAction {
                 output: row.get(1)?,
                 action_type: row.get(2)?,
                 only_apps: row.get(3)?,
@@ -224,7 +222,7 @@ pub fn get_active_word_trigger_history(conn: &Connection) -> Result<Vec<String>>
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
         "SELECT a.trigger
-         FROM automations a
+         FROM triggers a
          WHERE a.trigger_type = 'word'
            AND a.is_deleted = 0
            AND a.is_enabled = 1
@@ -246,19 +244,17 @@ pub fn get_active_word_trigger_history(conn: &Connection) -> Result<Vec<String>>
     Ok(triggers)
 }
 
-/// Fetches all active hotkey automations for the current desktop target.
+/// Fetches all active hotkey triggers for the current desktop target.
 ///
 /// This is a future-facing load path for daemon hotkey matching. The text
-/// evaluator must continue to use `get_all_active_automations`, which is
+/// evaluator must continue to use `get_all_active_triggers`, which is
 /// intentionally word-only.
-pub fn get_all_active_hotkey_automations(
-    conn: &Connection,
-) -> Result<Vec<(String, AutomationAction)>> {
+pub fn get_all_active_hotkey_triggers(conn: &Connection) -> Result<Vec<(String, TriggerAction)>> {
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
         "SELECT a.trigger, a.output, a.action_type, a.only_apps, a.except_apps, a.auto_case, s.interpreter, s.behavior, s.compressed_content
-         FROM automations a
-         LEFT JOIN scripts s ON a.id = s.automation_id
+         FROM triggers a
+         LEFT JOIN scripts s ON a.id = s.trigger_id
          WHERE a.trigger_type = 'hotkey'
            AND a.is_deleted = 0
            AND a.is_enabled = 1
@@ -271,7 +267,7 @@ pub fn get_all_active_hotkey_automations(
 
         Ok((
             row.get(0)?,
-            AutomationAction {
+            TriggerAction {
                 output: row.get(1)?,
                 action_type: row.get(2)?,
                 only_apps: row.get(3)?,
@@ -292,15 +288,15 @@ pub fn get_all_active_hotkey_automations(
     Ok(actions)
 }
 
-/// Fetches all active automations with enough metadata for sorting/listing in CLI.
-pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>> {
+/// Fetches all active triggers with enough metadata for sorting/listing in CLI.
+pub fn get_triggers_list(conn: &Connection) -> Result<Vec<TriggerListItem>> {
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
         "SELECT a.id, a.name, a.description, a.trigger, a.output, a.action_type, a.target_os,
                 a.only_apps, a.except_apps, a.usage_count, a.last_used_at, a.created_at, a.trigger_type,
                 a.tags, s.interpreter, s.behavior, s.compressed_content
-         FROM   automations a
-         LEFT JOIN scripts s ON a.id = s.automation_id
+         FROM   triggers a
+         LEFT JOIN scripts s ON a.id = s.trigger_id
          WHERE  a.is_deleted = 0
            AND  a.is_enabled = 1
            AND  (a.target_os = 'all' OR a.target_os = ?1)",
@@ -319,7 +315,7 @@ pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>
             })
             .transpose()?;
 
-        Ok(AutomationListItem {
+        Ok(TriggerListItem {
             id: row.get(0)?,
             name: row.get(1)?,
             description: row.get(2)?,
@@ -348,21 +344,17 @@ pub fn get_automations_list(conn: &Connection) -> Result<Vec<AutomationListItem>
     Ok(list)
 }
 
-/// Fuzzy-finder search over active automations by name and trigger.
+/// Fuzzy-finder search over active triggers by name and trigger.
 ///
 /// Returns a small list of summaries ordered by `usage_count` (most-used first),
 /// then by most recently updated as a tie-breaker.
-pub fn search_automations(
-    conn: &Connection,
-    query: &str,
-    limit: i64,
-) -> Result<Vec<AutomationSummary>> {
+pub fn search_triggers(conn: &Connection, query: &str, limit: i64) -> Result<Vec<TriggerSummary>> {
     let pattern = format!("%{}%", query);
 
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
         "SELECT id, name, description, trigger_type, trigger, usage_count
-         FROM   automations
+         FROM   triggers
          WHERE  is_deleted = 0
            AND  is_enabled = 1
            AND  (target_os = 'all' OR target_os = ?3)
@@ -373,7 +365,7 @@ pub fn search_automations(
     )?;
 
     let rows = stmt.query_map((pattern, limit, os_str), |row| {
-        Ok(AutomationSummary {
+        Ok(TriggerSummary {
             id: row.get(0)?,
             name: row.get(1)?,
             description: row.get(2)?,

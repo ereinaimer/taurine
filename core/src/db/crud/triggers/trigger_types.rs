@@ -32,7 +32,7 @@ impl TriggerType {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct AutomationRow {
+pub struct TriggerRow {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
@@ -62,7 +62,7 @@ pub struct AutomationRow {
 
 /// Minimal data needed by the keystroke listener.
 #[derive(Debug, Clone, PartialEq)]
-pub struct AutomationAction {
+pub struct TriggerAction {
     pub output: String,
     pub action_type: String,
     pub only_apps: Option<String>,
@@ -74,7 +74,7 @@ pub struct AutomationAction {
     pub script_binary: Option<Vec<u8>>,
 }
 
-impl AutomationAction {
+impl TriggerAction {
     pub fn text(output: &str) -> Self {
         Self {
             output: output.to_string(),
@@ -91,7 +91,7 @@ impl AutomationAction {
 
 /// Lightweight summary used by the fuzzy finder / command palette.
 #[derive(Debug, Clone, PartialEq)]
-pub struct AutomationSummary {
+pub struct TriggerSummary {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
@@ -102,7 +102,7 @@ pub struct AutomationSummary {
 
 /// Data structure for the CLI list view.
 #[derive(Debug, Clone, PartialEq)]
-pub struct AutomationListItem {
+pub struct TriggerListItem {
     pub id: String,
     pub name: String,
     pub description: Option<String>,

@@ -38,11 +38,10 @@ pub fn execute_with_trigger_type(
     tags: Option<Vec<String>>,
     auto_case: bool,
 ) -> taurine_core::error::Result<()> {
-    use crate::commands::validate::format_automation_log;
+    use crate::commands::validate::format_trigger_log;
     use taurine_core::db::crud::{
-        add_automation_by_trigger_and_case, add_automation_by_trigger_type_and_case,
-        audit_payload_tags_with_trigger_type, prepare_trigger_with_type,
-        validate_trigger_not_reserved,
+        add_trigger_by_type_with_case, add_trigger_with_case, audit_payload_tags_with_trigger_type,
+        prepare_trigger_with_type, validate_trigger_not_reserved,
     };
     use taurine_core::engine::variables::system::validate_output;
 
@@ -70,7 +69,7 @@ pub fn execute_with_trigger_type(
     let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
     if !settings.clipboard_history_enabled && output.contains("[clip") {
         tracing::warn!(
-            "Warning: The automation contains '[clip]' system variables, which won't work because clipboard history is disabled in the settings."
+            "Warning: The trigger contains '[clip]' system variables, which won't work because clipboard history is disabled in the settings."
         );
     }
     validate_trigger_not_reserved(&conn, &stored_trigger)?;
@@ -80,7 +79,7 @@ pub fn execute_with_trigger_type(
         let conflict_exists: bool = conn
             .query_row(
                 "SELECT EXISTS(
-                    SELECT 1 FROM automations
+                    SELECT 1 FROM triggers
                     WHERE trigger_type = ?1
                       AND LOWER(trigger) = LOWER(?2)
                       AND target_os = ?3
@@ -100,7 +99,7 @@ pub fn execute_with_trigger_type(
             .unwrap_or(false);
         if conflict_exists {
             return Err(taurine_core::Error::Config(format!(
-                "Trigger conflict: An automation matching '{}' case-insensitively already exists.",
+                "Trigger conflict: A trigger matching '{}' case-insensitively already exists.",
                 stored_trigger
             )));
         }
@@ -108,7 +107,7 @@ pub fn execute_with_trigger_type(
         let conflict_exists: bool = conn
             .query_row(
                 "SELECT EXISTS(
-                    SELECT 1 FROM automations
+                    SELECT 1 FROM triggers
                     WHERE trigger_type = ?1
                       AND LOWER(trigger) = LOWER(?2)
                       AND target_os = ?3
@@ -129,14 +128,14 @@ pub fn execute_with_trigger_type(
             .unwrap_or(false);
         if conflict_exists {
             return Err(taurine_core::Error::Config(format!(
-                "Trigger conflict: A case-propagating automation matching '{}' case-insensitively already exists.",
+                "Trigger conflict: A case-propagating trigger matching '{}' case-insensitively already exists.",
                 stored_trigger
             )));
         }
     }
 
     let outcome = match prepared.trigger_type {
-        TriggerType::Word => add_automation_by_trigger_and_case(
+        TriggerType::Word => add_trigger_with_case(
             &conn,
             &stored_trigger,
             &output,
@@ -146,7 +145,7 @@ pub fn execute_with_trigger_type(
             tags,
             auto_case,
         )?,
-        TriggerType::Hotkey => add_automation_by_trigger_type_and_case(
+        TriggerType::Hotkey => add_trigger_by_type_with_case(
             &conn,
             TriggerType::Hotkey,
             &stored_trigger,
@@ -157,7 +156,7 @@ pub fn execute_with_trigger_type(
             tags,
             auto_case,
         )?,
-        TriggerType::Regex => add_automation_by_trigger_type_and_case(
+        TriggerType::Regex => add_trigger_by_type_with_case(
             &conn,
             TriggerType::Regex,
             &stored_trigger,
@@ -172,7 +171,7 @@ pub fn execute_with_trigger_type(
 
     match outcome {
         AddOutcome::Created => {
-            let log_msg = format_automation_log(
+            let log_msg = format_trigger_log(
                 "Added",
                 &stored_trigger,
                 None,
@@ -184,8 +183,8 @@ pub fn execute_with_trigger_type(
             taurine_core::rpc::notify_daemon_reload();
         }
         AddOutcome::AlreadyExists => {
-            let log_msg = format_automation_log(
-                "Automation already exists for",
+            let log_msg = format_trigger_log(
+                "Trigger already exists for",
                 &stored_trigger,
                 None,
                 &os,
@@ -195,7 +194,7 @@ pub fn execute_with_trigger_type(
             info!("{}", log_msg);
         }
         AddOutcome::Updated => {
-            let log_msg = format_automation_log(
+            let log_msg = format_trigger_log(
                 "Updated",
                 &stored_trigger,
                 None,
@@ -268,7 +267,7 @@ mod tests {
             let conn = rusqlite::Connection::open(db_path).unwrap();
             let stored: (String, String) = conn
                 .query_row(
-                    "SELECT trigger_type, trigger FROM automations WHERE is_deleted = 0 LIMIT 1",
+                    "SELECT trigger_type, trigger FROM triggers WHERE is_deleted = 0 LIMIT 1",
                     [],
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
@@ -296,7 +295,7 @@ mod tests {
             let conn = rusqlite::Connection::open(db_path).unwrap();
             let stored: (String, String) = conn
                 .query_row(
-                    "SELECT trigger_type, trigger FROM automations WHERE is_deleted = 0 LIMIT 1",
+                    "SELECT trigger_type, trigger FROM triggers WHERE is_deleted = 0 LIMIT 1",
                     [],
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
@@ -356,7 +355,7 @@ mod tests {
             let conn = rusqlite::Connection::open(db_path).unwrap();
             let count: i64 = conn
                 .query_row(
-                    "SELECT COUNT(*) FROM automations WHERE trigger_type = 'hotkey' AND trigger = 'ctrl+shift+g' AND is_deleted = 0",
+                    "SELECT COUNT(*) FROM triggers WHERE trigger_type = 'hotkey' AND trigger = 'ctrl+shift+g' AND is_deleted = 0",
                     [],
                     |row| row.get(0),
                 )
@@ -415,7 +414,7 @@ mod tests {
             let count: i64 = rusqlite::Connection::open(db_path)
                 .unwrap()
                 .query_row(
-                    "SELECT COUNT(*) FROM automations WHERE trigger_type = 'hotkey' AND is_deleted = 0",
+                    "SELECT COUNT(*) FROM triggers WHERE trigger_type = 'hotkey' AND is_deleted = 0",
                     [],
                     |row| row.get(0),
                 )
@@ -451,7 +450,7 @@ mod tests {
             .unwrap();
 
             let conn = rusqlite::Connection::open(db_path).unwrap();
-            let mut stmt = conn.prepare("SELECT output FROM automations WHERE trigger_type = 'hotkey' AND trigger = 'ctrl+shift+g' AND is_deleted = 0").unwrap();
+            let mut stmt = conn.prepare("SELECT output FROM triggers WHERE trigger_type = 'hotkey' AND trigger = 'ctrl+shift+g' AND is_deleted = 0").unwrap();
             let mut rows = stmt.query([]).unwrap();
 
             let row = rows.next().unwrap().unwrap();
@@ -489,7 +488,7 @@ mod tests {
             .unwrap();
 
             let conn = rusqlite::Connection::open(db_path).unwrap();
-            let mut stmt = conn.prepare("SELECT output FROM automations WHERE trigger_type = 'word' AND trigger = 'gs' AND is_deleted = 0").unwrap();
+            let mut stmt = conn.prepare("SELECT output FROM triggers WHERE trigger_type = 'word' AND trigger = 'gs' AND is_deleted = 0").unwrap();
             let mut rows = stmt.query([]).unwrap();
 
             let row = rows.next().unwrap().unwrap();
@@ -528,7 +527,7 @@ mod tests {
             .unwrap();
 
             let conn = rusqlite::Connection::open(db_path).unwrap();
-            let mut stmt = conn.prepare("SELECT output FROM automations WHERE trigger_type = 'hotkey' AND trigger = 'ctrl+shift+g' AND is_deleted = 0").unwrap();
+            let mut stmt = conn.prepare("SELECT output FROM triggers WHERE trigger_type = 'hotkey' AND trigger = 'ctrl+shift+g' AND is_deleted = 0").unwrap();
             let mut rows = stmt.query([]).unwrap();
 
             let row = rows.next().unwrap().unwrap();
@@ -567,7 +566,7 @@ mod tests {
             let conn = rusqlite::Connection::open(db_path).unwrap();
             let count: i64 = conn
                 .query_row(
-                    "SELECT COUNT(*) FROM automations WHERE trigger = 'tab' AND is_deleted = 0",
+                    "SELECT COUNT(*) FROM triggers WHERE trigger = 'tab' AND is_deleted = 0",
                     [],
                     |row| row.get(0),
                 )

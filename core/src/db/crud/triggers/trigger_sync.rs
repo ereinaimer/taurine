@@ -2,19 +2,19 @@ use crate::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use rusqlite::types::Type;
 use rusqlite::{Connection, Result};
 
-use super::{AutomationRow, TriggerType};
+use super::{TriggerRow, TriggerType};
 
 fn parse_trigger_type_row(value: String) -> rusqlite::Result<TriggerType> {
     TriggerType::parse_db(&value)
         .map_err(|err| rusqlite::Error::FromSqlConversionFailure(0, Type::Text, Box::new(err)))
 }
 
-/// Returns all automations that are configured by the user to be synced to the cloud.
+/// Returns all triggers that are configured by the user to be synced to the cloud.
 ///
 /// Under a Last-Write-Wins (LWW) architecture, the sync worker pulls these
 /// configured rows and compares their `version` and `updated_at` against the cloud
 /// to resolve state.
-pub fn get_syncable_automations(conn: &Connection) -> Result<Vec<AutomationRow>> {
+pub fn get_syncable_triggers(conn: &Connection) -> Result<Vec<TriggerRow>> {
     let mut stmt = conn.prepare_cached(
         "SELECT
             a.id,
@@ -40,8 +40,8 @@ pub fn get_syncable_automations(conn: &Connection) -> Result<Vec<AutomationRow>>
             s.interpreter,
             s.behavior,
             s.compressed_content
-         FROM automations a
-         LEFT JOIN scripts s ON a.id = s.automation_id
+         FROM triggers a
+         LEFT JOIN scripts s ON a.id = s.trigger_id
          WHERE a.is_synced = 1
          ORDER BY a.version, a.updated_at",
     )?;
@@ -55,7 +55,7 @@ pub fn get_syncable_automations(conn: &Connection) -> Result<Vec<AutomationRow>>
         let behavior = behavior_str
             .and_then(|s| serde_json::from_str::<ScriptBehavior>(&format!("\"{}\"", s)).ok());
 
-        Ok(AutomationRow {
+        Ok(TriggerRow {
             id: row.get(0)?,
             name: row.get(1)?,
             description: row.get(2)?,

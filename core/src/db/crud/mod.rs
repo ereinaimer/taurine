@@ -1,33 +1,30 @@
-pub mod automations;
 pub mod settings;
 pub mod stats;
+pub mod triggers;
 
-pub use automations::{
-    AddOutcome, AutomationAction, AutomationListItem, AutomationRow, AutomationSummary,
-    ExistingAutomationUpdate, NewAutomation, PreparedTrigger, TriggerConflict, TriggerType,
-    add_automation_by_trigger, add_automation_by_trigger_and_case, add_automation_by_trigger_type,
-    add_automation_by_trigger_type_and_case, audit_payload_tags,
-    audit_payload_tags_with_trigger_type, audit_script_payload_tags, count_automations_by_pattern,
-    create_automation, delete_automation, delete_automation_by_trigger,
-    delete_automations_by_pattern, delete_automations_by_tag, delete_automations_by_triggers,
-    find_trigger_overlap_conflict, get_action_by_trigger, get_active_word_trigger_history,
-    get_all_active_automations, get_all_active_hotkey_automations,
-    get_all_active_regex_automations, get_automation, get_automations_list,
-    get_syncable_automations, increment_usage_count_by_trigger, prepare_trigger,
-    prepare_trigger_with_type, record_expansion_usage, search_automations,
-    target_os_values_overlap, update_automation_app_filters, update_existing_automation,
-    upsert_automation, upsert_automation_with_trigger_type,
-    upsert_automation_with_trigger_type_and_case, upsert_script, validate_trigger_not_reserved,
+pub use triggers::{
+    AddOutcome, ExistingTriggerUpdate, NewTrigger, PreparedTrigger, TriggerAction, TriggerConflict,
+    TriggerListItem, TriggerRow, TriggerSummary, TriggerType, add_trigger, add_trigger_by_type,
+    add_trigger_by_type_with_case, add_trigger_with_case, audit_payload_tags,
+    audit_payload_tags_with_trigger_type, audit_script_payload_tags, count_triggers_by_pattern,
+    create_trigger, delete_trigger, delete_trigger_by_value, delete_triggers_by_pattern,
+    delete_triggers_by_tag, delete_triggers_by_values, find_trigger_overlap_conflict,
+    get_action_by_trigger, get_active_word_trigger_history, get_all_active_hotkey_triggers,
+    get_all_active_regex_triggers, get_all_active_triggers, get_syncable_triggers, get_trigger,
+    get_triggers_list, increment_usage_count_by_trigger, prepare_trigger,
+    prepare_trigger_with_type, record_expansion_usage, search_triggers, target_os_values_overlap,
+    update_existing_trigger, update_trigger_app_filters, upsert_script, upsert_trigger,
+    upsert_trigger_with_type, upsert_trigger_with_type_and_case, validate_trigger_not_reserved,
     validate_trigger_target_os_conflict,
 };
 
-pub use crate::stats::AutomationStatKind;
+pub use crate::stats::TriggerStatKind;
 pub use settings::{
     SettingRow, delete_setting, get_all_settings, get_setting, get_setting_value, upsert_setting,
 };
 pub use stats::{
-    AutomationStatEvent, StatRow, delete_stat, get_stat, get_stat_counters, increment_stat,
-    record_automation_stat, record_automation_stat_with_conn, record_calculation_usage,
+    StatRow, TriggerStatEvent, delete_stat, get_stat, get_stat_counters, increment_stat,
+    record_calculation_usage, record_trigger_stat, record_trigger_stat_with_conn,
 };
 
 pub const SUPPORTED_TARGET_OS_VALUES: [&str; 6] = ["all", "win", "linux", "mac", "android", "ios"];

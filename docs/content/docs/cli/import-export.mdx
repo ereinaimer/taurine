@@ -1,16 +1,16 @@
 ---
 title: Import And Export
-description: Seamlessly move your automations, settings, and stats between machines with secure exchange files.
+description: Seamlessly move your triggers, settings, and stats between machines with secure exchange files.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 
-Taurine provides a robust exchange system that allows you to back up your local environment or sync your automations across different machines. Files are stored with the `.tau` extension and can be either encrypted or plaintext.
+Taurine provides a robust exchange system that allows you to back up your local environment or sync your triggers across different machines. Files are stored with the `.tau` extension and can be either encrypted or plaintext.
 
 ## Exporting Data
 
-The `export` command bundles your automations and optionally your global settings and stats into a single portable file.
+The `export` command bundles your triggers and optionally your global settings and stats into a single portable file.
 
 ```bash
 # Opens an interactive TUI (default)
@@ -62,11 +62,11 @@ Like `export`, `import` opens an interactive TUI overlay by default. All CLI fla
 Pass `-y` / `--yes` to skip the TUI. A file path is always required with `--yes`. If the file is encrypted, the command errors because a decryption password can't be prompted for — use the interactive TUI or import a plaintext file.
 
 ### Conflict Resolution
-When an imported automation shares the same **Trigger** and **Target OS** as an existing local automation, Taurine triggers a conflict resolution flow.
+When an imported trigger shares the same **Trigger** and **Target OS** as an existing local trigger, Taurine triggers a conflict resolution flow.
 
 - **`prompt` (Default)**: Opens an interactive menu for each conflict.
-- **`overwrite`**: Automatically replaces local automations with the imported versions.
-- **`skip`**: Ignores imported automations that already exist locally.
+- **`overwrite`**: Automatically replaces local triggers with the imported versions.
+- **`skip`**: Ignores imported triggers that already exist locally.
 
 <Callout title="Interactive Menu Options" type="info">
   When using `prompt`, you can choose to overwrite/skip for the current item, or use **Overwrite All** / **Skip All** to handle all remaining conflicts in one go.

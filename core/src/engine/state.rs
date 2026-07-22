@@ -1,8 +1,8 @@
-use crate::db::crud::AutomationAction;
+use crate::db::crud::TriggerAction;
 pub use crate::engine::ai_session::EngineMode;
 use crate::engine::ai_session::InlineAiSession;
 use crate::engine::catalog::{
-    ExpansionCatalog, HotkeyCatalog, RegexCatalog, expand_automation_action,
+    ExpansionCatalog, HotkeyCatalog, RegexCatalog, expand_trigger_action,
 };
 use crate::engine::source::SnippetSource;
 use crate::engine::variables::FinalExpansion;
@@ -172,7 +172,7 @@ impl EngineState {
         self.ai_session.is_prompt_empty()
     }
 
-    pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, AutomationAction)>) {
+    pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, TriggerAction)>) {
         self.word_catalog.load_actions(actions);
     }
 
@@ -180,17 +180,11 @@ impl EngineState {
         self.word_catalog.load_history_triggers(triggers);
     }
 
-    pub fn load_hotkey_actions(
-        &self,
-        actions: impl IntoIterator<Item = (String, AutomationAction)>,
-    ) {
+    pub fn load_hotkey_actions(&self, actions: impl IntoIterator<Item = (String, TriggerAction)>) {
         self.hotkey_catalog.load_actions(actions);
     }
 
-    pub fn load_regex_actions(
-        &self,
-        actions: impl IntoIterator<Item = (String, AutomationAction)>,
-    ) {
+    pub fn load_regex_actions(&self, actions: impl IntoIterator<Item = (String, TriggerAction)>) {
         self.regex_catalog.load_actions(actions);
     }
 
@@ -198,7 +192,7 @@ impl EngineState {
         &self,
         buffer_string: &str,
         active_window: Option<&str>,
-    ) -> Option<(String, AutomationAction, Vec<String>)> {
+    ) -> Option<(String, TriggerAction, Vec<String>)> {
         self.regex_catalog
             .match_action(buffer_string, active_window)
     }
@@ -231,7 +225,7 @@ impl EngineState {
         self.hotkey_catalog.has_entry_for(key)
     }
 
-    pub fn get_hotkey_action(&self, trigger: &str) -> Option<AutomationAction> {
+    pub fn get_hotkey_action(&self, trigger: &str) -> Option<TriggerAction> {
         self.hotkey_catalog.get_action(trigger)
     }
 
@@ -241,7 +235,7 @@ impl EngineState {
         active_window: Option<&str>,
     ) -> Option<(String, FinalExpansion)> {
         let (trigger, action) = self.hotkey_catalog.match_action(hotkey, active_window)?;
-        let expansion = expand_automation_action(action, &trigger)?;
+        let expansion = expand_trigger_action(action, &trigger)?;
         Some((trigger, expansion))
     }
 
@@ -253,7 +247,7 @@ impl EngineState {
         let (trigger, action) = self
             .hotkey_catalog
             .match_action_lazy(hotkey, fetch_window)?;
-        let expansion = expand_automation_action(action, &trigger)?;
+        let expansion = expand_trigger_action(action, &trigger)?;
         Some((trigger, expansion))
     }
 
@@ -440,11 +434,11 @@ mod tests {
 
         state.load_actions(vec![(
             "gm".to_string(),
-            AutomationAction::text("good morning"),
+            TriggerAction::text("good morning"),
         )]);
         state.load_hotkey_actions(vec![(
             "ctrl+shift+g".to_string(),
-            AutomationAction::text("git status"),
+            TriggerAction::text("git status"),
         )]);
 
         assert!(state.fetch_expansion("ctrl+shift+g", None).is_none());
@@ -461,11 +455,11 @@ mod tests {
 
         state.load_actions(vec![(
             "gm".to_string(),
-            AutomationAction::text("good morning"),
+            TriggerAction::text("good morning"),
         )]);
         state.load_hotkey_actions(vec![(
             "ctrl+shift+g".to_string(),
-            AutomationAction::text("git [key(enter)]status"),
+            TriggerAction::text("git [key(enter)]status"),
         )]);
 
         let (trigger, expansion) = state
@@ -492,7 +486,7 @@ mod tests {
         let state = EngineState::new('>');
         state.load_hotkey_actions(vec![(
             "alt+m".to_string(),
-            AutomationAction::text("monkeytype"),
+            TriggerAction::text("monkeytype"),
         )]);
 
         let (trigger, expansion) = state
@@ -516,8 +510,8 @@ mod tests {
     fn fetch_hotkey_expansion_prefers_exact_side_specific_trigger() {
         let state = EngineState::new('>');
         state.load_hotkey_actions(vec![
-            ("alt+m".to_string(), AutomationAction::text("generic")),
-            ("ralt+m".to_string(), AutomationAction::text("right")),
+            ("alt+m".to_string(), TriggerAction::text("generic")),
+            ("ralt+m".to_string(), TriggerAction::text("right")),
         ]);
 
         let (trigger, expansion) = state
@@ -541,13 +535,10 @@ mod tests {
     fn matching_word_triggers_reads_only_the_word_catalog() {
         let state = EngineState::new('>');
         state.load_actions(vec![
-            ("gpush".to_string(), AutomationAction::text("git push")),
-            ("gs".to_string(), AutomationAction::text("git status")),
+            ("gpush".to_string(), TriggerAction::text("git push")),
+            ("gs".to_string(), TriggerAction::text("git status")),
         ]);
-        state.load_hotkey_actions(vec![(
-            "ctrl+g".to_string(),
-            AutomationAction::text("hotkey"),
-        )]);
+        state.load_hotkey_actions(vec![("ctrl+g".to_string(), TriggerAction::text("hotkey"))]);
 
         assert_eq!(
             state.matching_word_triggers("g"),
@@ -559,14 +550,11 @@ mod tests {
     fn matching_word_trigger_history_reads_only_the_word_catalog() {
         let state = EngineState::new('>');
         state.load_actions(vec![
-            ("gpush".to_string(), AutomationAction::text("git push")),
-            ("gs".to_string(), AutomationAction::text("git status")),
+            ("gpush".to_string(), TriggerAction::text("git push")),
+            ("gs".to_string(), TriggerAction::text("git status")),
         ]);
         state.load_word_trigger_history(vec!["gs".to_string(), "gpush".to_string()]);
-        state.load_hotkey_actions(vec![(
-            "ctrl+g".to_string(),
-            AutomationAction::text("hotkey"),
-        )]);
+        state.load_hotkey_actions(vec![("ctrl+g".to_string(), TriggerAction::text("hotkey"))]);
 
         assert_eq!(
             state.matching_word_trigger_history("g"),
@@ -578,9 +566,9 @@ mod tests {
     fn record_word_trigger_usage_promotes_history_without_touching_hotkeys() {
         let state = EngineState::new('>');
         state.load_actions(vec![
-            ("email".to_string(), AutomationAction::text("team update")),
-            ("gs".to_string(), AutomationAction::text("git status")),
-            ("uuid".to_string(), AutomationAction::text("1234")),
+            ("email".to_string(), TriggerAction::text("team update")),
+            ("gs".to_string(), TriggerAction::text("git status")),
+            ("uuid".to_string(), TriggerAction::text("1234")),
         ]);
         state.load_word_trigger_history(vec![
             "gs".to_string(),
@@ -589,7 +577,7 @@ mod tests {
         ]);
         state.load_hotkey_actions(vec![(
             "ctrl+shift+g".to_string(),
-            AutomationAction::text("hotkey"),
+            TriggerAction::text("hotkey"),
         )]);
 
         state.record_word_trigger_usage("uuid");

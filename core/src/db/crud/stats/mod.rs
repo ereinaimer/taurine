@@ -4,9 +4,9 @@ mod stat_get;
 mod stat_set;
 mod stat_types;
 
-use crate::stats::AutomationStatKind;
+use crate::stats::TriggerStatKind;
 
-pub use recorder::{AutomationStatEvent, record_automation_stat, record_automation_stat_with_conn};
+pub use recorder::{TriggerStatEvent, record_trigger_stat, record_trigger_stat_with_conn};
 pub use stat_delete::delete_stat;
 pub use stat_get::{get_stat, get_stat_counters};
 pub use stat_set::increment_stat;
@@ -14,17 +14,17 @@ pub use stat_types::StatRow;
 
 /// High-level function to record stats for a mathematical calculation.
 ///
-/// Unlike `record_expansion_usage`, this does not touch the `automations` table.
+/// Unlike `record_expansion_usage`, this does not touch the `triggers` table.
 pub fn record_calculation_usage(output_len: usize, delete_count: usize, left_arrow_count: usize) {
     let trigger_chars = delete_count
         .saturating_sub(left_arrow_count)
         .saturating_sub(2);
-    record_automation_stat(AutomationStatEvent {
-        automation_trigger: None,
+    record_trigger_stat(TriggerStatEvent {
+        trigger: None,
         trigger_chars,
         success: output_len > 0,
         output_chars: output_len,
-        kind: AutomationStatKind::Calculation,
+        kind: TriggerStatKind::Calculation,
         wpm: None,
     });
 }
@@ -32,7 +32,7 @@ pub fn record_calculation_usage(output_len: usize, delete_count: usize, left_arr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::stats::AutomationStatKind;
+    use crate::stats::TriggerStatKind;
     use crate::testing::{init_tracing_for_tests, open_test_db};
 
     #[test]
@@ -134,14 +134,14 @@ mod tests {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
-        record_automation_stat_with_conn(
+        record_trigger_stat_with_conn(
             &mut conn,
-            &AutomationStatEvent {
-                automation_trigger: None,
+            &TriggerStatEvent {
+                trigger: None,
                 trigger_chars: 0,
                 success: true,
                 output_chars: 12,
-                kind: AutomationStatKind::InlineAi,
+                kind: TriggerStatKind::InlineAi,
                 wpm: Some(60),
             },
         )
@@ -161,7 +161,7 @@ mod tests {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
-        crate::db::crud::upsert_automation(
+        crate::db::crud::upsert_trigger(
             &conn,
             "uuid-stat-recorder",
             "Greeting",
@@ -176,14 +176,14 @@ mod tests {
         )
         .unwrap();
 
-        record_automation_stat_with_conn(
+        record_trigger_stat_with_conn(
             &mut conn,
-            &AutomationStatEvent {
-                automation_trigger: Some("gm".to_string()),
+            &TriggerStatEvent {
+                trigger: Some("gm".to_string()),
                 trigger_chars: 2,
                 success: true,
                 output_chars: 100,
-                kind: AutomationStatKind::Snippet,
+                kind: TriggerStatKind::Snippet,
                 wpm: Some(60),
             },
         )
@@ -197,10 +197,10 @@ mod tests {
         assert_eq!(row.keystrokes_saved, 98);
         assert!(row.time_saved_ms > 0);
 
-        let automation = crate::db::crud::get_automation(&conn, "uuid-stat-recorder")
+        let trigger = crate::db::crud::get_trigger(&conn, "uuid-stat-recorder")
             .unwrap()
             .unwrap();
-        assert_eq!(automation.usage_count, 1);
+        assert_eq!(trigger.usage_count, 1);
     }
 
     #[test]
@@ -208,27 +208,27 @@ mod tests {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
-        record_automation_stat_with_conn(
+        record_trigger_stat_with_conn(
             &mut conn,
-            &AutomationStatEvent {
-                automation_trigger: None,
+            &TriggerStatEvent {
+                trigger: None,
                 trigger_chars: 0,
                 success: true,
                 output_chars: 150,
-                kind: AutomationStatKind::Hotkey,
+                kind: TriggerStatKind::Hotkey,
                 wpm: Some(60),
             },
         )
         .unwrap();
 
-        record_automation_stat_with_conn(
+        record_trigger_stat_with_conn(
             &mut conn,
-            &AutomationStatEvent {
-                automation_trigger: None,
+            &TriggerStatEvent {
+                trigger: None,
                 trigger_chars: 0,
                 success: true,
                 output_chars: 200,
-                kind: AutomationStatKind::Script,
+                kind: TriggerStatKind::Script,
                 wpm: Some(60),
             },
         )

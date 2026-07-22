@@ -108,11 +108,11 @@ mod tests {
 
     #[test]
     fn encrypt_decrypt_round_trips() {
-        let blob = encrypt(br#"{"schema_version":1,"automations":[]}"#, "hunter2").unwrap();
+        let blob = encrypt(br#"{"schema_version":1,"triggers":[]}"#, "hunter2").unwrap();
         assert_eq!(&blob[..4], &ENCRYPTED_MAGIC_HEADER);
 
         let plaintext = decrypt(&blob, "hunter2").unwrap();
-        assert_eq!(plaintext, br#"{"schema_version":1,"automations":[]}"#);
+        assert_eq!(plaintext, br#"{"schema_version":1,"triggers":[]}"#);
     }
 
     #[test]

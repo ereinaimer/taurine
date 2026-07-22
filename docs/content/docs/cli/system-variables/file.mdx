@@ -1,36 +1,73 @@
 ---
-title: File System
-description: Read and inject local file contents directly into your automation templates.
+title: File
+description: Read and inject local file contents directly into your trigger templates.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-The `file.*` namespace allows you to seamlessly read data from files stored on your local machine and inject them into any text field. This is highly useful for dynamically loading email signatures, pulling random quotes from a text file, or reading log outputs.
+The `[file.*]` namespace allows you to natively read and inject content from files located on your local disk.
+
+## Methods
+
+### `[file.read(path)]`
+
+Reads the entire contents of a file and injects it into your snippet output.
+
+```text
+License terms:
+[file.read(C:\Users\aimer\LICENSE.txt)]
+```
+
+- **File Path**: Must be an absolute path (or start with `~` for the home directory).
+- **Size Limit**: Files larger than **5MB** will return `[Error: File size exceeds 5MB limit]`.
+- **UTF-8 Support**: Reads standard UTF-8 text files. Binary files will return an error or produce unreadable sequences.
 
 ---
 
-## Available Variants
+### `[file.read_line(path, line)]`
 
-You can use the following variants to read data from a file. 
+Reads a single, 1-indexed line from a target file.
 
-| Syntax | Description |
-| :--- | :--- |
-| `[file.read(path)]` | Reads the entire contents of the file as plain text. |
-| `[file.read_line(path, start, [end])]` | Extracts specific lines based on a 1-indexed numbering system. |
+```text
+Today's quote:
+[file.read_line(C:\notes\quotes.txt, 1)]
+```
 
-**Important Note for `read_line`:**
-- **Lines are 1-indexed.** The first line of the file is `1`.
-- If the `end` argument is omitted (e.g., `[file.read_line(path, 5)]`), Taurine will extract exactly that single line.
-- If the `end` argument is provided, Taurine extracts all lines inclusively between `start` and `end`, joined by standard newlines.
+If the requested line number exceeds the file's total lines, Taurine inserts an empty string.
 
 ---
 
-## Path Resolution
+### `[file.read_line(path, start, end)]`
 
-When specifying file paths, you can use the `~` symbol. Taurine will automatically expand `~` to your native OS home directory. 
+Extracts a contiguous range of lines from a target file.
 
-For example, `~/Documents/signature.txt` will safely resolve to `C:\Users\Username\Documents\signature.txt` on Windows, or `/Users/Username/Documents/signature.txt` on macOS.
+```text
+Header section:
+[file.read_line(C:\notes\changelog.md, 1, 10)]
+```
 
+Lines within the specified range (inclusive) are joined with standard line breaks.
+
+---
+
+## Combining with Transformers
+
+You can pipe file content directly into transformers to modify it before expansion.
+
+```text
+[file.read(~/.bashrc) | upper]
+[file.read_line(~/todo.txt, 1) | trim]
+```
+
+---
+
+## Example Usage: Random Line Selection
+
+If you have a file named `quotes.txt` with one quote per line, you can configure a trigger to randomly pull a single quote.
+
+```text
+[file.read_line(C:\notes\quotes.txt, 1, 5) | trim]
+```
 ---
 
 ## Technical Constraints
@@ -57,7 +94,7 @@ You can store your email signature in a `.txt` file and inject it effortlessly.
 />
 
 ### Pulling a Random Quote
-If you have a file named `quotes.txt` with one quote per line, you can configure an automation to randomly pull a single quote.
+If you have a file named `quotes.txt` with one quote per line, you can configure a trigger to randomly pull a single quote.
 
 <Transformation
   trigger=";quote"

@@ -56,13 +56,13 @@ Commands for managing the Taurine background daemon.
 
 ---
 
-## Automation Management
+## Trigger Management
 
 Commands for creating, viewing, and deleting your snippets and scripts.
 
 <Accordions>
 <Accordion title="add / set">
-  Adds a new text or script automation.
+  Adds a new text or script trigger.
   
   **Standard Text:**
   ```bash
@@ -84,14 +84,14 @@ Commands for creating, viewing, and deleting your snippets and scripts.
 </Accordion>
 
 <Accordion title="list / ls">
-  Lists all active automations.
+  Lists all active triggers.
   ```bash
   taurine list [--sort <alpha|usage|created|recent>] [--asc|--desc] [--plain]
   ```
 </Accordion>
 
 <Accordion title="delete / rm / remove">
-  Removes one or more automations by their trigger.
+  Removes one or more triggers by their trigger.
   ```bash
   taurine delete <trigger>...
   ```
@@ -106,7 +106,7 @@ Commands for backing up and restoring your Taurine environment.
 
 <Accordions>
 <Accordion title="export">
-  Exports automations, settings, and stats to a encrypted or plaintext file.
+  Exports triggers, settings, and stats to a encrypted or plaintext file.
   ```bash
   taurine export [path] [-p, --plain] [-s, --settings] [-t, --stats] [-x, --sensitive] [-y, --yes]
   ```

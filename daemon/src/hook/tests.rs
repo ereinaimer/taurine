@@ -26,7 +26,7 @@ fn dispatch_expansion_runs_injection_before_follow_up_consumption() {
         trigger: "ai".to_string(),
         undo_trigger: Some(">ai".to_string()),
         is_calculation: false,
-        stat_kind: taurine_core::db::crud::AutomationStatKind::InlineAi,
+        stat_kind: taurine_core::db::crud::TriggerStatKind::InlineAi,
         track_usage: false,
         follow_up: Some(taurine_core::engine::ExpansionFollowUp::InlineAi {
             prompt: "prompt".to_string(),
@@ -82,7 +82,7 @@ fn dispatch_expansion_records_undo_state_for_plain_text_output() {
         trigger: "gm".to_string(),
         undo_trigger: Some(">gm".to_string()),
         is_calculation: false,
-        stat_kind: taurine_core::db::crud::AutomationStatKind::Snippet,
+        stat_kind: taurine_core::db::crud::TriggerStatKind::Snippet,
         track_usage: false,
         follow_up: None,
     };
@@ -122,7 +122,7 @@ fn dispatch_expansion_skips_undo_registration_for_hotkey_results() {
         trigger: "ctrl+shift+g".to_string(),
         undo_trigger: None,
         is_calculation: false,
-        stat_kind: taurine_core::db::crud::AutomationStatKind::Hotkey,
+        stat_kind: taurine_core::db::crud::TriggerStatKind::Hotkey,
         track_usage: false,
         follow_up: None,
     };
@@ -345,11 +345,11 @@ fn dispatch_expansion_promotes_word_trigger_history_on_success() {
     state.load_actions(vec![
         (
             "email".to_string(),
-            taurine_core::db::crud::AutomationAction::text("team update"),
+            taurine_core::db::crud::TriggerAction::text("team update"),
         ),
         (
             "gs".to_string(),
-            taurine_core::db::crud::AutomationAction::text("git status"),
+            taurine_core::db::crud::TriggerAction::text("git status"),
         ),
     ]);
     state.load_word_trigger_history(vec!["email".to_string(), "gs".to_string()]);
@@ -366,7 +366,7 @@ fn dispatch_expansion_promotes_word_trigger_history_on_success() {
         trigger: "gs".to_string(),
         undo_trigger: Some(">gs".to_string()),
         is_calculation: false,
-        stat_kind: taurine_core::db::crud::AutomationStatKind::InlineAi,
+        stat_kind: taurine_core::db::crud::TriggerStatKind::InlineAi,
         track_usage: true,
         follow_up: None,
     };
@@ -412,6 +412,23 @@ pub(crate) static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 fn test_dispatch_expansion_skips_ai_stats() {
     let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     taurine_core::logs::init_tracing_for_tests();
+    let test_dir = std::env::temp_dir().join(format!(
+        "taurine_ai_stats_test_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let test_db = test_dir.join("test.db");
+    // SAFETY: Setting environment variables for test DB isolation.
+    unsafe {
+        std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap());
+        std::env::set_var("TAURINE_DB_PATH", test_db.to_str().unwrap());
+    }
+    let _ = std::fs::remove_dir_all(&test_dir);
+    std::fs::create_dir_all(&test_dir).unwrap();
+
     let _rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -432,7 +449,7 @@ fn test_dispatch_expansion_skips_ai_stats() {
         trigger: "h".to_string(),
         undo_trigger: None,
         is_calculation: false,
-        stat_kind: taurine_core::db::crud::AutomationStatKind::Snippet,
+        stat_kind: taurine_core::db::crud::TriggerStatKind::Snippet,
         track_usage: true,
         follow_up: None,
     };
@@ -469,7 +486,7 @@ fn test_dispatch_expansion_skips_ai_stats() {
         trigger: "ai".to_string(),
         undo_trigger: None,
         is_calculation: false,
-        stat_kind: taurine_core::db::crud::AutomationStatKind::InlineAi,
+        stat_kind: taurine_core::db::crud::TriggerStatKind::InlineAi,
         track_usage: true,
         follow_up: None,
     };
@@ -490,5 +507,12 @@ fn test_dispatch_expansion_skips_ai_stats() {
         .unwrap()
         .unwrap();
     assert_eq!(row.executions, 1);
-    assert_eq!(row.ai_executions, 0); // We expect this to fail right now because it's currently recorded as 1
+    assert_eq!(row.ai_executions, 0);
+
+    // Cleanup env
+    let _ = std::fs::remove_dir_all(&test_dir);
+    unsafe {
+        std::env::remove_var("TAURINE_DATA_DIR");
+        std::env::remove_var("TAURINE_DB_PATH");
+    }
 }

@@ -4,7 +4,7 @@ description: Complete guide to Taurine's syntax rules, safety limits, and execut
 icon: ShieldAlert
 ---
 
-Taurine is designed to give you maximum power and flexibility over your automation workflows. However, to protect your system from catastrophic resource exhaustion (like stack overflows), prevent accidental API bill spikes, and guarantee consistent expansions, Taurine enforces a set of syntax rules and safety limits.
+Taurine is designed to give you maximum power and flexibility over your trigger workflows. However, to protect your system from catastrophic resource exhaustion (like stack overflows), prevent accidental API bill spikes, and guarantee consistent expansions, Taurine enforces a set of syntax rules and safety limits.
 
 ---
 
@@ -53,7 +53,7 @@ The `| ai(...)` transformer makes live requests to external LLMs.
 * **Violation**: Prevents saving with a `Multiple [cursor] tags found` error.
 
 ### Directives Conflict
-* **Rule**: The `[cursor]` directive cannot coexist with key automation (`[key.*]`), delay (`[delay.*]`), or mouse (`[mouse.*]`) directives.
+* **Rule**: The `[cursor]` directive cannot coexist with key trigger (`[key.*]`), delay (`[delay.*]`), or mouse (`[mouse.*]`) directives.
 * **Violation**: Prevents saving with a `The [cursor] directive cannot be used alongside [key.*], [delay.*], or [mouse.*] directives` error.
 
 ---

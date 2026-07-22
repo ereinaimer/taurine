@@ -5,7 +5,7 @@ pub use taurine_core::db::crud::{
 };
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
-pub fn format_automation_log(
+pub fn format_trigger_log(
     action: &str,
     trigger: &str,
     script_info: Option<(ScriptBehavior, ScriptInterpreter)>,
@@ -30,11 +30,11 @@ pub fn format_automation_log(
             ScriptInterpreter::Cmd => "cmd",
         };
         parts.push(format!(
-            "{} {} script automation using {} for '{}'",
+            "{} {} script trigger using {} for '{}'",
             action, behavior_str, lang_str, trigger
         ));
     } else {
-        parts.push(format!("{} automation for '{}'", action, trigger));
+        parts.push(format!("{} trigger for '{}'", action, trigger));
     }
 
     // Target OS filter
@@ -304,20 +304,20 @@ mod tests {
     }
 
     #[test]
-    fn test_format_automation_log_sentences() {
+    fn test_format_trigger_log_sentences() {
         use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
-        // Text automation tests
+        // Text trigger tests
         assert_eq!(
-            format_automation_log("Added", "ctrl+alt+p", None, "all", None, None),
-            "Added automation for 'ctrl+alt+p'."
+            format_trigger_log("Added", "ctrl+alt+p", None, "all", None, None),
+            "Added trigger for 'ctrl+alt+p'."
         );
         assert_eq!(
-            format_automation_log("Updated", "ctrl+alt+p", None, "win", None, None),
-            "Updated automation for 'ctrl+alt+p' on Windows."
+            format_trigger_log("Updated", "ctrl+alt+p", None, "win", None, None),
+            "Updated trigger for 'ctrl+alt+p' on Windows."
         );
         assert_eq!(
-            format_automation_log(
+            format_trigger_log(
                 "Added",
                 "ctrl+alt+p",
                 None,
@@ -325,14 +325,14 @@ mod tests {
                 Some("exe:notepad"),
                 None
             ),
-            "Added automation for 'ctrl+alt+p' on macOS when active in 'exe:notepad'."
+            "Added trigger for 'ctrl+alt+p' on macOS when active in 'exe:notepad'."
         );
         assert_eq!(
-            format_automation_log("Added", "ctrl+alt+p", None, "linux", None, Some("exe:code")),
-            "Added automation for 'ctrl+alt+p' on Linux except when active in 'exe:code'."
+            format_trigger_log("Added", "ctrl+alt+p", None, "linux", None, Some("exe:code")),
+            "Added trigger for 'ctrl+alt+p' on Linux except when active in 'exe:code'."
         );
         assert_eq!(
-            format_automation_log(
+            format_trigger_log(
                 "Added",
                 "ctrl+alt+p",
                 None,
@@ -340,12 +340,12 @@ mod tests {
                 Some("exe:notepad"),
                 Some("exe:code")
             ),
-            "Added automation for 'ctrl+alt+p' on Windows when active in 'exe:notepad' and except when active in 'exe:code'."
+            "Added trigger for 'ctrl+alt+p' on Windows when active in 'exe:notepad' and except when active in 'exe:code'."
         );
 
-        // Script automation tests
+        // Script trigger tests
         assert_eq!(
-            format_automation_log(
+            format_trigger_log(
                 "Added",
                 "ctrl+alt+p",
                 Some((ScriptBehavior::Inline, ScriptInterpreter::Bash)),
@@ -353,10 +353,10 @@ mod tests {
                 None,
                 None
             ),
-            "Added inline script automation using bash for 'ctrl+alt+p'."
+            "Added inline script trigger using bash for 'ctrl+alt+p'."
         );
         assert_eq!(
-            format_automation_log(
+            format_trigger_log(
                 "Updated",
                 "ctrl+alt+p",
                 Some((ScriptBehavior::Silent, ScriptInterpreter::PowerShell)),
@@ -364,7 +364,7 @@ mod tests {
                 Some("exe:notepad"),
                 None
             ),
-            "Updated silent script automation using powershell for 'ctrl+alt+p' on Windows when active in 'exe:notepad'."
+            "Updated silent script trigger using powershell for 'ctrl+alt+p' on Windows when active in 'exe:notepad'."
         );
     }
 

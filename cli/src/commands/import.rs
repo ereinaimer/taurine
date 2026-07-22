@@ -2,10 +2,9 @@ use std::path::PathBuf;
 
 use taurine_core::db::init;
 use taurine_core::exchange::{
-    AutomationExport, ExchangeFormat, ExchangePayload, ExistingAutomationConflict,
-    ImportConflictAction, ImportOptions, ImportStatsMode,
-    decode_exchange_blob as decode_exchange_blob_core, detect_exchange_format,
-    import_payload_transactionally as import_payload_transactionally_core,
+    ExchangeFormat, ExchangePayload, ExistingTriggerConflict, ImportConflictAction, ImportOptions,
+    ImportStatsMode, TriggerExport, decode_exchange_blob as decode_exchange_blob_core,
+    detect_exchange_format, import_payload_transactionally as import_payload_transactionally_core,
 };
 use zeroize::Zeroize;
 
@@ -121,18 +120,14 @@ pub fn execute(
     };
 
     if imported == 0 {
-        println!("No automations were imported.");
+        println!("No triggers were imported.");
     } else {
-        let automation_word = if imported == 1 {
-            "automation"
-        } else {
-            "automations"
-        };
+        let trigger_word = if imported == 1 { "trigger" } else { "triggers" };
 
         println!(
             "Imported {} {}{} from {}",
             imported,
-            automation_word,
+            trigger_word,
             details,
             resolved_path.display()
         );
@@ -169,8 +164,8 @@ fn decode_exchange_blob(
 }
 
 fn resolve_conflict_action(
-    incoming: &AutomationExport,
-    existing: &ExistingAutomationConflict,
+    incoming: &TriggerExport,
+    existing: &ExistingTriggerConflict,
     conflict: Option<ImportConflictCli>,
     remembered_choice: &mut Option<taurine_tui::RememberedConflictChoice>,
 ) -> taurine_core::error::Result<ImportConflictAction> {
@@ -184,8 +179,8 @@ fn resolve_conflict_action(
 }
 
 fn prompt_conflict_action(
-    incoming: &AutomationExport,
-    existing: &ExistingAutomationConflict,
+    incoming: &TriggerExport,
+    existing: &ExistingTriggerConflict,
     remembered_choice: &mut Option<taurine_tui::RememberedConflictChoice>,
 ) -> taurine_core::error::Result<ImportConflictAction> {
     taurine_tui::run_conflict_prompt(incoming, existing, remembered_choice)
@@ -201,8 +196,8 @@ mod tests {
         ExchangePayload::new(vec![])
     }
 
-    fn sample_automation() -> AutomationExport {
-        AutomationExport {
+    fn sample_trigger() -> TriggerExport {
+        TriggerExport {
             name: "Imported".to_string(),
             description: None,
             trigger_type: TriggerType::Word,
@@ -219,8 +214,8 @@ mod tests {
         }
     }
 
-    fn sample_existing() -> ExistingAutomationConflict {
-        ExistingAutomationConflict {
+    fn sample_existing() -> ExistingTriggerConflict {
+        ExistingTriggerConflict {
             id: "local-id".to_string(),
             name: "Local".to_string(),
             description: None,
@@ -264,7 +259,7 @@ mod tests {
     #[test]
     fn resolve_conflict_action_honors_skip_policy_without_prompting() {
         let action = resolve_conflict_action(
-            &sample_automation(),
+            &sample_trigger(),
             &sample_existing(),
             Some(ImportConflictCli::Skip),
             &mut None,

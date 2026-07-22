@@ -211,19 +211,19 @@ impl DaemonControl for DaemonService {
                 .map_err(|e| Status::internal(format!("Database connection failed: {}", e)))?;
 
             // 1. Reload Snippets
-            let active = taurine_core::db::crud::get_all_active_automations(&conn)
-                .map_err(|e| Status::internal(format!("Failed to retrieve automations: {}", e)))?;
+            let active = taurine_core::db::crud::get_all_active_triggers(&conn)
+                .map_err(|e| Status::internal(format!("Failed to retrieve triggers: {}", e)))?;
             let history =
                 taurine_core::db::crud::get_active_word_trigger_history(&conn).map_err(|e| {
                     Status::internal(format!("Failed to retrieve trigger history: {}", e))
                 })?;
-            let hotkeys = taurine_core::db::crud::get_all_active_hotkey_automations(&conn)
-                .map_err(|e| {
-                    Status::internal(format!("Failed to retrieve hotkey automations: {}", e))
+            let hotkeys =
+                taurine_core::db::crud::get_all_active_hotkey_triggers(&conn).map_err(|e| {
+                    Status::internal(format!("Failed to retrieve hotkey triggers: {}", e))
                 })?;
             let regexes =
-                taurine_core::db::crud::get_all_active_regex_automations(&conn).map_err(|e| {
-                    Status::internal(format!("Failed to retrieve regex automations: {}", e))
+                taurine_core::db::crud::get_all_active_regex_triggers(&conn).map_err(|e| {
+                    Status::internal(format!("Failed to retrieve regex triggers: {}", e))
                 })?;
 
             self.state.load_actions(active);
@@ -340,9 +340,7 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
-    use taurine_core::db::crud::{
-        TriggerType, add_automation_by_trigger, upsert_automation_with_trigger_type,
-    };
+    use taurine_core::db::crud::{TriggerType, add_trigger, upsert_trigger_with_type};
     use taurine_core::db::init;
     use taurine_core::engine::EngineState;
     use tokio::sync::mpsc;
@@ -400,8 +398,7 @@ mod tests {
         assert_eq!(state.fetch_expansion("hello", None), None);
 
         // Add a snippet to DB
-        add_automation_by_trigger(&conn, "hello", "world", "all", None, None, None)
-            .expect("Failed to add to DB");
+        add_trigger(&conn, "hello", "world", "all", None, None, None).expect("Failed to add to DB");
 
         // trigger reload directly via gRPC service method
         let req = Request::new(taurine_core::rpc::ReloadRequest {});
@@ -430,7 +427,7 @@ mod tests {
         assert!(state.inline_history_enabled.load(Ordering::Relaxed));
         assert!(state.get_hotkey_action("ctrl+shift+g").is_none());
 
-        upsert_automation_with_trigger_type(
+        upsert_trigger_with_type(
             &conn,
             "hotkey-id",
             "Hotkey",

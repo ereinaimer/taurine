@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::engine::variables::ExpansionStep;
 use crate::engine::variables::system::clip::MAX_PAYLOAD_BYTES;
-use crate::stats::AutomationStatKind;
+use crate::stats::TriggerStatKind;
 
 use crate::engine::buffer::FastBuffer;
 use crate::engine::state::{EngineMode, EngineState};
@@ -50,7 +50,7 @@ pub struct ExpansionResult {
     /// Whether this expansion was a mathematical calculation.
     pub is_calculation: bool,
     /// Metric policy classification for this expansion.
-    pub stat_kind: AutomationStatKind,
+    pub stat_kind: TriggerStatKind,
     /// Whether the daemon should record snippet/calculation usage for this expansion.
     pub track_usage: bool,
     /// Optional daemon-side follow-up that should run after expansion injection.
@@ -685,7 +685,7 @@ impl Evaluator {
                 trigger: word.clone(),
                 undo_trigger: Some(word),
                 is_calculation: true,
-                stat_kind: AutomationStatKind::Calculation,
+                stat_kind: TriggerStatKind::Calculation,
                 track_usage: true,
                 follow_up: None,
             });
@@ -707,7 +707,7 @@ impl Evaluator {
                     trigger: keyword,
                     undo_trigger: None,
                     is_calculation: false,
-                    stat_kind: AutomationStatKind::InlineAi,
+                    stat_kind: TriggerStatKind::InlineAi,
                     track_usage: true,
                     follow_up: Some(ExpansionFollowUp::AiTransformer {
                         template_with_markers: template,
@@ -741,7 +741,7 @@ impl Evaluator {
                 trigger: word.clone(),
                 undo_trigger: Some(format!("{}{}", emoji_trigger, word)),
                 is_calculation: false,
-                stat_kind: AutomationStatKind::Snippet,
+                stat_kind: TriggerStatKind::Snippet,
                 track_usage: true,
                 follow_up: None,
             });
@@ -774,7 +774,7 @@ impl Evaluator {
                             trigger: word,
                             undo_trigger: None,
                             is_calculation: false,
-                            stat_kind: AutomationStatKind::InlineAi,
+                            stat_kind: TriggerStatKind::InlineAi,
                             track_usage: true,
                             follow_up: Some(ExpansionFollowUp::AiTransformer {
                                 template_with_markers: template,
@@ -806,7 +806,7 @@ impl Evaluator {
             if let Some((keyword, action, captures)) =
                 self.state.match_regex_action(&buf_str, active_window)
             {
-                use crate::engine::catalog::expand_automation_action_with_args;
+                use crate::engine::catalog::expand_trigger_action_with_args;
                 use crate::engine::variables::ArgMap;
 
                 let arg_map = ArgMap {
@@ -814,8 +814,7 @@ impl Evaluator {
                     ..Default::default()
                 };
 
-                if let Some(expansion) =
-                    expand_automation_action_with_args(action, &arg_map, &keyword)
+                if let Some(expansion) = expand_trigger_action_with_args(action, &arg_map, &keyword)
                 {
                     let delete_count = keyword.chars().count();
                     let stat_kind = stat_kind_for_steps(expansion.is_calculation, &expansion.steps);
@@ -829,7 +828,7 @@ impl Evaluator {
                             trigger: keyword.clone(),
                             undo_trigger: None,
                             is_calculation: false,
-                            stat_kind: AutomationStatKind::InlineAi,
+                            stat_kind: TriggerStatKind::InlineAi,
                             track_usage: true,
                             follow_up: Some(ExpansionFollowUp::AiTransformer {
                                 template_with_markers: template,
@@ -1014,7 +1013,7 @@ impl Evaluator {
             trigger: open_delim.to_string(),
             undo_trigger: None,
             is_calculation: false,
-            stat_kind: AutomationStatKind::InlineAi,
+            stat_kind: TriggerStatKind::InlineAi,
             track_usage: false,
             follow_up: None,
         }
@@ -1066,7 +1065,7 @@ impl Evaluator {
             trigger: "inline_ai".to_string(),
             undo_trigger: None,
             is_calculation: false,
-            stat_kind: AutomationStatKind::InlineAi,
+            stat_kind: TriggerStatKind::InlineAi,
             track_usage: false,
             follow_up: Some(ExpansionFollowUp::InlineAi {
                 prompt: prompt.to_string(),
@@ -1076,16 +1075,16 @@ impl Evaluator {
     }
 }
 
-fn stat_kind_for_steps(is_calculation: bool, steps: &[ExpansionStep]) -> AutomationStatKind {
+fn stat_kind_for_steps(is_calculation: bool, steps: &[ExpansionStep]) -> TriggerStatKind {
     if is_calculation {
-        return AutomationStatKind::Calculation;
+        return TriggerStatKind::Calculation;
     }
 
     if matches!(steps, [ExpansionStep::Script(_)]) {
-        return AutomationStatKind::Script;
+        return TriggerStatKind::Script;
     }
 
-    AutomationStatKind::Snippet
+    TriggerStatKind::Snippet
 }
 
 fn pop_char_from_query(query: &str) -> String {
@@ -1173,11 +1172,11 @@ mod tests {
         state.load_actions(vec![
             (
                 "gm".to_string(),
-                crate::db::crud::AutomationAction::text("Good morning!"),
+                crate::db::crud::TriggerAction::text("Good morning!"),
             ),
             (
                 "shrug".to_string(),
-                crate::db::crud::AutomationAction::text(r#"¯\_(ツ)_/¯"#),
+                crate::db::crud::TriggerAction::text(r#"¯\_(ツ)_/¯"#),
             ),
         ]);
         Evaluator::new(state)
@@ -1216,20 +1215,20 @@ mod tests {
         state.load_actions(vec![
             (
                 "gpush".to_string(),
-                crate::db::crud::AutomationAction::text("git push"),
+                crate::db::crud::TriggerAction::text("git push"),
             ),
             (
                 "gs".to_string(),
-                crate::db::crud::AutomationAction::text("git status"),
+                crate::db::crud::TriggerAction::text("git status"),
             ),
             (
                 "gco".to_string(),
-                crate::db::crud::AutomationAction::text("git checkout"),
+                crate::db::crud::TriggerAction::text("git checkout"),
             ),
         ]);
         state.load_hotkey_actions(vec![(
             "ctrl+shift+g".to_string(),
-            crate::db::crud::AutomationAction::text("hotkey"),
+            crate::db::crud::TriggerAction::text("hotkey"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -1271,15 +1270,15 @@ mod tests {
         state.load_actions(vec![
             (
                 "gs".to_string(),
-                crate::db::crud::AutomationAction::text("git status"),
+                crate::db::crud::TriggerAction::text("git status"),
             ),
             (
                 "gpush".to_string(),
-                crate::db::crud::AutomationAction::text("git push"),
+                crate::db::crud::TriggerAction::text("git push"),
             ),
             (
                 "gco".to_string(),
-                crate::db::crud::AutomationAction::text("git checkout"),
+                crate::db::crud::TriggerAction::text("git checkout"),
             ),
         ]);
         let mut eval = Evaluator::new(state);
@@ -1331,15 +1330,15 @@ mod tests {
         state.load_actions(vec![
             (
                 "gs".to_string(),
-                crate::db::crud::AutomationAction::text("git status"),
+                crate::db::crud::TriggerAction::text("git status"),
             ),
             (
                 "gpush".to_string(),
-                crate::db::crud::AutomationAction::text("git push"),
+                crate::db::crud::TriggerAction::text("git push"),
             ),
             (
                 "gco".to_string(),
-                crate::db::crud::AutomationAction::text("git checkout"),
+                crate::db::crud::TriggerAction::text("git checkout"),
             ),
         ]);
         let mut eval = Evaluator::new(state);
@@ -1370,7 +1369,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "gs".to_string(),
-            crate::db::crud::AutomationAction::text("git status"),
+            crate::db::crud::TriggerAction::text("git status"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -1422,11 +1421,11 @@ mod tests {
         state.load_actions(vec![
             (
                 "gs".to_string(),
-                crate::db::crud::AutomationAction::text("git status"),
+                crate::db::crud::TriggerAction::text("git status"),
             ),
             (
                 "gpush".to_string(),
-                crate::db::crud::AutomationAction::text("git push"),
+                crate::db::crud::TriggerAction::text("git push"),
             ),
         ]);
         let mut eval = Evaluator::new(state);
@@ -1471,11 +1470,11 @@ mod tests {
         state.load_actions(vec![
             (
                 "gco".to_string(),
-                crate::db::crud::AutomationAction::text("git checkout"),
+                crate::db::crud::TriggerAction::text("git checkout"),
             ),
             (
                 "gs".to_string(),
-                crate::db::crud::AutomationAction::text("git status"),
+                crate::db::crud::TriggerAction::text("git status"),
             ),
         ]);
         let mut eval = Evaluator::new(state);
@@ -1527,15 +1526,15 @@ mod tests {
         state.load_actions(vec![
             (
                 "email".to_string(),
-                crate::db::crud::AutomationAction::text("team update"),
+                crate::db::crud::TriggerAction::text("team update"),
             ),
             (
                 "gs".to_string(),
-                crate::db::crud::AutomationAction::text("git status"),
+                crate::db::crud::TriggerAction::text("git status"),
             ),
             (
                 "uuid".to_string(),
-                crate::db::crud::AutomationAction::text("1234"),
+                crate::db::crud::TriggerAction::text("1234"),
             ),
         ]);
         state.load_word_trigger_history(vec![
@@ -1570,19 +1569,19 @@ mod tests {
         state.load_actions(vec![
             (
                 "email".to_string(),
-                crate::db::crud::AutomationAction::text("team update"),
+                crate::db::crud::TriggerAction::text("team update"),
             ),
             (
                 "gpush".to_string(),
-                crate::db::crud::AutomationAction::text("git push"),
+                crate::db::crud::TriggerAction::text("git push"),
             ),
             (
                 "gs".to_string(),
-                crate::db::crud::AutomationAction::text("git status"),
+                crate::db::crud::TriggerAction::text("git status"),
             ),
             (
                 "uuid".to_string(),
-                crate::db::crud::AutomationAction::text("1234"),
+                crate::db::crud::TriggerAction::text("1234"),
             ),
         ]);
         state.load_word_trigger_history(vec![
@@ -1631,11 +1630,11 @@ mod tests {
         state.load_actions(vec![
             (
                 "gpush".to_string(),
-                crate::db::crud::AutomationAction::text("git push"),
+                crate::db::crud::TriggerAction::text("git push"),
             ),
             (
                 "gs".to_string(),
-                crate::db::crud::AutomationAction::text("git status"),
+                crate::db::crud::TriggerAction::text("git status"),
             ),
         ]);
         state.load_word_trigger_history(vec!["gs".to_string(), "gpush".to_string()]);
@@ -1675,7 +1674,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "gitstatus".to_string(),
-            crate::db::crud::AutomationAction::text("git status"),
+            crate::db::crud::TriggerAction::text("git status"),
         )]);
         state.load_word_trigger_history(vec!["gitstatus".to_string()]);
         let mut eval = Evaluator::new(state);
@@ -1711,11 +1710,11 @@ mod tests {
         state.load_actions(vec![
             (
                 "gpush".to_string(),
-                crate::db::crud::AutomationAction::text("git push"),
+                crate::db::crud::TriggerAction::text("git push"),
             ),
             (
                 "gs".to_string(),
-                crate::db::crud::AutomationAction::text("git status"),
+                crate::db::crud::TriggerAction::text("git status"),
             ),
         ]);
         let mut eval = Evaluator::new(state);
@@ -1750,7 +1749,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "gs".to_string(),
-            crate::db::crud::AutomationAction::text("git status"),
+            crate::db::crud::TriggerAction::text("git status"),
         )]);
         state.load_word_trigger_history(vec!["gs".to_string()]);
         let mut eval = Evaluator::new(state);
@@ -1776,15 +1775,15 @@ mod tests {
         state.load_actions(vec![
             (
                 "gpush".to_string(),
-                crate::db::crud::AutomationAction::text("git push"),
+                crate::db::crud::TriggerAction::text("git push"),
             ),
             (
                 "gs".to_string(),
-                crate::db::crud::AutomationAction::text("git status"),
+                crate::db::crud::TriggerAction::text("git status"),
             ),
             (
                 "gaa".to_string(),
-                crate::db::crud::AutomationAction::text("git add --all"),
+                crate::db::crud::TriggerAction::text("git add --all"),
             ),
         ]);
         state.load_word_trigger_history(vec!["gs".to_string(), "gpush".to_string()]);
@@ -1819,15 +1818,15 @@ mod tests {
         state.load_actions(vec![
             (
                 "gaa".to_string(),
-                crate::db::crud::AutomationAction::text("git add --all"),
+                crate::db::crud::TriggerAction::text("git add --all"),
             ),
             (
                 "gpm".to_string(),
-                crate::db::crud::AutomationAction::text("git push master"),
+                crate::db::crud::TriggerAction::text("git push master"),
             ),
             (
                 "gs".to_string(),
-                crate::db::crud::AutomationAction::text("git status"),
+                crate::db::crud::TriggerAction::text("git status"),
             ),
         ]);
         state.load_word_trigger_history(vec!["gs".to_string(), "gpm".to_string()]);
@@ -1862,15 +1861,15 @@ mod tests {
         state.load_actions(vec![
             (
                 "gaa".to_string(),
-                crate::db::crud::AutomationAction::text("git add --all"),
+                crate::db::crud::TriggerAction::text("git add --all"),
             ),
             (
                 "gpm".to_string(),
-                crate::db::crud::AutomationAction::text("git push master"),
+                crate::db::crud::TriggerAction::text("git push master"),
             ),
             (
                 "gs".to_string(),
-                crate::db::crud::AutomationAction::text("git status"),
+                crate::db::crud::TriggerAction::text("git status"),
             ),
         ]);
         state.load_word_trigger_history(vec!["gs".to_string(), "gpm".to_string()]);
@@ -1902,11 +1901,11 @@ mod tests {
         state.load_actions(vec![
             (
                 "gaa".to_string(),
-                crate::db::crud::AutomationAction::text("git add --all"),
+                crate::db::crud::TriggerAction::text("git add --all"),
             ),
             (
                 "gs".to_string(),
-                crate::db::crud::AutomationAction::text("git status"),
+                crate::db::crud::TriggerAction::text("git status"),
             ),
         ]);
         state.load_word_trigger_history(vec!["gs".to_string()]);
@@ -1947,7 +1946,7 @@ mod tests {
             .store(false, Ordering::Relaxed);
         state.load_actions(vec![(
             "gs".to_string(),
-            crate::db::crud::AutomationAction::text("git status"),
+            crate::db::crud::TriggerAction::text("git status"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -1981,7 +1980,7 @@ mod tests {
         state.inline_history_enabled.store(false, Ordering::Relaxed);
         state.load_actions(vec![(
             "gs".to_string(),
-            crate::db::crud::AutomationAction::text("git status"),
+            crate::db::crud::TriggerAction::text("git status"),
         )]);
         state.load_word_trigger_history(vec!["gs".to_string()]);
         let mut eval = Evaluator::new(state);
@@ -2008,11 +2007,11 @@ mod tests {
         state.load_actions(vec![
             (
                 "gco".to_string(),
-                crate::db::crud::AutomationAction::text("git checkout"),
+                crate::db::crud::TriggerAction::text("git checkout"),
             ),
             (
                 "gs".to_string(),
-                crate::db::crud::AutomationAction::text("git status"),
+                crate::db::crud::TriggerAction::text("git status"),
             ),
         ]);
         let mut eval = Evaluator::new(state);
@@ -2041,7 +2040,7 @@ mod tests {
             .store(false, Ordering::Relaxed);
         state.load_actions(vec![(
             "gs".to_string(),
-            crate::db::crud::AutomationAction::text("git status"),
+            crate::db::crud::TriggerAction::text("git status"),
         )]);
         state.load_word_trigger_history(vec!["gs".to_string()]);
         let mut eval = Evaluator::new(state);
@@ -2062,7 +2061,7 @@ mod tests {
         state.inline_history_enabled.store(false, Ordering::Relaxed);
         state.load_actions(vec![(
             "gs".to_string(),
-            crate::db::crud::AutomationAction::text("git status"),
+            crate::db::crud::TriggerAction::text("git status"),
         )]);
 
         let mut eval = Evaluator::new(state.clone());
@@ -2193,7 +2192,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "sig".to_string(),
-            crate::db::crud::AutomationAction::text("Best,\n[cursor]\nErin"),
+            crate::db::crud::TriggerAction::text("Best,\n[cursor]\nErin"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -2225,7 +2224,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "runme".to_string(),
-            crate::db::crud::AutomationAction::text("before [exec.bash(echo hi)] after"),
+            crate::db::crud::TriggerAction::text("before [exec.bash(echo hi)] after"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -2259,7 +2258,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "clip".to_string(),
-            crate::db::crud::AutomationAction::text("[clip]"),
+            crate::db::crud::TriggerAction::text("[clip]"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -2322,11 +2321,11 @@ mod tests {
         state.load_actions(vec![
             (
                 "brb".to_string(),
-                crate::db::crud::AutomationAction::text("Be right back!"),
+                crate::db::crud::TriggerAction::text("Be right back!"),
             ),
             (
                 "gm".to_string(),
-                crate::db::crud::AutomationAction::text("Good morning!"),
+                crate::db::crud::TriggerAction::text("Good morning!"),
             ),
         ]);
         let mut eval = Evaluator::new(state);
@@ -2353,11 +2352,11 @@ mod tests {
         state.load_actions(vec![
             (
                 "brb".to_string(),
-                crate::db::crud::AutomationAction::text("Be right back!"),
+                crate::db::crud::TriggerAction::text("Be right back!"),
             ),
             (
                 "gm".to_string(),
-                crate::db::crud::AutomationAction::text("Good morning!"),
+                crate::db::crud::TriggerAction::text("Good morning!"),
             ),
         ]);
         let mut eval = Evaluator::new(state);
@@ -2411,7 +2410,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "gm".to_string(),
-            crate::db::crud::AutomationAction::text("Good morning!"),
+            crate::db::crud::TriggerAction::text("Good morning!"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -2445,7 +2444,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "gm".to_string(),
-            crate::db::crud::AutomationAction::text("Good morning!"),
+            crate::db::crud::TriggerAction::text("Good morning!"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -2491,7 +2490,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "repo".to_string(),
-            crate::db::crud::AutomationAction::text("https://github.com/[0=org]/[1=repo]"),
+            crate::db::crud::TriggerAction::text("https://github.com/[0=org]/[1=repo]"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -2525,7 +2524,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "gh".to_string(),
-            crate::db::crud::AutomationAction::text("https://github.com/[username]/[repo=taurine]"),
+            crate::db::crud::TriggerAction::text("https://github.com/[username]/[repo=taurine]"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -2556,7 +2555,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "gh".to_string(),
-            crate::db::crud::AutomationAction::text("https://github.com/ereinaimer/taurine"),
+            crate::db::crud::TriggerAction::text("https://github.com/ereinaimer/taurine"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -2815,7 +2814,7 @@ mod tests {
         state.set_action_key(crate::settings::ActionKey::Space);
         state.load_actions(vec![(
             "gm".to_string(),
-            crate::db::crud::AutomationAction::text("Good morning!"),
+            crate::db::crud::TriggerAction::text("Good morning!"),
         )]);
         let mut eval = Evaluator::new(state.clone());
 
@@ -2863,7 +2862,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "gm".to_string(),
-            crate::db::crud::AutomationAction::text("Good morning!"),
+            crate::db::crud::TriggerAction::text("Good morning!"),
         )]);
         let mut eval = Evaluator::new(state.clone());
 
@@ -2909,7 +2908,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "gm".to_string(),
-            crate::db::crud::AutomationAction::text("Good morning!"),
+            crate::db::crud::TriggerAction::text("Good morning!"),
         )]);
         let mut eval = Evaluator::new(state.clone());
 
@@ -2946,7 +2945,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "gm".to_string(),
-            crate::db::crud::AutomationAction::text("Good morning!"),
+            crate::db::crud::TriggerAction::text("Good morning!"),
         )]);
         let mut eval = Evaluator::new(state.clone());
 
@@ -3118,7 +3117,7 @@ mod tests {
         state.triggerless_mode.store(true, Ordering::Relaxed);
         state.load_actions(vec![(
             "gs".to_string(),
-            crate::db::crud::AutomationAction::text("git status"),
+            crate::db::crud::TriggerAction::text("git status"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -3141,7 +3140,7 @@ mod tests {
         state.triggerless_mode.store(false, Ordering::Relaxed);
         state.load_actions(vec![(
             "gs".to_string(),
-            crate::db::crud::AutomationAction::text("git status"),
+            crate::db::crud::TriggerAction::text("git status"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -3159,7 +3158,7 @@ mod tests {
         state.triggerless_mode.store(true, Ordering::Relaxed);
         state.load_actions(vec![(
             "gs".to_string(),
-            crate::db::crud::AutomationAction::text("git status"),
+            crate::db::crud::TriggerAction::text("git status"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -3182,7 +3181,7 @@ mod tests {
         state.set_action_key(crate::settings::ActionKey::Enter);
         state.load_actions(vec![(
             "gm".to_string(),
-            crate::db::crud::AutomationAction::text("Good Morning"),
+            crate::db::crud::TriggerAction::text("Good Morning"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -3206,7 +3205,7 @@ mod tests {
         state.set_action_key(crate::settings::ActionKey::Space);
         state.load_actions(vec![(
             "gm".to_string(),
-            crate::db::crud::AutomationAction::text("Good Morning"),
+            crate::db::crud::TriggerAction::text("Good Morning"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -3226,7 +3225,7 @@ mod tests {
         state.set_action_key(crate::settings::ActionKey::Enter);
         state.load_actions(vec![(
             "gm".to_string(),
-            crate::db::crud::AutomationAction::text("Good Morning"),
+            crate::db::crud::TriggerAction::text("Good Morning"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -3244,7 +3243,7 @@ mod tests {
         state.triggerless_mode.store(true, Ordering::Relaxed);
         state.load_actions(vec![(
             "gs".to_string(),
-            crate::db::crud::AutomationAction::text("git status"),
+            crate::db::crud::TriggerAction::text("git status"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -3267,7 +3266,7 @@ mod tests {
         state.instant_expand.store(true, Ordering::Relaxed);
         state.load_actions(vec![(
             "gs".to_string(),
-            crate::db::crud::AutomationAction::text("git status"),
+            crate::db::crud::TriggerAction::text("git status"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -3289,7 +3288,7 @@ mod tests {
         state.triggerless_mode.store(true, Ordering::Relaxed);
         state.load_actions(vec![(
             "gs".to_string(),
-            crate::db::crud::AutomationAction::text("git status"),
+            crate::db::crud::TriggerAction::text("git status"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -3307,7 +3306,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "gs".to_string(),
-            crate::db::crud::AutomationAction::text("git status"),
+            crate::db::crud::TriggerAction::text("git status"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -3326,7 +3325,7 @@ mod tests {
         let state = Arc::new(EngineState::new('>'));
         state.load_regex_actions(vec![(
             "issue-(\\d+)".to_string(),
-            crate::db::crud::AutomationAction::text("https://github.com/issues/[0]"),
+            crate::db::crud::TriggerAction::text("https://github.com/issues/[0]"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -3348,7 +3347,7 @@ mod tests {
         let state = Arc::new(EngineState::new('/'));
         state.load_actions(vec![(
             "hi".to_string(),
-            crate::db::crud::AutomationAction::text("hello"),
+            crate::db::crud::TriggerAction::text("hello"),
         )]);
         let mut eval = Evaluator::new(state);
         for c in "/hi".chars() {
@@ -3431,7 +3430,7 @@ mod tests {
         crate::settings::set_cached_inline_emoji_trigger_char(':');
         state.load_actions(vec![(
             "rocket".to_string(),
-            crate::db::crud::AutomationAction::text("snippet_won"),
+            crate::db::crud::TriggerAction::text("snippet_won"),
         )]);
         let mut eval = Evaluator::new(state);
 
@@ -3485,7 +3484,7 @@ mod tests {
         state.set_action_key(crate::settings::ActionKey::Enter);
         state.load_actions(vec![(
             "hi".to_string(),
-            crate::db::crud::AutomationAction::text("Hello [0=default], [1=msg]!"),
+            crate::db::crud::TriggerAction::text("Hello [0=default], [1=msg]!"),
         )]);
 
         let mut eval = Evaluator::new(state);
@@ -3510,7 +3509,7 @@ mod tests {
         state.set_action_key(crate::settings::ActionKey::Space);
         state.load_actions(vec![(
             "hi".to_string(),
-            crate::db::crud::AutomationAction::text("Hello [0=default], [1=msg]!"),
+            crate::db::crud::TriggerAction::text("Hello [0=default], [1=msg]!"),
         )]);
 
         let mut eval = Evaluator::new(state);
@@ -3585,15 +3584,15 @@ mod tests {
         state.load_actions(vec![
             (
                 "gpush".to_string(),
-                crate::db::crud::AutomationAction::text("git push"),
+                crate::db::crud::TriggerAction::text("git push"),
             ),
             (
                 "gs".to_string(),
-                crate::db::crud::AutomationAction::text("git status"),
+                crate::db::crud::TriggerAction::text("git status"),
             ),
             (
                 "gco".to_string(),
-                crate::db::crud::AutomationAction::text("git checkout"),
+                crate::db::crud::TriggerAction::text("git checkout"),
             ),
         ]);
         let mut eval = Evaluator::new(state);

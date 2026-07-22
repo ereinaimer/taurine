@@ -51,7 +51,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                 // v0 → v1 : Initial production schema
                 // ----------------------------------------------------------------
                 // settings     — domain-keyed JSON config store
-                // automations  — trigger rules with sync/tombstone metadata
+                // triggers     — trigger rules with sync/tombstone metadata
                 // metrics      — daily usage counters (renamed to stats in v2)
                 // ----------------------------------------------------------------
                 0 => conn
@@ -63,7 +63,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     updated_at INTEGER NOT NULL
                 );
 
-                CREATE TABLE IF NOT EXISTS automations (
+                CREATE TABLE IF NOT EXISTS triggers (
                     id           TEXT    PRIMARY KEY,
                     name         TEXT    NOT NULL,
                     description  TEXT,
@@ -97,38 +97,38 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                 );
 
                 CREATE TABLE IF NOT EXISTS scripts (
-                    automation_id      TEXT    PRIMARY KEY,
+                    trigger_id         TEXT    PRIMARY KEY,
                     interpreter        TEXT    NOT NULL,
                     behavior           TEXT    NOT NULL,
                     compressed_content BLOB    NOT NULL,
                     version            INTEGER DEFAULT 1,
                     updated_at         INTEGER NOT NULL,
-                    FOREIGN KEY(automation_id) REFERENCES automations(id) ON DELETE CASCADE
+                    FOREIGN KEY(trigger_id) REFERENCES triggers(id) ON DELETE CASCADE
                 );
 
                 CREATE TABLE IF NOT EXISTS assets (
                     id                 TEXT    PRIMARY KEY,
-                    automation_id      TEXT    NOT NULL,
+                    trigger_id         TEXT    NOT NULL,
                     mime_type          TEXT    NOT NULL,
                     compressed_content BLOB    NOT NULL,
                     updated_at         INTEGER NOT NULL,
-                    FOREIGN KEY(automation_id) REFERENCES automations(id) ON DELETE CASCADE
+                    FOREIGN KEY(trigger_id) REFERENCES triggers(id) ON DELETE CASCADE
                 );
 
                 -- Partial index: hot-path word-trigger lookup, tombstoned rows excluded.
                 CREATE INDEX IF NOT EXISTS idx_active_triggers
-                    ON automations(trigger_type, trigger)
+                    ON triggers(trigger_type, trigger)
                  WHERE is_deleted = 0 AND is_enabled = 1;
 
                 -- Sync index: version is the LWW arbiter; updated_at breaks clock-drift ties.
                 CREATE INDEX IF NOT EXISTS idx_sync_queue
-                    ON automations(version, updated_at, is_synced);
+                    ON triggers(version, updated_at, is_synced);
 
                 -- UI index: fuzzy-finder sorts by most-used first.
-                CREATE INDEX IF NOT EXISTS idx_automations_usage_count
-                    ON automations(usage_count DESC);
+                CREATE INDEX IF NOT EXISTS idx_triggers_usage_count
+                    ON triggers(usage_count DESC);
 
-                -- Metrics sync: same LWW ordering as automations.
+                -- Metrics sync: same LWW ordering as triggers.
                 CREATE INDEX IF NOT EXISTS idx_metrics_sync
                     ON metrics(version, updated_at);
 
@@ -140,7 +140,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                 DROP INDEX IF EXISTS idx_active_trigger_uniqueness;
 
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_active_trigger_uniqueness
-                    ON automations(trigger_type, trigger, target_os, COALESCE(only_apps, ''), COALESCE(except_apps, ''))
+                    ON triggers(trigger_type, trigger, target_os, COALESCE(only_apps, ''), COALESCE(except_apps, ''))
                  WHERE is_deleted = 0;
 
                 PRAGMA user_version = 1;",

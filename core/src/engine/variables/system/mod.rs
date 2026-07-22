@@ -340,7 +340,7 @@ fn contains_key_or_delay_directives(text: &str) -> bool {
 
 /// Validates an expansion output for common mistakes like multiple cursors or conflicts.
 ///
-/// This serves as an early-warning system during automation creation (CLI)
+/// This serves as an early-warning system during trigger creation (CLI)
 /// and a failsafe during actual expansion.
 pub fn validate_output(output: &str, trigger: Option<&str>) {
     let trigger_ctx = trigger
@@ -1204,7 +1204,7 @@ mod tests {
             {
                 let conn = rusqlite::Connection::open(crate::paths::get_db_path()).unwrap();
                 conn.execute(
-                    "INSERT OR REPLACE INTO automations (id, trigger, output, action_type, target_os, name, tags, is_deleted, created_at, updated_at)
+                    "INSERT OR REPLACE INTO triggers (id, trigger, output, action_type, target_os, name, tags, is_deleted, created_at, updated_at)
                      VALUES ('test_inner_id', 'testinner', 'Hello from the inner snippet!', 'text', 'all', 'testinner', '[]', 0, 1719878400, 1719878400)",
                     []
                 ).unwrap();
@@ -1212,7 +1212,7 @@ mod tests {
                 let res =
                     evaluate_template("Output: [use('testinner') | upper] | Date: [date]", None);
 
-                conn.execute("DELETE FROM automations WHERE id = 'test_inner_id'", [])
+                conn.execute("DELETE FROM triggers WHERE id = 'test_inner_id'", [])
                     .ok();
 
                 assert_eq!(res.steps.len(), 1);

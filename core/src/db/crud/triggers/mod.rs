@@ -1,34 +1,32 @@
-mod automation_delete;
-mod automation_get;
-mod automation_set;
-mod automation_sync;
-mod automation_types;
+mod trigger_delete;
+mod trigger_get;
+mod trigger_set;
+mod trigger_sync;
+mod trigger_types;
 
-pub use automation_delete::{
-    count_automations_by_pattern, delete_automation, delete_automation_by_trigger,
-    delete_automations_by_pattern, delete_automations_by_tag, delete_automations_by_triggers,
+pub use trigger_delete::{
+    count_triggers_by_pattern, delete_trigger, delete_trigger_by_value, delete_triggers_by_pattern,
+    delete_triggers_by_tag, delete_triggers_by_values,
 };
 
-pub use automation_get::{
-    get_action_by_trigger, get_active_word_trigger_history, get_all_active_automations,
-    get_all_active_hotkey_automations, get_all_active_regex_automations, get_automation,
-    get_automations_list, search_automations,
+pub use trigger_get::{
+    get_action_by_trigger, get_active_word_trigger_history, get_all_active_hotkey_triggers,
+    get_all_active_regex_triggers, get_all_active_triggers, get_trigger, get_triggers_list,
+    search_triggers,
 };
-pub use automation_set::{
-    AddOutcome, ExistingAutomationUpdate, NewAutomation, PreparedTrigger,
-    add_automation_by_trigger, add_automation_by_trigger_and_case, add_automation_by_trigger_type,
-    add_automation_by_trigger_type_and_case, audit_payload_tags,
-    audit_payload_tags_with_trigger_type, audit_script_payload_tags, create_automation,
+pub use trigger_set::{
+    AddOutcome, ExistingTriggerUpdate, NewTrigger, PreparedTrigger, add_trigger,
+    add_trigger_by_type, add_trigger_by_type_with_case, add_trigger_with_case, audit_payload_tags,
+    audit_payload_tags_with_trigger_type, audit_script_payload_tags, create_trigger,
     find_trigger_overlap_conflict, increment_usage_count_by_trigger, prepare_trigger,
     prepare_trigger_with_type, record_expansion_usage, target_os_values_overlap,
-    update_automation_app_filters, update_existing_automation, upsert_automation,
-    upsert_automation_with_trigger_type, upsert_automation_with_trigger_type_and_case,
-    upsert_script, validate_trigger_not_reserved, validate_trigger_target_os_conflict,
+    update_existing_trigger, update_trigger_app_filters, upsert_script, upsert_trigger,
+    upsert_trigger_with_type, upsert_trigger_with_type_and_case, validate_trigger_not_reserved,
+    validate_trigger_target_os_conflict,
 };
-pub use automation_sync::get_syncable_automations;
-pub use automation_types::{
-    AutomationAction, AutomationListItem, AutomationRow, AutomationSummary, TriggerConflict,
-    TriggerType,
+pub use trigger_sync::get_syncable_triggers;
+pub use trigger_types::{
+    TriggerAction, TriggerConflict, TriggerListItem, TriggerRow, TriggerSummary, TriggerType,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -43,7 +41,7 @@ mod tests {
     use crate::testing::{init_tracing_for_tests, open_test_db};
     use rusqlite::ErrorCode;
 
-    fn insert_raw_automation(
+    fn insert_raw_trigger(
         conn: &rusqlite::Connection,
         id: &str,
         trigger_type: &str,
@@ -51,12 +49,12 @@ mod tests {
         target_os: &str,
     ) -> rusqlite::Result<usize> {
         conn.execute(
-            "INSERT INTO automations
+            "INSERT INTO triggers
                 (id, name, trigger_type, trigger, output, target_os, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             (
                 id,
-                format!("Automation {id}"),
+                format!("Trigger {id}"),
                 trigger_type,
                 trigger,
                 format!("payload-{id}"),
@@ -68,20 +66,20 @@ mod tests {
     }
 
     #[test]
-    fn get_automation_returns_none_for_missing_id() {
+    fn get_trigger_returns_none_for_missing_id() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        let result = get_automation(&conn, "missing").unwrap();
+        let result = get_trigger(&conn, "missing").unwrap();
         assert!(result.is_none());
     }
 
     #[test]
-    fn upsert_automation_inserts_new_row_with_version_1() {
+    fn upsert_trigger_inserts_new_row_with_version_1() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-1",
             "Good Morning",
@@ -96,7 +94,7 @@ mod tests {
         )
         .unwrap();
 
-        let row = get_automation(&conn, "uuid-1").unwrap().unwrap();
+        let row = get_trigger(&conn, "uuid-1").unwrap().unwrap();
         assert_eq!(row.id, "uuid-1");
         assert_eq!(row.name, "Good Morning");
         assert_eq!(row.description, None);
@@ -116,11 +114,11 @@ mod tests {
     }
 
     #[test]
-    fn upsert_automation_increments_version_on_update() {
+    fn upsert_trigger_increments_version_on_update() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-1",
             "Good Morning",
@@ -135,7 +133,7 @@ mod tests {
         )
         .unwrap();
 
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-1",
             "Good Morning",
@@ -150,7 +148,7 @@ mod tests {
         )
         .unwrap();
 
-        let row = get_automation(&conn, "uuid-1").unwrap().unwrap();
+        let row = get_trigger(&conn, "uuid-1").unwrap().unwrap();
         assert_eq!(row.version, 2);
         assert_eq!(row.description.as_deref(), Some("description"));
         assert_eq!(row.trigger_type, TriggerType::Word);
@@ -163,11 +161,11 @@ mod tests {
     }
 
     #[test]
-    fn delete_automation_tombstones_and_returns_true_once() {
+    fn delete_trigger_tombstones_and_returns_true_once() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-1",
             "Good Morning",
@@ -182,58 +180,58 @@ mod tests {
         )
         .unwrap();
 
-        let deleted = delete_automation(&conn, "uuid-1").unwrap();
+        let deleted = delete_trigger(&conn, "uuid-1").unwrap();
         assert!(deleted);
 
-        let row = get_automation(&conn, "uuid-1").unwrap().unwrap();
+        let row = get_trigger(&conn, "uuid-1").unwrap().unwrap();
         assert!(row.is_deleted);
         assert!(row.is_synced);
         let version_after_delete = row.version;
 
-        let deleted_again = delete_automation(&conn, "uuid-1").unwrap();
+        let deleted_again = delete_trigger(&conn, "uuid-1").unwrap();
         assert!(!deleted_again, "already deleted rows shouldn't change");
 
-        let row2 = get_automation(&conn, "uuid-1").unwrap().unwrap();
+        let row2 = get_trigger(&conn, "uuid-1").unwrap().unwrap();
         assert_eq!(row2.version, version_after_delete);
     }
 
     #[test]
-    fn delete_automation_returns_false_when_missing() {
+    fn delete_trigger_returns_false_when_missing() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        let deleted = delete_automation(&conn, "ghost").unwrap();
+        let deleted = delete_trigger(&conn, "ghost").unwrap();
         assert!(!deleted);
     }
 
     #[test]
-    fn delete_automations_by_triggers_tombstones_matches() {
+    fn delete_triggers_by_values_tombstones_matches() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        upsert_automation(
+        upsert_trigger(
             &conn, "uuid-1", "A", None, "t1", "out", "text", "all", "[]", 0, None,
         )
         .unwrap();
-        upsert_automation(
+        upsert_trigger(
             &conn, "uuid-2", "B", None, "t2", "out", "text", "all", "[]", 0, None,
         )
         .unwrap();
-        upsert_automation(
+        upsert_trigger(
             &conn, "uuid-3", "C", None, "t3", "out", "text", "all", "[]", 0, None,
         )
         .unwrap();
 
         let triggers = vec!["t1".to_string(), "t3".to_string()];
-        let affected = crate::db::crud::delete_automations_by_triggers(&conn, &triggers).unwrap();
+        let affected = crate::db::crud::delete_triggers_by_values(&conn, &triggers).unwrap();
         assert_eq!(affected, 2);
 
-        assert!(get_automation(&conn, "uuid-1").unwrap().unwrap().is_deleted);
-        assert!(!get_automation(&conn, "uuid-2").unwrap().unwrap().is_deleted);
-        assert!(get_automation(&conn, "uuid-3").unwrap().unwrap().is_deleted);
+        assert!(get_trigger(&conn, "uuid-1").unwrap().unwrap().is_deleted);
+        assert!(!get_trigger(&conn, "uuid-2").unwrap().unwrap().is_deleted);
+        assert!(get_trigger(&conn, "uuid-3").unwrap().unwrap().is_deleted);
 
         // Ensure returning 0 for empty triggers
-        let affected_empty = crate::db::crud::delete_automations_by_triggers(&conn, &[]).unwrap();
+        let affected_empty = crate::db::crud::delete_triggers_by_values(&conn, &[]).unwrap();
         assert_eq!(affected_empty, 0);
     }
 
@@ -241,19 +239,19 @@ mod tests {
     fn get_action_by_trigger_returns_none_for_missing_trigger() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
-        conn.execute("DELETE FROM automations", []).unwrap();
+        conn.execute("DELETE FROM triggers", []).unwrap();
 
         let result = get_action_by_trigger(&conn, "gm").unwrap();
         assert!(result.is_none());
     }
 
     #[test]
-    fn get_all_active_automations_ignores_deleted_rows() {
+    fn get_all_active_triggers_ignores_deleted_rows() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
-        conn.execute("DELETE FROM automations", []).unwrap();
+        conn.execute("DELETE FROM triggers", []).unwrap();
 
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-1",
             "GM One",
@@ -268,7 +266,7 @@ mod tests {
         )
         .unwrap();
 
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-2",
             "GM Two",
@@ -283,10 +281,10 @@ mod tests {
         )
         .unwrap();
 
-        // Tombstone one automation; its trigger must not appear.
-        delete_automation(&conn, "uuid-2").unwrap();
+        // Tombstone one trigger; its trigger must not appear.
+        delete_trigger(&conn, "uuid-2").unwrap();
 
-        let rows = get_all_active_automations(&conn).unwrap();
+        let rows = get_all_active_triggers(&conn).unwrap();
         let mut triggers: Vec<String> = rows.into_iter().map(|(t, _)| t).collect();
         triggers.sort();
 
@@ -294,13 +292,13 @@ mod tests {
     }
 
     #[test]
-    fn get_all_active_automations_filters_by_target_os() {
+    fn get_all_active_triggers_filters_by_target_os() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
-        conn.execute("DELETE FROM automations", []).unwrap();
+        conn.execute("DELETE FROM triggers", []).unwrap();
 
         // 1. "all" should be loaded everywhere.
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-1",
             "GM All",
@@ -316,7 +314,7 @@ mod tests {
         .unwrap();
 
         // 2. A completely unrecognized/fake OS should never be loaded on any platform.
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-2",
             "GM Fake OS",
@@ -340,7 +338,7 @@ mod tests {
             "ios" => "ios",
             _ => "unknown",
         };
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-3",
             "GM Native",
@@ -355,7 +353,7 @@ mod tests {
         )
         .unwrap();
 
-        let rows = get_all_active_automations(&conn).unwrap();
+        let rows = get_all_active_triggers(&conn).unwrap();
         let mut triggers: Vec<String> = rows.into_iter().map(|(t, _)| t).collect();
         triggers.sort();
 
@@ -367,12 +365,12 @@ mod tests {
     }
 
     #[test]
-    fn get_all_active_automations_excludes_hotkey_triggers() {
+    fn get_all_active_triggers_excludes_hotkey_triggers() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
-        conn.execute("DELETE FROM automations", []).unwrap();
+        conn.execute("DELETE FROM triggers", []).unwrap();
 
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-word",
             "Word",
@@ -386,7 +384,7 @@ mod tests {
             None,
         )
         .unwrap();
-        upsert_automation_with_trigger_type(
+        upsert_trigger_with_type(
             &conn,
             "uuid-hotkey",
             "Hotkey",
@@ -402,7 +400,7 @@ mod tests {
         )
         .unwrap();
 
-        let rows = get_all_active_automations(&conn).unwrap();
+        let rows = get_all_active_triggers(&conn).unwrap();
         let triggers: Vec<String> = rows.into_iter().map(|(trigger, _)| trigger).collect();
         assert_eq!(triggers, vec!["gm".to_string()]);
     }
@@ -411,9 +409,9 @@ mod tests {
     fn active_word_trigger_history_prefers_recency_then_usage_then_alphabetical() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
-        conn.execute("DELETE FROM automations", []).unwrap();
+        conn.execute("DELETE FROM triggers", []).unwrap();
 
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-recent",
             "Recent",
@@ -427,7 +425,7 @@ mod tests {
             Some(1_700_000_100_i64),
         )
         .unwrap();
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-older",
             "Older",
@@ -441,7 +439,7 @@ mod tests {
             Some(1_700_000_050_i64),
         )
         .unwrap();
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-usage",
             "Usage",
@@ -455,7 +453,7 @@ mod tests {
             None,
         )
         .unwrap();
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-alpha",
             "Alpha",
@@ -469,7 +467,7 @@ mod tests {
             None,
         )
         .unwrap();
-        upsert_automation_with_trigger_type(
+        upsert_trigger_with_type(
             &conn,
             "uuid-hotkey",
             "Hotkey",
@@ -500,9 +498,9 @@ mod tests {
     fn active_word_trigger_history_orders_by_last_used_at_desc() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
-        conn.execute("DELETE FROM automations", []).unwrap();
+        conn.execute("DELETE FROM triggers", []).unwrap();
 
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-1",
             "Older",
@@ -516,7 +514,7 @@ mod tests {
             Some(1_700_000_001_i64),
         )
         .unwrap();
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-2",
             "Newest",
@@ -530,7 +528,7 @@ mod tests {
             Some(1_700_000_100_i64),
         )
         .unwrap();
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-3",
             "Middle",
@@ -559,9 +557,9 @@ mod tests {
     fn active_word_trigger_history_uses_usage_count_when_recency_is_tied_or_absent() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
-        conn.execute("DELETE FROM automations", []).unwrap();
+        conn.execute("DELETE FROM triggers", []).unwrap();
 
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-1",
             "High Usage",
@@ -575,7 +573,7 @@ mod tests {
             Some(1_700_000_100_i64),
         )
         .unwrap();
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-2",
             "Low Usage",
@@ -589,7 +587,7 @@ mod tests {
             Some(1_700_000_100_i64),
         )
         .unwrap();
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-3",
             "Null Recency High",
@@ -603,7 +601,7 @@ mod tests {
             None,
         )
         .unwrap();
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-4",
             "Null Recency Low",
@@ -633,9 +631,9 @@ mod tests {
     fn active_word_trigger_history_breaks_full_ties_alphabetically() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
-        conn.execute("DELETE FROM automations", []).unwrap();
+        conn.execute("DELETE FROM triggers", []).unwrap();
 
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-1",
             "Zulu",
@@ -649,7 +647,7 @@ mod tests {
             Some(1_700_000_100_i64),
         )
         .unwrap();
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-2",
             "Alpha",
@@ -663,7 +661,7 @@ mod tests {
             Some(1_700_000_100_i64),
         )
         .unwrap();
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-3",
             "Beta",
@@ -688,9 +686,9 @@ mod tests {
     fn active_word_trigger_history_excludes_hotkeys_and_deleted_rows_and_includes_word_scripts() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
-        conn.execute("DELETE FROM automations", []).unwrap();
+        conn.execute("DELETE FROM triggers", []).unwrap();
 
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-word",
             "Word",
@@ -704,7 +702,7 @@ mod tests {
             Some(1_700_000_010_i64),
         )
         .unwrap();
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-script",
             "Script",
@@ -726,7 +724,7 @@ mod tests {
             &compress("echo build").unwrap(),
         )
         .unwrap();
-        upsert_automation_with_trigger_type(
+        upsert_trigger_with_type(
             &conn,
             "uuid-hotkey",
             "Hotkey",
@@ -741,7 +739,7 @@ mod tests {
             Some(1_700_000_500_i64),
         )
         .unwrap();
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-deleted",
             "Deleted",
@@ -755,8 +753,8 @@ mod tests {
             Some(1_700_000_300_i64),
         )
         .unwrap();
-        delete_automation(&conn, "uuid-deleted").unwrap();
-        upsert_automation(
+        delete_trigger(&conn, "uuid-deleted").unwrap();
+        upsert_trigger(
             &conn,
             "uuid-disabled",
             "Disabled",
@@ -771,7 +769,7 @@ mod tests {
         )
         .unwrap();
         conn.execute(
-            "UPDATE automations SET is_enabled = 0 WHERE id = 'uuid-disabled'",
+            "UPDATE triggers SET is_enabled = 0 WHERE id = 'uuid-disabled'",
             [],
         )
         .unwrap();
@@ -783,12 +781,12 @@ mod tests {
     }
 
     #[test]
-    fn get_all_active_hotkey_automations_loads_only_hotkeys() {
+    fn get_all_active_hotkey_triggers_loads_only_hotkeys() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
-        conn.execute("DELETE FROM automations", []).unwrap();
+        conn.execute("DELETE FROM triggers", []).unwrap();
 
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-word",
             "Word",
@@ -802,7 +800,7 @@ mod tests {
             None,
         )
         .unwrap();
-        upsert_automation_with_trigger_type(
+        upsert_trigger_with_type(
             &conn,
             "uuid-hotkey",
             "Hotkey",
@@ -818,17 +816,17 @@ mod tests {
         )
         .unwrap();
 
-        let rows = get_all_active_hotkey_automations(&conn).unwrap();
+        let rows = get_all_active_hotkey_triggers(&conn).unwrap();
         let triggers: Vec<String> = rows.into_iter().map(|(trigger, _)| trigger).collect();
         assert_eq!(triggers, vec!["ctrl+shift+g".to_string()]);
     }
 
     #[test]
-    fn upsert_automation_with_trigger_type_round_trips_hotkey() {
+    fn upsert_trigger_with_type_round_trips_hotkey() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        upsert_automation_with_trigger_type(
+        upsert_trigger_with_type(
             &conn,
             "uuid-hotkey-1",
             "Command Palette",
@@ -844,7 +842,7 @@ mod tests {
         )
         .unwrap();
 
-        let row = get_automation(&conn, "uuid-hotkey-1").unwrap().unwrap();
+        let row = get_trigger(&conn, "uuid-hotkey-1").unwrap().unwrap();
         assert_eq!(row.trigger_type, TriggerType::Hotkey);
         assert_eq!(row.trigger, "ctrl+shift+p");
         assert_eq!(row.target_os, "win");
@@ -855,8 +853,8 @@ mod tests {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        insert_raw_automation(&conn, "uuid-1", "word", "gm", "all").unwrap();
-        let err = insert_raw_automation(&conn, "uuid-2", "word", "gm", "all").unwrap_err();
+        insert_raw_trigger(&conn, "uuid-1", "word", "gm", "all").unwrap();
+        let err = insert_raw_trigger(&conn, "uuid-2", "word", "gm", "all").unwrap_err();
 
         assert!(matches!(
             err,
@@ -864,7 +862,7 @@ mod tests {
                 if failure.code == ErrorCode::ConstraintViolation
         ));
 
-        insert_raw_automation(&conn, "uuid-3", "hotkey", "gm", "all")
+        insert_raw_trigger(&conn, "uuid-3", "hotkey", "gm", "all")
             .expect("different trigger_type should not hit the unique index");
     }
 
@@ -873,7 +871,7 @@ mod tests {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        upsert_automation(
+        upsert_trigger(
             &conn, "uuid-1", "Greeting", None, "gm", "hello", "text", "all", "[]", 0, None,
         )
         .unwrap();
@@ -899,7 +897,7 @@ mod tests {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-word",
             "Greeting",
@@ -914,7 +912,7 @@ mod tests {
         )
         .unwrap();
 
-        upsert_automation_with_trigger_type(
+        upsert_trigger_with_type(
             &conn,
             "uuid-hotkey",
             "Hotkey Greeting",
@@ -930,7 +928,7 @@ mod tests {
         )
         .unwrap();
 
-        let hotkey_row = get_automation(&conn, "uuid-hotkey").unwrap().unwrap();
+        let hotkey_row = get_trigger(&conn, "uuid-hotkey").unwrap().unwrap();
         assert_eq!(hotkey_row.trigger_type, TriggerType::Hotkey);
     }
 
@@ -939,7 +937,7 @@ mod tests {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        upsert_automation_with_trigger_type(
+        upsert_trigger_with_type(
             &conn,
             "uuid-win",
             "Windows Hotkey",
@@ -955,7 +953,7 @@ mod tests {
         )
         .unwrap();
 
-        upsert_automation_with_trigger_type(
+        upsert_trigger_with_type(
             &conn,
             "uuid-linux",
             "Linux Hotkey",
@@ -974,7 +972,7 @@ mod tests {
         let mut stmt = conn
             .prepare(
                 "SELECT COUNT(*)
-                 FROM automations
+                 FROM triggers
                  WHERE trigger_type = 'hotkey'
                    AND trigger = 'ctrl+shift+g'
                    AND is_deleted = 0",
@@ -989,7 +987,7 @@ mod tests {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        upsert_automation_with_trigger_type(
+        upsert_trigger_with_type(
             &conn,
             "uuid-alt",
             "Generic Alt",
@@ -1041,7 +1039,7 @@ mod tests {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        upsert_automation_with_trigger_type(
+        upsert_trigger_with_type(
             &conn,
             "uuid-left-alt",
             "Left Alt",
@@ -1074,7 +1072,7 @@ mod tests {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        upsert_automation_with_trigger_type(
+        upsert_trigger_with_type(
             &conn,
             "uuid-right-alt-win",
             "Right Alt Windows",
@@ -1119,13 +1117,13 @@ mod tests {
     }
 
     #[test]
-    fn add_automation_allows_same_hotkey_with_distinct_app_filters() {
+    fn add_trigger_allows_same_hotkey_with_distinct_app_filters() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
-        conn.execute("DELETE FROM automations", []).unwrap();
+        conn.execute("DELETE FROM triggers", []).unwrap();
 
         // First: ctrl+alt+p restricted to notepad
-        let outcome = add_automation_by_trigger_type(
+        let outcome = add_trigger_by_type(
             &conn,
             TriggerType::Hotkey,
             "ctrl+alt+p",
@@ -1139,7 +1137,7 @@ mod tests {
         assert_eq!(outcome, AddOutcome::Created);
 
         // Second: same hotkey restricted to code — should NOT conflict
-        let outcome2 = add_automation_by_trigger_type(
+        let outcome2 = add_trigger_by_type(
             &conn,
             TriggerType::Hotkey,
             "ctrl+alt+p",
@@ -1157,10 +1155,10 @@ mod tests {
     fn get_action_by_trigger_respects_target_os() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
-        conn.execute("DELETE FROM automations", []).unwrap();
+        conn.execute("DELETE FROM triggers", []).unwrap();
 
         // A trigger locked to a non-existent OS
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-1",
             "Mac specific",
@@ -1176,7 +1174,7 @@ mod tests {
         .unwrap();
 
         // A universal trigger
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-2",
             "Universal",
@@ -1202,12 +1200,12 @@ mod tests {
     }
 
     #[test]
-    fn search_automations_matches_name_and_trigger_and_sorts_by_usage() {
+    fn search_triggers_matches_name_and_trigger_and_sorts_by_usage() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
-        conn.execute("DELETE FROM automations", []).unwrap();
+        conn.execute("DELETE FROM triggers", []).unwrap();
 
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-1",
             "Good Morning",
@@ -1222,7 +1220,7 @@ mod tests {
         )
         .unwrap();
 
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-2",
             "Morning Standup",
@@ -1238,7 +1236,7 @@ mod tests {
         .unwrap();
 
         // Tombstoned rows must not appear in search results.
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-3",
             "Old Morning Thing",
@@ -1252,9 +1250,9 @@ mod tests {
             None,
         )
         .unwrap();
-        delete_automation(&conn, "uuid-3").unwrap();
+        delete_trigger(&conn, "uuid-3").unwrap();
 
-        let results = search_automations(&conn, "morning", 10).unwrap();
+        let results = search_triggers(&conn, "morning", 10).unwrap();
         assert_eq!(results.len(), 2);
 
         // Sorted by usage_count desc: uuid-2 (20) then uuid-1 (5).
@@ -1263,12 +1261,12 @@ mod tests {
     }
 
     #[test]
-    fn get_automations_list_includes_target_os() {
+    fn get_triggers_list_includes_target_os() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
-        conn.execute("DELETE FROM automations", []).unwrap();
+        conn.execute("DELETE FROM triggers", []).unwrap();
 
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-list-1",
             "Windows Opener",
@@ -1291,7 +1289,7 @@ mod tests {
         )
         .unwrap();
 
-        let items = get_automations_list(&conn).unwrap();
+        let items = get_triggers_list(&conn).unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].id, "uuid-list-1");
         assert_eq!(items[0].target_os, "all");
@@ -1303,11 +1301,11 @@ mod tests {
     }
 
     #[test]
-    fn update_existing_automation_updates_same_row_by_id() {
+    fn update_existing_trigger_updates_same_row_by_id() {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-edit-1",
             "GM",
@@ -1322,9 +1320,9 @@ mod tests {
         )
         .unwrap();
 
-        update_existing_automation(
+        update_existing_trigger(
             &mut conn,
-            ExistingAutomationUpdate {
+            ExistingTriggerUpdate {
                 id: "uuid-edit-1",
                 name: "GM",
                 description: None,
@@ -1343,13 +1341,13 @@ mod tests {
         )
         .unwrap();
 
-        let row = get_automation(&conn, "uuid-edit-1").unwrap().unwrap();
+        let row = get_trigger(&conn, "uuid-edit-1").unwrap().unwrap();
         assert_eq!(row.trigger, "gm2");
         assert_eq!(row.output, "hello again");
 
         let count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM automations WHERE id = 'uuid-edit-1' AND is_deleted = 0",
+                "SELECT COUNT(*) FROM triggers WHERE id = 'uuid-edit-1' AND is_deleted = 0",
                 [],
                 |row| row.get(0),
             )
@@ -1362,7 +1360,7 @@ mod tests {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
-        upsert_automation_with_trigger_type(
+        upsert_trigger_with_type(
             &conn,
             "uuid-script-edit",
             "Script Edit",
@@ -1386,9 +1384,9 @@ mod tests {
         )
         .unwrap();
 
-        update_existing_automation(
+        update_existing_trigger(
             &mut conn,
-            ExistingAutomationUpdate {
+            ExistingTriggerUpdate {
                 id: "uuid-script-edit",
                 name: "Script Edit",
                 description: Some("Keep description"),
@@ -1407,7 +1405,7 @@ mod tests {
         )
         .unwrap();
 
-        let row = get_automation(&conn, "uuid-script-edit").unwrap().unwrap();
+        let row = get_trigger(&conn, "uuid-script-edit").unwrap().unwrap();
         assert_eq!(row.description.as_deref(), Some("Keep description"));
         assert_eq!(row.output, "[Script: powershell]");
         assert_eq!(row.interpreter, Some(ScriptInterpreter::PowerShell));
@@ -1421,11 +1419,11 @@ mod tests {
     }
 
     #[test]
-    fn update_existing_automation_removes_stale_script_when_switching_to_text() {
+    fn update_existing_trigger_removes_stale_script_when_switching_to_text() {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
-        upsert_automation_with_trigger_type(
+        upsert_trigger_with_type(
             &conn,
             "uuid-switch-kind",
             "Switch Kind",
@@ -1449,9 +1447,9 @@ mod tests {
         )
         .unwrap();
 
-        update_existing_automation(
+        update_existing_trigger(
             &mut conn,
-            ExistingAutomationUpdate {
+            ExistingTriggerUpdate {
                 id: "uuid-switch-kind",
                 name: "Switch Kind",
                 description: None,
@@ -1470,17 +1468,17 @@ mod tests {
         )
         .unwrap();
 
-        let row = get_automation(&conn, "uuid-switch-kind").unwrap().unwrap();
+        let row = get_trigger(&conn, "uuid-switch-kind").unwrap().unwrap();
         assert_eq!(row.action_type, "text");
         assert!(row.script_binary.is_none());
     }
 
     #[test]
-    fn update_existing_automation_rejects_conflicts_with_other_rows() {
+    fn update_existing_trigger_rejects_conflicts_with_other_rows() {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-conflict-a",
             "A",
@@ -1494,7 +1492,7 @@ mod tests {
             None,
         )
         .unwrap();
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-conflict-b",
             "B",
@@ -1509,9 +1507,9 @@ mod tests {
         )
         .unwrap();
 
-        let error = update_existing_automation(
+        let error = update_existing_trigger(
             &mut conn,
-            ExistingAutomationUpdate {
+            ExistingTriggerUpdate {
                 id: "uuid-conflict-b",
                 name: "B",
                 description: None,
@@ -1534,13 +1532,13 @@ mod tests {
     }
 
     #[test]
-    fn create_automation_creates_new_text_row() {
+    fn create_trigger_creates_new_text_row() {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
-        let id = create_automation(
+        let id = create_trigger(
             &mut conn,
-            NewAutomation {
+            NewTrigger {
                 name: None,
                 description: None,
                 trigger_type: TriggerType::Word,
@@ -1556,7 +1554,7 @@ mod tests {
         )
         .unwrap();
 
-        let row = get_automation(&conn, &id).unwrap().unwrap();
+        let row = get_trigger(&conn, &id).unwrap().unwrap();
         assert_eq!(row.trigger, "gm");
         assert_eq!(row.output, "Good Morning");
         assert_eq!(row.action_type, "text");
@@ -1564,13 +1562,13 @@ mod tests {
     }
 
     #[test]
-    fn create_automation_creates_script_with_defaults() {
+    fn create_trigger_creates_script_with_defaults() {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
-        let id = create_automation(
+        let id = create_trigger(
             &mut conn,
-            NewAutomation {
+            NewTrigger {
                 name: None,
                 description: None,
                 trigger_type: TriggerType::Word,
@@ -1586,7 +1584,7 @@ mod tests {
         )
         .unwrap();
 
-        let row = get_automation(&conn, &id).unwrap().unwrap();
+        let row = get_trigger(&conn, &id).unwrap().unwrap();
         assert_eq!(row.action_type, "script");
         assert_eq!(row.output, "[Script: python]");
         assert_eq!(row.interpreter, Some(ScriptInterpreter::Python));
@@ -1598,13 +1596,13 @@ mod tests {
     }
 
     #[test]
-    fn create_automation_rejects_conflicts_without_updating_existing_rows() {
+    fn create_trigger_rejects_conflicts_without_updating_existing_rows() {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
-        let original_id = create_automation(
+        let original_id = create_trigger(
             &mut conn,
-            NewAutomation {
+            NewTrigger {
                 name: None,
                 description: None,
                 trigger_type: TriggerType::Word,
@@ -1620,9 +1618,9 @@ mod tests {
         )
         .unwrap();
 
-        let error = create_automation(
+        let error = create_trigger(
             &mut conn,
-            NewAutomation {
+            NewTrigger {
                 name: None,
                 description: None,
                 trigger_type: TriggerType::Word,
@@ -1639,18 +1637,18 @@ mod tests {
         .unwrap_err();
 
         assert!(error.to_string().contains("Trigger conflict"));
-        let row = get_automation(&conn, &original_id).unwrap().unwrap();
+        let row = get_trigger(&conn, &original_id).unwrap().unwrap();
         assert_eq!(row.output, "Good Morning");
     }
 
     #[test]
-    fn create_automation_rejects_empty_trigger() {
+    fn create_trigger_rejects_empty_trigger() {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
-        let error = create_automation(
+        let error = create_trigger(
             &mut conn,
-            NewAutomation {
+            NewTrigger {
                 name: None,
                 description: None,
                 trigger_type: TriggerType::Word,
@@ -1670,35 +1668,32 @@ mod tests {
     }
 
     #[test]
-    fn get_syncable_automations_returns_only_sync_enabled_rows() {
+    fn get_syncable_triggers_returns_only_sync_enabled_rows() {
         crate::logs::init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
-        conn.execute("DELETE FROM automations", []).unwrap();
+        conn.execute("DELETE FROM triggers", []).unwrap();
 
         // Standard upserts default to is_synced = 1
-        upsert_automation(
+        upsert_trigger(
             &conn, "uuid-1", "A1", None, "t1", "p1", "text", "all", r#"[]"#, 0, None,
         )
         .unwrap();
 
         // Force one to is_synced = 0 manually to test the filter
-        upsert_automation(
+        upsert_trigger(
             &conn, "uuid-2", "A2", None, "t2", "p2", "text", "all", r#"[]"#, 0, None,
         )
         .unwrap();
-        conn.execute(
-            "UPDATE automations SET is_synced = 0 WHERE id = 'uuid-2'",
-            [],
-        )
-        .unwrap();
+        conn.execute("UPDATE triggers SET is_synced = 0 WHERE id = 'uuid-2'", [])
+            .unwrap();
 
-        let syncable = get_syncable_automations(&conn).unwrap();
+        let syncable = get_syncable_triggers(&conn).unwrap();
         let ids: Vec<String> = syncable.into_iter().map(|a| a.id).collect();
         assert_eq!(ids, vec!["uuid-1".to_string()]);
     }
 
     #[test]
-    fn test_record_expansion_usage_updates_automation_and_stats() {
+    fn test_record_expansion_usage_updates_trigger_and_stats() {
         let _guard = crate::testing::TEST_LOCK.lock().unwrap();
         init_tracing_for_tests();
         let (dir, conn) = open_test_db();
@@ -1707,8 +1702,8 @@ mod tests {
         // Set the path for the helper being tested
         unsafe { std::env::set_var("TAURINE_DB_PATH", &db_path) };
 
-        // 1. Setup an automation
-        upsert_automation(
+        // 1. Setup a trigger
+        upsert_trigger(
             &conn,
             "uuid-stats-1",
             "Test Stats",
@@ -1727,8 +1722,8 @@ mod tests {
         // trigger="m" (len 1), output="Stats worked!" (len 13), delete_count=3 (">m "), cursors=2
         record_expansion_usage("m", 13, 3, 2);
 
-        // 3. Verify automation usage_count
-        let row = get_automation(&conn, "uuid-stats-1").unwrap().unwrap();
+        // 3. Verify trigger usage_count
+        let row = get_trigger(&conn, "uuid-stats-1").unwrap().unwrap();
         assert_eq!(row.usage_count, 1);
 
         // 4. Verify stats
@@ -1775,11 +1770,11 @@ mod tests {
     }
 
     #[test]
-    fn upsert_automation_rejects_reserved_ai_trigger() {
+    fn upsert_trigger_rejects_reserved_ai_trigger() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        let err = upsert_automation(
+        let err = upsert_trigger(
             &conn,
             "uuid-ai-1",
             "AI",
@@ -1802,14 +1797,13 @@ mod tests {
     }
 
     #[test]
-    fn add_automation_by_trigger_rejects_reserved_prefixed_ai_trigger() {
+    fn add_trigger_rejects_reserved_prefixed_ai_trigger() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
         let manager = SettingsManager::new(&conn);
         manager.update_setting("trigger_char", "#").unwrap();
 
-        let err = add_automation_by_trigger(&conn, "#ai", "payload", "all", None, None, None)
-            .unwrap_err();
+        let err = add_trigger(&conn, "#ai", "payload", "all", None, None, None).unwrap_err();
         assert!(
             err.to_string()
                 .contains("reserved for Taurine Inline AI Copilot"),
@@ -1821,10 +1815,10 @@ mod tests {
     fn test_add_and_delete_with_tags() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
-        conn.execute("DELETE FROM automations", []).unwrap();
+        conn.execute("DELETE FROM triggers", []).unwrap();
 
         // Add with tags
-        let outcome = add_automation_by_trigger(
+        let outcome = add_trigger(
             &conn,
             "t1",
             "output1",
@@ -1836,7 +1830,7 @@ mod tests {
         .unwrap();
         assert_eq!(outcome, AddOutcome::Created);
 
-        let outcome2 = add_automation_by_trigger(
+        let outcome2 = add_trigger(
             &conn,
             "t2",
             "output2",
@@ -1851,7 +1845,7 @@ mod tests {
         // Retrieve and check tags
         let tags: String = conn
             .query_row(
-                "SELECT tags FROM automations WHERE trigger = 't1' AND is_deleted = 0",
+                "SELECT tags FROM triggers WHERE trigger = 't1' AND is_deleted = 0",
                 [],
                 |r| r.get(0),
             )
@@ -1859,13 +1853,13 @@ mod tests {
         assert_eq!(tags, r#"["test-tag","shared-tag"]"#);
 
         // Delete by shared-tag
-        let deleted = delete_automations_by_tag(&conn, "shared-tag").unwrap();
+        let deleted = delete_triggers_by_tag(&conn, "shared-tag").unwrap();
         assert_eq!(deleted, 2);
 
         // Retrieve and verify tombstoned
         let is_deleted: bool = conn
             .query_row(
-                "SELECT is_deleted FROM automations WHERE trigger = 't1'",
+                "SELECT is_deleted FROM triggers WHERE trigger = 't1'",
                 [],
                 |r| r.get(0),
             )
@@ -1877,20 +1871,12 @@ mod tests {
     fn test_add_and_retrieve_with_auto_case() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
-        conn.execute("DELETE FROM automations", []).unwrap();
+        conn.execute("DELETE FROM triggers", []).unwrap();
 
         // Add with auto_case: true
-        let outcome = add_automation_by_trigger_and_case(
-            &conn,
-            "btw",
-            "by the way",
-            "all",
-            None,
-            None,
-            None,
-            true,
-        )
-        .unwrap();
+        let outcome =
+            add_trigger_with_case(&conn, "btw", "by the way", "all", None, None, None, true)
+                .unwrap();
         assert_eq!(outcome, AddOutcome::Created);
 
         // Retrieve and check auto_case
@@ -1900,45 +1886,45 @@ mod tests {
         // Retrieve row and check auto_case
         let row_id: String = conn
             .query_row(
-                "SELECT id FROM automations WHERE trigger = 'btw' AND is_deleted = 0",
+                "SELECT id FROM triggers WHERE trigger = 'btw' AND is_deleted = 0",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        let row = get_automation(&conn, &row_id).unwrap().unwrap();
+        let row = get_trigger(&conn, &row_id).unwrap().unwrap();
         assert!(row.auto_case);
     }
 
     #[test]
-    fn delete_automations_by_pattern_matches_glob_prefix() {
+    fn delete_triggers_by_pattern_matches_glob_prefix() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
-        conn.execute("DELETE FROM automations", []).unwrap();
+        conn.execute("DELETE FROM triggers", []).unwrap();
 
-        insert_raw_automation(&conn, "uuid-1", "word", "test_foo", "all").unwrap();
-        insert_raw_automation(&conn, "uuid-2", "word", "test_bar", "all").unwrap();
-        insert_raw_automation(&conn, "uuid-3", "word", "other", "all").unwrap();
+        insert_raw_trigger(&conn, "uuid-1", "word", "test_foo", "all").unwrap();
+        insert_raw_trigger(&conn, "uuid-2", "word", "test_bar", "all").unwrap();
+        insert_raw_trigger(&conn, "uuid-3", "word", "other", "all").unwrap();
 
-        let count = crate::db::crud::count_automations_by_pattern(&conn, "test_*").unwrap();
+        let count = crate::db::crud::count_triggers_by_pattern(&conn, "test_*").unwrap();
         assert_eq!(count, 2);
 
-        let deleted = crate::db::crud::delete_automations_by_pattern(&conn, "test_*").unwrap();
+        let deleted = crate::db::crud::delete_triggers_by_pattern(&conn, "test_*").unwrap();
         assert_eq!(deleted, 2);
 
         assert!(
-            crate::db::crud::get_automation(&conn, "uuid-1")
+            crate::db::crud::get_trigger(&conn, "uuid-1")
                 .unwrap()
                 .unwrap()
                 .is_deleted
         );
         assert!(
-            crate::db::crud::get_automation(&conn, "uuid-2")
+            crate::db::crud::get_trigger(&conn, "uuid-2")
                 .unwrap()
                 .unwrap()
                 .is_deleted
         );
         assert!(
-            !crate::db::crud::get_automation(&conn, "uuid-3")
+            !crate::db::crud::get_trigger(&conn, "uuid-3")
                 .unwrap()
                 .unwrap()
                 .is_deleted
@@ -1946,33 +1932,33 @@ mod tests {
     }
 
     #[test]
-    fn count_automations_by_pattern_returns_zero_for_no_match() {
+    fn count_triggers_by_pattern_returns_zero_for_no_match() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
-        conn.execute("DELETE FROM automations", []).unwrap();
+        conn.execute("DELETE FROM triggers", []).unwrap();
 
-        insert_raw_automation(&conn, "uuid-1", "word", "test_foo", "all").unwrap();
+        insert_raw_trigger(&conn, "uuid-1", "word", "test_foo", "all").unwrap();
 
-        let count = crate::db::crud::count_automations_by_pattern(&conn, "nomatch_*").unwrap();
+        let count = crate::db::crud::count_triggers_by_pattern(&conn, "nomatch_*").unwrap();
         assert_eq!(count, 0);
 
-        let deleted = crate::db::crud::delete_automations_by_pattern(&conn, "nomatch_*").unwrap();
+        let deleted = crate::db::crud::delete_triggers_by_pattern(&conn, "nomatch_*").unwrap();
         assert_eq!(deleted, 0);
     }
 
     #[test]
-    fn delete_automations_by_pattern_ignores_already_deleted() {
+    fn delete_triggers_by_pattern_ignores_already_deleted() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
-        conn.execute("DELETE FROM automations", []).unwrap();
+        conn.execute("DELETE FROM triggers", []).unwrap();
 
-        insert_raw_automation(&conn, "uuid-1", "word", "test_foo", "all").unwrap();
-        crate::db::crud::delete_automation(&conn, "uuid-1").unwrap();
+        insert_raw_trigger(&conn, "uuid-1", "word", "test_foo", "all").unwrap();
+        crate::db::crud::delete_trigger(&conn, "uuid-1").unwrap();
 
-        let count = crate::db::crud::count_automations_by_pattern(&conn, "test_*").unwrap();
+        let count = crate::db::crud::count_triggers_by_pattern(&conn, "test_*").unwrap();
         assert_eq!(count, 0);
 
-        let deleted = crate::db::crud::delete_automations_by_pattern(&conn, "test_*").unwrap();
+        let deleted = crate::db::crud::delete_triggers_by_pattern(&conn, "test_*").unwrap();
         assert_eq!(deleted, 0);
     }
 }

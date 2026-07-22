@@ -1,6 +1,6 @@
 # Taurine
 
-A fast, secure and easy to use automation software for text expansion and keyboard automation. Taurine helps you type less, automate repetitive work, and run keyboard shortcuts from anywhere on your computer.
+A fast, secure and easy to use software for text expansion and keyboard triggers. Taurine helps you type less, automate repetitive work, and run keyboard shortcuts from anywhere on your computer.
 
 <video src="https://github.com/user-attachments/assets/a10c487d-ec5e-46bd-8113-d297315447a0" controls muted width="100%"></video>
 
@@ -59,9 +59,9 @@ A fast, secure and easy to use automation software for text expansion and keyboa
 
 ## What is Taurine?
 
-Taurine is a local-first automation tool for people who type a lot.
+Taurine is a local-first trigger tool for people who type a lot.
 
-It works like a text expander, but it can do much much more than replace short words with long text. Taurine can also run scripts, open apps, launch websites, generate values, and trigger automations with hotkeys.
+It works like a text expander, but it can do much much more than replace short words with long text. Taurine can also run scripts, open apps, launch websites, generate values, and activate triggers with hotkeys.
 
 The goal is simple: **Stop repeating the same computer tasks every day.**
 
@@ -86,7 +86,7 @@ Open a terminal and run the following command:
    It instantly expands to: `Hello, world!`
 
 > [!TIP]
-> **Prefer a UI?** Simply run `taurine` to open the interactive Terminal UI and manage your automations visually.
+> **Prefer a UI?** Simply run `taurine` to open the interactive Terminal UI and manage your triggers visually.
 
 ## Why Taurine?
 
@@ -97,18 +97,18 @@ A lot of computer work is repetitive.
 - **Running the same commands**: Repeating terminal workflows.
 - **Copy-pasting AI responses**: Switching to a browser just to get an answer.
 
-Taurine saves time by turning short triggers into longer text, keyboard automation, script execution, and inline AI in one simple package.
+Taurine saves time by turning short triggers into longer text, keyboard shortcuts, script execution, and inline AI in one simple package.
 
 ## Features
 
 - [**Text expansion**](#text-expansion) — turn short triggers into full text
-- [**Keyboard shortcuts**](#keyboard-shortcuts-and-hotkeys) — run automations with hotkeys
+- [**Keyboard shortcuts**](#keyboard-shortcuts-and-hotkeys) — activate triggers with hotkeys
 - [**Scripts and commands**](#scripts-and-commands) — launch apps, open websites, and run local scripts
 - [**Dynamic variables**](#dynamic-variables) — insert names, dates, UUIDs, mock data, and more
 - [**Inline math**](#inline-math) — calculate while typing
 - [**Inline AI**](#inline-ai) — use AI without switching apps
-- [**CLI and TUI**](#basic-commands) — manage automations from the terminal
-- [**Import and export**](#import-and-export) — backup and share your automations
+- [**CLI and TUI**](#basic-commands) — manage triggers from the terminal
+- [**Import and export**](#import-and-export) — backup and share your triggers
 
 ## Installation
 
@@ -219,7 +219,7 @@ You can use text expansion for:
 
 ## Keyboard shortcuts and hotkeys
 
-Taurine can also trigger automations with hotkeys.
+Taurine can also activate triggers with hotkeys.
 
 That means you can press a keyboard shortcut to open an app, launch a website, run a command, or execute a script.
 
@@ -247,9 +247,9 @@ For example, you could create hotkeys for:
 ## Scripts and commands
 
 > [!WARNING]
-> Taurine can run scripts and type into other apps. This is a powerful feature, so only run automations you trust. Always read and verify any automation script before adding it to your system.
+> Taurine can run scripts and type into other apps. This is a powerful feature, so only run triggers you trust. Always read and verify any script before adding it to your system.
 
-Taurine can run scripts when you trigger an automation.
+Taurine can run scripts when you activate a trigger.
 
 This is useful when a normal text snippet is not enough.
 
@@ -268,7 +268,7 @@ taurine add script build --file ./scripts/build.sh -l bash
 <details>
 <summary>Usages</summary>
 
-You can create automations that:
+You can create triggers that:
 
 * Open a website
 * Run a shell command
@@ -429,11 +429,11 @@ Taurine will generate the response and insert it right where you are typing.
 
 ## Import and export
 
-Taurine allows you to backup your automations, move them to another machine, or share them with others. Exports use the .tau file format.
+Taurine allows you to backup your triggers, move them to another machine, or share them with others. Exports use the .tau file format.
 
 ### Export
 
-You can export your automations using the CLI:
+You can export your triggers using the CLI:
 
 ```bash
 taurine export <path> <flags>
@@ -448,7 +448,7 @@ Options:
 
 ### Import
 
-To import automations:
+To import triggers:
 
 ```bash
 taurine import <path> <flags>
@@ -469,13 +469,13 @@ Add a text shortcut:
 taurine add em "jane.doe@gmail.com"
 ```
 
-List your automations (alias `ls`):
+List your triggers (alias `ls`):
 
 ```bash
 taurine list
 ```
 
-Remove an automation (alias `rm`):
+Remove a trigger (alias `rm`):
 
 ```bash
 taurine remove sig
@@ -511,8 +511,8 @@ Yes. You can add scripts using the `taurine add script` command and trigger them
 ### Is inline AI required?
 No, Inline AI is an optional feature. You can use Taurine solely for text expansion and hotkeys without ever configuring an AI provider.
 
-### Where are my automations stored?
-Your automations are stored locally on your machine in a secure database. Taurine is local-first and respects your privacy.
+### Where are my triggers stored?
+Your triggers are stored locally on your machine in a secure database. Taurine is local-first and respects your privacy.
 
 ## AI Usage
 
@@ -532,9 +532,9 @@ See the [LICENSE](https://github.com/ereinaimer/taurine/blob/main/LICENSE) file 
 
 If Taurine helps you, you can support the project by starring the repo, reporting bugs, sharing feedback, or by directly shaping its future through contributions. Check out [CONTRIBUTING.md](CONTRIBUTING.md) to get started!
 
-<a href="https://x.com/intent/tweet?text=I%27m%20using%20Taurine%20to%20save%20a%20lot%20of%20time%20with%20fast%20text%20expansions%20and%20keyboard%20automations%2C%20check%20it%20out%3A%20https%3A%2F%2Fgithub.com%2Fereinaimer%2Ftaurine"><img src="https://shieldcn.dev/badge/share%20on%20x.svg?mode=dark&size=xs&logo=x&color=000000&logoColor=f8fafc&labelTextColor=f8fafc" alt="Share on X" /></a>
-<a href="https://www.reddit.com/submit?title=I%27m%20using%20Taurine%20to%20save%20a%20lot%20of%20time%20with%20fast%20text%20expansions%20and%20keyboard%20automations%2C%20check%20it%20out%3A&url=https%3A%2F%2Fgithub.com%2Fereinaimer%2Ftaurine"><img src="https://shieldcn.dev/badge/share%20on%20reddit.svg?mode=dark&size=xs&logo=reddit&color=ff4500&logoColor=f8fafc&labelTextColor=f8fafc" alt="Share on Reddit" /></a>
+<a href="https://x.com/intent/tweet?text=I%27m%20using%20Taurine%20to%20save%20a%20lot%20of%20time%20with%20fast%20text%20expansions%20and%20keyboard%20triggers%2C%20check%20it%20out%3A%20https%3A%2F%2Fgithub.com%2Fereinaimer%2Ftaurine"><img src="https://shieldcn.dev/badge/share%20on%20x.svg?mode=dark&size=xs&logo=x&color=000000&logoColor=f8fafc&labelTextColor=f8fafc" alt="Share on X" /></a>
+<a href="https://www.reddit.com/submit?title=I%27m%20using%20Taurine%20to%20save%20a%20lot%20of%20time%20with%20fast%20text%20expansions%20and%20keyboard%20triggers%2C%20check%20it%20out%3A&url=https%3A%2F%2Fgithub.com%2Fereinaimer%2Ftaurine"><img src="https://shieldcn.dev/badge/share%20on%20reddit.svg?mode=dark&size=xs&logo=reddit&color=ff4500&logoColor=f8fafc&labelTextColor=f8fafc" alt="Share on Reddit" /></a>
 <a href="https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fgithub.com%2Fereinaimer%2Ftaurine"><img src="https://shieldcn.dev/badge/share%20on-linkedin.svg?mode=dark&size=xs&logo=ri%3ABsLinkedin&color=0077b5&logoColor=f8fafc&labelTextColor=f8fafc" alt="Share on LinkedIn" /></a>
-<a href="https://mastodon.social/share?text=I%27m%20using%20Taurine%20to%20save%20a%20lot%20of%20time%20with%20fast%20text%20expansions%20and%20keyboard%20automations%2C%20check%20it%20out%3A%20https%3A%2F%2Fgithub.com%2Fereinaimer%2Ftaurine"><img src="https://shieldcn.dev/badge/share%20on%20mastodon.svg?mode=dark&size=xs&logo=mastodon&color=6364ff&logoColor=f8fafc&labelTextColor=f8fafc" alt="Share on Mastodon" /></a>
-<a href="https://api.whatsapp.com/send?text=I%27m%20using%20Taurine%20to%20save%20a%20lot%20of%20time%20with%20fast%20text%20expansions%20and%20keyboard%20automations%2C%20check%20it%20out%3A%20https%3A%2F%2Fgithub.com%2Fereinaimer%2Ftaurine"><img src="https://shieldcn.dev/badge/share%20on%20whatsapp.svg?mode=dark&size=xs&logo=whatsapp&color=25d366&logoColor=f8fafc&labelTextColor=f8fafc" alt="Share on WhatsApp" /></a>
-<a href="https://t.me/share/url?url=https%3A%2F%2Fgithub.com%2Fereinaimer%2Ftaurine&text=I%27m%20using%20Taurine%20to%20save%20a%20lot%20of%20time%20with%20fast%20text%20expansions%20and%20keyboard%20automations%2C%20check%20it%20out%3A"><img src="https://shieldcn.dev/badge/share%20on%20telegram.svg?mode=dark&size=xs&logo=telegram&color=0088cc&logoColor=f8fafc&labelTextColor=f8fafc" alt="Share on Telegram" /></a>
+<a href="https://mastodon.social/share?text=I%27m%20using%20Taurine%20to%20save%20a%20lot%20of%20time%20with%20fast%20text%20expansions%20and%20keyboard%20triggers%2C%20check%20it%20out%3A%20https%3A%2F%2Fgithub.com%2Fereinaimer%2Ftaurine"><img src="https://shieldcn.dev/badge/share%20on%20mastodon.svg?mode=dark&size=xs&logo=mastodon&color=6364ff&logoColor=f8fafc&labelTextColor=f8fafc" alt="Share on Mastodon" /></a>
+<a href="https://api.whatsapp.com/send?text=I%27m%20using%20Taurine%20to%20save%20a%20lot%20of%20time%20with%20fast%20text%20expansions%20and%20keyboard%20triggers%2C%20check%20it%20out%3A%20https%3A%2F%2Fgithub.com%2Fereinaimer%2Ftaurine"><img src="https://shieldcn.dev/badge/share%20on%20whatsapp.svg?mode=dark&size=xs&logo=whatsapp&color=25d366&logoColor=f8fafc&labelTextColor=f8fafc" alt="Share on WhatsApp" /></a>
+<a href="https://t.me/share/url?url=https%3A%2F%2Fgithub.com%2Fereinaimer%2Ftaurine&text=I%27m%20using%20Taurine%20to%20save%20a%20lot%20of%20time%20with%20fast%20text%20expansions%20and%20keyboard%20triggers%2C%20check%20it%20out%3A"><img src="https://shieldcn.dev/badge/share%20on%20telegram.svg?mode=dark&size=xs&logo=telegram&color=0088cc&logoColor=f8fafc&labelTextColor=f8fafc" alt="Share on Telegram" /></a>

@@ -2,19 +2,19 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use taurine_core::db::crud::{
-    AutomationListItem, AutomationRow, ExistingAutomationUpdate, NewAutomation, create_automation,
-    delete_automation, update_existing_automation,
+    ExistingTriggerUpdate, NewTrigger, TriggerListItem, TriggerRow, create_trigger, delete_trigger,
+    update_existing_trigger,
 };
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter, decompress};
 use taurine_core::exchange::{
     ExchangeFormat, ExchangePayload, ExportOptions, ImportConflictAction, ImportOptions,
     ImportStatsMode, decode_exchange_blob, detect_exchange_format, encode_exchange_blob,
-    export_automations, import_payload_transactionally, payload_contains_run_variables,
+    export_triggers, import_payload_transactionally, payload_contains_run_variables,
     resolve_export_path,
 };
 
 use crate::widgets::library::state::{
-    LibraryAutomation, LibraryImportModalState, LibraryKind, LibraryMetadataRow,
+    LibraryImportModalState, LibraryKind, LibraryMetadataRow, LibraryTrigger,
 };
 
 pub(crate) const DEFAULT_SCRIPT_FALLBACK: &str = "Script content unavailable.";
@@ -85,7 +85,7 @@ impl PendingLibrarySave {
     pub(crate) fn apply(&self) -> taurine_core::Result<String> {
         let mut conn = taurine_core::db::init::setup()?;
 
-        let automation_id = match &self.mode {
+        let trigger_id = match &self.mode {
             PendingLibrarySaveMode::Update {
                 id,
                 name,
@@ -97,16 +97,14 @@ impl PendingLibrarySave {
                 behavior,
             } => {
                 let existing_auto_case: bool = conn
-                    .query_row(
-                        "SELECT auto_case FROM automations WHERE id = ?1",
-                        [id],
-                        |r| r.get(0),
-                    )
+                    .query_row("SELECT auto_case FROM triggers WHERE id = ?1", [id], |r| {
+                        r.get(0)
+                    })
                     .unwrap_or(false);
 
-                update_existing_automation(
+                update_existing_trigger(
                     &mut conn,
-                    ExistingAutomationUpdate {
+                    ExistingTriggerUpdate {
                         id,
                         name,
                         description: description.as_deref(),
@@ -125,9 +123,9 @@ impl PendingLibrarySave {
                 )?;
                 id.clone()
             }
-            PendingLibrarySaveMode::Create => create_automation(
+            PendingLibrarySaveMode::Create => create_trigger(
                 &mut conn,
-                NewAutomation {
+                NewTrigger {
                     name: None,
                     description: None,
                     trigger_type: self.kind.trigger_type(),
@@ -144,13 +142,13 @@ impl PendingLibrarySave {
         };
 
         taurine_core::rpc::notify_daemon_reload();
-        Ok(automation_id)
+        Ok(trigger_id)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PendingLibraryDelete {
-    pub(crate) automation_id: String,
+    pub(crate) trigger_id: String,
     pub(crate) restore_index: usize,
 }
 
@@ -161,9 +159,9 @@ impl PendingLibraryDelete {
 
     pub(crate) fn apply(&self) -> taurine_core::Result<()> {
         let conn = taurine_core::db::init::setup()?;
-        if !delete_automation(&conn, &self.automation_id)? {
+        if !delete_trigger(&conn, &self.trigger_id)? {
             return Err(taurine_core::Error::NotFound(
-                "Automation no longer exists.".to_string(),
+                "Trigger no longer exists.".to_string(),
             ));
         }
         taurine_core::rpc::notify_daemon_reload();
@@ -185,7 +183,7 @@ impl PendingLibraryExport {
     pub(crate) fn apply(&self) -> taurine_core::Result<PathBuf> {
         let path = resolve_export_path(Some(PathBuf::from(self.path.as_str())))?;
         let conn = taurine_core::db::init::setup()?;
-        let payload = export_automations(
+        let payload = export_triggers(
             &conn,
             ExportOptions {
                 include_settings: self.include_settings,
@@ -472,7 +470,7 @@ impl LibraryInteraction {
     }
 }
 
-pub(crate) fn sort_items(items: &mut [LibraryAutomation]) {
+pub(crate) fn sort_items(items: &mut [LibraryTrigger]) {
     items.sort_by(|left, right| {
         let left_trigger = left.trigger().to_ascii_lowercase();
         let right_trigger = right.trigger().to_ascii_lowercase();
@@ -542,7 +540,7 @@ pub(crate) fn char_index_for_line_col(value: &str, line_index: usize, column: us
     starts[safe_line] + column.min(lengths[safe_line])
 }
 
-pub(crate) fn preview_from_item(item: &AutomationListItem) -> String {
+pub(crate) fn preview_from_item(item: &TriggerListItem) -> String {
     if let Some(description) = normalized_preview_text(item.description.as_deref())
         && !is_script_placeholder(&description)
     {
@@ -575,7 +573,7 @@ pub(crate) fn preview_from_item(item: &AutomationListItem) -> String {
 }
 
 pub(crate) fn modal_content_from_row(
-    row: &AutomationRow,
+    row: &TriggerRow,
     kind: LibraryKind,
 ) -> taurine_core::Result<String> {
     if kind.is_script() {
@@ -596,7 +594,7 @@ pub(crate) fn modal_content_from_row(
         .unwrap_or_else(|| DEFAULT_OUTPUT_FALLBACK.to_string()))
 }
 
-pub(crate) fn build_metadata_rows(row: &AutomationRow) -> Vec<LibraryMetadataRow> {
+pub(crate) fn build_metadata_rows(row: &TriggerRow) -> Vec<LibraryMetadataRow> {
     let mut rows = Vec::new();
 
     rows.push(LibraryMetadataRow::new(
@@ -619,7 +617,7 @@ pub(crate) fn build_metadata_rows(row: &AutomationRow) -> Vec<LibraryMetadataRow
     rows
 }
 
-fn load_script_content(row: &AutomationRow) -> taurine_core::Result<Option<String>> {
+fn load_script_content(row: &TriggerRow) -> taurine_core::Result<Option<String>> {
     row.script_binary
         .as_deref()
         .map(decompress)
@@ -628,7 +626,7 @@ fn load_script_content(row: &AutomationRow) -> taurine_core::Result<Option<Strin
 }
 
 pub(crate) fn build_search_text(
-    item: &AutomationListItem,
+    item: &TriggerListItem,
     kind_label: &str,
     display_target_os: &str,
 ) -> String {

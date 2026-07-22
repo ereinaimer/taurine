@@ -1,4 +1,4 @@
-use crate::db::crud::AutomationAction;
+use crate::db::crud::TriggerAction;
 use crate::engine::shell::{ScriptMetadata, compress, decompress};
 use crate::engine::source::{AdaptiveSource, MemorySource, SnippetSource};
 use crate::engine::variables::{
@@ -53,7 +53,7 @@ struct CatalogSnapshot {
 struct ParsedHotkeyAction {
     configured_trigger: String,
     hotkey: Hotkey,
-    action: Arc<AutomationAction>,
+    action: Arc<TriggerAction>,
 }
 
 impl Default for HotkeyCatalog {
@@ -69,7 +69,7 @@ impl HotkeyCatalog {
         }
     }
 
-    pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, AutomationAction)>) {
+    pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, TriggerAction)>) {
         let mut snapshot = CatalogSnapshot::default();
 
         for (trigger, action) in actions {
@@ -80,7 +80,7 @@ impl HotkeyCatalog {
                     action: Arc::new(action),
                 };
 
-                // Only bucket into parsed_actions so that multiple automations
+                // Only bucket into parsed_actions so that multiple triggers
                 // sharing the same hotkey but different app filters all survive.
                 // The old canonical_string fast-path HashMap silently overwrote
                 // earlier entries whenever two triggers parsed to the same hotkey.
@@ -99,7 +99,7 @@ impl HotkeyCatalog {
         self.snapshot.load().parsed_actions.contains_key(&key)
     }
 
-    pub fn get_action(&self, trigger: &str) -> Option<AutomationAction> {
+    pub fn get_action(&self, trigger: &str) -> Option<TriggerAction> {
         let hotkey = parse_hotkey(trigger).ok()?;
         let base_key = hotkey.logical_key();
         let guard = self.snapshot.load();
@@ -115,7 +115,7 @@ impl HotkeyCatalog {
         &self,
         pressed: Hotkey,
         active_window: Option<&str>,
-    ) -> Option<(String, AutomationAction)> {
+    ) -> Option<(String, TriggerAction)> {
         let base_key = pressed.logical_key();
         let guard = self.snapshot.load();
         let bucket = guard.parsed_actions.get(&base_key)?;
@@ -146,7 +146,7 @@ impl HotkeyCatalog {
         &self,
         pressed: Hotkey,
         fetch_window: impl FnOnce() -> Option<String>,
-    ) -> Option<(String, AutomationAction)> {
+    ) -> Option<(String, TriggerAction)> {
         let base_key = pressed.logical_key();
         let guard = self.snapshot.load();
         let bucket = guard.parsed_actions.get(&base_key)?;
@@ -215,7 +215,7 @@ struct RegexCatalogSnapshot {
 struct ParsedRegexAction {
     pattern: String,
     regex: OnceLock<Result<regex::Regex, ()>>,
-    action: AutomationAction,
+    action: TriggerAction,
 }
 
 impl RegexCatalog {
@@ -232,7 +232,7 @@ impl RegexCatalog {
         true
     }
 
-    pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, AutomationAction)>) {
+    pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, TriggerAction)>) {
         let mut entries = Vec::new();
         for (pattern, action) in actions {
             entries.push(ParsedRegexAction {
@@ -250,7 +250,7 @@ impl RegexCatalog {
         &self,
         buffer_string: &str,
         active_window: Option<&str>,
-    ) -> Option<(String, AutomationAction, Vec<String>)> {
+    ) -> Option<(String, TriggerAction, Vec<String>)> {
         let guard = self.snapshot.read().ok()?;
         for entry in &guard.entries {
             let re = match entry
@@ -308,7 +308,7 @@ impl ExpansionCatalog {
         }
     }
 
-    pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, AutomationAction)>) {
+    pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, TriggerAction)>) {
         let actions: Vec<_> = actions.into_iter().collect();
         let mut triggers: Vec<Arc<str>> = actions
             .iter()
@@ -404,11 +404,7 @@ impl ExpansionCatalog {
         }
     }
 
-    fn get_raw_action(
-        &self,
-        keyword: &str,
-        active_window: Option<&str>,
-    ) -> Option<AutomationAction> {
+    fn get_raw_action(&self, keyword: &str, active_window: Option<&str>) -> Option<TriggerAction> {
         if let Some(action) = self.source.get_action(keyword)
             && is_app_allowed(&action, active_window)
         {
@@ -428,11 +424,11 @@ impl ExpansionCatalog {
 
     fn expand_action(
         &self,
-        action: AutomationAction,
+        action: TriggerAction,
         args: &ArgMap,
         matched_keyword: &str,
     ) -> Option<FinalExpansion> {
-        expand_automation_action_with_args(action, args, matched_keyword)
+        expand_trigger_action_with_args(action, args, matched_keyword)
     }
 
     fn fetch_exact_match(
@@ -573,7 +569,7 @@ fn match_rules(filter_list: &str, info: &ActiveWindowInfo) -> bool {
     })
 }
 
-fn entry_has_app_filters(action: &AutomationAction) -> bool {
+fn entry_has_app_filters(action: &TriggerAction) -> bool {
     action
         .only_apps
         .as_ref()
@@ -584,7 +580,7 @@ fn entry_has_app_filters(action: &AutomationAction) -> bool {
             .is_some_and(|s| !s.trim().is_empty())
 }
 
-pub(crate) fn is_app_allowed(action: &AutomationAction, active_window: Option<&str>) -> bool {
+pub(crate) fn is_app_allowed(action: &TriggerAction, active_window: Option<&str>) -> bool {
     let has_only = action
         .only_apps
         .as_ref()
@@ -634,11 +630,11 @@ pub(crate) fn is_app_allowed(action: &AutomationAction, active_window: Option<&s
     true
 }
 
-pub(crate) fn expand_automation_action(
-    action: AutomationAction,
+pub(crate) fn expand_trigger_action(
+    action: TriggerAction,
     matched_keyword: &str,
 ) -> Option<FinalExpansion> {
-    expand_automation_action_with_args(action, &ArgMap::default(), matched_keyword)
+    expand_trigger_action_with_args(action, &ArgMap::default(), matched_keyword)
 }
 
 fn apply_auto_case(output: &str, typed_trigger: &str) -> String {
@@ -664,8 +660,8 @@ fn apply_auto_case(output: &str, typed_trigger: &str) -> String {
     }
 }
 
-pub(crate) fn expand_automation_action_with_args(
-    action: AutomationAction,
+pub(crate) fn expand_trigger_action_with_args(
+    action: TriggerAction,
     args: &ArgMap,
     matched_keyword: &str,
 ) -> Option<FinalExpansion> {
@@ -695,7 +691,7 @@ pub(crate) fn expand_automation_action_with_args(
     Some(final_exp)
 }
 
-fn interpolate_script_action(action: AutomationAction, args: &ArgMap) -> Option<FinalExpansion> {
+fn interpolate_script_action(action: TriggerAction, args: &ArgMap) -> Option<FinalExpansion> {
     let compressed = action.script_binary?;
 
     let decompressed = decompress(&compressed).unwrap_or_default();
@@ -710,7 +706,7 @@ fn interpolate_script_action(action: AutomationAction, args: &ArgMap) -> Option<
 
     if !crate::settings::get_cached_scripts_enabled() {
         tracing::warn!(
-            "Blocked execution of Script automation because scripts are disabled globally."
+            "Blocked execution of Script trigger because scripts are disabled globally."
         );
         Some(FinalExpansion {
             steps: vec![ExpansionStep::Text(
@@ -741,13 +737,10 @@ mod tests {
         let catalog = ExpansionCatalog::with_source(memory.clone());
 
         memory.load_actions(vec![
-            (
-                "hi".to_string(),
-                AutomationAction::text("base [0] ([mood])"),
-            ),
+            ("hi".to_string(), TriggerAction::text("base [0] ([mood])")),
             (
                 "hi:erin".to_string(),
-                AutomationAction::text("exact trigger wins"),
+                TriggerAction::text("exact trigger wins"),
             ),
         ]);
 
@@ -765,11 +758,11 @@ mod tests {
         let catalog = ExpansionCatalog::with_source(memory.clone());
 
         memory.load_actions(vec![
-            ("gm".to_string(), AutomationAction::text("lowercase")),
-            ("GM".to_string(), AutomationAction::text("UPPERCASE")),
+            ("gm".to_string(), TriggerAction::text("lowercase")),
+            ("GM".to_string(), TriggerAction::text("UPPERCASE")),
             (
                 "only_low".to_string(),
-                AutomationAction::text("only lowercase"),
+                TriggerAction::text("only lowercase"),
             ),
         ]);
 
@@ -804,7 +797,7 @@ mod tests {
         let script = "explorer [0=C:\\Temp]";
         let compressed = compress(script).unwrap();
 
-        let action = AutomationAction {
+        let action = TriggerAction {
             output: String::new(),
             action_type: "script".to_string(),
             only_apps: None,
@@ -836,7 +829,7 @@ mod tests {
         let script = "curl https://[env=].example.com";
         let compressed = compress(script).unwrap();
 
-        let action = AutomationAction {
+        let action = TriggerAction {
             output: String::new(),
             action_type: "script".to_string(),
             only_apps: None,
@@ -867,7 +860,7 @@ mod tests {
 
         memory.load_actions(vec![(
             "5+2".to_string(),
-            AutomationAction::text("exact snippet"),
+            TriggerAction::text("exact snippet"),
         )]);
 
         let expansion = catalog.fetch_expansion("5+2", false, None).unwrap();
@@ -893,13 +886,10 @@ mod tests {
     fn matching_triggers_returns_sorted_prefix_matches() {
         let catalog = ExpansionCatalog::new();
         catalog.load_actions(vec![
-            ("gpush".to_string(), AutomationAction::text("git push")),
-            ("gs".to_string(), AutomationAction::text("git status")),
-            ("gco".to_string(), AutomationAction::text("git checkout")),
-            (
-                "note".to_string(),
-                AutomationAction::text("not a g trigger"),
-            ),
+            ("gpush".to_string(), TriggerAction::text("git push")),
+            ("gs".to_string(), TriggerAction::text("git status")),
+            ("gco".to_string(), TriggerAction::text("git checkout")),
+            ("note".to_string(), TriggerAction::text("not a g trigger")),
         ]);
 
         assert_eq!(
@@ -912,8 +902,8 @@ mod tests {
     fn matching_triggers_uses_case_insensitive_prefix_matching() {
         let catalog = ExpansionCatalog::new();
         catalog.load_actions(vec![
-            ("gm".to_string(), AutomationAction::text("good morning")),
-            ("GitHub".to_string(), AutomationAction::text("github")),
+            ("gm".to_string(), TriggerAction::text("good morning")),
+            ("GitHub".to_string(), TriggerAction::text("github")),
         ]);
 
         assert_eq!(
@@ -926,9 +916,9 @@ mod tests {
     fn matching_history_triggers_preserves_loaded_recency_order() {
         let catalog = ExpansionCatalog::new();
         catalog.load_actions(vec![
-            ("gs".to_string(), AutomationAction::text("git status")),
-            ("email".to_string(), AutomationAction::text("team update")),
-            ("uuid".to_string(), AutomationAction::text("1234")),
+            ("gs".to_string(), TriggerAction::text("git status")),
+            ("email".to_string(), TriggerAction::text("team update")),
+            ("uuid".to_string(), TriggerAction::text("1234")),
         ]);
         catalog.load_history_triggers(vec![
             "gs".to_string(),
@@ -946,10 +936,10 @@ mod tests {
     fn matching_history_triggers_filters_by_prefix_without_reordering() {
         let catalog = ExpansionCatalog::new();
         catalog.load_actions(vec![
-            ("gpush".to_string(), AutomationAction::text("git push")),
-            ("gs".to_string(), AutomationAction::text("git status")),
-            ("email".to_string(), AutomationAction::text("team update")),
-            ("gco".to_string(), AutomationAction::text("git checkout")),
+            ("gpush".to_string(), TriggerAction::text("git push")),
+            ("gs".to_string(), TriggerAction::text("git status")),
+            ("email".to_string(), TriggerAction::text("team update")),
+            ("gco".to_string(), TriggerAction::text("git checkout")),
         ]);
         catalog.load_history_triggers(vec![
             "gs".to_string(),
@@ -968,9 +958,9 @@ mod tests {
     fn promote_history_trigger_moves_existing_word_trigger_to_front() {
         let catalog = ExpansionCatalog::new();
         catalog.load_actions(vec![
-            ("gs".to_string(), AutomationAction::text("git status")),
-            ("email".to_string(), AutomationAction::text("team update")),
-            ("uuid".to_string(), AutomationAction::text("1234")),
+            ("gs".to_string(), TriggerAction::text("git status")),
+            ("email".to_string(), TriggerAction::text("team update")),
+            ("uuid".to_string(), TriggerAction::text("1234")),
         ]);
         catalog.load_history_triggers(vec![
             "gs".to_string(),
@@ -991,7 +981,7 @@ mod tests {
         let hotkeys = HotkeyCatalog::new();
         hotkeys.load_actions(vec![(
             "ctrl+shift+g".to_string(),
-            AutomationAction::text("git status"),
+            TriggerAction::text("git status"),
         )]);
 
         let action = hotkeys.get_action("ctrl+shift+g").unwrap();
@@ -1010,7 +1000,7 @@ mod tests {
         let hotkeys = HotkeyCatalog::new();
         hotkeys.load_actions(vec![(
             "alt+m".to_string(),
-            AutomationAction::text("generic alt"),
+            TriggerAction::text("generic alt"),
         )]);
 
         let (trigger, action) = hotkeys
@@ -1024,8 +1014,8 @@ mod tests {
     fn hotkey_catalog_prefers_exact_side_specific_match() {
         let hotkeys = HotkeyCatalog::new();
         hotkeys.load_actions(vec![
-            ("alt+m".to_string(), AutomationAction::text("generic alt")),
-            ("ralt+m".to_string(), AutomationAction::text("right alt")),
+            ("alt+m".to_string(), TriggerAction::text("generic alt")),
+            ("ralt+m".to_string(), TriggerAction::text("right alt")),
         ]);
 
         let (trigger, action) = hotkeys
@@ -1040,7 +1030,7 @@ mod tests {
         let hotkeys = HotkeyCatalog::new();
         hotkeys.load_actions(vec![(
             "altgr+m".to_string(),
-            AutomationAction::text("configured alias"),
+            TriggerAction::text("configured alias"),
         )]);
 
         let (trigger, action) = hotkeys
@@ -1052,7 +1042,7 @@ mod tests {
 
     #[test]
     fn test_app_gating_prefix_rules() {
-        let mut action = AutomationAction::text("dummy");
+        let mut action = TriggerAction::text("dummy");
 
         // 1. exe: prefix (exact match, case-insensitive, strips .exe)
         action.only_apps = Some("exe:chrome,exe:firefox".to_string());
@@ -1170,25 +1160,25 @@ mod tests {
 
     #[test]
     fn entry_has_app_filters_returns_true_when_only_apps_set() {
-        let action = AutomationAction {
+        let action = TriggerAction {
             only_apps: Some("chrome".to_string()),
-            ..AutomationAction::text("dummy")
+            ..TriggerAction::text("dummy")
         };
         assert!(entry_has_app_filters(&action));
     }
 
     #[test]
     fn entry_has_app_filters_returns_true_when_except_apps_set() {
-        let action = AutomationAction {
+        let action = TriggerAction {
             except_apps: Some("notepad".to_string()),
-            ..AutomationAction::text("dummy")
+            ..TriggerAction::text("dummy")
         };
         assert!(entry_has_app_filters(&action));
     }
 
     #[test]
     fn entry_has_app_filters_returns_false_when_no_filters() {
-        let action = AutomationAction::text("dummy");
+        let action = TriggerAction::text("dummy");
         assert!(!entry_has_app_filters(&action));
     }
 
@@ -1197,7 +1187,7 @@ mod tests {
         let hotkeys = HotkeyCatalog::new();
         hotkeys.load_actions(vec![(
             "ctrl+shift+g".to_string(),
-            AutomationAction::text("git status"),
+            TriggerAction::text("git status"),
         )]);
 
         let called = std::cell::Cell::new(false);
@@ -1220,18 +1210,18 @@ mod tests {
         hotkeys.load_actions(vec![
             (
                 "alt+m".to_string(),
-                AutomationAction {
+                TriggerAction {
                     output: "generic alt".to_string(),
                     only_apps: Some("chrome".to_string()),
-                    ..AutomationAction::text("")
+                    ..TriggerAction::text("")
                 },
             ),
             (
                 "ralt+m".to_string(),
-                AutomationAction {
+                TriggerAction {
                     output: "right alt".to_string(),
                     only_apps: Some("chrome".to_string()),
-                    ..AutomationAction::text("")
+                    ..TriggerAction::text("")
                 },
             ),
         ]);
@@ -1250,10 +1240,10 @@ mod tests {
         let hotkeys = HotkeyCatalog::new();
         hotkeys.load_actions(vec![(
             "ctrl+shift+g".to_string(),
-            AutomationAction {
+            TriggerAction {
                 output: "only in chrome".to_string(),
                 only_apps: Some("chrome".to_string()),
-                ..AutomationAction::text("")
+                ..TriggerAction::text("")
             },
         )]);
 
@@ -1271,10 +1261,10 @@ mod tests {
         let hotkeys = HotkeyCatalog::new();
         hotkeys.load_actions(vec![(
             "ctrl+shift+g".to_string(),
-            AutomationAction {
+            TriggerAction {
                 output: "chrome only".to_string(),
                 only_apps: Some("chrome".to_string()),
-                ..AutomationAction::text("")
+                ..TriggerAction::text("")
             },
         )]);
 
@@ -1304,7 +1294,7 @@ mod tests {
         let hotkeys = HotkeyCatalog::new();
         hotkeys.load_actions(vec![(
             "ctrl+shift+g".to_string(),
-            AutomationAction::text("git status"),
+            TriggerAction::text("git status"),
         )]);
         assert!(hotkeys.has_entry_for(LogicalKey::Letter('g')));
         assert!(!hotkeys.has_entry_for(LogicalKey::Letter('x')));
@@ -1316,11 +1306,11 @@ mod tests {
         catalog.load_actions(vec![
             (
                 "issue-(\\d+)".to_string(),
-                AutomationAction::text("https://github.com/issues/[0]"),
+                TriggerAction::text("https://github.com/issues/[0]"),
             ),
             (
                 "invalid(pattern".to_string(),
-                AutomationAction::text("skipped"),
+                TriggerAction::text("skipped"),
             ),
         ]);
         let matched = catalog.match_action("my issue-102", None);
@@ -1334,7 +1324,7 @@ mod tests {
             positional: caps,
             ..Default::default()
         };
-        let expansion = expand_automation_action_with_args(action, &arg_map, &trigger).unwrap();
+        let expansion = expand_trigger_action_with_args(action, &arg_map, &trigger).unwrap();
         assert_eq!(expansion.steps.len(), 1);
         if let ExpansionStep::Text(ref text) = expansion.steps[0] {
             assert_eq!(text, "https://github.com/issues/102");

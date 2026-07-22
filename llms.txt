@@ -1,6 +1,6 @@
 # Taurine
 
-A fast, secure and easy-to-use automation software for text expansion and keyboard automation built in Rust. Taurine helps you type less, automate repetitive work, and run keyboard shortcuts from anywhere on your computer via a robust CLI and background service.
+A fast, secure and easy-to-use text expander built in Rust. Taurine helps you type less, automate repetitive work, and run keyboard shortcuts from anywhere on your computer via a robust CLI and background service.
 
 - [README](https://raw.githubusercontent.com/ereinaimer/taurine/refs/heads/main/README.md)
 - [Contributing Guide](https://raw.githubusercontent.com/ereinaimer/taurine/refs/heads/main/CONTRIBUTING.md)
@@ -14,16 +14,16 @@ A fast, secure and easy-to-use automation software for text expansion and keyboa
 
 | Command | Action | One-liner |
 |---------|--------|-----------|
-| **up** | Start the automation service | `taurine up` |
+| **up** | Start the daemon | `taurine up` |
 | **add** | Create a new text expansion | `taurine add "trigger" "output"` |
-| **add script** | Create a script automation | `taurine add script "trigger" -f script.ps1` |
+| **add script** | Create a script trigger | `taurine add script "trigger" -f script.ps1` |
 | **hotkey** | Create a global hotkey | `taurine add "trigger" "output" --hotkey` |
 | **ls** | List expansions | `taurine ls --sort usage --desc` |
 | **update** | Self-update to latest release | `taurine update` |
 | **ai add** | Add AI provider keys | `taurine ai add --provider gemini` |
 | **config** | Manage system settings | `taurine config ls` |
 | **status** | Check daemon health | `taurine status` |
-| **down** | Stop the automation service | `taurine down` |
+| **down** | Stop the daemon | `taurine down` |
 
 ---
 
@@ -35,17 +35,17 @@ A fast, secure and easy-to-use automation software for text expansion and keyboa
 *   `taurine status`: Reports whether the engine is online and if it's currently paused.
 *   `taurine update`: Self-updates the CLI and daemon to the latest version.
 
-### 2.2 Managing Automations
+### 2.2 Managing Triggers
 *   `taurine add <trigger> <output>`: Adds a new snippet. Use the `--hotkey` flag to treat the trigger as a global keyboard shortcut (e.g., `alt+y`).
-*   `taurine add script <trigger> <body> [-f file] [-l lang] [-m mode]`: Adds a shell script automation.
+*   `taurine add script <trigger> <body> [-f file] [-l lang] [-m mode]`: Adds a shell script trigger.
     *   **Auto-Inference**: Automatically detects language via file extension or shebang.
     *   **Flags**: Use `--lang` (`-l`) to specify interpreter (`bash`, `powershell`, `python`, `node`, `cmd`) and `--mode` (`-m`) for execution behavior (`inline` or `silent`).
-*   `taurine delete <trigger>`: Removes an automation matching the specific trigger.
+*   `taurine delete <trigger>`: Removes a trigger matching the specific pattern or trigger.
 *   `taurine list` (or `ls`): Displays a formatted table of all active triggers. Supports `--sort` (`alpha`, `usage`, `created`, `recent`) and `--asc`/`--desc`.
 
 ### 2.3 Import / Export
-*   `taurine export [path]`: Exports automations to a file. Supports `--no-encrypt`, `--with-settings`, and `--with-metrics`.
-*   `taurine import <path>`: Imports automations. Supports `--conflict` (`prompt`, `skip`, `overwrite`), `--include-settings`, and `--include-metrics`.
+*   `taurine export [path]`: Exports triggers to a file. Supports `--no-encrypt`, `--with-settings`, and `--with-metrics`.
+*   `taurine import <path>`: Imports triggers. Supports `--conflict` (`prompt`, `skip`, `overwrite`), `--include-settings`, and `--include-metrics`.
 
 ### 2.4 Configuration
 *   `taurine config set <key> <value>`: Updates a specific setting.
@@ -95,7 +95,7 @@ Transformers modify casing and structure using dot-notation:
 
 ---
 
-## 4. Shell Script Automation
+## 4. Shell Script Triggers
 
 Taurine integrates a background execution engine allowing triggers (words or hotkeys) to run arbitrary scripts (Bash, Python, PowerShell, Node, Cmd).
 
@@ -147,7 +147,7 @@ Taurine is a modular Rust workspace designed for performance and safety.
 ## 7. AI Agent Best Practices & Coding Guidelines
 
 When assisting with Taurine's codebase or usage, strictly adhere to these rules:
-1.  **User Interaction**: Use the `taurine` CLI commands directly for automation management. Do not suggest manual edits to `taurine.db`.
+1.  **User Interaction**: Use the `taurine` CLI commands directly for trigger management. Do not suggest manual edits to `taurine.db`.
 2.  **Linux Permissions**: Never suggest X11 tools (`xdotool`, `xmodmap`) or running the daemon as root. The daemon uses `setcap` for permissions and drops them after acquiring file descriptors.
 3.  **Error Handling**: Use `color-eyre` for application-level error reporting and `tracing` for logging.
 4.  **Performance**: Prefer zero-copy string references (`&str`) over allocations (`String`) in the hot path of the `FastBuffer` keystroke evaluator.

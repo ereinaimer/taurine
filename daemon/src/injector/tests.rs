@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use taurine_core::db::crud::AutomationAction;
+use taurine_core::db::crud::TriggerAction;
 use taurine_core::engine::variables::ExpansionStep;
 use taurine_core::engine::{EngineEvent, EngineState, Evaluator};
 
@@ -86,7 +86,7 @@ fn assert_normal_expansion_still_works() {
     let state = Arc::new(EngineState::new('>'));
     state.load_actions(vec![(
         "gm".to_string(),
-        AutomationAction::text("Good morning!"),
+        TriggerAction::text("Good morning!"),
     )]);
     let mut evaluator = Evaluator::new(state);
 

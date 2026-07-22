@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use taurine_core::db::crud::AutomationStatKind;
+use taurine_core::db::crud::TriggerStatKind;
 use taurine_core::engine::{EngineState, ExpansionResult};
 use taurine_core::keys::{KeyPress, LogicalKey, Modifier, Modifiers};
 
@@ -73,9 +73,9 @@ impl HotkeyEvaluator {
             expansion.steps.as_slice(),
             [taurine_core::engine::variables::ExpansionStep::Script(_)]
         ) {
-            AutomationStatKind::Script
+            TriggerStatKind::Script
         } else {
-            AutomationStatKind::Hotkey
+            TriggerStatKind::Hotkey
         };
 
         self.swallowed_keys.insert(key);
@@ -376,7 +376,7 @@ pub fn logical_key_from_evdev(key: evdev::KeyCode) -> Option<LogicalKey> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use taurine_core::db::crud::AutomationAction;
+    use taurine_core::db::crud::TriggerAction;
     use taurine_core::engine::{EngineEvent, Evaluator};
     use taurine_core::keys::Modifier;
 
@@ -389,7 +389,7 @@ mod tests {
     }
 
     fn load_hotkey(state: &EngineState, trigger: &str, output: &str) {
-        state.load_hotkey_actions(vec![(trigger.to_string(), AutomationAction::text(output))]);
+        state.load_hotkey_actions(vec![(trigger.to_string(), TriggerAction::text(output))]);
     }
 
     #[test]
@@ -429,7 +429,7 @@ mod tests {
         let state = std::sync::Arc::new(EngineState::new('>'));
         state.load_actions(vec![(
             "gm".to_string(),
-            AutomationAction::text("Good morning!"),
+            TriggerAction::text("Good morning!"),
         )]);
         let mut hotkeys = HotkeyEvaluator::new();
         let miss = hotkeys.on_key_event(
@@ -513,8 +513,8 @@ mod tests {
     fn side_specific_alt_hotkeys_only_match_the_requested_side() {
         let state = EngineState::new('>');
         state.load_hotkey_actions(vec![
-            ("lalt+m".to_string(), AutomationAction::text("left alt")),
-            ("ralt+m".to_string(), AutomationAction::text("right alt")),
+            ("lalt+m".to_string(), TriggerAction::text("left alt")),
+            ("ralt+m".to_string(), TriggerAction::text("right alt")),
         ]);
         let mut evaluator = HotkeyEvaluator::new();
 
@@ -606,9 +606,9 @@ mod tests {
     fn same_base_key_hotkeys_remain_distinct_by_modifier_identity() {
         let state = EngineState::new('>');
         state.load_hotkey_actions(vec![
-            ("alt+g".to_string(), AutomationAction::text("alt")),
-            ("ctrl+g".to_string(), AutomationAction::text("ctrl")),
-            ("shift+g".to_string(), AutomationAction::text("shift")),
+            ("alt+g".to_string(), TriggerAction::text("alt")),
+            ("ctrl+g".to_string(), TriggerAction::text("ctrl")),
+            ("shift+g".to_string(), TriggerAction::text("shift")),
         ]);
         let mut evaluator = HotkeyEvaluator::new();
 
@@ -696,14 +696,14 @@ mod tests {
         state.load_hotkey_actions(vec![
             (
                 "ctrl+shift+h".to_string(),
-                AutomationAction::text("no filter needed"),
+                TriggerAction::text("no filter needed"),
             ),
             (
                 "ctrl+shift+g".to_string(),
-                AutomationAction {
+                TriggerAction {
                     output: "only in chrome".to_string(),
                     only_apps: Some("chrome".to_string()),
-                    ..AutomationAction::text("")
+                    ..TriggerAction::text("")
                 },
             ),
         ]);
@@ -744,10 +744,10 @@ mod tests {
         let state = EngineState::new('>');
         state.load_hotkey_actions(vec![(
             "ctrl+shift+g".to_string(),
-            AutomationAction {
+            TriggerAction {
                 output: "only in chrome".to_string(),
                 only_apps: Some("chrome".to_string()),
-                ..AutomationAction::text("")
+                ..TriggerAction::text("")
             },
         )]);
         let mut evaluator = HotkeyEvaluator::new();
@@ -777,14 +777,14 @@ mod tests {
         state.load_hotkey_actions(vec![
             (
                 "ctrl+shift+g".to_string(),
-                AutomationAction::text("unfiltered"),
+                TriggerAction::text("unfiltered"),
             ),
             (
                 "ctrl+shift+g".to_string(),
-                AutomationAction {
+                TriggerAction {
                     output: "only in chrome".to_string(),
                     only_apps: Some("chrome".to_string()),
-                    ..AutomationAction::text("")
+                    ..TriggerAction::text("")
                 },
             ),
         ]);

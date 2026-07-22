@@ -703,12 +703,12 @@ fn record_inline_ai_completion(output_chars: usize) {
         return;
     }
 
-    taurine_core::db::crud::record_automation_stat(taurine_core::db::crud::AutomationStatEvent {
-        automation_trigger: None,
+    taurine_core::db::crud::record_trigger_stat(taurine_core::db::crud::TriggerStatEvent {
+        trigger: None,
         trigger_chars: 0,
         success: true,
         output_chars,
-        kind: taurine_core::db::crud::AutomationStatKind::InlineAi,
+        kind: taurine_core::db::crud::TriggerStatKind::InlineAi,
         wpm: None,
     });
 }

@@ -32,7 +32,7 @@ pub struct PreparedTrigger {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExistingAutomationUpdate<'a> {
+pub struct ExistingTriggerUpdate<'a> {
     pub id: &'a str,
     pub name: &'a str,
     pub description: Option<&'a str>,
@@ -50,7 +50,7 @@ pub struct ExistingAutomationUpdate<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NewAutomation<'a> {
+pub struct NewTrigger<'a> {
     pub name: Option<&'a str>,
     pub description: Option<&'a str>,
     pub trigger_type: TriggerType,
@@ -62,12 +62,6 @@ pub struct NewAutomation<'a> {
     pub auto_case: bool,
     pub interpreter: Option<ScriptInterpreter>,
     pub behavior: Option<ScriptBehavior>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AutomationActionKind {
-    Text,
-    Script,
 }
 
 fn collect_defined_variables(payload: &str) -> std::collections::HashSet<String> {
@@ -378,7 +372,7 @@ pub fn find_trigger_overlap_conflict(
 
     let mut stmt = conn.prepare_cached(
         "SELECT id, trigger_type, trigger, target_os, only_apps, except_apps
-         FROM automations
+         FROM triggers
          WHERE trigger_type = ?1
            AND is_deleted = 0
          ORDER BY updated_at DESC",
@@ -472,7 +466,7 @@ pub fn validate_trigger_target_os_conflict(
     Ok(())
 }
 
-/// Inserts a new automation or updates an existing one.
+/// Inserts a new trigger or updates an existing one.
 ///
 /// Semantics:
 /// - On **insert**: `version` starts at `1`, `created_at`/`updated_at` are set
@@ -481,7 +475,7 @@ pub fn validate_trigger_target_os_conflict(
 /// - `is_deleted` is forced to `0` (reactivates tombstoned rows).
 /// - `is_synced` is forced to `0` so the sync layer can enqueue this record.
 #[allow(clippy::too_many_arguments)]
-pub fn upsert_automation(
+pub fn upsert_trigger(
     conn: &Connection,
     id: &str,
     name: &str,
@@ -494,7 +488,7 @@ pub fn upsert_automation(
     usage_count: i64,
     last_used_at: Option<i64>,
 ) -> Result<()> {
-    upsert_automation_with_trigger_type_and_case(
+    upsert_trigger_with_type_and_case(
         conn,
         id,
         name,
@@ -511,7 +505,7 @@ pub fn upsert_automation(
     )
 }
 
-fn compile_and_save_assets(conn: &Connection, automation_id: &str, output: &str) -> Result<String> {
+fn compile_and_save_assets(conn: &Connection, trigger_id: &str, output: &str) -> Result<String> {
     let mut processed = String::new();
     let mut ptr = 0;
     let mut active_hashes = std::collections::HashSet::new();
@@ -565,11 +559,11 @@ fn compile_and_save_assets(conn: &Connection, automation_id: &str, output: &str)
 
                 let now = now_unix_secs();
                 conn.execute(
-                    "INSERT OR REPLACE INTO assets (id, automation_id, mime_type, compressed_content, updated_at)
+                    "INSERT OR REPLACE INTO assets (id, trigger_id, mime_type, compressed_content, updated_at)
                      VALUES (?1, ?2, ?3, ?4, ?5)",
                     (
                         &hash,
-                        automation_id,
+                        trigger_id,
                         mime_type,
                         &compressed,
                         now,
@@ -613,11 +607,11 @@ fn compile_and_save_assets(conn: &Connection, automation_id: &str, output: &str)
 
                 let now = now_unix_secs();
                 conn.execute(
-                    "INSERT OR REPLACE INTO assets (id, automation_id, mime_type, compressed_content, updated_at)
+                    "INSERT OR REPLACE INTO assets (id, trigger_id, mime_type, compressed_content, updated_at)
                      VALUES (?1, ?2, ?3, ?4, ?5)",
                     (
                         &hash,
-                        automation_id,
+                        trigger_id,
                         mime_type,
                         &compressed,
                         now,
@@ -643,17 +637,14 @@ fn compile_and_save_assets(conn: &Connection, automation_id: &str, output: &str)
     processed.push_str(&output[ptr..]);
 
     if active_hashes.is_empty() {
-        conn.execute(
-            "DELETE FROM assets WHERE automation_id = ?1",
-            [automation_id],
-        )?;
+        conn.execute("DELETE FROM assets WHERE trigger_id = ?1", [trigger_id])?;
     } else {
         let placeholders: Vec<String> = active_hashes.iter().map(|_| "?".to_string()).collect();
         let query = format!(
-            "DELETE FROM assets WHERE automation_id = ?1 AND id NOT IN ({})",
+            "DELETE FROM assets WHERE trigger_id = ?1 AND id NOT IN ({})",
             placeholders.join(",")
         );
-        let mut params: Vec<&dyn rusqlite::ToSql> = vec![&automation_id];
+        let mut params: Vec<&dyn rusqlite::ToSql> = vec![&trigger_id];
         for h in &active_hashes {
             params.push(h);
         }
@@ -663,9 +654,9 @@ fn compile_and_save_assets(conn: &Connection, automation_id: &str, output: &str)
     Ok(processed)
 }
 
-/// Inserts a new automation or updates an existing one with an explicit trigger type.
+/// Inserts a new trigger or updates an existing one with an explicit trigger type.
 #[allow(clippy::too_many_arguments)]
-pub fn upsert_automation_with_trigger_type(
+pub fn upsert_trigger_with_type(
     conn: &Connection,
     id: &str,
     name: &str,
@@ -679,7 +670,7 @@ pub fn upsert_automation_with_trigger_type(
     usage_count: i64,
     last_used_at: Option<i64>,
 ) -> Result<()> {
-    upsert_automation_with_trigger_type_and_case(
+    upsert_trigger_with_type_and_case(
         conn,
         id,
         name,
@@ -696,9 +687,9 @@ pub fn upsert_automation_with_trigger_type(
     )
 }
 
-/// Inserts a new automation or updates an existing one with an explicit trigger type, plus auto_case.
+/// Inserts a new trigger or updates an existing one with an explicit trigger type, plus auto_case.
 #[allow(clippy::too_many_arguments)]
-pub fn upsert_automation_with_trigger_type_and_case(
+pub fn upsert_trigger_with_type_and_case(
     conn: &Connection,
     id: &str,
     name: &str,
@@ -719,7 +710,7 @@ pub fn upsert_automation_with_trigger_type_and_case(
 
     // Keep created_at stable across updates.
     conn.execute(
-        "INSERT INTO automations
+        "INSERT INTO triggers
             (id, name, description, trigger_type, trigger, output, action_type, target_os, tags,
              usage_count, last_used_at, created_at, updated_at, version, is_deleted, auto_case)
          VALUES
@@ -762,7 +753,7 @@ pub fn upsert_automation_with_trigger_type_and_case(
         let processed_output = compile_and_save_assets(conn, id, output)?;
         if processed_output != output {
             conn.execute(
-                "UPDATE automations SET output = ?1, updated_at = ?2 WHERE id = ?3",
+                "UPDATE triggers SET output = ?1, updated_at = ?2 WHERE id = ?3",
                 (&processed_output, now, id),
             )?;
         }
@@ -771,26 +762,26 @@ pub fn upsert_automation_with_trigger_type_and_case(
     Ok(())
 }
 
-/// Inserts or updates a script attachment for an automation.
+/// Inserts or updates a script attachment for an trigger.
 pub fn upsert_script(
     conn: &Connection,
-    automation_id: &str,
+    trigger_id: &str,
     interpreter: crate::engine::shell::ScriptInterpreter,
     behavior: crate::engine::shell::ScriptBehavior,
     compressed_content: &[u8],
 ) -> Result<()> {
     let now = now_unix_secs();
     conn.execute(
-        "INSERT INTO scripts (automation_id, interpreter, behavior, compressed_content, updated_at)
+        "INSERT INTO scripts (trigger_id, interpreter, behavior, compressed_content, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5)
-         ON CONFLICT(automation_id) DO UPDATE SET
+         ON CONFLICT(trigger_id) DO UPDATE SET
             interpreter        = excluded.interpreter,
             behavior           = excluded.behavior,
             compressed_content = excluded.compressed_content,
             updated_at         = excluded.updated_at,
             version            = version + 1",
         (
-            automation_id,
+            trigger_id,
             serde_json::to_string(&interpreter)?,
             serde_json::to_string(&behavior)?,
             compressed_content,
@@ -930,7 +921,7 @@ fn check_limits_recursive(
     Ok(())
 }
 
-pub fn validate_automation_limits(
+pub fn validate_trigger_limits(
     conn: &Connection,
     new_trigger: &str,
     new_content: &str,
@@ -938,7 +929,7 @@ pub fn validate_automation_limits(
 ) -> Result<()> {
     let mut catalog = std::collections::HashMap::new();
 
-    if let Ok(actions) = super::automation_get::get_all_active_automations(conn) {
+    if let Ok(actions) = super::trigger_get::get_all_active_triggers(conn) {
         for (trigger, action) in actions {
             if action.action_type == "text" {
                 catalog.insert(trigger, action.output);
@@ -996,18 +987,18 @@ pub fn validate_automation_limits(
     Ok(())
 }
 
-pub fn update_existing_automation(
+pub fn update_existing_trigger(
     conn: &mut Connection,
-    update: ExistingAutomationUpdate<'_>,
+    update: ExistingTriggerUpdate<'_>,
 ) -> Result<()> {
     validate_target_os_value(update.target_os)?;
-    let action_kind = parse_action_kind(update.action_type)?;
-    if action_kind == AutomationActionKind::Text {
+    let is_text = is_text_action(update.action_type)?;
+    if is_text {
         audit_payload_tags_with_trigger_type(update.content, update.trigger_type)?;
     }
 
     // We only enforce limits for text snippets, as nested limits apply to the `use` variable
-    validate_automation_limits(conn, update.trigger, update.content, update.action_type)?;
+    validate_trigger_limits(conn, update.trigger, update.content, update.action_type)?;
 
     let prepared =
         prepare_trigger_with_type(update.trigger, update.trigger_type, update.target_os)?;
@@ -1025,19 +1016,19 @@ pub fn update_existing_automation(
 
     let tx = conn.transaction()?;
 
-    if action_kind == AutomationActionKind::Script {
+    if !is_text {
         let interpreter = update
             .interpreter
             .or_else(|| infer_interpreter(None, update.content))
             .ok_or_else(|| {
                 crate::Error::Config(
-                    "Unable to determine a script language for this automation.".to_string(),
+                    "Unable to determine a script language for this trigger.".to_string(),
                 )
             })?;
         let behavior = update.behavior.unwrap_or(ScriptBehavior::Inline);
         let script_output = format!("[Script: {}]", script_interpreter_tag(interpreter));
 
-        upsert_automation_with_trigger_type_and_case(
+        upsert_trigger_with_type_and_case(
             &tx,
             update.id,
             update.name,
@@ -1061,7 +1052,7 @@ pub fn update_existing_automation(
         )?;
     } else {
         validate_output(update.content, Some(&prepared.stored_trigger));
-        upsert_automation_with_trigger_type_and_case(
+        upsert_trigger_with_type_and_case(
             &tx,
             update.id,
             update.name,
@@ -1077,7 +1068,7 @@ pub fn update_existing_automation(
             update.auto_case,
         )?;
         tx.execute(
-            "DELETE FROM scripts WHERE automation_id = ?1",
+            "DELETE FROM scripts WHERE trigger_id = ?1",
             rusqlite::params![update.id],
         )?;
     }
@@ -1086,31 +1077,28 @@ pub fn update_existing_automation(
     Ok(())
 }
 
-pub fn create_automation(
-    conn: &mut Connection,
-    new_automation: NewAutomation<'_>,
-) -> Result<String> {
-    validate_target_os_value(new_automation.target_os)?;
-    let action_kind = parse_action_kind(new_automation.action_type)?;
-    if action_kind == AutomationActionKind::Text {
-        audit_payload_tags_with_trigger_type(new_automation.content, new_automation.trigger_type)?;
+pub fn create_trigger(conn: &mut Connection, new_trigger: NewTrigger<'_>) -> Result<String> {
+    validate_target_os_value(new_trigger.target_os)?;
+    let is_text = is_text_action(new_trigger.action_type)?;
+    if is_text {
+        audit_payload_tags_with_trigger_type(new_trigger.content, new_trigger.trigger_type)?;
     }
 
-    validate_automation_limits(
+    validate_trigger_limits(
         conn,
-        new_automation.trigger,
-        new_automation.content,
-        new_automation.action_type,
+        new_trigger.trigger,
+        new_trigger.content,
+        new_trigger.action_type,
     )?;
 
     let prepared = prepare_trigger_with_type(
-        new_automation.trigger,
-        new_automation.trigger_type,
-        new_automation.target_os,
+        new_trigger.trigger,
+        new_trigger.trigger_type,
+        new_trigger.target_os,
     )?;
     let id = uuid::Uuid::new_v4().to_string();
     let generated_name = prepared.stored_trigger.clone();
-    let name = new_automation
+    let name = new_trigger
         .name
         .filter(|name| !name.trim().is_empty())
         .unwrap_or(generated_name.as_str());
@@ -1119,7 +1107,7 @@ pub fn create_automation(
         conn,
         prepared.trigger_type,
         &prepared.stored_trigger,
-        new_automation.target_os,
+        new_trigger.target_os,
         None,
         None,
         None,
@@ -1127,56 +1115,56 @@ pub fn create_automation(
 
     let tx = conn.transaction()?;
 
-    if action_kind == AutomationActionKind::Script {
-        let interpreter = new_automation
+    if !is_text {
+        let interpreter = new_trigger
             .interpreter
-            .or_else(|| infer_interpreter(None, new_automation.content))
+            .or_else(|| infer_interpreter(None, new_trigger.content))
             .ok_or_else(|| {
                 crate::Error::Config(
-                    "Unable to determine a script language for this automation.".to_string(),
+                    "Unable to determine a script language for this trigger.".to_string(),
                 )
             })?;
-        let behavior = new_automation.behavior.unwrap_or(ScriptBehavior::Inline);
+        let behavior = new_trigger.behavior.unwrap_or(ScriptBehavior::Inline);
         let script_output = format!("[Script: {}]", script_interpreter_tag(interpreter));
 
-        upsert_automation_with_trigger_type_and_case(
+        upsert_trigger_with_type_and_case(
             &tx,
             &id,
             name,
-            new_automation.description,
+            new_trigger.description,
             prepared.trigger_type,
             &prepared.stored_trigger,
             &script_output,
             "script",
-            new_automation.target_os,
-            new_automation.tags_json,
+            new_trigger.target_os,
+            new_trigger.tags_json,
             0,
             None,
-            new_automation.auto_case,
+            new_trigger.auto_case,
         )?;
         upsert_script(
             &tx,
             &id,
             interpreter,
             behavior,
-            &compress(new_automation.content)?,
+            &compress(new_trigger.content)?,
         )?;
     } else {
-        validate_output(new_automation.content, Some(&prepared.stored_trigger));
-        upsert_automation_with_trigger_type_and_case(
+        validate_output(new_trigger.content, Some(&prepared.stored_trigger));
+        upsert_trigger_with_type_and_case(
             &tx,
             &id,
             name,
-            new_automation.description,
+            new_trigger.description,
             prepared.trigger_type,
             &prepared.stored_trigger,
-            new_automation.content,
+            new_trigger.content,
             "text",
-            new_automation.target_os,
-            new_automation.tags_json,
+            new_trigger.target_os,
+            new_trigger.tags_json,
             0,
             None,
-            new_automation.auto_case,
+            new_trigger.auto_case,
         )?;
     }
 
@@ -1184,11 +1172,11 @@ pub fn create_automation(
     Ok(id)
 }
 
-fn parse_action_kind(action_type: &str) -> Result<AutomationActionKind> {
+fn is_text_action(action_type: &str) -> Result<bool> {
     if action_type.eq_ignore_ascii_case("text") {
-        Ok(AutomationActionKind::Text)
+        Ok(true)
     } else if action_type.eq_ignore_ascii_case("script") {
-        Ok(AutomationActionKind::Script)
+        Ok(false)
     } else {
         Err(crate::Error::Config(format!(
             "Unsupported action_type '{}'. Expected 'text' or 'script'.",
@@ -1370,7 +1358,7 @@ fn script_interpreter_tag(interpreter: ScriptInterpreter) -> &'static str {
 /// Increments the usage_count and updates last_used_at for the given trigger.
 pub fn increment_usage_count_by_trigger(conn: &Connection, trigger: &str) -> Result<()> {
     conn.execute(
-        "UPDATE automations
+        "UPDATE triggers
          SET usage_count = usage_count + 1,
              last_used_at = ?1
          WHERE trigger = ?2 AND is_deleted = 0",
@@ -1390,36 +1378,36 @@ pub fn record_expansion_usage(
     _delete_count: usize,
     _left_arrow_count: usize,
 ) {
-    crate::db::crud::record_automation_stat(crate::db::crud::AutomationStatEvent {
-        automation_trigger: Some(trigger.to_string()),
+    crate::db::crud::record_trigger_stat(crate::db::crud::TriggerStatEvent {
+        trigger: Some(trigger.to_string()),
         trigger_chars: trigger.chars().count(),
         success: output_len > 0,
         output_chars: output_len,
-        kind: crate::db::crud::AutomationStatKind::Snippet,
+        kind: crate::db::crud::TriggerStatKind::Snippet,
         wpm: None,
     });
 }
 
-/// Result of an `add_automation_by_trigger` call.
+/// Result of an `add_trigger` call.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AddOutcome {
-    /// A brand-new automation was created.
+    /// A brand-new trigger was created.
     Created,
-    /// An automation with the same trigger and identical output already exists.
+    /// An trigger with the same trigger and identical output already exists.
     AlreadyExists,
-    /// An automation with the same trigger existed but had a different output;
+    /// An trigger with the same trigger existed but had a different output;
     /// the output (and `updated_at` / `version`) have been updated.
     Updated,
 }
 
-pub fn update_automation_app_filters(
+pub fn update_trigger_app_filters(
     conn: &Connection,
     id: &str,
     only_apps: Option<String>,
     except_apps: Option<String>,
 ) -> Result<()> {
     conn.execute(
-        "UPDATE automations
+        "UPDATE triggers
          SET only_apps = ?1, except_apps = ?2
          WHERE id = ?3 AND is_deleted = 0",
         rusqlite::params![only_apps, except_apps, id],
@@ -1427,17 +1415,17 @@ pub fn update_automation_app_filters(
     Ok(())
 }
 
-/// Creates or updates an automation using only its trigger and output.
+/// Creates or updates an trigger using only its trigger and output.
 ///
-/// - If no active automation exists for the trigger, a new row is inserted
+/// - If no active trigger exists for the trigger, a new row is inserted
 ///   and `AddOutcome::Created` is returned.
-/// - If an active automation exists with the **same** output,
+/// - If an active trigger exists with the **same** output,
 ///   `AddOutcome::AlreadyExists` is returned and no writes happen.
-/// - If an active automation exists with a **different** output, the output
+/// - If an active trigger exists with a **different** output, the output
 ///   is updated (along with `updated_at` and `version`) and
 ///   `AddOutcome::Updated` is returned.
 #[allow(clippy::too_many_arguments)]
-pub fn add_automation_by_trigger(
+pub fn add_trigger(
     conn: &Connection,
     trigger: &str,
     output: &str,
@@ -1446,7 +1434,7 @@ pub fn add_automation_by_trigger(
     except_apps: Option<&str>,
     tags: Option<Vec<String>>,
 ) -> Result<AddOutcome> {
-    add_automation_by_trigger_type_and_case(
+    add_trigger_by_type_with_case(
         conn,
         TriggerType::Word,
         trigger,
@@ -1460,7 +1448,7 @@ pub fn add_automation_by_trigger(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn add_automation_by_trigger_type(
+pub fn add_trigger_by_type(
     conn: &Connection,
     trigger_type: TriggerType,
     trigger: &str,
@@ -1470,7 +1458,7 @@ pub fn add_automation_by_trigger_type(
     except_apps: Option<&str>,
     tags: Option<Vec<String>>,
 ) -> Result<AddOutcome> {
-    add_automation_by_trigger_type_and_case(
+    add_trigger_by_type_with_case(
         conn,
         trigger_type,
         trigger,
@@ -1484,7 +1472,7 @@ pub fn add_automation_by_trigger_type(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn add_automation_by_trigger_and_case(
+pub fn add_trigger_with_case(
     conn: &Connection,
     trigger: &str,
     output: &str,
@@ -1494,7 +1482,7 @@ pub fn add_automation_by_trigger_and_case(
     tags: Option<Vec<String>>,
     auto_case: bool,
 ) -> Result<AddOutcome> {
-    add_automation_by_trigger_type_and_case(
+    add_trigger_by_type_with_case(
         conn,
         TriggerType::Word,
         trigger,
@@ -1508,7 +1496,7 @@ pub fn add_automation_by_trigger_and_case(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn add_automation_by_trigger_type_and_case(
+pub fn add_trigger_by_type_with_case(
     conn: &Connection,
     trigger_type: TriggerType,
     trigger: &str,
@@ -1524,7 +1512,7 @@ pub fn add_automation_by_trigger_type_and_case(
     let existing: Option<(String, String, String, bool)> = conn
         .query_row(
             "SELECT id, output, action_type, auto_case
-             FROM automations
+             FROM triggers
              WHERE trigger_type = ?1
                AND trigger = ?2
                AND target_os = ?3
@@ -1555,7 +1543,7 @@ pub fn add_automation_by_trigger_type_and_case(
                 let t_json =
                     serde_json::to_string(t).map_err(|e| crate::Error::Config(e.to_string()))?;
                 conn.execute(
-                    "UPDATE automations
+                    "UPDATE triggers
                      SET tags        = ?1,
                          updated_at  = ?2,
                          version     = version + 1
@@ -1573,7 +1561,7 @@ pub fn add_automation_by_trigger_type_and_case(
                 let t_json =
                     serde_json::to_string(t).map_err(|e| crate::Error::Config(e.to_string()))?;
                 conn.execute(
-                    "UPDATE automations
+                    "UPDATE triggers
                      SET output      = ?1,
                          action_type = 'text',
                          tags        = ?2,
@@ -1585,7 +1573,7 @@ pub fn add_automation_by_trigger_type_and_case(
                 )?;
             } else {
                 conn.execute(
-                    "UPDATE automations
+                    "UPDATE triggers
                      SET output      = ?1,
                          action_type = 'text',
                          updated_at  = ?2,
@@ -1596,7 +1584,7 @@ pub fn add_automation_by_trigger_type_and_case(
                 )?;
             }
             conn.execute(
-                "DELETE FROM scripts WHERE automation_id = ?1",
+                "DELETE FROM scripts WHERE trigger_id = ?1",
                 rusqlite::params![id],
             )?;
             Ok(AddOutcome::Updated)
@@ -1618,7 +1606,7 @@ pub fn add_automation_by_trigger_type_and_case(
             } else {
                 "[]".to_string()
             };
-            upsert_automation_with_trigger_type_and_case(
+            upsert_trigger_with_type_and_case(
                 conn,
                 &id,
                 trigger,
@@ -1635,7 +1623,7 @@ pub fn add_automation_by_trigger_type_and_case(
             )?;
 
             conn.execute(
-                "UPDATE automations
+                "UPDATE triggers
                  SET only_apps = ?1, except_apps = ?2
                  WHERE id = ?3",
                 rusqlite::params![only_apps, except_apps, id],

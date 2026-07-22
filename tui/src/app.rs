@@ -246,7 +246,7 @@ mod tests {
         assert_eq!(app.library_page().filtered_len(), 0);
         assert_eq!(
             app.library_page().empty_state_message(),
-            Some("No automations yet.")
+            Some("No triggers yet.")
         );
     }
 }

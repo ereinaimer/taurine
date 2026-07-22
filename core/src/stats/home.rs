@@ -9,12 +9,12 @@ pub struct HomeStats {
     pub keystrokes_saved: u64,
     pub time_saved_ms: u64,
     pub expansions_run: u64,
-    pub most_used_words: Vec<MostUsedAutomation>,
-    pub most_used_hotkeys: Vec<MostUsedAutomation>,
+    pub most_used_words: Vec<MostUsedTrigger>,
+    pub most_used_hotkeys: Vec<MostUsedTrigger>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MostUsedAutomation {
+pub struct MostUsedTrigger {
     pub trigger: String,
     pub trigger_type: TriggerType,
     pub uses: u64,
@@ -59,13 +59,13 @@ fn fetch_most_used(
     os_str: &str,
     trigger_type: TriggerType,
     limit: usize,
-) -> crate::Result<Vec<MostUsedAutomation>> {
+) -> crate::Result<Vec<MostUsedTrigger>> {
     let mut stmt = conn.prepare_cached(
         "SELECT
             a.trigger,
             a.trigger_type,
             a.usage_count
-         FROM automations a
+         FROM triggers a
          WHERE a.is_deleted = 0
            AND a.is_enabled = 1
            AND a.usage_count > 0
@@ -84,7 +84,7 @@ fn fetch_most_used(
             rusqlite::Error::FromSqlConversionFailure(1, Type::Text, Box::new(err))
         })?;
 
-        Ok(MostUsedAutomation {
+        Ok(MostUsedTrigger {
             trigger: row.get(0)?,
             trigger_type,
             uses: row.get::<_, i64>(2)?.max(0) as u64,
@@ -103,13 +103,12 @@ fn fetch_most_used(
 mod tests {
     use super::*;
     use crate::db::crud::{
-        TriggerType, delete_automation, increment_stat, upsert_automation,
-        upsert_automation_with_trigger_type,
+        TriggerType, delete_trigger, increment_stat, upsert_trigger, upsert_trigger_with_type,
     };
     use crate::testing::{init_tracing_for_tests, open_test_db};
 
     #[test]
-    fn empty_home_stats_returns_zero_totals_and_no_automations() {
+    fn empty_home_stats_returns_zero_totals_and_no_triggers() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
@@ -123,14 +122,14 @@ mod tests {
     }
 
     #[test]
-    fn home_stats_aggregate_totals_and_sort_automations() {
+    fn home_stats_aggregate_totals_and_sort_triggers() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         increment_stat(&conn, "2026-04-01", 4, 0, 120, 180_000).unwrap();
         increment_stat(&conn, "2026-04-02", 2, 1, 30, 60_000).unwrap();
 
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-word",
             "Git Status",
@@ -144,7 +143,7 @@ mod tests {
             None,
         )
         .unwrap();
-        upsert_automation_with_trigger_type(
+        upsert_trigger_with_type(
             &conn,
             "uuid-hotkey",
             "Email Signature",
@@ -159,7 +158,7 @@ mod tests {
             None,
         )
         .unwrap();
-        upsert_automation(
+        upsert_trigger(
             &conn,
             "uuid-deleted",
             "Old Trigger",
@@ -173,7 +172,7 @@ mod tests {
             None,
         )
         .unwrap();
-        delete_automation(&conn, "uuid-deleted").unwrap();
+        delete_trigger(&conn, "uuid-deleted").unwrap();
 
         let stats = load_home_stats(&conn).unwrap();
 
@@ -196,10 +195,10 @@ mod tests {
         for index in 0..6 {
             let id = format!("uuid-{index}");
             let trigger = format!("t{index}");
-            upsert_automation(
+            upsert_trigger(
                 &conn,
                 &id,
-                &format!("Automation {index}"),
+                &format!("Trigger {index}"),
                 None,
                 &trigger,
                 &format!("Output {index}"),

@@ -1,6 +1,6 @@
 ---
 title: Image System
-description: Inject images directly into your automation templates.
+description: Inject images directly into your trigger templates.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
@@ -15,9 +15,9 @@ The `[img(path)]` system variable allows you to seamlessly read images from loca
 [img(path)]
 ```
 
-When an automation is created or updated, Taurine automatically reads the image from the specified local path, compresses it using ZStandard, and stores it in the internal database as a compiled asset. At expansion time, the asset is loaded from the database, decoded, and injected into the active application.
+When a trigger is created or updated, Taurine automatically reads the image from the specified local path, compresses it using ZStandard, and stores it in the internal database as a compiled asset. At expansion time, the asset is loaded from the database, decoded, and injected into the active application.
 
-This design ensures the automation remains fully functional even if the original image file is deleted, modified, or moved from its original path.
+This design ensures the trigger remains fully functional even if the original image file is deleted, modified, or moved from its original path.
 
 ---
 

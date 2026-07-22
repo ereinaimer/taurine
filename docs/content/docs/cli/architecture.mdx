@@ -4,14 +4,14 @@ description: Understanding the split-process design and gRPC communication in Ta
 icon: Cpu
 ---
 
-Taurine is built with a high-performance, split-process architecture designed to ensure that text expansion and keyboard automation never lag your system, even during complex script executions.
+Taurine is built with a high-performance, split-process architecture designed to ensure that text expansion and keyboard shortcuts never lag your system, even during complex script executions.
 
 ## Single Binary, Two Roles
 
 Despite being a single binary file, the application behaves differently depending on how it is invoked.
 
-1.  **The Daemon (Background)**: The core engine that listens for keyboard events, manages the expansion pipeline, and executes automations. It runs silently in the background when the `--daemon` flag is passed.
-2.  **The CLI (Frontend)**: The command-line interface you use to add, remove, and list automations.
+1.  **The Daemon (Background)**: The core engine that listens for keyboard events, manages the expansion pipeline, and executes triggers. It runs silently in the background when the `--daemon` flag is passed.
+2.  **The CLI (Frontend)**: The command-line interface you use to add, remove, and list triggers.
 
 ## gRPC Communication
 
@@ -19,7 +19,7 @@ The CLI and the Daemon communicate using **gRPC** (Google Remote Procedure Call)
 
 - When you run `taurine add ...`, the CLI serializes your request and sends it to the Daemon.
 - The Daemon validates the request, updates its internal database, and reloads its state instantly without needing a restart.
-- This ensures that your automations are available system-wide the moment you press Enter on a CLI command.
+- This ensures that your triggers are available system-wide the moment you press Enter on a CLI command.
 
 ## The Engine Toggle
 
@@ -39,5 +39,5 @@ When the engine is toggled off, the Daemon continues to run but stops intercepti
 - **Memory Safety**: Written entirely in Rust, Taurine leverages memory safety and zero-cost abstractions for extremely low resource usage.
 - **Process Isolation**: Shell scripts and background tasks are executed in isolated child processes with strict timeouts to prevent system-wide stalls.
 - **Local First**: All data is stored in a local SQLite database and all communication stays on your machine. Taurine does not "call home" or send your keystrokes to any external servers.
-- **No Vendor Lock-in**: You own your data. You can export your entire automation database at any time using the `taurine export` command, ensuring you can move your triggers to another system or backup if needed.
+- **No Vendor Lock-in**: You own your data. You can export your entire trigger database at any time using the `taurine export` command, ensuring you can move your triggers to another system or backup if needed.
 

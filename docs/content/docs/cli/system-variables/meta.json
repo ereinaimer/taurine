@@ -17,6 +17,6 @@
     "mock",
     "http",
     "mouse",
-    "keyboard-automation"
+    "keyboard-triggers"
   ]
 }

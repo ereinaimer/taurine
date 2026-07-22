@@ -3,7 +3,7 @@ use std::path::Path;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use taurine_core::db::crud::{
-    AutomationListItem, AutomationRow, SUPPORTED_TARGET_OS_VALUES, TriggerType,
+    SUPPORTED_TARGET_OS_VALUES, TriggerListItem, TriggerRow, TriggerType,
 };
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use taurine_core::exchange::ImportStatsMode;
@@ -130,7 +130,7 @@ impl LibraryKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct LibraryAutomation {
+pub(crate) struct LibraryTrigger {
     id: String,
     name: String,
     trigger: String,
@@ -141,7 +141,7 @@ pub(crate) struct LibraryAutomation {
     uses: u64,
 }
 
-impl LibraryAutomation {
+impl LibraryTrigger {
     #[allow(dead_code)]
     pub(crate) fn name(&self) -> &str {
         &self.name
@@ -177,8 +177,8 @@ impl LibraryAutomation {
     }
 }
 
-impl From<AutomationListItem> for LibraryAutomation {
-    fn from(item: AutomationListItem) -> Self {
+impl From<TriggerListItem> for LibraryTrigger {
+    fn from(item: TriggerListItem) -> Self {
         let kind = LibraryKind::from_parts(item.trigger_type, item.action_type.as_str());
         let preview = crate::widgets::library::actions::preview_from_item(&item);
         let target_os =
@@ -271,7 +271,7 @@ impl LibraryMetadataRow {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LibraryDeleteModalState {
-    automation_id: String,
+    trigger_id: String,
     name: String,
     selected_yes: bool,
     restore_index: usize,
@@ -1367,7 +1367,7 @@ impl LibraryImportRunVariablesModalState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct LibraryAutomationDetail {
+pub(crate) struct LibraryTriggerDetail {
     id: String,
     name: String,
     description: Option<String>,
@@ -1383,8 +1383,8 @@ pub(crate) struct LibraryAutomationDetail {
     behavior: Option<ScriptBehavior>,
 }
 
-impl LibraryAutomationDetail {
-    pub(crate) fn from_row(row: AutomationRow) -> taurine_core::Result<Self> {
+impl LibraryTriggerDetail {
+    pub(crate) fn from_row(row: TriggerRow) -> taurine_core::Result<Self> {
         let kind = LibraryKind::from_parts(row.trigger_type, row.action_type.as_str());
         let content = crate::widgets::library::actions::modal_content_from_row(&row, kind)?;
         let metadata_rows = crate::widgets::library::actions::build_metadata_rows(&row);
@@ -1467,7 +1467,7 @@ impl LibraryAutomationDetail {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LibraryEditorModalState {
     mode: LibraryEditorMode,
-    original: Option<LibraryAutomationDetail>,
+    original: Option<LibraryTriggerDetail>,
     trigger: String,
     trigger_cursor: usize,
     content: String,
@@ -1484,28 +1484,28 @@ pub(crate) struct LibraryEditorModalState {
 }
 
 impl LibraryEditorModalState {
-    pub(crate) fn new_edit(automation: LibraryAutomationDetail) -> Self {
-        let trigger_cursor = automation.trigger().chars().count();
-        let content_cursor = automation.content().chars().count();
+    pub(crate) fn new_edit(trigger: LibraryTriggerDetail) -> Self {
+        let trigger_cursor = trigger.trigger().chars().count();
+        let content_cursor = trigger.content().chars().count();
         Self {
             mode: LibraryEditorMode::Edit,
-            trigger: automation.trigger().to_string(),
+            trigger: trigger.trigger().to_string(),
             trigger_cursor,
-            content: automation.content().to_string(),
+            content: trigger.content().to_string(),
             content_cursor,
             content_cursor_goal: None,
-            kind: automation.kind(),
-            target_os: automation.target_os_raw().to_string(),
-            interpreter: automation.interpreter().unwrap_or_else(|| {
+            kind: trigger.kind(),
+            target_os: trigger.target_os_raw().to_string(),
+            interpreter: trigger.interpreter().unwrap_or_else(|| {
                 crate::widgets::library::actions::default_script_interpreter_for_target_os(
-                    automation.target_os_raw(),
+                    trigger.target_os_raw(),
                 )
             }),
-            behavior: automation.behavior().unwrap_or(ScriptBehavior::Inline),
+            behavior: trigger.behavior().unwrap_or(ScriptBehavior::Inline),
             focus: LibraryModalField::Trigger,
             content_scroll: 0,
             error: None,
-            original: Some(automation),
+            original: Some(trigger),
             selector: None,
         }
     }
@@ -1594,7 +1594,7 @@ impl LibraryEditorModalState {
     pub(crate) fn metadata_rows(&self) -> &[LibraryMetadataRow] {
         self.original
             .as_ref()
-            .map(LibraryAutomationDetail::metadata_rows)
+            .map(LibraryTriggerDetail::metadata_rows)
             .unwrap_or(&[])
     }
 
@@ -2149,9 +2149,9 @@ impl LibraryEditorModalState {
 }
 
 impl LibraryDeleteModalState {
-    fn from_item(item: &LibraryAutomation, restore_index: usize) -> Self {
+    fn from_item(item: &LibraryTrigger, restore_index: usize) -> Self {
         Self {
-            automation_id: item.id().to_string(),
+            trigger_id: item.id().to_string(),
             name: item.name.clone(),
             selected_yes: true,
             restore_index,
@@ -2160,8 +2160,8 @@ impl LibraryDeleteModalState {
         }
     }
 
-    pub(crate) fn automation_id(&self) -> &str {
-        &self.automation_id
+    pub(crate) fn trigger_id(&self) -> &str {
+        &self.trigger_id
     }
 
     pub(crate) fn name(&self) -> &str {
@@ -2218,10 +2218,10 @@ pub(crate) struct LibraryExportResultModalState {
 impl LibraryExportResultModalState {
     fn new(path: &Path, encrypt: bool, include_settings: bool, include_stats: bool) -> Self {
         let subject = match (include_settings, include_stats) {
-            (false, false) => "Automations".to_string(),
-            (true, false) => "Automations and Settings".to_string(),
-            (false, true) => "Automations and Stats".to_string(),
-            (true, true) => "Automations, Settings and Stats".to_string(),
+            (false, false) => "Triggers".to_string(),
+            (true, false) => "Triggers and Settings".to_string(),
+            (false, true) => "Triggers and Stats".to_string(),
+            (true, true) => "Triggers, Settings and Stats".to_string(),
         };
 
         let body = match (include_settings, include_stats, encrypt) {
@@ -2260,7 +2260,7 @@ pub(crate) struct LibraryImportResultModalState {
 
 impl LibraryImportResultModalState {
     fn from_outcome(outcome: &LibraryImportOutcome) -> Self {
-        let mut lines = vec![format!("Imported {} automation(s).", outcome.imported())];
+        let mut lines = vec![format!("Imported {} trigger(s).", outcome.imported())];
         if outcome.imported_settings() {
             lines.push("Settings imported.".to_string());
         }
@@ -2283,7 +2283,7 @@ impl LibraryImportResultModalState {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct LibraryPageState {
-    items: Vec<LibraryAutomation>,
+    items: Vec<LibraryTrigger>,
     filtered_indices: Vec<usize>,
     selected: usize,
     search_query: String,
@@ -2294,7 +2294,7 @@ pub(crate) struct LibraryPageState {
 }
 
 impl LibraryPageState {
-    pub(crate) fn replace_items(&mut self, mut items: Vec<LibraryAutomation>) {
+    pub(crate) fn replace_items(&mut self, mut items: Vec<LibraryTrigger>) {
         crate::widgets::library::actions::sort_items(&mut items);
         self.items = items;
         self.load_error = None;
@@ -2360,9 +2360,9 @@ impl LibraryPageState {
         self.modal.as_ref()
     }
 
-    pub(crate) fn open_editor_modal(&mut self, automation: LibraryAutomationDetail) {
+    pub(crate) fn open_editor_modal(&mut self, trigger: LibraryTriggerDetail) {
         self.modal = Some(LibraryModal::Editor(LibraryEditorModalState::new_edit(
-            automation,
+            trigger,
         )));
     }
 
@@ -2411,11 +2411,11 @@ impl LibraryPageState {
 
     fn open_delete_modal_for_selected(&mut self) {
         let Some(selected_index) = self.selected_index() else {
-            self.load_error = Some("No automation selected.".to_string());
+            self.load_error = Some("No trigger selected.".to_string());
             return;
         };
         let Some(item) = self.item_at_filtered(selected_index).cloned() else {
-            self.load_error = Some("No automation selected.".to_string());
+            self.load_error = Some("No trigger selected.".to_string());
             return;
         };
         self.modal = Some(LibraryModal::ConfirmDelete(
@@ -2442,7 +2442,7 @@ impl LibraryPageState {
         self.filtered_indices.len()
     }
 
-    pub(crate) fn item_at_filtered(&self, index: usize) -> Option<&LibraryAutomation> {
+    pub(crate) fn item_at_filtered(&self, index: usize) -> Option<&LibraryTrigger> {
         self.filtered_indices
             .get(index)
             .and_then(|item_index| self.items.get(*item_index))
@@ -2468,9 +2468,9 @@ impl LibraryPageState {
 
     pub(crate) fn empty_state_message(&self) -> Option<&'static str> {
         if self.items.is_empty() {
-            Some("No automations yet.")
+            Some("No triggers yet.")
         } else if self.filtered_indices.is_empty() {
-            Some("No automations match your search.")
+            Some("No triggers match your search.")
         } else {
             None
         }
@@ -2600,7 +2600,7 @@ impl LibraryPageState {
                 (KeyCode::Enter, KeyModifiers::NONE) => {
                     if state.selected_yes() {
                         let interaction = LibraryInteraction::delete(PendingLibraryDelete {
-                            automation_id: state.automation_id().to_string(),
+                            trigger_id: state.trigger_id().to_string(),
                             restore_index: state.restore_index(),
                         });
                         self.modal = Some(LibraryModal::ConfirmDelete(state));
@@ -2613,7 +2613,7 @@ impl LibraryPageState {
                 (KeyCode::Char('y'), KeyModifiers::NONE)
                 | (KeyCode::Char('Y'), KeyModifiers::NONE) => {
                     let interaction = LibraryInteraction::delete(PendingLibraryDelete {
-                        automation_id: state.automation_id().to_string(),
+                        trigger_id: state.trigger_id().to_string(),
                         restore_index: state.restore_index(),
                     });
                     self.modal = Some(LibraryModal::ConfirmDelete(state));
@@ -2697,7 +2697,7 @@ impl LibraryPageState {
         self.selected = 0;
     }
 
-    fn selected_item(&self) -> Option<&LibraryAutomation> {
+    fn selected_item(&self) -> Option<&LibraryTrigger> {
         self.selected_index()
             .and_then(|selected| self.item_at_filtered(selected))
     }

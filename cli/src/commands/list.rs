@@ -10,14 +10,14 @@ pub fn execute(
     plain: bool,
     tag: Option<String>,
 ) -> taurine_core::error::Result<()> {
-    use taurine_core::db::crud::get_automations_list;
+    use taurine_core::db::crud::get_triggers_list;
 
     let conn = init::setup()?;
-    let mut automations = get_automations_list(&conn)?;
+    let mut triggers = get_triggers_list(&conn)?;
 
     if let Some(ref t) = tag {
-        automations.retain(|auto| {
-            let tags: Vec<String> = serde_json::from_str(&auto.tags).unwrap_or_default();
+        triggers.retain(|item| {
+            let tags: Vec<String> = serde_json::from_str(&item.tags).unwrap_or_default();
             tags.contains(t)
         });
     }
@@ -40,7 +40,7 @@ pub fn execute(
     };
 
     // Sort the list
-    automations.sort_by(|a, b| {
+    triggers.sort_by(|a, b| {
         let cmp = match effective_sort {
             SortBy::Alpha => a.trigger.cmp(&b.trigger),
             SortBy::Usage => a.usage_count.cmp(&b.usage_count),
@@ -80,9 +80,9 @@ pub fn execute(
     headers.push("TAGS");
     table.set_header(headers);
 
-    for auto in automations {
-        let display_output = if auto.action_type == "script" {
-            let interpreter = match auto.interpreter {
+    for item in triggers {
+        let display_output = if item.action_type == "script" {
+            let interpreter = match item.interpreter {
                 Some(taurine_core::engine::shell::ScriptInterpreter::Bash) => "Bash",
                 Some(taurine_core::engine::shell::ScriptInterpreter::PowerShell) => "PowerShell",
                 Some(taurine_core::engine::shell::ScriptInterpreter::Python) => "Python",
@@ -91,26 +91,26 @@ pub fn execute(
                 Some(taurine_core::engine::shell::ScriptInterpreter::Cmd) => "Cmd",
                 None => "Unknown",
             };
-            let behavior = match auto.behavior {
+            let behavior = match item.behavior {
                 Some(taurine_core::engine::shell::ScriptBehavior::Inline) => "Inline",
                 Some(taurine_core::engine::shell::ScriptBehavior::Silent) => "Silent",
                 None => "Unknown",
             };
             format!("{} {}", behavior, interpreter)
         } else {
-            auto.output
+            item.output
         };
 
-        let tags: Vec<String> = serde_json::from_str(&auto.tags).unwrap_or_default();
+        let tags: Vec<String> = serde_json::from_str(&item.tags).unwrap_or_default();
         let tags_str = tags.join(", ");
 
-        let mut row = vec![auto.trigger, display_output];
+        let mut row = vec![item.trigger, display_output];
         match sort {
             Some(SortBy::Usage) => {
-                row.push(auto.usage_count.to_string());
+                row.push(item.usage_count.to_string());
             }
             Some(SortBy::Created) => {
-                row.push(format_relative_time(auto.created_at));
+                row.push(format_relative_time(item.created_at));
             }
             _ => {}
         }

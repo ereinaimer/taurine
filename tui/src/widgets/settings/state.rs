@@ -216,7 +216,7 @@ impl SettingKey {
             Self::RpcHost => "The network interface IP address the daemon binds to",
             Self::RpcPort => "The network port the gRPC RPC server listens on (1024-65535)",
             Self::RpcToken => "The secret authorization token required to control the daemon",
-            Self::ScriptsEnabled => "Allow execution of shell scripts in automations",
+            Self::ScriptsEnabled => "Allow execution of shell scripts in triggers",
             Self::ScriptTimeout => {
                 "Maximum script execution time before termination (0 for infinite)"
             }

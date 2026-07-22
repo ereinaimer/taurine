@@ -1,12 +1,11 @@
 pub mod crud;
 pub mod init;
 
-pub use crud::{
-    AutomationRow, StatRow, TriggerType, delete_automation, delete_stat, get_automation,
-    get_current_os_db_string, get_stat, get_stat_counters, increment_stat, normalize_os,
-    upsert_automation,
-};
 pub use crud::{SettingRow, delete_setting, get_setting, get_setting_value, upsert_setting};
+pub use crud::{
+    StatRow, TriggerRow, TriggerType, delete_stat, delete_trigger, get_current_os_db_string,
+    get_stat, get_stat_counters, get_trigger, increment_stat, normalize_os, upsert_trigger,
+};
 
 /// Returns the current time as Unix seconds (UTC).
 ///
@@ -196,13 +195,13 @@ mod tests {
     }
 
     #[test]
-    fn test_automations_table() {
+    fn test_triggers_table() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
         let now = 1_700_000_000_i64;
         conn.execute(
-            "INSERT INTO automations (id, name, trigger, output, created_at, updated_at)
+            "INSERT INTO triggers (id, name, trigger, output, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             ("uuid-1", "Good Morning", "gm", "Good morning!", now, now),
         )
@@ -211,7 +210,7 @@ mod tests {
         let mut stmt = conn
             .prepare(
                 "SELECT name, trigger_type, action_type, is_deleted, is_synced, version
-                 FROM automations WHERE id = ?1",
+                 FROM triggers WHERE id = ?1",
             )
             .unwrap();
 
@@ -296,11 +295,11 @@ mod tests {
     }
 
     #[test]
-    fn test_automations_table_includes_trigger_type_column() {
+    fn test_triggers_table_includes_trigger_type_column() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        let mut stmt = conn.prepare("PRAGMA table_info(automations)").unwrap();
+        let mut stmt = conn.prepare("PRAGMA table_info(triggers)").unwrap();
         let rows = stmt
             .query_map([], |row| {
                 Ok((

@@ -71,7 +71,7 @@ fn render_library_editor_modal(
     let height = ((area.height as u32 * 4) / 5) as u16;
     let popup = centered_rect(width.max(48), height.max(12), area);
     frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, "Automation", theme);
+    let inner = util::render_modal_block(frame, popup, "Trigger", theme);
 
     let header_rows = 4;
     let available_after_headers = inner.height.saturating_sub(header_rows);
@@ -288,7 +288,7 @@ fn render_library_delete_modal(
     let height = 8;
     let popup = centered_rect(width, height, area);
     frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, "Delete Automation", theme);
+    let inner = util::render_modal_block(frame, popup, "Delete Trigger", theme);
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
@@ -302,7 +302,7 @@ fn render_library_delete_modal(
         .split(inner);
 
     frame.render_widget(
-        Paragraph::new("Do you want to delete this automation?")
+        Paragraph::new("Do you want to delete this trigger?")
             .style(Style::default().fg(theme.text_muted)),
         sections[0],
     );
@@ -367,7 +367,7 @@ fn render_library_export_modal(
     let height = area.height.clamp(1, 14);
     let popup = centered_rect(width, height, area);
     frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, "Export Automations", theme);
+    let inner = util::render_modal_block(frame, popup, "Export Triggers", theme);
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
@@ -527,7 +527,7 @@ fn render_library_import_modal(
     };
     let popup = centered_rect(width, area.height.clamp(1, 14), area);
     frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, "Import Automations", theme);
+    let inner = util::render_modal_block(frame, popup, "Import Triggers", theme);
 
     let sections = Layout::default()
         .direction(Direction::Vertical)

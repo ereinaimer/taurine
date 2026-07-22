@@ -61,10 +61,10 @@ enum Commands {
     /// Configure system permissions for hardware access
     #[command(hide = true)]
     Setup,
-    /// Add a new automation
+    /// Add a new trigger
     #[command(alias = "set")]
     Add(Box<AddArgs>),
-    /// Remove an automation
+    /// Remove a trigger
     #[command(aliases = ["rm", "remove"])]
     Delete {
         /// Remove by tag
@@ -78,7 +78,7 @@ enum Commands {
         #[arg(required_unless_present = "tag", num_args = 0..)]
         triggers: Vec<String>,
     },
-    /// List all automations
+    /// List all triggers
     #[command(alias = "ls")]
     List {
         /// Sort results by
@@ -101,7 +101,7 @@ enum Commands {
         #[arg(long)]
         tag: Option<String>,
     },
-    /// Export automations to a file
+    /// Export triggers to a file
     Export {
         /// Destination file path
         path: Option<std::path::PathBuf>,
@@ -121,7 +121,7 @@ enum Commands {
         #[arg(short = 'y', long)]
         yes: bool,
     },
-    /// Import automations from a file
+    /// Import triggers from a file
     Import {
         /// Source file path
         path: Option<std::path::PathBuf>,
@@ -311,7 +311,7 @@ pub struct AddArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum AddSubcommand {
-    /// Add script automation
+    /// Add script trigger
     Script {
         /// Trigger
         trigger: String,

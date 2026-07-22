@@ -1,21 +1,21 @@
 ---
 title: Regex Triggers
-description: Learn how to trigger automations using regular expression patterns and positional capture groups.
+description: Learn how to activate triggers using regular expression patterns and positional capture groups.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
 Taurine supports three trigger types: **Word Triggers**, **Hotkey Triggers**, and **Regex Triggers**.
 
-While Word Triggers are static words (e.g., `gs`), **Regex Triggers** allow you to match complex text patterns (e.g., `issue-(\d+)` or `[^@]+@[^@]+\.[^@]+`) and dynamically interpolate captured groups into your automation output.
+While Word Triggers are static words (e.g., `gs`), **Regex Triggers** allow you to match complex text patterns (e.g., `issue-(\d+)` or `[^@]+@[^@]+\.[^@]+`) and dynamically interpolate captured groups into your trigger output.
 
 <Callout title="Anchor Behavior" type="info">
   Regex triggers are automatically matched against the end of your keystroke buffer (suffix-anchored). This means the pattern will trigger as soon as the suffix of the typed buffer matches the regular expression.
 </Callout>
 
-## Creating Regex Automations
+## Creating Regex Triggers
 
-To create a regex-triggered automation, use the `--regex` flag with the `add` command.
+To create a regex trigger, use the `--regex` flag with the `add` command.
 
 ### Standard Text Expansion with Capture Groups
 Capture groups in your regular expression are mapped directly to positional parameters (`[0]`, `[1]`, etc.) in the expansion output.
@@ -27,8 +27,8 @@ taurine add --regex "issue-(\d+)" "https://github.com/issues/[0]"
 
 When you type `issue-42`, it will instantly expand to `https://github.com/issues/42`.
 
-### Script Automations with Capture Groups
-Pass capture groups directly into shell script automations.
+### Script Triggers with Capture Groups
+Pass capture groups directly into shell script triggers.
 
 ```bash
 # Trigger a shell script to fetch user details

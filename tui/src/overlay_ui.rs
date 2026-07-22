@@ -9,7 +9,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Paragraph, Wrap},
 };
-use taurine_core::exchange::{AutomationExport, ExistingAutomationConflict};
+use taurine_core::exchange::{ExistingTriggerConflict, TriggerExport};
 
 use crate::theme::builtin::DARK_THEME;
 
@@ -374,7 +374,7 @@ pub(crate) fn render_export_popup(frame: &mut Frame, state: &LibraryExportModalS
         .fg(DARK_THEME.text)
         .add_modifier(Modifier::BOLD);
     frame.render_widget(
-        Paragraph::new(" Export Automation").style(title_style),
+        Paragraph::new(" Export Trigger").style(title_style),
         sections[0],
     );
 
@@ -545,7 +545,7 @@ pub(crate) fn render_import_popup(frame: &mut Frame, state: &LibraryImportModalS
         .fg(DARK_THEME.text)
         .add_modifier(Modifier::BOLD);
     frame.render_widget(
-        Paragraph::new(" Import Automations").style(title_style),
+        Paragraph::new(" Import Triggers").style(title_style),
         sections[0],
     );
 
@@ -889,8 +889,8 @@ pub(crate) fn import_field_at(
 
 pub(crate) fn render_conflict_popup(
     frame: &mut Frame,
-    incoming: &AutomationExport,
-    existing: &ExistingAutomationConflict,
+    incoming: &TriggerExport,
+    existing: &ExistingTriggerConflict,
     selected: usize,
 ) {
     fill_bg(frame);

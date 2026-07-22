@@ -1,14 +1,13 @@
 ---
 title: Hotkey Triggers
-description: Learn how to trigger automations using global keyboard shortcuts instead of typed words.
+description: Learn how to activate triggers using global keyboard shortcuts instead of typed words.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
-import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 
-Taurine supports two distinct automation trigger types: **Word Triggers** and **Hotkey Triggers**. 
+Taurine supports two distinct trigger types: **Word Triggers** and **Hotkey Triggers**. 
 
-While Word Triggers are activated by typing a trigger character followed by a word (e.g., `>gs `), **Hotkey Triggers** are global keyboard shortcuts that execute an automation immediately when pressed, regardless of your current text state.
+While Word Triggers are activated by typing a trigger character followed by a word (e.g., `>gs `), **Hotkey Triggers** are global keyboard shortcuts that execute a trigger immediately when pressed, regardless of your current text state.
 
 <Callout title="Global Shortcuts" type="info">
   Hotkey triggers are global while the Taurine daemon is running. They do not require a trigger character and do not use the "Backspace Undo" mechanism because no trigger text was typed.
@@ -16,7 +15,7 @@ While Word Triggers are activated by typing a trigger character followed by a wo
 
 ## Side-Specific Modifiers
 
-Taurine supports **side-specific modifier** triggers, allowing you to bind different automations to the left and right physical keys (e.g., Left Shift vs. Right Shift).
+Taurine supports **side-specific modifier** triggers, allowing you to bind different triggers to the left and right physical keys (e.g., Left Shift vs. Right Shift).
 
 ### Generic vs. Specific Matching
 
@@ -30,9 +29,9 @@ Taurine prevents ambiguous triggers by checking for overlaps:
 *   **Independence**: `lalt+m` and `ralt+m` are considered separate identities and can coexist.
 *   **Invalid Combinations**: You cannot combine a generic and side-specific version of the same family (e.g., `ctrl+lctrl+k` is rejected).
 
-## Creating Hotkey Automations
+## Creating Hotkey Triggers
 
-To create a hotkey-triggered automation, use the `--hotkey` flag with the `add` command.
+To create a hotkey trigger, use the `--hotkey` flag with the `add` command.
 
 ### Standard Text Expansion
 Map a keyboard shortcut to a text snippet.
@@ -41,7 +40,7 @@ Map a keyboard shortcut to a text snippet.
 taurine add --hotkey "ctrl+shift+g" "git status[key.enter]"
 ```
 
-### Script Automations
+### Script Triggers
 Trigger a shell script with a hotkey.
 
 ```bash
@@ -128,14 +127,6 @@ Taurine will reject the following shortcuts:
 <Callout title="Side-Specific Safety" type="warning">
   Safety rules and reservations apply to **both generic and side-specific variants**. For example, both `ctrl+c` and `lctrl+c` are rejected to prevent interfering with your system's copy command. Similarly, `lalt+` ` and `ralt+` ` are also reserved.
 </Callout>
-
-## Duplicate & Update Behavior
-
-Taurine identifies an automation by its **Trigger Identity**:
-`Trigger Type` + `Normalized Trigger` + `Target OS`
-
-- **Update**: Adding an identical hotkey to the same `target_os` will update the existing automation.
-- **Independence**: A word trigger and a hotkey trigger can share the same text (e.g., `tab` as a word and `tab` as a hotkey) without conflicting.
 
 ## Important Limitations
 

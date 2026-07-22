@@ -142,21 +142,19 @@ pub(super) fn dispatch_expansion_with<I, L>(
     }
     launch_follow_up_fn(follow_up, spinner_style);
 
-    if track_usage && stat_kind != taurine_core::db::crud::AutomationStatKind::InlineAi {
-        taurine_core::db::crud::record_automation_stat(
-            taurine_core::db::crud::AutomationStatEvent {
-                automation_trigger: Some(trigger.clone()),
-                trigger_chars: trigger.chars().count(),
-                success: injection.completed,
-                output_chars: injection.successful_chars,
-                kind: if is_calculation {
-                    taurine_core::db::crud::AutomationStatKind::Calculation
-                } else {
-                    stat_kind
-                },
-                wpm: None,
+    if track_usage && stat_kind != taurine_core::db::crud::TriggerStatKind::InlineAi {
+        taurine_core::db::crud::record_trigger_stat(taurine_core::db::crud::TriggerStatEvent {
+            trigger: Some(trigger.clone()),
+            trigger_chars: trigger.chars().count(),
+            success: injection.completed,
+            output_chars: injection.successful_chars,
+            kind: if is_calculation {
+                taurine_core::db::crud::TriggerStatKind::Calculation
+            } else {
+                stat_kind
             },
-        );
+            wpm: None,
+        });
     }
 }
 

@@ -7,16 +7,16 @@ use std::sync::Arc;
 /// This abstraction allows the engine to be decoupled from the data backend,
 /// enabling in-memory caching for performance or direct DB fetching for debugging.
 pub trait SnippetSource: Send + Sync {
-    fn get_action(&self, keyword: &str) -> Option<crate::db::crud::AutomationAction>;
+    fn get_action(&self, keyword: &str) -> Option<crate::db::crud::TriggerAction>;
 
     /// Optional: Reloads the source with new snippets.
     /// Default implementation does nothing (for read-only sources).
-    fn load_actions(&self, _actions: Vec<(String, crate::db::crud::AutomationAction)>) {}
+    fn load_actions(&self, _actions: Vec<(String, crate::db::crud::TriggerAction)>) {}
 }
 
 /// A source that stores snippets in an in-memory hash map.
 pub struct MemorySource {
-    map: RwLock<AHashMap<String, crate::db::crud::AutomationAction>>,
+    map: RwLock<AHashMap<String, crate::db::crud::TriggerAction>>,
 }
 
 impl MemorySource {
@@ -29,7 +29,7 @@ impl MemorySource {
     /// Reloads the in-memory cache with a new set of snippets.
     pub fn load_actions(
         &self,
-        actions: impl IntoIterator<Item = (String, crate::db::crud::AutomationAction)>,
+        actions: impl IntoIterator<Item = (String, crate::db::crud::TriggerAction)>,
     ) {
         let mut write_guard = self.map.write();
         write_guard.clear();
@@ -46,11 +46,11 @@ impl Default for MemorySource {
 }
 
 impl SnippetSource for MemorySource {
-    fn get_action(&self, keyword: &str) -> Option<crate::db::crud::AutomationAction> {
+    fn get_action(&self, keyword: &str) -> Option<crate::db::crud::TriggerAction> {
         self.map.read().get(keyword).cloned()
     }
 
-    fn load_actions(&self, actions: Vec<(String, crate::db::crud::AutomationAction)>) {
+    fn load_actions(&self, actions: Vec<(String, crate::db::crud::TriggerAction)>) {
         self.load_actions(actions);
     }
 }
@@ -59,10 +59,10 @@ impl SnippetSource for MemorySource {
 pub struct DatabaseSource;
 
 impl SnippetSource for DatabaseSource {
-    fn get_action(&self, keyword: &str) -> Option<crate::db::crud::AutomationAction> {
+    fn get_action(&self, keyword: &str) -> Option<crate::db::crud::TriggerAction> {
         if let Ok(conn) = crate::db::get_conn()
             && let Ok(Some(action)) =
-                crate::db::crud::automations::get_action_by_trigger(&conn, keyword)
+                crate::db::crud::triggers::get_action_by_trigger(&conn, keyword)
         {
             return Some(action);
         }
@@ -83,14 +83,14 @@ impl AdaptiveSource {
 }
 
 impl SnippetSource for AdaptiveSource {
-    fn get_action(&self, keyword: &str) -> Option<crate::db::crud::AutomationAction> {
+    fn get_action(&self, keyword: &str) -> Option<crate::db::crud::TriggerAction> {
         if std::env::var("TAURINE_DB_PATH").is_ok() {
             return DatabaseSource.get_action(keyword);
         }
         self.fallback.get_action(keyword)
     }
 
-    fn load_actions(&self, actions: Vec<(String, crate::db::crud::AutomationAction)>) {
+    fn load_actions(&self, actions: Vec<(String, crate::db::crud::TriggerAction)>) {
         self.fallback.load_actions(actions);
     }
 }

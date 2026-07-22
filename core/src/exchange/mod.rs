@@ -8,11 +8,11 @@ use serde::{Deserialize, Serialize};
 
 pub use export::{
     ExportOptions, default_export_filename, default_export_path, encode_exchange_blob,
-    ensure_tau_extension, export_automations, resolve_export_path,
+    ensure_tau_extension, export_triggers, resolve_export_path,
 };
 pub use import::{
-    ExistingAutomationConflict, ImportConflictAction, ImportOptions, ImportStatsMode,
-    import_automations, import_payload_transactionally,
+    ExistingTriggerConflict, ImportConflictAction, ImportOptions, ImportStatsMode,
+    import_payload_transactionally, import_triggers,
 };
 
 pub const PLAINTEXT_MAGIC_HEADER: [u8; 4] = *b"TAUP";
@@ -24,7 +24,7 @@ const MAGIC_HEADER_LEN: usize = 4;
 pub struct ExchangePayload {
     pub schema_version: u32,
     #[serde(default)]
-    pub automations: Vec<AutomationExport>,
+    pub triggers: Vec<TriggerExport>,
     #[serde(default)]
     pub settings: Option<Vec<SettingExport>>,
     #[serde(default)]
@@ -32,10 +32,10 @@ pub struct ExchangePayload {
 }
 
 impl ExchangePayload {
-    pub fn new(automations: Vec<AutomationExport>) -> Self {
+    pub fn new(triggers: Vec<TriggerExport>) -> Self {
         Self {
             schema_version: EXCHANGE_SCHEMA_VERSION,
-            automations,
+            triggers,
             settings: None,
             stats: None,
         }
@@ -59,7 +59,7 @@ pub enum ExchangeFormat {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AutomationExport {
+pub struct TriggerExport {
     pub name: String,
     pub description: Option<String>,
     #[serde(default)]
@@ -170,9 +170,9 @@ pub fn decode_exchange_blob(
 }
 
 pub fn payload_contains_run_variables(payload: &ExchangePayload) -> bool {
-    payload.automations.iter().any(|automation| {
-        contains_run_variable(&automation.output)
-            || automation
+    payload.triggers.iter().any(|trigger| {
+        contains_run_variable(&trigger.output)
+            || trigger
                 .script
                 .as_ref()
                 .is_some_and(|script| contains_run_variable(&script.content))
@@ -208,14 +208,14 @@ fn contains_run_variable(content: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::crud::{upsert_automation, upsert_automation_with_trigger_type, upsert_script};
+    use crate::db::crud::{upsert_script, upsert_trigger, upsert_trigger_with_type};
     use crate::engine::shell::{ScriptBehavior, ScriptInterpreter, compress, decompress};
     use crate::testing::{init_tracing_for_tests, open_test_db};
     use rusqlite::Connection;
     use serde_json::json;
 
-    fn insert_text_automation(conn: &Connection) {
-        upsert_automation(
+    fn insert_text_trigger(conn: &Connection) {
+        upsert_trigger(
             conn,
             "uuid-text",
             "Greeting",
@@ -231,8 +231,8 @@ mod tests {
         .unwrap();
     }
 
-    fn insert_script_automation(conn: &Connection) {
-        upsert_automation(
+    fn insert_script_trigger(conn: &Connection) {
+        upsert_trigger(
             conn,
             "uuid-script",
             "Refresh Repo",
@@ -258,17 +258,17 @@ mod tests {
         .unwrap();
 
         conn.execute(
-            "UPDATE automations
-             SET is_enabled = 0,
-                 is_synced = 0
-             WHERE id = ?1",
+            "UPDATE triggers
+              SET is_enabled = 0,
+                  is_synced = 0
+              WHERE id = ?1",
             ["uuid-script"],
         )
         .unwrap();
     }
 
-    fn insert_hotkey_automation(conn: &Connection) {
-        upsert_automation_with_trigger_type(
+    fn insert_hotkey_trigger(conn: &Connection) {
+        upsert_trigger_with_type(
             conn,
             "uuid-hotkey",
             "Open Git Status",
@@ -290,26 +290,26 @@ mod tests {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        insert_script_automation(&conn);
+        insert_script_trigger(&conn);
 
-        let payload = export_automations(&conn, ExportOptions::default()).unwrap();
+        let payload = export_triggers(&conn, ExportOptions::default()).unwrap();
         assert_eq!(payload.schema_version, EXCHANGE_SCHEMA_VERSION);
         assert_eq!(payload.settings, None);
         assert_eq!(payload.stats, None);
-        assert_eq!(payload.automations.len(), 1);
+        assert_eq!(payload.triggers.len(), 1);
 
-        let automation = &payload.automations[0];
-        assert_eq!(automation.name, "Refresh Repo");
-        assert_eq!(automation.description.as_deref(), Some("Runs git pull"));
-        assert_eq!(automation.trigger_type, TriggerType::Word);
-        assert_eq!(automation.trigger, "repo");
-        assert_eq!(automation.output, "[Script: bash]");
-        assert_eq!(automation.action_type, "script");
-        assert!(!automation.is_enabled);
-        assert_eq!(automation.target_os, "linux");
-        assert_eq!(automation.tags, vec!["git".to_string()]);
+        let trigger = &payload.triggers[0];
+        assert_eq!(trigger.name, "Refresh Repo");
+        assert_eq!(trigger.description.as_deref(), Some("Runs git pull"));
+        assert_eq!(trigger.trigger_type, TriggerType::Word);
+        assert_eq!(trigger.trigger, "repo");
+        assert_eq!(trigger.output, "[Script: bash]");
+        assert_eq!(trigger.action_type, "script");
+        assert!(!trigger.is_enabled);
+        assert_eq!(trigger.target_os, "linux");
+        assert_eq!(trigger.tags, vec!["git".to_string()]);
         assert_eq!(
-            automation.script,
+            trigger.script,
             Some(ScriptExport {
                 interpreter: ScriptInterpreter::Bash,
                 behavior: ScriptBehavior::Silent,
@@ -318,7 +318,7 @@ mod tests {
         );
 
         let serialized = serde_json::to_value(&payload).unwrap();
-        let automation_json = &serialized["automations"][0];
+        let trigger_json = &serialized["triggers"][0];
         for stripped_field in [
             "id",
             "usage_count",
@@ -330,35 +330,35 @@ mod tests {
             "is_synced",
         ] {
             assert!(
-                automation_json.get(stripped_field).is_none(),
+                trigger_json.get(stripped_field).is_none(),
                 "field {stripped_field} must not be exported"
             );
         }
 
-        assert_eq!(automation_json["is_enabled"], json!(false));
+        assert_eq!(trigger_json["is_enabled"], json!(false));
     }
 
     #[test]
-    fn export_includes_trigger_type_for_hotkey_automations() {
+    fn export_includes_trigger_type_for_hotkey_triggers() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        insert_hotkey_automation(&conn);
+        insert_hotkey_trigger(&conn);
 
-        let payload = export_automations(&conn, ExportOptions::default()).unwrap();
-        let automation = payload
-            .automations
+        let payload = export_triggers(&conn, ExportOptions::default()).unwrap();
+        let trigger = payload
+            .triggers
             .iter()
-            .find(|automation| automation.trigger == "ctrl+shift+g")
+            .find(|trigger| trigger.trigger == "ctrl+shift+g")
             .unwrap();
 
-        assert_eq!(automation.trigger_type, TriggerType::Hotkey);
-        assert_eq!(automation.target_os, "win");
+        assert_eq!(trigger.trigger_type, TriggerType::Hotkey);
+        assert_eq!(trigger.target_os, "win");
     }
 
     #[test]
     fn taup_plaintext_codec_round_trips_and_rejects_invalid_headers() {
-        let payload = ExchangePayload::new(vec![AutomationExport {
+        let payload = ExchangePayload::new(vec![TriggerExport {
             name: "Greeting".to_string(),
             description: None,
             trigger_type: TriggerType::Word,
@@ -419,7 +419,7 @@ mod tests {
 
     #[test]
     fn payload_contains_run_variables_detects_output_and_script_content() {
-        let mut payload = ExchangePayload::new(vec![AutomationExport {
+        let mut payload = ExchangePayload::new(vec![TriggerExport {
             name: "Run".to_string(),
             description: None,
             trigger_type: TriggerType::Word,
@@ -436,8 +436,8 @@ mod tests {
         }]);
         assert!(payload_contains_run_variables(&payload));
 
-        payload.automations[0].output = "safe".to_string();
-        payload.automations[0].script = Some(ScriptExport {
+        payload.triggers[0].output = "safe".to_string();
+        payload.triggers[0].script = Some(ScriptExport {
             interpreter: ScriptInterpreter::Bash,
             behavior: ScriptBehavior::Inline,
             content: "echo [exec.bash(date)]".to_string(),
@@ -450,30 +450,30 @@ mod tests {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
-        insert_text_automation(&conn);
-        insert_script_automation(&conn);
-        insert_hotkey_automation(&conn);
+        insert_text_trigger(&conn);
+        insert_script_trigger(&conn);
+        insert_hotkey_trigger(&conn);
 
-        let payload = export_automations(&conn, ExportOptions::default()).unwrap();
+        let payload = export_triggers(&conn, ExportOptions::default()).unwrap();
 
         conn.execute("DELETE FROM scripts", []).unwrap();
-        conn.execute("DELETE FROM automations", []).unwrap();
+        conn.execute("DELETE FROM triggers", []).unwrap();
 
         let tx = conn.transaction().unwrap();
-        let imported = import_automations(&tx, &payload, ImportOptions::default(), |_, _| {
+        let imported = import_triggers(&tx, &payload, ImportOptions::default(), |_, _| {
             Ok(ImportConflictAction::Overwrite)
         })
         .unwrap();
         tx.commit().unwrap();
         assert_eq!(imported, 3);
 
-        let re_exported = export_automations(&conn, ExportOptions::default()).unwrap();
+        let re_exported = export_triggers(&conn, ExportOptions::default()).unwrap();
         assert_eq!(re_exported, payload);
 
         let imported_text = conn
             .query_row(
                 "SELECT id, usage_count, last_used_at, version, is_deleted, is_synced, is_enabled
-                 FROM automations
+                 FROM triggers
                  WHERE trigger = ?1",
                 ["gm"],
                 |row| {
@@ -500,8 +500,8 @@ mod tests {
         let (script_id, script_enabled, script_binary): (String, bool, Vec<u8>) = conn
             .query_row(
                 "SELECT a.id, a.is_enabled, s.compressed_content
-                 FROM automations a
-                 INNER JOIN scripts s ON s.automation_id = a.id
+                 FROM triggers a
+                 INNER JOIN scripts s ON s.trigger_id = a.id
                  WHERE a.trigger = ?1",
                 ["repo"],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
@@ -514,7 +514,7 @@ mod tests {
         let (hotkey_trigger_type, hotkey_target_os): (String, String) = conn
             .query_row(
                 "SELECT trigger_type, target_os
-                 FROM automations
+                 FROM triggers
                  WHERE trigger = ?1",
                 ["ctrl+shift+g"],
                 |row| Ok((row.get(0)?, row.get(1)?)),
@@ -529,7 +529,7 @@ mod tests {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        insert_text_automation(&conn);
+        insert_text_trigger(&conn);
         conn.execute(
             "INSERT INTO stats (
                 date, executions, ai_executions, keystrokes_saved, time_saved_ms, updated_at
@@ -545,7 +545,7 @@ mod tests {
         )
         .unwrap();
 
-        let payload = export_automations(
+        let payload = export_triggers(
             &conn,
             ExportOptions {
                 include_settings: true,
@@ -555,14 +555,14 @@ mod tests {
         )
         .unwrap();
 
-        let automation = payload
-            .automations
+        let trigger = payload
+            .triggers
             .iter()
-            .find(|automation| automation.trigger == "gm")
+            .find(|trigger| trigger.trigger == "gm")
             .unwrap();
-        assert_eq!(automation.trigger_type, TriggerType::Word);
-        assert_eq!(automation.usage_count, Some(41));
-        assert_eq!(automation.last_used_at, Some(1_700_000_123));
+        assert_eq!(trigger.trigger_type, TriggerType::Word);
+        assert_eq!(trigger.usage_count, Some(41));
+        assert_eq!(trigger.last_used_at, Some(1_700_000_123));
 
         let settings = payload.settings.unwrap();
         assert!(settings.iter().any(|setting| setting.key == "trigger_char"));
@@ -585,7 +585,7 @@ mod tests {
         let payload = deserialize_payload(
             br#"{
                 "schema_version": 1,
-                "automations": [{
+                "triggers": [{
                     "name": "Greeting",
                     "description": null,
                     "trigger": "gm",
@@ -599,7 +599,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(payload.automations[0].trigger_type, TriggerType::Word);
+        assert_eq!(payload.triggers[0].trigger_type, TriggerType::Word);
     }
 
     #[test]
@@ -607,7 +607,7 @@ mod tests {
         let err = deserialize_payload(
             br#"{
                 "schema_version": 1,
-                "automations": [{
+                "triggers": [{
                     "name": "Greeting",
                     "description": null,
                     "trigger_type": "gesture",
@@ -650,7 +650,7 @@ mod tests {
             script_path.to_string_lossy()
         );
 
-        upsert_automation_with_trigger_type(
+        upsert_trigger_with_type(
             &conn,
             "uuid-asset-test",
             "Asset Test",
@@ -673,7 +673,7 @@ mod tests {
 
         let rewritten_output: String = conn
             .query_row(
-                "SELECT output FROM automations WHERE id = 'uuid-asset-test'",
+                "SELECT output FROM triggers WHERE id = 'uuid-asset-test'",
                 [],
                 |row| row.get(0),
             )
@@ -681,15 +681,15 @@ mod tests {
         assert!(rewritten_output.contains("[img(asset("));
         assert!(rewritten_output.contains("file(asset("));
 
-        let payload = export_automations(&conn, ExportOptions::default()).unwrap();
-        assert_eq!(payload.automations.len(), 1);
-        assert_eq!(payload.automations[0].assets.len(), 2);
+        let payload = export_triggers(&conn, ExportOptions::default()).unwrap();
+        assert_eq!(payload.triggers.len(), 1);
+        assert_eq!(payload.triggers[0].assets.len(), 2);
 
         conn.execute("DELETE FROM assets", []).unwrap();
-        conn.execute("DELETE FROM automations", []).unwrap();
+        conn.execute("DELETE FROM triggers", []).unwrap();
 
         let tx = conn.transaction().unwrap();
-        let imported = import_automations(&tx, &payload, ImportOptions::default(), |_, _| {
+        let imported = import_triggers(&tx, &payload, ImportOptions::default(), |_, _| {
             Ok(ImportConflictAction::Overwrite)
         })
         .unwrap();
@@ -702,7 +702,7 @@ mod tests {
         assert_eq!(restored_assets_count, 2);
 
         let restored_output: String = conn
-            .query_row("SELECT output FROM automations", [], |row| row.get(0))
+            .query_row("SELECT output FROM triggers", [], |row| row.get(0))
             .unwrap();
         assert!(restored_output.contains("[img(asset("));
         assert!(restored_output.contains("file(asset("));

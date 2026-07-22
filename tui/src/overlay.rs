@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use taurine_core::error::Result as CoreResult;
 use taurine_core::exchange::{
-    AutomationExport, ExistingAutomationConflict, ImportConflictAction, decode_exchange_blob,
+    ExistingTriggerConflict, ImportConflictAction, TriggerExport, decode_exchange_blob,
 };
 
 fn drain_stale_events() {
@@ -457,8 +457,8 @@ pub fn prompt_password(label: &str, with_confirmation: bool) -> CoreResult<Optio
 }
 
 pub fn run_conflict_prompt(
-    incoming: &AutomationExport,
-    existing: &ExistingAutomationConflict,
+    incoming: &TriggerExport,
+    existing: &ExistingTriggerConflict,
     remembered_choice: &mut Option<RememberedConflictChoice>,
 ) -> CoreResult<ImportConflictAction> {
     if let Some(choice) = remembered_choice {

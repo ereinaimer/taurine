@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use super::{
-    AutomationExport, ExchangePayload, ScriptExport, SettingExport, StatExport, crypto,
+    ExchangePayload, ScriptExport, SettingExport, StatExport, TriggerExport, crypto,
     encode_plaintext_payload, serialize_payload,
 };
 use crate::db::crud::TriggerType;
@@ -18,7 +18,7 @@ pub struct ExportOptions {
     pub include_sensitive_settings: bool,
 }
 
-struct RawAutomationExport {
+struct RawTriggerExport {
     id: String,
     name: String,
     description: Option<String>,
@@ -36,7 +36,7 @@ struct RawAutomationExport {
     script_binary: Option<Vec<u8>>,
 }
 
-pub fn export_automations(
+pub fn export_triggers(
     conn: &Connection,
     options: ExportOptions,
 ) -> crate::Result<ExchangePayload> {
@@ -57,14 +57,14 @@ pub fn export_automations(
             s.interpreter,
             s.behavior,
             s.compressed_content
-         FROM automations a
-         LEFT JOIN scripts s ON s.automation_id = a.id
+         FROM triggers a
+         LEFT JOIN scripts s ON s.trigger_id = a.id
          WHERE a.is_deleted = 0
          ORDER BY a.trigger ASC, a.target_os ASC, a.name ASC",
     )?;
 
     let rows = stmt.query_map([], |row| {
-        Ok(RawAutomationExport {
+        Ok(RawTriggerExport {
             id: row.get(0)?,
             name: row.get(1)?,
             description: row.get(2)?,
@@ -85,9 +85,9 @@ pub fn export_automations(
         })
     })?;
 
-    let mut automations = Vec::new();
+    let mut triggers = Vec::new();
     for row in rows {
-        automations.push(to_automation_export(conn, row?, options)?);
+        triggers.push(to_trigger_export(conn, row?, options)?);
     }
 
     let settings = if options.include_settings {
@@ -104,7 +104,7 @@ pub fn export_automations(
 
     Ok(ExchangePayload {
         schema_version: super::EXCHANGE_SCHEMA_VERSION,
-        automations,
+        triggers,
         settings,
         stats,
     })
@@ -165,30 +165,30 @@ pub fn encode_exchange_blob(
     result
 }
 
-fn to_automation_export(
+fn to_trigger_export(
     conn: &Connection,
-    row: RawAutomationExport,
+    row: RawTriggerExport,
     options: ExportOptions,
-) -> crate::Result<AutomationExport> {
+) -> crate::Result<TriggerExport> {
     let tags = serde_json::from_str::<Vec<String>>(&row.tags)?;
     let script = if row.action_type == "script" {
         let interpreter = parse_json_variant::<ScriptInterpreter>(row.interpreter.as_deref())?
             .ok_or_else(|| {
                 crate::Error::Service(format!(
-                    "Script automation '{}' is missing an interpreter",
+                    "Script trigger '{}' is missing an interpreter",
                     row.trigger
                 ))
             })?;
         let behavior =
             parse_json_variant::<ScriptBehavior>(row.behavior.as_deref())?.ok_or_else(|| {
                 crate::Error::Service(format!(
-                    "Script automation '{}' is missing a behavior",
+                    "Script trigger '{}' is missing a behavior",
                     row.trigger
                 ))
             })?;
         let script_binary = row.script_binary.ok_or_else(|| {
             crate::Error::Service(format!(
-                "Script automation '{}' is missing script content",
+                "Script trigger '{}' is missing script content",
                 row.trigger
             ))
         })?;
@@ -203,7 +203,7 @@ fn to_automation_export(
     };
 
     let mut asset_stmt = conn.prepare_cached(
-        "SELECT id, mime_type, compressed_content FROM assets WHERE automation_id = ?1",
+        "SELECT id, mime_type, compressed_content FROM assets WHERE trigger_id = ?1",
     )?;
     let asset_rows = asset_stmt.query_map([&row.id], |r| {
         let id: String = r.get(0)?;
@@ -221,7 +221,7 @@ fn to_automation_export(
         assets.push(asset?);
     }
 
-    Ok(AutomationExport {
+    Ok(TriggerExport {
         name: row.name,
         description: row.description,
         trigger_type: row.trigger_type,

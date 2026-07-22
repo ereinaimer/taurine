@@ -5,7 +5,7 @@
 //! This crate provides the foundational abstractions and business logic used by
 //! the daemon and CLI:
 //! - **Engine**: The core interpolation and state management logic.
-//! - **DB**: SQLite-backed persistent storage for automations and settings.
+//! - **DB**: SQLite-backed persistent storage for triggers and settings.
 //! - **RPC**: Cross-process communication between CLI and Daemon.
 //! - **Settings**: Typed configuration management.
 //! - **Stats**: Tracking usage statistics

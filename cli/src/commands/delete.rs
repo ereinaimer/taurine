@@ -1,7 +1,7 @@
 use std::io::Write;
 use taurine_core::db::crud::{
-    count_automations_by_pattern, delete_automations_by_pattern, delete_automations_by_tag,
-    delete_automations_by_triggers,
+    count_triggers_by_pattern, delete_triggers_by_pattern, delete_triggers_by_tag,
+    delete_triggers_by_values,
 };
 use taurine_core::db::init;
 use taurine_core::keys::normalize_hotkey;
@@ -16,17 +16,17 @@ pub fn execute(
     let is_glob = tag.is_none() && triggers.iter().any(|t| t.contains('*'));
 
     let removed_count = if let Some(ref t) = tag {
-        delete_automations_by_tag(&conn, t)?
+        delete_triggers_by_tag(&conn, t)?
     } else if is_glob {
         let mut total = 0;
         for pattern in &triggers {
-            let matched = count_automations_by_pattern(&conn, pattern)?;
+            let matched = count_triggers_by_pattern(&conn, pattern)?;
             if matched == 0 {
-                warn!("No active automation matching pattern: {}", pattern);
+                warn!("No active trigger matching pattern: {}", pattern);
                 continue;
             }
             if matched > 1 && !yes {
-                eprint!("This operation will remove {matched} automations. Continue? [y/N] ");
+                eprint!("This operation will remove {matched} triggers. Continue? [y/N] ");
                 std::io::stdout().flush()?;
                 let mut input = String::new();
                 std::io::stdin().read_line(&mut input)?;
@@ -35,11 +35,8 @@ pub fn execute(
                     continue;
                 }
             }
-            let deleted = delete_automations_by_pattern(&conn, pattern)?;
-            info!(
-                "Removed {deleted} automations matching pattern: {}",
-                pattern
-            );
+            let deleted = delete_triggers_by_pattern(&conn, pattern)?;
+            info!("Removed {deleted} triggers matching pattern: {}", pattern);
             total += deleted;
         }
         total
@@ -48,23 +45,23 @@ pub fn execute(
             .iter()
             .map(|t| normalize_hotkey(t).unwrap_or_else(|_| t.clone()))
             .collect();
-        delete_automations_by_triggers(&conn, &canonical)?
+        delete_triggers_by_values(&conn, &canonical)?
     };
 
     if removed_count == 0 {
         if let Some(ref t) = tag {
-            warn!("No active automation found with tag: {}", t);
+            warn!("No active trigger found with tag: {}", t);
         } else if !is_glob {
             let triggers_str = triggers.join(", ");
-            warn!("No active automation found for triggers: {}", triggers_str);
+            warn!("No active trigger found for triggers: {}", triggers_str);
         }
     } else {
         if let Some(ref t) = tag {
-            info!("Removed {} automations with tag: {}", removed_count, t);
+            info!("Removed {} triggers with tag: {}", removed_count, t);
         } else if !is_glob {
             let triggers_str = triggers.join(", ");
             info!(
-                "Removed {} automations for triggers: {}",
+                "Removed {} triggers for triggers: {}",
                 removed_count, triggers_str
             );
         }
@@ -80,7 +77,7 @@ mod tests {
     use std::path::PathBuf;
 
     use taurine_core::db::crud::TriggerType;
-    use taurine_core::db::crud::upsert_automation_with_trigger_type;
+    use taurine_core::db::crud::upsert_trigger_with_type;
     use taurine_core::logs::init_tracing_for_tests;
 
     struct TestDbEnvGuard {
@@ -123,7 +120,7 @@ mod tests {
             let conn = rusqlite::Connection::open(db_path).unwrap();
             taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
 
-            upsert_automation_with_trigger_type(
+            upsert_trigger_with_type(
                 &conn,
                 "test-uuid-1",
                 "test",
@@ -146,12 +143,12 @@ mod tests {
             let conn = rusqlite::Connection::open(db_path).unwrap();
             let is_deleted: bool = conn
                 .query_row(
-                    "SELECT is_deleted FROM automations WHERE id = 'test-uuid-1'",
+                    "SELECT is_deleted FROM triggers WHERE id = 'test-uuid-1'",
                     [],
                     |row| row.get(0),
                 )
                 .unwrap();
-            assert!(is_deleted, "automation should be tombstoned");
+            assert!(is_deleted, "trigger should be tombstoned");
         });
     }
 
@@ -163,7 +160,7 @@ mod tests {
             let conn = rusqlite::Connection::open(db_path).unwrap();
             taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
 
-            upsert_automation_with_trigger_type(
+            upsert_trigger_with_type(
                 &conn,
                 "test-uuid-2",
                 "test",
@@ -186,15 +183,12 @@ mod tests {
             let conn = rusqlite::Connection::open(db_path).unwrap();
             let is_deleted: bool = conn
                 .query_row(
-                    "SELECT is_deleted FROM automations WHERE id = 'test-uuid-2'",
+                    "SELECT is_deleted FROM triggers WHERE id = 'test-uuid-2'",
                     [],
                     |row| row.get(0),
                 )
                 .unwrap();
-            assert!(
-                is_deleted,
-                "text trigger automation should still be deleted"
-            );
+            assert!(is_deleted, "text trigger should still be deleted");
         });
     }
 
@@ -211,7 +205,7 @@ mod tests {
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
 
-        taurine_core::db::crud::upsert_automation_with_trigger_type(
+        taurine_core::db::crud::upsert_trigger_with_type(
             &conn,
             "uuid-1",
             "test",
@@ -226,7 +220,7 @@ mod tests {
             None,
         )
         .unwrap();
-        taurine_core::db::crud::upsert_automation_with_trigger_type(
+        taurine_core::db::crud::upsert_trigger_with_type(
             &conn,
             "uuid-2",
             "test",
@@ -241,7 +235,7 @@ mod tests {
             None,
         )
         .unwrap();
-        taurine_core::db::crud::upsert_automation_with_trigger_type(
+        taurine_core::db::crud::upsert_trigger_with_type(
             &conn,
             "uuid-3",
             "other",
@@ -263,19 +257,19 @@ mod tests {
 
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         assert!(
-            taurine_core::db::crud::get_automation(&conn, "uuid-1")
+            taurine_core::db::crud::get_trigger(&conn, "uuid-1")
                 .unwrap()
                 .unwrap()
                 .is_deleted
         );
         assert!(
-            taurine_core::db::crud::get_automation(&conn, "uuid-2")
+            taurine_core::db::crud::get_trigger(&conn, "uuid-2")
                 .unwrap()
                 .unwrap()
                 .is_deleted
         );
         assert!(
-            !taurine_core::db::crud::get_automation(&conn, "uuid-3")
+            !taurine_core::db::crud::get_trigger(&conn, "uuid-3")
                 .unwrap()
                 .unwrap()
                 .is_deleted
@@ -295,7 +289,7 @@ mod tests {
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
 
-        taurine_core::db::crud::upsert_automation_with_trigger_type(
+        taurine_core::db::crud::upsert_trigger_with_type(
             &conn,
             "uuid-1",
             "test",
@@ -316,7 +310,7 @@ mod tests {
 
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         assert!(
-            taurine_core::db::crud::get_automation(&conn, "uuid-1")
+            taurine_core::db::crud::get_trigger(&conn, "uuid-1")
                 .unwrap()
                 .unwrap()
                 .is_deleted
@@ -336,7 +330,7 @@ mod tests {
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
 
-        taurine_core::db::crud::upsert_automation_with_trigger_type(
+        taurine_core::db::crud::upsert_trigger_with_type(
             &conn,
             "uuid-1",
             "A",
@@ -351,7 +345,7 @@ mod tests {
             None,
         )
         .unwrap();
-        taurine_core::db::crud::upsert_automation_with_trigger_type(
+        taurine_core::db::crud::upsert_trigger_with_type(
             &conn,
             "uuid-2",
             "B",
@@ -373,13 +367,13 @@ mod tests {
 
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         assert!(
-            taurine_core::db::crud::get_automation(&conn, "uuid-1")
+            taurine_core::db::crud::get_trigger(&conn, "uuid-1")
                 .unwrap()
                 .unwrap()
                 .is_deleted
         );
         assert!(
-            taurine_core::db::crud::get_automation(&conn, "uuid-2")
+            taurine_core::db::crud::get_trigger(&conn, "uuid-2")
                 .unwrap()
                 .unwrap()
                 .is_deleted

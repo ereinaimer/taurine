@@ -1,11 +1,11 @@
 ---
 title: Lorem Ipsum
-description: Generate placeholder text for your automation templates.
+description: Generate placeholder text for your trigger templates.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-The `[lorem.*]` namespace allows you to quickly generate placeholder text directly within your templates. This is perfect for mockups, testing layout constraints, or filling out forms during automation development.
+The `[lorem.*]` namespace allows you to quickly generate placeholder text directly within your templates. This is perfect for mockups, testing layout constraints, or filling out forms during trigger development.
 
 ## Available Variants
 
@@ -62,13 +62,13 @@ Hi Team,
 [lorem.paragraph(2)]
 
 Best,
-Automation
+Taurine
 ```
 
 ---
 
 ## Technical Constraints
 
-- **Synchronous Resolution**: Like the `random` namespace, `lorem` variables resolve instantly without blocking the automation pipeline.
+- **Synchronous Resolution**: Like the `random` namespace, `lorem` variables resolve instantly without blocking the trigger pipeline.
 - **English Locale**: The placeholder text currently uses the standard Latin-derived English locale for generation.
 - **Formatting**: Words and sentences are joined by a single space, while paragraphs are separated by a double newline (`\n\n`).

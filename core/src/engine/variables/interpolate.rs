@@ -354,7 +354,7 @@ fn resolve_use_placeholder(key: &str, args: &ArgMap, depth: usize) -> String {
         Err(e) => return format!("[Error: Database pool error: {}]", e),
     };
 
-    let action = match crate::db::crud::automations::get_action_by_trigger(&conn, &trigger_name) {
+    let action = match crate::db::crud::triggers::get_action_by_trigger(&conn, &trigger_name) {
         Ok(Some(act)) => act,
         Ok(None) => return format!("[Error: Snippet '{}' does not exist]", trigger_name),
         Err(e) => return format!("[Error: Database query error: {}]", e),

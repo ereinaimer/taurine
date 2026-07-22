@@ -4,14 +4,14 @@ description: Restrict word and hotkey expansions to specific applications, class
 icon: AppWindow
 ---
 
-App-Specific Triggers allow you to define automations that only execute when certain applications, window classes, or window titles are actively focused. This prevents global triggers from accidentally firing in applications where they aren't meant to be used (like games, terminals, or password managers) and allows you to bind the same hotkey to different actions depending on the active application.
+App-Specific Triggers allow you to define triggers that only execute when certain applications, window classes, or window titles are actively focused. This prevents global triggers from accidentally firing in applications where they aren't meant to be used (like games, terminals, or password managers) and allows you to bind the same hotkey to different actions depending on the active application.
 
 ## How it works
 
-When an automation specifies app filters, Taurine inspects the active window's details at the exact moment the trigger is matched. You can configure filters using two command-line flags:
+When a trigger specifies app filters, Taurine inspects the active window's details at the exact moment the trigger is matched. You can configure filters using two command-line flags:
 
-* `--include-apps <list>`: A comma-separated list of application rules. The automation will **only** fire if the active window matches at least one of these rules.
-* `--exclude-apps <list>`: A comma-separated list of application rules. The automation will **never** fire if the active window matches any of these rules.
+* `--include-apps <list>`: A comma-separated list of application rules. The trigger will **only** fire if the active window matches at least one of these rules.
+* `--exclude-apps <list>`: A comma-separated list of application rules. The trigger will **never** fire if the active window matches any of these rules.
 
 ## Prefix Specifiers
 
@@ -83,5 +83,5 @@ taurine add --hotkey "ctrl+p" --include-apps "exe:chrome" "window.print()"
 
 ## Safety & Fail-Safes
 
-* **Strict Mode on Query Failure:** If the operating system fails to determine the active window (due to secure screens, lock screens, OS transitions, or permission limits), Taurine **safely blocks** any restricted automation from firing. This ensures that sensitive expansions never leak into untrusted windows.
-* **Wayland Support (Linux):** Because Wayland restricts global active window queries, active application filtering is bypassed on Wayland (restricted automations are safely blocked), defaulting to standard global behavior for unrestricted triggers.
+* **Strict Mode on Query Failure:** If the operating system fails to determine the active window (due to secure screens, lock screens, OS transitions, or permission limits), Taurine **safely blocks** any restricted trigger from firing. This ensures that sensitive expansions never leak into untrusted windows.
+* **Wayland Support (Linux):** Because Wayland restricts global active window queries, active application filtering is bypassed on Wayland (restricted triggers are safely blocked), defaulting to standard global behavior for unrestricted triggers.

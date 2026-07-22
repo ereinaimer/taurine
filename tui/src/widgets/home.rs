@@ -35,7 +35,7 @@ pub fn render_home_content(frame: &mut Frame, area: Rect, theme: &Theme, stats: 
         frame,
         activity_sections[0],
         theme,
-        "TOP AUTOMATIONS",
+        "TOP TRIGGERS",
         &stats.most_used_words,
     );
     render_most_used_list(
@@ -87,7 +87,7 @@ fn render_most_used_list(
     area: Rect,
     theme: &Theme,
     title: &str,
-    rows: &[taurine_core::stats::MostUsedAutomation],
+    rows: &[taurine_core::stats::MostUsedTrigger],
 ) {
     let sections = Layout::default()
         .direction(Direction::Vertical)
@@ -128,10 +128,10 @@ fn render_most_used_list(
         )
         .height(1);
 
-    let table_rows = rows.iter().take(8).map(|automation| {
+    let table_rows = rows.iter().take(8).map(|trigger| {
         Row::new([
-            Cell::from(format!(" {}", automation.trigger)).style(Style::default().fg(theme.text)),
-            Cell::from(format!("{} ", util::format_number(automation.uses)))
+            Cell::from(format!(" {}", trigger.trigger)).style(Style::default().fg(theme.text)),
+            Cell::from(format!("{} ", util::format_number(trigger.uses)))
                 .style(Style::default().fg(theme.text_muted)),
         ])
     });

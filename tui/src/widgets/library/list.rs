@@ -74,7 +74,7 @@ pub fn render_library_list(frame: &mut Frame, area: Rect, theme: &Theme, state: 
 fn render_library_item(
     frame: &mut Frame,
     area: Rect,
-    item: &crate::widgets::library::state::LibraryAutomation,
+    item: &crate::widgets::library::state::LibraryTrigger,
     theme: &Theme,
     selected: bool,
 ) {

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use taurine_core::db::init;
 use taurine_core::exchange::{
-    ExportOptions, encode_exchange_blob, export_automations, resolve_export_path,
+    ExportOptions, encode_exchange_blob, export_triggers, resolve_export_path,
 };
 use zeroize::Zeroize;
 
@@ -37,7 +37,7 @@ pub fn execute(
 
     let path = resolve_export_path(path)?;
     let conn = init::setup()?;
-    let payload = export_automations(
+    let payload = export_triggers(
         &conn,
         ExportOptions {
             include_settings: settings,
@@ -84,16 +84,16 @@ pub fn execute(
         format!(" with {}", parts.join(" and "))
     };
 
-    let automation_word = if payload.automations.len() == 1 {
-        "automation"
+    let trigger_word = if payload.triggers.len() == 1 {
+        "trigger"
     } else {
-        "automations"
+        "triggers"
     };
 
     println!(
         "Exported {} {}{} to {}",
-        payload.automations.len(),
-        automation_word,
+        payload.triggers.len(),
+        trigger_word,
         details,
         path.display()
     );

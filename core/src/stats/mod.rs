@@ -4,7 +4,7 @@ mod home;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AutomationStatKind {
+pub enum TriggerStatKind {
     Snippet,
     Hotkey,
     Script,
@@ -27,4 +27,4 @@ pub fn get_current_date_string() -> String {
 pub use calculator::{
     ExpansionStats, calculate_expansion_stats, calculate_saved_keystrokes, calculate_time_saved_ms,
 };
-pub use home::{HomeStats, MostUsedAutomation, load_home_stats, load_home_stats_with_limit};
+pub use home::{HomeStats, MostUsedTrigger, load_home_stats, load_home_stats_with_limit};

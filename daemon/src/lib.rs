@@ -48,8 +48,8 @@ pub fn start() -> taurine_core::error::Result<()> {
     // Instantiate the Core Engine State
     use std::sync::{Arc, Mutex, RwLock};
     use taurine_core::db::crud::{
-        get_active_word_trigger_history, get_all_active_automations,
-        get_all_active_hotkey_automations, get_all_active_regex_automations,
+        get_active_word_trigger_history, get_all_active_hotkey_triggers,
+        get_all_active_regex_triggers, get_all_active_triggers,
     };
     use taurine_core::engine::{EngineState, Evaluator};
     use taurine_core::settings::SettingsManager;
@@ -185,16 +185,16 @@ pub fn start() -> taurine_core::error::Result<()> {
         .name("tau-db-load".to_string())
         .spawn(move || {
             if let Ok(conn) = taurine_core::db::init::setup() {
-                if let Ok(active) = get_all_active_automations(&conn) {
+                if let Ok(active) = get_all_active_triggers(&conn) {
                     state_for_bg.load_actions(active);
                 }
                 if let Ok(history) = get_active_word_trigger_history(&conn) {
                     state_for_bg.load_word_trigger_history(history);
                 }
-                if let Ok(active_hotkeys) = get_all_active_hotkey_automations(&conn) {
+                if let Ok(active_hotkeys) = get_all_active_hotkey_triggers(&conn) {
                     state_for_bg.load_hotkey_actions(active_hotkeys);
                 }
-                if let Ok(active_regex) = get_all_active_regex_automations(&conn) {
+                if let Ok(active_regex) = get_all_active_regex_triggers(&conn) {
                     state_for_bg.load_regex_actions(active_regex);
                 }
             }

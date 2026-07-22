@@ -349,9 +349,9 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
     if let Some(pending_save) = interaction.pending_save() {
         let contains_clip = pending_save.content.contains("[clip");
         match pending_save.apply() {
-            Ok(automation_id) => {
+            Ok(trigger_id) => {
                 refresh_library_page(app);
-                app.library_page_mut().select_item_by_id(&automation_id);
+                app.library_page_mut().select_item_by_id(&trigger_id);
                 app.library_page_mut().clear_modal();
                 if contains_clip && let Ok(conn) = taurine_core::db::get_conn() {
                     let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
@@ -385,13 +385,13 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
     };
 
     match open_request {
-        library::LibraryOpenRequest::Selected(id) => match load_library_automation_detail(&id) {
-            Ok(Some(automation)) => app.library_page_mut().open_editor_modal(automation),
-            Ok(None) => error!(automation_id = %id, "Selected library automation no longer exists"),
+        library::LibraryOpenRequest::Selected(id) => match load_library_trigger_detail(&id) {
+            Ok(Some(trigger)) => app.library_page_mut().open_editor_modal(trigger),
+            Ok(None) => error!(trigger_id = %id, "Selected library trigger no longer exists"),
             Err(error) => error!(
-                automation_id = %id,
+                trigger_id = %id,
                 error = %error,
-                "Failed to load TUI library automation detail"
+                "Failed to load TUI library trigger detail"
             ),
         },
         library::LibraryOpenRequest::Create => {
@@ -415,12 +415,12 @@ fn refresh_home_stats(app: &mut App) {
 
 fn refresh_library_page(app: &mut App) {
     match taurine_core::db::init::setup()
-        .and_then(|conn| taurine_core::db::crud::get_automations_list(&conn).map_err(Into::into))
+        .and_then(|conn| taurine_core::db::crud::get_triggers_list(&conn).map_err(Into::into))
     {
         Ok(items) => {
             let items = items
                 .into_iter()
-                .map(library::LibraryAutomation::from)
+                .map(library::LibraryTrigger::from)
                 .collect();
             app.library_page_mut().replace_items(items);
         }
@@ -431,18 +431,19 @@ fn refresh_library_page(app: &mut App) {
     }
 }
 
-fn load_library_automation_detail(
+fn load_library_trigger_detail(
     id: &str,
-) -> taurine_core::Result<Option<library::LibraryAutomationDetail>> {
+) -> taurine_core::Result<Option<library::LibraryTriggerDetail>> {
     let conn = taurine_core::db::init::setup()?;
-    let Some(automation) = taurine_core::db::crud::get_automation(&conn, id)? else {
+    let Some(trigger) = taurine_core::db::crud::get_trigger(&conn, id)? else {
         return Ok(None);
     };
-    if automation.is_deleted || !automation.is_enabled {
+
+    if trigger.is_deleted || !trigger.is_enabled {
         return Ok(None);
     }
 
-    library::LibraryAutomationDetail::from_row(automation).map(Some)
+    library::LibraryTriggerDetail::from_row(trigger).map(Some)
 }
 
 fn refresh_settings_page(app: &mut App) {
@@ -513,12 +514,12 @@ mod tests {
 
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use taurine_core::{
-        db::crud::{AutomationListItem, AutomationRow, TriggerType},
+        db::crud::{TriggerListItem, TriggerRow, TriggerType},
         engine::shell::{ScriptBehavior, ScriptInterpreter, compress},
     };
 
     use super::*;
-    use crate::widgets::library::LibraryAutomation;
+    use crate::widgets::library::LibraryTrigger;
 
     #[derive(Default)]
     struct MockController {
@@ -542,8 +543,8 @@ mod tests {
         KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)
     }
 
-    fn sample_library_modal() -> library::LibraryAutomationDetail {
-        library::LibraryAutomationDetail::from_row(AutomationRow {
+    fn sample_library_modal() -> library::LibraryTriggerDetail {
+        library::LibraryTriggerDetail::from_row(TriggerRow {
             id: "library-modal".to_string(),
             name: "Library Modal".to_string(),
             description: Some("Open Reddit".to_string()),
@@ -768,7 +769,7 @@ mod tests {
         let controller = MockController::default();
         app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
         app.library_page_mut()
-            .replace_items(vec![LibraryAutomation::from(AutomationListItem {
+            .replace_items(vec![LibraryTrigger::from(TriggerListItem {
                 id: "test".to_string(),
                 name: "Test".to_string(),
                 description: None,
@@ -801,7 +802,7 @@ mod tests {
         let controller = MockController::default();
         app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
         app.library_page_mut()
-            .replace_items(vec![LibraryAutomation::from(AutomationListItem {
+            .replace_items(vec![LibraryTrigger::from(TriggerListItem {
                 id: "test".to_string(),
                 name: "Test".to_string(),
                 description: None,

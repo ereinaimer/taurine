@@ -1,7 +1,7 @@
 use super::*;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::PathBuf;
-use taurine_core::db::crud::{AutomationListItem, AutomationRow, TriggerType};
+use taurine_core::db::crud::{TriggerListItem, TriggerRow, TriggerType};
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use taurine_core::exchange::ImportStatsMode;
 
@@ -16,8 +16,8 @@ fn list_item(
     target_os: &str,
     usage_count: i64,
     script_content: Option<&str>,
-) -> AutomationListItem {
-    AutomationListItem {
+) -> TriggerListItem {
+    TriggerListItem {
         id: id.to_string(),
         name: trigger.to_string(),
         description: description.map(str::to_string),
@@ -38,7 +38,7 @@ fn list_item(
     }
 }
 
-fn automation_row(
+fn trigger_row(
     trigger_type: TriggerType,
     trigger: &str,
     output: &str,
@@ -46,10 +46,10 @@ fn automation_row(
     target_os: &str,
     usage_count: i64,
     script_content: Option<&str>,
-) -> AutomationRow {
-    AutomationRow {
-        id: format!("automation-{trigger}"),
-        name: format!("Automation {trigger}"),
+) -> TriggerRow {
+    TriggerRow {
+        id: format!("trigger-{trigger}"),
+        name: format!("Trigger {trigger}"),
         description: Some("Open Reddit".to_string()),
         trigger_type,
         trigger: trigger.to_string(),
@@ -78,7 +78,7 @@ fn automation_row(
 fn sample_state() -> LibraryPageState {
     let mut state = LibraryPageState::default();
     state.replace_items(vec![
-        LibraryAutomation::from(list_item(
+        LibraryTrigger::from(list_item(
             "id-gm",
             None,
             TriggerType::Word,
@@ -89,7 +89,7 @@ fn sample_state() -> LibraryPageState {
             9,
             None,
         )),
-        LibraryAutomation::from(list_item(
+        LibraryTrigger::from(list_item(
             "id-deploy",
             None,
             TriggerType::Word,
@@ -100,7 +100,7 @@ fn sample_state() -> LibraryPageState {
             4,
             Some("npm run build && npm publish"),
         )),
-        LibraryAutomation::from(list_item(
+        LibraryTrigger::from(list_item(
             "id-alt+r",
             Some("Open Reddit"),
             TriggerType::Hotkey,
@@ -117,7 +117,7 @@ fn sample_state() -> LibraryPageState {
 
 #[test]
 fn word_text_maps_to_snippet() {
-    let item = LibraryAutomation::from(list_item(
+    let item = LibraryTrigger::from(list_item(
         "id-gm",
         None,
         TriggerType::Word,
@@ -133,7 +133,7 @@ fn word_text_maps_to_snippet() {
 
 #[test]
 fn word_script_maps_to_script() {
-    let item = LibraryAutomation::from(list_item(
+    let item = LibraryTrigger::from(list_item(
         "id-deploy",
         None,
         TriggerType::Word,
@@ -149,7 +149,7 @@ fn word_script_maps_to_script() {
 
 #[test]
 fn hotkey_text_maps_to_hotkey_snippet() {
-    let item = LibraryAutomation::from(list_item(
+    let item = LibraryTrigger::from(list_item(
         "id-thanks",
         None,
         TriggerType::Hotkey,
@@ -165,7 +165,7 @@ fn hotkey_text_maps_to_hotkey_snippet() {
 
 #[test]
 fn hotkey_script_maps_to_hotkey_script() {
-    let item = LibraryAutomation::from(list_item(
+    let item = LibraryTrigger::from(list_item(
         "id-alt+r",
         None,
         TriggerType::Hotkey,
@@ -181,7 +181,7 @@ fn hotkey_script_maps_to_hotkey_script() {
 
 #[test]
 fn preview_prefers_description_before_other_content() {
-    let item = LibraryAutomation::from(list_item(
+    let item = LibraryTrigger::from(list_item(
         "id-alt+r",
         Some("Open Reddit"),
         TriggerType::Hotkey,
@@ -198,7 +198,7 @@ fn preview_prefers_description_before_other_content() {
 
 #[test]
 fn placeholder_script_description_does_not_block_real_script_preview() {
-    let item = LibraryAutomation::from(list_item(
+    let item = LibraryTrigger::from(list_item(
         "id-alt+r",
         Some("Shell script (CLI argument)"),
         TriggerType::Hotkey,
@@ -215,7 +215,7 @@ fn placeholder_script_description_does_not_block_real_script_preview() {
 
 #[test]
 fn preview_falls_back_to_text_output_when_description_is_empty() {
-    let item = LibraryAutomation::from(list_item(
+    let item = LibraryTrigger::from(list_item(
         "id-gm",
         Some("   "),
         TriggerType::Word,
@@ -232,7 +232,7 @@ fn preview_falls_back_to_text_output_when_description_is_empty() {
 
 #[test]
 fn preview_falls_back_to_script_content_when_description_is_empty() {
-    let item = LibraryAutomation::from(list_item(
+    let item = LibraryTrigger::from(list_item(
         "id-alt+r",
         None,
         TriggerType::Hotkey,
@@ -249,7 +249,7 @@ fn preview_falls_back_to_script_content_when_description_is_empty() {
 
 #[test]
 fn script_preview_does_not_use_script_language_placeholder() {
-    let item = LibraryAutomation::from(list_item(
+    let item = LibraryTrigger::from(list_item(
         "id-deploy",
         None,
         TriggerType::Word,
@@ -267,7 +267,7 @@ fn script_preview_does_not_use_script_language_placeholder() {
 
 #[test]
 fn script_preview_does_not_use_shell_script_description_placeholder() {
-    let item = LibraryAutomation::from(list_item(
+    let item = LibraryTrigger::from(list_item(
         "id-deploy",
         Some("Shell script (CLI argument)"),
         TriggerType::Word,
@@ -285,7 +285,7 @@ fn script_preview_does_not_use_shell_script_description_placeholder() {
 
 #[test]
 fn empty_script_content_falls_back_safely() {
-    let item = LibraryAutomation::from(list_item(
+    let item = LibraryTrigger::from(list_item(
         "id-deploy",
         Some("Shell script (CLI argument)"),
         TriggerType::Word,
@@ -338,7 +338,7 @@ fn search_matches_description_when_available() {
 #[test]
 fn search_matches_name_when_it_differs_from_trigger() {
     let mut state = LibraryPageState::default();
-    state.replace_items(vec![LibraryAutomation::from(AutomationListItem {
+    state.replace_items(vec![LibraryTrigger::from(TriggerListItem {
         id: "id-alt+r".to_string(),
         name: "Reddit opener".to_string(),
         description: Some("Open Reddit".to_string()),
@@ -443,7 +443,7 @@ fn selection_moves_to_first_match_when_filter_removes_selected_item() {
 #[test]
 fn empty_list_reports_empty_state() {
     let state = LibraryPageState::default();
-    assert_eq!(state.empty_state_message(), Some("No automations yet."));
+    assert_eq!(state.empty_state_message(), Some("No triggers yet."));
 }
 
 #[test]
@@ -456,13 +456,13 @@ fn no_match_search_reports_no_match_state() {
 
     assert_eq!(
         state.empty_state_message(),
-        Some("No automations match your search.")
+        Some("No triggers match your search.")
     );
 }
 
 #[test]
 fn metadata_uses_double_slash_separator() {
-    let item = LibraryAutomation::from(list_item(
+    let item = LibraryTrigger::from(list_item(
         "id-gm",
         None,
         TriggerType::Word,
@@ -491,7 +491,7 @@ fn normalized_modal_text_preserves_meaningful_outer_whitespace() {
 
 #[test]
 fn kind_selector_uses_kind_title() {
-    let detail = LibraryAutomationDetail::from_row(automation_row(
+    let detail = LibraryTriggerDetail::from_row(trigger_row(
         TriggerType::Word,
         "gm",
         "Good Morning",
@@ -519,7 +519,7 @@ fn kind_selector_uses_kind_title() {
 
 #[test]
 fn target_os_selector_uses_target_os_title() {
-    let detail = LibraryAutomationDetail::from_row(automation_row(
+    let detail = LibraryTriggerDetail::from_row(trigger_row(
         TriggerType::Word,
         "gm",
         "Good Morning",
@@ -547,7 +547,7 @@ fn target_os_selector_uses_target_os_title() {
 }
 
 #[test]
-fn pressing_enter_requests_selected_automation_modal() {
+fn pressing_enter_requests_selected_trigger_modal() {
     let mut state = sample_state();
     let expected_id = state
         .selected_index()
@@ -706,7 +706,7 @@ fn import_result_modal_uses_reliable_result_lines() {
     let Some(LibraryModal::ImportResult(modal)) = state.modal() else {
         panic!("expected import result modal");
     };
-    assert_eq!(modal.lines()[0], "Imported 12 automation(s).");
+    assert_eq!(modal.lines()[0], "Imported 12 trigger(s).");
     assert!(
         modal
             .lines()
@@ -752,7 +752,7 @@ fn import_result_modal_owns_input_and_keeps_search_inactive() {
 }
 
 #[test]
-fn export_result_modal_body_for_automations_without_encryption_matches_exactly() {
+fn export_result_modal_body_for_triggers_without_encryption_matches_exactly() {
     let mut state = sample_state();
     let path = PathBuf::from("backup.tau");
 
@@ -761,11 +761,11 @@ fn export_result_modal_body_for_automations_without_encryption_matches_exactly()
     let Some(LibraryModal::ExportResult(modal)) = state.modal() else {
         panic!("expected export result modal");
     };
-    assert_eq!(modal.body(), "Automations are exported to: backup.tau");
+    assert_eq!(modal.body(), "Triggers are exported to: backup.tau");
 }
 
 #[test]
-fn export_result_modal_body_for_automations_with_encryption_matches_exactly() {
+fn export_result_modal_body_for_triggers_with_encryption_matches_exactly() {
     let mut state = sample_state();
     let path = PathBuf::from("backup.tau");
 
@@ -776,12 +776,12 @@ fn export_result_modal_body_for_automations_with_encryption_matches_exactly() {
     };
     assert_eq!(
         modal.body(),
-        "Automations are exported to: backup.tau as an encrypted export."
+        "Triggers are exported to: backup.tau as an encrypted export."
     );
 }
 
 #[test]
-fn export_result_modal_body_for_automations_and_settings_matches_exactly() {
+fn export_result_modal_body_for_triggers_and_settings_matches_exactly() {
     let mut state = sample_state();
     let path = PathBuf::from("backup.tau");
 
@@ -792,12 +792,12 @@ fn export_result_modal_body_for_automations_and_settings_matches_exactly() {
     };
     assert_eq!(
         modal.body(),
-        "Automations and Settings were exported to: backup.tau"
+        "Triggers and Settings were exported to: backup.tau"
     );
 }
 
 #[test]
-fn export_result_modal_body_for_automations_and_settings_with_encryption_matches_exactly() {
+fn export_result_modal_body_for_triggers_and_settings_with_encryption_matches_exactly() {
     let mut state = sample_state();
     let path = PathBuf::from("backup.tau");
 
@@ -808,12 +808,12 @@ fn export_result_modal_body_for_automations_and_settings_with_encryption_matches
     };
     assert_eq!(
         modal.body(),
-        "Automations and Settings were exported to: backup.tau with encryption."
+        "Triggers and Settings were exported to: backup.tau with encryption."
     );
 }
 
 #[test]
-fn export_result_modal_body_for_automations_and_stats_matches_exactly() {
+fn export_result_modal_body_for_triggers_and_stats_matches_exactly() {
     let mut state = sample_state();
     let path = PathBuf::from("backup.tau");
 
@@ -824,12 +824,12 @@ fn export_result_modal_body_for_automations_and_stats_matches_exactly() {
     };
     assert_eq!(
         modal.body(),
-        "Automations and Stats were exported to: backup.tau"
+        "Triggers and Stats were exported to: backup.tau"
     );
 }
 
 #[test]
-fn export_result_modal_body_for_automations_and_stats_with_encryption_matches_exactly() {
+fn export_result_modal_body_for_triggers_and_stats_with_encryption_matches_exactly() {
     let mut state = sample_state();
     let path = PathBuf::from("backup.tau");
 
@@ -840,7 +840,7 @@ fn export_result_modal_body_for_automations_and_stats_with_encryption_matches_ex
     };
     assert_eq!(
         modal.body(),
-        "Automations and Stats were exported to: backup.tau with encryption."
+        "Triggers and Stats were exported to: backup.tau with encryption."
     );
 }
 
@@ -856,7 +856,7 @@ fn export_result_modal_body_for_all_export_data_without_encryption_matches_exact
     };
     assert_eq!(
         modal.body(),
-        "Automations, Settings and Stats were exported to: backup.tau"
+        "Triggers, Settings and Stats were exported to: backup.tau"
     );
 }
 
@@ -872,7 +872,7 @@ fn export_result_modal_body_for_all_export_data_with_encryption_matches_exactly(
     };
     assert_eq!(
         modal.body(),
-        "Automations, Settings and Stats were exported to: backup.tau with encryption."
+        "Triggers, Settings and Stats were exported to: backup.tau with encryption."
     );
 }
 
@@ -1034,7 +1034,7 @@ fn export_modal_owns_input_and_keeps_search_inactive() {
 }
 
 #[test]
-fn pressing_d_with_selected_automation_opens_delete_confirmation_modal() {
+fn pressing_d_with_selected_trigger_opens_delete_confirmation_modal() {
     let mut state = sample_state();
 
     state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
@@ -1048,7 +1048,7 @@ fn pressing_d_with_selected_automation_opens_delete_confirmation_modal() {
 #[test]
 fn pressing_d_from_editor_edit_mode_keeps_editor_open() {
     let mut state = sample_state();
-    let detail = LibraryAutomationDetail::from_row(automation_row(
+    let detail = LibraryTriggerDetail::from_row(trigger_row(
         TriggerType::Word,
         "gm",
         "Good Morning",
@@ -1097,7 +1097,7 @@ fn typing_d_in_create_modal_content_field_inserts_text() {
 #[test]
 fn typing_d_in_edit_modal_trigger_field_inserts_text() {
     let mut state = sample_state();
-    let detail = LibraryAutomationDetail::from_row(automation_row(
+    let detail = LibraryTriggerDetail::from_row(trigger_row(
         TriggerType::Word,
         "gm",
         "Good Morning",
@@ -1121,7 +1121,7 @@ fn typing_d_in_edit_modal_trigger_field_inserts_text() {
 #[test]
 fn typing_d_in_edit_modal_content_field_inserts_text() {
     let mut state = sample_state();
-    let detail = LibraryAutomationDetail::from_row(automation_row(
+    let detail = LibraryTriggerDetail::from_row(trigger_row(
         TriggerType::Word,
         "gm",
         "Good Morning",
@@ -1156,7 +1156,7 @@ fn pressing_d_from_create_mode_does_not_open_delete_confirmation() {
 #[test]
 fn pressing_d_from_edit_mode_with_text_focus_does_not_open_delete_confirmation() {
     let mut state = sample_state();
-    let detail = LibraryAutomationDetail::from_row(automation_row(
+    let detail = LibraryTriggerDetail::from_row(trigger_row(
         TriggerType::Word,
         "gm",
         "Good Morning",
@@ -1176,7 +1176,7 @@ fn pressing_d_from_edit_mode_with_text_focus_does_not_open_delete_confirmation()
 #[test]
 fn pressing_escape_closes_open_modal() {
     let mut state = sample_state();
-    let detail = LibraryAutomationDetail::from_row(automation_row(
+    let detail = LibraryTriggerDetail::from_row(trigger_row(
         TriggerType::Hotkey,
         "alt+r",
         "[Script: powershell]",
@@ -1195,7 +1195,7 @@ fn pressing_escape_closes_open_modal() {
 
 #[test]
 fn script_modal_uses_actual_script_content_instead_of_description() {
-    let mut row = automation_row(
+    let mut row = trigger_row(
         TriggerType::Hotkey,
         "alt+r",
         "[Script: powershell]",
@@ -1206,7 +1206,7 @@ fn script_modal_uses_actual_script_content_instead_of_description() {
     );
     row.description = Some("Open Reddit".to_string());
 
-    let detail = LibraryAutomationDetail::from_row(row).unwrap();
+    let detail = LibraryTriggerDetail::from_row(row).unwrap();
 
     assert_eq!(detail.content_label(), "Script");
     assert_eq!(detail.content(), "Start-Process https://reddit.com");
@@ -1214,7 +1214,7 @@ fn script_modal_uses_actual_script_content_instead_of_description() {
 
 #[test]
 fn snippet_modal_uses_actual_output_content() {
-    let row = automation_row(
+    let row = trigger_row(
         TriggerType::Word,
         "gm",
         "Good Morning",
@@ -1224,7 +1224,7 @@ fn snippet_modal_uses_actual_output_content() {
         None,
     );
 
-    let detail = LibraryAutomationDetail::from_row(row).unwrap();
+    let detail = LibraryTriggerDetail::from_row(row).unwrap();
 
     assert_eq!(detail.content_label(), "Output");
     assert_eq!(detail.content(), "Good Morning");
@@ -1233,7 +1233,7 @@ fn snippet_modal_uses_actual_output_content() {
 #[test]
 fn modal_footer_replaces_library_actions_while_open() {
     let mut state = sample_state();
-    let detail = LibraryAutomationDetail::from_row(automation_row(
+    let detail = LibraryTriggerDetail::from_row(trigger_row(
         TriggerType::Word,
         "gm",
         "Good Morning",
@@ -1252,7 +1252,7 @@ fn modal_footer_replaces_library_actions_while_open() {
 #[test]
 fn modal_owns_input_and_keeps_search_inactive() {
     let mut state = sample_state();
-    let detail = LibraryAutomationDetail::from_row(automation_row(
+    let detail = LibraryTriggerDetail::from_row(trigger_row(
         TriggerType::Word,
         "gm",
         "Good Morning",
@@ -1287,7 +1287,7 @@ fn delete_confirmation_owns_input_and_keeps_search_inactive() {
 #[test]
 fn delete_confirmation_cancel_restores_editor_modal() {
     let mut state = sample_state();
-    let detail = LibraryAutomationDetail::from_row(automation_row(
+    let detail = LibraryTriggerDetail::from_row(trigger_row(
         TriggerType::Word,
         "gm",
         "Good Morning",
@@ -1313,7 +1313,7 @@ fn delete_confirmation_enter_creates_pending_delete() {
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
     let pending = interaction.pending_delete().expect("pending delete");
-    assert_eq!(pending.automation_id, "id-alt+r");
+    assert_eq!(pending.trigger_id, "id-alt+r");
     assert_eq!(pending.restore_index(), 0);
 }
 
@@ -1323,7 +1323,7 @@ fn select_after_delete_chooses_nearest_remaining_item() {
     state.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
     state.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
     state.replace_items(vec![
-        LibraryAutomation::from(list_item(
+        LibraryTrigger::from(list_item(
             "id-gm",
             None,
             TriggerType::Word,
@@ -1334,7 +1334,7 @@ fn select_after_delete_chooses_nearest_remaining_item() {
             9,
             None,
         )),
-        LibraryAutomation::from(list_item(
+        LibraryTrigger::from(list_item(
             "id-deploy",
             None,
             TriggerType::Word,
@@ -1356,7 +1356,7 @@ fn select_after_delete_chooses_nearest_remaining_item() {
 #[test]
 fn tab_and_shift_tab_cycle_modal_focus() {
     let mut modal = LibraryEditorModalState::new_edit(
-        LibraryAutomationDetail::from_row(automation_row(
+        LibraryTriggerDetail::from_row(trigger_row(
             TriggerType::Word,
             "gm",
             "Good Morning",
@@ -1378,7 +1378,7 @@ fn tab_and_shift_tab_cycle_modal_focus() {
 #[test]
 fn content_focus_supports_cursor_navigation() {
     let mut modal = LibraryEditorModalState::new_edit(
-        LibraryAutomationDetail::from_row(automation_row(
+        LibraryTriggerDetail::from_row(trigger_row(
             TriggerType::Word,
             "gm",
             "line one\nline two\nline three",
@@ -1397,9 +1397,9 @@ fn content_focus_supports_cursor_navigation() {
 }
 
 #[test]
-fn editor_modal_initializes_editable_fields_from_selected_automation() {
+fn editor_modal_initializes_editable_fields_from_selected_trigger() {
     let modal = LibraryEditorModalState::new_edit(
-        LibraryAutomationDetail::from_row(automation_row(
+        LibraryTriggerDetail::from_row(trigger_row(
             TriggerType::Hotkey,
             "alt+r",
             "[Script: powershell]",
@@ -1420,7 +1420,7 @@ fn editor_modal_initializes_editable_fields_from_selected_automation() {
 #[test]
 fn editing_trigger_updates_modal_draft_state() {
     let mut modal = LibraryEditorModalState::new_edit(
-        LibraryAutomationDetail::from_row(automation_row(
+        LibraryTriggerDetail::from_row(trigger_row(
             TriggerType::Word,
             "gm",
             "Good Morning",
@@ -1441,7 +1441,7 @@ fn editing_trigger_updates_modal_draft_state() {
 #[test]
 fn editing_content_updates_modal_draft_state() {
     let mut modal = LibraryEditorModalState::new_edit(
-        LibraryAutomationDetail::from_row(automation_row(
+        LibraryTriggerDetail::from_row(trigger_row(
             TriggerType::Word,
             "gm",
             "Good",
@@ -1462,7 +1462,7 @@ fn editing_content_updates_modal_draft_state() {
 #[test]
 fn kind_selector_updates_kind_on_enter() {
     let mut modal = LibraryEditorModalState::new_edit(
-        LibraryAutomationDetail::from_row(automation_row(
+        LibraryTriggerDetail::from_row(trigger_row(
             TriggerType::Word,
             "gm",
             "Good",
@@ -1560,7 +1560,7 @@ fn new_script_mode_defaults_to_inline() {
 #[test]
 fn language_selector_uses_exact_supported_options() {
     let mut modal = LibraryEditorModalState::new_edit(
-        LibraryAutomationDetail::from_row(automation_row(
+        LibraryTriggerDetail::from_row(trigger_row(
             TriggerType::Hotkey,
             "alt+r",
             "[Script: powershell]",
@@ -1588,7 +1588,7 @@ fn language_selector_uses_exact_supported_options() {
 #[test]
 fn mode_selector_uses_exact_supported_options() {
     let mut modal = LibraryEditorModalState::new_edit(
-        LibraryAutomationDetail::from_row(automation_row(
+        LibraryTriggerDetail::from_row(trigger_row(
             TriggerType::Hotkey,
             "alt+r",
             "[Script: powershell]",
@@ -1614,7 +1614,7 @@ fn mode_selector_uses_exact_supported_options() {
 #[test]
 fn selecting_language_updates_draft_language() {
     let mut modal = LibraryEditorModalState::new_edit(
-        LibraryAutomationDetail::from_row(automation_row(
+        LibraryTriggerDetail::from_row(trigger_row(
             TriggerType::Hotkey,
             "alt+r",
             "[Script: powershell]",
@@ -1639,7 +1639,7 @@ fn selecting_language_updates_draft_language() {
 #[test]
 fn selecting_mode_updates_draft_mode() {
     let mut modal = LibraryEditorModalState::new_edit(
-        LibraryAutomationDetail::from_row(automation_row(
+        LibraryTriggerDetail::from_row(trigger_row(
             TriggerType::Hotkey,
             "alt+r",
             "[Script: powershell]",
@@ -1666,7 +1666,7 @@ fn selecting_mode_updates_draft_mode() {
 #[test]
 fn tab_visits_language_and_mode_only_for_script_kinds() {
     let mut modal = LibraryEditorModalState::new_edit(
-        LibraryAutomationDetail::from_row(automation_row(
+        LibraryTriggerDetail::from_row(trigger_row(
             TriggerType::Hotkey,
             "alt+r",
             "[Script: powershell]",
@@ -1718,7 +1718,7 @@ fn typing_j_and_k_in_content_field() {
 #[test]
 fn target_os_selector_updates_target_os_on_enter() {
     let mut modal = LibraryEditorModalState::new_edit(
-        LibraryAutomationDetail::from_row(automation_row(
+        LibraryTriggerDetail::from_row(trigger_row(
             TriggerType::Word,
             "gm",
             "Good",
@@ -1742,9 +1742,9 @@ fn target_os_selector_updates_target_os_on_enter() {
 }
 
 #[test]
-fn ctrl_s_creates_pending_save_for_existing_automation() {
+fn ctrl_s_creates_pending_save_for_existing_trigger() {
     let mut modal = LibraryEditorModalState::new_edit(
-        LibraryAutomationDetail::from_row(automation_row(
+        LibraryTriggerDetail::from_row(trigger_row(
             TriggerType::Hotkey,
             "alt+r",
             "[Script: powershell]",
@@ -1765,7 +1765,7 @@ fn ctrl_s_creates_pending_save_for_existing_automation() {
     assert_eq!(pending.behavior, Some(ScriptBehavior::Silent));
     assert!(matches!(
         pending.mode(),
-        PendingLibrarySaveMode::Update { id, .. } if id == "automation-alt+r"
+        PendingLibrarySaveMode::Update { id, .. } if id == "trigger-alt+r"
     ));
 }
 
@@ -1786,7 +1786,7 @@ fn create_modal_initializes_empty_defaults() {
 }
 
 #[test]
-fn ctrl_s_creates_pending_save_for_new_automation() {
+fn ctrl_s_creates_pending_save_for_new_trigger() {
     let mut modal = LibraryEditorModalState::new_create();
     modal.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
     modal.handle_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE));
@@ -1844,7 +1844,7 @@ fn ctrl_s_for_new_script_captures_language_and_mode() {
 #[test]
 fn editing_existing_script_preserves_language_and_mode() {
     let modal = LibraryEditorModalState::new_edit(
-        LibraryAutomationDetail::from_row(automation_row(
+        LibraryTriggerDetail::from_row(trigger_row(
             TriggerType::Hotkey,
             "alt+r",
             "[Script: powershell]",
@@ -1866,7 +1866,7 @@ fn modal_keeps_library_selection_stable_after_close() {
     state.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
     let selected_before = state.selected_index();
 
-    let detail = LibraryAutomationDetail::from_row(automation_row(
+    let detail = LibraryTriggerDetail::from_row(trigger_row(
         TriggerType::Word,
         "deploy",
         "[Script: bash]",
