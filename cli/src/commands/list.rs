@@ -67,26 +67,12 @@ pub fn execute(
         .iter()
         .map(|item| {
             let display_output = if item.action_type == "script" {
-                let interpreter = match item.interpreter {
-                    Some(taurine_core::engine::shell::ScriptInterpreter::Bash) => "Bash",
-                    Some(taurine_core::engine::shell::ScriptInterpreter::PowerShell) => {
-                        "PowerShell"
-                    }
-                    Some(taurine_core::engine::shell::ScriptInterpreter::Python) => "Python",
-                    Some(taurine_core::engine::shell::ScriptInterpreter::Node) => "Node",
-                    Some(taurine_core::engine::shell::ScriptInterpreter::NodeEsm) => "Node(ESM)",
-                    Some(taurine_core::engine::shell::ScriptInterpreter::Cmd) => "Cmd",
-                    None => "Unknown",
-                };
-                let behavior = match item.behavior {
-                    Some(taurine_core::engine::shell::ScriptBehavior::Inline) => "Inline",
-                    Some(taurine_core::engine::shell::ScriptBehavior::Silent) => "Silent",
-                    None => "Unknown",
-                };
-                format!("{} {}", behavior, interpreter)
+                item.script_content.clone().unwrap_or_default()
             } else {
                 item.output.clone()
-            };
+            }
+            .replace('\r', "")
+            .replace('\n', " ");
 
             let tags: Vec<String> = serde_json::from_str(&item.tags).unwrap_or_default();
             let tags_str = tags.join(", ");
@@ -99,7 +85,7 @@ pub fn execute(
 
             Row {
                 trigger: item.trigger.clone(),
-                output: display_output,
+                output: truncate(&display_output, 60),
                 sort_col,
                 tags: tags_str,
             }
@@ -133,7 +119,7 @@ pub fn execute(
     };
     sw = sw.max(sort_header.len());
 
-    let pad = 2usize;
+    let pad = 3usize;
 
     if sort_header.is_empty() {
         println!(
@@ -161,14 +147,6 @@ pub fn execute(
             sw = sw,
         );
     }
-
-    // Print separator
-    let total_width = if sort_header.is_empty() {
-        tw + pad + ow + pad + taw
-    } else {
-        tw + pad + ow + pad + sw + pad + taw
-    };
-    println!("{}", "-".repeat(total_width));
 
     // Print rows
     for r in &rows {
@@ -203,6 +181,14 @@ pub fn execute(
     }
 
     Ok(())
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max.saturating_sub(3)])
+    }
 }
 
 fn format_relative_time(timestamp: i64) -> String {
@@ -355,6 +341,97 @@ mod tests {
         assert_eq!(format_relative_time(now - 172800), "2d ago");
         assert_eq!(format_relative_time(now - 5184000), "2mo ago");
         assert_eq!(format_relative_time(now - 63072000), "2y ago");
+    }
+
+    #[test]
+    fn test_truncate_short_string() {
+        use super::truncate;
+        assert_eq!(truncate("hello", 60), "hello");
+    }
+
+    #[test]
+    fn test_truncate_long_string() {
+        use super::truncate;
+        let long = "a".repeat(100);
+        assert_eq!(truncate(&long, 60), format!("{}...", "a".repeat(57)));
+    }
+
+    #[test]
+    fn test_truncate_exact_boundary() {
+        use super::truncate;
+        let exact = "a".repeat(60);
+        assert_eq!(truncate(&exact, 60), exact);
+    }
+
+    #[test]
+    fn test_truncate_one_past_boundary() {
+        use super::truncate;
+        let s = "a".repeat(61);
+        assert_eq!(truncate(&s, 60), format!("{}...", "a".repeat(57)));
+    }
+
+    #[test]
+    fn test_script_shows_content_not_label() {
+        let item = TriggerListItem {
+            id: "s1".to_string(),
+            name: "".to_string(),
+            description: Some("script".to_string()),
+            trigger_type: TriggerType::Hotkey,
+            trigger: "test".to_string(),
+            output: "Bash Inline".to_string(),
+            action_type: "script".to_string(),
+            target_os: "all".to_string(),
+            only_apps: None,
+            except_apps: None,
+            usage_count: 0,
+            last_used_at: None,
+            created_at: 0,
+            tags: "[]".to_string(),
+            script_content: Some("echo hello world".to_string()),
+            interpreter: Some(ScriptInterpreter::Bash),
+            behavior: Some(ScriptBehavior::Inline),
+        };
+
+        let display_output = if item.action_type == "script" {
+            item.script_content.clone().unwrap_or_default()
+        } else {
+            item.output.clone()
+        };
+
+        assert_eq!(display_output, "echo hello world");
+        assert_ne!(display_output, "Bash Inline");
+    }
+
+    #[test]
+    fn test_script_content_truncated_in_plain_output() {
+        let item = TriggerListItem {
+            id: "s2".to_string(),
+            name: "".to_string(),
+            description: None,
+            trigger_type: TriggerType::Word,
+            trigger: "long".to_string(),
+            output: "label".to_string(),
+            action_type: "script".to_string(),
+            target_os: "all".to_string(),
+            only_apps: None,
+            except_apps: None,
+            usage_count: 0,
+            last_used_at: None,
+            created_at: 0,
+            tags: "[]".to_string(),
+            script_content: Some("a".repeat(100)),
+            interpreter: Some(ScriptInterpreter::PowerShell),
+            behavior: Some(ScriptBehavior::Silent),
+        };
+
+        let raw = if item.action_type == "script" {
+            item.script_content.clone().unwrap_or_default()
+        } else {
+            item.output.clone()
+        };
+        let truncated = super::truncate(&raw, 60);
+        assert_eq!(truncated.len(), 60);
+        assert!(truncated.ends_with("..."));
     }
 
     #[test]
