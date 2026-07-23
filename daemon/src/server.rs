@@ -3,8 +3,9 @@ use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use taurine_core::engine::EngineState;
 use taurine_core::rpc::{
-    ReloadRequest, ReloadResponse, ShutdownRequest, ShutdownResponse, StatusRequest,
-    StatusResponse, daemon_control_server::DaemonControl,
+    PauseRequest, PauseResponse, ReloadRequest, ReloadResponse, ResumeRequest, ResumeResponse,
+    ShutdownRequest, ShutdownResponse, StatusRequest, StatusResponse,
+    daemon_control_server::DaemonControl,
 };
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
@@ -30,6 +31,7 @@ pub struct DaemonService {
     hook_health: crate::hook_health::HookHealth,
     active_rpc_settings: Arc<RwLock<RpcServerSettings>>,
     rpc_reload_sender: mpsc::Sender<()>,
+    pause_transition_tx: mpsc::Sender<bool>,
 }
 
 impl DaemonService {
@@ -50,6 +52,7 @@ pub struct DaemonServiceBuilder {
     hook_health: Option<crate::hook_health::HookHealth>,
     active_rpc_settings: Option<Arc<RwLock<RpcServerSettings>>>,
     rpc_reload_sender: Option<mpsc::Sender<()>>,
+    pause_transition_tx: Option<mpsc::Sender<bool>>,
 }
 
 impl Default for DaemonServiceBuilder {
@@ -72,6 +75,7 @@ impl DaemonServiceBuilder {
             hook_health: None,
             active_rpc_settings: None,
             rpc_reload_sender: None,
+            pause_transition_tx: None,
         }
     }
 
@@ -133,6 +137,11 @@ impl DaemonServiceBuilder {
         self
     }
 
+    pub fn pause_transition_tx(mut self, tx: mpsc::Sender<bool>) -> Self {
+        self.pause_transition_tx = Some(tx);
+        self
+    }
+
     pub fn build(self) -> DaemonService {
         DaemonService {
             shutdown_sender: self.shutdown_sender.expect("shutdown_sender is required"),
@@ -158,6 +167,9 @@ impl DaemonServiceBuilder {
             rpc_reload_sender: self
                 .rpc_reload_sender
                 .expect("rpc_reload_sender is required"),
+            pause_transition_tx: self
+                .pause_transition_tx
+                .expect("pause_transition_tx is required"),
         }
     }
 }
@@ -333,6 +345,30 @@ impl DaemonControl for DaemonService {
         debug!("Successfully reloaded snippets and settings into service.");
         Ok(Response::new(ReloadResponse { success: true }))
     }
+
+    async fn pause(
+        &self,
+        _request: Request<PauseRequest>,
+    ) -> Result<Response<PauseResponse>, Status> {
+        debug!("Received gRPC pause request.");
+        let was_paused = self.paused.swap(true, Ordering::Relaxed);
+        if !was_paused {
+            let _ = self.pause_transition_tx.try_send(true);
+        }
+        Ok(Response::new(PauseResponse { success: true }))
+    }
+
+    async fn resume(
+        &self,
+        _request: Request<ResumeRequest>,
+    ) -> Result<Response<ResumeResponse>, Status> {
+        debug!("Received gRPC resume request.");
+        let was_paused = self.paused.swap(false, Ordering::Relaxed);
+        if was_paused {
+            let _ = self.pause_transition_tx.try_send(false);
+        }
+        Ok(Response::new(ResumeResponse { success: true }))
+    }
 }
 
 #[cfg(test)]
@@ -378,6 +414,7 @@ mod tests {
             rpc_token: String::new(),
         }));
 
+        let (pause_tx, _pause_rx) = mpsc::channel(1);
         let service = DaemonService::builder()
             .shutdown_sender(tx)
             .state(state.clone())
@@ -392,6 +429,7 @@ mod tests {
             .hook_health(crate::hook_health::HookHealth::new())
             .active_rpc_settings(active_rpc_settings)
             .rpc_reload_sender(reload_tx)
+            .pause_transition_tx(pause_tx)
             .build();
 
         // Initially state should be empty

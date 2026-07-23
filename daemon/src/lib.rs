@@ -20,6 +20,7 @@ mod injector;
 mod notify;
 pub mod platform;
 mod server;
+mod tray;
 
 pub use server::DaemonService;
 
@@ -219,6 +220,9 @@ pub fn start() -> taurine_core::error::Result<()> {
     // 4. Start audio worker
     audio::start_worker(audio_rx);
 
+    // 5. Start system tray icon
+    let _tray_handle = crate::tray::spawn(paused.clone());
+
     // Activate daemon file logging immediately after hook thread starts capturing
     let guard = taurine_core::logs::activate_file_logging();
     let _ = FILE_LOG_GUARD.set(guard);
@@ -231,9 +235,15 @@ pub fn start() -> taurine_core::error::Result<()> {
     let _ = TOKIO_HANDLE.set(rt.handle().clone());
 
     let run_result = rt.block_on(async move {
+        let shutdown_requested = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let rpc_reload_requested = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+
         let evaluator_for_coordinator = evaluator.clone();
         #[cfg(any(windows, target_os = "linux"))]
         let state_for_coordinator = state.clone();
+        let pause_notifications_enabled_for_coordinator = pause_notifications_enabled.clone();
+        let pause_audio_enabled_for_coordinator = pause_audio_enabled.clone();
+        let audio_tx_for_coordinator = audio_tx.clone();
         tokio::spawn(async move {
             while let Some(is_paused) = pause_transition_rx.recv().await {
                 if is_paused {
@@ -264,6 +274,13 @@ pub fn start() -> taurine_core::error::Result<()> {
                     #[cfg(target_os = "linux")]
                     crate::platform::linux::toplevel::start_listener(state_for_coordinator.clone());
                 }
+
+                if pause_notifications_enabled_for_coordinator.load(Ordering::Relaxed) {
+                    notify::notify_pause_toggled(is_paused);
+                }
+                if pause_audio_enabled_for_coordinator.load(Ordering::Relaxed) {
+                    let _ = audio_tx_for_coordinator.try_send(is_paused);
+                }
             }
         });
 
@@ -277,9 +294,6 @@ pub fn start() -> taurine_core::error::Result<()> {
                 rpc_port: settings.rpc_port,
                 rpc_token: settings.rpc_token.clone(),
             }));
-
-        let shutdown_requested = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let rpc_reload_requested = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         loop {
             let shutdown_requested_clone = shutdown_requested.clone();
@@ -312,6 +326,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                 .hook_health(hook_health.clone())
                 .active_rpc_settings(active_rpc_settings.clone())
                 .rpc_reload_sender(rpc_reload_tx.clone())
+                .pause_transition_tx(pause_transition_tx.clone())
                 .build();
 
             let current_rpc = {
@@ -647,4 +662,15 @@ impl tokio::io::AsyncWrite for NamedPipeConn {
 impl tonic::transport::server::Connected for NamedPipeConn {
     type ConnectInfo = ();
     fn connect_info(&self) -> Self::ConnectInfo {}
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn test_tray_module_exists() {
+        let paused = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        let _ = crate::tray::spawn(paused);
+    }
 }

@@ -23,6 +23,7 @@ zeroize = "1.8"
 rodio = { version = "0.22", default-features = false, features = ["wav", "playback"] }
 os_info = "3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+tray-icon = "0.24"
 unicode-normalization = "0.1"
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]

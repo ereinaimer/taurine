@@ -6,6 +6,8 @@ service DaemonControl {
     rpc GetStatus (StatusRequest) returns (StatusResponse);
     rpc Shutdown (ShutdownRequest) returns (ShutdownResponse);
     rpc Reload (ReloadRequest) returns (ReloadResponse);
+    rpc Pause (PauseRequest) returns (PauseResponse);
+    rpc Resume (ResumeRequest) returns (ResumeResponse);
 }
 
 message StatusRequest {}
@@ -31,5 +33,15 @@ message ShutdownResponse {
 message ReloadRequest {}
 
 message ReloadResponse {
+    bool success = 1;
+}
+
+message PauseRequest {}
+message PauseResponse {
+    bool success = 1;
+}
+
+message ResumeRequest {}
+message ResumeResponse {
     bool success = 1;
 }

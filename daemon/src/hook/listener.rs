@@ -124,11 +124,11 @@ pub(super) fn run_listener_once(
     evaluator: Arc<Mutex<Evaluator>>,
     state: Arc<taurine_core::engine::EngineState>,
     paused: Arc<std::sync::atomic::AtomicBool>,
-    pause_notifications_enabled: Arc<std::sync::atomic::AtomicBool>,
+    _pause_notifications_enabled: Arc<std::sync::atomic::AtomicBool>,
     pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
-    pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
-    audio_tx: tokio::sync::mpsc::Sender<bool>,
+    _pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
+    _audio_tx: tokio::sync::mpsc::Sender<bool>,
     pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
     hook_health: Option<HookHealth>,
 ) -> Result<u64, String> {
@@ -297,13 +297,6 @@ pub(super) fn run_listener_once(
 
                 // Notify coordinator
                 let _ = pause_transition_tx.try_send(now_paused);
-
-                if pause_notifications_enabled.load(Ordering::Relaxed) {
-                    notify::notify_pause_toggled(now_paused);
-                }
-                if pause_audio_enabled.load(Ordering::Relaxed) {
-                    let _ = audio_tx.try_send(now_paused);
-                }
             }
             return None;
         }

@@ -368,13 +368,6 @@ fn process_frame(
 
                 // Notify coordinator
                 let _ = pause_transition_tx.try_send(now_paused);
-
-                if pause_notifications_enabled.load(Ordering::Relaxed) {
-                    notify::notify_pause_toggled(now_paused);
-                }
-                if pause_audio_enabled.load(Ordering::Relaxed) {
-                    let _ = audio_tx.try_send(now_paused);
-                }
             }
             continue;
         }
