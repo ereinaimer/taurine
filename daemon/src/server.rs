@@ -28,6 +28,7 @@ pub struct DaemonService {
     pause_hotkey_display: Arc<RwLock<String>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<AtomicBool>,
+    system_tray_enabled: Arc<AtomicBool>,
     hook_health: crate::hook_health::HookHealth,
     active_rpc_settings: Arc<RwLock<RpcServerSettings>>,
     rpc_reload_sender: mpsc::Sender<()>,
@@ -49,6 +50,7 @@ pub struct DaemonServiceBuilder {
     pause_hotkey_display: Option<Arc<RwLock<String>>>,
     spinner_style: Option<Arc<RwLock<taurine_core::settings::SpinnerStyle>>>,
     pause_audio_enabled: Option<Arc<AtomicBool>>,
+    system_tray_enabled: Option<Arc<AtomicBool>>,
     hook_health: Option<crate::hook_health::HookHealth>,
     active_rpc_settings: Option<Arc<RwLock<RpcServerSettings>>>,
     rpc_reload_sender: Option<mpsc::Sender<()>>,
@@ -72,6 +74,7 @@ impl DaemonServiceBuilder {
             pause_hotkey_display: None,
             spinner_style: None,
             pause_audio_enabled: None,
+            system_tray_enabled: None,
             hook_health: None,
             active_rpc_settings: None,
             rpc_reload_sender: None,
@@ -122,6 +125,11 @@ impl DaemonServiceBuilder {
         self
     }
 
+    pub fn system_tray_enabled(mut self, enabled: Arc<AtomicBool>) -> Self {
+        self.system_tray_enabled = Some(enabled);
+        self
+    }
+
     pub fn hook_health(mut self, hook_health: crate::hook_health::HookHealth) -> Self {
         self.hook_health = Some(hook_health);
         self
@@ -160,6 +168,9 @@ impl DaemonServiceBuilder {
             pause_audio_enabled: self
                 .pause_audio_enabled
                 .expect("pause_audio_enabled is required"),
+            system_tray_enabled: self
+                .system_tray_enabled
+                .expect("system_tray_enabled is required"),
             hook_health: self.hook_health.expect("hook_health is required"),
             active_rpc_settings: self
                 .active_rpc_settings
@@ -303,6 +314,9 @@ impl DaemonControl for DaemonService {
             self.pause_audio_enabled
                 .store(settings.pause_audio_enabled, Ordering::Relaxed);
 
+            self.system_tray_enabled
+                .store(settings.system_tray_enabled, Ordering::Relaxed);
+
             // Update pause hotkey spec (RwLock)
             if let Some(spec) = crate::hotkey::parse_pause_hotkey_setting(&settings.pause_hotkey)
                 && let Ok(mut lock) = self.pause_hotkey_spec.write()
@@ -426,6 +440,7 @@ mod tests {
                 taurine_core::settings::SpinnerStyle::default(),
             )))
             .pause_audio_enabled(Arc::new(AtomicBool::new(true)))
+            .system_tray_enabled(Arc::new(AtomicBool::new(true)))
             .hook_health(crate::hook_health::HookHealth::new())
             .active_rpc_settings(active_rpc_settings)
             .rpc_reload_sender(reload_tx)

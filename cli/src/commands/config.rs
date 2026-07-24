@@ -26,6 +26,10 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
         ),
         ("start_on_boot", settings.start_on_boot.to_string()),
         (
+            "system_tray_enabled",
+            settings.system_tray_enabled.to_string(),
+        ),
+        (
             "inline_tab_completion_enabled",
             settings.inline_tab_completion_enabled.to_string(),
         ),
@@ -187,7 +191,8 @@ pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::erro
         | "triggerless_mode"
         | "instant_expand"
         | "clipboard_history_enabled"
-        | "scripts_enabled" => {
+        | "scripts_enabled"
+        | "system_tray_enabled" => {
             let b = parse_boolean_setting_value(&value)?;
             manager.update_setting(actual_key, b)?;
             info!("Updated {} to: {}", actual_key, b);
@@ -471,6 +476,13 @@ pub fn execute_reset(key: String, json: bool) -> taurine_core::error::Result<()>
                 defaults.scripts_enabled
             );
         }
+        "system_tray_enabled" => {
+            manager.update_setting(actual_key, defaults.system_tray_enabled)?;
+            info!(
+                "Reset system_tray_enabled to default: {}",
+                defaults.system_tray_enabled
+            );
+        }
         "ai_provider" => {
             manager.update_setting(actual_key, defaults.ai_provider.clone())?;
             info!("Reset ai_provider to default: <unset>");
@@ -579,6 +591,7 @@ pub fn execute_reset_all(json: bool) -> taurine_core::error::Result<()> {
     )?;
     manager.update_setting("pause_audio_enabled", defaults.pause_audio_enabled)?;
     manager.update_setting("start_on_boot", defaults.start_on_boot)?;
+    manager.update_setting("system_tray_enabled", defaults.system_tray_enabled)?;
     manager.update_setting(
         "inline_tab_completion_enabled",
         defaults.inline_tab_completion_enabled,
@@ -696,10 +709,12 @@ mod tests {
         assert!(map.contains_key("spinner_style"));
         assert!(map.contains_key("rpc_mode"));
         assert!(map.contains_key("script_timeout"));
+        assert!(map.contains_key("system_tray_enabled"));
 
         assert_eq!(map["trigger_char"], ">");
         assert_eq!(map["wpm"], 60);
         assert_eq!(map["rpc_mode"], "socket");
+        assert_eq!(map["system_tray_enabled"], true);
     }
 
     #[test]

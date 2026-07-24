@@ -230,6 +230,12 @@ impl<'a> SettingsManager<'a> {
             settings.scripts_enabled = v;
         }
 
+        if let Some(val) = map.get("system_tray_enabled")
+            && let Ok(v) = serde_json::from_str::<bool>(val)
+        {
+            settings.system_tray_enabled = v;
+        }
+
         if settings.rpc_token.is_empty() {
             let token = uuid::Uuid::new_v4().to_string();
             settings.rpc_token = token.clone();
@@ -271,5 +277,18 @@ mod tests {
         let settings = manager.load_all();
         assert!(!settings.inline_tab_completion_enabled);
         assert!(!settings.inline_history_enabled);
+    }
+
+    #[test]
+    fn load_all_reads_system_tray_enabled_from_db() {
+        let (_dir, conn) = open_test_db();
+        let manager = SettingsManager::new(&conn);
+
+        manager
+            .update_setting("system_tray_enabled", false)
+            .unwrap();
+
+        let settings = manager.load_all();
+        assert!(!settings.system_tray_enabled);
     }
 }

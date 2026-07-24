@@ -156,6 +156,7 @@ pub struct Settings {
     pub inline_emoji_enabled: bool,
     pub inline_emoji_trigger_char: char,
     pub scripts_enabled: bool,
+    pub system_tray_enabled: bool,
 }
 
 impl Settings {
@@ -210,6 +211,7 @@ impl Settings {
             "inline_emoji" | "inline_emoji_enabled" => "inline_emoji_enabled",
             "inline_emoji_trigger_char" | "emoji_trigger" => "inline_emoji_trigger_char",
             "scripts_enabled" => "scripts_enabled",
+            "system_tray" | "system_tray_enabled" | "tray" => "system_tray_enabled",
             _ => key,
         }
     }
@@ -313,6 +315,7 @@ impl Default for Settings {
             inline_emoji_enabled: true,
             inline_emoji_trigger_char: ':',
             scripts_enabled: true,
+            system_tray_enabled: true,
         }
     }
 }
@@ -332,5 +335,10 @@ mod tests {
         assert_eq!(Settings::sanitize_wpm(0), 60);
         assert_eq!(Settings::sanitize_wpm(120), 120);
         assert_eq!(Settings::sanitize_wpm(200), 150);
+    }
+
+    #[test]
+    fn test_system_tray_enabled_default_is_true() {
+        assert!(Settings::default().system_tray_enabled);
     }
 }

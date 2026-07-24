@@ -31,7 +31,7 @@ fn initialize_windows_ui() {
     }
 }
 
-pub fn spawn(paused: Arc<AtomicBool>) -> JoinHandle<()> {
+pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> JoinHandle<()> {
     std::thread::Builder::new()
         .name("tau-tray".to_string())
         .spawn(move || {
@@ -52,6 +52,8 @@ pub fn spawn(paused: Arc<AtomicBool>) -> JoinHandle<()> {
                 .build()
                 .expect("system tray init");
 
+            let _ = _tray.set_visible(system_tray_enabled.load(Ordering::Relaxed));
+
             let menu_rx = MenuEvent::receiver();
             let _tray_rx = TrayIconEvent::receiver();
 
@@ -63,7 +65,15 @@ pub fn spawn(paused: Arc<AtomicBool>) -> JoinHandle<()> {
 
                 let mut msg = unsafe { std::mem::zeroed() };
                 let mut last_paused = None;
+                let mut last_visible = None;
                 loop {
+                    // Update tray visibility based on settings
+                    let now_visible = system_tray_enabled.load(Ordering::Relaxed);
+                    if last_visible != Some(now_visible) {
+                        last_visible = Some(now_visible);
+                        let _ = _tray.set_visible(now_visible);
+                    }
+
                     unsafe {
                         while PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) > 0 {
                             TranslateMessage(&msg);
@@ -99,7 +109,15 @@ pub fn spawn(paused: Arc<AtomicBool>) -> JoinHandle<()> {
             #[cfg(not(target_os = "windows"))]
             {
                 let mut last_paused = None;
+                let mut last_visible = None;
                 loop {
+                    // Update tray visibility based on settings
+                    let now_visible = system_tray_enabled.load(Ordering::Relaxed);
+                    if last_visible != Some(now_visible) {
+                        last_visible = Some(now_visible);
+                        let _ = _tray.set_visible(now_visible);
+                    }
+
                     pump_platform_events();
 
                     while let Ok(event) = menu_rx.try_recv() {
@@ -223,5 +241,15 @@ mod tests {
             !should_continue,
             "Quit event should signal loop to terminate"
         );
+    }
+
+    #[test]
+    fn test_tray_spawn_with_visibility() {
+        let paused = Arc::new(AtomicBool::new(false));
+        let enabled = Arc::new(AtomicBool::new(false));
+        // Verify it spawns a thread successfully without panic
+        let handle = spawn(paused, enabled);
+        // Note: we can't block on the handle as it runs forever, but we can verify it was returned.
+        assert!(!handle.thread().name().unwrap().is_empty());
     }
 }

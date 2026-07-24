@@ -58,6 +58,11 @@ pub fn ensure_defaults(conn: &Connection) -> Result<()> {
         upsert_setting(conn, "ignore_fullscreen", "true")?;
     }
 
+    if !existing.contains_key("system_tray_enabled") {
+        debug!("Default 'system_tray_enabled' missing. Seeding database with 'true'.");
+        upsert_setting(conn, "system_tray_enabled", "true")?;
+    }
+
     Ok(())
 }
 

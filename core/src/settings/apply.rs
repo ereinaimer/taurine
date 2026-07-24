@@ -90,6 +90,7 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "inline_emoji_enabled" => Ok(Some(defaults.inline_emoji_enabled.to_string())),
         "inline_emoji_trigger_char" => Ok(Some(defaults.inline_emoji_trigger_char.to_string())),
         "scripts_enabled" => Ok(Some(defaults.scripts_enabled.to_string())),
+        "system_tray_enabled" => Ok(Some(defaults.system_tray_enabled.to_string())),
         _ => Err(Error::Config(format!("Unknown setting key: {actual_key}"))),
     }
 }
@@ -119,7 +120,8 @@ pub fn apply_setting_input_with_manager(
         | "inline_tab_completion_enabled"
         | "inline_history_enabled"
         | "ignore_fullscreen"
-        | "scripts_enabled" => {
+        | "scripts_enabled"
+        | "system_tray_enabled" => {
             manager.update_setting(
                 actual_key,
                 parse_boolean_setting_value(require_non_empty(value, actual_key)?)?,
@@ -551,5 +553,15 @@ mod tests {
 
         assert!(!crate::settings::get_cached_inline_emoji_enabled());
         assert_eq!(crate::settings::get_cached_inline_emoji_trigger_char(), ';');
+    }
+
+    #[test]
+    fn toggling_system_tray_enabled_persists_changed_value() {
+        let (_dir, conn) = open_test_db();
+        let manager = SettingsManager::new(&conn);
+
+        apply_setting_input_with_manager(&manager, "system_tray_enabled", Some("false")).unwrap();
+
+        assert!(!manager.load_all().system_tray_enabled);
     }
 }

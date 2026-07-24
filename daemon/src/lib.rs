@@ -115,6 +115,9 @@ pub fn start() -> taurine_core::error::Result<()> {
     let pause_audio_enabled = Arc::new(std::sync::atomic::AtomicBool::new(
         settings.pause_audio_enabled,
     ));
+    let system_tray_enabled = Arc::new(std::sync::atomic::AtomicBool::new(
+        settings.system_tray_enabled,
+    ));
     let hook_health = hook_health::HookHealth::new();
 
     let (audio_tx, audio_rx) = audio::create_channel();
@@ -221,7 +224,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     audio::start_worker(audio_rx);
 
     // 5. Start system tray icon
-    let _tray_handle = crate::tray::spawn(paused.clone());
+    let _tray_handle = crate::tray::spawn(paused.clone(), system_tray_enabled.clone());
 
     // Activate daemon file logging immediately after hook thread starts capturing
     let guard = taurine_core::logs::activate_file_logging();
@@ -323,6 +326,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                 .pause_hotkey_display(pause_hotkey.clone())
                 .spinner_style(spinner_style.clone())
                 .pause_audio_enabled(pause_audio_enabled.clone())
+                .system_tray_enabled(system_tray_enabled.clone())
                 .hook_health(hook_health.clone())
                 .active_rpc_settings(active_rpc_settings.clone())
                 .rpc_reload_sender(rpc_reload_tx.clone())
@@ -670,7 +674,8 @@ mod tests {
     #[test]
     fn test_tray_module_exists() {
         let paused = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let enabled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
 
-        let _ = crate::tray::spawn(paused);
+        let _ = crate::tray::spawn(paused, enabled);
     }
 }

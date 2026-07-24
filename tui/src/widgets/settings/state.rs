@@ -45,10 +45,11 @@ pub(crate) enum SettingKey {
     ClipboardHistoryRetentionSecs,
     InlineEmojiEnabled,
     InlineEmojiTriggerChar,
+    SystemTrayEnabled,
 }
 
 impl SettingKey {
-    pub(crate) const ALL: [Self; 35] = [
+    pub(crate) const ALL: [Self; 36] = [
         Self::TriggerChar,
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
@@ -84,6 +85,7 @@ impl SettingKey {
         Self::ClipboardHistoryRetentionSecs,
         Self::InlineEmojiEnabled,
         Self::InlineEmojiTriggerChar,
+        Self::SystemTrayEnabled,
     ];
 
     pub(crate) const fn storage_key(self) -> &'static str {
@@ -123,6 +125,7 @@ impl SettingKey {
             Self::ClipboardHistoryRetentionSecs => "clipboard_history_retention_secs",
             Self::InlineEmojiEnabled => "inline_emoji_enabled",
             Self::InlineEmojiTriggerChar => "inline_emoji_trigger_char",
+            Self::SystemTrayEnabled => "system_tray_enabled",
         }
     }
 
@@ -163,6 +166,7 @@ impl SettingKey {
             Self::ClipboardHistoryRetentionSecs => "Clipboard History Retention (s)",
             Self::InlineEmojiEnabled => "Inline Emoji",
             Self::InlineEmojiTriggerChar => "Inline Emoji Trigger Character",
+            Self::SystemTrayEnabled => "System Tray Icon",
         }
     }
 
@@ -231,6 +235,7 @@ impl SettingKey {
             }
             Self::InlineEmojiEnabled => "Enable inline emoji picker and completion",
             Self::InlineEmojiTriggerChar => "The character used to trigger the inline emoji picker",
+            Self::SystemTrayEnabled => "Enable the system tray icon when the service is running",
         }
     }
 
@@ -247,7 +252,8 @@ impl SettingKey {
             | Self::IgnoreFullscreen
             | Self::ScriptsEnabled
             | Self::ClipboardHistoryEnabled
-            | Self::InlineEmojiEnabled => EditorKind::Toggle,
+            | Self::InlineEmojiEnabled
+            | Self::SystemTrayEnabled => EditorKind::Toggle,
             Self::Wpm
             | Self::ClipboardRestoreDelayMs
             | Self::RpcPort
@@ -330,6 +336,7 @@ impl SettingKey {
             }
             Self::InlineEmojiEnabled => settings.inline_emoji_enabled.to_string(),
             Self::InlineEmojiTriggerChar => settings.inline_emoji_trigger_char.to_string(),
+            Self::SystemTrayEnabled => settings.system_tray_enabled.to_string(),
         }
     }
 
@@ -366,7 +373,8 @@ impl SettingKey {
             | Self::ClipboardHistoryEnabled
             | Self::ClipboardHistoryRetentionSecs
             | Self::InlineEmojiEnabled
-            | Self::InlineEmojiTriggerChar => self.display_value(settings),
+            | Self::InlineEmojiTriggerChar
+            | Self::SystemTrayEnabled => self.display_value(settings),
             Self::AiTemperature => {
                 optional_value_label(settings.ai_temperature.map(|v| v.to_string()).as_deref())
                     .to_string()
@@ -544,6 +552,7 @@ impl SettingsPageState {
                 (!self.settings.clipboard_history_enabled).to_string()
             }
             SettingKey::InlineEmojiEnabled => (!self.settings.inline_emoji_enabled).to_string(),
+            SettingKey::SystemTrayEnabled => (!self.settings.system_tray_enabled).to_string(),
             _ => return SettingsInteraction::handled(),
         };
 
