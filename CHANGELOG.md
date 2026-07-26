@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Tag Normalization**: Tags are trimmed, lowercased, and deduplicated on save. Maximum 20 tags per trigger, 50 characters per tag.
 - **Duplicate Name Warning**: Warn when creating or updating a trigger whose display name is already used by another trigger.
 - **Unicode Normalization**: NFC-normalize trigger strings and keyboard input for reliable matching of accented characters across different input methods.
+- **Color Conversion Transformers**: Convert text and clipboard colors between Hex, RGB, and HSL formats natively.
 
 ### Changed
 - **Plain Output as Default**: Removed table borders from `list` and `config list` commands. Output is now plain text by default (`--plain` flag removed).

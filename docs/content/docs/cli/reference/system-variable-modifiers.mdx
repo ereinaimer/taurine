@@ -122,6 +122,15 @@ These can be appended to **any** variable (system or custom) using Unix pipe syn
   - `url.clean`: Strips tracking and query parameters from a URL.
 </Accordion>
 
+<Accordion title="Color Conversion">
+  Auto-detects and converts color formats compliant with W3C CSS Color Level 4:
+  - `color.hex`: Formats as uppercase Hex (e.g. `#FF0000` or `#FF00007F`).
+  - `color.rgb`: Formats as `rgb(R, G, B)` or `rgba(R, G, B, A)`.
+  - `color.rgba`: Formats as `rgba(R, G, B, A)`.
+  - `color.hsl`: Formats as `hsl(H, S%, L%)` or `hsla(H, S%, L%, A)`.
+  - `color.hsla`: Formats as `hsla(H, S%, L%, A)`.
+</Accordion>
+
 <Accordion title="Text & Line Utilities">
   - `wordcount`: Returns the number of whitespace-separated words (e.g. `[clip | wordcount]`).
   - `linecount`: Returns the total number of lines (e.g. `[clip | linecount]`).

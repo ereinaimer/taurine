@@ -1,6 +1,7 @@
 pub mod ai;
 mod calc;
 mod case;
+pub mod color;
 mod crypto;
 mod encoding;
 mod extractors;
@@ -59,6 +60,11 @@ pub const TRANSFORMERS: &[&str] = &[
     "joinline",
     "splitline",
     "compactline",
+    "color.hex",
+    "color.rgb",
+    "color.rgba",
+    "color.hsl",
+    "color.hsla",
     "quote",
     "squote",
     "backtick",
@@ -143,6 +149,7 @@ pub fn apply(transformer: &str, content: &str) -> Option<String> {
         .or_else(|| crypto::apply(parsed.name, &parsed.args, content))
         .or_else(|| lines::apply(parsed.name, &parsed.args, content))
         .or_else(|| formatting::apply(parsed.name, &parsed.args, content))
+        .or_else(|| color::apply(parsed.name, &parsed.args, content))
         .or_else(|| calc::apply(parsed.name, &parsed.args, content))
         .or_else(|| ai::apply(parsed.name, &parsed.args, content))
         .or_else(|| extractors::apply(parsed.name, &parsed.args, content))
@@ -288,5 +295,17 @@ mod tests {
         );
         assert_eq!(apply("substring(1, 3)", "aßc"), Some("ßc".to_string()));
         assert_eq!(apply("length", "aßc"), Some("3".to_string()));
+    }
+
+    #[test]
+    fn test_color_transformer_integration() {
+        assert_eq!(
+            apply("color.hex", "rgb(255, 0, 0)"),
+            Some("#FF0000".to_string())
+        );
+        assert_eq!(
+            apply("color.rgb", "#ff0000"),
+            Some("rgb(255, 0, 0)".to_string())
+        );
     }
 }

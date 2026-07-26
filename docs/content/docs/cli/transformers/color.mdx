@@ -1,0 +1,16 @@
+---
+title: Color Conversion
+description: Auto-detect and convert between CSS color formats (Hex, RGB, HSL).
+---
+
+Color transformers allow you to automatically parse color values from any source (like the clipboard) and convert them into your target format. All converters are W3C CSS Color Module Level 4 compliant.
+
+### Transformers
+
+| Transformer | Description | Example |
+| :--- | :--- | :--- |
+| `color.hex` | Formats as uppercase Hex (adds alpha if < 1.0) | `rgb(255, 0, 0)` → `#FF0000` |
+| `color.rgb` | Formats as `rgb()` (falls back to `rgba()` if alpha < 1.0) | `#FF00007F` → `rgba(255, 0, 0, 0.498)` |
+| `color.rgba` | Formats as `rgba()` | `red` → `rgba(255, 0, 0, 1)` |
+| `color.hsl` | Formats as `hsl()` (falls back to `hsla()` if alpha < 1.0) | `#00FF00` → `hsl(120, 100%, 50%)` |
+| `color.hsla` | Formats as `hsla()` | `rgb(0, 0, 255)` → `hsla(240, 100%, 50%, 1)` |

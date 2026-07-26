@@ -10,6 +10,7 @@
     "data-extractors",
     "json",
     "formatting",
+    "color",
     "encoding",
     "hashing",
     "lines",
