@@ -740,23 +740,30 @@ impl Evaluator {
             .load(std::sync::atomic::Ordering::Relaxed);
 
         // Try inline unit conversion fallback (disabled in instant expand mode)
-        if !instant_expand
-            && let Some(word) = self.buffer.extract_tail_word()
-            && crate::engine::conversion::is_conversion_pattern(&word)
-            && let Some(result_text) = crate::engine::conversion::convert(&word, &self.state)
-        {
-            let delete_count = word.chars().count();
-            self.buffer.clear();
-            return Some(ExpansionResult {
-                delete_count,
-                steps: vec![ExpansionStep::Text(result_text)],
-                trigger: word.clone(),
-                undo_trigger: Some(word),
-                is_calculation: true,
-                stat_kind: TriggerStatKind::Calculation,
-                track_usage: true,
-                follow_up: None,
-            });
+        if !instant_expand && let Some(word) = self.buffer.extract_tail_word() {
+            let (cleaned_word, intervals) = crate::engine::comma::preprocess(&word);
+            if crate::engine::conversion::is_conversion_pattern(&cleaned_word)
+                && let Some(result_text) =
+                    crate::engine::conversion::convert(&cleaned_word, &self.state)
+            {
+                let formatted = if let Some(ref ivs) = intervals {
+                    crate::engine::comma::format_result(&result_text, ivs)
+                } else {
+                    result_text
+                };
+                let delete_count = word.chars().count();
+                self.buffer.clear();
+                return Some(ExpansionResult {
+                    delete_count,
+                    steps: vec![ExpansionStep::Text(formatted)],
+                    trigger: word.clone(),
+                    undo_trigger: Some(word),
+                    is_calculation: true,
+                    stat_kind: TriggerStatKind::Calculation,
+                    track_usage: true,
+                    follow_up: None,
+                });
+            }
         }
 
         if let Some(keyword) = self.buffer.extract_trigger_word(trigger_char, allow_spaces)
@@ -2753,6 +2760,33 @@ mod tests {
                 "https://github.com/ereinaimer/taurine".to_string()
             )]
         );
+    }
+
+    #[test]
+    fn test_inline_conversion_with_commas() {
+        let state = Arc::new(EngineState::new('>'));
+        let mut eval = Evaluator::new(state);
+
+        let input = "100,000c=f ";
+        let mut last_result = None;
+
+        for c in input.chars() {
+            if let Some(res) = eval.process(if c == ' ' {
+                EngineEvent::ActionKey
+            } else {
+                EngineEvent::Char(c)
+            }) {
+                last_result = Some(res);
+            }
+        }
+
+        let result = last_result.expect("Conversion expansion should have triggered");
+        assert_eq!(
+            result.steps,
+            vec![ExpansionStep::Text("180,032f".to_string())]
+        );
+        assert_eq!(result.trigger, "100,000c=f");
+        assert_eq!(result.undo_trigger.as_deref(), Some("100,000c=f"));
     }
 
     #[test]

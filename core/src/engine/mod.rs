@@ -1,6 +1,7 @@
 pub mod ai_session;
 pub mod buffer;
 pub mod catalog;
+pub mod comma;
 pub mod conversion;
 pub mod dates;
 pub mod emoji;
