@@ -46,10 +46,15 @@ pub(crate) enum SettingKey {
     InlineEmojiEnabled,
     InlineEmojiTriggerChar,
     SystemTrayEnabled,
+    InlineDatetimeEnabled,
+    InlineDatetimeDateFormat,
+    InlineDatetimeTimeFormat,
+    InlineDatetimeDatetimeFormat,
+    InlineDatetimeDialect,
 }
 
 impl SettingKey {
-    pub(crate) const ALL: [Self; 36] = [
+    pub(crate) const ALL: [Self; 41] = [
         Self::TriggerChar,
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
@@ -86,6 +91,11 @@ impl SettingKey {
         Self::InlineEmojiEnabled,
         Self::InlineEmojiTriggerChar,
         Self::SystemTrayEnabled,
+        Self::InlineDatetimeEnabled,
+        Self::InlineDatetimeDateFormat,
+        Self::InlineDatetimeTimeFormat,
+        Self::InlineDatetimeDatetimeFormat,
+        Self::InlineDatetimeDialect,
     ];
 
     pub(crate) const fn storage_key(self) -> &'static str {
@@ -126,6 +136,11 @@ impl SettingKey {
             Self::InlineEmojiEnabled => "inline_emoji_enabled",
             Self::InlineEmojiTriggerChar => "inline_emoji_trigger_char",
             Self::SystemTrayEnabled => "system_tray_enabled",
+            Self::InlineDatetimeEnabled => "inline_datetime_enabled",
+            Self::InlineDatetimeDateFormat => "inline_datetime_date_format",
+            Self::InlineDatetimeTimeFormat => "inline_datetime_time_format",
+            Self::InlineDatetimeDatetimeFormat => "inline_datetime_datetime_format",
+            Self::InlineDatetimeDialect => "inline_datetime_dialect",
         }
     }
 
@@ -167,6 +182,11 @@ impl SettingKey {
             Self::InlineEmojiEnabled => "Inline Emoji",
             Self::InlineEmojiTriggerChar => "Inline Emoji Trigger Character",
             Self::SystemTrayEnabled => "System Tray Icon",
+            Self::InlineDatetimeEnabled => "Inline Date & Time",
+            Self::InlineDatetimeDateFormat => "Date Format",
+            Self::InlineDatetimeTimeFormat => "Time Format",
+            Self::InlineDatetimeDatetimeFormat => "DateTime Format",
+            Self::InlineDatetimeDialect => "Dialect (uk/us)",
         }
     }
 
@@ -235,7 +255,18 @@ impl SettingKey {
             }
             Self::InlineEmojiEnabled => "Enable inline emoji picker and completion",
             Self::InlineEmojiTriggerChar => "The character used to trigger the inline emoji picker",
-            Self::SystemTrayEnabled => "Enable the system tray icon when the service is running",
+            Self::SystemTrayEnabled => "Show a system tray icon when the service is running",
+            Self::InlineDatetimeEnabled => {
+                "Enable expanding natural language dates and times on Enter"
+            }
+            Self::InlineDatetimeDateFormat => "Output format when only a date is parsed",
+            Self::InlineDatetimeTimeFormat => "Output format when only a time is parsed",
+            Self::InlineDatetimeDatetimeFormat => {
+                "Output format when both date and time are parsed"
+            }
+            Self::InlineDatetimeDialect => {
+                "Preference for ambiguous dates like 07/12 (uk = dd/mm, us = mm/dd)"
+            }
         }
     }
 
@@ -253,7 +284,8 @@ impl SettingKey {
             | Self::ScriptsEnabled
             | Self::ClipboardHistoryEnabled
             | Self::InlineEmojiEnabled
-            | Self::SystemTrayEnabled => EditorKind::Toggle,
+            | Self::SystemTrayEnabled
+            | Self::InlineDatetimeEnabled => EditorKind::Toggle,
             Self::Wpm
             | Self::ClipboardRestoreDelayMs
             | Self::RpcPort
@@ -275,7 +307,11 @@ impl SettingKey {
             | Self::InlineAiTriggerOpen
             | Self::InlineAiTriggerClose
             | Self::RpcHost
-            | Self::RpcToken => EditorKind::TextInput,
+            | Self::RpcToken
+            | Self::InlineDatetimeDateFormat
+            | Self::InlineDatetimeTimeFormat
+            | Self::InlineDatetimeDatetimeFormat
+            | Self::InlineDatetimeDialect => EditorKind::TextInput,
         }
     }
 
@@ -337,6 +373,11 @@ impl SettingKey {
             Self::InlineEmojiEnabled => settings.inline_emoji_enabled.to_string(),
             Self::InlineEmojiTriggerChar => settings.inline_emoji_trigger_char.to_string(),
             Self::SystemTrayEnabled => settings.system_tray_enabled.to_string(),
+            Self::InlineDatetimeEnabled => settings.inline_datetime_enabled.to_string(),
+            Self::InlineDatetimeDateFormat => settings.inline_datetime_date_format.clone(),
+            Self::InlineDatetimeTimeFormat => settings.inline_datetime_time_format.clone(),
+            Self::InlineDatetimeDatetimeFormat => settings.inline_datetime_datetime_format.clone(),
+            Self::InlineDatetimeDialect => settings.inline_datetime_dialect.clone(),
         }
     }
 
@@ -345,6 +386,10 @@ impl SettingKey {
             Self::TriggerChar => settings.trigger_char.to_string(),
             Self::PauseHotkey => settings.pause_hotkey.clone(),
             Self::Wpm => settings.wpm.to_string(),
+            Self::InlineDatetimeDateFormat => settings.inline_datetime_date_format.clone(),
+            Self::InlineDatetimeTimeFormat => settings.inline_datetime_time_format.clone(),
+            Self::InlineDatetimeDatetimeFormat => settings.inline_datetime_datetime_format.clone(),
+            Self::InlineDatetimeDialect => settings.inline_datetime_dialect.clone(),
             Self::AiProvider => settings.ai_provider.clone().unwrap_or_default(),
             Self::AiModel => settings.ai_model.clone().unwrap_or_default(),
             Self::AiCustomEndpoint => settings.ai_custom_endpoint.clone().unwrap_or_default(),
@@ -374,7 +419,8 @@ impl SettingKey {
             | Self::ClipboardHistoryRetentionSecs
             | Self::InlineEmojiEnabled
             | Self::InlineEmojiTriggerChar
-            | Self::SystemTrayEnabled => self.display_value(settings),
+            | Self::SystemTrayEnabled
+            | Self::InlineDatetimeEnabled => self.display_value(settings),
             Self::AiTemperature => {
                 optional_value_label(settings.ai_temperature.map(|v| v.to_string()).as_deref())
                     .to_string()
@@ -438,6 +484,15 @@ impl SettingsPageState {
 
         if self.settings.rpc_mode == taurine_core::settings::RpcMode::Socket {
             keys.retain(|k| *k != SettingKey::RpcHost && *k != SettingKey::RpcPort);
+        }
+
+        if !self.settings.inline_datetime_enabled {
+            keys.retain(|k| {
+                *k != SettingKey::InlineDatetimeDateFormat
+                    && *k != SettingKey::InlineDatetimeTimeFormat
+                    && *k != SettingKey::InlineDatetimeDatetimeFormat
+                    && *k != SettingKey::InlineDatetimeDialect
+            });
         }
         keys
     }
@@ -553,6 +608,9 @@ impl SettingsPageState {
             }
             SettingKey::InlineEmojiEnabled => (!self.settings.inline_emoji_enabled).to_string(),
             SettingKey::SystemTrayEnabled => (!self.settings.system_tray_enabled).to_string(),
+            SettingKey::InlineDatetimeEnabled => {
+                (!self.settings.inline_datetime_enabled).to_string()
+            }
             _ => return SettingsInteraction::handled(),
         };
 

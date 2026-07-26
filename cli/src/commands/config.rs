@@ -188,6 +188,7 @@ pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::erro
         | "ignore_fullscreen"
         | "auto_update"
         | "inline_emoji_enabled"
+        | "inline_datetime_enabled"
         | "triggerless_mode"
         | "instant_expand"
         | "clipboard_history_enabled"
@@ -351,6 +352,24 @@ pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::erro
             }
             manager.update_setting(actual_key, val.to_string())?;
             info!("Updated rpc_token to: {}", val);
+        }
+        "inline_datetime_date_format"
+        | "inline_datetime_time_format"
+        | "inline_datetime_datetime_format"
+        | "inline_datetime_dialect" => {
+            let val = value.trim();
+            if val.is_empty() {
+                return Err(taurine_core::error::Error::Config(format!(
+                    "Invalid {actual_key} value: must not be empty"
+                )));
+            }
+            if actual_key == "inline_datetime_dialect" && val != "uk" && val != "us" {
+                return Err(taurine_core::error::Error::Config(format!(
+                    "Invalid dialect value: {val}. Must be 'uk' or 'us'"
+                )));
+            }
+            manager.update_setting(actual_key, val.to_string())?;
+            info!("Updated {actual_key} to: {val}");
         }
         _ => {
             warn!("Unknown setting key: {}", key);

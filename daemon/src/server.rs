@@ -274,12 +274,40 @@ impl DaemonControl for DaemonService {
             taurine_core::settings::set_cached_inline_emoji_trigger_char(
                 settings.inline_emoji_trigger_char,
             );
+            taurine_core::settings::set_cached_inline_datetime_enabled(
+                settings.inline_datetime_enabled,
+            );
+            taurine_core::settings::set_cached_inline_datetime_date_format(
+                settings.inline_datetime_date_format.clone(),
+            );
+            taurine_core::settings::set_cached_inline_datetime_time_format(
+                settings.inline_datetime_time_format.clone(),
+            );
+            taurine_core::settings::set_cached_inline_datetime_datetime_format(
+                settings.inline_datetime_datetime_format.clone(),
+            );
+            taurine_core::settings::set_cached_inline_datetime_dialect(
+                settings.inline_datetime_dialect.clone(),
+            );
             taurine_core::settings::set_cached_scripts_enabled(settings.scripts_enabled);
 
             // Update trigger char (atomic)
             self.state
                 .trigger_char
                 .store(settings.trigger_char as u32, Ordering::Relaxed);
+
+            self.state
+                .inline_datetime_enabled
+                .store(settings.inline_datetime_enabled, Ordering::Relaxed);
+            self.state
+                .set_inline_datetime_date_format(settings.inline_datetime_date_format.clone());
+            self.state
+                .set_inline_datetime_time_format(settings.inline_datetime_time_format.clone());
+            self.state.set_inline_datetime_datetime_format(
+                settings.inline_datetime_datetime_format.clone(),
+            );
+            self.state
+                .set_inline_datetime_dialect(settings.inline_datetime_dialect.clone());
 
             // Update AI triggers
             self.state

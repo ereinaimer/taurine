@@ -13,6 +13,17 @@ static CACHED_INLINE_EMOJI_TRIGGER_CHAR: AtomicU32 = AtomicU32::new(':' as u32);
 static CACHED_SCRIPTS_ENABLED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(true);
 
+static CACHED_INLINE_DATETIME_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(true);
+static CACHED_INLINE_DATETIME_DATE_FORMAT: parking_lot::RwLock<Option<String>> =
+    parking_lot::RwLock::new(None);
+static CACHED_INLINE_DATETIME_TIME_FORMAT: parking_lot::RwLock<Option<String>> =
+    parking_lot::RwLock::new(None);
+static CACHED_INLINE_DATETIME_DATETIME_FORMAT: parking_lot::RwLock<Option<String>> =
+    parking_lot::RwLock::new(None);
+static CACHED_INLINE_DATETIME_DIALECT: parking_lot::RwLock<Option<String>> =
+    parking_lot::RwLock::new(None);
+
 pub fn set_cached_inline_emoji_enabled(enabled: bool) {
     CACHED_INLINE_EMOJI_ENABLED.store(enabled, Ordering::Relaxed);
 }
@@ -72,6 +83,49 @@ pub fn get_cached_clipboard_history_enabled() -> bool {
 
 pub fn get_cached_clipboard_history_retention_secs() -> u32 {
     CACHED_CLIPBOARD_HISTORY_RETENTION_SECS.load(Ordering::Relaxed)
+}
+
+pub fn set_cached_inline_datetime_enabled(enabled: bool) {
+    CACHED_INLINE_DATETIME_ENABLED.store(enabled, Ordering::Relaxed);
+}
+pub fn get_cached_inline_datetime_enabled() -> bool {
+    CACHED_INLINE_DATETIME_ENABLED.load(Ordering::Relaxed)
+}
+pub fn set_cached_inline_datetime_date_format(f: String) {
+    *CACHED_INLINE_DATETIME_DATE_FORMAT.write() = Some(f);
+}
+pub fn get_cached_inline_datetime_date_format() -> String {
+    CACHED_INLINE_DATETIME_DATE_FORMAT
+        .read()
+        .clone()
+        .unwrap_or_else(|| "MMMM D, YYYY".to_string())
+}
+pub fn set_cached_inline_datetime_time_format(f: String) {
+    *CACHED_INLINE_DATETIME_TIME_FORMAT.write() = Some(f);
+}
+pub fn get_cached_inline_datetime_time_format() -> String {
+    CACHED_INLINE_DATETIME_TIME_FORMAT
+        .read()
+        .clone()
+        .unwrap_or_else(|| "h:mm A".to_string())
+}
+pub fn set_cached_inline_datetime_datetime_format(f: String) {
+    *CACHED_INLINE_DATETIME_DATETIME_FORMAT.write() = Some(f);
+}
+pub fn get_cached_inline_datetime_datetime_format() -> String {
+    CACHED_INLINE_DATETIME_DATETIME_FORMAT
+        .read()
+        .clone()
+        .unwrap_or_else(|| "MMMM D, YYYY 'at' h:mm A".to_string())
+}
+pub fn set_cached_inline_datetime_dialect(d: String) {
+    *CACHED_INLINE_DATETIME_DIALECT.write() = Some(d);
+}
+pub fn get_cached_inline_datetime_dialect() -> String {
+    CACHED_INLINE_DATETIME_DIALECT
+        .read()
+        .clone()
+        .unwrap_or_else(|| "uk".to_string())
 }
 
 pub const DEFAULT_AI_SYSTEM_PROMPT: &str = "You are Tau, an inline text expander. Provide complete but highly concise answers. Plain text only. No markdown, lists, code fences, or newlines. No filler, greetings, explanations, or extra context. Output your entire response as one continuous string.";
@@ -157,6 +211,11 @@ pub struct Settings {
     pub inline_emoji_trigger_char: char,
     pub scripts_enabled: bool,
     pub system_tray_enabled: bool,
+    pub inline_datetime_enabled: bool,
+    pub inline_datetime_date_format: String,
+    pub inline_datetime_time_format: String,
+    pub inline_datetime_datetime_format: String,
+    pub inline_datetime_dialect: String,
 }
 
 impl Settings {
@@ -208,6 +267,20 @@ impl Settings {
             "clipboard_history_retention" | "clipboard_history_retention_secs" => {
                 "clipboard_history_retention_secs"
             }
+            "inline_date_time"
+            | "inline_date_time_enabled"
+            | "inline_datetime"
+            | "inline_datetime_enabled" => "inline_datetime_enabled",
+            "inline_date_time_date_format" | "inline_datetime_date_format" => {
+                "inline_datetime_date_format"
+            }
+            "inline_date_time_time_format" | "inline_datetime_time_format" => {
+                "inline_datetime_time_format"
+            }
+            "inline_date_time_datetime_format" | "inline_datetime_datetime_format" => {
+                "inline_datetime_datetime_format"
+            }
+            "inline_date_time_dialect" | "inline_datetime_dialect" => "inline_datetime_dialect",
             "inline_emoji" | "inline_emoji_enabled" => "inline_emoji_enabled",
             "inline_emoji_trigger_char" | "emoji_trigger" => "inline_emoji_trigger_char",
             "scripts_enabled" => "scripts_enabled",
@@ -316,6 +389,11 @@ impl Default for Settings {
             inline_emoji_trigger_char: ':',
             scripts_enabled: true,
             system_tray_enabled: true,
+            inline_datetime_enabled: true,
+            inline_datetime_date_format: "MMMM D, YYYY".to_string(),
+            inline_datetime_time_format: "h:mm A".to_string(),
+            inline_datetime_datetime_format: "MMMM D, YYYY 'at' h:mm A".to_string(),
+            inline_datetime_dialect: "uk".to_string(),
         }
     }
 }

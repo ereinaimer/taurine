@@ -466,6 +466,46 @@ impl ExpansionCatalog {
         Some(expansion)
     }
 
+    fn fetch_date_fallback(&self, keyword: &str, instant_expand: bool) -> Option<FinalExpansion> {
+        if instant_expand {
+            return None;
+        }
+        if !crate::settings::get_cached_inline_datetime_enabled() {
+            return None;
+        }
+        let dialect = crate::settings::get_cached_inline_datetime_dialect();
+
+        // Require an explicit direction signal — bare quantities, bare times, and
+        // absolute dates are intentionally excluded.
+        // Exception: "now" is allowed in prefix-triggered mode (e.g. ">now") but
+        // is excluded from triggerless mode via has_expansion_intent returning false.
+        let is_prefix_now = keyword.trim() == "now";
+        if !is_prefix_now && !crate::engine::dates::has_expansion_intent(keyword) {
+            return None;
+        }
+
+        // Strip leading +/- so chrono_english receives a clean phrase;
+        // - prefix is already handled by preprocess_date_phrase (converts to "ago" suffix)
+        let cleaned = keyword.trim_start_matches('+');
+        if is_excluded_phrase(cleaned) {
+            return None;
+        }
+
+        let (dt, is_date, is_time) = crate::engine::dates::parse_natural_date(cleaned, &dialect)?;
+        let pattern = if is_date && is_time {
+            crate::settings::get_cached_inline_datetime_datetime_format()
+        } else if is_time {
+            crate::settings::get_cached_inline_datetime_time_format()
+        } else {
+            crate::settings::get_cached_inline_datetime_date_format()
+        };
+
+        let formatted = crate::engine::dates::format_datetime(dt, &pattern);
+        let mut expansion = FinalExpansion::text(formatted);
+        expansion.is_calculation = true;
+        Some(expansion)
+    }
+
     pub fn fetch_expansion(
         &self,
         keyword: &str,
@@ -475,7 +515,66 @@ impl ExpansionCatalog {
         self.fetch_exact_match(keyword, active_window)
             .or_else(|| self.fetch_hybrid_arguments(keyword, active_window))
             .or_else(|| self.fetch_math_fallback(keyword, instant_expand))
+            .or_else(|| self.fetch_date_fallback(keyword, instant_expand))
     }
+
+    pub fn fetch_expansion_no_date_fallback(
+        &self,
+        keyword: &str,
+        instant_expand: bool,
+        active_window: Option<&str>,
+    ) -> Option<FinalExpansion> {
+        self.fetch_exact_match(keyword, active_window)
+            .or_else(|| self.fetch_hybrid_arguments(keyword, active_window))
+            .or_else(|| self.fetch_math_fallback(keyword, instant_expand))
+    }
+}
+
+pub(crate) fn is_excluded_phrase(phrase: &str) -> bool {
+    let trimmed = phrase.trim().to_lowercase();
+    if trimmed.chars().all(|c| c.is_ascii_digit()) {
+        return true;
+    }
+    let bare_words = [
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+        "mon",
+        "tue",
+        "wed",
+        "thu",
+        "fri",
+        "sat",
+        "sun",
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
+        "jan",
+        "feb",
+        "mar",
+        "apr",
+        "jun",
+        "jul",
+        "aug",
+        "sep",
+        "oct",
+        "nov",
+        "dec",
+    ];
+    bare_words.contains(&trimmed.as_str())
 }
 
 impl Default for ExpansionCatalog {

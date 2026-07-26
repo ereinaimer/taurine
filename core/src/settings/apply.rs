@@ -87,6 +87,13 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "clipboard_history_retention_secs" => {
             Ok(Some(defaults.clipboard_history_retention_secs.to_string()))
         }
+        "inline_datetime_enabled" => Ok(Some(defaults.inline_datetime_enabled.to_string())),
+        "inline_datetime_date_format" => Ok(Some(defaults.inline_datetime_date_format.clone())),
+        "inline_datetime_time_format" => Ok(Some(defaults.inline_datetime_time_format.clone())),
+        "inline_datetime_datetime_format" => {
+            Ok(Some(defaults.inline_datetime_datetime_format.clone()))
+        }
+        "inline_datetime_dialect" => Ok(Some(defaults.inline_datetime_dialect.clone())),
         "inline_emoji_enabled" => Ok(Some(defaults.inline_emoji_enabled.to_string())),
         "inline_emoji_trigger_char" => Ok(Some(defaults.inline_emoji_trigger_char.to_string())),
         "scripts_enabled" => Ok(Some(defaults.scripts_enabled.to_string())),
@@ -236,6 +243,39 @@ pub fn apply_setting_input_with_manager(
                 actual_key,
                 Settings::sanitize_clipboard_history_retention_secs(parsed),
             )?;
+            ApplySettingOutcome::default()
+        }
+        "inline_datetime_enabled" => {
+            let enabled = parse_boolean_setting_value(require_non_empty(value, actual_key)?)?;
+            crate::settings::set_cached_inline_datetime_enabled(enabled);
+            manager.update_setting(actual_key, enabled)?;
+            ApplySettingOutcome::default()
+        }
+        "inline_datetime_date_format" => {
+            let val = require_non_empty(value, actual_key)?.to_string();
+            crate::settings::set_cached_inline_datetime_date_format(val.clone());
+            manager.update_setting(actual_key, val)?;
+            ApplySettingOutcome::default()
+        }
+        "inline_datetime_time_format" => {
+            let val = require_non_empty(value, actual_key)?.to_string();
+            crate::settings::set_cached_inline_datetime_time_format(val.clone());
+            manager.update_setting(actual_key, val)?;
+            ApplySettingOutcome::default()
+        }
+        "inline_datetime_datetime_format" => {
+            let val = require_non_empty(value, actual_key)?.to_string();
+            crate::settings::set_cached_inline_datetime_datetime_format(val.clone());
+            manager.update_setting(actual_key, val)?;
+            ApplySettingOutcome::default()
+        }
+        "inline_datetime_dialect" => {
+            let val = require_non_empty(value, actual_key)?.to_lowercase();
+            if val != "uk" && val != "us" {
+                return Err(Error::Config("Dialect must be 'uk' or 'us'".to_string()));
+            }
+            crate::settings::set_cached_inline_datetime_dialect(val.clone());
+            manager.update_setting(actual_key, val)?;
             ApplySettingOutcome::default()
         }
         "inline_emoji_enabled" => {

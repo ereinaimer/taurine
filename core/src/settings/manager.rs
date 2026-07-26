@@ -236,6 +236,32 @@ impl<'a> SettingsManager<'a> {
             settings.system_tray_enabled = v;
         }
 
+        if let Some(val) = map.get("inline_datetime_enabled")
+            && let Ok(v) = serde_json::from_str::<bool>(val)
+        {
+            settings.inline_datetime_enabled = v;
+        }
+        if let Some(val) = map.get("inline_datetime_date_format")
+            && let Ok(v) = serde_json::from_str::<String>(val)
+        {
+            settings.inline_datetime_date_format = v;
+        }
+        if let Some(val) = map.get("inline_datetime_time_format")
+            && let Ok(v) = serde_json::from_str::<String>(val)
+        {
+            settings.inline_datetime_time_format = v;
+        }
+        if let Some(val) = map.get("inline_datetime_datetime_format")
+            && let Ok(v) = serde_json::from_str::<String>(val)
+        {
+            settings.inline_datetime_datetime_format = v;
+        }
+        if let Some(val) = map.get("inline_datetime_dialect")
+            && let Ok(v) = serde_json::from_str::<String>(val)
+        {
+            settings.inline_datetime_dialect = v;
+        }
+
         if settings.rpc_token.is_empty() {
             let token = uuid::Uuid::new_v4().to_string();
             settings.rpc_token = token.clone();

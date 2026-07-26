@@ -24,6 +24,7 @@
     "inline-math",
     "inline-emoji-picker",
     "inline-unit-converter",
+    "inline-date-time",
     "---Integrations & Tools---",
     "inline-ai-copilot",
     "shell-script-triggers",

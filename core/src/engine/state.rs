@@ -46,6 +46,11 @@ pub struct EngineState {
     inline_ai_trigger_close: RwLock<String>,
     pub inline_tab_completion_enabled: AtomicBool,
     pub inline_history_enabled: AtomicBool,
+    pub inline_datetime_enabled: std::sync::atomic::AtomicBool,
+    inline_datetime_date_format: parking_lot::RwLock<String>,
+    inline_datetime_time_format: parking_lot::RwLock<String>,
+    inline_datetime_datetime_format: parking_lot::RwLock<String>,
+    inline_datetime_dialect: parking_lot::RwLock<String>,
     pub triggerless_mode: AtomicBool,
     pub instant_expand: AtomicBool,
     pub ignore_fullscreen_enabled: AtomicBool,
@@ -74,6 +79,13 @@ impl EngineState {
             inline_ai_trigger_close: RwLock::new("<<".to_string()),
             inline_tab_completion_enabled: AtomicBool::new(true),
             inline_history_enabled: AtomicBool::new(true),
+            inline_datetime_enabled: std::sync::atomic::AtomicBool::new(true),
+            inline_datetime_date_format: parking_lot::RwLock::new("MMMM D, YYYY".to_string()),
+            inline_datetime_time_format: parking_lot::RwLock::new("h:mm A".to_string()),
+            inline_datetime_datetime_format: parking_lot::RwLock::new(
+                "MMMM D, YYYY 'at' h:mm A".to_string(),
+            ),
+            inline_datetime_dialect: parking_lot::RwLock::new("uk".to_string()),
             triggerless_mode: AtomicBool::new(false),
             instant_expand: AtomicBool::new(false),
             ignore_fullscreen_enabled: AtomicBool::new(true),
@@ -103,6 +115,13 @@ impl EngineState {
             inline_ai_trigger_close: RwLock::new("<<".to_string()),
             inline_tab_completion_enabled: AtomicBool::new(true),
             inline_history_enabled: AtomicBool::new(true),
+            inline_datetime_enabled: std::sync::atomic::AtomicBool::new(true),
+            inline_datetime_date_format: parking_lot::RwLock::new("MMMM D, YYYY".to_string()),
+            inline_datetime_time_format: parking_lot::RwLock::new("h:mm A".to_string()),
+            inline_datetime_datetime_format: parking_lot::RwLock::new(
+                "MMMM D, YYYY 'at' h:mm A".to_string(),
+            ),
+            inline_datetime_dialect: parking_lot::RwLock::new("uk".to_string()),
             triggerless_mode: AtomicBool::new(false),
             instant_expand: AtomicBool::new(false),
             ignore_fullscreen_enabled: AtomicBool::new(true),
@@ -207,6 +226,18 @@ impl EngineState {
             .load(std::sync::atomic::Ordering::Relaxed);
         self.word_catalog
             .fetch_expansion(keyword, instant, active_window)
+    }
+
+    pub fn fetch_expansion_no_date_fallback(
+        &self,
+        keyword: &str,
+        active_window: Option<&str>,
+    ) -> Option<FinalExpansion> {
+        let instant = self
+            .instant_expand
+            .load(std::sync::atomic::Ordering::Relaxed);
+        self.word_catalog
+            .fetch_expansion_no_date_fallback(keyword, instant, active_window)
     }
 
     pub fn matching_word_triggers(&self, prefix: &str) -> Vec<String> {
@@ -329,6 +360,34 @@ impl EngineState {
             .read()
             .map(|guard| guard.clone())
             .unwrap_or_else(|_| "<<".to_string())
+    }
+
+    pub fn inline_datetime_enabled(&self) -> bool {
+        crate::settings::get_cached_inline_datetime_enabled()
+    }
+    pub fn get_inline_datetime_date_format(&self) -> String {
+        self.inline_datetime_date_format.read().clone()
+    }
+    pub fn set_inline_datetime_date_format(&self, f: String) {
+        *self.inline_datetime_date_format.write() = f;
+    }
+    pub fn get_inline_datetime_time_format(&self) -> String {
+        self.inline_datetime_time_format.read().clone()
+    }
+    pub fn set_inline_datetime_time_format(&self, f: String) {
+        *self.inline_datetime_time_format.write() = f;
+    }
+    pub fn get_inline_datetime_datetime_format(&self) -> String {
+        self.inline_datetime_datetime_format.read().clone()
+    }
+    pub fn set_inline_datetime_datetime_format(&self, f: String) {
+        *self.inline_datetime_datetime_format.write() = f;
+    }
+    pub fn get_inline_datetime_dialect(&self) -> String {
+        self.inline_datetime_dialect.read().clone()
+    }
+    pub fn set_inline_datetime_dialect(&self, d: String) {
+        *self.inline_datetime_dialect.write() = d;
     }
 
     pub fn clear_undo_state(&self) {

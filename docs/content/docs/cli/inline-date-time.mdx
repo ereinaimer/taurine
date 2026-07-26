@@ -1,0 +1,214 @@
+---
+title: Inline Date & Time
+description: Expand natural language date and time expressions into formatted absolute strings on Enter.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Taurine includes a natural language date and time engine. Typing expressions like `next friday`, `yesterday`, or `2 days before yesterday` and pressing **Enter** will automatically expand them into clean, formatted strings.
+
+<Callout title="Action Key Constraint" type="warn">
+  Inline Date & Time is **only** active when your global `action_key` is set to `Enter`. If it is set to `Space`, this feature is completely bypassed.
+</Callout>
+
+## How It Works
+
+Expansions are triggered on the **Enter** key and work in two modes:
+
+1. **Triggerless Mode** — Type a date expression anywhere and press **Enter**. Taurine scans the last 1–6 words of your buffer from longest to shortest and expands the first matching expression it finds.
+2. **Trigger-Prefixed Mode** — Use the trigger prefix character (e.g. `>now`, `>yesterday`) and press **Enter**.
+
+### Direction Signal Required
+
+An expression must contain an **explicit direction signal** to expand. This prevents accidental replacement of text you didn't intend as a date.
+
+**What counts as a direction signal:**
+
+| Signal | Examples |
+| :--- | :--- |
+| `ago` suffix | `5 days ago`, `3 hours ago` |
+| `from now` / `from tomorrow` / `from yesterday` | `2 days from now`, `11 hrs from yesterday` |
+| `before` / `after` + anchor | `3 weeks after tomorrow`, `2 hours before yesterday` |
+| `+` prefix (forward from now) | `+2 days`, `+13 hours` |
+| `-` prefix (backward from now) | `-2 days`, `-3 hours` |
+| `next` / `last` + weekday | `next friday`, `last mon` |
+| Special compound phrases | `day before yesterday`, `week before last` |
+| Bare anchor keywords | `today`, `yesterday`, `tomorrow` |
+
+**What does NOT expand:**
+
+| Pattern | Why |
+| :--- | :--- |
+| `2 days`, `1 week`, `13 hours` | Bare quantities — ambiguous direction |
+| `3pm`, `18:00`, `10:30am` | Bare times of day — absolute, no direction |
+| `2024-06-15`, `April 1` | Absolute dates — calendar-anchored |
+| `friday`, `july` | Bare weekdays/months — no modifier |
+| `now` (without prefix) | Use `>now` via trigger prefix instead |
+
+### Additional Triggerless Exclusions
+
+In triggerless mode, the following are also excluded even when parseable, to prevent false positives in normal text:
+
+- Bare weekdays: `friday`, `mon`, `saturday`
+- Bare month names: `july`, `dec`
+- Bare integers: `3`, `2026`
+
+---
+
+## Configuration
+
+Customize via the TUI settings panel or using `taurine set <key> <value>` from the CLI.
+
+| TUI Label | CLI Key / Aliases | Type | Default | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| **Inline Date & Time** | `inline_datetime_enabled` / `inline_date_time` | bool | `true` | Enable or disable the feature. |
+| **Date Format** | `inline_datetime_date_format` | string | `"MMMM D, YYYY"` | Output format when only a date is resolved. |
+| **Time Format** | `inline_datetime_time_format` | string | `"h:mm A"` | Output format when only a time is resolved. |
+| **DateTime Format** | `inline_datetime_datetime_format` | string | `"MMMM D, YYYY 'at' h:mm A"` | Output format when both a date and time are resolved. |
+| **Dialect** | `inline_datetime_dialect` | string | `"uk"` | Primary dialect for ambiguous numeric dates (`uk` = DD/MM, `us` = MM/DD). Automatically falls back to the other dialect when needed. |
+
+### Smart Dialect Fallback
+
+When resolving numeric dates such as `07/12`, Taurine uses your configured **Dialect** to determine whether that means July 12th or December 7th. For unambiguous values like `15/07` or `07/15`, the correct interpretation is always used regardless of your dialect setting.
+
+---
+
+## Format Tokens
+
+Use these tokens to customize the three format settings above. Tokens are case-sensitive.
+
+| Token | Description | Example (July 26, 2026 at 5:16 PM) |
+| :--- | :--- | :--- |
+| `YYYY` | 4-digit Year | `2026` |
+| `YY` | 2-digit Year | `26` |
+| `MMMM` | Full Month Name | `July` |
+| `MMM` | Short Month Name | `Jul` |
+| `MM` | 2-digit Month | `07` |
+| `M` | Month (1–12) | `7` |
+| `DD` | 2-digit Day | `26` |
+| `D` | Day (1–31) | `26` |
+| `dddd` | Full Weekday Name | `Sunday` |
+| `ddd` | Short Weekday Name | `Sun` |
+| `HH` | 2-digit Hour, 24h | `17` |
+| `H` | Hour, 24h | `17` |
+| `hh` | 2-digit Hour, 12h | `05` |
+| `h` | Hour, 12h | `5` |
+| `mm` | 2-digit Minute | `16` |
+| `m` | Minute | `16` |
+| `ss` | 2-digit Second | `00` |
+| `s` | Second | `0` |
+| `A` | Uppercase AM/PM | `PM` |
+| `a` | Lowercase am/pm | `pm` |
+| `'...'` | Literal text (escaped) | `at` (from `'at'`) |
+
+---
+
+## Supported Expressions
+
+All examples below assume today is **Sunday, July 26, 2026 at 5:16 PM**.
+
+### Bare Anchor Keywords
+
+These expand on their own without a direction signal.
+
+| Input | Output | Format Used |
+| :--- | :--- | :--- |
+| `today` | `July 26, 2026` | Date |
+| `yesterday` | `July 25, 2026` | Date |
+| `tomorrow` | `July 27, 2026` | Date |
+| `>now` | `July 26, 2026 at 5:16 PM` | DateTime |
+
+<Callout title="Bare now" type="info">
+  `now` on its own does not expand in triggerless mode to avoid interfering with everyday writing. Use `>now` with your trigger prefix to expand the current date and time.
+</Callout>
+
+### Relative Day Offsets
+
+Both numeric (`2`) and word-form amounts (`two`, `a`, `one` through `ten`) are accepted.
+
+| Input | Output |
+| :--- | :--- |
+| `5 days ago` | `July 21, 2026` |
+| `2 days from now` | `July 28, 2026` |
+| `3 weeks from tomorrow` | `August 17, 2026` |
+| `2 weeks ago` | `July 12, 2026` |
+| `3 months ago` | `April 26, 2026` |
+| `1 year ago` | `July 26, 2025` |
+| `+2 days` | `July 28, 2026` |
+| `-5 days` | `July 21, 2026` |
+
+### Special Compound Phrases
+
+These multi-word phrases are recognized and normalized internally before parsing.
+
+| Input | Normalized To | Output |
+| :--- | :--- | :--- |
+| `day before yesterday` | `2 days ago` | `July 24, 2026` |
+| `the day before yesterday` | `2 days ago` | `July 24, 2026` |
+| `day after tomorrow` | `2 days` | `July 28, 2026` |
+| `week before last` | `2 weeks ago` | `July 12, 2026` |
+| `month before last` | `2 months ago` | `May 26, 2026` |
+| `two days before yesterday` | `3 days ago` | `July 23, 2026` |
+| `a week before yesterday` | `8 days ago` | `July 17, 2026` |
+| `3 weeks after tomorrow` | `22 days` | `August 17, 2026` |
+| `1 week before tomorrow` | `6 days ago` | `July 20, 2026` |
+
+### Weekdays (Modifier Required)
+
+Bare weekday names do not expand on their own. They must be preceded by `next` or `last`. Both full and short forms are accepted.
+
+| Input | Output |
+| :--- | :--- |
+| `next friday` | `July 31, 2026` |
+| `last friday` | `July 24, 2026` |
+| `next monday` | `August 3, 2026` |
+| `next fri` | `July 31, 2026` |
+| `last mon` | `July 20, 2026` |
+| `next wed` | `July 29, 2026` |
+
+<Callout title="Dialect difference for next <weekday>" type="info">
+  The meaning of `next friday` depends on your configured dialect. **UK**: the Friday of the following calendar week (always 7+ days away). **US**: the upcoming Friday (could be as soon as tomorrow). Configure this via the **Dialect** setting.
+</Callout>
+
+### Sub-Day Time Offsets
+
+These expand using the **Time Format** setting. A direction signal is required — bare quantities like `13 hours` or `25 mins` will **not** expand.
+
+| Input | Aliases Accepted | Output |
+| :--- | :--- | :--- |
+| `3 hours ago` | `3 hrs ago` | `2:16 PM` |
+| `11 hours from now` | `11 hrs from now` | `4:16 AM` |
+| `25 mins from now` | `25 minutes from now`, `25 min from now` | `5:41 PM` |
+| `10 minutes ago` | `10 mins ago`, `10 min ago` | `5:06 PM` |
+| `30 seconds ago` | `30 secs ago`, `30 sec ago` | `5:16 PM` |
+| `+13 hours` | `+13 hrs` | `6:16 AM` |
+| `-3 hours` | `-3 hrs` | `2:16 PM` |
+| `11 hours from tomorrow` | `11 hrs from tomorrow` | `4:16 AM` (next day) |
+| `2 hours before yesterday` | — | `3:16 PM` (26h ago) |
+
+### Date + Time Combined
+
+A date expression and a time expression can be combined with a separating **space**. The result uses the **DateTime Format** setting.
+
+| Input | Output |
+| :--- | :--- |
+| `next friday 8pm` | `July 31, 2026 at 8:00 PM` |
+| `tomorrow 9am` | `July 27, 2026 at 9:00 AM` |
+
+<Callout title="'at' keyword not supported" type="warn">
+  `next friday at 3pm` (using the word `at`) is not recognized by the parser. Write `next friday 3pm` instead — the space separator is sufficient.
+</Callout>
+
+---
+
+## Unsupported Patterns
+
+| Pattern | Why | Use Instead |
+| :--- | :--- | :--- |
+| `2 days`, `1 week`, `13 hours` | No direction signal | `+2 days`, `2 days from now`, `+13 hours` |
+| `3pm`, `18:00`, `10:30am` | Bare absolute time | Combine with a date: `tomorrow 3pm` |
+| `2024-06-15`, `April 1` | Absolute date — not expandable | Use relative expressions instead |
+| `now` (triggerless) | Excluded to avoid false positives | `>now` with trigger prefix |
+| `noon`, `midnight` | Not recognized by the parser | `12pm`, `12am` |
+| `next week`, `last month` | Period modifiers not supported | `7 days`, `1 month ago` |
+| `next friday at 3pm` | `at` keyword not recognized | `next friday 3pm` |

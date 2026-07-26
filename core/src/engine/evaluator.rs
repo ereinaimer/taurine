@@ -219,6 +219,74 @@ impl Evaluator {
         text_bytes < MAX_PAYLOAD_BYTES
     }
 
+    fn check_inline_datetime_fallback(
+        &self,
+        action_key: crate::settings::ActionKey,
+    ) -> Option<ExpansionResult> {
+        if !self.state.inline_datetime_enabled() {
+            return None;
+        }
+        if action_key != crate::settings::ActionKey::Enter {
+            return None;
+        }
+
+        let buf_str = self.buffer.buffer_string();
+        if buf_str.trim().is_empty() {
+            return None;
+        }
+
+        let words: Vec<&str> = buf_str.split_whitespace().collect();
+        let max_words = 6.min(words.len());
+        let dialect = self.state.get_inline_datetime_dialect();
+
+        for k in (1..=max_words).rev() {
+            let suffix_words = &words[words.len() - k..];
+            let candidate = suffix_words.join(" ");
+
+            // Gate: must have an explicit direction signal. Bare quantities ("2 days"),
+            // bare times ("3pm"), bare absolute dates ("2024-06-15") and bare "now"
+            // are excluded — they are ambiguous or calendar-anchored.
+            if !crate::engine::dates::has_expansion_intent(&candidate) {
+                continue;
+            }
+
+            // Strip leading + so chrono_english receives a clean phrase;
+            // - prefix is handled inside preprocess_date_phrase (converted to "ago" suffix)
+            let candidate_clean = candidate.trim_start_matches('+').to_string();
+
+            if crate::engine::catalog::is_excluded_phrase(&candidate_clean) {
+                continue;
+            }
+
+            if let Some((dt, is_date, is_time)) =
+                crate::engine::dates::parse_natural_date(&candidate_clean, &dialect)
+            {
+                let pattern = if is_date && is_time {
+                    self.state.get_inline_datetime_datetime_format()
+                } else if is_time {
+                    self.state.get_inline_datetime_time_format()
+                } else {
+                    self.state.get_inline_datetime_date_format()
+                };
+
+                let date_str = crate::engine::dates::format_datetime(dt, &pattern);
+                let delete_count = candidate.chars().count();
+
+                return Some(ExpansionResult {
+                    delete_count,
+                    steps: vec![ExpansionStep::Text(date_str)],
+                    trigger: candidate.clone(),
+                    undo_trigger: Some(candidate),
+                    is_calculation: true,
+                    stat_kind: TriggerStatKind::Calculation,
+                    track_usage: true,
+                    follow_up: None,
+                });
+            }
+        }
+        None
+    }
+
     fn undo_trigger_for_steps(&self, keyword: &str, steps: &[ExpansionStep]) -> Option<String> {
         self.allows_blind_undo(steps)
             .then(|| self.full_trigger_text(keyword))
@@ -761,7 +829,9 @@ impl Evaluator {
                     && action_key == crate::settings::ActionKey::Enter)
                     || prev_char.is_none_or(|c| c.is_whitespace() || c.is_ascii_punctuation());
                 if is_boundary
-                    && let Some(expansion) = self.state.fetch_expansion(&word, active_window)
+                    && let Some(expansion) = self
+                        .state
+                        .fetch_expansion_no_date_fallback(&word, active_window)
                 {
                     let delete_count = word.chars().count();
                     let stat_kind = stat_kind_for_steps(expansion.is_calculation, &expansion.steps);
@@ -852,6 +922,10 @@ impl Evaluator {
                     });
                 }
             }
+        }
+        if !instant_expand && let Some(result) = self.check_inline_datetime_fallback(action_key) {
+            self.buffer.clear();
+            return Some(result);
         }
 
         None
@@ -1194,6 +1268,97 @@ mod tests {
                 replacement: replacement.to_string(),
             })
         );
+    }
+
+    #[test]
+    fn test_inline_datetime_expansion() {
+        let state = Arc::new(EngineState::new('>'));
+        state
+            .inline_datetime_enabled
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        state
+            .triggerless_mode
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        let mut eval = Evaluator::new(state);
+
+        // Test 1: "next friday"
+        for c in "next friday".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res = eval.process(EngineEvent::ActionKey);
+        assert!(res.is_some());
+        let val = res.unwrap();
+        assert!(val.is_calculation);
+        assert_eq!(val.trigger, "next friday");
+
+        eval.reset();
+
+        // Test 2: "2 days from tomorrow"
+        for c in "2 days from tomorrow".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res2 = eval.process(EngineEvent::ActionKey);
+        assert!(res2.is_some());
+        assert_eq!(res2.unwrap().trigger, "2 days from tomorrow");
+
+        eval.reset();
+
+        // Test 3: "2 days from now"
+        for c in "2 days from now".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res3 = eval.process(EngineEvent::ActionKey);
+        assert!(res3.is_some());
+        assert_eq!(res3.unwrap().trigger, "2 days from now");
+
+        eval.reset();
+
+        // Test 4: "11 hours from now"
+        for c in "11 hours from now".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res4 = eval.process(EngineEvent::ActionKey);
+        assert!(res4.is_some());
+        assert_eq!(res4.unwrap().trigger, "11 hours from now");
+
+        eval.reset();
+
+        // Test 5: "+13 hours"
+        for c in "+13 hours".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res5 = eval.process(EngineEvent::ActionKey);
+        assert!(res5.is_some());
+        assert_eq!(res5.unwrap().trigger, "+13 hours");
+
+        eval.reset();
+
+        // Test 6: "now" (on its own in triggerless mode should NOT expand)
+        for c in "now".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res6 = eval.process(EngineEvent::ActionKey);
+        assert!(res6.is_none());
+
+        eval.reset();
+
+        // Test 7: ">now" (prefixed mode should expand!)
+        for c in ">now".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res7 = eval.process(EngineEvent::ActionKey);
+        assert!(res7.is_some());
+        assert_eq!(res7.unwrap().trigger, "now");
+
+        eval.reset();
+
+        // Test 8: "15 mins from now"
+        for c in "15 mins from now".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res8 = eval.process(EngineEvent::ActionKey);
+        assert!(res8.is_some());
+        assert_eq!(res8.unwrap().trigger, "15 mins from now");
     }
 
     #[test]

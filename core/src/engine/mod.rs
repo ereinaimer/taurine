@@ -2,6 +2,7 @@ pub mod ai_session;
 pub mod buffer;
 pub mod catalog;
 pub mod conversion;
+pub mod dates;
 pub mod emoji;
 pub mod evaluator;
 pub mod math;

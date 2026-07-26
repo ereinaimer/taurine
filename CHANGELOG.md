@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Inline Date & Time**: Automatically expand relative dates and times (requiring an explicit direction signal) on Enter key press, with customizable formats and dialect overrides.
 - **Configurable System Tray**: Allow toggling system tray icon visibility via a new setting customizable through the CLI and TUI.
 - **System Tray Controls**: System tray support was added with the quit, pause, resume options.
 - **AI Remove All**: `taurine ai remove --all` removes all configured provider API keys at once. Uninstall scripts now purge keyring entries automatically.
