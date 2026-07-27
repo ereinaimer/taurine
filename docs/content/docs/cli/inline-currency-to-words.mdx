@@ -1,0 +1,67 @@
+---
+title: Inline Currency to Words
+description: Automatically convert typed currency amounts into their spelled-out English representations.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Taurine features a built-in currency expansion engine that converts numeric currency inputs (e.g., `$1,200.50` or `₹1,00,000.50`) into their spelled-out English equivalents (e.g., `One thousand two hundred dollars and fifty cents` or `One lakh rupees and fifty paise`).
+
+This feature is disabled by default to prevent accidental triggers in code or config files.
+
+## How It Works
+
+Simply type a currency-prefixed amount and press **Enter** (if triggerless mode is active) or use your trigger character prefix (e.g., `>$150` followed by Space/Enter).
+
+* **Positive Amount**: `$120` → `One hundred twenty dollars`
+* **Negative Amount**: `-$50.25` → `Negative fifty dollars and twenty-five cents`
+* **Indian Lakhs/Crores**: `₹1,23,45,678` → `One crore twenty-three lakh forty-five thousand six hundred seventy-eight rupees`
+
+<Callout title="Negative Sign Position" type="warning">
+  The negative sign (`-`) must precede the currency symbol (e.g., `-$100` is valid; `$-100` is invalid).
+</Callout>
+
+## Supported Currencies
+
+Taurine supports major currency symbols internationally, matching character-only symbols rather than text codes (like `USD` or `EUR`).
+
+| Symbol | Currency | Major Singular / Plural | Minor Singular / Plural | Format System |
+| :--- | :--- | :--- | :--- | :--- |
+| `$` | Dollar | dollar / dollars | cent / cents | Million / Billion |
+| `€` | Euro | euro / euros | cent / cents | Million / Billion |
+| `£` | Pound | pound / pounds | penny / pence | Million / Billion |
+| `¥` | Yen | yen / yen | sen / sen | Million / Billion |
+| `₹` | Indian Rupee | rupee / rupees | paisa / paise | Lakh / Crore |
+| `৳` | Bangladeshi Taka | taka / taka | poisha / poisha | Lakh / Crore |
+| `₩` | Won | won / won | jeon / jeon | Million / Billion |
+| `₪` | Shekel | shekel / shekels | agora / agorot | Million / Billion |
+| `₫` | Dong | dong / dong | hao / hao | Million / Billion |
+| `₿` | Bitcoin | bitcoin / bitcoins | satoshi / satoshis | Million / Billion |
+
+## Formatting Conventions
+
+- **Sentence Case**: Generated expansions automatically capitalize the first letter (e.g., `Two hundred dollars`).
+- **Rounding and Decimals**: Decimals are normalized to exactly two fractional digits representing the minor currency unit. Additional fractional digits are truncated, and single digits are padded (e.g., `$1.5` evaluates to `$1.50`, expanding as `One dollar and fifty cents`).
+- **Zero Dollars**: Typing `$0` or `$0.00` expands to `Zero dollars`.
+
+## Configuration
+
+You can enable or disable this feature from the CLI, TUI, or database settings.
+
+### Configuration Setting
+
+| Option | Setting Key | Type | Default | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| **Inline Currency to Words** | `inline_currency_to_words_enabled` | bool | `false` | Enable or disable the inline currency converter. |
+
+### CLI Management
+
+To enable the feature via the CLI:
+```bash
+tau config set inline_currency_to_words_enabled true
+```
+
+To reset the toggle to its default disabled state:
+```bash
+tau config reset inline_currency_to_words_enabled
+```

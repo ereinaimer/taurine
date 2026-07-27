@@ -183,7 +183,7 @@ Configure your AI provider integrations and capture behavior.
 
 ## Inline Trigger Assist
 
-Control the behavior of the headless assist features for word triggers.
+Control the behavior of the headless assist features and inline conversion features for word triggers.
 
 <Accordions>
 <Accordion title="inline_tab_completion_enabled">
@@ -201,6 +201,33 @@ Control the behavior of the headless assist features for word triggers.
   - **Key**: `inline_history_enabled`
   - **Alias**: `inline_history`
   - **Default**: `true`
+  - **Values**: `true`, `false`
+</Accordion>
+
+<Accordion title="inline_emoji_enabled">
+  Enables or disables the ability to expand Unicode emojis by typing shortcodes (e.g. `:rocket`).
+  
+  - **Key**: `inline_emoji_enabled`
+  - **Alias**: `inline_emoji`
+  - **Default**: `true`
+  - **Values**: `true`, `false`
+</Accordion>
+
+<Accordion title="inline_datetime_enabled">
+  Enables or disables the ability to expand natural language date and time descriptions on Enter.
+  
+  - **Key**: `inline_datetime_enabled`
+  - **Alias**: `inline_datetime`
+  - **Default**: `true`
+  - **Values**: `true`, `false`
+</Accordion>
+
+<Accordion title="inline_currency_to_words_enabled">
+  Enables or disables the ability to automatically convert currency-prefixed numbers inline into their spelled-out English word equivalents on Enter.
+  
+  - **Key**: `inline_currency_to_words_enabled`
+  - **Alias**: `inline_currency_to_words`, `inline_currency_words`
+  - **Default**: `false`
   - **Values**: `true`, `false`
 </Accordion>
 </Accordions>
