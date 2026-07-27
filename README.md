@@ -367,7 +367,7 @@ taurine add timestamp "Created on: [date.format('MMMM D, YYYY')] at [time]"
 
 **Generating test data:**
 ```bash
-taurine add user "Name: [mock.name]\nEmail: [mock.email]\nJob: [mock.job_title]"
+taurine add user "Name: [mock.name][newline]Email: [mock.email][newline]Job: [mock.job_title]"
 ```
 
 ## Inline math

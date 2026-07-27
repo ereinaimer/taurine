@@ -1,0 +1,45 @@
+---
+title: Newline
+description: Inserting line breaks safely in trigger expansions.
+---
+
+The `[newline]` variable is a built-in system variable that resolves to a literal newline character (`\n` / `0x0A`).
+
+Using `[newline]` is the canonical way to insert line breaks inside trigger templates, avoiding any collisions with Windows-style paths.
+
+## Usage
+
+Place `[newline]` wherever you want to insert a line break.
+
+```text
+Best,[newline][cursor][newline]Erin
+```
+
+When expanded, this resolves to:
+```text
+Best,
+[cursor]
+Erin
+```
+
+## Raw `\n` vs `[newline]`
+
+> [!WARNING]
+> In Taurine, raw `\n` (the two characters: backslash `\` and `n`) is **not** unescaped. It is treated as literal text to ensure Windows paths (like `C:\Users\name\documents`) expand correctly without corruption.
+
+If you need a newline in your trigger expansions, you should:
+* Use the `[newline]` system variable.
+* Insert literal newlines in multi-line GUI editors (like the Taurine TUI or settings fields).
+* Standard JSON/YAML escaping during imports (which the deserializer automatically converts to literal line breaks).
+
+## Examples
+
+### Signature Template
+```text
+Best regards,[newline][newline][env(USER)]
+```
+
+### Multiline Code Block
+```text
+```python[newline]def main():[newline]    pass[newline]```
+```

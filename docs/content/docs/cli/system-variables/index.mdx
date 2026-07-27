@@ -3,7 +3,7 @@ title: Introduction
 description: Overview of System Variables in Taurine
 ---
 
-import { Clock, Calendar, Clipboard, Folder, Fingerprint, Monitor, MousePointer2, Keyboard, Terminal, Dices, Type, Database, Network, FileText, Image } from 'lucide-react';
+import { Clock, Calendar, Clipboard, Folder, Fingerprint, Monitor, MousePointer2, Keyboard, Terminal, Dices, Type, Database, Network, FileText, Image, CornerDownLeft } from 'lucide-react';
 
 Taurine provides a comprehensive suite of **System Variables** that allow you to inject dynamic data, execute shell commands, and control your machine directly from any trigger template.
 
@@ -71,6 +71,12 @@ These variables are divided into two categories: **Content Variables** (which in
     icon={<MousePointer2 />}
     href="/docs/cli/system-variables/cursor" 
     description="Control the final position of the text caret." 
+  />
+  <Card 
+    title="Newline" 
+    icon={<CornerDownLeft />}
+    href="/docs/cli/system-variables/newline" 
+    description="Insert a line break safely in trigger expansions." 
   />
   <Card 
     title="Keyboard Triggers" 

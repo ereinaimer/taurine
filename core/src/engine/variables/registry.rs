@@ -112,6 +112,9 @@ pub fn strip_global_transformers(key: &str) -> &str {
 
 pub fn split_system_tag(key: &str) -> Option<(&str, Option<&str>)> {
     let base = strip_global_transformers(key);
+    if base == "newline" {
+        return Some(("newline", None));
+    }
     if system::clip::is_clip_key(base) {
         return Some(("clip", None));
     }
@@ -173,12 +176,14 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "use" => "Valid form: [use(\"trigger_name\")]".to_string(),
         "http" => "Valid forms: [http.get(<url>)], [http.status(<url>)]".to_string(),
         "mouse" => "Valid forms: [mouse.click], [mouse.rclick], [mouse.mclick], [mouse.move(x, y)], [mouse.scroll(delta)], [mouse.hold], [mouse.release], [mouse.pos]".to_string(),
+        "newline" => "Valid form: [newline]".to_string(),
         _ => "No modifier help available.".to_string(),
     }
 }
 
 pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), ValidationError> {
     match root {
+        "newline" => validate_no_modifier("newline", modifier),
         "cursor" => validate_no_modifier("cursor", modifier),
         "clip" => validate_clip_modifier(modifier),
         "time" => validate_time_modifier(modifier),
@@ -697,6 +702,7 @@ mod tests {
         assert_eq!(split_system_tag("clip"), Some(("clip", None)));
         assert_eq!(split_system_tag("clip(1)"), Some(("clip", None)));
         assert_eq!(split_system_tag("clip(2) | upper"), Some(("clip", None)));
+        assert_eq!(split_system_tag("newline"), Some(("newline", None)));
         assert_eq!(split_system_tag("query | upper"), None);
     }
 
@@ -716,6 +722,12 @@ mod tests {
                 allowed: TIME_METHODS,
             })
         );
+    }
+
+    #[test]
+    fn validates_newline_modifiers() {
+        assert_eq!(validate_system_tag("newline", None), Ok(()));
+        assert!(validate_system_tag("newline", Some("invalid")).is_err());
     }
 
     #[test]

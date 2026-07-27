@@ -35,6 +35,7 @@ struct TagBounds {
 /// Checks if a keyword is reserved by the system.
 pub fn is_reserved(key: &str) -> bool {
     key == "cursor"
+        || key == "newline"
         || key == "uuid"
         || clip::is_clip_key(key)
         || key == "lorem"
@@ -84,6 +85,9 @@ pub fn is_deferred(key: &str) -> bool {
 
 /// Resolves a content-producing system variable.
 pub fn resolve(key: &str) -> Option<String> {
+    if key == "newline" {
+        return Some("\n".to_string());
+    }
     if key == "time" || key.starts_with("time.") {
         return time::resolve(key);
     }
@@ -824,6 +828,37 @@ mod tests {
         assert_eq!(
             res.steps,
             vec![ExpansionStep::Text("first\\nsecond\\tthird".to_string())]
+        );
+    }
+
+    #[test]
+    fn test_newline_resolves_to_actual_newline() {
+        let interpolated = crate::engine::variables::interpolate::interpolate(
+            "hello [newline] world",
+            &crate::engine::variables::ArgMap::default(),
+        );
+        let res = finalize(&interpolated, None);
+        assert_eq!(
+            res.steps,
+            vec![ExpansionStep::Text("hello \n world".to_string())]
+        );
+    }
+
+    #[test]
+    fn test_escaped_newline_stays_literal() {
+        let res = finalize("hello\\nworld", None);
+        assert_eq!(
+            res.steps,
+            vec![ExpansionStep::Text("hello\\nworld".to_string())]
+        );
+    }
+
+    #[test]
+    fn test_literal_newline_passes_through_unchanged() {
+        let res = finalize("hello\nworld", None);
+        assert_eq!(
+            res.steps,
+            vec![ExpansionStep::Text("hello\nworld".to_string())]
         );
     }
 

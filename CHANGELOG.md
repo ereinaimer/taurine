@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Newline System Variable**: Add `[newline]` system variable to insert line breaks safely in trigger expansions without Windows path collisions.
 - **Comma Preservation**: Preserve formatting of comma-separated inputs (such as Western and Indian lakh/crore groupings) in mathematical calculations and unit conversions.
 - **Inline Date & Time**: Automatically expand relative dates and times (requiring an explicit direction signal) on Enter key press, with customizable formats and dialect overrides.
 - **Configurable System Tray**: Allow toggling system tray icon visibility via a new setting customizable through the CLI and TUI.
