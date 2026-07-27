@@ -506,6 +506,24 @@ impl ExpansionCatalog {
         Some(expansion)
     }
 
+    fn fetch_currency_words_fallback(
+        &self,
+        keyword: &str,
+        instant_expand: bool,
+    ) -> Option<FinalExpansion> {
+        if instant_expand {
+            return None;
+        }
+        if !crate::settings::get_cached_inline_currency_to_words_enabled() {
+            return None;
+        }
+
+        let parsed_words = crate::engine::conversion::currency::convert_to_words(keyword)?;
+        let mut expansion = FinalExpansion::text(parsed_words);
+        expansion.is_calculation = true;
+        Some(expansion)
+    }
+
     pub fn fetch_expansion(
         &self,
         keyword: &str,
@@ -516,6 +534,7 @@ impl ExpansionCatalog {
             .or_else(|| self.fetch_hybrid_arguments(keyword, active_window))
             .or_else(|| self.fetch_math_fallback(keyword, instant_expand))
             .or_else(|| self.fetch_date_fallback(keyword, instant_expand))
+            .or_else(|| self.fetch_currency_words_fallback(keyword, instant_expand))
     }
 
     pub fn fetch_expansion_no_date_fallback(
@@ -527,6 +546,7 @@ impl ExpansionCatalog {
         self.fetch_exact_match(keyword, active_window)
             .or_else(|| self.fetch_hybrid_arguments(keyword, active_window))
             .or_else(|| self.fetch_math_fallback(keyword, instant_expand))
+            .or_else(|| self.fetch_currency_words_fallback(keyword, instant_expand))
     }
 }
 
@@ -979,6 +999,25 @@ mod tests {
         let memory = Arc::new(MemorySource::new());
         let catalog = ExpansionCatalog::with_source(memory.clone());
         assert!(catalog.fetch_expansion("7*6", true, None).is_none());
+    }
+
+    #[test]
+    fn currency_words_fallback_only_runs_when_enabled() {
+        let memory = Arc::new(MemorySource::new());
+        let catalog = ExpansionCatalog::with_source(memory.clone());
+
+        // Disabled by default
+        crate::settings::set_cached_inline_currency_to_words_enabled(false);
+        assert!(catalog.fetch_expansion("$1,200", false, None).is_none());
+
+        // Enabled
+        crate::settings::set_cached_inline_currency_to_words_enabled(true);
+        let expansion = catalog.fetch_expansion("$1,200", false, None).unwrap();
+        assert_eq!(
+            expansion.steps[0],
+            ExpansionStep::Text("One thousand two hundred dollars".to_string())
+        );
+        assert!(expansion.is_calculation);
     }
 
     #[test]

@@ -47,6 +47,7 @@ pub struct EngineState {
     pub inline_tab_completion_enabled: AtomicBool,
     pub inline_history_enabled: AtomicBool,
     pub inline_datetime_enabled: std::sync::atomic::AtomicBool,
+    pub inline_currency_to_words_enabled: std::sync::atomic::AtomicBool,
     inline_datetime_date_format: parking_lot::RwLock<String>,
     inline_datetime_time_format: parking_lot::RwLock<String>,
     inline_datetime_datetime_format: parking_lot::RwLock<String>,
@@ -80,6 +81,7 @@ impl EngineState {
             inline_tab_completion_enabled: AtomicBool::new(true),
             inline_history_enabled: AtomicBool::new(true),
             inline_datetime_enabled: std::sync::atomic::AtomicBool::new(true),
+            inline_currency_to_words_enabled: std::sync::atomic::AtomicBool::new(false),
             inline_datetime_date_format: parking_lot::RwLock::new("MMMM D, YYYY".to_string()),
             inline_datetime_time_format: parking_lot::RwLock::new("h:mm A".to_string()),
             inline_datetime_datetime_format: parking_lot::RwLock::new(
@@ -116,6 +118,7 @@ impl EngineState {
             inline_tab_completion_enabled: AtomicBool::new(true),
             inline_history_enabled: AtomicBool::new(true),
             inline_datetime_enabled: std::sync::atomic::AtomicBool::new(true),
+            inline_currency_to_words_enabled: std::sync::atomic::AtomicBool::new(false),
             inline_datetime_date_format: parking_lot::RwLock::new("MMMM D, YYYY".to_string()),
             inline_datetime_time_format: parking_lot::RwLock::new("h:mm A".to_string()),
             inline_datetime_datetime_format: parking_lot::RwLock::new(
@@ -364,6 +367,9 @@ impl EngineState {
 
     pub fn inline_datetime_enabled(&self) -> bool {
         crate::settings::get_cached_inline_datetime_enabled()
+    }
+    pub fn inline_currency_to_words_enabled(&self) -> bool {
+        crate::settings::get_cached_inline_currency_to_words_enabled()
     }
     pub fn get_inline_datetime_date_format(&self) -> String {
         self.inline_datetime_date_format.read().clone()

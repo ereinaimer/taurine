@@ -51,10 +51,11 @@ pub(crate) enum SettingKey {
     InlineDatetimeTimeFormat,
     InlineDatetimeDatetimeFormat,
     InlineDatetimeDialect,
+    InlineCurrencyToWordsEnabled,
 }
 
 impl SettingKey {
-    pub(crate) const ALL: [Self; 41] = [
+    pub(crate) const ALL: [Self; 42] = [
         Self::TriggerChar,
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
@@ -96,6 +97,7 @@ impl SettingKey {
         Self::InlineDatetimeTimeFormat,
         Self::InlineDatetimeDatetimeFormat,
         Self::InlineDatetimeDialect,
+        Self::InlineCurrencyToWordsEnabled,
     ];
 
     pub(crate) const fn storage_key(self) -> &'static str {
@@ -141,6 +143,7 @@ impl SettingKey {
             Self::InlineDatetimeTimeFormat => "inline_datetime_time_format",
             Self::InlineDatetimeDatetimeFormat => "inline_datetime_datetime_format",
             Self::InlineDatetimeDialect => "inline_datetime_dialect",
+            Self::InlineCurrencyToWordsEnabled => "inline_currency_to_words_enabled",
         }
     }
 
@@ -187,6 +190,7 @@ impl SettingKey {
             Self::InlineDatetimeTimeFormat => "Time Format",
             Self::InlineDatetimeDatetimeFormat => "DateTime Format",
             Self::InlineDatetimeDialect => "Dialect (uk/us)",
+            Self::InlineCurrencyToWordsEnabled => "Inline Currency to Words",
         }
     }
 
@@ -267,6 +271,9 @@ impl SettingKey {
             Self::InlineDatetimeDialect => {
                 "Preference for ambiguous dates like 07/12 (uk = dd/mm, us = mm/dd)"
             }
+            Self::InlineCurrencyToWordsEnabled => {
+                "Enable expanding numbers with currency symbols to their text representations on Enter"
+            }
         }
     }
 
@@ -285,7 +292,8 @@ impl SettingKey {
             | Self::ClipboardHistoryEnabled
             | Self::InlineEmojiEnabled
             | Self::SystemTrayEnabled
-            | Self::InlineDatetimeEnabled => EditorKind::Toggle,
+            | Self::InlineDatetimeEnabled
+            | Self::InlineCurrencyToWordsEnabled => EditorKind::Toggle,
             Self::Wpm
             | Self::ClipboardRestoreDelayMs
             | Self::RpcPort
@@ -378,6 +386,9 @@ impl SettingKey {
             Self::InlineDatetimeTimeFormat => settings.inline_datetime_time_format.clone(),
             Self::InlineDatetimeDatetimeFormat => settings.inline_datetime_datetime_format.clone(),
             Self::InlineDatetimeDialect => settings.inline_datetime_dialect.clone(),
+            Self::InlineCurrencyToWordsEnabled => {
+                settings.inline_currency_to_words_enabled.to_string()
+            }
         }
     }
 
@@ -420,7 +431,8 @@ impl SettingKey {
             | Self::InlineEmojiEnabled
             | Self::InlineEmojiTriggerChar
             | Self::SystemTrayEnabled
-            | Self::InlineDatetimeEnabled => self.display_value(settings),
+            | Self::InlineDatetimeEnabled
+            | Self::InlineCurrencyToWordsEnabled => self.display_value(settings),
             Self::AiTemperature => {
                 optional_value_label(settings.ai_temperature.map(|v| v.to_string()).as_deref())
                     .to_string()
@@ -610,6 +622,9 @@ impl SettingsPageState {
             SettingKey::SystemTrayEnabled => (!self.settings.system_tray_enabled).to_string(),
             SettingKey::InlineDatetimeEnabled => {
                 (!self.settings.inline_datetime_enabled).to_string()
+            }
+            SettingKey::InlineCurrencyToWordsEnabled => {
+                (!self.settings.inline_currency_to_words_enabled).to_string()
             }
             _ => return SettingsInteraction::handled(),
         };

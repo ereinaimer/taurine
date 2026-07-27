@@ -23,6 +23,8 @@ static CACHED_INLINE_DATETIME_DATETIME_FORMAT: parking_lot::RwLock<Option<String
     parking_lot::RwLock::new(None);
 static CACHED_INLINE_DATETIME_DIALECT: parking_lot::RwLock<Option<String>> =
     parking_lot::RwLock::new(None);
+static CACHED_INLINE_CURRENCY_TO_WORDS_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 pub fn set_cached_inline_emoji_enabled(enabled: bool) {
     CACHED_INLINE_EMOJI_ENABLED.store(enabled, Ordering::Relaxed);
@@ -90,6 +92,12 @@ pub fn set_cached_inline_datetime_enabled(enabled: bool) {
 }
 pub fn get_cached_inline_datetime_enabled() -> bool {
     CACHED_INLINE_DATETIME_ENABLED.load(Ordering::Relaxed)
+}
+pub fn set_cached_inline_currency_to_words_enabled(enabled: bool) {
+    CACHED_INLINE_CURRENCY_TO_WORDS_ENABLED.store(enabled, Ordering::Relaxed);
+}
+pub fn get_cached_inline_currency_to_words_enabled() -> bool {
+    CACHED_INLINE_CURRENCY_TO_WORDS_ENABLED.load(Ordering::Relaxed)
 }
 pub fn set_cached_inline_datetime_date_format(f: String) {
     *CACHED_INLINE_DATETIME_DATE_FORMAT.write() = Some(f);
@@ -216,6 +224,7 @@ pub struct Settings {
     pub inline_datetime_time_format: String,
     pub inline_datetime_datetime_format: String,
     pub inline_datetime_dialect: String,
+    pub inline_currency_to_words_enabled: bool,
 }
 
 impl Settings {
@@ -271,6 +280,10 @@ impl Settings {
             | "inline_date_time_enabled"
             | "inline_datetime"
             | "inline_datetime_enabled" => "inline_datetime_enabled",
+            "inline_currency_to_words"
+            | "inline_currency_to_words_enabled"
+            | "inline_currency_words"
+            | "inline_currency_words_enabled" => "inline_currency_to_words_enabled",
             "inline_date_time_date_format" | "inline_datetime_date_format" => {
                 "inline_datetime_date_format"
             }
@@ -394,6 +407,7 @@ impl Default for Settings {
             inline_datetime_time_format: "h:mm A".to_string(),
             inline_datetime_datetime_format: "MMMM D, YYYY 'at' h:mm A".to_string(),
             inline_datetime_dialect: "uk".to_string(),
+            inline_currency_to_words_enabled: false,
         }
     }
 }
@@ -418,5 +432,26 @@ mod tests {
     #[test]
     fn test_system_tray_enabled_default_is_true() {
         assert!(Settings::default().system_tray_enabled);
+    }
+
+    #[test]
+    fn test_inline_currency_to_words_enabled_default_is_false() {
+        assert!(!Settings::default().inline_currency_to_words_enabled);
+    }
+
+    #[test]
+    fn test_resolve_key_inline_currency_to_words() {
+        assert_eq!(
+            Settings::resolve_key("inline_currency_to_words"),
+            "inline_currency_to_words_enabled"
+        );
+        assert_eq!(
+            Settings::resolve_key("inline_currency_to_words_enabled"),
+            "inline_currency_to_words_enabled"
+        );
+        assert_eq!(
+            Settings::resolve_key("inline_currency_words"),
+            "inline_currency_to_words_enabled"
+        );
     }
 }

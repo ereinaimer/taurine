@@ -101,6 +101,18 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
         ("scripts_enabled", settings.scripts_enabled.to_string()),
         ("instant_expand", settings.instant_expand.to_string()),
         (
+            "inline_emoji_enabled",
+            settings.inline_emoji_enabled.to_string(),
+        ),
+        (
+            "inline_datetime_enabled",
+            settings.inline_datetime_enabled.to_string(),
+        ),
+        (
+            "inline_currency_to_words_enabled",
+            settings.inline_currency_to_words_enabled.to_string(),
+        ),
+        (
             "rpc_mode",
             format!("{:?}", settings.rpc_mode).to_lowercase(),
         ),
@@ -189,6 +201,7 @@ pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::erro
         | "auto_update"
         | "inline_emoji_enabled"
         | "inline_datetime_enabled"
+        | "inline_currency_to_words_enabled"
         | "triggerless_mode"
         | "instant_expand"
         | "clipboard_history_enabled"
@@ -438,6 +451,27 @@ pub fn execute_reset(key: String, json: bool) -> taurine_core::error::Result<()>
                 defaults.inline_history_enabled
             );
         }
+        "inline_emoji_enabled" => {
+            manager.update_setting(actual_key, defaults.inline_emoji_enabled)?;
+            info!(
+                "Reset inline_emoji_enabled to default: {}",
+                defaults.inline_emoji_enabled
+            );
+        }
+        "inline_datetime_enabled" => {
+            manager.update_setting(actual_key, defaults.inline_datetime_enabled)?;
+            info!(
+                "Reset inline_datetime_enabled to default: {}",
+                defaults.inline_datetime_enabled
+            );
+        }
+        "inline_currency_to_words_enabled" => {
+            manager.update_setting(actual_key, defaults.inline_currency_to_words_enabled)?;
+            info!(
+                "Reset inline_currency_to_words_enabled to default: {}",
+                defaults.inline_currency_to_words_enabled
+            );
+        }
         "wpm" => {
             manager.update_setting(actual_key, defaults.wpm)?;
             info!("Reset wpm to default: {}", defaults.wpm);
@@ -655,6 +689,12 @@ pub fn execute_reset_all(json: bool) -> taurine_core::error::Result<()> {
     manager.update_setting("rpc_mode", defaults.rpc_mode)?;
     manager.update_setting("rpc_host", defaults.rpc_host.clone())?;
     manager.update_setting("rpc_token", uuid::Uuid::new_v4().to_string())?;
+    manager.update_setting("inline_emoji_enabled", defaults.inline_emoji_enabled)?;
+    manager.update_setting("inline_datetime_enabled", defaults.inline_datetime_enabled)?;
+    manager.update_setting(
+        "inline_currency_to_words_enabled",
+        defaults.inline_currency_to_words_enabled,
+    )?;
 
     info!("All settings have been reset to factory defaults.");
 

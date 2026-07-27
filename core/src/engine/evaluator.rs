@@ -1278,6 +1278,52 @@ mod tests {
     }
 
     #[test]
+    fn test_inline_currency_to_words_expansion() {
+        let state = Arc::new(EngineState::new('>'));
+        state
+            .inline_currency_to_words_enabled
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        crate::settings::set_cached_inline_currency_to_words_enabled(true);
+        state
+            .triggerless_mode
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        let mut eval = Evaluator::new(state);
+
+        // Test 1: "$1,200"
+        for c in "$1,200".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res = eval.process(EngineEvent::ActionKey);
+        assert!(res.is_some());
+        let val = res.unwrap();
+        assert!(val.is_calculation);
+        assert_eq!(val.trigger, "$1,200");
+        assert_eq!(
+            val.steps[0],
+            ExpansionStep::Text("One thousand two hundred dollars".to_string())
+        );
+    }
+
+    #[test]
+    fn test_inline_currency_to_words_disabled_does_not_expand() {
+        let state = Arc::new(EngineState::new('>'));
+        state
+            .inline_currency_to_words_enabled
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        crate::settings::set_cached_inline_currency_to_words_enabled(false);
+        state
+            .triggerless_mode
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        let mut eval = Evaluator::new(state);
+
+        for c in "$1,200".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res = eval.process(EngineEvent::ActionKey);
+        assert!(res.is_none());
+    }
+
+    #[test]
     fn test_inline_datetime_expansion() {
         let state = Arc::new(EngineState::new('>'));
         state

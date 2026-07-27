@@ -289,6 +289,9 @@ impl DaemonControl for DaemonService {
             taurine_core::settings::set_cached_inline_datetime_dialect(
                 settings.inline_datetime_dialect.clone(),
             );
+            taurine_core::settings::set_cached_inline_currency_to_words_enabled(
+                settings.inline_currency_to_words_enabled,
+            );
             taurine_core::settings::set_cached_scripts_enabled(settings.scripts_enabled);
 
             // Update trigger char (atomic)
@@ -299,6 +302,9 @@ impl DaemonControl for DaemonService {
             self.state
                 .inline_datetime_enabled
                 .store(settings.inline_datetime_enabled, Ordering::Relaxed);
+            self.state
+                .inline_currency_to_words_enabled
+                .store(settings.inline_currency_to_words_enabled, Ordering::Relaxed);
             self.state
                 .set_inline_datetime_date_format(settings.inline_datetime_date_format.clone());
             self.state

@@ -98,6 +98,9 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "inline_emoji_trigger_char" => Ok(Some(defaults.inline_emoji_trigger_char.to_string())),
         "scripts_enabled" => Ok(Some(defaults.scripts_enabled.to_string())),
         "system_tray_enabled" => Ok(Some(defaults.system_tray_enabled.to_string())),
+        "inline_currency_to_words_enabled" => {
+            Ok(Some(defaults.inline_currency_to_words_enabled.to_string()))
+        }
         _ => Err(Error::Config(format!("Unknown setting key: {actual_key}"))),
     }
 }
@@ -248,6 +251,12 @@ pub fn apply_setting_input_with_manager(
         "inline_datetime_enabled" => {
             let enabled = parse_boolean_setting_value(require_non_empty(value, actual_key)?)?;
             crate::settings::set_cached_inline_datetime_enabled(enabled);
+            manager.update_setting(actual_key, enabled)?;
+            ApplySettingOutcome::default()
+        }
+        "inline_currency_to_words_enabled" => {
+            let enabled = parse_boolean_setting_value(require_non_empty(value, actual_key)?)?;
+            crate::settings::set_cached_inline_currency_to_words_enabled(enabled);
             manager.update_setting(actual_key, enabled)?;
             ApplySettingOutcome::default()
         }
@@ -603,5 +612,27 @@ mod tests {
         apply_setting_input_with_manager(&manager, "system_tray_enabled", Some("false")).unwrap();
 
         assert!(!manager.load_all().system_tray_enabled);
+    }
+
+    #[test]
+    fn test_inline_currency_to_words_settings() {
+        let (_dir, conn) = open_test_db();
+        let manager = SettingsManager::new(&conn);
+
+        assert_eq!(
+            default_setting_input("inline_currency_to_words_enabled").unwrap(),
+            Some("false".to_string())
+        );
+
+        apply_setting_input_with_manager(
+            &manager,
+            "inline_currency_to_words_enabled",
+            Some("true"),
+        )
+        .unwrap();
+
+        let loaded = manager.load_all();
+        assert!(loaded.inline_currency_to_words_enabled);
+        assert!(crate::settings::get_cached_inline_currency_to_words_enabled());
     }
 }
