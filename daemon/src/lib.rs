@@ -71,6 +71,22 @@ pub fn start() -> taurine_core::error::Result<()> {
     taurine_core::settings::set_cached_inline_emoji_trigger_char(
         settings.inline_emoji_trigger_char,
     );
+    taurine_core::settings::set_cached_inline_datetime_enabled(settings.inline_datetime_enabled);
+    taurine_core::settings::set_cached_inline_datetime_date_format(
+        settings.inline_datetime_date_format.clone(),
+    );
+    taurine_core::settings::set_cached_inline_datetime_time_format(
+        settings.inline_datetime_time_format.clone(),
+    );
+    taurine_core::settings::set_cached_inline_datetime_datetime_format(
+        settings.inline_datetime_datetime_format.clone(),
+    );
+    taurine_core::settings::set_cached_inline_datetime_dialect(
+        settings.inline_datetime_dialect.clone(),
+    );
+    taurine_core::settings::set_cached_inline_currency_to_words_enabled(
+        settings.inline_currency_to_words_enabled,
+    );
     taurine_core::settings::set_cached_scripts_enabled(settings.scripts_enabled);
 
     let trigger_char = settings.trigger_char;
@@ -90,6 +106,17 @@ pub fn start() -> taurine_core::error::Result<()> {
     state
         .ignore_fullscreen_enabled
         .store(settings.ignore_fullscreen, Ordering::Relaxed);
+    state
+        .inline_datetime_enabled
+        .store(settings.inline_datetime_enabled, Ordering::Relaxed);
+    state
+        .inline_currency_to_words_enabled
+        .store(settings.inline_currency_to_words_enabled, Ordering::Relaxed);
+    state.set_inline_datetime_date_format(settings.inline_datetime_date_format.clone());
+    state.set_inline_datetime_time_format(settings.inline_datetime_time_format.clone());
+    state.set_inline_datetime_datetime_format(settings.inline_datetime_datetime_format.clone());
+    state.set_inline_datetime_dialect(settings.inline_datetime_dialect.clone());
+    state.set_inline_ai_trigger_mode(settings.inline_ai_trigger_mode);
 
     state.set_action_key(settings.action_key);
 

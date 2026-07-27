@@ -518,6 +518,10 @@ impl ExpansionCatalog {
             return None;
         }
 
+        if !crate::engine::conversion::currency::has_currency_prefix(keyword) {
+            return None;
+        }
+
         let parsed_words = crate::engine::conversion::currency::convert_to_words(keyword)?;
         let mut expansion = FinalExpansion::text(parsed_words);
         expansion.is_calculation = true;

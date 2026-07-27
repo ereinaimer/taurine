@@ -359,7 +359,52 @@ impl FastBuffer {
         while n < self.len && n < 30 {
             let c = self.data[curr];
             if c.is_whitespace() {
-                break;
+                let mut space_collected = false;
+                if c == ' ' && n > 0 {
+                    let mut check_curr = (curr + capacity - 1) % capacity;
+                    let mut check_n = n + 1;
+                    let mut ok = true;
+                    let mut chars_to_collect = Vec::new();
+
+                    for _ in 0..3 {
+                        if check_n < self.len
+                            && check_n < 30
+                            && self.data[check_curr].is_ascii_uppercase()
+                        {
+                            chars_to_collect.push(self.data[check_curr]);
+                            check_curr = (check_curr + capacity - 1) % capacity;
+                            check_n += 1;
+                        } else {
+                            ok = false;
+                            break;
+                        }
+                    }
+
+                    if ok {
+                        let mut has_minus = false;
+                        if check_n < self.len && check_n < 30 && self.data[check_curr] == '-' {
+                            has_minus = true;
+                            check_curr = (check_curr + capacity - 1) % capacity;
+                            check_n += 1;
+                        }
+
+                        collected.push(' ');
+                        for uc in chars_to_collect {
+                            collected.push(uc);
+                        }
+                        if has_minus {
+                            collected.push('-');
+                        }
+
+                        curr = check_curr;
+                        n = check_n;
+                        space_collected = true;
+                    }
+                }
+                if !space_collected {
+                    break;
+                }
+                continue;
             }
             collected.push(c);
             curr = (curr + capacity - 1) % capacity;
@@ -699,5 +744,22 @@ mod tests {
         let cow = b.as_str();
         assert!(matches!(cow, Cow::Borrowed(_)));
         assert_eq!(cow.as_ref(), "");
+    }
+
+    #[test]
+    fn test_extract_suffix_candidates_with_iso_code() {
+        let mut b = FastBuffer::new();
+        for c in "INR 14,500".chars() {
+            b.push(c);
+        }
+        let candidates = b.extract_suffix_candidates();
+        assert!(candidates.iter().any(|(s, _)| s == "INR 14,500"));
+
+        let mut b2 = FastBuffer::new();
+        for c in "-USD 3,200".chars() {
+            b2.push(c);
+        }
+        let candidates2 = b2.extract_suffix_candidates();
+        assert!(candidates2.iter().any(|(s, _)| s == "-USD 3,200"));
     }
 }

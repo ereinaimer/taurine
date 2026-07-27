@@ -5,25 +5,25 @@ description: Automatically convert typed currency amounts into their spelled-out
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Taurine features a built-in currency expansion engine that converts numeric currency inputs (e.g., `$1,200.50` or `₹1,00,000.50`) into their spelled-out English equivalents (e.g., `One thousand two hundred dollars and fifty cents` or `One lakh rupees and fifty paise`).
+Taurine features a built-in currency expansion engine that converts numeric currency inputs (e.g., `$1,200.50`, `₹1,00,000.50`, or `USD 3,200`) into their spelled-out English equivalents (e.g., `One thousand two hundred dollars and fifty cents` or `One lakh rupees and fifty paise`).
 
 This feature is disabled by default to prevent accidental triggers in code or config files.
 
 ## How It Works
 
-Simply type a currency-prefixed amount and press **Enter** (if triggerless mode is active) or use your trigger character prefix (e.g., `>$150` followed by Space/Enter).
+Simply type a currency-prefixed amount (using a currency symbol or a 3-letter ISO code followed by a space) and press **Enter** (if triggerless mode is active) or use your trigger character prefix (e.g., `>$150` or `>USD 150` followed by Space/Enter).
 
-* **Positive Amount**: `$120` → `One hundred twenty dollars`
-* **Negative Amount**: `-$50.25` → `Negative fifty dollars and twenty-five cents`
+* **Positive Amount**: `$120` → `One hundred twenty dollars` or `INR 14,500` → `Fourteen thousand five hundred rupees`
+* **Negative Amount**: `-$50.25` / `-USD 50.25` / `USD -50.25` → `Negative fifty dollars and twenty-five cents`
 * **Indian Lakhs/Crores**: `₹1,23,45,678` → `One crore twenty-three lakh forty-five thousand six hundred seventy-eight rupees`
 
 <Callout title="Negative Sign Position" type="warning">
-  The negative sign (`-`) must precede the currency symbol (e.g., `-$100` is valid; `$-100` is invalid).
+  When using currency symbols, the negative sign (`-`) must precede the currency symbol (e.g., `-$100` is valid; `$-100` is invalid). When using 3-letter ISO currency codes, the negative sign can precede or follow the ISO code (e.g., `-USD 100` and `USD -100` are both valid).
 </Callout>
 
 ## Supported Currencies
 
-Taurine supports major currency symbols internationally, matching character-only symbols rather than text codes (like `USD` or `EUR`).
+Taurine supports major currency symbols internationally as well as a curated list of ~40 major ISO 4217 currency codes (such as `USD`, `EUR`, `GBP`, `JPY`, `INR`, `CAD`, `AUD`, `CHF`, `CNY`, `RUB`, `BTC`, `BDT`, etc.).
 
 | Symbol | Currency | Major Singular / Plural | Minor Singular / Plural | Format System |
 | :--- | :--- | :--- | :--- | :--- |

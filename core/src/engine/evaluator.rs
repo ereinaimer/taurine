@@ -1355,6 +1355,48 @@ mod tests {
             val.steps[0],
             ExpansionStep::Text("One thousand two hundred dollars".to_string())
         );
+
+        // Test 2: "USD 1,200"
+        eval.buffer.clear();
+        for c in "USD 1,200".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res = eval.process(EngineEvent::ActionKey);
+        assert!(res.is_some());
+        let val = res.unwrap();
+        assert!(val.is_calculation);
+        assert_eq!(val.trigger, "USD 1,200");
+        assert_eq!(
+            val.steps[0],
+            ExpansionStep::Text("One thousand two hundred dollars".to_string())
+        );
+
+        // Test 3: "-EUR 50.99"
+        eval.buffer.clear();
+        for c in "-EUR 50.99".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res = eval.process(EngineEvent::ActionKey);
+        assert!(res.is_some());
+        let val = res.unwrap();
+        assert!(val.is_calculation);
+        assert_eq!(val.trigger, "-EUR 50.99");
+        assert_eq!(
+            val.steps[0],
+            ExpansionStep::Text("Negative fifty euros and ninety-nine cents".to_string())
+        );
+
+        // Test 4: "INR 0"
+        eval.buffer.clear();
+        for c in "INR 0".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res = eval.process(EngineEvent::ActionKey);
+        assert!(res.is_some());
+        let val = res.unwrap();
+        assert!(val.is_calculation);
+        assert_eq!(val.trigger, "INR 0");
+        assert_eq!(val.steps[0], ExpansionStep::Text("Zero rupees".to_string()));
     }
 
     #[test]
