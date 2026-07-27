@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Natural Language Emoji**: Support natural language emoji matching with exact word aliases and triggerless expansion via `word emoji` suffix.
 - **Natural Language Unit Conversion**: Support natural language expressions (e.g. 100 dollars to Euros) with casing/spacing preservation and triggerless mode compatibility.
 - **Inline Currency to Words**: Natively convert typed currency amounts (e.g. $1,200, ₹10,00,000, or EUR 50.99) into their spoken English representation on Enter, supporting lakh/crore Indian formats, ~40 major ISO 4217 code prefixes, and negative values.
 - **Newline System Variable**: Add `[newline]` system variable to insert line breaks safely in trigger expansions without Windows path collisions.

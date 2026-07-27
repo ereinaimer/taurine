@@ -100,7 +100,7 @@ pub fn execute_with_trigger_type(
             .unwrap_or(false);
         if conflict_exists {
             return Err(taurine_core::Error::Config(format!(
-                "Trigger conflict: A trigger matching '{}' case-insensitively already exists.",
+                "Conflict: '{}' already exists (case-insensitive match)",
                 stored_trigger
             )));
         }
@@ -129,7 +129,7 @@ pub fn execute_with_trigger_type(
             .unwrap_or(false);
         if conflict_exists {
             return Err(taurine_core::Error::Config(format!(
-                "Trigger conflict: A case-propagating trigger matching '{}' case-insensitively already exists.",
+                "Conflict: '{}' already exists (case-propagating, case-insensitive)",
                 stored_trigger
             )));
         }
@@ -354,7 +354,7 @@ mod tests {
                 None,
             )
             .unwrap_err();
-            assert!(error.to_string().contains("Trigger conflict"));
+            assert!(error.to_string().contains("conflicts"));
         });
 
         with_test_db(|db_path| {
@@ -413,7 +413,7 @@ mod tests {
                 None,
             )
             .unwrap_err();
-            assert!(error.to_string().contains("Trigger conflict"));
+            assert!(error.to_string().contains("conflicts"));
         });
 
         with_test_db(|db_path| {

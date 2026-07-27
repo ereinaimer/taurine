@@ -543,6 +543,22 @@ impl ExpansionCatalog {
         Some(expansion)
     }
 
+    fn fetch_nl_emoji_fallback(&self, keyword: &str) -> Option<FinalExpansion> {
+        if !crate::settings::get_cached_inline_emoji_enabled() {
+            return None;
+        }
+
+        if emojis::get(keyword).is_some() {
+            return Some(FinalExpansion::text(keyword.to_string()));
+        }
+
+        let matches = crate::engine::emoji::search_natural_language_emojis(keyword);
+        if matches.len() == 1 {
+            return Some(FinalExpansion::text(matches[0].clone()));
+        }
+        None
+    }
+
     pub fn fetch_expansion(
         &self,
         keyword: &str,
@@ -555,6 +571,7 @@ impl ExpansionCatalog {
             .or_else(|| self.fetch_date_fallback(keyword, instant_expand))
             .or_else(|| self.fetch_currency_words_fallback(keyword, instant_expand))
             .or_else(|| self.fetch_nl_unit_conversion_fallback(keyword, instant_expand))
+            .or_else(|| self.fetch_nl_emoji_fallback(keyword))
     }
 
     pub fn fetch_expansion_no_date_fallback(
@@ -1020,6 +1037,33 @@ mod tests {
         let memory = Arc::new(MemorySource::new());
         let catalog = ExpansionCatalog::with_source(memory.clone());
         assert!(catalog.fetch_expansion("7*6", true, None).is_none());
+    }
+
+    #[test]
+    fn test_fetch_nl_emoji_fallback() {
+        let memory = Arc::new(MemorySource::new());
+        let catalog = ExpansionCatalog::with_source(memory.clone());
+        crate::settings::set_cached_inline_emoji_enabled(true);
+
+        // Single match expands immediately
+        let exp_rocket = catalog.fetch_expansion("rocket", false, None);
+        assert!(exp_rocket.is_some());
+        assert_eq!(
+            exp_rocket.unwrap().steps[0],
+            ExpansionStep::Text("🚀".to_string())
+        );
+
+        // Literal emoji character expands to itself
+        let exp_literal = catalog.fetch_expansion("❤️", false, None);
+        assert!(exp_literal.is_some());
+        assert_eq!(
+            exp_literal.unwrap().steps[0],
+            ExpansionStep::Text("❤️".to_string())
+        );
+
+        // Ambiguous match should NOT expand (returns None to trigger completion picker)
+        let exp_heart = catalog.fetch_expansion("heart", false, None);
+        assert!(exp_heart.is_none());
     }
 
     #[test]

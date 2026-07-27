@@ -343,12 +343,12 @@ pub fn has_currency_prefix(input: &str) -> bool {
     }
     remaining = remaining.trim_start();
 
-    if remaining.len() >= 4 {
-        let potential_code = &remaining[..3];
-        if potential_code.chars().all(|c| c.is_ascii_uppercase())
+    if remaining.chars().count() >= 4 {
+        let code: String = remaining.chars().take(3).collect();
+        if code.chars().all(|c| c.is_ascii_uppercase())
             && let Some(next_char) = remaining.chars().nth(3)
             && next_char.is_whitespace()
-            && ISO_CURRENCIES.iter().any(|c| c.code == potential_code)
+            && ISO_CURRENCIES.iter().any(|c| c.code == code.as_str())
         {
             return true;
         }
@@ -387,12 +387,12 @@ pub fn convert_to_words(input: &str) -> Option<String> {
     let mut source = None;
     let mut parsed_code_prefix = false;
 
-    if remaining.len() >= 4 {
-        let potential_code = &remaining[..3];
-        if potential_code.chars().all(|c| c.is_ascii_uppercase())
+    if remaining.chars().count() >= 4 {
+        let code: String = remaining.chars().take(3).collect();
+        if code.chars().all(|c| c.is_ascii_uppercase())
             && let Some(next_char) = remaining.chars().nth(3)
             && next_char.is_whitespace()
-            && let Some(info) = ISO_CURRENCIES.iter().find(|c| c.code == potential_code)
+            && let Some(info) = ISO_CURRENCIES.iter().find(|c| c.code == code.as_str())
         {
             source = Some(CurrencySource::IsoCode(info));
             remaining = &remaining[3..];

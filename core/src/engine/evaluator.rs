@@ -557,7 +557,8 @@ impl Evaluator {
                 .map(|s| format!("{}{}", emoji_trigger, s))
                 .collect();
         } else {
-            self.completion.suggestions = self.state.matching_word_triggers(query);
+            let suggestions = self.state.matching_word_triggers(query);
+            self.completion.suggestions = suggestions;
         }
     }
 
@@ -664,13 +665,28 @@ impl Evaluator {
             let clean_query = base_query
                 .strip_prefix(emoji_trigger)
                 .unwrap_or(&base_query);
-            let raw_suggestions = crate::engine::emoji::search_emoji_shortcodes(clean_query);
+            let mut raw_suggestions = crate::engine::emoji::search_emoji_shortcodes(clean_query);
+            let nl_matches = crate::engine::emoji::search_natural_language_emojis(clean_query);
+            for m in nl_matches {
+                if !raw_suggestions.contains(&m) {
+                    raw_suggestions.push(m);
+                }
+            }
             raw_suggestions
                 .into_iter()
                 .map(|s| format!("{}{}", emoji_trigger, s))
                 .collect()
         } else {
-            self.state.matching_word_triggers(&base_query)
+            let mut sug = self.state.matching_word_triggers(&base_query);
+            if self.completion.is_triggerless && self.state.inline_emoji_enabled() {
+                let nl_matches = crate::engine::emoji::search_natural_language_emojis(&base_query);
+                for m in nl_matches {
+                    if !sug.contains(&m) {
+                        sug.push(m);
+                    }
+                }
+            }
+            sug
         };
 
         if suggestions.is_empty() {
@@ -851,7 +867,9 @@ impl Evaluator {
 
         if !instant_expand
             && emoji_enabled
-            && let Some(word) = self.buffer.extract_trigger_word(emoji_trigger, false)
+            && let Some(word) = self
+                .buffer
+                .extract_trigger_word(emoji_trigger, allow_spaces)
             && let Some(emoji_char) = crate::engine::emoji::lookup_emoji(&word)
         {
             let delete_count = 1 + word.chars().count();
@@ -868,7 +886,6 @@ impl Evaluator {
             });
         }
 
-        // Triggerless mode: look up the bare tail word without a trigger character prefix.
         if self
             .state
             .triggerless_mode
@@ -988,6 +1005,40 @@ impl Evaluator {
             return Some(result);
         }
 
+        if self
+            .state
+            .triggerless_mode
+            .load(std::sync::atomic::Ordering::Relaxed)
+            && emoji_enabled
+        {
+            let buf_str = self.buffer.buffer_string();
+            let words: Vec<&str> = buf_str.split_whitespace().collect();
+            for i in (0..words.len().min(4)).rev() {
+                let phrase = words[words.len() - 1 - i..].join(" ");
+                if let Some(trimmed) = phrase.strip_suffix(" emoji") {
+                    if trimmed.is_empty() || trimmed.chars().all(|c| c.is_whitespace()) {
+                        continue;
+                    }
+                    let matches = crate::engine::emoji::search_natural_language_emojis(trimmed);
+                    if !matches.is_empty() {
+                        let emoji_char = matches[0].clone();
+                        let delete_count = phrase.chars().count();
+                        self.buffer.clear();
+                        return Some(ExpansionResult {
+                            delete_count,
+                            steps: vec![ExpansionStep::Text(emoji_char)],
+                            trigger: phrase.clone(),
+                            undo_trigger: Some(phrase),
+                            is_calculation: false,
+                            stat_kind: TriggerStatKind::Snippet,
+                            track_usage: true,
+                            follow_up: None,
+                        });
+                    }
+                }
+            }
+        }
+
         None
     }
 
@@ -1042,7 +1093,7 @@ impl Evaluator {
                 if was_completion_active {
                     self.completion.deactivate(&self.state.completion_active);
                 }
-                if result.is_none() {
+                if result.is_none() && !self.completion.active {
                     self.buffer.push(' ');
                 }
                 result
@@ -4007,5 +4058,128 @@ mod tests {
         assert_completion_rewrite(rewrite, 5, "g");
         assert_eq!(eval.completion.original_query, "g");
         assert_eq!(eval.completion.current_text, "g");
+    }
+
+    #[test]
+    fn test_triggered_shortcode_expansion() {
+        crate::settings::set_cached_inline_emoji_enabled(true);
+        let state = Arc::new(EngineState::new('>'));
+        let mut eval = Evaluator::new(state);
+
+        for c in ":heart".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res = eval.process(EngineEvent::ActionKey).unwrap();
+        assert_eq!(res.steps[0], ExpansionStep::Text("❤️".to_string()));
+        assert_eq!(res.delete_count, 6);
+    }
+
+    #[test]
+    fn test_triggered_no_nl_fallback() {
+        crate::settings::set_cached_inline_emoji_enabled(true);
+        let state = Arc::new(EngineState::new('>'));
+        let mut eval = Evaluator::new(state);
+
+        // ":love" has no exact shortcode -> no expansion, no NL fallback
+        for c in ":love".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res = eval.process(EngineEvent::ActionKey);
+        assert!(res.is_none());
+    }
+
+    #[test]
+    fn test_triggerless_emoji_requires_emoji_suffix() {
+        let state = Arc::new(EngineState::new('>'));
+        state
+            .triggerless_mode
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        crate::settings::set_cached_inline_emoji_enabled(true);
+        let mut eval = Evaluator::new(state);
+
+        // "heart" without "emoji" suffix -> no expansion
+        for c in "heart".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res = eval.process(EngineEvent::ActionKey);
+        assert!(res.is_none());
+    }
+
+    #[test]
+    fn test_triggerless_emoji_with_emoji_suffix() {
+        let state = Arc::new(EngineState::new('>'));
+        state
+            .triggerless_mode
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        crate::settings::set_cached_inline_emoji_enabled(true);
+        let mut eval = Evaluator::new(state);
+
+        for c in "heart emoji".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res = eval.process(EngineEvent::ActionKey).unwrap();
+        assert_eq!(res.steps[0], ExpansionStep::Text("❤️".to_string()));
+        assert_eq!(res.delete_count, 11);
+    }
+
+    #[test]
+    fn test_triggerless_multi_word_with_emoji_suffix() {
+        let state = Arc::new(EngineState::new('>'));
+        state
+            .triggerless_mode
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        crate::settings::set_cached_inline_emoji_enabled(true);
+        let mut eval = Evaluator::new(state);
+
+        for c in "happy face emoji".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res = eval.process(EngineEvent::ActionKey).unwrap();
+        assert_eq!(res.steps[0], ExpansionStep::Text("😊".to_string()));
+        assert_eq!(res.delete_count, 16);
+    }
+
+    #[test]
+    fn test_triggerless_suffix_with_emoji_suffix() {
+        let state = Arc::new(EngineState::new('>'));
+        state
+            .triggerless_mode
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        crate::settings::set_cached_inline_emoji_enabled(true);
+        let mut eval = Evaluator::new(state);
+
+        for c in "I love my cat emoji".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res = eval.process(EngineEvent::ActionKey).unwrap();
+        assert_eq!(res.steps[0], ExpansionStep::Text("🐱".to_string()));
+    }
+
+    #[test]
+    fn test_completion_suggestions_labels_only() {
+        crate::settings::set_cached_inline_emoji_enabled(true);
+        let state = Arc::new(EngineState::new('>'));
+        let mut eval = Evaluator::new(state);
+
+        eval.process(EngineEvent::Char(':'));
+        assert!(eval.is_completion_active());
+
+        let suggestions = eval.completion.suggestions.clone();
+        for s in &suggestions {
+            assert!(s.is_ascii(), "Suggestion must be a label: {}", s);
+        }
+    }
+
+    #[test]
+    fn test_completion_suggestions_contains_shortcodes() {
+        crate::settings::set_cached_inline_emoji_enabled(true);
+        let state = Arc::new(EngineState::new('>'));
+        let mut eval = Evaluator::new(state);
+
+        eval.process(EngineEvent::Char(':'));
+        eval.process(EngineEvent::Char('f'));
+
+        let suggestions = eval.completion.suggestions.clone();
+        assert!(suggestions.contains(&":frog".to_string()));
     }
 }

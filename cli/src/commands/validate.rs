@@ -101,13 +101,17 @@ mod tests {
     #[test]
     fn rejects_system_default_assignment() {
         let error = audit_payload_tags("[cursor=here]").unwrap_err();
-        assert!(error.to_string().contains("cannot use default assignments"));
+        assert!(
+            error
+                .to_string()
+                .contains("system tags cannot have defaults")
+        );
     }
 
     #[test]
     fn rejects_missing_env_key() {
         let error = audit_payload_tags("[env]").unwrap_err();
-        assert!(error.to_string().contains("requires a modifier"));
+        assert!(error.to_string().contains("needs a modifier"));
     }
 
     #[test]
@@ -122,39 +126,27 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("dynamic variables must have a default value assignment")
+                .contains("dynamic variables need a default")
         );
 
         let error2 = audit_payload_tags("json = [1, 2, 3]").unwrap_err();
         assert!(
             error2
                 .to_string()
-                .contains("dynamic variables must have a default value assignment")
+                .contains("dynamic variables need a default")
         );
     }
 
     #[test]
     fn rejects_empty_default_assignment() {
         let error = audit_payload_tags("[name=]").unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("default assignments cannot be empty")
-        );
+        assert!(error.to_string().contains("default value cannot be empty"));
 
         let error2 = audit_payload_tags("[name=\"\"]").unwrap_err();
-        assert!(
-            error2
-                .to_string()
-                .contains("default assignments cannot be empty")
-        );
+        assert!(error2.to_string().contains("default value cannot be empty"));
 
         let error3 = audit_payload_tags("[name=   | upper]").unwrap_err();
-        assert!(
-            error3
-                .to_string()
-                .contains("default assignments cannot be empty")
-        );
+        assert!(error3.to_string().contains("default value cannot be empty"));
     }
 
     #[test]
