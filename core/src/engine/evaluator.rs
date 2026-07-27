@@ -219,6 +219,52 @@ impl Evaluator {
         text_bytes < MAX_PAYLOAD_BYTES
     }
 
+    fn check_inline_unit_conversion_fallback(
+        &self,
+        action_key: crate::settings::ActionKey,
+    ) -> Option<ExpansionResult> {
+        if action_key != crate::settings::ActionKey::Enter {
+            return None;
+        }
+        if !self
+            .state
+            .triggerless_mode
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            return None;
+        }
+
+        let buf_str = self.buffer.buffer_string();
+        if buf_str.trim().is_empty() {
+            return None;
+        }
+
+        let words: Vec<&str> = buf_str.split_whitespace().collect();
+        let max_words = 6.min(words.len());
+
+        for k in (1..=max_words).rev() {
+            let suffix_words = &words[words.len() - k..];
+            let candidate = suffix_words.join(" ");
+
+            if let Some(result_text) =
+                crate::engine::conversion::convert_natural(&candidate, &self.state)
+            {
+                let delete_count = candidate.chars().count();
+                return Some(ExpansionResult {
+                    delete_count,
+                    steps: vec![ExpansionStep::Text(result_text)],
+                    trigger: candidate.clone(),
+                    undo_trigger: Some(candidate),
+                    is_calculation: true,
+                    stat_kind: TriggerStatKind::Calculation,
+                    track_usage: true,
+                    follow_up: None,
+                });
+            }
+        }
+        None
+    }
+
     fn check_inline_datetime_fallback(
         &self,
         action_key: crate::settings::ActionKey,
@@ -930,6 +976,13 @@ impl Evaluator {
                 }
             }
         }
+        if !instant_expand
+            && let Some(result) = self.check_inline_unit_conversion_fallback(action_key)
+        {
+            self.buffer.clear();
+            return Some(result);
+        }
+
         if !instant_expand && let Some(result) = self.check_inline_datetime_fallback(action_key) {
             self.buffer.clear();
             return Some(result);
@@ -1321,6 +1374,57 @@ mod tests {
         }
         let res = eval.process(EngineEvent::ActionKey);
         assert!(res.is_none());
+    }
+
+    #[test]
+    fn test_evaluator_natural_unit_conversion_triggerless() {
+        use self::EvaluatorTestExt;
+        use std::collections::HashMap;
+        let state = Arc::new(EngineState::new('>'));
+        state
+            .triggerless_mode
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        let mut eval = Evaluator::new(state);
+
+        let mut mock = HashMap::new();
+        mock.insert("USD".to_string(), 1.0);
+        mock.insert("EUR".to_string(), 0.915);
+        crate::engine::conversion::MOCK_RATES.with(|m| *m.borrow_mut() = Some(mock));
+
+        for c in "100 dollars to Euros".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let result = eval.process(EngineEvent::ActionKey).unwrap();
+        assert_eq!(
+            result.steps[0],
+            ExpansionStep::Text("91.5 Euros".to_string())
+        );
+
+        crate::engine::conversion::MOCK_RATES.with(|m| *m.borrow_mut() = None);
+    }
+
+    #[test]
+    fn test_evaluator_natural_unit_conversion_prefix_triggered() {
+        use self::EvaluatorTestExt;
+        use std::collections::HashMap;
+        let state = Arc::new(EngineState::new('>'));
+        let mut eval = Evaluator::new(state);
+
+        let mut mock = HashMap::new();
+        mock.insert("USD".to_string(), 1.0);
+        mock.insert("EUR".to_string(), 0.915);
+        crate::engine::conversion::MOCK_RATES.with(|m| *m.borrow_mut() = Some(mock));
+
+        for c in ">100 dollars to Euros".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let result = eval.process(EngineEvent::ActionKey).unwrap();
+        assert_eq!(
+            result.steps[0],
+            ExpansionStep::Text("91.5 Euros".to_string())
+        );
+
+        crate::engine::conversion::MOCK_RATES.with(|m| *m.borrow_mut() = None);
     }
 
     #[test]

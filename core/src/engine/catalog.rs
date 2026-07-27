@@ -524,6 +524,21 @@ impl ExpansionCatalog {
         Some(expansion)
     }
 
+    fn fetch_nl_unit_conversion_fallback(
+        &self,
+        keyword: &str,
+        instant_expand: bool,
+    ) -> Option<FinalExpansion> {
+        if instant_expand {
+            return None;
+        }
+        let dummy_state = crate::engine::state::EngineState::new('>');
+        let parsed_words = crate::engine::conversion::convert_natural(keyword, &dummy_state)?;
+        let mut expansion = FinalExpansion::text(parsed_words);
+        expansion.is_calculation = true;
+        Some(expansion)
+    }
+
     pub fn fetch_expansion(
         &self,
         keyword: &str,
@@ -535,6 +550,7 @@ impl ExpansionCatalog {
             .or_else(|| self.fetch_math_fallback(keyword, instant_expand))
             .or_else(|| self.fetch_date_fallback(keyword, instant_expand))
             .or_else(|| self.fetch_currency_words_fallback(keyword, instant_expand))
+            .or_else(|| self.fetch_nl_unit_conversion_fallback(keyword, instant_expand))
     }
 
     pub fn fetch_expansion_no_date_fallback(
@@ -547,6 +563,7 @@ impl ExpansionCatalog {
             .or_else(|| self.fetch_hybrid_arguments(keyword, active_window))
             .or_else(|| self.fetch_math_fallback(keyword, instant_expand))
             .or_else(|| self.fetch_currency_words_fallback(keyword, instant_expand))
+            .or_else(|| self.fetch_nl_unit_conversion_fallback(keyword, instant_expand))
     }
 }
 

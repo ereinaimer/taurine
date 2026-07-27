@@ -22,6 +22,14 @@ Type a value followed by a unit, an equals sign `=`, and the target unit:
 * **Case Insensitive:** Units are case-insensitive (`100C=F` works identically to `100c=f`).
 * **Format:** The converted value is output with up to 2 decimal places by default (or up to 4 decimal places for values less than 0.01).
 
+### Natural Language Conversions
+
+Taurine also supports natural language unit and currency conversions. You can express conversions using common separators: `to`, `in`, `into`, or `as`.
+
+* **Example:** `100 dollars to Euros`, `$100 to Euros`, `1.5 gigabytes to megabytes`, `32 celsius in fahrenheit`, `5 miles into kilometers`.
+* **Casing & Spacing Preservation:** The converter respects the casing, spelling, and spacing style of your query. For example, `1.5 gigabytes to megabytes` outputs `1500 megabytes` (with a space and written-out unit), while `1.5gb=mb` outputs `1500mb` (compact syntax).
+* **Triggerless Mode:** Conversions without a trigger prefix require **Triggerless Mode** to be enabled in settings (enabled by default).
+
 ---
 
 ## Supported Physical Units

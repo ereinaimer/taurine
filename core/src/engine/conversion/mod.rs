@@ -11,7 +11,7 @@ use tracing::{debug, error, info, warn};
 
 #[cfg(test)]
 thread_local! {
-    static MOCK_RATES: std::cell::RefCell<Option<HashMap<String, f64>>> = const { std::cell::RefCell::new(None) };
+    pub(crate) static MOCK_RATES: std::cell::RefCell<Option<HashMap<String, f64>>> = const { std::cell::RefCell::new(None) };
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -319,6 +319,170 @@ pub fn convert(s: &str, _state: &crate::engine::state::EngineState) -> Option<St
     None
 }
 
+/// Parses a natural language conversion query (e.g. "100 dollars to Euros"),
+/// normalizes the units and currencies, executes the conversion, and formats the result.
+pub fn convert_natural(s: &str, state: &crate::engine::state::EngineState) -> Option<String> {
+    // 1. Pre-process separators: pad '=' with spaces to make it a distinct token
+    let cleaned = s.replace('=', " = ");
+
+    // 2. Normalize whitespace and convert to lowercase for parsing
+    let normalized = cleaned
+        .split_whitespace()
+        .collect::<Vec<&str>>()
+        .join(" ")
+        .to_lowercase();
+
+    // 3. Tokenize
+    let words: Vec<&str> = normalized.split_whitespace().collect();
+
+    // 4. Scan right-to-left to find the rightmost separator token
+    let mut sep_index = None;
+    for (i, &word) in words.iter().enumerate().rev() {
+        if word == "to" || word == "into" || word == "as" || word == "in" || word == "=" {
+            sep_index = Some(i);
+            break;
+        }
+    }
+
+    let sep_idx = sep_index?;
+    if sep_idx == 0 || sep_idx == words.len() - 1 {
+        return None;
+    }
+
+    let original_words: Vec<&str> = cleaned.split_whitespace().collect();
+    let original_right_part = original_words[sep_idx + 1..].join(" ");
+    let original_left_part = original_words[..sep_idx].join(" ");
+
+    let separator = words[sep_idx];
+    let to_unit_raw = original_right_part.trim();
+
+    // 5. Parse left side into number and from_unit
+    // Handle leading currency symbol if any (e.g. $100 -> from_unit = "usd")
+    let trimmed_left = original_left_part.trim();
+    let first_char = trimmed_left.chars().next()?;
+
+    let (val_str, from_unit_raw) = if let Some(iso) = get_currency_by_symbol(first_char) {
+        let val_part = &trimmed_left[first_char.len_utf8()..];
+        (val_part.trim(), iso)
+    } else {
+        static LEFT_RE: OnceLock<Regex> = OnceLock::new();
+        let left_re =
+            LEFT_RE.get_or_init(|| Regex::new(r"^([+-]?[0-9,]+(?:\.[0-9]+)?)\s*(.*)$").unwrap());
+        let caps = left_re.captures(trimmed_left)?;
+        let val_part = caps.get(1)?.as_str();
+        let unit_part = caps.get(2)?.as_str().trim();
+        (val_part, unit_part)
+    };
+
+    if val_str.is_empty() || to_unit_raw.is_empty() {
+        return None;
+    }
+
+    // 6. Normalize units to standard forms for the backend engine
+    let from_unit_normalized = normalize_unit_name(from_unit_raw);
+    let to_unit_normalized = normalize_unit_name(to_unit_raw);
+
+    // 7. Clean commas from the value and save the intervals for formatting later
+    let (cleaned_val_str, intervals) = crate::engine::comma::preprocess(val_str);
+
+    // 8. Reconstruct standard query pattern
+    let std_pattern = format!(
+        "{}{}{}{}",
+        cleaned_val_str, from_unit_normalized, "=", to_unit_normalized
+    );
+
+    // 9. Execute conversion
+    let converted_res = convert(&std_pattern, state)?;
+
+    // 10. Strip the normalized unit suffix from the result to isolate the numeric value
+    let suffix = to_unit_normalized.to_lowercase();
+    let numeric_res = if converted_res.to_lowercase().ends_with(&suffix) {
+        &converted_res[..converted_res.len() - suffix.len()]
+    } else {
+        &converted_res
+    };
+
+    // 11. Re-apply comma formatting to the numeric part
+    let formatted_num = if let Some(ref ivs) = intervals {
+        crate::engine::comma::format_result(numeric_res, ivs)
+    } else {
+        numeric_res.to_string()
+    };
+
+    // 12. Reconstruct output respecting original target casing and spacing
+    let is_natural_sep =
+        separator == "to" || separator == "into" || separator == "as" || separator == "in";
+    let output = if is_natural_sep || to_unit_raw.len() > 3 {
+        format!("{} {}", formatted_num, to_unit_raw)
+    } else {
+        format!("{}{}", formatted_num, to_unit_raw)
+    };
+
+    Some(output)
+}
+
+fn get_currency_by_symbol(c: char) -> Option<&'static str> {
+    match c {
+        '$' => Some("usd"),
+        '€' => Some("eur"),
+        '£' => Some("gbp"),
+        '₹' => Some("inr"),
+        '¥' => Some("jpy"),
+        '₩' => Some("krw"),
+        '₪' => Some("ils"),
+        '₫' => Some("vnd"),
+        _ => None,
+    }
+}
+
+fn normalize_unit_name(name: &str) -> String {
+    let lower = name.to_lowercase();
+
+    // Normalization rules for multi-word units
+    let multi_word_rules = [
+        (r"\bsquare\s+feet\b", "sqft"),
+        (r"\bsquare\s+foot\b", "sqft"),
+        (r"\bsquare\s+meters?\b", "m2"),
+        (r"\bsquare\s+metres?\b", "m2"),
+        (r"\bsquare\s+miles?\b", "sqmi"),
+        (r"\bsquare\s+kilometers?\b", "km2"),
+        (r"\bsquare\s+kilometres?\b", "km2"),
+        (r"\bsquare\s+centimeters?\b", "cm2"),
+        (r"\bsquare\s+centimetres?\b", "cm2"),
+        (r"\bfluid\s+ounces?\b", "floz"),
+        (r"\bfluid\s+oz\b", "floz"),
+        (r"\bfl\s+oz\b", "floz"),
+        (r"\bmiles\s+per\s+hour\b", "mph"),
+        (r"\bkilometers?\s+per\s+hour\b", "kph"),
+        (r"\bkilometres?\s+per\s+hour\b", "kph"),
+        (r"\bmeters?\s+per\s+second\b", "m/s"),
+        (r"\bmetres?\s+per\s+second\b", "m/s"),
+    ];
+
+    let mut normalized = lower.clone();
+    for (pat, rep) in multi_word_rules {
+        let re = Regex::new(pat).unwrap();
+        normalized = re.replace_all(&normalized, rep).to_string();
+    }
+
+    // Currency names to 3-letter codes mapping
+    match normalized.as_str() {
+        "dollars" | "dollar" | "us dollars" | "us dollar" => "usd".to_string(),
+        "euros" | "euro" => "eur".to_string(),
+        "pounds" | "pound" | "british pounds" | "pound sterling" | "sterling" => "gbp".to_string(),
+        "yen" => "jpy".to_string(),
+        "rupees" | "rupee" => "inr".to_string(),
+        "won" => "krw".to_string(),
+        "shekels" | "shekel" | "new shekels" | "israeli shekels" => "ils".to_string(),
+        "dong" => "vnd".to_string(),
+        "rubles" | "ruble" => "rub".to_string(),
+        "yuan" | "renminbi" => "cny".to_string(),
+        "francs" | "franc" => "chf".to_string(),
+        "pesos" | "peso" => "mxn".to_string(),
+        _ => normalized,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -360,6 +524,46 @@ mod tests {
             convert("100eur=inr", &state),
             Some("9125.68inr".to_string())
         ); // 100 * (83.5 / 0.915) = 9125.683...
+
+        MOCK_RATES.with(|m| *m.borrow_mut() = None);
+    }
+
+    #[test]
+    fn test_convert_natural() {
+        let state = EngineState::new('>');
+
+        let mut mock = HashMap::new();
+        mock.insert("USD".to_string(), 1.0);
+        mock.insert("EUR".to_string(), 0.915);
+        MOCK_RATES.with(|m| *m.borrow_mut() = Some(mock));
+
+        // Test basic NL physical conversion
+        assert_eq!(
+            convert_natural("32 celsius in fahrenheit", &state),
+            Some("89.6 fahrenheit".to_string())
+        );
+        assert_eq!(
+            convert_natural("1.5 gigabytes to megabytes", &state),
+            Some("1500 megabytes".to_string())
+        );
+
+        // Test currency conversion with symbol
+        assert_eq!(
+            convert_natural("$100 to Euros", &state),
+            Some("91.5 Euros".to_string())
+        );
+
+        // Test compact = syntax preserves no space behavior
+        assert_eq!(
+            convert_natural("1.5gb=mb", &state),
+            Some("1500mb".to_string())
+        );
+
+        // Test formatting commas preservation
+        assert_eq!(
+            convert_natural("1,000 miles into kilometers", &state),
+            Some("1,609.34 kilometers".to_string())
+        );
 
         MOCK_RATES.with(|m| *m.borrow_mut() = None);
     }
