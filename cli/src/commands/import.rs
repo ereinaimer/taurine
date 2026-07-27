@@ -244,7 +244,7 @@ mod tests {
         let blob = crypto::encrypt(&json, "hunter2").unwrap();
 
         let err = decode_exchange_blob(&blob, None).unwrap_err();
-        assert!(err.to_string().contains("password is required"));
+        assert!(err.to_string().contains("password required"));
     }
 
     #[test]

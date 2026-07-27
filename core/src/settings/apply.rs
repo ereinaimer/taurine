@@ -149,7 +149,7 @@ pub fn apply_setting_input_with_manager(
             let raw_value = require_non_empty(value, actual_key)?;
             let parsed = raw_value
                 .parse::<u32>()
-                .map_err(|_| Error::Config(format!("Invalid WPM value: {raw_value}")))?;
+                .map_err(|_| Error::Config(format!("bad WPM value: {raw_value}")))?;
             manager.update_setting(actual_key, Settings::sanitize_wpm(parsed))?;
             ApplySettingOutcome::default()
         }
@@ -194,7 +194,7 @@ pub fn apply_setting_input_with_manager(
             let raw_value = require_non_empty(value, actual_key)?;
             let parsed = raw_value
                 .parse::<u32>()
-                .map_err(|_| Error::Config(format!("Invalid delay value: {raw_value}")))?;
+                .map_err(|_| Error::Config(format!("bad delay value: {raw_value}")))?;
             manager.update_setting(
                 actual_key,
                 Settings::sanitize_clipboard_restore_delay_ms(parsed),
@@ -239,9 +239,9 @@ pub fn apply_setting_input_with_manager(
         }
         "clipboard_history_retention_secs" => {
             let raw_value = require_non_empty(value, actual_key)?;
-            let parsed = raw_value.parse::<u32>().map_err(|_| {
-                Error::Config(format!("Invalid retention seconds value: {raw_value}"))
-            })?;
+            let parsed = raw_value
+                .parse::<u32>()
+                .map_err(|_| Error::Config(format!("bad retention seconds: {raw_value}")))?;
             manager.update_setting(
                 actual_key,
                 Settings::sanitize_clipboard_history_retention_secs(parsed),
@@ -303,10 +303,10 @@ pub fn apply_setting_input_with_manager(
             let raw_value = require_non_empty(value, actual_key)?;
             let parsed = raw_value
                 .parse::<u16>()
-                .map_err(|_| Error::Config(format!("Invalid port value: {raw_value}")))?;
+                .map_err(|_| Error::Config(format!("bad port value: {raw_value}")))?;
             if parsed < 1024 {
                 return Err(Error::Config(format!(
-                    "port must be between 1024 and 65535, got {raw_value}"
+                    "port must be 1024-65535, got {raw_value}"
                 )));
             }
             manager.update_setting(actual_key, parsed)?;
@@ -316,7 +316,7 @@ pub fn apply_setting_input_with_manager(
             let raw_value = require_non_empty(value, actual_key)?;
             let parsed = raw_value
                 .parse::<u32>()
-                .map_err(|_| Error::Config(format!("Invalid timeout value: {raw_value}")))?;
+                .map_err(|_| Error::Config(format!("bad timeout value: {raw_value}")))?;
             manager.update_setting(actual_key, parsed)?;
             ApplySettingOutcome::default()
         }
@@ -325,7 +325,7 @@ pub fn apply_setting_input_with_manager(
                 Some(v) if !v.trim().is_empty() => Some(
                     v.trim()
                         .parse::<f32>()
-                        .map_err(|_| Error::Config(format!("Invalid temperature value: {v}")))?,
+                        .map_err(|_| Error::Config(format!("bad temperature value: {v}")))?,
                 ),
                 _ => None,
             };
@@ -337,7 +337,7 @@ pub fn apply_setting_input_with_manager(
                 Some(v) if !v.trim().is_empty() => Some(
                     v.trim()
                         .parse::<u32>()
-                        .map_err(|_| Error::Config(format!("Invalid max tokens value: {v}")))?,
+                        .map_err(|_| Error::Config(format!("bad max tokens value: {v}")))?,
                 ),
                 _ => None,
             };
@@ -368,7 +368,7 @@ pub fn apply_setting_input_with_manager(
             ApplySettingOutcome::default()
         }
         _ => {
-            return Err(Error::Config(format!("Unknown setting key: {actual_key}")));
+            return Err(Error::Config(format!("unknown setting: {actual_key}")));
         }
     };
 
@@ -380,7 +380,7 @@ pub fn parse_boolean_setting_value(value: &str) -> Result<bool> {
         .trim()
         .to_ascii_lowercase()
         .parse::<bool>()
-        .map_err(|_| Error::Config(format!("Invalid boolean value: {value}")))
+        .map_err(|_| Error::Config(format!("bad boolean value: {value}")))
 }
 
 pub fn parse_spinner_style(value: &str) -> Result<SpinnerStyle> {
@@ -389,7 +389,7 @@ pub fn parse_spinner_style(value: &str) -> Result<SpinnerStyle> {
         "braille" => Ok(SpinnerStyle::Braille),
         "arc" => Ok(SpinnerStyle::Arc),
         other => Err(Error::Config(format!(
-            "Invalid spinner_style value '{other}'. Supported values: classic, braille, arc"
+            "bad spinner_style '{other}' (use: classic, braille, arc)"
         ))),
     }
 }
@@ -399,7 +399,7 @@ pub fn parse_inline_ai_trigger_mode(value: &str) -> Result<super::InlineAiTrigge
         "symmetric" => Ok(super::InlineAiTriggerMode::Symmetric),
         "asymmetric" => Ok(super::InlineAiTriggerMode::Asymmetric),
         other => Err(Error::Config(format!(
-            "Invalid inline_ai_trigger_mode value '{other}'. Supported values: symmetric, asymmetric"
+            "bad inline_ai_trigger_mode '{other}' (use: symmetric, asymmetric)"
         ))),
     }
 }
@@ -409,7 +409,7 @@ pub fn parse_action_key(value: &str) -> Result<super::ActionKey> {
         "space" => Ok(super::ActionKey::Space),
         "enter" => Ok(super::ActionKey::Enter),
         other => Err(Error::Config(format!(
-            "Invalid action_key value '{other}'. Supported values: space, enter"
+            "bad action_key '{other}' (use: space, enter)"
         ))),
     }
 }
@@ -419,7 +419,7 @@ pub fn parse_rpc_mode(value: &str) -> Result<super::RpcMode> {
         "socket" => Ok(super::RpcMode::Socket),
         "tcp" => Ok(super::RpcMode::Tcp),
         other => Err(Error::Config(format!(
-            "Invalid rpc_mode value '{other}'. Supported values: socket, tcp"
+            "bad rpc_mode '{other}' (use: socket, tcp)"
         ))),
     }
 }
@@ -427,20 +427,20 @@ pub fn parse_rpc_mode(value: &str) -> Result<super::RpcMode> {
 fn parse_char_setting(value: Option<&str>, key: &str) -> Result<char> {
     value
         .and_then(|value| value.chars().next())
-        .ok_or_else(|| Error::Config(format!("Invalid {key} value: must not be empty")))
+        .ok_or_else(|| Error::Config(format!("{key} must not be empty")))
 }
 
 fn require_non_empty<'a>(value: Option<&'a str>, key: &str) -> Result<&'a str> {
     value
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| Error::Config(format!("Invalid {key} value: must not be empty")))
+        .ok_or_else(|| Error::Config(format!("{key} must not be empty")))
 }
 
 fn require_trimmed_non_empty<'a>(value: Option<&'a str>, key: &str) -> Result<&'a str> {
     value
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| Error::Config(format!("Invalid {key} value: must not be empty")))
+        .ok_or_else(|| Error::Config(format!("{key} must not be empty")))
 }
 
 #[cfg(test)]

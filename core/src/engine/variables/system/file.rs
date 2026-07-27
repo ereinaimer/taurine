@@ -186,9 +186,7 @@ pub fn resolve(key: &str) -> Option<String> {
             let parts: Vec<&str> = invocation.raw_args.rsplitn(3, ',').collect();
 
             if parts.len() < 2 {
-                return Some(
-                    "[Error: read_line requires at least path and start line]".to_string(),
-                );
+                return Some("[Error: read_line needs path and start line]".to_string());
             }
 
             let path_str: &str;

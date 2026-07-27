@@ -58,14 +58,12 @@ pub fn encrypt(plaintext: &[u8], password: &str) -> crate::Result<Vec<u8>> {
 
 pub fn decrypt(blob: &[u8], password: &str) -> crate::Result<Vec<u8>> {
     if blob.len() < MIN_ENCRYPTED_BLOB_LEN {
-        return Err(crate::Error::Config(
-            "Encrypted exchange file is too short to be valid".to_string(),
-        ));
+        return Err(crate::Error::Config("encrypted file too short".to_string()));
     }
 
     if blob[..4] != ENCRYPTED_MAGIC_HEADER {
         return Err(crate::Error::Config(
-            "Unsupported exchange file header; expected TAU1".to_string(),
+            "bad file header, expected TAU1".to_string(),
         ));
     }
 
@@ -81,11 +79,7 @@ pub fn decrypt(blob: &[u8], password: &str) -> crate::Result<Vec<u8>> {
         .map_err(|_| crate::Error::Config("Invalid nonce length".to_string()))?;
     let plaintext = cipher
         .decrypt(&Nonce::from(nonce_arr), ciphertext)
-        .map_err(|_| {
-            crate::Error::Config(
-                "Failed to decrypt exchange file: incorrect password or tampered data".to_string(),
-            )
-        });
+        .map_err(|_| crate::Error::Config("wrong password or corrupted file".to_string()));
 
     key.zeroize();
     plaintext
@@ -120,10 +114,7 @@ mod tests {
         let blob = encrypt(b"top secret", "hunter2").unwrap();
         let err = decrypt(&blob, "wrong password").unwrap_err();
 
-        assert!(
-            err.to_string()
-                .contains("incorrect password or tampered data")
-        );
+        assert!(err.to_string().contains("wrong password or corrupted file"));
     }
 
     #[test]
@@ -133,10 +124,7 @@ mod tests {
         blob[last] ^= 0x01;
 
         let err = decrypt(&blob, "hunter2").unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("incorrect password or tampered data")
-        );
+        assert!(err.to_string().contains("wrong password or corrupted file"));
     }
 
     #[test]

@@ -1495,7 +1495,7 @@ pub fn update_trigger_app_filters(
                 let prefix = &trimmed[..pos];
                 if !matches!(prefix.to_lowercase().as_str(), "exe" | "class" | "title") {
                     return Err(crate::Error::Config(format!(
-                        "Unknown app filter prefix '{}'. Allowed: exe:, class:, title:.",
+                        "unknown app filter prefix '{}' (use: exe:, class:, title:)",
                         prefix
                     )));
                 }
@@ -2232,7 +2232,7 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("Unknown app filter prefix")
+                .contains("unknown app filter prefix")
         );
     }
 

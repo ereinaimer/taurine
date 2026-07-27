@@ -32,10 +32,10 @@ fn load_asset_image(hash: &str) -> Result<(Vec<u8>, String), String> {
             [hash],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
-        .map_err(|e| format!("Asset not found in database: {}", e))?;
+        .map_err(|e| format!("asset not in DB: {}", e))?;
 
     let decompressed = crate::engine::shell::decompress_bytes(&compressed)
-        .map_err(|e| format!("Failed to decompress image asset: {}", e))?;
+        .map_err(|e| format!("decompress failed: {}", e))?;
 
     Ok((decompressed, mime_type))
 }
@@ -48,14 +48,10 @@ fn load_file_image(path_str: &str) -> Result<(Vec<u8>, String), String> {
         return Err(format!("File does not exist: {}", path.display()));
     }
 
-    let bytes = std::fs::read(&path).map_err(|e| format!("Failed to read image file: {}", e))?;
+    let bytes = std::fs::read(&path).map_err(|e| format!("read failed: {}", e))?;
 
-    image::guess_format(&bytes).map_err(|_| {
-        format!(
-            "'{}' is not a supported image file (PNG or JPEG required)",
-            path.display()
-        )
-    })?;
+    image::guess_format(&bytes)
+        .map_err(|_| format!("'{}' not a supported image (PNG/JPEG only)", path.display()))?;
 
     let mime_type = get_mime_type(&bytes, path_str);
     Ok((bytes, mime_type))

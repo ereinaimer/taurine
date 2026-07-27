@@ -156,7 +156,7 @@ pub fn encode_exchange_blob(
     }
 
     let password = password.ok_or_else(|| {
-        crate::Error::Config("An encryption password is required for TAU1 exports".to_string())
+        crate::Error::Config("password required for encrypted export".to_string())
     })?;
 
     let mut serialized = serialize_payload(payload)?;

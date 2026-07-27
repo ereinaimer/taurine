@@ -29,7 +29,7 @@ pub(crate) fn parse_methods(mut key: &str) -> Result<Vec<Method<'_>>, String> {
                 }
             }
             if end == 0 {
-                return Err("[Error: Unclosed parenthesis in calc]".to_string());
+                return Err("[Error: unclosed paren in calc]".to_string());
             }
             methods.push(Method::Calc(&key[5..end]));
             key = &key[end + 1..];
@@ -53,18 +53,18 @@ pub(crate) fn parse_methods(mut key: &str) -> Result<Vec<Method<'_>>, String> {
                 }
             }
             if end == 0 {
-                return Err("[Error: Unclosed parenthesis in format]".to_string());
+                return Err("[Error: unclosed paren in format]".to_string());
             }
             methods.push(Method::Format(&key[7..end]));
             key = &key[end + 1..];
         } else {
-            return Err(format!("[Error: Unknown method starting at '{}']", key));
+            return Err(format!("[Error: unknown method '{}']", key));
         }
 
         if !key.is_empty() {
             if !key.starts_with('.') {
                 return Err(format!(
-                    "[Error: Expected '.' before next method, found '{}']",
+                    "[Error: expected '.' before method, got '{}']",
                     key
                 ));
             }
@@ -81,7 +81,7 @@ fn apply_time_calc(mut dt: OffsetDateTime, args: &str) -> Result<OffsetDateTime,
     }
     let first = args.chars().next().unwrap();
     if first != '+' && first != '-' {
-        return Err("[Error: calc requires explicit + or - sign]".to_string());
+        return Err("[Error: calc needs + or -]".to_string());
     }
 
     let mut is_positive = true;
@@ -120,10 +120,7 @@ fn apply_time_calc(mut dt: OffsetDateTime, args: &str) -> Result<OffsetDateTime,
                     dt += Duration::seconds(val);
                 }
                 'd' | 'w' | 'y' | 'Y' | 'M' => {
-                    return Err(format!(
-                        "[Error: '{}' is a date unit and cannot be used in time.calc]",
-                        c
-                    ));
+                    return Err(format!("[Error: '{}' is date-only, not for time.calc]", c));
                 }
                 _ => return Err(format!("[Error: Unknown unit '{}' in calc]", c)),
             }
@@ -209,12 +206,12 @@ fn format_time(dt: OffsetDateTime, format_str: &str) -> Result<String, String> {
             || remaining.starts_with("dddd")
         {
             return Err(format!(
-                "[Error: Date token '{}' cannot be used in time.format]",
+                "[Error: '{}' is date-only, not time.format]",
                 &remaining[0..4]
             ));
         } else if remaining.starts_with("MMM") || remaining.starts_with("ddd") {
             return Err(format!(
-                "[Error: Date token '{}' cannot be used in time.format]",
+                "[Error: '{}' is date-only, not time.format]",
                 &remaining[0..3]
             ));
         } else if remaining.starts_with("YY")
@@ -222,7 +219,7 @@ fn format_time(dt: OffsetDateTime, format_str: &str) -> Result<String, String> {
             || remaining.starts_with("DD")
         {
             return Err(format!(
-                "[Error: Date token '{}' cannot be used in time.format]",
+                "[Error: '{}' is date-only, not time.format]",
                 &remaining[0..2]
             ));
         } else if remaining.starts_with('Y')
@@ -231,7 +228,7 @@ fn format_time(dt: OffsetDateTime, format_str: &str) -> Result<String, String> {
             || remaining.starts_with('d')
         {
             return Err(format!(
-                "[Error: Date token '{}' cannot be used in time.format]",
+                "[Error: '{}' is date-only, not time.format]",
                 chars[i]
             ));
         } else {
@@ -301,12 +298,12 @@ mod tests {
         assert!(!res_single.as_ref().unwrap().contains("[Error"));
 
         let err_no_sign = resolve("time.calc(1h)").unwrap();
-        assert_eq!(err_no_sign, "[Error: calc requires explicit + or - sign]");
+        assert_eq!(err_no_sign, "[Error: calc needs + or -]");
 
         let err_date_unit = resolve("time.calc(+1d)").unwrap();
         assert_eq!(
             err_date_unit,
-            "[Error: 'd' is a date unit and cannot be used in time.calc]"
+            "[Error: 'd' is date-only, not for time.calc]"
         );
 
         let res_format = resolve("time.format(HH:mm)").unwrap();
@@ -318,14 +315,11 @@ mod tests {
         let err_date_token = resolve("time.format(YYYY)").unwrap();
         assert_eq!(
             err_date_token,
-            "[Error: Date token 'YYYY' cannot be used in time.format]"
+            "[Error: 'YYYY' is date-only, not time.format]"
         );
 
         let err_upper_m = resolve("time.format(HH:MM)").unwrap();
-        assert_eq!(
-            err_upper_m,
-            "[Error: Date token 'MM' cannot be used in time.format]"
-        );
+        assert_eq!(err_upper_m, "[Error: 'MM' is date-only, not time.format]");
 
         let compound_calc = resolve("time.calc(+1h30m)").unwrap();
         assert!(!compound_calc.contains("[Error"));

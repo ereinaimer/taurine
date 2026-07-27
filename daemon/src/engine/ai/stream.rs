@@ -186,7 +186,7 @@ async fn evaluate_marker_tree(
                         }
                         Err(_) => {
                             return Err(taurine_core::error::Error::Service(
-                                "[Error: AI request failed - Request timed out.]".to_string(),
+                                "[Error: AI timed out]".to_string(),
                             ));
                         }
                     }

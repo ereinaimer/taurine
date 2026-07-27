@@ -120,10 +120,10 @@ pub(crate) fn to_script_metadata(key: &str) -> Result<ScriptMetadata, String> {
                     [hash],
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
-                .map_err(|e| format!("Asset not found in database: {}", e))?;
+                .map_err(|e| format!("asset not in DB: {}", e))?;
 
             let decompressed = crate::engine::shell::decompress_bytes(&compressed)
-                .map_err(|e| format!("Failed to decompress script asset: {}", e))?;
+                .map_err(|e| format!("decompress failed: {}", e))?;
 
             let ext = match mime_type.as_str() {
                 "text/x-shellscript" => "sh",
@@ -136,7 +136,7 @@ pub(crate) fn to_script_metadata(key: &str) -> Result<ScriptMetadata, String> {
             let temp_path = std::env::temp_dir().join(format!("tau_asset_{}.{}", hash, ext));
             if !temp_path.exists() {
                 std::fs::write(&temp_path, decompressed)
-                    .map_err(|e| format!("Failed to write temp script: {}", e))?;
+                    .map_err(|e| format!("write temp script failed: {}", e))?;
             }
 
             invocation.subject = temp_path.to_string_lossy().to_string();

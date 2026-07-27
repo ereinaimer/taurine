@@ -44,7 +44,7 @@ impl ExchangePayload {
     fn validate_schema_version(&self) -> crate::Result<()> {
         if self.schema_version > EXCHANGE_SCHEMA_VERSION {
             return Err(crate::Error::Config(format!(
-                "Unsupported exchange schema version: {} (maximum supported is {})",
+                "schema v{} unsupported (max v{})",
                 self.schema_version, EXCHANGE_SCHEMA_VERSION
             )));
         }
@@ -124,7 +124,7 @@ pub fn decode_plaintext_payload(bytes: &[u8]) -> crate::Result<ExchangePayload> 
     match detect_exchange_format(bytes)? {
         ExchangeFormat::Plaintext => deserialize_payload(&bytes[MAGIC_HEADER_LEN..]),
         ExchangeFormat::Encrypted => Err(crate::Error::Config(
-            "Expected TAUP plaintext data, but received TAU1 encrypted data".to_string(),
+            "expected plaintext (TAUP) but got encrypted (TAU1)".to_string(),
         )),
     }
 }
@@ -132,7 +132,7 @@ pub fn decode_plaintext_payload(bytes: &[u8]) -> crate::Result<ExchangePayload> 
 pub fn detect_exchange_format(bytes: &[u8]) -> crate::Result<ExchangeFormat> {
     if bytes.len() < MAGIC_HEADER_LEN {
         return Err(crate::Error::Config(
-            "Exchange file is too short to contain a valid header".to_string(),
+            "file too short for valid header".to_string(),
         ));
     }
 
@@ -143,7 +143,7 @@ pub fn detect_exchange_format(bytes: &[u8]) -> crate::Result<ExchangeFormat> {
         Ok(ExchangeFormat::Encrypted)
     } else {
         Err(crate::Error::Config(
-            "Unsupported exchange file header; expected TAUP or TAU1".to_string(),
+            "bad file header, expected TAUP or TAU1".to_string(),
         ))
     }
 }
@@ -156,9 +156,7 @@ pub fn decode_exchange_blob(
         ExchangeFormat::Plaintext => decode_plaintext_payload(bytes),
         ExchangeFormat::Encrypted => {
             let password = password.ok_or_else(|| {
-                crate::Error::Config(
-                    "A password is required to import TAU1 exchange files".to_string(),
-                )
+                crate::Error::Config("password required for encrypted import".to_string())
             })?;
             let mut plaintext = crypto::decrypt(bytes, password)?;
             let payload = deserialize_payload(&plaintext);
@@ -414,7 +412,7 @@ mod tests {
         let blob = crypto::encrypt(&serialized, "hunter2").unwrap();
 
         let err = decode_exchange_blob(&blob, None).unwrap_err();
-        assert!(err.to_string().contains("password is required"));
+        assert!(err.to_string().contains("password required"));
     }
 
     #[test]

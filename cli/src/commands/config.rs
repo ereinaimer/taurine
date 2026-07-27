@@ -219,7 +219,7 @@ pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::erro
         }
         "wpm" => {
             let parsed = value.parse::<u32>().map_err(|_| {
-                taurine_core::error::Error::Config(format!("Invalid WPM value: {}", value))
+                taurine_core::error::Error::Config(format!("bad WPM value: {}", value))
             })?;
             let wpm = Settings::sanitize_wpm(parsed);
             manager.update_setting(actual_key, wpm)?;
@@ -227,7 +227,7 @@ pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::erro
         }
         "clipboard_restore_delay_ms" => {
             let parsed = value.parse::<u32>().map_err(|_| {
-                taurine_core::error::Error::Config(format!("Invalid delay value: {}", value))
+                taurine_core::error::Error::Config(format!("bad delay value: {}", value))
             })?;
             let delay = Settings::sanitize_clipboard_restore_delay_ms(parsed);
             manager.update_setting(actual_key, delay)?;
@@ -235,10 +235,7 @@ pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::erro
         }
         "clipboard_history_retention_secs" => {
             let parsed = value.parse::<u32>().map_err(|_| {
-                taurine_core::error::Error::Config(format!(
-                    "Invalid retention seconds value: {}",
-                    value
-                ))
+                taurine_core::error::Error::Config(format!("bad retention seconds: {}", value))
             })?;
             let secs = Settings::sanitize_clipboard_history_retention_secs(parsed);
             manager.update_setting(actual_key, secs)?;
@@ -281,7 +278,7 @@ pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::erro
             let val = value.trim();
             if val.is_empty() {
                 return Err(taurine_core::error::Error::Config(format!(
-                    "Invalid {actual_key} value: must not be empty"
+                    "{actual_key} must not be empty"
                 )));
             }
             manager.update_setting(actual_key, Some(val.to_string()))?;
@@ -297,7 +294,7 @@ pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::erro
         }
         "rpc_port" => {
             let parsed = value.parse::<u16>().map_err(|_| {
-                taurine_core::error::Error::Config(format!("Invalid port value: {}", value))
+                taurine_core::error::Error::Config(format!("bad port value: {}", value))
             })?;
             if parsed < 1024 {
                 warn!(
@@ -314,14 +311,14 @@ pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::erro
         }
         "ai_temperature" => {
             let parsed = value.parse::<f32>().map_err(|_| {
-                taurine_core::error::Error::Config(format!("Invalid temperature value: {}", value))
+                taurine_core::error::Error::Config(format!("bad temperature value: {}", value))
             })?;
             manager.update_setting(actual_key, Some(parsed))?;
             info!("Updated ai_temperature to: {}", parsed);
         }
         "ai_max_tokens" => {
             let parsed = value.parse::<u32>().map_err(|_| {
-                taurine_core::error::Error::Config(format!("Invalid max tokens value: {}", value))
+                taurine_core::error::Error::Config(format!("bad max tokens value: {}", value))
             })?;
             manager.update_setting(actual_key, Some(parsed))?;
             info!("Updated ai_max_tokens to: {}", parsed);
@@ -373,12 +370,12 @@ pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::erro
             let val = value.trim();
             if val.is_empty() {
                 return Err(taurine_core::error::Error::Config(format!(
-                    "Invalid {actual_key} value: must not be empty"
+                    "{actual_key} must not be empty"
                 )));
             }
             if actual_key == "inline_datetime_dialect" && val != "uk" && val != "us" {
                 return Err(taurine_core::error::Error::Config(format!(
-                    "Invalid dialect value: {val}. Must be 'uk' or 'us'"
+                    "dialect must be 'uk' or 'us', got '{val}'"
                 )));
             }
             manager.update_setting(actual_key, val.to_string())?;
