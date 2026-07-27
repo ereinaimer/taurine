@@ -46,7 +46,7 @@ pub fn execute_with_trigger_type(
     use crate::commands::validate::format_trigger_log;
     use taurine_core::db::crud::{
         add_trigger_by_type_with_case, add_trigger_with_case, audit_payload_tags_with_trigger_type,
-        prepare_trigger_with_type, validate_trigger_not_reserved,
+        prepare_trigger_with_type,
     };
     use taurine_core::engine::variables::system::validate_output;
 
@@ -75,8 +75,6 @@ pub fn execute_with_trigger_type(
             "Warning: The trigger contains '[clip]' system variables, which won't work because clipboard history is disabled in the settings."
         );
     }
-    validate_trigger_not_reserved(&conn, &stored_trigger)?;
-
     // Case conflict check
     if auto_case {
         let conflict_exists: bool = conn

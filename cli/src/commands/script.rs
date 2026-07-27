@@ -3,7 +3,6 @@ use std::fs;
 use std::path::PathBuf;
 use taurine_core::db::crud::{
     TriggerType, audit_script_payload_tags, prepare_trigger_with_type, upsert_script,
-    validate_trigger_not_reserved,
 };
 use taurine_core::db::init;
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter, compress};
@@ -125,8 +124,6 @@ pub fn execute_with_trigger_type(
     };
 
     let conn = init::setup()?;
-    validate_trigger_not_reserved(&conn, &stored_trigger)?;
-
     let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
     if !settings.scripts_enabled {
         tracing::warn!(

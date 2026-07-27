@@ -4,7 +4,7 @@ use crate::Result;
 use rusqlite::Connection;
 use sha2::{Digest, Sha256};
 
-use crate::db::{crud::get_setting_value, now_unix_secs};
+use crate::db::now_unix_secs;
 use crate::engine::{
     shell::{ScriptBehavior, ScriptInterpreter, compress, infer_interpreter},
     variables::system::validate_output,
@@ -18,7 +18,6 @@ use crate::keys::{
 use super::trigger_types;
 use super::{TriggerConflict, TriggerType};
 
-const INLINE_AI_RESERVED_TRIGGER: &str = "ai";
 const TAG_OPEN: u8 = b'[';
 const TAG_CLOSE: u8 = b']';
 const MAX_TAG_LENGTH: usize = 50;
@@ -316,41 +315,6 @@ pub fn prepare_trigger_with_type(
         trigger_type,
         stored_trigger: canonical,
     })
-}
-
-fn current_trigger_char(conn: &Connection) -> char {
-    if let Ok(Some(val)) = get_setting_value(conn, "trigger_char")
-        && let Ok(v) = serde_json::from_str::<String>(&val)
-        && let Some(c) = v.chars().next()
-    {
-        return c;
-    }
-
-    '>'
-}
-
-fn is_reserved_inline_ai_trigger(conn: &Connection, trigger: &str) -> bool {
-    if trigger == INLINE_AI_RESERVED_TRIGGER {
-        return true;
-    }
-
-    trigger
-        == format!(
-            "{}{}",
-            current_trigger_char(conn),
-            INLINE_AI_RESERVED_TRIGGER
-        )
-}
-
-pub fn validate_trigger_not_reserved(conn: &Connection, trigger: &str) -> Result<()> {
-    if is_reserved_inline_ai_trigger(conn, trigger) {
-        return Err(crate::Error::Config(format!(
-            "Trigger '{}' is reserved for Taurine Inline AI Copilot",
-            trigger
-        )));
-    }
-
-    Ok(())
 }
 
 fn validate_trigger_type(trigger_type: TriggerType, target_os: &str) -> Result<()> {
@@ -750,8 +714,6 @@ pub fn upsert_trigger_with_type_and_case(
     last_used_at: Option<i64>,
     auto_case: bool,
 ) -> Result<()> {
-    validate_trigger_not_reserved(conn, trigger)?;
-
     let now = now_unix_secs();
 
     // Keep created_at stable across updates.
@@ -1665,7 +1627,6 @@ pub fn add_trigger_by_type_with_case(
     let trigger_nfc: String = trigger.nfc().collect();
     let output_nfc: String = output.nfc().collect();
 
-    validate_trigger_not_reserved(conn, &trigger_nfc)?;
     validate_trigger_limits(conn, &trigger_nfc, &output_nfc, "text")?;
 
     if name.is_some_and(|n| n.len() > trigger_types::MAX_NAME_LENGTH) {

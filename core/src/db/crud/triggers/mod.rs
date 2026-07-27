@@ -21,7 +21,7 @@ pub use trigger_set::{
     find_trigger_overlap_conflict, increment_usage_count_by_trigger, normalize_tags,
     prepare_trigger, prepare_trigger_with_type, record_expansion_usage, target_os_values_overlap,
     update_existing_trigger, update_trigger_app_filters, upsert_script, upsert_trigger,
-    upsert_trigger_with_type, upsert_trigger_with_type_and_case, validate_trigger_not_reserved,
+    upsert_trigger_with_type, upsert_trigger_with_type_and_case,
     validate_trigger_target_os_conflict,
 };
 pub use trigger_sync::get_syncable_triggers;
@@ -37,7 +37,6 @@ pub use trigger_types::{
 mod tests {
     use super::*;
     use crate::engine::shell::{ScriptBehavior, ScriptInterpreter, compress, decompress};
-    use crate::settings::SettingsManager;
     use crate::testing::{init_tracing_for_tests, open_test_db};
     use rusqlite::ErrorCode;
 
@@ -1739,76 +1738,6 @@ mod tests {
 
         // Cleanup
         unsafe { std::env::remove_var("TAURINE_DB_PATH") };
-    }
-
-    #[test]
-    fn validate_trigger_not_reserved_rejects_ai_keyword() {
-        init_tracing_for_tests();
-        let (_dir, conn) = open_test_db();
-
-        let err = validate_trigger_not_reserved(&conn, "ai").unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("reserved for Taurine Inline AI Copilot"),
-            "unexpected error: {err}"
-        );
-    }
-
-    #[test]
-    fn validate_trigger_not_reserved_rejects_prefixed_ai_for_current_trigger_setting() {
-        init_tracing_for_tests();
-        let (_dir, conn) = open_test_db();
-        let manager = SettingsManager::new(&conn);
-        manager.update_setting("trigger_char", "/").unwrap();
-
-        let err = validate_trigger_not_reserved(&conn, "/ai").unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("reserved for Taurine Inline AI Copilot"),
-            "unexpected error: {err}"
-        );
-    }
-
-    #[test]
-    fn upsert_trigger_rejects_reserved_ai_trigger() {
-        init_tracing_for_tests();
-        let (_dir, conn) = open_test_db();
-
-        let err = upsert_trigger(
-            &conn,
-            "uuid-ai-1",
-            "AI",
-            None,
-            "ai",
-            "payload",
-            "text",
-            "all",
-            "[]",
-            0,
-            None,
-        )
-        .unwrap_err();
-
-        assert!(
-            err.to_string()
-                .contains("reserved for Taurine Inline AI Copilot"),
-            "unexpected error: {err}"
-        );
-    }
-
-    #[test]
-    fn add_trigger_rejects_reserved_prefixed_ai_trigger() {
-        init_tracing_for_tests();
-        let (_dir, conn) = open_test_db();
-        let manager = SettingsManager::new(&conn);
-        manager.update_setting("trigger_char", "#").unwrap();
-
-        let err = add_trigger(&conn, "#ai", "payload", "all", None, None, None).unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("reserved for Taurine Inline AI Copilot"),
-            "unexpected error: {err}"
-        );
     }
 
     #[test]
