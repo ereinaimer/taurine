@@ -887,7 +887,7 @@ mod tests {
         .unwrap_err();
         assert!(
             err.to_string()
-                .contains("overlaps existing target_os 'all'")
+                .contains("conflicts with existing trigger on target_os 'all'")
         );
     }
 
@@ -1013,7 +1013,7 @@ mod tests {
         )
         .unwrap_err();
         assert!(
-            err.to_string().contains("Trigger conflict"),
+            err.to_string().contains("conflicts"),
             "unexpected error: {err}"
         );
 
@@ -1028,7 +1028,7 @@ mod tests {
         )
         .unwrap_err();
         assert!(
-            err.to_string().contains("Trigger conflict"),
+            err.to_string().contains("conflicts"),
             "unexpected error: {err}"
         );
     }
@@ -1109,8 +1109,7 @@ mod tests {
         )
         .unwrap_err();
         assert!(
-            err.to_string()
-                .contains("overlaps existing target_os 'win'"),
+            err.to_string().contains("target_os 'win'"),
             "unexpected error: {err}"
         );
     }
@@ -1527,7 +1526,7 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(error.to_string().contains("Trigger conflict"));
+        assert!(error.to_string().contains("conflicts"));
     }
 
     #[test]
@@ -1635,7 +1634,7 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(error.to_string().contains("Trigger conflict"));
+        assert!(error.to_string().contains("conflicts"));
         let row = get_trigger(&conn, &original_id).unwrap().unwrap();
         assert_eq!(row.output, "Good Morning");
     }

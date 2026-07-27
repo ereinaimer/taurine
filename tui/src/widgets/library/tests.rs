@@ -624,10 +624,7 @@ fn import_modal_requires_non_empty_path() {
     let interaction = modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
     assert!(interaction.pending_import_prepare().is_none());
-    assert_eq!(
-        modal.error(),
-        Some("Configuration error: Import path is required.")
-    );
+    assert_eq!(modal.error(), Some("Import path is required."));
 }
 
 #[test]
@@ -974,10 +971,7 @@ fn export_modal_requires_password_when_encryption_is_enabled() {
     let interaction = modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
     assert!(interaction.pending_export().is_none());
-    assert_eq!(
-        modal.error(),
-        Some("Configuration error: Encryption password is required.")
-    );
+    assert_eq!(modal.error(), Some("Encryption password is required."));
 }
 
 #[test]

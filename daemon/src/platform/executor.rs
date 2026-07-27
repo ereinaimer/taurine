@@ -68,7 +68,7 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
                 ScriptInterpreter::Cmd => "cmd",
             };
             taurine_core::Error::Service(format!(
-                "[Taurine Error: '{}' is not installed or not in PATH]",
+                "interpreter '{}' not found in PATH",
                 interpreter_name
             ))
         } else {

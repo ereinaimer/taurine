@@ -35,7 +35,7 @@ pub fn normalize_tags(tags_json: &str) -> Result<String> {
         }
         if trimmed.len() > MAX_TAG_LENGTH {
             return Err(crate::Error::Config(format!(
-                "Tag '{}' exceeds maximum length of {} characters.",
+                "tag '{}' exceeds {} character limit",
                 trimmed, MAX_TAG_LENGTH,
             )));
         }
@@ -46,7 +46,7 @@ pub fn normalize_tags(tags_json: &str) -> Result<String> {
 
     if normalized.len() > MAX_TAGS_COUNT {
         return Err(crate::Error::Config(format!(
-            "Number of tags ({}) exceeds maximum of {}.",
+            "tag count ({}) exceeds limit of {}",
             normalized.len(),
             MAX_TAGS_COUNT,
         )));
@@ -167,7 +167,7 @@ fn audit_payload_tags_impl_opt(
                     cursor_count += 1;
                     if cursor_count > 1 {
                         return Err(crate::Error::Config(
-                            "Invalid variable [cursor]: multiple cursor directives are not allowed. Only one final caret position can be defined.".to_string()
+                            "[cursor]: multiple cursor directives".to_string(),
                         ));
                     }
                 }
@@ -178,7 +178,7 @@ fn audit_payload_tags_impl_opt(
 
                 if let Some(_default) = default_value {
                     return Err(crate::Error::Config(format!(
-                        "Invalid system tag [{}]: system tags cannot use default assignments. {}",
+                        "[{}]: system tags cannot have defaults. {}",
                         inner,
                         valid_modifier_hint(root)
                     )));
@@ -196,7 +196,7 @@ fn audit_payload_tags_impl_opt(
 
                 if (!is_script || is_user_var) && key_unquoted.contains('.') {
                     return Err(crate::Error::Config(format!(
-                        "Invalid variable [{}]: user-defined variables cannot contain dots. Dot-namespaces are reserved for system variables.",
+                        "[{}]: dots reserved for system variables",
                         inner
                     )));
                 }
@@ -211,8 +211,8 @@ fn audit_payload_tags_impl_opt(
                             if !defined_vars.contains(key_unquoted) && !is_allowed_regex_positional
                             {
                                 return Err(crate::Error::Config(format!(
-                                    "Invalid variable [{}]: dynamic variables must have a default value assignment (e.g., [key=default]). If you intended to write literal text, escape the brackets like \\[{}\\].",
-                                    inner, inner
+                                    "[{}]: dynamic variables need a default (e.g., [key=default])",
+                                    inner
                                 )));
                             }
                         }
@@ -221,7 +221,7 @@ fn audit_payload_tags_impl_opt(
                                 crate::engine::variables::system::strip_quotes(val).unwrap_or(val);
                             if unquoted.trim().is_empty() {
                                 return Err(crate::Error::Config(format!(
-                                    "Invalid variable [{}]: default assignments cannot be empty.",
+                                    "[{}]: default value cannot be empty",
                                     inner
                                 )));
                             }
@@ -236,7 +236,7 @@ fn audit_payload_tags_impl_opt(
 
     if cursor_count > 0 && has_key_or_delay {
         return Err(crate::Error::Config(
-            "The [cursor] directive cannot be used alongside [key.*], [delay.*], or [mouse.*] directives.".to_string()
+            "[cursor] conflicts with key/delay/mouse directives".to_string(),
         ));
     }
 
@@ -267,7 +267,7 @@ pub fn prepare_trigger_with_type(
 
     if trigger.len() > MAX_TRIGGER_LENGTH {
         return Err(crate::Error::Config(format!(
-            "Trigger exceeds maximum length of {} characters.",
+            "Trigger exceeds {} character limit",
             MAX_TRIGGER_LENGTH
         )));
     }
@@ -465,10 +465,9 @@ pub fn validate_trigger_target_os_conflict(
         exclude_id,
     )? {
         return Err(crate::Error::Config(format!(
-            "Trigger conflict for {} '{}' on target_os '{}': overlaps existing target_os '{}' with overlapping app filters",
+            "{} '{}' conflicts with existing trigger on target_os '{}' (app filters overlap)",
             trigger_type.as_db_str(),
             trigger,
-            target_os,
             conflict.target_os
         )));
     }
@@ -870,7 +869,7 @@ fn check_limits_recursive(
 ) -> Result<()> {
     if visited.contains(trigger) {
         return Err(crate::Error::Config(format!(
-            "Circular reference detected involving trigger '{}'",
+            "Circular reference: '{}'",
             trigger
         )));
     }
@@ -878,7 +877,7 @@ fn check_limits_recursive(
     *max_depth = std::cmp::max(*max_depth, depth);
     if *max_depth > 5 {
         return Err(crate::Error::Config(
-            "Nested snippet depth exceeds the maximum limit of 5".to_string(),
+            "Nested snippet depth limit (5) exceeded".to_string(),
         ));
     }
 
@@ -889,7 +888,7 @@ fn check_limits_recursive(
         *ai_count += nested_ai;
         if *ai_count > 3 {
             return Err(crate::Error::Config(format!(
-                "Total expanded AI calls ({}) exceeds the limit of 3",
+                "AI call limit (3) exceeded, total: {}",
                 ai_count
             )));
         }
@@ -900,13 +899,13 @@ fn check_limits_recursive(
 
         if *cursor_count > 1 {
             return Err(crate::Error::Config(
-                "Multiple [cursor] tags found in expanded snippet sequence. Only one [cursor] is allowed.".to_string()
+                "Multiple [cursor] tags found (max 1)".to_string(),
             ));
         }
 
         if *cursor_count > 0 && *has_key_or_delay {
             return Err(crate::Error::Config(
-                "The [cursor] directive cannot be used alongside [key.*], [delay.*], or [mouse.*] directives in the same expanded snippet sequence.".to_string()
+                "[cursor] conflicts with key/delay/mouse directives".to_string(),
             ));
         }
 
@@ -959,20 +958,20 @@ pub fn validate_trigger_limits(
 
         if ai_count > 3 {
             return Err(crate::Error::Config(format!(
-                "Snippet '{}' contains {} AI calls, exceeding the limit of 3",
+                "Snippet '{}': AI call limit (3) exceeded, has {}",
                 trigger, ai_count
             )));
         }
 
         if cursor_count > 1 {
             return Err(crate::Error::Config(
-                "Multiple [cursor] tags found. Only one [cursor] is allowed.".to_string(),
+                "Multiple [cursor] tags found (max 1)".to_string(),
             ));
         }
 
         if cursor_count > 0 && has_key_or_delay {
             return Err(crate::Error::Config(
-                "The [cursor] directive cannot be used alongside [key.*], [delay.*], or [mouse.*] directives.".to_string()
+                "[cursor] conflicts with key/delay/mouse directives".to_string(),
             ));
         }
 
@@ -1002,7 +1001,7 @@ pub fn validate_trigger_limits(
     for ref_trigger in &all_referenced {
         if !catalog.contains_key(ref_trigger) {
             return Err(crate::Error::Config(format!(
-                "Trigger uses '[use(\"{}\")]' which does not exist.",
+                "[use(\"{}\")] does not exist",
                 ref_trigger
             )));
         }
@@ -1028,7 +1027,7 @@ pub fn update_existing_trigger(
 
     if update.name.len() > trigger_types::MAX_NAME_LENGTH {
         return Err(crate::Error::Config(format!(
-            "Trigger name exceeds maximum length of {} characters.",
+            "Trigger name exceeds {} character limit",
             trigger_types::MAX_NAME_LENGTH
         )));
     }
@@ -1036,7 +1035,7 @@ pub fn update_existing_trigger(
         && desc.len() > trigger_types::MAX_DESCRIPTION_LENGTH
     {
         return Err(crate::Error::Config(format!(
-            "Trigger description exceeds maximum length of {} characters.",
+            "Trigger description exceeds {} character limit",
             trigger_types::MAX_DESCRIPTION_LENGTH
         )));
     }
@@ -1158,7 +1157,7 @@ pub fn create_trigger(conn: &mut Connection, new_trigger: NewTrigger<'_>) -> Res
         .unwrap_or(generated_name.as_str());
     if name.len() > trigger_types::MAX_NAME_LENGTH {
         return Err(crate::Error::Config(format!(
-            "Trigger name exceeds maximum length of {} characters.",
+            "Trigger name exceeds {} character limit",
             trigger_types::MAX_NAME_LENGTH
         )));
     }
@@ -1166,7 +1165,7 @@ pub fn create_trigger(conn: &mut Connection, new_trigger: NewTrigger<'_>) -> Res
         && desc.len() > trigger_types::MAX_DESCRIPTION_LENGTH
     {
         return Err(crate::Error::Config(format!(
-            "Trigger description exceeds maximum length of {} characters.",
+            "Trigger description exceeds {} character limit",
             trigger_types::MAX_DESCRIPTION_LENGTH
         )));
     }
@@ -1321,27 +1320,27 @@ fn format_validation_error(
 ) -> String {
     match error {
         ValidationError::MissingModifier { .. } => format!(
-            "Invalid system tag [{}]: `{}` requires a modifier. {}",
+            "[{}]: `{}` needs a modifier. {}",
             raw_tag,
             root,
             valid_modifier_hint(root)
         ),
         ValidationError::UnexpectedModifier { .. } => format!(
-            "Invalid system tag [{}]: `{}` does not accept modifier `{}`. {}",
+            "[{}]: `{}` has no modifier `{}`. {}",
             raw_tag,
             root,
             modifier.unwrap_or_default(),
             valid_modifier_hint(root)
         ),
         ValidationError::InvalidModifier { modifier, .. } => format!(
-            "Invalid system tag [{}]: modifier `{}` is not valid for `{}`. {}",
+            "[{}]: modifier `{}` invalid for `{}`. {}",
             raw_tag,
             modifier,
             root,
             valid_modifier_hint(root)
         ),
         ValidationError::UnknownRoot(root) => {
-            format!("Invalid system tag [{}]: unknown root `{}`.", raw_tag, root)
+            format!("[{}]: unknown root `{}`", raw_tag, root)
         }
     }
 }
@@ -1630,18 +1629,16 @@ pub fn add_trigger_by_type_with_case(
     validate_trigger_limits(conn, &trigger_nfc, &output_nfc, "text")?;
 
     if name.is_some_and(|n| n.len() > trigger_types::MAX_NAME_LENGTH) {
-        return Err(crate::Error::Config(
-            "Name exceeds maximum length of ".to_string()
-                + &trigger_types::MAX_NAME_LENGTH.to_string()
-                + " characters",
-        ));
+        return Err(crate::Error::Config(format!(
+            "Name exceeds {} character limit",
+            trigger_types::MAX_NAME_LENGTH
+        )));
     }
     if description.is_some_and(|d| d.len() > trigger_types::MAX_DESCRIPTION_LENGTH) {
-        return Err(crate::Error::Config(
-            "Description exceeds maximum length of ".to_string()
-                + &trigger_types::MAX_DESCRIPTION_LENGTH.to_string()
-                + " characters",
-        ));
+        return Err(crate::Error::Config(format!(
+            "Description exceeds {} character limit",
+            trigger_types::MAX_DESCRIPTION_LENGTH
+        )));
     }
 
     let tags = tags.map(|t| {
@@ -1833,12 +1830,7 @@ mod tests {
         };
         let result = create_trigger(&mut conn, new_trigger);
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("exceeds maximum length")
-        );
+        assert!(result.unwrap_err().to_string().contains("character limit"));
     }
 
     #[test]
@@ -1862,12 +1854,7 @@ mod tests {
         };
         let result = create_trigger(&mut conn, new_trigger);
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("exceeds maximum length")
-        );
+        assert!(result.unwrap_err().to_string().contains("character limit"));
     }
 
     #[test]
@@ -1936,12 +1923,7 @@ mod tests {
             },
         );
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("exceeds maximum length")
-        );
+        assert!(result.unwrap_err().to_string().contains("character limit"));
     }
 
     #[test]
@@ -1988,12 +1970,7 @@ mod tests {
             },
         );
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("exceeds maximum length")
-        );
+        assert!(result.unwrap_err().to_string().contains("character limit"));
     }
 
     #[test]
@@ -2001,12 +1978,7 @@ mod tests {
         let long_trigger = "a".repeat(201);
         let result = prepare_trigger_with_type(&long_trigger, TriggerType::Word, "all");
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("exceeds maximum length")
-        );
+        assert!(result.unwrap_err().to_string().contains("character limit"));
     }
 
     #[test]
@@ -2099,7 +2071,7 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("maximum limit of 5")
+                .contains("depth limit (5) exceeded")
         );
     }
 
@@ -2131,7 +2103,7 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("exceeds the limit of 3")
+                .contains("AI call limit (3) exceeded")
         );
     }
 
@@ -2340,12 +2312,7 @@ mod tests {
         let json = serde_json::to_string(&vec![long_tag]).unwrap();
         let result = normalize_tags(&json);
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("exceeds maximum length")
-        );
+        assert!(result.unwrap_err().to_string().contains("character limit"));
     }
 
     #[test]
@@ -2354,12 +2321,7 @@ mod tests {
         let json = serde_json::to_string(&tags).unwrap();
         let result = normalize_tags(&json);
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("exceeds maximum of")
-        );
+        assert!(result.unwrap_err().to_string().contains("exceeds limit of"));
     }
 
     #[test]
@@ -2597,12 +2559,7 @@ mod tests {
             false,
         );
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("exceeds maximum length")
-        );
+        assert!(result.unwrap_err().to_string().contains("character limit"));
     }
 
     #[test]
@@ -2625,12 +2582,7 @@ mod tests {
             false,
         );
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("exceeds maximum length")
-        );
+        assert!(result.unwrap_err().to_string().contains("character limit"));
     }
 
     #[test]

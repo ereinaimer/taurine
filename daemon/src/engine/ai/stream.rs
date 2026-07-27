@@ -180,7 +180,7 @@ async fn evaluate_marker_tree(
                         Ok(Err(err)) => {
                             let details = sanitize_error_message(&err.to_string());
                             return Err(taurine_core::error::Error::Service(format!(
-                                "[Error: AI request failed - {}]",
+                                "[Error: AI request failed: {}]",
                                 details
                             )));
                         }
@@ -192,8 +192,7 @@ async fn evaluate_marker_tree(
                     }
                 } else {
                     return Err(taurine_core::error::Error::Config(
-                        "AI has not been properly configured. Please complete the AI setup steps."
-                            .to_string(),
+                        "AI not configured. Please run setup.".to_string(),
                     ));
                 }
             } else {
@@ -224,7 +223,7 @@ async fn run_ai_transformer_stream_inner(
                 inject_error_message(
                     &mut output,
                     false,
-                    "[Error: AI has not been properly configured. Please run setup steps.]",
+                    "[Error: AI not configured. Run setup first.]",
                 )
                 .await?;
                 finish_output(output).await;
@@ -473,14 +472,12 @@ where
     let provider = resolve_provider_from_settings(store, settings.ai_provider.as_deref())?;
     let model = resolve_model_for_provider(provider, settings.ai_model.as_deref());
     let secret = store.get_secret(provider)?.ok_or_else(|| {
-        taurine_core::error::Error::Config(
-            "AI has not been properly configured. Please complete the AI setup steps.".to_string(),
-        )
+        taurine_core::error::Error::Config("AI not configured. Run setup.".to_string())
     })?;
 
     if provider == AiProvider::Custom && settings.ai_custom_endpoint.is_none() {
         return Err(taurine_core::error::Error::Config(
-            "AI has not been properly configured. Please complete the AI setup steps.".to_string(),
+            "AI not configured. Run setup.".to_string(),
         ));
     }
 

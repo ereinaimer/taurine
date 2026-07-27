@@ -207,13 +207,10 @@ where
 
     let configured = configured_providers(store)?;
     match configured.as_slice() {
-        [] => Err(Error::Config(
-            "AI has not been properly configured. Please complete the AI setup steps.".to_string(),
-        )),
+        [] => Err(Error::Config("AI not configured. Run setup.".to_string())),
         [provider] => Ok(*provider),
         _ => Err(Error::Config(
-            "Multiple AI providers are configured. Please set a preferred provider in AI settings."
-                .to_string(),
+            "Multiple AI providers found. Set a preferred one in settings.".to_string(),
         )),
     }
 }
@@ -314,7 +311,7 @@ mod tests {
             resolve_provider_from_settings(&empty, None)
                 .expect_err("empty keyring should fail")
                 .to_string(),
-            "Configuration error: AI has not been properly configured. Please complete the AI setup steps."
+            "AI not configured. Run setup."
         );
 
         let multi = MemoryCredentialStore::default();
@@ -324,7 +321,7 @@ mod tests {
             resolve_provider_from_settings(&multi, None)
                 .expect_err("multiple providers should fail")
                 .to_string(),
-            "Configuration error: Multiple AI providers are configured. Please set a preferred provider in AI settings."
+            "Multiple AI providers found. Set a preferred one in settings."
         );
     }
 

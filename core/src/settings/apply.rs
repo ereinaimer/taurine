@@ -101,7 +101,7 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "inline_currency_to_words_enabled" => {
             Ok(Some(defaults.inline_currency_to_words_enabled.to_string()))
         }
-        _ => Err(Error::Config(format!("Unknown setting key: {actual_key}"))),
+        _ => Err(Error::Config(format!("unknown setting: {actual_key}"))),
     }
 }
 
@@ -120,7 +120,7 @@ pub fn apply_setting_input_with_manager(
         "pause_hotkey" => {
             let hotkey = require_non_empty(value, actual_key)?;
             parse_hotkey(hotkey).map_err(|error| {
-                Error::Config(format!("Invalid pause_hotkey value '{hotkey}': {error}"))
+                Error::Config(format!("invalid pause_hotkey '{hotkey}': {error}"))
             })?;
             manager.update_setting(actual_key, hotkey.to_string())?;
             ApplySettingOutcome::default()
@@ -281,7 +281,7 @@ pub fn apply_setting_input_with_manager(
         "inline_datetime_dialect" => {
             let val = require_non_empty(value, actual_key)?.to_lowercase();
             if val != "uk" && val != "us" {
-                return Err(Error::Config("Dialect must be 'uk' or 'us'".to_string()));
+                return Err(Error::Config("dialect must be 'uk' or 'us'".to_string()));
             }
             crate::settings::set_cached_inline_datetime_dialect(val.clone());
             manager.update_setting(actual_key, val)?;
@@ -306,7 +306,7 @@ pub fn apply_setting_input_with_manager(
                 .map_err(|_| Error::Config(format!("Invalid port value: {raw_value}")))?;
             if parsed < 1024 {
                 return Err(Error::Config(format!(
-                    "Invalid port value: {raw_value}. Must be between 1024 and 65535"
+                    "port must be between 1024 and 65535, got {raw_value}"
                 )));
             }
             manager.update_setting(actual_key, parsed)?;
