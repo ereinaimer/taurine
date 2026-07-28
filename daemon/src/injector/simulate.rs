@@ -16,7 +16,7 @@ pub(super) struct SimulatedEvent {
 }
 
 #[cfg(not(target_os = "linux"))]
-const SIMULATED_EVENT_TTL: Duration = Duration::from_millis(100);
+const SIMULATED_EVENT_TTL: Duration = Duration::from_millis(250);
 
 #[cfg(not(target_os = "linux"))]
 pub(super) fn simulated_events() -> &'static Mutex<VecDeque<SimulatedEvent>> {
