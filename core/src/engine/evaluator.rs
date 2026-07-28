@@ -665,28 +665,13 @@ impl Evaluator {
             let clean_query = base_query
                 .strip_prefix(emoji_trigger)
                 .unwrap_or(&base_query);
-            let mut raw_suggestions = crate::engine::emoji::search_emoji_shortcodes(clean_query);
-            let nl_matches = crate::engine::emoji::search_natural_language_emojis(clean_query);
-            for m in nl_matches {
-                if !raw_suggestions.contains(&m) {
-                    raw_suggestions.push(m);
-                }
-            }
+            let raw_suggestions = crate::engine::emoji::search_emoji_shortcodes(clean_query);
             raw_suggestions
                 .into_iter()
                 .map(|s| format!("{}{}", emoji_trigger, s))
                 .collect()
         } else {
-            let mut sug = self.state.matching_word_triggers(&base_query);
-            if self.completion.is_triggerless && self.state.inline_emoji_enabled() {
-                let nl_matches = crate::engine::emoji::search_natural_language_emojis(&base_query);
-                for m in nl_matches {
-                    if !sug.contains(&m) {
-                        sug.push(m);
-                    }
-                }
-            }
-            sug
+            self.state.matching_word_triggers(&base_query)
         };
 
         if suggestions.is_empty() {
