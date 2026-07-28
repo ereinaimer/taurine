@@ -227,8 +227,14 @@ fn get_exchange_rates() -> HashMap<String, f64> {
         && let Ok(content) = fs::read_to_string(&cache_path)
         && let Ok(rates) = serde_json::from_str::<ExchangeRatesResponse>(&content)
     {
-        // Cache is older than 24 hours (86400 seconds)
-        if current_time - rates.time_last_update_unix > 86400 {
+        // Cache is older than 15 minutes (900 seconds)
+        let cache_mtime = fs::metadata(&cache_path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        if current_time - cache_mtime > 900 {
             debug!("Exchange rates cache is stale, triggering background refresh");
             trigger_async_fetch();
         }
