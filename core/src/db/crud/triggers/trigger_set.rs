@@ -272,11 +272,9 @@ pub fn prepare_trigger_with_type(
         )));
     }
 
-    if trigger_type == TriggerType::Word
-        && (trigger.contains(' ') || trigger.contains('\n') || trigger.contains('\r'))
-    {
+    if trigger_type == TriggerType::Word && (trigger.contains('\n') || trigger.contains('\r')) {
         return Err(crate::Error::Config(
-            "Word triggers cannot contain spaces or newlines.".to_string(),
+            "Word triggers cannot contain newlines.".to_string(),
         ));
     }
 
@@ -1986,6 +1984,18 @@ mod tests {
         let max_trigger = "a".repeat(200);
         let result = prepare_trigger_with_type(&max_trigger, TriggerType::Word, "all");
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_prepare_trigger_with_spaces_succeeds() {
+        let result = prepare_trigger_with_type("my email address", TriggerType::Word, "all");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_prepare_trigger_with_newlines_rejected() {
+        let result = prepare_trigger_with_type("my\nemail", TriggerType::Word, "all");
+        assert!(result.is_err());
     }
 
     #[test]

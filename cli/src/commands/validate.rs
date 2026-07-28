@@ -231,27 +231,21 @@ mod tests {
     }
 
     #[test]
-    fn prepare_trigger_rejects_word_triggers_with_spaces_or_newlines() {
-        let error_space = prepare_trigger("hello world", false, "all").unwrap_err();
-        assert!(
-            error_space
-                .to_string()
-                .contains("cannot contain spaces or newlines")
-        );
+    fn prepare_trigger_allows_word_triggers_with_spaces() {
+        assert!(prepare_trigger("hello world", false, "all").is_ok());
+    }
 
+    #[test]
+    fn prepare_trigger_rejects_word_triggers_with_newlines() {
         let error_newline = prepare_trigger("hello\nworld", false, "all").unwrap_err();
         assert!(
             error_newline
                 .to_string()
-                .contains("cannot contain spaces or newlines")
+                .contains("cannot contain newlines")
         );
 
         let error_cr = prepare_trigger("hello\rworld", false, "all").unwrap_err();
-        assert!(
-            error_cr
-                .to_string()
-                .contains("cannot contain spaces or newlines")
-        );
+        assert!(error_cr.to_string().contains("cannot contain newlines"));
     }
 
     #[test]

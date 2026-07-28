@@ -350,8 +350,9 @@ impl Evaluator {
             } else {
                 self.trigger_prefix()
             };
+            let allow_spaces = self.state.action_key() == crate::settings::ActionKey::Enter;
             self.buffer
-                .extract_trigger_word(active_trigger, false)
+                .extract_trigger_word(active_trigger, allow_spaces)
                 .is_some()
         }
     }
@@ -460,6 +461,8 @@ impl Evaluator {
             return;
         }
 
+        let allow_spaces = self.state.action_key() == crate::settings::ActionKey::Enter;
+
         let query = if self.completion.is_triggerless {
             let Some(tail) = self.buffer.extract_tail_word() else {
                 self.completion.deactivate(&self.state.completion_active);
@@ -472,7 +475,10 @@ impl Evaluator {
             } else {
                 self.trigger_prefix()
             };
-            let Some(query) = self.buffer.extract_trigger_word(active_trigger, false) else {
+            let Some(query) = self
+                .buffer
+                .extract_trigger_word(active_trigger, allow_spaces)
+            else {
                 self.completion.deactivate(&self.state.completion_active);
                 return;
             };
@@ -598,8 +604,9 @@ impl Evaluator {
             } else {
                 self.trigger_prefix()
             };
+            let allow_spaces = self.state.action_key() == crate::settings::ActionKey::Enter;
             self.buffer
-                .extract_trigger_word(active_trigger, false)
+                .extract_trigger_word(active_trigger, allow_spaces)
                 .is_some()
         };
 
@@ -643,8 +650,9 @@ impl Evaluator {
             } else {
                 self.trigger_prefix()
             };
+            let allow_spaces = self.state.action_key() == crate::settings::ActionKey::Enter;
             self.buffer
-                .extract_trigger_word(active_trigger, false)
+                .extract_trigger_word(active_trigger, allow_spaces)
                 .is_some()
         };
 
@@ -716,9 +724,10 @@ impl Evaluator {
             return None;
         }
 
+        let allow_spaces = self.state.action_key() == crate::settings::ActionKey::Enter;
         if self
             .buffer
-            .extract_trigger_word(self.trigger_prefix(), false)
+            .extract_trigger_word(self.trigger_prefix(), allow_spaces)
             .is_none()
         {
             self.completion.deactivate(&self.state.completion_active);
@@ -4187,5 +4196,312 @@ mod tests {
 
         let suggestions = eval.completion.suggestions.clone();
         assert!(suggestions.contains(&":frog".to_string()));
+    }
+
+    #[test]
+    fn test_multi_word_trigger_with_dot_expands_on_enter() {
+        let state = Arc::new(EngineState::new('>'));
+        state.set_action_key(crate::settings::ActionKey::Enter);
+        state.load_actions(vec![(
+            "test.my email".to_string(),
+            crate::db::crud::TriggerAction::text("erein"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">test.my email".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let result = eval.process(EngineEvent::ActionKey);
+        assert!(
+            result.is_some(),
+            "multi-word trigger with dot should expand on Enter"
+        );
+        let val = result.unwrap();
+        assert_eq!(val.trigger, "test.my email");
+        assert_eq!(val.steps[0], ExpansionStep::Text("erein".to_string()));
+    }
+
+    #[test]
+    fn test_space_at_various_positions_in_trigger() {
+        let state = Arc::new(EngineState::new('>'));
+        state.set_action_key(crate::settings::ActionKey::Enter);
+        state.load_actions(vec![
+            (
+                "my email".to_string(),
+                crate::db::crud::TriggerAction::text("addr@x.com"),
+            ),
+            (
+                "a b c".to_string(),
+                crate::db::crud::TriggerAction::text("three-word"),
+            ),
+            (
+                "  leading".to_string(),
+                crate::db::crud::TriggerAction::text("spaces"),
+            ),
+        ]);
+        let mut eval = Evaluator::new(state);
+
+        // Standard two-word
+        for c in ">my email".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let result = eval.process(EngineEvent::ActionKey);
+        assert!(result.is_some(), "two-word trigger should expand");
+        let val = result.unwrap();
+        assert_eq!(val.trigger, "my email");
+        assert_eq!(val.steps[0], ExpansionStep::Text("addr@x.com".to_string()));
+
+        // Three-word trigger
+        eval.buffer.clear();
+        for c in ">a b c".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let result = eval.process(EngineEvent::ActionKey);
+        assert!(result.is_some(), "three-word trigger should expand");
+        assert_eq!(result.unwrap().trigger, "a b c");
+    }
+
+    #[test]
+    fn test_trigger_expansion_with_leading_text_and_multi_word() {
+        let state = Arc::new(EngineState::new('>'));
+        state.set_action_key(crate::settings::ActionKey::Enter);
+        state.load_actions(vec![(
+            "my email".to_string(),
+            crate::db::crud::TriggerAction::text("addr@x.com"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        // Simulate typing normal text before the trigger
+        for c in "hey there >my email".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let result = eval.process(EngineEvent::ActionKey);
+        assert!(
+            result.is_some(),
+            "multi-word trigger with leading text should expand"
+        );
+        assert_eq!(result.unwrap().trigger, "my email");
+    }
+
+    #[test]
+    fn test_multi_word_trigger_expands_on_enter() {
+        let state = Arc::new(EngineState::new('>'));
+        state.set_action_key(crate::settings::ActionKey::Enter);
+        state.load_actions(vec![(
+            "my email address".to_string(),
+            crate::db::crud::TriggerAction::text("user@example.com"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">my email address".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let result = eval.process(EngineEvent::ActionKey);
+        assert!(result.is_some());
+        let val = result.unwrap();
+        assert_eq!(val.trigger, "my email address");
+        assert_eq!(
+            val.steps[0],
+            ExpansionStep::Text("user@example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_multi_word_trigger_does_not_expand_on_space_when_action_key_is_space() {
+        let state = Arc::new(EngineState::new('>'));
+        state.set_action_key(crate::settings::ActionKey::Space);
+        state.load_actions(vec![(
+            "my email address".to_string(),
+            crate::db::crud::TriggerAction::text("user@example.com"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        for c in ">my email address".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let result = eval.process(EngineEvent::ActionKey);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_completion_stays_active_with_spaces_on_backspace_when_action_key_is_enter() {
+        let state = Arc::new(EngineState::new('>'));
+        state.set_action_key(crate::settings::ActionKey::Enter);
+        let mut eval = Evaluator::new(state);
+
+        // Activate completion by typing the trigger char
+        eval.process(EngineEvent::Char('>'));
+        assert!(eval.completion.active);
+
+        // Type a multi-word with spaces
+        for c in "my email ".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        assert!(
+            eval.completion.active,
+            "Completion should stay active with spaces when ActionKey=Enter"
+        );
+
+        // Simulate backspace - this calls sync_completion_from_buffer
+        eval.process(EngineEvent::Backspace);
+        assert!(
+            eval.completion.active,
+            "Completion should stay active after backspace with ActionKey=Enter"
+        );
+    }
+
+    #[test]
+    fn test_multi_word_trigger_preserves_completion_after_each_char() {
+        let state = Arc::new(EngineState::new('>'));
+        state.set_action_key(crate::settings::ActionKey::Enter);
+        state.load_actions(vec![(
+            "test.my email".to_string(),
+            crate::db::crud::TriggerAction::text("erein"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        eval.process(EngineEvent::Char('>'));
+        assert!(eval.completion.active, "completion should activate on >");
+
+        for c in "test.my email".chars() {
+            eval.process(EngineEvent::Char(c));
+            assert!(
+                eval.completion.active,
+                "completion should stay active after '{}'",
+                c
+            );
+        }
+
+        assert!(
+            eval.completion.active,
+            "completion should be active after full trigger"
+        );
+        assert_eq!(eval.completion.original_query, "test.my email");
+
+        let result = eval.process(EngineEvent::ActionKey);
+        assert!(
+            result.is_some(),
+            "multi-word trigger should expand on Enter"
+        );
+        let val = result.unwrap();
+        assert_eq!(val.trigger, "test.my email");
+        assert_eq!(val.steps[0], ExpansionStep::Text("erein".to_string()));
+    }
+
+    #[test]
+    fn test_multi_word_trigger_preserves_completion_after_space_explicitly() {
+        let state = Arc::new(EngineState::new('>'));
+        state.set_action_key(crate::settings::ActionKey::Enter);
+        state.load_actions(vec![(
+            "my email".to_string(),
+            crate::db::crud::TriggerAction::text("addr@x.com"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        eval.process(EngineEvent::Char('>'));
+        assert!(eval.completion.active, "completion should activate on >");
+
+        for c in "my".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        assert!(eval.completion.active, "completion active before space");
+
+        // The space character
+        eval.process(EngineEvent::Char(' '));
+        assert!(
+            eval.completion.active,
+            "completion should NOT deactivate after space"
+        );
+        assert_eq!(
+            eval.completion.original_query, "my ",
+            "query should include space"
+        );
+
+        for c in "email".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        assert!(
+            eval.completion.active,
+            "completion active after full trigger"
+        );
+        assert_eq!(eval.completion.original_query, "my email");
+
+        let result = eval.process(EngineEvent::ActionKey);
+        assert!(
+            result.is_some(),
+            "multi-word trigger should expand on Enter"
+        );
+    }
+
+    #[test]
+    fn test_triggerless_multi_word_expands_on_enter() {
+        let state = Arc::new(EngineState::new('>'));
+        state.set_action_key(crate::settings::ActionKey::Enter);
+        state
+            .triggerless_mode
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        state.load_actions(vec![(
+            "my email".to_string(),
+            crate::db::crud::TriggerAction::text("addr@x.com"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        for c in "my email".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let result = eval.process(EngineEvent::ActionKey);
+        assert!(
+            result.is_some(),
+            "triggerless multi-word trigger should expand on Enter"
+        );
+        let val = result.unwrap();
+        assert_eq!(val.trigger, "my email");
+    }
+
+    #[test]
+    fn test_triggerless_multi_word_with_dot_expands_on_enter() {
+        let state = Arc::new(EngineState::new('>'));
+        state.set_action_key(crate::settings::ActionKey::Enter);
+        state
+            .triggerless_mode
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        state.load_actions(vec![(
+            "test.my email".to_string(),
+            crate::db::crud::TriggerAction::text("erein"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        for c in "test.my email".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let result = eval.process(EngineEvent::ActionKey);
+        assert!(
+            result.is_some(),
+            "triggerless multi-word trigger with dot should expand on Enter"
+        );
+        let val = result.unwrap();
+        assert_eq!(val.trigger, "test.my email");
+        assert_eq!(val.steps[0], ExpansionStep::Text("erein".to_string()));
+    }
+
+    #[test]
+    fn test_triggerless_multi_word_tab_does_not_cross_line() {
+        let state = Arc::new(EngineState::new('>'));
+        state.set_action_key(crate::settings::ActionKey::Enter);
+        state
+            .triggerless_mode
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        state.load_actions(vec![(
+            "my\temail".to_string(),
+            crate::db::crud::TriggerAction::text("nope"),
+        )]);
+        let mut eval = Evaluator::new(state);
+
+        for c in "my\temail".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let result = eval.process(EngineEvent::ActionKey);
+        // Tab is not a space — multi-word should NOT cross tab boundaries
+        assert!(result.is_none(), "should not expand across tab");
     }
 }

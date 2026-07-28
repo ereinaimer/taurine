@@ -402,7 +402,11 @@ impl FastBuffer {
                     }
                 }
                 if !space_collected {
-                    break;
+                    // Include space in collected and continue to build multi-word candidates
+                    collected.push(' ');
+                    curr = (curr + capacity - 1) % capacity;
+                    n += 1;
+                    continue;
                 }
                 continue;
             }
@@ -694,9 +698,55 @@ mod tests {
             b.push(c);
         }
         let candidates = b.extract_suffix_candidates();
-        // Only "world" should be extracted (stops at whitespace)
+        // Both "world" and "hello world" should be extracted (spaces included for multi-word candidates)
         assert!(candidates.iter().any(|(s, _)| s == "world"));
-        assert!(!candidates.iter().any(|(s, _)| s == "hello world"));
+        assert!(candidates.iter().any(|(s, _)| s == "hello world"));
+    }
+
+    #[test]
+    fn test_extract_suffix_candidates_multi_word() {
+        let mut b = FastBuffer::new();
+        for c in "my email".chars() {
+            b.push(c);
+        }
+        let candidates = b.extract_suffix_candidates();
+        assert!(candidates.iter().any(|(s, _)| s == "my email"));
+        assert!(candidates.iter().any(|(s, _)| s == "email"));
+    }
+
+    #[test]
+    fn test_extract_suffix_candidates_triple_word() {
+        let mut b = FastBuffer::new();
+        for c in "a b c".chars() {
+            b.push(c);
+        }
+        let candidates = b.extract_suffix_candidates();
+        assert!(candidates.iter().any(|(s, _)| s == "a b c"));
+        assert!(candidates.iter().any(|(s, _)| s == "b c"));
+        assert!(candidates.iter().any(|(s, _)| s == "c"));
+    }
+
+    #[test]
+    fn test_extract_suffix_candidates_does_not_cross_newline() {
+        let mut b = FastBuffer::new();
+        for c in "hello\nworld".chars() {
+            b.push(c);
+        }
+        let candidates = b.extract_suffix_candidates();
+        // Only "world" — newline is not a space, so scanning stops
+        assert!(candidates.iter().any(|(s, _)| s == "world"));
+        assert!(!candidates.iter().any(|(s, _)| s == "hello\nworld"));
+    }
+
+    #[test]
+    fn test_extract_suffix_candidates_does_not_cross_tab() {
+        let mut b = FastBuffer::new();
+        for c in "hello\tworld".chars() {
+            b.push(c);
+        }
+        let candidates = b.extract_suffix_candidates();
+        assert!(candidates.iter().any(|(s, _)| s == "world"));
+        assert!(!candidates.iter().any(|(s, _)| s == "hello\tworld"));
     }
 
     #[test]
@@ -744,6 +794,40 @@ mod tests {
         let cow = b.as_str();
         assert!(matches!(cow, Cow::Borrowed(_)));
         assert_eq!(cow.as_ref(), "");
+    }
+
+    #[test]
+    fn test_extract_trigger_word_allows_spaces_when_allow_spaces_true() {
+        let mut b = FastBuffer::new();
+        type_str(&mut b, ">my email address");
+        assert_eq!(
+            b.extract_trigger_word('>', true),
+            Some("my email address".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_trigger_word_rejects_spaces_when_allow_spaces_false() {
+        let mut b = FastBuffer::new();
+        type_str(&mut b, ">my email address");
+        assert_eq!(b.extract_trigger_word('>', false), None);
+    }
+
+    #[test]
+    fn test_extract_trigger_word_allows_spaces_only_after_trigger_char() {
+        let mut b = FastBuffer::new();
+        type_str(&mut b, "prefix text >my email address");
+        assert_eq!(
+            b.extract_trigger_word('>', true),
+            Some("my email address".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_trigger_word_allow_spaces_still_rejects_newlines() {
+        let mut b = FastBuffer::new();
+        type_str(&mut b, ">my\nemail");
+        assert_eq!(b.extract_trigger_word('>', true), None);
     }
 
     #[test]

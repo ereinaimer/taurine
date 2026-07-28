@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Multi-Word Triggers**: Word triggers can now contain spaces (e.g. `my email address`) in both prefix and triggerless modes. Requires Enter as the action key; incompatible with instant expand mode.
 - **Natural Language Emoji**: Support natural language emoji matching with exact word aliases and triggerless expansion via `word emoji` suffix.
 - **Natural Language Unit Conversion**: Support natural language expressions (e.g. 100 dollars to Euros) with casing/spacing preservation and triggerless mode compatibility.
 - **Inline Currency to Words**: Natively convert typed currency amounts (e.g. $1,200, ₹10,00,000, or EUR 50.99) into their spoken English representation on Enter, supporting lakh/crore Indian formats, ~40 major ISO 4217 code prefixes, and negative values.
@@ -36,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Rename Automations to Triggers**: Standardize terminology across CLI commands, TUI, and data exchange format by renaming automations to triggers.
 - **Hot Path CPU & RAM Optimizations**: Reduce CPU overhead on the input processing hot path by deferring regex buffer allocation, eliminating O(n²) string cloning in suffix matching, and replacing per-expansion thread spawning with a fixed 2-thread pool. Cap tokio async runtime to 2 worker threads and 4 blocking threads to cut idle memory reservation.
 - **Rename Conflict Resolution Flag**: Rename the database collision resolution CLI option in the import command from `--on-conflict` to `--conflict` (`-c`) for better consistency.
-- **Trigger Input Validation**: Disallow spaces and newlines in word triggers when creating or updating automations.
+- **Trigger Input Validation**: Disallow newlines in word triggers; spaces are now allowed for multi-word triggers.
 - **Telemetry Renamed to Stats**: Rename the "Metrics" system to "Stats" throughout the application (database tables, TUI, CLI options, and documentation) to provide more user-friendly terminology. Changed the CLI data exchange option from `--metrics` (`-m`) to `--stats` (`-t`).
 - **Stats Time-Saved Cap**: Cap calculated time saved at a maximum of 5 minutes per expansion to prevent unrealistic productivity stats for large templates.
 - **Stats Typing Speed Bounds**: Limit typing speed configuration (WPM) to a maximum of 150 WPM to prevent invalid or zeroed stat calculations.
