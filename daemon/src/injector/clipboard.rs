@@ -55,10 +55,11 @@ pub(super) fn prepare_clipboard_for_expansion(
         payload.to_string()
     };
 
-    // Poll clipboard to ensure the OS has registered the write
+    // Poll clipboard to ensure the OS has registered the write.
+    // Extended from 15 to 20 iterations for reliability under load.
     let mut actual = String::new();
     let mut success = false;
-    for _ in 0..15 {
+    for _ in 0..20 {
         thread::sleep(Duration::from_millis(10));
         match clipboard.get_text() {
             Ok(ref text) if text == &expected => {

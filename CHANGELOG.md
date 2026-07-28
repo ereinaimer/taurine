@@ -46,6 +46,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Hotkey Delete Order Sensitivity**: Fix `tau rm` not matching hotkeys when modifier key order differs from how they were added (e.g. `alt+shift+2` vs `shift+alt+2`).
 - **AI Executions Double-Counting**: Fix an issue where AI-assisted expansions counted twice in the dashboard stats.
 - **Hotkey & Script Keystrokes Counting**: Prevent hotkey triggers and shell scripts from falsely inflating keystrokes and time saved statistics.
+- **Clipboard Paste Race Condition**: Increase clipboard write verification polling from 15 to 20 attempts for more reliable paste under system load. Raise the post-paste clipboard restore delay across all platforms to reduce the chance of restoring the clipboard before the target application finishes reading the expansion payload.
+- **Simulated Event Filtering Reliability**: Increase the self-filtering time-to-live for simulated key events from 100ms to 250ms, preventing Taurine's own injected keystrokes from being processed as user input under heavy load.
 
 ## [1.0.0-alpha.14] - 2026-07-18
 
