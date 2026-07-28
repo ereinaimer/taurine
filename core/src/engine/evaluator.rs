@@ -1000,7 +1000,12 @@ impl Evaluator {
             let words: Vec<&str> = buf_str.split_whitespace().collect();
             for i in (0..words.len().min(4)).rev() {
                 let phrase = words[words.len() - 1 - i..].join(" ");
-                if let Some(trimmed) = phrase.strip_suffix(" emoji") {
+                let normalized: String = words[words.len() - 1 - i..]
+                    .iter()
+                    .map(|w| w.trim_end_matches(|c: char| !c.is_alphanumeric()))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                if let Some(trimmed) = normalized.strip_suffix(" emoji") {
                     if trimmed.is_empty() || trimmed.chars().all(|c| c.is_whitespace()) {
                         continue;
                     }
@@ -4138,6 +4143,22 @@ mod tests {
         }
         let res = eval.process(EngineEvent::ActionKey).unwrap();
         assert_eq!(res.steps[0], ExpansionStep::Text("🐱".to_string()));
+    }
+
+    #[test]
+    fn test_triggerless_emoji_with_punctuation() {
+        let state = Arc::new(EngineState::new('>'));
+        state
+            .triggerless_mode
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        crate::settings::set_cached_inline_emoji_enabled(true);
+        let mut eval = Evaluator::new(state);
+
+        for c in "heart emoji!".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res = eval.process(EngineEvent::ActionKey).unwrap();
+        assert_eq!(res.steps[0], ExpansionStep::Text("❤️".to_string()));
     }
 
     #[test]

@@ -190,7 +190,7 @@ pub fn search_natural_language_emojis(query: &str) -> Vec<String> {
 
     let query_words: Vec<&str> = normalized_query
         .split(|c: char| !c.is_alphanumeric())
-        .filter(|s| !s.is_empty() && !s.chars().all(|ch| ch.is_ascii_digit()))
+        .filter(|s| !s.is_empty())
         .collect();
 
     if query_words.is_empty() {
@@ -304,5 +304,9 @@ mod tests {
         // Shortcode word "pi" in man_with_gua_pi_mao should NOT match
         let pi = search_natural_language_emojis("pi");
         assert!(pi.is_empty());
+
+        // Digit-only aliases should match
+        let hundred = search_natural_language_emojis("100");
+        assert_eq!(hundred, vec!["💯".to_string()]);
     }
 }
