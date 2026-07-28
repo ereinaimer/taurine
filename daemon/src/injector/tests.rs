@@ -238,6 +238,70 @@ fn simulated_event_filter_consumes_only_the_expected_event() {
     );
 }
 
+#[cfg(not(target_os = "linux"))]
+#[test]
+fn simulated_event_expiry_prunes_old_events() {
+    let key_a = EventType::KeyPress(Key::KeyA);
+
+    {
+        let mut queue = simulated_events()
+            .lock()
+            .expect("queue lock should succeed");
+        queue.clear();
+        queue.push_back(SimulatedEvent {
+            event: key_a,
+            queued_at: Instant::now() - Duration::from_millis(300),
+        });
+    }
+
+    assert!(
+        !consume_simulated_event(&key_a),
+        "expired events must be pruned and not consumed"
+    );
+
+    {
+        let mut queue = simulated_events()
+            .lock()
+            .expect("queue lock should succeed");
+        queue.push_back(SimulatedEvent {
+            event: key_a,
+            queued_at: Instant::now(),
+        });
+    }
+
+    assert!(
+        consume_simulated_event(&key_a),
+        "fresh events must still be consumed"
+    );
+
+    // Verify pruning doesn't affect fresh events
+    {
+        let mut queue = simulated_events()
+            .lock()
+            .expect("queue lock should succeed");
+        queue.clear();
+        let key_b = EventType::KeyPress(Key::KeyB);
+        queue.push_back(SimulatedEvent {
+            event: key_b,
+            queued_at: Instant::now() - Duration::from_millis(200),
+        });
+        queue.push_back(SimulatedEvent {
+            event: key_a,
+            queued_at: Instant::now(),
+        });
+    }
+
+    // The first event (200ms old) is within the TTL (250ms), so both should be consumed
+    assert!(
+        consume_simulated_event(&EventType::KeyPress(Key::KeyB)),
+        "events within 250ms TTL must not be pruned"
+    );
+    assert!(
+        consume_simulated_event(&key_a),
+        "second fresh event must also be consumed"
+    );
+}
+
 #[test]
 fn prepare_reads_previous_clipboard_sets_payload_verifies_then_restore_restores_previous() {
     let mut mock = MockClipboard::new("Something the user had copied earlier");
@@ -257,6 +321,139 @@ fn prepare_reads_previous_clipboard_sets_payload_verifies_then_restore_restores_
     assert_eq!(
         mock.text, "Something the user had copied earlier",
         "after restore, user must see their original clip, not the expansion"
+    );
+}
+
+/// Mock where get_text returns empty for the first `settle_calls_needed` reads
+/// after each set_text, simulating slow OS clipboard propagation.
+struct MockSlowClipboard {
+    text: String,
+    settle_calls_needed: usize,
+    reads_since_set: usize,
+    has_set: bool,
+    ops: Vec<&'static str>,
+}
+
+impl MockSlowClipboard {
+    fn new(initial: &str, settle_calls_needed: usize) -> Self {
+        Self {
+            text: initial.to_string(),
+            settle_calls_needed,
+            reads_since_set: 0,
+            has_set: false,
+            ops: Vec::new(),
+        }
+    }
+}
+
+impl crate::platform::ClipboardManager for MockSlowClipboard {
+    fn get_text(&mut self) -> Result<String, String> {
+        self.reads_since_set += 1;
+        self.ops.push("get_text");
+        if self.has_set && self.reads_since_set <= self.settle_calls_needed {
+            return Ok(String::new());
+        }
+        Ok(self.text.clone())
+    }
+
+    fn set_text(&mut self, text: &str) -> Result<(), String> {
+        self.ops.push("set_text");
+        self.text = text.to_string();
+        self.reads_since_set = 0;
+        self.has_set = true;
+        Ok(())
+    }
+
+    fn set_image_file(&mut self, _path: &std::path::Path) -> Result<(), String> {
+        self.ops.push("set_image");
+        Ok(())
+    }
+
+    fn set_html(&mut self, _html: &str, plaintext: &str) -> Result<(), String> {
+        self.ops.push("set_html");
+        self.text = plaintext.to_string();
+        self.reads_since_set = 0;
+        self.has_set = true;
+        Ok(())
+    }
+}
+
+#[test]
+fn prepare_polls_until_clipboard_settles() {
+    let mut mock = MockSlowClipboard::new("original", 3);
+    let payload = "slow payload";
+
+    let original = prepare_clipboard_for_expansion(&mut mock, payload).unwrap();
+    assert_eq!(original, "original");
+    assert_eq!(mock.text, payload);
+
+    // Initial read (1) + set_text + 3 stale reads + 1 success read = 5 get_text ops
+    let get_count = mock.ops.iter().filter(|&&op| op == "get_text").count();
+    assert!(
+        get_count >= 5,
+        "expected at least 5 get_text calls (1 original + 3 stale + 1 success), got {}",
+        get_count
+    );
+}
+
+#[test]
+fn prepare_polls_until_timeout_when_clipboard_never_settles() {
+    let mut mock = MockSlowClipboard::new("original", 999);
+    let payload = "never settles";
+
+    let err = prepare_clipboard_for_expansion(&mut mock, payload).unwrap_err();
+    assert!(
+        err.contains("clipboard verify failed"),
+        "expected verify error after exhausting poll retries, got {:?}",
+        err
+    );
+}
+
+#[test]
+fn rapid_sequential_expansion_preserves_clipboard_state() {
+    let mut mock = MockClipboard::new("user copied text");
+
+    // First expansion
+    let orig1 = prepare_clipboard_for_expansion(&mut mock, "expansion one").unwrap();
+    assert_eq!(
+        orig1, "user copied text",
+        "first prepare must save original"
+    );
+    assert_eq!(
+        mock.text, "expansion one",
+        "clipboard must hold payload after first prepare"
+    );
+
+    // App reads the payload (simulated paste)
+    assert_eq!(
+        mock.get_text().unwrap(),
+        "expansion one",
+        "app must see payload on paste"
+    );
+
+    // Restore original clipboard
+    mock.set_text(&orig1).unwrap();
+    assert_eq!(
+        mock.text, "user copied text",
+        "clipboard must be restored to original"
+    );
+
+    // Second expansion (immediately after restore, simulating rapid trigger)
+    let orig2 = prepare_clipboard_for_expansion(&mut mock, "expansion two").unwrap();
+    assert_eq!(
+        orig2, "user copied text",
+        "second prepare must see restored original, not stale payload"
+    );
+    assert_eq!(
+        mock.text, "expansion two",
+        "clipboard must hold second payload"
+    );
+
+    // App reads second payload
+    assert_eq!(
+        mock.get_text().unwrap(),
+        "expansion two",
+        "app must see second payload on paste"
     );
 }
 
