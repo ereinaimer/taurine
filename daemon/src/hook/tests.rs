@@ -5,6 +5,8 @@ use super::completion::{
 };
 use super::dispatch::{dispatch_completion_rewrite_with, dispatch_expansion_with};
 use std::sync::{Arc, Mutex};
+use taurine_core::db::crud::TriggerAction;
+use taurine_core::engine::{EngineEvent, EngineState, Evaluator};
 
 #[test]
 fn dispatch_expansion_runs_injection_before_follow_up_consumption() {
@@ -515,4 +517,87 @@ fn test_dispatch_expansion_skips_ai_stats() {
         std::env::remove_var("TAURINE_DATA_DIR");
         std::env::remove_var("TAURINE_DB_PATH");
     }
+}
+
+#[test]
+fn action_key_during_active_completion_returns_expansion() {
+    let state = Arc::new(EngineState::new('>'));
+    state.load_actions(vec![("gs".to_string(), TriggerAction::text("git status"))]);
+    let mut evaluator = Evaluator::new(state);
+
+    for ch in ">gs".chars() {
+        let result = evaluator.process_event(EngineEvent::Char(ch), None);
+        assert!(result.is_none(), "char should not trigger expansion yet");
+    }
+
+    assert!(
+        evaluator.is_completion_active(),
+        "completion should be active after trigger char is typed"
+    );
+
+    let result = evaluator.process_event(EngineEvent::ActionKey, None);
+    assert!(
+        result.is_some(),
+        "ActionKey should trigger expansion evaluation when buffer has a valid trigger"
+    );
+    if let Some(expansion) = result {
+        assert_eq!(
+            expansion.trigger, "gs",
+            "expansion should match the typed keyword"
+        );
+    }
+
+    assert!(
+        !evaluator.is_completion_active(),
+        "completion should be deactivated after ActionKey processing"
+    );
+}
+
+#[test]
+fn action_key_during_active_completion_cleans_up_when_no_trigger_matches() {
+    let state = Arc::new(EngineState::new('>'));
+    let mut evaluator = Evaluator::new(state);
+
+    for ch in ">gs".chars() {
+        let result = evaluator.process_event(EngineEvent::Char(ch), None);
+        assert!(result.is_none());
+    }
+
+    assert!(evaluator.is_completion_active());
+
+    let result = evaluator.process_event(EngineEvent::ActionKey, None);
+    assert!(
+        result.is_none(),
+        "ActionKey should not return expansion when no trigger is registered"
+    );
+
+    assert!(
+        !evaluator.is_completion_active(),
+        "completion must be deactivated even when no expansion matched"
+    );
+}
+
+#[test]
+fn evaluator_reset_clears_buffer_and_completion() {
+    let state = Arc::new(EngineState::new('>'));
+    let mut evaluator = Evaluator::new(state);
+
+    for ch in ">gs".chars() {
+        let _ = evaluator.process_event(EngineEvent::Char(ch), None);
+    }
+
+    assert!(evaluator.is_completion_active());
+
+    evaluator.reset();
+
+    assert!(
+        !evaluator.is_completion_active(),
+        "completion should be cleared after reset"
+    );
+
+    let result = evaluator.process_event(EngineEvent::ActionKey, None);
+    assert!(
+        result.is_none(),
+        "ActionKey after reset should not produce expansion (buffer was cleared)"
+    );
 }

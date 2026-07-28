@@ -245,14 +245,16 @@ pub(super) fn run_listener_once(
                     {
                         let _ = lock.on_key_release(logical_key);
                     }
+                    return Some(event);
                 }
                 EventType::KeyPress(_) => {
                     injector::abort_injection();
+                    trace!(
+                        "Injection aborted by physical keypress, falling through to normal pipeline"
+                    );
                 }
-                _ => {}
+                _ => return Some(event),
             }
-
-            return Some(event);
         }
 
         let is_chord = if let Ok(spec) = pause_hotkey.read() {
