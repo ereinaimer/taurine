@@ -1,6 +1,6 @@
 use tracing::warn;
 
-use super::{Settings, SettingsManager, SpinnerStyle};
+use super::{InlineAiTriggerMode, Settings, SettingsManager, SpinnerStyle};
 use crate::{
     ai::AiProvider,
     db::init,
@@ -436,6 +436,91 @@ fn require_non_empty<'a>(value: Option<&'a str>, key: &str) -> Result<&'a str> {
         .ok_or_else(|| Error::Config(format!("{key} must not be empty")))
 }
 
+pub fn validate_delimiter_conflicts(settings: &Settings, key: &str, new_value: &str) -> Result<()> {
+    match key {
+        "trigger_char" => {
+            if new_value == settings.inline_ai_trigger_open {
+                return Err(Error::Config(format!(
+                    "'{}' value '{}' conflicts with '{}' value '{}'",
+                    key, new_value, "inline_ai_trigger_open", settings.inline_ai_trigger_open
+                )));
+            }
+            if new_value == settings.inline_ai_trigger_close {
+                return Err(Error::Config(format!(
+                    "'{}' value '{}' conflicts with '{}' value '{}'",
+                    key, new_value, "inline_ai_trigger_close", settings.inline_ai_trigger_close
+                )));
+            }
+            if settings.inline_ai_trigger_mode == InlineAiTriggerMode::Symmetric
+                && new_value == settings.inline_ai_trigger
+            {
+                return Err(Error::Config(format!(
+                    "'{}' value '{}' conflicts with '{}' value '{}'",
+                    key, new_value, "inline_ai_trigger", settings.inline_ai_trigger
+                )));
+            }
+            Ok(())
+        }
+        "inline_ai_trigger_open" => {
+            if new_value == settings.trigger_char.to_string() {
+                return Err(Error::Config(format!(
+                    "'{}' value '{}' conflicts with '{}' value '{}'",
+                    key, new_value, "trigger_char", settings.trigger_char
+                )));
+            }
+            if settings.inline_ai_trigger_mode == InlineAiTriggerMode::Asymmetric
+                && new_value == settings.inline_ai_trigger_close
+            {
+                return Err(Error::Config(format!(
+                    "'{}' value '{}' conflicts with '{}' value '{}'",
+                    key, new_value, "inline_ai_trigger_close", settings.inline_ai_trigger_close
+                )));
+            }
+            Ok(())
+        }
+        "inline_ai_trigger_close" => {
+            if new_value == settings.trigger_char.to_string() {
+                return Err(Error::Config(format!(
+                    "'{}' value '{}' conflicts with '{}' value '{}'",
+                    key, new_value, "trigger_char", settings.trigger_char
+                )));
+            }
+            if settings.inline_ai_trigger_mode == InlineAiTriggerMode::Asymmetric
+                && new_value == settings.inline_ai_trigger_open
+            {
+                return Err(Error::Config(format!(
+                    "'{}' value '{}' conflicts with '{}' value '{}'",
+                    key, new_value, "inline_ai_trigger_open", settings.inline_ai_trigger_open
+                )));
+            }
+            Ok(())
+        }
+        "inline_ai_trigger" => {
+            if settings.inline_ai_trigger_mode == InlineAiTriggerMode::Symmetric
+                && new_value == settings.trigger_char.to_string()
+            {
+                return Err(Error::Config(format!(
+                    "'{}' value '{}' conflicts with '{}' value '{}'",
+                    key, new_value, "trigger_char", settings.trigger_char
+                )));
+            }
+            Ok(())
+        }
+        "inline_ai_trigger_mode" => {
+            if new_value.trim().eq_ignore_ascii_case("asymmetric")
+                && settings.inline_ai_trigger_open == settings.inline_ai_trigger_close
+            {
+                return Err(Error::Config(format!(
+                    "'{}' value '{}' conflicts with '{}' value '{}'",
+                    key, new_value, "inline_ai_trigger_open", settings.inline_ai_trigger_open
+                )));
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
 fn require_trimmed_non_empty<'a>(value: Option<&'a str>, key: &str) -> Result<&'a str> {
     value
         .map(str::trim)
@@ -634,5 +719,121 @@ mod tests {
         let loaded = manager.load_all();
         assert!(loaded.inline_currency_to_words_enabled);
         assert!(crate::settings::get_cached_inline_currency_to_words_enabled());
+    }
+
+    #[test]
+    fn trigger_char_conflicts_with_inline_ai_trigger_open() {
+        let settings = Settings {
+            inline_ai_trigger_open: ">".to_string(),
+            ..Settings::default()
+        };
+        let result = validate_delimiter_conflicts(&settings, "trigger_char", ">");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::error::Error::Config(msg) => assert_eq!(
+                msg,
+                "'trigger_char' value '>' conflicts with 'inline_ai_trigger_open' value '>'"
+            ),
+            _ => panic!("expected Config error"),
+        }
+    }
+
+    #[test]
+    fn trigger_char_conflicts_with_inline_ai_trigger_close() {
+        let settings = Settings {
+            inline_ai_trigger_close: ">".to_string(),
+            ..Settings::default()
+        };
+        let result = validate_delimiter_conflicts(&settings, "trigger_char", ">");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn trigger_char_conflicts_with_symmetric_trigger() {
+        let settings = Settings {
+            inline_ai_trigger_mode: InlineAiTriggerMode::Symmetric,
+            inline_ai_trigger: ">".to_string(),
+            ..Settings::default()
+        };
+        let result = validate_delimiter_conflicts(&settings, "trigger_char", ">");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn trigger_char_no_conflict_with_multi_char_open() {
+        let settings = Settings {
+            inline_ai_trigger_open: ">>".to_string(),
+            ..Settings::default()
+        };
+        let result = validate_delimiter_conflicts(&settings, "trigger_char", ">");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn inline_ai_trigger_open_conflicts_with_trigger_char() {
+        let settings = Settings::default();
+        let result = validate_delimiter_conflicts(&settings, "inline_ai_trigger_open", ">");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn inline_ai_trigger_close_conflicts_with_trigger_char() {
+        let settings = Settings::default();
+        let result = validate_delimiter_conflicts(&settings, "inline_ai_trigger_close", ">");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn symmetric_trigger_conflicts_with_trigger_char() {
+        let settings = Settings {
+            inline_ai_trigger_mode: InlineAiTriggerMode::Symmetric,
+            ..Settings::default()
+        };
+        let result = validate_delimiter_conflicts(&settings, "inline_ai_trigger", ">");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn asymmetric_mode_rejects_equal_open_close() {
+        let settings = Settings {
+            inline_ai_trigger_open: ">".to_string(),
+            inline_ai_trigger_close: ">".to_string(),
+            ..Settings::default()
+        };
+        let result =
+            validate_delimiter_conflicts(&settings, "inline_ai_trigger_mode", "asymmetric");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn asymmetric_mode_accepts_different_open_close() {
+        let settings = Settings {
+            inline_ai_trigger_open: ">>".to_string(),
+            inline_ai_trigger_close: "<<".to_string(),
+            ..Settings::default()
+        };
+        let result =
+            validate_delimiter_conflicts(&settings, "inline_ai_trigger_mode", "asymmetric");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn trigger_char_change_with_no_conflicts_succeeds() {
+        let settings = Settings {
+            inline_ai_trigger_open: ">>".to_string(),
+            inline_ai_trigger_close: "<<".to_string(),
+            inline_ai_trigger: "^".to_string(),
+            inline_ai_trigger_mode: InlineAiTriggerMode::Asymmetric,
+            ..Settings::default()
+        };
+        let result = validate_delimiter_conflicts(&settings, "trigger_char", ";");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn non_conflict_key_passes_through() {
+        let settings = Settings::default();
+        let result = validate_delimiter_conflicts(&settings, "wpm", "60");
+        assert!(result.is_ok());
     }
 }

@@ -144,7 +144,7 @@ pub mod manager;
 pub use apply::{
     ApplySettingOutcome, apply_setting_input, apply_setting_input_with_manager,
     default_setting_input, parse_boolean_setting_value, parse_spinner_style,
-    reset_setting_to_default,
+    reset_setting_to_default, validate_delimiter_conflicts,
 };
 pub use manager::SettingsManager;
 
