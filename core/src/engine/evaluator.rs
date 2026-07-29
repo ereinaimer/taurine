@@ -333,6 +333,43 @@ impl Evaluator {
         None
     }
 
+    fn check_inline_color_fallback(
+        &self,
+        action_key: crate::settings::ActionKey,
+    ) -> Option<ExpansionResult> {
+        if action_key != crate::settings::ActionKey::Enter {
+            return None;
+        }
+
+        let buf_str = self.buffer.buffer_string();
+        if buf_str.trim().is_empty() {
+            return None;
+        }
+
+        let words: Vec<&str> = buf_str.split_whitespace().collect();
+        let max_words = 6.min(words.len());
+
+        for k in (1..=max_words).rev() {
+            let suffix_words = &words[words.len() - k..];
+            let candidate = suffix_words.join(" ");
+
+            if let Some(result_text) = crate::engine::conversion::convert_color(&candidate) {
+                let delete_count = candidate.chars().count();
+                return Some(ExpansionResult {
+                    delete_count,
+                    steps: vec![ExpansionStep::Text(result_text)],
+                    trigger: candidate.clone(),
+                    undo_trigger: Some(candidate),
+                    is_calculation: true,
+                    stat_kind: TriggerStatKind::Calculation,
+                    track_usage: true,
+                    follow_up: None,
+                });
+            }
+        }
+        None
+    }
+
     fn undo_trigger_for_steps(&self, keyword: &str, steps: &[ExpansionStep]) -> Option<String> {
         self.allows_blind_undo(steps)
             .then(|| self.full_trigger_text(keyword))
@@ -797,6 +834,22 @@ impl Evaluator {
 
         // Try inline unit conversion fallback (disabled in instant expand mode)
         if !instant_expand && let Some(word) = self.buffer.extract_tail_word() {
+            // Try inline color conversion (compact syntax) first
+            if let Some(result_text) = crate::engine::conversion::convert_color(&word) {
+                let delete_count = word.chars().count();
+                self.buffer.clear();
+                return Some(ExpansionResult {
+                    delete_count,
+                    steps: vec![ExpansionStep::Text(result_text)],
+                    trigger: word.clone(),
+                    undo_trigger: Some(word),
+                    is_calculation: true,
+                    stat_kind: TriggerStatKind::Calculation,
+                    track_usage: true,
+                    follow_up: None,
+                });
+            }
+
             let (cleaned_word, intervals) = crate::engine::comma::preprocess(&word);
             if crate::engine::conversion::is_conversion_pattern(&cleaned_word)
                 && let Some(result_text) =
@@ -995,6 +1048,11 @@ impl Evaluator {
         }
 
         if !instant_expand && let Some(result) = self.check_inline_datetime_fallback(action_key) {
+            self.buffer.clear();
+            return Some(result);
+        }
+
+        if !instant_expand && let Some(result) = self.check_inline_color_fallback(action_key) {
             self.buffer.clear();
             return Some(result);
         }

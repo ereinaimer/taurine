@@ -109,6 +109,27 @@ Taurine supports both standard short abbreviations and their corresponding long 
 * **Kilowatts:** `kw`, `kilowatt`, `kilowatts`
 * **Horsepower:** `hp`, `horsepower`
 
+### CSS Units
+* **Pixels:** `px`, `pixel`, `pixels`
+* **Rems:** `rem`
+
+<Callout title="CSS Base Font Size" type="info">
+  The `px` ↔ `rem` conversion assumes a default browser font size of `16px` (CSS standard). For example, `24px=rem` expands to `1.5rem` and `1.25rem=px` expands to `20px`.
+</Callout>
+
+### Color Formats
+Convert colors between formats using either compact or natural language syntax:
+
+| Input | Output |
+|-------|--------|
+| `#3b82f6=rgb` | `rgb(59, 130, 246)` |
+| `#3b82f6 to hsl` | `hsl(217, 91%, 60%)` |
+| `red to hex` | `#FF0000` |
+| `rgb(59,130,246) to hex` | `#3B82F6` |
+
+* **Supported formats:** `hex`, `rgb`, `rgba`, `hsl`, `hsla`.
+* **Input formats:** Hex colors (`#ff0000`, `#fff`), CSS named colors (`red`, `blue`), or `rgb()`/`rgba()`/`hsl()`/`hsla()` strings.
+
 ---
 
 ## Dynamic Currency Conversions

@@ -26,6 +26,7 @@ enum UnitCategory {
     Data,
     Pressure,
     Power,
+    Css,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -124,6 +125,10 @@ fn get_physical_unit_factor(unit: &str) -> Option<(UnitCategory, f64)> {
         "kw" | "kilowatt" | "kilowatts" => Some((UnitCategory::Power, 1000.0)),
         "hp" | "horsepower" => Some((UnitCategory::Power, 745.699872)),
 
+        // CSS Units — px / rem
+        "px" | "pixel" | "pixels" => Some((UnitCategory::Css, 1.0)),
+        "rem" => Some((UnitCategory::Css, 16.0)),
+
         // Temperature (handled separately)
         "c" | "celsius" | "f" | "fahrenheit" | "k" | "kelvin" => {
             Some((UnitCategory::Temperature, 0.0))
@@ -148,6 +153,51 @@ fn convert_temperature(val: f64, from: &str, to: &str) -> Option<f64> {
         "k" | "kelvin" => Some(celsius + 273.15),
         _ => None,
     }
+}
+
+/// Convert a color string to a different format.
+/// Supports compact syntax (`#ff0000=rgb`) and natural language (`#ff0000 to rgb`).
+pub fn convert_color(s: &str) -> Option<String> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+
+    // Compact syntax: #hex=format or name=format
+    static COMPACT_RE: OnceLock<Regex> = OnceLock::new();
+    let compact_re = COMPACT_RE
+        .get_or_init(|| Regex::new(r"^(#[0-9a-fA-F]+|[a-zA-Z]\w*)\s*=\s*([a-zA-Z]+)$").unwrap());
+
+    if let Some(caps) = compact_re.captures(s) {
+        let color_str = caps.get(1)?.as_str();
+        let format = caps.get(2)?.as_str().to_lowercase();
+        return format_color(color_str, &format);
+    }
+
+    // Natural language syntax: color to format
+    static NL_RE: OnceLock<Regex> = OnceLock::new();
+    let nl_re =
+        NL_RE.get_or_init(|| Regex::new(r"^(.+)\s+(to|in|into|as)\s+([a-zA-Z]+)$").unwrap());
+
+    if let Some(caps) = nl_re.captures(s) {
+        let color_str = caps.get(1)?.as_str().trim();
+        let format = caps.get(3)?.as_str().to_lowercase();
+        return format_color(color_str, &format);
+    }
+
+    None
+}
+
+fn format_color(color_str: &str, format: &str) -> Option<String> {
+    let transformer_name = match format {
+        "hex" => "color.hex",
+        "rgb" => "color.rgb",
+        "rgba" => "color.rgba",
+        "hsl" => "color.hsl",
+        "hsla" => "color.hsla",
+        _ => return None,
+    };
+    crate::engine::variables::system::transformers::color::apply(transformer_name, &[], color_str)
 }
 
 fn get_cache_path() -> PathBuf {
@@ -572,5 +622,65 @@ mod tests {
         );
 
         MOCK_RATES.with(|m| *m.borrow_mut() = None);
+    }
+
+    #[test]
+    fn test_css_px_rem_conversion() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("24px=rem", &state), Some("1.5rem".to_string()));
+        assert_eq!(convert("1.25rem=px", &state), Some("20px".to_string()));
+        assert_eq!(convert("16px=rem", &state), Some("1rem".to_string()));
+        assert!(convert("10px=kg", &state).is_none());
+    }
+
+    #[test]
+    fn test_inline_color_conversion_compact() {
+        assert_eq!(
+            convert_color("#ff0000=rgb"),
+            Some("rgb(255, 0, 0)".to_string())
+        );
+        assert_eq!(convert_color("#ff0000=hex"), Some("#FF0000".to_string()));
+        assert_eq!(
+            convert_color("#00ff00=hsl"),
+            Some("hsl(120, 100%, 50%)".to_string())
+        );
+        assert_eq!(
+            convert_color("#ff0000=rgba"),
+            Some("rgba(255, 0, 0, 1)".to_string())
+        );
+        assert_eq!(convert_color("red=hex"), Some("#FF0000".to_string()));
+    }
+
+    #[test]
+    fn test_inline_color_conversion_natural() {
+        assert_eq!(
+            convert_color("#3b82f6 to rgb"),
+            Some("rgb(59, 130, 246)".to_string())
+        );
+        assert_eq!(convert_color("red to hex"), Some("#FF0000".to_string()));
+        assert_eq!(
+            convert_color("rgb(59,130,246) to hex"),
+            Some("#3B82F6".to_string())
+        );
+    }
+
+    #[test]
+    fn test_inline_color_conversion_invalid() {
+        assert_eq!(convert_color("notacolor=rgb"), None);
+        assert_eq!(convert_color("#ff0000=invalid"), None);
+        assert_eq!(convert_color(""), None);
+    }
+
+    #[test]
+    fn test_css_px_rem_natural() {
+        let state = EngineState::new('>');
+        assert_eq!(
+            convert_natural("24px to rem", &state),
+            Some("1.5 rem".to_string())
+        );
+        assert_eq!(
+            convert_natural("1.25rem to px", &state),
+            Some("20 px".to_string())
+        );
     }
 }
