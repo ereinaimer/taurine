@@ -11,7 +11,6 @@ pub mod file;
 pub mod http;
 pub mod img;
 pub mod lorem;
-pub mod mock;
 pub mod net;
 pub mod random;
 pub mod time;
@@ -39,7 +38,6 @@ pub fn is_reserved(key: &str) -> bool {
         || key == "uuid"
         || clip::is_clip_key(key)
         || key == "lorem"
-        || key == "mock"
         || key.starts_with("uuid.")
         || key == "time"
         || key.starts_with("time.")
@@ -54,7 +52,6 @@ pub fn is_reserved(key: &str) -> bool {
         || key.starts_with("img(")
         || key.starts_with("random.")
         || key.starts_with("lorem.")
-        || key.starts_with("mock.")
         || key == "mouse"
         || key.starts_with("mouse.")
         || key == "key"
@@ -111,9 +108,6 @@ pub fn resolve(key: &str) -> Option<String> {
     }
     if key == "lorem" || key.starts_with("lorem.") {
         return lorem::resolve(key);
-    }
-    if key.starts_with("mock.") {
-        return mock::resolve(key);
     }
     if key == "uuid" || key.starts_with("uuid.") {
         return uuid::resolve(key);
@@ -572,9 +566,6 @@ mod tests {
         assert!(is_reserved("random.int(1, 9)"));
         assert!(is_reserved("lorem"));
         assert!(is_reserved("lorem.word(3)"));
-        assert!(is_reserved("mock"));
-        assert!(is_reserved("mock.email"));
-        assert!(is_reserved("mock.company"));
 
         // These are valid user variables and should not be reserved
         assert!(!is_reserved("username"));
@@ -611,16 +602,6 @@ mod tests {
         );
 
         assert_eq!(resolved.split_whitespace().count(), 3);
-    }
-
-    #[test]
-    fn test_resolve_mock_email_interpolation() {
-        let resolved = crate::engine::variables::interpolate::interpolate(
-            "[mock.email]",
-            &crate::engine::variables::types::ArgMap::default(),
-        );
-
-        assert!(resolved.contains('@'));
     }
 
     #[test]
@@ -1246,23 +1227,6 @@ mod tests {
                     assert!(text.contains(" | Pass (12): "));
                     assert!(text.contains(" | Choice: "));
                     assert!(text.contains(" | Lorem (Dynamic Count): "));
-                } else {
-                    panic!("Expected Text step");
-                }
-            }
-
-            // Test Case 10: testmock
-            {
-                let res = evaluate_template(
-                    "Name: [mock.name | upper] | Email: [mock.email] | Address: [mock.address | title] | Job Title: [mock.job_title | kebab]",
-                    None,
-                );
-                assert_eq!(res.steps.len(), 1);
-                if let ExpansionStep::Text(ref text) = res.steps[0] {
-                    assert!(text.contains("Name: "));
-                    assert!(text.contains(" | Email: "));
-                    assert!(text.contains(" | Address: "));
-                    assert!(text.contains(" | Job Title: "));
                 } else {
                     panic!("Expected Text step");
                 }

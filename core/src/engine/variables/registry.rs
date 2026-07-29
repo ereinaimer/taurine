@@ -20,7 +20,7 @@ pub enum ValidationError {
 
 const SYSTEM_ROOTS: &[&str] = &[
     "cursor", "clip", "time", "date", "uuid", "env", "net", "exec", "random", "key", "delay",
-    "lorem", "mock", "file", "use", "http", "mouse", "img",
+    "lorem", "file", "use", "http", "mouse", "img",
 ];
 
 const TIME_METHODS: &[&str] = &["utc", "calc(±...)", "format(...)"];
@@ -41,24 +41,6 @@ const RANDOM_MODIFIERS: &[&str] = &[
     "pass(len)",
 ];
 const LOREM_MODIFIERS: &[&str] = &["word(n)", "sentence(n)", "paragraph(n)"];
-const MOCK_MODIFIERS: &[&str] = &[
-    "name",
-    "first_name",
-    "last_name",
-    "address",
-    "city",
-    "state",
-    "zip_code",
-    "country",
-    "email",
-    "domain",
-    "username",
-    "company",
-    "job_title",
-    "credit_card",
-    "phone_number",
-    "cell_number",
-];
 const FILE_MODIFIERS: &[&str] = &["read(path)", "read_line(path, start, [end])"];
 const KEY_MODIFIERS: &[&str] = &[
     "enter",
@@ -166,7 +148,6 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "exec" => "Valid forms: [exec.bash(...)], [exec.powershell(...)], [exec.python(...)], [exec.node(...)], [exec.node_esm(...)], [exec.cmd(...)]".to_string(),
         "random" => format!("Valid modifiers: {}", RANDOM_MODIFIERS.join(", ")),
         "lorem" => format!("A modifier is required. Valid modifiers: {}", LOREM_MODIFIERS.join(", ")),
-        "mock" => format!("Valid modifiers: {}", MOCK_MODIFIERS.join(", ")),
         "file" => format!("Valid modifiers: {}", FILE_MODIFIERS.join(", ")),
         "key" => format!(
             "Valid forms: [key(<token>)]. Tokens: {}. You can combine them with `+`, and any single character token is also allowed.",
@@ -194,7 +175,6 @@ pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), Val
         "exec" => validate_exec_modifier(modifier),
         "random" => validate_random_modifier(modifier),
         "lorem" => validate_lorem_modifier(modifier),
-        "mock" => validate_mock_modifier(modifier),
         "file" => validate_file_modifier(modifier),
         "key" => validate_key_modifier(modifier),
         "delay" => validate_delay_modifier(modifier),
@@ -443,10 +423,6 @@ fn validate_lorem_modifier(modifier: Option<&str>) -> Result<(), ValidationError
             }
         }
     }
-}
-
-fn validate_mock_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
-    validate_known_modifier("mock", modifier, MOCK_MODIFIERS)
 }
 
 fn validate_file_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
@@ -975,32 +951,6 @@ mod tests {
                 root: "lorem",
                 modifier: "word(1, 2)".to_string(),
                 allowed: LOREM_MODIFIERS,
-            })
-        );
-    }
-
-    #[test]
-    fn validates_mock_modifier_syntax() {
-        assert_eq!(validate_system_tag("mock", Some("name")), Ok(()));
-        assert_eq!(validate_system_tag("mock", Some("email")), Ok(()));
-        assert_eq!(
-            validate_system_tag("mock", None),
-            Err(ValidationError::MissingModifier { root: "mock" })
-        );
-        assert_eq!(
-            validate_system_tag("mock", Some("password(12)")),
-            Err(ValidationError::InvalidModifier {
-                root: "mock",
-                modifier: "password(12)".to_string(),
-                allowed: MOCK_MODIFIERS,
-            })
-        );
-        assert_eq!(
-            validate_system_tag("mock", Some("unknown")),
-            Err(ValidationError::InvalidModifier {
-                root: "mock",
-                modifier: "unknown".to_string(),
-                allowed: MOCK_MODIFIERS,
             })
         );
     }
