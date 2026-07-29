@@ -30,6 +30,7 @@ enum UnitCategory {
     Angle,
     Energy,
     Force,
+    Frequency,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -153,6 +154,13 @@ fn get_physical_unit_factor(unit: &str) -> Option<(UnitCategory, f64)> {
         "wh" | "watt-hour" | "watt-hours" => Some((UnitCategory::Energy, 3600.0)),
         "kwh" | "kilowatt-hour" | "kilowatt-hours" => Some((UnitCategory::Energy, 3600000.0)),
         "ev" | "electronvolt" | "electronvolts" => Some((UnitCategory::Energy, 1.602176634e-19)),
+
+        // Frequency (Base: Hz)
+        "hz" | "hertz" => Some((UnitCategory::Frequency, 1.0)),
+        "khz" | "kilohertz" => Some((UnitCategory::Frequency, 1000.0)),
+        "mhz" | "megahertz" => Some((UnitCategory::Frequency, 1000000.0)),
+        "ghz" | "gigahertz" => Some((UnitCategory::Frequency, 1000000000.0)),
+        "thz" | "terahertz" => Some((UnitCategory::Frequency, 1000000000000.0)),
 
         // Angle Units — deg / rad / grad / turn
         "deg" | "degree" | "degrees" => Some((UnitCategory::Angle, 1.0)),
@@ -948,6 +956,32 @@ mod tests {
         assert_eq!(
             convert_natural("10 newtons to dynes", &state),
             Some("1000000 dynes".to_string())
+        );
+    }
+
+    // ── Frequency unit tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_frequency_categories_incompatible() {
+        let state = EngineState::new('>');
+        assert!(convert("1Hz=kg", &state).is_none());
+    }
+
+    #[test]
+    fn test_frequency_si_prefixes() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("1000Hz=kHz", &state), Some("1khz".to_string()));
+        assert_eq!(convert("1MHz=Hz", &state), Some("1000000hz".to_string()));
+        assert_eq!(convert("1GHz=MHz", &state), Some("1000mhz".to_string()));
+        assert_eq!(convert("1THz=GHz", &state), Some("1000ghz".to_string()));
+    }
+
+    #[test]
+    fn test_frequency_natural() {
+        let state = EngineState::new('>');
+        assert_eq!(
+            convert_natural("1 megahertz to hertz", &state),
+            Some("1000000 hertz".to_string())
         );
     }
 }
