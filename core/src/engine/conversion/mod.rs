@@ -29,6 +29,7 @@ enum UnitCategory {
     Css,
     Angle,
     Energy,
+    Force,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -134,6 +135,12 @@ fn get_physical_unit_factor(unit: &str) -> Option<(UnitCategory, f64)> {
         "w" | "watt" | "watts" => Some((UnitCategory::Power, 1.0)),
         "kw" | "kilowatt" | "kilowatts" => Some((UnitCategory::Power, 1000.0)),
         "hp" | "horsepower" => Some((UnitCategory::Power, 745.699872)),
+
+        // Force (Base: N)
+        "n" | "newton" | "newtons" => Some((UnitCategory::Force, 1.0)),
+        "dyn" | "dyne" | "dynes" => Some((UnitCategory::Force, 0.00001)),
+        "lbf" | "pound_force" => Some((UnitCategory::Force, 4.4482216152605)),
+        "kgf" | "kilogram_force" => Some((UnitCategory::Force, 9.80665)),
 
         // Energy (Base: J)
         "j" | "joule" | "joules" => Some((UnitCategory::Energy, 1.0)),
@@ -550,6 +557,8 @@ fn normalize_unit_name(name: &str) -> String {
         (r"\bmetres?\s+per\s+second\b", "m/s"),
         (r"\bkilowatt[-\s]hours?\b", "kwh"),
         (r"\bwatt[-\s]hours?\b", "wh"),
+        (r"\bpounds?[-\s]force\b", "pound_force"),
+        (r"\bkilograms?[-\s]force\b", "kilogram_force"),
     ];
 
     let mut normalized = lower.clone();
@@ -901,6 +910,44 @@ mod tests {
         assert_eq!(
             convert_natural("1000 joules to kilojoules", &state),
             Some("1 kilojoules".to_string())
+        );
+    }
+
+    // ── Force unit tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_force_categories_incompatible() {
+        let state = EngineState::new('>');
+        assert!(convert("1N=kg", &state).is_none());
+    }
+
+    #[test]
+    fn test_force_newton_dyne() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("1N=dyn", &state), Some("100000dyn".to_string()));
+        assert_eq!(convert("100000dyn=N", &state), Some("1n".to_string()));
+    }
+
+    #[test]
+    fn test_force_newton_pound_force() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("1N=lbf", &state), Some("0.22lbf".to_string()));
+        assert_eq!(convert("10lbf=N", &state), Some("44.48n".to_string()));
+    }
+
+    #[test]
+    fn test_force_kgf() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("1kgf=N", &state), Some("9.81n".to_string()));
+        assert_eq!(convert("1N=kgf", &state), Some("0.1kgf".to_string()));
+    }
+
+    #[test]
+    fn test_force_natural_newtons() {
+        let state = EngineState::new('>');
+        assert_eq!(
+            convert_natural("10 newtons to dynes", &state),
+            Some("1000000 dynes".to_string())
         );
     }
 }

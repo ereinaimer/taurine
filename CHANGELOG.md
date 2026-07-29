@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Force Unit Conversions**: Inline conversions between newtons, dynes, pound-force, and kilogram-force (e.g. `1N=dyn` → `100000dyn`) with natural language support.
 - **Energy Unit Conversions**: Inline conversions between joules, kilojoules, calories (food), BTU, watt-hours, kilowatt-hours, and electronvolts (e.g. `1cal=J` → `4184j`) with natural language support.
 - **British Spelling Support**: Accept British English unit spellings (metre, litre, centimetre, etc.) for length and volume conversions in both compact and natural language syntax.
 - **Angle Unit Conversions**: Inline conversions between degrees, radians, gradians, and turns (e.g. `180deg=rad` → `3.14rad`) with natural language support (`180 degrees to rad`).
