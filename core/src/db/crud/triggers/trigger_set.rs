@@ -1666,6 +1666,11 @@ pub fn add_trigger_by_type_with_case(
         )));
     }
 
+    if trigger_type == TriggerType::Regex {
+        regex::Regex::new(&trigger_nfc)
+            .map_err(|e| crate::Error::Config(format!("Invalid regular expression: {e}")))?;
+    }
+
     let tags = tags.map(|t| {
         let mut seen = std::collections::HashSet::new();
         let mut normalized: Vec<String> = Vec::new();
@@ -1880,6 +1885,44 @@ mod tests {
         let result = create_trigger(&mut conn, new_trigger);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("character limit"));
+    }
+
+    #[test]
+    fn add_trigger_rejects_invalid_regex() {
+        let (_dir, conn) = crate::testing::open_test_db();
+        let result = add_trigger_by_type_with_case(
+            &conn,
+            TriggerType::Regex,
+            "[invalid",
+            "output",
+            "all",
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+        );
+        assert!(result.is_err(), "invalid regex should be rejected");
+    }
+
+    #[test]
+    fn add_trigger_accepts_valid_regex() {
+        let (_dir, conn) = crate::testing::open_test_db();
+        let result = add_trigger_by_type_with_case(
+            &conn,
+            TriggerType::Regex,
+            r"^foo\d+bar$",
+            "output",
+            "all",
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+        );
+        assert!(result.is_ok(), "valid regex should be accepted: {result:?}");
     }
 
     #[test]
