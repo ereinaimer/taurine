@@ -1,10 +1,20 @@
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::thread;
 use tracing::{error, trace};
 
 pub static IS_INJECTING: AtomicBool = AtomicBool::new(false);
-pub static INJECTION_ABORT: AtomicBool = AtomicBool::new(false);
+
+/// Monotonically increasing generation counter.
+///
+/// Each call to `abort_injection()` bumps the generation.  Injection tasks
+/// capture the generation at creation time — if it changes (another task
+/// was aborted) the task knows its own injection has been superseded.
+///
+/// This gives per-task abort isolation with a single atomic counter,
+/// avoiding the cross‑task contamination that a boolean flag causes when
+/// multiple pool threads run concurrently.
+pub static INJECTION_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 pub(super) static INJECTION_SCOPE_DEPTH: AtomicUsize = AtomicUsize::new(0);
 pub(super) static INJECTION_VISIBILITY_DEPTH: AtomicUsize = AtomicUsize::new(0);
@@ -15,7 +25,6 @@ pub static IS_SIMULATING: AtomicBool = AtomicBool::new(false);
 #[derive(Clone, Copy)]
 pub(super) struct InjectionGate<'a> {
     is_injecting: &'a AtomicBool,
-    abort: &'a AtomicBool,
     scope_depth: &'a AtomicUsize,
     visibility_depth: &'a AtomicUsize,
 }
@@ -23,31 +32,26 @@ pub(super) struct InjectionGate<'a> {
 impl<'a> InjectionGate<'a> {
     pub(super) const fn new(
         is_injecting: &'a AtomicBool,
-        abort: &'a AtomicBool,
         scope_depth: &'a AtomicUsize,
         visibility_depth: &'a AtomicUsize,
     ) -> Self {
         Self {
             is_injecting,
-            abort,
             scope_depth,
             visibility_depth,
         }
     }
 
     pub(super) fn begin_scope(self) {
-        let was_outermost_scope = self.scope_depth.fetch_add(1, Ordering::SeqCst) == 0;
+        self.scope_depth.fetch_add(1, Ordering::SeqCst);
         self.visibility_depth.fetch_add(1, Ordering::SeqCst);
         self.is_injecting.store(true, Ordering::SeqCst);
-        if was_outermost_scope {
-            self.abort.store(false, Ordering::SeqCst);
-        }
     }
 
     pub(super) fn end_scope(self) {
         let previous_scope_depth = self.scope_depth.fetch_sub(1, Ordering::SeqCst);
         debug_assert!(previous_scope_depth > 0, "scope depth underflow");
-        let remaining_scope_depth = previous_scope_depth.saturating_sub(1);
+        let _remaining_scope_depth = previous_scope_depth.saturating_sub(1);
 
         let previous_visibility_depth = self.visibility_depth.fetch_sub(1, Ordering::SeqCst);
         debug_assert!(previous_visibility_depth > 0, "visibility depth underflow");
@@ -55,9 +59,6 @@ impl<'a> InjectionGate<'a> {
 
         self.is_injecting
             .store(remaining_visibility_depth > 0, Ordering::SeqCst);
-        if remaining_scope_depth == 0 {
-            self.abort.store(false, Ordering::SeqCst);
-        }
     }
 
     pub(super) fn begin_visibility(self) {
@@ -77,7 +78,6 @@ impl<'a> InjectionGate<'a> {
 fn injection_gate() -> InjectionGate<'static> {
     InjectionGate::new(
         &IS_INJECTING,
-        &INJECTION_ABORT,
         &INJECTION_SCOPE_DEPTH,
         &INJECTION_VISIBILITY_DEPTH,
     )
@@ -110,7 +110,6 @@ impl Drop for InjectionFlagGuard {
             remaining_scope_depth = INJECTION_SCOPE_DEPTH.load(Ordering::SeqCst),
             remaining_visibility_depth = INJECTION_VISIBILITY_DEPTH.load(Ordering::SeqCst),
             restored_injecting = IS_INJECTING.load(Ordering::SeqCst),
-            restored_abort = INJECTION_ABORT.load(Ordering::SeqCst),
             "Injection guard reset"
         );
     }
@@ -168,8 +167,22 @@ where
     }
 }
 
+/// Bump the injection generation, signalling all currently-running
+/// injection tasks that their work has been superseded.
 pub fn abort_injection() {
-    INJECTION_ABORT.store(true, Ordering::SeqCst);
+    INJECTION_GENERATION.fetch_add(1, Ordering::SeqCst);
+}
+
+/// Capture the current generation.  Tasks should call this at creation
+/// and then use `is_aborted()` at each check point.
+pub fn capture_generation() -> u64 {
+    INJECTION_GENERATION.load(Ordering::SeqCst)
+}
+
+/// Returns `true` when the generation has advanced past `captured`,
+/// meaning another task was aborted since this task started.
+pub fn is_aborted(captured: u64) -> bool {
+    INJECTION_GENERATION.load(Ordering::SeqCst) != captured
 }
 
 static INJECTION_POOL: OnceLock<mpsc::Sender<Box<dyn FnOnce() + Send>>> = OnceLock::new();
@@ -233,5 +246,78 @@ mod tests {
         });
         std::thread::sleep(std::time::Duration::from_millis(50));
         assert!(flag_was_set.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    // Regression: tab-complete-then-enter fails to expand.
+    //
+    // The generation counter gives per-task abort isolation.  When
+    // abort_injection() bumps the generation, only tasks that captured
+    // the old generation see the abort.  A newly-started task captures
+    // the current generation and is never affected by aborts that
+    // happened before it started.
+    //
+    // Previously INJECTION_ABORT was a boolean flag that leaked across
+    // concurrent pool tasks, causing expansions to silently fail.
+
+    #[test]
+    fn injection_abort_bumps_generation() {
+        let gen1 = INJECTION_GENERATION.load(Ordering::SeqCst);
+        abort_injection();
+        let gen2 = INJECTION_GENERATION.load(Ordering::SeqCst);
+        assert!(gen2 > gen1, "abort_injection() must increment generation");
+    }
+
+    #[test]
+    fn new_task_does_not_see_old_abort_generation() {
+        // Simulate: an abort happened while a previous task was running.
+        abort_injection();
+        let captured = capture_generation();
+
+        // A new task starting now should NOT see the abort — it
+        // captured the current generation, and no new abort has happened.
+        assert!(
+            !is_aborted(captured),
+            "new task must not see abort from previous generation"
+        );
+    }
+
+    #[test]
+    fn concurrent_pool_tasks_do_not_inherit_stale_abort() {
+        init_injection_pool();
+
+        // Simulate: the listener aborted a previous injection.
+        abort_injection();
+
+        // A new task dispatched to the pool captures the current
+        // generation — it must not be affected by the old abort.
+        let expansion_ran = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let expansion_ran_clone = expansion_ran.clone();
+        spawn_guarded_injection_thread("test-stale-abort", move || {
+            let captured = capture_generation();
+            let abort_seen = is_aborted(captured);
+            expansion_ran_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+            assert!(
+                !abort_seen,
+                "pool task must not inherit stale abort generation"
+            );
+        });
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert!(
+            expansion_ran.load(std::sync::atomic::Ordering::SeqCst),
+            "expansion task must have executed"
+        );
+    }
+
+    #[test]
+    fn running_task_sees_new_abort_generation() {
+        // A task captures gen, then an abort bumps the gen — the task
+        // must detect the change.
+        let captured = capture_generation();
+        abort_injection();
+        assert!(
+            is_aborted(captured),
+            "running task must detect generation change after abort"
+        );
     }
 }

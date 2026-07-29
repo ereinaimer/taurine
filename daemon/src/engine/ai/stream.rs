@@ -363,10 +363,11 @@ async fn run_inline_ai_stream_inner(
 
     let chat_stream_future =
         client.exec_chat_stream(resolved.model.as_str(), chat_request, Some(&chat_options));
+    let captured_gen = crate::injector::capture_generation();
     tokio::pin!(chat_stream_future);
 
     let mut chat_stream = loop {
-        if crate::injector::INJECTION_ABORT.load(std::sync::atomic::Ordering::SeqCst) {
+        if crate::injector::is_aborted(captured_gen) {
             ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
             resolved.secret.zeroize();
             return Ok(());
@@ -399,7 +400,7 @@ async fn run_inline_ai_stream_inner(
         {
             Ok(event) => event,
             Err(_) => {
-                if crate::injector::INJECTION_ABORT.load(std::sync::atomic::Ordering::SeqCst) {
+                if crate::injector::is_aborted(captured_gen) {
                     ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
                     flush_pending_batch(&mut output, &mut pending).await?;
                     record_inline_ai_completion(finish_output(output).await);

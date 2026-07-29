@@ -1,7 +1,6 @@
 // Script Executor
-use crate::injector::INJECTION_ABORT;
+use crate::injector;
 use std::process::Stdio;
-use std::sync::atomic::Ordering;
 use std::time::Duration;
 use taurine_core::engine::shell::{ScriptInterpreter, ScriptMetadata, decompress};
 use tokio::process::Command;
@@ -121,8 +120,9 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
             Err(taurine_core::Error::Service("Script timed out after 20s".to_string()))
         }
         _ = async {
+            let captured_gen = injector::capture_generation();
             loop {
-                if INJECTION_ABORT.load(Ordering::SeqCst) {
+                if injector::is_aborted(captured_gen) {
                     break;
                 }
                 tokio::time::sleep(Duration::from_millis(50)).await;

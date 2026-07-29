@@ -8,7 +8,9 @@ use taurine_core::engine::shell::ScriptBehavior;
 use taurine_core::engine::variables::ExpansionStep;
 
 use super::clipboard::{prepare_clipboard_for_expansion, restore_clipboard};
-use super::gate::{INJECTION_ABORT, InjectionFlagGuard, inject_mutex};
+use super::gate::{
+    INJECTION_GENERATION, InjectionFlagGuard, capture_generation, inject_mutex, is_aborted,
+};
 
 #[cfg(target_os = "linux")]
 const INTER_STEP_DELAY_MS: u64 = 15;
@@ -52,10 +54,33 @@ fn linux_direct_typing(
     }
 }
 
+/// Sleeps `dur`, checking for abort every 10ms so the thread responds
+/// promptly when the injection generation advances.
+fn abortable_sleep(dur: Duration, captured_gen: u64) {
+    let mut remaining = dur.as_millis() as u64;
+    while remaining > 0 {
+        if is_aborted(captured_gen) {
+            return;
+        }
+        let chunk = remaining.min(10);
+        thread::sleep(Duration::from_millis(chunk));
+        remaining -= chunk;
+    }
+}
+
 #[allow(clippy::needless_return)]
 pub fn inject_text_segment(
     text: &str,
     original_clipboard: &Option<String>,
+) -> TextSegmentInjection {
+    inject_text_segment_with_gen(text, original_clipboard, 0)
+}
+
+#[allow(clippy::needless_return)]
+fn inject_text_segment_with_gen(
+    text: &str,
+    original_clipboard: &Option<String>,
+    captured_gen: u64,
 ) -> TextSegmentInjection {
     let injected_chars = text.chars().count();
     let delay_ms = taurine_core::settings::get_cached_clipboard_restore_delay();
@@ -89,10 +114,14 @@ pub fn inject_text_segment(
     };
 
     if original_clipboard.is_none() {
-        match prepare_clipboard_for_expansion(&mut clipboard, text) {
+        match prepare_clipboard_for_expansion(&mut clipboard, text, captured_gen) {
             Ok(orig) => {
                 crate::platform::get_injector().simulate_paste();
-                thread::sleep(post_paste_wait);
+                if captured_gen != 0 {
+                    abortable_sleep(post_paste_wait, captured_gen);
+                } else {
+                    thread::sleep(post_paste_wait);
+                }
                 return TextSegmentInjection {
                     original_clipboard: Some(orig),
                     injected_chars,
@@ -137,7 +166,11 @@ pub fn inject_text_segment(
         }
         thread::sleep(Duration::from_millis(25));
         crate::platform::get_injector().simulate_paste();
-        thread::sleep(post_paste_wait);
+        if captured_gen != 0 {
+            abortable_sleep(post_paste_wait, captured_gen);
+        } else {
+            thread::sleep(post_paste_wait);
+        }
         return TextSegmentInjection {
             original_clipboard: original_clipboard.clone(),
             injected_chars,
@@ -146,10 +179,11 @@ pub fn inject_text_segment(
     }
 }
 
-pub fn inject_image_segment(
+fn inject_image_segment_with_gen(
     bytes: &[u8],
     mime_type: &str,
     original_clipboard: &Option<String>,
+    captured_gen: u64,
 ) -> TextSegmentInjection {
     let delay_ms = taurine_core::settings::get_cached_clipboard_restore_delay();
     let post_paste_wait = Duration::from_millis(delay_ms as u64);
@@ -203,7 +237,11 @@ pub fn inject_image_segment(
 
     thread::sleep(Duration::from_millis(50));
     crate::platform::get_injector().simulate_paste();
-    thread::sleep(post_paste_wait);
+    if captured_gen != 0 {
+        abortable_sleep(post_paste_wait, captured_gen);
+    } else {
+        thread::sleep(post_paste_wait);
+    }
 
     TextSegmentInjection {
         original_clipboard: Some(orig),
@@ -228,7 +266,7 @@ pub fn inject_undo(trigger_string: String, output_length: usize) {
     let original_clipboard = inject_text_segment(&trigger_string, &None);
 
     if let Some(ref original) = original_clipboard.original_clipboard {
-        restore_clipboard(original);
+        restore_clipboard(original, 0);
     }
 
     crate::platform::get_injector().pre_release_modifiers();
@@ -247,6 +285,7 @@ pub struct StreamingTextSession {
     state_guard: Option<InjectionFlagGuard>,
     original_clipboard: Option<String>,
     tracked_chars: usize,
+    captured_gen: u64,
 }
 
 impl StreamingTextSession {
@@ -260,15 +299,17 @@ impl StreamingTextSession {
             state_guard: Some(state_guard),
             original_clipboard: None,
             tracked_chars: 0,
+            captured_gen: capture_generation(),
         }
     }
 
     pub fn push_text(&mut self, text: &str, track_stats: bool) -> bool {
-        if text.is_empty() || INJECTION_ABORT.load(Ordering::SeqCst) {
-            return !INJECTION_ABORT.load(Ordering::SeqCst);
+        if text.is_empty() || is_aborted(self.captured_gen) {
+            return !is_aborted(self.captured_gen);
         }
 
-        let injection = inject_text_segment(text, &self.original_clipboard);
+        let injection =
+            inject_text_segment_with_gen(text, &self.original_clipboard, self.captured_gen);
         if self.original_clipboard.is_none() {
             self.original_clipboard = injection.original_clipboard;
         }
@@ -276,17 +317,17 @@ impl StreamingTextSession {
             self.tracked_chars = self.tracked_chars.saturating_add(injection.injected_chars);
         }
 
-        !INJECTION_ABORT.load(Ordering::SeqCst)
+        !is_aborted(self.captured_gen)
     }
 
     pub fn abort_requested(&self) -> bool {
-        INJECTION_ABORT.load(Ordering::SeqCst)
+        is_aborted(self.captured_gen)
     }
 
     pub fn finish(&mut self) -> usize {
         let tracked_chars = self.tracked_chars;
         if let Some(ref original) = self.original_clipboard {
-            restore_clipboard(original);
+            restore_clipboard(original, self.captured_gen);
         }
 
         crate::platform::get_injector().pre_release_modifiers();
@@ -311,6 +352,7 @@ pub fn inject_expansion(
 ) -> InjectionReport {
     let _state_guard = InjectionFlagGuard::begin();
     let _inject_guard = inject_mutex().lock().expect("inject mutex poisoned");
+    let captured_gen = capture_generation();
 
     // Pre-Release: neutralize modifier state before any injection.
     crate::platform::get_injector().pre_release_modifiers();
@@ -334,7 +376,7 @@ pub fn inject_expansion(
 
     for (i, step) in steps.iter().enumerate() {
         // Check for user-initiated abort before each step.
-        if INJECTION_ABORT.load(Ordering::SeqCst) {
+        if is_aborted(captured_gen) {
             debug!("Injection aborted by physical keypress at step {}", i);
             report.completed = false;
             break;
@@ -347,7 +389,8 @@ pub fn inject_expansion(
 
         match step {
             ExpansionStep::Text(text) => {
-                let injection = inject_text_segment(text, &original_clipboard);
+                let injection =
+                    inject_text_segment_with_gen(text, &original_clipboard, captured_gen);
                 report.successful_chars = report
                     .successful_chars
                     .saturating_add(injection.injected_chars);
@@ -364,7 +407,12 @@ pub fn inject_expansion(
                 }
             }
             ExpansionStep::Image(bytes, mime_type) => {
-                let injection = inject_image_segment(bytes, mime_type, &original_clipboard);
+                let injection = inject_image_segment_with_gen(
+                    bytes,
+                    mime_type,
+                    &original_clipboard,
+                    captured_gen,
+                );
                 report.successful_chars = report
                     .successful_chars
                     .saturating_add(injection.injected_chars);
@@ -409,7 +457,7 @@ pub fn inject_expansion(
                 // Split long delays into smaller chunks so abort is responsive.
                 let mut remaining = *ms;
                 while remaining > 0 {
-                    if INJECTION_ABORT.load(Ordering::SeqCst) {
+                    if is_aborted(captured_gen) {
                         report.completed = false;
                         break;
                     }
@@ -572,7 +620,7 @@ pub fn inject_expansion(
 
     // 3. Restore the user's original clipboard (if we touched it).
     if let Some(ref original) = original_clipboard {
-        restore_clipboard(original);
+        restore_clipboard(original, captured_gen);
     }
 
     // Panic Release: ensure all modifiers are logically released.

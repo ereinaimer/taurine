@@ -1,6 +1,6 @@
 use super::clipboard::prepare_clipboard_for_expansion;
 use super::gate::{
-    INJECTION_ABORT, INJECTION_SCOPE_DEPTH, INJECTION_VISIBILITY_DEPTH, IS_INJECTING,
+    INJECTION_GENERATION, INJECTION_SCOPE_DEPTH, INJECTION_VISIBILITY_DEPTH, IS_INJECTING,
     InjectionGate, inject_mutex,
 };
 use super::inject::{InjectionReport, inject_expansion, inject_text_segment};
@@ -116,10 +116,9 @@ fn assert_normal_expansion_still_works() {
 #[test]
 fn injection_gate_successful_follow_up_cleanup_reenables_normal_expansion() {
     let is_injecting = AtomicBool::new(false);
-    let abort = AtomicBool::new(false);
     let scope_depth = AtomicUsize::new(0);
     let visibility_depth = AtomicUsize::new(0);
-    let gate = InjectionGate::new(&is_injecting, &abort, &scope_depth, &visibility_depth);
+    let gate = InjectionGate::new(&is_injecting, &scope_depth, &visibility_depth);
 
     gate.begin_scope();
     gate.begin_scope();
@@ -136,28 +135,23 @@ fn injection_gate_successful_follow_up_cleanup_reenables_normal_expansion() {
         !is_injecting.load(AtomicOrdering::SeqCst),
         "successful follow-up cleanup must release hook suppression"
     );
-    assert!(
-        !abort.load(AtomicOrdering::SeqCst),
-        "successful cleanup must leave no stale abort signal behind"
-    );
     assert_normal_expansion_still_works();
 }
 
 #[test]
-fn injection_gate_cancelled_follow_up_cleanup_clears_abort_and_reenables_normal_expansion() {
+fn injection_gate_cancelled_follow_up_cleanup_reenables_normal_expansion() {
     let is_injecting = AtomicBool::new(false);
-    let abort = AtomicBool::new(false);
     let scope_depth = AtomicUsize::new(0);
     let visibility_depth = AtomicUsize::new(0);
-    let gate = InjectionGate::new(&is_injecting, &abort, &scope_depth, &visibility_depth);
+    let gate = InjectionGate::new(&is_injecting, &scope_depth, &visibility_depth);
 
     gate.begin_scope();
     gate.begin_scope();
-    abort.store(true, AtomicOrdering::SeqCst);
 
     gate.end_scope();
+
     assert!(
-        abort.load(AtomicOrdering::SeqCst),
+        is_injecting.load(AtomicOrdering::SeqCst),
         "the active follow-up should still observe the cancel request until it exits"
     );
 
@@ -167,20 +161,15 @@ fn injection_gate_cancelled_follow_up_cleanup_clears_abort_and_reenables_normal_
         !is_injecting.load(AtomicOrdering::SeqCst),
         "cancelled follow-up cleanup must release hook suppression"
     );
-    assert!(
-        !abort.load(AtomicOrdering::SeqCst),
-        "cancelled cleanup must clear the abort signal for later triggers"
-    );
     assert_normal_expansion_still_works();
 }
 
 #[test]
 fn injection_gate_error_cleanup_waits_for_overlapping_visibility_scope_before_releasing() {
     let is_injecting = AtomicBool::new(false);
-    let abort = AtomicBool::new(false);
     let scope_depth = AtomicUsize::new(0);
     let visibility_depth = AtomicUsize::new(0);
-    let gate = InjectionGate::new(&is_injecting, &abort, &scope_depth, &visibility_depth);
+    let gate = InjectionGate::new(&is_injecting, &scope_depth, &visibility_depth);
 
     gate.begin_scope();
     gate.begin_scope();
@@ -199,10 +188,6 @@ fn injection_gate_error_cleanup_waits_for_overlapping_visibility_scope_before_re
     assert!(
         !is_injecting.load(AtomicOrdering::SeqCst),
         "error cleanup must fully release suppression after the last overlapping scope ends"
-    );
-    assert!(
-        !abort.load(AtomicOrdering::SeqCst),
-        "error cleanup must not leak abort state into future trigger handling"
     );
     assert_normal_expansion_still_works();
 }
@@ -307,7 +292,7 @@ fn prepare_reads_previous_clipboard_sets_payload_verifies_then_restore_restores_
     let mut mock = MockClipboard::new("Something the user had copied earlier");
     let payload = "Expanded text only — not the old clipboard";
 
-    let original = prepare_clipboard_for_expansion(&mut mock, payload).unwrap();
+    let original = prepare_clipboard_for_expansion(&mut mock, payload, 0).unwrap();
     assert_eq!(original, "Something the user had copied earlier");
     assert_eq!(
         mock.text, payload,
@@ -383,7 +368,7 @@ fn prepare_polls_until_clipboard_settles() {
     let mut mock = MockSlowClipboard::new("original", 3);
     let payload = "slow payload";
 
-    let original = prepare_clipboard_for_expansion(&mut mock, payload).unwrap();
+    let original = prepare_clipboard_for_expansion(&mut mock, payload, 0).unwrap();
     assert_eq!(original, "original");
     assert_eq!(mock.text, payload);
 
@@ -401,7 +386,7 @@ fn prepare_polls_until_timeout_when_clipboard_never_settles() {
     let mut mock = MockSlowClipboard::new("original", 999);
     let payload = "never settles";
 
-    let err = prepare_clipboard_for_expansion(&mut mock, payload).unwrap_err();
+    let err = prepare_clipboard_for_expansion(&mut mock, payload, 0).unwrap_err();
     assert!(
         err.contains("clipboard verify failed"),
         "expected verify error after exhausting poll retries, got {:?}",
@@ -414,7 +399,7 @@ fn rapid_sequential_expansion_preserves_clipboard_state() {
     let mut mock = MockClipboard::new("user copied text");
 
     // First expansion
-    let orig1 = prepare_clipboard_for_expansion(&mut mock, "expansion one").unwrap();
+    let orig1 = prepare_clipboard_for_expansion(&mut mock, "expansion one", 0).unwrap();
     assert_eq!(
         orig1, "user copied text",
         "first prepare must save original"
@@ -439,7 +424,7 @@ fn rapid_sequential_expansion_preserves_clipboard_state() {
     );
 
     // Second expansion (immediately after restore, simulating rapid trigger)
-    let orig2 = prepare_clipboard_for_expansion(&mut mock, "expansion two").unwrap();
+    let orig2 = prepare_clipboard_for_expansion(&mut mock, "expansion two", 0).unwrap();
     assert_eq!(
         orig2, "user copied text",
         "second prepare must see restored original, not stale payload"
@@ -460,7 +445,7 @@ fn rapid_sequential_expansion_preserves_clipboard_state() {
 #[test]
 fn prepare_fails_if_clipboard_raced_before_paste_so_stale_clip_is_never_intended_payload() {
     let mut mock = MockClipboard::with_sabotage("old");
-    let err = prepare_clipboard_for_expansion(&mut mock, "new").unwrap_err();
+    let err = prepare_clipboard_for_expansion(&mut mock, "new", 0).unwrap_err();
     assert!(
         err.contains("clipboard verify failed"),
         "expected verify error, got {:?}",
@@ -473,7 +458,7 @@ fn prepare_uses_html_and_verifies_with_plaintext() {
     let mut mock = MockClipboard::new("old clipboard");
     let payload = "<b>Hello</b><br>World";
 
-    let original = prepare_clipboard_for_expansion(&mut mock, payload).unwrap();
+    let original = prepare_clipboard_for_expansion(&mut mock, payload, 0).unwrap();
     assert_eq!(original, "old clipboard");
 
     // Check that set_html was called by verifying the MockClipboard text contains the stripped fallback
@@ -508,7 +493,7 @@ fn inject_mutex_serializes_overlapping_injections_no_interleaved_critical_sectio
 #[test]
 fn mock_clipboard_operation_order_matches_protocol() {
     let mut mock = MockClipboard::new("clip0");
-    let _ = prepare_clipboard_for_expansion(&mut mock, "payload1").unwrap();
+    let _ = prepare_clipboard_for_expansion(&mut mock, "payload1", 0).unwrap();
     assert_eq!(
         mock.ops,
         vec!["get_text", "set_text", "get_text"],

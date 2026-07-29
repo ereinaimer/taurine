@@ -5,6 +5,8 @@ use tracing::error;
 
 use crate::platform::ClipboardManager;
 
+use super::gate::{INJECTION_GENERATION, is_aborted};
+
 impl ClipboardManager for Clipboard {
     fn get_text(&mut self) -> Result<String, String> {
         Ok(self.get_text().unwrap_or_default())
@@ -39,9 +41,14 @@ impl ClipboardManager for Clipboard {
 /// still equals `payload`. Returns the original text for restore after paste.
 ///
 /// If verification fails, the caller must not simulate paste (avoids injecting stale clipboard).
+///
+/// When `captured_gen` is non-zero, the polling loop also checks whether the injection
+/// generation has advanced (another task was aborted) so the clipboard cycle can bail
+/// early and release the injection mutex.
 pub(super) fn prepare_clipboard_for_expansion(
     clipboard: &mut impl ClipboardManager,
     payload: &str,
+    captured_gen: u64,
 ) -> Result<String, String> {
     let original = clipboard.get_text()?;
 
@@ -56,11 +63,13 @@ pub(super) fn prepare_clipboard_for_expansion(
     };
 
     // Poll clipboard to ensure the OS has registered the write.
-    // Extended from 15 to 20 iterations for reliability under load.
     let mut actual = String::new();
     let mut success = false;
     for _ in 0..20 {
         thread::sleep(Duration::from_millis(10));
+        if captured_gen != 0 && is_aborted(captured_gen) {
+            return Err("injection aborted during clipboard poll".to_string());
+        }
         match clipboard.get_text() {
             Ok(ref text) if text == &expected => {
                 success = true;
@@ -82,7 +91,10 @@ pub(super) fn prepare_clipboard_for_expansion(
 }
 
 /// Restores the user's original clipboard content.
-pub(super) fn restore_clipboard(original: &str) {
+///
+/// When `captured_gen` is non-zero, the verification polling loop bails
+/// early if the injection generation advances.
+pub(super) fn restore_clipboard(original: &str, captured_gen: u64) {
     match crate::platform::get_clipboard_manager() {
         Ok(mut clip) => {
             if let Err(e) = clip.set_text(original) {
@@ -90,11 +102,13 @@ pub(super) fn restore_clipboard(original: &str) {
                 return;
             }
             // Poll to verify clipboard was restored correctly
-            // This also holds the IS_INJECTING guard open until the clipboard is ready
             let mut actual = String::new();
             let mut success = false;
             for _ in 0..15 {
                 thread::sleep(Duration::from_millis(10));
+                if captured_gen != 0 && is_aborted(captured_gen) {
+                    return;
+                }
                 match clip.get_text() {
                     Ok(ref text) if text == original => {
                         success = true;
@@ -119,5 +133,5 @@ pub(super) fn restore_clipboard(original: &str) {
 }
 
 pub fn restore_clipboard_text(original: &str) {
-    restore_clipboard(original);
+    restore_clipboard(original, 0);
 }
