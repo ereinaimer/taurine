@@ -857,6 +857,9 @@ mod tests {
     fn inline_ai_trigger_open_conflict_through_apply() {
         let (_dir, conn) = open_test_db();
         let manager = SettingsManager::new(&conn);
+        manager
+            .update_setting("trigger_char", ">".to_string())
+            .unwrap();
         let result =
             apply_setting_input_with_manager(&manager, "inline_ai_trigger_open", Some(">"));
         assert!(result.is_err());

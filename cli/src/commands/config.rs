@@ -182,6 +182,12 @@ pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::erro
     match actual_key {
         "trigger_char" => {
             if let Some(c) = value.chars().next() {
+                let current = manager.load_all();
+                taurine_core::settings::validate_delimiter_conflicts(
+                    &current,
+                    actual_key,
+                    &c.to_string(),
+                )?;
                 manager.update_setting(actual_key, c)?;
                 info!("Updated trigger_char to: {}", c);
             } else {
@@ -286,6 +292,12 @@ pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::erro
         }
         "inline_ai_delimiter" => {
             if let Some(c) = value.chars().next() {
+                let current = manager.load_all();
+                taurine_core::settings::validate_delimiter_conflicts(
+                    &current,
+                    "inline_ai_trigger",
+                    &c.to_string(),
+                )?;
                 manager.update_setting(actual_key, c)?;
                 info!("Updated inline_ai_delimiter to: {}", c);
             } else {
@@ -719,6 +731,7 @@ fn parse_boolean_setting_value(value: &str) -> taurine_core::error::Result<bool>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use taurine_core::settings::validate_delimiter_conflicts;
 
     #[test]
     fn render_optional_setting_uses_unset_placeholder() {
@@ -808,6 +821,40 @@ mod tests {
         assert_eq!(value["ai_provider"], serde_json::Value::Null);
         assert_eq!(value["ai_model"], serde_json::Value::Null);
         assert_eq!(value["ai_temperature"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn validate_trigger_char_conflict_with_inline_ai_trigger_open() {
+        let settings = taurine_core::settings::Settings {
+            inline_ai_trigger_open: ">".to_string(),
+            ..taurine_core::settings::Settings::default()
+        };
+        let result = validate_delimiter_conflicts(&settings, "trigger_char", ">");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_trigger_char_no_conflict_succeeds() {
+        let settings = taurine_core::settings::Settings {
+            inline_ai_trigger_open: ">>".to_string(),
+            inline_ai_trigger_close: "<<".to_string(),
+            inline_ai_trigger: "^".to_string(),
+            inline_ai_trigger_mode: taurine_core::settings::InlineAiTriggerMode::Asymmetric,
+            ..taurine_core::settings::Settings::default()
+        };
+        let result = validate_delimiter_conflicts(&settings, "trigger_char", "|");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_inline_ai_delimiter_conflict_with_trigger_char() {
+        let settings = taurine_core::settings::Settings {
+            trigger_char: '>',
+            inline_ai_trigger_mode: taurine_core::settings::InlineAiTriggerMode::Symmetric,
+            ..taurine_core::settings::Settings::default()
+        };
+        let result = validate_delimiter_conflicts(&settings, "inline_ai_trigger", ">");
+        assert!(result.is_err());
     }
 
     #[test]
