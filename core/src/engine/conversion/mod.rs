@@ -28,6 +28,7 @@ enum UnitCategory {
     Power,
     Css,
     Angle,
+    Energy,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -133,6 +134,18 @@ fn get_physical_unit_factor(unit: &str) -> Option<(UnitCategory, f64)> {
         "w" | "watt" | "watts" => Some((UnitCategory::Power, 1.0)),
         "kw" | "kilowatt" | "kilowatts" => Some((UnitCategory::Power, 1000.0)),
         "hp" | "horsepower" => Some((UnitCategory::Power, 745.699872)),
+
+        // Energy (Base: J)
+        "j" | "joule" | "joules" => Some((UnitCategory::Energy, 1.0)),
+        "kj" | "kilojoule" | "kilojoules" => Some((UnitCategory::Energy, 1000.0)),
+        "mj" | "megajoule" | "megajoules" => Some((UnitCategory::Energy, 1000000.0)),
+        "cal" | "calorie" | "calories" | "kcal" | "kilocalorie" | "kilocalories" => {
+            Some((UnitCategory::Energy, 4184.0))
+        }
+        "btu" => Some((UnitCategory::Energy, 1055.06)),
+        "wh" | "watt-hour" | "watt-hours" => Some((UnitCategory::Energy, 3600.0)),
+        "kwh" | "kilowatt-hour" | "kilowatt-hours" => Some((UnitCategory::Energy, 3600000.0)),
+        "ev" | "electronvolt" | "electronvolts" => Some((UnitCategory::Energy, 1.602176634e-19)),
 
         // Angle Units — deg / rad / grad / turn
         "deg" | "degree" | "degrees" => Some((UnitCategory::Angle, 1.0)),
@@ -535,6 +548,8 @@ fn normalize_unit_name(name: &str) -> String {
         (r"\bkilometres?\s+per\s+hour\b", "kph"),
         (r"\bmeters?\s+per\s+second\b", "m/s"),
         (r"\bmetres?\s+per\s+second\b", "m/s"),
+        (r"\bkilowatt[-\s]hours?\b", "kwh"),
+        (r"\bwatt[-\s]hours?\b", "wh"),
     ];
 
     let mut normalized = lower.clone();
@@ -823,6 +838,69 @@ mod tests {
         assert_eq!(
             convert_natural("500 millilitres to gal", &state),
             Some("0.13 gal".to_string())
+        );
+    }
+
+    // ── Energy unit tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_energy_categories_incompatible() {
+        let state = EngineState::new('>');
+        assert!(convert("1J=kg", &state).is_none());
+        assert!(convert("1cal=m", &state).is_none());
+    }
+
+    #[test]
+    fn test_energy_joule_conversions() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("1000J=kJ", &state), Some("1kj".to_string()));
+        assert_eq!(convert("500J=kJ", &state), Some("0.5kj".to_string()));
+    }
+
+    #[test]
+    fn test_energy_calorie_conversions() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("1cal=J", &state), Some("4184j".to_string()));
+        assert_eq!(convert("1000J=cal", &state), Some("0.24cal".to_string()));
+    }
+
+    #[test]
+    fn test_energy_kcal_conversions() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("1kcal=J", &state), Some("4184j".to_string()));
+        assert_eq!(convert("250kcal=kJ", &state), Some("1046kj".to_string()));
+        assert_eq!(
+            convert_natural("500 calories to kJ", &state),
+            Some("2092 kJ".to_string())
+        );
+    }
+
+    #[test]
+    fn test_energy_btu_conversion() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("1BTU=kJ", &state), Some("1.06kj".to_string()));
+        assert_eq!(convert("1BTU=J", &state), Some("1055.06j".to_string()));
+    }
+
+    #[test]
+    fn test_energy_kwh_conversion() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("1kWh=J", &state), Some("3600000j".to_string()));
+        assert_eq!(convert("1Wh=J", &state), Some("3600j".to_string()));
+    }
+
+    #[test]
+    fn test_energy_ev_conversion() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("1eV=J", &state), Some("0j".to_string()));
+    }
+
+    #[test]
+    fn test_energy_natural_joules() {
+        let state = EngineState::new('>');
+        assert_eq!(
+            convert_natural("1000 joules to kilojoules", &state),
+            Some("1 kilojoules".to_string())
         );
     }
 }
