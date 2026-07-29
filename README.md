@@ -104,7 +104,7 @@ Taurine saves time by turning short triggers into longer text, keyboard shortcut
 - [**Text expansion**](#text-expansion) — turn short triggers into full text
 - [**Keyboard shortcuts**](#keyboard-shortcuts-and-hotkeys) — activate triggers with hotkeys
 - [**Scripts and commands**](#scripts-and-commands) — launch apps, open websites, and run local scripts
-- [**Dynamic variables**](#dynamic-variables) — insert names, dates, UUIDs, mock data, and more
+- [**Dynamic variables**](#dynamic-variables) — insert names, dates, UUIDs, and more
 - [**Inline math**](#inline-math) — calculate while typing
 - [**Inline AI**](#inline-ai) — use AI without switching apps
 - [**CLI and TUI**](#basic-commands) — manage triggers from the terminal
@@ -365,13 +365,7 @@ For the full list of available namespaces and variables, refer to the [System Va
 taurine add timestamp "Created on: [date.format('MMMM D, YYYY')] at [time]"
 ```
 
-**Generating test data:**
-```bash
-taurine add user "Name: [mock.name][newline]Email: [mock.email][newline]Job: [mock.job_title]"
-```
-
 ## Inline math
-
 Taurine features a built-in mathematical engine that lets you use any text field as a quick calculator. Simply type a mathematical expression and press **Space**.
 
 Example:

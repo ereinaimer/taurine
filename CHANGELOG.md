@@ -67,6 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Unquoted Spaces in Arguments**: Support spaces in dynamic variable arguments without quoting when using the `Enter` action key.
 
 ### Removed
+- **[mock.*] Fake Data Generator**: Removed the entire `[mock.*]` system variable namespace (~1,961 lines), including static identity pools for names, addresses, credit cards, and phone numbers. This feature was out of scope for a text expander; placeholder text needs are already covered by `[lorem.*]`.
 - **Template Escape Sequences**: Remove support for legacy unescaped control characters (\n, \t, \r) in favor of HTML layout tags.
 
 ### Changed
