@@ -337,9 +337,9 @@ pub fn app_filters_overlap(
     except_b: Option<&str>,
 ) -> bool {
     let clean_list = |s: &str| -> Vec<String> {
-        s.split(',')
-            .map(|x| x.trim().to_lowercase())
-            .filter(|x| !x.is_empty())
+        split_app_filters(s)
+            .into_iter()
+            .map(|x| x.to_lowercase())
             .collect()
     };
 
@@ -1476,6 +1476,34 @@ pub enum AddOutcome {
     Updated,
 }
 
+pub fn split_app_filters(input: &str) -> Vec<String> {
+    let mut items = Vec::new();
+    let mut current = String::new();
+    let mut chars = input.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' if chars.peek() == Some(&',') => {
+                current.push(',');
+                chars.next();
+            }
+            ',' => {
+                let trimmed = current.trim().to_string();
+                if !trimmed.is_empty() {
+                    items.push(trimmed);
+                }
+                current.clear();
+            }
+            _ => current.push(c),
+        }
+    }
+    let trimmed = current.trim().to_string();
+    if !trimmed.is_empty() {
+        items.push(trimmed);
+    }
+    items
+}
+
 pub fn update_trigger_app_filters(
     conn: &Connection,
     id: &str,
@@ -1484,13 +1512,12 @@ pub fn update_trigger_app_filters(
 ) -> Result<()> {
     let clean = |s: String| -> Result<Option<String>> {
         let mut items = Vec::new();
-        for entry in s.split(',') {
-            let trimmed = entry.trim().to_string();
-            if trimmed.is_empty() {
+        for entry in split_app_filters(&s) {
+            if entry.is_empty() {
                 continue;
             }
-            if let Some(pos) = trimmed.find(':') {
-                let prefix = &trimmed[..pos];
+            if let Some(pos) = entry.find(':') {
+                let prefix = &entry[..pos];
                 if !matches!(prefix.to_lowercase().as_str(), "exe" | "class" | "title") {
                     return Err(crate::Error::Config(format!(
                         "unknown app filter prefix '{}' (use: exe:, class:, title:)",
@@ -1498,7 +1525,7 @@ pub fn update_trigger_app_filters(
                     )));
                 }
             }
-            items.push(trimmed);
+            items.push(entry);
         }
         if items.is_empty() {
             Ok(None)
@@ -2721,6 +2748,68 @@ mod tests {
             },
         )
         .unwrap();
+    }
+
+    fn create_test_trigger(conn: &Connection) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        let now = crate::db::now_unix_secs();
+        conn.execute(
+            "INSERT INTO triggers (id, name, trigger, output, action_type, trigger_type, target_os, is_deleted, created_at, updated_at)
+             VALUES (?1, 'test', 't', 'o', 'text', 'word', 'all', 0, ?2, ?2)",
+            rusqlite::params![id, now],
+        ).unwrap();
+        id
+    }
+
+    #[test]
+    fn app_filter_comma_in_title_value_is_preserved() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, conn) = crate::testing::open_test_db();
+        let id = create_test_trigger(&conn);
+
+        update_trigger_app_filters(
+            &conn,
+            &id,
+            Some(String::from(r"title:Hello\, World,exe:notepad.exe")),
+            None,
+        )
+        .unwrap();
+
+        let only: String = conn
+            .query_row(
+                "SELECT only_apps FROM triggers WHERE id = ?1",
+                rusqlite::params![id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            only, "title:Hello, World,exe:notepad.exe",
+            "comma in title value should be preserved in stored value"
+        );
+    }
+
+    #[test]
+    fn app_filter_trailing_backslash_is_preserved() {
+        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let (_dir, conn) = crate::testing::open_test_db();
+        let id = create_test_trigger(&conn);
+
+        update_trigger_app_filters(
+            &conn,
+            &id,
+            Some(String::from(r"exe:test\,path\,with\,commas")),
+            None,
+        )
+        .unwrap();
+
+        let only: String = conn
+            .query_row(
+                "SELECT only_apps FROM triggers WHERE id = ?1",
+                rusqlite::params![id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(only, "exe:test,path,with,commas");
     }
 
     #[test]

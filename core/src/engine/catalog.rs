@@ -641,12 +641,36 @@ pub struct ActiveWindowInfo {
     pub exec_path: Option<String>,
 }
 
+fn split_app_filters(input: &str) -> Vec<String> {
+    let mut items = Vec::new();
+    let mut current = String::new();
+    let mut chars = input.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' if chars.peek() == Some(&',') => {
+                current.push(',');
+                chars.next();
+            }
+            ',' => {
+                let trimmed = current.trim().to_string();
+                if !trimmed.is_empty() {
+                    items.push(trimmed);
+                }
+                current.clear();
+            }
+            _ => current.push(c),
+        }
+    }
+    let trimmed = current.trim().to_string();
+    if !trimmed.is_empty() {
+        items.push(trimmed);
+    }
+    items
+}
+
 fn match_rules(filter_list: &str, info: &ActiveWindowInfo) -> bool {
-    let rules: Vec<&str> = filter_list
-        .split(',')
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .collect();
+    let rules: Vec<String> = split_app_filters(filter_list);
     if rules.is_empty() {
         return false;
     }
@@ -658,10 +682,10 @@ fn match_rules(filter_list: &str, info: &ActiveWindowInfo) -> bool {
             if matches!(p_lower.as_str(), "exe" | "class" | "title") {
                 (p_lower, &v[1..])
             } else {
-                ("exe".to_string(), *rule)
+                ("exe".to_string(), rule.as_str())
             }
         } else {
-            ("exe".to_string(), *rule)
+            ("exe".to_string(), rule.as_str())
         };
 
         let val_lower = value.to_lowercase();
