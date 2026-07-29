@@ -50,10 +50,16 @@ fn get_physical_unit_factor(unit: &str) -> Option<(UnitCategory, f64)> {
     let u = unit.to_lowercase();
     match u.as_str() {
         // Length (Base: m)
-        "mm" | "millimeter" | "millimeters" => Some((UnitCategory::Length, 0.001)),
-        "cm" | "centimeter" | "centimeters" => Some((UnitCategory::Length, 0.01)),
-        "m" | "meter" | "meters" => Some((UnitCategory::Length, 1.0)),
-        "km" | "kilometer" | "kilometers" => Some((UnitCategory::Length, 1000.0)),
+        "mm" | "millimeter" | "millimeters" | "millimetre" | "millimetres" => {
+            Some((UnitCategory::Length, 0.001))
+        }
+        "cm" | "centimeter" | "centimeters" | "centimetre" | "centimetres" => {
+            Some((UnitCategory::Length, 0.01))
+        }
+        "m" | "meter" | "meters" | "metre" | "metres" => Some((UnitCategory::Length, 1.0)),
+        "km" | "kilometer" | "kilometers" | "kilometre" | "kilometres" => {
+            Some((UnitCategory::Length, 1000.0))
+        }
         "in" | "inch" | "inches" => Some((UnitCategory::Length, 0.0254)),
         "ft" | "foot" | "feet" => Some((UnitCategory::Length, 0.3048)),
         "yd" | "yard" | "yards" => Some((UnitCategory::Length, 0.9144)),
@@ -70,8 +76,10 @@ fn get_physical_unit_factor(unit: &str) -> Option<(UnitCategory, f64)> {
         "tonne" | "tonnes" | "t" => Some((UnitCategory::Mass, 1000000.0)),
 
         // Volume (Base: l)
-        "ml" | "mL" | "milliliter" | "milliliters" => Some((UnitCategory::Volume, 0.001)),
-        "l" | "L" | "liter" | "liters" => Some((UnitCategory::Volume, 1.0)),
+        "ml" | "mL" | "milliliter" | "milliliters" | "millilitre" | "millilitres" => {
+            Some((UnitCategory::Volume, 0.001))
+        }
+        "l" | "L" | "liter" | "liters" | "litre" | "litres" => Some((UnitCategory::Volume, 1.0)),
         "tsp" | "teaspoon" | "teaspoons" => Some((UnitCategory::Volume, 0.00492892159375)),
         "tbsp" | "tablespoon" | "tablespoons" => Some((UnitCategory::Volume, 0.01478676478125)),
         "floz" | "fl_oz" => Some((UnitCategory::Volume, 0.0295735295625)),
@@ -400,9 +408,15 @@ pub fn convert_natural(s: &str, state: &crate::engine::state::EngineState) -> Op
     let words: Vec<&str> = normalized.split_whitespace().collect();
 
     // 4. Scan right-to-left to find the rightmost separator token
+    //    If a separator word appears at the last position, it's likely the target unit
+    //    (e.g. "5cm to in" where "in" = inches), so we skip it and look left.
     let mut sep_index = None;
+    let last = words.len().saturating_sub(1);
     for (i, &word) in words.iter().enumerate().rev() {
         if word == "to" || word == "into" || word == "as" || word == "in" || word == "=" {
+            if i == last {
+                continue;
+            }
             sep_index = Some(i);
             break;
         }
@@ -764,6 +778,51 @@ mod tests {
         assert_eq!(
             convert_natural("57.3deg to rad", &state),
             Some("1 rad".to_string())
+        );
+    }
+
+    // ── British spelling tests ────────────────────────────────────────────
+
+    #[test]
+    fn test_british_length_metres() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("100m=ft", &state), Some("328.08ft".to_string()));
+        let result = convert_natural("100 metres to ft", &state);
+        assert_eq!(result, Some("328.08 ft".to_string()));
+        assert_eq!(convert("5cm=in", &state), Some("1.97in".to_string()));
+        assert_eq!(
+            convert_natural("5 centimetres to in", &state),
+            Some("1.97 in".to_string())
+        );
+        assert_eq!(convert("1000mm=m", &state), Some("1m".to_string()));
+        assert_eq!(
+            convert_natural("1000 millimetres to m", &state),
+            Some("1 m".to_string())
+        );
+    }
+
+    #[test]
+    fn test_british_length_kilometres() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("5km=mi", &state), Some("3.11mi".to_string()));
+        assert_eq!(
+            convert_natural("5 kilometres to mi", &state),
+            Some("3.11 mi".to_string())
+        );
+    }
+
+    #[test]
+    fn test_british_volume_litres() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("2l=qt", &state), Some("2.11qt".to_string()));
+        assert_eq!(
+            convert_natural("2 litres to qt", &state),
+            Some("2.11 qt".to_string())
+        );
+        assert_eq!(convert("500ml=gal", &state), Some("0.13gal".to_string()));
+        assert_eq!(
+            convert_natural("500 millilitres to gal", &state),
+            Some("0.13 gal".to_string())
         );
     }
 }
