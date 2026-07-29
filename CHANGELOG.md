@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Angle Unit Conversions**: Inline conversions between degrees, radians, gradians, and turns (e.g. `180deg=rad` → `3.14rad`) with natural language support (`180 degrees to rad`).
 - **CSS Unit Conversions**: Inline px ↔ rem and px ↔ em conversions (e.g. `24px=rem` → `1.5rem`) at default 16px base font size, using both compact and natural language syntax.
 - **Inline Color Conversions**: Convert hex, named, and CSS function colors between hex/rgb/rgba/hsl/hsla formats directly in any text field (e.g. `#3b82f6=rgb` or `red to hex`).
 - **Multi-Word Triggers**: Word triggers can now contain spaces (e.g. `my email address`) in both prefix and triggerless modes. Requires Enter as the action key; incompatible with instant expand mode.

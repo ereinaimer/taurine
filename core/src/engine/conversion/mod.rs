@@ -27,6 +27,7 @@ enum UnitCategory {
     Pressure,
     Power,
     Css,
+    Angle,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -124,6 +125,12 @@ fn get_physical_unit_factor(unit: &str) -> Option<(UnitCategory, f64)> {
         "w" | "watt" | "watts" => Some((UnitCategory::Power, 1.0)),
         "kw" | "kilowatt" | "kilowatts" => Some((UnitCategory::Power, 1000.0)),
         "hp" | "horsepower" => Some((UnitCategory::Power, 745.699872)),
+
+        // Angle Units — deg / rad / grad / turn
+        "deg" | "degree" | "degrees" => Some((UnitCategory::Angle, 1.0)),
+        "rad" | "radian" | "radians" => Some((UnitCategory::Angle, 180.0 / std::f64::consts::PI)),
+        "grad" | "gon" => Some((UnitCategory::Angle, 0.9)),
+        "turn" | "turns" => Some((UnitCategory::Angle, 360.0)),
 
         // CSS Units — px / rem / em
         "px" | "pixel" | "pixels" => Some((UnitCategory::Css, 1.0)),
@@ -704,6 +711,59 @@ mod tests {
         assert_eq!(
             convert_natural("1.25rem to px", &state),
             Some("20 px".to_string())
+        );
+    }
+
+    // ── Angle unit tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_angle_categories_incompatible() {
+        let state = EngineState::new('>');
+        assert!(convert("1deg=kg", &state).is_none());
+        assert!(convert("1rad=m", &state).is_none());
+    }
+
+    #[test]
+    fn test_angle_deg_rad_conversion() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("180deg=rad", &state), Some("3.14rad".to_string()));
+        assert_eq!(convert("1rad=deg", &state), Some("57.3deg".to_string()));
+    }
+
+    #[test]
+    fn test_angle_deg_grad_conversion() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("90deg=grad", &state), Some("100grad".to_string()));
+        assert_eq!(convert("100grad=deg", &state), Some("90deg".to_string()));
+    }
+
+    #[test]
+    fn test_angle_deg_turn_conversion() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("0.5turn=deg", &state), Some("180deg".to_string()));
+        assert_eq!(convert("1turn=deg", &state), Some("360deg".to_string()));
+    }
+
+    #[test]
+    fn test_angle_rad_grad_conversion() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("200grad=rad", &state), Some("3.14rad".to_string()));
+        assert_eq!(
+            convert("3.1416rad=grad", &state),
+            Some("200grad".to_string())
+        );
+    }
+
+    #[test]
+    fn test_angle_natural_deg_to_rad() {
+        let state = EngineState::new('>');
+        assert_eq!(
+            convert_natural("180 degrees to rad", &state),
+            Some("3.14 rad".to_string())
+        );
+        assert_eq!(
+            convert_natural("57.3deg to rad", &state),
+            Some("1 rad".to_string())
         );
     }
 }
