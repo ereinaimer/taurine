@@ -125,9 +125,10 @@ fn get_physical_unit_factor(unit: &str) -> Option<(UnitCategory, f64)> {
         "kw" | "kilowatt" | "kilowatts" => Some((UnitCategory::Power, 1000.0)),
         "hp" | "horsepower" => Some((UnitCategory::Power, 745.699872)),
 
-        // CSS Units — px / rem
+        // CSS Units — px / rem / em
         "px" | "pixel" | "pixels" => Some((UnitCategory::Css, 1.0)),
         "rem" => Some((UnitCategory::Css, 16.0)),
+        "em" => Some((UnitCategory::Css, 16.0)),
 
         // Temperature (handled separately)
         "c" | "celsius" | "f" | "fahrenheit" | "k" | "kelvin" => {
@@ -631,6 +632,28 @@ mod tests {
         assert_eq!(convert("1.25rem=px", &state), Some("20px".to_string()));
         assert_eq!(convert("16px=rem", &state), Some("1rem".to_string()));
         assert!(convert("10px=kg", &state).is_none());
+    }
+
+    #[test]
+    fn test_css_em_conversion() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("2em=px", &state), Some("32px".to_string()));
+        assert_eq!(convert("24px=em", &state), Some("1.5em".to_string()));
+        assert_eq!(convert("1em=rem", &state), Some("1rem".to_string()));
+        assert!(convert("10em=kg", &state).is_none());
+    }
+
+    #[test]
+    fn test_css_em_natural() {
+        let state = EngineState::new('>');
+        assert_eq!(
+            convert_natural("2em to px", &state),
+            Some("32 px".to_string())
+        );
+        assert_eq!(
+            convert_natural("24px to em", &state),
+            Some("1.5 em".to_string())
+        );
     }
 
     #[test]

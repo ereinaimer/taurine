@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **CSS Unit Conversions**: Inline px ↔ rem conversions (e.g. `24px=rem` → `1.5rem`) at default 16px base font size, using both compact and natural language syntax.
+- **CSS Unit Conversions**: Inline px ↔ rem and px ↔ em conversions (e.g. `24px=rem` → `1.5rem`) at default 16px base font size, using both compact and natural language syntax.
 - **Inline Color Conversions**: Convert hex, named, and CSS function colors between hex/rgb/rgba/hsl/hsla formats directly in any text field (e.g. `#3b82f6=rgb` or `red to hex`).
 - **Multi-Word Triggers**: Word triggers can now contain spaces (e.g. `my email address`) in both prefix and triggerless modes. Requires Enter as the action key; incompatible with instant expand mode.
 - **Natural Language Emoji**: Support natural language emoji matching with exact word aliases and triggerless expansion via `word emoji` suffix.
