@@ -114,7 +114,10 @@ pub fn apply_setting_input_with_manager(
 
     let outcome = match actual_key {
         "trigger_char" => {
-            manager.update_setting(actual_key, parse_char_setting(value, actual_key)?)?;
+            let parsed = parse_char_setting(value, actual_key)?;
+            let current = manager.load_all();
+            validate_delimiter_conflicts(&current, actual_key, &parsed.to_string())?;
+            manager.update_setting(actual_key, parsed)?;
             ApplySettingOutcome::default()
         }
         "pause_hotkey" => {
@@ -179,14 +182,16 @@ pub fn apply_setting_input_with_manager(
             ApplySettingOutcome::default()
         }
         "inline_ai_trigger_mode" => {
-            manager.update_setting(
-                actual_key,
-                parse_inline_ai_trigger_mode(require_non_empty(value, actual_key)?)?,
-            )?;
+            let mode_str = require_non_empty(value, actual_key)?;
+            let current = manager.load_all();
+            validate_delimiter_conflicts(&current, actual_key, mode_str)?;
+            manager.update_setting(actual_key, parse_inline_ai_trigger_mode(mode_str)?)?;
             ApplySettingOutcome::default()
         }
         "inline_ai_trigger_open" | "inline_ai_trigger_close" | "inline_ai_trigger" => {
             let parsed = require_non_empty(value, actual_key)?;
+            let current = manager.load_all();
+            validate_delimiter_conflicts(&current, actual_key, parsed)?;
             manager.update_setting(actual_key, parsed.to_string())?;
             ApplySettingOutcome::default()
         }
@@ -835,5 +840,80 @@ mod tests {
         let settings = Settings::default();
         let result = validate_delimiter_conflicts(&settings, "wpm", "60");
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn trigger_char_conflict_with_open_through_apply() {
+        let (_dir, conn) = open_test_db();
+        let manager = SettingsManager::new(&conn);
+        manager
+            .update_setting("inline_ai_trigger_open", ">".to_string())
+            .unwrap();
+        let result = apply_setting_input_with_manager(&manager, "trigger_char", Some(">"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn inline_ai_trigger_open_conflict_through_apply() {
+        let (_dir, conn) = open_test_db();
+        let manager = SettingsManager::new(&conn);
+        let result =
+            apply_setting_input_with_manager(&manager, "inline_ai_trigger_open", Some(">"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn inline_ai_trigger_conflict_through_apply() {
+        let (_dir, conn) = open_test_db();
+        let manager = SettingsManager::new(&conn);
+        manager
+            .update_setting("inline_ai_trigger_mode", InlineAiTriggerMode::Symmetric)
+            .unwrap();
+        let result = apply_setting_input_with_manager(&manager, "inline_ai_trigger", Some(">"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn trigger_char_no_conflict_through_apply() {
+        let (_dir, conn) = open_test_db();
+        let manager = SettingsManager::new(&conn);
+        apply_setting_input_with_manager(&manager, "trigger_char", Some("|")).unwrap();
+        assert_eq!(manager.load_all().trigger_char, '|');
+    }
+
+    #[test]
+    fn asymmetric_mode_rejects_equal_open_close_through_apply() {
+        let (_dir, conn) = open_test_db();
+        let manager = SettingsManager::new(&conn);
+        manager
+            .update_setting("inline_ai_trigger_open", ">".to_string())
+            .unwrap();
+        manager
+            .update_setting("inline_ai_trigger_close", ">".to_string())
+            .unwrap();
+        let result = apply_setting_input_with_manager(
+            &manager,
+            "inline_ai_trigger_mode",
+            Some("asymmetric"),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn asymmetric_mode_accepts_different_open_close_through_apply() {
+        let (_dir, conn) = open_test_db();
+        let manager = SettingsManager::new(&conn);
+        manager
+            .update_setting("inline_ai_trigger_open", ">>".to_string())
+            .unwrap();
+        manager
+            .update_setting("inline_ai_trigger_close", "<<".to_string())
+            .unwrap();
+        apply_setting_input_with_manager(&manager, "inline_ai_trigger_mode", Some("asymmetric"))
+            .unwrap();
+        assert_eq!(
+            manager.load_all().inline_ai_trigger_mode,
+            InlineAiTriggerMode::Asymmetric
+        );
     }
 }
