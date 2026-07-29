@@ -51,6 +51,14 @@ pub fn is_conversion_pattern(s: &str) -> bool {
 
 fn get_physical_unit_factor(unit: &str) -> Option<(UnitCategory, f64)> {
     let u = unit.to_lowercase();
+    // Disambiguate MW (megawatt) vs mW (milliwatt)
+    if u == "mw" {
+        return if unit.starts_with('M') {
+            Some((UnitCategory::Power, 1000000.0))
+        } else {
+            Some((UnitCategory::Power, 0.001))
+        };
+    }
     match u.as_str() {
         // Length (Base: m)
         "mm" | "millimeter" | "millimeters" | "millimetre" | "millimetres" => {
@@ -67,9 +75,11 @@ fn get_physical_unit_factor(unit: &str) -> Option<(UnitCategory, f64)> {
         "ft" | "foot" | "feet" => Some((UnitCategory::Length, 0.3048)),
         "yd" | "yard" | "yards" => Some((UnitCategory::Length, 0.9144)),
         "mi" | "mile" | "miles" => Some((UnitCategory::Length, 1609.344)),
+        "nmi" => Some((UnitCategory::Length, 1852.0)),
 
         // Mass (Base: g)
         "mg" | "milligram" | "milligrams" => Some((UnitCategory::Mass, 0.001)),
+        "ug" | "mcg" | "microgram" | "micrograms" => Some((UnitCategory::Mass, 0.000001)),
         "g" | "gram" | "grams" => Some((UnitCategory::Mass, 1.0)),
         "kg" | "kilogram" | "kilograms" => Some((UnitCategory::Mass, 1000.0)),
         "oz" | "ounce" | "ounces" => Some((UnitCategory::Mass, 28.349523125)),
@@ -101,6 +111,9 @@ fn get_physical_unit_factor(unit: &str) -> Option<(UnitCategory, f64)> {
 
         // Time (Base: s)
         "s" | "sec" | "secs" | "second" | "seconds" => Some((UnitCategory::Time, 1.0)),
+        "ms" | "millisecond" | "milliseconds" => Some((UnitCategory::Time, 0.001)),
+        "us" | "microsecond" | "microseconds" => Some((UnitCategory::Time, 0.000001)),
+        "ns" | "nanosecond" | "nanoseconds" => Some((UnitCategory::Time, 0.000000001)),
         "min" | "mins" | "minute" | "minutes" => Some((UnitCategory::Time, 60.0)),
         "h" | "hr" | "hrs" | "hour" | "hours" => Some((UnitCategory::Time, 3600.0)),
         "d" | "day" | "days" => Some((UnitCategory::Time, 86400.0)),
@@ -131,11 +144,15 @@ fn get_physical_unit_factor(unit: &str) -> Option<(UnitCategory, f64)> {
         "psi" => Some((UnitCategory::Pressure, 1.0)),
         "bar" => Some((UnitCategory::Pressure, 14.503773773)),
         "pa" | "pascal" | "pascals" => Some((UnitCategory::Pressure, 0.0001450377)),
+        "atm" | "atmosphere" | "atmospheres" => Some((UnitCategory::Pressure, 14.6959488)),
+        "torr" | "mmhg" => Some((UnitCategory::Pressure, 14.6959488 / 760.0)),
 
         // Power (Base: w)
         "w" | "watt" | "watts" => Some((UnitCategory::Power, 1.0)),
         "kw" | "kilowatt" | "kilowatts" => Some((UnitCategory::Power, 1000.0)),
         "hp" | "horsepower" => Some((UnitCategory::Power, 745.699872)),
+        "megawatt" | "megawatts" => Some((UnitCategory::Power, 1000000.0)),
+        "milliwatt" | "milliwatts" => Some((UnitCategory::Power, 0.001)),
 
         // Force (Base: N)
         "n" | "newton" | "newtons" => Some((UnitCategory::Force, 1.0)),
@@ -567,6 +584,7 @@ fn normalize_unit_name(name: &str) -> String {
         (r"\bwatt[-\s]hours?\b", "wh"),
         (r"\bpounds?[-\s]force\b", "pound_force"),
         (r"\bkilograms?[-\s]force\b", "kilogram_force"),
+        (r"\bnautical\s+miles?\b", "nmi"),
     ];
 
     let mut normalized = lower.clone();
@@ -983,5 +1001,47 @@ mod tests {
             convert_natural("1 megahertz to hertz", &state),
             Some("1000000 hertz".to_string())
         );
+    }
+
+    // ── Extension tests: new units in existing categories ──────────────────
+
+    #[test]
+    fn test_extend_length_nautical_mile() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("1nmi=m", &state), Some("1852m".to_string()));
+        assert_eq!(
+            convert_natural("1 nautical mile to km", &state),
+            Some("1.85 km".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extend_time_sub_second() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("1s=ms", &state), Some("1000ms".to_string()));
+        assert_eq!(convert("1000ms=s", &state), Some("1s".to_string()));
+        assert_eq!(convert("1s=us", &state), Some("1000000us".to_string()));
+        assert_eq!(convert("1s=ns", &state), Some("1000000000ns".to_string()));
+    }
+
+    #[test]
+    fn test_extend_pressure_atm() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("1atm=psi", &state), Some("14.7psi".to_string()));
+        assert_eq!(convert("1atm=bar", &state), Some("1.01bar".to_string()));
+        assert_eq!(convert("1atm=torr", &state), Some("760torr".to_string()));
+    }
+
+    #[test]
+    fn test_extend_power_mw() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("1MW=kW", &state), Some("1000kw".to_string()));
+        assert_eq!(convert("1W=mW", &state), Some("1000mw".to_string()));
+    }
+
+    #[test]
+    fn test_extend_mass_microgram() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("1g=ug", &state), Some("1000000ug".to_string()));
     }
 }

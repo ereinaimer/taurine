@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Extended Unit Coverage**: Added nautical miles (nmi), milliseconds/µs/ns, atmospheres/torr/mmHg, megawatts (MW)/milliwatts (mW), and micrograms (µg/mcg) with case-sensitive MW/mW disambiguation.
 - **Frequency Unit Conversions**: Inline conversions between hertz, kilohertz, megahertz, gigahertz, and terahertz (e.g. `1MHz=Hz` → `1000000hz`) with natural language support.
 - **Force Unit Conversions**: Inline conversions between newtons, dynes, pound-force, and kilogram-force (e.g. `1N=dyn` → `100000dyn`) with natural language support.
 - **Energy Unit Conversions**: Inline conversions between joules, kilojoules, calories (food), BTU, watt-hours, kilowatt-hours, and electronvolts (e.g. `1cal=J` → `4184j`) with natural language support.
