@@ -81,7 +81,7 @@ pub fn execute_with_trigger_type(
         ));
     };
 
-    let trigger = if auto_case {
+    let trigger = if auto_case && !matches!(trigger_type, TriggerType::Regex) {
         trigger.to_lowercase()
     } else {
         trigger
@@ -467,6 +467,44 @@ mod tests {
             infer_interpreter(Some(Path::new("test.unknown")), "no shebang"),
             None
         );
+    }
+
+    #[test]
+    fn script_auto_case_does_not_lowercase_regex() {
+        init_tracing_for_tests();
+
+        with_test_db(|db_path| {
+            execute_with_trigger_type(
+                "['A-Z']".to_string(),
+                TriggerType::Regex,
+                Some("echo hi".to_string()),
+                None,
+                Some(ScriptInterpreter::Bash),
+                ScriptBehavior::Inline,
+                "all".to_string(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                true,
+                false,
+            )
+            .unwrap();
+
+            let conn = rusqlite::Connection::open(db_path).unwrap();
+            let stored: String = conn
+                .query_row(
+                    "SELECT trigger FROM triggers WHERE action_type = 'script'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                stored, "['A-Z']",
+                "auto_case must not lowercase regex trigger"
+            );
+        });
     }
 
     #[test]
