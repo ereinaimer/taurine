@@ -156,10 +156,7 @@ fn pump_platform_events() {
 
 #[cfg(target_os = "linux")]
 fn pump_platform_events() {
-    // SAFETY: gtk_main_iteration_do processes one GTK event iteration.
-    unsafe {
-        gtk::main_iteration_do(false);
-    }
+    gtk::main_iteration_do(false);
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
