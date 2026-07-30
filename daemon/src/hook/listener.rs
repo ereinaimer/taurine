@@ -549,6 +549,19 @@ pub(super) fn run_listener_once(
                     | Key::PageUp
                     | Key::PageDown => Some(EngineEvent::Interrupt),
                     _ => {
+                        if is_ai_capture_paste_key(&engine_mode, ctrl_active, meta_active, key) {
+                            match crate::platform::read_clipboard_text() {
+                                Ok(text) if !text.is_empty() => {
+                                    let engine_event = EngineEvent::Paste(text);
+                                    let _ = with_evaluator_lock(&evaluator, "ai_paste", |lock| {
+                                        lock.process_event(engine_event, None)
+                                    });
+                                }
+                                _ => {}
+                            }
+                            return None;
+                        }
+
                         if alt_active || ctrl_active || meta_active {
                             return Some(event);
                         }
@@ -582,6 +595,8 @@ pub(super) fn run_listener_once(
                         None
                     };
 
+                    let is_action_key = ev == EngineEvent::ActionKey;
+
                     if let Some((expansion, state)) =
                         with_evaluator_lock(&evaluator, "process_engine_event", |lock| {
                             lock.process_event(ev, active_window.as_deref())
@@ -599,7 +614,7 @@ pub(super) fn run_listener_once(
 
                         spawn_expansion_dispatch(expansion, spinner_style_inner, state);
 
-                        if ev == EngineEvent::ActionKey {
+                        if is_action_key {
                             return None;
                         }
                     }
@@ -1315,6 +1330,7 @@ fn engine_event_label(event: &EngineEvent) -> &'static str {
         EngineEvent::WordBackspace => "word_backspace",
         EngineEvent::ActionKey => "action_key",
         EngineEvent::Char(_) => "char",
+        EngineEvent::Paste(_) => "paste",
     }
 }
 
@@ -1343,6 +1359,20 @@ fn is_modifier_key(key: Key) -> bool {
 }
 
 #[cfg(not(target_os = "linux"))]
+fn is_ai_capture_paste_key(
+    engine_mode: &EngineMode,
+    ctrl_active: bool,
+    meta_active: bool,
+    key: Key,
+) -> bool {
+    if !matches!(engine_mode, EngineMode::AiCapture { .. }) {
+        return false;
+    }
+    let modifier_active =
+        cfg!(target_os = "macos") && meta_active || cfg!(not(target_os = "macos")) && ctrl_active;
+    modifier_active && key == Key::KeyV
+}
+
 fn is_solo_modifier_press(
     key: Key,
     shift_active: bool,
@@ -1386,5 +1416,43 @@ mod tests {
         // 0xBB is '='. Shift + '=' is '+'
         let name = unsafe { decoder.get_name_with_state(0xBB, 0x0D, &state) };
         assert_eq!(name.as_deref(), Some("+"));
+    }
+}
+
+#[cfg(test)]
+#[cfg(not(target_os = "linux"))]
+mod paste_detection_tests {
+    use super::*;
+
+    #[test]
+    fn test_is_ai_capture_paste_key_in_ai_capture() {
+        let ai = EngineMode::AiCapture {
+            system_prompt_override: None,
+        };
+
+        #[cfg(target_os = "macos")]
+        let paste_modifier = (false, true);
+        #[cfg(not(target_os = "macos"))]
+        let paste_modifier = (true, false);
+
+        assert!(is_ai_capture_paste_key(
+            &ai,
+            paste_modifier.0,
+            paste_modifier.1,
+            Key::KeyV
+        ));
+
+        assert!(!is_ai_capture_paste_key(&ai, false, false, Key::KeyV));
+        assert!(!is_ai_capture_paste_key(&ai, true, false, Key::KeyC));
+        assert!(!is_ai_capture_paste_key(&ai, false, true, Key::KeyX));
+    }
+
+    #[test]
+    fn test_is_ai_capture_paste_key_outside_ai_capture() {
+        let normal = EngineMode::Normal;
+
+        assert!(!is_ai_capture_paste_key(&normal, true, false, Key::KeyV));
+        assert!(!is_ai_capture_paste_key(&normal, false, true, Key::KeyV));
+        assert!(!is_ai_capture_paste_key(&normal, false, false, Key::KeyV));
     }
 }

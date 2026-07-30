@@ -14,7 +14,7 @@ use crate::hotkey_evaluator::{
     HotkeyEvaluation, HotkeyEvaluator, logical_key_from_evdev, modifiers_from_sides,
 };
 use crate::injector::{self, IS_INJECTING};
-use taurine_core::engine::{EngineEvent, Evaluator};
+use taurine_core::engine::{EngineEvent, EngineMode, Evaluator};
 
 #[derive(Debug)]
 pub(crate) struct DeviceExit {
@@ -381,6 +381,23 @@ fn process_frame(
             let alt_active = modifier_sides.alt_active();
             let meta_active = modifier_sides.meta_active();
 
+            if matches!(engine_mode, EngineMode::AiCapture { .. })
+                && ctrl_active
+                && key == KeyCode::KEY_V
+            {
+                match crate::platform::read_clipboard_text() {
+                    Ok(text) if !text.is_empty() => {
+                        let ev = EngineEvent::Paste(text);
+                        if let Ok(mut lock) = evaluator.lock() {
+                            let _ = lock.process_event(ev, None);
+                        }
+                    }
+                    _ => {}
+                }
+                swallow_frame = true;
+                continue;
+            }
+
             if grab_enabled && crate::hook::trigger_assist_is_active(evaluator, state.as_ref()) {
                 clear_undo_state(state);
 
@@ -596,6 +613,8 @@ fn process_frame(
                 None
             };
 
+            let is_action_key = ev == EngineEvent::ActionKey;
+
             let mut lock = evaluator.lock().unwrap();
             if let Some(expansion) = lock.process_event(ev, active_window.as_deref()) {
                 let state = lock.state.clone();
@@ -607,7 +626,7 @@ fn process_frame(
 
                 crate::hook::spawn_expansion_dispatch(expansion, spinner_style_inner, state);
 
-                if ev == EngineEvent::ActionKey {
+                if is_action_key {
                     swallow_frame = true;
                 }
             }

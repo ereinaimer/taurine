@@ -158,6 +158,12 @@ impl EngineState {
         self.ai_session.append_prompt_char(c);
     }
 
+    pub fn append_ai_prompt_text(&self, text: &str) {
+        for c in text.chars() {
+            self.ai_session.append_prompt_char(c);
+        }
+    }
+
     pub fn pop_ai_prompt_char(&self) {
         self.ai_session.pop_prompt_char();
     }

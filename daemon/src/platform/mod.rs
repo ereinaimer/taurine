@@ -177,3 +177,18 @@ pub fn get_active_window_label() -> Option<String> {
 pub fn get_active_window_label() -> Option<String> {
     None
 }
+
+pub fn read_clipboard_text() -> Result<String, String> {
+    let mut clip = get_clipboard_manager()?;
+    clip.get_text()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_read_clipboard_text_returns_string() {
+        let _ = read_clipboard_text();
+    }
+}

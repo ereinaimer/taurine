@@ -7,13 +7,14 @@ use crate::stats::TriggerStatKind;
 use crate::engine::buffer::FastBuffer;
 use crate::engine::state::{EngineMode, EngineState};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum EngineEvent {
     Char(char),
     Backspace,
     WordBackspace,
     ActionKey,
     Interrupt, // Esc, Mouse clicks, or loss of focus
+    Paste(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1206,6 +1207,7 @@ impl Evaluator {
                 }
                 result
             }
+            EngineEvent::Paste(_) => None,
             EngineEvent::Char(c) => {
                 // Normal typing tracking
                 self.buffer.push(c);
@@ -1276,6 +1278,12 @@ impl Evaluator {
                     crate::settings::ActionKey::Enter => '\n',
                 };
                 self.state.append_ai_prompt_char(char_rep);
+                None
+            }
+            EngineEvent::Paste(text) => {
+                for c in text.chars() {
+                    self.state.append_ai_prompt_char(c);
+                }
                 None
             }
             EngineEvent::Char(c) => {
@@ -4686,5 +4694,66 @@ mod tests {
         let result = eval.process(EngineEvent::ActionKey);
         // Tab is not a space — multi-word should NOT cross tab boundaries
         assert!(result.is_none(), "should not expand across tab");
+    }
+
+    #[test]
+    fn test_inline_ai_paste_appends_characters() {
+        let state = Arc::new(EngineState::new('>'));
+        let mut eval = Evaluator::new(state.clone());
+
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
+        let _ = eval.process(EngineEvent::Char('>'));
+        assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
+
+        assert_eq!(eval.process(EngineEvent::Paste("hello".to_string())), None);
+
+        assert_eq!(state.ai_prompt_buffer(), "hello");
+    }
+
+    #[test]
+    fn test_inline_ai_paste_does_not_auto_submit() {
+        let state = Arc::new(EngineState::new('>'));
+        let mut eval = Evaluator::new(state.clone());
+
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
+        let _ = eval.process(EngineEvent::Char('>'));
+        assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
+
+        assert_eq!(
+            eval.process(EngineEvent::Paste("hello<<".to_string())),
+            None
+        );
+
+        assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
+        assert_eq!(state.ai_prompt_buffer(), "hello<<");
+    }
+
+    #[test]
+    fn test_inline_ai_paste_outside_ai_capture_is_nop() {
+        let state = Arc::new(EngineState::new('>'));
+        let mut eval = Evaluator::new(state.clone());
+
+        assert_eq!(state.engine_mode(), EngineMode::Normal);
+
+        assert_eq!(eval.process(EngineEvent::Paste("hello".to_string())), None);
+
+        assert_eq!(state.engine_mode(), EngineMode::Normal);
+        assert_eq!(state.ai_prompt_buffer(), "");
+    }
+
+    #[test]
+    fn test_inline_ai_paste_respects_cap() {
+        let state = Arc::new(EngineState::new('>'));
+        let mut eval = Evaluator::new(state.clone());
+
+        assert_eq!(eval.process(EngineEvent::Char('>')), None);
+        let _ = eval.process(EngineEvent::Char('>'));
+        assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
+
+        let large = "a".repeat(100 * 1024);
+        assert_eq!(eval.process(EngineEvent::Paste(large)), None);
+
+        let buf = state.ai_prompt_buffer();
+        assert_eq!(buf.len(), 64 * 1024);
     }
 }
