@@ -436,6 +436,28 @@ pub fn convert(s: &str, _state: &crate::engine::state::EngineState) -> Option<St
     None
 }
 
+/// Known NL command/query prefixes to strip before parsing a conversion expression.
+const NL_PREFIXES: &[&str] = &[
+    "convert ",
+    "transform ",
+    "change ",
+    "calculate ",
+    "compute ",
+    "what is ",
+    "what's ",
+    "how much is ",
+];
+
+fn strip_nl_prefix(s: &str) -> &str {
+    let lowered = s.to_lowercase();
+    for &prefix in NL_PREFIXES {
+        if lowered.starts_with(prefix) {
+            return s[prefix.len()..].trim_start();
+        }
+    }
+    s
+}
+
 /// Parses a natural language conversion query (e.g. "100 dollars to Euros"),
 /// normalizes the units and currencies, executes the conversion, and formats the result.
 pub fn convert_natural(s: &str, state: &crate::engine::state::EngineState) -> Option<String> {
@@ -481,7 +503,7 @@ pub fn convert_natural(s: &str, state: &crate::engine::state::EngineState) -> Op
 
     // 5. Parse left side into number and from_unit
     // Handle leading currency symbol if any (e.g. $100 -> from_unit = "usd")
-    let trimmed_left = original_left_part.trim();
+    let trimmed_left = strip_nl_prefix(original_left_part.trim());
     let first_char = trimmed_left.chars().next()?;
 
     let (val_str, from_unit_raw) = if let Some(iso) = get_currency_by_symbol(first_char) {
@@ -692,6 +714,74 @@ mod tests {
             convert_natural("1,000 miles into kilometers", &state),
             Some("1,609.34 kilometers".to_string())
         );
+
+        MOCK_RATES.with(|m| *m.borrow_mut() = None);
+    }
+
+    #[test]
+    fn test_nl_prefixes() {
+        let state = EngineState::new('>');
+
+        let mut mock = HashMap::new();
+        mock.insert("USD".to_string(), 1.0);
+        mock.insert("EUR".to_string(), 0.915);
+        MOCK_RATES.with(|m| *m.borrow_mut() = Some(mock));
+
+        // Single-word prefixes
+        assert_eq!(
+            convert_natural("convert 32 celsius in fahrenheit", &state),
+            Some("89.6 fahrenheit".to_string())
+        );
+        assert_eq!(
+            convert_natural("transform 32 celsius in fahrenheit", &state),
+            Some("89.6 fahrenheit".to_string())
+        );
+        assert_eq!(
+            convert_natural("change 32 celsius in fahrenheit", &state),
+            Some("89.6 fahrenheit".to_string())
+        );
+        assert_eq!(
+            convert_natural("calculate 32 celsius in fahrenheit", &state),
+            Some("89.6 fahrenheit".to_string())
+        );
+        assert_eq!(
+            convert_natural("compute 32 celsius in fahrenheit", &state),
+            Some("89.6 fahrenheit".to_string())
+        );
+
+        // Multi-word prefixes
+        assert_eq!(
+            convert_natural("what is 32 celsius in fahrenheit", &state),
+            Some("89.6 fahrenheit".to_string())
+        );
+        assert_eq!(
+            convert_natural("what's 32 celsius in fahrenheit", &state),
+            Some("89.6 fahrenheit".to_string())
+        );
+        assert_eq!(
+            convert_natural("how much is 32 celsius in fahrenheit", &state),
+            Some("89.6 fahrenheit".to_string())
+        );
+
+        // No prefix — existing behavior unchanged
+        assert_eq!(
+            convert_natural("32 celsius in fahrenheit", &state),
+            Some("89.6 fahrenheit".to_string())
+        );
+
+        // Currency with prefix
+        assert_eq!(
+            convert_natural("convert $100 to Euros", &state),
+            Some("91.5 Euros".to_string())
+        );
+        assert_eq!(
+            convert_natural("change $50 to usd", &state),
+            Some("50 usd".to_string())
+        );
+
+        // Prefix without number should return None
+        assert_eq!(convert_natural("convert to euros", &state), None);
+        assert_eq!(convert_natural("what is in fahrenheit", &state), None);
 
         MOCK_RATES.with(|m| *m.borrow_mut() = None);
     }
