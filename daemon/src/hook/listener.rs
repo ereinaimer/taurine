@@ -1373,6 +1373,7 @@ fn is_ai_capture_paste_key(
     modifier_active && key == Key::KeyV
 }
 
+#[cfg(not(target_os = "linux"))]
 fn is_solo_modifier_press(
     key: Key,
     shift_active: bool,
