@@ -15,6 +15,9 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  TAURINE_DATA_DIR: ${{ github.workspace }}/temp_data
+
 jobs:
   lint:
     name: Lint
