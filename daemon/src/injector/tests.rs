@@ -11,6 +11,7 @@ use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use taurine_core::db::crud::TriggerAction;
+use taurine_core::engine::source::MemorySource;
 use taurine_core::engine::variables::ExpansionStep;
 use taurine_core::engine::{EngineEvent, EngineState, Evaluator};
 
@@ -83,7 +84,7 @@ fn assert_normal_expansion_still_works() {
     let _lock = crate::hook::tests::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    let state = Arc::new(EngineState::new('>'));
+    let state = Arc::new(EngineState::with_source('>', Arc::new(MemorySource::new())));
     state.load_actions(vec![(
         "gm".to_string(),
         TriggerAction::text("Good morning!"),

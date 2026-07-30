@@ -426,7 +426,10 @@ mod tests {
         let _lock = crate::hook::tests::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let state = std::sync::Arc::new(EngineState::new('>'));
+        let state = std::sync::Arc::new(EngineState::with_source(
+            '>',
+            std::sync::Arc::new(taurine_core::engine::source::MemorySource::new()),
+        ));
         state.load_actions(vec![(
             "gm".to_string(),
             TriggerAction::text("Good morning!"),
