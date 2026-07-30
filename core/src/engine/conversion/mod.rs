@@ -31,6 +31,9 @@ enum UnitCategory {
     Energy,
     Force,
     Frequency,
+    Voltage,
+    Current,
+    Resistance,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -183,6 +186,22 @@ fn get_physical_unit_factor(unit: &str) -> Option<(UnitCategory, f64)> {
         "mhz" | "megahertz" => Some((UnitCategory::Frequency, 1000000.0)),
         "ghz" | "gigahertz" => Some((UnitCategory::Frequency, 1000000000.0)),
         "thz" | "terahertz" => Some((UnitCategory::Frequency, 1000000000000.0)),
+
+        // Voltage (Base: V)
+        "v" | "volt" | "volts" => Some((UnitCategory::Voltage, 1.0)),
+        "mv" | "millivolt" | "millivolts" => Some((UnitCategory::Voltage, 0.001)),
+        "kv" | "kilovolt" | "kilovolts" => Some((UnitCategory::Voltage, 1000.0)),
+
+        // Current (Base: A)
+        "a" | "amp" | "amps" | "ampere" | "amperes" => Some((UnitCategory::Current, 1.0)),
+        "ma" | "milliamp" | "milliamps" | "milliampere" | "milliamperes" => {
+            Some((UnitCategory::Current, 0.001))
+        }
+
+        // Resistance (Base: Ω expressed as ohm)
+        "ohm" | "ohms" => Some((UnitCategory::Resistance, 1.0)),
+        "kohm" | "kiloohm" | "kiloohms" => Some((UnitCategory::Resistance, 1000.0)),
+        "megohm" | "megaohm" | "megaohms" => Some((UnitCategory::Resistance, 1000000.0)),
 
         // Angle Units — deg / rad / grad / turn
         "deg" | "degree" | "degrees" => Some((UnitCategory::Angle, 1.0)),
@@ -1117,6 +1136,39 @@ mod tests {
         assert_eq!(convert("1000ms=s", &state), Some("1s".to_string()));
         assert_eq!(convert("1s=us", &state), Some("1000000us".to_string()));
         assert_eq!(convert("1s=ns", &state), Some("1000000000ns".to_string()));
+    }
+
+    #[test]
+    fn test_electricity_voltage() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("1V=mV", &state), Some("1000mv".to_string()));
+        assert_eq!(convert("1000mV=V", &state), Some("1v".to_string()));
+        assert_eq!(convert("1kV=V", &state), Some("1000v".to_string()));
+        assert_eq!(
+            convert_natural("12 volts to mV", &state),
+            Some("12000 mV".to_string())
+        );
+    }
+
+    #[test]
+    fn test_electricity_current() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("1A=mA", &state), Some("1000ma".to_string()));
+        assert_eq!(convert("1000mA=A", &state), Some("1a".to_string()));
+        assert_eq!(
+            convert_natural("500 milliamps to A", &state),
+            Some("0.5 A".to_string())
+        );
+    }
+
+    #[test]
+    fn test_electricity_resistance() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("1kohm=ohm", &state), Some("1000ohm".to_string()));
+        assert_eq!(
+            convert("1megohm=ohm", &state),
+            Some("1000000ohm".to_string())
+        );
     }
 
     #[test]

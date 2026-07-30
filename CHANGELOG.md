@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Electrical Unit Conversions**: Inline conversions for voltage (V/mV/kV), current (A/mA), and resistance (ohm/kohm/megohm) with natural language support (e.g. `12V=mV` → `12000mv`, `1A=mA` → `1000ma`).
 - **Bit Conversions**: Inline conversions between bits, kilobits, megabits, gigabits and bytes (e.g. `100mb=mbit` → `800mbit`) with natural language support.
 - **Kilopascal (kPa) Conversions**: Inline conversions between kilopascals, PSI, bar, and other pressure units (e.g. `35psi=kpa` → `241.32kpa`).
 - **NL Command Prefixes**: Support command/query prefixes (`convert`, `transform`, `change`, `calculate`, `compute`, `what is`, `what's`, `how much is`) for natural language unit conversions.
