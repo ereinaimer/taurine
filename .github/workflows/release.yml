@@ -42,7 +42,7 @@ jobs:
 
       - name: Install dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-22.04'
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config cmake protobuf-compiler libxkbcommon-dev libdbus-1-dev libasound2-dev
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config cmake protobuf-compiler libxkbcommon-dev libdbus-1-dev libasound2-dev libglib2.0-dev
 
       - name: Install dependencies (Windows)
         if: matrix.os == 'windows-latest'

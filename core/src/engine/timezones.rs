@@ -263,10 +263,8 @@ fn parse_current_time(input: &str, time_format: &str) -> Option<String> {
         city.trim()
     } else if let Some(city) = lower.strip_suffix(" time") {
         city.trim()
-    } else if let Some(city) = lower.strip_suffix(" now") {
-        city.trim()
     } else {
-        return None;
+        lower.strip_suffix(" now")?.trim()
     };
 
     if city.is_empty() {
