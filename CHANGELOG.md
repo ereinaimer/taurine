@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Kilopascal (kPa) Conversions**: Inline conversions between kilopascals, PSI, bar, and other pressure units (e.g. `35psi=kpa` → `241.32kpa`).
 - **NL Command Prefixes**: Support command/query prefixes (`convert`, `transform`, `change`, `calculate`, `compute`, `what is`, `what's`, `how much is`) for natural language unit conversions.
 - **Extended Unit Coverage**: Added nautical miles (nmi), milliseconds/µs/ns, atmospheres/torr/mmHg, megawatts (MW)/milliwatts (mW), and micrograms (µg/mcg) with case-sensitive MW/mW disambiguation.
 - **Frequency Unit Conversions**: Inline conversions between hertz, kilohertz, megahertz, gigahertz, and terahertz (e.g. `1MHz=Hz` → `1000000hz`) with natural language support.

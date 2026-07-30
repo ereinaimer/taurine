@@ -144,6 +144,7 @@ fn get_physical_unit_factor(unit: &str) -> Option<(UnitCategory, f64)> {
         "psi" => Some((UnitCategory::Pressure, 1.0)),
         "bar" => Some((UnitCategory::Pressure, 14.503773773)),
         "pa" | "pascal" | "pascals" => Some((UnitCategory::Pressure, 0.0001450377)),
+        "kpa" | "kilopascal" | "kilopascals" => Some((UnitCategory::Pressure, 0.1450377)),
         "atm" | "atmosphere" | "atmospheres" => Some((UnitCategory::Pressure, 14.6959488)),
         "torr" | "mmhg" => Some((UnitCategory::Pressure, 14.6959488 / 760.0)),
 
@@ -1112,6 +1113,13 @@ mod tests {
         assert_eq!(convert("1000ms=s", &state), Some("1s".to_string()));
         assert_eq!(convert("1s=us", &state), Some("1000000us".to_string()));
         assert_eq!(convert("1s=ns", &state), Some("1000000000ns".to_string()));
+    }
+
+    #[test]
+    fn test_extend_pressure_kpa() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("100kpa=psi", &state), Some("14.5psi".to_string()));
+        assert_eq!(convert("35psi=kpa", &state), Some("241.32kpa".to_string()));
     }
 
     #[test]
