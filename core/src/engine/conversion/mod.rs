@@ -129,9 +129,13 @@ fn get_physical_unit_factor(unit: &str) -> Option<(UnitCategory, f64)> {
 
         // Data (Base: b)
         "b" | "byte" | "bytes" => Some((UnitCategory::Data, 1.0)),
+        "bit" | "bits" => Some((UnitCategory::Data, 0.125)),
         "kb" | "kilobyte" | "kilobytes" => Some((UnitCategory::Data, 1000.0)),
+        "kbit" | "kilobit" | "kilobits" => Some((UnitCategory::Data, 125.0)),
         "mb" | "megabyte" | "megabytes" => Some((UnitCategory::Data, 1000000.0)),
+        "mbit" | "megabit" | "megabits" => Some((UnitCategory::Data, 125000.0)),
         "gb" | "gigabyte" | "gigabytes" => Some((UnitCategory::Data, 1000000000.0)),
+        "gbit" | "gigabit" | "gigabits" => Some((UnitCategory::Data, 125000000.0)),
         "tb" | "terabyte" | "terabytes" => Some((UnitCategory::Data, 1000000000000.0)),
         "pb" | "petabyte" | "petabytes" => Some((UnitCategory::Data, 1000000000000000.0)),
         "kib" | "kibibyte" | "kibibytes" => Some((UnitCategory::Data, 1024.0)),
@@ -1128,6 +1132,19 @@ mod tests {
         assert_eq!(convert("1atm=psi", &state), Some("14.7psi".to_string()));
         assert_eq!(convert("1atm=bar", &state), Some("1.01bar".to_string()));
         assert_eq!(convert("1atm=torr", &state), Some("760torr".to_string()));
+    }
+
+    #[test]
+    fn test_extend_data_bits() {
+        let state = EngineState::new('>');
+        assert_eq!(convert("1byte=bit", &state), Some("8bit".to_string()));
+        assert_eq!(convert("1kb=kbit", &state), Some("8kbit".to_string()));
+        assert_eq!(convert("100mb=mbit", &state), Some("800mbit".to_string()));
+        assert_eq!(convert("1gb=gbit", &state), Some("8gbit".to_string()));
+        assert_eq!(
+            convert_natural("100 megabits to megabytes", &state),
+            Some("12.5 megabytes".to_string())
+        );
     }
 
     #[test]
