@@ -6,6 +6,7 @@ use super::completion::{
 use super::dispatch::{dispatch_completion_rewrite_with, dispatch_expansion_with};
 use std::sync::{Arc, Mutex};
 use taurine_core::db::crud::TriggerAction;
+use taurine_core::engine::source::MemorySource;
 use taurine_core::engine::{EngineEvent, EngineState, Evaluator};
 
 #[test]
@@ -521,7 +522,7 @@ fn test_dispatch_expansion_skips_ai_stats() {
 
 #[test]
 fn action_key_during_active_completion_returns_expansion() {
-    let state = Arc::new(EngineState::new('>'));
+    let state = Arc::new(EngineState::with_source('>', Arc::new(MemorySource::new())));
     state.load_actions(vec![("gs".to_string(), TriggerAction::text("git status"))]);
     let mut evaluator = Evaluator::new(state);
 
