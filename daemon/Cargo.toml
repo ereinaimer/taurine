@@ -51,6 +51,7 @@ objc2-foundation = { version = "0.3", features = ["NSNotification", "NSString"] 
 
 [target.'cfg(target_os = "linux")'.dependencies]
 evdev = "0.13.2"
+gtk = "0.18"
 xkbcommon = "0.9.0"
 x11rb = "0.14"
 wayland-client = "0.31"

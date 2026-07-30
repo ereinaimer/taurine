@@ -14,7 +14,6 @@ use crate::hotkey_evaluator::{
     HotkeyEvaluation, HotkeyEvaluator, logical_key_from_evdev, modifiers_from_sides,
 };
 use crate::injector::{self, IS_INJECTING};
-use crate::notify;
 use taurine_core::engine::{EngineEvent, Evaluator};
 
 #[derive(Debug)]
@@ -285,11 +284,11 @@ fn process_frame(
     evaluator: &Arc<Mutex<Evaluator>>,
     state: &Arc<taurine_core::engine::EngineState>,
     paused: &Arc<AtomicBool>,
-    pause_notifications_enabled: &Arc<AtomicBool>,
+    _pause_notifications_enabled: &Arc<AtomicBool>,
     pause_hotkey: &Arc<RwLock<HotkeySpec>>,
     spinner_style: &Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
-    pause_audio_enabled: &Arc<AtomicBool>,
-    audio_tx: &tokio::sync::mpsc::Sender<bool>,
+    _pause_audio_enabled: &Arc<AtomicBool>,
+    _audio_tx: &tokio::sync::mpsc::Sender<bool>,
     pause_transition_tx: &tokio::sync::mpsc::Sender<bool>,
     xkb: &mut XkbMapper,
     modifier_sides: &mut ModifierSides,

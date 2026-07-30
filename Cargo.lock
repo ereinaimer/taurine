@@ -5530,6 +5530,7 @@ dependencies = [
  "evdev",
  "futures",
  "genai",
+ "gtk",
  "image",
  "libc",
  "notify-rust",
