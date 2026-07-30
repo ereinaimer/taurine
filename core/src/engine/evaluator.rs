@@ -333,6 +333,49 @@ impl Evaluator {
         None
     }
 
+    fn check_inline_timezone_fallback(
+        &self,
+        action_key: crate::settings::ActionKey,
+    ) -> Option<ExpansionResult> {
+        if !self.state.inline_datetime_enabled() {
+            return None;
+        }
+        if action_key != crate::settings::ActionKey::Enter {
+            return None;
+        }
+
+        let buf_str = self.buffer.buffer_string();
+        if buf_str.trim().is_empty() {
+            return None;
+        }
+
+        let words: Vec<&str> = buf_str.split_whitespace().collect();
+        let max_words = 6.min(words.len());
+        let time_format = crate::settings::get_cached_inline_datetime_time_format();
+
+        for k in (1..=max_words).rev() {
+            let suffix_words = &words[words.len() - k..];
+            let candidate = suffix_words.join(" ");
+
+            if let Some(result_text) =
+                crate::engine::timezones::parse_timezone_expression(&candidate, &time_format)
+            {
+                let delete_count = candidate.chars().count();
+                return Some(ExpansionResult {
+                    delete_count,
+                    steps: vec![ExpansionStep::Text(result_text)],
+                    trigger: candidate.clone(),
+                    undo_trigger: Some(candidate),
+                    is_calculation: true,
+                    stat_kind: TriggerStatKind::Calculation,
+                    track_usage: true,
+                    follow_up: None,
+                });
+            }
+        }
+        None
+    }
+
     fn check_inline_color_fallback(
         &self,
         action_key: crate::settings::ActionKey,
@@ -1052,6 +1095,11 @@ impl Evaluator {
             return Some(result);
         }
 
+        if !instant_expand && let Some(result) = self.check_inline_timezone_fallback(action_key) {
+            self.buffer.clear();
+            return Some(result);
+        }
+
         if !instant_expand && let Some(result) = self.check_inline_color_fallback(action_key) {
             self.buffer.clear();
             return Some(result);
@@ -1666,6 +1714,80 @@ mod tests {
         let res8 = eval.process(EngineEvent::ActionKey);
         assert!(res8.is_some());
         assert_eq!(res8.unwrap().trigger, "15 mins from now");
+    }
+
+    #[test]
+    fn test_inline_timezone_expansion() {
+        let state = Arc::new(EngineState::new('>'));
+        state
+            .inline_datetime_enabled
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        state
+            .triggerless_mode
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        let mut eval = Evaluator::new(state);
+
+        // Test 1: "time in tokyo" current time query
+        for c in "time in tokyo".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res = eval.process(EngineEvent::ActionKey);
+        assert!(res.is_some(), "time in tokyo should expand");
+        assert!(res.as_ref().unwrap().is_calculation);
+        assert_eq!(res.as_ref().unwrap().trigger, "time in tokyo");
+        let output = &res.unwrap().steps;
+        assert!(!output.is_empty());
+
+        eval.reset();
+
+        // Test 2: "now in dubai" current time query
+        for c in "now in dubai".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res2 = eval.process(EngineEvent::ActionKey);
+        assert!(res2.is_some(), "now in dubai should expand");
+        assert_eq!(res2.unwrap().trigger, "now in dubai");
+
+        eval.reset();
+
+        // Test 3: "10am pst to ist" conversion query
+        for c in "10am pst to ist".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res3 = eval.process(EngineEvent::ActionKey);
+        assert!(res3.is_some(), "10am pst to ist should expand");
+        assert_eq!(res3.unwrap().trigger, "10am pst to ist");
+
+        eval.reset();
+
+        // Test 4: unknown city does NOT expand
+        for c in "time in nonexistent1234".chars() {
+            eval.process(EngineEvent::Char(c));
+        }
+        let res4 = eval.process(EngineEvent::ActionKey);
+        assert!(res4.is_none(), "unknown city should not expand");
+
+        eval.reset();
+
+        // Test 5: disabled datetime = no timezone expansion
+        crate::settings::set_cached_inline_datetime_enabled(false);
+        let mut eval2 = Evaluator::new(Arc::new(EngineState::new('>')));
+        for c in "time in tokyo".chars() {
+            eval2.process(EngineEvent::Char(c));
+        }
+        let res5 = eval2.process(EngineEvent::ActionKey);
+        assert!(res5.is_none(), "should not expand when datetime disabled");
+
+        eval2.reset();
+
+        // Test 6: "tokyo time" current time query
+        for c in "tokyo time".chars() {
+            eval2.process(EngineEvent::Char(c));
+        }
+        let res6 = eval2.process(EngineEvent::ActionKey);
+        assert!(res6.is_none(), "should not expand when datetime disabled");
+        // Restore enabled for other tests
+        crate::settings::set_cached_inline_datetime_enabled(true);
     }
 
     #[test]

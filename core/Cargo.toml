@@ -61,6 +61,7 @@ arc-swap = "1.7"
 unicode-normalization = "0.1"
 chrono = "0.4"
 chrono-english = "0.1"
+chrono-tz = "0.10"
 num2words = "1.2"
 
 [build-dependencies]

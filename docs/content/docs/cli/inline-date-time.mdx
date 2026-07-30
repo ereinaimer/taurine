@@ -73,6 +73,42 @@ When resolving numeric dates such as `07/12`, Taurine uses your configured **Dia
 
 ---
 
+## Timezone Queries
+
+Taurine also resolves natural language timezone queries — both current time lookups and conversions between timezones. These use the **Time Format** (`inline_datetime_time_format`) setting for output formatting.
+
+### Current Time Lookup
+
+Type a city name or timezone abbreviation with a "time" or "now" signal to see the current time there.
+
+| Input | Description |
+| :--- | :--- |
+| `time in tokyo` | Current time in Tokyo |
+| `now in dubai` | Current time in Dubai |
+| `london time` | Current time in London |
+| `pst now` | Current time in Pacific Time |
+| `time ist` | Current time in India |
+
+### Timezone Conversion
+
+Include a time and two timezone identifiers separated by `to` or `in`.
+
+| Input | Description |
+| :--- | :--- |
+| `10am pst to ist` | Convert 10 AM Pacific to India Time |
+| `3pm est in london` | Convert 3 PM Eastern to London time |
+| `9pm dubai to nyc` | Convert 9 PM Dubai to New York |
+
+<Callout title="Day Offset" type="info">
+  When the converted time falls on a different date, a `(+1)` or `(-1)` suffix is appended — e.g., `10:00 PM (+1)`.
+</Callout>
+
+### Recognized Locations
+
+Taurine supports 90+ cities and 25+ common timezone abbreviations. Queries can also use direct IANA timezone identifiers (e.g., `America/New_York`).
+
+---
+
 ## Format Tokens
 
 Use these tokens to customize the three format settings above. Tokens are case-sensitive.
@@ -209,6 +245,6 @@ A date expression and a time expression can be combined with a separating **spac
 | `3pm`, `18:00`, `10:30am` | Bare absolute time | Combine with a date: `tomorrow 3pm` |
 | `2024-06-15`, `April 1` | Absolute date — not expandable | Use relative expressions instead |
 | `now` (triggerless) | Excluded to avoid false positives | `>now` with trigger prefix |
-| `noon`, `midnight` | Not recognized by the parser | `12pm`, `12am` |
+| `noon`, `midnight` | Not recognized by the date engine | `12pm`, `12am` (or use in a timezone query) |
 | `next week`, `last month` | Period modifiers not supported | `7 days`, `1 month ago` |
 | `next friday at 3pm` | `at` keyword not recognized | `next friday 3pm` |

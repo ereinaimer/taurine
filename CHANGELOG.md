@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Natural Language Timezone Queries**: Check current time in any city (`time in tokyo`, `tokyo time`) or convert between timezones (`10am pst to ist`, `14:00 UTC in london`) using the same `>` trigger and Enter action as inline date & time — pure local computation via bundled IANA database.
 - **Electrical Unit Conversions**: Inline conversions for voltage (V/mV/kV), current (A/mA), and resistance (ohm/kohm/megohm) with natural language support (e.g. `12V=mV` → `12000mv`, `1A=mA` → `1000ma`).
 - **Bit Conversions**: Inline conversions between bits, kilobits, megabits, gigabits and bytes (e.g. `100mb=mbit` → `800mbit`) with natural language support.
 - **Kilopascal (kPa) Conversions**: Inline conversions between kilopascals, PSI, bar, and other pressure units (e.g. `35psi=kpa` → `241.32kpa`).

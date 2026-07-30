@@ -624,6 +624,34 @@ pub fn execute_reset(key: String, json: bool) -> taurine_core::error::Result<()>
                 defaults.script_timeout
             );
         }
+        "inline_datetime_date_format" => {
+            manager.update_setting(actual_key, defaults.inline_datetime_date_format.clone())?;
+            info!(
+                "Reset inline_datetime_date_format to default: {}",
+                defaults.inline_datetime_date_format
+            );
+        }
+        "inline_datetime_time_format" => {
+            manager.update_setting(actual_key, defaults.inline_datetime_time_format.clone())?;
+            info!(
+                "Reset inline_datetime_time_format to default: {}",
+                defaults.inline_datetime_time_format
+            );
+        }
+        "inline_datetime_datetime_format" => {
+            manager.update_setting(actual_key, defaults.inline_datetime_datetime_format.clone())?;
+            info!(
+                "Reset inline_datetime_datetime_format to default: {}",
+                defaults.inline_datetime_datetime_format
+            );
+        }
+        "inline_datetime_dialect" => {
+            manager.update_setting(actual_key, defaults.inline_datetime_dialect.clone())?;
+            info!(
+                "Reset inline_datetime_dialect to default: {}",
+                defaults.inline_datetime_dialect
+            );
+        }
         _ => {
             warn!("Unknown setting key: {}", key);
             return Ok(());
@@ -700,6 +728,22 @@ pub fn execute_reset_all(json: bool) -> taurine_core::error::Result<()> {
     manager.update_setting("rpc_token", uuid::Uuid::new_v4().to_string())?;
     manager.update_setting("inline_emoji_enabled", defaults.inline_emoji_enabled)?;
     manager.update_setting("inline_datetime_enabled", defaults.inline_datetime_enabled)?;
+    manager.update_setting(
+        "inline_datetime_date_format",
+        defaults.inline_datetime_date_format.clone(),
+    )?;
+    manager.update_setting(
+        "inline_datetime_time_format",
+        defaults.inline_datetime_time_format.clone(),
+    )?;
+    manager.update_setting(
+        "inline_datetime_datetime_format",
+        defaults.inline_datetime_datetime_format.clone(),
+    )?;
+    manager.update_setting(
+        "inline_datetime_dialect",
+        defaults.inline_datetime_dialect.clone(),
+    )?;
     manager.update_setting(
         "inline_currency_to_words_enabled",
         defaults.inline_currency_to_words_enabled,

@@ -543,6 +543,24 @@ impl ExpansionCatalog {
         Some(expansion)
     }
 
+    fn fetch_timezone_fallback(
+        &self,
+        keyword: &str,
+        instant_expand: bool,
+    ) -> Option<FinalExpansion> {
+        if instant_expand {
+            return None;
+        }
+        if !crate::settings::get_cached_inline_datetime_enabled() {
+            return None;
+        }
+        let time_format = crate::settings::get_cached_inline_datetime_time_format();
+        let result = crate::engine::timezones::parse_timezone_expression(keyword, &time_format)?;
+        let mut expansion = FinalExpansion::text(result);
+        expansion.is_calculation = true;
+        Some(expansion)
+    }
+
     pub fn fetch_expansion(
         &self,
         keyword: &str,
@@ -553,6 +571,7 @@ impl ExpansionCatalog {
             .or_else(|| self.fetch_hybrid_arguments(keyword, active_window))
             .or_else(|| self.fetch_math_fallback(keyword, instant_expand))
             .or_else(|| self.fetch_date_fallback(keyword, instant_expand))
+            .or_else(|| self.fetch_timezone_fallback(keyword, instant_expand))
             .or_else(|| self.fetch_currency_words_fallback(keyword, instant_expand))
             .or_else(|| self.fetch_nl_unit_conversion_fallback(keyword, instant_expand))
     }
