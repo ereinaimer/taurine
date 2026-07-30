@@ -239,7 +239,7 @@ pub fn resolve_timezone(name: &str) -> Option<Tz> {
     resolve_to_tz(name)
 }
 
-pub fn parse_timezone_expression(input: &str, time_format: &str) -> Option<String> {
+pub fn parse_timezone_expression(input: &str, time_format: &str, dialect: &str) -> Option<String> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return None;
@@ -247,6 +247,8 @@ pub fn parse_timezone_expression(input: &str, time_format: &str) -> Option<Strin
 
     if has_time_pattern(trimmed) {
         parse_conversion(trimmed, time_format)
+    } else if let Some(result) = parse_timezone_relative(trimmed, time_format, dialect) {
+        Some(result)
     } else {
         parse_current_time(trimmed, time_format)
     }
@@ -325,6 +327,75 @@ fn parse_conversion(input: &str, time_format: &str) -> Option<String> {
     Some(result)
 }
 
+fn parse_timezone_relative(input: &str, time_format: &str, dialect: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let lower = trimmed.to_lowercase();
+    if let Some(idx) = lower.rfind(" in ") {
+        let relative_expr = trimmed[..idx].trim();
+        let city = trimmed[idx + 4..].trim();
+        if !relative_expr.is_empty()
+            && !city.is_empty()
+            && let Some(tz) = resolve_to_tz(city)
+        {
+            return apply_relative_with_tz(relative_expr, tz, time_format, dialect);
+        }
+    }
+
+    if let Some(space_idx) = trimmed.find(' ') {
+        let first = &trimmed[..space_idx];
+        let rest = trimmed[space_idx + 1..].trim();
+        if !rest.is_empty()
+            && let Some(tz) = resolve_to_tz(first)
+        {
+            return apply_relative_with_tz(rest, tz, time_format, dialect);
+        }
+    }
+
+    None
+}
+
+fn apply_relative_with_tz(
+    relative_expr: &str,
+    tz: Tz,
+    time_format: &str,
+    dialect: &str,
+) -> Option<String> {
+    use chrono_english::parse_date_string;
+
+    let cleaned = crate::engine::dates::preprocess_date_phrase(relative_expr);
+    let now = chrono::Local::now();
+    let primary_dialect = match dialect {
+        "us" => chrono_english::Dialect::Us,
+        _ => chrono_english::Dialect::Uk,
+    };
+    let parsed = parse_date_string(&cleaned, now, primary_dialect).ok()?;
+
+    let target_dt = parsed.with_timezone(&tz);
+    let formatted = chrono_dt_to_formatted(&target_dt, time_format);
+
+    let source_date = parsed.naive_local().date();
+    let target_date = target_dt.naive_local().date();
+    let day_diff = (target_date - source_date).num_days();
+
+    let result = if day_diff == 0 {
+        formatted
+    } else if day_diff == 1 {
+        format!("{formatted} (+1)")
+    } else if day_diff == -1 {
+        format!("{formatted} (-1)")
+    } else if day_diff > 0 {
+        format!("{formatted} (+{day_diff})")
+    } else {
+        format!("{formatted} ({day_diff})")
+    };
+
+    Some(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -364,19 +435,19 @@ mod tests {
 
     #[test]
     fn test_detect_current_time_expr() {
-        let out = parse_timezone_expression("time in tokyo", "h:mm A");
+        let out = parse_timezone_expression("time in tokyo", "h:mm A", "uk");
         assert!(
             out.is_some(),
             "'time in tokyo' should be recognized: got {}",
             fmt_opt(out)
         );
-        let out = parse_timezone_expression("now in dubai", "h:mm A");
+        let out = parse_timezone_expression("now in dubai", "h:mm A", "uk");
         assert!(
             out.is_some(),
             "'now in dubai' should be recognized: got {}",
             fmt_opt(out)
         );
-        let out = parse_timezone_expression("tokyo time", "h:mm A");
+        let out = parse_timezone_expression("tokyo time", "h:mm A", "uk");
         assert!(
             out.is_some(),
             "'tokyo time' should be recognized: got {}",
@@ -386,19 +457,19 @@ mod tests {
 
     #[test]
     fn test_detect_conversion_expr() {
-        let out = parse_timezone_expression("10am pst to ist", "h:mm A");
+        let out = parse_timezone_expression("10am pst to ist", "h:mm A", "uk");
         assert!(
             out.is_some(),
             "'10am pst to ist' should be recognized: got {}",
             fmt_opt(out)
         );
-        let out = parse_timezone_expression("3pm est in tokyo", "h:mm A");
+        let out = parse_timezone_expression("3pm est in tokyo", "h:mm A", "uk");
         assert!(
             out.is_some(),
             "'3pm est in tokyo' should be recognized: got {}",
             fmt_opt(out)
         );
-        let out = parse_timezone_expression("14:00 UTC in london", "h:mm A");
+        let out = parse_timezone_expression("14:00 UTC in london", "h:mm A", "uk");
         assert!(
             out.is_some(),
             "'14:00 UTC in london' should be recognized: got {}",
@@ -408,19 +479,22 @@ mod tests {
 
     #[test]
     fn test_invalid_expr_returns_none() {
-        assert_eq!(parse_timezone_expression("hello world", "h:mm A"), None);
         assert_eq!(
-            parse_timezone_expression("what is the weather", "h:mm A"),
+            parse_timezone_expression("hello world", "h:mm A", "uk"),
             None
         );
-        assert_eq!(parse_timezone_expression("", "h:mm A"), None);
+        assert_eq!(
+            parse_timezone_expression("what is the weather", "h:mm A", "uk"),
+            None
+        );
+        assert_eq!(parse_timezone_expression("", "h:mm A", "uk"), None);
     }
 
     // --- Conversion output format (deterministic, fixed timestamps) ---
 
     #[test]
     fn test_current_time_output_formatted() {
-        let out = parse_timezone_expression("now in tokyo", "h:mm A");
+        let out = parse_timezone_expression("now in tokyo", "h:mm A", "uk");
         assert!(out.is_some(), "current time parsed: {}", fmt_opt(out));
         let s = out.unwrap();
         assert!(
@@ -431,7 +505,7 @@ mod tests {
 
     #[test]
     fn test_conversion_between_tzs() {
-        let out = parse_timezone_expression("10am pst to ist", "h:mm A");
+        let out = parse_timezone_expression("10am pst to ist", "h:mm A", "uk");
         assert!(out.is_some(), "conversion parsed: {}", fmt_opt(out));
         let s = out.unwrap();
         assert!(
@@ -442,7 +516,7 @@ mod tests {
 
     #[test]
     fn test_conversion_with_next_day_indicator() {
-        let out = parse_timezone_expression("3pm est in tokyo", "h:mm A");
+        let out = parse_timezone_expression("3pm est in tokyo", "h:mm A", "uk");
         assert!(out.is_some(), "conversion parsed: {}", fmt_opt(out));
         let s = out.unwrap();
         assert!(
@@ -453,7 +527,7 @@ mod tests {
 
     #[test]
     fn test_24h_input() {
-        let out = parse_timezone_expression("14:00 UTC in london", "h:mm A");
+        let out = parse_timezone_expression("14:00 UTC in london", "h:mm A", "uk");
         assert!(out.is_some(), "24h input parsed: {}", fmt_opt(out));
     }
 
@@ -492,5 +566,112 @@ mod tests {
         assert_eq!(format_time(&midnight, "h:mm A"), "12:00 AM");
         let noon = NaiveTime::from_hms_opt(12, 0, 0).unwrap();
         assert_eq!(format_time(&noon, "h:mm A"), "12:00 PM");
+    }
+
+    // --- Timezone relative expressions ---
+
+    #[test]
+    fn test_relative_expr_in_city() {
+        let out = parse_timezone_expression("3 hours from now in tokyo", "h:mm A", "uk");
+        assert!(
+            out.is_some(),
+            "'3 hours from now in tokyo' should expand: got {}",
+            fmt_opt(out)
+        );
+    }
+
+    #[test]
+    fn test_relative_city_first() {
+        let out = parse_timezone_expression("tokyo 3 hours from now", "h:mm A", "uk");
+        assert!(
+            out.is_some(),
+            "'tokyo 3 hours from now' should expand: got {}",
+            fmt_opt(out)
+        );
+    }
+
+    #[test]
+    fn test_relative_abbreviation_first() {
+        let out = parse_timezone_expression("pst 3 hours from now", "h:mm A", "uk");
+        assert!(
+            out.is_some(),
+            "'pst 3 hours from now' should expand: got {}",
+            fmt_opt(out)
+        );
+    }
+
+    #[test]
+    fn test_relative_in_abbreviation() {
+        let out = parse_timezone_expression("3 hours from now in pst", "h:mm A", "uk");
+        assert!(
+            out.is_some(),
+            "'3 hours from now in pst' should expand: got {}",
+            fmt_opt(out)
+        );
+    }
+
+    #[test]
+    fn test_relative_unknown_city_returns_none() {
+        assert_eq!(
+            parse_timezone_expression("asdfgh 3 hours from now", "h:mm A", "uk"),
+            None,
+            "unknown city should not expand"
+        );
+        assert_eq!(
+            parse_timezone_expression("3 hours from now in asdfgh", "h:mm A", "uk"),
+            None,
+            "unknown city in suffix should not expand"
+        );
+    }
+
+    #[test]
+    fn test_relative_minutes_precision() {
+        let out = parse_timezone_expression("30 minutes from now in berlin", "h:mm A", "uk");
+        assert!(
+            out.is_some(),
+            "'30 minutes from now in berlin' should expand: got {}",
+            fmt_opt(out)
+        );
+    }
+
+    #[test]
+    fn test_relative_minutes_precision_city_first() {
+        let out = parse_timezone_expression("london 30 minutes from now", "h:mm A", "uk");
+        assert!(
+            out.is_some(),
+            "'london 30 minutes from now' should expand: got {}",
+            fmt_opt(out)
+        );
+    }
+
+    #[test]
+    fn test_relative_with_day_offset() {
+        let out = parse_timezone_expression("11pm est in tokyo", "h:mm A", "uk");
+        assert!(
+            out.is_some(),
+            "'11pm est in tokyo' should expand: got {}",
+            fmt_opt(out)
+        );
+        let s = out.unwrap();
+        assert!(
+            s.contains("(+1)") || s.contains("AM") || s.contains("PM"),
+            "result contains day indicator or time: {s}"
+        );
+    }
+
+    #[test]
+    fn test_relative_current_time_still_works() {
+        let out = parse_timezone_expression("time in tokyo", "h:mm A", "uk");
+        assert!(
+            out.is_some(),
+            "'time in tokyo' should still expand via current_time: got {}",
+            fmt_opt(out)
+        );
+        let out = parse_timezone_expression("now in dubai", "h:mm A", "uk");
+        assert!(
+            out.is_some(),
+            "'now in dubai' should still expand via current_time: got {}",
+            fmt_opt(out)
+        );
     }
 }

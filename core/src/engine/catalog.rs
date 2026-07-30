@@ -555,7 +555,9 @@ impl ExpansionCatalog {
             return None;
         }
         let time_format = crate::settings::get_cached_inline_datetime_time_format();
-        let result = crate::engine::timezones::parse_timezone_expression(keyword, &time_format)?;
+        let dialect = crate::settings::get_cached_inline_datetime_dialect();
+        let result =
+            crate::engine::timezones::parse_timezone_expression(keyword, &time_format, &dialect)?;
         let mut expansion = FinalExpansion::text(result);
         expansion.is_calculation = true;
         Some(expansion)

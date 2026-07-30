@@ -352,14 +352,17 @@ impl Evaluator {
         let words: Vec<&str> = buf_str.split_whitespace().collect();
         let max_words = 6.min(words.len());
         let time_format = crate::settings::get_cached_inline_datetime_time_format();
+        let dialect = self.state.get_inline_datetime_dialect();
 
         for k in (1..=max_words).rev() {
             let suffix_words = &words[words.len() - k..];
             let candidate = suffix_words.join(" ");
 
-            if let Some(result_text) =
-                crate::engine::timezones::parse_timezone_expression(&candidate, &time_format)
-            {
+            if let Some(result_text) = crate::engine::timezones::parse_timezone_expression(
+                &candidate,
+                &time_format,
+                &dialect,
+            ) {
                 let delete_count = candidate.chars().count();
                 return Some(ExpansionResult {
                     delete_count,
@@ -1090,12 +1093,12 @@ impl Evaluator {
             return Some(result);
         }
 
-        if !instant_expand && let Some(result) = self.check_inline_datetime_fallback(action_key) {
+        if !instant_expand && let Some(result) = self.check_inline_timezone_fallback(action_key) {
             self.buffer.clear();
             return Some(result);
         }
 
-        if !instant_expand && let Some(result) = self.check_inline_timezone_fallback(action_key) {
+        if !instant_expand && let Some(result) = self.check_inline_datetime_fallback(action_key) {
             self.buffer.clear();
             return Some(result);
         }
