@@ -4,8 +4,8 @@ use super::types::ArgMap;
 
 use indexmap::IndexMap;
 
-const TAG_OPEN: u8 = b'[';
-const TAG_CLOSE: u8 = b']';
+use super::tags::*;
+
 const SENTINEL_OPEN: char = '\x01';
 const SENTINEL_CLOSE: char = '\x02';
 const MAX_INTERPOLATION_DEPTH: usize = 32;
@@ -15,64 +15,6 @@ const MAX_ITERATIONS: usize = 128;
 pub(crate) struct Placeholder<'a> {
     pub key: &'a str,
     pub default_value: Option<&'a str>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct TagBounds {
-    start: usize,
-    end: usize,
-}
-
-fn is_escaped(bytes: &[u8], idx: usize) -> bool {
-    let mut backslashes = 0;
-    let mut cursor = idx;
-
-    while cursor > 0 && bytes[cursor - 1] == b'\\' {
-        backslashes += 1;
-        cursor -= 1;
-    }
-
-    backslashes % 2 == 1
-}
-
-fn trim_slice(s: &str) -> &str {
-    let trimmed = s.trim();
-    let start = s.len() - s.trim_start().len();
-    &s[start..start + trimmed.len()]
-}
-
-fn scan_tag_bounds(template: &str) -> Vec<TagBounds> {
-    let bytes = template.as_bytes();
-    let mut stack = Vec::new();
-    let mut tags = Vec::new();
-    let mut ptr = 0;
-    let mut quote = None;
-
-    while ptr < bytes.len() {
-        if let Some(active_quote) = quote {
-            if bytes[ptr] == active_quote && !is_escaped(bytes, ptr) {
-                quote = None;
-            }
-            ptr += 1;
-            continue;
-        }
-
-        match bytes[ptr] {
-            b'\'' | b'"' if !stack.is_empty() && !is_escaped(bytes, ptr) => {
-                quote = Some(bytes[ptr])
-            }
-            TAG_OPEN if !is_escaped(bytes, ptr) => stack.push(ptr),
-            TAG_CLOSE if !is_escaped(bytes, ptr) => {
-                if let Some(start) = stack.pop() {
-                    tags.push(TagBounds { start, end: ptr });
-                }
-            }
-            _ => {}
-        }
-        ptr += 1;
-    }
-
-    tags
 }
 
 fn has_valid_default_value(default_value: Option<&str>) -> bool {
@@ -169,39 +111,6 @@ fn resolve_default_value(default_value: &str, args: &ArgMap, depth: usize) -> St
     } else {
         interpolate_with_depth(default_value, args, depth + 1)
     }
-}
-
-fn split_key_default(inner: &str) -> (&str, Option<&str>) {
-    let inner = trim_slice(inner);
-    let bytes = inner.as_bytes();
-    let mut depth = 0;
-    let mut paren_depth = 0;
-    let mut ptr = 0;
-    let mut quote = None;
-    while ptr < bytes.len() {
-        if let Some(active_quote) = quote {
-            if bytes[ptr] == active_quote && !is_escaped(bytes, ptr) {
-                quote = None;
-            }
-        } else if (bytes[ptr] == b'\'' || bytes[ptr] == b'"') && !is_escaped(bytes, ptr) {
-            quote = Some(bytes[ptr]);
-        } else if bytes[ptr] == TAG_OPEN && !is_escaped(bytes, ptr) {
-            depth += 1;
-        } else if bytes[ptr] == TAG_CLOSE && !is_escaped(bytes, ptr) {
-            depth -= 1;
-        } else if bytes[ptr] == b'(' && !is_escaped(bytes, ptr) {
-            paren_depth += 1;
-        } else if bytes[ptr] == b')' && !is_escaped(bytes, ptr) {
-            paren_depth -= 1;
-        } else if bytes[ptr] == b'=' && depth == 0 && paren_depth == 0 {
-            return (
-                trim_slice(&inner[..ptr]),
-                Some(trim_slice(&inner[ptr + 1..])),
-            );
-        }
-        ptr += 1;
-    }
-    (inner, None)
 }
 
 pub fn interpolate(template: &str, args: &ArgMap) -> String {

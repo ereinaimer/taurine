@@ -2,6 +2,7 @@ pub mod interpolate;
 pub mod parser;
 pub mod registry;
 pub mod system;
+pub mod tags;
 pub mod types;
 
 pub use interpolate::{

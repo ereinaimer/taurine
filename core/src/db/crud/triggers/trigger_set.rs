@@ -18,9 +18,10 @@ use crate::keys::{
 use super::trigger_types;
 use super::{TriggerConflict, TriggerType};
 
-const TAG_OPEN: u8 = b'[';
-const TAG_CLOSE: u8 = b']';
 const MAX_TAG_LENGTH: usize = 50;
+
+use crate::engine::variables::tags::*;
+
 const MAX_TAGS_COUNT: usize = 20;
 
 pub fn normalize_tags(tags_json: &str) -> Result<String> {
@@ -56,12 +57,6 @@ pub fn normalize_tags(tags_json: &str) -> Result<String> {
         .map_err(|e| crate::Error::Config(format!("Failed to serialize tags: {}", e)))
 }
 const MAX_TRIGGER_LENGTH: usize = 200;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct TagBounds {
-    start: usize,
-    end: usize,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedTrigger {
@@ -1341,83 +1336,6 @@ fn format_validation_error(
             format!("[{}]: unknown root `{}`", raw_tag, root)
         }
     }
-}
-
-fn is_escaped(bytes: &[u8], idx: usize) -> bool {
-    let mut backslashes = 0;
-    let mut cursor = idx;
-
-    while cursor > 0 && bytes[cursor - 1] == b'\\' {
-        backslashes += 1;
-        cursor -= 1;
-    }
-
-    backslashes % 2 == 1
-}
-
-fn trim_slice(s: &str) -> &str {
-    let trimmed = s.trim();
-    let start = s.len() - s.trim_start().len();
-    &s[start..start + trimmed.len()]
-}
-
-fn find_next_tag(text: &str, from: usize) -> Option<TagBounds> {
-    let bytes = text.as_bytes();
-    let mut ptr = from;
-    let mut start = None;
-    let mut depth = 0usize;
-
-    while ptr < bytes.len() {
-        match bytes[ptr] {
-            TAG_OPEN if !is_escaped(bytes, ptr) => {
-                if depth == 0 {
-                    start = Some(ptr);
-                }
-                depth += 1;
-            }
-            TAG_CLOSE if !is_escaped(bytes, ptr) && depth > 0 => {
-                depth -= 1;
-                if depth == 0 {
-                    return start.map(|tag_start| TagBounds {
-                        start: tag_start,
-                        end: ptr,
-                    });
-                }
-            }
-            _ => {}
-        }
-        ptr += 1;
-    }
-
-    None
-}
-
-fn split_key_default(inner: &str) -> (&str, Option<&str>) {
-    let inner = trim_slice(inner);
-    let bytes = inner.as_bytes();
-    let mut depth = 0usize;
-    let mut paren_depth = 0usize;
-    let mut ptr = 0;
-
-    while ptr < bytes.len() {
-        if bytes[ptr] == TAG_OPEN && !is_escaped(bytes, ptr) {
-            depth += 1;
-        } else if bytes[ptr] == TAG_CLOSE && !is_escaped(bytes, ptr) {
-            depth = depth.saturating_sub(1);
-        } else if bytes[ptr] == b'(' && !is_escaped(bytes, ptr) {
-            paren_depth += 1;
-        } else if bytes[ptr] == b')' && !is_escaped(bytes, ptr) {
-            paren_depth = paren_depth.saturating_sub(1);
-        } else if bytes[ptr] == b'=' && depth == 0 && paren_depth == 0 {
-            return (
-                trim_slice(&inner[..ptr]),
-                Some(trim_slice(&inner[ptr + 1..])),
-            );
-        }
-        ptr += 1;
-    }
-
-    (inner, None)
 }
 
 fn script_interpreter_tag(interpreter: ScriptInterpreter) -> &'static str {

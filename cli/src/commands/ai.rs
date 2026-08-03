@@ -3,7 +3,6 @@ use std::collections::BTreeMap;
 #[cfg(test)]
 use std::sync::Mutex;
 
-use genai::adapter::AdapterKind;
 use genai::resolver::AuthData;
 use genai::{Client, ServiceTarget};
 use std::io::Write;
@@ -238,7 +237,7 @@ impl ModelCatalog for GenaiModelCatalog {
         let result = runtime.block_on(async {
             let client = build_model_client(secret.as_str());
             let mut models = client
-                .all_model_names(adapter_kind(provider), ())
+                .all_model_names(provider.to_genai_adapter(), ())
                 .await
                 .map_err(|e| {
                     taurine_core::error::Error::Service(format!(
@@ -265,26 +264,6 @@ fn build_model_client(api_key: &str) -> Client {
             })
         })
         .build()
-}
-
-fn adapter_kind(provider: AiProvider) -> AdapterKind {
-    match provider {
-        AiProvider::Openai => AdapterKind::OpenAI,
-        AiProvider::Claude => AdapterKind::Anthropic,
-        AiProvider::Gemini => AdapterKind::Gemini,
-        AiProvider::Xai => AdapterKind::Xai,
-        AiProvider::Groq => AdapterKind::Groq,
-        AiProvider::Deepseek => AdapterKind::DeepSeek,
-        AiProvider::Cohere => AdapterKind::Cohere,
-        AiProvider::Together => AdapterKind::Together,
-        AiProvider::Fireworks => AdapterKind::Fireworks,
-        AiProvider::Nebius => AdapterKind::Nebius,
-        AiProvider::Mimo => AdapterKind::Mimo,
-        AiProvider::Zai => AdapterKind::Zai,
-        AiProvider::BigModel => AdapterKind::BigModel,
-        AiProvider::GithubCopilot => AdapterKind::OpenAI,
-        AiProvider::Custom => AdapterKind::OpenAI,
-    }
 }
 
 #[cfg(test)]

@@ -5447,6 +5447,7 @@ dependencies = [
  "csscolorparser",
  "directories",
  "emojis",
+ "genai",
  "heck 0.5.0",
  "hex",
  "hyper-util",

@@ -30,6 +30,26 @@ pub enum AiProvider {
 }
 
 impl AiProvider {
+    pub fn to_genai_adapter(self) -> genai::adapter::AdapterKind {
+        match self {
+            Self::Openai => genai::adapter::AdapterKind::OpenAI,
+            Self::Claude => genai::adapter::AdapterKind::Anthropic,
+            Self::Gemini => genai::adapter::AdapterKind::Gemini,
+            Self::Xai => genai::adapter::AdapterKind::Xai,
+            Self::Groq => genai::adapter::AdapterKind::Groq,
+            Self::Deepseek => genai::adapter::AdapterKind::DeepSeek,
+            Self::Cohere => genai::adapter::AdapterKind::Cohere,
+            Self::Together => genai::adapter::AdapterKind::Together,
+            Self::Fireworks => genai::adapter::AdapterKind::Fireworks,
+            Self::Nebius => genai::adapter::AdapterKind::Nebius,
+            Self::Mimo => genai::adapter::AdapterKind::Mimo,
+            Self::Zai => genai::adapter::AdapterKind::Zai,
+            Self::BigModel => genai::adapter::AdapterKind::BigModel,
+            Self::GithubCopilot => genai::adapter::AdapterKind::OpenAI,
+            Self::Custom => genai::adapter::AdapterKind::OpenAI,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Openai => "openai",

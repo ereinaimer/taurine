@@ -63,6 +63,7 @@ chrono = "0.4"
 chrono-english = "0.1"
 chrono-tz = "0.10"
 num2words = "1.2"
+genai = "0.6.5"
 
 [build-dependencies]
 tonic-prost-build = "0.14"

@@ -3,7 +3,7 @@ use std::thread;
 use std::time::Duration;
 
 use futures::StreamExt;
-use genai::adapter::AdapterKind;
+
 use genai::chat::{ChatOptions, ChatRequest, ChatStreamEvent, Tool};
 use genai::resolver::AuthData;
 use genai::{Client, ModelIden, ServiceTarget};
@@ -82,27 +82,6 @@ fn split_outermost_markers(template: &str) -> Vec<Chunk> {
         chunks.push(Chunk::Text(template[start..].to_string()));
     }
     chunks
-}
-
-fn contains_non_sys_markers(template: &str) -> bool {
-    let mut rest = template;
-    while let Some(sot) = rest.find('\x03') {
-        let after = &rest[sot + 1..];
-        if let Some(eot) = after.find('\x04') {
-            let content = &after[..eot];
-            if let Some(sep) = content.find('\x1F') {
-                if !content[sep + 1..].starts_with("sys:") {
-                    return true;
-                }
-            } else {
-                return true;
-            }
-            rest = &after[eot + 1..];
-        } else {
-            break;
-        }
-    }
-    false
 }
 
 async fn evaluate_marker_tree(
@@ -214,25 +193,26 @@ async fn run_ai_transformer_stream_inner(
     let mut spinner = Some(spinner_handle);
     let mut spinner_cleared = false;
 
-    let mut resolved = if contains_non_sys_markers(&template_with_markers) {
-        match resolve_inline_ai_request(&OsKeyringStore) {
-            Ok(r) => Some(r),
-            Err(err) => {
-                ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
-                let mut output: Option<LiveOutputHandle> = None;
-                inject_error_message(
-                    &mut output,
-                    false,
-                    "[Error: AI not configured. Run setup first.]",
-                )
-                .await?;
-                finish_output(output).await;
-                return Err(err);
+    let mut resolved =
+        if taurine_core::engine::variables::contains_non_sys_markers(&template_with_markers) {
+            match resolve_inline_ai_request(&OsKeyringStore) {
+                Ok(r) => Some(r),
+                Err(err) => {
+                    ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
+                    let mut output: Option<LiveOutputHandle> = None;
+                    inject_error_message(
+                        &mut output,
+                        false,
+                        "[Error: AI not configured. Run setup first.]",
+                    )
+                    .await?;
+                    finish_output(output).await;
+                    return Err(err);
+                }
             }
-        }
-    } else {
-        None
-    };
+        } else {
+            None
+        };
 
     let client = resolved
         .as_ref()
@@ -513,7 +493,7 @@ fn build_chat_client(
             Ok(ServiceTarget {
                 endpoint: endpoint_url,
                 auth: AuthData::from_single((*api_key).clone()),
-                model: ModelIden::new(adapter_kind(provider), model.model_name),
+                model: ModelIden::new(provider.to_genai_adapter(), model.model_name),
             })
         })
         .build()
@@ -539,26 +519,6 @@ fn build_chat_request(
         request.append_tool(Tool::new("googleSearch").with_config(json!({})))
     } else {
         request
-    }
-}
-
-fn adapter_kind(provider: AiProvider) -> AdapterKind {
-    match provider {
-        AiProvider::Openai => AdapterKind::OpenAI,
-        AiProvider::Claude => AdapterKind::Anthropic,
-        AiProvider::Gemini => AdapterKind::Gemini,
-        AiProvider::Xai => AdapterKind::Xai,
-        AiProvider::Groq => AdapterKind::Groq,
-        AiProvider::Deepseek => AdapterKind::DeepSeek,
-        AiProvider::Cohere => AdapterKind::Cohere,
-        AiProvider::Together => AdapterKind::Together,
-        AiProvider::Fireworks => AdapterKind::Fireworks,
-        AiProvider::Nebius => AdapterKind::Nebius,
-        AiProvider::Mimo => AdapterKind::Mimo,
-        AiProvider::Zai => AdapterKind::Zai,
-        AiProvider::BigModel => AdapterKind::BigModel,
-        AiProvider::GithubCopilot => AdapterKind::OpenAI,
-        AiProvider::Custom => AdapterKind::OpenAI,
     }
 }
 
