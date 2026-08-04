@@ -4,7 +4,7 @@ use rusqlite::{Connection, Result};
 
 use super::{TriggerRow, TriggerType};
 
-fn parse_trigger_type_row(value: String) -> rusqlite::Result<TriggerType> {
+pub(crate) fn parse_trigger_type_row(value: String) -> rusqlite::Result<TriggerType> {
     TriggerType::parse_db(&value)
         .map_err(|err| rusqlite::Error::FromSqlConversionFailure(0, Type::Text, Box::new(err)))
 }

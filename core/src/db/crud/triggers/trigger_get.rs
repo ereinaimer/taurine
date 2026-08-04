@@ -6,14 +6,14 @@ use crate::db::crud::get_current_os_db_string;
 use crate::engine::shell::decompress;
 
 /// Helper to parse JSON variants that might contain double-quotes from SQLite.
-fn parse_json_variant<T: serde::de::DeserializeOwned>(s: Option<String>) -> Option<T> {
+pub(crate) fn parse_json_variant<T: serde::de::DeserializeOwned>(s: Option<String>) -> Option<T> {
     s.and_then(|val| {
         let trimmed = val.trim_matches('"');
         serde_json::from_str::<T>(&format!("\"{}\"", trimmed)).ok()
     })
 }
 
-fn parse_trigger_type_row(value: String) -> rusqlite::Result<TriggerType> {
+pub(crate) fn parse_trigger_type_row(value: String) -> rusqlite::Result<TriggerType> {
     TriggerType::parse_db(&value)
         .map_err(|err| rusqlite::Error::FromSqlConversionFailure(0, Type::Text, Box::new(err)))
 }
