@@ -29,10 +29,6 @@ pub trait ClipboardManager {
     fn set_html(&mut self, html: &str, plaintext: &str) -> Result<(), String>;
 }
 
-pub trait InputHook {
-    // Placeholder for Phase 2/3
-}
-
 pub trait Injector {
     fn simulate_mouse_click(&self, button: MouseButton);
     fn simulate_mouse_move(&self, x: u16, y: u16);

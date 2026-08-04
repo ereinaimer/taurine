@@ -1,5 +1,4 @@
 use crate::platform::{ClipboardManager, MouseButton};
-use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::Duration;
 use tracing::{debug, error, trace, warn};
@@ -8,9 +7,7 @@ use taurine_core::engine::shell::ScriptBehavior;
 use taurine_core::engine::variables::ExpansionStep;
 
 use super::clipboard::{prepare_clipboard_for_expansion, restore_clipboard};
-use super::gate::{
-    INJECTION_GENERATION, InjectionFlagGuard, capture_generation, inject_mutex, is_aborted,
-};
+use super::gate::{InjectionFlagGuard, capture_generation, inject_mutex, is_aborted};
 
 #[cfg(target_os = "linux")]
 const INTER_STEP_DELAY_MS: u64 = 15;

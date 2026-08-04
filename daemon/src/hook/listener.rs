@@ -1,7 +1,6 @@
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
-use tokio::runtime::Handle;
 use tracing::{debug, error, info, trace, warn};
 use unicode_normalization::UnicodeNormalization;
 
@@ -37,8 +36,6 @@ use crate::hotkey_evaluator::{
 use crate::injector;
 #[cfg(not(target_os = "linux"))]
 use crate::injector::{IS_INJECTING, consume_simulated_event};
-#[cfg(not(target_os = "linux"))]
-use crate::notify;
 use taurine_core::engine::Evaluator;
 #[cfg(not(target_os = "linux"))]
 use taurine_core::engine::{EngineEvent, EngineMode};
@@ -692,13 +689,9 @@ where
     use std::cell::RefCell;
     use std::time::SystemTime;
     use windows_sys::Win32::Foundation::LPARAM;
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-        GetKeyboardLayout, GetKeyboardState, ToUnicodeEx, VIRTUAL_KEY,
-    };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CallNextHookEx, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId, HC_ACTION, MSG,
-        SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP,
-        WM_SYSKEYDOWN, WM_SYSKEYUP,
+        CallNextHookEx, GetMessageW, HC_ACTION, MSG, SetWindowsHookExW, UnhookWindowsHookEx,
+        WH_KEYBOARD_LL, WM_KEYDOWN, WM_SYSKEYDOWN,
     };
 
     thread_local! {
@@ -1394,10 +1387,7 @@ fn is_solo_modifier_press(
 #[cfg(windows)]
 mod tests {
     use super::*;
-    use std::mem::size_of;
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-        INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput, VK_SHIFT,
-    };
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_SHIFT;
 
     #[test]
     fn test_keyboard_decoder_get_name_unshifted() {

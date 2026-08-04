@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("cargo:rerun-if-changed=../proto/daemon.proto");
     tonic_prost_build::compile_protos("../proto/daemon.proto")?;
 
     if env::var("CARGO_CFG_TARGET_OS").unwrap_or_default() == "windows" {

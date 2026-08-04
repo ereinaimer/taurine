@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use std::path::Path;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};

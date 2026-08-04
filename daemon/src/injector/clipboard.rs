@@ -5,7 +5,7 @@ use tracing::error;
 
 use crate::platform::ClipboardManager;
 
-use super::gate::{INJECTION_GENERATION, is_aborted};
+use super::gate::is_aborted;
 
 impl ClipboardManager for Clipboard {
     fn get_text(&mut self) -> Result<String, String> {

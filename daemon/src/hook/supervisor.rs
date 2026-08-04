@@ -4,7 +4,6 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
-use tokio::runtime::Handle;
 use tracing::{debug, error, warn};
 
 use crate::hook_health::HookHealth;

@@ -1,10 +1,8 @@
-use std::sync::{Arc, Mutex};
-use tokio::runtime::Handle;
+use std::sync::Arc;
 use tracing::{debug, trace};
 
 use crate::injector;
 use crate::platform::spinner_renderer::OsSpinnerRenderer;
-use taurine_core::engine::Evaluator;
 
 #[cfg(not(target_os = "linux"))]
 pub(super) fn clear_undo_state(state: &taurine_core::engine::EngineState) {

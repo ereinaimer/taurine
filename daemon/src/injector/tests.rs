@@ -1,13 +1,8 @@
 use super::clipboard::prepare_clipboard_for_expansion;
-use super::gate::{
-    INJECTION_GENERATION, INJECTION_SCOPE_DEPTH, INJECTION_VISIBILITY_DEPTH, IS_INJECTING,
-    InjectionGate, inject_mutex,
-};
-use super::inject::{InjectionReport, inject_expansion, inject_text_segment};
+use super::gate::{InjectionGate, inject_mutex};
 use crate::platform::ClipboardManager;
-use crate::platform::MouseButton;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
-use std::sync::{Arc, Barrier, Mutex};
+use std::sync::{Arc, Barrier};
 use std::thread;
 use std::time::{Duration, Instant};
 use taurine_core::db::crud::TriggerAction;

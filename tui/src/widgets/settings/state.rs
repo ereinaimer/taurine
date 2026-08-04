@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use taurine_core::{
     ai::supported_providers,
@@ -1015,11 +1014,6 @@ impl SettingsInteraction {
             close_modal: false,
         }
     }
-}
-
-#[cfg(test)]
-pub(crate) fn spinner_style_options() -> &'static [&'static str; 3] {
-    &SPINNER_STYLE_OPTIONS
 }
 
 pub(crate) const fn spinner_style_label(style: SpinnerStyle) -> &'static str {
