@@ -116,6 +116,23 @@ pub(super) fn dispatch_expansion_with<I, L>(
     let has_follow_up = follow_up.is_some();
 
     state.clear_undo_state();
+
+    if !has_follow_up && let Some(undo_trig) = &undo_trigger {
+        let expected_output_chars: usize = steps
+            .iter()
+            .map(|s| {
+                if let taurine_core::engine::variables::ExpansionStep::Text(t) = s {
+                    t.chars().count()
+                } else {
+                    0
+                }
+            })
+            .sum();
+        if expected_output_chars > 0 {
+            state.set_undo_state(undo_trig.clone(), expected_output_chars);
+        }
+    }
+
     trace!(
         delete_count,
         step_count, has_follow_up, track_usage, "Starting expansion dispatch"
@@ -136,7 +153,7 @@ pub(super) fn dispatch_expansion_with<I, L>(
         && injection.successful_chars > 0
         && let Some(undo_trigger) = undo_trigger
     {
-        state.set_undo_state(undo_trigger, injection.successful_chars);
+        state.refresh_undo_state(&undo_trigger, injection.successful_chars);
     }
     launch_follow_up_fn(follow_up, spinner_style);
 

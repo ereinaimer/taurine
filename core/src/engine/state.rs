@@ -304,6 +304,16 @@ impl EngineState {
         }
     }
 
+    pub fn refresh_undo_state(&self, trigger_string: &str, output_length: usize) {
+        if let Ok(mut guard) = self.undo_state.write()
+            && let Some(state) = guard.as_mut()
+            && state.trigger_string == trigger_string
+        {
+            state.output_length = output_length;
+            state.timestamp = Instant::now();
+        }
+    }
+
     pub fn action_key(&self) -> crate::settings::ActionKey {
         match self.action_key.load(std::sync::atomic::Ordering::Relaxed) {
             1 => crate::settings::ActionKey::Enter,

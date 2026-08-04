@@ -110,6 +110,117 @@ fn dispatch_expansion_records_undo_state_for_plain_text_output() {
 }
 
 #[test]
+fn dispatch_expansion_registers_undo_state_before_injection_completes() {
+    let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+    let _rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime should build");
+
+    let expansion = taurine_core::engine::ExpansionResult {
+        delete_count: 4,
+        steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
+            "Good Morning".to_string(),
+        )],
+        trigger: "gm".to_string(),
+        undo_trigger: Some(">gm".to_string()),
+        is_calculation: false,
+        stat_kind: taurine_core::db::crud::TriggerStatKind::Snippet,
+        track_usage: false,
+        follow_up: None,
+    };
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let (tx_done, rx_done) = std::sync::mpsc::channel();
+    let state_clone = state.clone();
+
+    std::thread::spawn(move || {
+        dispatch_expansion_with(
+            expansion,
+            taurine_core::settings::SpinnerStyle::default(),
+            state_clone,
+            move |_, _, _| {
+                tx.send(()).unwrap();
+                rx_done.recv().unwrap();
+                crate::injector::InjectionReport {
+                    successful_chars: "Good Morning".chars().count(),
+                    completed: true,
+                }
+            },
+            move |_, _| {},
+        );
+    });
+
+    rx.recv().unwrap();
+
+    let undo = state
+        .take_active_undo_state()
+        .expect("undo state should be recorded before injection finishes");
+    assert_eq!(undo.trigger_string, ">gm");
+    assert_eq!(undo.output_length, "Good Morning".chars().count());
+
+    tx_done.send(()).unwrap();
+}
+
+#[test]
+fn dispatch_expansion_does_not_rearm_undo_state_if_consumed_early() {
+    let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+    let _rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime should build");
+
+    let expansion = taurine_core::engine::ExpansionResult {
+        delete_count: 4,
+        steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
+            "Good Morning".to_string(),
+        )],
+        trigger: "gm".to_string(),
+        undo_trigger: Some(">gm".to_string()),
+        is_calculation: false,
+        stat_kind: taurine_core::db::crud::TriggerStatKind::Snippet,
+        track_usage: false,
+        follow_up: None,
+    };
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let (tx_done, rx_done) = std::sync::mpsc::channel();
+    let state_clone = state.clone();
+
+    let handle = std::thread::spawn(move || {
+        dispatch_expansion_with(
+            expansion,
+            taurine_core::settings::SpinnerStyle::default(),
+            state_clone,
+            move |_, _, _| {
+                tx.send(()).unwrap();
+                rx_done.recv().unwrap();
+                crate::injector::InjectionReport {
+                    successful_chars: "Good Morning".chars().count(),
+                    completed: true,
+                }
+            },
+            move |_, _| {},
+        );
+    });
+
+    rx.recv().unwrap();
+
+    let undo = state
+        .take_active_undo_state()
+        .expect("undo state should be recorded before injection finishes");
+    assert_eq!(undo.trigger_string, ">gm");
+
+    tx_done.send(()).unwrap();
+    handle.join().unwrap();
+
+    assert!(
+        state.take_active_undo_state().is_none(),
+        "undo state should not be re-armed after consumption"
+    );
+}
+
+#[test]
 fn dispatch_expansion_skips_undo_registration_for_hotkey_results() {
     let state = Arc::new(taurine_core::engine::EngineState::new('>'));
     let _rt = tokio::runtime::Builder::new_current_thread()
