@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 use tracing::{debug, info};
 
-use crate::shell;
+use super::shell;
 
 fn get_alias_line_for_profile(path: &std::path::Path) -> &'static str {
     if cfg!(target_os = "windows") {

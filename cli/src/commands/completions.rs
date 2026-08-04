@@ -277,7 +277,7 @@ fn append_to_rc_file(path: &std::path::Path, content: &str) {
         }
     }
 
-    match taurine_core::shell::append_line_to_rc_file(path, content) {
+    match crate::platform::shell::append_line_to_rc_file(path, content) {
         Ok(true) => debug!("Added sourcing line to: {}", path.display()),
         Ok(false) => debug!(
             "File {} already contains the sourcing line.",
@@ -405,7 +405,7 @@ fn uninstall_unix() {}
 
 #[cfg(not(target_os = "windows"))]
 fn remove_line_from_file(path: &std::path::Path, partial_content: &str) {
-    match taurine_core::shell::remove_lines_from_rc_file(path, partial_content) {
+    match crate::platform::shell::remove_lines_from_rc_file(path, partial_content) {
         Ok(true) => debug!("Removed sourcing line from: {}", path.display()),
         Ok(false) => {}
         Err(error) => error!("Failed to remove from {}: {error}", path.display()),

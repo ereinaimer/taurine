@@ -144,7 +144,7 @@ fn execute_inner(silent: bool) -> Result<()> {
     let is_newer = is_newer_version(current_version, &manifest.version);
 
     // Ensure the tau alias is set up on every update invocation
-    taurine_core::alias::ensure_tau_alias();
+    crate::platform::alias::ensure_tau_alias();
 
     if !is_newer {
         if !silent {
@@ -373,8 +373,8 @@ fn ensure_on_path(dir: PathBuf) {
         }
     } else {
         let dir_str = dir.to_string_lossy().to_string();
-        for profile in taurine_core::shell::detect_shell_profiles() {
-            let _ = taurine_core::shell::ensure_path_in_profile(&profile, &dir_str);
+        for profile in crate::platform::shell::detect_shell_profiles() {
+            let _ = crate::platform::shell::ensure_path_in_profile(&profile, &dir_str);
         }
     }
 }

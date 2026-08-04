@@ -1,6 +1,7 @@
 // Licensed under the Aimer Software License (ASL).
 // See LICENSE for details.
 pub mod commands;
+pub mod platform;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use tracing::{error, info};
