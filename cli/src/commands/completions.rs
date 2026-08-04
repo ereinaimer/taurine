@@ -1,4 +1,4 @@
-use crate::{Cli, ShellCompletionAction};
+use crate::args::{Cli, ShellCompletionAction};
 use clap::CommandFactory;
 use clap_complete::shells::{Bash, Elvish, Fish, PowerShell, Zsh};
 use clap_complete::{Generator, generate};

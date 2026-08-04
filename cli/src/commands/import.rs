@@ -8,7 +8,7 @@ use taurine_core::exchange::{
 };
 use zeroize::Zeroize;
 
-use crate::{ImportConflictCli, ImportStatsCli};
+use crate::args::{ImportConflictCli, ImportStatsCli};
 
 pub fn execute(
     path: Option<PathBuf>,

@@ -1,3 +1,4 @@
+use crate::args::{AddArgs, AddSubcommand};
 use crate::commands::validate::format_trigger_log;
 use std::fs;
 use std::path::PathBuf;
@@ -7,6 +8,56 @@ use taurine_core::db::crud::{
 use taurine_core::db::init;
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter, compress};
 use unicode_normalization::UnicodeNormalization;
+
+pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()> {
+    let AddSubcommand::Script {
+        trigger,
+        hotkey,
+        regex,
+        content,
+        file,
+        lang,
+        mode,
+        os,
+        include_apps,
+        exclude_apps,
+        tag,
+        name,
+        description,
+        auto_case,
+    } = args
+        .sub
+        .expect("add dispatch routes to script only when subcommand is present");
+
+    let trigger_type = if hotkey {
+        TriggerType::Hotkey
+    } else if regex {
+        TriggerType::Regex
+    } else {
+        TriggerType::Word
+    };
+    let os = os
+        .to_db_str()
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| taurine_core::db::get_current_os_db_string().to_string());
+
+    execute_with_trigger_type(
+        trigger,
+        trigger_type,
+        content,
+        file,
+        lang.map(Into::into),
+        mode.into(),
+        os,
+        include_apps,
+        exclude_apps,
+        tag,
+        name,
+        description,
+        auto_case,
+        json,
+    )
+}
 
 #[allow(clippy::too_many_arguments)]
 pub fn execute(

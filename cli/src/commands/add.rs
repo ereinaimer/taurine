@@ -1,6 +1,49 @@
+use crate::args::AddArgs;
 use taurine_core::db::crud::{AddOutcome, TriggerType};
 use taurine_core::db::init;
 use tracing::info;
+
+pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()> {
+    if args.sub.is_some() {
+        return crate::commands::script::execute_args(args, json);
+    }
+
+    let (Some(trigger), Some(output)) = (args.trigger, args.output) else {
+        // Show help for add command if neither subcommand nor positional args are valid
+        use clap::CommandFactory;
+        let mut cmd = crate::args::Cli::command();
+        if let Some(add_cmd) = cmd.get_subcommands_mut().find(|c| c.get_name() == "add") {
+            add_cmd.print_help()?;
+        }
+        return Ok(());
+    };
+
+    let os = args
+        .os
+        .to_db_str()
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| taurine_core::db::get_current_os_db_string().to_string());
+    let trigger_type = if args.hotkey {
+        TriggerType::Hotkey
+    } else if args.regex {
+        TriggerType::Regex
+    } else {
+        TriggerType::Word
+    };
+    execute_with_trigger_type(
+        trigger,
+        output,
+        os,
+        trigger_type,
+        args.include_apps,
+        args.exclude_apps,
+        args.tag,
+        args.name,
+        args.description,
+        args.auto_case,
+        json,
+    )
+}
 
 pub fn execute(
     trigger: String,
