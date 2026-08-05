@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tracing::{debug, error, warn};
 
-use crate::hook_health::HookHealth;
-use crate::hotkey;
+use crate::input::hook_health::HookHealth;
+use crate::input::hotkey;
 use taurine_core::engine::Evaluator;
 
 use super::listener::{LISTENER_EPOCH, spawn_windows_hook_listener};

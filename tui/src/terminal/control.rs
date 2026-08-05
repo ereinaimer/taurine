@@ -1,4 +1,4 @@
-use crate::status::{DaemonStatus, probe_daemon_status};
+use crate::terminal::status::{DaemonStatus, probe_daemon_status};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LifecycleAction {

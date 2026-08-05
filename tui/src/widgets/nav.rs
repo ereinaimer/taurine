@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState},
 };
 
-use crate::{app::Page, theme::Theme};
+use crate::{terminal::app::Page, theme::Theme};
 
 pub fn render_navigation(frame: &mut Frame, area: Rect, theme: &Theme, active_page: Page) {
     let items: Vec<ListItem> = Page::ALL

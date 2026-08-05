@@ -3,8 +3,8 @@ use std::io::Cursor;
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
-const PAUSE_WAV: &[u8] = include_bytes!("../../assets/audio/pause.wav");
-const RESUME_WAV: &[u8] = include_bytes!("../../assets/audio/resume.wav");
+const PAUSE_WAV: &[u8] = include_bytes!("../../../assets/audio/pause.wav");
+const RESUME_WAV: &[u8] = include_bytes!("../../../assets/audio/resume.wav");
 
 /// Encapsulates the explicit WAV decoder initialization from a static buffer source.
 fn load_wav_source(

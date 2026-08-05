@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Paragraph, Widget},
 };
 
-use crate::{app::App, control, theme::Theme};
+use crate::{terminal::app::App, theme::Theme};
 
 pub struct FooterWidget<'a> {
     pub theme: &'a Theme,
@@ -36,9 +36,11 @@ fn footer_text(_theme: &Theme, app: &App) -> String {
         "Ctrl+B Nav"
     };
     let page_footer = match app.active_page() {
-        crate::app::Page::Home => control::home_footer_label(app.daemon_status()),
-        crate::app::Page::Library => app.library_page().footer_text(),
-        crate::app::Page::Settings => app.settings_page().footer_text(),
+        crate::terminal::app::Page::Home => {
+            crate::terminal::control::home_footer_label(app.daemon_status())
+        }
+        crate::terminal::app::Page::Library => app.library_page().footer_text(),
+        crate::terminal::app::Page::Settings => app.settings_page().footer_text(),
     };
     if page_footer.is_empty() {
         nav_hint.to_string()

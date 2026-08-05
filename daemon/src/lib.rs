@@ -9,23 +9,14 @@ use tokio::sync::mpsc;
 use tonic::transport::Server;
 use tracing::{debug, error, info};
 
-mod audio;
-mod clipboard_history;
 mod engine;
 mod hook;
-mod hook_health;
-mod hotkey;
-mod hotkey_evaluator;
 mod injector;
-mod notify;
+mod input;
 pub mod platform;
-mod server;
-mod tray;
+mod services;
 
-#[cfg(test)]
-mod hotkey_evaluator_tests;
-
-pub use server::DaemonService;
+pub use services::server::DaemonService;
 
 static FILE_LOG_GUARD: std::sync::OnceLock<Option<tracing_appender::non_blocking::WorkerGuard>> =
     std::sync::OnceLock::new();
@@ -127,9 +118,10 @@ pub fn start() -> taurine_core::error::Result<()> {
     let pause_hotkey = Arc::new(RwLock::new(settings.pause_hotkey.clone()));
 
     let pause_hotkey_spec = Arc::new(RwLock::new(
-        hotkey::parse_pause_hotkey_setting(&settings.pause_hotkey).unwrap_or_else(|| {
+        input::hotkey::parse_pause_hotkey_setting(&settings.pause_hotkey).unwrap_or_else(|| {
             // Fall back to strict default if DB is malformed or unsupported.
-            hotkey::parse_pause_hotkey_setting("Alt + `").expect("default pause hotkey parses")
+            input::hotkey::parse_pause_hotkey_setting("Alt + `")
+                .expect("default pause hotkey parses")
         }),
     ));
 
@@ -148,9 +140,9 @@ pub fn start() -> taurine_core::error::Result<()> {
     let system_tray_enabled = Arc::new(std::sync::atomic::AtomicBool::new(
         settings.system_tray_enabled,
     ));
-    let hook_health = hook_health::HookHealth::new();
+    let hook_health = input::hook_health::HookHealth::new();
 
-    let (audio_tx, audio_rx) = audio::create_channel();
+    let (audio_tx, audio_rx) = services::audio::create_channel();
     let (pause_transition_tx, mut pause_transition_rx) = tokio::sync::mpsc::channel::<bool>(8);
 
     // Fire up listener in OS thread
@@ -239,7 +231,7 @@ pub fn start() -> taurine_core::error::Result<()> {
         .name("tau-clip".to_string())
         .spawn(|| {
             info!("Starting clipboard history listener...");
-            clipboard_history::start_listener();
+            services::clipboard_history::start_listener();
         })?;
 
     // 3. Start fullscreen listeners
@@ -251,10 +243,10 @@ pub fn start() -> taurine_core::error::Result<()> {
     crate::platform::macos::fullscreen::start_listener(state.clone());
 
     // 4. Start audio worker
-    audio::start_worker(audio_rx);
+    services::audio::start_worker(audio_rx);
 
     // 5. Start system tray icon
-    let _tray_handle = crate::tray::spawn(paused.clone(), system_tray_enabled.clone());
+    let _tray_handle = crate::services::tray::spawn(paused.clone(), system_tray_enabled.clone());
 
     // Activate daemon file logging immediately after hook thread starts capturing
     let guard = taurine_core::logs::activate_file_logging();
@@ -288,7 +280,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                     crate::platform::linux::toplevel::stop_listener();
 
                     // 2. Suspend clipboard listener
-                    crate::clipboard_history::suspend_listener();
+                    crate::services::clipboard_history::suspend_listener();
 
                     // 3. Clear transient evaluator state
                     if let Ok(mut lock) = evaluator_for_coordinator.lock() {
@@ -297,7 +289,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                 } else {
                     info!("Taurine resumed: restoring subsystems...");
                     // 1. Resume clipboard listener
-                    crate::clipboard_history::resume_listener();
+                    crate::services::clipboard_history::resume_listener();
 
                     // 2. Restart fullscreen detection
                     #[cfg(windows)]
@@ -309,7 +301,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                 }
 
                 if pause_notifications_enabled_for_coordinator.load(Ordering::Relaxed) {
-                    notify::notify_pause_toggled(is_paused);
+                    services::notify::notify_pause_toggled(is_paused);
                 }
                 if pause_audio_enabled_for_coordinator.load(Ordering::Relaxed) {
                     let _ = audio_tx_for_coordinator.try_send(is_paused);
@@ -320,13 +312,14 @@ pub fn start() -> taurine_core::error::Result<()> {
         let (mut shutdown_tx, mut shutdown_rx) = mpsc::channel(1);
         let (mut rpc_reload_tx, mut rpc_reload_rx) = mpsc::channel(1);
 
-        let active_rpc_settings =
-            std::sync::Arc::new(std::sync::RwLock::new(server::RpcServerSettings {
+        let active_rpc_settings = std::sync::Arc::new(std::sync::RwLock::new(
+            services::server::RpcServerSettings {
                 rpc_mode: settings.rpc_mode,
                 rpc_host: settings.rpc_host.clone(),
                 rpc_port: settings.rpc_port,
                 rpc_token: settings.rpc_token.clone(),
-            }));
+            },
+        ));
 
         loop {
             let shutdown_requested_clone = shutdown_requested.clone();
@@ -594,7 +587,7 @@ pub fn start() -> taurine_core::error::Result<()> {
             if let Ok(conn) = taurine_core::db::init::setup() {
                 let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
                 if let Ok(mut lock) = active_rpc_settings.write() {
-                    *lock = server::RpcServerSettings {
+                    *lock = services::server::RpcServerSettings {
                         rpc_mode: settings.rpc_mode,
                         rpc_host: settings.rpc_host.clone(),
                         rpc_port: settings.rpc_port,
@@ -633,7 +626,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     }
 
     // 3. Stop the clipboard history listener and join its thread
-    clipboard_history::stop_listener();
+    services::clipboard_history::stop_listener();
     let res = clipboard_thread.join();
     if let Err(e) = res {
         error!("Error joining clipboard thread: {:?}", e);
@@ -706,6 +699,6 @@ mod tests {
         let paused = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let enabled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
 
-        let _ = crate::tray::spawn(paused, enabled);
+        let _ = crate::services::tray::spawn(paused, enabled);
     }
 }

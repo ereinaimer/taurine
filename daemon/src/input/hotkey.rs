@@ -5,9 +5,9 @@ use rdev::{Event, EventType};
 use taurine_core::keys::{Hotkey, KeyPress, Modifiers, hotkey_matches, parse_hotkey};
 
 #[cfg(target_os = "linux")]
-use crate::hotkey_evaluator::logical_key_from_evdev;
+use crate::input::hotkey_evaluator::logical_key_from_evdev;
 #[cfg(not(target_os = "linux"))]
-use crate::hotkey_evaluator::logical_key_from_rdev;
+use crate::input::hotkey_evaluator::logical_key_from_rdev;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HotkeySpec {

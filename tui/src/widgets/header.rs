@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Paragraph, Widget},
 };
 
-use crate::{status::DaemonStatus, theme::Theme};
+use crate::{terminal::status::DaemonStatus, theme::Theme};
 
 pub struct HeaderWidget<'a> {
     pub theme: &'a Theme,

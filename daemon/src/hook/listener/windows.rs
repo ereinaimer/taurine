@@ -1,6 +1,6 @@
 use crate::hook::listener::{LISTENER_EPOCH, run_listener_once};
-use crate::hook_health::HookHealth;
-use crate::hotkey;
+use crate::input::hook_health::HookHealth;
+use crate::input::hotkey;
 use std::ffi::c_void;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, RwLock};

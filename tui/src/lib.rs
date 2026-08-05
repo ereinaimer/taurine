@@ -1,18 +1,14 @@
 // Licensed under the Aimer Software License (ASL).
 // See LICENSE for details.
 
-mod app;
-mod control;
-mod event;
 mod overlay;
-mod overlay_ui;
+pub mod terminal;
 mod theme;
 pub use crate::widgets::library::actions::{LibraryImportConflictMode, RememberedConflictChoice};
 pub use overlay::{
     ExportFormResult, ImportFormResult, prompt_password, run_conflict_prompt, run_export_overlay,
     run_import_overlay,
 };
-mod status;
 mod widgets;
 
 use std::io;
@@ -21,17 +17,11 @@ use std::time::{Duration, Instant};
 use crate::theme::Theme;
 use crate::widgets::library;
 use crate::widgets::settings;
-use app::{App, Page};
-use control::{
-    DaemonController, SystemDaemonController, action_for_status, toggle_daemon,
-    transition_status_for_action,
-};
 use crossterm::{
     cursor::Show,
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use event::{Event, EventHandler};
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
@@ -39,6 +29,12 @@ use ratatui::{
     style::Style,
     widgets::Block,
 };
+use terminal::app::{App, Page};
+use terminal::control::{
+    DaemonController, SystemDaemonController, action_for_status, toggle_daemon,
+    transition_status_for_action,
+};
+use terminal::event::{Event, EventHandler};
 use tracing::error;
 use widgets::{footer::FooterWidget, header::HeaderWidget, home, nav, notification};
 
@@ -47,7 +43,7 @@ const STATUS_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
 
 pub fn run() -> taurine_core::Result<()> {
     let mut app = App::default();
-    app.set_daemon_status(status::probe_daemon_status());
+    app.set_daemon_status(terminal::status::probe_daemon_status());
     refresh_home_stats(&mut app);
     refresh_library_page(&mut app);
     refresh_settings_page(&mut app);
@@ -118,7 +114,7 @@ pub fn run() -> taurine_core::Result<()> {
             Event::Key(key) => handle_tui_key_event(&mut app, key, &daemon_controller),
             Event::Tick => {
                 if last_status_refresh.elapsed() >= STATUS_REFRESH_INTERVAL {
-                    app.set_daemon_status(status::probe_daemon_status());
+                    app.set_daemon_status(terminal::status::probe_daemon_status());
                     refresh_home_stats(&mut app);
                     last_status_refresh = Instant::now();
                 }
@@ -241,7 +237,7 @@ fn handle_tui_key_event<C: DaemonController>(
         match toggle_daemon(daemon_controller, current_status) {
             Ok(outcome) => app.set_daemon_status(outcome.status),
             Err(err) => {
-                app.set_daemon_status(status::probe_daemon_status());
+                app.set_daemon_status(terminal::status::probe_daemon_status());
                 error!(error = %err, "Failed to toggle daemon lifecycle from the TUI");
             }
         }
@@ -583,7 +579,7 @@ mod tests {
     #[test]
     fn pressing_x_on_home_calls_start_when_stopped() {
         let mut app = App::default();
-        app.set_daemon_status(status::DaemonStatus::Stopped);
+        app.set_daemon_status(terminal::status::DaemonStatus::Stopped);
         let controller = MockController::default();
 
         handle_tui_key_event(&mut app, plain_key('x'), &controller);
@@ -595,7 +591,7 @@ mod tests {
     #[test]
     fn pressing_x_on_home_calls_stop_when_running() {
         let mut app = App::default();
-        app.set_daemon_status(status::DaemonStatus::Running);
+        app.set_daemon_status(terminal::status::DaemonStatus::Running);
         let controller = MockController::default();
 
         handle_tui_key_event(&mut app, plain_key('x'), &controller);
@@ -607,7 +603,7 @@ mod tests {
     #[test]
     fn pressing_x_on_home_calls_stop_when_paused() {
         let mut app = App::default();
-        app.set_daemon_status(status::DaemonStatus::Paused);
+        app.set_daemon_status(terminal::status::DaemonStatus::Paused);
         let controller = MockController::default();
 
         handle_tui_key_event(&mut app, plain_key('x'), &controller);
@@ -619,14 +615,17 @@ mod tests {
     #[test]
     fn pressing_x_on_home_ignores_duplicate_requests_while_starting() {
         let mut app = App::default();
-        app.set_daemon_status(status::DaemonStatus::Starting);
+        app.set_daemon_status(terminal::status::DaemonStatus::Starting);
         let controller = MockController::default();
 
         handle_tui_key_event(&mut app, plain_key('x'), &controller);
 
         assert_eq!(controller.start_calls.get(), 0);
         assert_eq!(controller.stop_calls.get(), 0);
-        assert_eq!(app.daemon_status(), status::DaemonStatus::Starting);
+        assert_eq!(
+            app.daemon_status(),
+            terminal::status::DaemonStatus::Starting
+        );
     }
 
     #[test]

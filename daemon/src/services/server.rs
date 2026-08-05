@@ -24,12 +24,12 @@ pub struct DaemonService {
     state: Arc<EngineState>,
     paused: Arc<AtomicBool>,
     pause_notifications_enabled: Arc<AtomicBool>,
-    pause_hotkey_spec: Arc<RwLock<crate::hotkey::HotkeySpec>>,
+    pause_hotkey_spec: Arc<RwLock<crate::input::hotkey::HotkeySpec>>,
     pause_hotkey_display: Arc<RwLock<String>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<AtomicBool>,
     system_tray_enabled: Arc<AtomicBool>,
-    hook_health: crate::hook_health::HookHealth,
+    hook_health: crate::input::hook_health::HookHealth,
     active_rpc_settings: Arc<RwLock<RpcServerSettings>>,
     rpc_reload_sender: mpsc::Sender<()>,
     pause_transition_tx: mpsc::Sender<bool>,
@@ -46,12 +46,12 @@ pub struct DaemonServiceBuilder {
     state: Option<Arc<EngineState>>,
     paused: Option<Arc<AtomicBool>>,
     pause_notifications_enabled: Option<Arc<AtomicBool>>,
-    pause_hotkey_spec: Option<Arc<RwLock<crate::hotkey::HotkeySpec>>>,
+    pause_hotkey_spec: Option<Arc<RwLock<crate::input::hotkey::HotkeySpec>>>,
     pause_hotkey_display: Option<Arc<RwLock<String>>>,
     spinner_style: Option<Arc<RwLock<taurine_core::settings::SpinnerStyle>>>,
     pause_audio_enabled: Option<Arc<AtomicBool>>,
     system_tray_enabled: Option<Arc<AtomicBool>>,
-    hook_health: Option<crate::hook_health::HookHealth>,
+    hook_health: Option<crate::input::hook_health::HookHealth>,
     active_rpc_settings: Option<Arc<RwLock<RpcServerSettings>>>,
     rpc_reload_sender: Option<mpsc::Sender<()>>,
     pause_transition_tx: Option<mpsc::Sender<bool>>,
@@ -102,7 +102,10 @@ impl DaemonServiceBuilder {
         self
     }
 
-    pub fn pause_hotkey_spec(mut self, spec: Arc<RwLock<crate::hotkey::HotkeySpec>>) -> Self {
+    pub fn pause_hotkey_spec(
+        mut self,
+        spec: Arc<RwLock<crate::input::hotkey::HotkeySpec>>,
+    ) -> Self {
         self.pause_hotkey_spec = Some(spec);
         self
     }
@@ -130,7 +133,7 @@ impl DaemonServiceBuilder {
         self
     }
 
-    pub fn hook_health(mut self, hook_health: crate::hook_health::HookHealth) -> Self {
+    pub fn hook_health(mut self, hook_health: crate::input::hook_health::HookHealth) -> Self {
         self.hook_health = Some(hook_health);
         self
     }
@@ -352,7 +355,8 @@ impl DaemonControl for DaemonService {
                 .store(settings.system_tray_enabled, Ordering::Relaxed);
 
             // Update pause hotkey spec (RwLock)
-            if let Some(spec) = crate::hotkey::parse_pause_hotkey_setting(&settings.pause_hotkey)
+            if let Some(spec) =
+                crate::input::hotkey::parse_pause_hotkey_setting(&settings.pause_hotkey)
                 && let Ok(mut lock) = self.pause_hotkey_spec.write()
             {
                 *lock = spec;
@@ -452,7 +456,7 @@ mod tests {
         let (tx, _rx) = mpsc::channel(1);
         let pause_hotkey = "Alt + `".to_string();
         let pause_hotkey_spec = Arc::new(std::sync::RwLock::new(
-            crate::hotkey::parse_pause_hotkey_setting(&pause_hotkey).unwrap(),
+            crate::input::hotkey::parse_pause_hotkey_setting(&pause_hotkey).unwrap(),
         ));
         let (reload_tx, _reload_rx) = mpsc::channel(1);
         let active_rpc_settings = Arc::new(std::sync::RwLock::new(RpcServerSettings {
@@ -475,7 +479,7 @@ mod tests {
             )))
             .pause_audio_enabled(Arc::new(AtomicBool::new(true)))
             .system_tray_enabled(Arc::new(AtomicBool::new(true)))
-            .hook_health(crate::hook_health::HookHealth::new())
+            .hook_health(crate::input::hook_health::HookHealth::new())
             .active_rpc_settings(active_rpc_settings)
             .rpc_reload_sender(reload_tx)
             .pause_transition_tx(pause_tx)

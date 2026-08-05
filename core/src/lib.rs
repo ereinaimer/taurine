@@ -12,10 +12,8 @@
 //! - **Error**: Centralized error handling.
 
 pub mod ai;
-pub mod constants;
 pub mod db;
 pub mod engine;
-pub mod error;
 pub mod exchange;
 pub mod keys;
 pub mod stats;
@@ -23,11 +21,12 @@ pub mod stats;
 pub use error::{Error, Result};
 
 pub mod logs;
-pub mod paths;
-pub mod rpc;
 pub mod service;
 pub mod settings;
+pub mod system;
 pub mod utils;
+
+pub use system::{constants, error, paths, rpc};
 
 #[cfg(test)]
 pub use utils::test_utils as testing;

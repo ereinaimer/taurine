@@ -16,16 +16,16 @@ pub(super) use windows::spawn_windows_hook_listener;
 #[cfg(not(target_os = "linux"))]
 use rdev::{Event, EventType, Key};
 
-#[cfg(not(target_os = "linux"))]
-use crate::hook_health::HookHealth;
-use crate::hotkey;
-#[cfg(not(target_os = "linux"))]
-use crate::hotkey_evaluator::{
-    HotkeyEvaluation, HotkeyEvaluator, logical_key_from_rdev, modifiers_from_sides,
-};
 use crate::injector;
 #[cfg(not(target_os = "linux"))]
 use crate::injector::{IS_INJECTING, consume_simulated_event};
+#[cfg(not(target_os = "linux"))]
+use crate::input::hook_health::HookHealth;
+use crate::input::hotkey;
+#[cfg(not(target_os = "linux"))]
+use crate::input::hotkey_evaluator::{
+    HotkeyEvaluation, HotkeyEvaluator, logical_key_from_rdev, modifiers_from_sides,
+};
 use taurine_core::engine::Evaluator;
 #[cfg(not(target_os = "linux"))]
 use taurine_core::engine::{EngineEvent, EngineMode};

@@ -9,11 +9,11 @@ use std::thread;
 use tracing::{debug, error, info, warn};
 
 use super::xkb::XkbMapper;
-use crate::hotkey::{HotkeySpec, is_pause_chord_evdev};
-use crate::hotkey_evaluator::{
+use crate::injector::{self, IS_INJECTING};
+use crate::input::hotkey::{HotkeySpec, is_pause_chord_evdev};
+use crate::input::hotkey_evaluator::{
     HotkeyEvaluation, HotkeyEvaluator, logical_key_from_evdev, modifiers_from_sides,
 };
-use crate::injector::{self, IS_INJECTING};
 use taurine_core::engine::{EngineEvent, EngineMode, Evaluator};
 
 #[derive(Debug)]
@@ -707,8 +707,8 @@ fn is_solo_modifier_press(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hotkey_evaluator::HotkeyEvaluator;
     use crate::injector::INJECTION_GENERATION;
+    use crate::input::hotkey_evaluator::HotkeyEvaluator;
     use std::sync::RwLock;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
@@ -727,7 +727,7 @@ mod tests {
         let paused = Arc::new(AtomicBool::new(false));
         let pause_notifications = Arc::new(AtomicBool::new(false));
         let pause_hotkey = Arc::new(RwLock::new(
-            crate::hotkey::parse_pause_hotkey_setting("Alt + `").unwrap(),
+            crate::input::hotkey::parse_pause_hotkey_setting("Alt + `").unwrap(),
         ));
         let spinner_style = Arc::new(RwLock::new(taurine_core::settings::SpinnerStyle::default()));
         let pause_audio = Arc::new(AtomicBool::new(false));

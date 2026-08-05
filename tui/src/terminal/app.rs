@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use taurine_core::stats::HomeStats;
 
-use crate::status::DaemonStatus;
+use crate::terminal::status::DaemonStatus;
 use crate::theme::Theme;
 use crate::theme::builtin::{DARK_THEME, LIGHT_THEME};
 use crate::widgets::library::LibraryPageState;
