@@ -18,6 +18,9 @@ pub mod timezones;
 pub mod undo;
 pub mod variables;
 
+#[cfg(test)]
+mod evaluator_tests;
+
 pub use shell::{ScriptBehavior, ScriptInterpreter, ScriptMetadata};
 pub use source::SnippetSource;
 

@@ -2,6 +2,9 @@ pub mod crypto;
 mod export;
 mod import;
 
+#[cfg(test)]
+mod import_tests;
+
 use crate::db::crud::TriggerType;
 use crate::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use serde::{Deserialize, Serialize};
