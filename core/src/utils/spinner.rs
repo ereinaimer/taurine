@@ -103,7 +103,7 @@ pub fn spawn_threaded<R: SpinnerRenderer + 'static>(
     let frames = get_frames(style);
     let frame_width = frames[0].chars().count();
 
-    let thread = std::thread::Builder::new()
+    let thread = match std::thread::Builder::new()
         .name("tau-spinner".to_string())
         .spawn(move || {
             let mut idx = 0;
@@ -124,11 +124,13 @@ pub fn spawn_threaded<R: SpinnerRenderer + 'static>(
 
             renderer.backspace(frame_width);
             renderer.finish();
-        })
-        .expect("Failed to spawn spinner thread");
+        }) {
+        Ok(handle) => Some(handle),
+        Err(error) => {
+            tracing::error!(error = %error, "Failed to spawn spinner thread");
+            None
+        }
+    };
 
-    ThreadSpinnerHandle {
-        abort,
-        thread: Some(thread),
-    }
+    ThreadSpinnerHandle { abort, thread }
 }

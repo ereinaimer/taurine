@@ -108,7 +108,7 @@ pub fn get_active_window_label_sync() -> Option<String> {
 }
 
 pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Option<String>>>) {
-    let handle = std::thread::Builder::new()
+    let spawn_result = std::thread::Builder::new()
         .name("tau-lnx-x11".to_string())
         .spawn(move || {
             let (conn, screen_num) = match x11rb::connect(None) {
@@ -131,24 +131,25 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                 return;
             }
 
-            let net_active_window = conn
-                .intern_atom(false, b"_NET_ACTIVE_WINDOW")
-                .unwrap()
-                .reply()
-                .unwrap()
-                .atom;
-            let net_wm_state = conn
-                .intern_atom(false, b"_NET_WM_STATE")
-                .unwrap()
-                .reply()
-                .unwrap()
-                .atom;
-            let net_wm_state_fullscreen = conn
-                .intern_atom(false, b"_NET_WM_STATE_FULLSCREEN")
-                .unwrap()
-                .reply()
-                .unwrap()
-                .atom;
+            let intern_atom = |name: &[u8]| -> Option<u32> {
+                match conn.intern_atom(false, name) {
+                    Ok(cookie) => cookie.reply().ok().map(|reply| reply.atom),
+                    Err(_) => None,
+                }
+            };
+
+            let Some(net_active_window) = intern_atom(b"_NET_ACTIVE_WINDOW") else {
+                error!("Failed to resolve X11 atoms; disabling toplevel detection");
+                return;
+            };
+            let Some(net_wm_state) = intern_atom(b"_NET_WM_STATE") else {
+                error!("Failed to resolve X11 atoms; disabling toplevel detection");
+                return;
+            };
+            let Some(net_wm_state_fullscreen) = intern_atom(b"_NET_WM_STATE_FULLSCREEN") else {
+                error!("Failed to resolve X11 atoms; disabling toplevel detection");
+                return;
+            };
 
             let dummy_window = match conn.generate_id() {
                 Ok(id) => id,
@@ -231,11 +232,17 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                     _ => {}
                 }
             }
-        })
-        .expect("Failed to spawn Linux X11 listener thread");
+        });
 
-    if let Ok(mut lock) = JOIN_HANDLE.lock() {
-        *lock = Some(handle);
+    match spawn_result {
+        Ok(handle) => {
+            if let Ok(mut lock) = JOIN_HANDLE.lock() {
+                *lock = Some(handle);
+            }
+        }
+        Err(error) => {
+            error!(error = %error, "Failed to spawn Linux X11 listener thread");
+        }
     }
 }
 

@@ -359,11 +359,11 @@ fn execute_inline(invocation: &ExecuteInvocation) -> Result<String, String> {
     let stdout_reader = thread::Builder::new()
         .name("tau-stdout-rd".to_string())
         .spawn(move || read_pipe(stdout))
-        .expect("Failed to spawn stdout reader thread");
+        .map_err(|e| format!("Failed to spawn stdout reader thread: {e}"))?;
     let stderr_reader = thread::Builder::new()
         .name("tau-stderr-rd".to_string())
         .spawn(move || read_pipe(stderr))
-        .expect("Failed to spawn stderr reader thread");
+        .map_err(|e| format!("Failed to spawn stderr reader thread: {e}"))?;
 
     let timeout_opt = crate::settings::Settings::get_script_timeout();
 

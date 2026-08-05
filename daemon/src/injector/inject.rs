@@ -249,7 +249,13 @@ fn inject_image_segment_with_gen(
 
 pub fn inject_undo(trigger_string: String, output_length: usize) {
     let _state_guard = InjectionFlagGuard::begin();
-    let _inject_guard = inject_mutex().lock().expect("inject mutex poisoned");
+    let _inject_guard = match inject_mutex().lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            tracing::warn!("inject mutex poisoned; recovering");
+            poisoned.into_inner()
+        }
+    };
     crate::platform::get_injector().pre_release_modifiers();
 
     #[cfg(target_os = "linux")]
@@ -287,7 +293,13 @@ pub struct StreamingTextSession {
 
 impl StreamingTextSession {
     pub fn begin() -> Self {
-        let guard = inject_mutex().lock().expect("inject mutex poisoned");
+        let guard = match inject_mutex().lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("inject mutex poisoned; recovering");
+                poisoned.into_inner()
+            }
+        };
         let state_guard = InjectionFlagGuard::begin();
         crate::platform::get_injector().pre_release_modifiers();
 
@@ -348,7 +360,13 @@ pub fn inject_expansion(
     spinner_style: taurine_core::settings::SpinnerStyle,
 ) -> InjectionReport {
     let _state_guard = InjectionFlagGuard::begin();
-    let _inject_guard = inject_mutex().lock().expect("inject mutex poisoned");
+    let _inject_guard = match inject_mutex().lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            tracing::warn!("inject mutex poisoned; recovering");
+            poisoned.into_inner()
+        }
+    };
     let captured_gen = capture_generation();
 
     // Pre-Release: neutralize modifier state before any injection.
@@ -473,10 +491,21 @@ pub fn inject_expansion(
                         );
 
                         // Execute script and block until completion (or abort/timeout)
-                        let rt = tokio::runtime::Builder::new_current_thread()
+                        let rt = match tokio::runtime::Builder::new_current_thread()
                             .enable_all()
                             .build()
-                            .expect("Failed to initialize script runtime");
+                        {
+                            Ok(rt) => rt,
+                            Err(error) => {
+                                error!(
+                                    error = %error,
+                                    "Failed to initialize script runtime"
+                                );
+                                spinner_handle.stop();
+                                report.completed = false;
+                                continue;
+                            }
+                        };
 
                         let script_result: taurine_core::Result<String> =
                             rt.block_on(crate::platform::executor::execute_script(metadata));
@@ -543,10 +572,21 @@ pub fn inject_expansion(
                         crate::platform::spinner_renderer::OsSpinnerRenderer::default(),
                     );
 
-                    let rt = tokio::runtime::Builder::new_current_thread()
+                    let rt = match tokio::runtime::Builder::new_current_thread()
                         .enable_all()
                         .build()
-                        .expect("Failed to initialize inline run runtime");
+                    {
+                        Ok(rt) => rt,
+                        Err(error) => {
+                            error!(
+                                error = %error,
+                                "Failed to initialize inline run runtime"
+                            );
+                            spinner_handle.stop();
+                            report.completed = false;
+                            continue;
+                        }
+                    };
 
                     let mut script_result: taurine_core::Result<String> =
                         rt.block_on(crate::platform::executor::execute_script(metadata));

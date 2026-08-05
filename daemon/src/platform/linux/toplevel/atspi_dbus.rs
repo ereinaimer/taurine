@@ -9,13 +9,19 @@ static JOIN_HANDLE: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
 pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Option<String>>>) {
-    let handle = std::thread::Builder::new()
+    let spawn_result = std::thread::Builder::new()
         .name("tau-lnx-atspi".to_string())
         .spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
+            let rt = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
-                .unwrap();
+            {
+                Ok(rt) => rt,
+                Err(error) => {
+                    error!(error = %error, "Failed to initialize AT-SPI2 runtime");
+                    return;
+                }
+            };
 
             rt.block_on(async {
                 let session_conn = match Connection::session().await {
@@ -65,12 +71,16 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                 };
 
                 // Listen to window focus events
-                let match_rule_builder = MatchRule::builder()
+                let match_rule_builder = match MatchRule::builder()
                     .interface("org.a11y.atspi.Event.Window")
-                    .unwrap()
-                    .member("Activate")
-                    .unwrap()
-                    .build();
+                    .and_then(|b| b.member("Activate"))
+                {
+                    Ok(builder) => builder.build(),
+                    Err(e) => {
+                        error!("Failed to build AT-SPI2 match rule: {:?}", e);
+                        return;
+                    }
+                };
 
                 let mut stream =
                     match zbus::MessageStream::for_match_rule(match_rule_builder, &a11y_conn, None)
@@ -171,11 +181,17 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
 
                 debug!("AT-SPI2 toplevel listener shutdown");
             });
-        })
-        .expect("Failed to spawn Linux AT-SPI2 listener thread");
+        });
 
-    if let Ok(mut lock) = JOIN_HANDLE.lock() {
-        *lock = Some(handle);
+    match spawn_result {
+        Ok(handle) => {
+            if let Ok(mut lock) = JOIN_HANDLE.lock() {
+                *lock = Some(handle);
+            }
+        }
+        Err(error) => {
+            error!(error = %error, "Failed to spawn Linux AT-SPI2 listener thread");
+        }
     }
 }
 

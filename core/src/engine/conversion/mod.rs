@@ -47,7 +47,8 @@ struct ExchangeRatesResponse {
 pub fn is_conversion_pattern(s: &str) -> bool {
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| {
-        Regex::new(r"^([+-]?[0-9]+(?:\.[0-9]+)?)([a-zA-Z/0-9_]+)=([a-zA-Z0-9_]+)$").unwrap()
+        Regex::new(r"^([+-]?[0-9]+(?:\.[0-9]+)?)([a-zA-Z/0-9_]+)=([a-zA-Z0-9_]+)$")
+            .expect("valid conversion regex")
     });
     re.is_match(s)
 }
@@ -250,8 +251,10 @@ pub fn convert_color(s: &str) -> Option<String> {
 
     // Compact syntax: #hex=format or name=format
     static COMPACT_RE: OnceLock<Regex> = OnceLock::new();
-    let compact_re = COMPACT_RE
-        .get_or_init(|| Regex::new(r"^(#[0-9a-fA-F]+|[a-zA-Z]\w*)\s*=\s*([a-zA-Z]+)$").unwrap());
+    let compact_re = COMPACT_RE.get_or_init(|| {
+        Regex::new(r"^(#[0-9a-fA-F]+|[a-zA-Z]\w*)\s*=\s*([a-zA-Z]+)$")
+            .expect("valid conversion regex")
+    });
 
     if let Some(caps) = compact_re.captures(s) {
         let color_str = caps.get(1)?.as_str();
@@ -261,8 +264,9 @@ pub fn convert_color(s: &str) -> Option<String> {
 
     // Natural language syntax: color to format
     static NL_RE: OnceLock<Regex> = OnceLock::new();
-    let nl_re =
-        NL_RE.get_or_init(|| Regex::new(r"^(.+)\s+(to|in|into|as)\s+([a-zA-Z]+)$").unwrap());
+    let nl_re = NL_RE.get_or_init(|| {
+        Regex::new(r"^(.+)\s+(to|in|into|as)\s+([a-zA-Z]+)$").expect("valid conversion regex")
+    });
 
     if let Some(caps) = nl_re.captures(s) {
         let color_str = caps.get(1)?.as_str().trim();
@@ -397,7 +401,8 @@ fn convert_currency(val: f64, from: &str, to: &str) -> Option<f64> {
 pub fn convert(s: &str, _state: &crate::engine::state::EngineState) -> Option<String> {
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| {
-        Regex::new(r"^([+-]?[0-9]+(?:\.[0-9]+)?)([a-zA-Z/0-9_]+)=([a-zA-Z0-9_]+)$").unwrap()
+        Regex::new(r"^([+-]?[0-9]+(?:\.[0-9]+)?)([a-zA-Z/0-9_]+)=([a-zA-Z0-9_]+)$")
+            .expect("valid conversion regex")
     });
     let caps = re.captures(s)?;
     let val_str = caps.get(1)?.as_str();
@@ -535,8 +540,9 @@ pub fn convert_natural(s: &str, state: &crate::engine::state::EngineState) -> Op
         (val_part.trim(), iso)
     } else {
         static LEFT_RE: OnceLock<Regex> = OnceLock::new();
-        let left_re =
-            LEFT_RE.get_or_init(|| Regex::new(r"^([+-]?[0-9,]+(?:\.[0-9]+)?)\s*(.*)$").unwrap());
+        let left_re = LEFT_RE.get_or_init(|| {
+            Regex::new(r"^([+-]?[0-9,]+(?:\.[0-9]+)?)\s*(.*)$").expect("valid conversion regex")
+        });
         let caps = left_re.captures(trimmed_left)?;
         let val_part = caps.get(1)?.as_str();
         let unit_part = caps.get(2)?.as_str().trim();
@@ -635,7 +641,7 @@ fn normalize_unit_name(name: &str) -> String {
 
     let mut normalized = lower.clone();
     for (pat, rep) in multi_word_rules {
-        let re = Regex::new(pat).unwrap();
+        let re = Regex::new(pat).expect("valid static regex");
         normalized = re.replace_all(&normalized, rep).to_string();
     }
 

@@ -48,7 +48,7 @@ pub fn record_trigger_stat(event: TriggerStatEvent) {
 
     let tx = STATS_TX.get_or_init(|| {
         let (tx, rx) = mpsc::channel::<TriggerStatEvent>();
-        thread::Builder::new()
+        let spawn_result = thread::Builder::new()
             .name("tau-stats".to_string())
             .spawn(move || {
                 while let Ok(evt) = rx.recv() {
@@ -63,8 +63,10 @@ pub fn record_trigger_stat(event: TriggerStatEvent) {
                         }
                     }
                 }
-            })
-            .expect("Failed to spawn stats background thread");
+            });
+        if let Err(error) = spawn_result {
+            tracing::error!(error = %error, "Failed to spawn stats background thread");
+        }
         tx
     });
 

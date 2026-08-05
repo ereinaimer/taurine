@@ -139,7 +139,7 @@ fn open_clipboard_with_retry(max_retries: u32, retry_delay: Duration) -> Result<
             return Err(format!("OpenClipboard failed: {}", err));
         }
     }
-    unreachable!()
+    Err("OpenClipboard failed after exhausting retries".to_string())
 }
 
 /// Reads `CF_UNICODETEXT` without taking ownership (matches arboard empty-on-missing).
@@ -236,9 +236,10 @@ fn format_windows_html(html: &str) -> String {
     let header_len = 105;
     let start_html = header_len;
     let end_html = start_html + body.len();
-    let start_fragment = start_html + body.find("<!--StartFragment-->").unwrap();
-    let end_fragment =
-        start_html + body.find("<!--EndFragment-->").unwrap() + "<!--EndFragment-->".len();
+    let start_fragment = start_html + body.find("<!--StartFragment-->").unwrap_or_default();
+    let end_fragment = start_html
+        + body.find("<!--EndFragment-->").unwrap_or_default()
+        + "<!--EndFragment-->".len();
 
     format!(
         "Version:0.9\r\n\

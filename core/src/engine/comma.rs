@@ -3,7 +3,8 @@ use std::sync::OnceLock;
 
 pub fn preprocess(input: &str) -> (String, Option<Vec<usize>>) {
     static COMMA_NUM_RE: OnceLock<Regex> = OnceLock::new();
-    let re = COMMA_NUM_RE.get_or_init(|| Regex::new(r"[0-9]+(?:,[0-9]+)+").unwrap());
+    let re =
+        COMMA_NUM_RE.get_or_init(|| Regex::new(r"[0-9]+(?:,[0-9]+)+").expect("valid comma regex"));
 
     let intervals = if let Some(m) = re.find(input) {
         let matched_str = m.as_str();
@@ -35,8 +36,9 @@ pub fn format_result(result: &str, intervals: &[usize]) -> String {
     }
 
     static SPLIT_RE: OnceLock<Regex> = OnceLock::new();
-    let split_re =
-        SPLIT_RE.get_or_init(|| Regex::new(r"^([+-]?[0-9]+(?:\.[0-9]+)?)(.*)$").unwrap());
+    let split_re = SPLIT_RE.get_or_init(|| {
+        Regex::new(r"^([+-]?[0-9]+(?:\.[0-9]+)?)(.*)$").expect("valid comma regex")
+    });
 
     let Some(caps) = split_re.captures(result) else {
         return result.to_string();

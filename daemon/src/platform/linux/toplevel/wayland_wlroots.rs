@@ -170,7 +170,7 @@ pub fn start_listener(
     engine_state: Arc<EngineState>,
     active_window_store: Arc<Mutex<Option<String>>>,
 ) {
-    let handle = std::thread::Builder::new()
+    let spawn_result = std::thread::Builder::new()
         .name("tau-lnx-wlroots".to_string())
         .spawn(move || {
             let conn = match Connection::connect_to_env() {
@@ -251,11 +251,17 @@ pub fn start_listener(
                 }
             }
             debug!("wlroots toplevel listener shutdown");
-        })
-        .expect("Failed to spawn Linux wlroots listener thread");
+        });
 
-    if let Ok(mut lock) = JOIN_HANDLE.lock() {
-        *lock = Some(handle);
+    match spawn_result {
+        Ok(handle) => {
+            if let Ok(mut lock) = JOIN_HANDLE.lock() {
+                *lock = Some(handle);
+            }
+        }
+        Err(error) => {
+            error!(error = %error, "Failed to spawn Linux wlroots listener thread");
+        }
     }
 }
 

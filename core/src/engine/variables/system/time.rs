@@ -79,7 +79,9 @@ fn apply_time_calc(mut dt: OffsetDateTime, args: &str) -> Result<OffsetDateTime,
     if args.is_empty() {
         return Err("[Error: calc requires arguments]".to_string());
     }
-    let first = args.chars().next().unwrap();
+    let Some(first) = args.chars().next() else {
+        return Err("[Error: calc requires arguments]".to_string());
+    };
     if first != '+' && first != '-' {
         return Err("[Error: calc needs + or -]".to_string());
     }

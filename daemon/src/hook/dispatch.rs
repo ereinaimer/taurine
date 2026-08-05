@@ -177,10 +177,10 @@ pub(super) fn launch_follow_up(
     follow_up: Option<taurine_core::engine::ExpansionFollowUp>,
     spinner_style: taurine_core::settings::SpinnerStyle,
 ) {
-    let runtime_handle = crate::TOKIO_HANDLE
-        .get()
-        .expect("Tokio handle initialized")
-        .clone();
+    let Some(runtime_handle) = crate::TOKIO_HANDLE.get().cloned() else {
+        tracing::error!("Tokio runtime not initialized; skipping follow-up dispatch");
+        return;
+    };
     if let Some(taurine_core::engine::ExpansionFollowUp::InlineAi {
         prompt,
         system_prompt_override,

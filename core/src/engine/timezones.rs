@@ -9,7 +9,7 @@ fn has_time_pattern(input: &str) -> bool {
         Regex::new(
             r"(?i)\b\d{1,2}(:\d{2})?\s*(am|pm|a\.m\.|p\.m\.|noon|midnight)\b|\b\d{1,2}:\d{2}\b",
         )
-        .unwrap()
+        .expect("valid time regex")
     });
     re.is_match(input)
 }
@@ -25,7 +25,8 @@ fn parse_time_str(s: &str) -> Option<NaiveTime> {
 
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| {
-        Regex::new(r"(?i)^(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\s*$").unwrap()
+        Regex::new(r"(?i)^(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\s*$")
+            .expect("valid time regex")
     });
     if let Some(caps) = re.captures(&s) {
         let hour: u32 = caps[1].parse().ok()?;
@@ -50,7 +51,8 @@ fn parse_time_str(s: &str) -> Option<NaiveTime> {
     }
 
     static RE24: OnceLock<Regex> = OnceLock::new();
-    let re24 = RE24.get_or_init(|| Regex::new(r"^(\d{1,2}):(\d{2})\s*$").unwrap());
+    let re24 =
+        RE24.get_or_init(|| Regex::new(r"^(\d{1,2}):(\d{2})\s*$").expect("valid 24h time regex"));
     if let Some(caps) = re24.captures(&s) {
         let hour: u32 = caps[1].parse().ok()?;
         let minute: u32 = caps[2].parse().ok()?;
@@ -283,7 +285,7 @@ fn parse_conversion(input: &str, time_format: &str) -> Option<String> {
         Regex::new(
             r"^(\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.|noon|midnight)?)\s+(.+?)\s+(?:to|in)\s+(.+?)$",
         )
-        .unwrap()
+        .expect("valid time range regex")
     });
     let caps = re.captures(&lower)?;
     let time_str = caps.get(1)?.as_str().trim();

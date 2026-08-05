@@ -192,11 +192,19 @@ pub fn init_injection_pool() {
     let rx = Arc::new(Mutex::new(rx));
     for i in 0..2 {
         let rx = rx.clone();
-        std::thread::Builder::new()
+        if let Err(error) = std::thread::Builder::new()
             .name(format!("tau-inject-{i}"))
             .spawn(move || {
                 loop {
-                    let task = rx.lock().unwrap().recv();
+                    let task = match rx.lock() {
+                        Ok(guard) => guard.recv(),
+                        Err(_) => {
+                            tracing::error!(
+                                "injection pool receiver mutex poisoned; stopping worker {i}"
+                            );
+                            break;
+                        }
+                    };
                     match task {
                         Ok(task) => {
                             let _guard = InjectionFlagGuard::begin();
@@ -206,7 +214,12 @@ pub fn init_injection_pool() {
                     }
                 }
             })
-            .expect("failed to spawn injection pool thread");
+        {
+            tracing::error!(
+                error = %error,
+                "failed to spawn injection pool worker {i}"
+            );
+        }
     }
     INJECTION_POOL.set(tx).ok();
 }

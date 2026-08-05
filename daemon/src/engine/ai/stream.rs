@@ -684,7 +684,7 @@ struct LiveOutputHandle {
 impl LiveOutputHandle {
     fn spawn() -> Self {
         let (tx, rx) = mpsc::channel::<LiveOutputCommand>();
-        let join = thread::Builder::new()
+        let join = match thread::Builder::new()
             .name("tau-ai-stream".to_string())
             .spawn(move || {
                 let mut session = crate::injector::StreamingTextSession::begin();
@@ -705,13 +705,15 @@ impl LiveOutputHandle {
                 }
 
                 session.finish()
-            })
-            .expect("Failed to spawn live output thread");
+            }) {
+            Ok(handle) => Some(handle),
+            Err(error) => {
+                error!(error = %error, "Failed to spawn live output thread");
+                None
+            }
+        };
 
-        Self {
-            tx,
-            join: Some(join),
-        }
+        Self { tx, join }
     }
 
     fn send_text(&self, text: String, track_stats: bool) -> taurine_core::error::Result<()> {

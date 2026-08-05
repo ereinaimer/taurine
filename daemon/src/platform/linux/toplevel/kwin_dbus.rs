@@ -27,13 +27,19 @@ if (workspace.activeWindow) {
 "#;
 
 pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Option<String>>>) {
-    let handle = std::thread::Builder::new()
+    let spawn_result = std::thread::Builder::new()
         .name("tau-lnx-kwin".to_string())
         .spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
+            let rt = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
-                .unwrap();
+            {
+                Ok(rt) => rt,
+                Err(error) => {
+                    error!(error = %error, "Failed to initialize KWin runtime");
+                    return;
+                }
+            };
 
             rt.block_on(async {
                 let conn = match Connection::session().await {
@@ -105,12 +111,16 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                     }
                 }
 
-                let match_rule_builder = zbus::MatchRule::builder()
+                let match_rule_builder = match zbus::MatchRule::builder()
                     .interface("com.taurine.WindowTracker")
-                    .unwrap()
-                    .member("ActiveWindowChanged")
-                    .unwrap()
-                    .build();
+                    .and_then(|b| b.member("ActiveWindowChanged"))
+                {
+                    Ok(builder) => builder.build(),
+                    Err(e) => {
+                        error!("Failed to build KWin match rule: {:?}", e);
+                        return;
+                    }
+                };
 
                 let mut stream = match zbus::MessageStream::for_match_rule(
                     match_rule_builder,
@@ -179,11 +189,17 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
 
                 debug!("KWin D-Bus toplevel listener shutdown");
             });
-        })
-        .expect("Failed to spawn Linux KWin listener thread");
+        });
 
-    if let Ok(mut lock) = JOIN_HANDLE.lock() {
-        *lock = Some(handle);
+    match spawn_result {
+        Ok(handle) => {
+            if let Ok(mut lock) = JOIN_HANDLE.lock() {
+                *lock = Some(handle);
+            }
+        }
+        Err(error) => {
+            error!(error = %error, "Failed to spawn Linux KWin listener thread");
+        }
     }
 }
 

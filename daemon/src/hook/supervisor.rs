@@ -27,7 +27,7 @@ static SUPERVISOR_SENDER: std::sync::OnceLock<Mutex<Option<mpsc::Sender<WindowsS
     std::sync::OnceLock::new();
 
 pub(super) struct ListenerHandle {
-    pub(super) join: std::thread::JoinHandle<()>,
+    pub(super) join: Option<std::thread::JoinHandle<()>>,
     pub(super) thread_id: u32,
 }
 
@@ -201,7 +201,7 @@ pub fn start_windows_supervisor(
 
                             // Check 2: Silent Thread Termination — thread exited
                             // without sending ListenerExited.
-                            let silent_exit = handle.join.is_finished();
+                            let silent_exit = handle.join.as_ref().is_none_or(|j| j.is_finished());
 
                             // Check 3: Hook seems stale — hook entered grab, but last keyboard event is too old
                             // and we are not currently awaiting a recovery.
@@ -317,13 +317,16 @@ fn tear_down_listener(listener_handle: &mut Option<ListenerHandle>) {
     let Some(handle) = listener_handle.take() else {
         return;
     };
-    send_wm_quit_to_thread(handle.thread_id, &handle.join);
+    send_wm_quit_to_thread(handle.thread_id, handle.join.as_ref());
 
     // Give the thread up to 2 seconds to exit, then detach if unresponsive.
     let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    let Some(join) = handle.join else {
+        return;
+    };
     loop {
-        if handle.join.is_finished() {
-            if let Err(_error) = handle.join.join() {
+        if join.is_finished() {
+            if let Err(_error) = join.join() {
                 warn!("Listener thread panicked during teardown; hook chain may be inconsistent");
             }
             return;
@@ -338,11 +341,11 @@ fn tear_down_listener(listener_handle: &mut Option<ListenerHandle>) {
     }
 }
 
-fn send_wm_quit_to_thread(thread_id: u32, join_handle: &std::thread::JoinHandle<()>) {
+fn send_wm_quit_to_thread(thread_id: u32, join_handle: Option<&std::thread::JoinHandle<()>>) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
 
     // If the thread has already exited, no need to post WM_QUIT.
-    if join_handle.is_finished() {
+    if join_handle.is_some_and(|j| j.is_finished()) {
         return;
     }
 

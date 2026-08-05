@@ -23,7 +23,10 @@ static CLIPBOARD_THREAD_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::At
 
 pub fn suspend_listener() {
     {
-        let mut suspended = CLIPBOARD_SUSPENDED.lock().unwrap();
+        let Ok(mut suspended) = CLIPBOARD_SUSPENDED.lock() else {
+            tracing::warn!("Clipboard suspend lock poisoned; ignoring suspend request");
+            return;
+        };
         *suspended = true;
     }
     #[cfg(windows)]
@@ -42,8 +45,11 @@ pub fn suspend_listener() {
 
 pub fn resume_listener() {
     {
-        let mut suspended = CLIPBOARD_SUSPENDED.lock().unwrap();
-        *suspended = false;
+        if let Ok(mut suspended) = CLIPBOARD_SUSPENDED.lock() {
+            *suspended = false;
+        } else {
+            tracing::warn!("Clipboard suspend lock poisoned; skipping resume flag");
+        }
     }
     CLIPBOARD_CONDVAR.notify_all();
     #[cfg(windows)]
@@ -74,9 +80,20 @@ pub fn start_listener() {
             break;
         }
         {
-            let mut suspended = CLIPBOARD_SUSPENDED.lock().unwrap();
+            let Ok(mut suspended) = CLIPBOARD_SUSPENDED.lock() else {
+                tracing::warn!("Clipboard suspend lock poisoned; stopping clipboard listener");
+                break;
+            };
             while *suspended {
-                suspended = CLIPBOARD_CONDVAR.wait(suspended).unwrap();
+                match CLIPBOARD_CONDVAR.wait(suspended) {
+                    Ok(next) => suspended = next,
+                    Err(_) => {
+                        tracing::warn!(
+                            "Clipboard suspend lock poisoned; stopping clipboard listener"
+                        );
+                        break;
+                    }
+                }
             }
         }
         if !taurine_core::settings::get_cached_clipboard_history_enabled() {
@@ -124,9 +141,20 @@ pub fn start_listener() {
             break;
         }
         {
-            let mut suspended = CLIPBOARD_SUSPENDED.lock().unwrap();
+            let Ok(mut suspended) = CLIPBOARD_SUSPENDED.lock() else {
+                tracing::warn!("Clipboard suspend lock poisoned; stopping clipboard listener");
+                break;
+            };
             while *suspended {
-                suspended = CLIPBOARD_CONDVAR.wait(suspended).unwrap();
+                match CLIPBOARD_CONDVAR.wait(suspended) {
+                    Ok(next) => suspended = next,
+                    Err(_) => {
+                        tracing::warn!(
+                            "Clipboard suspend lock poisoned; stopping clipboard listener"
+                        );
+                        break;
+                    }
+                }
             }
         }
         if !taurine_core::settings::get_cached_clipboard_history_enabled() {
@@ -151,7 +179,14 @@ pub fn start_listener() {
             None => match arboard::Clipboard::new() {
                 Ok(c) => {
                     clip_opt = Some(c);
-                    clip_opt.as_mut().unwrap()
+                    match clip_opt.as_mut() {
+                        Some(c) => c,
+                        None => {
+                            tracing::warn!("Clipboard handle unexpectedly lost; retrying");
+                            thread::sleep(INIT_RETRY_INTERVAL);
+                            continue;
+                        }
+                    }
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -216,7 +251,7 @@ pub fn start_listener() {
         if message == WM_CLIPBOARDUPDATE {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_millis() as u64;
             let last = LAST_EVENT.load(std::sync::atomic::Ordering::Relaxed);
 
@@ -367,8 +402,11 @@ pub fn start_listener() {
 pub fn stop_listener() {
     CLIPBOARD_SHOULD_SHUTDOWN.store(true, std::sync::atomic::Ordering::Relaxed);
     {
-        let mut suspended = CLIPBOARD_SUSPENDED.lock().unwrap();
-        *suspended = false;
+        if let Ok(mut suspended) = CLIPBOARD_SUSPENDED.lock() {
+            *suspended = false;
+        } else {
+            tracing::warn!("Clipboard suspend lock poisoned; proceeding with shutdown");
+        }
     }
     CLIPBOARD_CONDVAR.notify_all();
     #[cfg(windows)]

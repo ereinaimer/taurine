@@ -150,7 +150,10 @@ impl HotkeyCatalog {
                     entry.action.as_ref().clone(),
                 ));
             }
-            let Some(w) = window.resolve(|| fetch_window.take().unwrap()()) else {
+            let Some(w) = window.resolve(|| match fetch_window.take() {
+                Some(fetch) => fetch(),
+                None => None,
+            }) else {
                 continue;
             };
             if is_app_allowed(&entry.action, Some(w)) {
@@ -172,7 +175,10 @@ impl HotkeyCatalog {
                     entry.action.as_ref().clone(),
                 ));
             }
-            let Some(w) = window.resolve(|| fetch_window.take().unwrap()()) else {
+            let Some(w) = window.resolve(|| match fetch_window.take() {
+                Some(fetch) => fetch(),
+                None => None,
+            }) else {
                 continue;
             };
             if is_app_allowed(&entry.action, Some(w)) {

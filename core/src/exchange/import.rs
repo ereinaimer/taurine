@@ -214,8 +214,9 @@ fn insert_imported_trigger(
             )?;
         }
 
-        if trigger.action_type == "script" {
-            let script = trigger.script.as_ref().unwrap();
+        if trigger.action_type == "script"
+            && let Some(script) = trigger.script.as_ref()
+        {
             let mut final_script_content = script.content.clone();
             for (old_id, new_id) in &asset_id_map {
                 final_script_content = final_script_content.replace(old_id, new_id);

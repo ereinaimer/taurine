@@ -556,7 +556,7 @@ pub(super) fn run_listener_once(
                         if let Some(ref text) = event.name {
                             let normalized: String = text.nfc().collect();
                             if normalized.chars().count() == 1 {
-                                Some(EngineEvent::Char(normalized.chars().next().unwrap()))
+                                normalized.chars().next().map(EngineEvent::Char)
                             } else {
                                 None
                             }

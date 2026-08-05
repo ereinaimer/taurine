@@ -19,7 +19,7 @@ pub fn create_channel() -> (mpsc::Sender<bool>, mpsc::Receiver<bool>) {
 }
 
 pub fn start_worker(mut rx: mpsc::Receiver<bool>) {
-    std::thread::Builder::new()
+    let spawn_result = std::thread::Builder::new()
         .name("tau-audio".to_string())
         .spawn(move || {
             debug!("Audio worker thread started (per-trigger device acquisition)");
@@ -53,6 +53,8 @@ pub fn start_worker(mut rx: mpsc::Receiver<bool>) {
                 }
                 // stream drops here, releasing the device cleanly.
             }
-        })
-        .expect("Failed to spawn audio thread");
+        });
+    if let Err(error) = spawn_result {
+        warn!(error = %error, "Failed to spawn audio worker thread");
+    }
 }

@@ -1,6 +1,5 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread::JoinHandle;
 use tray_icon::menu::{Menu, MenuEvent, MenuItem};
 use tray_icon::{TrayIconBuilder, TrayIconEvent};
 
@@ -31,8 +30,8 @@ fn initialize_windows_ui() {
     }
 }
 
-pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> JoinHandle<()> {
-    std::thread::Builder::new()
+pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) {
+    let spawn_result = std::thread::Builder::new()
         .name("tau-tray".to_string())
         .spawn(move || {
             #[cfg(target_os = "windows")]
@@ -45,12 +44,18 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
             menu.append(&pause_item).ok();
             menu.append(&quit_item).ok();
 
-            let _tray = TrayIconBuilder::new()
+            let _tray = match TrayIconBuilder::new()
                 .with_menu(Box::new(menu))
                 .with_menu_on_left_click(false)
                 .with_tooltip(TOOLTIP_RUNNING)
                 .build()
-                .expect("system tray init");
+            {
+                Ok(tray) => tray,
+                Err(error) => {
+                    tracing::warn!(error = %error, "System tray init failed");
+                    return;
+                }
+            };
 
             let _ = _tray.set_visible(system_tray_enabled.load(Ordering::Relaxed));
 
@@ -142,8 +147,10 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
                     std::thread::sleep(std::time::Duration::from_millis(100));
                 }
             }
-        })
-        .expect("tray thread spawn")
+        });
+    if let Err(error) = spawn_result {
+        tracing::error!(error = %error, "Failed to spawn system tray thread");
+    }
 }
 
 fn process_menu_event(
@@ -229,8 +236,6 @@ mod tests {
         let paused = Arc::new(AtomicBool::new(false));
         let enabled = Arc::new(AtomicBool::new(false));
         // Verify it spawns a thread successfully without panic
-        let handle = spawn(paused, enabled);
-        // Note: we can't block on the handle as it runs forever, but we can verify it was returned.
-        assert!(!handle.thread().name().unwrap().is_empty());
+        spawn(paused, enabled);
     }
 }

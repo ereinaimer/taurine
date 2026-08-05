@@ -153,38 +153,38 @@ impl DaemonServiceBuilder {
         self
     }
 
-    pub fn build(self) -> DaemonService {
-        DaemonService {
-            shutdown_sender: self.shutdown_sender.expect("shutdown_sender is required"),
-            state: self.state.expect("state is required"),
-            paused: self.paused.expect("paused is required"),
+    pub fn build(self) -> Result<DaemonService, String> {
+        Ok(DaemonService {
+            shutdown_sender: self.shutdown_sender.ok_or("shutdown_sender is required")?,
+            state: self.state.ok_or("state is required")?,
+            paused: self.paused.ok_or("paused is required")?,
             pause_notifications_enabled: self
                 .pause_notifications_enabled
-                .expect("pause_notifications_enabled is required"),
+                .ok_or("pause_notifications_enabled is required")?,
             pause_hotkey_spec: self
                 .pause_hotkey_spec
-                .expect("pause_hotkey_spec is required"),
+                .ok_or("pause_hotkey_spec is required")?,
             pause_hotkey_display: self
                 .pause_hotkey_display
-                .expect("pause_hotkey_display is required"),
-            spinner_style: self.spinner_style.expect("spinner_style is required"),
+                .ok_or("pause_hotkey_display is required")?,
+            spinner_style: self.spinner_style.ok_or("spinner_style is required")?,
             pause_audio_enabled: self
                 .pause_audio_enabled
-                .expect("pause_audio_enabled is required"),
+                .ok_or("pause_audio_enabled is required")?,
             system_tray_enabled: self
                 .system_tray_enabled
-                .expect("system_tray_enabled is required"),
-            hook_health: self.hook_health.expect("hook_health is required"),
+                .ok_or("system_tray_enabled is required")?,
+            hook_health: self.hook_health.ok_or("hook_health is required")?,
             active_rpc_settings: self
                 .active_rpc_settings
-                .expect("active_rpc_settings is required"),
+                .ok_or("active_rpc_settings is required")?,
             rpc_reload_sender: self
                 .rpc_reload_sender
-                .expect("rpc_reload_sender is required"),
+                .ok_or("rpc_reload_sender is required")?,
             pause_transition_tx: self
                 .pause_transition_tx
-                .expect("pause_transition_tx is required"),
-        }
+                .ok_or("pause_transition_tx is required")?,
+        })
     }
 }
 
@@ -483,7 +483,8 @@ mod tests {
             .active_rpc_settings(active_rpc_settings)
             .rpc_reload_sender(reload_tx)
             .pause_transition_tx(pause_tx)
-            .build();
+            .build()
+            .expect("builder call site is fully populated");
 
         // Initially state should be empty
         assert_eq!(state.fetch_expansion("hello", None), None);

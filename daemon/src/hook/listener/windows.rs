@@ -487,7 +487,7 @@ pub(crate) fn spawn_windows_hook_listener(
             let is_evicted = exit_epoch.is_some_and(|epoch| epoch != current_epoch);
             if is_evicted {
                 info!(
-                    exit_epoch = exit_epoch.unwrap(),
+                    exit_epoch = exit_epoch.unwrap_or(current_epoch),
                     current_epoch,
                     "Listener was evicted by recovery; suppressing stale exit notification"
                 );
@@ -518,9 +518,7 @@ pub(crate) fn spawn_windows_hook_listener(
                 },
             );
             return crate::hook::supervisor::ListenerHandle {
-                join: std::thread::Builder::new()
-                    .spawn(|| {})
-                    .expect("infallible no-op thread spawn"),
+                join: None,
                 thread_id: 0,
             };
         }
@@ -534,8 +532,7 @@ pub(crate) fn spawn_windows_hook_listener(
             // could send its thread ID. catch_unwind does not catch SEH on
             // Windows, so the thread drops its stack and the sender is gone.
             // Recover gracefully: mark exit and send ListenerExited so the
-            // supervisor retries instead of this .expect() panicking the
-            // supervisor thread and crashing the daemon.
+            // supervisor retries instead of failing to return a join handle.
             error!(
                 "Listener thread terminated before sending OS thread ID; \
                  sending ListenerExited for supervisor retry"
@@ -547,11 +544,17 @@ pub(crate) fn spawn_windows_hook_listener(
                     error: Some(msg),
                 },
             );
-            return crate::hook::supervisor::ListenerHandle { join, thread_id: 0 };
+            return crate::hook::supervisor::ListenerHandle {
+                join: Some(join),
+                thread_id: 0,
+            };
         }
     };
 
-    crate::hook::supervisor::ListenerHandle { join, thread_id }
+    crate::hook::supervisor::ListenerHandle {
+        join: Some(join),
+        thread_id,
+    }
 }
 
 #[cfg(test)]

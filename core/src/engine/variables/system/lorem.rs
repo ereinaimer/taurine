@@ -92,8 +92,12 @@ fn pick_sentences(count: usize) -> Vec<String> {
                 .map(|_| LOREM_WORDS[rng.random_range(0..LOREM_WORDS.len())].to_string())
                 .collect();
             if !words.is_empty() {
-                let first =
-                    words[0].chars().next().unwrap().to_uppercase().to_string() + &words[0][1..];
+                let first = words[0]
+                    .chars()
+                    .next()
+                    .map(|c| c.to_uppercase().to_string())
+                    .unwrap_or_default()
+                    + &words[0][1..];
                 words[0] = first;
                 words.push(".".to_string());
             }
@@ -114,7 +118,11 @@ fn pick_paragraphs(count: usize) -> Vec<String> {
                         .map(|_| LOREM_WORDS[rng.random_range(0..LOREM_WORDS.len())].to_string())
                         .collect();
                     if !words.is_empty() {
-                        let first = words[0].chars().next().unwrap().to_uppercase().to_string()
+                        let first = words[0]
+                            .chars()
+                            .next()
+                            .map(|c| c.to_uppercase().to_string())
+                            .unwrap_or_default()
                             + &words[0][1..];
                         words[0] = first;
                         words.push(".".to_string());

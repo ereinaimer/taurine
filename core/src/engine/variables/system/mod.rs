@@ -183,7 +183,9 @@ fn append_unescaped_segment(segment: &str, output: &mut String) {
             }
         }
 
-        let c = segment[ptr..].chars().next().unwrap();
+        let Some(c) = segment[ptr..].chars().next() else {
+            break;
+        };
         output.push(c);
         ptr += c.len_utf8();
     }
@@ -391,9 +393,8 @@ fn apply_cursor_positioning(steps: &mut Vec<ExpansionStep>) {
         })
         .collect();
 
-    if full_text.contains(CURSOR_TAG) {
+    if let Some(first_idx) = full_text.find(CURSOR_TAG) {
         // Calculate left-arrow count from the first [cursor] position.
-        let first_idx = full_text.find(CURSOR_TAG).unwrap();
         let char_idx = full_text[..first_idx].chars().count();
         let clean_text = full_text.replace(CURSOR_TAG, "");
         let left_arrow_count = clean_text.chars().count() - char_idx;

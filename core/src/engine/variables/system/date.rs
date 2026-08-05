@@ -79,9 +79,18 @@ fn add_months_clamped(dt: OffsetDateTime, months: i32) -> OffsetDateTime {
     let month_index = date.year() * 12 + i32::from(u8::from(date.month())) - 1 + months;
     let year = month_index.div_euclid(12);
     let month_number = month_index.rem_euclid(12) + 1;
-    let month = Month::try_from(month_number as u8).expect("month number is always 1..=12");
+    let month = match Month::try_from(month_number as u8) {
+        Ok(month) => month,
+        Err(_) => {
+            tracing::warn!("month calculation out of range; clamping to January");
+            Month::January
+        }
+    };
     let day = date.day().min(util::days_in_month(month, year));
-    let date = Date::from_calendar_date(year, month, day).expect("clamped date is valid");
+    let date = match Date::from_calendar_date(year, month, day) {
+        Ok(date) => date,
+        Err(_) => dt.date(),
+    };
     dt.replace_date(date)
 }
 
@@ -90,7 +99,9 @@ fn apply_date_calc(mut dt: OffsetDateTime, args: &str) -> Result<OffsetDateTime,
     if args.is_empty() {
         return Err("[Error: calc requires arguments]".to_string());
     }
-    let first = args.chars().next().unwrap();
+    let Some(first) = args.chars().next() else {
+        return Err("[Error: calc requires arguments]".to_string());
+    };
     if first != '+' && first != '-' {
         return Err("[Error: calc needs + or -]".to_string());
     }

@@ -513,14 +513,18 @@ pub(crate) fn is_app_allowed(action: &TriggerAction, active_window: Option<&str>
     };
 
     if has_only {
-        let allowed = action.only_apps.as_ref().unwrap();
+        let Some(allowed) = action.only_apps.as_ref() else {
+            return false;
+        };
         if !match_rules(allowed, &info) {
             return false;
         }
     }
 
     if has_except {
-        let denied = action.except_apps.as_ref().unwrap();
+        let Some(denied) = action.except_apps.as_ref() else {
+            return false;
+        };
         if match_rules(denied, &info) {
             return false;
         }
@@ -593,9 +597,12 @@ fn interpolate_script_action(action: TriggerAction, args: &ArgMap) -> Option<Fin
     let interpolated = interpolate(&decompressed, args);
     let recompressed = compress(&interpolated).unwrap_or(compressed);
 
+    let interpreter = action.interpreter?;
+    let behavior = action.behavior?;
+
     let md = ScriptMetadata {
-        interpreter: action.interpreter.unwrap(),
-        behavior: action.behavior.unwrap(),
+        interpreter,
+        behavior,
         compressed_content: recompressed,
     };
 

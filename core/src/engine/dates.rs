@@ -25,7 +25,7 @@ pub fn preprocess_date_phrase(input: &str) -> String {
 
     static RELATIVE_RE: OnceLock<Regex> = OnceLock::new();
     let re = RELATIVE_RE.get_or_init(|| {
-        Regex::new(r"\b(a|an|the|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(second|seconds|sec|secs|minute|minutes|min|mins|hour|hours|hr|hrs|day|days|week|weeks|month|months|year|years)\s+(before|after|from)\s+(yesterday|today|tomorrow|now)\b").unwrap()
+        Regex::new(r"\b(a|an|the|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(second|seconds|sec|secs|minute|minutes|min|mins|hour|hours|hr|hrs|day|days|week|weeks|month|months|year|years)\s+(before|after|from)\s+(yesterday|today|tomorrow|now)\b").expect("valid relative date regex")
     });
 
     let result = re.replace_all(&normalized, |caps: &regex::Captures| {

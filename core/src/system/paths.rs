@@ -33,15 +33,28 @@ pub fn get_data_dir() -> PathBuf {
 
     #[cfg(target_os = "android")]
     {
-        ANDROID_DATA_PATH
-            .get()
-            .expect("Android data path must be initialized via init_android_path() from Flutter before use!")
-            .clone()
+        match ANDROID_DATA_PATH.get() {
+            Some(path) => path.clone(),
+            None => {
+                tracing::error!(
+                    "Android data path not initialized via init_android_path() from Flutter before use; falling back to current directory"
+                );
+                PathBuf::from(".")
+            }
+        }
     }
 
     #[cfg(not(target_os = "android"))]
     {
-        let base_dirs = directories::BaseDirs::new().expect("Failed to get base directories");
+        let base_dirs = match directories::BaseDirs::new() {
+            Some(dir) => dir,
+            None => {
+                tracing::error!(
+                    "Failed to resolve user data directories; falling back to current directory"
+                );
+                return PathBuf::from(".");
+            }
+        };
         let data_dir = base_dirs.data_local_dir();
 
         #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -67,7 +80,14 @@ pub fn ensure_data_dir() -> PathBuf {
             APP_NAME,
             data_dir.display()
         );
-        fs::create_dir_all(&data_dir).expect("Failed to create app data directories");
+        if let Err(e) = fs::create_dir_all(&data_dir) {
+            tracing::error!(
+                "Failed to create {} data directory {}: {}",
+                APP_NAME,
+                data_dir.display(),
+                e
+            );
+        }
     }
 
     #[cfg(all(unix, not(target_os = "android")))]
@@ -101,10 +121,15 @@ pub fn get_db_path() -> PathBuf {
     #[cfg(target_os = "android")]
     {
         // On Android the data dir is provided directly; append the db file name.
-        ANDROID_DATA_PATH
-            .get()
-            .expect("Android data path must be initialized via init_android_path() from Flutter before use!")
-            .join(DB_FILENAME)
+        match ANDROID_DATA_PATH.get() {
+            Some(path) => path.join(DB_FILENAME),
+            None => {
+                tracing::error!(
+                    "Android data path not initialized via init_android_path() from Flutter before use; falling back to current directory"
+                );
+                PathBuf::from(".").join(DB_FILENAME)
+            }
+        }
     }
 
     #[cfg(not(target_os = "android"))]
@@ -172,7 +197,14 @@ pub fn get_startup_exe_path() -> PathBuf {
             APP_NAME,
             startup_dir.display()
         );
-        fs::create_dir_all(&startup_dir).expect("Failed to create startup directory");
+        if let Err(e) = fs::create_dir_all(&startup_dir) {
+            tracing::error!(
+                "Failed to create {} startup directory {}: {}",
+                APP_NAME,
+                startup_dir.display(),
+                e
+            );
+        }
     }
     startup_dir.join("taurine-startup.exe")
 }

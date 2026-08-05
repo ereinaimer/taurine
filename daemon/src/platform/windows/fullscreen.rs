@@ -22,7 +22,7 @@ static FULLSCREEN_JOIN_HANDLE: std::sync::Mutex<Option<std::thread::JoinHandle<(
     std::sync::Mutex::new(None);
 
 pub fn start_listener(state: Arc<EngineState>) {
-    let handle = std::thread::Builder::new()
+    let spawn_result = std::thread::Builder::new()
         .name("tau-win-full".to_string())
         .spawn(move || {
             // SAFETY: GetCurrentThreadId retrieves the OS thread ID of the calling thread.
@@ -80,11 +80,20 @@ pub fn start_listener(state: Arc<EngineState>) {
                     DispatchMessageW(&msg);
                 }
             }
-        })
-        .expect("Failed to spawn Windows fullscreen listener thread");
+        });
 
-    if let Ok(mut lock) = FULLSCREEN_JOIN_HANDLE.lock() {
-        *lock = Some(handle);
+    match spawn_result {
+        Ok(handle) => {
+            if let Ok(mut lock) = FULLSCREEN_JOIN_HANDLE.lock() {
+                *lock = Some(handle);
+            }
+        }
+        Err(error) => {
+            tracing::error!(
+                error = %error,
+                "Failed to spawn Windows fullscreen listener thread"
+            );
+        }
     }
 }
 

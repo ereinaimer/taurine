@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 /// Checks if the text contains any HTML tags.
 pub fn has_html_tags(text: &str) -> bool {
     static RE: OnceLock<Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| Regex::new(r"</?[a-zA-Z!]").unwrap());
+    let re = RE.get_or_init(|| Regex::new(r"</?[a-zA-Z!]").expect("valid html regex"));
     re.is_match(text)
 }
 

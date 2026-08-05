@@ -150,7 +150,10 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                         e
                     })?,
 
-                _ => unreachable!("Unhandled migration version {v}"),
+                _ => {
+                    error!(version = v, "Unhandled schema migration version");
+                    return Err(rusqlite::Error::InvalidQuery);
+                }
             }
         }
     }

@@ -134,7 +134,7 @@ pub fn get_conn() -> Result<DbConnection, crate::error::Error> {
 
     // If not found, acquire write lock and initialize the pool for this path
     let mut write_guard = pools.write();
-    let pool = write_guard.entry(db_path.clone()).or_insert_with(|| {
+    if !write_guard.contains_key(&db_path) {
         let manager = SqliteConnectionManager::file(&db_path).with_init(|conn| {
             conn.execute_batch(
                 "PRAGMA journal_mode = WAL;
@@ -143,11 +143,17 @@ pub fn get_conn() -> Result<DbConnection, crate::error::Error> {
             )?;
             Ok(())
         });
-        Pool::builder()
-            .max_size(5)
-            .build(manager)
-            .expect("Failed to initialize connection pool")
-    });
+        let pool = Pool::builder().max_size(5).build(manager).map_err(|e| {
+            crate::error::Error::Service(format!("Failed to initialize connection pool: {}", e))
+        })?;
+        write_guard.insert(db_path.clone(), pool);
+    }
+    let pool = write_guard.get(&db_path).cloned().ok_or_else(|| {
+        crate::error::Error::Service(format!(
+            "Failed to initialize connection pool for path: {}",
+            db_path.display()
+        ))
+    })?;
 
     pool.get().map(DbConnection::Pooled).map_err(|e| {
         crate::error::Error::Service(format!("Failed to get connection from pool: {}", e))

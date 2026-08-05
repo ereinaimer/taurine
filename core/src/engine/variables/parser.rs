@@ -3,8 +3,14 @@ use super::types::ArgMap;
 fn strip_quotes(s: &str) -> &str {
     let s = s.trim();
     if s.len() >= 2 {
-        let first = s.chars().next().unwrap();
-        let last = s.chars().last().unwrap();
+        let first = match s.chars().next() {
+            Some(first) => first,
+            None => return s,
+        };
+        let last = match s.chars().last() {
+            Some(last) => last,
+            None => return s,
+        };
         if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
             return &s[first.len_utf8()..s.len() - last.len_utf8()];
         }

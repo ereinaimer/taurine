@@ -120,8 +120,10 @@ pub fn start() -> taurine_core::error::Result<()> {
     let pause_hotkey_spec = Arc::new(RwLock::new(
         input::hotkey::parse_pause_hotkey_setting(&settings.pause_hotkey).unwrap_or_else(|| {
             // Fall back to strict default if DB is malformed or unsupported.
-            input::hotkey::parse_pause_hotkey_setting("Alt + `")
-                .expect("default pause hotkey parses")
+            tracing::warn!("Configured pause hotkey is invalid; using default Alt + `");
+            input::hotkey::HotkeySpec {
+                hotkey: taurine_core::keys::taurine_pause_hotkey(),
+            }
         }),
     ));
 
@@ -246,7 +248,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     services::audio::start_worker(audio_rx);
 
     // 5. Start system tray icon
-    let _tray_handle = crate::services::tray::spawn(paused.clone(), system_tray_enabled.clone());
+    crate::services::tray::spawn(paused.clone(), system_tray_enabled.clone());
 
     // Activate daemon file logging immediately after hook thread starts capturing
     let guard = taurine_core::logs::activate_file_logging();
@@ -394,12 +396,17 @@ pub fn start() -> taurine_core::error::Result<()> {
                 .active_rpc_settings(active_rpc_settings.clone())
                 .rpc_reload_sender(rpc_reload_tx.clone())
                 .pause_transition_tx(pause_transition_tx.clone())
-                .build();
+                .build()
+                .map_err(taurine_core::error::Error::Config)?;
 
             let current_rpc = {
-                let lock = active_rpc_settings
-                    .read()
-                    .expect("Failed to read active_rpc_settings");
+                let lock = match active_rpc_settings.read() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => {
+                        tracing::warn!("active_rpc_settings lock poisoned; recovering");
+                        poisoned.into_inner()
+                    }
+                };
                 lock.clone()
             };
 
@@ -646,7 +653,10 @@ pub fn start() -> taurine_core::error::Result<()> {
     {
         hook::stop_windows_supervisor();
         // Join the supervisor thread
-        let handle = supervisor_handle.lock().unwrap().take();
+        let handle = match supervisor_handle.lock() {
+            Ok(mut guard) => guard.take(),
+            Err(poisoned) => poisoned.into_inner().take(),
+        };
         if let Some(h) = handle {
             let res = h.join();
             if let Err(e) = res {
@@ -739,6 +749,6 @@ mod tests {
         let paused = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let enabled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
 
-        let _ = crate::services::tray::spawn(paused, enabled);
+        crate::services::tray::spawn(paused, enabled);
     }
 }

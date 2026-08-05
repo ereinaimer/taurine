@@ -365,9 +365,9 @@ fn danger_match(
 fn hotkey_with(modifiers: &[Modifier], key: LogicalKey) -> Hotkey {
     let mut bitset = Modifiers::new();
     for modifier in modifiers {
-        bitset
-            .insert(*modifier)
-            .expect("hotkey helper should only build valid modifier families");
+        if bitset.insert(*modifier).is_err() {
+            tracing::debug!("hotkey_with received a duplicate modifier; skipping it");
+        }
     }
     Hotkey {
         modifiers: bitset,

@@ -8,7 +8,7 @@ pub fn resolve(key: &str) -> Option<String> {
 
     let raw_var = key[4..key.len() - 1].trim();
     let mut parts = raw_var.splitn(2, '=');
-    let var_name_part = parts.next().unwrap().trim();
+    let var_name_part = parts.next().unwrap_or("").trim();
     let default_val = parts.next().map(|s| s.trim());
 
     let var_name =

@@ -323,7 +323,13 @@ fn process_frame(
             if is_press && !IS_INJECTING.load(Ordering::SeqCst) {
                 clear_undo_state(state);
                 hotkey_evaluator.clear();
-                let mut lock = evaluator.lock().unwrap();
+                let mut lock = match evaluator.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => {
+                        tracing::warn!("evdev evaluator mutex poisoned; recovering");
+                        poisoned.into_inner()
+                    }
+                };
                 let _ = lock.process_event(EngineEvent::Interrupt, None);
             }
             continue;
@@ -615,7 +621,13 @@ fn process_frame(
 
             let is_action_key = ev == EngineEvent::ActionKey;
 
-            let mut lock = evaluator.lock().unwrap();
+            let mut lock = match evaluator.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    tracing::warn!("evdev evaluator mutex poisoned; recovering");
+                    poisoned.into_inner()
+                }
+            };
             if let Some(expansion) = lock.process_event(ev, active_window.as_deref()) {
                 let state = lock.state.clone();
                 drop(lock);

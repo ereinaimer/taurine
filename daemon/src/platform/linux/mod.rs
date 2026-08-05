@@ -46,7 +46,12 @@ where
         *lock = Some(clipboard);
     }
 
-    let clip = lock.as_mut().unwrap();
+    let clip = match lock.as_mut() {
+        Some(clip) => clip,
+        None => {
+            return Err("Failed to initialize clipboard handle".to_string());
+        }
+    };
     let result = f(clip);
     if result.is_err() {
         *lock = None;
