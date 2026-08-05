@@ -17,11 +17,15 @@ A fast, secure and easy-to-use text expander built in Rust. Taurine helps you ty
 | **up** | Start the service | `taurine up` |
 | **add** | Create a new text expansion | `taurine add "trigger" "output"` |
 | **add script** | Create a script trigger | `taurine add script "trigger" -f script.ps1` |
-| **hotkey** | Create a global hotkey | `taurine add "trigger" "output" --hotkey` |
+| **add --regex** | Create a regex trigger | `taurine add --regex "issue-(\d+)" "https://github.com/issues/[0]"` |
+| **add --hotkey** | Create a global hotkey | `taurine add --hotkey "ctrl+shift+g" "git status[key(enter)]"` |
+| **add --include-apps** | App-specific trigger | `taurine add pr "git pull" --include-apps "title:GitHub"` |
 | **ls** | List expansions | `taurine ls --sort usage --desc` |
+| **export/import** | Back up / restore triggers | `taurine export backup.tau` |
 | **update** | Self-update to latest release | `taurine update` |
 | **ai add** | Add AI provider keys | `taurine ai add --provider gemini` |
 | **config** | Manage system settings | `taurine config ls` |
+| **completions** | Install shell completions | `taurine completions install` |
 | **status** | Check service health | `taurine status` |
 | **down** | Stop the service | `taurine down` |
 
@@ -30,124 +34,261 @@ A fast, secure and easy-to-use text expander built in Rust. Taurine helps you ty
 ## 2. Command Reference
 
 ### 2.1 Managing the Service
-*   `taurine up`: Installs and starts the background service. Use `taurine down` to stop it.
-*   `taurine restart`: Restarts the service to apply changes or refresh the engine.
-*   `taurine status`: Reports whether the engine is online and if it's currently paused.
+*   `taurine up` (alias `start`): Installs and starts the background service. Use `taurine down` (alias `stop`) to stop it.
+*   `taurine restart` (alias `reboot`): Restarts the service to apply changes or refresh the engine.
+*   `taurine status`: Reports whether the engine is online and if it's currently paused (shows the pause hotkey).
 *   `taurine update`: Self-updates the CLI and service to the latest version.
+*   Global flags: `-v/--verbose`, `-q/--quiet`, `--no-log-file`, `--no-color`, `--json`.
 
 ### 2.2 Managing Triggers
-*   `taurine add <trigger> <output>`: Adds a new snippet. Use the `--hotkey` flag to treat the trigger as a global keyboard shortcut (e.g., `alt+y`).
-*   `taurine add script <trigger> <body> [-f file] [-l lang] [-m mode]`: Adds a shell script trigger.
-    *   **Auto-Inference**: Automatically detects language via file extension or shebang.
-    *   **Flags**: Use `--lang` (`-l`) to specify interpreter (`bash`, `powershell`, `python`, `node`, `cmd`) and `--mode` (`-m`) for execution behavior (`inline` or `silent`).
-*   `taurine delete <trigger>`: Removes a trigger matching the specific pattern or trigger.
-*   `taurine list` (or `ls`): Displays a formatted table of all active triggers. Supports `--sort` (`alpha`, `usage`, `created`, `recent`) and `--asc`/`--desc`.
+*   `taurine add <trigger> <output> [--hotkey] [--os <target>] [--tag <tags>]`: Add or auto-update a word or hotkey snippet. Use `--os` (`windows`, `linux`, `macos`, `all`, `current`) for per-platform variants and `--tag` (repeatable or comma-separated) for labels.
+*   `taurine add --regex <pattern> <output>`: Add a regex trigger (see 3.3).
+*   `taurine add --hotkey <combo> <output>`: Treat the trigger as a global keyboard shortcut (e.g., `alt+y`).
+*   `taurine add script <trigger> <body> [-f file] [-l lang] [-m mode] [--hotkey] [--regex]`: Adds a shell script trigger (see section 5).
+*   `taurine add --include-apps <list> | --exclude-apps <list>`: Restrict a trigger to specific applications (see 3.5).
+*   `taurine list` (or `ls`): Displays a formatted table of all active triggers. Supports `--sort` (`alpha`, `usage`, `created`, `recent`), `--asc`/`--desc`, `--tag`, and `--json`.
+*   `taurine delete` (or `rm`/`remove`) `<trigger>...`: Removes one or more triggers. 
+
+Validation limits: trigger string ≤200 chars, text output ≤100 KB, script content ≤1 MB, display name ≤200, description ≤1000. Tags are normalized (trimmed, lowercased, deduped; max 20 per trigger, 50 chars each). App filters accept only `exe:`/`class:`/`title:` prefixes. Dead `[use("name")]` references are rejected at save time.
 
 ### 2.3 Import / Export
-*   `taurine export [path]`: Exports triggers to a file. Supports `--no-encrypt`, `--with-settings`, and `--with-metrics`.
-*   `taurine import <path>`: Imports triggers. Supports `--conflict` (`prompt`, `skip`, `overwrite`), `--include-settings`, and `--include-metrics`.
+*   `taurine export [path] [-y --plain -stx]`: Exports triggers to a backup file `.tau`. Default format `TAU1` is AES-256-GCM encrypted; `--plain` (`-p`) writes human-readable `TAUP` JSON. `-s` includes settings, `-t` includes usage stats, `-x` includes sensitive settings (requires encryption). `-y` skips the TUI. Interactive TUI by default.
+*   `taurine import <path> [-y] [--conflict prompt|skip|overwrite] [-s] [-t merge|ignore|overwrite] [-x]`: Imports a backup. Conflicts are keyed on Trigger + Target OS; stats default to `merge`. Imports are atomic — any failure rolls back everything.
+*   Sensitive settings (containing `password`, `secret`, `token`, or `api_key`) are excluded by default.
 
 ### 2.4 Configuration
 *   `taurine config set <key> <value>`: Updates a specific setting.
 *   `taurine config list` (or `ls`): Lists all current settings.
-*   `taurine config reset <key>`: Resets a setting to factory defaults (use `--all` to reset everything).
-*   **Core Settings**: `trigger_char`, `pause_hotkey`, `start_on_boot`.
-*   **UI Settings**: `spinner_style`, `pause_notifications_enabled`.
-*   **AI Settings**: `ai_provider`, `ai_model`, `ai_custom_endpoint`, `inline_ai_delimiter`.
-*   **Assist Settings**: `inline_tab_completion_enabled`, `inline_history_enabled`.
+*   `taurine config reset <key>`: Resets a setting to factory defaults (`--all` resets everything).
+*   Key aliases: `trigger`→`trigger_char`, `hotkey`→`pause_hotkey`, `boot`→`start_on_boot`, `tray`→`system_tray_enabled`, `spinner`→`spinner_style`, `notifications`→`pause_notifications_enabled`, `delimiter_mode`→`inline_ai_trigger_mode`, `open_delimiter`→`inline_ai_trigger_open`, `close_delimiter`→`inline_ai_trigger_close`, `inline_tab_completion`→`inline_tab_completion_enabled`, `inline_history`→`inline_history_enabled`, `triggerless`→`triggerless_mode`, `instant`→`instant_expand`, and `mode`/`host`/`port`/`token` for the RPC settings.
+
+| Category | Keys (default) |
+|----------|----------------|
+| Core | `trigger_char` (`>`), `pause_hotkey` (`Alt + \``), `start_on_boot` (`true`), `triggerless_mode` (`true`), `instant_expand` (`false`), `action_key` (`enter` or `space`), `script_timeout` (`15`) |
+| UI | `spinner_style` (`braille`; `arc`/`classic`), `pause_notifications_enabled` (`true`), `ignore_fullscreen` (`true`), `system_tray_enabled` (`true`) |
+| AI | `ai_provider`, `ai_model`, `ai_custom_endpoint`, `inline_ai_trigger_mode` (`asymmetric`; `symmetric`), `inline_ai_trigger` (symmetric delimiter, `^`), `inline_ai_trigger_open` (`>>`), `inline_ai_trigger_close` (`<<`) |
+| Inline Assist | `inline_tab_completion_enabled` (`true`), `inline_history_enabled` (`true`), `inline_emoji_enabled` (`true`), `inline_emoji_trigger_char` (`:`), `inline_datetime_enabled` (`true`), `inline_currency_to_words_enabled` (`false`) |
+| Service RPC | `rpc_mode` (`socket`; `tcp`), `rpc_host` (`127.0.0.1`), `rpc_port` (`50051`), `rpc_token` (auto-generated) |
 
 ### 2.5 AI Copilot
-*   `taurine ai add --provider <name>`: Adds a provider credential.
-*   `taurine ai models --provider <name>`: Lists models supported by a specific provider.
-*   `taurine ai list`: Lists all configured AI providers.
+*   `taurine ai add --provider <name>`: Adds a provider credential (stored in the OS keyring, never plaintext).
+*   `taurine ai models --provider <name>`: Lists models supported by a provider.
+*   `taurine ai list` (or `ls`): Lists all configured AI providers.
 *   `taurine ai remove --provider <name>`: Removes a provider's credentials.
 *   `taurine ai preset add/rm/list`: Manage shortcuts for specific AI personas or tasks.
+*   Supported providers and default models: openai (`gpt-4o`), claude/anthropic (`claude-3-5-sonnet-latest`), gemini (`gemini-2.5-flash`), xai (`grok-2-latest`), deepseek (`deepseek-chat`), groq (`llama-3.3-70b-versatile`), cohere (`command-r-plus`), together (`meta-llama/Llama-3.3-70B-Instruct-Turbo`), fireworks (`llama-v3p3-70b-instruct`), nebius (`Meta-Llama-3.1-70B-Instruct`), github_copilot (`gpt-4o`), mimo (`mimo-2`), zai (`glm-4`), custom (`gpt-3.5-turbo`).
+*   Provider selection: explicit `ai_provider` wins; otherwise a single configured provider is auto-used; multiple providers without a default prompt you to set `ai_provider`.
+
+### 2.6 Shell Completions
+*   `taurine completions install`: Auto-detects the shell/platform and installs completion scripts (`bash`, `elvish`, `fish`, `powershell`, `zsh`).
+*   `taurine completions [shell] > file`: Manually generate a completion file.
+*   `taurine completions uninstall`: Removes installed completions.
 
 ---
 
-## 3. Dynamic Variables
+## 3. Trigger Types
 
-Taurine allows flexible snippets using `[variable_name]` placeholders. Arguments are passed at expansion time by appending them with a colon.
-Example: `taurine add hi "Hello, [name]!"` -> typing `>hi:erein ` outputs `Hello, erein!`.
+### 3.1 Word Triggers
+*   Type the trigger character (default `>`) followed by the trigger word + a space: `>brb ` → "Be right back".
+*   Pass positional arguments by appending `:value` to the trigger: `>hi:Erein ` → fills `[0]`/`[name]`.
+*   Hotkeys execute immediately on press — no trigger char, space, or Backspace Undo.
 
-### 3.1 Defaults and Spaces
-*   **Defaults**: Provide a fallback using `[variable=default]` (e.g., `Hello, [name=friend]!`).
-*   **Spaces**: If an argument contains spaces, wrap it in single or double quotes (`>hi:"John Doe" `).
+### 3.2 Hotkey Syntax & Rules
+*   Modifiers: generic (`ctrl`, `shift`, `alt`, `meta`) match either side; side-specific (`lctrl`, `ralt`, `lalt`, `rctrl`, `lshift`, `rshift`, `lmeta`, `rmeta`, etc.) match only that key. `alt+m` conflicts with `lalt+m`; `lalt+m` and `ralt+m` are independent; you cannot mix generic + side-specific of the same family (`ctrl+lctrl+k` is rejected).
+*   Aliases accepted: Ctrl family (`ctrl`, `control`, side variants), Alt (`alt`, `opt`, `option`, `altgr`, side variants), Meta (`meta`, `cmd`, `win`, `super`, `mod`, side variants).
+*   Canonicalization: modifier order normalized to `ctrl → shift → alt → meta` (`Shift+Ctrl+G` ≡ `ctrl+shift+g`).
+*   Special keys: `enter`/`return`, `esc`/`escape`, `delete`/`del`, arrows, `home`, `end`, `backtick`/`grave`/`tilde`, `f1`–`f12`. Numpad is distinct (`ctrl+1` vs `ctrl+num1`).
+*   Rejected: modifier-only chords, multi-base chords (`ctrl+k+p`), unknown keys, dangerous OS shortcuts (`ctrl+c/v/x/z/a/s`, `alt+tab`, `alt+f4`, `cmd+q`...), and the reserved `alt+\`` pause hotkey.
+*   Hotkeys receive no typed positional args (`[0]` uses defaults) and are desktop-only.
 
-### 3.2 System Variables
-System variables inject data directly from the machine or generate values on the fly using `[namespace.variable]` syntax:
-*   **Date/Time**: `[date]`, `[date.format(MMMM D, YYYY)]`, `[time]`, `[time.format(hh:mm A)]`, `[date.calc(+1d)]`, `[date.calc(-1d)]`.
-*   **Contextual**: `[clip]` (captures current clipboard content before expansion).
-*   **Generators**: `[uuid.v4]`, `[uuid.v7]`, `[random.pass]`, `[mock.name]`, `[mock.email]`.
-*   **Environment & Net**: `[env(USER)]`, `[env(HOME)]`, `[net.ip]`, `[net.lip]`.
+### 3.3 Regex Triggers
+*   Attach a trigger to a regex matching the suffix of typed text; capture groups map to positionals `[0]`, `[1]`, ...
+*   `taurine add --regex "issue-(\d+)" "https://github.com/issues/[0]"` → typing `issue-42 ` expands to the URL.
+*   Patterns are suffix-anchored automatically, so multi-word patterns like `bind:(\w+)=(\w+)` work (`bind:foo=bar ` → `Mapping foo to bar`).
+*   Fully compatible with Backspace Undo, but **not** with autocomplete/history navigation. Avoid exponential backtracking (`(a+)+`).
 
-### 3.3 Expansion Directives
-Directives control the behavior of the expansion process:
-*   **Keystroke**: `[key.tab]`, `[key.enter]`, `[key.ctrl+shift+t]`, `[key.mod+a]` (cross-platform modifier).
-*   **Delay**: `[delay.200ms]` pauses the sequence for exactly 200 milliseconds.
-*   **Cursor**: `[cursor]` defines the final caret position after expansion (ignored if `[key.*]` directives exist).
+### 3.4 Backspace Undo
+*   Pressing Backspace within **2.5 seconds** of an expansion reverts it to the original trigger text; the window then expires and Backspace returns to normal.
+*   Undo locks in (disabled) if you type any alphanumeric/symbol key, use arrow keys/Home/End/Page keys, or click the mouse.
+*   `Shift + Backspace` = regular Undo; `Ctrl + Backspace` (Win/Linux) / `Alt + Backspace` (macOS) = native word-delete, not Taurine undo.
+*   Never offered for: structural templates using `[cursor]` or simulated arrow keys, AI-generated text, clipboard pastes >64 KB, or script/command triggers. Use native `Ctrl+Z`/`Cmd+Z` as fallback.
 
-### 3.4 Text Transformers
-Transformers modify casing and structure using dot-notation:
-*   **Case Styles**: `upper`, `lower`, `title`, `camel`, `pascal`.
-*   **Delimiters**: `snake`, `kebab`, `shoutysnake`.
-*   **Usage**: Chain multiple transformers (e.g., `[val | upper | lower]`). Combine with defaults (e.g., `[name=friend | title]`). Use `url.encode` for links.
-
----
-
-## 4. Shell Script Triggers
-
-Taurine integrates a background execution engine allowing triggers (words or hotkeys) to run arbitrary scripts (Bash, Python, PowerShell, Node, Cmd).
-
-*   **Encapsulated Storage**: Scripts are stored as `zstd` compressed BLOBs within the SQLite database.
-*   **Execution Pipeline**: Uses `tokio::process::Command` for non-blocking execution.
-*   **Feedback System**: Employs an asynchronous Braille spinner thread (`⠋`, `⠙`, `⠹`...) during execution.
-*   **Fidelity Injection**: Leverages a "clipboard-first" approach for injecting script `stdout`.
+### 3.5 App-Specific Triggers
+*   Restrict word/hotkey expansions to specific apps, window classes, or titles.
+*   `--include-apps <list>`: fires only if the active window matches ≥1 rule. `--exclude-apps <list>`: never fires if any rule matches.
+*   Prefix specifiers: `exe:<name>` (case-insensitive exact binary, `code` matches `code.exe`), `class:<name>` (window class or macOS bundle ID), `title:<substring>`. No prefix defaults to `exe:`.
+*   Overlapping app mappings (e.g., a Chrome-only + a global hotkey for the same combo) are rejected with a `Trigger conflict` error.
+*   If the OS can't determine the active window, restricted triggers are safely blocked. On Wayland, restricted triggers are blocked and unrestricted ones behave globally.
 
 ---
 
-## 5. Inline Features
+## 4. Dynamic Variables
 
-### 5.1 Inline Math
-Evaluate mathematical expressions typed directly into any text field prefixed by the trigger character.
-*   Standard operations (`+`, `-`, `*`, `/`, `%`, `^`). Implicit multiplication supported (`>2(3+4)`).
-*   Scientific notation (`1.5e3`). Constants (`pi`, `e`). Functions (`sqrt`, `abs`, `floor`, `ceil`, `round`).
+Flexible snippets use `[variable_name=default]` placeholders. The `=` is mandatory. Arguments are passed by appending `:value` to the trigger: `>hi:Erein ` → "Hello, Erein!".
 
-### 5.2 Inline AI Copilot
-Stream AI responses directly into the active text field.
-1.  Configure provider: `taurine config set ai_provider gemini`.
-2.  Trigger: Type `>ai ` followed by a **Space**.
-3.  Prompt: A delimiter (`` ` ``) appears. Type the prompt, close with another backtick, and hit **Space**.
+*   **Positional args**: `[0]`, `[1]`, ... are zero-based and reorderable (`https://github.com/[1=repo]/[0=org]`).
+*   **Named args**: `key=value` in the trigger, order-independent (`>gh:name=erein:repo=taurine`).
+*   **Quoting**: wrap arguments with spaces/colons in single or double quotes (`>hi:"John Doe" `). With `action_key=enter`, unquoted spaces are fine.
+*   **Skip placeholders** with `::` to keep their defaults.
+*   **Escaping**: `\[` `\]` escape brackets; `\n`, `\t`, `\r` are escaped literals.
 
-### 5.3 Inline Trigger Assist
-Headless assist features for word triggers, managed via config:
-*   **Tab Completion**: Cycle through matching word triggers using `Tab` and `Shift + Tab`.
-*   **History Navigation**: Navigate recently used triggers using the `Up` and `Down` arrow keys.
+### 4.1 System Variables
+System variables inject machine data or generate values using `[namespace.variable]` or function-call syntax:
+
+*   **Date/Time**: `[date]` (ISO `YYYY-MM-DD`), `[date.utc]`, `[date.calc(+1d)]`, `[date.format(YYYY-MM-DD)]` (LDML tokens, no time tokens); `[time]` (`HH:mm`), `[time.utc]`, `[time.calc(-30m)]`, `[time.format(hh:mm A)]`; methods chain left-to-right (`[date.utc.calc(+1w2d).format(dddd)]`). Calc units: `d/w/m/y` (date), `h/m/s` (time).
+*   **Clipboard**: `[clip]` (≡ `[clip(0)]`); history ring `[clip(1)]`/`[clip(2)]` (last 3, in-memory only, wiped on restart, deduped, ignores transient-data flags from 1Password/Bitwarden).
+*   **Environment**: `[env(USER)]`, `[env("HOME")]` — case-sensitive; may expose sensitive values.
+*   **Files**: `[file.read(path)]` (≤5 MB, UTF-8, `~` expands home), `[file.read_line(path, n)]`, `[file.read_line(path, start, end)]`.
+*   **Command Execution**: `[exec.bash(cmd)]` / `[exec.powershell(cmd)]` / `[exec.python(cmd)]` / `[exec.node(cmd)]` / `[exec.node-esm(cmd)]` / `[exec.cmd(cmd)]` run shell commands and inject output at the cursor; `[exec.silent.…]` runs async in the background; `[exec.<lang>.file(path)]` compiles a script file into the DB; `.args(--a, b)` passes arguments; 20s timeout.
+*   **Network**: `[http.get(url)]` (raw body, 5s timeout, `https://` assumed if omitted), `[http.status(url)]` (status code), `[net.ip]` (public WAN IP), `[net.lip]` (local IP), `[net.online]` (internet check → `true`/`false`), `[net.port(n)]` (TCP port listening check).
+*   **Images**: `[img(path)]` — injects local images (PNG/JPEG, ≤16 MB) via clipboard paste; compiled into the DB at save time.
+*   **Lorem ipsum**: `[lorem.word(n)]` (default 15), `[lorem.sentence(n)]`, `[lorem.paragraph(n)]`.
+*   **Random**: `[random.int(min, max)]` (default `0..99`), `[random.str(len)]` (alnum, 16), `[random.hex(len)]` (32), `[random.pass(len)]` (secure w/ symbols, 20), `[random.choice(a, b, …)]`.
+*   **UUID**: `[uuid.v4]`, `[uuid.v7]` (time-ordered). A version modifier is required.
+*   **Newline**: `[newline]` resolves to a literal newline (raw `\n` is never unescaped, protecting Windows paths).
+*   **Mouse**: `[mouse.pos]` (current `x,y`), `[mouse.click]`, `[mouse.rclick]`, `[mouse.mclick]`, `[mouse.move(x, y)]`, `[mouse.scroll(delta)]`, `[mouse.hold]`/`[mouse.release]` (drag operations). Wayland absolute moving fails silently.
+
+### 4.2 Expansion Directives
+*   **Keystroke**: `[key(tab)]`, `[key(enter)]`, `[key(ctrl+shift+t)]`, `[key(mod+a)]` (cross-platform modifier). Modifiers come first with `+`.
+*   **Delay**: `[delay(200ms)]`, `[delay(1.5s)]`; a bare number (`[delay(200)]`) is milliseconds.
+*   **Cursor**: `[cursor]` places the caret at the final position after expansion. It is ignored (treated as literal) if any `[key(…)]`, `[delay(…)]`, or `[mouse.*]` directive is present.
 
 ---
 
-## 6. Project Architecture
+## 5. Text Transformers
 
-Taurine is a modular Rust workspace designed for performance and safety.
-*   **core**: Foundations, database layer (rusqlite), and the custom interpolation/math engine.
+Global transformers apply with Unix pipe syntax right after any variable, positional, default, or quoted literal: `[0=text | upper]`, `[name=john | title]`, `['hello world' | title]`. Chain left-to-right recursively (`[0=text | trim | upper]`).
+
+*   **Casing**: `upper`, `lower`, `sentence`, `title`, `camel`, `pascal`, `snake`, `kebab`.
+*   **Encoding**: `url.encode`, `url.decode`, `url.clean` (strips tracking params), `base64.encode`, `base64.decode`.
+*   **Hashing**: `md5`, `sha256`, `sha512`.
+*   **Color**: W3C CSS Color Module Level 4 auto-detect/convert — `color.hex`, `color.rgb`, `color.rgba`, `color.hsl`, `color.hsla` (e.g., `red | color.hex` → `#FF0000`).
+*   **Math**: `| calc(expression)` — operator chaining (`[amount=100 | calc("* 1.15")]`), variable references (`[val=10 | calc("x * 2 + 5")]`), or parameterless (`["10 + 20" | calc]`). Functions: `sqrt`, `abs`, `floor`, `ceil`, `round`; constants `pi`, `e`.
+*   **AI**: `| ai(prompt)` — sends the interpolated text to your configured AI provider and replaces it with the response (e.g., `[clip | ai(Summarize this in 3 bullets)]`). Chainable; markdown code fences auto-stripped.
+*   **JSON**: `json.get("path")` (dot-notation, numbers index arrays), `json.pretty`, `json.minify`.
+*   **Lines** (handles `\n`/`\r\n`): `firstline`, `lastline`, `linecount`, `compactline`, `prefixline(str)`, `suffixline(str)`, `joinline(delim)`, `splitline(delim)`, `uniqline`, `sortline("desc"/"numeric"/"insensitive")`.
+*   **Text manipulation** (UTF-8 aware): `trim`, `length`, `wordcount`, `truncate(n)`, `replace(old, new)`, `slug`, `substring(s, e)`, `stripall`, `stripemoji`, `onlydigit`, `onlyalphanumeric`, `regexreplace(pattern, replacement)`.
+*   **Formatting**: `quote`, `squote`, `backtick`, `unquote`.
+*   **Data extractors**: `html(selector)` / `xml(selector)` (CSS selector → inner text of first match), `toml(path)`, `yaml(path)`, `regexmatch(pattern, [group])`. Pairs well with `[http.get(…)]` and `[file.read(…)]`.
+*   **Extract all matches**: `ext.url`, `ext.email`, `ext.phone`, `ext.mention`, `ext.hashtag`, `ext.ip`, `ext.mac`, `ext.path` (+ `.filename`/`.dir`), `ext.jwt`, `ext.semver`, `ext.mdcode`, `ext.mdtable`, `ext.mdlist` — returns newline-separated matches.
+*   **Snippet composition**: `[use("trigger_name")]` embeds another snippet's contents.
+
+---
+
+## 6. Shell Script Triggers
+
+Taurine's background engine runs arbitrary scripts (Bash, Python, PowerShell, Node, Cmd) from word, hotkey, or regex triggers.
+
+*   **Languages**: `bash` (`.sh`), `powershell` (`.ps1`), `python` (`.py`), `node` (`.js`, `.cjs`), `node-esm` (`.mjs`), `cmd` (`.bat`, `.cmd`). Inference order: file extension → shebang → explicit `--lang`.
+*   **Execution modes** (`-m`, `--mode`): `inline` (default — stdout injected as text via a clipboard-first "injection" mechanism) or `silent` (background only, for notifications/builds).
+*   **Storage**: `zstd`-compressed BLOBs inside the SQLite DB; script files (`-f`) are copied in — the original file isn't needed afterward.
+*   **"Interpolation First"**: variables are replaced in the script body *before* the interpreter runs — `[var=default]`, `[env(USERNAME)]`, transformers, and positionals all work, including inside script files.
+*   **Examples**: `taurine add script url 'start https://[url=google.com]' --lang powershell --os windows`; `taurine add script --hotkey "ctrl+shift+w" winget "winget install [0=git]"`.
+*   Hard limit: 20s max execution time (then terminated). Scripts run with the service's environment in a temporary directory; interpreters must be on `PATH`.
+
+---
+
+## 7. Inline Features
+
+### 7.1 Inline Math
+Evaluate expressions typed into any text field prefixed by the trigger char.
+*   Operators `+`, `-`, `*`, `/`, `%` (modulo), `^` (power, right-associative); parentheses; implicit multiplication (`2(3+4)` = 14, `3pi`).
+*   Scientific notation (`1.5e3`), constants (`pi`, `e`), functions (`sqrt`, `abs`, `floor`, `ceil`, `round`).
+*   Results formatted to max 4 decimals; snippets are evaluated before math.
+
+### 7.2 Inline AI Copilot
+Stream LLM responses directly into the active text field.
+1.  Configure a provider: `taurine ai add --provider gemini` (and optionally `taurine config set ai_provider gemini`).
+2.  Type the opening delimiter `>>`, your prompt, the closing delimiter `<<`, then press **Space** or **Enter** (default `>>prompt<<`). The delimiters and prompt are replaced by the response.
+3.  Symmetric mode uses `inline_ai_trigger` (default `^`); asymmetric mode uses `inline_ai_trigger_open`/`inline_ai_trigger_close` (`>>`/`<<`). Custom delimiters and endpoints (`taurine config set ai_custom_endpoint http://localhost:11434/v1` for Ollama/LM Studio) are supported.
+
+### 7.3 Inline Trigger Assist
+Headless assist for word triggers (no popups):
+*   **Tab Completion**: cycle matching word triggers with `Tab` / `Shift + Tab` (controlled by `inline_tab_completion_enabled`).
+*   **History Navigation**: cycle recent triggers with `Up` / `Down` arrows (controlled by `inline_history_enabled`); `>`+Up for global history, `>g`+Up for prefix-filtered.
+*   **Triggerless Tab completion**: type a word-prefix + Tab when `triggerless_mode` is on. `Esc` cancels; `Space` expands.
+
+### 7.4 Inline Emoji Picker
+*   Type the emoji char (default `:`) + letters at a word boundary, cycle with `Tab`/`Shift+Tab`, expand with `Enter`. `:rocket` → 🚀.
+*   `triggerless_mode` (default on) lets bare descriptions like `happy face` work without a prefix; ambiguous matches open a picker.
+*   `instant_expand` (default off) replaces instantly with the full emoji name. Control with `inline_emoji_enabled` / `inline_emoji_trigger_char`. Snippets take precedence over emoji.
+
+### 7.5 Inline Unit Converter
+*   Convert `<value><unit>=<unit>` + Space/Enter: `100c=f` → `212f`, `1.5gb=mb`, `32psi=bar`. Case-insensitive.
+*   Natural language with separators `to`/`in`/`into`/`as` (`100 dollars to Euros`, `32 celsius in fahrenheit`) and command prefixes (`convert`, `transform`, `change`, `calculate`, `compute`, `what is`, `how much is`).
+*   Units span temperature, length, weight, volume, area, time, speed, data (incl. binary kib/mib), tire pressure, power, energy, force, frequency, voltage, current, resistance, angles, and CSS (`px`/`rem`/`em`, 16px base).
+*   Colors convert between `hex`/`rgb`/`rgba`/`hsl`/`hsla` (`#3b82f6=rgb`).
+*   Currencies convert with any 3-letter ISO code, using real-time rates (cached locally, with offline fallback rates for USD/EUR/INR/GBP/JPY/CAD/AUD/CNY).
+*   Requires `triggerless_mode`; auto-disabled if `instant_expand` is on.
+
+### 7.6 Inline Currency to Words
+*   Spells currency amounts out in English: `$120` → "One hundred twenty dollars". Disabled by default (`inline_currency_to_words_enabled`).
+*   Triggered by a currency symbol or 3-letter ISO code + space. Indian numbering (Lakh/Crore) applies to INR/BDT.
+*   Symbols: `$ € £ ¥ ₹ ৳ ₩ ₪ ₫ ₿`; ~40 ISO 4217 codes supported.
+
+### 7.7 Inline Date & Time
+*   Natural-language date/time phrases expand into formatted absolutes on **Enter** (active only when `action_key` is `enter`).
+*   Recognizes `ago`/`from now`/`tomorrow`/`yesterday`, `+`/`-` prefixes, `next`/`last` + weekday, compound phrases (`day before yesterday`), and bare anchors (`today`).
+*   Timezones: `time in tokyo`, `10am pst to ist` (90+ cities, 25+ abbreviations, IANA IDs).
+*   Bare quantities, bare clock times, and absolute dates do not expand.
+*   Config: `inline_datetime_enabled`, `inline_datetime_date_format` (`MMMM D, YYYY`), `inline_datetime_time_format` (`h:mm A`), `inline_datetime_datetime_format`, `inline_datetime_dialect` (`uk`/`us`).
+
+---
+
+## 8. Rich Text
+
+When HTML is detected in a snippet's output, Taurine writes both styled HTML and a plain-text fallback to the clipboard, so signatures render correctly in Outlook/Gmail/Word while degrading cleanly in Notepad/terminals.
+
+*   Line breaks: `<br>` (legacy `\n` is no longer supported inside rich text).
+*   Tags: `<b>`/`<strong>`, `<i>`/`<em>`, `<u>`, `<a href="…">`, `<p>`.
+*   Example: `taurine add ";sig" "<b>My Name</b><br><i>Software Engineer</i><br><a href='https://example.com'>example.com</a>"`.
+
+---
+
+## 9. Rules & Limits
+
+*   **Syntax**: dynamic variables require an `=` default (`[name=stranger]`); empty defaults are rejected; quoted defaults needed for spaces/commas/brackets; system variables cannot take defaults (`[cursor=here]` invalid); pipes must stay inside the outer brackets; nested tags evaluate inner-first.
+*   **Save-time**: `[use("trigger")]` recursion depth ≤5; max 3 `| ai` calls; exactly 1 `[cursor]`; `[cursor]` cannot coexist with `[key(…)]`/`[delay(…)]`/`[mouse.*]`.
+*   **Runtime**: clipboard ≤1 MB (binary/whitespace-only ignored), file reads ≤5 MB, `[exec.*]` timeout 20s, `[http.*]` timeout 5s, interpolation depth 32, inner-tag loop ≤128 iterations.
+
+---
+
+## 10. Environment Variables
+
+*   `TAURINE_RPC_TOKEN`: Bearer token override for client↔service communication, bypassing the database lookup.
+*   `TAURINE_DATA_DIR`: Overrides the default user data directory (configs, logs, sockets).
+*   `TAURINE_DB_PATH`: Overrides the SQLite database path (default `<data dir>/taurine.db`).
+*   Referenced system vars: `HOME` (Linux/macOS), `USERPROFILE` (Windows), `SHELL` (completion installs), `WAYLAND_DISPLAY`/`DISPLAY` (Linux focus tracking).
+
+---
+
+## 11. Project Architecture
+
+Taurine is a modular Rust workspace designed for performance and security with a split-process design — a single binary acts as either the background service (`--daemon`) or the CLI frontend, communicating over local gRPC.
+
+*   **core**: Foundations, SQLite database (rusqlite), and the custom interpolation/math engine.
 *   **cli**: Front-facing tool (clap) and OS service manager (`axoupdater` for updates).
 *   **service**: Background logic responsible for keyboard monitoring and text injection.
     *   Windows/macOS: Uses `rdev` for global hooks.
     *   Linux (Wayland/X11): Bypasses display servers entirely using `evdev` and `uinput` with kernel capabilities (`sudo setcap 'cap_dac_override+ep'`).
 *   **tui**: Interactive terminal interface (built with `ratatui`).
 
-### 6.1 System Paths
+### 11.1 System Paths
 *   **Windows**: `%LOCALAPPDATA%\Taurine`
 *   **Linux**: `~/.local/share/taurine`
 *   **macOS**: `~/Library/Application Support/Taurine`
 *   Contains `taurine.db` (Primary SQLite storage) and `logs/` (Daily rotating log files).
 
+### 11.2 Engine Toggle
+*   Toggle the entire engine on/off with the global hotkey `Alt + \`` (backtick). The service keeps running but stops intercepting keystrokes while paused.
+
 ---
 
-## 7. AI Agent Best Practices & Coding Guidelines
+## 12. AI Agent Best Practices & Coding Guidelines
 
 When assisting with Taurine's codebase or usage, strictly adhere to these rules:
 1.  **User Interaction**: Use the `taurine` CLI commands directly for trigger management. Do not suggest manual edits to `taurine.db`.
 2.  **Linux Permissions**: Never suggest X11 tools (`xdotool`, `xmodmap`) or running the service as root. The service uses `setcap` for permissions and drops them after acquiring file descriptors.
 3.  **Error Handling**: Use `color-eyre` for application-level error reporting and `tracing` for logging.
 4.  **Performance**: Prefer zero-copy string references (`&str`) over allocations (`String`) in the hot path of the `FastBuffer` keystroke evaluator.
+5.  **Feature Reference**: This file is the canonical digest of Taurine's feature set. For detailed behavior, consult the `docs/content/docs/cli/` source or the published manual.
