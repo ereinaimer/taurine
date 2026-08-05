@@ -1,7 +1,9 @@
 use crate::platform::{ClipboardManager, MouseButton};
 use std::thread;
 use std::time::Duration;
-use tracing::{debug, error, trace, warn};
+#[cfg(not(target_os = "linux"))]
+use tracing::warn;
+use tracing::{debug, error, trace};
 
 use taurine_core::engine::shell::ScriptBehavior;
 use taurine_core::engine::variables::ExpansionStep;

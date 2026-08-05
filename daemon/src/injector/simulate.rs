@@ -1,11 +1,16 @@
+#[cfg(not(target_os = "linux"))]
 use std::collections::VecDeque;
+#[cfg(not(target_os = "linux"))]
 use std::sync::atomic::Ordering;
+#[cfg(not(target_os = "linux"))]
 use std::sync::{Mutex, OnceLock};
+#[cfg(not(target_os = "linux"))]
 use std::time::{Duration, Instant};
 
 #[cfg(not(target_os = "linux"))]
 use rdev::{EventType, simulate};
 
+#[cfg(not(target_os = "linux"))]
 use super::gate::IS_SIMULATING;
 
 #[cfg(not(target_os = "linux"))]

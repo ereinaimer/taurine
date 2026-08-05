@@ -542,10 +542,10 @@ where
                     };
 
                     #[cfg(test)]
-                    if let Ok(mut lock) = REGISTRATION_TX.lock() {
-                        if let Some(tx) = lock.take() {
-                            let _ = tx.send(());
-                        }
+                    if let Ok(mut lock) = REGISTRATION_TX.lock()
+                        && let Some(tx) = lock.take()
+                    {
+                        let _ = tx.send(());
                     }
 
                     tokio::select! {

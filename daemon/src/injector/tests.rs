@@ -4,7 +4,9 @@ use crate::platform::ClipboardManager;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Barrier};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(not(target_os = "linux"))]
+use std::time::Instant;
 use taurine_core::db::crud::TriggerAction;
 use taurine_core::engine::source::MemorySource;
 use taurine_core::engine::variables::ExpansionStep;

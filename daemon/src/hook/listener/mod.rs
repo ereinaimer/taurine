@@ -1,7 +1,9 @@
+#[cfg(not(target_os = "linux"))]
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use tracing::{debug, error, trace};
+#[cfg(not(target_os = "linux"))]
 use unicode_normalization::UnicodeNormalization;
 
 #[cfg(target_os = "macos")]
@@ -16,6 +18,7 @@ pub(super) use windows::spawn_windows_hook_listener;
 #[cfg(not(target_os = "linux"))]
 use rdev::{Event, EventType, Key};
 
+#[cfg(not(target_os = "linux"))]
 use crate::injector;
 #[cfg(not(target_os = "linux"))]
 use crate::injector::{IS_INJECTING, consume_simulated_event};
@@ -36,8 +39,10 @@ use super::completion::{
     trigger_assist_is_active, trigger_assist_key_action,
 };
 #[cfg(not(target_os = "linux"))]
-use super::dispatch::{clear_undo_state, spawn_undo_dispatch, take_active_undo_state};
-use super::dispatch::{spawn_completion_rewrite_dispatch, spawn_expansion_dispatch};
+use super::dispatch::{
+    clear_undo_state, spawn_completion_rewrite_dispatch, spawn_expansion_dispatch,
+    spawn_undo_dispatch, take_active_undo_state,
+};
 
 #[cfg(not(target_os = "linux"))]
 pub(super) static LISTENER_EPOCH: std::sync::atomic::AtomicU64 =

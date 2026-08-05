@@ -719,10 +719,9 @@ fn is_solo_modifier_press(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::injector::INJECTION_GENERATION;
     use crate::input::hotkey_evaluator::HotkeyEvaluator;
     use std::sync::RwLock;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::AtomicBool;
     use std::sync::{Arc, Mutex};
     use taurine_core::engine::{EngineState, Evaluator};
 
@@ -786,7 +785,7 @@ mod tests {
 
         // Verification 1: abort_injection bumped the generation
         assert!(
-            INJECTION_GENERATION.load(Ordering::SeqCst) > 0,
+            crate::injector::capture_generation() > 0,
             "Physical key press during injection must bump injection generation"
         );
     }
