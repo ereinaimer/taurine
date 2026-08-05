@@ -5,6 +5,9 @@ pub mod system;
 pub mod tags;
 pub mod types;
 
+#[cfg(test)]
+mod interpolate_tests;
+
 pub use interpolate::{
     contains_ai_markers, contains_non_sys_markers, extract_ai_markers, interpolate,
 };

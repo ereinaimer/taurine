@@ -22,6 +22,9 @@ pub mod platform;
 mod server;
 mod tray;
 
+#[cfg(test)]
+mod hotkey_evaluator_tests;
+
 pub use server::DaemonService;
 
 static FILE_LOG_GUARD: std::sync::OnceLock<Option<tracing_appender::non_blocking::WorkerGuard>> =

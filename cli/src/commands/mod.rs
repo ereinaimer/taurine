@@ -12,4 +12,7 @@ pub mod update;
 pub mod validate;
 
 #[cfg(test)]
+mod script_tests;
+
+#[cfg(test)]
 pub(crate) static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
