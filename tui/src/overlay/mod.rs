@@ -1,4 +1,4 @@
-pub mod overlay_ui;
+pub mod ui;
 
 use crate::theme::builtin::DARK_THEME;
 use crate::widgets::library::{
@@ -99,7 +99,7 @@ pub fn run_export_overlay() -> CoreResult<Option<ExportFormResult>> {
                 .map_err(|e| taurine_core::Error::Service(format!("Cursor show failed: {e}")))?;
         }
         session.terminal.draw(|f| {
-            crate::overlay::overlay_ui::render_export_popup(f, &state);
+            crate::overlay::ui::render_export_popup(f, &state);
         })?;
         if !text_focused {
             session
@@ -129,7 +129,7 @@ pub fn run_export_overlay() -> CoreResult<Option<ExportFormResult>> {
                 let term_size = session.terminal.size().map_err(|e| {
                     taurine_core::Error::Service(format!("Terminal size query failed: {e}"))
                 })?;
-                if let Some((field, button)) = crate::overlay::overlay_ui::export_field_at(
+                if let Some((field, button)) = crate::overlay::ui::export_field_at(
                     mouse.column,
                     mouse.row,
                     term_size.width,
@@ -213,7 +213,7 @@ pub fn run_import_overlay(path: Option<&str>) -> CoreResult<Option<ImportFormRes
                 .map_err(|e| taurine_core::Error::Service(format!("Cursor show failed: {e}")))?;
         }
         session.terminal.draw(|f| {
-            crate::overlay::overlay_ui::render_import_popup(f, &state);
+            crate::overlay::ui::render_import_popup(f, &state);
             if let Some(msg) = &notification {
                 render_overlay_notification(f, msg);
             }
@@ -248,7 +248,7 @@ pub fn run_import_overlay(path: Option<&str>) -> CoreResult<Option<ImportFormRes
                 let term_size = session.terminal.size().map_err(|e| {
                     taurine_core::Error::Service(format!("Terminal size query failed: {e}"))
                 })?;
-                if let Some((field, button)) = crate::overlay::overlay_ui::import_field_at(
+                if let Some((field, button)) = crate::overlay::ui::import_field_at(
                     mouse.column,
                     mouse.row,
                     term_size.width,
@@ -393,7 +393,7 @@ pub fn prompt_password(label: &str, with_confirmation: bool) -> CoreResult<Optio
                 })?;
             }
             session.terminal.draw(|f| {
-                crate::overlay::overlay_ui::render_password_popup(
+                crate::overlay::ui::render_password_popup(
                     f,
                     label,
                     with_confirmation,
@@ -478,7 +478,7 @@ pub fn run_conflict_prompt(
 
     let result = loop {
         session.terminal.draw(|f| {
-            crate::overlay::overlay_ui::render_conflict_popup(f, incoming, existing, selected);
+            crate::overlay::ui::render_conflict_popup(f, incoming, existing, selected);
         })?;
 
         if let Event::Key(key) = crossterm::event::read()
