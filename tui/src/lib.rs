@@ -50,6 +50,7 @@ pub fn run() -> taurine_core::Result<()> {
     let daemon_controller = SystemDaemonController;
 
     let mut terminal = TerminalGuard::new()?;
+    setup_signal_handler(|code| std::process::exit(code));
     let mut events = EventHandler::new(EVENT_TICK_RATE);
     let mut last_status_refresh = Instant::now();
 
@@ -499,6 +500,89 @@ impl Drop for TerminalGuard {
     }
 }
 
+#[cfg(all(test, unix))]
+static REGISTRATION_TX: std::sync::Mutex<Option<std::sync::mpsc::Sender<()>>> =
+    std::sync::Mutex::new(None);
+
+// Setup OS signal handling for the TUI.
+//
+// NOTE: Since the TUI runs in crossterm raw mode, Ctrl+C is intercepted by
+// crossterm as a key event (which the application handles/ignores), rather than
+// raising a SIGINT signal. Therefore, this handler is primarily active for
+// external termination signals (such as SIGTERM/SIGINT from process supervisors).
+fn setup_signal_handler<F>(exit_fn: F)
+where
+    F: FnOnce(i32) + Send + 'static,
+{
+    if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        std::thread::spawn(move || {
+            rt.block_on(async {
+                #[cfg(unix)]
+                {
+                    let mut sigterm = match tokio::signal::unix::signal(
+                        tokio::signal::unix::SignalKind::terminate(),
+                    ) {
+                        Ok(s) => Some(s),
+                        Err(e) => {
+                            error!("Failed to register SIGTERM handler: {}", e);
+                            None
+                        }
+                    };
+                    let mut sigint = match tokio::signal::unix::signal(
+                        tokio::signal::unix::SignalKind::interrupt(),
+                    ) {
+                        Ok(s) => Some(s),
+                        Err(e) => {
+                            error!("Failed to register SIGINT handler: {}", e);
+                            None
+                        }
+                    };
+
+                    #[cfg(test)]
+                    if let Ok(mut lock) = REGISTRATION_TX.lock() {
+                        if let Some(tx) = lock.take() {
+                            let _ = tx.send(());
+                        }
+                    }
+
+                    tokio::select! {
+                        _ = async {
+                            if let Some(ref mut sig) = sigterm {
+                                sig.recv().await;
+                            } else {
+                                std::future::pending::<()>().await;
+                            }
+                        } => {
+                            restore_terminal();
+                            exit_fn(143);
+                        }
+                        _ = async {
+                            if let Some(ref mut sig) = sigint {
+                                sig.recv().await;
+                            } else {
+                                std::future::pending::<()>().await;
+                            }
+                        } => {
+                            restore_terminal();
+                            exit_fn(130);
+                        }
+                    }
+                }
+                #[cfg(windows)]
+                {
+                    if tokio::signal::ctrl_c().await.is_ok() {
+                        restore_terminal();
+                        exit_fn(0);
+                    }
+                }
+            });
+        });
+    }
+}
+
 fn restore_terminal() {
     let _ = disable_raw_mode();
     let _ = execute!(io::stdout(), LeaveAlternateScreen, Show);
@@ -507,6 +591,46 @@ fn restore_terminal() {
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_signal_handler_restores_terminal() {
+        let called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let called_clone = called.clone();
+
+        let exit_fn = move |code: i32| {
+            assert_eq!(code, 143);
+            called_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+        };
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        if let Ok(mut lock) = REGISTRATION_TX.lock() {
+            *lock = Some(tx);
+        }
+
+        super::setup_signal_handler(exit_fn);
+
+        // Wait deterministically for tokio to complete registration of the signal handler.
+        // Once rx.recv() returns, the OS hook is guaranteed to be installed.
+        let _ = rx.recv();
+
+        // Trigger SIGTERM
+        // SAFETY: Raising SIGTERM on the current process is safe because we have verified via the
+        // mpsc channel that the tokio signal handler is fully registered with the OS.
+        unsafe {
+            libc::raise(libc::SIGTERM);
+        }
+
+        // Wait and check if called is true
+        for _ in 0..20 {
+            if called.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+
+        assert!(called.load(std::sync::atomic::Ordering::SeqCst));
+    }
 
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use taurine_core::{

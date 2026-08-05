@@ -14,3 +14,7 @@ ratatui = { version = "0.30", default-features = false, features = ["crossterm"]
 tokio = { version = "1.0", features = ["full"] }
 tonic = "0.14"
 tracing = { workspace = true }
+
+[target.'cfg(unix)'.dev-dependencies]
+libc = "0.2"
+

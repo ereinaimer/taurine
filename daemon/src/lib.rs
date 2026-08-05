@@ -329,12 +329,52 @@ pub fn start() -> taurine_core::error::Result<()> {
                 let shutdown_requested_clone = shutdown_requested_clone.clone();
                 let rpc_reload_requested_clone = rpc_reload_requested_clone.clone();
                 tokio::spawn(async move {
+                    #[cfg(unix)]
+                    let mut sigterm = match tokio::signal::unix::signal(
+                        tokio::signal::unix::SignalKind::terminate(),
+                    ) {
+                        Ok(s) => Some(s),
+                        Err(e) => {
+                            error!("Failed to register SIGTERM handler: {}", e);
+                            None
+                        }
+                    };
+
+                    #[cfg(unix)]
                     tokio::select! {
                         _ = shutdown_rx.recv() => {
                             shutdown_requested_clone.store(true, Ordering::Relaxed);
                         }
                         _ = rpc_reload_rx.recv() => {
                             rpc_reload_requested_clone.store(true, Ordering::Relaxed);
+                        }
+                        _ = tokio::signal::ctrl_c() => {
+                            info!("System Ctrl+C received, initiating shutdown...");
+                            shutdown_requested_clone.store(true, Ordering::Relaxed);
+                        }
+                        _ = async {
+                            if let Some(ref mut sig) = sigterm {
+                                sig.recv().await;
+                            } else {
+                                std::future::pending::<()>().await;
+                            }
+                        } => {
+                            info!("System SIGTERM received, initiating shutdown...");
+                            shutdown_requested_clone.store(true, Ordering::Relaxed);
+                        }
+                    }
+
+                    #[cfg(not(unix))]
+                    tokio::select! {
+                        _ = shutdown_rx.recv() => {
+                            shutdown_requested_clone.store(true, Ordering::Relaxed);
+                        }
+                        _ = rpc_reload_rx.recv() => {
+                            rpc_reload_requested_clone.store(true, Ordering::Relaxed);
+                        }
+                        _ = tokio::signal::ctrl_c() => {
+                            info!("System Ctrl+C received, initiating shutdown...");
+                            shutdown_requested_clone.store(true, Ordering::Relaxed);
                         }
                     }
                 })
