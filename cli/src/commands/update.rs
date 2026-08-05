@@ -397,6 +397,7 @@ mod tests {
         fs::create_dir_all(&test_dir).unwrap();
 
         // Set env override
+        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
         unsafe { env::set_var("TAURINE_DATA_DIR", &test_dir) };
 
         // 1. When the file does not exist, should_check_now should return true
@@ -426,6 +427,7 @@ mod tests {
         assert!(should_check_now());
 
         // Clean up
+        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
         unsafe { env::remove_var("TAURINE_DATA_DIR") };
         let _ = fs::remove_dir_all(&test_dir);
     }

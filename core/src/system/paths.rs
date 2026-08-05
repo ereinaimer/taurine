@@ -223,11 +223,13 @@ mod tests {
         }
 
         let test_path = "some/custom/path/taurine.db";
+        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
         unsafe { env::set_var("TAURINE_DB_PATH", test_path) };
 
         let path = get_db_path();
         assert_eq!(path.to_str().unwrap(), test_path);
 
+        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
         unsafe { env::remove_var("TAURINE_DB_PATH") };
     }
 
@@ -236,11 +238,13 @@ mod tests {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         crate::testing::init_tracing_for_tests();
         let test_dir = "some/custom/app_dir";
+        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
         unsafe { env::set_var("TAURINE_DATA_DIR", test_dir) };
 
         let path = get_data_dir();
         assert_eq!(path.to_str().unwrap(), test_dir);
 
+        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
         unsafe { env::remove_var("TAURINE_DATA_DIR") };
     }
 
@@ -295,6 +299,7 @@ mod tests {
         crate::testing::init_tracing_for_tests();
 
         let test_dir = std::env::temp_dir().join("taurine_exe_test");
+        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
         unsafe { env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
 
         let exe_path = get_startup_exe_path();
@@ -306,6 +311,7 @@ mod tests {
 
         // Cleanup
         let _ = fs::remove_dir_all(&test_dir);
+        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
         unsafe { env::remove_var("TAURINE_DATA_DIR") };
     }
 
@@ -317,6 +323,7 @@ mod tests {
         let test_dir = std::env::temp_dir().join("taurine_perms_test");
         let _ = fs::remove_dir_all(&test_dir);
 
+        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
         unsafe { env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
 
         let data_dir = ensure_data_dir();
@@ -331,6 +338,7 @@ mod tests {
 
         // Cleanup
         let _ = fs::remove_dir_all(&test_dir);
+        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
         unsafe { env::remove_var("TAURINE_DATA_DIR") };
     }
 
@@ -342,6 +350,7 @@ mod tests {
         let test_dir = std::env::temp_dir().join("taurine_cache_test");
         let _ = fs::remove_dir_all(&test_dir);
 
+        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
         unsafe { env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
 
         let cache_dir = ensure_cache_dir();
@@ -361,6 +370,7 @@ mod tests {
 
         // Cleanup
         let _ = fs::remove_dir_all(&test_dir);
+        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
         unsafe { env::remove_var("TAURINE_DATA_DIR") };
     }
 
@@ -376,6 +386,7 @@ mod tests {
 
         // Set TAURINE_DATA_DIR to a subdirectory of the file (which is invalid)
         let invalid_data_dir = file_path.join("invalid_dir");
+        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
         unsafe { env::set_var("TAURINE_DATA_DIR", &invalid_data_dir) };
 
         // Calling ensure_cache_dir should not panic, even though dir creation fails
@@ -383,6 +394,7 @@ mod tests {
         assert_eq!(cache_dir, invalid_data_dir.join("cache"));
 
         // Clean up
+        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
         unsafe { env::remove_var("TAURINE_DATA_DIR") };
         let _ = fs::remove_file(&file_path);
     }
