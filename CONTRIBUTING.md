@@ -36,7 +36,7 @@ You can start by looking through our open issues. If you want to work on somethi
 If you are compiling Taurine on a Linux system, you must install the following system dependencies:
 ```bash
 sudo apt update
-sudo apt install build-essential protobuf-compiler libxkbcommon-dev libdbus-1-dev pkg-config libasound2-dev libappindicator-gtk3 libglib2.0-dev libgtk-3-dev libxdo-dev -y
+sudo apt install build-essential protobuf-compiler libxkbcommon-dev libdbus-1-dev pkg-config libasound2-dev libxdo-dev -y
 ```
 
 #### Windows

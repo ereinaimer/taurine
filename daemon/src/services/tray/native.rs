@@ -106,7 +106,7 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
                 }
             }
 
-            #[cfg(not(target_os = "windows"))]
+            #[cfg(target_os = "macos")]
             {
                 let mut last_paused = None;
                 let mut last_visible = None;
@@ -117,8 +117,6 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
                         last_visible = Some(now_visible);
                         let _ = _tray.set_visible(now_visible);
                     }
-
-                    pump_platform_events();
 
                     while let Ok(event) = menu_rx.try_recv() {
                         let should_continue =
@@ -147,20 +145,6 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
         })
         .expect("tray thread spawn")
 }
-
-#[cfg(target_os = "macos")]
-fn pump_platform_events() {
-    // Background thread pumping via CFRunLoop is unsupported here without core_foundation.
-    // Relying on default tray-icon behavior.
-}
-
-#[cfg(target_os = "linux")]
-fn pump_platform_events() {
-    gtk::main_iteration_do(false);
-}
-
-#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-fn pump_platform_events() {}
 
 fn process_menu_event(
     event: &MenuEvent,

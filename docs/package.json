@@ -12,7 +12,7 @@
   "dependencies": {
     "@orama/orama": "^3.1.18",
     "framer-motion": "^12.38.0",
-    "fumadocs-core": "16.8.1",
+    "fumadocs-core": "16.13.0",
     "fumadocs-mdx": "15.2.0",
     "fumadocs-ui": "16.13.0",
     "lucide-react": "^1.8.0",
@@ -27,12 +27,15 @@
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "postcss": "^8.5.10",
+    "postcss": "^8.5.18",
     "serve": "^14.2.6",
     "tailwindcss": "^4.2.2",
     "typescript": "^6.0.3"
   },
   "overrides": {
-    "postcss": "^8.5.10"
+    "brace-expansion": "^1.1.16",
+    "js-yaml": "^4.3.0",
+    "postcss": "^8.5.18",
+    "sharp": "^0.35.0"
   }
 }
