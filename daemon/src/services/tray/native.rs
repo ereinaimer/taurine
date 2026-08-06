@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::JoinHandle;
 use tray_icon::menu::{Menu, MenuEvent, MenuItem};
 use tray_icon::{TrayIconBuilder, TrayIconEvent};
 
@@ -30,7 +31,7 @@ fn initialize_windows_ui() {
     }
 }
 
-pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) {
+pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> JoinHandle<()> {
     let spawn_result = std::thread::Builder::new()
         .name("tau-tray".to_string())
         .spawn(move || {
@@ -148,8 +149,12 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) {
                 }
             }
         });
-    if let Err(error) = spawn_result {
-        tracing::error!(error = %error, "Failed to spawn system tray thread");
+    match spawn_result {
+        Ok(handle) => handle,
+        Err(error) => {
+            tracing::error!(error = %error, "Failed to spawn system tray thread");
+            std::thread::spawn(|| {})
+        }
     }
 }
 
