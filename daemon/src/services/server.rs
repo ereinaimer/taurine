@@ -239,10 +239,6 @@ impl DaemonControl for DaemonService {
             // 1. Reload Snippets
             let active = taurine_core::db::crud::get_all_active_triggers(&conn)
                 .map_err(|e| Status::internal(format!("Failed to retrieve triggers: {}", e)))?;
-            let history =
-                taurine_core::db::crud::get_active_word_trigger_history(&conn).map_err(|e| {
-                    Status::internal(format!("Failed to retrieve trigger history: {}", e))
-                })?;
             let hotkeys =
                 taurine_core::db::crud::get_all_active_hotkey_triggers(&conn).map_err(|e| {
                     Status::internal(format!("Failed to retrieve hotkey triggers: {}", e))
@@ -253,7 +249,6 @@ impl DaemonControl for DaemonService {
                 })?;
 
             self.state.load_actions(active);
-            self.state.load_word_trigger_history(history);
             self.state.load_hotkey_actions(hotkeys);
             self.state.load_regex_actions(regexes);
 
@@ -326,9 +321,6 @@ impl DaemonControl for DaemonService {
             self.state
                 .inline_tab_completion_enabled
                 .store(settings.inline_tab_completion_enabled, Ordering::Relaxed);
-            self.state
-                .inline_history_enabled
-                .store(settings.inline_history_enabled, Ordering::Relaxed);
 
             self.state
                 .instant_expand
@@ -504,12 +496,7 @@ mod tests {
                 "world".to_string()
             )]
         );
-        assert_eq!(
-            state.matching_word_trigger_history(""),
-            vec!["hello".to_string()]
-        );
         assert!(state.inline_tab_completion_enabled.load(Ordering::Relaxed));
-        assert!(state.inline_history_enabled.load(Ordering::Relaxed));
         assert!(state.get_hotkey_action("ctrl+shift+g").is_none());
 
         upsert_trigger_with_type(
@@ -540,15 +527,11 @@ mod tests {
         taurine_core::settings::SettingsManager::new(&conn)
             .update_setting("inline_tab_completion_enabled", false)
             .unwrap();
-        taurine_core::settings::SettingsManager::new(&conn)
-            .update_setting("inline_history_enabled", false)
-            .unwrap();
 
         let req = Request::new(taurine_core::rpc::ReloadRequest {});
         service.reload(req).await.expect("Reload failed");
 
         assert!(!state.inline_tab_completion_enabled.load(Ordering::Relaxed));
-        assert!(!state.inline_history_enabled.load(Ordering::Relaxed));
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&test_dir);

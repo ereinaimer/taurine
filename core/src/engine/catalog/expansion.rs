@@ -9,7 +9,6 @@ use crate::engine::variables::{
 pub struct ExpansionCatalog {
     source: Arc<dyn SnippetSource>,
     triggers: RwLock<Vec<Arc<str>>>,
-    history_triggers: RwLock<Vec<Arc<str>>>,
 }
 impl ExpansionCatalog {
     pub fn new() -> Self {
@@ -18,7 +17,6 @@ impl ExpansionCatalog {
         Self {
             source: adaptive,
             triggers: RwLock::new(Vec::new()),
-            history_triggers: RwLock::new(Vec::new()),
         }
     }
 
@@ -26,7 +24,6 @@ impl ExpansionCatalog {
         Self {
             source,
             triggers: RwLock::new(Vec::new()),
-            history_triggers: RwLock::new(Vec::new()),
         }
     }
 
@@ -43,8 +40,6 @@ impl ExpansionCatalog {
         if let Ok(mut guard) = self.triggers.write() {
             *guard = triggers;
         }
-
-        self.load_history_triggers(Vec::<String>::new());
     }
 
     pub fn matching_triggers(&self, prefix: &str) -> Vec<String> {
@@ -62,68 +57,6 @@ impl ExpansionCatalog {
                     .collect()
             })
             .unwrap_or_default()
-    }
-
-    pub fn load_history_triggers(&self, triggers: impl IntoIterator<Item = String>) {
-        let known = self
-            .triggers
-            .read()
-            .map(|guard| guard.clone())
-            .unwrap_or_default();
-
-        let mut seen = std::collections::HashSet::new();
-        let mut ordered_history: Vec<Arc<str>> = triggers
-            .into_iter()
-            .filter(|t| known.iter().any(|k| k.as_ref() == t.as_str()) && seen.insert(t.clone()))
-            .map(|t| Arc::from(t.as_str()))
-            .collect();
-        for k in known {
-            if seen.insert(k.to_string()) {
-                ordered_history.push(k);
-            }
-        }
-
-        if let Ok(mut guard) = self.history_triggers.write() {
-            *guard = ordered_history;
-        }
-    }
-
-    pub fn matching_history_triggers(&self, prefix: &str) -> Vec<String> {
-        let normalized_prefix = prefix.to_lowercase();
-        self.history_triggers
-            .read()
-            .map(|guard| {
-                guard
-                    .iter()
-                    .filter(|trigger| {
-                        normalized_prefix.is_empty()
-                            || trigger.to_lowercase().starts_with(&normalized_prefix)
-                    })
-                    .map(|arc| arc.as_ref().to_string())
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    pub fn promote_history_trigger(&self, trigger: &str) {
-        let known = self
-            .triggers
-            .read()
-            .map(|guard| guard.iter().any(|k| k.as_ref() == trigger))
-            .unwrap_or(false);
-
-        if !known {
-            return;
-        }
-
-        if let Ok(mut guard) = self.history_triggers.write() {
-            if let Some(index) = guard.iter().position(|t| t.as_ref() == trigger) {
-                let entry = guard.remove(index);
-                guard.insert(0, entry);
-            } else {
-                guard.insert(0, Arc::from(trigger));
-            }
-        }
     }
 
     fn get_raw_action(&self, keyword: &str, active_window: Option<&str>) -> Option<TriggerAction> {

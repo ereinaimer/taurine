@@ -3,16 +3,6 @@ use crate::settings::{InlineAiTriggerMode, Settings, SettingsManager, SpinnerSty
 use crate::testing::open_test_db;
 
 #[test]
-fn toggling_inline_history_persists_changed_value() {
-    let (_dir, conn) = open_test_db();
-    let manager = SettingsManager::new(&conn);
-
-    apply_setting_input_with_manager(&manager, "inline_history_enabled", Some("false")).unwrap();
-
-    assert!(!manager.load_all().inline_history_enabled);
-}
-
-#[test]
 fn invalid_wpm_is_rejected() {
     let (_dir, conn) = open_test_db();
     let manager = SettingsManager::new(&conn);

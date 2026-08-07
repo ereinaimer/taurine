@@ -146,9 +146,6 @@ pub(super) fn dispatch_expansion_with<I, L>(
         has_follow_up,
         "Finished expansion dispatch"
     );
-    if track_usage && delete_count > 0 && (injection.completed || injection.successful_chars > 0) {
-        state.record_word_trigger_usage(&trigger);
-    }
     if follow_up.is_none()
         && injection.successful_chars > 0
         && let Some(undo_trigger) = undo_trigger

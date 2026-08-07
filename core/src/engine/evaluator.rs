@@ -71,15 +71,12 @@ pub(crate) struct TriggerCompletionState {
     pub(crate) current_text: String,
     pub(crate) suggestions: Vec<String>,
     pub(crate) selected_index: Option<usize>,
-    pub(crate) history_items: Vec<String>,
-    pub(crate) history_index: Option<usize>,
     pub(crate) selection_mode: Option<TriggerAssistSelectionMode>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TriggerAssistSelectionMode {
     Completion,
-    History,
 }
 
 impl TriggerCompletionState {
@@ -95,8 +92,6 @@ impl TriggerCompletionState {
         self.current_text.clear();
         self.suggestions.clear();
         self.selected_index = None;
-        self.history_items.clear();
-        self.history_index = None;
         self.selection_mode = None;
     }
 
@@ -108,14 +103,11 @@ impl TriggerCompletionState {
         self.current_text.clear();
         self.suggestions.clear();
         self.selected_index = None;
-        self.history_items.clear();
-        self.history_index = None;
         self.selection_mode = None;
     }
 
     pub(crate) fn clear_selection(&mut self) {
         self.selected_index = None;
-        self.history_index = None;
         self.selection_mode = None;
     }
 

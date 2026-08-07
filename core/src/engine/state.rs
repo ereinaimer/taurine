@@ -44,7 +44,6 @@ pub struct EngineState {
     inline_ai_trigger_open: RwLock<String>,
     inline_ai_trigger_close: RwLock<String>,
     pub inline_tab_completion_enabled: AtomicBool,
-    pub inline_history_enabled: AtomicBool,
     pub inline_datetime_enabled: std::sync::atomic::AtomicBool,
     pub inline_currency_to_words_enabled: std::sync::atomic::AtomicBool,
     inline_datetime_date_format: parking_lot::RwLock<String>,
@@ -82,7 +81,6 @@ impl EngineState {
             inline_ai_trigger_open: RwLock::new(">>".to_string()),
             inline_ai_trigger_close: RwLock::new("<<".to_string()),
             inline_tab_completion_enabled: AtomicBool::new(true),
-            inline_history_enabled: AtomicBool::new(true),
             inline_datetime_enabled: std::sync::atomic::AtomicBool::new(true),
             inline_currency_to_words_enabled: std::sync::atomic::AtomicBool::new(false),
 
@@ -118,7 +116,6 @@ impl EngineState {
             inline_ai_trigger_open: RwLock::new(">>".to_string()),
             inline_ai_trigger_close: RwLock::new("<<".to_string()),
             inline_tab_completion_enabled: AtomicBool::new(true),
-            inline_history_enabled: AtomicBool::new(true),
             inline_datetime_enabled: std::sync::atomic::AtomicBool::new(true),
             inline_currency_to_words_enabled: std::sync::atomic::AtomicBool::new(false),
 
@@ -185,11 +182,6 @@ impl EngineState {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    pub fn inline_history_enabled(&self) -> bool {
-        self.inline_history_enabled
-            .load(std::sync::atomic::Ordering::Relaxed)
-    }
-
     pub fn inline_emoji_enabled(&self) -> bool {
         crate::settings::get_cached_inline_emoji_enabled()
     }
@@ -204,10 +196,6 @@ impl EngineState {
 
     pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, TriggerAction)>) {
         self.word_catalog.load_actions(actions);
-    }
-
-    pub fn load_word_trigger_history(&self, triggers: impl IntoIterator<Item = String>) {
-        self.word_catalog.load_history_triggers(triggers);
     }
 
     pub fn load_hotkey_actions(&self, actions: impl IntoIterator<Item = (String, TriggerAction)>) {
@@ -253,14 +241,6 @@ impl EngineState {
 
     pub fn matching_word_triggers(&self, prefix: &str) -> Vec<String> {
         self.word_catalog.matching_triggers(prefix)
-    }
-
-    pub fn matching_word_trigger_history(&self, prefix: &str) -> Vec<String> {
-        self.word_catalog.matching_history_triggers(prefix)
-    }
-
-    pub fn record_word_trigger_usage(&self, trigger: &str) {
-        self.word_catalog.promote_history_trigger(trigger);
     }
 
     pub fn has_hotkey_entry_for(&self, key: crate::keys::LogicalKey) -> bool {
@@ -453,7 +433,6 @@ mod tests {
         assert_eq!(state.engine_mode(), EngineMode::Normal);
         assert_eq!(state.ai_prompt_buffer(), "");
         assert!(state.inline_tab_completion_enabled());
-        assert!(state.inline_history_enabled());
     }
 
     #[test]
@@ -626,49 +605,6 @@ mod tests {
         assert_eq!(
             state.matching_word_triggers("g"),
             vec!["gpush".to_string(), "gs".to_string()]
-        );
-    }
-
-    #[test]
-    fn matching_word_trigger_history_reads_only_the_word_catalog() {
-        let state = EngineState::new();
-        state.load_actions(vec![
-            ("gpush".to_string(), TriggerAction::text("git push")),
-            ("gs".to_string(), TriggerAction::text("git status")),
-        ]);
-        state.load_word_trigger_history(vec!["gs".to_string(), "gpush".to_string()]);
-        state.load_hotkey_actions(vec![("ctrl+g".to_string(), TriggerAction::text("hotkey"))]);
-
-        assert_eq!(
-            state.matching_word_trigger_history("g"),
-            vec!["gs".to_string(), "gpush".to_string()]
-        );
-    }
-
-    #[test]
-    fn record_word_trigger_usage_promotes_history_without_touching_hotkeys() {
-        let state = EngineState::new();
-        state.load_actions(vec![
-            ("email".to_string(), TriggerAction::text("team update")),
-            ("gs".to_string(), TriggerAction::text("git status")),
-            ("uuid".to_string(), TriggerAction::text("1234")),
-        ]);
-        state.load_word_trigger_history(vec![
-            "gs".to_string(),
-            "email".to_string(),
-            "uuid".to_string(),
-        ]);
-        state.load_hotkey_actions(vec![(
-            "ctrl+shift+g".to_string(),
-            TriggerAction::text("hotkey"),
-        )]);
-
-        state.record_word_trigger_usage("uuid");
-        state.record_word_trigger_usage("ctrl+shift+g");
-
-        assert_eq!(
-            state.matching_word_trigger_history(""),
-            vec!["uuid".to_string(), "gs".to_string(), "email".to_string()]
         );
     }
 }

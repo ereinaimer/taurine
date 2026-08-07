@@ -14,8 +14,6 @@ pub(crate) enum CompletionKeyKind {
 pub(crate) enum CompletionKeyAction {
     CycleForward,
     CycleBackward,
-    HistoryOlder,
-    HistoryNewer,
     CancelAndSwallow,
     CancelAndPassThrough,
     PassThrough,
@@ -39,8 +37,7 @@ pub(crate) fn completion_key_action(
             }
         }
         CompletionKeyKind::Escape => CompletionKeyAction::CancelAndSwallow,
-        CompletionKeyKind::Up => CompletionKeyAction::HistoryOlder,
-        CompletionKeyKind::Down => CompletionKeyAction::HistoryNewer,
+        CompletionKeyKind::Up | CompletionKeyKind::Down => CompletionKeyAction::PassThrough,
         CompletionKeyKind::Other => CompletionKeyAction::PassThrough,
     }
 }
@@ -56,11 +53,6 @@ pub(crate) fn trigger_assist_key_action(
     match completion_key_action(key, shift_active, ctrl_active, alt_active, meta_active) {
         CompletionKeyAction::CycleForward | CompletionKeyAction::CycleBackward
             if !state.inline_tab_completion_enabled() =>
-        {
-            CompletionKeyAction::PassThrough
-        }
-        CompletionKeyAction::HistoryOlder | CompletionKeyAction::HistoryNewer
-            if !state.inline_history_enabled() =>
         {
             CompletionKeyAction::PassThrough
         }
@@ -93,64 +85,8 @@ pub(crate) fn should_swallow_trigger_assist_key_release(
 ) -> bool {
     match key {
         CompletionKeyKind::Tab => state.inline_tab_completion_enabled(),
-        CompletionKeyKind::Up | CompletionKeyKind::Down => state.inline_history_enabled(),
+        CompletionKeyKind::Up | CompletionKeyKind::Down => false,
         CompletionKeyKind::Escape | CompletionKeyKind::Other => false,
-    }
-}
-
-pub(crate) const DOUBLE_TAP_INTERVAL_MS: u64 = 250;
-
-#[derive(Clone, Copy, Default)]
-struct DoubleTapLane {
-    last_release_ms: Option<u64>,
-    held: bool,
-    reset_pending: bool,
-}
-
-#[derive(Default)]
-pub(crate) struct DoubleTapTracker {
-    up: DoubleTapLane,
-    down: DoubleTapLane,
-}
-
-impl DoubleTapTracker {
-    pub(crate) fn new() -> Self {
-        Self::default()
-    }
-
-    /// Returns true when the current press should be swallowed because it is a double-tap.
-    ///
-    /// A press counts as a double-tap only when the same key has already been pressed and
-    /// released, and the press arrives strictly after that release with a gap of at most
-    /// `DOUBLE_TAP_INTERVAL_MS`. Same-instant release->press (gap 0) does not form a pair.
-    /// A press while the key is still held (key auto-repeat) records nothing and never fires.
-    /// After a genuine double-tap the lane is disarmed so a third fast press cannot fire again:
-    /// the double-tap's own release clears `last_release_ms` instead of re-arming it.
-    pub(crate) fn on_press(&mut self, is_up: bool, now_ms: u64) -> bool {
-        let lane = if is_up { &mut self.up } else { &mut self.down };
-        if lane.held {
-            return false;
-        }
-        lane.held = true;
-        let is_double_tap = lane.last_release_ms.is_some_and(|release| {
-            now_ms > release && now_ms.saturating_sub(release) <= DOUBLE_TAP_INTERVAL_MS
-        });
-        lane.reset_pending = is_double_tap;
-        is_double_tap
-    }
-
-    pub(crate) fn on_release(&mut self, is_up: bool, now_ms: u64) {
-        let lane = if is_up { &mut self.up } else { &mut self.down };
-        if !lane.held {
-            return;
-        }
-        lane.held = false;
-        if lane.reset_pending {
-            lane.last_release_ms = None;
-            lane.reset_pending = false;
-        } else {
-            lane.last_release_ms = Some(now_ms);
-        }
     }
 }
 

@@ -1,7 +1,7 @@
 use super::completion::{
-    CompletionKeyAction, CompletionKeyKind, DOUBLE_TAP_INTERVAL_MS, DoubleTapTracker,
-    completion_is_active, completion_key_action, completion_key_kind_from_tab_like,
-    should_swallow_trigger_assist_key_release, trigger_assist_is_active, trigger_assist_key_action,
+    CompletionKeyAction, CompletionKeyKind, completion_is_active, completion_key_action,
+    completion_key_kind_from_tab_like, should_swallow_trigger_assist_key_release,
+    trigger_assist_is_active, trigger_assist_key_action,
 };
 use super::dispatch::{dispatch_completion_rewrite_with, dispatch_expansion_with};
 use std::sync::{Arc, Mutex};
@@ -319,18 +319,22 @@ fn completion_key_action_treats_modified_tabs_as_pass_through_cancels() {
 }
 
 #[test]
-fn completion_key_action_swallows_escape_and_vertical_navigation() {
+fn completion_key_action_swallows_escape() {
     assert_eq!(
         completion_key_action(CompletionKeyKind::Escape, false, false, false, false),
         CompletionKeyAction::CancelAndSwallow
     );
+}
+
+#[test]
+fn completion_key_action_treats_up_and_down_arrows_as_pass_through() {
     assert_eq!(
         completion_key_action(CompletionKeyKind::Up, false, false, false, false),
-        CompletionKeyAction::HistoryOlder
+        CompletionKeyAction::PassThrough
     );
     assert_eq!(
         completion_key_action(CompletionKeyKind::Down, false, false, false, false),
-        CompletionKeyAction::HistoryNewer
+        CompletionKeyAction::PassThrough
     );
 }
 
@@ -374,48 +378,22 @@ fn trigger_assist_key_action_passes_tab_through_when_tab_completion_is_disabled(
 }
 
 #[test]
-fn trigger_assist_key_action_passes_history_through_when_history_is_disabled() {
-    use std::sync::atomic::Ordering;
-
-    let state = taurine_core::engine::EngineState::new();
-    state.inline_history_enabled.store(false, Ordering::Relaxed);
-
-    assert_eq!(
-        trigger_assist_key_action(&state, CompletionKeyKind::Up, false, false, false, false),
-        CompletionKeyAction::PassThrough
-    );
-    assert_eq!(
-        trigger_assist_key_action(&state, CompletionKeyKind::Down, false, false, false, false),
-        CompletionKeyAction::PassThrough
-    );
-}
-
-#[test]
-fn trigger_assist_key_release_swallowing_respects_feature_settings() {
+fn trigger_assist_key_release_handling_respects_feature_settings() {
     use std::sync::atomic::Ordering;
 
     let state = taurine_core::engine::EngineState::new();
     assert!(should_swallow_trigger_assist_key_release(
         &state,
         CompletionKeyKind::Tab
-    ));
-    assert!(should_swallow_trigger_assist_key_release(
-        &state,
-        CompletionKeyKind::Up
     ));
 
     state
         .inline_tab_completion_enabled
         .store(false, Ordering::Relaxed);
-    state.inline_history_enabled.store(false, Ordering::Relaxed);
 
     assert!(!should_swallow_trigger_assist_key_release(
         &state,
         CompletionKeyKind::Tab
-    ));
-    assert!(!should_swallow_trigger_assist_key_release(
-        &state,
-        CompletionKeyKind::Down
     ));
 }
 
@@ -449,56 +427,6 @@ fn completion_is_inactive_after_typed_text_is_deleted() {
     assert!(
         !completion_is_active(&evaluator),
         "hook gating must not treat deleted-trigger state as active completion"
-    );
-}
-
-#[test]
-fn dispatch_expansion_promotes_word_trigger_history_on_success() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let state = Arc::new(taurine_core::engine::EngineState::new());
-    state.load_actions(vec![
-        (
-            "email".to_string(),
-            taurine_core::db::crud::TriggerAction::text("team update"),
-        ),
-        (
-            "gs".to_string(),
-            taurine_core::db::crud::TriggerAction::text("git status"),
-        ),
-    ]);
-    state.load_word_trigger_history(vec!["email".to_string(), "gs".to_string()]);
-    let _rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("runtime should build");
-
-    let expansion = taurine_core::engine::ExpansionResult {
-        delete_count: 4,
-        steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
-            "git status".to_string(),
-        )],
-        trigger: "gs".to_string(),
-        undo_trigger: Some(">gs".to_string()),
-        is_calculation: false,
-        stat_kind: taurine_core::db::crud::TriggerStatKind::InlineAi,
-        track_usage: true,
-        follow_up: None,
-    };
-
-    dispatch_expansion_with(
-        expansion,
-        taurine_core::settings::SpinnerStyle::default(),
-        state.clone(),
-        move |_, _, _| crate::injector::InjectionReport {
-            successful_chars: "git status".chars().count(),
-            completed: true,
-        },
-        move |_, _| {},
-    );
-
-    assert_eq!(
-        state.matching_word_trigger_history(""),
-        vec!["gs".to_string(), "email".to_string()]
     );
 }
 
@@ -722,128 +650,5 @@ fn evaluator_reset_clears_buffer_and_completion() {
     assert!(
         result.is_none(),
         "ActionKey after reset should not produce expansion (buffer was cleared)"
-    );
-}
-
-#[test]
-fn double_tap_within_interval_is_detected_and_resets() {
-    let mut tracker = DoubleTapTracker::new();
-    assert!(
-        !tracker.on_press(true, 0),
-        "first press of a pair must pass through"
-    );
-    tracker.on_release(true, 5);
-    assert!(
-        tracker.on_press(true, 200),
-        "a press within the interval of a released press is a double-tap"
-    );
-    tracker.on_release(true, 300);
-    assert!(
-        !tracker.on_press(true, 400),
-        "the release of the double-tap's second press must not re-arm the lane"
-    );
-}
-
-#[test]
-fn gap_larger_than_interval_is_treated_as_single_press() {
-    let mut tracker = DoubleTapTracker::new();
-    assert!(!tracker.on_press(true, 0));
-    tracker.on_release(true, 5);
-    assert!(
-        !tracker.on_press(true, 300),
-        "a 295ms gap exceeds the double-tap interval"
-    );
-}
-
-#[test]
-fn hold_without_release_never_counts_as_double_tap() {
-    let mut tracker = DoubleTapTracker::new();
-    assert!(!tracker.on_press(true, 0));
-    assert!(
-        !tracker.on_press(true, 50),
-        "a press while the key is still held (auto-repeat) must never fire"
-    );
-    tracker.on_release(true, 50);
-    assert!(
-        tracker.on_press(true, 100),
-        "the held press recorded nothing, so press@0/release@50/press@100 is a genuine \
-         double-tap within the interval"
-    );
-}
-
-#[test]
-fn up_and_down_lanes_are_independent() {
-    let mut tracker = DoubleTapTracker::new();
-    assert!(!tracker.on_press(true, 0));
-    tracker.on_release(true, 1);
-    assert!(
-        tracker.on_press(true, 2),
-        "up lane sees a double-tap made of up events only"
-    );
-    assert!(!tracker.on_press(false, 10));
-    tracker.on_release(false, 10);
-    assert!(
-        !tracker.on_press(false, 10),
-        "down lane is unaffected by up activity, and a same-instant release->press on down \
-         does not form a double-tap"
-    );
-}
-
-#[test]
-fn triple_press_does_not_fire_a_second_double_tap() {
-    let mut tracker = DoubleTapTracker::new();
-    assert!(!tracker.on_press(true, 0));
-    tracker.on_release(true, 5);
-    assert!(tracker.on_press(true, 200), "first double-tap");
-    tracker.on_release(true, 201);
-    assert!(
-        !tracker.on_press(true, 210),
-        "a third fast press must not be treated as a second double-tap"
-    );
-}
-
-#[test]
-fn double_tap_interval_constant_is_250() {
-    assert_eq!(DOUBLE_TAP_INTERVAL_MS, 250);
-}
-
-#[test]
-fn double_tap_gap_boundary_is_exactly_the_interval() {
-    let mut tracker = DoubleTapTracker::new();
-    assert!(!tracker.on_press(true, 0), "first tap passes through");
-    tracker.on_release(true, 100);
-    assert!(
-        tracker.on_press(true, 350),
-        "gap of exactly 250ms is a double-tap"
-    );
-    tracker.on_release(true, 350);
-    assert!(
-        !tracker.on_press(true, 400),
-        "double-tap release disarms the lane"
-    );
-    tracker.on_release(true, 400);
-    assert!(
-        !tracker.on_press(true, 651),
-        "gap of 251ms is a single press"
-    );
-}
-
-#[test]
-fn release_without_a_prior_press_is_a_noop() {
-    let mut tracker = DoubleTapTracker::new();
-    tracker.on_release(true, 100);
-    tracker.on_release(false, 100);
-    assert!(
-        !tracker.on_press(true, 200),
-        "a spurious release must not arm the up lane"
-    );
-    assert!(
-        !tracker.on_press(false, 200),
-        "a spurious release must not arm the down lane"
-    );
-    tracker.on_release(true, 250);
-    assert!(
-        tracker.on_press(true, 300),
-        "a real press/release pair still double-taps after the spurious ones"
     );
 }

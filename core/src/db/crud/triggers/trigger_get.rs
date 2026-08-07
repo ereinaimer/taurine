@@ -212,38 +212,6 @@ pub fn get_all_active_regex_triggers(conn: &Connection) -> Result<Vec<(String, T
     Ok(actions)
 }
 
-/// Fetches active word triggers ordered for inline history navigation.
-///
-/// Ordering preference:
-/// 1. More recently used triggers first (`last_used_at DESC`)
-/// 2. Higher usage count when recency ties or is unavailable
-/// 3. Alphabetical trigger order as the deterministic fallback
-pub fn get_active_word_trigger_history(conn: &Connection) -> Result<Vec<String>> {
-    let os_str = get_current_os_db_string();
-    let mut stmt = conn.prepare_cached(
-        "SELECT a.trigger
-         FROM triggers a
-         WHERE a.trigger_type = 'word'
-           AND a.is_deleted = 0
-           AND a.is_enabled = 1
-           AND (a.target_os = 'all' OR a.target_os = ?1)
-         ORDER BY
-           (a.last_used_at IS NULL) ASC,
-           a.last_used_at DESC,
-           a.usage_count DESC,
-           LOWER(a.trigger) ASC,
-           a.trigger ASC",
-    )?;
-
-    let rows = stmt.query_map([os_str], |row| row.get(0))?;
-    let mut triggers = Vec::new();
-    for row in rows {
-        triggers.push(row?);
-    }
-
-    Ok(triggers)
-}
-
 /// Fetches all active hotkey triggers for the current desktop target.
 ///
 /// This is a future-facing load path for daemon hotkey matching. The text

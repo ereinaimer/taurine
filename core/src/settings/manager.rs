@@ -48,12 +48,6 @@ impl<'a> SettingsManager<'a> {
             settings.inline_tab_completion_enabled = v;
         }
 
-        if let Some(val) = map.get("inline_history_enabled")
-            && let Ok(v) = serde_json::from_str::<bool>(val)
-        {
-            settings.inline_history_enabled = v;
-        }
-
         if let Some(val) = map.get("wpm")
             && let Ok(v) = serde_json::from_str::<u32>(val)
         {
@@ -288,13 +282,9 @@ mod tests {
         manager
             .update_setting("inline_tab_completion_enabled", false)
             .unwrap();
-        manager
-            .update_setting("inline_history_enabled", false)
-            .unwrap();
 
         let settings = manager.load_all();
         assert!(!settings.inline_tab_completion_enabled);
-        assert!(!settings.inline_history_enabled);
     }
 
     #[test]

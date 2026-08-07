@@ -19,11 +19,6 @@ pub fn ensure_defaults(conn: &Connection) -> Result<()> {
         upsert_setting(conn, "inline_tab_completion_enabled", "true")?;
     }
 
-    if !existing.contains_key("inline_history_enabled") {
-        debug!("Default 'inline_history_enabled' missing. Seeding database with 'true'.");
-        upsert_setting(conn, "inline_history_enabled", "true")?;
-    }
-
     if !existing.contains_key("wpm") {
         debug!("Default 'wpm' missing. Seeding database with '60'.");
         upsert_setting(conn, "wpm", "60")?;
@@ -75,10 +70,6 @@ mod tests {
             get_setting_value(&conn, "inline_tab_completion_enabled").unwrap(),
             Some("true".to_string())
         );
-        assert_eq!(
-            get_setting_value(&conn, "inline_history_enabled").unwrap(),
-            Some("true".to_string())
-        );
     }
 
     #[test]
@@ -86,16 +77,11 @@ mod tests {
         let (_dir, conn) = open_test_db();
 
         delete_setting(&conn, "inline_tab_completion_enabled").unwrap();
-        delete_setting(&conn, "inline_history_enabled").unwrap();
 
         ensure_defaults(&conn).unwrap();
 
         assert_eq!(
             get_setting_value(&conn, "inline_tab_completion_enabled").unwrap(),
-            Some("true".to_string())
-        );
-        assert_eq!(
-            get_setting_value(&conn, "inline_history_enabled").unwrap(),
             Some("true".to_string())
         );
     }

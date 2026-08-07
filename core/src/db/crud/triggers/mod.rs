@@ -14,9 +14,8 @@ pub use trigger_delete::{
 };
 
 pub use trigger_get::{
-    get_action_by_trigger, get_active_word_trigger_history, get_all_active_hotkey_triggers,
-    get_all_active_regex_triggers, get_all_active_triggers, get_trigger, get_triggers_list,
-    search_triggers,
+    get_action_by_trigger, get_all_active_hotkey_triggers, get_all_active_regex_triggers,
+    get_all_active_triggers, get_trigger, get_triggers_list, search_triggers,
 };
 pub use validate::{
     audit_payload_tags, audit_payload_tags_with_trigger_type, audit_script_payload_tags,
