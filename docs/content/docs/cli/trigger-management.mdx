@@ -68,19 +68,17 @@ Hotkey triggers execute immediately when the keyboard shortcut is pressed. They 
 
 ## Inline Trigger Assist
 
-Taurine provides a headless **inline trigger assist** to help you quickly find and select your word triggers as you type. This feature works directly inside your active text field—no popups, overlays, or command palettes are required. It includes both **Tab completion** for matches and **double-tap Up/Down history navigation** for recently used triggers.
+Taurine provides a headless **inline trigger assist** to help you quickly find and select your word triggers as you type. This feature works directly inside your active text field—no popups, overlays, or command palettes are required. It includes **Tab completion** for matching triggers.
 
 ### Usage
 
-1. Type a few characters of a **word trigger** (optional if you only want to browse history).
+1. Type a few characters of a **word trigger**.
 2. Use the following keys to navigate:
 
 | Key | Action |
 | :--- | :--- |
 | **Tab** | Cycle forward through matching word triggers. |
 | **Shift + Tab** | Cycle backward through matching word triggers. |
-| **Up Arrow** (double-tap) | Open history and move backward through recently used triggers. |
-| **Down Arrow** (double-tap) | Open history and move forward through recently used triggers. |
 
 ### Tab Completion
 
@@ -97,23 +95,12 @@ Completion works on the typed word directly — there is no prefix character. Af
 * **Wraparound**: Cycling is infinite; reaching the end of the list wraps back to the beginning.
 * **Word Triggers Only**: Completion only suggests word triggers. Hotkey triggers are never suggested.
 
-### History Navigation
-
-History allows you to access your most frequently and recently used triggers.
-
-* **Open History**: Double-tap **Up** or **Down** (two presses within about 250 ms) to open history browsing. Single arrow presses pass through as normal caret navigation — this is the only way to open history.
-* **Prefix Search**: Type a prefix (e.g., `g`) and double-tap **Up** to cycle through recently used triggers starting with `g`.
-* **Global History**: Double-tap **Up** or **Down** without typing a prefix to browse your entire trigger history.
-* **Browse**: Browsing replaces your typed query with the selected trigger. Press **Backspace** to revert to your original typed query.
-* **Expand**: Press **Enter** to expand the selected trigger via the engine.
-* **Cancel**: Press **Escape** or any other key to cancel browsing and pass the key through, keeping the current suggestion.
-
 ### Control Keys
 
 While assist is active, Taurine manages several keys to ensure a smooth experience:
 
-* **Escape / other keys**: While browsing history, cancels browsing and passes the key through, keeping the current suggestion.
-* **Backspace**: While browsing history, reverts to your **original query**. If a Tab suggestion is selected, deletes the last character of your typed input so you can refine your search.
+* **Escape / other keys**: While a suggestion is active, cancels assist and passes the key through, keeping the current selection.
+* **Backspace**: If a Tab suggestion is selected, deletes the last character of your typed input so you can refine your search.
 * **Space**: Expands the currently visible trigger (or press the key configured as your `action_key`).
 * **Modified Tabs**: Shortcuts like `Alt + Tab` or `Ctrl + Tab` will cancel assist and pass through to the system normally.
 
@@ -127,17 +114,14 @@ While assist is active, Taurine manages several keys to ensure a smooth experien
 
 ### Configuration
 
-Both Tab completion and History navigation are enabled by default. If you prefer to disable either feature (e.g., to prevent conflicts with terminal shells or specific applications), you can do so using the CLI:
+Tab completion is enabled by default. If you prefer to disable it (e.g., to prevent conflicts with terminal shells or specific applications), you can do so using the CLI:
 
 ```bash
 # Disable Tab completion
 taurine config set inline_tab_completion false
-
-# Disable double-tap Up/Down history navigation
-taurine config set inline_history_enabled false
 ```
 
-When disabled, the relevant keys (`Tab`, `Up`, `Down`) are passed through to the system normally. Disabling these assist features does not affect your ability to expand word triggers using `Space` or use the inline AI copilot.
+When disabled, the `Tab` key is passed through to the system normally. Disabling assist does not affect your ability to expand word triggers using `Space` or use the inline AI copilot.
 
 ## Viewing Your Triggers
 

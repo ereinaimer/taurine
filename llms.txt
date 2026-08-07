@@ -60,14 +60,14 @@ Validation limits: trigger string ≤200 chars, text output ≤100 KB, script co
 *   `taurine config set <key> <value>`: Updates a specific setting.
 *   `taurine config list` (or `ls`): Lists all current settings.
 *   `taurine config reset <key>`: Resets a setting to factory defaults (`--all` resets everything).
-*   Key aliases: `hotkey`→`pause_hotkey`, `boot`→`start_on_boot`, `tray`→`system_tray_enabled`, `spinner`→`spinner_style`, `notifications`→`pause_notifications_enabled`, `delimiter_mode`→`inline_ai_trigger_mode`, `open_delimiter`→`inline_ai_trigger_open`, `close_delimiter`→`inline_ai_trigger_close`, `inline_tab_completion`→`inline_tab_completion_enabled`, `inline_history`→`inline_history_enabled`, `instant`→`instant_expand`, and `mode`/`host`/`port`/`token` for the RPC settings.
+*   Key aliases: `hotkey`→`pause_hotkey`, `boot`→`start_on_boot`, `tray`→`system_tray_enabled`, `spinner`→`spinner_style`, `notifications`→`pause_notifications_enabled`, `delimiter_mode`→`inline_ai_trigger_mode`, `open_delimiter`→`inline_ai_trigger_open`, `close_delimiter`→`inline_ai_trigger_close`, `inline_tab_completion`→`inline_tab_completion_enabled`, `instant`→`instant_expand`, and `mode`/`host`/`port`/`token` for the RPC settings.
 
 | Category | Keys (default) |
 |----------|----------------|
 | Core | `pause_hotkey` (`Alt + \``), `start_on_boot` (`true`), `instant_expand` (`false`), `action_key` (`enter` or `space`), `script_timeout` (`15`) |
 | UI | `spinner_style` (`braille`; `arc`/`classic`), `pause_notifications_enabled` (`false`), `ignore_fullscreen` (`true`), `system_tray_enabled` (`true`) |
 | AI | `ai_provider`, `ai_model`, `ai_custom_endpoint`, `inline_ai_trigger_mode` (`asymmetric`; `symmetric`), `inline_ai_trigger` (symmetric delimiter, `^`), `inline_ai_trigger_open` (`>>`), `inline_ai_trigger_close` (`<<`) |
-| Inline Assist | `inline_tab_completion_enabled` (`true`), `inline_history_enabled` (`true`), `inline_emoji_enabled` (`true`), `inline_emoji_trigger_char` (`:`), `inline_datetime_enabled` (`true`), `inline_currency_to_words_enabled` (`false`) |
+| Inline Assist | `inline_tab_completion_enabled` (`true`), `inline_emoji_enabled` (`true`), `inline_emoji_trigger_char` (`:`), `inline_datetime_enabled` (`true`), `inline_currency_to_words_enabled` (`false`) |
 | Service RPC | `rpc_mode` (`socket`; `tcp`), `rpc_host` (`127.0.0.1`), `rpc_port` (`50051`), `rpc_token` (auto-generated) |
 
 ### 2.5 AI Copilot
@@ -89,9 +89,9 @@ Validation limits: trigger string ≤200 chars, text output ≤100 KB, script co
 ## 3. Trigger Types
 
 ### 3.1 Word Triggers
-*   Type the trigger character (default `>`) followed by the trigger word + a space: `>brb ` → "Be right back".
-*   Pass positional arguments by appending `:value` to the trigger: `>hi:Erein ` → fills `[0]`/`[name]`.
-*   Hotkeys execute immediately on press — no trigger char, space, or Backspace Undo.
+*   Type the trigger word + a space to expand it directly: `brb ` → "Be right back".
+*   Pass positional arguments by appending `:value` to the trigger: `hi:Erein ` → fills `[0]`/`[name]`.
+*   Hotkeys execute immediately on press.
 
 ### 3.2 Hotkey Syntax & Rules
 *   Modifiers: generic (`ctrl`, `shift`, `alt`, `meta`) match either side; side-specific (`lctrl`, `ralt`, `lalt`, `rctrl`, `lshift`, `rshift`, `lmeta`, `rmeta`, etc.) match only that key. `alt+m` conflicts with `lalt+m`; `lalt+m` and `ralt+m` are independent; you cannot mix generic + side-specific of the same family (`ctrl+lctrl+k` is rejected).
@@ -105,7 +105,7 @@ Validation limits: trigger string ≤200 chars, text output ≤100 KB, script co
 *   Attach a trigger to a regex matching the suffix of typed text; capture groups map to positionals `[0]`, `[1]`, ...
 *   `taurine add --regex "issue-(\d+)" "https://github.com/issues/[0]"` → typing `issue-42 ` expands to the URL.
 *   Patterns are suffix-anchored automatically, so multi-word patterns like `bind:(\w+)=(\w+)` work (`bind:foo=bar ` → `Mapping foo to bar`).
-*   Fully compatible with Backspace Undo, but **not** with autocomplete/history navigation. Avoid exponential backtracking (`(a+)+`).
+*   Fully compatible with Backspace Undo, but **not** with autocomplete. Avoid exponential backtracking (`(a+)+`).
 
 ### 3.4 Backspace Undo
 *   Pressing Backspace within **5 seconds** of an expansion reverts it to the original trigger text; the window then expires and Backspace returns to normal.
@@ -205,7 +205,6 @@ Stream LLM responses directly into the active text field.
 ### 7.3 Inline Trigger Assist
 Headless assist for word triggers (no popups):
 *   **Tab Completion**: cycle matching word triggers with `Tab` / `Shift + Tab` (controlled by `inline_tab_completion_enabled`).
-*   **History Navigation**: double-tap the `Up` / `Down` arrow (two presses within ~250 ms; single presses pass through as caret navigation) to browse recent triggers (controlled by `inline_history_enabled`); typing a prefix before the double-tap filters the history. `Backspace` reverts to the typed query, `Esc`/any other key cancels while keeping the suggestion, `Enter` expands.
 *   **Tab completion** is always active for word triggers: type a word-prefix and press `Tab` to cycle matches. `Esc` cancels; `Space` expands.
 
 ### 7.4 Inline Emoji Picker

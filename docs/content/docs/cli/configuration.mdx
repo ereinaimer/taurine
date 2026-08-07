@@ -46,7 +46,6 @@ taurine config reset --all
 | `inline_ai_trigger_open` | `>>` | The opening trigger text boundary for inline AI prompts. |
 | `inline_ai_trigger_close` | `<<` | The closing trigger text boundary for inline AI prompts. |
 | `inline_tab_completion_enabled` | `true` | Enables or disables inline `Tab` / `Shift+Tab` completion. |
-| `inline_history_enabled` | `true` | Enables or disables double-tap `Up Arrow` / `Down Arrow` history browsing. |
 | `rpc_mode` | `socket` | RPC transport mode (`socket` using Unix domain sockets / Windows named pipes, or `tcp`). |
 | `rpc_host` | `127.0.0.1` | Network interface address the service binds to. |
 | `rpc_port` | `50051` | Port the service listens on for RPC. |
@@ -70,7 +69,6 @@ You can use these shorter aliases when running `taurine config set`:
 | `endpoint` | `ai_custom_endpoint` |
 | `custom_endpoint` | `ai_custom_endpoint` |
 | `inline_tab_completion` | `inline_tab_completion_enabled` |
-| `inline_history` | `inline_history_enabled` |
 | `mode` | `rpc_mode` |
 | `host` | `rpc_host` |
 | `port` | `rpc_port` |

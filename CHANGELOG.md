@@ -7,9 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- **Double-Tap History Navigation**: Double-tap the Up or Down arrow to browse your recent trigger history inline; Up goes older, Down goes newer. Keep typing or press Esc to accept the shown word, or Backspace to revert to what you typed.
-
 ### Changed
 - **Backspace Undo Duration**: Increase the backspace undo window from 2.5 seconds to 5.0 seconds.
 - **Default Pause Notifications**: Disable pause notifications by default (`pause_notifications_enabled` defaults to `false`).
@@ -20,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Documentation Site Security**: Upgrade the documentation site's build toolchain (PostCSS, Sharp, js-yaml, brace-expansion) to resolve security advisories.
 
 ### Removed
+- **Removed:** Inline trigger history navigation (double-tap Up/Down) — arrow keys now always pass through to your application.
 - **Trigger Character & Mode Settings**: Removed the `trigger_char` (default `>`) and `triggerless_mode` settings. Expansion is now natively triggerless — word triggers expand directly without a prefix character in all cases.
 
 ## [1.0.0-alpha.15] - 2026-08-02
