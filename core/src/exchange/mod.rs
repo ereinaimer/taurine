@@ -566,7 +566,7 @@ mod tests {
         assert_eq!(trigger.last_used_at, Some(1_700_000_123));
 
         let settings = payload.settings.unwrap();
-        assert!(settings.iter().any(|setting| setting.key == "trigger_char"));
+        assert!(settings.iter().any(|setting| setting.key == "pause_hotkey"));
 
         let stats = payload.stats.unwrap();
         assert_eq!(

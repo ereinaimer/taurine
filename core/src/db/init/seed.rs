@@ -7,11 +7,6 @@ pub fn ensure_defaults(conn: &Connection) -> Result<()> {
 
     // The settings table stores values as JSON. A single-character string is
     // stored as a JSON string literal — i.e. with surrounding double-quotes.
-    if !existing.contains_key("trigger_char") {
-        debug!("Default 'trigger_char' missing. Seeding database with '>'.");
-        // Stored as the JSON string ">" (with quotes) per the settings schema.
-        upsert_setting(conn, "trigger_char", r#"">""#)?;
-    }
 
     if !existing.contains_key("start_on_boot") {
         debug!("Default 'start_on_boot' missing. Seeding database with 'true'.");

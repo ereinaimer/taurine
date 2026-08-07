@@ -6,7 +6,6 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
     let defaults = Settings::default();
 
     match actual_key {
-        "trigger_char" => Ok(Some(defaults.trigger_char.to_string())),
         "pause_hotkey" => Ok(Some(defaults.pause_hotkey)),
         "pause_notifications_enabled" => Ok(Some(defaults.pause_notifications_enabled.to_string())),
         "pause_audio_enabled" => Ok(Some(defaults.pause_audio_enabled.to_string())),
@@ -36,7 +35,7 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
             ActionKey::Space => "space".to_string(),
             ActionKey::Enter => "enter".to_string(),
         })),
-        "triggerless_mode" => Ok(Some(defaults.triggerless_mode.to_string())),
+
         "instant_expand" => Ok(Some(defaults.instant_expand.to_string())),
         "ignore_fullscreen" => Ok(Some(defaults.ignore_fullscreen.to_string())),
         "rpc_port" => Ok(Some(defaults.rpc_port.to_string())),

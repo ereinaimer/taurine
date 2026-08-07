@@ -2,7 +2,6 @@ use taurine_core::settings::{Settings, SpinnerStyle};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SettingKey {
-    TriggerChar,
     PauseHotkey,
     PauseNotificationsEnabled,
     PauseAudioEnabled,
@@ -21,7 +20,6 @@ pub(crate) enum SettingKey {
     InlineAiTriggerClose,
     ClipboardRestoreDelayMs,
     ActionKey,
-    TriggerlessMode,
     InstantExpand,
     IgnoreFullscreen,
     RpcMode,
@@ -47,8 +45,7 @@ pub(crate) enum SettingKey {
 }
 
 impl SettingKey {
-    pub(crate) const ALL: [Self; 42] = [
-        Self::TriggerChar,
+    pub(crate) const ALL: [Self; 40] = [
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
         Self::PauseAudioEnabled,
@@ -67,7 +64,6 @@ impl SettingKey {
         Self::InlineAiTriggerClose,
         Self::ClipboardRestoreDelayMs,
         Self::ActionKey,
-        Self::TriggerlessMode,
         Self::InstantExpand,
         Self::IgnoreFullscreen,
         Self::RpcMode,
@@ -94,7 +90,6 @@ impl SettingKey {
 
     pub(crate) const fn storage_key(self) -> &'static str {
         match self {
-            Self::TriggerChar => "trigger_char",
             Self::PauseHotkey => "pause_hotkey",
             Self::PauseNotificationsEnabled => "pause_notifications_enabled",
             Self::PauseAudioEnabled => "pause_audio_enabled",
@@ -113,7 +108,6 @@ impl SettingKey {
             Self::InlineAiTriggerClose => "inline_ai_trigger_close",
             Self::ClipboardRestoreDelayMs => "clipboard_restore_delay_ms",
             Self::ActionKey => "action_key",
-            Self::TriggerlessMode => "triggerless_mode",
             Self::InstantExpand => "instant_expand",
             Self::IgnoreFullscreen => "ignore_fullscreen",
             Self::RpcMode => "rpc_mode",
@@ -141,7 +135,6 @@ impl SettingKey {
 
     pub(crate) const fn display_name(self) -> &'static str {
         match self {
-            Self::TriggerChar => "Trigger Character",
             Self::PauseHotkey => "Pause Hotkey",
             Self::PauseNotificationsEnabled => "Pause Notifications",
             Self::PauseAudioEnabled => "Pause Audio",
@@ -160,7 +153,6 @@ impl SettingKey {
             Self::InlineAiTriggerClose => "Inline AI Trigger Close",
             Self::ClipboardRestoreDelayMs => "Clipboard Restore Delay (ms)",
             Self::ActionKey => "Action Key",
-            Self::TriggerlessMode => "Triggerless Mode",
             Self::InstantExpand => "Instant Expand",
             Self::IgnoreFullscreen => "Ignore Fullscreen on Windows",
             Self::RpcMode => "Service RPC Mode",
@@ -188,7 +180,6 @@ impl SettingKey {
 
     pub(crate) const fn description(self) -> &'static str {
         match self {
-            Self::TriggerChar => "The character Taurine uses to start listening for trigger words",
             Self::PauseHotkey => "The keyboard shortcut used to pause Taurine globally",
             Self::PauseNotificationsEnabled => {
                 "Show a notification when Taurine is paused or resumed"
@@ -222,9 +213,6 @@ impl SettingKey {
             }
             Self::ActionKey => {
                 "The keystroke used to trigger a text expansion after the trigger character"
-            }
-            Self::TriggerlessMode => {
-                "Expand trigger words automatically when typing without requiring the trigger character"
             }
             Self::InstantExpand => {
                 "Expand snippets instantly when typed, without needing a Space or Enter key"
@@ -277,7 +265,6 @@ impl SettingKey {
             | Self::AutoUpdate
             | Self::InlineTabCompletionEnabled
             | Self::InlineHistoryEnabled
-            | Self::TriggerlessMode
             | Self::InstantExpand
             | Self::IgnoreFullscreen
             | Self::ScriptsEnabled
@@ -300,7 +287,7 @@ impl SettingKey {
             }
             Self::InlineAiTriggerMode => EditorKind::InlineAiTriggerModeSelect,
             Self::RpcMode => EditorKind::RpcModeSelect,
-            Self::TriggerChar | Self::InlineEmojiTriggerChar => EditorKind::SingleCharInput,
+            Self::InlineEmojiTriggerChar => EditorKind::SingleCharInput,
             Self::PauseHotkey
             | Self::AiModel
             | Self::InlineAiTrigger
@@ -317,7 +304,6 @@ impl SettingKey {
 
     pub(crate) fn display_value(self, settings: &Settings) -> String {
         match self {
-            Self::TriggerChar => settings.trigger_char.to_string(),
             Self::PauseHotkey => settings.pause_hotkey.clone(),
             Self::PauseNotificationsEnabled => settings.pause_notifications_enabled.to_string(),
             Self::PauseAudioEnabled => settings.pause_audio_enabled.to_string(),
@@ -341,7 +327,6 @@ impl SettingKey {
             Self::InlineAiTriggerClose => settings.inline_ai_trigger_close.clone(),
             Self::ClipboardRestoreDelayMs => settings.clipboard_restore_delay_ms.to_string(),
             Self::ActionKey => format!("{:?}", settings.action_key).to_lowercase(),
-            Self::TriggerlessMode => settings.triggerless_mode.to_string(),
             Self::InstantExpand => settings.instant_expand.to_string(),
             Self::IgnoreFullscreen => settings.ignore_fullscreen.to_string(),
             Self::RpcPort => settings.rpc_port.to_string(),
@@ -386,7 +371,6 @@ impl SettingKey {
 
     pub(crate) fn edit_value(self, settings: &Settings) -> String {
         match self {
-            Self::TriggerChar => settings.trigger_char.to_string(),
             Self::PauseHotkey => settings.pause_hotkey.clone(),
             Self::Wpm => settings.wpm.to_string(),
             Self::InlineDatetimeDateFormat => settings.inline_datetime_date_format.clone(),
@@ -407,7 +391,6 @@ impl SettingKey {
             | Self::AutoUpdate
             | Self::InlineTabCompletionEnabled
             | Self::InlineHistoryEnabled
-            | Self::TriggerlessMode
             | Self::InstantExpand
             | Self::IgnoreFullscreen
             | Self::SpinnerStyle

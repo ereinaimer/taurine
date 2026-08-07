@@ -60,8 +60,8 @@ fn pause_hotkey_uses_shared_validation() {
 #[test]
 fn default_setting_input_uses_canonical_defaults() {
     assert_eq!(
-        default_setting_input("trigger_char").unwrap(),
-        Some(">".to_string())
+        default_setting_input("pause_hotkey").unwrap(),
+        Some("Alt + `".to_string())
     );
     assert_eq!(
         default_setting_input("inline_tab_completion_enabled").unwrap(),
@@ -87,21 +87,6 @@ fn resetting_inline_tab_completion_restores_default() {
     .unwrap();
 
     assert!(manager.load_all().inline_tab_completion_enabled);
-}
-
-#[test]
-fn resetting_trigger_char_restores_default() {
-    let (_dir, conn) = open_test_db();
-    let manager = SettingsManager::new(&conn);
-    manager.update_setting("trigger_char", ';').unwrap();
-
-    let default_value = default_setting_input("trigger_char").unwrap();
-    apply_setting_input_with_manager(&manager, "trigger_char", default_value.as_deref()).unwrap();
-
-    assert_eq!(
-        manager.load_all().trigger_char,
-        Settings::default().trigger_char
-    );
 }
 
 #[test]
@@ -183,78 +168,6 @@ fn test_inline_currency_to_words_settings() {
 }
 
 #[test]
-fn trigger_char_conflicts_with_inline_ai_trigger_open() {
-    let settings = Settings {
-        inline_ai_trigger_open: ">".to_string(),
-        ..Settings::default()
-    };
-    let result = validate_delimiter_conflicts(&settings, "trigger_char", ">");
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        crate::error::Error::Config(msg) => assert_eq!(
-            msg,
-            "'trigger_char' value '>' conflicts with 'inline_ai_trigger_open' value '>'"
-        ),
-        _ => panic!("expected Config error"),
-    }
-}
-
-#[test]
-fn trigger_char_conflicts_with_inline_ai_trigger_close() {
-    let settings = Settings {
-        inline_ai_trigger_close: ">".to_string(),
-        ..Settings::default()
-    };
-    let result = validate_delimiter_conflicts(&settings, "trigger_char", ">");
-    assert!(result.is_err());
-}
-
-#[test]
-fn trigger_char_conflicts_with_symmetric_trigger() {
-    let settings = Settings {
-        inline_ai_trigger_mode: InlineAiTriggerMode::Symmetric,
-        inline_ai_trigger: ">".to_string(),
-        ..Settings::default()
-    };
-    let result = validate_delimiter_conflicts(&settings, "trigger_char", ">");
-    assert!(result.is_err());
-}
-
-#[test]
-fn trigger_char_no_conflict_with_multi_char_open() {
-    let settings = Settings {
-        inline_ai_trigger_open: ">>".to_string(),
-        ..Settings::default()
-    };
-    let result = validate_delimiter_conflicts(&settings, "trigger_char", ">");
-    assert!(result.is_ok());
-}
-
-#[test]
-fn inline_ai_trigger_open_conflicts_with_trigger_char() {
-    let settings = Settings::default();
-    let result = validate_delimiter_conflicts(&settings, "inline_ai_trigger_open", ">");
-    assert!(result.is_err());
-}
-
-#[test]
-fn inline_ai_trigger_close_conflicts_with_trigger_char() {
-    let settings = Settings::default();
-    let result = validate_delimiter_conflicts(&settings, "inline_ai_trigger_close", ">");
-    assert!(result.is_err());
-}
-
-#[test]
-fn symmetric_trigger_conflicts_with_trigger_char() {
-    let settings = Settings {
-        inline_ai_trigger_mode: InlineAiTriggerMode::Symmetric,
-        ..Settings::default()
-    };
-    let result = validate_delimiter_conflicts(&settings, "inline_ai_trigger", ">");
-    assert!(result.is_err());
-}
-
-#[test]
 fn asymmetric_mode_rejects_equal_open_close() {
     let settings = Settings {
         inline_ai_trigger_open: ">".to_string(),
@@ -277,64 +190,10 @@ fn asymmetric_mode_accepts_different_open_close() {
 }
 
 #[test]
-fn trigger_char_change_with_no_conflicts_succeeds() {
-    let settings = Settings {
-        inline_ai_trigger_open: ">>".to_string(),
-        inline_ai_trigger_close: "<<".to_string(),
-        inline_ai_trigger: "^".to_string(),
-        inline_ai_trigger_mode: InlineAiTriggerMode::Asymmetric,
-        ..Settings::default()
-    };
-    let result = validate_delimiter_conflicts(&settings, "trigger_char", ";");
-    assert!(result.is_ok());
-}
-
-#[test]
 fn non_conflict_key_passes_through() {
     let settings = Settings::default();
     let result = validate_delimiter_conflicts(&settings, "wpm", "60");
     assert!(result.is_ok());
-}
-
-#[test]
-fn trigger_char_conflict_with_open_through_apply() {
-    let (_dir, conn) = open_test_db();
-    let manager = SettingsManager::new(&conn);
-    manager
-        .update_setting("inline_ai_trigger_open", ">".to_string())
-        .unwrap();
-    let result = apply_setting_input_with_manager(&manager, "trigger_char", Some(">"));
-    assert!(result.is_err());
-}
-
-#[test]
-fn inline_ai_trigger_open_conflict_through_apply() {
-    let (_dir, conn) = open_test_db();
-    let manager = SettingsManager::new(&conn);
-    manager
-        .update_setting("trigger_char", ">".to_string())
-        .unwrap();
-    let result = apply_setting_input_with_manager(&manager, "inline_ai_trigger_open", Some(">"));
-    assert!(result.is_err());
-}
-
-#[test]
-fn inline_ai_trigger_conflict_through_apply() {
-    let (_dir, conn) = open_test_db();
-    let manager = SettingsManager::new(&conn);
-    manager
-        .update_setting("inline_ai_trigger_mode", InlineAiTriggerMode::Symmetric)
-        .unwrap();
-    let result = apply_setting_input_with_manager(&manager, "inline_ai_trigger", Some(">"));
-    assert!(result.is_err());
-}
-
-#[test]
-fn trigger_char_no_conflict_through_apply() {
-    let (_dir, conn) = open_test_db();
-    let manager = SettingsManager::new(&conn);
-    apply_setting_input_with_manager(&manager, "trigger_char", Some("|")).unwrap();
-    assert_eq!(manager.load_all().trigger_char, '|');
 }
 
 #[test]

@@ -297,11 +297,6 @@ impl DaemonControl for DaemonService {
             );
             taurine_core::settings::set_cached_scripts_enabled(settings.scripts_enabled);
 
-            // Update trigger char (atomic)
-            self.state
-                .trigger_char
-                .store(settings.trigger_char as u32, Ordering::Relaxed);
-
             self.state
                 .inline_datetime_enabled
                 .store(settings.inline_datetime_enabled, Ordering::Relaxed);
@@ -334,9 +329,7 @@ impl DaemonControl for DaemonService {
             self.state
                 .inline_history_enabled
                 .store(settings.inline_history_enabled, Ordering::Relaxed);
-            self.state
-                .triggerless_mode
-                .store(settings.triggerless_mode, Ordering::Relaxed);
+
             self.state
                 .instant_expand
                 .store(settings.instant_expand, Ordering::Relaxed);

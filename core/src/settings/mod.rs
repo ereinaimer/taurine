@@ -183,7 +183,6 @@ pub enum RpcMode {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Settings {
-    pub trigger_char: char,
     pub pause_hotkey: String,
     pub pause_notifications_enabled: bool,
     pub pause_audio_enabled: bool,
@@ -201,7 +200,6 @@ pub struct Settings {
     pub inline_ai_trigger_close: String,
     pub clipboard_restore_delay_ms: u32,
     pub action_key: ActionKey,
-    pub triggerless_mode: bool,
     pub instant_expand: bool,
     pub rpc_mode: RpcMode,
     pub rpc_host: String,
@@ -230,7 +228,6 @@ pub struct Settings {
 impl Settings {
     pub fn resolve_key(key: &str) -> &str {
         match key {
-            "trigger" => "trigger_char",
             "hotkey" => "pause_hotkey",
             "notifications" => "pause_notifications_enabled",
             "pause_audio" => "pause_audio_enabled",
@@ -259,8 +256,6 @@ impl Settings {
             "clipboard_restore_delay_ms" => "clipboard_restore_delay_ms",
             "clipboard_delay" => "clipboard_restore_delay_ms",
             "action_key" => "action_key",
-            "triggerless" => "triggerless_mode",
-            "triggerless_mode" => "triggerless_mode",
             "instant_expand" => "instant_expand",
             "instant" => "instant_expand",
             "ignore_fullscreen" => "ignore_fullscreen",
@@ -366,7 +361,6 @@ impl Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            trigger_char: '>',
             pause_hotkey: "Alt + `".to_string(),
             pause_notifications_enabled: false,
             pause_audio_enabled: true,
@@ -384,7 +378,6 @@ impl Default for Settings {
             inline_ai_trigger_close: "<<".to_string(),
             clipboard_restore_delay_ms: Self::default_clipboard_restore_delay_ms(),
             action_key: ActionKey::default(),
-            triggerless_mode: true,
             instant_expand: false,
             rpc_mode: RpcMode::default(),
             rpc_host: "127.0.0.1".to_string(),

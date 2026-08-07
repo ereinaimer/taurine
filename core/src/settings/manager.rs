@@ -18,13 +18,6 @@ impl<'a> SettingsManager<'a> {
         let mut settings = Settings::default();
         let map = get_all_settings(self.conn).unwrap_or_default();
 
-        if let Some(val) = map.get("trigger_char")
-            && let Ok(v) = serde_json::from_str::<String>(val)
-            && let Some(c) = v.chars().next()
-        {
-            settings.trigger_char = c;
-        }
-
         if let Some(val) = map.get("pause_hotkey")
             && let Ok(v) = serde_json::from_str::<String>(val)
         {
@@ -125,12 +118,6 @@ impl<'a> SettingsManager<'a> {
             && let Ok(v) = serde_json::from_str::<super::ActionKey>(val)
         {
             settings.action_key = v;
-        }
-
-        if let Some(val) = map.get("triggerless_mode")
-            && let Ok(v) = serde_json::from_str::<bool>(val)
-        {
-            settings.triggerless_mode = v;
         }
 
         if let Some(val) = map.get("instant_expand")

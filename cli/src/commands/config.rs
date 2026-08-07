@@ -14,7 +14,6 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
 
     // Helper to build each line as (key, value) pair
     let pairs: Vec<(&str, String)> = vec![
-        ("trigger_char", settings.trigger_char.to_string()),
         ("pause_hotkey", settings.pause_hotkey.clone()),
         (
             "pause_notifications_enabled",
@@ -97,7 +96,6 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
             "action_key",
             format!("{:?}", settings.action_key).to_lowercase(),
         ),
-        ("triggerless_mode", settings.triggerless_mode.to_string()),
         ("scripts_enabled", settings.scripts_enabled.to_string()),
         ("instant_expand", settings.instant_expand.to_string()),
         (
@@ -180,20 +178,6 @@ pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::erro
     let actual_key = Settings::resolve_key(&key);
 
     match actual_key {
-        "trigger_char" => {
-            if let Some(c) = value.chars().next() {
-                let current = manager.load_all();
-                taurine_core::settings::validate_delimiter_conflicts(
-                    &current,
-                    actual_key,
-                    &c.to_string(),
-                )?;
-                manager.update_setting(actual_key, c)?;
-                info!("Updated trigger_char to: {}", c);
-            } else {
-                warn!("Invalid trigger character provided.");
-            }
-        }
         "pause_hotkey" => {
             manager.update_setting(actual_key, value.clone())?;
             info!("Updated pause_hotkey to: {}", value);
@@ -208,7 +192,6 @@ pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::erro
         | "inline_emoji_enabled"
         | "inline_datetime_enabled"
         | "inline_currency_to_words_enabled"
-        | "triggerless_mode"
         | "instant_expand"
         | "clipboard_history_enabled"
         | "scripts_enabled"
@@ -416,10 +399,6 @@ pub fn execute_reset(key: String, json: bool) -> taurine_core::error::Result<()>
     let actual_key = Settings::resolve_key(&key);
 
     match actual_key {
-        "trigger_char" => {
-            manager.update_setting(actual_key, defaults.trigger_char)?;
-            info!("Reset trigger_char to default: {}", defaults.trigger_char);
-        }
         "pause_hotkey" => {
             manager.update_setting(actual_key, &defaults.pause_hotkey)?;
             info!("Reset pause_hotkey to default: {}", defaults.pause_hotkey);
@@ -516,13 +495,6 @@ pub fn execute_reset(key: String, json: bool) -> taurine_core::error::Result<()>
         "action_key" => {
             manager.update_setting(actual_key, defaults.action_key)?;
             info!("Reset action_key to default: {:?}", defaults.action_key);
-        }
-        "triggerless_mode" => {
-            manager.update_setting(actual_key, defaults.triggerless_mode)?;
-            info!(
-                "Reset triggerless_mode to default: {}",
-                defaults.triggerless_mode
-            );
         }
         "instant_expand" => {
             manager.update_setting(actual_key, defaults.instant_expand)?;
@@ -673,7 +645,6 @@ pub fn execute_reset_all(json: bool) -> taurine_core::error::Result<()> {
     let manager = SettingsManager::new(&conn);
     let defaults = Settings::default();
 
-    manager.update_setting("trigger_char", defaults.trigger_char)?;
     manager.update_setting("pause_hotkey", &defaults.pause_hotkey)?;
     manager.update_setting(
         "pause_notifications_enabled",
@@ -720,7 +691,6 @@ pub fn execute_reset_all(json: bool) -> taurine_core::error::Result<()> {
     manager.update_setting("ai_temperature", defaults.ai_temperature)?;
     manager.update_setting("ai_max_tokens", defaults.ai_max_tokens)?;
     manager.update_setting("ai_system_prompt", defaults.ai_system_prompt.clone())?;
-    manager.update_setting("triggerless_mode", defaults.triggerless_mode)?;
     manager.update_setting("instant_expand", defaults.instant_expand)?;
     manager.update_setting("rpc_port", defaults.rpc_port)?;
     manager.update_setting("rpc_mode", defaults.rpc_mode)?;
@@ -775,7 +745,6 @@ fn parse_boolean_setting_value(value: &str) -> taurine_core::error::Result<bool>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use taurine_core::settings::validate_delimiter_conflicts;
 
     #[test]
     fn render_optional_setting_uses_unset_placeholder() {
@@ -816,7 +785,6 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         let map = value.as_object().unwrap();
 
-        assert!(map.contains_key("trigger_char"));
         assert!(map.contains_key("pause_hotkey"));
         assert!(map.contains_key("wpm"));
         assert!(map.contains_key("spinner_style"));
@@ -824,7 +792,6 @@ mod tests {
         assert!(map.contains_key("script_timeout"));
         assert!(map.contains_key("system_tray_enabled"));
 
-        assert_eq!(map["trigger_char"], ">");
         assert_eq!(map["wpm"], 60);
         assert_eq!(map["rpc_mode"], "socket");
         assert_eq!(map["system_tray_enabled"], true);
@@ -865,40 +832,6 @@ mod tests {
         assert_eq!(value["ai_provider"], serde_json::Value::Null);
         assert_eq!(value["ai_model"], serde_json::Value::Null);
         assert_eq!(value["ai_temperature"], serde_json::Value::Null);
-    }
-
-    #[test]
-    fn validate_trigger_char_conflict_with_inline_ai_trigger_open() {
-        let settings = taurine_core::settings::Settings {
-            inline_ai_trigger_open: ">".to_string(),
-            ..taurine_core::settings::Settings::default()
-        };
-        let result = validate_delimiter_conflicts(&settings, "trigger_char", ">");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn validate_trigger_char_no_conflict_succeeds() {
-        let settings = taurine_core::settings::Settings {
-            inline_ai_trigger_open: ">>".to_string(),
-            inline_ai_trigger_close: "<<".to_string(),
-            inline_ai_trigger: "^".to_string(),
-            inline_ai_trigger_mode: taurine_core::settings::InlineAiTriggerMode::Asymmetric,
-            ..taurine_core::settings::Settings::default()
-        };
-        let result = validate_delimiter_conflicts(&settings, "trigger_char", "|");
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn validate_inline_ai_delimiter_conflict_with_trigger_char() {
-        let settings = taurine_core::settings::Settings {
-            trigger_char: '>',
-            inline_ai_trigger_mode: taurine_core::settings::InlineAiTriggerMode::Symmetric,
-            ..taurine_core::settings::Settings::default()
-        };
-        let result = validate_delimiter_conflicts(&settings, "inline_ai_trigger", ">");
-        assert!(result.is_err());
     }
 
     #[test]

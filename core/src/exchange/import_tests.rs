@@ -626,8 +626,8 @@ fn include_settings_overwrites_local_setting_values() {
         schema_version: super::EXCHANGE_SCHEMA_VERSION,
         triggers: vec![],
         settings: Some(vec![super::SettingExport {
-            key: "trigger_char".to_string(),
-            value: r#"">""#.to_string(),
+            key: "pause_hotkey".to_string(),
+            value: r#""Ctrl + Shift + P""#.to_string(),
         }]),
         stats: None,
     };
@@ -648,12 +648,12 @@ fn include_settings_overwrites_local_setting_values() {
 
     let value: String = conn
         .query_row(
-            "SELECT value FROM settings WHERE key = 'trigger_char'",
+            "SELECT value FROM settings WHERE key = 'pause_hotkey'",
             [],
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(value, r#"">""#);
+    assert_eq!(value, r#""Ctrl + Shift + P""#);
 }
 
 #[test]
