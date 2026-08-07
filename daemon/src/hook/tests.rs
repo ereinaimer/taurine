@@ -652,3 +652,107 @@ fn evaluator_reset_clears_buffer_and_completion() {
         "ActionKey after reset should not produce expansion (buffer was cleared)"
     );
 }
+
+#[test]
+fn test_case_cycle_key_action() {
+    use super::case_cycle::case_cycle_key_action;
+    use rdev::Key;
+    use taurine_core::engine::CycleDirection;
+    use taurine_core::engine::EngineMode;
+
+    // Normal mode, enabled, no modifiers
+    assert_eq!(
+        case_cycle_key_action(
+            Key::LeftArrow,
+            false,
+            false,
+            false,
+            false,
+            EngineMode::Normal,
+            true
+        ),
+        Some(CycleDirection::Prev)
+    );
+    assert_eq!(
+        case_cycle_key_action(
+            Key::RightArrow,
+            false,
+            false,
+            false,
+            false,
+            EngineMode::Normal,
+            true
+        ),
+        Some(CycleDirection::Next)
+    );
+
+    // Enabled, but with shift/ctrl/alt/meta active -> None
+    assert_eq!(
+        case_cycle_key_action(
+            Key::LeftArrow,
+            true,
+            false,
+            false,
+            false,
+            EngineMode::Normal,
+            true
+        ),
+        None
+    );
+    assert_eq!(
+        case_cycle_key_action(
+            Key::LeftArrow,
+            false,
+            true,
+            false,
+            false,
+            EngineMode::Normal,
+            true
+        ),
+        None
+    );
+
+    // Non-arrows -> None
+    assert_eq!(
+        case_cycle_key_action(
+            Key::Backspace,
+            false,
+            false,
+            false,
+            false,
+            EngineMode::Normal,
+            true
+        ),
+        None
+    );
+
+    // Disabled -> None
+    assert_eq!(
+        case_cycle_key_action(
+            Key::LeftArrow,
+            false,
+            false,
+            false,
+            false,
+            EngineMode::Normal,
+            false
+        ),
+        None
+    );
+
+    // AiCapture mode -> None
+    assert_eq!(
+        case_cycle_key_action(
+            Key::LeftArrow,
+            false,
+            false,
+            false,
+            false,
+            EngineMode::AiCapture {
+                system_prompt_override: None
+            },
+            true
+        ),
+        None
+    );
+}

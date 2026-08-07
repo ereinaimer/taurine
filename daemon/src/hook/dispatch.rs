@@ -130,6 +130,17 @@ pub(super) fn dispatch_expansion_with<I, L>(
             .sum();
         if expected_output_chars > 0 {
             state.set_undo_state(undo_trig.clone(), expected_output_chars);
+            let expanded_text = steps
+                .iter()
+                .filter_map(|s| {
+                    if let taurine_core::engine::variables::ExpansionStep::Text(t) = s {
+                        Some(t.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<String>();
+            state.register_case_cycle(expanded_text);
         }
     }
 

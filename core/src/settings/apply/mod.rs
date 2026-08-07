@@ -34,6 +34,7 @@ pub fn apply_setting_input_with_manager(
         "pause_notifications_enabled"
         | "pause_audio_enabled"
         | "inline_tab_completion_enabled"
+        | "inline_case_transform_enabled"
         | "ignore_fullscreen"
         | "scripts_enabled"
         | "system_tray_enabled" => {

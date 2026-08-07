@@ -32,6 +32,10 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
             "inline_tab_completion_enabled",
             settings.inline_tab_completion_enabled.to_string(),
         ),
+        (
+            "inline_case_transform_enabled",
+            settings.inline_case_transform_enabled.to_string(),
+        ),
         ("wpm", settings.wpm.to_string()),
         (
             "spinner_style",
@@ -182,6 +186,7 @@ pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::erro
         | "pause_notifications_enabled"
         | "pause_audio_enabled"
         | "inline_tab_completion_enabled"
+        | "inline_case_transform_enabled"
         | "ignore_fullscreen"
         | "auto_update"
         | "inline_emoji_enabled"
@@ -427,6 +432,13 @@ pub fn execute_reset(key: String, json: bool) -> taurine_core::error::Result<()>
                 defaults.inline_tab_completion_enabled
             );
         }
+        "inline_case_transform_enabled" => {
+            manager.update_setting(actual_key, defaults.inline_case_transform_enabled)?;
+            info!(
+                "Reset inline_case_transform_enabled to default: {}",
+                defaults.inline_case_transform_enabled
+            );
+        }
         "inline_emoji_enabled" => {
             manager.update_setting(actual_key, defaults.inline_emoji_enabled)?;
             info!(
@@ -644,6 +656,10 @@ pub fn execute_reset_all(json: bool) -> taurine_core::error::Result<()> {
     manager.update_setting(
         "inline_tab_completion_enabled",
         defaults.inline_tab_completion_enabled,
+    )?;
+    manager.update_setting(
+        "inline_case_transform_enabled",
+        defaults.inline_case_transform_enabled,
     )?;
     manager.update_setting("wpm", defaults.wpm)?;
     manager.update_setting("spinner_style", defaults.spinner_style)?;

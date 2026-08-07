@@ -13,6 +13,9 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "inline_tab_completion_enabled" => {
             Ok(Some(defaults.inline_tab_completion_enabled.to_string()))
         }
+        "inline_case_transform_enabled" => {
+            Ok(Some(defaults.inline_case_transform_enabled.to_string()))
+        }
         "wpm" => Ok(Some(defaults.wpm.to_string())),
         "spinner_style" => Ok(Some(match defaults.spinner_style {
             SpinnerStyle::Classic => "classic".to_string(),

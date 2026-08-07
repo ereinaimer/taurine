@@ -16,6 +16,7 @@
     "app-specific-triggers",
     "rich-text",
     "backspace-undo",
+    "case-cycling",
     "configuration",
     "---Variable Engine---",
     "dynamic-variables",

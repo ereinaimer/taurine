@@ -76,6 +76,9 @@ fn assert_completion_rewrite(
 
 #[test]
 fn test_inline_currency_to_words_expansion() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let state = Arc::new(EngineState::new());
     state
         .inline_currency_to_words_enabled
@@ -142,6 +145,9 @@ fn test_inline_currency_to_words_expansion() {
 
 #[test]
 fn test_inline_currency_to_words_disabled_does_not_expand() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let state = Arc::new(EngineState::new());
     state
         .inline_currency_to_words_enabled
@@ -282,6 +288,9 @@ fn test_inline_datetime_expansion() {
 
 #[test]
 fn test_inline_timezone_expansion() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let state = Arc::new(EngineState::new());
     state
         .inline_datetime_enabled

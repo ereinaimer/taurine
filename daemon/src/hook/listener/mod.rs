@@ -451,6 +451,21 @@ pub(super) fn run_listener_once(
                     }
                 }
 
+                if let Some(direction) = crate::hook::case_cycle_key_action(
+                    key,
+                    shift_active,
+                    ctrl_active,
+                    alt_active,
+                    meta_active,
+                    state.engine_mode(),
+                    state.inline_case_transform_enabled(),
+                ) && let Some(rewrite) = state.advance_case_variant(direction)
+                {
+                    let style = spinner_style.read().map(|s| *s).unwrap_or_default();
+                    spawn_completion_rewrite_dispatch(rewrite, style);
+                    return None;
+                }
+
                 if key == Key::Backspace {
                     if ctrl_active || alt_active || meta_active {
                         clear_undo_state(state.as_ref());

@@ -80,6 +80,25 @@ fn resetting_inline_tab_completion_restores_default() {
 }
 
 #[test]
+fn resetting_inline_case_transform_restores_default() {
+    let (_dir, conn) = open_test_db();
+    let manager = SettingsManager::new(&conn);
+    manager
+        .update_setting("inline_case_transform_enabled", false)
+        .unwrap();
+
+    let default_value = default_setting_input("inline_case_transform_enabled").unwrap();
+    apply_setting_input_with_manager(
+        &manager,
+        "inline_case_transform_enabled",
+        default_value.as_deref(),
+    )
+    .unwrap();
+
+    assert!(manager.load_all().inline_case_transform_enabled);
+}
+
+#[test]
 fn test_apply_clipboard_restore_delay_ms() {
     let (_dir, conn) = open_test_db();
     let manager = SettingsManager::new(&conn);
@@ -104,6 +123,9 @@ fn resetting_rpc_token_generates_new_uuid() {
 
 #[test]
 fn test_inline_emoji_settings() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = open_test_db();
     let manager = SettingsManager::new(&conn);
 
@@ -141,6 +163,9 @@ fn toggling_system_tray_enabled_persists_changed_value() {
 
 #[test]
 fn test_inline_currency_to_words_settings() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = open_test_db();
     let manager = SettingsManager::new(&conn);
 

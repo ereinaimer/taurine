@@ -171,6 +171,9 @@ fn test_no_nl_emoji_fallback_in_catalog() {
 
 #[test]
 fn currency_words_fallback_only_runs_when_enabled() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let memory = Arc::new(MemorySource::new());
     let catalog = ExpansionCatalog::with_source(memory.clone());
 

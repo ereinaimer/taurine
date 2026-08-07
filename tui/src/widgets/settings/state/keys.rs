@@ -8,6 +8,7 @@ pub(crate) enum SettingKey {
     StartOnBoot,
     AutoUpdate,
     InlineTabCompletionEnabled,
+    InlineCaseTransformEnabled,
     Wpm,
     SpinnerStyle,
     AiProvider,
@@ -44,13 +45,14 @@ pub(crate) enum SettingKey {
 }
 
 impl SettingKey {
-    pub(crate) const ALL: [Self; 39] = [
+    pub(crate) const ALL: [Self; 40] = [
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
         Self::PauseAudioEnabled,
         Self::StartOnBoot,
         Self::AutoUpdate,
         Self::InlineTabCompletionEnabled,
+        Self::InlineCaseTransformEnabled,
         Self::Wpm,
         Self::SpinnerStyle,
         Self::AiProvider,
@@ -94,6 +96,7 @@ impl SettingKey {
             Self::StartOnBoot => "start_on_boot",
             Self::AutoUpdate => "auto_update",
             Self::InlineTabCompletionEnabled => "inline_tab_completion_enabled",
+            Self::InlineCaseTransformEnabled => "inline_case_transform_enabled",
             Self::Wpm => "wpm",
             Self::SpinnerStyle => "spinner_style",
             Self::AiProvider => "ai_provider",
@@ -138,6 +141,7 @@ impl SettingKey {
             Self::StartOnBoot => "Start on Boot",
             Self::AutoUpdate => "Auto Update",
             Self::InlineTabCompletionEnabled => "Inline Tab Completion",
+            Self::InlineCaseTransformEnabled => "Inline Case Transform",
             Self::Wpm => "Words Per Minute",
             Self::SpinnerStyle => "Spinner Style",
             Self::AiProvider => "AI Provider",
@@ -187,6 +191,9 @@ impl SettingKey {
             }
             Self::InlineTabCompletionEnabled => {
                 "Use Tab and Shift+Tab to cycle trigger completions while typing a trigger word"
+            }
+            Self::InlineCaseTransformEnabled => {
+                "Use Left and Right arrows to cycle through capitalization cases of expanded text within the undo window"
             }
             Self::Wpm => "Used to estimate time saved from keystrokes saved",
             Self::SpinnerStyle => "Animation style used while Taurine is processing",
@@ -257,6 +264,7 @@ impl SettingKey {
             | Self::StartOnBoot
             | Self::AutoUpdate
             | Self::InlineTabCompletionEnabled
+            | Self::InlineCaseTransformEnabled
             | Self::InstantExpand
             | Self::IgnoreFullscreen
             | Self::ScriptsEnabled
@@ -302,6 +310,7 @@ impl SettingKey {
             Self::StartOnBoot => settings.start_on_boot.to_string(),
             Self::AutoUpdate => settings.auto_update.to_string(),
             Self::InlineTabCompletionEnabled => settings.inline_tab_completion_enabled.to_string(),
+            Self::InlineCaseTransformEnabled => settings.inline_case_transform_enabled.to_string(),
             Self::Wpm => settings.wpm.to_string(),
             Self::SpinnerStyle => spinner_style_label(settings.spinner_style).to_string(),
             Self::AiProvider => optional_value_label(settings.ai_provider.as_deref()).to_string(),
@@ -381,6 +390,7 @@ impl SettingKey {
             | Self::StartOnBoot
             | Self::AutoUpdate
             | Self::InlineTabCompletionEnabled
+            | Self::InlineCaseTransformEnabled
             | Self::InstantExpand
             | Self::IgnoreFullscreen
             | Self::SpinnerStyle

@@ -1,6 +1,7 @@
 pub mod ai_capture;
 pub mod ai_session;
 pub mod buffer;
+pub mod case_cycle;
 pub mod catalog;
 pub mod comma;
 pub mod completion;
@@ -26,6 +27,7 @@ pub use source::SnippetSource;
 
 pub use ai_session::{EngineMode, InlineAiSession};
 pub use buffer::FastBuffer;
+pub use case_cycle::{CaseCycleSession, CaseVariant, CycleDirection};
 pub use catalog::{ActiveWindowInfo, ExpansionCatalog, HotkeyCatalog, RegexCatalog};
 pub use evaluator::{
     CompletionRewrite, EngineEvent, Evaluator, ExpansionFollowUp, ExpansionResult,

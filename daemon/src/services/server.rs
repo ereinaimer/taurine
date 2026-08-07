@@ -291,6 +291,9 @@ impl DaemonControl for DaemonService {
                 settings.inline_currency_to_words_enabled,
             );
             taurine_core::settings::set_cached_scripts_enabled(settings.scripts_enabled);
+            taurine_core::settings::set_cached_inline_case_transform_enabled(
+                settings.inline_case_transform_enabled,
+            );
 
             self.state
                 .inline_datetime_enabled
@@ -321,6 +324,9 @@ impl DaemonControl for DaemonService {
             self.state
                 .inline_tab_completion_enabled
                 .store(settings.inline_tab_completion_enabled, Ordering::Relaxed);
+            self.state
+                .inline_case_transform_enabled
+                .store(settings.inline_case_transform_enabled, Ordering::Relaxed);
 
             self.state
                 .instant_expand

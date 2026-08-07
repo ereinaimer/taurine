@@ -1,3 +1,4 @@
+mod case_cycle;
 mod completion;
 mod dispatch;
 mod listener;
@@ -5,6 +6,8 @@ mod listener;
 #[cfg(windows)]
 mod supervisor;
 
+#[allow(unused_imports)]
+pub(crate) use case_cycle::case_cycle_key_action;
 #[allow(unused_imports)]
 pub(crate) use completion::{
     CompletionKeyAction, CompletionKeyKind, completion_key_action,

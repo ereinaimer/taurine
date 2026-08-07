@@ -159,6 +159,9 @@ impl SettingsPageState {
             SettingKey::InlineTabCompletionEnabled => {
                 (!self.settings.inline_tab_completion_enabled).to_string()
             }
+            SettingKey::InlineCaseTransformEnabled => {
+                (!self.settings.inline_case_transform_enabled).to_string()
+            }
             SettingKey::InstantExpand => (!self.settings.instant_expand).to_string(),
             SettingKey::IgnoreFullscreen => (!self.settings.ignore_fullscreen).to_string(),
             SettingKey::ScriptsEnabled => (!self.settings.scripts_enabled).to_string(),

@@ -1,6 +1,7 @@
 use crate::db::crud::TriggerAction;
 pub use crate::engine::ai_session::EngineMode;
 use crate::engine::ai_session::InlineAiSession;
+use crate::engine::case_cycle::{CaseCycleSession, CycleDirection};
 use crate::engine::catalog::{
     ExpansionCatalog, HotkeyCatalog, RegexCatalog, expand_trigger_action,
 };
@@ -44,6 +45,7 @@ pub struct EngineState {
     inline_ai_trigger_open: RwLock<String>,
     inline_ai_trigger_close: RwLock<String>,
     pub inline_tab_completion_enabled: AtomicBool,
+    pub inline_case_transform_enabled: AtomicBool,
     pub inline_datetime_enabled: std::sync::atomic::AtomicBool,
     pub inline_currency_to_words_enabled: std::sync::atomic::AtomicBool,
     inline_datetime_date_format: parking_lot::RwLock<String>,
@@ -61,6 +63,7 @@ pub struct EngineState {
     pub spinner_style: RwLock<crate::settings::SpinnerStyle>,
     action_key: AtomicU8,
     undo_state: RwLock<Option<UndoState>>,
+    case_cycle: RwLock<Option<CaseCycleSession>>,
     ai_session: InlineAiSession,
     word_catalog: ExpansionCatalog,
     hotkey_catalog: HotkeyCatalog,
@@ -81,6 +84,7 @@ impl EngineState {
             inline_ai_trigger_open: RwLock::new(">>".to_string()),
             inline_ai_trigger_close: RwLock::new("<<".to_string()),
             inline_tab_completion_enabled: AtomicBool::new(true),
+            inline_case_transform_enabled: AtomicBool::new(true),
             inline_datetime_enabled: std::sync::atomic::AtomicBool::new(true),
             inline_currency_to_words_enabled: std::sync::atomic::AtomicBool::new(false),
 
@@ -101,6 +105,7 @@ impl EngineState {
             spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
             action_key: AtomicU8::new(1),
             undo_state: RwLock::new(None),
+            case_cycle: RwLock::new(None),
             ai_session: InlineAiSession::new(),
             word_catalog: ExpansionCatalog::new(),
             hotkey_catalog: HotkeyCatalog::new(),
@@ -116,6 +121,7 @@ impl EngineState {
             inline_ai_trigger_open: RwLock::new(">>".to_string()),
             inline_ai_trigger_close: RwLock::new("<<".to_string()),
             inline_tab_completion_enabled: AtomicBool::new(true),
+            inline_case_transform_enabled: AtomicBool::new(true),
             inline_datetime_enabled: std::sync::atomic::AtomicBool::new(true),
             inline_currency_to_words_enabled: std::sync::atomic::AtomicBool::new(false),
 
@@ -136,6 +142,7 @@ impl EngineState {
             spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
             action_key: AtomicU8::new(1),
             undo_state: RwLock::new(None),
+            case_cycle: RwLock::new(None),
             ai_session: InlineAiSession::new(),
             word_catalog: ExpansionCatalog::with_source(source),
             hotkey_catalog: HotkeyCatalog::new(),
@@ -179,6 +186,11 @@ impl EngineState {
 
     pub fn inline_tab_completion_enabled(&self) -> bool {
         self.inline_tab_completion_enabled
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn inline_case_transform_enabled(&self) -> bool {
+        self.inline_case_transform_enabled
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
@@ -394,13 +406,54 @@ impl EngineState {
         *self.inline_datetime_dialect.write() = d;
     }
 
+    pub fn register_case_cycle(&self, original_text: String) {
+        if let Ok(mut guard) = self.case_cycle.write() {
+            *guard = Some(CaseCycleSession::new(original_text));
+        }
+    }
+
+    pub fn advance_case_variant(
+        &self,
+        dir: CycleDirection,
+    ) -> Option<crate::engine::CompletionRewrite> {
+        let mut case_guard = self.case_cycle.write().ok()?;
+        let session = case_guard.as_mut()?;
+
+        let now = std::time::Instant::now();
+        if !session.is_ready(now) {
+            return None;
+        }
+
+        let previous_len = session.current_text.chars().count();
+        let new_text = session.advance(dir);
+
+        if let Ok(mut undo_guard) = self.undo_state.write()
+            && let Some(undo) = undo_guard.as_mut()
+        {
+            undo.output_length = new_text.chars().count();
+        }
+
+        Some(crate::engine::CompletionRewrite {
+            delete_count: previous_len,
+            replacement: new_text,
+        })
+    }
+
+    fn clear_case_cycle(&self) {
+        if let Ok(mut guard) = self.case_cycle.write() {
+            *guard = None;
+        }
+    }
+
     pub fn clear_undo_state(&self) {
+        self.clear_case_cycle();
         if let Ok(mut guard) = self.undo_state.write() {
             *guard = None;
         }
     }
 
     pub fn take_active_undo_state(&self) -> Option<UndoState> {
+        self.clear_case_cycle();
         let mut guard = self.undo_state.write().ok()?;
         match guard.as_ref() {
             Some(state) if state.is_active() => guard.take(),
@@ -606,5 +659,42 @@ mod tests {
             state.matching_word_triggers("g"),
             vec!["gpush".to_string(), "gs".to_string()]
         );
+    }
+
+    #[test]
+    fn case_cycle_advances_and_syncs_undo_length() {
+        let state = EngineState::new();
+        state.set_undo_state(">gm".to_string(), 12);
+        state.register_case_cycle("good morning".to_string());
+
+        let rewrite = state
+            .advance_case_variant(CycleDirection::Next)
+            .expect("ready");
+        assert_eq!(rewrite.delete_count, 12);
+        assert_eq!(rewrite.replacement, "Good morning");
+
+        let after = state.take_active_undo_state().expect("undo survives");
+        assert_eq!(after.output_length, rewrite.replacement.chars().count());
+    }
+
+    #[test]
+    fn expired_case_state_returns_none_without_clearing_other() {
+        let state = EngineState::new();
+        state.set_undo_state(">gm".to_string(), 12);
+        // Not registered case cycle -> advance_case_variant returns None
+        assert!(state.advance_case_variant(CycleDirection::Next).is_none());
+
+        // Undo state still survives
+        assert!(state.take_active_undo_state().is_some());
+    }
+
+    #[test]
+    fn clear_undo_state_clears_case_cycle() {
+        let state = EngineState::new();
+        state.set_undo_state(">gm".to_string(), 12);
+        state.register_case_cycle("good morning".to_string());
+
+        state.clear_undo_state();
+        assert!(state.advance_case_variant(CycleDirection::Next).is_none());
     }
 }

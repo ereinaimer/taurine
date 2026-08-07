@@ -19,6 +19,11 @@ pub fn ensure_defaults(conn: &Connection) -> Result<()> {
         upsert_setting(conn, "inline_tab_completion_enabled", "true")?;
     }
 
+    if !existing.contains_key("inline_case_transform_enabled") {
+        debug!("Default 'inline_case_transform_enabled' missing. Seeding database with 'true'.");
+        upsert_setting(conn, "inline_case_transform_enabled", "true")?;
+    }
+
     if !existing.contains_key("wpm") {
         debug!("Default 'wpm' missing. Seeding database with '60'.");
         upsert_setting(conn, "wpm", "60")?;
@@ -68,6 +73,16 @@ mod tests {
 
         assert_eq!(
             get_setting_value(&conn, "inline_tab_completion_enabled").unwrap(),
+            Some("true".to_string())
+        );
+    }
+
+    #[test]
+    fn ensure_defaults_seeds_inline_case_transform_settings_for_new_databases() {
+        let (_dir, conn) = open_test_db();
+
+        assert_eq!(
+            get_setting_value(&conn, "inline_case_transform_enabled").unwrap(),
             Some("true".to_string())
         );
     }

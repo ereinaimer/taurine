@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Post-Expansion Case Cycling**: Cycle expanded text capitalization (UPPERCASE, lowercase, Sentence case, Title Case) using Left and Right arrow keys within the active undo window.
+
 ### Changed
 - **Backspace Undo Duration**: Increase the backspace undo window from 2.5 seconds to 5.0 seconds.
 - **Default Pause Notifications**: Disable pause notifications by default (`pause_notifications_enabled` defaults to `false`).

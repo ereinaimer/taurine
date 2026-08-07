@@ -12,6 +12,8 @@ static CACHED_INLINE_EMOJI_ENABLED: std::sync::atomic::AtomicBool =
 static CACHED_INLINE_EMOJI_TRIGGER_CHAR: AtomicU32 = AtomicU32::new(':' as u32);
 static CACHED_SCRIPTS_ENABLED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(true);
+static CACHED_INLINE_CASE_TRANSFORM_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(true);
 
 static CACHED_INLINE_DATETIME_ENABLED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(true);
@@ -49,6 +51,14 @@ pub fn set_cached_scripts_enabled(enabled: bool) {
 
 pub fn get_cached_scripts_enabled() -> bool {
     CACHED_SCRIPTS_ENABLED.load(Ordering::Relaxed)
+}
+
+pub fn set_cached_inline_case_transform_enabled(enabled: bool) {
+    CACHED_INLINE_CASE_TRANSFORM_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub fn get_cached_inline_case_transform_enabled() -> bool {
+    CACHED_INLINE_CASE_TRANSFORM_ENABLED.load(Ordering::Relaxed)
 }
 
 pub fn set_cached_script_timeout(timeout: u32) {
@@ -188,6 +198,7 @@ pub struct Settings {
     pub pause_audio_enabled: bool,
     pub start_on_boot: bool,
     pub inline_tab_completion_enabled: bool,
+    pub inline_case_transform_enabled: bool,
     pub wpm: u32,
     pub spinner_style: SpinnerStyle,
     pub ai_provider: Option<String>,
@@ -232,6 +243,9 @@ impl Settings {
             "pause_audio" => "pause_audio_enabled",
             "boot" => "start_on_boot",
             "inline_tab_completion" => "inline_tab_completion_enabled",
+            "inline_case_transform" | "inline_case_transform_enabled" => {
+                "inline_case_transform_enabled"
+            }
             "wpm" => "wpm",
             "spinner" => "spinner_style",
             "ai_provider" => "ai_provider",
@@ -364,6 +378,7 @@ impl Default for Settings {
             pause_audio_enabled: true,
             start_on_boot: true,
             inline_tab_completion_enabled: true,
+            inline_case_transform_enabled: true,
             wpm: Self::default_wpm(),
             spinner_style: SpinnerStyle::default(),
             ai_provider: None,

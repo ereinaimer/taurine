@@ -206,6 +206,8 @@ pub(crate) fn spawn_device_listener(
                 }
             };
             let mut swallow_next_backspace_release = false;
+            let mut swallow_next_left_arrow_release = false;
+            let mut swallow_next_right_arrow_release = false;
 
             loop {
                 match device.fetch_events() {
@@ -229,6 +231,8 @@ pub(crate) fn spawn_device_listener(
                                     &mut modifier_sides,
                                     &mut hotkey_evaluator,
                                     &mut swallow_next_backspace_release,
+                                    &mut swallow_next_left_arrow_release,
+                                    &mut swallow_next_right_arrow_release,
                                 );
                                 frame.clear();
                                 continue;
@@ -254,6 +258,8 @@ pub(crate) fn spawn_device_listener(
                                 &mut modifier_sides,
                                 &mut hotkey_evaluator,
                                 &mut swallow_next_backspace_release,
+                                &mut swallow_next_left_arrow_release,
+                                &mut swallow_next_right_arrow_release,
                             );
                         }
                     }
@@ -294,6 +300,8 @@ fn process_frame(
     modifier_sides: &mut ModifierSides,
     hotkey_evaluator: &mut HotkeyEvaluator,
     swallow_next_backspace_release: &mut bool,
+    swallow_next_left_arrow_release: &mut bool,
+    swallow_next_right_arrow_release: &mut bool,
 ) {
     let mut swallow_frame = false;
 
@@ -316,6 +324,18 @@ fn process_frame(
         if *swallow_next_backspace_release && is_release && key == KeyCode::KEY_BACKSPACE {
             swallow_frame = true;
             *swallow_next_backspace_release = false;
+            continue;
+        }
+
+        if *swallow_next_left_arrow_release && is_release && key == KeyCode::KEY_LEFT {
+            swallow_frame = true;
+            *swallow_next_left_arrow_release = false;
+            continue;
+        }
+
+        if *swallow_next_right_arrow_release && is_release && key == KeyCode::KEY_RIGHT {
+            swallow_frame = true;
+            *swallow_next_right_arrow_release = false;
             continue;
         }
 
@@ -518,6 +538,38 @@ fn process_frame(
                         continue;
                     }
                     HotkeyEvaluation::NoMatch => {}
+                }
+            }
+
+            let cycle_dir = if state.inline_case_transform_enabled()
+                && !matches!(state.engine_mode(), EngineMode::AiCapture { .. })
+                && !shift_active
+                && !ctrl_active
+                && !alt_active
+                && !meta_active
+            {
+                if key == KeyCode::KEY_LEFT {
+                    Some(taurine_core::engine::CycleDirection::Prev)
+                } else if key == KeyCode::KEY_RIGHT {
+                    Some(taurine_core::engine::CycleDirection::Next)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            if let Some(dir) = cycle_dir {
+                if let Some(rewrite) = state.advance_case_variant(dir) {
+                    let spinner_style_inner = spinner_style.read().map(|s| *s).unwrap_or_default();
+                    crate::hook::spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
+                    swallow_frame = true;
+                    if key == KeyCode::KEY_LEFT {
+                        *swallow_next_left_arrow_release = true;
+                    } else {
+                        *swallow_next_right_arrow_release = true;
+                    }
+                    continue;
                 }
             }
 
@@ -724,6 +776,8 @@ mod tests {
         let mut modifier_sides = ModifierSides::default();
         let mut hotkey_evaluator = HotkeyEvaluator::new();
         let mut swallow = false;
+        let mut swallow_left = false;
+        let mut swallow_right = false;
 
         let frame = vec![
             InputEvent::new(EventType::KEY.0, KeyCode::KEY_LEFTCTRL.code(), 1),
@@ -750,6 +804,8 @@ mod tests {
             &mut modifier_sides,
             &mut hotkey_evaluator,
             &mut swallow,
+            &mut swallow_left,
+            &mut swallow_right,
         );
 
         // Verification 1: abort_injection bumped the generation

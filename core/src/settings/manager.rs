@@ -48,6 +48,12 @@ impl<'a> SettingsManager<'a> {
             settings.inline_tab_completion_enabled = v;
         }
 
+        if let Some(val) = map.get("inline_case_transform_enabled")
+            && let Ok(v) = serde_json::from_str::<bool>(val)
+        {
+            settings.inline_case_transform_enabled = v;
+        }
+
         if let Some(val) = map.get("wpm")
             && let Ok(v) = serde_json::from_str::<u32>(val)
         {
@@ -285,6 +291,19 @@ mod tests {
 
         let settings = manager.load_all();
         assert!(!settings.inline_tab_completion_enabled);
+    }
+
+    #[test]
+    fn load_all_reads_inline_case_transform_settings_from_db() {
+        let (_dir, conn) = open_test_db();
+        let manager = SettingsManager::new(&conn);
+
+        manager
+            .update_setting("inline_case_transform_enabled", false)
+            .unwrap();
+
+        let settings = manager.load_all();
+        assert!(!settings.inline_case_transform_enabled);
     }
 
     #[test]
