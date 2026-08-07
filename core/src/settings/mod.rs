@@ -368,7 +368,7 @@ impl Default for Settings {
         Self {
             trigger_char: '>',
             pause_hotkey: "Alt + `".to_string(),
-            pause_notifications_enabled: true,
+            pause_notifications_enabled: false,
             pause_audio_enabled: true,
             start_on_boot: true,
             inline_tab_completion_enabled: true,

@@ -42,9 +42,9 @@ pub fn ensure_defaults(conn: &Connection) -> Result<()> {
     }
 
     if !existing.contains_key("pause_notifications_enabled") {
-        debug!("Default 'pause_notifications_enabled' missing. Seeding database with 'true'.");
+        debug!("Default 'pause_notifications_enabled' missing. Seeding database with 'false'.");
         // Stored as a JSON boolean literal.
-        upsert_setting(conn, "pause_notifications_enabled", "true")?;
+        upsert_setting(conn, "pause_notifications_enabled", "false")?;
     }
 
     if !existing.contains_key("spinner_style") {

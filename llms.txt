@@ -65,7 +65,7 @@ Validation limits: trigger string ≤200 chars, text output ≤100 KB, script co
 | Category | Keys (default) |
 |----------|----------------|
 | Core | `trigger_char` (`>`), `pause_hotkey` (`Alt + \``), `start_on_boot` (`true`), `triggerless_mode` (`true`), `instant_expand` (`false`), `action_key` (`enter` or `space`), `script_timeout` (`15`) |
-| UI | `spinner_style` (`braille`; `arc`/`classic`), `pause_notifications_enabled` (`true`), `ignore_fullscreen` (`true`), `system_tray_enabled` (`true`) |
+| UI | `spinner_style` (`braille`; `arc`/`classic`), `pause_notifications_enabled` (`false`), `ignore_fullscreen` (`true`), `system_tray_enabled` (`true`) |
 | AI | `ai_provider`, `ai_model`, `ai_custom_endpoint`, `inline_ai_trigger_mode` (`asymmetric`; `symmetric`), `inline_ai_trigger` (symmetric delimiter, `^`), `inline_ai_trigger_open` (`>>`), `inline_ai_trigger_close` (`<<`) |
 | Inline Assist | `inline_tab_completion_enabled` (`true`), `inline_history_enabled` (`true`), `inline_emoji_enabled` (`true`), `inline_emoji_trigger_char` (`:`), `inline_datetime_enabled` (`true`), `inline_currency_to_words_enabled` (`false`) |
 | Service RPC | `rpc_mode` (`socket`; `tcp`), `rpc_host` (`127.0.0.1`), `rpc_port` (`50051`), `rpc_token` (auto-generated) |

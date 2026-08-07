@@ -471,7 +471,7 @@ mod tests {
             .shutdown_sender(tx)
             .state(state.clone())
             .paused(Arc::new(AtomicBool::new(false)))
-            .pause_notifications_enabled(Arc::new(AtomicBool::new(true)))
+            .pause_notifications_enabled(Arc::new(AtomicBool::new(false)))
             .pause_hotkey_spec(pause_hotkey_spec)
             .pause_hotkey_display(Arc::new(std::sync::RwLock::new(pause_hotkey)))
             .spinner_style(Arc::new(std::sync::RwLock::new(
