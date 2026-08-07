@@ -445,7 +445,6 @@ pub(super) fn run_listener_once(
                     && !ctrl_active
                     && !alt_active
                     && !meta_active
-                    && state.triggerless_mode.load(Ordering::Relaxed)
                 {
                     let rewrite = with_evaluator_lock(
                         &evaluator,
@@ -576,10 +575,8 @@ pub(super) fn run_listener_once(
                         engine_event = engine_event_label(&ev),
                         "Dispatching engine event from hook callback"
                     );
-                    let needs_window = matches!(ev, EngineEvent::ActionKey)
-                        || (matches!(ev, EngineEvent::Char(_))
-                            && (state.instant_expand.load(Ordering::Relaxed)
-                                || state.triggerless_mode.load(Ordering::Relaxed)));
+                    let needs_window =
+                        matches!(ev, EngineEvent::ActionKey) || matches!(ev, EngineEvent::Char(_));
 
                     let active_window = if needs_window {
                         crate::platform::get_active_window_label()

@@ -19,7 +19,7 @@ fn load_hotkey(state: &EngineState, trigger: &str, output: &str) {
 
 #[test]
 fn hotkey_match_returns_expansion_result_and_swallow_outcome() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     load_hotkey(&state, "ctrl+shift+g", "git status");
     let mut evaluator = HotkeyEvaluator::new();
 
@@ -51,10 +51,9 @@ fn hotkey_miss_falls_through_and_preserves_word_evaluator_behavior() {
     let _lock = crate::hook::tests::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    let state = std::sync::Arc::new(EngineState::with_source(
-        '>',
-        std::sync::Arc::new(taurine_core::engine::source::MemorySource::new()),
-    ));
+    let state = std::sync::Arc::new(EngineState::with_source(std::sync::Arc::new(
+        taurine_core::engine::source::MemorySource::new(),
+    )));
     state.load_actions(vec![(
         "gm".to_string(),
         TriggerAction::text("Good morning!"),
@@ -95,7 +94,7 @@ fn hotkey_miss_falls_through_and_preserves_word_evaluator_behavior() {
 
 #[test]
 fn hotkey_match_does_not_touch_text_buffer_or_register_undo() {
-    let state = std::sync::Arc::new(EngineState::new('>'));
+    let state = std::sync::Arc::new(EngineState::new());
     load_hotkey(state.as_ref(), "ctrl+shift+g", "git status");
     let mut hotkeys = HotkeyEvaluator::new();
     let mut text = Evaluator::new(state.clone());
@@ -114,7 +113,7 @@ fn hotkey_match_does_not_touch_text_buffer_or_register_undo() {
 
 #[test]
 fn hotkey_fires_once_per_press_until_release() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     load_hotkey(&state, "ctrl+shift+g", "git status");
     let mut evaluator = HotkeyEvaluator::new();
     let modifiers = modifiers_with(&[Modifier::Ctrl, Modifier::Shift]);
@@ -139,7 +138,7 @@ fn hotkey_fires_once_per_press_until_release() {
 
 #[test]
 fn side_specific_alt_hotkeys_only_match_the_requested_side() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     state.load_hotkey_actions(vec![
         ("lalt+m".to_string(), TriggerAction::text("left alt")),
         ("ralt+m".to_string(), TriggerAction::text("right alt")),
@@ -166,7 +165,7 @@ fn side_specific_alt_hotkeys_only_match_the_requested_side() {
 
 #[test]
 fn generic_alt_hotkey_matches_either_side_without_matching_extra_families() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     load_hotkey(&state, "alt+m", "generic alt");
     let mut evaluator = HotkeyEvaluator::new();
 
@@ -198,7 +197,7 @@ fn generic_alt_hotkey_matches_either_side_without_matching_extra_families() {
 
 #[test]
 fn alt_hotkey_does_not_match_shift_ctrl_or_plain_same_base_key() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     load_hotkey(&state, "alt+g", "generic alt");
     let mut evaluator = HotkeyEvaluator::new();
 
@@ -230,7 +229,7 @@ fn alt_hotkey_does_not_match_shift_ctrl_or_plain_same_base_key() {
 
 #[test]
 fn same_base_key_hotkeys_remain_distinct_by_modifier_identity() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     state.load_hotkey_actions(vec![
         ("alt+g".to_string(), TriggerAction::text("alt")),
         ("ctrl+g".to_string(), TriggerAction::text("ctrl")),
@@ -268,7 +267,7 @@ fn same_base_key_hotkeys_remain_distinct_by_modifier_identity() {
 
 #[test]
 fn modifier_only_keypresses_do_not_match_hotkeys() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     load_hotkey(&state, "ctrl+shift+g", "git status");
     let mut evaluator = HotkeyEvaluator::new();
 
@@ -285,7 +284,7 @@ fn modifier_only_keypresses_do_not_match_hotkeys() {
 
 #[test]
 fn keeps_top_row_and_numpad_digits_distinct_at_runtime() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     load_hotkey(&state, "ctrl+num1", "numpad");
     let mut evaluator = HotkeyEvaluator::new();
     let modifiers = modifiers_with(&[Modifier::Ctrl]);
@@ -302,7 +301,7 @@ fn keeps_top_row_and_numpad_digits_distinct_at_runtime() {
 
 #[test]
 fn no_hotkey_configured_for_key_returns_no_match_without_window_call() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     let mut evaluator = HotkeyEvaluator::new();
 
     let result = evaluator.on_key_event(
@@ -317,7 +316,7 @@ fn no_hotkey_configured_for_key_returns_no_match_without_window_call() {
 
 #[test]
 fn hotkey_match_fetches_window_only_when_needed() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     state.load_hotkey_actions(vec![
         (
             "ctrl+shift+h".to_string(),
@@ -366,7 +365,7 @@ fn hotkey_match_fetches_window_only_when_needed() {
 
 #[test]
 fn hotkey_match_without_window_returns_no_match_when_only_app_filtered_entries_exist() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     state.load_hotkey_actions(vec![(
         "ctrl+shift+g".to_string(),
         TriggerAction {
@@ -398,7 +397,7 @@ fn hotkey_match_without_window_returns_no_match_when_only_app_filtered_entries_e
 
 #[test]
 fn hotkey_match_priority_preserved_with_mixed_filtered_unfiltered_entries() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     state.load_hotkey_actions(vec![
         (
             "ctrl+shift+g".to_string(),

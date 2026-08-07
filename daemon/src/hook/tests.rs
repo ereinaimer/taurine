@@ -14,7 +14,7 @@ fn dispatch_expansion_runs_injection_before_follow_up_consumption() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let inject_events = events.clone();
     let follow_up_events = events.clone();
-    let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+    let state = Arc::new(taurine_core::engine::EngineState::new());
 
     let _rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -71,7 +71,7 @@ fn dispatch_expansion_runs_injection_before_follow_up_consumption() {
 
 #[test]
 fn dispatch_expansion_records_undo_state_for_plain_text_output() {
-    let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+    let state = Arc::new(taurine_core::engine::EngineState::new());
     let _rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -111,7 +111,7 @@ fn dispatch_expansion_records_undo_state_for_plain_text_output() {
 
 #[test]
 fn dispatch_expansion_registers_undo_state_before_injection_completes() {
-    let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+    let state = Arc::new(taurine_core::engine::EngineState::new());
     let _rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -164,7 +164,7 @@ fn dispatch_expansion_registers_undo_state_before_injection_completes() {
 
 #[test]
 fn dispatch_expansion_does_not_rearm_undo_state_if_consumed_early() {
-    let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+    let state = Arc::new(taurine_core::engine::EngineState::new());
     let _rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -222,7 +222,7 @@ fn dispatch_expansion_does_not_rearm_undo_state_if_consumed_early() {
 
 #[test]
 fn dispatch_expansion_skips_undo_registration_for_hotkey_results() {
-    let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+    let state = Arc::new(taurine_core::engine::EngineState::new());
     let _rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -362,7 +362,7 @@ fn completion_key_kind_from_tab_like_maps_expected_keys() {
 fn trigger_assist_key_action_passes_tab_through_when_tab_completion_is_disabled() {
     use std::sync::atomic::Ordering;
 
-    let state = taurine_core::engine::EngineState::new('>');
+    let state = taurine_core::engine::EngineState::new();
     state
         .inline_tab_completion_enabled
         .store(false, Ordering::Relaxed);
@@ -377,7 +377,7 @@ fn trigger_assist_key_action_passes_tab_through_when_tab_completion_is_disabled(
 fn trigger_assist_key_action_passes_history_through_when_history_is_disabled() {
     use std::sync::atomic::Ordering;
 
-    let state = taurine_core::engine::EngineState::new('>');
+    let state = taurine_core::engine::EngineState::new();
     state.inline_history_enabled.store(false, Ordering::Relaxed);
 
     assert_eq!(
@@ -394,7 +394,7 @@ fn trigger_assist_key_action_passes_history_through_when_history_is_disabled() {
 fn trigger_assist_key_release_swallowing_respects_feature_settings() {
     use std::sync::atomic::Ordering;
 
-    let state = taurine_core::engine::EngineState::new('>');
+    let state = taurine_core::engine::EngineState::new();
     assert!(should_swallow_trigger_assist_key_release(
         &state,
         CompletionKeyKind::Tab
@@ -421,7 +421,7 @@ fn trigger_assist_key_release_swallowing_respects_feature_settings() {
 
 #[test]
 fn completion_is_inactive_after_trigger_character_is_deleted() {
-    let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+    let state = Arc::new(taurine_core::engine::EngineState::new());
     let mut evaluator = taurine_core::engine::Evaluator::new(state);
     for ch in ">g".chars() {
         assert_eq!(
@@ -455,7 +455,7 @@ fn completion_is_inactive_after_trigger_character_is_deleted() {
 #[test]
 fn dispatch_expansion_promotes_word_trigger_history_on_success() {
     let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+    let state = Arc::new(taurine_core::engine::EngineState::new());
     state.load_actions(vec![
         (
             "email".to_string(),
@@ -504,7 +504,7 @@ fn dispatch_expansion_promotes_word_trigger_history_on_success() {
 
 #[test]
 fn trigger_assist_is_inactive_while_inline_ai_capture_mode_is_active() {
-    let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+    let state = Arc::new(taurine_core::engine::EngineState::new());
     let mut evaluator = taurine_core::engine::Evaluator::new(state.clone());
 
     let _ = evaluator.process_event(taurine_core::engine::EngineEvent::Char('>'), None);
@@ -547,7 +547,7 @@ fn test_dispatch_expansion_skips_ai_stats() {
         .enable_all()
         .build()
         .expect("runtime should build");
-    let state = Arc::new(taurine_core::engine::EngineState::new('>'));
+    let state = Arc::new(taurine_core::engine::EngineState::new());
 
     // Initialize/clear db stats for today to have a clean slate
     let conn = taurine_core::db::init::setup().unwrap();
@@ -633,18 +633,24 @@ fn test_dispatch_expansion_skips_ai_stats() {
 
 #[test]
 fn action_key_during_active_completion_returns_expansion() {
-    let state = Arc::new(EngineState::with_source('>', Arc::new(MemorySource::new())));
+    let state = Arc::new(EngineState::with_source(Arc::new(MemorySource::new())));
     state.load_actions(vec![("gs".to_string(), TriggerAction::text("git status"))]);
     let mut evaluator = Evaluator::new(state);
 
-    for ch in ">gs".chars() {
+    for ch in "gs".chars() {
         let result = evaluator.process_event(EngineEvent::Char(ch), None);
         assert!(result.is_none(), "char should not trigger expansion yet");
     }
 
     assert!(
+        evaluator
+            .activate_triggerless_completion_no_cycle()
+            .is_some(),
+        "completion should activate for a matching trigger prefix"
+    );
+    assert!(
         evaluator.is_completion_active(),
-        "completion should be active after trigger char is typed"
+        "completion should be active after typing"
     );
 
     let result = evaluator.process_event(EngineEvent::ActionKey, None);
@@ -667,15 +673,18 @@ fn action_key_during_active_completion_returns_expansion() {
 
 #[test]
 fn action_key_during_active_completion_cleans_up_when_no_trigger_matches() {
-    let state = Arc::new(EngineState::new('>'));
+    let state = Arc::new(EngineState::new());
     let mut evaluator = Evaluator::new(state);
 
-    for ch in ">gs".chars() {
+    for ch in "gs".chars() {
         let result = evaluator.process_event(EngineEvent::Char(ch), None);
         assert!(result.is_none());
     }
 
-    assert!(evaluator.is_completion_active());
+    assert!(
+        !evaluator.is_completion_active(),
+        "completion should not implicitly activate for unmatched typing"
+    );
 
     let result = evaluator.process_event(EngineEvent::ActionKey, None);
     assert!(
@@ -691,13 +700,15 @@ fn action_key_during_active_completion_cleans_up_when_no_trigger_matches() {
 
 #[test]
 fn evaluator_reset_clears_buffer_and_completion() {
-    let state = Arc::new(EngineState::new('>'));
+    let state = Arc::new(EngineState::new());
+    state.load_actions(vec![("gs".to_string(), TriggerAction::text("git status"))]);
     let mut evaluator = Evaluator::new(state);
 
-    for ch in ">gs".chars() {
+    for ch in "gs".chars() {
         let _ = evaluator.process_event(EngineEvent::Char(ch), None);
     }
 
+    let _ = evaluator.activate_triggerless_completion_no_cycle();
     assert!(evaluator.is_completion_active());
 
     evaluator.reset();

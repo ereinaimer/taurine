@@ -37,7 +37,6 @@ impl crate::engine::evaluator::Evaluator {
         keyword: &str,
         steps: &[ExpansionStep],
     ) -> Option<String> {
-        self.allows_blind_undo(steps)
-            .then(|| self.full_trigger_text(keyword))
+        self.allows_blind_undo(steps).then(|| keyword.to_string())
     }
 }

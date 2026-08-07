@@ -445,7 +445,7 @@ mod tests {
 
         let conn = init::setup().expect("Failed to setup DB");
 
-        let state = Arc::new(EngineState::new('>'));
+        let state = Arc::new(EngineState::new());
         let (tx, _rx) = mpsc::channel(1);
         let pause_hotkey = "Alt + `".to_string();
         let pause_hotkey_spec = Arc::new(std::sync::RwLock::new(

@@ -258,7 +258,7 @@ impl ExpansionCatalog {
         if instant_expand {
             return None;
         }
-        let dummy_state = crate::engine::state::EngineState::new('>');
+        let dummy_state = crate::engine::state::EngineState::new();
         let parsed_words = crate::engine::conversion::convert_natural(keyword, &dummy_state)?;
         let mut expansion = FinalExpansion::text(parsed_words);
         expansion.is_calculation = true;

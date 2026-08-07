@@ -81,14 +81,14 @@ fn assert_normal_expansion_still_works() {
     let _lock = crate::hook::tests::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    let state = Arc::new(EngineState::with_source('>', Arc::new(MemorySource::new())));
+    let state = Arc::new(EngineState::with_source(Arc::new(MemorySource::new())));
     state.load_actions(vec![(
         "gm".to_string(),
         TriggerAction::text("Good morning!"),
     )]);
     let mut evaluator = Evaluator::new(state);
 
-    for ch in ">gm".chars() {
+    for ch in "gm".chars() {
         assert_eq!(
             evaluator.process_event(
                 if ch == ' ' {

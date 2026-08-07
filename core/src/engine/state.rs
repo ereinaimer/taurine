@@ -39,7 +39,6 @@ impl UndoState {
 }
 
 pub struct EngineState {
-    pub trigger_char: AtomicU32,
     inline_ai_trigger_mode: RwLock<crate::settings::InlineAiTriggerMode>,
     inline_ai_trigger: RwLock<String>,
     inline_ai_trigger_open: RwLock<String>,
@@ -52,7 +51,6 @@ pub struct EngineState {
     inline_datetime_time_format: parking_lot::RwLock<String>,
     inline_datetime_datetime_format: parking_lot::RwLock<String>,
     inline_datetime_dialect: parking_lot::RwLock<String>,
-    pub triggerless_mode: AtomicBool,
     pub instant_expand: AtomicBool,
     pub ignore_fullscreen_enabled: AtomicBool,
     pub is_os_fullscreen: AtomicBool,
@@ -70,10 +68,15 @@ pub struct EngineState {
     pub regex_catalog: RegexCatalog,
 }
 
+impl Default for EngineState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EngineState {
-    pub fn new(trigger_char: char) -> Self {
+    pub fn new() -> Self {
         Self {
-            trigger_char: AtomicU32::new(trigger_char as u32),
             inline_ai_trigger_mode: RwLock::new(crate::settings::InlineAiTriggerMode::default()),
             inline_ai_trigger: RwLock::new("^".to_string()),
             inline_ai_trigger_open: RwLock::new(">>".to_string()),
@@ -89,7 +92,6 @@ impl EngineState {
                 "MMMM D, YYYY 'at' h:mm A".to_string(),
             ),
             inline_datetime_dialect: parking_lot::RwLock::new("uk".to_string()),
-            triggerless_mode: AtomicBool::new(false),
             instant_expand: AtomicBool::new(false),
             ignore_fullscreen_enabled: AtomicBool::new(true),
             is_os_fullscreen: AtomicBool::new(false),
@@ -109,9 +111,8 @@ impl EngineState {
     }
 
     /// Creates an EngineState with a custom snippet source.
-    pub fn with_source(trigger_char: char, source: Arc<dyn SnippetSource>) -> Self {
+    pub fn with_source(source: Arc<dyn SnippetSource>) -> Self {
         Self {
-            trigger_char: AtomicU32::new(trigger_char as u32),
             inline_ai_trigger_mode: RwLock::new(crate::settings::InlineAiTriggerMode::default()),
             inline_ai_trigger: RwLock::new("^".to_string()),
             inline_ai_trigger_open: RwLock::new(">>".to_string()),
@@ -127,7 +128,6 @@ impl EngineState {
                 "MMMM D, YYYY 'at' h:mm A".to_string(),
             ),
             inline_datetime_dialect: parking_lot::RwLock::new("uk".to_string()),
-            triggerless_mode: AtomicBool::new(false),
             instant_expand: AtomicBool::new(false),
             ignore_fullscreen_enabled: AtomicBool::new(true),
             is_os_fullscreen: AtomicBool::new(false),
@@ -448,7 +448,7 @@ mod tests {
 
     #[test]
     fn engine_state_defaults_to_normal_mode_with_empty_ai_prompt() {
-        let state = EngineState::new('>');
+        let state = EngineState::new();
 
         assert_eq!(state.engine_mode(), EngineMode::Normal);
         assert_eq!(state.ai_prompt_buffer(), "");
@@ -458,7 +458,7 @@ mod tests {
 
     #[test]
     fn engine_state_ai_prompt_helpers_track_chars_and_words() {
-        let state = EngineState::new('>');
+        let state = EngineState::new();
 
         state.set_engine_mode(EngineMode::AiCapture {
             system_prompt_override: None,
@@ -484,7 +484,7 @@ mod tests {
 
     #[test]
     fn undo_state_round_trips_while_active() {
-        let state = EngineState::new('>');
+        let state = EngineState::new();
 
         state.set_undo_state(">gm".to_string(), 12);
         let undo = state
@@ -498,7 +498,7 @@ mod tests {
 
     #[test]
     fn expired_undo_state_is_cleared_on_access() {
-        let state = EngineState::new('>');
+        let state = EngineState::new();
         let expired = UndoState {
             trigger_string: ">gm".to_string(),
             output_length: 12,
@@ -513,7 +513,7 @@ mod tests {
 
     #[test]
     fn hotkey_actions_load_into_separate_catalog_from_word_actions() {
-        let state = EngineState::new('>');
+        let state = EngineState::new();
 
         state.load_actions(vec![(
             "gm".to_string(),
@@ -534,7 +534,7 @@ mod tests {
 
     #[test]
     fn fetch_hotkey_expansion_builds_steps_without_entering_word_catalog() {
-        let state = EngineState::new('>');
+        let state = EngineState::new();
 
         state.load_actions(vec![(
             "gm".to_string(),
@@ -566,7 +566,7 @@ mod tests {
 
     #[test]
     fn fetch_hotkey_expansion_matches_generic_hotkeys_from_side_specific_runtime_state() {
-        let state = EngineState::new('>');
+        let state = EngineState::new();
         state.load_hotkey_actions(vec![(
             "alt+m".to_string(),
             TriggerAction::text("monkeytype"),
@@ -591,7 +591,7 @@ mod tests {
 
     #[test]
     fn fetch_hotkey_expansion_prefers_exact_side_specific_trigger() {
-        let state = EngineState::new('>');
+        let state = EngineState::new();
         state.load_hotkey_actions(vec![
             ("alt+m".to_string(), TriggerAction::text("generic")),
             ("ralt+m".to_string(), TriggerAction::text("right")),
@@ -616,7 +616,7 @@ mod tests {
 
     #[test]
     fn matching_word_triggers_reads_only_the_word_catalog() {
-        let state = EngineState::new('>');
+        let state = EngineState::new();
         state.load_actions(vec![
             ("gpush".to_string(), TriggerAction::text("git push")),
             ("gs".to_string(), TriggerAction::text("git status")),
@@ -631,7 +631,7 @@ mod tests {
 
     #[test]
     fn matching_word_trigger_history_reads_only_the_word_catalog() {
-        let state = EngineState::new('>');
+        let state = EngineState::new();
         state.load_actions(vec![
             ("gpush".to_string(), TriggerAction::text("git push")),
             ("gs".to_string(), TriggerAction::text("git status")),
@@ -647,7 +647,7 @@ mod tests {
 
     #[test]
     fn record_word_trigger_usage_promotes_history_without_touching_hotkeys() {
-        let state = EngineState::new('>');
+        let state = EngineState::new();
         state.load_actions(vec![
             ("email".to_string(), TriggerAction::text("team update")),
             ("gs".to_string(), TriggerAction::text("git status")),

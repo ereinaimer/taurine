@@ -12,7 +12,7 @@ fn test_is_conversion_pattern() {
 
 #[test]
 fn test_physical_conversions() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("100c=f", &state), Some("212f".to_string()));
     assert_eq!(convert("0c=k", &state), Some("273.15k".to_string()));
     assert_eq!(convert("1.5gb=mb", &state), Some("1500mb".to_string()));
@@ -24,7 +24,7 @@ fn test_physical_conversions() {
 
 #[test]
 fn test_currency_fallback() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
 
     let mut mock = HashMap::new();
     mock.insert("USD".to_string(), 1.0);
@@ -44,7 +44,7 @@ fn test_currency_fallback() {
 
 #[test]
 fn test_convert_natural() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
 
     let mut mock = HashMap::new();
     mock.insert("USD".to_string(), 1.0);
@@ -84,7 +84,7 @@ fn test_convert_natural() {
 
 #[test]
 fn test_nl_prefixes() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
 
     let mut mock = HashMap::new();
     mock.insert("USD".to_string(), 1.0);
@@ -152,7 +152,7 @@ fn test_nl_prefixes() {
 
 #[test]
 fn test_css_px_rem_conversion() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("24px=rem", &state), Some("1.5rem".to_string()));
     assert_eq!(convert("1.25rem=px", &state), Some("20px".to_string()));
     assert_eq!(convert("16px=rem", &state), Some("1rem".to_string()));
@@ -161,7 +161,7 @@ fn test_css_px_rem_conversion() {
 
 #[test]
 fn test_css_em_conversion() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("2em=px", &state), Some("32px".to_string()));
     assert_eq!(convert("24px=em", &state), Some("1.5em".to_string()));
     assert_eq!(convert("1em=rem", &state), Some("1rem".to_string()));
@@ -170,7 +170,7 @@ fn test_css_em_conversion() {
 
 #[test]
 fn test_css_em_natural() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(
         convert_natural("2em to px", &state),
         Some("32 px".to_string())
@@ -221,7 +221,7 @@ fn test_inline_color_conversion_invalid() {
 
 #[test]
 fn test_css_px_rem_natural() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(
         convert_natural("24px to rem", &state),
         Some("1.5 rem".to_string())
@@ -236,35 +236,35 @@ fn test_css_px_rem_natural() {
 
 #[test]
 fn test_angle_categories_incompatible() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert!(convert("1deg=kg", &state).is_none());
     assert!(convert("1rad=m", &state).is_none());
 }
 
 #[test]
 fn test_angle_deg_rad_conversion() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("180deg=rad", &state), Some("3.14rad".to_string()));
     assert_eq!(convert("1rad=deg", &state), Some("57.3deg".to_string()));
 }
 
 #[test]
 fn test_angle_deg_grad_conversion() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("90deg=grad", &state), Some("100grad".to_string()));
     assert_eq!(convert("100grad=deg", &state), Some("90deg".to_string()));
 }
 
 #[test]
 fn test_angle_deg_turn_conversion() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("0.5turn=deg", &state), Some("180deg".to_string()));
     assert_eq!(convert("1turn=deg", &state), Some("360deg".to_string()));
 }
 
 #[test]
 fn test_angle_rad_grad_conversion() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("200grad=rad", &state), Some("3.14rad".to_string()));
     assert_eq!(
         convert("3.1416rad=grad", &state),
@@ -274,7 +274,7 @@ fn test_angle_rad_grad_conversion() {
 
 #[test]
 fn test_angle_natural_deg_to_rad() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(
         convert_natural("180 degrees to rad", &state),
         Some("3.14 rad".to_string())
@@ -289,7 +289,7 @@ fn test_angle_natural_deg_to_rad() {
 
 #[test]
 fn test_british_length_metres() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("100m=ft", &state), Some("328.08ft".to_string()));
     let result = convert_natural("100 metres to ft", &state);
     assert_eq!(result, Some("328.08 ft".to_string()));
@@ -307,7 +307,7 @@ fn test_british_length_metres() {
 
 #[test]
 fn test_british_length_kilometres() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("5km=mi", &state), Some("3.11mi".to_string()));
     assert_eq!(
         convert_natural("5 kilometres to mi", &state),
@@ -317,7 +317,7 @@ fn test_british_length_kilometres() {
 
 #[test]
 fn test_british_volume_litres() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("2l=qt", &state), Some("2.11qt".to_string()));
     assert_eq!(
         convert_natural("2 litres to qt", &state),
@@ -334,28 +334,28 @@ fn test_british_volume_litres() {
 
 #[test]
 fn test_energy_categories_incompatible() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert!(convert("1J=kg", &state).is_none());
     assert!(convert("1cal=m", &state).is_none());
 }
 
 #[test]
 fn test_energy_joule_conversions() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("1000J=kJ", &state), Some("1kj".to_string()));
     assert_eq!(convert("500J=kJ", &state), Some("0.5kj".to_string()));
 }
 
 #[test]
 fn test_energy_calorie_conversions() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("1cal=J", &state), Some("4184j".to_string()));
     assert_eq!(convert("1000J=cal", &state), Some("0.24cal".to_string()));
 }
 
 #[test]
 fn test_energy_kcal_conversions() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("1kcal=J", &state), Some("4184j".to_string()));
     assert_eq!(convert("250kcal=kJ", &state), Some("1046kj".to_string()));
     assert_eq!(
@@ -366,27 +366,27 @@ fn test_energy_kcal_conversions() {
 
 #[test]
 fn test_energy_btu_conversion() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("1BTU=kJ", &state), Some("1.06kj".to_string()));
     assert_eq!(convert("1BTU=J", &state), Some("1055.06j".to_string()));
 }
 
 #[test]
 fn test_energy_kwh_conversion() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("1kWh=J", &state), Some("3600000j".to_string()));
     assert_eq!(convert("1Wh=J", &state), Some("3600j".to_string()));
 }
 
 #[test]
 fn test_energy_ev_conversion() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("1eV=J", &state), Some("0j".to_string()));
 }
 
 #[test]
 fn test_energy_natural_joules() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(
         convert_natural("1000 joules to kilojoules", &state),
         Some("1 kilojoules".to_string())
@@ -397,34 +397,34 @@ fn test_energy_natural_joules() {
 
 #[test]
 fn test_force_categories_incompatible() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert!(convert("1N=kg", &state).is_none());
 }
 
 #[test]
 fn test_force_newton_dyne() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("1N=dyn", &state), Some("100000dyn".to_string()));
     assert_eq!(convert("100000dyn=N", &state), Some("1n".to_string()));
 }
 
 #[test]
 fn test_force_newton_pound_force() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("1N=lbf", &state), Some("0.22lbf".to_string()));
     assert_eq!(convert("10lbf=N", &state), Some("44.48n".to_string()));
 }
 
 #[test]
 fn test_force_kgf() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("1kgf=N", &state), Some("9.81n".to_string()));
     assert_eq!(convert("1N=kgf", &state), Some("0.1kgf".to_string()));
 }
 
 #[test]
 fn test_force_natural_newtons() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(
         convert_natural("10 newtons to dynes", &state),
         Some("1000000 dynes".to_string())
@@ -435,13 +435,13 @@ fn test_force_natural_newtons() {
 
 #[test]
 fn test_frequency_categories_incompatible() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert!(convert("1Hz=kg", &state).is_none());
 }
 
 #[test]
 fn test_frequency_si_prefixes() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("1000Hz=kHz", &state), Some("1khz".to_string()));
     assert_eq!(convert("1MHz=Hz", &state), Some("1000000hz".to_string()));
     assert_eq!(convert("1GHz=MHz", &state), Some("1000mhz".to_string()));
@@ -450,7 +450,7 @@ fn test_frequency_si_prefixes() {
 
 #[test]
 fn test_frequency_natural() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(
         convert_natural("1 megahertz to hertz", &state),
         Some("1000000 hertz".to_string())
@@ -461,7 +461,7 @@ fn test_frequency_natural() {
 
 #[test]
 fn test_extend_length_nautical_mile() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("1nmi=m", &state), Some("1852m".to_string()));
     assert_eq!(
         convert_natural("1 nautical mile to km", &state),
@@ -471,7 +471,7 @@ fn test_extend_length_nautical_mile() {
 
 #[test]
 fn test_extend_time_sub_second() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("1s=ms", &state), Some("1000ms".to_string()));
     assert_eq!(convert("1000ms=s", &state), Some("1s".to_string()));
     assert_eq!(convert("1s=us", &state), Some("1000000us".to_string()));
@@ -480,7 +480,7 @@ fn test_extend_time_sub_second() {
 
 #[test]
 fn test_electricity_voltage() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("1V=mV", &state), Some("1000mv".to_string()));
     assert_eq!(convert("1000mV=V", &state), Some("1v".to_string()));
     assert_eq!(convert("1kV=V", &state), Some("1000v".to_string()));
@@ -492,7 +492,7 @@ fn test_electricity_voltage() {
 
 #[test]
 fn test_electricity_current() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("1A=mA", &state), Some("1000ma".to_string()));
     assert_eq!(convert("1000mA=A", &state), Some("1a".to_string()));
     assert_eq!(
@@ -503,7 +503,7 @@ fn test_electricity_current() {
 
 #[test]
 fn test_electricity_resistance() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("1kohm=ohm", &state), Some("1000ohm".to_string()));
     assert_eq!(
         convert("1megohm=ohm", &state),
@@ -513,14 +513,14 @@ fn test_electricity_resistance() {
 
 #[test]
 fn test_extend_pressure_kpa() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("100kpa=psi", &state), Some("14.5psi".to_string()));
     assert_eq!(convert("35psi=kpa", &state), Some("241.32kpa".to_string()));
 }
 
 #[test]
 fn test_extend_pressure_atm() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("1atm=psi", &state), Some("14.7psi".to_string()));
     assert_eq!(convert("1atm=bar", &state), Some("1.01bar".to_string()));
     assert_eq!(convert("1atm=torr", &state), Some("760torr".to_string()));
@@ -528,7 +528,7 @@ fn test_extend_pressure_atm() {
 
 #[test]
 fn test_extend_data_bits() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("1byte=bit", &state), Some("8bit".to_string()));
     assert_eq!(convert("1kb=kbit", &state), Some("8kbit".to_string()));
     assert_eq!(convert("100mb=mbit", &state), Some("800mbit".to_string()));
@@ -541,13 +541,13 @@ fn test_extend_data_bits() {
 
 #[test]
 fn test_extend_power_mw() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("1MW=kW", &state), Some("1000kw".to_string()));
     assert_eq!(convert("1W=mW", &state), Some("1000mw".to_string()));
 }
 
 #[test]
 fn test_extend_mass_microgram() {
-    let state = EngineState::new('>');
+    let state = EngineState::new();
     assert_eq!(convert("1g=ug", &state), Some("1000000ug".to_string()));
 }

@@ -22,7 +22,6 @@ impl crate::engine::evaluator::Evaluator {
         &mut self,
         active_window: Option<&str>,
     ) -> Option<ExpansionResult> {
-        let trigger_char = self.trigger_prefix();
         let emoji_trigger = self.state.inline_emoji_trigger_char();
         let emoji_enabled = self.state.inline_emoji_enabled();
         let action_key = self.state.action_key();
@@ -75,43 +74,6 @@ impl crate::engine::evaluator::Evaluator {
             }
         }
 
-        if let Some(keyword) = self.buffer.extract_trigger_word(trigger_char, allow_spaces)
-            && let Some(expansion) = self.state.fetch_expansion(&keyword, active_window)
-        {
-            let delete_count = 1 + keyword.chars().count();
-            let stat_kind = stat_kind_for_steps(expansion.is_calculation, &expansion.steps);
-            self.buffer.clear();
-
-            if let Some(template) = expansion.ai_transformer_template {
-                let initial_text = self.get_initial_spinner_text(&template);
-                // Template has | ai(...) or async system markers — trigger async pre-resolution before injecting.
-                return Some(ExpansionResult {
-                    delete_count,
-                    steps: vec![ExpansionStep::Text(initial_text)],
-                    trigger: keyword,
-                    undo_trigger: None,
-                    is_calculation: false,
-                    stat_kind: TriggerStatKind::InlineAi,
-                    track_usage: true,
-                    follow_up: Some(ExpansionFollowUp::AiTransformer {
-                        template_with_markers: template,
-                    }),
-                });
-            }
-
-            let undo_trigger = self.undo_trigger_for_steps(&keyword, &expansion.steps);
-            return Some(ExpansionResult {
-                delete_count,
-                steps: expansion.steps,
-                trigger: keyword,
-                undo_trigger,
-                is_calculation: expansion.is_calculation,
-                stat_kind,
-                track_usage: true,
-                follow_up: None,
-            });
-        }
-
         if !instant_expand
             && emoji_enabled
             && let Some(word) = self
@@ -133,57 +95,48 @@ impl crate::engine::evaluator::Evaluator {
             });
         }
 
-        if self
-            .state
-            .triggerless_mode
-            .load(std::sync::atomic::Ordering::Relaxed)
-        {
-            let mut candidates = self.buffer.extract_suffix_candidates();
-            candidates.sort_by_key(|a| std::cmp::Reverse(a.0.len()));
+        let mut candidates = self.buffer.extract_suffix_candidates();
+        candidates.sort_by_key(|a| std::cmp::Reverse(a.0.len()));
 
-            for (word, prev_char) in candidates {
-                let is_boundary = (!instant_expand
-                    && action_key == crate::settings::ActionKey::Enter)
-                    || prev_char.is_none_or(|c| c.is_whitespace() || c.is_ascii_punctuation());
-                if is_boundary
-                    && let Some(expansion) = self
-                        .state
-                        .fetch_expansion_no_date_fallback(&word, active_window)
-                {
-                    let delete_count = word.chars().count();
-                    let stat_kind = stat_kind_for_steps(expansion.is_calculation, &expansion.steps);
-                    self.buffer.clear();
-                    if let Some(template) = expansion.ai_transformer_template {
-                        let initial_text = self.get_initial_spinner_text(&template);
-                        return Some(ExpansionResult {
-                            delete_count,
-                            steps: vec![ExpansionStep::Text(initial_text)],
-                            trigger: word,
-                            undo_trigger: None,
-                            is_calculation: false,
-                            stat_kind: TriggerStatKind::InlineAi,
-                            track_usage: true,
-                            follow_up: Some(ExpansionFollowUp::AiTransformer {
-                                template_with_markers: template,
-                            }),
-                        });
-                    }
-
-                    let undo_trigger = self
-                        .allows_blind_undo(&expansion.steps)
-                        .then(|| word.clone());
-
+        for (word, prev_char) in candidates {
+            let is_boundary = (!instant_expand && action_key == crate::settings::ActionKey::Enter)
+                || prev_char.is_none_or(|c| c.is_whitespace() || c.is_ascii_punctuation());
+            if is_boundary
+                && let Some(expansion) = self
+                    .state
+                    .fetch_expansion_no_date_fallback(&word, active_window)
+            {
+                let delete_count = word.chars().count();
+                let stat_kind = stat_kind_for_steps(expansion.is_calculation, &expansion.steps);
+                self.buffer.clear();
+                if let Some(template) = expansion.ai_transformer_template {
+                    let initial_text = self.get_initial_spinner_text(&template);
                     return Some(ExpansionResult {
                         delete_count,
-                        steps: expansion.steps,
+                        steps: vec![ExpansionStep::Text(initial_text)],
                         trigger: word,
-                        undo_trigger,
-                        is_calculation: expansion.is_calculation,
-                        stat_kind,
+                        undo_trigger: None,
+                        is_calculation: false,
+                        stat_kind: TriggerStatKind::InlineAi,
                         track_usage: true,
-                        follow_up: None,
+                        follow_up: Some(ExpansionFollowUp::AiTransformer {
+                            template_with_markers: template,
+                        }),
                     });
                 }
+
+                let undo_trigger = self.undo_trigger_for_steps(&word, &expansion.steps);
+
+                return Some(ExpansionResult {
+                    delete_count,
+                    steps: expansion.steps,
+                    trigger: word,
+                    undo_trigger,
+                    is_calculation: expansion.is_calculation,
+                    stat_kind,
+                    track_usage: true,
+                    follow_up: None,
+                });
             }
         }
 
@@ -223,9 +176,7 @@ impl crate::engine::evaluator::Evaluator {
                         });
                     }
 
-                    let undo_trigger = self
-                        .allows_blind_undo(&expansion.steps)
-                        .then(|| keyword.clone());
+                    let undo_trigger = self.undo_trigger_for_steps(&keyword, &expansion.steps);
 
                     return Some(ExpansionResult {
                         delete_count,
@@ -262,12 +213,7 @@ impl crate::engine::evaluator::Evaluator {
             return Some(result);
         }
 
-        if self
-            .state
-            .triggerless_mode
-            .load(std::sync::atomic::Ordering::Relaxed)
-            && emoji_enabled
-        {
+        if emoji_enabled {
             let buf_str = self.buffer.buffer_string();
             let words: Vec<&str> = buf_str.split_whitespace().collect();
             for i in (0..words.len().min(4)).rev() {

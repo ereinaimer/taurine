@@ -83,15 +83,13 @@ pub fn start() -> taurine_core::error::Result<()> {
     );
     taurine_core::settings::set_cached_scripts_enabled(settings.scripts_enabled);
 
-    let trigger_char = '>';
-    let state = Arc::new(EngineState::new(trigger_char));
+    let state = Arc::new(EngineState::new());
     state
         .inline_tab_completion_enabled
         .store(settings.inline_tab_completion_enabled, Ordering::Relaxed);
     state
         .inline_history_enabled
         .store(settings.inline_history_enabled, Ordering::Relaxed);
-    state.triggerless_mode.store(true, Ordering::Relaxed);
     state
         .instant_expand
         .store(settings.instant_expand, Ordering::Relaxed);

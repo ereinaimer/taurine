@@ -608,10 +608,8 @@ fn process_frame(
         }
 
         if let Some(ev) = engine_event {
-            let needs_window = matches!(ev, EngineEvent::ActionKey)
-                || (matches!(ev, EngineEvent::Char(_))
-                    && (state.instant_expand.load(Ordering::Relaxed)
-                        || state.triggerless_mode.load(Ordering::Relaxed)));
+            let needs_window =
+                matches!(ev, EngineEvent::ActionKey) || matches!(ev, EngineEvent::Char(_));
 
             let active_window = if needs_window {
                 crate::platform::get_active_window_label()
@@ -727,7 +725,7 @@ mod tests {
 
     #[test]
     fn process_frame_bypasses_hotkey_evaluation_when_is_injecting_is_true() {
-        let state = Arc::new(EngineState::new('>'));
+        let state = Arc::new(EngineState::new());
         // Mock a basic hotkey to ensure it WOULD match if not bypassing
         state.load_hotkey_actions(vec![(
             "ctrl+shift+g".to_string(),

@@ -10,13 +10,6 @@ impl crate::engine::evaluator::Evaluator {
         if action_key != crate::settings::ActionKey::Enter {
             return None;
         }
-        if !self
-            .state
-            .triggerless_mode
-            .load(std::sync::atomic::Ordering::Relaxed)
-        {
-            return None;
-        }
 
         let buf_str = self.buffer.buffer_string();
         if buf_str.trim().is_empty() {

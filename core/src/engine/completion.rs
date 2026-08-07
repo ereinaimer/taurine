@@ -34,21 +34,18 @@ pub(crate) fn pop_word_from_query(query: &str) -> String {
 
 impl crate::engine::evaluator::Evaluator {
     pub fn is_completion_active(&self) -> bool {
-        if !self.completion.active {
-            return false;
-        }
-        if self.completion.is_triggerless {
-            self.buffer.extract_tail_word().is_some()
-        } else {
-            let active_trigger = if self.completion.is_emoji {
-                self.state.inline_emoji_trigger_char()
-            } else {
-                self.trigger_prefix()
-            };
+        self.completion.active && self.is_buffer_valid_for_completion()
+    }
+
+    pub fn is_buffer_valid_for_completion(&self) -> bool {
+        if self.completion.is_emoji {
+            let active_trigger = self.state.inline_emoji_trigger_char();
             let allow_spaces = self.state.action_key() == crate::settings::ActionKey::Enter;
             self.buffer
                 .extract_trigger_word(active_trigger, allow_spaces)
                 .is_some()
+        } else {
+            self.buffer.extract_tail_word().is_some()
         }
     }
 
@@ -68,12 +65,28 @@ impl crate::engine::evaluator::Evaluator {
         }
 
         self.completion
-            .activate(&self.state.completion_active, false, true);
+            .activate(&self.state.completion_active, false);
         self.completion.current_text = tail_word.clone();
         self.completion.original_query = tail_word;
         self.completion.suggestions = suggestions;
 
         self.cycle_completion_next()
+    }
+
+    pub fn activate_triggerless_completion_no_cycle(&mut self) -> Option<()> {
+        let tail_word = self.buffer.extract_tail_word()?;
+        let suggestions = self.state.matching_word_triggers(&tail_word);
+        if suggestions.is_empty() {
+            return None;
+        }
+
+        self.completion
+            .activate(&self.state.completion_active, false);
+        self.completion.current_text = tail_word.clone();
+        self.completion.suggestions = suggestions;
+        self.rebuild_history_items(&tail_word);
+        self.completion.original_query = tail_word;
+        Some(())
     }
 
     pub fn cycle_completion_next(&mut self) -> Option<CompletionRewrite> {
@@ -118,26 +131,13 @@ impl crate::engine::evaluator::Evaluator {
         {
             return;
         }
-        let trigger_char = self.trigger_prefix();
         let emoji_trigger = self.state.inline_emoji_trigger_char();
         let emoji_enabled = self.state.inline_emoji_enabled();
 
         if emoji_enabled && c == emoji_trigger && !self.completion.active && self.is_word_boundary()
         {
-            if emoji_trigger == trigger_char {
-                self.completion
-                    .activate(&self.state.completion_active, false, false);
-            } else {
-                self.completion
-                    .activate(&self.state.completion_active, true, false);
-            }
-            self.rebuild_history_items("");
-            return;
-        }
-
-        if c == trigger_char && !self.completion.active {
             self.completion
-                .activate(&self.state.completion_active, false, false);
+                .activate(&self.state.completion_active, true);
             self.rebuild_history_items("");
             return;
         }
@@ -158,18 +158,8 @@ impl crate::engine::evaluator::Evaluator {
 
         let allow_spaces = self.state.action_key() == crate::settings::ActionKey::Enter;
 
-        let query = if self.completion.is_triggerless {
-            let Some(tail) = self.buffer.extract_tail_word() else {
-                self.completion.deactivate(&self.state.completion_active);
-                return;
-            };
-            tail
-        } else {
-            let active_trigger = if self.completion.is_emoji {
-                self.state.inline_emoji_trigger_char()
-            } else {
-                self.trigger_prefix()
-            };
+        let query = if self.completion.is_emoji {
+            let active_trigger = self.state.inline_emoji_trigger_char();
             let Some(query) = self
                 .buffer
                 .extract_trigger_word(active_trigger, allow_spaces)
@@ -178,15 +168,20 @@ impl crate::engine::evaluator::Evaluator {
                 return;
             };
 
-            if self.completion.is_emoji
-                && query
-                    .chars()
-                    .any(|ch| !ch.is_alphanumeric() && ch != '-' && ch != '_')
+            if query
+                .chars()
+                .any(|ch| !ch.is_alphanumeric() && ch != '-' && ch != '_')
             {
                 self.completion.deactivate(&self.state.completion_active);
                 return;
             }
             query
+        } else {
+            let Some(tail) = self.buffer.extract_tail_word() else {
+                self.completion.deactivate(&self.state.completion_active);
+                return;
+            };
+            tail
         };
 
         self.apply_user_query(query);
@@ -291,19 +286,7 @@ impl crate::engine::evaluator::Evaluator {
     }
 
     pub(crate) fn rewrite_selected_query(&mut self, word: bool) -> Option<CompletionRewrite> {
-        let is_valid = if self.completion.is_triggerless {
-            self.buffer.extract_tail_word().is_some()
-        } else {
-            let active_trigger = if self.completion.is_emoji {
-                self.state.inline_emoji_trigger_char()
-            } else {
-                self.trigger_prefix()
-            };
-            let allow_spaces = self.state.action_key() == crate::settings::ActionKey::Enter;
-            self.buffer
-                .extract_trigger_word(active_trigger, allow_spaces)
-                .is_some()
-        };
+        let is_valid = self.is_buffer_valid_for_completion();
 
         if !is_valid {
             self.completion.deactivate(&self.state.completion_active);
@@ -337,19 +320,7 @@ impl crate::engine::evaluator::Evaluator {
             return None;
         }
 
-        let is_valid = if self.completion.is_triggerless {
-            self.buffer.extract_tail_word().is_some()
-        } else {
-            let active_trigger = if self.completion.is_emoji {
-                self.state.inline_emoji_trigger_char()
-            } else {
-                self.trigger_prefix()
-            };
-            let allow_spaces = self.state.action_key() == crate::settings::ActionKey::Enter;
-            self.buffer
-                .extract_trigger_word(active_trigger, allow_spaces)
-                .is_some()
-        };
+        let is_valid = self.is_buffer_valid_for_completion();
 
         if !is_valid {
             self.completion.deactivate(&self.state.completion_active);
@@ -419,12 +390,11 @@ impl crate::engine::evaluator::Evaluator {
             return None;
         }
 
-        let allow_spaces = self.state.action_key() == crate::settings::ActionKey::Enter;
-        if self
-            .buffer
-            .extract_trigger_word(self.trigger_prefix(), allow_spaces)
-            .is_none()
-        {
+        // For history navigation, allow an empty buffer — the user may have activated
+        // completion explicitly (e.g. via Tab on empty input) and then navigated history.
+        // Only hard-deactivate when the buffer is non-empty but has no valid tail word
+        // (i.e. ends in whitespace), since that genuinely signals a word-boundary exit.
+        if self.buffer.len > 0 && !self.is_buffer_valid_for_completion() {
             self.completion.deactivate(&self.state.completion_active);
             return None;
         }

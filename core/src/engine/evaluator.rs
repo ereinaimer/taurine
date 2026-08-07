@@ -39,13 +39,13 @@ pub enum ExpansionFollowUp {
 /// 2. Execute each `ExpansionStep` in the `steps` sequence.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExpansionResult {
-    /// Number of characters to delete (the trigger char + keyword + the trailing space).
+    /// Number of characters to delete (the keyword).
     pub delete_count: usize,
     /// Ordered sequence of actions (text pastes, key presses, delays).
     pub steps: Vec<ExpansionStep>,
     /// The trigger keyword that was matched.
     pub trigger: String,
-    /// Exact trigger text to restore during Backspace Undo, including the prefix character.
+    /// Exact trigger text to restore during Backspace Undo.
     pub undo_trigger: Option<String>,
     /// Whether this expansion was a mathematical calculation.
     pub is_calculation: bool,
@@ -67,7 +67,6 @@ pub struct CompletionRewrite {
 pub(crate) struct TriggerCompletionState {
     pub(crate) active: bool,
     pub(crate) is_emoji: bool,
-    pub(crate) is_triggerless: bool,
     pub(crate) original_query: String,
     pub(crate) current_text: String,
     pub(crate) suggestions: Vec<String>,
@@ -88,11 +87,9 @@ impl TriggerCompletionState {
         &mut self,
         active_atomic: &std::sync::atomic::AtomicBool,
         is_emoji: bool,
-        is_triggerless: bool,
     ) {
         self.active = true;
         self.is_emoji = is_emoji;
-        self.is_triggerless = is_triggerless;
         active_atomic.store(true, std::sync::atomic::Ordering::Relaxed);
         self.original_query.clear();
         self.current_text.clear();
@@ -106,7 +103,6 @@ impl TriggerCompletionState {
     pub(crate) fn deactivate(&mut self, active_atomic: &std::sync::atomic::AtomicBool) {
         self.active = false;
         self.is_emoji = false;
-        self.is_triggerless = false;
         active_atomic.store(false, std::sync::atomic::Ordering::Relaxed);
         self.original_query.clear();
         self.current_text.clear();
@@ -177,16 +173,6 @@ impl Evaluator {
                 .unwrap_or_default();
             crate::utils::spinner::get_frames(style)[0].to_string()
         }
-    }
-
-    pub(crate) fn trigger_prefix(&self) -> char {
-        use std::sync::atomic::Ordering;
-        let trigger_char_u32 = self.state.trigger_char.load(Ordering::Relaxed);
-        std::char::from_u32(trigger_char_u32).unwrap_or('>')
-    }
-
-    pub(crate) fn full_trigger_text(&self, keyword: &str) -> String {
-        format!("{}{}", self.trigger_prefix(), keyword)
     }
 
     pub fn process_event(
