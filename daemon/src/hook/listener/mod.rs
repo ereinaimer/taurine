@@ -35,7 +35,7 @@ use taurine_core::engine::{EngineEvent, EngineMode};
 
 #[cfg(not(target_os = "linux"))]
 use super::completion::{
-    completion_key_kind_from_tab_like, should_swallow_trigger_assist_key_release,
+    DoubleTapTracker, completion_key_kind_from_tab_like, should_swallow_trigger_assist_key_release,
     trigger_assist_is_active, trigger_assist_key_action,
 };
 #[cfg(not(target_os = "linux"))]
@@ -53,6 +53,17 @@ static LAST_PAUSE_TOGGLE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::A
 
 #[cfg(not(target_os = "linux"))]
 static PAUSE_KEY_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(not(target_os = "linux"))]
+static LAST_NOW_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(not(target_os = "linux"))]
+static SWALLOW_UP_ARROW_RELEASE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(not(target_os = "linux"))]
+static SWALLOW_DOWN_ARROW_RELEASE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 #[cfg(target_os = "linux")]
 #[allow(clippy::too_many_arguments)]
@@ -135,6 +146,8 @@ pub(super) fn run_listener_once(
     let hotkey_evaluator = Mutex::new(HotkeyEvaluator::new());
     let callback_health = hook_health.clone();
     let my_epoch = LISTENER_EPOCH.load(Ordering::SeqCst);
+
+    let double_tap_tracker = Mutex::new(DoubleTapTracker::new());
 
     let callback = move |event: Event| -> Option<Event> {
         if LISTENER_EPOCH.load(Ordering::Relaxed) != my_epoch {
@@ -232,6 +245,9 @@ pub(super) fn run_listener_once(
         if IS_INJECTING.load(Ordering::SeqCst) {
             match event.event_type {
                 EventType::KeyRelease(key) => {
+                    if arrow_release_swallow(&double_tap_tracker, key, now_ms()) {
+                        return None;
+                    }
                     if let Some(logical_key) = logical_key_from_rdev(key)
                         && let Ok(mut lock) = hotkey_evaluator.lock()
                     {
@@ -323,9 +339,107 @@ pub(super) fn run_listener_once(
                     return Some(event);
                 }
 
-                let assist_active = trigger_assist_is_active(&evaluator, state.as_ref());
+                let history_selection_active =
+                    with_evaluator_lock(&evaluator, "history_selection_active", |lock| {
+                        lock.is_history_selection_active()
+                    })
+                    .unwrap_or(false);
+
+                let assist_active = trigger_assist_is_active(&evaluator, state.as_ref())
+                    || history_selection_active;
+
+                if !assist_active
+                    && matches!(key, Key::UpArrow | Key::DownArrow)
+                    && !ctrl_active
+                    && !alt_active
+                    && !meta_active
+                    && !matches!(state.engine_mode(), EngineMode::AiCapture { .. })
+                {
+                    let is_up = key == Key::UpArrow;
+                    if double_tap_tracker
+                        .lock()
+                        .expect("double-tap tracker poisoned")
+                        .on_press(is_up, now_ms())
+                    {
+                        match with_evaluator_lock(
+                            &evaluator,
+                            "activate_double_tap_history",
+                            |lock| {
+                                let activated = lock.activate_history_completion().is_some();
+                                let rewrite = if activated {
+                                    if is_up {
+                                        lock.navigate_history_older()
+                                    } else {
+                                        lock.navigate_history_newer()
+                                    }
+                                } else {
+                                    None
+                                };
+                                (activated, rewrite)
+                            },
+                        ) {
+                            // History mode did not engage (disabled, emoji completion,
+                            // already active, or lock unavailable): treat as a normal
+                            // single arrow press, no swallow, no release flag.
+                            None | Some((false, _)) => {}
+                            Some((true, rewrite)) => {
+                                if let Some(rewrite) = rewrite {
+                                    clear_undo_state(state.as_ref());
+                                    let spinner_style_inner =
+                                        spinner_style.read().map(|s| *s).unwrap_or_default();
+                                    spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
+                                }
+                                if is_up {
+                                    SWALLOW_UP_ARROW_RELEASE.store(true, Ordering::Relaxed);
+                                } else {
+                                    SWALLOW_DOWN_ARROW_RELEASE.store(true, Ordering::Relaxed);
+                                }
+                                return None;
+                            }
+                        }
+                    }
+                }
+
                 if assist_active {
                     clear_undo_state(state.as_ref());
+
+                    if history_selection_active {
+                        match key {
+                            Key::Backspace if !ctrl_active && !alt_active && !meta_active => {
+                                let rewrite = with_evaluator_lock(
+                                    &evaluator,
+                                    "revert_history_completion_to_query",
+                                    |lock| lock.revert_history_completion_to_query(),
+                                )
+                                .flatten();
+
+                                if let Some(rewrite) = rewrite {
+                                    clear_undo_state(state.as_ref());
+                                    let spinner_style_inner =
+                                        spinner_style.read().map(|s| *s).unwrap_or_default();
+                                    spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
+                                }
+
+                                return None;
+                            }
+                            Key::Escape => {
+                                let _ = with_evaluator_lock(
+                                    &evaluator,
+                                    "cancel_history_completion_escape",
+                                    |lock| lock.cancel_completion(),
+                                );
+                                return Some(event);
+                            }
+                            Key::UpArrow | Key::DownArrow | Key::Tab | Key::Return => {}
+                            _ => {
+                                let _ = with_evaluator_lock(
+                                    &evaluator,
+                                    "cancel_history_completion_key",
+                                    |lock| lock.cancel_completion(),
+                                );
+                            }
+                        }
+                    }
 
                     if key == Key::Backspace && !alt_active && !meta_active {
                         let rewrite =
@@ -610,7 +724,18 @@ pub(super) fn run_listener_once(
                 }
             }
             EventType::KeyRelease(key) => {
-                if trigger_assist_is_active(&evaluator, state.as_ref())
+                if arrow_release_swallow(&double_tap_tracker, key, now_ms()) {
+                    return None;
+                }
+
+                let history_selection_active =
+                    with_evaluator_lock(&evaluator, "history_selection_active_release", |lock| {
+                        lock.is_history_selection_active()
+                    })
+                    .unwrap_or(false);
+
+                if (trigger_assist_is_active(&evaluator, state.as_ref())
+                    || history_selection_active)
                     && should_swallow_trigger_assist_key_release(
                         state.as_ref(),
                         completion_key_kind_from_tab_like(
@@ -665,6 +790,33 @@ pub fn stop_listener() {
     {
         crate::platform::linux::input_supervisor::stop();
     }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn now_ms() -> u64 {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    LAST_NOW_MS.fetch_max(now, Ordering::Relaxed).max(now)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn arrow_release_swallow(tracker: &Mutex<DoubleTapTracker>, key: Key, now: u64) -> bool {
+    if !matches!(key, Key::UpArrow | Key::DownArrow) {
+        return false;
+    }
+    let is_up = key == Key::UpArrow;
+    let swallow = if is_up {
+        SWALLOW_UP_ARROW_RELEASE.swap(false, Ordering::Relaxed)
+    } else {
+        SWALLOW_DOWN_ARROW_RELEASE.swap(false, Ordering::Relaxed)
+    };
+    tracker
+        .lock()
+        .expect("double-tap tracker poisoned")
+        .on_release(is_up, now);
+    swallow
 }
 
 pub(super) fn with_evaluator_lock<T>(

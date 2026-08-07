@@ -1,7 +1,7 @@
 use evdev::{Device, EventType, InputEvent, KeyCode};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
@@ -9,6 +9,7 @@ use std::thread;
 use tracing::{debug, error, info, warn};
 
 use super::xkb::XkbMapper;
+use crate::hook::DoubleTapTracker;
 use crate::injector::{self, IS_INJECTING};
 use crate::input::hotkey::{HotkeySpec, is_pause_chord_evdev};
 use crate::input::hotkey_evaluator::{
@@ -23,6 +24,11 @@ pub(crate) struct DeviceExit {
 }
 
 static LAST_PAUSE_TOGGLE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+static LAST_NOW_MS: AtomicU64 = AtomicU64::new(0);
+
+static SWALLOW_UP_ARROW_RELEASE: AtomicBool = AtomicBool::new(false);
+static SWALLOW_DOWN_ARROW_RELEASE: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone)]
 pub(crate) struct ListenerContext {
@@ -129,6 +135,28 @@ fn update_flag(flag: &mut bool, is_press: bool, is_release: bool) {
     }
 }
 
+fn now_ms() -> u64 {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    LAST_NOW_MS.fetch_max(now, Ordering::Relaxed).max(now)
+}
+
+fn arrow_release_swallow(tracker: &mut DoubleTapTracker, key: KeyCode, now_ms: u64) -> bool {
+    if !matches!(key, KeyCode::KEY_UP | KeyCode::KEY_DOWN) {
+        return false;
+    }
+    let is_up = key == KeyCode::KEY_UP;
+    let swallow = if is_up {
+        SWALLOW_UP_ARROW_RELEASE.swap(false, Ordering::Relaxed)
+    } else {
+        SWALLOW_DOWN_ARROW_RELEASE.swap(false, Ordering::Relaxed)
+    };
+    tracker.on_release(is_up, now_ms);
+    swallow
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
@@ -206,6 +234,7 @@ pub(crate) fn spawn_device_listener(
                 }
             };
             let mut swallow_next_backspace_release = false;
+            let mut double_tap_tracker = DoubleTapTracker::new();
 
             loop {
                 match device.fetch_events() {
@@ -228,6 +257,7 @@ pub(crate) fn spawn_device_listener(
                                     &mut xkb,
                                     &mut modifier_sides,
                                     &mut hotkey_evaluator,
+                                    &mut double_tap_tracker,
                                     &mut swallow_next_backspace_release,
                                 );
                                 frame.clear();
@@ -253,6 +283,7 @@ pub(crate) fn spawn_device_listener(
                                 &mut xkb,
                                 &mut modifier_sides,
                                 &mut hotkey_evaluator,
+                                &mut double_tap_tracker,
                                 &mut swallow_next_backspace_release,
                             );
                         }
@@ -293,6 +324,7 @@ fn process_frame(
     xkb: &mut XkbMapper,
     modifier_sides: &mut ModifierSides,
     hotkey_evaluator: &mut HotkeyEvaluator,
+    double_tap_tracker: &mut DoubleTapTracker,
     swallow_next_backspace_release: &mut bool,
 ) {
     let mut swallow_frame = false;
@@ -343,6 +375,10 @@ fn process_frame(
 
         if IS_INJECTING.load(Ordering::SeqCst) {
             if is_release {
+                if arrow_release_swallow(double_tap_tracker, key, now_ms()) {
+                    swallow_frame = true;
+                    continue;
+                }
                 if let Some(logical_key) = logical_key {
                     let _ = hotkey_evaluator.on_key_release(logical_key);
                 }
@@ -351,6 +387,17 @@ fn process_frame(
             }
             continue;
         }
+
+        let trigger_assist_active =
+            grab_enabled && crate::hook::trigger_assist_is_active(evaluator, state.as_ref());
+        let history_selection_active = grab_enabled
+            && matches!(
+                evaluator
+                    .lock()
+                    .ok()
+                    .map(|lock| lock.is_history_selection_active()),
+                Some(true)
+            );
 
         let is_pause_chord = pause_hotkey
             .read()
@@ -387,6 +434,53 @@ fn process_frame(
             let alt_active = modifier_sides.alt_active();
             let meta_active = modifier_sides.meta_active();
 
+            if grab_enabled
+                && !trigger_assist_active
+                && !history_selection_active
+                && matches!(key, KeyCode::KEY_UP | KeyCode::KEY_DOWN)
+                && !ctrl_active
+                && !alt_active
+                && !meta_active
+                && !matches!(state.engine_mode(), EngineMode::AiCapture { .. })
+            {
+                let is_up = key == KeyCode::KEY_UP;
+                if double_tap_tracker.on_press(is_up, now_ms()) {
+                    match evaluator.lock().ok().map(|mut lock| {
+                        let activated = lock.activate_history_completion().is_some();
+                        let rewrite = if activated {
+                            if is_up {
+                                lock.navigate_history_older()
+                            } else {
+                                lock.navigate_history_newer()
+                            }
+                        } else {
+                            None
+                        };
+                        (activated, rewrite)
+                    }) {
+                        None | Some((false, _)) => {}
+                        Some((true, rewrite)) => {
+                            if let Some(rewrite) = rewrite {
+                                clear_undo_state(state);
+                                let spinner_style_inner =
+                                    spinner_style.read().map(|s| *s).unwrap_or_default();
+                                crate::hook::spawn_completion_rewrite_dispatch(
+                                    rewrite,
+                                    spinner_style_inner,
+                                );
+                            }
+                            if is_up {
+                                SWALLOW_UP_ARROW_RELEASE.store(true, Ordering::Relaxed);
+                            } else {
+                                SWALLOW_DOWN_ARROW_RELEASE.store(true, Ordering::Relaxed);
+                            }
+                            swallow_frame = true;
+                            continue;
+                        }
+                    }
+                }
+            }
+
             if matches!(engine_mode, EngineMode::AiCapture { .. })
                 && ctrl_active
                 && key == KeyCode::KEY_V
@@ -404,8 +498,47 @@ fn process_frame(
                 continue;
             }
 
-            if grab_enabled && crate::hook::trigger_assist_is_active(evaluator, state.as_ref()) {
+            if trigger_assist_active || history_selection_active {
                 clear_undo_state(state);
+
+                if history_selection_active {
+                    match key {
+                        KeyCode::KEY_BACKSPACE if !ctrl_active && !alt_active && !meta_active => {
+                            let rewrite = evaluator
+                                .lock()
+                                .ok()
+                                .and_then(|mut lock| lock.revert_history_completion_to_query());
+
+                            if let Some(rewrite) = rewrite {
+                                clear_undo_state(state);
+                                let spinner_style_inner =
+                                    spinner_style.read().map(|s| *s).unwrap_or_default();
+                                crate::hook::spawn_completion_rewrite_dispatch(
+                                    rewrite,
+                                    spinner_style_inner,
+                                );
+                            }
+
+                            swallow_frame = true;
+                            continue;
+                        }
+                        KeyCode::KEY_ESC => {
+                            if let Ok(mut lock) = evaluator.lock() {
+                                lock.cancel_completion();
+                            }
+                            continue;
+                        }
+                        KeyCode::KEY_UP
+                        | KeyCode::KEY_DOWN
+                        | KeyCode::KEY_TAB
+                        | KeyCode::KEY_ENTER => {}
+                        _ => {
+                            if let Ok(mut lock) = evaluator.lock() {
+                                lock.cancel_completion();
+                            }
+                        }
+                    }
+                }
 
                 if key == KeyCode::KEY_BACKSPACE && !alt_active && !meta_active {
                     let rewrite = evaluator.lock().ok().and_then(|mut lock| {
@@ -578,29 +711,38 @@ fn process_frame(
                 // Invalidate on any non-modifier or combo.
                 clear_undo_state(state);
             }
-        } else if grab_enabled
-            && crate::hook::trigger_assist_is_active(evaluator, state.as_ref())
-            && crate::hook::should_swallow_trigger_assist_key_release(
-                state.as_ref(),
-                crate::hook::completion_key_kind_from_tab_like(
-                    key == KeyCode::KEY_TAB,
-                    false,
-                    key == KeyCode::KEY_UP,
-                    key == KeyCode::KEY_DOWN,
-                ),
-            )
-        {
-            swallow_frame = true;
-            continue;
-        } else if grab_enabled
-            && let Some(logical_key) = logical_key
-            && matches!(
-                hotkey_evaluator.on_key_release(logical_key),
-                HotkeyEvaluation::Swallow
-            )
-        {
-            swallow_frame = true;
-            continue;
+        } else {
+            if arrow_release_swallow(double_tap_tracker, key, now_ms()) {
+                swallow_frame = true;
+                continue;
+            }
+
+            if grab_enabled
+                && (trigger_assist_active || history_selection_active)
+                && crate::hook::should_swallow_trigger_assist_key_release(
+                    state.as_ref(),
+                    crate::hook::completion_key_kind_from_tab_like(
+                        key == KeyCode::KEY_TAB,
+                        false,
+                        key == KeyCode::KEY_UP,
+                        key == KeyCode::KEY_DOWN,
+                    ),
+                )
+            {
+                swallow_frame = true;
+                continue;
+            }
+
+            if grab_enabled
+                && let Some(logical_key) = logical_key
+                && matches!(
+                    hotkey_evaluator.on_key_release(logical_key),
+                    HotkeyEvaluation::Swallow
+                )
+            {
+                swallow_frame = true;
+                continue;
+            }
         }
 
         if paused.load(Ordering::Relaxed) {
@@ -752,6 +894,7 @@ mod tests {
         let mut xkb = crate::platform::linux::xkb::XkbMapper::default();
         let mut modifier_sides = ModifierSides::default();
         let mut hotkey_evaluator = HotkeyEvaluator::new();
+        let mut double_tap_tracker = DoubleTapTracker::default();
         let mut swallow = false;
 
         let frame = vec![
@@ -778,6 +921,7 @@ mod tests {
             &mut xkb,
             &mut modifier_sides,
             &mut hotkey_evaluator,
+            &mut double_tap_tracker,
             &mut swallow,
         );
 

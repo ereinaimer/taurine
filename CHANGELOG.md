@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Double-Tap History Navigation**: Double-tap the Up or Down arrow to browse your recent trigger history inline; Up goes older, Down goes newer. Keep typing or press Esc to accept the shown word, or Backspace to revert to what you typed.
+
 ### Changed
 - **Backspace Undo Duration**: Increase the backspace undo window from 2.5 seconds to 5.0 seconds.
 - **Default Pause Notifications**: Disable pause notifications by default (`pause_notifications_enabled` defaults to `false`).

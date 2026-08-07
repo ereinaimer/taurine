@@ -105,6 +105,43 @@ impl crate::engine::evaluator::Evaluator {
         self.navigate_history(false)
     }
 
+    pub fn activate_history_completion(&mut self) -> Option<()> {
+        if !self.state.inline_history_enabled()
+            || self.completion.is_emoji
+            || self.completion.active
+        {
+            return None;
+        }
+
+        let query = self.buffer.extract_tail_word().unwrap_or_default();
+        self.completion
+            .activate(&self.state.completion_active, false);
+        self.completion.original_query = query.clone();
+        self.completion.current_text = query.clone();
+        self.rebuild_history_items(&query);
+        self.completion.selection_mode = Some(TriggerAssistSelectionMode::History);
+        Some(())
+    }
+
+    pub fn is_history_selection_active(&self) -> bool {
+        self.completion.active
+            && matches!(
+                self.completion.selection_mode,
+                Some(TriggerAssistSelectionMode::History)
+            )
+    }
+
+    pub fn revert_history_completion_to_query(&mut self) -> Option<CompletionRewrite> {
+        if !self.is_history_selection_active() {
+            return None;
+        }
+
+        let query = self.lookup_query().to_string();
+        let rewrite = self.rewrite_current_text(query);
+        self.completion.deactivate(&self.state.completion_active);
+        Some(rewrite)
+    }
+
     pub fn rewrite_backspace_query(&mut self) -> Option<CompletionRewrite> {
         self.rewrite_selected_query(false)
     }

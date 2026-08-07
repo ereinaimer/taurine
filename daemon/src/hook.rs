@@ -7,7 +7,7 @@ mod supervisor;
 
 #[allow(unused_imports)]
 pub(crate) use completion::{
-    CompletionKeyAction, CompletionKeyKind, completion_key_action,
+    CompletionKeyAction, CompletionKeyKind, DoubleTapTracker, completion_key_action,
     completion_key_kind_from_tab_like, should_swallow_trigger_assist_key_release,
     trigger_assist_is_active, trigger_assist_key_action,
 };

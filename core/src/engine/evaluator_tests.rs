@@ -659,6 +659,142 @@ fn history_up_selects_most_recent_trigger_and_stops_at_oldest() {
 }
 
 #[test]
+fn history_double_tapped_activation_from_empty_buffer_selects_most_recent() {
+    let state = Arc::new(EngineState::new());
+    state.load_actions(vec![
+        (
+            "email".to_string(),
+            crate::db::crud::TriggerAction::text("team update"),
+        ),
+        (
+            "gs".to_string(),
+            crate::db::crud::TriggerAction::text("git status"),
+        ),
+        (
+            "uuid".to_string(),
+            crate::db::crud::TriggerAction::text("1234"),
+        ),
+    ]);
+    state.load_word_trigger_history(vec![
+        "gs".to_string(),
+        "email".to_string(),
+        "uuid".to_string(),
+    ]);
+    let mut eval = Evaluator::new(state);
+
+    assert!(eval.activate_history_completion().is_some());
+    assert!(eval.is_history_selection_active());
+
+    assert_completion_rewrite(eval.navigate_history_older(), 0, "gs");
+    assert!(eval.is_history_selection_active());
+}
+
+#[test]
+fn history_activation_respects_tail_word_prefix() {
+    let state = Arc::new(EngineState::new());
+    state.load_actions(vec![
+        (
+            "gpush".to_string(),
+            crate::db::crud::TriggerAction::text("git push"),
+        ),
+        (
+            "gs".to_string(),
+            crate::db::crud::TriggerAction::text("git status"),
+        ),
+        (
+            "uuid".to_string(),
+            crate::db::crud::TriggerAction::text("1234"),
+        ),
+    ]);
+    // History entries are returned newest-first: "gpush" is the most recent
+    // match for the typed prefix "g" and is therefore selected first.
+    state.load_word_trigger_history(vec![
+        "gpush".to_string(),
+        "gs".to_string(),
+        "uuid".to_string(),
+    ]);
+    let mut eval = Evaluator::new(state);
+
+    assert_eq!(eval.process(EngineEvent::Char('g')), None);
+    assert!(eval.activate_history_completion().is_some());
+    assert!(eval.is_history_selection_active());
+
+    assert_completion_rewrite(eval.navigate_history_older(), 1, "gpush");
+    assert_eq!(
+        eval.completion.history_items,
+        vec!["gpush".to_string(), "gs".to_string()]
+    );
+}
+
+#[test]
+fn history_activation_respects_empty_buffer() {
+    let state = Arc::new(EngineState::new());
+    state.load_actions(vec![(
+        "gs".to_string(),
+        crate::db::crud::TriggerAction::text("git status"),
+    )]);
+    state.load_word_trigger_history(vec!["gs".to_string()]);
+    let mut eval = Evaluator::new(state);
+
+    assert!(eval.activate_history_completion().is_some());
+
+    assert_completion_rewrite(eval.navigate_history_older(), 0, "gs");
+    assert_eq!(eval.buffer.buffer_string(), "gs");
+}
+
+#[test]
+fn history_activation_disabled_feature_is_noop() {
+    use std::sync::atomic::Ordering;
+
+    let state = Arc::new(EngineState::new());
+    state.inline_history_enabled.store(false, Ordering::Relaxed);
+    state.load_actions(vec![(
+        "gs".to_string(),
+        crate::db::crud::TriggerAction::text("git status"),
+    )]);
+    state.load_word_trigger_history(vec!["gs".to_string()]);
+    let mut eval = Evaluator::new(state);
+
+    assert_eq!(eval.activate_history_completion(), None);
+    assert!(!eval.is_history_selection_active());
+}
+
+#[test]
+fn revert_history_to_query_restores_original_and_exits() {
+    let state = Arc::new(EngineState::new());
+    state.load_actions(vec![(
+        "gpush".to_string(),
+        crate::db::crud::TriggerAction::text("git push"),
+    )]);
+    state.load_word_trigger_history(vec!["gpush".to_string()]);
+    let mut eval = Evaluator::new(state);
+
+    assert_eq!(eval.process(EngineEvent::Char('g')), None);
+    assert!(eval.activate_history_completion().is_some());
+    assert_completion_rewrite(eval.navigate_history_older(), 1, "gpush");
+
+    assert_completion_rewrite(eval.revert_history_completion_to_query(), 5, "g");
+    assert!(!eval.is_history_selection_active());
+    assert_eq!(eval.buffer.buffer_string(), "g");
+}
+
+#[test]
+fn revert_history_to_query_only_for_history_selection() {
+    let state = Arc::new(EngineState::new());
+    state.load_actions(vec![(
+        "gs".to_string(),
+        crate::db::crud::TriggerAction::text("git status"),
+    )]);
+    state.load_word_trigger_history(vec!["gs".to_string()]);
+    let mut eval = Evaluator::new(state);
+
+    eval.completion
+        .activate(&eval.state.completion_active, false);
+
+    assert_eq!(eval.revert_history_completion_to_query(), None);
+}
+
+#[test]
 fn history_down_restores_original_query_after_prefix_filtered_navigation() {
     let state = Arc::new(EngineState::new());
     state.load_actions(vec![
