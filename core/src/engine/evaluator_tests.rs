@@ -265,7 +265,7 @@ fn test_inline_datetime_expansion() {
 
     eval.reset();
 
-    // Test 6: "now" (on its own in triggerless mode should NOT expand)
+    // Test 6: "now" (on its own should NOT expand)
     for c in "now".chars() {
         eval.process(EngineEvent::Char(c));
     }
@@ -599,7 +599,7 @@ fn completion_does_not_break_inline_ai_capture_priority() {
 
     eval.completion
         .activate(&eval.state.completion_active, false);
-    // In triggerless mode the AI capture delimiter is ">>" (double-chevron).
+    // The AI capture delimiter is ">>" (double-chevron).
     // Typing the first ">" pushes it into buffer but does not yet trigger capture.
     eval.process(EngineEvent::Char('>'));
     // Typing the second ">" completes the ">>" sequence and starts AI capture.
@@ -1551,7 +1551,7 @@ fn test_unknown_trigger_does_not_expand() {
 }
 
 #[test]
-fn test_multiple_trigger_chars_rejects_ambiguous_sequence() {
+fn unknown_trigger_does_not_expand_after_prior_expansion() {
     let state = Arc::new(EngineState::new());
     state.load_actions(vec![
         (
@@ -1565,10 +1565,8 @@ fn test_multiple_trigger_chars_rejects_ambiguous_sequence() {
     ]);
     let mut eval = Evaluator::new(state);
 
-    // In triggerless mode there is no trigger char, so typing a separator between
-    // two triggers only matters if space is the action key.  With Enter as action key,
-    // the suffixes are "brb>gm" which matches neither trigger.  "gm" alone would
-    // expand, but the suffix here is the whole string — no match.
+    // With Enter as the action key, spaces are ordinary characters, so typing
+    // "brb gm" never fires an expansion while typing.
     for c in "brb gm".chars() {
         if c == ' ' {
             // Space is not the action key (default is Enter), so just push it.
@@ -1577,11 +1575,7 @@ fn test_multiple_trigger_chars_rejects_ambiguous_sequence() {
             eval.process(EngineEvent::Char(c));
         }
     }
-    // Buffer now has "brb gm" — the last suffix candidate is "gm" which WOULD match.
-    // But per test intent, we want to verify no spurious double-expansion occurs.
-    // "gm" IS a valid single trigger, so pressing Enter expands it.
-    // The original test asserted None for the ambiguous >-separated case; in triggerless
-    // mode we use space as a separator. Reset and use a genuinely ambiguous suffix.
+    // Reset the buffer and type a single known trigger.
     eval.reset();
     for c in "gm".chars() {
         eval.process(EngineEvent::Char(c));
@@ -1771,7 +1765,7 @@ fn test_end_to_end_dynamic_variable_expansion() {
         )]
     );
     assert_eq!(result.trigger, r#"repo:"ereinaimer":"taurine""#);
-    // In triggerless mode there is no trigger char prefix, so delete_count == trigger length.
+    // There is no trigger char prefix, so delete_count == trigger length.
     assert_eq!(result.delete_count, result.trigger.len());
 }
 
@@ -2394,7 +2388,7 @@ fn inline_ai_capture_works_with_custom_delimiter() {
 }
 
 #[test]
-fn triggerless_mode_expands_bare_words() {
+fn bare_word_suffix_expands_without_prefix() {
     let state = Arc::new(EngineState::new());
     state.load_actions(vec![(
         "gs".to_string(),
@@ -2415,7 +2409,7 @@ fn triggerless_mode_expands_bare_words() {
 }
 
 #[test]
-fn triggerless_mode_fires_with_punctuation_prefix() {
+fn suffix_expansion_with_punctuation_prefix() {
     let state = Arc::new(EngineState::new());
     state.load_actions(vec![(
         "gs".to_string(),
@@ -2435,7 +2429,7 @@ fn triggerless_mode_fires_with_punctuation_prefix() {
 }
 
 #[test]
-fn triggerless_mode_expands_middle_word_with_enter_action_key() {
+fn middle_word_expands_with_enter_action_key() {
     let state = Arc::new(EngineState::new());
     state.set_action_key(crate::settings::ActionKey::Enter);
     state.load_actions(vec![(
@@ -2457,7 +2451,7 @@ fn triggerless_mode_expands_middle_word_with_enter_action_key() {
 }
 
 #[test]
-fn triggerless_mode_does_not_expand_middle_word_with_space_action_key() {
+fn middle_word_does_not_expand_with_space_action_key() {
     let state = Arc::new(EngineState::new());
     state.set_action_key(crate::settings::ActionKey::Space);
     state.load_actions(vec![(
@@ -2474,7 +2468,7 @@ fn triggerless_mode_does_not_expand_middle_word_with_space_action_key() {
 }
 
 #[test]
-fn triggerless_mode_with_instant_expand_enforces_boundary_even_for_enter_action_key() {
+fn instant_expand_enforces_boundary_even_for_enter_action_key() {
     use std::sync::atomic::Ordering;
     let state = Arc::new(EngineState::new());
     state.instant_expand.store(true, Ordering::Relaxed);
@@ -2493,7 +2487,7 @@ fn triggerless_mode_with_instant_expand_enforces_boundary_even_for_enter_action_
 }
 
 #[test]
-fn instant_expand_triggerless() {
+fn instant_expand_works_without_prefix() {
     use std::sync::atomic::Ordering;
     let state = Arc::new(EngineState::new());
     state.instant_expand.store(true, Ordering::Relaxed);
@@ -2650,7 +2644,7 @@ fn test_snippet_precedence_when_triggers_match() {
     let mut eval = Evaluator::new(state);
 
     // Typing ":rocket" — the ":" starts emoji completion mode.
-    // In triggerless mode the snippet "rocket" would match if typed without ":",
+    // The snippet "rocket" would match if typed without ":",
     // but here we type ":rocket" so emoji completion takes over and fires first.
     // The expected result: emoji wins because ":" activates emoji mode.
     for c in ":rocket".chars() {
@@ -3101,7 +3095,7 @@ fn test_completion_stays_active_with_spaces_on_backspace_when_action_key_is_ente
     state.set_action_key(crate::settings::ActionKey::Enter);
     let mut eval = Evaluator::new(state);
 
-    // Activate completion by typing the trigger char
+    // Activate completion directly.
     eval.completion
         .activate(&eval.state.completion_active, false);
     assert!(eval.completion.active);

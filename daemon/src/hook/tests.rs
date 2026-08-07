@@ -420,7 +420,7 @@ fn trigger_assist_key_release_swallowing_respects_feature_settings() {
 }
 
 #[test]
-fn completion_is_inactive_after_trigger_character_is_deleted() {
+fn completion_is_inactive_after_typed_text_is_deleted() {
     let state = Arc::new(taurine_core::engine::EngineState::new());
     let mut evaluator = taurine_core::engine::Evaluator::new(state);
     for ch in ">g".chars() {
