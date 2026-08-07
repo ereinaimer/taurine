@@ -108,7 +108,7 @@ Validation limits: trigger string ≤200 chars, text output ≤100 KB, script co
 *   Fully compatible with Backspace Undo, but **not** with autocomplete/history navigation. Avoid exponential backtracking (`(a+)+`).
 
 ### 3.4 Backspace Undo
-*   Pressing Backspace within **2.5 seconds** of an expansion reverts it to the original trigger text; the window then expires and Backspace returns to normal.
+*   Pressing Backspace within **5 seconds** of an expansion reverts it to the original trigger text; the window then expires and Backspace returns to normal.
 *   Undo locks in (disabled) if you type any alphanumeric/symbol key, use arrow keys/Home/End/Page keys, or click the mouse.
 *   `Shift + Backspace` = regular Undo; `Ctrl + Backspace` (Win/Linux) / `Alt + Backspace` (macOS) = native word-delete, not Taurine undo.
 *   Never offered for: structural templates using `[cursor]` or simulated arrow keys, AI-generated text, clipboard pastes >64 KB, or script/command triggers. Use native `Ctrl+Z`/`Cmd+Z` as fallback.

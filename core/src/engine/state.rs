@@ -15,7 +15,7 @@ use std::sync::atomic::AtomicU8;
 use std::sync::atomic::AtomicU32;
 use std::time::{Duration, Instant};
 
-const UNDO_WINDOW: Duration = Duration::from_millis(2500);
+const UNDO_WINDOW: Duration = Duration::from_millis(5000);
 
 #[derive(Clone, Debug)]
 pub struct UndoState {
@@ -502,7 +502,7 @@ mod tests {
         let expired = UndoState {
             trigger_string: ">gm".to_string(),
             output_length: 12,
-            timestamp: Instant::now() - Duration::from_millis(2600),
+            timestamp: Instant::now() - (UNDO_WINDOW + Duration::from_millis(100)),
         };
 
         *state.undo_state.write().expect("undo lock") = Some(expired);

@@ -9,7 +9,7 @@ Taurine is designed to be invisible and intuitive. Sometimes, an expansion happe
 
 ## The Core Mechanic
 
-When Taurine expands a trigger (e.g., `>gm` becoming `Good Morning`), a **2.5-second undo window** opens. If you press **Backspace** within this window, Taurine instantly:
+When Taurine expands a trigger (e.g., `>gm` becoming `Good Morning`), a **5-second undo window** opens. If you press **Backspace** within this window, Taurine instantly:
 
 1.  Erases the expanded text.
 2.  Restores your original trigger (e.g., `>gm`) exactly where it was.
@@ -17,7 +17,7 @@ When Taurine expands a trigger (e.g., `>gm` becoming `Good Morning`), a **2.5-se
 This allows for a "Zero-Latency Workflow"—you can fix accidental expansions or refine your triggers without missing a beat.
 
 <Callout title="Timing is Everything" type="info">
-  The undo window is strictly 2.5 seconds. Once this timer expires, your Backspace key returns to its normal function of deleting a single character.
+  The undo window is strictly 5 seconds. Once this timer expires, your Backspace key returns to its normal function of deleting a single character.
 </Callout>
 
 ## Smart Invalidation
@@ -47,7 +47,7 @@ Taurine respects your OS-level shortcuts. Pressing **Ctrl + Backspace** (Windows
 
 To protect your active document from accidental corruption or unintended side effects, Taurine "fails safe" by disabling the Backspace Undo for complex or unpredictable expansions. In these cases, you can still rely on your operating system's native undo command (**Ctrl+Z** or **Cmd+Z**).
 
-The 2.5-second undo window is bypassed in the following scenarios:
+The 5-second undo window is bypassed in the following scenarios:
 
 ### Structural Templates
 If an expansion uses a `[cursor]` marker or simulated arrow keys to reposition the caret inside a block (for example, placing you inside a `<div>` tag or a function body), a blind backspace would delete the wrong characters. Taurine detects these structural changes and disables the automatic undo to keep your code safe.
