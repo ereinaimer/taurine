@@ -13,7 +13,7 @@ taurine config ls
 ## Set A Value
 
 ```bash
-taurine config set trigger_char /
+taurine config set action_key space
 taurine config set start_on_boot true
 taurine config set inline_ai_trigger_mode Asymmetric
 ```
@@ -21,7 +21,7 @@ taurine config set inline_ai_trigger_mode Asymmetric
 ## Reset A Value
 
 ```bash
-taurine config reset trigger_char
+taurine config reset action_key
 ```
 
 Reset everything:
@@ -34,7 +34,6 @@ taurine config reset --all
 
 | Setting | Default | Description |
 | :--- | :--- | :--- |
-| `trigger_char` | `>` | The character typed before a trigger word. |
 | `pause_hotkey` | ``Alt + ` `` | Global hotkey to pause/resume the Taurine engine. |
 | `pause_notifications_enabled` | `false` | Whether to show system notifications when pausing. |
 | `start_on_boot` | `true` | Enables/disables automatic startup on login. |
@@ -47,7 +46,7 @@ taurine config reset --all
 | `inline_ai_trigger_open` | `>>` | The opening trigger text boundary for inline AI prompts. |
 | `inline_ai_trigger_close` | `<<` | The closing trigger text boundary for inline AI prompts. |
 | `inline_tab_completion_enabled` | `true` | Enables or disables inline `Tab` / `Shift+Tab` completion. |
-| `inline_history_enabled` | `true` | Enables or disables inline `Up Arrow` / `Down Arrow` trigger history. |
+| `inline_history_enabled` | `true` | Enables or disables double-tap `Up Arrow` / `Down Arrow` history browsing. |
 | `rpc_mode` | `socket` | RPC transport mode (`socket` using Unix domain sockets / Windows named pipes, or `tcp`). |
 | `rpc_host` | `127.0.0.1` | Network interface address the service binds to. |
 | `rpc_port` | `50051` | Port the service listens on for RPC. |
@@ -59,7 +58,6 @@ You can use these shorter aliases when running `taurine config set`:
 
 | Alias | Real Setting |
 | :--- | :--- |
-| `trigger` | `trigger_char` |
 | `hotkey` | `pause_hotkey` |
 | `notifications` | `pause_notifications_enabled` |
 | `boot` | `start_on_boot` |

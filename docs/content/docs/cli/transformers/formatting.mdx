@@ -23,7 +23,7 @@ Ensure a variable is safely wrapped in double quotes for a JSON structure.
 
 <Transformation
   template='{ "value": [0 | quote] }'
-  input=">text:'hello world'"
+  input="text:'hello world'"
   result='{ "value": "hello world" }'
 />
 
@@ -32,7 +32,7 @@ Wrap dynamic strings in backticks for markdown or documentation snippets.
 
 <Transformation
   template="Use the [0 | backtick] variable."
-  input=">text:'user_id'"
+  input="text:'user_id'"
   result="Use the `user_id` variable."
 />
 
@@ -41,6 +41,6 @@ If you are passing a variable that might already be quoted (like a clipboard ite
 
 <Transformation
   template="[clip | unquote | upper]"
-  input='>clip:"taurine"'
+  input='clip:"taurine"'
   result="TAURINE"
 />

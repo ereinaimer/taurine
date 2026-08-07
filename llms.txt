@@ -60,11 +60,11 @@ Validation limits: trigger string ≤200 chars, text output ≤100 KB, script co
 *   `taurine config set <key> <value>`: Updates a specific setting.
 *   `taurine config list` (or `ls`): Lists all current settings.
 *   `taurine config reset <key>`: Resets a setting to factory defaults (`--all` resets everything).
-*   Key aliases: `trigger`→`trigger_char`, `hotkey`→`pause_hotkey`, `boot`→`start_on_boot`, `tray`→`system_tray_enabled`, `spinner`→`spinner_style`, `notifications`→`pause_notifications_enabled`, `delimiter_mode`→`inline_ai_trigger_mode`, `open_delimiter`→`inline_ai_trigger_open`, `close_delimiter`→`inline_ai_trigger_close`, `inline_tab_completion`→`inline_tab_completion_enabled`, `inline_history`→`inline_history_enabled`, `triggerless`→`triggerless_mode`, `instant`→`instant_expand`, and `mode`/`host`/`port`/`token` for the RPC settings.
+*   Key aliases: `hotkey`→`pause_hotkey`, `boot`→`start_on_boot`, `tray`→`system_tray_enabled`, `spinner`→`spinner_style`, `notifications`→`pause_notifications_enabled`, `delimiter_mode`→`inline_ai_trigger_mode`, `open_delimiter`→`inline_ai_trigger_open`, `close_delimiter`→`inline_ai_trigger_close`, `inline_tab_completion`→`inline_tab_completion_enabled`, `inline_history`→`inline_history_enabled`, `instant`→`instant_expand`, and `mode`/`host`/`port`/`token` for the RPC settings.
 
 | Category | Keys (default) |
 |----------|----------------|
-| Core | `trigger_char` (`>`), `pause_hotkey` (`Alt + \``), `start_on_boot` (`true`), `triggerless_mode` (`true`), `instant_expand` (`false`), `action_key` (`enter` or `space`), `script_timeout` (`15`) |
+| Core | `pause_hotkey` (`Alt + \``), `start_on_boot` (`true`), `instant_expand` (`false`), `action_key` (`enter` or `space`), `script_timeout` (`15`) |
 | UI | `spinner_style` (`braille`; `arc`/`classic`), `pause_notifications_enabled` (`false`), `ignore_fullscreen` (`true`), `system_tray_enabled` (`true`) |
 | AI | `ai_provider`, `ai_model`, `ai_custom_endpoint`, `inline_ai_trigger_mode` (`asymmetric`; `symmetric`), `inline_ai_trigger` (symmetric delimiter, `^`), `inline_ai_trigger_open` (`>>`), `inline_ai_trigger_close` (`<<`) |
 | Inline Assist | `inline_tab_completion_enabled` (`true`), `inline_history_enabled` (`true`), `inline_emoji_enabled` (`true`), `inline_emoji_trigger_char` (`:`), `inline_datetime_enabled` (`true`), `inline_currency_to_words_enabled` (`false`) |
@@ -205,12 +205,12 @@ Stream LLM responses directly into the active text field.
 ### 7.3 Inline Trigger Assist
 Headless assist for word triggers (no popups):
 *   **Tab Completion**: cycle matching word triggers with `Tab` / `Shift + Tab` (controlled by `inline_tab_completion_enabled`).
-*   **History Navigation**: cycle recent triggers with `Up` / `Down` arrows (controlled by `inline_history_enabled`); `>`+Up for global history, `>g`+Up for prefix-filtered.
-*   **Triggerless Tab completion**: type a word-prefix + Tab when `triggerless_mode` is on. `Esc` cancels; `Space` expands.
+*   **History Navigation**: double-tap the `Up` / `Down` arrow (two presses within ~250 ms; single presses pass through as caret navigation) to browse recent triggers (controlled by `inline_history_enabled`); typing a prefix before the double-tap filters the history. `Backspace` reverts to the typed query, `Esc`/any other key cancels while keeping the suggestion, `Enter` expands.
+*   **Tab completion** is always active for word triggers: type a word-prefix and press `Tab` to cycle matches. `Esc` cancels; `Space` expands.
 
 ### 7.4 Inline Emoji Picker
 *   Type the emoji char (default `:`) + letters at a word boundary, cycle with `Tab`/`Shift+Tab`, expand with `Enter`. `:rocket` → 🚀.
-*   `triggerless_mode` (default on) lets bare descriptions like `happy face` work without a prefix; ambiguous matches open a picker.
+*   Bare descriptions like `happy face` work without any prefix; ambiguous matches open a picker.
 *   `instant_expand` (default off) replaces instantly with the full emoji name. Control with `inline_emoji_enabled` / `inline_emoji_trigger_char`. Snippets take precedence over emoji.
 
 ### 7.5 Inline Unit Converter
@@ -219,7 +219,7 @@ Headless assist for word triggers (no popups):
 *   Units span temperature, length, weight, volume, area, time, speed, data (incl. binary kib/mib), tire pressure, power, energy, force, frequency, voltage, current, resistance, angles, and CSS (`px`/`rem`/`em`, 16px base).
 *   Colors convert between `hex`/`rgb`/`rgba`/`hsl`/`hsla` (`#3b82f6=rgb`).
 *   Currencies convert with any 3-letter ISO code, using real-time rates (cached locally, with offline fallback rates for USD/EUR/INR/GBP/JPY/CAD/AUD/CNY).
-*   Requires `triggerless_mode`; auto-disabled if `instant_expand` is on.
+*   Requires no prefix; auto-disabled if `instant_expand` is on.
 
 ### 7.6 Inline Currency to Words
 *   Spells currency amounts out in English: `$120` → "One hundred twenty dollars". Disabled by default (`inline_currency_to_words_enabled`).

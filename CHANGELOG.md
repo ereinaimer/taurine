@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Graceful Shutdown**: Handle OS termination signals (SIGINT/SIGTERM) in the daemon and TUI to ensure clean resource teardown and terminal restoration.
 - **Documentation Site Security**: Upgrade the documentation site's build toolchain (PostCSS, Sharp, js-yaml, brace-expansion) to resolve security advisories.
 
+### Removed
+- **Trigger Character & Mode Settings**: Removed the `trigger_char` (default `>`) and `triggerless_mode` settings. Expansion is now natively triggerless — word triggers expand directly without a prefix character in all cases.
+
 ## [1.0.0-alpha.15] - 2026-08-02
 
 ### Added

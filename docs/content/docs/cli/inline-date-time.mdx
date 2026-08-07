@@ -13,10 +13,7 @@ Taurine includes a natural language date and time engine. Typing expressions lik
 
 ## How It Works
 
-Expansions are triggered on the **Enter** key and work in two modes:
-
-1. **Triggerless Mode** — Type a date expression anywhere and press **Enter**. Taurine scans the last 1–6 words of your buffer from longest to shortest and expands the first matching expression it finds.
-2. **Trigger-Prefixed Mode** — Use the trigger prefix character (e.g. `>now`, `>yesterday`) and press **Enter**.
+Expansions are triggered on the **Enter** key. Type a date expression anywhere and press **Enter**; Taurine scans the last 1–6 words of your buffer from longest to shortest and expands the first matching expression it finds. No prefix character is needed.
 
 ### Direction Signal Required
 
@@ -43,11 +40,11 @@ An expression must contain an **explicit direction signal** to expand. This prev
 | `3pm`, `18:00`, `10:30am` | Bare times of day — absolute, no direction |
 | `2024-06-15`, `April 1` | Absolute dates — calendar-anchored |
 | `friday`, `july` | Bare weekdays/months — no modifier |
-| `now` (without prefix) | Use `>now` via trigger prefix instead |
+| `now` | Use a timezone query like `now in tokyo` instead |
 
-### Additional Triggerless Exclusions
+### Additional Exclusions
 
-In triggerless mode, the following are also excluded even when parseable, to prevent false positives in normal text:
+The following are also excluded even when parseable, to prevent false positives in normal text:
 
 - Bare weekdays: `friday`, `mon`, `saturday`
 - Bare month names: `july`, `dec`
@@ -152,10 +149,9 @@ These expand on their own without a direction signal.
 | `today` | `July 26, 2026` | Date |
 | `yesterday` | `July 25, 2026` | Date |
 | `tomorrow` | `July 27, 2026` | Date |
-| `>now` | `July 26, 2026 at 5:16 PM` | DateTime |
 
 <Callout title="Bare now" type="info">
-  `now` on its own does not expand in triggerless mode to avoid interfering with everyday writing. Use `>now` with your trigger prefix to expand the current date and time.
+  `now` on its own does not expand, to avoid interfering with everyday writing. Use a timezone query (`now in tokyo`) or a date/time system variable (`[date]`, `[time]`) to insert the current date and time.
 </Callout>
 
 ### Relative Day Offsets
@@ -244,7 +240,7 @@ A date expression and a time expression can be combined with a separating **spac
 | `2 days`, `1 week`, `13 hours` | No direction signal | `+2 days`, `2 days from now`, `+13 hours` |
 | `3pm`, `18:00`, `10:30am` | Bare absolute time | Combine with a date: `tomorrow 3pm` |
 | `2024-06-15`, `April 1` | Absolute date — not expandable | Use relative expressions instead |
-| `now` (triggerless) | Excluded to avoid false positives | `>now` with trigger prefix |
+| `now` | Excluded to avoid false positives | Use a timezone query (`now in tokyo`) |
 | `noon`, `midnight` | Not recognized by the date engine | `12pm`, `12am` (or use in a timezone query) |
 | `next week`, `last month` | Period modifiers not supported | `7 days`, `1 month ago` |
 | `next friday at 3pm` | `at` keyword not recognized | `next friday 3pm` |

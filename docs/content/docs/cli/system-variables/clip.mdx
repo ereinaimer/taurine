@@ -55,7 +55,7 @@ Converts a copied task ID and task title into a git-ready branch slug.
 
 <Transformation
   template="git checkout -b feature/[clip(1)]-[clip(0) | kebab]"
-  input=">branch "
+  input="branch "
   result="git checkout -b feature/TAUR-123-update-clipboard-docs"
 />
 

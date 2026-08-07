@@ -9,7 +9,7 @@ Use numbered placeholders `[0]`, `[1]`, etc., to reference arguments strictly by
 
 <Transformation
   template="https://github.com/[1=repo]/[0=org]"
-  input=">gh:taurine:ereinaimer"
+  input="gh:taurine:ereinaimer"
   result="https://github.com/ereinaimer/taurine"
 />
 
@@ -21,7 +21,7 @@ Explicitly assign a value to a label using the `key=value` format when typing yo
 
 <Transformation
   template="Repo: [repo=default_repo] by [name=default_name]"
-  input=">gh:name=ereinaimer:repo=taurine"
+  input="gh:name=ereinaimer:repo=taurine"
   result="Repo: taurine by ereinaimer"
 />
 
@@ -34,15 +34,15 @@ Quotes allow arguments to contain spaces or colons without breaking the trigger 
 <Transformation
   template="Quote: [0=empty]"
   cases={[
-    { input: ">quote:'\"One small step for man\"'", result: 'Quote: "One small step for man"' },
-    { input: ">quote:\"How're you?\"", result: "Quote: How're you?" },
+    { input: "quote:'\"One small step for man\"'", result: 'Quote: "One small step for man"' },
+    { input: "quote:\"How're you?\"", result: "Quote: How're you?" },
   ]}
 />
 
 By wrapping the text in quotes, you can preserve complex strings, including those that contain other quote characters or punctuation, as a single argument.
 
 <Callout type="info" title="Action Key & Unquoted Spaces">
-  If your `action_key` is set to `enter` (the default), arguments can contain spaces without needing quotes (e.g. `>hi:erein aimer: how was your day`). However, if your `action_key` is set to `space`, or if you need to include colons (`:`) within your arguments, you must wrap them in quotes.
+  If your `action_key` is set to `enter` (the default), arguments can contain spaces without needing quotes (e.g. `hi:erein aimer: how was your day`). However, if your `action_key` is set to `space`, or if you need to include colons (`:`) within your arguments, you must wrap them in quotes.
 </Callout>
 
 ## Strict Mapping & Non-Greedy Fallbacks
@@ -51,7 +51,7 @@ If a placeholder is not numbered and does not match a named argument, Taurine wi
 
 <Transformation
   template='Repo: [repo="taurine"] / User: [0="erein"]'
-  input=">gh:aimer"
+  input="gh:aimer"
   result="Repo: taurine / User: aimer"
 />
 
@@ -65,9 +65,9 @@ Mastering arguments allows you to build templates that are both structured and h
     <div className="text-lg font-bold mt-4 mb-1">Appointment Details</div>
     Quickly fill out a meeting reminder by passing the time and the place as arguments.
     
-    **Trigger:** `>meet:2pm:the lobby`
+    **Trigger:** `meet:2pm:the lobby`
     
-    ```text trigger=">meet:2pm:the lobby "
+    ```text trigger="meet:2pm:the lobby "
     Let's meet at [0="time"] in [1="place"]. See you then!
     ```
   </Accordion>
@@ -75,9 +75,9 @@ Mastering arguments allows you to build templates that are both structured and h
     <div className="text-lg font-bold mt-4 mb-1">GitHub Quick Links</div>
     Navigate to repos within a specific organization by using positional mapping.
     
-    **Trigger:** `>gh:ereinaimer:taurine`
+    **Trigger:** `gh:ereinaimer:taurine`
     
-    ```text trigger=">gh:ereinaimer:taurine "
+    ```text trigger="gh:ereinaimer:taurine "
     https://github.com/[0=org]/[1=repo]
     ```
   </Accordion>

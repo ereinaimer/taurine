@@ -26,7 +26,7 @@ These are useful for quickly formatting lists, such as adding bullet points or s
 
 <Transformation
   template='[clip | prefixline("> ")]'
-  input=">clip:'Line 1\nLine 2'"
+  input="clip:'Line 1\nLine 2'"
   result="> Line 1\n> Line 2"
 />
 
@@ -36,7 +36,7 @@ Removes all duplicate lines while strictly preserving their original order of ap
 
 <Transformation
   template='[clip | uniqline]'
-  input=">clip:'orange\napple\norange\nbanana'"
+  input="clip:'orange\napple\norange\nbanana'"
   result="orange\napple\nbanana"
 />
 
@@ -46,7 +46,7 @@ Counts the total number of lines in the input text.
 
 <Transformation
   template='[clip | linecount]'
-  input=">clip:'Line 1\nLine 2\nLine 3'"
+  input="clip:'Line 1\nLine 2\nLine 3'"
   result="3"
 />
 
@@ -59,6 +59,6 @@ Sorts lines alphabetically by default. Supports options:
 
 <Transformation
   template='[clip | sortline("numeric")]'
-  input=">clip:'10\n2\n1.5'"
+  input="clip:'10\n2\n1.5'"
   result="1.5\n2\n10"
 />

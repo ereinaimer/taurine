@@ -8,7 +8,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
 Taurine features a built-in lightweight **Inline Emoji Picker** that lets you search and insert Unicode emojis directly as you type. Simply type a configurable trigger character (default `:`) followed by a shortcode prefix, select a match, and press **Space** or **Enter**.
 
 <Callout title="Snippet Priority" type="info">
-  If your configured emoji trigger is the same as the global snippet trigger, snippets take absolute precedence. If your input matches an active snippet trigger, the snippet expands instead of the emoji.
+  If your input matches an active word trigger, the snippet expands instead of the emoji.
 </Callout>
 
 ## Usage
@@ -28,12 +28,12 @@ To make typing easier, you can input underscores (`_`) or hyphens (`-`) intercha
   - **Instant Expand**: If **Instant Expand** (`instant_expand`, default `false`) is enabled, typing the full name of an emoji (e.g. `:rocket`) will instantly replace it with the emoji, bypassing autocomplete cycling. To cycle suggestions under Instant Expand, press Tab on a partial match (e.g. `:rock`).
 </Callout>
 
-## Natural Language Matching & Triggerless Mode
+## Natural Language Matching
 
 In addition to standard shortcode autocomplete (like `:rocket`), Taurine supports natural language matching:
 
 *   **Triggered Natural Language**: Type your emoji trigger (default `:`) followed by a description of the emoji, such as `:happy face` or `:thumbs up`. Pressing **Enter** will instantly replace it with the matched emoji (`😊` or `👍`).
-*   **Triggerless Mode**: If **Triggerless Mode** (`triggerless_mode`, default `true`) is enabled, you can type these natural language descriptions without the trigger character prefix (e.g., just type `happy face` or `heart`) and press **Enter** to expand.
+*   **No Prefix Needed**: Natural language descriptions work without a prefix — just type `happy face` or `heart` and press **Enter** to expand.
 *   **Ambiguous Matches**: If your natural language query matches multiple emojis (e.g., `:heart` or `heart` matches both `❤️` and `🫶`), pressing **Enter** will activate the inline completion picker. You can cycle through matching suggestions using **Tab** (or **Shift + Tab** to go backward) and press **Enter** to expand, or press **Space** (or type any other character) to cancel the completion picker and leave the currently highlighted emoji in place.
 
 

@@ -19,14 +19,14 @@ Taurine supports all standard arithmetic operators, including modulo and exponen
 
 | Operator | Description | Example | Result |
 | :--- | :--- | :--- | :--- |
-| `+` | Addition | `>2+3 ` | `5` |
-| `-` | Subtraction | `>10-4 ` | `6` |
-| `*` | Multiplication | `>3*4 ` | `12` |
-| `/` | Division | `>10/2 ` | `5` |
-| `%` | Modulo (Remainder) | `>10%3 ` | `1` |
-| `^` | Exponentiation (Power) | `>2^3 ` | `8` |
+| `+` | Addition | `2+3 ` | `5` |
+| `-` | Subtraction | `10-4 ` | `6` |
+| `*` | Multiplication | `3*4 ` | `12` |
+| `/` | Division | `10/2 ` | `5` |
+| `%` | Modulo (Remainder) | `10%3 ` | `1` |
+| `^` | Exponentiation (Power) | `2^3 ` | `8` |
 
-Parentheses `()` can be used to group expressions and control the order of operations: `>(2+3)*4 ` expands to `20`.
+Parentheses `()` can be used to group expressions and control the order of operations: `(2+3)*4 ` expands to `20`.
 
 ## Constants
 
@@ -43,14 +43,14 @@ Taurine's parser is designed to feel natural, supporting features commonly found
 
 ### Implicit Multiplication
 You don't always need the `*` operator. Taurine automatically inserts it in clear contexts:
-- `>2(3+4) ` → `14`
-- `>3pi ` → `9.4248`
-- `>5sqrt(4) ` → `10`
+- `2(3+4) ` → `14`
+- `3pi ` → `9.4248`
+- `5sqrt(4) ` → `10`
 
 ### Scientific Notation
 For very large or very small numbers, you can use standard scientific notation:
-- `>1.5e3 ` → `1500`
-- `>1e-2 ` → `0.01`
+- `1.5e3 ` → `1500`
+- `1e-2 ` → `0.01`
 
 ## Built-in Functions
 
@@ -58,11 +58,11 @@ Taurine provides several essential functions for common numeric manipulations.
 
 | Function | Description | Example | Result |
 | :--- | :--- | :--- | :--- |
-| `sqrt(x)` | Square root | `>sqrt(16) ` | `4` |
-| `abs(x)` | Absolute value | `>abs(-5) ` | `5` |
-| `floor(x)` | Round down to nearest integer | `>floor(4.9) ` | `4` |
-| `ceil(x)` | Round up to nearest integer | `>ceil(4.1) ` | `5` |
-| `round(x)` | Round to nearest integer | `>round(4.5) ` | `5` |
+| `sqrt(x)` | Square root | `sqrt(16) ` | `4` |
+| `abs(x)` | Absolute value | `abs(-5) ` | `5` |
+| `floor(x)` | Round down to nearest integer | `floor(4.9) ` | `4` |
+| `ceil(x)` | Round up to nearest integer | `ceil(4.1) ` | `5` |
+| `round(x)` | Round to nearest integer | `round(4.5) ` | `5` |
 
 ## Technical Notes
 

@@ -17,13 +17,13 @@ Use `url.encode` and `url.decode` to handle URI components (percent-encoding). U
 
 <Transformation
   template="https://google.com/search?q=[0 | url.encode]"
-  input=">query:'rust programming'"
+  input="query:'rust programming'"
   result="https://google.com/search?q=rust%20programming"
 />
 
 <Transformation
   template="Clean URL: [0 | url.clean]"
-  input=">url:'https://example.com/item?id=45&utm_source=share'"
+  input="url:'https://example.com/item?id=45&utm_source=share'"
   result="Clean URL: https://example.com/item"
 />
 
@@ -38,7 +38,7 @@ Base64 modifiers allow you to convert text to and from the standard Base64 encod
 
 <Transformation
   template="Authorization: Basic [0 | base64.encode]"
-  input=">creds:'admin:password'"
+  input="creds:'admin:password'"
   result="Authorization: Basic YWRtaW46cGFzc3dvcmQ="
 />
 

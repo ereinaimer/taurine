@@ -26,7 +26,7 @@ Unlike `title`, `sentence` only capitalizes the very first character of the stri
 
 <Transformation
   template="[0 | sentence]"
-  input=">text:'hello from taurine'"
+  input="text:'hello from taurine'"
   result="Hello from taurine"
 />
 
@@ -36,6 +36,6 @@ Use `camel` for variables and `pascal` for classes or types when generating code
 
 <Transformation
   template="class [0 | pascal] { const [0 | camel] = true; }"
-  input=">name:'user_service'"
+  input="name:'user_service'"
   result="class UserService { const userService = true; }"
 />

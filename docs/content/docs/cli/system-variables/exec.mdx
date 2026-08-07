@@ -91,7 +91,7 @@ The script executes first, then the transformer is applied to its output.
 
 <Transformation
   template="Machine: [exec.bash(hostname)] | User: [exec.bash(whoami) | upper] | [date.format(YYYY-MM-DD)]"
-  input=">sysinfo "
+  input="sysinfo "
   result="Machine: dev-box | User: EREIN | 2026-04-22"
 />
 
@@ -99,7 +99,7 @@ The script executes first, then the transformer is applied to its output.
 
 <Transformation
   template="Resolves: [exec.bash(git rev-parse --abbrev-ref HEAD) | upper]"
-  input=">branch "
+  input="branch "
   result="Resolves: FEAT/EXEC-SYSTEM-VARIABLE"
 />
 

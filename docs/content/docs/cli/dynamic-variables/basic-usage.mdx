@@ -21,12 +21,14 @@ Result: \[0\] + 1 = [value=1]
 
 When Taurine encounters a bracketed word, it converts it into an **input mapping**. Anything you type after the colon (`:`) in your trigger is captured and injected directly into that placeholder at the moment of expansion.
 
+No prefix character is needed — type the trigger word, append your argument after a colon (e.g., `hello:Erein`), and press **Space** or **Enter** to expand.
+
 ### Basic Mapping
 If your snippet has a single variable, Taurine maps the entirety of your terminal argument to that specific placeholder.
 
 <Transformation
   template="Hello, [name=stranger]!"
-  input=">hello:Erein"
+  input="hello:Erein"
   result="Hello, Erein!"
 />
 
@@ -35,7 +37,7 @@ You aren't limited to just one variable. You can scatter placeholders throughout
 
 <Transformation
   template="GRANT ACCESS TO [user=guest] ON [environment=sandbox]"
-  input=">access:admin:staging"
+  input="access:admin:staging"
   result="GRANT ACCESS TO admin ON staging"
 />
 
@@ -49,13 +51,13 @@ Dynamic variables are perfect for structural templates that you use every day—
     <div className="text-lg font-bold mt-4 mb-1">Quick Email Replies</div>
     Speed up your correspondence with snippets that adapt to the recipient and topic.
     
-    **Trigger:** `>reply:Erein:the redesign project`
+    **Trigger:** `reply:Erein:the redesign project`
     
     <Callout type="info">
-      **Pro Tip:** You can skip an argument by leaving it empty between colons: `>reply::the redesign project`. This is useful when you want to leave the placeholder blank or fill it in manually later.
+      **Pro Tip:** You can skip an argument by leaving it empty between colons: `reply::the redesign project`. This is useful when you want to leave the placeholder blank or fill it in manually later.
     </Callout>
     
-    ```text trigger=">reply:Erein:the redesign project "
+    ```text trigger="reply:Erein:the redesign project "
     Hi [name=there], thanks for the update! I'll take a look at [subject="your email"] today and get back to you.
     ```
   </Accordion>
@@ -63,9 +65,9 @@ Dynamic variables are perfect for structural templates that you use every day—
     <div className="text-lg font-bold mt-4 mb-1">GitHub Repository Shortcuts</div>
     Quickly navigate to any repository by mapping the organization and project name into a URL.
     
-    **Trigger:** `>gh:ereinaimer:taurine`
+    **Trigger:** `gh:ereinaimer:taurine`
     
-    ```text trigger=">gh:ereinaimer:taurine "
+    ```text trigger="gh:ereinaimer:taurine "
     https://github.com/[org=github]/[repo=home]
     ```
   </Accordion>

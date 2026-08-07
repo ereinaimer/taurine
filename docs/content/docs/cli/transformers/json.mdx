@@ -23,7 +23,7 @@ Extract nested values or array elements from JSON strings. The path uses standar
 
 <Transformation
   template='[0 | json.get("user.hobbies.1")]'
-  input='>text:{"user": {"name": "Alice", "hobbies": ["reading", "gaming"]}}'
+  input='text:{"user": {"name": "Alice", "hobbies": ["reading", "gaming"]}}'
   result="gaming"
 />
 
@@ -33,7 +33,7 @@ Format minified JSON payloads to make them human-readable before pasting them in
 
 <Transformation
   template='[0 | json.pretty]'
-  input='>text:{"user":{"name":"Alice","role":"admin"}}'
+  input='text:{"user":{"name":"Alice","role":"admin"}}'
   result='{
   "user": {
     "name": "Alice",
@@ -48,7 +48,7 @@ Strips all unnecessary whitespace and indentation from a JSON payload, making it
 
 <Transformation
   template='[0 | json.minify]'
-  input='>text:{
+  input='text:{
   "user": {
     "name": "Alice"
   }

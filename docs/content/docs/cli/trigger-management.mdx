@@ -7,7 +7,7 @@ description: How to add, list, and remove your Taurine triggers
 
 Taurine supports two ways to activate a trigger:
 
-1. **Word Triggers**: Typed words preceded by a trigger character (e.g., `>brb`).
+1. **Word Triggers**: Typed words expanded directly with a Space or Enter (e.g., `brb`).
 2. **Hotkey Triggers**: Global keyboard shortcuts (e.g., `ctrl+shift+g`).
 
 ## Adding Triggers
@@ -53,46 +53,38 @@ You can specify the `--tag` option multiple times or pass a comma-separated list
 ## How to Trigger
 
 ### Word Triggers
-By default, Taurine triggers a word expansion when you type your **trigger character** followed by the **word** and a **space**.
+Taurine is natively triggerless — there is no prefix character. Type the **word** and press a **space** or **Enter** (whichever is set as your `action_key`) to expand it.
 
 ```text
->brb[Space]
+brb[Space]
 ```
 
-<Callout title="Configuring Triggers" type="info">
-  You can change the default `>` trigger character in the [Configuration](/docs/cli/configuration) page.
+<Callout title="Action Key" type="info">
+  Expansion is activated by the key configured in `action_key` (default `enter`). To expand instantly without any trigger key, enable `instant_expand`.
 </Callout>
 
 ### Hotkey Triggers
-Hotkey triggers execute immediately when the keyboard shortcut is pressed. They do not require a trigger character or a trailing space.
+Hotkey triggers execute immediately when the keyboard shortcut is pressed. They do not require typed text or a trailing space.
 
 ## Inline Trigger Assist
 
-Taurine provides a headless **inline trigger assist** to help you quickly find and select your word triggers as you type. This feature works directly inside your active text field—no popups, overlays, or command palettes are required. It includes both **Tab completion** for matches and **Up/Down history navigation** for recently used triggers.
+Taurine provides a headless **inline trigger assist** to help you quickly find and select your word triggers as you type. This feature works directly inside your active text field—no popups, overlays, or command palettes are required. It includes both **Tab completion** for matches and **double-tap Up/Down history navigation** for recently used triggers.
 
 ### Usage
 
-1. Type your **trigger character** (default: `>`).
-2. Type a few characters of a **word trigger** (optional for history).
-3. Use the following keys to navigate:
+1. Type a few characters of a **word trigger** (optional if you only want to browse history).
+2. Use the following keys to navigate:
 
 | Key | Action |
 | :--- | :--- |
 | **Tab** | Cycle forward through matching word triggers. |
 | **Shift + Tab** | Cycle backward through matching word triggers. |
-| **Up Arrow** | Move backward through recently used triggers (History). |
-| **Down Arrow** | Move forward through history. |
+| **Up Arrow** (double-tap) | Open history and move backward through recently used triggers. |
+| **Down Arrow** (double-tap) | Open history and move forward through recently used triggers. |
 
 ### Tab Completion
 
-After typing at least one character of a trigger (e.g., `>g`), press `Tab` to cycle through all triggers that start with that prefix. Suggestions are sorted alphabetically.
-
-* **Wraparound**: Cycling is infinite; reaching the end of the list wraps back to the beginning.
-* **Word Triggers Only**: Completion only suggests word triggers. Hotkey triggers are never suggested.
-
-### Triggerless Tab Completion
-
-When `triggerless_mode` is enabled (i.e., you do not use a trigger character like `>`), you can trigger completions interactively by typing a word prefix and pressing `Tab`:
+Completion works on the typed word directly — there is no prefix character. After typing at least one character of a trigger (e.g., `g`), press `Tab` to cycle through all triggers that start with that prefix. Suggestions are sorted alphabetically.
 
 1. Type a word prefix (e.g., `g`).
 2. Press **Tab**.
@@ -102,21 +94,27 @@ When `triggerless_mode` is enabled (i.e., you do not use a trigger character lik
 6. Pressing **Enter** or **Space** (depending on your configured `action_key`) will expand the selected suggestion.
 7. If no triggers match the prefix when you press **Tab**, the key event passes through to the OS normally (e.g., to insert an indentation tab or move focus).
 
+* **Wraparound**: Cycling is infinite; reaching the end of the list wraps back to the beginning.
+* **Word Triggers Only**: Completion only suggests word triggers. Hotkey triggers are never suggested.
+
 ### History Navigation
 
 History allows you to access your most frequently and recently used triggers.
 
-* **Prefix Search**: If you type a prefix (e.g., `>g`) and press `Up`, Taurine cycles through recently used triggers starting with `g`.
-* **Global History**: Pressing `Up` immediately after the trigger character (`>`) cycles through your entire trigger history.
-* **Restore Query**: Pressing `Down` while the newest history item is selected will restore your original typed query.
+* **Open History**: Double-tap **Up** or **Down** (two presses within about 250 ms) to open history browsing. Single arrow presses pass through as normal caret navigation — this is the only way to open history.
+* **Prefix Search**: Type a prefix (e.g., `g`) and double-tap **Up** to cycle through recently used triggers starting with `g`.
+* **Global History**: Double-tap **Up** or **Down** without typing a prefix to browse your entire trigger history.
+* **Browse**: Browsing replaces your typed query with the selected trigger. Press **Backspace** to revert to your original typed query.
+* **Expand**: Press **Enter** to expand the selected trigger via the engine.
+* **Cancel**: Press **Escape** or any other key to cancel browsing and pass the key through, keeping the current suggestion.
 
 ### Control Keys
 
 While assist is active, Taurine manages several keys to ensure a smooth experience:
 
-* **Esc**: Cancels assist and leaves your typed text as-is.
-* **Backspace**: Edits your **original query**. If you have a suggestion selected, Backspace erases the suggestion and deletes the last character of your typed input, allowing you to refine your search instantly.
-* **Space**: Expands the currently visible trigger.
+* **Escape / other keys**: While browsing history, cancels browsing and passes the key through, keeping the current suggestion.
+* **Backspace**: While browsing history, reverts to your **original query**. If a Tab suggestion is selected, deletes the last character of your typed input so you can refine your search.
+* **Space**: Expands the currently visible trigger (or press the key configured as your `action_key`).
 * **Modified Tabs**: Shortcuts like `Alt + Tab` or `Ctrl + Tab` will cancel assist and pass through to the system normally.
 
 <Callout title="AI Mode Priority" type="info">
@@ -135,8 +133,8 @@ Both Tab completion and History navigation are enabled by default. If you prefer
 # Disable Tab completion
 taurine config set inline_tab_completion false
 
-# Disable History navigation
-taurine config set inline_history false
+# Disable double-tap Up/Down history navigation
+taurine config set inline_history_enabled false
 ```
 
 When disabled, the relevant keys (`Tab`, `Up`, `Down`) are passed through to the system normally. Disabling these assist features does not affect your ability to expand word triggers using `Space` or use the inline AI copilot.

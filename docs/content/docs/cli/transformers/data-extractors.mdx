@@ -22,7 +22,7 @@ Use standard CSS selectors to parse HTML or XML payloads. This allows you to scr
 
 <Transformation
   template='[0 | html(".price > span")]'
-  input='>text:<html><body><div class="price"><span>$99.99</span></div></body></html>'
+  input='text:<html><body><div class="price"><span>$99.99</span></div></body></html>'
   result="$99.99"
 />
 
@@ -31,7 +31,7 @@ Similar to JSON extraction, you can traverse YAML and TOML configurations using 
 
 <Transformation
   template='[0 | yaml("services.db.image")]'
-  input='>text:services:\n  db:\n    image: postgres:15'
+  input='text:services:\n  db:\n    image: postgres:15'
   result="postgres:15"
 />
 
@@ -40,6 +40,6 @@ Extract specific segments of a text using capturing groups. Provide the regex pa
 
 <Transformation
   template='[0 | regexmatch("#([0-9]+)", 1)]'
-  input=">text:Order ID: #12345 (Completed)"
+  input="text:Order ID: #12345 (Completed)"
   result="12345"
 />

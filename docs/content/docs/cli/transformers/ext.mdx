@@ -33,7 +33,7 @@ Unlike standard text replacements, these extractors will find all matches within
 Easily scrape a webpage or clipboard text for all links:
 <Transformation
   template="[clip | ext.url]"
-  input=">clip:'Check https://taurine.in and https://github.com'"
+  input="clip:'Check https://taurine.in and https://github.com'"
   result="https://taurine.in\nhttps://github.com"
 />
 
@@ -41,7 +41,7 @@ Easily scrape a webpage or clipboard text for all links:
 If you have a log file or a system prompt, you can extract the directory paths directly:
 <Transformation
   template="[clip | ext.path.dir]"
-  input=">clip:'The config is at /etc/nginx/nginx.conf'"
+  input="clip:'The config is at /etc/nginx/nginx.conf'"
   result="/etc/nginx"
 />
 
@@ -49,6 +49,6 @@ If you have a log file or a system prompt, you can extract the directory paths d
 When piping outputs from AI or Markdown documents, you can extract the raw code:
 <Transformation
   template="[clip | ext.mdcode]"
-  input=">clip:'Here is the code:\n```rust\nfn main() {}\n```'"
+  input="clip:'Here is the code:\n```rust\nfn main() {}\n```'"
   result="fn main() {}"
 />

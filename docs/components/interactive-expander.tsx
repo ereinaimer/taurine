@@ -1,16 +1,15 @@
 'use client';
 
-import React, { useState, type ChangeEvent } from 'react';
+import React, { useState } from 'react';
 
 export function InteractiveExpander() {
-  const triggerChar = '>';
   const [triggerWord, setTriggerWord] = useState('hw');
   const [expansion, setExpansion] = useState('Hello World!');
   const [text, setText] = useState('');
 
-  const handleTextChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newValue = e.target.value;
-    const trigger = triggerChar + triggerWord + ' ';
+    const trigger = triggerWord + ' ';
 
     if (newValue.endsWith(trigger)) {
       const expandedValue = newValue.slice(0, -trigger.length) + expansion;
@@ -28,9 +27,6 @@ export function InteractiveExpander() {
             Trigger Word
           </label>
           <div className="flex gap-2">
-            <span className="flex items-center justify-center rounded-md border border-fd-border bg-fd-muted px-3 text-sm font-mono text-fd-muted-foreground">
-              {triggerChar}
-            </span>
             <input
               type="text"
               value={triggerWord}
@@ -61,7 +57,7 @@ export function InteractiveExpander() {
         <textarea
           value={text}
           onChange={handleTextChange}
-          placeholder={`Type "${triggerChar}${triggerWord}" followed by a space to see it expand...`}
+          placeholder={`Type "${triggerWord}" followed by a space to see it expand...`}
           className="min-h-[120px] w-full resize-none rounded-md border border-fd-border bg-fd-background p-3 text-sm text-fd-foreground focus:outline-none focus:ring-1 focus:ring-fd-primary/30 transition-all"
         />
       </div>

@@ -16,8 +16,8 @@ Taurine uses a smart parser that makes your life easier:
 <Transformation
   template='Message: [content="No content provided"]'
   cases={[
-    { input: ">msg", result: "Message: No content provided" },
-    { input: ">msg:\"Hello World\"", result: "Message: Hello World" },
+    { input: "msg", result: "Message: No content provided" },
+    { input: "msg:\"Hello World\"", result: "Message: Hello World" },
   ]}
 />
 
@@ -37,27 +37,27 @@ Default values turn templates into smart tools that work out of the box while re
     <div className="text-lg font-bold mt-4 mb-1">Friendly Greetings</div>
     Keep your communications professional even when you're in a rush by using a fallback for names.
     
-    **Trigger:** `>hi`
+    **Trigger:** `hi`
     
-    ```text trigger=">hi "
+    ```text trigger="hi "
     Hi [name=there], thanks for reaching out!
     ```
 
     <Callout type="info">
-      **Try it:** Type `>hi` for the default greeting, or `>hi:Erein` to personalize it.
+      **Try it:** Type `hi` for the default greeting, or `hi:Erein` to personalize it.
     </Callout>
   </Accordion>
   <Accordion title="Show Developer Examples">
     <div className="text-lg font-bold mt-4 mb-1">Standardized Git Commits</div>
     Maintain a consistent commit style by defaulting to your most common commit type.
     
-    **Trigger:** `>gc:::'Initial commit'`
+    **Trigger:** `gc:::'Initial commit'`
     
     <Callout type="info">
       **Pro Tip:** Use double colons `::` to skip a placeholder and use its default value. In this example, we skip `type` and `scope` to use their defaults.
     </Callout>
     
-    ```text trigger=">gc:::'Initial commit' "
+    ```text trigger="gc:::'Initial commit' "
     [type=feat]([scope=cli]): [message="default message"]
     ```
   </Accordion>
