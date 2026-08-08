@@ -127,7 +127,7 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "uuid" => format!("Valid modifiers: uuid, {}", UUID_MODIFIERS.join(", ")),
         "env" => "Valid form: [env(<var_name>)] or [env(\"<var_name>\")]".to_string(),
         "net" => format!("Valid modifiers: {}", NET_MODIFIERS.join(", ")),
-        "exec" => "Valid forms: [exec.bash(...)], [exec.powershell(...)], [exec.python(...)], [exec.node(...)], [exec.node_esm(...)], [exec.cmd(...)]".to_string(),
+        "exec" => "Valid forms: [exec.bash(...)], [exec.powershell(...)], [exec.python(...)], [exec.node(...)], [exec.cmd(...)]".to_string(),
         "random" => format!("Valid modifiers: {}", RANDOM_MODIFIERS.join(", ")),
         "lorem" => format!("A modifier is required. Valid modifiers: {}", LOREM_MODIFIERS.join(", ")),
         "file" => format!("Valid modifiers: {}", FILE_MODIFIERS.join(", ")),

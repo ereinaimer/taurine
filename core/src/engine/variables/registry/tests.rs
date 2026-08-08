@@ -163,11 +163,6 @@ fn validates_exec_modifier_syntax() {
         validate_system_tag("exec", Some("bash.file(/tmp/test.sh).args(arg1, arg2)")),
         Ok(())
     );
-    assert_eq!(
-        validate_system_tag("exec", Some("node_esm(console.log((1 + 2)))")),
-        Ok(())
-    );
-
     // Order-independence: language can come after .file()
     assert_eq!(
         validate_system_tag("exec", Some("file(/tmp/test.sh).bash")),

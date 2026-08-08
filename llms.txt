@@ -139,7 +139,7 @@ System variables inject machine data or generate values using `[namespace.variab
 *   **Clipboard**: `[clip]` (≡ `[clip(0)]`); history ring `[clip(1)]`/`[clip(2)]` (last 3, in-memory only, wiped on restart, deduped, ignores transient-data flags from 1Password/Bitwarden).
 *   **Environment**: `[env(USER)]`, `[env("HOME")]` — case-sensitive; may expose sensitive values.
 *   **Files**: `[file.read(path)]` (≤5 MB, UTF-8, `~` expands home), `[file.read_line(path, n)]`, `[file.read_line(path, start, end)]`.
-*   **Command Execution**: `[exec.bash(cmd)]` / `[exec.powershell(cmd)]` / `[exec.python(cmd)]` / `[exec.node(cmd)]` / `[exec.node-esm(cmd)]` / `[exec.cmd(cmd)]` run shell commands and inject output at the cursor; `[exec.silent.…]` runs async in the background; `[exec.<lang>.file(path)]` compiles a script file into the DB; `.args(--a, b)` passes arguments; 20s timeout.
+*   **Command Execution**: `[exec.bash(cmd)]` / `[exec.powershell(cmd)]` / `[exec.python(cmd)]` / `[exec.node(cmd)]` / `[exec.cmd(cmd)]` run shell commands and inject output at the cursor; `[exec.silent.…]` runs async in the background; `[exec.<lang>.file(path)]` compiles a script file into the DB; `.args(--a, b)` passes arguments; 20s timeout.
 *   **Network**: `[http.get(url)]` (raw body, 5s timeout, `https://` assumed if omitted), `[http.status(url)]` (status code), `[net.ip]` (public WAN IP), `[net.lip]` (local IP), `[net.online]` (internet check → `true`/`false`), `[net.port(n)]` (TCP port listening check).
 *   **Images**: `[img(path)]` — injects local images (PNG/JPEG, ≤16 MB) via clipboard paste; compiled into the DB at save time.
 *   **Lorem ipsum**: `[lorem.word(n)]` (default 15), `[lorem.sentence(n)]`, `[lorem.paragraph(n)]`.
