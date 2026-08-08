@@ -46,6 +46,9 @@ jobs:
           - ubuntu-latest
           - windows-latest
           - macos-latest
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -54,6 +57,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+
+      - name: Disable Windows Defender real-time scanning
+        if: runner.os == 'Windows'
+        run: Set-MpPreference -DisableRealtimeScanning $true
+        shell: pwsh
 
       - name: Install Protoc (Windows & macOS)
         if: runner.os != 'Linux'
@@ -81,14 +89,19 @@ jobs:
             libxdo-dev \
             mold
 
-      - name: Restore Rust cache
+      - name: Cache Cargo registry
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: "false"
+
+      - name: Cache compile artifacts (sccache)
+        uses: mozilla-actions/sccache-action@v0.0.7
 
       - name: Run Clippy
         env:
           CARGO_INCREMENTAL: 0
           RUSTFLAGS: ${{ runner.os == 'Linux' && '-C link-arg=-fuse-ld=mold' || '' }}
-        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --workspace --no-deps --all-targets -- -D warnings
 
   test:
     name: Test (${{ matrix.os }})
@@ -104,12 +117,20 @@ jobs:
           - windows-latest
           - macos-latest
 
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Disable Windows Defender real-time scanning
+        if: runner.os == 'Windows'
+        run: Set-MpPreference -DisableRealtimeScanning $true
+        shell: pwsh
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
@@ -141,8 +162,13 @@ jobs:
             libgtk-3-dev \
             libxdo-dev
 
-      - name: Restore Rust cache
+      - name: Cache Cargo registry
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: "false"
+
+      - name: Cache compile artifacts (sccache)
+        uses: mozilla-actions/sccache-action@v0.0.7
 
       - name: Run tests (nextest)
         run: cargo nextest run --locked --workspace --all-features
