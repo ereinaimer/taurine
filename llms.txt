@@ -64,7 +64,7 @@ Validation limits: trigger string ≤200 chars, text output ≤100 KB, script co
 
 | Category | Keys (default) |
 |----------|----------------|
-| Core | `pause_hotkey` (`Alt + \``), `start_on_boot` (`true`), `instant_expand` (`false`), `action_key` (`enter` or `space`), `script_timeout` (`15`) |
+| Core | `pause_hotkey` (`Alt + \``), `start_on_boot` (`true`), `instant_expand` (`false`), `script_timeout` (`15`) |
 | UI | `spinner_style` (`braille`; `arc`/`classic`), `pause_notifications_enabled` (`false`), `ignore_fullscreen` (`true`), `system_tray_enabled` (`true`) |
 | AI | `ai_provider`, `ai_model`, `ai_custom_endpoint`, `inline_ai_trigger_mode` (`asymmetric`; `symmetric`), `inline_ai_trigger` (symmetric delimiter, `^`), `inline_ai_trigger_open` (`>>`), `inline_ai_trigger_close` (`<<`) |
 | Inline Assist | `inline_tab_completion_enabled` (`true`), `inline_emoji_enabled` (`true`), `inline_emoji_trigger_char` (`:`), `inline_datetime_enabled` (`true`), `inline_currency_to_words_enabled` (`false`) |
@@ -128,7 +128,7 @@ Flexible snippets use `[variable_name=default]` placeholders. The `=` is mandato
 
 *   **Positional args**: `[0]`, `[1]`, ... are zero-based and reorderable (`https://github.com/[1=repo]/[0=org]`).
 *   **Named args**: `key=value` in the trigger, order-independent (`>gh:name=erein:repo=taurine`).
-*   **Quoting**: wrap arguments with spaces/colons in single or double quotes (`>hi:"John Doe" `). With `action_key=enter`, unquoted spaces are fine.
+*   **Quoting**: wrap arguments with spaces/colons in single or double quotes (`>hi:"John Doe" `). Unquoted spaces are fine.
 *   **Skip placeholders** with `::` to keep their defaults.
 *   **Escaping**: `\[` `\]` escape brackets; `\n`, `\t`, `\r` are escaped literals.
 
@@ -199,13 +199,13 @@ Evaluate expressions typed into any text field prefixed by the trigger char.
 ### 7.2 Inline AI Copilot
 Stream LLM responses directly into the active text field.
 1.  Configure a provider: `taurine ai add --provider gemini` (and optionally `taurine config set ai_provider gemini`).
-2.  Type the opening delimiter `>>`, your prompt, the closing delimiter `<<`, then press **Space** or **Enter** (default `>>prompt<<`). The delimiters and prompt are replaced by the response.
+2.  Type the opening delimiter `>>`, your prompt, the closing delimiter `<<`, then press **Enter** (default `>>prompt<<`). The delimiters and prompt are replaced by the response.
 3.  Symmetric mode uses `inline_ai_trigger` (default `^`); asymmetric mode uses `inline_ai_trigger_open`/`inline_ai_trigger_close` (`>>`/`<<`). Custom delimiters and endpoints (`taurine config set ai_custom_endpoint http://localhost:11434/v1` for Ollama/LM Studio) are supported.
 
 ### 7.3 Inline Trigger Assist
 Headless assist for word triggers (no popups):
 *   **Tab Completion**: cycle matching word triggers with `Tab` / `Shift + Tab` (controlled by `inline_tab_completion_enabled`).
-*   **Tab completion** is always active for word triggers: type a word-prefix and press `Tab` to cycle matches. `Esc` cancels; `Space` expands.
+*   **Tab completion** is always active for word triggers: type a word-prefix and press `Tab` to cycle matches. `Esc` cancels; `Enter` expands.
 
 ### 7.4 Inline Emoji Picker
 *   Type the emoji char (default `:`) + letters at a word boundary, cycle with `Tab`/`Shift+Tab`, expand with `Enter`. `:rocket` → 🚀.
@@ -213,7 +213,7 @@ Headless assist for word triggers (no popups):
 *   `instant_expand` (default off) replaces instantly with the full emoji name. Control with `inline_emoji_enabled` / `inline_emoji_trigger_char`. Snippets take precedence over emoji.
 
 ### 7.5 Inline Unit Converter
-*   Convert `<value><unit>=<unit>` + Space/Enter: `100c=f` → `212f`, `1.5gb=mb`, `32psi=bar`. Case-insensitive.
+*   Convert `<value><unit>=<unit>` + Enter: `100c=f` → `212f`, `1.5gb=mb`, `32psi=bar`. Case-insensitive.
 *   Natural language with separators `to`/`in`/`into`/`as` (`100 dollars to Euros`, `32 celsius in fahrenheit`) and command prefixes (`convert`, `transform`, `change`, `calculate`, `compute`, `what is`, `how much is`).
 *   Units span temperature, length, weight, volume, area, time, speed, data (incl. binary kib/mib), tire pressure, power, energy, force, frequency, voltage, current, resistance, angles, and CSS (`px`/`rem`/`em`, 16px base).
 *   Colors convert between `hex`/`rgb`/`rgba`/`hsl`/`hsla` (`#3b82f6=rgb`).
@@ -226,7 +226,7 @@ Headless assist for word triggers (no popups):
 *   Symbols: `$ € £ ¥ ₹ ৳ ₩ ₪ ₫ ₿`; ~40 ISO 4217 codes supported.
 
 ### 7.7 Inline Date & Time
-*   Natural-language date/time phrases expand into formatted absolutes on **Enter** (active only when `action_key` is `enter`).
+*   Natural-language date/time phrases expand into formatted absolutes on **Enter**.
 *   Recognizes `ago`/`from now`/`tomorrow`/`yesterday`, `+`/`-` prefixes, `next`/`last` + weekday, compound phrases (`day before yesterday`), and bare anchors (`today`).
 *   Timezones: `time in tokyo`, `10am pst to ist` (90+ cities, 25+ abbreviations, IANA IDs).
 *   Bare quantities, bare clock times, and absolute dates do not expand.

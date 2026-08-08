@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Documentation Site Security**: Upgrade the documentation site's build toolchain (PostCSS, Sharp, js-yaml, brace-expansion) to resolve security advisories.
 
 ### Removed
+- **Action Key Setting**: Removed the `action_key` setting (Space or Enter). **Enter** is now the only expansion key; pressing Space types a plain space character.
 - **Removed:** Inline trigger history navigation (double-tap Up/Down) — arrow keys now always pass through to your application.
 - **Trigger Character & Mode Settings**: Removed the `trigger_char` (default `>`) and `triggerless_mode` settings. Expansion is now natively triggerless — word triggers expand directly without a prefix character in all cases.
 

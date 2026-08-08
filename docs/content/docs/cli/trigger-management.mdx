@@ -7,7 +7,7 @@ description: How to add, list, and remove your Taurine triggers
 
 Taurine supports two ways to activate a trigger:
 
-1. **Word Triggers**: Typed words expanded directly with a Space or Enter (e.g., `brb`).
+1. **Word Triggers**: Typed words expanded directly with Enter (e.g., `brb`).
 2. **Hotkey Triggers**: Global keyboard shortcuts (e.g., `ctrl+shift+g`).
 
 ## Adding Triggers
@@ -53,14 +53,14 @@ You can specify the `--tag` option multiple times or pass a comma-separated list
 ## How to Trigger
 
 ### Word Triggers
-Taurine is natively triggerless — there is no prefix character. Type the **word** and press a **space** or **Enter** (whichever is set as your `action_key`) to expand it.
+Taurine is natively triggerless — there is no prefix character. Type the **word** and press **Enter** to expand it.
 
 ```text
-brb[Space]
+brb[Enter]
 ```
 
-<Callout title="Action Key" type="info">
-  Expansion is activated by the key configured in `action_key` (default `enter`). To expand instantly without any trigger key, enable `instant_expand`.
+<Callout title="Expansion Key" type="info">
+  Expansion is activated by the **Enter** key. To expand instantly without pressing Enter, enable `instant_expand`.
 </Callout>
 
 ### Hotkey Triggers
@@ -89,7 +89,7 @@ Completion works on the typed word directly — there is no prefix character. Af
 3. If any of your word triggers start with `g` (e.g., `gc` or `gs`), completion activates immediately, rewriting the word in your active buffer to the first sorted suggestion (e.g., `gc`).
 4. Pressing **Tab** cycles forward through the matching suggestions. All cycled Tab keystrokes are swallowed to prevent OS focus shifts.
 5. Pressing **Shift + Tab** cycles backward through suggestions.
-6. Pressing **Enter** or **Space** (depending on your configured `action_key`) will expand the selected suggestion.
+6. Pressing **Enter** will expand the selected suggestion.
 7. If no triggers match the prefix when you press **Tab**, the key event passes through to the OS normally (e.g., to insert an indentation tab or move focus).
 
 * **Wraparound**: Cycling is infinite; reaching the end of the list wraps back to the beginning.
@@ -101,7 +101,7 @@ While assist is active, Taurine manages several keys to ensure a smooth experien
 
 * **Escape / other keys**: While a suggestion is active, cancels assist and passes the key through, keeping the current selection.
 * **Backspace**: If a Tab suggestion is selected, deletes the last character of your typed input so you can refine your search.
-* **Space**: Expands the currently visible trigger (or press the key configured as your `action_key`).
+* **Space**: Types a literal space character into the current query.
 * **Modified Tabs**: Shortcuts like `Alt + Tab` or `Ctrl + Tab` will cancel assist and pass through to the system normally.
 
 <Callout title="AI Mode Priority" type="info">
@@ -121,7 +121,7 @@ Tab completion is enabled by default. If you prefer to disable it (e.g., to prev
 taurine config set inline_tab_completion false
 ```
 
-When disabled, the `Tab` key is passed through to the system normally. Disabling assist does not affect your ability to expand word triggers using `Space` or use the inline AI copilot.
+When disabled, the `Tab` key is passed through to the system normally. Disabling assist does not affect your ability to expand word triggers using `Enter` or use the inline AI copilot.
 
 ## Viewing Your Triggers
 

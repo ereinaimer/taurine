@@ -7,7 +7,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 Taurine supports two distinct trigger types: **Word Triggers** and **Hotkey Triggers**. 
 
-While Word Triggers are activated by typing a word directly (e.g., `gs `) and pressing Space or Enter, **Hotkey Triggers** are global keyboard shortcuts that execute a trigger immediately when pressed, regardless of your current text state.
+While Word Triggers are activated by typing a word directly (e.g., `gs `) and pressing Enter, **Hotkey Triggers** are global keyboard shortcuts that execute a trigger immediately when pressed, regardless of your current text state.
 
 <Callout title="Global Shortcuts" type="info">
   Hotkey triggers are global while the Taurine service is running. They do not require typed text and do not use the "Backspace Undo" mechanism because no trigger text was typed.
@@ -132,7 +132,7 @@ Taurine will reject the following shortcuts:
 
 ### Positional Variables
 Unlike word triggers, hotkeys **do not support typed positional arguments**. 
-- Typing `gs:argument ` followed by Space or Enter passes `argument` to `[0]`.
+- Typing `gs:argument ` followed by Enter passes `argument` to `[0]`.
 - Pressing `ctrl+shift+g` has no way to accept an argument at runtime.
 
 Positional variables like `[0]` will use their default values (if defined) or remain empty when triggered via hotkey.
