@@ -9,7 +9,7 @@ const TIME_METHODS: &[&str] = &["utc", "calc(±...)", "format(...)"];
 const DATE_METHODS: &[&str] = &["utc", "calc(±...)", "format(...)"];
 
 const UUID_MODIFIERS: &[&str] = &["v4", "v7"];
-const NET_MODIFIERS: &[&str] = &["ip", "lip", "online", "port(n)"];
+const NET_MODIFIERS: &[&str] = &["ip", "lip", "online"];
 const EXEC_MODIFIERS: &[&str] = &[
     "exec.<lang>(...)",
     "exec.silent.<lang>(...)",

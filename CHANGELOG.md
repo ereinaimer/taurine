@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Documentation Site Security**: Upgrade the documentation site's build toolchain (PostCSS, Sharp, js-yaml, brace-expansion) to resolve security advisories.
 
 ### Removed
+- **Port Modifier**: Removed the `net.port(n)` template modifier (IP and lookup modifiers remain).
 - **Hex Generator**: Removed the `random.hex(len)` template modifier.
 - **Node ESM Language**: Removed the `node-esm` script language and `.mjs` auto-detection; use `--lang node` for Node.js scripts.
 - **Node ESM Modifier**: Removed the `exec.node_esm(...)` template variable; use `exec.node(...)` for inline Node scripts.

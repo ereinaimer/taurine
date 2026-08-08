@@ -1,8 +1,5 @@
 use std::io::{Read, Write};
-use std::net::{
-    IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6, TcpStream, ToSocketAddrs,
-    UdpSocket,
-};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream, ToSocketAddrs, UdpSocket};
 use std::time::Duration;
 
 pub fn resolve(key: &str) -> Option<String> {
@@ -17,12 +14,6 @@ pub fn resolve(key: &str) -> Option<String> {
         Some(resolve_local_ip())
     } else if modifier == "online" {
         Some(resolve_online())
-    } else if modifier.starts_with("port(") {
-        let rest = modifier.strip_prefix("port(")?;
-        let port_str = rest.strip_suffix(')')?;
-        resolve_port(crate::engine::variables::system::strip_argument_quotes(
-            port_str,
-        ))
     } else {
         None
     }
@@ -56,23 +47,6 @@ fn resolve_online() -> String {
     } else {
         "false".to_string()
     }
-}
-
-fn resolve_port(port_str: &str) -> Option<String> {
-    let port = port_str.trim().parse::<u16>().ok()?;
-    let timeout = Duration::from_millis(200);
-
-    let v4_addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port));
-    if TcpStream::connect_timeout(&v4_addr, timeout).is_ok() {
-        return Some("true".to_string());
-    }
-
-    let v6_addr = SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::LOCALHOST, port, 0, 0));
-    if TcpStream::connect_timeout(&v6_addr, timeout).is_ok() {
-        return Some("true".to_string());
-    }
-
-    Some("false".to_string())
 }
 
 fn resolve_public_ip() -> String {
@@ -158,13 +132,6 @@ mod tests {
     fn test_resolve_online() {
         let res = resolve("net.online").unwrap();
         assert!(res == "true" || res == "false");
-    }
-
-    #[test]
-    fn test_resolve_port() {
-        let res = resolve("net.port(9999)").unwrap();
-        assert_eq!(res, "false");
-        assert_eq!(resolve("net.port(invalid)"), None);
     }
 
     #[test]

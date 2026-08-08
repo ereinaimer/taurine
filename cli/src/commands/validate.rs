@@ -77,7 +77,7 @@ mod tests {
     #[test]
     fn accepts_valid_system_tags_and_literals() {
         assert!(audit_payload_tags("[time.utc | upper] [env(USERPROFILE)]").is_ok());
-        assert!(audit_payload_tags("[net.ip] [net.lip] [net.online] [net.port(8080)]").is_ok());
+        assert!(audit_payload_tags("[net.ip] [net.lip] [net.online]").is_ok());
         assert!(audit_payload_tags("json = \\[1, 2, 3\\]").is_ok());
         assert!(audit_payload_tags("[name=John | upper]").is_ok());
         assert!(audit_payload_tags("[clip | ai(\"summarize\")]").is_ok());

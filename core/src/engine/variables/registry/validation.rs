@@ -144,11 +144,7 @@ fn validate_net_modifier(modifier: Option<&str>) -> Result<(), ValidationError> 
         });
     };
 
-    let valid = match (variant, args) {
-        ("ip" | "lip" | "online", None) => true,
-        ("port", Some(args)) => split_modifier_args(args).len() == 1,
-        _ => false,
-    };
+    let valid = matches!((variant, args), ("ip" | "lip" | "online", None));
 
     if valid {
         Ok(())

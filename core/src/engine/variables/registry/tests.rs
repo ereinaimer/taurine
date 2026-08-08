@@ -85,7 +85,6 @@ fn validates_net_modifiers() {
     assert_eq!(validate_system_tag("net", Some("ip")), Ok(()));
     assert_eq!(validate_system_tag("net", Some("lip")), Ok(()));
     assert_eq!(validate_system_tag("net", Some("online")), Ok(()));
-    assert_eq!(validate_system_tag("net", Some("port(8080)")), Ok(()));
 
     assert_eq!(
         validate_system_tag("net", None),

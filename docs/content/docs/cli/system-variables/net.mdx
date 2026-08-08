@@ -12,7 +12,6 @@ The `[net.*]` namespace provides essential utilities for checking internet conne
 | `[net.ip]` | Public WAN IP address | `198.51.100.42` |
 | `[net.lip]` | Local LAN IPv4 address | `192.168.1.15` |
 | `[net.online]` | Internet connection status | `true` or `false` |
-| `[net.port(n)]` | Local TCP port listener check | `true` or `false` |
 
 ## Usage Details
 
@@ -35,13 +34,6 @@ Local IP: [net.lip] -> "Local IP: 192.168.1.15"
 
 ```text
 Online: [net.online] -> "Online: true"
-```
-
-### Local Port Check (`net.port(n)`)
-`[net.port(n)]` checks if a specific local TCP port `n` (e.g. `8080` or `5432`) is currently listening for connections.
-
-```text
-Dev Server Running: [net.port(8080)] -> "Dev Server Running: true"
 ```
 
 ## Combined Example
