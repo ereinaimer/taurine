@@ -1,6 +1,6 @@
 use evdev::KeyCode;
 use std::collections::HashMap;
-use taurine_core::engine::{EngineEvent, EngineMode};
+use taurine_core::engine::EngineEvent;
 use taurine_core::keys::{Modifier, Modifiers};
 use tracing::warn;
 use xkbcommon::xkb;
@@ -254,12 +254,7 @@ impl XkbMapper {
         &self.reverse_map
     }
 
-    pub fn process_key(
-        &mut self,
-        key: KeyCode,
-        is_press: bool,
-        engine_mode: EngineMode,
-    ) -> Option<EngineEvent> {
+    pub fn process_key(&mut self, key: KeyCode, is_press: bool) -> Option<EngineEvent> {
         // evdev keycodes map to XKB keycodes by adding 8.
         let keycode = key.code() as u32 + 8;
 
@@ -408,7 +403,7 @@ mod tests {
     fn test_xkb_mapper_creation() {
         let mapper = XkbMapper::new();
         if let Ok(mut mapper) = mapper {
-            let event = mapper.process_key(KeyCode::KEY_SPACE, true, EngineMode::Normal);
+            let event = mapper.process_key(KeyCode::KEY_SPACE, true);
             assert_eq!(event, Some(EngineEvent::Char(' ')));
         }
     }
@@ -418,53 +413,23 @@ mod tests {
         let mut mapper = XkbMapper::new_mock();
 
         // Test unshifted character
-        let event = mapper.process_key(
-            KeyCode::KEY_A,
-            true,
-            EngineMode::Normal,
-            taurine_core::settings::ActionKey::Enter,
-        );
+        let event = mapper.process_key(KeyCode::KEY_A, true);
         assert_eq!(event, Some(EngineEvent::Char('a')));
 
         // Test shifted character
-        mapper.process_key(
-            KeyCode::KEY_LEFTSHIFT,
-            true,
-            EngineMode::Normal,
-            taurine_core::settings::ActionKey::Enter,
-        );
+        mapper.process_key(KeyCode::KEY_LEFTSHIFT, true);
         assert!(mapper.is_shift_down());
 
-        let event2 = mapper.process_key(
-            KeyCode::KEY_B,
-            true,
-            EngineMode::Normal,
-            taurine_core::settings::ActionKey::Enter,
-        );
+        let event2 = mapper.process_key(KeyCode::KEY_B, true);
         assert_eq!(event2, Some(EngineEvent::Char('B')));
 
-        mapper.process_key(
-            KeyCode::KEY_LEFTSHIFT,
-            false,
-            EngineMode::Normal,
-            taurine_core::settings::ActionKey::Enter,
-        );
+        mapper.process_key(KeyCode::KEY_LEFTSHIFT, false);
         assert!(!mapper.is_shift_down());
 
         // Test modifier chords don't output characters
-        mapper.process_key(
-            KeyCode::KEY_LEFTCTRL,
-            true,
-            EngineMode::Normal,
-            taurine_core::settings::ActionKey::Enter,
-        );
+        mapper.process_key(KeyCode::KEY_LEFTCTRL, true);
         assert!(mapper.is_ctrl_down());
-        let event3 = mapper.process_key(
-            KeyCode::KEY_C,
-            true,
-            EngineMode::Normal,
-            taurine_core::settings::ActionKey::Enter,
-        );
+        let event3 = mapper.process_key(KeyCode::KEY_C, true);
         assert_eq!(event3, None);
     }
 }
