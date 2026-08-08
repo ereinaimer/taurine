@@ -143,7 +143,7 @@ System variables inject machine data or generate values using `[namespace.variab
 *   **Network**: `[http.get(url)]` (raw body, 5s timeout, `https://` assumed if omitted), `[http.status(url)]` (status code), `[net.ip]` (public WAN IP), `[net.lip]` (local IP), `[net.online]` (internet check → `true`/`false`), `[net.port(n)]` (TCP port listening check).
 *   **Images**: `[img(path)]` — injects local images (PNG/JPEG, ≤16 MB) via clipboard paste; compiled into the DB at save time.
 *   **Lorem ipsum**: `[lorem.word(n)]` (default 15), `[lorem.sentence(n)]`, `[lorem.paragraph(n)]`.
-*   **Random**: `[random.int(min, max)]` (default `0..99`), `[random.str(len)]` (alnum, 16), `[random.hex(len)]` (32), `[random.pass(len)]` (secure w/ symbols, 20), `[random.choice(a, b, …)]`.
+*   **Random**: `[random.int(min, max)]` (default `0..99`), `[random.str(len)]` (alnum, 16), `[random.pass(len)]` (secure w/ symbols, 20), `[random.choice(a, b, …)]`.
 *   **UUID**: `[uuid.v4]`, `[uuid.v7]` (time-ordered). A version modifier is required.
 *   **Newline**: `[newline]` resolves to a literal newline (raw `\n` is never unescaped, protecting Windows paths).
 *   **Mouse**: `[mouse.pos]` (current `x,y`), `[mouse.click]`, `[mouse.rclick]`, `[mouse.mclick]`, `[mouse.move(x, y)]`, `[mouse.scroll(delta)]`, `[mouse.hold]`/`[mouse.release]` (drag operations). Wayland absolute moving fails silently.

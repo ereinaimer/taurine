@@ -224,7 +224,6 @@ fn validates_random_modifier_syntax() {
         Ok(())
     );
     assert_eq!(validate_system_tag("random", Some("str(8)")), Ok(()));
-    assert_eq!(validate_system_tag("random", Some("hex(8)")), Ok(()));
     assert_eq!(validate_system_tag("random", Some("pass(8)")), Ok(()));
 
     assert_eq!(

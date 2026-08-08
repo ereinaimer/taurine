@@ -19,7 +19,6 @@ const RANDOM_MODIFIERS: &[&str] = &[
     "int(min, max)",
     "choice(a, b, ...)",
     "str(len)",
-    "hex(len)",
     "pass(len)",
 ];
 const LOREM_MODIFIERS: &[&str] = &["word(n)", "sentence(n)", "paragraph(n)"];

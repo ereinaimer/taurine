@@ -1,7 +1,6 @@
 use rand::{Rng, RngExt};
 
 const ALPHANUMERIC: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-const HEX: &[u8] = b"0123456789abcdef";
 const PASSWORD: &[u8] =
     b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+[]{}|;:,.<>?";
 const MAX_RANDOM_STRING_LEN: usize = 4096;
@@ -70,10 +69,6 @@ pub fn resolve(key: &str) -> Option<String> {
         "str" => {
             let len = parse_len(&invocation.args, 16)?;
             Some(random_chars(&mut rng, ALPHANUMERIC, len))
-        }
-        "hex" => {
-            let len = parse_len(&invocation.args, 32)?;
-            Some(random_chars(&mut rng, HEX, len))
         }
         "pass" => {
             let len = parse_len(&invocation.args, 20)?;
@@ -247,10 +242,6 @@ mod tests {
         assert_charset(&str_val, ALPHANUMERIC);
 
         assert_eq!(resolve("random.string"), None);
-
-        let hex = resolve("random.hex").unwrap();
-        assert_eq!(hex.len(), 32);
-        assert_charset(&hex, HEX);
 
         let pass_val = resolve("random.pass(20)").unwrap();
         assert_eq!(pass_val.len(), 20);

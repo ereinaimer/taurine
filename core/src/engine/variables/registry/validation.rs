@@ -238,7 +238,7 @@ fn validate_random_modifier(modifier: Option<&str>) -> Result<(), ValidationErro
             let args = split_random_args(args);
             args.is_empty() || args.len() == 2
         }),
-        "str" | "hex" | "pass" => args.is_none_or(|args| {
+        "str" | "pass" => args.is_none_or(|args| {
             let args = split_random_args(args);
             args.is_empty() || args.len() == 1
         }),
