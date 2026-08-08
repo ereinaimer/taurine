@@ -1,3 +1,4 @@
+#[cfg(not(target_os = "linux"))]
 mod case_cycle;
 mod completion;
 mod dispatch;
@@ -6,6 +7,7 @@ mod listener;
 #[cfg(windows)]
 mod supervisor;
 
+#[cfg(not(target_os = "linux"))]
 #[allow(unused_imports)]
 pub(crate) use case_cycle::case_cycle_key_action;
 #[allow(unused_imports)]

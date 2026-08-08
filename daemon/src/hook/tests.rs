@@ -654,6 +654,7 @@ fn evaluator_reset_clears_buffer_and_completion() {
 }
 
 #[test]
+#[cfg(not(target_os = "linux"))]
 fn test_case_cycle_key_action() {
     use super::case_cycle::case_cycle_key_action;
     use rdev::Key;

@@ -1,7 +1,7 @@
 use evdev::{Device, EventType, InputEvent, KeyCode};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
@@ -559,18 +559,18 @@ fn process_frame(
                 None
             };
 
-            if let Some(dir) = cycle_dir {
-                if let Some(rewrite) = state.advance_case_variant(dir) {
-                    let spinner_style_inner = spinner_style.read().map(|s| *s).unwrap_or_default();
-                    crate::hook::spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
-                    swallow_frame = true;
-                    if key == KeyCode::KEY_LEFT {
-                        *swallow_next_left_arrow_release = true;
-                    } else {
-                        *swallow_next_right_arrow_release = true;
-                    }
-                    continue;
+            if let Some(dir) = cycle_dir
+                && let Some(rewrite) = state.advance_case_variant(dir)
+            {
+                let spinner_style_inner = spinner_style.read().map(|s| *s).unwrap_or_default();
+                crate::hook::spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
+                swallow_frame = true;
+                if key == KeyCode::KEY_LEFT {
+                    *swallow_next_left_arrow_release = true;
+                } else {
+                    *swallow_next_right_arrow_release = true;
                 }
+                continue;
             }
 
             if key == KeyCode::KEY_BACKSPACE {
