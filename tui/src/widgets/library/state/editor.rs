@@ -16,12 +16,11 @@ pub(crate) const LIBRARY_EDIT_MODAL_FOOTER: &str =
     "Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev";
 pub(crate) const LIBRARY_CREATE_MODAL_FOOTER: &str =
     "Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev";
-pub(crate) const SCRIPT_LANGUAGE_OPTIONS: [ScriptInterpreter; 6] = [
+pub(crate) const SCRIPT_LANGUAGE_OPTIONS: [ScriptInterpreter; 5] = [
     ScriptInterpreter::Bash,
     ScriptInterpreter::PowerShell,
     ScriptInterpreter::Python,
     ScriptInterpreter::Node,
-    ScriptInterpreter::NodeEsm,
     ScriptInterpreter::Cmd,
 ];
 pub(crate) const SCRIPT_MODE_OPTIONS: [ScriptBehavior; 2] =

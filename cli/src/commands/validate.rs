@@ -26,7 +26,6 @@ pub fn format_trigger_log(
             ScriptInterpreter::PowerShell => "powershell",
             ScriptInterpreter::Python => "python",
             ScriptInterpreter::Node => "node",
-            ScriptInterpreter::NodeEsm => "node-esm",
             ScriptInterpreter::Cmd => "cmd",
         };
         parts.push(format!(

@@ -417,7 +417,6 @@ pub enum ScriptInterpreterCli {
     Powershell,
     Python,
     Node,
-    NodeEsm,
     Cmd,
 }
 
@@ -428,7 +427,6 @@ impl From<ScriptInterpreterCli> for taurine_core::engine::shell::ScriptInterpret
             ScriptInterpreterCli::Powershell => Self::PowerShell,
             ScriptInterpreterCli::Python => Self::Python,
             ScriptInterpreterCli::Node => Self::Node,
-            ScriptInterpreterCli::NodeEsm => Self::NodeEsm,
             ScriptInterpreterCli::Cmd => Self::Cmd,
         }
     }

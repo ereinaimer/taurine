@@ -270,7 +270,6 @@ fn invocation_script_content(invocation: &ExecuteInvocation) -> String {
             let args = js_array(&invocation.args);
             format!("process.argv = [process.argv[0], {path}, ...{args}]; require({path});")
         }
-        ScriptInterpreter::NodeEsm => unreachable!(),
         ScriptInterpreter::Cmd => {
             shell_command_line(invocation.subject.trim(), &invocation.args, quote_cmd)
         }
@@ -441,7 +440,6 @@ fn build_command(invocation: &ExecuteInvocation) -> Command {
             command.args(&invocation.args);
             command
         }
-        ScriptInterpreter::NodeEsm => unreachable!(),
         ScriptInterpreter::PowerShell => {
             let mut command = Command::new("powershell");
             command

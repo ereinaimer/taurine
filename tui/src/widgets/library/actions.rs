@@ -701,7 +701,6 @@ pub(crate) const fn interpreter_label(interpreter: ScriptInterpreter) -> &'stati
         ScriptInterpreter::PowerShell => "powershell",
         ScriptInterpreter::Python => "python",
         ScriptInterpreter::Node => "node",
-        ScriptInterpreter::NodeEsm => "node-esm",
         ScriptInterpreter::Cmd => "cmd",
     }
 }

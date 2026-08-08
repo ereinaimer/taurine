@@ -400,7 +400,6 @@ fn lang_to_str(i: ScriptInterpreter) -> &'static str {
         ScriptInterpreter::PowerShell => "powershell",
         ScriptInterpreter::Python => "python",
         ScriptInterpreter::Node => "node",
-        ScriptInterpreter::NodeEsm => "node-esm",
         ScriptInterpreter::Cmd => "cmd",
     }
 }

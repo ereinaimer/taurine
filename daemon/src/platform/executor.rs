@@ -26,11 +26,6 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
             c.arg("-e").arg(&script_content);
             c
         }
-        ScriptInterpreter::NodeEsm => {
-            let mut c = Command::new("node");
-            c.arg("--input-type=module").arg("-e").arg(&script_content);
-            c
-        }
         ScriptInterpreter::PowerShell => {
             let mut c = Command::new("powershell");
             // Force UTF-8 stdout so non-ASCII chars (e.g. °, →, ✓) round-trip correctly.
@@ -62,7 +57,6 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
                 ScriptInterpreter::Bash => "bash",
                 ScriptInterpreter::Python => "python",
                 ScriptInterpreter::Node => "node",
-                ScriptInterpreter::NodeEsm => "node(esm)",
                 ScriptInterpreter::PowerShell => "powershell",
                 ScriptInterpreter::Cmd => "cmd",
             };

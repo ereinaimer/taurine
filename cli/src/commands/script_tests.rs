@@ -60,10 +60,7 @@ fn test_inference_by_extension() {
         infer_interpreter(Some(Path::new("test.cjs")), ""),
         Some(ScriptInterpreter::Node)
     );
-    assert_eq!(
-        infer_interpreter(Some(Path::new("test.mjs")), ""),
-        Some(ScriptInterpreter::NodeEsm)
-    );
+    assert_eq!(infer_interpreter(Some(Path::new("test.mjs")), ""), None);
     assert_eq!(
         infer_interpreter(Some(Path::new("test.bat")), ""),
         Some(ScriptInterpreter::Cmd)
@@ -90,7 +87,7 @@ fn test_inference_by_shebang() {
     );
     assert_eq!(
         infer_interpreter(None, "#!/usr/bin/env node\nimport fs from 'fs'"),
-        Some(ScriptInterpreter::NodeEsm)
+        Some(ScriptInterpreter::Node)
     );
     assert_eq!(
         infer_interpreter(None, "#!/bin/sh\nls"),

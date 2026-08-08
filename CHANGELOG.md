@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Documentation Site Security**: Upgrade the documentation site's build toolchain (PostCSS, Sharp, js-yaml, brace-expansion) to resolve security advisories.
 
 ### Removed
+- **Node ESM Language**: Removed the `node-esm` script language and `.mjs` auto-detection; use `--lang node` for Node.js scripts.
 - **Node ESM Modifier**: Removed the `exec.node_esm(...)` template variable; use `exec.node(...)` for inline Node scripts.
 - **Action Key Setting**: Removed the `action_key` setting (Space or Enter). **Enter** is now the only expansion key; pressing Space types a plain space character.
 - **Removed:** Inline trigger history navigation (double-tap Up/Down) — arrow keys now always pass through to your application.

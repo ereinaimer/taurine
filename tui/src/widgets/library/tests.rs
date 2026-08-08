@@ -1575,7 +1575,7 @@ fn language_selector_uses_exact_supported_options() {
     assert_eq!(selector.title(), "Select Language");
     assert_eq!(
         selector.options,
-        vec!["bash", "powershell", "python", "node", "node-esm", "cmd"]
+        vec!["bash", "powershell", "python", "node", "cmd"]
     );
 }
 

@@ -7,7 +7,6 @@ pub enum ScriptInterpreter {
     PowerShell,
     Python,
     Node,
-    NodeEsm,
     Cmd,
 }
 
@@ -35,7 +34,6 @@ pub fn infer_interpreter(
             "ps1" => return Some(ScriptInterpreter::PowerShell),
             "py" => return Some(ScriptInterpreter::Python),
             "js" | "cjs" => return Some(ScriptInterpreter::Node),
-            "mjs" => return Some(ScriptInterpreter::NodeEsm),
             "bat" | "cmd" => return Some(ScriptInterpreter::Cmd),
             _ => {}
         }
@@ -62,12 +60,6 @@ pub fn infer_interpreter(
             return Some(ScriptInterpreter::Python);
         }
         if first_line.contains("node") {
-            if content.contains("import ")
-                || content.contains("export ")
-                || content.contains("await ")
-            {
-                return Some(ScriptInterpreter::NodeEsm);
-            }
             return Some(ScriptInterpreter::Node);
         }
     }
@@ -165,7 +157,7 @@ mod tests {
         );
         assert_eq!(
             infer_interpreter(None, "#!/usr/bin/env node\nimport fs from 'fs'"),
-            Some(ScriptInterpreter::NodeEsm)
+            Some(ScriptInterpreter::Node)
         );
         assert_eq!(infer_interpreter(None, "plain text"), None);
     }

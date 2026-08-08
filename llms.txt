@@ -179,7 +179,7 @@ Global transformers apply with Unix pipe syntax right after any variable, positi
 
 Taurine's background engine runs arbitrary scripts (Bash, Python, PowerShell, Node, Cmd) from word, hotkey, or regex triggers.
 
-*   **Languages**: `bash` (`.sh`), `powershell` (`.ps1`), `python` (`.py`), `node` (`.js`, `.cjs`), `node-esm` (`.mjs`), `cmd` (`.bat`, `.cmd`). Inference order: file extension → shebang → explicit `--lang`.
+*   **Languages**: `bash` (`.sh`), `powershell` (`.ps1`), `python` (`.py`), `node` (`.js`, `.cjs`), `cmd` (`.bat`, `.cmd`). Inference order: file extension → shebang → explicit `--lang`.
 *   **Execution modes** (`-m`, `--mode`): `inline` (default — stdout injected as text via a clipboard-first "injection" mechanism) or `silent` (background only, for notifications/builds).
 *   **Storage**: `zstd`-compressed BLOBs inside the SQLite DB; script files (`-f`) are copied in — the original file isn't needed afterward.
 *   **"Interpolation First"**: variables are replaced in the script body *before* the interpreter runs — `[var=default]`, `[env(USERNAME)]`, transformers, and positionals all work, including inside script files.
