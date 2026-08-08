@@ -74,9 +74,7 @@ impl crate::engine::evaluator::Evaluator {
 
         if !instant_expand
             && emoji_enabled
-            && let Some(word) = self
-                .buffer
-                .extract_trigger_word(emoji_trigger)
+            && let Some(word) = self.buffer.extract_trigger_word(emoji_trigger)
             && let Some(emoji_char) = crate::engine::emoji::lookup_emoji(&word)
         {
             let delete_count = 1 + word.chars().count();
@@ -189,9 +187,7 @@ impl crate::engine::evaluator::Evaluator {
                 }
             }
         }
-        if !instant_expand
-            && let Some(result) = self.check_inline_unit_conversion_fallback()
-        {
+        if !instant_expand && let Some(result) = self.check_inline_unit_conversion_fallback() {
             self.buffer.clear();
             return Some(result);
         }

@@ -363,8 +363,6 @@ impl DaemonControl for DaemonService {
                 *lock = settings.spinner_style;
             }
 
-            self.state.set_action_key(settings.action_key);
-
             settings
         };
 

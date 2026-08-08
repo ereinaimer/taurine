@@ -259,7 +259,6 @@ impl XkbMapper {
         key: KeyCode,
         is_press: bool,
         engine_mode: EngineMode,
-        action_key: taurine_core::settings::ActionKey,
     ) -> Option<EngineEvent> {
         // evdev keycodes map to XKB keycodes by adding 8.
         let keycode = key.code() as u32 + 8;
@@ -306,20 +305,11 @@ impl XkbMapper {
                     }
                 }
                 KeyCode::KEY_SPACE => {
-                    if action_key == taurine_core::settings::ActionKey::Space {
-                        return Some(EngineEvent::ActionKey);
-                    }
                     return Some(EngineEvent::Char(' '));
                 }
                 // Structural keys — break any active typing sequence.
                 KeyCode::KEY_ENTER | KeyCode::KEY_KPENTER => {
-                    if action_key == taurine_core::settings::ActionKey::Enter {
-                        return Some(EngineEvent::ActionKey);
-                    }
-                    if matches!(engine_mode, EngineMode::AiCapture { .. }) {
-                        return Some(EngineEvent::Char('\n'));
-                    }
-                    return Some(EngineEvent::Interrupt);
+                    return Some(EngineEvent::ActionKey);
                 }
                 KeyCode::KEY_TAB => return Some(EngineEvent::Interrupt),
                 // Navigation keys — cursor moved, buffer is now desynchronized.
@@ -418,12 +408,7 @@ mod tests {
     fn test_xkb_mapper_creation() {
         let mapper = XkbMapper::new();
         if let Ok(mut mapper) = mapper {
-            let event = mapper.process_key(
-                KeyCode::KEY_SPACE,
-                true,
-                EngineMode::Normal,
-                taurine_core::settings::ActionKey::Enter,
-            );
+            let event = mapper.process_key(KeyCode::KEY_SPACE, true, EngineMode::Normal);
             assert_eq!(event, Some(EngineEvent::Char(' ')));
         }
     }

@@ -92,10 +92,6 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
             "clipboard_history_retention_secs",
             settings.clipboard_history_retention_secs.to_string(),
         ),
-        (
-            "action_key",
-            format!("{:?}", settings.action_key).to_lowercase(),
-        ),
         ("scripts_enabled", settings.scripts_enabled.to_string()),
         ("instant_expand", settings.instant_expand.to_string()),
         (
@@ -245,18 +241,6 @@ pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::erro
             };
             manager.update_setting(actual_key, s)?;
             info!("Updated spinner_style to: {}", value);
-        }
-        "action_key" => {
-            let s = match value.to_lowercase().as_str() {
-                "space" => taurine_core::settings::ActionKey::Space,
-                "enter" => taurine_core::settings::ActionKey::Enter,
-                _ => {
-                    warn!("Invalid action key: {}. Supported: space, enter", value);
-                    return Ok(());
-                }
-            };
-            manager.update_setting(actual_key, s)?;
-            info!("Updated action_key to: {}", value);
         }
         "ai_provider" => {
             let provider = taurine_core::ai::AiProvider::try_from(value.as_str())?;
@@ -492,10 +476,6 @@ pub fn execute_reset(key: String, json: bool) -> taurine_core::error::Result<()>
                 defaults.spinner_style
             );
         }
-        "action_key" => {
-            manager.update_setting(actual_key, defaults.action_key)?;
-            info!("Reset action_key to default: {:?}", defaults.action_key);
-        }
         "instant_expand" => {
             manager.update_setting(actual_key, defaults.instant_expand)?;
             info!(
@@ -688,7 +668,6 @@ pub fn execute_reset_all(json: bool) -> taurine_core::error::Result<()> {
         "clipboard_history_retention_secs",
         defaults.clipboard_history_retention_secs,
     )?;
-    manager.update_setting("action_key", defaults.action_key)?;
     manager.update_setting("ignore_fullscreen", defaults.ignore_fullscreen)?;
     manager.update_setting("script_timeout", defaults.script_timeout)?;
     manager.update_setting("ai_temperature", defaults.ai_temperature)?;
@@ -841,7 +820,6 @@ mod tests {
     fn test_settings_all_enum_variants_serialize() {
         let settings = Settings {
             spinner_style: taurine_core::settings::SpinnerStyle::Arc,
-            action_key: taurine_core::settings::ActionKey::Space,
             inline_ai_trigger_mode: taurine_core::settings::InlineAiTriggerMode::Symmetric,
             rpc_mode: taurine_core::settings::RpcMode::Tcp,
             ..Settings::default()
@@ -850,7 +828,6 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
 
         assert_eq!(value["spinner_style"], "arc");
-        assert_eq!(value["action_key"], "space");
         assert_eq!(value["inline_ai_trigger_mode"], "symmetric");
         assert_eq!(value["rpc_mode"], "tcp");
     }

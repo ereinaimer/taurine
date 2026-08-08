@@ -11,7 +11,6 @@ use taurine_core::{
 };
 
 const SPINNER_STYLE_OPTIONS: [&str; 3] = ["classic", "braille", "arc"];
-const ACTION_KEY_OPTIONS: [&str; 2] = ["space", "enter"];
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct SettingsPageState {
@@ -189,14 +188,6 @@ impl SettingsPageState {
             EditorKind::SpinnerSelect => Some(SettingsModal::Select(SelectModalState::new(
                 key,
                 SPINNER_STYLE_OPTIONS
-                    .iter()
-                    .map(|value| (*value).to_string())
-                    .collect(),
-                key.display_value(&self.settings),
-            ))),
-            EditorKind::ActionKeySelect => Some(SettingsModal::Select(SelectModalState::new(
-                key,
-                ACTION_KEY_OPTIONS
                     .iter()
                     .map(|value| (*value).to_string())
                     .collect(),

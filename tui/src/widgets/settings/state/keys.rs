@@ -19,7 +19,6 @@ pub(crate) enum SettingKey {
     InlineAiTriggerOpen,
     InlineAiTriggerClose,
     ClipboardRestoreDelayMs,
-    ActionKey,
     InstantExpand,
     IgnoreFullscreen,
     RpcMode,
@@ -45,7 +44,7 @@ pub(crate) enum SettingKey {
 }
 
 impl SettingKey {
-    pub(crate) const ALL: [Self; 40] = [
+    pub(crate) const ALL: [Self; 39] = [
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
         Self::PauseAudioEnabled,
@@ -63,7 +62,6 @@ impl SettingKey {
         Self::InlineAiTriggerOpen,
         Self::InlineAiTriggerClose,
         Self::ClipboardRestoreDelayMs,
-        Self::ActionKey,
         Self::InstantExpand,
         Self::IgnoreFullscreen,
         Self::RpcMode,
@@ -107,7 +105,6 @@ impl SettingKey {
             Self::InlineAiTriggerOpen => "inline_ai_trigger_open",
             Self::InlineAiTriggerClose => "inline_ai_trigger_close",
             Self::ClipboardRestoreDelayMs => "clipboard_restore_delay_ms",
-            Self::ActionKey => "action_key",
             Self::InstantExpand => "instant_expand",
             Self::IgnoreFullscreen => "ignore_fullscreen",
             Self::RpcMode => "rpc_mode",
@@ -152,7 +149,6 @@ impl SettingKey {
             Self::InlineAiTriggerOpen => "Inline AI Trigger Open",
             Self::InlineAiTriggerClose => "Inline AI Trigger Close",
             Self::ClipboardRestoreDelayMs => "Clipboard Restore Delay (ms)",
-            Self::ActionKey => "Action Key",
             Self::InstantExpand => "Instant Expand",
             Self::IgnoreFullscreen => "Ignore Fullscreen on Windows",
             Self::RpcMode => "Service RPC Mode",
@@ -210,9 +206,6 @@ impl SettingKey {
             Self::InlineAiTriggerClose => "The trigger text used to end an inline AI prompt",
             Self::ClipboardRestoreDelayMs => {
                 "The delay in milliseconds between pasting and restoring the clipboard"
-            }
-            Self::ActionKey => {
-                "The keystroke used to trigger a word trigger expansion (Space or Enter)"
             }
             Self::InstantExpand => {
                 "Expand snippets instantly when typed, without needing a Space or Enter key"
@@ -280,7 +273,6 @@ impl SettingKey {
             | Self::AiMaxTokens
             | Self::ClipboardHistoryRetentionSecs => EditorKind::NumberInput,
             Self::SpinnerStyle => EditorKind::SpinnerSelect,
-            Self::ActionKey => EditorKind::ActionKeySelect,
             Self::AiProvider => EditorKind::AiProviderSelect,
             Self::AiCustomEndpoint | Self::AiTemperature | Self::AiSystemPrompt => {
                 EditorKind::OptionalTextInput
@@ -326,7 +318,6 @@ impl SettingKey {
             Self::InlineAiTriggerOpen => settings.inline_ai_trigger_open.clone(),
             Self::InlineAiTriggerClose => settings.inline_ai_trigger_close.clone(),
             Self::ClipboardRestoreDelayMs => settings.clipboard_restore_delay_ms.to_string(),
-            Self::ActionKey => format!("{:?}", settings.action_key).to_lowercase(),
             Self::InstantExpand => settings.instant_expand.to_string(),
             Self::IgnoreFullscreen => settings.ignore_fullscreen.to_string(),
             Self::RpcPort => settings.rpc_port.to_string(),
@@ -394,7 +385,6 @@ impl SettingKey {
             | Self::InstantExpand
             | Self::IgnoreFullscreen
             | Self::SpinnerStyle
-            | Self::ActionKey
             | Self::InlineAiTriggerMode
             | Self::RpcMode
             | Self::ScriptsEnabled
@@ -433,7 +423,6 @@ pub(crate) enum EditorKind {
     OptionalTextInput,
     NumberInput,
     SpinnerSelect,
-    ActionKeySelect,
     AiProviderSelect,
     InlineAiTriggerModeSelect,
     RpcModeSelect,

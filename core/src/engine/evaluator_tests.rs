@@ -384,10 +384,7 @@ fn completion_query_tracks_typed_chars_and_ignores_hotkeys() {
     let mut eval = Evaluator::new(state);
 
     for c in "g".chars() {
-        assert_eq!(
-            eval.process(EngineEvent::Char(c)),
-            None
-        );
+        assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
     let _ = eval.activate_triggerless_completion_no_cycle();
 
@@ -420,10 +417,7 @@ fn completion_tab_cycles_sorted_matches_and_wraps() {
     let mut eval = Evaluator::new(state);
 
     for c in "g".chars() {
-        assert_eq!(
-            eval.process(EngineEvent::Char(c)),
-            None
-        );
+        assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
     let _ = eval.activate_triggerless_completion_no_cycle();
 
@@ -465,10 +459,7 @@ fn completion_shift_tab_cycles_backward_and_wraps() {
     let mut eval = Evaluator::new(state);
 
     for c in "g".chars() {
-        assert_eq!(
-            eval.process(EngineEvent::Char(c)),
-            None
-        );
+        assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
     let _ = eval.activate_triggerless_completion_no_cycle();
 
@@ -488,10 +479,7 @@ fn completion_cancel_leaves_buffer_text_untouched() {
     let mut eval = Evaluator::new(state);
 
     for c in "gs".chars() {
-        assert_eq!(
-            eval.process(EngineEvent::Char(c)),
-            None
-        );
+        assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
     let _ = eval.activate_triggerless_completion_no_cycle();
 
@@ -517,10 +505,7 @@ fn completion_backspace_updates_query_and_exits_after_trigger_is_removed() {
     let mut eval = Evaluator::new(state);
 
     for c in "gs".chars() {
-        assert_eq!(
-            eval.process(EngineEvent::Char(c)),
-            None
-        );
+        assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
     let _ = eval.activate_triggerless_completion_no_cycle();
 
@@ -556,10 +541,7 @@ fn completion_space_after_rewrite_uses_existing_word_expansion_path() {
     let mut eval = Evaluator::new(state);
 
     for c in "g".chars() {
-        assert_eq!(
-            eval.process(EngineEvent::Char(c)),
-            None
-        );
+        assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
     let _ = eval.activate_triggerless_completion_no_cycle();
 
@@ -612,10 +594,7 @@ fn completion_backspace_edits_original_query_not_selected_completion() {
     let mut eval = Evaluator::new(state);
 
     for c in "g".chars() {
-        assert_eq!(
-            eval.process(EngineEvent::Char(c)),
-            None
-        );
+        assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
     let _ = eval.activate_triggerless_completion_no_cycle();
 
@@ -646,10 +625,7 @@ fn inline_tab_completion_setting_disables_completion_rewrites() {
     let mut eval = Evaluator::new(state);
 
     for c in "g".chars() {
-        assert_eq!(
-            eval.process(EngineEvent::Char(c)),
-            None
-        );
+        assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
     let _ = eval.activate_triggerless_completion_no_cycle();
 
@@ -676,10 +652,7 @@ fn disabling_inline_assist_does_not_break_word_expansion_or_inline_ai() {
 
     let mut eval = Evaluator::new(state.clone());
     for c in ">gs".chars() {
-        assert_eq!(
-            eval.process(EngineEvent::Char(c)),
-            None
-        );
+        assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
 
     let expansion = eval
@@ -781,10 +754,7 @@ fn cursor_templates_skip_blind_undo_registration() {
     let mut eval = Evaluator::new(state);
 
     for c in "sig".chars() {
-        assert_eq!(
-            eval.process(EngineEvent::Char(c)),
-            None
-        );
+        assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
 
     let result = eval
@@ -809,10 +779,7 @@ fn inline_run_templates_skip_blind_undo_registration() {
     let mut eval = Evaluator::new(state);
 
     for c in "runme".chars() {
-        assert_eq!(
-            eval.process(EngineEvent::Char(c)),
-            None
-        );
+        assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
 
     let result = eval
@@ -839,10 +806,7 @@ fn clipboard_payload_at_history_ceiling_skips_blind_undo_registration() {
     let mut eval = Evaluator::new(state);
 
     for c in "clip".chars() {
-        assert_eq!(
-            eval.process(EngineEvent::Char(c)),
-            None
-        );
+        assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
     let _ = eval.activate_triggerless_completion_no_cycle();
 
@@ -1383,10 +1347,7 @@ fn test_ai_capture_interrupted_by_esc_reverts_to_normal() {
     assert_eq!(eval.process(EngineEvent::Char('>')), None);
     let _ = eval.process(EngineEvent::Char('>'));
     for c in "draft".chars() {
-        assert_eq!(
-            eval.process(EngineEvent::Char(c)),
-            None
-        );
+        assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
 
     assert_eq!(eval.process(EngineEvent::Interrupt), None);
@@ -1394,10 +1355,7 @@ fn test_ai_capture_interrupted_by_esc_reverts_to_normal() {
     assert!(state.is_ai_prompt_empty());
 
     for c in ">gm".chars() {
-        assert_eq!(
-            eval.process(EngineEvent::Char(c)),
-            None
-        );
+        assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
 
     let expansion = eval
@@ -1428,10 +1386,7 @@ fn test_ai_capture_backspaced_to_empty_reverts_to_normal() {
     assert!(state.is_ai_prompt_empty());
 
     for c in ">gm".chars() {
-        assert_eq!(
-            eval.process(EngineEvent::Char(c)),
-            None
-        );
+        assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
     let result = eval
         .process(EngineEvent::ActionKey)
@@ -1460,10 +1415,7 @@ fn test_ai_capture_word_backspaced_to_empty_reverts_to_normal() {
     assert_eq!(state.engine_mode(), EngineMode::Normal);
 
     for c in ">gm".chars() {
-        assert_eq!(
-            eval.process(EngineEvent::Char(c)),
-            None
-        );
+        assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
     let result = eval
         .process(EngineEvent::ActionKey)
@@ -1482,10 +1434,7 @@ fn test_ai_capture_finish_with_asymmetric_delimiters() {
     assert_eq!(eval.process(EngineEvent::Char('>')), None);
     let _ = eval.process(EngineEvent::Char('>'));
     for c in "prompt<<".chars() {
-        assert_eq!(
-            eval.process(EngineEvent::Char(c)),
-            None
-        );
+        assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
 
     let result = eval
@@ -1511,10 +1460,7 @@ fn test_ai_capture_finish_with_symmetric_delimiters() {
 
     let _ = eval.process(EngineEvent::Char('^'));
     for c in "prompt^".chars() {
-        assert_eq!(
-            eval.process(EngineEvent::Char(c)),
-            None
-        );
+        assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
 
     let result = eval
@@ -2129,7 +2075,7 @@ fn test_completion_suggestions_contains_shortcodes() {
 #[test]
 fn test_multi_word_trigger_with_dot_expands_on_enter() {
     let state = Arc::new(EngineState::new());
-    
+
     state.load_actions(vec![(
         "test.my email".to_string(),
         crate::db::crud::TriggerAction::text("erein"),
@@ -2152,7 +2098,7 @@ fn test_multi_word_trigger_with_dot_expands_on_enter() {
 #[test]
 fn test_space_at_various_positions_in_trigger() {
     let state = Arc::new(EngineState::new());
-    
+
     state.load_actions(vec![
         (
             "my email".to_string(),
@@ -2192,7 +2138,7 @@ fn test_space_at_various_positions_in_trigger() {
 #[test]
 fn test_trigger_expansion_with_leading_text_and_multi_word() {
     let state = Arc::new(EngineState::new());
-    
+
     state.load_actions(vec![(
         "my email".to_string(),
         crate::db::crud::TriggerAction::text("addr@x.com"),
@@ -2214,7 +2160,7 @@ fn test_trigger_expansion_with_leading_text_and_multi_word() {
 #[test]
 fn test_multi_word_trigger_expands_on_enter() {
     let state = Arc::new(EngineState::new());
-    
+
     state.load_actions(vec![(
         "my email address".to_string(),
         crate::db::crud::TriggerAction::text("user@example.com"),
@@ -2237,7 +2183,7 @@ fn test_multi_word_trigger_expands_on_enter() {
 #[test]
 fn test_completion_stays_active_with_spaces_on_backspace_when_action_key_is_enter() {
     let state = Arc::new(EngineState::new());
-    
+
     let mut eval = Evaluator::new(state);
 
     // Activate completion directly.
@@ -2265,7 +2211,7 @@ fn test_completion_stays_active_with_spaces_on_backspace_when_action_key_is_ente
 #[test]
 fn test_multi_word_trigger_preserves_completion_after_each_char() {
     let state = Arc::new(EngineState::new());
-    
+
     state.load_actions(vec![(
         "test.my email".to_string(),
         crate::db::crud::TriggerAction::text("erein"),
@@ -2304,7 +2250,7 @@ fn test_multi_word_trigger_preserves_completion_after_each_char() {
 #[test]
 fn test_multi_word_trigger_preserves_completion_after_space_explicitly() {
     let state = Arc::new(EngineState::new());
-    
+
     state.load_actions(vec![(
         "my email".to_string(),
         crate::db::crud::TriggerAction::text("addr@x.com"),
@@ -2350,7 +2296,7 @@ fn test_multi_word_trigger_preserves_completion_after_space_explicitly() {
 #[test]
 fn test_triggerless_multi_word_expands_on_enter() {
     let state = Arc::new(EngineState::new());
-    
+
     state.load_actions(vec![(
         "my email".to_string(),
         crate::db::crud::TriggerAction::text("addr@x.com"),
@@ -2372,7 +2318,7 @@ fn test_triggerless_multi_word_expands_on_enter() {
 #[test]
 fn test_triggerless_multi_word_with_dot_expands_on_enter() {
     let state = Arc::new(EngineState::new());
-    
+
     state.load_actions(vec![(
         "test.my email".to_string(),
         crate::db::crud::TriggerAction::text("erein"),
@@ -2395,7 +2341,7 @@ fn test_triggerless_multi_word_with_dot_expands_on_enter() {
 #[test]
 fn test_triggerless_multi_word_tab_does_not_cross_line() {
     let state = Arc::new(EngineState::new());
-    
+
     state.load_actions(vec![(
         "my\temail".to_string(),
         crate::db::crud::TriggerAction::text("nope"),

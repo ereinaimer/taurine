@@ -502,20 +502,8 @@ pub(super) fn run_listener_once(
                             Some(EngineEvent::Backspace)
                         }
                     }
-                    Key::Space => {
-                        if state.action_key() == taurine_core::settings::ActionKey::Space {
-                            Some(EngineEvent::ActionKey)
-                        } else {
-                            Some(EngineEvent::Char(' '))
-                        }
-                    }
-                    Key::Return => {
-                        if state.action_key() == taurine_core::settings::ActionKey::Enter {
-                            Some(EngineEvent::ActionKey)
-                        } else {
-                            Some(map_return_key(engine_mode))
-                        }
-                    }
+                    Key::Space => Some(EngineEvent::Char(' ')),
+                    Key::Return => Some(EngineEvent::ActionKey),
                     Key::Tab => Some(EngineEvent::Interrupt),
                     Key::UpArrow
                     | Key::DownArrow
@@ -727,15 +715,6 @@ fn engine_event_label(event: &EngineEvent) -> &'static str {
         EngineEvent::ActionKey => "action_key",
         EngineEvent::Char(_) => "char",
         EngineEvent::Paste(_) => "paste",
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-fn map_return_key(engine_mode: EngineMode) -> EngineEvent {
-    if matches!(engine_mode, EngineMode::AiCapture { .. }) {
-        EngineEvent::Char('\n')
-    } else {
-        EngineEvent::Interrupt
     }
 }
 
