@@ -109,14 +109,6 @@ pub fn apply_setting_input_with_manager(
             )?;
             ApplySettingOutcome::default()
         }
-        "action_key" => {
-            manager.update_setting(
-                actual_key,
-                parse_action_key(require_non_empty(value, actual_key)?)?,
-            )?;
-            ApplySettingOutcome::default()
-        }
-
         "instant_expand" => {
             manager.update_setting(
                 actual_key,
@@ -302,16 +294,6 @@ pub fn parse_inline_ai_trigger_mode(value: &str) -> Result<super::InlineAiTrigge
         "asymmetric" => Ok(super::InlineAiTriggerMode::Asymmetric),
         other => Err(Error::Config(format!(
             "bad inline_ai_trigger_mode '{other}' (use: symmetric, asymmetric)"
-        ))),
-    }
-}
-
-pub fn parse_action_key(value: &str) -> Result<super::ActionKey> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "space" => Ok(super::ActionKey::Space),
-        "enter" => Ok(super::ActionKey::Enter),
-        other => Err(Error::Config(format!(
-            "bad action_key '{other}' (use: space, enter)"
         ))),
     }
 }

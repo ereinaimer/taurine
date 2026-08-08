@@ -38,12 +38,7 @@ impl crate::engine::evaluator::Evaluator {
                 if let Some(expansion) = self.finish_inline_ai_capture_if_ready() {
                     return Some(expansion);
                 }
-                let action_key = self.state.action_key();
-                let char_rep = match action_key {
-                    crate::settings::ActionKey::Space => ' ',
-                    crate::settings::ActionKey::Enter => '\n',
-                };
-                self.state.append_ai_prompt_char(char_rep);
+                self.state.append_ai_prompt_char('\n');
                 None
             }
             EngineEvent::Paste(text) => {

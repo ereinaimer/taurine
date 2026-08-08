@@ -3,14 +3,7 @@ use crate::engine::variables::ExpansionStep;
 use crate::stats::TriggerStatKind;
 
 impl crate::engine::evaluator::Evaluator {
-    pub(crate) fn check_inline_unit_conversion_fallback(
-        &self,
-        action_key: crate::settings::ActionKey,
-    ) -> Option<ExpansionResult> {
-        if action_key != crate::settings::ActionKey::Enter {
-            return None;
-        }
-
+    pub(crate) fn check_inline_unit_conversion_fallback(&self) -> Option<ExpansionResult> {
         let buf_str = self.buffer.buffer_string();
         if buf_str.trim().is_empty() {
             return None;
@@ -42,14 +35,8 @@ impl crate::engine::evaluator::Evaluator {
         None
     }
 
-    pub(crate) fn check_inline_datetime_fallback(
-        &self,
-        action_key: crate::settings::ActionKey,
-    ) -> Option<ExpansionResult> {
+    pub(crate) fn check_inline_datetime_fallback(&self) -> Option<ExpansionResult> {
         if !self.state.inline_datetime_enabled() {
-            return None;
-        }
-        if action_key != crate::settings::ActionKey::Enter {
             return None;
         }
 
@@ -110,14 +97,8 @@ impl crate::engine::evaluator::Evaluator {
         None
     }
 
-    pub(crate) fn check_inline_timezone_fallback(
-        &self,
-        action_key: crate::settings::ActionKey,
-    ) -> Option<ExpansionResult> {
+    pub(crate) fn check_inline_timezone_fallback(&self) -> Option<ExpansionResult> {
         if !self.state.inline_datetime_enabled() {
-            return None;
-        }
-        if action_key != crate::settings::ActionKey::Enter {
             return None;
         }
 
@@ -156,14 +137,7 @@ impl crate::engine::evaluator::Evaluator {
         None
     }
 
-    pub(crate) fn check_inline_color_fallback(
-        &self,
-        action_key: crate::settings::ActionKey,
-    ) -> Option<ExpansionResult> {
-        if action_key != crate::settings::ActionKey::Enter {
-            return None;
-        }
-
+    pub(crate) fn check_inline_color_fallback(&self) -> Option<ExpansionResult> {
         let buf_str = self.buffer.buffer_string();
         if buf_str.trim().is_empty() {
             return None;

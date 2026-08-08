@@ -169,14 +169,6 @@ pub enum SpinnerStyle {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
-pub enum ActionKey {
-    Space,
-    #[default]
-    Enter,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "lowercase")]
 pub enum InlineAiTriggerMode {
     Symmetric,
     #[default]
@@ -209,7 +201,6 @@ pub struct Settings {
     pub inline_ai_trigger_open: String,
     pub inline_ai_trigger_close: String,
     pub clipboard_restore_delay_ms: u32,
-    pub action_key: ActionKey,
     pub instant_expand: bool,
     pub rpc_mode: RpcMode,
     pub rpc_host: String,
@@ -267,7 +258,6 @@ impl Settings {
             "ai_custom_endpoint" => "ai_custom_endpoint",
             "clipboard_restore_delay_ms" => "clipboard_restore_delay_ms",
             "clipboard_delay" => "clipboard_restore_delay_ms",
-            "action_key" => "action_key",
             "instant_expand" => "instant_expand",
             "instant" => "instant_expand",
             "ignore_fullscreen" => "ignore_fullscreen",
@@ -389,7 +379,6 @@ impl Default for Settings {
             inline_ai_trigger_open: ">>".to_string(),
             inline_ai_trigger_close: "<<".to_string(),
             clipboard_restore_delay_ms: Self::default_clipboard_restore_delay_ms(),
-            action_key: ActionKey::default(),
             instant_expand: false,
             rpc_mode: RpcMode::default(),
             rpc_host: "127.0.0.1".to_string(),

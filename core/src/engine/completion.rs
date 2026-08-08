@@ -40,9 +40,8 @@ impl crate::engine::evaluator::Evaluator {
     pub fn is_buffer_valid_for_completion(&self) -> bool {
         if self.completion.is_emoji {
             let active_trigger = self.state.inline_emoji_trigger_char();
-            let allow_spaces = self.state.action_key() == crate::settings::ActionKey::Enter;
             self.buffer
-                .extract_trigger_word(active_trigger, allow_spaces)
+                .extract_trigger_word(active_trigger)
                 .is_some()
         } else {
             self.buffer.extract_tail_word().is_some()
@@ -146,13 +145,9 @@ impl crate::engine::evaluator::Evaluator {
             return;
         }
 
-        let allow_spaces = self.state.action_key() == crate::settings::ActionKey::Enter;
-
         let query = if self.completion.is_emoji {
             let active_trigger = self.state.inline_emoji_trigger_char();
-            let Some(query) = self
-                .buffer
-                .extract_trigger_word(active_trigger, allow_spaces)
+            let Some(query) = self.buffer.extract_trigger_word(active_trigger)
             else {
                 self.completion.deactivate(&self.state.completion_active);
                 return;

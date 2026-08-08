@@ -204,11 +204,7 @@ impl FastBuffer {
     }
 
     /// Counts `trigger_char` only in the maximal suffix of consecutive non-whitespace characters.
-    fn trigger_char_count_in_nonwhitespace_suffix(
-        &self,
-        trigger_char: char,
-        allow_spaces: bool,
-    ) -> usize {
+    fn trigger_char_count_in_nonwhitespace_suffix(&self, trigger_char: char) -> usize {
         if self.len == 0 {
             return 0;
         }
@@ -238,8 +234,8 @@ impl FastBuffer {
                     _ => {}
                 }
             } else if c.is_whitespace() && active_quote.is_none() {
-                if allow_spaces && c == ' ' && count == 0 {
-                    // Allow spaces
+                if c == ' ' && count == 0 {
+                    // Allow leading spaces
                 } else {
                     break;
                 }
@@ -253,12 +249,12 @@ impl FastBuffer {
         count
     }
 
-    pub fn extract_trigger_word(&self, trigger_char: char, allow_spaces: bool) -> Option<String> {
+    pub fn extract_trigger_word(&self, trigger_char: char) -> Option<String> {
         if self.len == 0 {
             return None;
         }
 
-        if self.trigger_char_count_in_nonwhitespace_suffix(trigger_char, allow_spaces) > 1 {
+        if self.trigger_char_count_in_nonwhitespace_suffix(trigger_char) > 1 {
             return None;
         }
 
@@ -296,7 +292,7 @@ impl FastBuffer {
                     }
                 }
             } else if c.is_whitespace() && active_quote.is_none() {
-                if allow_spaces && c == ' ' {
+                if c == ' ' {
                     collected.push(c);
                 } else {
                     return None;
@@ -441,7 +437,7 @@ mod tests {
     fn extract_trigger_word_single_trigger_suffix() {
         let mut b = FastBuffer::new();
         type_str(&mut b, "prefix>gm");
-        assert_eq!(b.extract_trigger_word('>', false), Some("gm".to_string()));
+        assert_eq!(b.extract_trigger_word('>'), Some("gm".to_string()));
     }
 
     #[test]
@@ -449,25 +445,26 @@ mod tests {
         let mut b = FastBuffer::new();
         type_str(&mut b, ">brb>gm");
         assert_eq!(
-            b.extract_trigger_word('>', false),
+            b.extract_trigger_word('>'),
             None,
             "simulates user typing >brb>gm without finishing first expansion — must not match a keyword with wrong delete span"
         );
     }
 
     #[test]
-    fn extract_trigger_word_whitespace_before_trigger_token_aborts() {
+    fn extract_trigger_word_allows_spaces_in_suffix() {
         let mut b = FastBuffer::new();
-        // Walk backward: 'm', then space — cannot reach `>` without crossing whitespace.
+        // Walk backward: 'm', then space — spaces are always allowed now,
+        // so the trigger word spans the space.
         type_str(&mut b, ">g m");
-        assert_eq!(b.extract_trigger_word('>', false), None);
+        assert_eq!(b.extract_trigger_word('>'), Some("g m".to_string()));
     }
 
     #[test]
     fn extract_trigger_word_no_trigger_in_suffix() {
         let mut b = FastBuffer::new();
         type_str(&mut b, "plain");
-        assert_eq!(b.extract_trigger_word('>', false), None);
+        assert_eq!(b.extract_trigger_word('>'), None);
     }
 
     #[test]
@@ -477,14 +474,14 @@ mod tests {
             b.push('a');
         }
         type_str(&mut b, ">x>y");
-        assert_eq!(b.extract_trigger_word('>', false), None);
+        assert_eq!(b.extract_trigger_word('>'), None);
     }
 
     #[test]
     fn older_trigger_separated_by_whitespace_does_not_block_new_trigger() {
         let mut b = FastBuffer::new();
         type_str(&mut b, "note: x > y and then >gm");
-        assert_eq!(b.extract_trigger_word('>', false), Some("gm".to_string()));
+        assert_eq!(b.extract_trigger_word('>'), Some("gm".to_string()));
     }
 
     #[test]
@@ -492,7 +489,7 @@ mod tests {
         let mut b = FastBuffer::new();
         type_str(&mut b, r#">gfb-"my branch""#);
         assert_eq!(
-            b.extract_trigger_word('>', false),
+            b.extract_trigger_word('>'),
             Some(r#"gfb-"my branch""#.to_string())
         );
     }
@@ -502,7 +499,7 @@ mod tests {
         let mut b = FastBuffer::new();
         type_str(&mut b, r#">echo-">>>""#);
         assert_eq!(
-            b.extract_trigger_word('>', false),
+            b.extract_trigger_word('>'),
             Some(r#"echo-">>>""#.to_string())
         );
     }
@@ -512,7 +509,7 @@ mod tests {
         let mut b = FastBuffer::new();
         type_str(&mut b, r#">cmd-"\"echo\"""#);
         assert_eq!(
-            b.extract_trigger_word('>', false),
+            b.extract_trigger_word('>'),
             Some(r#"cmd-"\"echo\"""#.to_string())
         );
     }
@@ -522,7 +519,7 @@ mod tests {
         let mut b = FastBuffer::new();
         type_str(&mut b, r#">cmd-"ab\\""#);
         assert_eq!(
-            b.extract_trigger_word('>', false),
+            b.extract_trigger_word('>'),
             Some(r#"cmd-"ab\\""#.to_string())
         );
     }
@@ -532,7 +529,7 @@ mod tests {
         let mut b = FastBuffer::new();
         type_str(&mut b, r#">search-'Neil Armstrong'"#);
         assert_eq!(
-            b.extract_trigger_word('>', false),
+            b.extract_trigger_word('>'),
             Some(r#"search-'Neil Armstrong'"#.to_string())
         );
     }
@@ -541,7 +538,7 @@ mod tests {
     fn extract_trigger_word_abort_on_unopened_quote_state() {
         let mut b = FastBuffer::new();
         type_str(&mut b, r#">foo-"bar"#);
-        assert_eq!(b.extract_trigger_word('>', false), None);
+        assert_eq!(b.extract_trigger_word('>'), None);
     }
 
     #[test]
@@ -549,21 +546,21 @@ mod tests {
         let mut b = FastBuffer::new();
         type_str(&mut b, ">hi:erein aimer: how was your day");
         assert_eq!(
-            b.extract_trigger_word('>', true),
+            b.extract_trigger_word('>'),
             Some("hi:erein aimer: how was your day".to_string())
         );
 
         let mut b2 = FastBuffer::new();
         type_str(&mut b2, "hello >world >hi:erein aimer");
         assert_eq!(
-            b2.extract_trigger_word('>', true),
+            b2.extract_trigger_word('>'),
             Some("hi:erein aimer".to_string())
         );
 
         // Should still fail if multiple trigger characters without space
         let mut b3 = FastBuffer::new();
         type_str(&mut b3, ">brb>gm");
-        assert_eq!(b3.extract_trigger_word('>', true), None);
+        assert_eq!(b3.extract_trigger_word('>'), None);
     }
 
     #[test]
@@ -797,20 +794,13 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_trigger_word_allows_spaces_when_allow_spaces_true() {
+    fn test_extract_trigger_word_allows_spaces() {
         let mut b = FastBuffer::new();
         type_str(&mut b, ">my email address");
         assert_eq!(
-            b.extract_trigger_word('>', true),
+            b.extract_trigger_word('>'),
             Some("my email address".to_string())
         );
-    }
-
-    #[test]
-    fn test_extract_trigger_word_rejects_spaces_when_allow_spaces_false() {
-        let mut b = FastBuffer::new();
-        type_str(&mut b, ">my email address");
-        assert_eq!(b.extract_trigger_word('>', false), None);
     }
 
     #[test]
@@ -818,7 +808,7 @@ mod tests {
         let mut b = FastBuffer::new();
         type_str(&mut b, "prefix text >my email address");
         assert_eq!(
-            b.extract_trigger_word('>', true),
+            b.extract_trigger_word('>'),
             Some("my email address".to_string())
         );
     }
@@ -827,7 +817,7 @@ mod tests {
     fn test_extract_trigger_word_allow_spaces_still_rejects_newlines() {
         let mut b = FastBuffer::new();
         type_str(&mut b, ">my\nemail");
-        assert_eq!(b.extract_trigger_word('>', true), None);
+        assert_eq!(b.extract_trigger_word('>'), None);
     }
 
     #[test]

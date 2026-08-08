@@ -114,12 +114,6 @@ impl<'a> SettingsManager<'a> {
             settings.clipboard_restore_delay_ms = Settings::sanitize_clipboard_restore_delay_ms(v);
         }
 
-        if let Some(val) = map.get("action_key")
-            && let Ok(v) = serde_json::from_str::<super::ActionKey>(val)
-        {
-            settings.action_key = v;
-        }
-
         if let Some(val) = map.get("instant_expand")
             && let Ok(v) = serde_json::from_str::<bool>(val)
         {

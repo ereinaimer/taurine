@@ -24,8 +24,6 @@ impl crate::engine::evaluator::Evaluator {
     ) -> Option<ExpansionResult> {
         let emoji_trigger = self.state.inline_emoji_trigger_char();
         let emoji_enabled = self.state.inline_emoji_enabled();
-        let action_key = self.state.action_key();
-        let allow_spaces = action_key == crate::settings::ActionKey::Enter;
         let instant_expand = self
             .state
             .instant_expand
@@ -78,7 +76,7 @@ impl crate::engine::evaluator::Evaluator {
             && emoji_enabled
             && let Some(word) = self
                 .buffer
-                .extract_trigger_word(emoji_trigger, allow_spaces)
+                .extract_trigger_word(emoji_trigger)
             && let Some(emoji_char) = crate::engine::emoji::lookup_emoji(&word)
         {
             let delete_count = 1 + word.chars().count();
@@ -99,7 +97,7 @@ impl crate::engine::evaluator::Evaluator {
         candidates.sort_by_key(|a| std::cmp::Reverse(a.0.len()));
 
         for (word, prev_char) in candidates {
-            let is_boundary = (!instant_expand && action_key == crate::settings::ActionKey::Enter)
+            let is_boundary = !instant_expand
                 || prev_char.is_none_or(|c| c.is_whitespace() || c.is_ascii_punctuation());
             if is_boundary
                 && let Some(expansion) = self
@@ -192,23 +190,23 @@ impl crate::engine::evaluator::Evaluator {
             }
         }
         if !instant_expand
-            && let Some(result) = self.check_inline_unit_conversion_fallback(action_key)
+            && let Some(result) = self.check_inline_unit_conversion_fallback()
         {
             self.buffer.clear();
             return Some(result);
         }
 
-        if !instant_expand && let Some(result) = self.check_inline_timezone_fallback(action_key) {
+        if !instant_expand && let Some(result) = self.check_inline_timezone_fallback() {
             self.buffer.clear();
             return Some(result);
         }
 
-        if !instant_expand && let Some(result) = self.check_inline_datetime_fallback(action_key) {
+        if !instant_expand && let Some(result) = self.check_inline_datetime_fallback() {
             self.buffer.clear();
             return Some(result);
         }
 
-        if !instant_expand && let Some(result) = self.check_inline_color_fallback(action_key) {
+        if !instant_expand && let Some(result) = self.check_inline_color_fallback() {
             self.buffer.clear();
             return Some(result);
         }

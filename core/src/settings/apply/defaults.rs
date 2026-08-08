@@ -1,4 +1,4 @@
-use super::super::{ActionKey, InlineAiTriggerMode, RpcMode, Settings, SpinnerStyle};
+use super::super::{InlineAiTriggerMode, RpcMode, Settings, SpinnerStyle};
 use crate::error::{Error, Result};
 
 pub fn default_setting_input(key: &str) -> Result<Option<String>> {
@@ -33,11 +33,6 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "inline_ai_trigger_open" => Ok(Some(defaults.inline_ai_trigger_open)),
         "inline_ai_trigger_close" => Ok(Some(defaults.inline_ai_trigger_close)),
         "clipboard_restore_delay_ms" => Ok(Some(defaults.clipboard_restore_delay_ms.to_string())),
-        "action_key" => Ok(Some(match defaults.action_key {
-            ActionKey::Space => "space".to_string(),
-            ActionKey::Enter => "enter".to_string(),
-        })),
-
         "instant_expand" => Ok(Some(defaults.instant_expand.to_string())),
         "ignore_fullscreen" => Ok(Some(defaults.ignore_fullscreen.to_string())),
         "rpc_port" => Ok(Some(defaults.rpc_port.to_string())),

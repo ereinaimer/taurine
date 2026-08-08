@@ -219,11 +219,7 @@ impl Evaluator {
                     self.completion.deactivate(&self.state.completion_active);
                 }
                 if result.is_none() && !self.completion.active {
-                    let char_rep = match self.state.action_key() {
-                        crate::settings::ActionKey::Space => ' ',
-                        crate::settings::ActionKey::Enter => '\n',
-                    };
-                    self.buffer.push(char_rep);
+                    self.buffer.push('\n');
                 }
                 result
             }

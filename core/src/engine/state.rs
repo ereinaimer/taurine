@@ -12,7 +12,7 @@ use crate::keys::Hotkey;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::sync::atomic::AtomicBool;
-use std::sync::atomic::AtomicU8;
+
 use std::sync::atomic::AtomicU32;
 use std::time::{Duration, Instant};
 
@@ -61,7 +61,6 @@ pub struct EngineState {
     pub script_timeout: AtomicU32,
 
     pub spinner_style: RwLock<crate::settings::SpinnerStyle>,
-    action_key: AtomicU8,
     undo_state: RwLock<Option<UndoState>>,
     case_cycle: RwLock<Option<CaseCycleSession>>,
     ai_session: InlineAiSession,
@@ -103,7 +102,6 @@ impl EngineState {
             script_timeout: AtomicU32::new(15),
 
             spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
-            action_key: AtomicU8::new(1),
             undo_state: RwLock::new(None),
             case_cycle: RwLock::new(None),
             ai_session: InlineAiSession::new(),
@@ -140,7 +138,6 @@ impl EngineState {
             script_timeout: AtomicU32::new(15),
 
             spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
-            action_key: AtomicU8::new(1),
             undo_state: RwLock::new(None),
             case_cycle: RwLock::new(None),
             ai_session: InlineAiSession::new(),
@@ -304,23 +301,6 @@ impl EngineState {
             state.output_length = output_length;
             state.timestamp = Instant::now();
         }
-    }
-
-    pub fn action_key(&self) -> crate::settings::ActionKey {
-        match self.action_key.load(std::sync::atomic::Ordering::Relaxed) {
-            1 => crate::settings::ActionKey::Enter,
-            _ => crate::settings::ActionKey::Space,
-        }
-    }
-
-    pub fn set_action_key(&self, key: crate::settings::ActionKey) {
-        self.action_key.store(
-            match key {
-                crate::settings::ActionKey::Space => 0,
-                crate::settings::ActionKey::Enter => 1,
-            },
-            std::sync::atomic::Ordering::Relaxed,
-        );
     }
 
     pub fn set_inline_ai_trigger_mode(&self, mode: crate::settings::InlineAiTriggerMode) {
