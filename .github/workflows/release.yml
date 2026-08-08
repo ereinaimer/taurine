@@ -22,7 +22,7 @@ jobs:
             archive: tar.xz
             platform_key: linux-x86_64
           - target: x86_64-apple-darwin
-            os: macos-latest
+            os: macos-15-intel
             archive: tar.xz
             platform_key: macos-x86_64
           - target: aarch64-apple-darwin
@@ -42,18 +42,16 @@ jobs:
 
       - name: Install dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-22.04'
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config cmake protobuf-compiler libxkbcommon-dev libdbus-1-dev libasound2-dev libglib2.0-dev libgtk-3-dev libxdo-dev
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config cmake libxkbcommon-dev libdbus-1-dev libasound2-dev libglib2.0-dev libgtk-3-dev libxdo-dev
 
-      - name: Install dependencies (Windows)
-        if: matrix.os == 'windows-latest'
-        run: choco install protoc
-
-      - name: Install dependencies (macOS)
-        if: matrix.os == 'macos-latest'
-        run: brew install protobuf
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          version: '23.4'
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Package (Windows)
         if: matrix.archive == 'zip'
@@ -109,7 +107,7 @@ jobs:
       - name: Upload Checksum File
         uses: actions/upload-artifact@v4
         with:
-          name: checksum-files
+          name: checksum-files-${{ matrix.platform_key }}
           path: checksums-${{ matrix.platform_key }}.sha256
 
   publish:
@@ -151,7 +149,7 @@ jobs:
       - name: Download checksum files
         uses: actions/download-artifact@v4
         with:
-          pattern: checksum-files
+          pattern: checksum-files-*
           path: checksums
           merge-multiple: true
           
@@ -195,14 +193,16 @@ jobs:
               json.dump(manifest, f, indent=2)
           "
           
-      - name: Create Pre-Release and Upload Assets
+      - name: Create Release and Upload Assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION=${GITHUB_REF_NAME#v}
+          PRERELEASE=""
+          if [[ "${VERSION}" == *-* ]]; then PRERELEASE="--prerelease"; fi
           gh release create $GITHUB_REF_NAME \
             ./artifacts/* \
             manifest.json \
             --title "v$VERSION" \
             --notes-file notes.md \
-            --prerelease
+            $PRERELEASE
