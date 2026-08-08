@@ -31,6 +31,11 @@ jobs:
             platform_key: macos-aarch64
 
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      RUST_BACKTRACE: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,8 +55,25 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           version: '23.4'
 
+      - name: Disable Windows Defender real-time scanning
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $status = Get-MpComputerStatus -ErrorAction SilentlyContinue
+          if ($status.RealTimeProtectionEnabled) {
+            Set-MpPreference -DisableRealtimeScanning $true
+          }
+
+      - name: Cache Cargo registry
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: "false"
+
+      - name: Cache compile artifacts (sccache)
+        uses: mozilla-actions/sccache-action@v0.0.7
+
       - name: Build
-        run: cargo build --release --locked --target ${{ matrix.target }}
+        run: cargo build --release --locked --target ${{ matrix.target }} -p taurine
 
       - name: Package (Windows)
         if: matrix.archive == 'zip'
