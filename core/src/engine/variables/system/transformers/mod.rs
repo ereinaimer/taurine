@@ -50,7 +50,6 @@ pub const TRANSFORMERS: &[&str] = &[
     "url.clean",
     "base64.encode",
     "base64.decode",
-    "md5",
     "sha256",
     "sha512",
     "firstline",

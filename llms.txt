@@ -161,7 +161,7 @@ Global transformers apply with Unix pipe syntax right after any variable, positi
 
 *   **Casing**: `upper`, `lower`, `sentence`, `title`, `camel`, `pascal`, `snake`, `kebab`.
 *   **Encoding**: `url.encode`, `url.decode`, `url.clean` (strips tracking params), `base64.encode`, `base64.decode`.
-*   **Hashing**: `md5`, `sha256`, `sha512`.
+*   **Hashing**: `sha256`, `sha512`.
 *   **Color**: W3C CSS Color Module Level 4 auto-detect/convert — `color.hex`, `color.rgb`, `color.rgba`, `color.hsl`, `color.hsla` (e.g., `red | color.hex` → `#FF0000`).
 *   **Math**: `| calc(expression)` — operator chaining (`[amount=100 | calc("* 1.15")]`), variable references (`[val=10 | calc("x * 2 + 5")]`), or parameterless (`["10 + 20" | calc]`). Functions: `sqrt`, `abs`, `floor`, `ceil`, `round`; constants `pi`, `e`.
 *   **AI**: `| ai(prompt)` — sends the interpolated text to your configured AI provider and replaces it with the response (e.g., `[clip | ai(Summarize this in 3 bullets)]`). Chainable; markdown code fences auto-stripped.
