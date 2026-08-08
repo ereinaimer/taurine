@@ -49,6 +49,7 @@ jobs:
     env:
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "true"
+      CARGO_INCREMENTAL: 0
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -60,8 +61,12 @@ jobs:
 
       - name: Disable Windows Defender real-time scanning
         if: runner.os == 'Windows'
-        run: Set-MpPreference -DisableRealtimeScanning $true
         shell: pwsh
+        run: |
+          $status = Get-MpComputerStatus -ErrorAction SilentlyContinue
+          if ($status.RealTimeProtectionEnabled) {
+            Set-MpPreference -DisableRealtimeScanning $true
+          }
 
       - name: Install Protoc (Windows & macOS)
         if: runner.os != 'Linux'
@@ -99,9 +104,8 @@ jobs:
 
       - name: Run Clippy
         env:
-          CARGO_INCREMENTAL: 0
           RUSTFLAGS: ${{ runner.os == 'Linux' && '-C link-arg=-fuse-ld=mold' || '' }}
-        run: cargo clippy --locked --workspace --no-deps --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --no-deps --all-targets --all-features -- -D warnings
 
   test:
     name: Test (${{ matrix.os }})
@@ -120,6 +124,8 @@ jobs:
     env:
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "true"
+      CARGO_INCREMENTAL: 0
+      RUST_BACKTRACE: 1
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -129,8 +135,12 @@ jobs:
 
       - name: Disable Windows Defender real-time scanning
         if: runner.os == 'Windows'
-        run: Set-MpPreference -DisableRealtimeScanning $true
         shell: pwsh
+        run: |
+          $status = Get-MpComputerStatus -ErrorAction SilentlyContinue
+          if ($status.RealTimeProtectionEnabled) {
+            Set-MpPreference -DisableRealtimeScanning $true
+          }
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
