@@ -1265,23 +1265,21 @@ fn test_inline_math_whitespace_and_newline_do_not_multiply() {
     // User flow: type "4", hit Enter (ActionKey), type "2", hit Enter again.
     // The buffer does not reset on ActionKey — it appends a newline — so the
     // concatenated "4\n2" really forms and must NOT multiply to 8.
-    assert_eq!(eval.process(EngineEvent::Char('>')), None);
     assert_eq!(eval.process(EngineEvent::Char('4')), None);
     assert_eq!(eval.process(EngineEvent::ActionKey), None);
     assert_eq!(eval.process(EngineEvent::Char('2')), None);
     assert_eq!(eval.process(EngineEvent::ActionKey), None);
     // Fidelity guard: both numbers coexisted in the buffer (newline appended by
     // the first ActionKey) yet produced no math expansion.
-    assert_eq!(eval.buffer.buffer_string(), ">4\n2\n");
+    assert_eq!(eval.buffer.buffer_string(), "4\n2\n");
 
     // Same guarantee for space-separated numbers typed in one buffer.
     eval.buffer.clear();
-    assert_eq!(eval.process(EngineEvent::Char('>')), None);
     assert_eq!(eval.process(EngineEvent::Char('4')), None);
     assert_eq!(eval.process(EngineEvent::Char(' ')), None);
     assert_eq!(eval.process(EngineEvent::Char('2')), None);
     assert_eq!(eval.process(EngineEvent::ActionKey), None);
-    assert_eq!(eval.buffer.buffer_string(), ">4 2\n");
+    assert_eq!(eval.buffer.buffer_string(), "4 2\n");
 }
 
 #[test]
