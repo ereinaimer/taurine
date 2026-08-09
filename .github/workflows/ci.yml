@@ -100,7 +100,18 @@ jobs:
           cache-targets: "false"
 
       - name: Cache compile artifacts (sccache)
-        uses: mozilla-actions/sccache-action@v0.0.7
+        uses: mozilla-actions/sccache-action@v0.0.10
+
+      - name: Probe sccache backend (fail open)
+        shell: bash
+        run: |
+          if sccache --show-stats >/dev/null 2>&1; then
+            echo "sccache: cache backend reachable"
+          else
+            echo "RUSTC_WRAPPER=" >> "$GITHUB_ENV"
+            echo "SCCACHE_GHA_ENABLED=false" >> "$GITHUB_ENV"
+            echo "::warning::sccache unavailable (cache backend unreachable) -- running without compile cache"
+          fi
 
       - name: Run Clippy
         env:
@@ -178,7 +189,18 @@ jobs:
           cache-targets: "false"
 
       - name: Cache compile artifacts (sccache)
-        uses: mozilla-actions/sccache-action@v0.0.7
+        uses: mozilla-actions/sccache-action@v0.0.10
+
+      - name: Probe sccache backend (fail open)
+        shell: bash
+        run: |
+          if sccache --show-stats >/dev/null 2>&1; then
+            echo "sccache: cache backend reachable"
+          else
+            echo "RUSTC_WRAPPER=" >> "$GITHUB_ENV"
+            echo "SCCACHE_GHA_ENABLED=false" >> "$GITHUB_ENV"
+            echo "::warning::sccache unavailable (cache backend unreachable) -- running without compile cache"
+          fi
 
       - name: Run tests (nextest)
         run: cargo nextest run --locked --workspace --all-features
