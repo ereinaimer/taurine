@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dependency-Free Linux Tray**: The Linux system tray icon no longer requires GTK or the AppIndicator libraries, and it now recovers automatically when the desktop tray service restarts or the session connection drops (previously the icon could disappear for the rest of the session).
 
 ### Fixed
-- **Whitespace No Longer Implies Multiplication**: In the inline calculator, numbers separated only by whitespace (e.g. `2 2`) are no longer multiplied together; such input is left as typed text. Implicit multiplication (e.g. `2(2)`, `2pi`) still works when operands are directly adjacent.
+- **Whitespace No Longer Implies Multiplication**: In the inline calculator, numbers separated only by whitespace or line breaks (e.g. `2 2`) are no longer multiplied together; such input is left as typed text. Implicit multiplication (e.g. `2(3)`, `2pi`) still works when operands are directly adjacent, and explicit multiplication (`2 * 2`) is unaffected.
 - **Graceful Shutdown**: Handle OS termination signals (SIGINT/SIGTERM) in the daemon and TUI to ensure clean resource teardown and terminal restoration.
 - **Documentation Site Security**: Upgrade the documentation site's build toolchain (PostCSS, Sharp, js-yaml, brace-expansion) to resolve security advisories.
 
