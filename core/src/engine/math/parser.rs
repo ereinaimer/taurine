@@ -12,45 +12,55 @@ pub enum Token {
     Ident(String),
 }
 
-pub fn tokenize(expr: &str) -> Option<Vec<Token>> {
+pub fn tokenize(expr: &str) -> Option<Vec<(Token, bool)>> {
     let mut tokens = Vec::new();
     let mut chars = expr.chars().peekable();
+    let mut whitespace_pending = false;
 
     while let Some(&c) = chars.peek() {
         match c {
             ' ' | '\t' | '\r' | '\n' => {
+                whitespace_pending = true;
                 chars.next();
             }
             '+' => {
-                tokens.push(Token::Plus);
+                tokens.push((Token::Plus, whitespace_pending));
+                whitespace_pending = false;
                 chars.next();
             }
             '-' => {
-                tokens.push(Token::Minus);
+                tokens.push((Token::Minus, whitespace_pending));
+                whitespace_pending = false;
                 chars.next();
             }
             '*' => {
-                tokens.push(Token::Star);
+                tokens.push((Token::Star, whitespace_pending));
+                whitespace_pending = false;
                 chars.next();
             }
             '/' => {
-                tokens.push(Token::Slash);
+                tokens.push((Token::Slash, whitespace_pending));
+                whitespace_pending = false;
                 chars.next();
             }
             '%' => {
-                tokens.push(Token::Percent);
+                tokens.push((Token::Percent, whitespace_pending));
+                whitespace_pending = false;
                 chars.next();
             }
             '^' => {
-                tokens.push(Token::Caret);
+                tokens.push((Token::Caret, whitespace_pending));
+                whitespace_pending = false;
                 chars.next();
             }
             '(' => {
-                tokens.push(Token::OpenParen);
+                tokens.push((Token::OpenParen, whitespace_pending));
+                whitespace_pending = false;
                 chars.next();
             }
             ')' => {
-                tokens.push(Token::CloseParen);
+                tokens.push((Token::CloseParen, whitespace_pending));
+                whitespace_pending = false;
                 chars.next();
             }
             c if c.is_alphabetic() => {
@@ -64,10 +74,11 @@ pub fn tokenize(expr: &str) -> Option<Vec<Token>> {
                     }
                 }
                 match ident.to_lowercase().as_str() {
-                    "pi" => tokens.push(Token::Number(std::f64::consts::PI)),
-                    "e" => tokens.push(Token::Number(std::f64::consts::E)),
-                    name => tokens.push(Token::Ident(name.to_string())),
+                    "pi" => tokens.push((Token::Number(std::f64::consts::PI), whitespace_pending)),
+                    "e" => tokens.push((Token::Number(std::f64::consts::E), whitespace_pending)),
+                    name => tokens.push((Token::Ident(name.to_string()), whitespace_pending)),
                 }
+                whitespace_pending = false;
             }
             c if c.is_ascii_digit() || c == '.' => {
                 let mut num_str = String::new();
@@ -101,7 +112,8 @@ pub fn tokenize(expr: &str) -> Option<Vec<Token>> {
                     }
                 }
                 if let Ok(num) = num_str.parse::<f64>() {
-                    tokens.push(Token::Number(num));
+                    tokens.push((Token::Number(num), whitespace_pending));
+                    whitespace_pending = false;
                 } else {
                     return None;
                 }
@@ -117,7 +129,7 @@ pub fn tokenize(expr: &str) -> Option<Vec<Token>> {
     Some(tokens)
 }
 
-pub fn parse_expression(tokens: &[Token]) -> Option<f64> {
+pub fn parse_expression(tokens: &[(Token, bool)]) -> Option<f64> {
     let mut pos = 0;
     let res = parse_add_sub(tokens, &mut pos)?;
 
@@ -128,17 +140,17 @@ pub fn parse_expression(tokens: &[Token]) -> Option<f64> {
     Some(res)
 }
 
-fn parse_add_sub(tokens: &[Token], pos: &mut usize) -> Option<f64> {
+fn parse_add_sub(tokens: &[(Token, bool)], pos: &mut usize) -> Option<f64> {
     let mut left = parse_mul_div(tokens, pos)?;
 
     while *pos < tokens.len() {
-        match tokens[*pos] {
-            Token::Plus => {
+        match &tokens[*pos] {
+            (Token::Plus, _) => {
                 *pos += 1;
                 let right = parse_mul_div(tokens, pos)?;
                 left += right;
             }
-            Token::Minus => {
+            (Token::Minus, _) => {
                 *pos += 1;
                 let right = parse_mul_div(tokens, pos)?;
                 left -= right;
@@ -150,28 +162,29 @@ fn parse_add_sub(tokens: &[Token], pos: &mut usize) -> Option<f64> {
     Some(left)
 }
 
-fn parse_mul_div(tokens: &[Token], pos: &mut usize) -> Option<f64> {
+fn parse_mul_div(tokens: &[(Token, bool)], pos: &mut usize) -> Option<f64> {
     let mut left = parse_unary(tokens, pos)?;
 
     while *pos < tokens.len() {
-        match tokens[*pos] {
-            Token::Star => {
+        match &tokens[*pos] {
+            (Token::Star, _) => {
                 *pos += 1;
                 let right = parse_unary(tokens, pos)?;
                 left *= right;
             }
-            Token::Slash => {
+            (Token::Slash, _) => {
                 *pos += 1;
                 let right = parse_unary(tokens, pos)?;
                 left /= right;
             }
-            Token::Percent => {
+            (Token::Percent, _) => {
                 *pos += 1;
                 let right = parse_unary(tokens, pos)?;
                 left %= right;
             }
             // Implicit Multiplication: number followed by '(', 'Number', or 'Ident'
-            Token::OpenParen | Token::Number(_) | Token::Ident(_) => {
+            // only when the right operand is directly adjacent (no whitespace before it).
+            (Token::OpenParen | Token::Number(_) | Token::Ident(_), false) => {
                 let right = parse_unary(tokens, pos)?;
                 left *= right;
             }
@@ -182,15 +195,15 @@ fn parse_mul_div(tokens: &[Token], pos: &mut usize) -> Option<f64> {
     Some(left)
 }
 
-fn parse_unary(tokens: &[Token], pos: &mut usize) -> Option<f64> {
+fn parse_unary(tokens: &[(Token, bool)], pos: &mut usize) -> Option<f64> {
     if *pos < tokens.len() {
         match &tokens[*pos] {
-            Token::Minus => {
+            (Token::Minus, _) => {
                 *pos += 1;
                 let val = parse_unary(tokens, pos)?;
                 return Some(-val);
             }
-            Token::Plus => {
+            (Token::Plus, _) => {
                 *pos += 1;
                 return parse_unary(tokens, pos);
             }
@@ -200,10 +213,10 @@ fn parse_unary(tokens: &[Token], pos: &mut usize) -> Option<f64> {
     parse_exponent(tokens, pos)
 }
 
-fn parse_exponent(tokens: &[Token], pos: &mut usize) -> Option<f64> {
+fn parse_exponent(tokens: &[(Token, bool)], pos: &mut usize) -> Option<f64> {
     let left = parse_primary(tokens, pos)?;
 
-    if *pos < tokens.len() && tokens[*pos] == Token::Caret {
+    if *pos < tokens.len() && tokens[*pos].0 == Token::Caret {
         *pos += 1;
         // Exponents are right-associative: 2^3^2 = 2^(3^2)
         let right = parse_exponent(tokens, pos)?;
@@ -213,22 +226,22 @@ fn parse_exponent(tokens: &[Token], pos: &mut usize) -> Option<f64> {
     Some(left)
 }
 
-fn parse_primary(tokens: &[Token], pos: &mut usize) -> Option<f64> {
+fn parse_primary(tokens: &[(Token, bool)], pos: &mut usize) -> Option<f64> {
     if *pos >= tokens.len() {
         return None;
     }
 
     match &tokens[*pos] {
-        Token::Number(n) => {
+        (Token::Number(n), _) => {
             *pos += 1;
             Some(*n)
         }
-        Token::Ident(name) => {
+        (Token::Ident(name), _) => {
             *pos += 1;
-            if *pos < tokens.len() && tokens[*pos] == Token::OpenParen {
+            if *pos < tokens.len() && tokens[*pos].0 == Token::OpenParen {
                 *pos += 1;
                 let arg = parse_add_sub(tokens, pos)?;
-                if *pos < tokens.len() && tokens[*pos] == Token::CloseParen {
+                if *pos < tokens.len() && tokens[*pos].0 == Token::CloseParen {
                     *pos += 1;
                     match name.as_str() {
                         "sqrt" => Some(arg.sqrt()),
@@ -245,10 +258,10 @@ fn parse_primary(tokens: &[Token], pos: &mut usize) -> Option<f64> {
                 None
             }
         }
-        Token::OpenParen => {
+        (Token::OpenParen, _) => {
             *pos += 1;
             let val = parse_add_sub(tokens, pos)?;
-            if *pos < tokens.len() && tokens[*pos] == Token::CloseParen {
+            if *pos < tokens.len() && tokens[*pos].0 == Token::CloseParen {
                 *pos += 1;
                 Some(val)
             } else {
@@ -259,14 +272,14 @@ fn parse_primary(tokens: &[Token], pos: &mut usize) -> Option<f64> {
     }
 }
 
-pub fn is_single_operand(tokens: &[Token]) -> bool {
+pub fn is_single_operand(tokens: &[(Token, bool)]) -> bool {
     let mut operand_count = 0;
     for token in tokens {
         match token {
-            Token::Number(_) | Token::Ident(_) => {
+            (Token::Number(_), _) | (Token::Ident(_), _) => {
                 operand_count += 1;
             }
-            Token::OpenParen | Token::CloseParen => {}
+            (Token::OpenParen, _) | (Token::CloseParen, _) => {}
             _ => {
                 return false;
             }
