@@ -247,7 +247,8 @@ impl KeyboardDecoder {
                     let mut clear_buf = [0u16; 8];
                     let mut empty_state = [0u8; 256];
                     let mut clear_len = -1i32;
-                    while clear_len < 0 {
+                    let mut retries = 0;
+                    while clear_len < 0 && retries < 32 {
                         clear_len = ToUnicodeEx(
                             vk_code,
                             scan_code,
@@ -257,6 +258,7 @@ impl KeyboardDecoder {
                             0,
                             layout,
                         );
+                        retries += 1;
                     }
                     None
                 }

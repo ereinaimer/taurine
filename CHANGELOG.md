@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Post-Expansion Case Cycling**: Cycle expanded text capitalization (UPPERCASE, lowercase, Sentence case, Title Case) using Left and Right arrow keys within the active undo window.
 
 ### Changed
+- **Resource Limits & Buffer Safety**: Enforce strict caps on HTTP response sizes, internal key buffers, script output drains, regex catalog entries, and dead-key loop retries.
 - **AI Expansion Protection**: AI-generated text no longer executes embedded script commands.
 - **Private Temp Directory Isolation**: Temporary scripts, images, and desktop integration files are now stored securely in a private user temp folder with restricted permissions.
 - **RPC Auth Hardening**: Rate-limited local API with constant-time token verification and masked secrets.

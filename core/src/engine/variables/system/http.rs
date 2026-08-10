@@ -1,6 +1,9 @@
+use std::io::Read;
 use std::time::Duration;
 
 use super::transformers::strip_argument_quotes;
+
+pub const MAX_HTTP_RESPONSE_BYTES: usize = 10 * 1024 * 1024; // 10 MiB safety cap
 
 pub fn resolve(key: &str) -> Option<String> {
     if !key.starts_with("http.") {
@@ -36,10 +39,17 @@ fn resolve_get(url: &str) -> Option<String> {
 
     let req = ureq::get(&url_str).timeout(Duration::from_secs(5));
     match req.call() {
-        Ok(res) => res
-            .into_string()
-            .ok()
-            .or_else(|| Some("[Error: Response not UTF-8]".to_string())),
+        Ok(res) => {
+            let mut reader = res.into_reader().take(MAX_HTTP_RESPONSE_BYTES as u64);
+            let mut buf = Vec::new();
+            if reader.read_to_end(&mut buf).is_ok() {
+                String::from_utf8(buf)
+                    .ok()
+                    .or_else(|| Some("[Error: Response not UTF-8]".to_string()))
+            } else {
+                Some("[Error: HTTP request failed]".to_string())
+            }
+        }
         Err(ureq::Error::Status(code, _)) => Some(format!("[Error: HTTP {}]", code)),
         Err(_) => Some("[Error: HTTP request failed]".to_string()),
     }
@@ -165,5 +175,36 @@ mod tests {
         let url = format!("http://127.0.0.1:{}", port);
         let res = resolve_status(&url);
         assert_eq!(res, Some("404".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_get_response_capped() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::thread;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0; 512];
+                let _ = stream.read(&mut buf);
+                // Send header and 12 MiB of 'A'
+                let header = "HTTP/1.1 200 OK\r\nContent-Length: 12582912\r\n\r\n";
+                let _ = stream.write_all(header.as_bytes());
+                let payload = vec![b'A'; 1024 * 1024];
+                for _ in 0..12 {
+                    if stream.write_all(&payload).is_err() {
+                        break;
+                    }
+                }
+                let _ = stream.flush();
+            }
+        });
+
+        let url = format!("http://127.0.0.1:{}", port);
+        let res = resolve_get(&url).unwrap();
+        assert_eq!(res.len(), MAX_HTTP_RESPONSE_BYTES);
     }
 }

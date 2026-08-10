@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 
-const FAST_BUFFER_CAPACITY: usize = 512;
+pub const FAST_BUFFER_CAPACITY: usize = 1024 * 1024; // 1 MiB hard capacity cap (1,048,576 chars)
+const INITIAL_BUFFER_CAPACITY: usize = 512;
 
 use smallvec::SmallVec;
 
@@ -20,7 +21,7 @@ impl Default for FastBuffer {
 impl FastBuffer {
     pub fn new() -> Self {
         Self {
-            data: vec!['\0'; FAST_BUFFER_CAPACITY],
+            data: vec!['\0'; INITIAL_BUFFER_CAPACITY],
             head: 0,
             len: 0,
         }
@@ -28,7 +29,10 @@ impl FastBuffer {
 
     fn grow(&mut self) {
         let old_capacity = self.data.len();
-        let new_capacity = old_capacity * 2;
+        let new_capacity = (old_capacity * 2).min(FAST_BUFFER_CAPACITY);
+        if new_capacity <= old_capacity {
+            return;
+        }
         let mut new_data = vec!['\0'; new_capacity];
         let start = (self.head + old_capacity - self.len) % old_capacity;
         for (i, item) in new_data.iter_mut().take(self.len).enumerate() {
@@ -40,6 +44,12 @@ impl FastBuffer {
 
     pub fn push(&mut self, c: char) {
         if self.len >= self.data.len() {
+            if self.data.len() >= FAST_BUFFER_CAPACITY {
+                let capacity = self.data.len();
+                self.data[self.head] = c;
+                self.head = (self.head + 1) % capacity;
+                return;
+            }
             self.grow();
         }
 
@@ -55,6 +65,7 @@ impl FastBuffer {
         if self.len > 0 {
             let capacity = self.data.len();
             self.head = (self.head + capacity - 1) % capacity;
+            self.data[self.head] = '\0';
             self.len -= 1;
         }
     }
@@ -109,6 +120,7 @@ impl FastBuffer {
     }
 
     pub fn clear(&mut self) {
+        self.data.fill('\0');
         self.head = 0;
         self.len = 0;
     }
@@ -835,5 +847,29 @@ mod tests {
         }
         let candidates2 = b2.extract_suffix_candidates();
         assert!(candidates2.iter().any(|(s, _)| s == "-USD 3,200"));
+    }
+
+    #[test]
+    fn test_buffer_clear_zeroes_memory() {
+        let mut b = FastBuffer::new();
+        type_str(&mut b, "secret_password_123");
+        assert!(b.data.contains(&'s'));
+        b.clear();
+        assert_eq!(b.len, 0);
+        assert_eq!(b.head, 0);
+        assert!(b.data.iter().all(|&c| c == '\0'));
+    }
+
+    #[test]
+    fn test_buffer_hard_capacity_cap() {
+        let mut b = FastBuffer::new();
+        b.data = vec!['\0'; FAST_BUFFER_CAPACITY];
+        b.len = FAST_BUFFER_CAPACITY;
+        b.head = 0;
+
+        b.push('Z');
+        assert_eq!(b.len, FAST_BUFFER_CAPACITY);
+        assert_eq!(b.data.len(), FAST_BUFFER_CAPACITY);
+        assert_eq!(b.data[0], 'Z');
     }
 }

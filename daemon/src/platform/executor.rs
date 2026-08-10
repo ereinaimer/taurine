@@ -5,10 +5,14 @@ use std::time::Duration;
 use taurine_core::engine::shell::{ScriptInterpreter, ScriptMetadata, decompress};
 use tokio::process::Command;
 
-const SCRIPT_TIMEOUT: Duration = Duration::from_secs(20);
+use tokio::io::AsyncReadExt;
+
+pub const MAX_SCRIPT_OUTPUT_BYTES: usize = 4 * 1024 * 1024; // 4 MiB stream drain cap
 
 pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<String> {
     let script_content = decompress(&metadata.compressed_content)?;
+    let timeout =
+        taurine_core::settings::Settings::get_script_timeout().unwrap_or(Duration::from_secs(20));
 
     let mut cmd = match metadata.interpreter {
         ScriptInterpreter::Bash => {
@@ -70,11 +74,11 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
     })?;
 
     // We take the pipes from the child so we can read them concurrently with wait()
-    let mut stdout_pipe = child
+    let stdout_pipe = child
         .stdout
         .take()
         .ok_or_else(|| taurine_core::Error::Service("Failed to capture stdout".to_string()))?;
-    let mut stderr_pipe = child
+    let stderr_pipe = child
         .stderr
         .take()
         .ok_or_else(|| taurine_core::Error::Service("Failed to capture stderr".to_string()))?;
@@ -82,12 +86,15 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
     let mut stdout_bytes = Vec::new();
     let mut stderr_bytes = Vec::new();
 
+    let mut bounded_stdout = stdout_pipe.take(MAX_SCRIPT_OUTPUT_BYTES as u64);
+    let mut bounded_stderr = stderr_pipe.take(MAX_SCRIPT_OUTPUT_BYTES as u64);
+
     tokio::select! {
         res = async {
             tokio::join!(
                 child.wait(),
-                tokio::io::copy(&mut stdout_pipe, &mut stdout_bytes),
-                tokio::io::copy(&mut stderr_pipe, &mut stderr_bytes)
+                tokio::io::copy(&mut bounded_stdout, &mut stdout_bytes),
+                tokio::io::copy(&mut bounded_stderr, &mut stderr_bytes)
             )
         } => {
             let (status_res, _, _) = res;
@@ -109,9 +116,12 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
                 Err(taurine_core::Error::Service(err_cleaned))
             }
         }
-        _ = tokio::time::sleep(SCRIPT_TIMEOUT) => {
+        _ = tokio::time::sleep(timeout) => {
             let _ = child.kill().await;
-            Err(taurine_core::Error::Service("Script timed out after 20s".to_string()))
+            Err(taurine_core::Error::Service(format!(
+                "Script timed out after {}s",
+                timeout.as_secs()
+            )))
         }
         _ = async {
             let captured_gen = injector::capture_generation();

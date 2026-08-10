@@ -493,9 +493,12 @@ fn bash_file_path_arg(path: &str) -> &str {
     path
 }
 
-fn read_pipe(mut pipe: impl Read) -> Result<Vec<u8>, String> {
+pub const MAX_SCRIPT_OUTPUT_BYTES: usize = 4 * 1024 * 1024; // 4 MiB stream drain cap
+
+fn read_pipe(pipe: impl Read) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();
-    pipe.read_to_end(&mut bytes)
+    pipe.take(MAX_SCRIPT_OUTPUT_BYTES as u64)
+        .read_to_end(&mut bytes)
         .map_err(|e| format!("Failed to read script output: {e}"))?;
     Ok(bytes)
 }

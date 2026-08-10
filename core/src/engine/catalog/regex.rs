@@ -18,6 +18,9 @@ struct ParsedRegexAction {
     action: TriggerAction,
 }
 
+pub const MAX_REGEX_PATTERN_BYTES: usize = 64 * 1024; // 64 KiB
+pub const MAX_REGEX_PATTERNS_COUNT: usize = 512;
+
 impl RegexCatalog {
     pub fn new() -> Self {
         Self {
@@ -35,11 +38,17 @@ impl RegexCatalog {
     pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, TriggerAction)>) {
         let mut entries = Vec::new();
         for (pattern, action) in actions {
+            if pattern.len() > MAX_REGEX_PATTERN_BYTES {
+                continue;
+            }
             entries.push(ParsedRegexAction {
                 pattern,
                 regex: OnceLock::new(),
                 action,
             });
+            if entries.len() >= MAX_REGEX_PATTERNS_COUNT {
+                break;
+            }
         }
         if let Ok(mut guard) = self.snapshot.write() {
             guard.entries = entries;
@@ -86,5 +95,31 @@ impl RegexCatalog {
 impl Default for RegexCatalog {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_regex_catalog_ignores_overlong_patterns() {
+        let catalog = RegexCatalog::new();
+        let overlong_pattern = "a".repeat(MAX_REGEX_PATTERN_BYTES + 1);
+        let action = TriggerAction::text("test");
+        catalog.load_actions(vec![(overlong_pattern, action)]);
+        assert!(catalog.is_empty());
+    }
+
+    #[test]
+    fn test_regex_catalog_caps_total_patterns() {
+        let catalog = RegexCatalog::new();
+        let action = TriggerAction::text("test");
+        let items =
+            (0..MAX_REGEX_PATTERNS_COUNT + 10).map(|i| (format!("pat_{i}"), action.clone()));
+        catalog.load_actions(items);
+
+        let guard = catalog.snapshot.read().unwrap();
+        assert_eq!(guard.entries.len(), MAX_REGEX_PATTERNS_COUNT);
     }
 }
