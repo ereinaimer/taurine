@@ -88,20 +88,20 @@ pub fn ensure_data_dir() -> PathBuf {
                 e
             );
         }
-    }
 
-    #[cfg(all(unix, not(target_os = "android")))]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if let Ok(metadata) = fs::metadata(&data_dir) {
-            let mut perms = metadata.permissions();
-            if perms.mode() & 0o777 != 0o700 {
-                perms.set_mode(0o700);
-                if let Err(e) = fs::set_permissions(&data_dir, perms) {
-                    debug!(
-                        "Failed to set permissions 0700 on app data directory: {}",
-                        e
-                    );
+        #[cfg(all(unix, not(target_os = "android")))]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(metadata) = fs::metadata(&data_dir) {
+                let mut perms = metadata.permissions();
+                if perms.mode() & 0o777 != 0o700 {
+                    perms.set_mode(0o700);
+                    if let Err(e) = fs::set_permissions(&data_dir, perms) {
+                        debug!(
+                            "Failed to set permissions 0700 on app data directory: {}",
+                            e
+                        );
+                    }
                 }
             }
         }

@@ -153,6 +153,12 @@ fn ensure_linux_permissions() -> crate::error::Result<()> {
         tracing::info!("Configuring system permissions for hardware access...");
 
         let exe = std::env::current_exe()?;
+        let canonical_exe = exe.canonicalize().unwrap_or_else(|_| exe.clone());
+        if !canonical_exe.exists() || !canonical_exe.is_file() {
+            return Err(crate::Error::Service(
+                "Invalid executable path for administrative elevation.".to_string(),
+            ));
+        }
 
         // Detect if we are in a GUI session (X11 or Wayland) and run from an interactive terminal (non-headless)
         let is_gui = (std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok())
@@ -161,7 +167,7 @@ fn ensure_linux_permissions() -> crate::error::Result<()> {
         let status = if is_gui {
             tracing::info!("Requesting administrative access...");
             match std::process::Command::new("pkexec")
-                .arg(&exe)
+                .arg(&canonical_exe)
                 .arg("setup")
                 .status()
             {
@@ -172,7 +178,7 @@ fn ensure_linux_permissions() -> crate::error::Result<()> {
                         err
                     );
                     std::process::Command::new("sudo")
-                        .arg(&exe)
+                        .arg(&canonical_exe)
                         .arg("setup")
                         .status()
                         .map_err(|e| {
@@ -183,7 +189,7 @@ fn ensure_linux_permissions() -> crate::error::Result<()> {
         } else {
             tracing::info!("Requesting administrative access...");
             std::process::Command::new("sudo")
-                .arg(&exe)
+                .arg(&canonical_exe)
                 .arg("setup")
                 .status()
                 .map_err(|e| crate::Error::Service(format!("Failed to invoke sudo: {}", e)))?
@@ -213,7 +219,7 @@ fn linux_direct_install(autostart: bool, label: &ServiceLabel) -> crate::error::
         "[Unit]\n\
          Description=Taurine\n\n\
          [Service]\n\
-         ExecStart={} --daemon\n\
+         ExecStart=\"{}\" --daemon\n\
          Restart=always\n\n\
          [Install]\n\
          WantedBy=default.target\n",

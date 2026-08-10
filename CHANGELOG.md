@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Post-Expansion Case Cycling**: Cycle expanded text capitalization (UPPERCASE, lowercase, Sentence case, Title Case) using Left and Right arrow keys within the active undo window.
 
 ### Changed
+- **IP Lookups & AI Provider Hardening**: Upgrade IP lookups to HTTPS, scope custom AI endpoints, and cap parallel AI completions.
 - **Export Secrets & Perms Hardening**: Enforce 8-character export passwords, 0600 file permissions, zeroized password buffers, and exclude authentication tokens from exchange files.
 - **Resource Limits & Buffer Safety**: Enforce strict caps on HTTP response sizes, internal key buffers, script output drains, regex catalog entries, and dead-key loop retries.
 - **AI Expansion Protection**: AI-generated text no longer executes embedded script commands.

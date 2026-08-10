@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
@@ -18,6 +19,8 @@ use taurine_core::ai::{
     resolve_provider_from_settings,
 };
 use taurine_core::settings::SettingsManager;
+
+pub const MAX_PARALLEL_AI_CALLS: usize = 4;
 
 const STREAM_BATCH_WINDOW_MS: u64 = 50;
 const STREAM_ERROR_PREFIX: &str = "Error: ";
@@ -220,6 +223,7 @@ async fn run_ai_transformer_stream_inner(
 
     let chunks = split_outermost_markers(&template_with_markers);
     let mut handles = Vec::new();
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_PARALLEL_AI_CALLS));
 
     for chunk in chunks {
         match chunk {
@@ -230,7 +234,9 @@ async fn run_ai_transformer_stream_inner(
                 let client = client.clone();
                 let model = resolved.as_ref().map(|r| r.model.clone());
                 let provider = resolved.as_ref().map(|r| r.provider);
+                let permit = semaphore.clone();
                 handles.push(tokio::spawn(async move {
+                    let _permit = permit.acquire_owned().await.ok();
                     evaluate_marker_tree(m, client, provider, model).await
                 }));
             }
@@ -483,6 +489,11 @@ fn build_chat_client(
     custom_endpoint: Option<String>,
 ) -> Client {
     let api_key = Zeroizing::new(api_key.to_string());
+    let custom_endpoint = if provider == AiProvider::Custom {
+        custom_endpoint
+    } else {
+        None
+    };
     Client::builder()
         .with_service_target_resolver_fn(move |service_target: ServiceTarget| {
             let ServiceTarget {
