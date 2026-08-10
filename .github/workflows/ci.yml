@@ -151,11 +151,6 @@ jobs:
             Set-MpPreference -DisableRealtimeScanning $true
           }
 
-      - name: Ensure cargo bin dir exists (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: mkdir -p ~/.cargo/bin
-
       - name: Install cargo-nextest
         uses: taiki-e/install-action@899b013517f9e7774591216672bf75a46bb9a481 # v2.9.4
         with:
