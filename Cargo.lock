@@ -5131,6 +5131,7 @@ dependencies = [
  "tracing-appender",
  "tray-icon",
  "unicode-normalization",
+ "uuid",
  "wayland-client",
  "wayland-protocols-wlr",
  "windows-sys 0.61.2",
