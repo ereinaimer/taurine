@@ -60,7 +60,7 @@ impl crate::engine::evaluator::Evaluator {
                 continue;
             }
 
-            // Strip leading + so chrono_english receives a clean phrase;
+            // Strip leading + so interim receives a clean phrase;
             // - prefix is handled inside preprocess_date_phrase (converted to "ago" suffix)
             let candidate_clean = candidate.trim_start_matches('+').to_string();
 

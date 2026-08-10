@@ -263,19 +263,19 @@ pub fn parse_natural_date(
     preferred_dialect: &str,
 ) -> Option<(OffsetDateTime, bool, bool)> {
     let cleaned = preprocess_date_phrase(expr);
-    let now = chrono::Local::now();
+    let now = chrono::Local::now().fixed_offset();
     let primary_dialect = match preferred_dialect {
-        "us" => chrono_english::Dialect::Us,
-        _ => chrono_english::Dialect::Uk,
+        "us" => interim::Dialect::Us,
+        _ => interim::Dialect::Uk,
     };
     let alt_dialect = match primary_dialect {
-        chrono_english::Dialect::Us => chrono_english::Dialect::Uk,
-        chrono_english::Dialect::Uk => chrono_english::Dialect::Us,
+        interim::Dialect::Us => interim::Dialect::Uk,
+        interim::Dialect::Uk => interim::Dialect::Us,
     };
 
     // Try primary dialect first, then fallback to secondary dialect
-    let parsed = chrono_english::parse_date_string(&cleaned, now, primary_dialect)
-        .or_else(|_| chrono_english::parse_date_string(&cleaned, now, alt_dialect))
+    let parsed = interim::parse_date_string(&cleaned, now, primary_dialect)
+        .or_else(|_| interim::parse_date_string(&cleaned, now, alt_dialect))
         .ok()?;
 
     let timestamp = parsed.timestamp();

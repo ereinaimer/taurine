@@ -139,7 +139,7 @@ impl ExpansionCatalog {
             return None;
         }
 
-        // Strip leading +/- so chrono_english receives a clean phrase;
+        // Strip leading +/- so interim receives a clean phrase;
         // - prefix is already handled by preprocess_date_phrase (converts to "ago" suffix)
         let cleaned = keyword.trim_start_matches('+');
         if is_excluded_phrase(cleaned) {

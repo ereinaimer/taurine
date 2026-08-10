@@ -895,13 +895,13 @@ fn apply_relative_with_tz(
     time_format: &str,
     dialect: &str,
 ) -> Option<String> {
-    use chrono_english::parse_date_string;
+    use interim::parse_date_string;
 
     let cleaned = crate::engine::dates::preprocess_date_phrase(relative_expr);
-    let now = chrono::Local::now();
+    let now = chrono::Local::now().fixed_offset();
     let primary_dialect = match dialect {
-        "us" => chrono_english::Dialect::Us,
-        _ => chrono_english::Dialect::Uk,
+        "us" => interim::Dialect::Us,
+        _ => interim::Dialect::Uk,
     };
     let parsed = parse_date_string(&cleaned, now, primary_dialect).ok()?;
 

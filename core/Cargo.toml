@@ -6,6 +6,7 @@ authors.workspace = true
 description.workspace = true
 repository.workspace = true
 license-file.workspace = true
+publish = false
 
 [lib]
 crate-type = ["lib", "cdylib", "staticlib"]
@@ -62,7 +63,7 @@ emojis = "0.9.0"
 arc-swap = "1.7"
 unicode-normalization = "0.1"
 chrono = "0.4"
-chrono-english = "0.1"
+interim = { version = "0.1", features = ["chrono"] }
 chrono-tz = "0.10"
 phf = { version = "0.13", features = ["macros"] }
 num2words = "1.2"
