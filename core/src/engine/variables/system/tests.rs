@@ -753,3 +753,32 @@ mod compatibility_finalize_tests {
         }
     }
 }
+
+#[test]
+fn test_finalize_ai_origin_blocks_exec_and_preserves_literal_text() {
+    use crate::engine::variables::types::ExpansionOrigin;
+
+    let input = "AI output containing [exec.powershell(\"Get-Process\")] should be literal.";
+    let res = finalize_with_origin(input, None, ExpansionOrigin::Ai);
+    assert_eq!(
+        res.steps,
+        vec![ExpansionStep::Text(
+            "AI output containing [exec.powershell(\"Get-Process\")] should be literal."
+                .to_string()
+        )]
+    );
+}
+
+#[test]
+fn test_finalize_user_origin_preserves_exec_inline_run() {
+    use crate::engine::variables::types::ExpansionOrigin;
+
+    let input = "User snippet [exec.powershell(\"whoami\")]";
+    let res = finalize_with_origin(input, None, ExpansionOrigin::User);
+    assert_eq!(res.steps.len(), 2);
+    assert_eq!(
+        res.steps[0],
+        ExpansionStep::Text("User snippet ".to_string())
+    );
+    assert!(matches!(res.steps[1], ExpansionStep::InlineRun(_, _)));
+}

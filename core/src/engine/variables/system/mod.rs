@@ -18,7 +18,7 @@ pub mod transformers;
 pub mod uuid;
 
 use super::tags::*;
-use crate::engine::variables::types::{ExpansionStep, FinalExpansion};
+use crate::engine::variables::types::{ExpansionOrigin, ExpansionStep, FinalExpansion};
 
 const CURSOR_TAG: &str = "[cursor]";
 const ESCAPED_CURSOR_LITERAL: &str = r#"\[cursor\]"#;
@@ -137,12 +137,21 @@ pub fn strip_argument_quotes(arg: &str) -> &str {
 /// **Conflict rule**: `[cursor]` and `[key.*]` directives cannot coexist.
 /// If any `[key.*]` directive is present, `[cursor]` is treated as literal text.
 pub fn finalize(interpolated: &str, trigger: Option<&str>) -> FinalExpansion {
+    finalize_with_origin(interpolated, trigger, ExpansionOrigin::User)
+}
+
+/// Performs final post-processing on the interpolated string with explicit origin context.
+pub fn finalize_with_origin(
+    interpolated: &str,
+    trigger: Option<&str>,
+    origin: ExpansionOrigin,
+) -> FinalExpansion {
     let _ = validate_output(interpolated, trigger);
 
     let has_key_directives = contains_key_or_delay_directives(interpolated);
 
     // Unified pipeline: always split into steps.
-    let mut steps = split_into_steps(interpolated);
+    let mut steps = split_into_steps_with_origin(interpolated, origin);
 
     if has_key_directives {
         // [cursor] stays as literal text; just restore escaped cursor sentinels.
@@ -326,7 +335,8 @@ pub fn validate_output(output: &str, trigger: Option<&str>) -> crate::error::Res
 /// `[cursor]` is preserved as-is for the `apply_cursor_positioning` post-pass.
 /// Escaped `\[cursor\]` is stored with a sentinel to avoid false matches.
 const ESCAPED_CURSOR_SENTINEL: &str = "\x00ESC_CURSOR\x00";
-fn split_into_steps(text: &str) -> Vec<ExpansionStep> {
+
+fn split_into_steps_with_origin(text: &str, origin: ExpansionOrigin) -> Vec<ExpansionStep> {
     let mut steps: Vec<ExpansionStep> = Vec::new();
     let mut current_text = String::new();
     let mut ptr = 0;
@@ -340,18 +350,24 @@ fn split_into_steps(text: &str) -> Vec<ExpansionStep> {
         let transformers: Vec<String> = pipeline[1..].iter().map(|s| s.to_string()).collect();
 
         if base_expr.starts_with("exec.") {
-            flush_text(&mut steps, &mut current_text);
-            if !crate::settings::get_cached_scripts_enabled() {
-                tracing::warn!(
-                    "Blocked execution of [exec.*] block because scripts are disabled globally."
-                );
-                steps.push(ExpansionStep::Text(
-                    "[Error: Script execution is disabled globally]".to_string(),
-                ));
+            if origin == ExpansionOrigin::Ai {
+                current_text.push_str(&text[tag.start..tag.end + 1]);
             } else {
-                match exec::to_script_metadata(base_expr) {
-                    Ok(metadata) => steps.push(ExpansionStep::InlineRun(metadata, transformers)),
-                    Err(error) => steps.push(ExpansionStep::Text(format_run_error(error))),
+                flush_text(&mut steps, &mut current_text);
+                if !crate::settings::get_cached_scripts_enabled() {
+                    tracing::warn!(
+                        "Blocked execution of [exec.*] block because scripts are disabled globally."
+                    );
+                    steps.push(ExpansionStep::Text(
+                        "[Error: Script execution is disabled globally]".to_string(),
+                    ));
+                } else {
+                    match exec::to_script_metadata(base_expr) {
+                        Ok(metadata) => {
+                            steps.push(ExpansionStep::InlineRun(metadata, transformers))
+                        }
+                        Err(error) => steps.push(ExpansionStep::Text(format_run_error(error))),
+                    }
                 }
             }
         } else if let Some(alias) = parse_key_directive(inner) {

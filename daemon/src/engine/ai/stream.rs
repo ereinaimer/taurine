@@ -280,7 +280,11 @@ async fn run_ai_transformer_stream_inner(
         return Ok(());
     }
 
-    let expansion = taurine_core::engine::variables::system::finalize(&output_text, None);
+    let expansion = taurine_core::engine::variables::system::finalize_with_origin(
+        &output_text,
+        None,
+        taurine_core::engine::variables::ExpansionOrigin::Ai,
+    );
     let output_chars: usize = expansion
         .steps
         .iter()

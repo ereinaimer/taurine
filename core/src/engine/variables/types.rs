@@ -7,6 +7,16 @@ pub struct ArgMap {
     pub positional: Vec<String>,
 }
 
+/// Indicates the origin of content being expanded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ExpansionOrigin {
+    /// Expansion requested directly by the user (snippets, external scripts, import/export).
+    #[default]
+    User,
+    /// Expansion derived from an AI response stream.
+    Ai,
+}
+
 /// A single atomic action within an expansion sequence.
 ///
 /// Expansions are a series of steps that the injector executes in order,

@@ -16,5 +16,5 @@ pub use registry::{
     ValidationError, split_system_tag, strip_global_transformers, valid_modifier_hint,
     validate_system_tag,
 };
-pub use system::finalize;
-pub use types::{ArgMap, ExpansionStep, FinalExpansion};
+pub use system::{finalize, finalize_with_origin};
+pub use types::{ArgMap, ExpansionOrigin, ExpansionStep, FinalExpansion};
