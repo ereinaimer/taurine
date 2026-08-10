@@ -104,12 +104,6 @@ jobs:
       - name: Cache compile artifacts (sccache)
         uses: mozilla-actions/sccache-action@fd02668681acd5f960e1372061bee5e3e987195c # v0.0.11
 
-      - name: Configure sccache GHA backend credentials
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
-        with:
-          script: |
-            core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
       - name: Run Clippy
         env:
@@ -157,6 +151,11 @@ jobs:
             Set-MpPreference -DisableRealtimeScanning $true
           }
 
+      - name: Ensure cargo bin dir exists (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: mkdir -p ~/.cargo/bin
+
       - name: Install cargo-nextest
         uses: taiki-e/install-action@899b013517f9e7774591216672bf75a46bb9a481 # v2.9.4
         with:
@@ -195,12 +194,6 @@ jobs:
       - name: Cache compile artifacts (sccache)
         uses: mozilla-actions/sccache-action@fd02668681acd5f960e1372061bee5e3e987195c # v0.0.11
 
-      - name: Configure sccache GHA backend credentials
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
-        with:
-          script: |
-            core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
       - name: Run tests (nextest)
         run: cargo nextest run --locked --workspace --all-features
