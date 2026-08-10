@@ -150,7 +150,11 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
             "{:<kw$}{:pad$}{}",
             "rpc_token",
             "",
-            settings.rpc_token,
+            if settings.rpc_token.trim().is_empty() {
+                "(unset)"
+            } else {
+                "(set)"
+            },
             kw = max_key_len,
             pad = pad
         );
@@ -340,7 +344,7 @@ pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::erro
                 return Ok(());
             }
             manager.update_setting(actual_key, val.to_string())?;
-            info!("Updated rpc_token to: {}", val);
+            info!("Updated rpc_token (value redacted)");
         }
         "inline_datetime_date_format"
         | "inline_datetime_time_format"
@@ -567,7 +571,7 @@ pub fn execute_reset(key: String, json: bool) -> taurine_core::error::Result<()>
         "rpc_token" => {
             let token = uuid::Uuid::new_v4().to_string();
             manager.update_setting(actual_key, token.clone())?;
-            info!("Generated new rpc_token: {}", token);
+            info!("Generated new rpc_token (value redacted)");
         }
         "script_timeout" => {
             manager.update_setting(actual_key, defaults.script_timeout)?;

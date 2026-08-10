@@ -340,7 +340,13 @@ impl SettingKey {
                 taurine_core::settings::RpcMode::Tcp => "tcp".to_string(),
             },
             Self::RpcHost => settings.rpc_host.clone(),
-            Self::RpcToken => settings.rpc_token.clone(),
+            Self::RpcToken => {
+                if settings.rpc_token.trim().is_empty() {
+                    "(unset)".to_string()
+                } else {
+                    "(set)".to_string()
+                }
+            }
             Self::ScriptsEnabled => settings.scripts_enabled.to_string(),
             Self::ClipboardHistoryEnabled => settings.clipboard_history_enabled.to_string(),
             Self::ClipboardHistoryRetentionSecs => {
@@ -375,7 +381,13 @@ impl SettingKey {
             Self::InlineAiTriggerOpen => settings.inline_ai_trigger_open.clone(),
             Self::InlineAiTriggerClose => settings.inline_ai_trigger_close.clone(),
             Self::RpcHost => settings.rpc_host.clone(),
-            Self::RpcToken => settings.rpc_token.clone(),
+            Self::RpcToken => {
+                if settings.rpc_token.trim().is_empty() {
+                    String::new()
+                } else {
+                    "(set)".to_string()
+                }
+            }
             Self::PauseNotificationsEnabled
             | Self::PauseAudioEnabled
             | Self::StartOnBoot

@@ -183,7 +183,7 @@ pub enum RpcMode {
     Tcp,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct Settings {
     pub pause_hotkey: String,
     pub pause_notifications_enabled: bool,
@@ -224,6 +224,79 @@ pub struct Settings {
     pub inline_datetime_datetime_format: String,
     pub inline_datetime_dialect: String,
     pub inline_currency_to_words_enabled: bool,
+}
+
+impl std::fmt::Debug for Settings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Settings")
+            .field("pause_hotkey", &self.pause_hotkey)
+            .field(
+                "pause_notifications_enabled",
+                &self.pause_notifications_enabled,
+            )
+            .field("pause_audio_enabled", &self.pause_audio_enabled)
+            .field("start_on_boot", &self.start_on_boot)
+            .field(
+                "inline_tab_completion_enabled",
+                &self.inline_tab_completion_enabled,
+            )
+            .field(
+                "inline_case_transform_enabled",
+                &self.inline_case_transform_enabled,
+            )
+            .field("wpm", &self.wpm)
+            .field("spinner_style", &self.spinner_style)
+            .field("ai_provider", &self.ai_provider)
+            .field("ai_model", &self.ai_model)
+            .field("ai_custom_endpoint", &self.ai_custom_endpoint)
+            .field("inline_ai_trigger_mode", &self.inline_ai_trigger_mode)
+            .field("inline_ai_trigger", &self.inline_ai_trigger)
+            .field("inline_ai_trigger_open", &self.inline_ai_trigger_open)
+            .field("inline_ai_trigger_close", &self.inline_ai_trigger_close)
+            .field(
+                "clipboard_restore_delay_ms",
+                &self.clipboard_restore_delay_ms,
+            )
+            .field("instant_expand", &self.instant_expand)
+            .field("rpc_mode", &self.rpc_mode)
+            .field("rpc_host", &self.rpc_host)
+            .field("rpc_port", &self.rpc_port)
+            .field("rpc_token", &"(redacted)")
+            .field("ignore_fullscreen", &self.ignore_fullscreen)
+            .field("script_timeout", &self.script_timeout)
+            .field("ai_temperature", &self.ai_temperature)
+            .field("ai_max_tokens", &self.ai_max_tokens)
+            .field("ai_system_prompt", &self.ai_system_prompt)
+            .field("auto_update", &self.auto_update)
+            .field("clipboard_history_enabled", &self.clipboard_history_enabled)
+            .field(
+                "clipboard_history_retention_secs",
+                &self.clipboard_history_retention_secs,
+            )
+            .field("inline_emoji_enabled", &self.inline_emoji_enabled)
+            .field("inline_emoji_trigger_char", &self.inline_emoji_trigger_char)
+            .field("scripts_enabled", &self.scripts_enabled)
+            .field("system_tray_enabled", &self.system_tray_enabled)
+            .field("inline_datetime_enabled", &self.inline_datetime_enabled)
+            .field(
+                "inline_datetime_date_format",
+                &self.inline_datetime_date_format,
+            )
+            .field(
+                "inline_datetime_time_format",
+                &self.inline_datetime_time_format,
+            )
+            .field(
+                "inline_datetime_datetime_format",
+                &self.inline_datetime_datetime_format,
+            )
+            .field("inline_datetime_dialect", &self.inline_datetime_dialect)
+            .field(
+                "inline_currency_to_words_enabled",
+                &self.inline_currency_to_words_enabled,
+            )
+            .finish()
+    }
 }
 
 impl Settings {
@@ -447,5 +520,16 @@ mod tests {
             Settings::resolve_key("inline_currency_words"),
             "inline_currency_to_words_enabled"
         );
+    }
+
+    #[test]
+    fn test_settings_debug_redacts_rpc_token() {
+        let settings = Settings {
+            rpc_token: "secret-token-12345".to_string(),
+            ..Settings::default()
+        };
+        let debug_str = format!("{:?}", settings);
+        assert!(!debug_str.contains("secret-token-12345"));
+        assert!(debug_str.contains("(redacted)"));
     }
 }

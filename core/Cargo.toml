@@ -48,6 +48,8 @@ aes-gcm = "0.11"
 argon2 = "0.5"
 rand = "0.10"
 zeroize = "1.8"
+subtle = "2.6"
+
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 wait-timeout = "0.2"
 service-manager = "0.11.0"

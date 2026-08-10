@@ -425,16 +425,46 @@ pub fn start() -> taurine_core::error::Result<()> {
                 }
             };
 
+            let rate_limiter = AuthRateLimiter::new();
             let auth_token = token.clone();
             let auth_interceptor =
                 move |req: tonic::Request<()>| -> Result<tonic::Request<()>, tonic::Status> {
+                    let remote_ip: std::net::IpAddr = req
+                        .remote_addr()
+                        .map(|a| a.ip())
+                        .unwrap_or_else(|| [127, 0, 0, 1].into());
+
+                    if let Err(remaining) = rate_limiter.check_allowed(remote_ip) {
+                        return Err(tonic::Status::unauthenticated(format!(
+                            "Too many failed authentication attempts. Locked out for {}s",
+                            remaining.as_secs()
+                        )));
+                    }
+
+                    let expected_bytes = auth_token.as_bytes();
+                    if expected_bytes.is_empty() {
+                        rate_limiter.record_failure(remote_ip);
+                        return Err(tonic::Status::unauthenticated(
+                            "Invalid or missing RPC token",
+                        ));
+                    }
+
                     if let Some(auth_val) = req.metadata().get("authorization")
                         && let Ok(auth_str) = auth_val.to_str()
-                        && auth_str.starts_with("Bearer ")
-                        && &auth_str[7..] == auth_token.as_str()
+                        && let Some(token_part) = auth_str.strip_prefix("Bearer ")
                     {
-                        return Ok(req);
+                        use subtle::ConstantTimeEq;
+                        let provided = token_part.as_bytes();
+                        if !provided.is_empty()
+                            && provided.len() == expected_bytes.len()
+                            && provided.ct_eq(expected_bytes).into()
+                        {
+                            rate_limiter.record_success(remote_ip);
+                            return Ok(req);
+                        }
                     }
+
+                    rate_limiter.record_failure(remote_ip);
                     Err(tonic::Status::unauthenticated(
                         "Invalid or missing RPC token",
                     ))
@@ -737,8 +767,88 @@ impl tonic::transport::server::Connected for NamedPipeConn {
     fn connect_info(&self) -> Self::ConnectInfo {}
 }
 
+#[derive(Debug, Clone)]
+struct IpRateLimitRecord {
+    fail_count: u32,
+    window_start: std::time::Instant,
+    lockout_until: Option<std::time::Instant>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthRateLimiter {
+    state: std::sync::Arc<
+        std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, IpRateLimitRecord>>,
+    >,
+}
+
+impl Default for AuthRateLimiter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AuthRateLimiter {
+    pub fn new() -> Self {
+        Self {
+            state: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        }
+    }
+
+    pub fn check_allowed(&self, ip: std::net::IpAddr) -> Result<(), std::time::Duration> {
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        let now = std::time::Instant::now();
+        if let Some(record) = state.get_mut(&ip) {
+            if let Some(until) = record.lockout_until {
+                if now < until {
+                    return Err(until.duration_since(now));
+                }
+                record.lockout_until = None;
+                record.window_start = now;
+            } else if now.duration_since(record.window_start) > std::time::Duration::from_secs(60) {
+                record.window_start = now;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn record_failure(&self, ip: std::net::IpAddr) {
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        let now = std::time::Instant::now();
+        let entry = state.entry(ip).or_insert_with(|| IpRateLimitRecord {
+            fail_count: 0,
+            window_start: now,
+            lockout_until: None,
+        });
+        if now.duration_since(entry.window_start) > std::time::Duration::from_secs(60)
+            && entry.lockout_until.is_none()
+        {
+            entry.fail_count = 0;
+            entry.window_start = now;
+        }
+        entry.fail_count += 1;
+
+        if entry.fail_count >= 10 {
+            let excess = entry.fail_count - 10;
+            let multiplier = 2u64.saturating_pow(excess);
+            let backoff_secs = (30 * multiplier).min(900);
+            entry.lockout_until = Some(now + std::time::Duration::from_secs(backoff_secs));
+            tracing::warn!(
+                "RPC authentication rate limit exceeded for IP {}. Locking out for {}s.",
+                ip,
+                backoff_secs
+            );
+        }
+    }
+
+    pub fn record_success(&self, ip: std::net::IpAddr) {
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        state.remove(&ip);
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
 
     #[test]
     fn test_tray_module_exists() {
@@ -746,5 +856,26 @@ mod tests {
         let enabled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
 
         crate::services::tray::spawn(paused, enabled);
+    }
+
+    #[test]
+    fn test_auth_rate_limiter_lockout_and_reset() {
+        let limiter = AuthRateLimiter::new();
+        let ip: std::net::IpAddr = "127.0.0.1".parse().unwrap();
+
+        for _ in 0..9 {
+            assert!(limiter.check_allowed(ip).is_ok());
+            limiter.record_failure(ip);
+        }
+
+        assert!(limiter.check_allowed(ip).is_ok());
+        // 10th failure triggers lockout
+        limiter.record_failure(ip);
+
+        assert!(limiter.check_allowed(ip).is_err());
+
+        // Successful auth resets rate limit
+        limiter.record_success(ip);
+        assert!(limiter.check_allowed(ip).is_ok());
     }
 }
