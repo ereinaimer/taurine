@@ -65,7 +65,7 @@ unicode-normalization = "0.1"
 chrono = "0.4"
 interim = { version = "0.1", features = ["chrono"] }
 chrono-tz = "0.10"
-phf = { version = "0.13", features = ["macros"] }
+phf = { version = "0.14", features = ["macros"] }
 num2words = "1.2"
 genai = "0.6.5"
 
