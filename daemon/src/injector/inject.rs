@@ -239,8 +239,6 @@ fn inject_image_segment_with_gen(
         thread::sleep(post_paste_wait);
     }
 
-    let _ = std::fs::remove_file(&temp_path);
-
     TextSegmentInjection {
         original_clipboard: Some(orig),
         injected_chars: 1,

@@ -176,7 +176,7 @@ fn execute_inner(silent: bool) -> Result<()> {
         s.step("Downloading");
     }
 
-    let temp_dir = std::env::temp_dir();
+    let temp_dir = taurine_core::system::paths::ensure_temp_dir();
     let archive_path = temp_dir.join(format!("taurine-update-{}", uuid::Uuid::new_v4()));
     let binary_path = temp_dir.join(format!("taurine-bin-{}", uuid::Uuid::new_v4()));
 

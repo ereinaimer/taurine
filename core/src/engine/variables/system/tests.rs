@@ -755,15 +755,15 @@ mod compatibility_finalize_tests {
 }
 
 #[test]
-fn test_finalize_ai_origin_blocks_exec_and_preserves_literal_text() {
+fn test_finalize_ai_origin_blocks_all_directives_and_cursor() {
     use crate::engine::variables::types::ExpansionOrigin;
 
-    let input = "AI output containing [exec.powershell(\"Get-Process\")] should be literal.";
+    let input = "AI output with [key(tab)] [delay(100ms)] [mouse.click] [img(file:\"a.png\")] [exec.python(\"1\")] and [cursor]";
     let res = finalize_with_origin(input, None, ExpansionOrigin::Ai);
     assert_eq!(
         res.steps,
         vec![ExpansionStep::Text(
-            "AI output containing [exec.powershell(\"Get-Process\")] should be literal."
+            "AI output with [key(tab)] [delay(100ms)] [mouse.click] [img(file:\"a.png\")] [exec.python(\"1\")] and [cursor]"
                 .to_string()
         )]
     );

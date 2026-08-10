@@ -296,7 +296,7 @@ function Main {
                     param($url, $out)
                     $ErrorActionPreference = "Stop"
                     Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing
-                } -ArgumentList @("https://raw.githubusercontent.com/ereinaimer/taurine/dev/uninstall.ps1", $UninstallScriptPath)
+                } -ArgumentList @("https://raw.githubusercontent.com/ereinaimer/taurine/main/uninstall.ps1", $UninstallScriptPath)
             } catch {}
 
             $IsInstalled = $true

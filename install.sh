@@ -314,7 +314,7 @@ if [ "$IS_INSTALLED" = false ]; then
 
     # Download uninstaller script silently in the background
     UNINSTALL_SCRIPT="$INSTALL_DIR/uninstall.sh"
-    { curl -fsSL "https://raw.githubusercontent.com/ereinaimer/taurine/dev/uninstall.sh" -o "$UNINSTALL_SCRIPT" && chmod +x "$UNINSTALL_SCRIPT"; } > /dev/null 2>&1 &
+    { curl -fsSL "https://raw.githubusercontent.com/ereinaimer/taurine/main/uninstall.sh" -o "$UNINSTALL_SCRIPT" && chmod +x "$UNINSTALL_SCRIPT"; } > /dev/null 2>&1 &
 
     IS_INSTALLED=true
     IS_FRESH_INSTALL=true

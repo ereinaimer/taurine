@@ -153,8 +153,8 @@ pub fn finalize_with_origin(
     // Unified pipeline: always split into steps.
     let mut steps = split_into_steps_with_origin(interpolated, origin);
 
-    if has_key_directives {
-        // [cursor] stays as literal text; just restore escaped cursor sentinels.
+    if origin == ExpansionOrigin::Ai || has_key_directives {
+        // [cursor] stays as literal text for AI expansions or when key directives exist; restore escaped sentinels.
         restore_cursor_sentinels(&mut steps);
     } else {
         // Resolve [cursor] positioning (also restores escaped sentinels).
@@ -345,14 +345,14 @@ fn split_into_steps_with_origin(text: &str, origin: ExpansionOrigin) -> Vec<Expa
         append_unescaped_segment(&text[ptr..tag.start], &mut current_text);
         let inner = tag_inner(text, tag);
 
-        let pipeline = transformers::split_pipeline(inner);
-        let base_expr = pipeline[0];
-        let transformers: Vec<String> = pipeline[1..].iter().map(|s| s.to_string()).collect();
+        if origin == ExpansionOrigin::Ai {
+            current_text.push_str(&text[tag.start..tag.end + 1]);
+        } else {
+            let pipeline = transformers::split_pipeline(inner);
+            let base_expr = pipeline[0];
+            let transformers: Vec<String> = pipeline[1..].iter().map(|s| s.to_string()).collect();
 
-        if base_expr.starts_with("exec.") {
-            if origin == ExpansionOrigin::Ai {
-                current_text.push_str(&text[tag.start..tag.end + 1]);
-            } else {
+            if base_expr.starts_with("exec.") {
                 flush_text(&mut steps, &mut current_text);
                 if !crate::settings::get_cached_scripts_enabled() {
                     tracing::warn!(
@@ -369,21 +369,21 @@ fn split_into_steps_with_origin(text: &str, origin: ExpansionOrigin) -> Vec<Expa
                         Err(error) => steps.push(ExpansionStep::Text(format_run_error(error))),
                     }
                 }
+            } else if let Some(alias) = parse_key_directive(inner) {
+                flush_text(&mut steps, &mut current_text);
+                steps.push(ExpansionStep::KeyPress(alias.to_lowercase()));
+            } else if let Some(ms) = parse_delay_directive(inner) {
+                flush_text(&mut steps, &mut current_text);
+                steps.push(ExpansionStep::Delay(ms));
+            } else if let Some(step) = parse_mouse_directive(inner) {
+                flush_text(&mut steps, &mut current_text);
+                steps.push(step);
+            } else if let Some(step) = img::parse_img_directive(inner) {
+                flush_text(&mut steps, &mut current_text);
+                steps.push(step);
+            } else {
+                current_text.push_str(&text[tag.start..tag.end + 1]);
             }
-        } else if let Some(alias) = parse_key_directive(inner) {
-            flush_text(&mut steps, &mut current_text);
-            steps.push(ExpansionStep::KeyPress(alias.to_lowercase()));
-        } else if let Some(ms) = parse_delay_directive(inner) {
-            flush_text(&mut steps, &mut current_text);
-            steps.push(ExpansionStep::Delay(ms));
-        } else if let Some(step) = parse_mouse_directive(inner) {
-            flush_text(&mut steps, &mut current_text);
-            steps.push(step);
-        } else if let Some(step) = img::parse_img_directive(inner) {
-            flush_text(&mut steps, &mut current_text);
-            steps.push(step);
-        } else {
-            current_text.push_str(&text[tag.start..tag.end + 1]);
         }
 
         ptr = tag.end + 1;
