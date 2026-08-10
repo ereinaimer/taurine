@@ -59,12 +59,18 @@ pub fn execute(
                     || taurine_core::error::Error::Config("Export cancelled.".to_string()),
                 )?,
             };
+        if password.len() < 8 {
+            password.zeroize();
+            return Err(taurine_core::error::Error::Config(
+                "Encryption password must be at least 8 characters long".to_string(),
+            ));
+        }
         let result = encode_exchange_blob(&payload, true, Some(password.as_str()));
         password.zeroize();
         result?
     };
 
-    std::fs::write(&path, encoded)?;
+    write_export_file(&path, &encoded)?;
 
     let mut parts = Vec::new();
     if settings {
@@ -101,6 +107,17 @@ pub fn execute(
     Ok(())
 }
 
+fn write_export_file(path: &std::path::Path, data: &[u8]) -> taurine_core::error::Result<()> {
+    std::fs::write(path, data)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        let _ = std::fs::set_permissions(path, perms);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,7 +135,7 @@ mod tests {
 
     #[test]
     fn encode_exchange_blob_uses_tau1_for_encrypted_exports() {
-        let blob = encode_exchange_blob(&sample_payload(), true, Some("hunter2")).unwrap();
+        let blob = encode_exchange_blob(&sample_payload(), true, Some("hunter222")).unwrap();
         assert_eq!(&blob[..4], &ENCRYPTED_MAGIC_HEADER);
         assert!(
             !blob

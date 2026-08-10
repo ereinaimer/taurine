@@ -276,6 +276,9 @@ fn export_settings(
     let mut settings = Vec::new();
     for row in rows {
         let setting = row?;
+        if setting.key.eq_ignore_ascii_case("rpc_token") {
+            continue;
+        }
         if include_sensitive_settings || !is_sensitive_setting_key(&setting.key) {
             settings.push(setting);
         }
@@ -310,7 +313,17 @@ fn export_stats(conn: &Connection) -> crate::Result<Vec<StatExport>> {
 }
 
 pub(crate) fn is_sensitive_setting_key(key: &str) -> bool {
-    let key = key.to_ascii_lowercase();
+    let key_lower = key.to_ascii_lowercase();
+    let exact_matches = [
+        "ai_custom_endpoint",
+        "ai_system_prompt",
+        "rpc_token",
+        "ai_api_key",
+    ];
+    if exact_matches.contains(&key_lower.as_str()) {
+        return true;
+    }
+
     [
         "password",
         "secret",
@@ -321,7 +334,7 @@ pub(crate) fn is_sensitive_setting_key(key: &str) -> bool {
         "private_key",
     ]
     .iter()
-    .any(|needle| key.contains(needle))
+    .any(|needle| key_lower.contains(needle))
 }
 
 fn default_export_filename_for_timestamp(now: OffsetDateTime) -> String {
@@ -386,7 +399,7 @@ mod tests {
     #[test]
     fn encode_exchange_blob_uses_tau1_for_encrypted_exports() {
         let blob =
-            encode_exchange_blob(&ExchangePayload::new(vec![]), true, Some("hunter2")).unwrap();
+            encode_exchange_blob(&ExchangePayload::new(vec![]), true, Some("hunter222")).unwrap();
         assert_eq!(&blob[..4], &ENCRYPTED_MAGIC_HEADER);
         assert!(
             !blob
@@ -394,5 +407,15 @@ mod tests {
                 .any(|window| window == b"schema_version"),
             "Encrypted export should be opaque"
         );
+    }
+
+    #[test]
+    fn test_is_sensitive_setting_key_includes_ai_endpoints_and_tokens() {
+        assert!(is_sensitive_setting_key("ai_custom_endpoint"));
+        assert!(is_sensitive_setting_key("ai_system_prompt"));
+        assert!(is_sensitive_setting_key("rpc_token"));
+        assert!(is_sensitive_setting_key("openai_api_key"));
+        assert!(!is_sensitive_setting_key("wpm"));
+        assert!(!is_sensitive_setting_key("start_on_boot"));
     }
 }

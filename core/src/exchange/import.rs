@@ -349,6 +349,9 @@ fn import_settings(
 ) -> crate::Result<()> {
     if let Some(settings) = payload.settings.as_ref() {
         for setting in settings {
+            if setting.key.eq_ignore_ascii_case("rpc_token") {
+                continue;
+            }
             if !include_sensitive_settings
                 && crate::exchange::export::is_sensitive_setting_key(&setting.key)
             {
@@ -432,5 +435,42 @@ fn max_option_i64(left: Option<i64>, right: Option<i64>) -> Option<i64> {
         (Some(left), None) => Some(left),
         (None, Some(right)) => Some(right),
         (None, None) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::exchange::SettingExport;
+    use crate::testing::open_test_db;
+
+    #[test]
+    fn import_settings_ignores_rpc_token() {
+        let (_dir, mut conn) = open_test_db();
+        let tx = conn.transaction().unwrap();
+
+        let payload = ExchangePayload {
+            schema_version: super::super::EXCHANGE_SCHEMA_VERSION,
+            triggers: vec![],
+            settings: Some(vec![
+                SettingExport {
+                    key: "rpc_token".to_string(),
+                    value: "hacked_token".to_string(),
+                },
+                SettingExport {
+                    key: "wpm".to_string(),
+                    value: "100".to_string(),
+                },
+            ]),
+            stats: None,
+        };
+
+        import_settings(&tx, &payload, true).unwrap();
+        tx.commit().unwrap();
+
+        let manager = crate::settings::SettingsManager::new(&conn);
+        let settings = manager.load_all();
+        assert_ne!(settings.rpc_token, "hacked_token");
+        assert_eq!(settings.wpm, 100);
     }
 }
