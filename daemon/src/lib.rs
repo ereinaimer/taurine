@@ -25,6 +25,9 @@ pub(crate) static TOKIO_HANDLE: std::sync::OnceLock<tokio::runtime::Handle> =
     std::sync::OnceLock::new();
 
 pub fn start() -> taurine_core::error::Result<()> {
+    // Wipe stale temp files from previous sessions or crashes
+    taurine_core::system::paths::wipe_temp_dir();
+
     let conn = init::setup()?;
 
     // Initialize injection thread pool (replaces per-expansion thread spawning)

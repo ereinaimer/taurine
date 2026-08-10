@@ -187,6 +187,99 @@ pub fn ensure_cache_dir() -> PathBuf {
     cache_dir
 }
 
+/// Resolves the app temp directory.
+/// - Windows:  %LOCALAPPDATA%\APP_NAME\temp
+/// - macOS:    ~/Library/Application Support/APP_NAME/temp
+/// - Linux:    ~/.local/share/APP_NAME_SLUG/temp
+/// - Android:  `ANDROID_DATA_PATH/temp`
+pub fn get_temp_dir() -> PathBuf {
+    get_data_dir().join("temp")
+}
+
+/// Gets the app temp directory and guarantees it exists on disk with 0700 permissions.
+pub fn ensure_temp_dir() -> PathBuf {
+    let temp_dir = get_temp_dir();
+    if !temp_dir.exists() {
+        debug!(
+            "Creating {} temp directory: {}",
+            APP_NAME,
+            temp_dir.display()
+        );
+        if let Err(e) = fs::create_dir_all(&temp_dir) {
+            tracing::error!(
+                "Failed to create {} temp directory {}: {}",
+                APP_NAME,
+                temp_dir.display(),
+                e
+            );
+        }
+    }
+
+    #[cfg(all(unix, not(target_os = "android")))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = fs::metadata(&temp_dir) {
+            let mut perms = metadata.permissions();
+            if perms.mode() & 0o777 != 0o700 {
+                perms.set_mode(0o700);
+                if let Err(e) = fs::set_permissions(&temp_dir, perms) {
+                    debug!(
+                        "Failed to set permissions 0700 on app temp directory: {}",
+                        e
+                    );
+                }
+            }
+        }
+    }
+
+    temp_dir
+}
+
+/// Wipes all temporary files in the app temp directory and ensures 0700 permissions.
+pub fn wipe_temp_dir() {
+    let temp_dir = get_temp_dir();
+    if temp_dir.exists() {
+        debug!("Wiping {} temp directory: {}", APP_NAME, temp_dir.display());
+        if let Err(e) = fs::remove_dir_all(&temp_dir) {
+            tracing::warn!(
+                "Failed to wipe temp directory {}: {}",
+                temp_dir.display(),
+                e
+            );
+        }
+    }
+    let _ = ensure_temp_dir();
+}
+
+/// Creates a new temporary file in the app temp directory with atomic create_new(true),
+/// a random UUID suffix, and 0600 permissions.
+pub fn create_temp_file(prefix: &str, ext: &str) -> std::io::Result<(PathBuf, std::fs::File)> {
+    let dir = ensure_temp_dir();
+    let filename = format!("{}_{}.{}", prefix, uuid::Uuid::new_v4(), ext);
+    let path = dir.join(filename);
+
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+
+    #[cfg(all(unix, not(target_os = "android")))]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+
+    let file = options.open(&path)?;
+    Ok((path, file))
+}
+
+/// Helper to atomically write binary content to a new secure temporary file.
+pub fn write_temp_file(prefix: &str, ext: &str, content: &[u8]) -> std::io::Result<PathBuf> {
+    use std::io::Write;
+    let (path, mut file) = create_temp_file(prefix, ext)?;
+    file.write_all(content)?;
+    file.flush()?;
+    Ok(path)
+}
+
 /// Resolves the exact file path for the daemon startup executable.
 pub fn get_startup_exe_path() -> PathBuf {
     let data_dir = ensure_data_dir();
@@ -429,5 +522,59 @@ mod tests {
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
         unsafe { env::remove_var("TAURINE_DATA_DIR") };
         let _ = fs::remove_file(&file_path);
+    }
+
+    #[test]
+    fn test_temp_dir_creation_wiping_and_file_security() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        crate::testing::init_tracing_for_tests();
+
+        let test_dir =
+            std::env::temp_dir().join(format!("taurine_temp_sec_test_{}", uuid::Uuid::new_v4()));
+        let _ = fs::remove_dir_all(&test_dir);
+
+        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
+        unsafe { env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
+
+        let temp_dir = ensure_temp_dir();
+        assert!(temp_dir.exists());
+        assert!(temp_dir.ends_with("temp"));
+
+        #[cfg(all(unix, not(target_os = "android")))]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let metadata = fs::metadata(&temp_dir).unwrap();
+            assert_eq!(metadata.permissions().mode() & 0o777, 0o700);
+        }
+
+        // Write a test file into temp_dir
+        let file_path = write_temp_file("test_prefix", "txt", b"secret content")
+            .expect("write temp file failed");
+        assert!(file_path.exists());
+        assert!(file_path.parent().unwrap().ends_with("temp"));
+        assert!(
+            file_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("test_prefix_")
+        );
+
+        #[cfg(all(unix, not(target_os = "android")))]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let file_meta = fs::metadata(&file_path).unwrap();
+            assert_eq!(file_meta.permissions().mode() & 0o777, 0o600);
+        }
+
+        // Verify wipe_temp_dir removes existing files
+        wipe_temp_dir();
+        assert!(ensure_temp_dir().exists());
+        assert!(!file_path.exists());
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&test_dir);
+        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
+        unsafe { env::remove_var("TAURINE_DATA_DIR") };
     }
 }

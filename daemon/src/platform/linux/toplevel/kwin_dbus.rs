@@ -53,10 +53,14 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                 // Request a name so the script can send signals to us, or we just listen to signals globally
                 // Actually, the script broadcasts via callDBus. We can just listen to the signal.
 
-                let mut temp_dir = std::env::temp_dir();
-                temp_dir.push("taurine_kwin_script");
-
-                let _ = fs::remove_dir_all(&temp_dir);
+                let temp_dir = taurine_core::system::paths::ensure_temp_dir()
+                    .join(format!("kwin_script_{}", uuid::Uuid::new_v4()));
+                let _ = fs::create_dir_all(&temp_dir);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = fs::set_permissions(&temp_dir, fs::Permissions::from_mode(0o700));
+                }
 
                 let mut code_dir = temp_dir.clone();
                 code_dir.push("contents");

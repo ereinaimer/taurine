@@ -209,24 +209,21 @@ fn inject_image_segment_with_gen(
         _ => "png",
     };
 
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut hasher = DefaultHasher::new();
-    bytes.hash(&mut hasher);
-    let hash = hasher.finish();
-    let temp_path = std::env::temp_dir().join(format!("tau_img_{hash}.{ext}"));
-
-    if let Err(e) = std::fs::write(&temp_path, bytes) {
-        error!("Failed to write temporary image file: {}", e);
-        return TextSegmentInjection {
-            original_clipboard: Some(orig),
-            injected_chars: 0,
-            success: false,
-        };
-    }
+    let temp_path = match taurine_core::system::paths::write_temp_file("tau_img", ext, bytes) {
+        Ok(path) => path,
+        Err(e) => {
+            error!("Failed to write temporary image file: {}", e);
+            return TextSegmentInjection {
+                original_clipboard: Some(orig),
+                injected_chars: 0,
+                success: false,
+            };
+        }
+    };
 
     if let Err(e) = clipboard.set_image_file(&temp_path) {
         error!("Failed to set clipboard image file: {}", e);
+        let _ = std::fs::remove_file(&temp_path);
         return TextSegmentInjection {
             original_clipboard: Some(orig),
             injected_chars: 0,
@@ -241,6 +238,8 @@ fn inject_image_segment_with_gen(
     } else {
         thread::sleep(post_paste_wait);
     }
+
+    let _ = std::fs::remove_file(&temp_path);
 
     TextSegmentInjection {
         original_clipboard: Some(orig),

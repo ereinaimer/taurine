@@ -133,11 +133,8 @@ pub(crate) fn to_script_metadata(key: &str) -> Result<ScriptMetadata, String> {
                 _ => "tmp",
             };
 
-            let temp_path = std::env::temp_dir().join(format!("tau_asset_{}.{}", hash, ext));
-            if !temp_path.exists() {
-                std::fs::write(&temp_path, decompressed)
-                    .map_err(|e| format!("write temp script failed: {}", e))?;
-            }
+            let temp_path = crate::system::paths::write_temp_file("tau_asset", ext, &decompressed)
+                .map_err(|e| format!("write temp script failed: {}", e))?;
 
             invocation.subject = temp_path.to_string_lossy().to_string();
         } else if !Path::new(subject).exists() {
