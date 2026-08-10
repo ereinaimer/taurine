@@ -235,6 +235,12 @@ impl LibraryExportModalState {
             ));
         }
 
+        if self.encrypt && self.password.len() < 8 {
+            return Err(taurine_core::Error::Config(
+                "Encryption password must be at least 8 characters long".to_string(),
+            ));
+        }
+
         Ok(PendingLibraryExport {
             path: self.path.clone(),
             encrypt: self.encrypt,

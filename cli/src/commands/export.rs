@@ -70,7 +70,7 @@ pub fn execute(
         result?
     };
 
-    write_export_file(&path, &encoded)?;
+    taurine_core::exchange::write_export_file(&path, &encoded)?;
 
     let mut parts = Vec::new();
     if settings {
@@ -104,17 +104,6 @@ pub fn execute(
         path.display()
     );
 
-    Ok(())
-}
-
-fn write_export_file(path: &std::path::Path, data: &[u8]) -> taurine_core::error::Result<()> {
-    std::fs::write(path, data)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let perms = std::fs::Permissions::from_mode(0o600);
-        let _ = std::fs::set_permissions(path, perms);
-    }
     Ok(())
 }
 

@@ -5151,6 +5151,7 @@ dependencies = [
  "tokio",
  "tonic",
  "tracing",
+ "zeroize",
 ]
 
 [[package]]

@@ -151,18 +151,39 @@ pub fn encode_exchange_blob(
     encrypt: bool,
     password: Option<&str>,
 ) -> crate::Result<Vec<u8>> {
-    if !encrypt {
-        return encode_plaintext_payload(payload);
+    if encrypt {
+        let password = password.ok_or_else(|| {
+            crate::Error::Config("password required for encrypted export".to_string())
+        })?;
+        let mut serialized = serialize_payload(payload)?;
+        let result = crypto::encrypt(&serialized, password);
+        serialized.zeroize();
+        result
+    } else {
+        encode_plaintext_payload(payload)
     }
+}
 
-    let password = password.ok_or_else(|| {
-        crate::Error::Config("password required for encrypted export".to_string())
-    })?;
+pub fn write_export_file(path: &Path, data: &[u8]) -> crate::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
 
-    let mut serialized = serialize_payload(payload)?;
-    let result = crypto::encrypt(&serialized, password);
-    serialized.zeroize();
-    result
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        file.write_all(data)?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, data)?;
+    }
+    Ok(())
 }
 
 fn to_trigger_export(
@@ -417,5 +438,16 @@ mod tests {
         assert!(is_sensitive_setting_key("openai_api_key"));
         assert!(!is_sensitive_setting_key("wpm"));
         assert!(!is_sensitive_setting_key("start_on_boot"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_write_export_file_sets_0600_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("test_export.tau");
+        write_export_file(&file_path, b"test_content").unwrap();
+        let metadata = std::fs::metadata(&file_path).unwrap();
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
     }
 }

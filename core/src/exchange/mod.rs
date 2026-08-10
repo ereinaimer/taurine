@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 pub use export::{
     ExportOptions, default_export_filename, default_export_path, encode_exchange_blob,
-    ensure_tau_extension, export_triggers, resolve_export_path,
+    ensure_tau_extension, export_triggers, resolve_export_path, write_export_file,
 };
 pub use import::{
     ExistingTriggerConflict, ImportConflictAction, ImportOptions, ImportStatsMode,

@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
+use zeroize::Zeroize;
 
 use taurine_core::db::crud::{
     ExistingTriggerUpdate, NewTrigger, TriggerListItem, TriggerRow, create_trigger, delete_trigger,
@@ -191,8 +192,13 @@ impl PendingLibraryExport {
                 include_sensitive_settings: self.include_sensitive_settings,
             },
         )?;
-        let encoded = encode_exchange_blob(&payload, self.encrypt, self.password.as_deref())?;
-        std::fs::write(&path, encoded)?;
+        let mut pw = self.password.clone();
+        let encoded_res = encode_exchange_blob(&payload, self.encrypt, pw.as_deref());
+        if let Some(ref mut p) = pw {
+            p.zeroize();
+        }
+        let encoded = encoded_res?;
+        taurine_core::exchange::write_export_file(&path, &encoded)?;
         Ok(path)
     }
 

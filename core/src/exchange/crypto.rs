@@ -39,14 +39,19 @@ pub fn encrypt(plaintext: &[u8], password: &str) -> crate::Result<Vec<u8>> {
     let nonce_bytes: [u8; NONCE_LEN] = random();
     let mut key = derive_key(password, &salt)?;
 
-    let cipher = Aes256Gcm::new_from_slice(&key)
-        .map_err(|_| crate::Error::Service("Invalid AES-256-GCM key length".to_string()))?;
+    let cipher_res = Aes256Gcm::new_from_slice(&key);
     let nonce = Nonce::from(nonce_bytes);
-    let ciphertext = cipher
-        .encrypt(&nonce, plaintext)
-        .map_err(|_| crate::Error::Service("Failed to encrypt exchange payload".to_string()))?;
-
+    let encrypt_res = match cipher_res {
+        Ok(cipher) => cipher
+            .encrypt(&nonce, plaintext)
+            .map_err(|_| crate::Error::Service("Failed to encrypt exchange payload".to_string())),
+        Err(_) => Err(crate::Error::Service(
+            "Invalid AES-256-GCM key length".to_string(),
+        )),
+    };
     key.zeroize();
+
+    let ciphertext = encrypt_res?;
 
     let mut blob = Vec::with_capacity(4 + SALT_LEN + NONCE_LEN + ciphertext.len());
     blob.extend_from_slice(&ENCRYPTED_MAGIC_HEADER);
@@ -72,17 +77,20 @@ pub fn decrypt(blob: &[u8], password: &str) -> crate::Result<Vec<u8>> {
     let ciphertext = &blob[4 + SALT_LEN + NONCE_LEN..];
 
     let mut key = derive_key(password, salt)?;
-    let cipher = Aes256Gcm::new_from_slice(&key)
-        .map_err(|_| crate::Error::Service("Invalid AES-256-GCM key length".to_string()))?;
-    let nonce_arr: [u8; NONCE_LEN] = nonce
-        .try_into()
-        .map_err(|_| crate::Error::Config("Invalid nonce length".to_string()))?;
-    let plaintext = cipher
-        .decrypt(&Nonce::from(nonce_arr), ciphertext)
-        .map_err(|_| crate::Error::Config("wrong password or corrupted file".to_string()));
-
+    let cipher_res = Aes256Gcm::new_from_slice(&key);
+    let nonce_arr_res: Result<[u8; NONCE_LEN], _> = nonce.try_into();
+    let decrypt_res = match (cipher_res, nonce_arr_res) {
+        (Ok(cipher), Ok(nonce_arr)) => cipher
+            .decrypt(&Nonce::from(nonce_arr), ciphertext)
+            .map_err(|_| crate::Error::Config("wrong password or corrupted file".to_string())),
+        (Err(_), _) => Err(crate::Error::Service(
+            "Invalid AES-256-GCM key length".to_string(),
+        )),
+        (_, Err(_)) => Err(crate::Error::Config("Invalid nonce length".to_string())),
+    };
     key.zeroize();
-    plaintext
+
+    decrypt_res
 }
 
 #[cfg(test)]
