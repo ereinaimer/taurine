@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AI Expansion Protection**: AI-generated text no longer executes embedded script commands.
 - **Private Temp Directory Isolation**: Temporary scripts, images, and desktop integration files are now stored securely in a private user temp folder with restricted permissions.
 - **RPC Auth Hardening**: Rate-limited local API with constant-time token verification and masked secrets.
+- **Local Transport Security**: Windows IPC named pipes reject remote clients; Windows clipboard text reading is strictly size-bounded.
 - **Backspace Undo Duration**: Increase the backspace undo window from 2.5 seconds to 5.0 seconds.
 - **Default Pause Notifications**: Disable pause notifications by default (`pause_notifications_enabled` defaults to `false`).
 - **Dependency-Free Linux Tray**: The Linux system tray icon no longer requires GTK or the AppIndicator libraries, and it now recovers automatically when the desktop tray service restarts or the session connection drops (previously the icon could disappear for the rest of the session).

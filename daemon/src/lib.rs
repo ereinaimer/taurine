@@ -553,6 +553,7 @@ pub fn start() -> taurine_core::error::Result<()> {
 
                     let first_server = match ServerOptions::new()
                         .first_pipe_instance(true)
+                        .reject_remote_clients(true)
                         .create(pipe_path)
                     {
                         Ok(s) => s,
@@ -579,6 +580,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                                     Some(s) => s,
                                     None => match ServerOptions::new()
                                         .first_pipe_instance(false)
+                                        .reject_remote_clients(true)
                                         .create(&pipe_path)
                                     {
                                         Ok(s) => s,

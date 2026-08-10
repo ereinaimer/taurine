@@ -13,7 +13,10 @@ use windows_sys::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
     RegisterClipboardFormatW, SetClipboardData,
 };
-use windows_sys::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
+use windows_sys::Win32::System::Memory::{
+    GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock,
+};
+const MAX_PAYLOAD_BYTES: usize = 16 * 1024 * 1024;
 
 /// Standard `CF_UNICODETEXT` — full Unicode including emoji and non-Latin scripts.
 const CF_UNICODETEXT: u32 = 13;
@@ -162,22 +165,21 @@ pub fn get_unicode_text() -> Result<String, String> {
             if h.is_null() {
                 return Ok(String::new());
             }
+            let byte_len = GlobalSize(h);
+            if byte_len == 0 || byte_len > MAX_PAYLOAD_BYTES {
+                return Ok(String::new());
+            }
             let p = GlobalLock(h);
             if p.is_null() {
                 return Ok(String::new());
             }
-            let mut len = 0usize;
-            let mut q = p as *const u16;
-            while *q != 0 {
-                len += 1;
-                q = q.add(1);
-                if len > 16 * 1024 * 1024 {
-                    break;
-                }
-            }
-            let slice = std::slice::from_raw_parts(p as *const u16, len);
-            let s = String::from_utf16_lossy(slice);
+            let max_code_units = byte_len / std::mem::size_of::<u16>();
+            let slice = std::slice::from_raw_parts(p as *const u16, max_code_units);
+            let mut s = String::from_utf16_lossy(slice);
             let _ = GlobalUnlock(h);
+            if let Some(nul) = s.find('\0') {
+                s.truncate(nul);
+            }
             Ok(s)
         })();
         let _ = CloseClipboard();
