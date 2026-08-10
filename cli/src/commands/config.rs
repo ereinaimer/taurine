@@ -8,7 +8,7 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
     let settings = manager.load_all();
 
     if json {
-        println!("{}", serde_json::to_string(&settings).unwrap());
+        println!("{}", format_settings_json(&settings));
         return Ok(());
     }
 
@@ -728,6 +728,22 @@ fn parse_boolean_setting_value(value: &str) -> taurine_core::error::Result<bool>
     })
 }
 
+pub fn format_settings_json(settings: &Settings) -> String {
+    let mut val = serde_json::to_value(settings).unwrap_or_default();
+    if let Some(obj) = val.as_object_mut() {
+        let masked = if settings.rpc_token.trim().is_empty() {
+            "(unset)"
+        } else {
+            "(set)"
+        };
+        obj.insert(
+            "rpc_token".to_string(),
+            serde_json::Value::String(masked.to_string()),
+        );
+    }
+    serde_json::to_string(&val).unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -834,5 +850,25 @@ mod tests {
         assert_eq!(value["spinner_style"], "arc");
         assert_eq!(value["inline_ai_trigger_mode"], "symmetric");
         assert_eq!(value["rpc_mode"], "tcp");
+    }
+
+    #[test]
+    fn test_format_settings_json_redacts_rpc_token() {
+        let settings = Settings {
+            rpc_token: "secret-token-12345".to_string(),
+            ..Settings::default()
+        };
+        let json_str = format_settings_json(&settings);
+        assert!(!json_str.contains("secret-token-12345"));
+        let val: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(val["rpc_token"], "(set)");
+
+        let settings2 = Settings {
+            rpc_token: "".to_string(),
+            ..Settings::default()
+        };
+        let json_str2 = format_settings_json(&settings2);
+        let val2: serde_json::Value = serde_json::from_str(&json_str2).unwrap();
+        assert_eq!(val2["rpc_token"], "(unset)");
     }
 }
