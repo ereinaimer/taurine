@@ -1,2 +1,10 @@
-[target.x86_64-pc-windows-msvc]
-rustflags = ["-C", "target-feature=+crt-static"]
+[target.'cfg(windows)']
+linker = "rust-lld"
+rustflags = ["-C", "target-feature=+crt-static", "-C", "link-arg=/Brepro"]
+
+[target.'cfg(target_os = "macos")']
+linker = "rust-lld"
+rustflags = ["-C", "link-arg=--icf=all"]
+
+[target.'cfg(target_os = "linux")']
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]

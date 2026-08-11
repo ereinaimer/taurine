@@ -20,6 +20,13 @@ publish = false
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "time", "local-time"] }
 
+[profile.dev]
+debug = 1
+split-debuginfo = "unpacked"
+
+[profile.dev.build-override]
+opt-level = 3
+
 [profile.release]
 opt-level = "z"      # Optimize for size
 lto = true           # Link Time Optimization (huge win for size)
