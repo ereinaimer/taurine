@@ -36,21 +36,25 @@ You can start by looking through our open issues. If you want to work on somethi
 If you are compiling Taurine on a Linux system, you must install the following system dependencies:
 ```bash
 sudo apt update
-sudo apt install build-essential protobuf-compiler libdbus-1-dev pkg-config libasound2-dev libxkbcommon-dev mold -y
+sudo apt install build-essential protobuf-compiler libdbus-1-dev pkg-config libasound2-dev libxkbcommon-dev mold sccache -y
 ```
 `mold` is the linker used for all Linux builds (it's the fastest linker available and dramatically cuts link times). If your distribution's GCC is older than 12.1, install `clang` as well and the build will use it as the linker driver instead.
 
 #### Windows
-If you are compiling Taurine on Windows, you must install the Protocol Buffers compiler. You can easily do this using `winget`:
+If you are compiling Taurine on Windows, you must install Protocol Buffers and `sccache`. You can easily do this using `winget`:
 ```powershell
 winget install protobuf
+winget install Mozilla.sccache
 ```
 
 #### macOS
-No additional system dependencies are required.
+Install `sccache` via Homebrew:
+```bash
+brew install sccache
+```
 
-#### Linkers
-The repository pre-configures the fastest available linker for each platform, so there's nothing to install for Windows (`rust-lld`, ships with the Rust toolchain) or macOS (`rust-lld`). Linux uses `mold`, which must be installed separately (see above).
+#### Compiler Wrapper & Linkers
+The repository pre-configures `sccache` (`rustc-wrapper = "sccache"`) to cache compiled dependencies across builds, as well as the fastest available linker for each platform: Windows (`rust-lld`, ships with the Rust toolchain), macOS (`rust-lld`), and Linux (`mold`).
 
 ### 4. Setup Pre-commit (Recommended)
 We use `pre-commit` to automatically run code formatters and linters (`cargo fmt` and `cargo clippy`) before every commit. This ensures clean code and prevents CI from failing over simple styling issues.
@@ -75,9 +79,6 @@ cargo test
 ```
 
 ### 7. Optional Local Speedups
-The linker configuration is already set up in-repo, so a fresh clone builds fast out of the box. These extras shave more time:
-
-- **sccache** — caches compiled dependencies across branches and projects. Install it (`cargo install sccache`), then set the `RUSTC_WRAPPER` environment variable to `sccache` in your shell profile, or add `[build] rustc-wrapper = "sccache"` to your `~/.cargo/config.toml`.
 - **Windows: Dev Drive** — if you have Windows 11 22H2+, move the project and your Cargo registry (`~/.cargo`) to a Dev Drive. It bypasses Defender's real-time scan of the thousands of tiny files involved in a Rust build, which is often the single biggest local speedup on Windows.
 
 ### 8. Submit a Pull Request
