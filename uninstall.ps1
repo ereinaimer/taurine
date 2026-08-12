@@ -37,6 +37,16 @@ $InstallDir = Join-Path $env:LOCALAPPDATA "Taurine\bin"
 $ExePath = Join-Path $InstallDir "taurine.exe"
 $DataDir = Join-Path $env:LOCALAPPDATA "Taurine"
 
+$isDataDirEmpty = (-not (Test-Path $DataDir)) -or ((Get-ChildItem -Path $DataDir -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0)
+$hasExeInDataDir = Test-Path $ExePath
+$hasExeInPath = $null -ne (Get-Command taurine -ErrorAction SilentlyContinue)
+
+if ($isDataDirEmpty -and (-not $hasExeInDataDir) -and (-not $hasExeInPath)) {
+    Write-Host -ForegroundColor Green -NoNewline "$([char]0x2713) "
+    Write-Host "Taurine is not installed on this system."
+    exit 0
+}
+
 # Stop service and kill leftover processes
 Run-Step "Stopping Taurine service" {
     $exe = Join-Path $env:LOCALAPPDATA "Taurine\bin\taurine.exe"

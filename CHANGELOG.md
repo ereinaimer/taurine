@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Post-Expansion Case Cycling**: Cycle expanded text capitalization (UPPERCASE, lowercase, Sentence case, Title Case) using Left and Right arrow keys within the active undo window.
 
 ### Changed
+- **Uninstall Check**: Check if Taurine is installed prior to running uninstall scripts and skip remaining steps with a clean status message if missing.
 - **Internal RPC Authentication**: Store the local RPC token in the OS Credential Manager and remove it from user settings and the TUI.
 - **IP Lookups & AI Provider Hardening**: Upgrade IP lookups to HTTPS, scope custom AI endpoints, and cap parallel AI completions.
 - **Export Secrets & Perms Hardening**: Enforce 8-character export passwords, 0600 file permissions, zeroized password buffers, and exclude authentication tokens from exchange files.

@@ -14,6 +14,27 @@ else
     exit 1
 fi
 
+# Check if Taurine is installed
+DATA_DIR_EMPTY=0
+if [ ! -d "$DATA_DIR" ] || [ -z "$(ls -A "$DATA_DIR" 2>/dev/null)" ]; then
+    DATA_DIR_EMPTY=1
+fi
+
+BIN_IN_DATA_DIR=0
+if [ -f "$INSTALL_DIR/taurine" ]; then
+    BIN_IN_DATA_DIR=1
+fi
+
+BIN_IN_PATH=0
+if command -v taurine >/dev/null 2>&1; then
+    BIN_IN_PATH=1
+fi
+
+if [ "$DATA_DIR_EMPTY" -eq 1 ] && [ "$BIN_IN_DATA_DIR" -eq 0 ] && [ "$BIN_IN_PATH" -eq 0 ]; then
+    printf "\033[32m✓\033[0m Taurine is not installed on this system.\n"
+    exit 0
+fi
+
 # Stop service if running via the installed binary
 if [ -x "$INSTALL_DIR/taurine" ]; then
     "$INSTALL_DIR/taurine" down >/dev/null 2>&1 || true
