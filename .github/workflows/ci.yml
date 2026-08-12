@@ -47,10 +47,6 @@ jobs:
           - ubuntu-latest
           - windows-latest
           - macos-latest
-    env:
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
-      CARGO_INCREMENTAL: 0
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -96,14 +92,8 @@ jobs:
             libxdo-dev \
             mold
 
-      - name: Cache Cargo registry
+      - name: Restore Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          cache-targets: "false"
-
-      - name: Cache compile artifacts (sccache)
-        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
-
 
       - name: Run Clippy
         env:
@@ -125,9 +115,6 @@ jobs:
           - macos-latest
 
     env:
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
-      CARGO_INCREMENTAL: 0
       RUST_BACKTRACE: 1
     steps:
       - name: Checkout
@@ -178,21 +165,11 @@ jobs:
             libxdo-dev \
             mold
 
-      - name: Cache Cargo registry
+      - name: Restore Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          cache-targets: "false"
-
-      - name: Cache compile artifacts (sccache)
-        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
-
 
       - name: Run tests (nextest)
         run: cargo nextest run --locked --workspace --all-features
 
       - name: Run doc tests (cargo test)
         run: cargo test --doc --locked --workspace --all-features
-
-      - name: Show sccache stats
-        if: always()
-        run: sccache --show-stats
