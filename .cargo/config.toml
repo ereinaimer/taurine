@@ -1,5 +1,3 @@
-[build]
-rustc-wrapper = "sccache"
 
 [target.'cfg(windows)']
 linker = "rust-lld"
