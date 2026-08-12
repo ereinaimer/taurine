@@ -400,12 +400,12 @@ pub enum TargetOsCli {
 impl TargetOsCli {
     pub fn to_db_str(&self) -> Option<&'static str> {
         match self {
-            Self::Windows => Some("win"),
-            Self::Macos => Some("mac"),
-            Self::Linux => Some("linux"),
-            Self::All => Some("all"),
-            Self::Android => Some("android"),
-            Self::Ios => Some("ios"),
+            Self::Windows => Some(taurine_core::db::TargetOs::Windows.to_db_str()),
+            Self::Macos => Some(taurine_core::db::TargetOs::MacOs.to_db_str()),
+            Self::Linux => Some(taurine_core::db::TargetOs::Linux.to_db_str()),
+            Self::All => Some(taurine_core::db::TargetOs::All.to_db_str()),
+            Self::Android => Some(taurine_core::db::TargetOs::Android.to_db_str()),
+            Self::Ios => Some(taurine_core::db::TargetOs::Ios.to_db_str()),
             Self::Current => None,
         }
     }

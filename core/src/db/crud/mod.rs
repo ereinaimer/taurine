@@ -1,7 +1,9 @@
 pub mod settings;
 pub mod stats;
+pub mod target_os;
 pub mod triggers;
 
+pub use target_os::TargetOs;
 pub use triggers::{
     AddOutcome, ExistingTriggerUpdate, NewTrigger, PreparedTrigger, TriggerAction, TriggerConflict,
     TriggerListItem, TriggerRow, TriggerSummary, TriggerType, add_trigger, add_trigger_by_type,
@@ -32,27 +34,12 @@ pub const SUPPORTED_TARGET_OS_VALUES: [&str; 6] = ["all", "win", "linux", "mac",
 
 /// Returns the internal database identifier for the current platform's OS.
 pub fn get_current_os_db_string() -> &'static str {
-    match std::env::consts::OS {
-        "windows" => "win",
-        "macos" => "mac",
-        "linux" => "linux",
-        "android" => "android",
-        "ios" => "ios",
-        _ => "unknown",
-    }
+    TargetOs::current().to_db_str()
 }
 
 /// Normalizes CLI-friendly OS names to database identifiers.
 ///
 /// Supported inputs: windows, linux, macos, all, android, ios.
 pub fn normalize_os(os: &str) -> Option<&'static str> {
-    match os.to_lowercase().as_str() {
-        "windows" => Some("win"),
-        "macos" => Some("mac"),
-        "linux" => Some("linux"),
-        "android" => Some("android"),
-        "ios" => Some("ios"),
-        "all" => Some("all"),
-        _ => None,
-    }
+    TargetOs::parse_str(os).map(TargetOs::to_db_str)
 }

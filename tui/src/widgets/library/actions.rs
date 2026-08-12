@@ -690,14 +690,10 @@ fn is_script_placeholder(value: &str) -> bool {
 }
 
 pub(crate) fn display_target_os(target_os: &str) -> &str {
-    match target_os {
-        "all" => "all",
-        "win" => "windows",
-        "mac" => "macos",
-        "linux" => "linux",
-        "android" => "android",
-        "ios" => "ios",
-        _ => target_os,
+    if let Some(os) = taurine_core::db::TargetOs::parse_str(target_os) {
+        os.display_name()
+    } else {
+        target_os
     }
 }
 
