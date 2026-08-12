@@ -110,10 +110,6 @@ jobs:
           RUSTFLAGS: ${{ runner.os == 'Linux' && '-C link-arg=-fuse-ld=mold' || '' }}
         run: cargo clippy --locked --workspace --no-deps --all-targets --all-features -- -D warnings
 
-      - name: Show sccache stats
-        if: always()
-        run: sccache --show-stats
-
   test:
     name: Test (${{ matrix.os }})
     needs: [lint, validate]
