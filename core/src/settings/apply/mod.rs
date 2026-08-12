@@ -67,13 +67,20 @@ pub fn apply_setting_input_with_manager(
             ApplySettingOutcome::default()
         }
         "ai_provider" => {
-            let provider = AiProvider::try_from(require_non_empty(value, actual_key)?)?;
-            manager.update_setting(actual_key, Some(provider.as_str().to_string()))?;
+            let provider = if let Some(provider) = value.map(str::trim).filter(|v| !v.is_empty()) {
+                Some(AiProvider::try_from(provider)?.as_str().to_string())
+            } else {
+                None
+            };
+            manager.update_setting(actual_key, provider)?;
             ApplySettingOutcome::default()
         }
         "ai_model" => {
-            let model = require_trimmed_non_empty(value, actual_key)?;
-            manager.update_setting(actual_key, Some(model.to_string()))?;
+            let model = value
+                .map(str::trim)
+                .filter(|model| !model.is_empty())
+                .map(str::to_string);
+            manager.update_setting(actual_key, model)?;
             ApplySettingOutcome::default()
         }
         "ai_custom_endpoint" => {
@@ -353,13 +360,6 @@ pub fn validate_delimiter_conflicts(settings: &Settings, key: &str, new_value: &
         }
         _ => Ok(()),
     }
-}
-
-fn require_trimmed_non_empty<'a>(value: Option<&'a str>, key: &str) -> Result<&'a str> {
-    value
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| Error::Config(format!("{key} must not be empty")))
 }
 
 mod defaults;

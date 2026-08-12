@@ -1,6 +1,7 @@
 use taurine_core::db::init;
-use taurine_core::settings::{Settings, SettingsManager};
-use tracing::{info, warn};
+use taurine_core::settings::{
+    SettingKey, Settings, SettingsManager, apply_setting_input, reset_setting_to_default,
+};
 
 pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
     let conn = init::setup()?;
@@ -160,196 +161,9 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
 }
 
 pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::error::Result<()> {
-    let conn = init::setup()?;
-    let manager = SettingsManager::new(&conn);
-
     let actual_key = Settings::resolve_key(&key);
+    apply_setting_input(actual_key, Some(&value))?;
 
-    match actual_key {
-        "pause_hotkey" => {
-            manager.update_setting(actual_key, value.clone())?;
-            info!("Updated pause_hotkey to: {}", value);
-        }
-        "start_on_boot"
-        | "pause_notifications_enabled"
-        | "pause_audio_enabled"
-        | "inline_tab_completion_enabled"
-        | "inline_case_transform_enabled"
-        | "ignore_fullscreen"
-        | "auto_update"
-        | "inline_emoji_enabled"
-        | "inline_datetime_enabled"
-        | "inline_currency_to_words_enabled"
-        | "instant_expand"
-        | "clipboard_history_enabled"
-        | "scripts_enabled"
-        | "system_tray_enabled" => {
-            let b = parse_boolean_setting_value(&value)?;
-            manager.update_setting(actual_key, b)?;
-            info!("Updated {} to: {}", actual_key, b);
-
-            if actual_key == "start_on_boot"
-                && let Err(e) = taurine_core::service::sync_boot(b)
-            {
-                warn!("Failed to synchronize OS startup hook: {}", e);
-            }
-        }
-        "wpm" => {
-            let parsed = value.parse::<u32>().map_err(|_| {
-                taurine_core::error::Error::Config(format!("bad WPM value: {}", value))
-            })?;
-            let wpm = Settings::sanitize_wpm(parsed);
-            manager.update_setting(actual_key, wpm)?;
-            info!("Updated wpm to: {}", wpm);
-        }
-        "clipboard_restore_delay_ms" => {
-            let parsed = value.parse::<u32>().map_err(|_| {
-                taurine_core::error::Error::Config(format!("bad delay value: {}", value))
-            })?;
-            let delay = Settings::sanitize_clipboard_restore_delay_ms(parsed);
-            manager.update_setting(actual_key, delay)?;
-            info!("Updated clipboard_restore_delay_ms to: {}", delay);
-        }
-        "clipboard_history_retention_secs" => {
-            let parsed = value.parse::<u32>().map_err(|_| {
-                taurine_core::error::Error::Config(format!("bad retention seconds: {}", value))
-            })?;
-            let secs = Settings::sanitize_clipboard_history_retention_secs(parsed);
-            manager.update_setting(actual_key, secs)?;
-            info!("Updated clipboard_history_retention_secs to: {}", secs);
-        }
-        "spinner_style" => {
-            let s = match value.to_lowercase().as_str() {
-                "braille" => taurine_core::settings::SpinnerStyle::Braille,
-                "arc" => taurine_core::settings::SpinnerStyle::Arc,
-                "classic" => taurine_core::settings::SpinnerStyle::Classic,
-                _ => {
-                    warn!(
-                        "Invalid spinner style: {}. Supported: braille, arc, classic",
-                        value
-                    );
-                    return Ok(());
-                }
-            };
-            manager.update_setting(actual_key, s)?;
-            info!("Updated spinner_style to: {}", value);
-        }
-        "ai_provider" => {
-            let provider = taurine_core::ai::AiProvider::try_from(value.as_str())?;
-            manager.update_setting(actual_key, Some(provider.as_str().to_string()))?;
-            info!("Updated ai_provider to: {}", provider.as_str());
-        }
-        "ai_model" | "ai_custom_endpoint" => {
-            let val = value.trim();
-            if val.is_empty() {
-                return Err(taurine_core::error::Error::Config(format!(
-                    "{actual_key} must not be empty"
-                )));
-            }
-            manager.update_setting(actual_key, Some(val.to_string()))?;
-            info!("Updated {actual_key} to: {val}");
-        }
-        "inline_ai_delimiter" => {
-            if let Some(c) = value.chars().next() {
-                let current = manager.load_all();
-                taurine_core::settings::validate_delimiter_conflicts(
-                    &current,
-                    "inline_ai_trigger",
-                    &c.to_string(),
-                )?;
-                manager.update_setting(actual_key, c)?;
-                info!("Updated inline_ai_delimiter to: {}", c);
-            } else {
-                warn!("Invalid delimiter character provided.");
-            }
-        }
-        "rpc_port" => {
-            let parsed = value.parse::<u16>().map_err(|_| {
-                taurine_core::error::Error::Config(format!("bad port value: {}", value))
-            })?;
-            if parsed < 1024 {
-                warn!(
-                    "Invalid port value: {}. Must be between 1024 and 65535",
-                    parsed
-                );
-                return Ok(());
-            }
-            manager.update_setting(actual_key, parsed)?;
-            info!(
-                "Updated rpc_port to: {}. Note: please restart the Taurine service for this to take effect.",
-                parsed
-            );
-        }
-        "ai_temperature" => {
-            let parsed = value.parse::<f32>().map_err(|_| {
-                taurine_core::error::Error::Config(format!("bad temperature value: {}", value))
-            })?;
-            manager.update_setting(actual_key, Some(parsed))?;
-            info!("Updated ai_temperature to: {}", parsed);
-        }
-        "ai_max_tokens" => {
-            let parsed = value.parse::<u32>().map_err(|_| {
-                taurine_core::error::Error::Config(format!("bad max tokens value: {}", value))
-            })?;
-            manager.update_setting(actual_key, Some(parsed))?;
-            info!("Updated ai_max_tokens to: {}", parsed);
-        }
-        "ai_system_prompt" => {
-            let val = value.trim();
-            if val.is_empty() {
-                manager.update_setting(actual_key, None as Option<String>)?;
-                info!("Cleared ai_system_prompt");
-            } else {
-                manager.update_setting(actual_key, Some(val.to_string()))?;
-                info!("Updated ai_system_prompt to: {}", val);
-            }
-        }
-        "rpc_mode" => {
-            let mode = match value.to_lowercase().as_str() {
-                "socket" => taurine_core::settings::RpcMode::Socket,
-                "tcp" => taurine_core::settings::RpcMode::Tcp,
-                _ => {
-                    warn!("Invalid rpc_mode: {}. Supported: socket, tcp", value);
-                    return Ok(());
-                }
-            };
-            manager.update_setting(actual_key, mode)?;
-            info!("Updated rpc_mode to: {:?}", mode);
-        }
-        "rpc_host" => {
-            let val = value.trim();
-            if val.is_empty() {
-                warn!("rpc_host cannot be empty.");
-                return Ok(());
-            }
-            manager.update_setting(actual_key, val.to_string())?;
-            info!("Updated rpc_host to: {}", val);
-        }
-        "inline_datetime_date_format"
-        | "inline_datetime_time_format"
-        | "inline_datetime_datetime_format"
-        | "inline_datetime_dialect" => {
-            let val = value.trim();
-            if val.is_empty() {
-                return Err(taurine_core::error::Error::Config(format!(
-                    "{actual_key} must not be empty"
-                )));
-            }
-            if actual_key == "inline_datetime_dialect" && val != "uk" && val != "us" {
-                return Err(taurine_core::error::Error::Config(format!(
-                    "dialect must be 'uk' or 'us', got '{val}'"
-                )));
-            }
-            manager.update_setting(actual_key, val.to_string())?;
-            info!("Updated {actual_key} to: {val}");
-        }
-        _ => {
-            warn!("Unknown setting key: {}", key);
-            return Ok(());
-        }
-    }
-
-    taurine_core::rpc::notify_daemon_reload();
     if json {
         println!(
             "{}",
@@ -359,236 +173,9 @@ pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::erro
     Ok(())
 }
 pub fn execute_reset(key: String, json: bool) -> taurine_core::error::Result<()> {
-    let conn = init::setup()?;
-    let manager = SettingsManager::new(&conn);
-    let defaults = Settings::default();
-
     let actual_key = Settings::resolve_key(&key);
+    reset_setting_to_default(actual_key)?;
 
-    match actual_key {
-        "pause_hotkey" => {
-            manager.update_setting(actual_key, &defaults.pause_hotkey)?;
-            info!("Reset pause_hotkey to default: {}", defaults.pause_hotkey);
-        }
-        "pause_notifications_enabled" => {
-            manager.update_setting(actual_key, defaults.pause_notifications_enabled)?;
-            info!(
-                "Reset pause_notifications_enabled to default: {}",
-                defaults.pause_notifications_enabled
-            );
-        }
-        "pause_audio_enabled" => {
-            manager.update_setting(actual_key, defaults.pause_audio_enabled)?;
-            info!(
-                "Reset pause_audio_enabled to default: {}",
-                defaults.pause_audio_enabled
-            );
-        }
-        "start_on_boot" => {
-            manager.update_setting(actual_key, defaults.start_on_boot)?;
-            info!("Reset start_on_boot to default: {}", defaults.start_on_boot);
-
-            if let Err(e) = taurine_core::service::sync_boot(defaults.start_on_boot) {
-                warn!("Failed to synchronize OS startup hook: {}", e);
-            }
-        }
-        "inline_tab_completion_enabled" => {
-            manager.update_setting(actual_key, defaults.inline_tab_completion_enabled)?;
-            info!(
-                "Reset inline_tab_completion_enabled to default: {}",
-                defaults.inline_tab_completion_enabled
-            );
-        }
-        "inline_case_transform_enabled" => {
-            manager.update_setting(actual_key, defaults.inline_case_transform_enabled)?;
-            info!(
-                "Reset inline_case_transform_enabled to default: {}",
-                defaults.inline_case_transform_enabled
-            );
-        }
-        "inline_emoji_enabled" => {
-            manager.update_setting(actual_key, defaults.inline_emoji_enabled)?;
-            info!(
-                "Reset inline_emoji_enabled to default: {}",
-                defaults.inline_emoji_enabled
-            );
-        }
-        "inline_datetime_enabled" => {
-            manager.update_setting(actual_key, defaults.inline_datetime_enabled)?;
-            info!(
-                "Reset inline_datetime_enabled to default: {}",
-                defaults.inline_datetime_enabled
-            );
-        }
-        "inline_currency_to_words_enabled" => {
-            manager.update_setting(actual_key, defaults.inline_currency_to_words_enabled)?;
-            info!(
-                "Reset inline_currency_to_words_enabled to default: {}",
-                defaults.inline_currency_to_words_enabled
-            );
-        }
-        "wpm" => {
-            manager.update_setting(actual_key, defaults.wpm)?;
-            info!("Reset wpm to default: {}", defaults.wpm);
-        }
-        "clipboard_restore_delay_ms" => {
-            manager.update_setting(actual_key, defaults.clipboard_restore_delay_ms)?;
-            info!(
-                "Reset clipboard_restore_delay_ms to default: {}",
-                defaults.clipboard_restore_delay_ms
-            );
-        }
-        "clipboard_history_enabled" => {
-            manager.update_setting(actual_key, defaults.clipboard_history_enabled)?;
-            info!(
-                "Reset clipboard_history_enabled to default: {}",
-                defaults.clipboard_history_enabled
-            );
-        }
-        "clipboard_history_retention_secs" => {
-            manager.update_setting(actual_key, defaults.clipboard_history_retention_secs)?;
-            info!(
-                "Reset clipboard_history_retention_secs to default: {}",
-                defaults.clipboard_history_retention_secs
-            );
-        }
-        "spinner_style" => {
-            manager.update_setting(actual_key, defaults.spinner_style)?;
-            info!(
-                "Reset spinner_style to default: {:?}",
-                defaults.spinner_style
-            );
-        }
-        "instant_expand" => {
-            manager.update_setting(actual_key, defaults.instant_expand)?;
-            info!(
-                "Reset instant_expand to default: {}",
-                defaults.instant_expand
-            );
-        }
-        "scripts_enabled" => {
-            manager.update_setting(actual_key, defaults.scripts_enabled)?;
-            info!(
-                "Reset scripts_enabled to default: {}",
-                defaults.scripts_enabled
-            );
-        }
-        "system_tray_enabled" => {
-            manager.update_setting(actual_key, defaults.system_tray_enabled)?;
-            info!(
-                "Reset system_tray_enabled to default: {}",
-                defaults.system_tray_enabled
-            );
-        }
-        "ai_provider" => {
-            manager.update_setting(actual_key, defaults.ai_provider.clone())?;
-            info!("Reset ai_provider to default: <unset>");
-        }
-        "ai_model" => {
-            manager.update_setting(actual_key, defaults.ai_model.clone())?;
-            info!("Reset ai_model to default: <unset>");
-        }
-        "ai_temperature" => {
-            manager.update_setting(actual_key, defaults.ai_temperature)?;
-            info!("Reset ai_temperature to default: <unset>");
-        }
-        "ai_max_tokens" => {
-            manager.update_setting(actual_key, defaults.ai_max_tokens)?;
-            info!("Reset ai_max_tokens to default: <unset>");
-        }
-        "ai_system_prompt" => {
-            manager.update_setting(actual_key, defaults.ai_system_prompt.clone())?;
-            info!("Reset ai_system_prompt to default: <unset>");
-        }
-        "ai_custom_endpoint" => {
-            manager.update_setting(actual_key, defaults.ai_custom_endpoint.clone())?;
-            info!("Reset ai_custom_endpoint to default: <unset>");
-        }
-        "inline_ai_trigger_mode" => {
-            manager.update_setting(actual_key, defaults.inline_ai_trigger_mode)?;
-            info!(
-                "Reset inline_ai_trigger_mode to default: {:?}",
-                defaults.inline_ai_trigger_mode
-            );
-        }
-        "inline_ai_trigger" => {
-            manager.update_setting(actual_key, defaults.inline_ai_trigger.clone())?;
-            info!(
-                "Reset inline_ai_trigger to default: {}",
-                defaults.inline_ai_trigger
-            );
-        }
-        "inline_ai_trigger_open" => {
-            manager.update_setting(actual_key, defaults.inline_ai_trigger_open.clone())?;
-            info!(
-                "Reset inline_ai_trigger_open to default: {}",
-                defaults.inline_ai_trigger_open
-            );
-        }
-        "inline_ai_trigger_close" => {
-            manager.update_setting(actual_key, defaults.inline_ai_trigger_close.clone())?;
-            info!(
-                "Reset inline_ai_trigger_close to default: {}",
-                defaults.inline_ai_trigger_close
-            );
-        }
-        "rpc_port" => {
-            manager.update_setting(actual_key, defaults.rpc_port)?;
-            info!(
-                "Reset rpc_port to default: {}. Note: please restart the Taurine service for this to take effect.",
-                defaults.rpc_port
-            );
-        }
-        "rpc_mode" => {
-            manager.update_setting(actual_key, defaults.rpc_mode)?;
-            info!("Reset rpc_mode to default: {:?}", defaults.rpc_mode);
-        }
-        "rpc_host" => {
-            manager.update_setting(actual_key, defaults.rpc_host.clone())?;
-            info!("Reset rpc_host to default: {}", defaults.rpc_host);
-        }
-        "script_timeout" => {
-            manager.update_setting(actual_key, defaults.script_timeout)?;
-            info!(
-                "Reset script_timeout to default: {}",
-                defaults.script_timeout
-            );
-        }
-        "inline_datetime_date_format" => {
-            manager.update_setting(actual_key, defaults.inline_datetime_date_format.clone())?;
-            info!(
-                "Reset inline_datetime_date_format to default: {}",
-                defaults.inline_datetime_date_format
-            );
-        }
-        "inline_datetime_time_format" => {
-            manager.update_setting(actual_key, defaults.inline_datetime_time_format.clone())?;
-            info!(
-                "Reset inline_datetime_time_format to default: {}",
-                defaults.inline_datetime_time_format
-            );
-        }
-        "inline_datetime_datetime_format" => {
-            manager.update_setting(actual_key, defaults.inline_datetime_datetime_format.clone())?;
-            info!(
-                "Reset inline_datetime_datetime_format to default: {}",
-                defaults.inline_datetime_datetime_format
-            );
-        }
-        "inline_datetime_dialect" => {
-            manager.update_setting(actual_key, defaults.inline_datetime_dialect.clone())?;
-            info!(
-                "Reset inline_datetime_dialect to default: {}",
-                defaults.inline_datetime_dialect
-            );
-        }
-        _ => {
-            warn!("Unknown setting key: {}", key);
-            return Ok(());
-        }
-    }
-
-    taurine_core::rpc::notify_daemon_reload();
     if json {
         println!(
             "{}",
@@ -599,92 +186,10 @@ pub fn execute_reset(key: String, json: bool) -> taurine_core::error::Result<()>
 }
 
 pub fn execute_reset_all(json: bool) -> taurine_core::error::Result<()> {
-    let conn = init::setup()?;
-    let manager = SettingsManager::new(&conn);
-    let defaults = Settings::default();
-
-    manager.update_setting("pause_hotkey", &defaults.pause_hotkey)?;
-    manager.update_setting(
-        "pause_notifications_enabled",
-        defaults.pause_notifications_enabled,
-    )?;
-    manager.update_setting("pause_audio_enabled", defaults.pause_audio_enabled)?;
-    manager.update_setting("start_on_boot", defaults.start_on_boot)?;
-    manager.update_setting("system_tray_enabled", defaults.system_tray_enabled)?;
-    manager.update_setting(
-        "inline_tab_completion_enabled",
-        defaults.inline_tab_completion_enabled,
-    )?;
-    manager.update_setting(
-        "inline_case_transform_enabled",
-        defaults.inline_case_transform_enabled,
-    )?;
-    manager.update_setting("wpm", defaults.wpm)?;
-    manager.update_setting("spinner_style", defaults.spinner_style)?;
-    manager.update_setting("ai_provider", defaults.ai_provider.clone())?;
-    manager.update_setting("ai_model", defaults.ai_model.clone())?;
-    manager.update_setting("ai_custom_endpoint", defaults.ai_custom_endpoint.clone())?;
-    manager.update_setting("inline_ai_trigger_mode", defaults.inline_ai_trigger_mode)?;
-    manager.update_setting("inline_ai_trigger", defaults.inline_ai_trigger.clone())?;
-    manager.update_setting(
-        "inline_ai_trigger_open",
-        defaults.inline_ai_trigger_open.clone(),
-    )?;
-    manager.update_setting(
-        "inline_ai_trigger_close",
-        defaults.inline_ai_trigger_close.clone(),
-    )?;
-    manager.update_setting(
-        "clipboard_restore_delay_ms",
-        defaults.clipboard_restore_delay_ms,
-    )?;
-    manager.update_setting(
-        "clipboard_history_enabled",
-        defaults.clipboard_history_enabled,
-    )?;
-    manager.update_setting(
-        "clipboard_history_retention_secs",
-        defaults.clipboard_history_retention_secs,
-    )?;
-    manager.update_setting("ignore_fullscreen", defaults.ignore_fullscreen)?;
-    manager.update_setting("script_timeout", defaults.script_timeout)?;
-    manager.update_setting("ai_temperature", defaults.ai_temperature)?;
-    manager.update_setting("ai_max_tokens", defaults.ai_max_tokens)?;
-    manager.update_setting("ai_system_prompt", defaults.ai_system_prompt.clone())?;
-    manager.update_setting("instant_expand", defaults.instant_expand)?;
-    manager.update_setting("rpc_port", defaults.rpc_port)?;
-    manager.update_setting("rpc_mode", defaults.rpc_mode)?;
-    manager.update_setting("rpc_host", defaults.rpc_host.clone())?;
-    manager.update_setting("inline_emoji_enabled", defaults.inline_emoji_enabled)?;
-    manager.update_setting("inline_datetime_enabled", defaults.inline_datetime_enabled)?;
-    manager.update_setting(
-        "inline_datetime_date_format",
-        defaults.inline_datetime_date_format.clone(),
-    )?;
-    manager.update_setting(
-        "inline_datetime_time_format",
-        defaults.inline_datetime_time_format.clone(),
-    )?;
-    manager.update_setting(
-        "inline_datetime_datetime_format",
-        defaults.inline_datetime_datetime_format.clone(),
-    )?;
-    manager.update_setting(
-        "inline_datetime_dialect",
-        defaults.inline_datetime_dialect.clone(),
-    )?;
-    manager.update_setting(
-        "inline_currency_to_words_enabled",
-        defaults.inline_currency_to_words_enabled,
-    )?;
-
-    info!("All settings have been reset to factory defaults.");
-
-    if let Err(e) = taurine_core::service::sync_boot(defaults.start_on_boot) {
-        warn!("Failed to synchronize OS startup hook: {}", e);
+    for key in SettingKey::ALL {
+        reset_setting_to_default(key.storage_key())?;
     }
 
-    taurine_core::rpc::notify_daemon_reload();
     if json {
         println!("{}", serde_json::json!({"status": "reset_all"}));
     }
@@ -695,12 +200,6 @@ fn render_optional_setting(value: Option<&str>) -> &str {
     value.filter(|v| !v.is_empty()).unwrap_or("<unset>")
 }
 
-fn parse_boolean_setting_value(value: &str) -> taurine_core::error::Result<bool> {
-    value.to_lowercase().parse::<bool>().map_err(|_| {
-        taurine_core::error::Error::Config(format!("Invalid boolean value: {}", value))
-    })
-}
-
 pub fn format_settings_json(settings: &Settings) -> String {
     let val = serde_json::to_value(settings).unwrap_or_default();
     serde_json::to_string(&val).unwrap_or_default()
@@ -709,6 +208,115 @@ pub fn format_settings_json(settings: &Settings) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct TestDbEnv;
+
+    impl Drop for TestDbEnv {
+        fn drop(&mut self) {
+            // SAFETY: test-only; access to TAURINE_DB_PATH is serialized by
+            // crate::commands::TEST_LOCK, so no other thread mutates the
+            // variable concurrently with this drop.
+            unsafe { std::env::remove_var("TAURINE_DB_PATH") };
+        }
+    }
+
+    fn with_test_db<R>(f: impl FnOnce() -> R) -> R {
+        let _guard = crate::commands::TEST_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().expect("temp dir");
+        let _env = TestDbEnv;
+        // SAFETY: test-only; serialized by crate::commands::TEST_LOCK, so
+        // exactly one thread manipulates TAURINE_DB_PATH at a time.
+        unsafe { std::env::set_var("TAURINE_DB_PATH", dir.path().join("taurine.db")) };
+        f()
+    }
+
+    #[test]
+    fn reset_auto_update_restores_default() {
+        let restored = with_test_db(|| -> taurine_core::error::Result<bool> {
+            execute_set("auto_update".to_string(), "false".to_string(), false)?;
+            execute_reset("auto_update".to_string(), false)?;
+            let conn = init::setup()?;
+            let manager = SettingsManager::new(&conn);
+            Ok(manager.load_all().auto_update)
+        });
+        assert!(restored.unwrap());
+    }
+
+    #[test]
+    fn reset_all_restores_every_setting() {
+        let restored = with_test_db(|| -> taurine_core::error::Result<(bool, bool, bool)> {
+            let conn = init::setup()?;
+            let manager = SettingsManager::new(&conn);
+            manager.update_setting("auto_update", false)?;
+            manager.update_setting("inline_emoji_trigger_char", '!')?;
+            manager.update_setting("scripts_enabled", false)?;
+            execute_reset_all(false)?;
+            let conn = init::setup()?;
+            let manager = SettingsManager::new(&conn);
+            let settings = manager.load_all();
+            Ok((
+                settings.auto_update,
+                settings.inline_emoji_trigger_char == ':',
+                settings.scripts_enabled,
+            ))
+        });
+        let (auto_update, emoji_trigger_char, scripts_enabled) = restored.unwrap();
+        assert!(auto_update);
+        assert!(emoji_trigger_char);
+        assert!(scripts_enabled);
+    }
+
+    #[test]
+    fn set_inline_ai_trigger_keys_persist() {
+        let persisted = with_test_db(
+            || -> taurine_core::error::Result<(bool, bool, bool, bool)> {
+                execute_set(
+                    "inline_ai_trigger_mode".to_string(),
+                    "symmetric".to_string(),
+                    false,
+                )?;
+                execute_set("inline_ai_trigger".to_string(), "=".to_string(), false)?;
+                execute_set(
+                    "inline_ai_trigger_open".to_string(),
+                    "[[".to_string(),
+                    false,
+                )?;
+                execute_set(
+                    "inline_ai_trigger_close".to_string(),
+                    "]]".to_string(),
+                    false,
+                )?;
+                let conn = init::setup()?;
+                let manager = SettingsManager::new(&conn);
+                let settings = manager.load_all();
+                Ok((
+                    settings.inline_ai_trigger_mode
+                        == taurine_core::settings::InlineAiTriggerMode::Symmetric,
+                    settings.inline_ai_trigger == "=",
+                    settings.inline_ai_trigger_open == "[[",
+                    settings.inline_ai_trigger_close == "]]",
+                ))
+            },
+        );
+        let (mode, trigger, open, close) = persisted.unwrap();
+        assert!(mode);
+        assert!(trigger);
+        assert!(open);
+        assert!(close);
+    }
+
+    #[test]
+    fn set_unknown_key_returns_error() {
+        let is_err =
+            with_test_db(|| execute_set("bogus_key".to_string(), "x".to_string(), false).is_err());
+        assert!(is_err);
+    }
+
+    #[test]
+    fn reset_unknown_key_returns_error() {
+        let is_err = with_test_db(|| execute_reset("bogus_key".to_string(), false).is_err());
+        assert!(is_err);
+    }
 
     #[test]
     fn render_optional_setting_uses_unset_placeholder() {
@@ -729,17 +337,6 @@ mod tests {
             taurine_core::ai::AiProvider::try_from("unknown").is_err(),
             "invalid provider must be rejected"
         );
-    }
-
-    #[test]
-    fn parse_boolean_setting_value_accepts_trigger_assist_booleans() {
-        assert!(parse_boolean_setting_value("true").unwrap());
-        assert!(!parse_boolean_setting_value("false").unwrap());
-    }
-
-    #[test]
-    fn parse_boolean_setting_value_rejects_invalid_trigger_assist_boolean() {
-        assert!(parse_boolean_setting_value("definitely").is_err());
     }
 
     #[test]

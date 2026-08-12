@@ -9,6 +9,7 @@ pub fn apply_setting_input(key: &str, value: Option<&str>) -> Result<()> {
     let outcome = apply_setting_input_with_manager(&manager, key, value)?;
 
     if let Some(enabled) = outcome.sync_boot
+        && std::env::var_os("TAURINE_DB_PATH").is_none()
         && let Err(error) = crate::service::sync_boot(enabled)
     {
         warn!(error = %error, "Failed to synchronize OS startup hook");

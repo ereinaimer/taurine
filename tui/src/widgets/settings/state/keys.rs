@@ -1,133 +1,17 @@
 use taurine_core::settings::{Settings, SpinnerStyle};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SettingKey {
-    PauseHotkey,
-    PauseNotificationsEnabled,
-    PauseAudioEnabled,
-    StartOnBoot,
-    AutoUpdate,
-    InlineTabCompletionEnabled,
-    InlineCaseTransformEnabled,
-    Wpm,
-    SpinnerStyle,
-    AiProvider,
-    AiModel,
-    AiCustomEndpoint,
-    InlineAiTriggerMode,
-    InlineAiTrigger,
-    InlineAiTriggerOpen,
-    InlineAiTriggerClose,
-    ClipboardRestoreDelayMs,
-    InstantExpand,
-    IgnoreFullscreen,
-    RpcMode,
-    RpcHost,
-    RpcPort,
-    ScriptsEnabled,
-    ScriptTimeout,
-    AiTemperature,
-    AiMaxTokens,
-    AiSystemPrompt,
-    ClipboardHistoryEnabled,
-    ClipboardHistoryRetentionSecs,
-    InlineEmojiEnabled,
-    InlineEmojiTriggerChar,
-    SystemTrayEnabled,
-    InlineDatetimeEnabled,
-    InlineDatetimeDateFormat,
-    InlineDatetimeTimeFormat,
-    InlineDatetimeDatetimeFormat,
-    InlineDatetimeDialect,
-    InlineCurrencyToWordsEnabled,
+pub(crate) use taurine_core::settings::SettingKey;
+
+pub(crate) trait SettingKeyMeta {
+    fn display_name(self) -> &'static str;
+    fn description(self) -> &'static str;
+    fn editor_kind(self) -> EditorKind;
+    fn display_value(self, settings: &Settings) -> String;
+    fn edit_value(self, settings: &Settings) -> String;
 }
 
-impl SettingKey {
-    pub(crate) const ALL: [Self; 38] = [
-        Self::PauseHotkey,
-        Self::PauseNotificationsEnabled,
-        Self::PauseAudioEnabled,
-        Self::StartOnBoot,
-        Self::AutoUpdate,
-        Self::InlineTabCompletionEnabled,
-        Self::InlineCaseTransformEnabled,
-        Self::Wpm,
-        Self::SpinnerStyle,
-        Self::AiProvider,
-        Self::AiModel,
-        Self::AiCustomEndpoint,
-        Self::InlineAiTriggerMode,
-        Self::InlineAiTrigger,
-        Self::InlineAiTriggerOpen,
-        Self::InlineAiTriggerClose,
-        Self::ClipboardRestoreDelayMs,
-        Self::InstantExpand,
-        Self::IgnoreFullscreen,
-        Self::RpcMode,
-        Self::RpcHost,
-        Self::RpcPort,
-        Self::ScriptsEnabled,
-        Self::ScriptTimeout,
-        Self::AiTemperature,
-        Self::AiMaxTokens,
-        Self::AiSystemPrompt,
-        Self::ClipboardHistoryEnabled,
-        Self::ClipboardHistoryRetentionSecs,
-        Self::InlineEmojiEnabled,
-        Self::InlineEmojiTriggerChar,
-        Self::SystemTrayEnabled,
-        Self::InlineDatetimeEnabled,
-        Self::InlineDatetimeDateFormat,
-        Self::InlineDatetimeTimeFormat,
-        Self::InlineDatetimeDatetimeFormat,
-        Self::InlineDatetimeDialect,
-        Self::InlineCurrencyToWordsEnabled,
-    ];
-
-    pub(crate) const fn storage_key(self) -> &'static str {
-        match self {
-            Self::PauseHotkey => "pause_hotkey",
-            Self::PauseNotificationsEnabled => "pause_notifications_enabled",
-            Self::PauseAudioEnabled => "pause_audio_enabled",
-            Self::StartOnBoot => "start_on_boot",
-            Self::AutoUpdate => "auto_update",
-            Self::InlineTabCompletionEnabled => "inline_tab_completion_enabled",
-            Self::InlineCaseTransformEnabled => "inline_case_transform_enabled",
-            Self::Wpm => "wpm",
-            Self::SpinnerStyle => "spinner_style",
-            Self::AiProvider => "ai_provider",
-            Self::AiModel => "ai_model",
-            Self::AiCustomEndpoint => "ai_custom_endpoint",
-            Self::InlineAiTriggerMode => "inline_ai_trigger_mode",
-            Self::InlineAiTrigger => "inline_ai_trigger",
-            Self::InlineAiTriggerOpen => "inline_ai_trigger_open",
-            Self::InlineAiTriggerClose => "inline_ai_trigger_close",
-            Self::ClipboardRestoreDelayMs => "clipboard_restore_delay_ms",
-            Self::InstantExpand => "instant_expand",
-            Self::IgnoreFullscreen => "ignore_fullscreen",
-            Self::RpcMode => "rpc_mode",
-            Self::RpcHost => "rpc_host",
-            Self::RpcPort => "rpc_port",
-            Self::ScriptsEnabled => "scripts_enabled",
-            Self::ScriptTimeout => "script_timeout",
-            Self::AiTemperature => "ai_temperature",
-            Self::AiMaxTokens => "ai_max_tokens",
-            Self::AiSystemPrompt => "ai_system_prompt",
-            Self::ClipboardHistoryEnabled => "clipboard_history_enabled",
-            Self::ClipboardHistoryRetentionSecs => "clipboard_history_retention_secs",
-            Self::InlineEmojiEnabled => "inline_emoji_enabled",
-            Self::InlineEmojiTriggerChar => "inline_emoji_trigger_char",
-            Self::SystemTrayEnabled => "system_tray_enabled",
-            Self::InlineDatetimeEnabled => "inline_datetime_enabled",
-            Self::InlineDatetimeDateFormat => "inline_datetime_date_format",
-            Self::InlineDatetimeTimeFormat => "inline_datetime_time_format",
-            Self::InlineDatetimeDatetimeFormat => "inline_datetime_datetime_format",
-            Self::InlineDatetimeDialect => "inline_datetime_dialect",
-            Self::InlineCurrencyToWordsEnabled => "inline_currency_to_words_enabled",
-        }
-    }
-
-    pub(crate) const fn display_name(self) -> &'static str {
+impl SettingKeyMeta for SettingKey {
+    fn display_name(self) -> &'static str {
         match self {
             Self::PauseHotkey => "Pause Hotkey",
             Self::PauseNotificationsEnabled => "Pause Notifications",
@@ -170,7 +54,7 @@ impl SettingKey {
         }
     }
 
-    pub(crate) const fn description(self) -> &'static str {
+    fn description(self) -> &'static str {
         match self {
             Self::PauseHotkey => "The keyboard shortcut used to pause Taurine globally",
             Self::PauseNotificationsEnabled => {
@@ -245,7 +129,7 @@ impl SettingKey {
         }
     }
 
-    pub(crate) const fn editor_kind(self) -> EditorKind {
+    fn editor_kind(self) -> EditorKind {
         match self {
             Self::PauseNotificationsEnabled
             | Self::PauseAudioEnabled
@@ -288,7 +172,7 @@ impl SettingKey {
         }
     }
 
-    pub(crate) fn display_value(self, settings: &Settings) -> String {
+    fn display_value(self, settings: &Settings) -> String {
         match self {
             Self::PauseHotkey => settings.pause_hotkey.clone(),
             Self::PauseNotificationsEnabled => settings.pause_notifications_enabled.to_string(),
@@ -353,7 +237,7 @@ impl SettingKey {
         }
     }
 
-    pub(crate) fn edit_value(self, settings: &Settings) -> String {
+    fn edit_value(self, settings: &Settings) -> String {
         match self {
             Self::PauseHotkey => settings.pause_hotkey.clone(),
             Self::Wpm => settings.wpm.to_string(),

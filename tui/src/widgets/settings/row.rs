@@ -6,6 +6,7 @@ use ratatui::{
 };
 
 use crate::theme::Theme;
+use crate::widgets::settings::state::SettingKeyMeta;
 use crate::widgets::util;
 
 #[allow(clippy::too_many_arguments)]

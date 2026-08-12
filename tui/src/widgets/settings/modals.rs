@@ -8,7 +8,7 @@ use ratatui::{
 
 use crate::theme::Theme;
 use crate::widgets::settings::state::{
-    ConfirmResetModalState, InputModalState, SelectModalState, SettingsModal,
+    ConfirmResetModalState, InputModalState, SelectModalState, SettingKeyMeta, SettingsModal,
 };
 use crate::widgets::util;
 

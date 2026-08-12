@@ -1,7 +1,7 @@
 mod keys;
 mod modals;
 
-pub(crate) use keys::{EditorKind, SettingKey};
+pub(crate) use keys::{EditorKind, SettingKey, SettingKeyMeta};
 pub(crate) use modals::{ConfirmResetModalState, InputModalState, SelectModalState};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};

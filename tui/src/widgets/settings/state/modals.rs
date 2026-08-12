@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use taurine_core::settings::Settings;
 
-use super::{EditorKind, SettingKey, SettingsInteraction};
+use super::{EditorKind, SettingKey, SettingKeyMeta, SettingsInteraction};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ConfirmResetModalState {

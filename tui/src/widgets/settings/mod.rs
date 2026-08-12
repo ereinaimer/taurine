@@ -110,7 +110,7 @@ fn visible_setting_range(total: usize, selected: usize, visible_count: usize) ->
 }
 
 fn control_column_width(settings: &taurine_core::settings::Settings, area_width: u16) -> u16 {
-    use crate::widgets::settings::state::SettingKey;
+    use crate::widgets::settings::state::{SettingKey, SettingKeyMeta};
     let longest_value = SettingKey::ALL
         .iter()
         .map(|key| key.display_value(settings).chars().count())
