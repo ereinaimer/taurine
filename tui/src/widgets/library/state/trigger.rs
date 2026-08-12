@@ -1,4 +1,4 @@
-use taurine_core::db::crud::{TriggerListItem, TriggerRow, TriggerType};
+use taurine_core::db::crud::{ActionType, TriggerListItem, TriggerRow, TriggerType};
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
 use crate::widgets::library::actions::{
@@ -25,7 +25,7 @@ impl LibraryKind {
     ];
 
     pub(crate) fn from_parts(trigger_type: TriggerType, action_type: &str) -> Self {
-        let is_script = action_type.eq_ignore_ascii_case("script");
+        let is_script = ActionType::parse_str(action_type) == Some(ActionType::Script);
 
         match (trigger_type, is_script) {
             (TriggerType::Hotkey, true) => Self::HotkeyScript,

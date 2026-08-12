@@ -1,12 +1,12 @@
 pub mod crud;
 pub mod init;
 
-pub use crud::{SettingRow, delete_setting, get_setting, get_setting_value, upsert_setting};
 pub use crud::{
-    StatRow, TargetOs, TriggerRow, TriggerType, delete_stat, delete_trigger,
+    ActionType, StatRow, TargetOs, TriggerRow, TriggerType, delete_stat, delete_trigger,
     get_current_os_db_string, get_stat, get_stat_counters, get_trigger, increment_stat,
     normalize_os, upsert_trigger,
 };
+pub use crud::{SettingRow, delete_setting, get_setting, get_setting_value, upsert_setting};
 
 /// Returns the current time as Unix seconds (UTC).
 ///

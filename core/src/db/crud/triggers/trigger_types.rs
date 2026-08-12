@@ -74,11 +74,46 @@ pub struct TriggerAction {
     pub script_binary: Option<Vec<u8>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ActionType {
+    #[default]
+    Text,
+    Script,
+}
+
+impl ActionType {
+    pub const ALL: [Self; 2] = [Self::Text, Self::Script];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Script => "script",
+        }
+    }
+
+    pub fn parse_str(s: &str) -> Option<Self> {
+        match s.trim().to_lowercase().as_str() {
+            "text" => Some(Self::Text),
+            "script" => Some(Self::Script),
+            _ => None,
+        }
+    }
+
+    pub const fn is_script(self) -> bool {
+        matches!(self, Self::Script)
+    }
+
+    pub const fn is_text(self) -> bool {
+        matches!(self, Self::Text)
+    }
+}
+
 impl TriggerAction {
     pub fn text(output: &str) -> Self {
         Self {
             output: output.to_string(),
-            action_type: "text".to_string(),
+            action_type: ActionType::Text.as_str().to_string(),
             only_apps: None,
             except_apps: None,
             auto_case: false,
@@ -86,6 +121,14 @@ impl TriggerAction {
             behavior: None,
             script_binary: None,
         }
+    }
+
+    pub fn is_script(&self) -> bool {
+        ActionType::parse_str(&self.action_type) == Some(ActionType::Script)
+    }
+
+    pub fn is_text(&self) -> bool {
+        ActionType::parse_str(&self.action_type) == Some(ActionType::Text)
     }
 }
 
@@ -259,5 +302,31 @@ mod tests {
         assert!(json.contains("\"trigger_type\":\"regex\""));
         assert!(json.contains("\"trigger\":\"issue-(\\\\d+)\""));
         assert!(json.contains("\"last_used_at\":1730000000"));
+    }
+
+    #[test]
+    fn test_action_type_as_str_and_parse_roundtrip() {
+        for action in ActionType::ALL {
+            let label = action.as_str();
+            assert_eq!(ActionType::parse_str(label), Some(action));
+        }
+    }
+
+    #[test]
+    fn test_action_type_parse_aliases() {
+        assert_eq!(ActionType::parse_str("text"), Some(ActionType::Text));
+        assert_eq!(
+            ActionType::parse_str("  SCRIPT  "),
+            Some(ActionType::Script)
+        );
+        assert_eq!(ActionType::parse_str("invalid"), None);
+    }
+
+    #[test]
+    fn test_action_type_helper_predicates() {
+        assert!(ActionType::Script.is_script());
+        assert!(!ActionType::Script.is_text());
+        assert!(ActionType::Text.is_text());
+        assert!(!ActionType::Text.is_script());
     }
 }

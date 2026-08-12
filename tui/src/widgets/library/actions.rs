@@ -3,8 +3,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use zeroize::Zeroize;
 
 use taurine_core::db::crud::{
-    ExistingTriggerUpdate, NewTrigger, TriggerListItem, TriggerRow, create_trigger, delete_trigger,
-    update_existing_trigger,
+    ActionType, ExistingTriggerUpdate, NewTrigger, TriggerListItem, TriggerRow, create_trigger,
+    delete_trigger, update_existing_trigger,
 };
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter, decompress};
 use taurine_core::exchange::{
@@ -553,7 +553,7 @@ pub(crate) fn preview_from_item(item: &TriggerListItem) -> String {
         return description;
     }
 
-    if item.action_type.eq_ignore_ascii_case("script") {
+    if ActionType::parse_str(&item.action_type) == Some(ActionType::Script) {
         if let Some(script_content) = normalized_preview_text(item.script_content.as_deref()) {
             return script_content;
         }

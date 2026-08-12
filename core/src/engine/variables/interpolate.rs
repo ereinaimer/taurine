@@ -269,7 +269,7 @@ fn resolve_use_placeholder(key: &str, args: &ArgMap, depth: usize) -> String {
         Err(e) => return format!("[Error: Database query error: {}]", e),
     };
 
-    if action.action_type != "text" {
+    if !action.is_text() {
         return format!("[Error: Cannot invoke non-text snippet '{}']", trigger_name);
     }
 

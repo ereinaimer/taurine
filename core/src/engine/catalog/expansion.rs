@@ -498,7 +498,7 @@ pub(crate) fn expand_trigger_action_with_args(
     args: &ArgMap,
     matched_keyword: &str,
 ) -> Option<FinalExpansion> {
-    if action.action_type == "script" {
+    if action.is_script() {
         return interpolate_script_action(action, args);
     }
 
