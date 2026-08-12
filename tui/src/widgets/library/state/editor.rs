@@ -23,8 +23,7 @@ pub(crate) const SCRIPT_LANGUAGE_OPTIONS: [ScriptInterpreter; 5] = [
     ScriptInterpreter::Node,
     ScriptInterpreter::Cmd,
 ];
-pub(crate) const SCRIPT_MODE_OPTIONS: [ScriptBehavior; 2] =
-    [ScriptBehavior::Inline, ScriptBehavior::Silent];
+pub(crate) const SCRIPT_MODE_OPTIONS: [ScriptBehavior; 2] = ScriptBehavior::ALL;
 pub(crate) const SNIPPET_MODAL_FIELDS: [LibraryModalField; 4] = [
     LibraryModalField::Trigger,
     LibraryModalField::Content,

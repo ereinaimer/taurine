@@ -702,10 +702,7 @@ pub(crate) const fn interpreter_label(interpreter: ScriptInterpreter) -> &'stati
 }
 
 pub(crate) const fn behavior_label(behavior: ScriptBehavior) -> &'static str {
-    match behavior {
-        ScriptBehavior::Inline => "inline",
-        ScriptBehavior::Silent => "silent",
-    }
+    behavior.as_str()
 }
 
 pub(crate) fn default_script_interpreter_for_target_os(target_os: &str) -> ScriptInterpreter {

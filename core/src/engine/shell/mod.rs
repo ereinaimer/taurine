@@ -63,6 +63,29 @@ pub enum ScriptBehavior {
     Silent,
 }
 
+impl ScriptBehavior {
+    pub const ALL: [Self; 2] = [Self::Inline, Self::Silent];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Inline => "inline",
+            Self::Silent => "silent",
+        }
+    }
+
+    pub fn parse_str(s: &str) -> Option<Self> {
+        match s.trim().to_lowercase().as_str() {
+            "inline" => Some(Self::Inline),
+            "silent" => Some(Self::Silent),
+            _ => None,
+        }
+    }
+
+    pub const fn default() -> Self {
+        Self::Inline
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScriptMetadata {
     pub interpreter: ScriptInterpreter,
@@ -251,5 +274,26 @@ mod tests {
             ScriptInterpreter::default_for_target_os(TargetOs::MacOs),
             ScriptInterpreter::Bash
         );
+    }
+
+    #[test]
+    fn test_script_behavior_as_str_and_parse_roundtrip() {
+        for behavior in ScriptBehavior::ALL {
+            let label = behavior.as_str();
+            assert_eq!(ScriptBehavior::parse_str(label), Some(behavior));
+        }
+    }
+
+    #[test]
+    fn test_script_behavior_parse_aliases() {
+        assert_eq!(
+            ScriptBehavior::parse_str("inline"),
+            Some(ScriptBehavior::Inline)
+        );
+        assert_eq!(
+            ScriptBehavior::parse_str("silent"),
+            Some(ScriptBehavior::Silent)
+        );
+        assert_eq!(ScriptBehavior::parse_str("bogus"), None);
     }
 }
