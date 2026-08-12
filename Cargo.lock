@@ -5046,7 +5046,7 @@ dependencies = [
 
 [[package]]
 name = "taurine"
-version = "1.0.0-alpha.15"
+version = "1.0.0-alpha.16"
 dependencies = [
  "clap",
  "clap_complete",
@@ -5082,7 +5082,7 @@ dependencies = [
 
 [[package]]
 name = "taurine_core"
-version = "1.0.0-alpha.15"
+version = "1.0.0-alpha.16"
 dependencies = [
  "aes-gcm",
  "ahash",
@@ -5147,7 +5147,7 @@ dependencies = [
 
 [[package]]
 name = "taurine_daemon"
-version = "1.0.0-alpha.15"
+version = "1.0.0-alpha.16"
 dependencies = [
  "arboard",
  "evdev",
@@ -5186,7 +5186,7 @@ dependencies = [
 
 [[package]]
 name = "taurine_tui"
-version = "1.0.0-alpha.15"
+version = "1.0.0-alpha.16"
 dependencies = [
  "crossterm",
  "keyring",
