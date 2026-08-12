@@ -30,6 +30,44 @@ pub enum AiProvider {
 }
 
 impl AiProvider {
+    pub const ALL: [Self; 15] = [
+        Self::Openai,
+        Self::Claude,
+        Self::Gemini,
+        Self::Xai,
+        Self::Groq,
+        Self::Deepseek,
+        Self::Cohere,
+        Self::Together,
+        Self::Fireworks,
+        Self::Nebius,
+        Self::Mimo,
+        Self::Zai,
+        Self::BigModel,
+        Self::GithubCopilot,
+        Self::Custom,
+    ];
+
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::Openai => "OpenAI",
+            Self::Claude => "Anthropic Claude",
+            Self::Gemini => "Google Gemini",
+            Self::Xai => "xAI Grok",
+            Self::Groq => "Groq",
+            Self::Deepseek => "DeepSeek",
+            Self::Cohere => "Cohere",
+            Self::Together => "Together AI",
+            Self::Fireworks => "Fireworks AI",
+            Self::Nebius => "Nebius AI",
+            Self::Mimo => "MIMO",
+            Self::Zai => "ZAI",
+            Self::BigModel => "BigModel",
+            Self::GithubCopilot => "GitHub Copilot",
+            Self::Custom => "Custom Endpoint",
+        }
+    }
+
     pub fn to_genai_adapter(self) -> genai::adapter::AdapterKind {
         match self {
             Self::Openai => genai::adapter::AdapterKind::OpenAI,
@@ -359,5 +397,16 @@ mod tests {
             resolve_model_for_provider(AiProvider::Gemini, Some("   ")),
             "gemini-2.5-flash"
         );
+    }
+
+    #[test]
+    fn test_ai_provider_all_slice_and_display_name_roundtrip() {
+        assert_eq!(AiProvider::ALL.len(), 15);
+        for provider in AiProvider::ALL {
+            let label = provider.as_str();
+            let display = provider.display_name();
+            assert!(!display.is_empty());
+            assert_eq!(AiProvider::parse(label), Some(provider));
+        }
     }
 }
