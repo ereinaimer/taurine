@@ -883,3 +883,39 @@ fn test_import_allows_older_schema_version() {
     });
     assert!(res.is_ok());
 }
+
+#[test]
+fn test_import_conflict_action_roundtrip_and_parse_aliases() {
+    for action in ImportConflictAction::ALL {
+        let label = action.as_str();
+        assert_eq!(ImportConflictAction::parse_str(label), Some(action));
+    }
+
+    assert_eq!(
+        ImportConflictAction::parse_str("replace"),
+        Some(ImportConflictAction::Overwrite)
+    );
+    assert_eq!(
+        ImportConflictAction::parse_str("ignore"),
+        Some(ImportConflictAction::Skip)
+    );
+    assert_eq!(ImportConflictAction::parse_str("invalid"), None);
+}
+
+#[test]
+fn test_import_stats_mode_roundtrip_and_parse_aliases() {
+    for mode in ImportStatsMode::ALL {
+        let label = mode.as_str();
+        assert_eq!(ImportStatsMode::parse_str(label), Some(mode));
+    }
+
+    assert_eq!(
+        ImportStatsMode::parse_str("combine"),
+        Some(ImportStatsMode::Merge)
+    );
+    assert_eq!(
+        ImportStatsMode::parse_str("skip"),
+        Some(ImportStatsMode::Ignore)
+    );
+    assert_eq!(ImportStatsMode::parse_str("invalid"), None);
+}

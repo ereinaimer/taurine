@@ -8,18 +8,78 @@ use crate::keys::normalize_hotkey;
 use rusqlite::{Connection, Transaction};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ImportConflictAction {
+    #[default]
     Overwrite,
     Skip,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+impl ImportConflictAction {
+    pub const ALL: [Self; 2] = [Self::Overwrite, Self::Skip];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Overwrite => "overwrite",
+            Self::Skip => "skip",
+        }
+    }
+
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::Overwrite => "Overwrite",
+            Self::Skip => "Skip",
+        }
+    }
+
+    pub fn parse_str(s: &str) -> Option<Self> {
+        match s.trim().to_lowercase().as_str() {
+            "overwrite" | "over" | "replace" => Some(Self::Overwrite),
+            "skip" | "ignore" => Some(Self::Skip),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ImportStatsMode {
     #[default]
     Ignore,
     Merge,
     Overwrite,
+}
+
+impl ImportStatsMode {
+    pub const ALL: [Self; 3] = [Self::Ignore, Self::Merge, Self::Overwrite];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ignore => "ignore",
+            Self::Merge => "merge",
+            Self::Overwrite => "overwrite",
+        }
+    }
+
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::Ignore => "Ignore",
+            Self::Merge => "Merge",
+            Self::Overwrite => "Overwrite",
+        }
+    }
+
+    pub fn parse_str(s: &str) -> Option<Self> {
+        match s.trim().to_lowercase().as_str() {
+            "ignore" | "skip" => Some(Self::Ignore),
+            "merge" | "combine" => Some(Self::Merge),
+            "overwrite" | "over" | "replace" => Some(Self::Overwrite),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
