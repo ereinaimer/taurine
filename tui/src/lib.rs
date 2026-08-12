@@ -641,6 +641,14 @@ mod tests {
     use super::*;
     use crate::widgets::library::LibraryTrigger;
 
+    static MOCK_KEYRING: std::sync::Once = std::sync::Once::new();
+
+    fn install_mock_keyring() {
+        MOCK_KEYRING.call_once(|| {
+            keyring::set_default_credential_builder(keyring::mock::default_credential_builder());
+        });
+    }
+
     #[derive(Default)]
     struct MockController {
         start_calls: Cell<usize>,
@@ -702,6 +710,7 @@ mod tests {
 
     #[test]
     fn pressing_x_on_home_calls_start_when_stopped() {
+        install_mock_keyring();
         let mut app = App::default();
         app.set_daemon_status(terminal::status::DaemonStatus::Stopped);
         let controller = MockController::default();
@@ -714,6 +723,7 @@ mod tests {
 
     #[test]
     fn pressing_x_on_home_calls_stop_when_running() {
+        install_mock_keyring();
         let mut app = App::default();
         app.set_daemon_status(terminal::status::DaemonStatus::Running);
         let controller = MockController::default();
@@ -726,6 +736,7 @@ mod tests {
 
     #[test]
     fn pressing_x_on_home_calls_stop_when_paused() {
+        install_mock_keyring();
         let mut app = App::default();
         app.set_daemon_status(terminal::status::DaemonStatus::Paused);
         let controller = MockController::default();
@@ -738,6 +749,7 @@ mod tests {
 
     #[test]
     fn pressing_x_on_home_ignores_duplicate_requests_while_starting() {
+        install_mock_keyring();
         let mut app = App::default();
         app.set_daemon_status(terminal::status::DaemonStatus::Starting);
         let controller = MockController::default();
