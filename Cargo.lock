@@ -5189,6 +5189,7 @@ name = "taurine_tui"
 version = "1.0.0-alpha.15"
 dependencies = [
  "crossterm",
+ "keyring",
  "libc",
  "ratatui",
  "taurine_core",

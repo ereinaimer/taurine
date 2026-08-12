@@ -92,8 +92,17 @@ pub(crate) fn toggle_daemon<C: DaemonController>(
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
+    use std::sync::Once;
 
     use super::*;
+
+    static MOCK_KEYRING: Once = Once::new();
+
+    fn install_mock_keyring() {
+        MOCK_KEYRING.call_once(|| {
+            keyring::set_default_credential_builder(keyring::mock::default_credential_builder());
+        });
+    }
 
     #[derive(Default)]
     struct MockController {
@@ -186,6 +195,7 @@ mod tests {
 
     #[test]
     fn running_toggle_uses_stop_path() {
+        install_mock_keyring();
         let controller = MockController::default();
         let _ = toggle_daemon(&controller, DaemonStatus::Running);
         assert_eq!(controller.start_calls.get(), 0);
@@ -194,6 +204,7 @@ mod tests {
 
     #[test]
     fn paused_toggle_uses_stop_path() {
+        install_mock_keyring();
         let controller = MockController::default();
         let _ = toggle_daemon(&controller, DaemonStatus::Paused);
         assert_eq!(controller.start_calls.get(), 0);

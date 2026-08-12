@@ -20,3 +20,6 @@ zeroize = "1.8"
 [target.'cfg(unix)'.dev-dependencies]
 libc = "0.2"
 
+[dev-dependencies]
+keyring = "3.6.3"
+

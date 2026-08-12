@@ -236,16 +236,28 @@ pub fn notify_daemon_reload() {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Once;
+
     use super::*;
+
+    static MOCK_KEYRING: Once = Once::new();
+
+    fn use_mock_keyring() {
+        MOCK_KEYRING.call_once(|| {
+            keyring::set_default_credential_builder(keyring::mock::default_credential_builder());
+        });
+    }
 
     #[test]
     fn test_get_rpc_token_returns_non_empty_token() {
+        use_mock_keyring();
         let token = get_rpc_token();
         assert!(!token.trim().is_empty());
     }
 
     #[test]
     fn test_delete_rpc_token_runs_without_panic() {
+        use_mock_keyring();
         delete_rpc_token();
     }
 }
