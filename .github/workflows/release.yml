@@ -46,7 +46,7 @@ jobs:
 
       - name: Install dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-22.04'
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config cmake libxkbcommon-dev libdbus-1-dev libasound2-dev libglib2.0-dev libgtk-3-dev libxdo-dev
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config cmake libxkbcommon-dev libdbus-1-dev libasound2-dev libglib2.0-dev libgtk-3-dev libxdo-dev mold
 
       - name: Install protoc
         uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
