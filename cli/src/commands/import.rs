@@ -241,7 +241,7 @@ mod tests {
     #[test]
     fn decode_exchange_blob_requires_password_for_tau1() {
         let json = serialize_payload(&sample_payload()).unwrap();
-        let blob = crypto::encrypt(&json, "hunter2").unwrap();
+        let blob = crypto::encrypt(&json, "hunter22").unwrap();
 
         let err = decode_exchange_blob(&blob, None).unwrap_err();
         assert!(err.to_string().contains("password required"));
@@ -250,9 +250,9 @@ mod tests {
     #[test]
     fn decode_exchange_blob_decrypts_tau1_when_password_is_provided() {
         let json = serialize_payload(&sample_payload()).unwrap();
-        let blob = crypto::encrypt(&json, "hunter2").unwrap();
+        let blob = crypto::encrypt(&json, "hunter22").unwrap();
 
-        let payload = decode_exchange_blob(&blob, Some("hunter2")).unwrap();
+        let payload = decode_exchange_blob(&blob, Some("hunter22")).unwrap();
         assert_eq!(payload, sample_payload());
     }
 

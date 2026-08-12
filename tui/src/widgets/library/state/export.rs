@@ -229,16 +229,8 @@ impl LibraryExportModalState {
             ));
         }
 
-        if self.encrypt && self.password.is_empty() {
-            return Err(taurine_core::Error::Config(
-                "Encryption password is required.".to_string(),
-            ));
-        }
-
-        if self.encrypt && self.password.len() < 8 {
-            return Err(taurine_core::Error::Config(
-                "Encryption password must be at least 8 characters long".to_string(),
-            ));
+        if self.encrypt {
+            taurine_core::exchange::validate_export_password(&self.password)?;
         }
 
         Ok(PendingLibraryExport {

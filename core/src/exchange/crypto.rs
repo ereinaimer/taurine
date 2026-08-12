@@ -10,6 +10,23 @@ const NONCE_LEN: usize = 12;
 const KEY_LEN: usize = 32;
 const MIN_ENCRYPTED_BLOB_LEN: usize = 4 + SALT_LEN + NONCE_LEN + 16;
 
+pub const MIN_EXPORT_PASSWORD_LEN: usize = 8;
+
+pub fn validate_export_password(password: &str) -> crate::Result<()> {
+    let trimmed = password.trim();
+    if trimmed.is_empty() {
+        return Err(crate::Error::Config(
+            "Encryption password is required.".to_string(),
+        ));
+    }
+    if password.len() < MIN_EXPORT_PASSWORD_LEN {
+        return Err(crate::Error::Config(format!(
+            "Encryption password must be at least {MIN_EXPORT_PASSWORD_LEN} characters long"
+        )));
+    }
+    Ok(())
+}
+
 pub fn derive_key(password: &str, salt: &[u8]) -> crate::Result<[u8; KEY_LEN]> {
     if salt.len() != SALT_LEN {
         return Err(crate::Error::Config(format!(
@@ -35,6 +52,7 @@ pub fn derive_key(password: &str, salt: &[u8]) -> crate::Result<[u8; KEY_LEN]> {
 }
 
 pub fn encrypt(plaintext: &[u8], password: &str) -> crate::Result<Vec<u8>> {
+    validate_export_password(password)?;
     let salt: [u8; SALT_LEN] = random();
     let nonce_bytes: [u8; NONCE_LEN] = random();
     let mut key = derive_key(password, &salt)?;
@@ -110,16 +128,35 @@ mod tests {
 
     #[test]
     fn encrypt_decrypt_round_trips() {
-        let blob = encrypt(br#"{"schema_version":1,"triggers":[]}"#, "hunter2").unwrap();
+        let blob = encrypt(br#"{"schema_version":1,"triggers":[]}"#, "hunter22").unwrap();
         assert_eq!(&blob[..4], &ENCRYPTED_MAGIC_HEADER);
 
-        let plaintext = decrypt(&blob, "hunter2").unwrap();
+        let plaintext = decrypt(&blob, "hunter22").unwrap();
         assert_eq!(plaintext, br#"{"schema_version":1,"triggers":[]}"#);
     }
 
     #[test]
+    fn validate_export_password_rejects_empty_and_short_passwords() {
+        assert!(validate_export_password("").is_err());
+        assert!(validate_export_password("   ").is_err());
+        assert!(validate_export_password("1234567").is_err());
+        assert!(validate_export_password("12345678").is_ok());
+    }
+
+    #[test]
+    fn encrypt_fails_when_password_too_short() {
+        let res = encrypt(b"test data", "short");
+        assert!(res.is_err());
+        assert!(
+            res.unwrap_err()
+                .to_string()
+                .contains("at least 8 characters")
+        );
+    }
+
+    #[test]
     fn decrypt_rejects_wrong_password() {
-        let blob = encrypt(b"top secret", "hunter2").unwrap();
+        let blob = encrypt(b"top secret", "hunter22").unwrap();
         let err = decrypt(&blob, "wrong password").unwrap_err();
 
         assert!(err.to_string().contains("wrong password or corrupted file"));
@@ -127,11 +164,11 @@ mod tests {
 
     #[test]
     fn decrypt_rejects_tampered_ciphertext() {
-        let mut blob = encrypt(b"top secret", "hunter2").unwrap();
+        let mut blob = encrypt(b"top secret", "hunter22").unwrap();
         let last = blob.len() - 1;
         blob[last] ^= 0x01;
 
-        let err = decrypt(&blob, "hunter2").unwrap_err();
+        let err = decrypt(&blob, "hunter22").unwrap_err();
         assert!(err.to_string().contains("wrong password or corrupted file"));
     }
 

@@ -9,6 +9,7 @@ use crate::db::crud::TriggerType;
 use crate::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use serde::{Deserialize, Serialize};
 
+pub use crypto::{MIN_EXPORT_PASSWORD_LEN, validate_export_password};
 pub use export::{
     ExportOptions, default_export_filename, default_export_path, encode_exchange_blob,
     ensure_tau_extension, export_triggers, resolve_export_path, write_export_file,
@@ -412,7 +413,7 @@ mod tests {
     #[test]
     fn decode_exchange_blob_requires_password_for_tau1() {
         let serialized = serialize_payload(&ExchangePayload::new(vec![])).unwrap();
-        let blob = crypto::encrypt(&serialized, "hunter2").unwrap();
+        let blob = crypto::encrypt(&serialized, "hunter22").unwrap();
 
         let err = decode_exchange_blob(&blob, None).unwrap_err();
         assert!(err.to_string().contains("password required"));

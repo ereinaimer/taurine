@@ -59,11 +59,9 @@ pub fn execute(
                     || taurine_core::error::Error::Config("Export cancelled.".to_string()),
                 )?,
             };
-        if password.len() < 8 {
+        if let Err(err) = taurine_core::exchange::validate_export_password(&password) {
             password.zeroize();
-            return Err(taurine_core::error::Error::Config(
-                "Encryption password must be at least 8 characters long".to_string(),
-            ));
+            return Err(err);
         }
         let result = encode_exchange_blob(&payload, true, Some(password.as_str()));
         password.zeroize();
