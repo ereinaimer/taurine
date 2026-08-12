@@ -698,13 +698,7 @@ pub(crate) fn display_target_os(target_os: &str) -> &str {
 }
 
 pub(crate) const fn interpreter_label(interpreter: ScriptInterpreter) -> &'static str {
-    match interpreter {
-        ScriptInterpreter::Bash => "bash",
-        ScriptInterpreter::PowerShell => "powershell",
-        ScriptInterpreter::Python => "python",
-        ScriptInterpreter::Node => "node",
-        ScriptInterpreter::Cmd => "cmd",
-    }
+    interpreter.as_str()
 }
 
 pub(crate) const fn behavior_label(behavior: ScriptBehavior) -> &'static str {
@@ -715,12 +709,9 @@ pub(crate) const fn behavior_label(behavior: ScriptBehavior) -> &'static str {
 }
 
 pub(crate) fn default_script_interpreter_for_target_os(target_os: &str) -> ScriptInterpreter {
-    match target_os {
-        "win" => ScriptInterpreter::PowerShell,
-        "linux" | "mac" => ScriptInterpreter::Bash,
-        _ if cfg!(windows) => ScriptInterpreter::PowerShell,
-        _ => ScriptInterpreter::Bash,
-    }
+    let os =
+        taurine_core::db::TargetOs::parse_str(target_os).unwrap_or(taurine_core::db::TargetOs::All);
+    ScriptInterpreter::default_for_target_os(os)
 }
 
 fn format_usage_count(value: u64) -> String {

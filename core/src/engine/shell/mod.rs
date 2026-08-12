@@ -1,3 +1,4 @@
+use crate::db::TargetOs;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -8,6 +9,51 @@ pub enum ScriptInterpreter {
     Python,
     Node,
     Cmd,
+}
+
+impl ScriptInterpreter {
+    pub const ALL: [Self; 5] = [
+        Self::Bash,
+        Self::PowerShell,
+        Self::Python,
+        Self::Node,
+        Self::Cmd,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Bash => "bash",
+            Self::PowerShell => "powershell",
+            Self::Python => "python",
+            Self::Node => "node",
+            Self::Cmd => "cmd",
+        }
+    }
+
+    pub fn parse_str(s: &str) -> Option<Self> {
+        match s.trim().to_lowercase().as_str() {
+            "bash" | "sh" => Some(Self::Bash),
+            "powershell" | "pwsh" | "ps1" => Some(Self::PowerShell),
+            "python" | "py" => Some(Self::Python),
+            "node" | "js" | "cjs" => Some(Self::Node),
+            "cmd" | "bat" => Some(Self::Cmd),
+            _ => None,
+        }
+    }
+
+    pub fn default_for_target_os(target_os: TargetOs) -> Self {
+        match target_os {
+            TargetOs::Windows => Self::PowerShell,
+            TargetOs::Linux | TargetOs::MacOs => Self::Bash,
+            TargetOs::All | TargetOs::Android | TargetOs::Ios => {
+                if cfg!(windows) {
+                    Self::PowerShell
+                } else {
+                    Self::Bash
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -160,5 +206,50 @@ mod tests {
             Some(ScriptInterpreter::Node)
         );
         assert_eq!(infer_interpreter(None, "plain text"), None);
+    }
+
+    #[test]
+    fn test_script_interpreter_as_str_and_parse_roundtrip() {
+        for interpreter in ScriptInterpreter::ALL {
+            let label = interpreter.as_str();
+            assert_eq!(ScriptInterpreter::parse_str(label), Some(interpreter));
+        }
+    }
+
+    #[test]
+    fn test_script_interpreter_parse_aliases() {
+        assert_eq!(
+            ScriptInterpreter::parse_str("pwsh"),
+            Some(ScriptInterpreter::PowerShell)
+        );
+        assert_eq!(
+            ScriptInterpreter::parse_str("sh"),
+            Some(ScriptInterpreter::Bash)
+        );
+        assert_eq!(
+            ScriptInterpreter::parse_str("js"),
+            Some(ScriptInterpreter::Node)
+        );
+        assert_eq!(
+            ScriptInterpreter::parse_str("bat"),
+            Some(ScriptInterpreter::Cmd)
+        );
+        assert_eq!(ScriptInterpreter::parse_str("invalid"), None);
+    }
+
+    #[test]
+    fn test_script_interpreter_default_for_target_os() {
+        assert_eq!(
+            ScriptInterpreter::default_for_target_os(TargetOs::Windows),
+            ScriptInterpreter::PowerShell
+        );
+        assert_eq!(
+            ScriptInterpreter::default_for_target_os(TargetOs::Linux),
+            ScriptInterpreter::Bash
+        );
+        assert_eq!(
+            ScriptInterpreter::default_for_target_os(TargetOs::MacOs),
+            ScriptInterpreter::Bash
+        );
     }
 }
