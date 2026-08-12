@@ -11,8 +11,8 @@ pub const MAX_SCRIPT_OUTPUT_BYTES: usize = 4 * 1024 * 1024; // 4 MiB stream drai
 
 pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<String> {
     let script_content = decompress(&metadata.compressed_content)?;
-    let timeout =
-        taurine_core::settings::Settings::get_script_timeout().unwrap_or(Duration::from_secs(20));
+    // None (script_timeout = 0) means no timeout: the script runs until it finishes.
+    let timeout = taurine_core::settings::Settings::get_script_timeout();
 
     let mut cmd = match metadata.interpreter {
         ScriptInterpreter::Bash => {
@@ -89,6 +89,17 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
     let mut bounded_stdout = stdout_pipe.take(MAX_SCRIPT_OUTPUT_BYTES as u64);
     let mut bounded_stderr = stderr_pipe.take(MAX_SCRIPT_OUTPUT_BYTES as u64);
 
+    // script_timeout = 0 (None) disables the timeout: the sleep branch stays
+    // pending forever and the script simply runs until it finishes on its own.
+    let timeout_fut = async {
+        if let Some(t) = timeout {
+            tokio::time::sleep(t).await;
+        } else {
+            std::future::pending::<()>().await;
+        }
+    };
+    tokio::pin!(timeout_fut);
+
     tokio::select! {
         res = async {
             tokio::join!(
@@ -116,11 +127,11 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
                 Err(taurine_core::Error::Service(err_cleaned))
             }
         }
-        _ = tokio::time::sleep(timeout) => {
+        _ = &mut timeout_fut => {
             let _ = child.kill().await;
             Err(taurine_core::Error::Service(format!(
                 "Script timed out after {}s",
-                timeout.as_secs()
+                timeout.map(|t| t.as_secs()).unwrap_or(0)
             )))
         }
         _ = async {

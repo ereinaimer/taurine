@@ -71,8 +71,8 @@ These boundaries are enforced during template expansion at runtime.
 * **Behavior**: Natively reading files via `[file.read(path)]` or `[file.read_line(...)]` is capped at 5MB to prevent service memory exhaustion.
 
 ### Exec Command Timeout
-* **Max Timeout**: 20 seconds.
-* **Behavior**: Shell process executions via `[exec.*]` are terminated after 20 seconds.
+* **Default**: 15 seconds (configurable via the `script_timeout` setting).
+* **Behavior**: Shell process executions via `[exec.*]` are terminated once they exceed the configured timeout. Setting `script_timeout` to `0` disables the timeout entirely.
 
 ### HTTP Request Timeout
 * **Max Timeout**: 5 seconds.

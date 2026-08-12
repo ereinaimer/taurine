@@ -40,10 +40,11 @@ Manage the basic behavior and interaction of the Taurine engine.
 </Accordion>
 
 <Accordion title="script_timeout">
-  Specifies the maximum time (in seconds) a script can run before being terminated.
+  Specifies the maximum time (in seconds) a script can run before being terminated. Set to `0` to disable the timeout entirely (scripts run until they finish on their own).
   
   - **Key**: `script_timeout`
   - **Default**: `15`
+  - **Values**: any non-negative integer; `0` disables the timeout
 </Accordion>
 </Accordions>
 

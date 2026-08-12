@@ -170,7 +170,7 @@ taurine add script hi -f ./hi.ps1 --lang powershell
 
 ## Technical Details
 
-- **Timeouts**: Every script expansion has a maximum execution time of **20 seconds**. If it takes longer, Taurine will terminate the process and return an error.
+- **Timeouts**: Every script expansion is limited by the `script_timeout` setting (default **15 seconds**). If it takes longer, Taurine will terminate the process and return an error. Set `script_timeout` to `0` to disable the timeout entirely and let scripts run until they finish on their own.
 - **Environment**: Scripts are executed with the same environment as the Taurine service. Ensure your interpreters (`python`, `node`, etc.) are available in your system's `PATH`.
 - **CWD**: Scripts are executed in a temporary directory. Always use absolute paths (via variables like `[env(USERPROFILE)]`) when interacting with specific files on your system.
 - **Cross-Platform**: Use the `--os` flag to define different versions of a trigger for `windows`, `linux`, or `macos`.

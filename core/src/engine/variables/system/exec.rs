@@ -355,6 +355,7 @@ fn execute_inline(invocation: &ExecuteInvocation) -> Result<String, String> {
         .map_err(|e| format!("Failed to spawn stderr reader thread: {e}"))?;
 
     let timeout_opt = crate::settings::Settings::get_script_timeout();
+    let timeout_secs = timeout_opt.map(|t| t.as_secs());
 
     let wait_result = match timeout_opt {
         Some(timeout) => child
@@ -387,7 +388,10 @@ fn execute_inline(invocation: &ExecuteInvocation) -> Result<String, String> {
             let _ = child.wait();
             let _ = join_reader(stdout_reader);
             let _ = join_reader(stderr_reader);
-            Err("Script timed out after 20s".to_string())
+            Err(format!(
+                "Script timed out after {}s",
+                timeout_secs.unwrap_or(0)
+            ))
         }
     }
 }
