@@ -41,7 +41,6 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
             RpcMode::Tcp => "tcp".to_string(),
         })),
         "rpc_host" => Ok(Some(defaults.rpc_host)),
-        "rpc_token" => Ok(Some(uuid::Uuid::new_v4().to_string())),
         "script_timeout" => Ok(Some(defaults.script_timeout.to_string())),
         "ai_temperature" => Ok(defaults.ai_temperature.map(|v| v.to_string())),
         "ai_max_tokens" => Ok(defaults.ai_max_tokens.map(|v| v.to_string())),

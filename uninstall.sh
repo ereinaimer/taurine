@@ -65,9 +65,15 @@ for profile in "$HOME/.tcshrc" "$HOME/.cshrc"; do
     clean_profile "$profile"
 done
 
-# Remove all configured API keys from OS keyring
+# Remove all configured API keys and RPC token from OS keyring
 if [ -x "$INSTALL_DIR/taurine" ]; then
     "$INSTALL_DIR/taurine" ai remove --all --yes --json >/dev/null 2>&1 || true
+fi
+if command -v secret-tool >/dev/null 2>&1; then
+    secret-tool clear service taurine account rpc_token >/dev/null 2>&1 || true
+fi
+if [ "$OS" = "Darwin" ]; then
+    security delete-generic-password -s taurine -a rpc_token >/dev/null 2>&1 || true
 fi
 
 # Delete all data (config, database, logs, binary)

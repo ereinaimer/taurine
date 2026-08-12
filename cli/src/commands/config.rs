@@ -146,18 +146,6 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
             kw = max_key_len,
             pad = pad
         );
-        println!(
-            "{:<kw$}{:pad$}{}",
-            "rpc_token",
-            "",
-            if settings.rpc_token.trim().is_empty() {
-                "(unset)"
-            } else {
-                "(set)"
-            },
-            kw = max_key_len,
-            pad = pad
-        );
     }
     println!(
         "{:<kw$}{:pad$}{}",
@@ -336,15 +324,6 @@ pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::erro
             }
             manager.update_setting(actual_key, val.to_string())?;
             info!("Updated rpc_host to: {}", val);
-        }
-        "rpc_token" => {
-            let val = value.trim();
-            if val.is_empty() {
-                warn!("rpc_token cannot be empty.");
-                return Ok(());
-            }
-            manager.update_setting(actual_key, val.to_string())?;
-            info!("Updated rpc_token (value redacted)");
         }
         "inline_datetime_date_format"
         | "inline_datetime_time_format"
@@ -568,11 +547,6 @@ pub fn execute_reset(key: String, json: bool) -> taurine_core::error::Result<()>
             manager.update_setting(actual_key, defaults.rpc_host.clone())?;
             info!("Reset rpc_host to default: {}", defaults.rpc_host);
         }
-        "rpc_token" => {
-            let token = uuid::Uuid::new_v4().to_string();
-            manager.update_setting(actual_key, token.clone())?;
-            info!("Generated new rpc_token (value redacted)");
-        }
         "script_timeout" => {
             manager.update_setting(actual_key, defaults.script_timeout)?;
             info!(
@@ -681,7 +655,6 @@ pub fn execute_reset_all(json: bool) -> taurine_core::error::Result<()> {
     manager.update_setting("rpc_port", defaults.rpc_port)?;
     manager.update_setting("rpc_mode", defaults.rpc_mode)?;
     manager.update_setting("rpc_host", defaults.rpc_host.clone())?;
-    manager.update_setting("rpc_token", uuid::Uuid::new_v4().to_string())?;
     manager.update_setting("inline_emoji_enabled", defaults.inline_emoji_enabled)?;
     manager.update_setting("inline_datetime_enabled", defaults.inline_datetime_enabled)?;
     manager.update_setting(
@@ -729,18 +702,7 @@ fn parse_boolean_setting_value(value: &str) -> taurine_core::error::Result<bool>
 }
 
 pub fn format_settings_json(settings: &Settings) -> String {
-    let mut val = serde_json::to_value(settings).unwrap_or_default();
-    if let Some(obj) = val.as_object_mut() {
-        let masked = if settings.rpc_token.trim().is_empty() {
-            "(unset)"
-        } else {
-            "(set)"
-        };
-        obj.insert(
-            "rpc_token".to_string(),
-            serde_json::Value::String(masked.to_string()),
-        );
-    }
+    let val = serde_json::to_value(settings).unwrap_or_default();
     serde_json::to_string(&val).unwrap_or_default()
 }
 
@@ -850,25 +812,5 @@ mod tests {
         assert_eq!(value["spinner_style"], "arc");
         assert_eq!(value["inline_ai_trigger_mode"], "symmetric");
         assert_eq!(value["rpc_mode"], "tcp");
-    }
-
-    #[test]
-    fn test_format_settings_json_redacts_rpc_token() {
-        let settings = Settings {
-            rpc_token: "secret-token-12345".to_string(),
-            ..Settings::default()
-        };
-        let json_str = format_settings_json(&settings);
-        assert!(!json_str.contains("secret-token-12345"));
-        let val: serde_json::Value = serde_json::from_str(&json_str).unwrap();
-        assert_eq!(val["rpc_token"], "(set)");
-
-        let settings2 = Settings {
-            rpc_token: "".to_string(),
-            ..Settings::default()
-        };
-        let json_str2 = format_settings_json(&settings2);
-        let val2: serde_json::Value = serde_json::from_str(&json_str2).unwrap();
-        assert_eq!(val2["rpc_token"], "(unset)");
     }
 }

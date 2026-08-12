@@ -24,7 +24,6 @@ pub(crate) enum SettingKey {
     RpcMode,
     RpcHost,
     RpcPort,
-    RpcToken,
     ScriptsEnabled,
     ScriptTimeout,
     AiTemperature,
@@ -44,7 +43,7 @@ pub(crate) enum SettingKey {
 }
 
 impl SettingKey {
-    pub(crate) const ALL: [Self; 39] = [
+    pub(crate) const ALL: [Self; 38] = [
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
         Self::PauseAudioEnabled,
@@ -67,7 +66,6 @@ impl SettingKey {
         Self::RpcMode,
         Self::RpcHost,
         Self::RpcPort,
-        Self::RpcToken,
         Self::ScriptsEnabled,
         Self::ScriptTimeout,
         Self::AiTemperature,
@@ -110,7 +108,6 @@ impl SettingKey {
             Self::RpcMode => "rpc_mode",
             Self::RpcHost => "rpc_host",
             Self::RpcPort => "rpc_port",
-            Self::RpcToken => "rpc_token",
             Self::ScriptsEnabled => "scripts_enabled",
             Self::ScriptTimeout => "script_timeout",
             Self::AiTemperature => "ai_temperature",
@@ -154,7 +151,6 @@ impl SettingKey {
             Self::RpcMode => "Service RPC Mode",
             Self::RpcHost => "Service RPC Host",
             Self::RpcPort => "Service RPC Port",
-            Self::RpcToken => "Service RPC Token",
             Self::ScriptsEnabled => "Scripts Enabled",
             Self::ScriptTimeout => "Script Execution Timeout",
             Self::AiTemperature => "AI Temperature",
@@ -216,7 +212,6 @@ impl SettingKey {
             Self::RpcMode => "The transport protocol used for service RPC (socket or tcp)",
             Self::RpcHost => "The network interface IP address the service binds to",
             Self::RpcPort => "The network port the gRPC RPC server listens on (1024-65535)",
-            Self::RpcToken => "The secret authorization token required to control the service",
             Self::ScriptsEnabled => "Allow execution of shell scripts in triggers",
             Self::ScriptTimeout => {
                 "Maximum script execution time before termination (0 for infinite)"
@@ -286,7 +281,6 @@ impl SettingKey {
             | Self::InlineAiTriggerOpen
             | Self::InlineAiTriggerClose
             | Self::RpcHost
-            | Self::RpcToken
             | Self::InlineDatetimeDateFormat
             | Self::InlineDatetimeTimeFormat
             | Self::InlineDatetimeDatetimeFormat
@@ -340,13 +334,6 @@ impl SettingKey {
                 taurine_core::settings::RpcMode::Tcp => "tcp".to_string(),
             },
             Self::RpcHost => settings.rpc_host.clone(),
-            Self::RpcToken => {
-                if settings.rpc_token.trim().is_empty() {
-                    "(unset)".to_string()
-                } else {
-                    "(set)".to_string()
-                }
-            }
             Self::ScriptsEnabled => settings.scripts_enabled.to_string(),
             Self::ClipboardHistoryEnabled => settings.clipboard_history_enabled.to_string(),
             Self::ClipboardHistoryRetentionSecs => {
@@ -381,13 +368,6 @@ impl SettingKey {
             Self::InlineAiTriggerOpen => settings.inline_ai_trigger_open.clone(),
             Self::InlineAiTriggerClose => settings.inline_ai_trigger_close.clone(),
             Self::RpcHost => settings.rpc_host.clone(),
-            Self::RpcToken => {
-                if settings.rpc_token.trim().is_empty() {
-                    String::new()
-                } else {
-                    "(set)".to_string()
-                }
-            }
             Self::PauseNotificationsEnabled
             | Self::PauseAudioEnabled
             | Self::StartOnBoot

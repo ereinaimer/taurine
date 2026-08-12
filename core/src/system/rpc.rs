@@ -85,16 +85,39 @@ pub async fn connect_to_daemon() -> Result<tonic::transport::Channel, tonic::tra
     connect_to_daemon_with_settings(&settings).await
 }
 
+static FALLBACK_TOKEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
 pub fn get_rpc_token() -> String {
     if let Ok(val) = std::env::var("TAURINE_RPC_TOKEN") {
         return val;
     }
 
-    if let Ok(conn) = crate::db::get_conn() {
-        let manager = crate::settings::SettingsManager::new(&conn);
-        manager.load_all().rpc_token
-    } else {
-        String::new()
+    if let Ok(entry) = keyring::Entry::new("taurine", "rpc_token") {
+        if let Ok(token) = entry.get_password()
+            && !token.is_empty()
+        {
+            return token;
+        }
+
+        let new_token = uuid::Uuid::new_v4().to_string();
+        if entry.set_password(&new_token).is_ok() {
+            if let Ok(stored) = entry.get_password()
+                && !stored.is_empty()
+            {
+                return stored;
+            }
+            return new_token;
+        }
+    }
+
+    FALLBACK_TOKEN
+        .get_or_init(|| uuid::Uuid::new_v4().to_string())
+        .clone()
+}
+
+pub fn delete_rpc_token() {
+    if let Ok(entry) = keyring::Entry::new("taurine", "rpc_token") {
+        let _ = entry.delete_credential();
     }
 }
 
@@ -212,5 +235,29 @@ pub fn notify_daemon_reload() {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_rpc_token_returns_non_empty_token() {
+        let token = get_rpc_token();
+        assert!(!token.trim().is_empty());
+    }
+
+    #[test]
+    fn test_get_rpc_token_honors_env_var_override() {
+        unsafe { std::env::set_var("TAURINE_RPC_TOKEN", "override_token_123") };
+        let token = get_rpc_token();
+        assert_eq!(token, "override_token_123");
+        unsafe { std::env::remove_var("TAURINE_RPC_TOKEN") };
+    }
+
+    #[test]
+    fn test_delete_rpc_token_runs_without_panic() {
+        delete_rpc_token();
     }
 }

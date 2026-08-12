@@ -113,15 +113,6 @@ fn test_apply_clipboard_restore_delay_ms() {
 }
 
 #[test]
-fn resetting_rpc_token_generates_new_uuid() {
-    let default_val = default_setting_input("rpc_token").unwrap();
-    assert!(default_val.is_some());
-    let token_str = default_val.unwrap();
-    assert!(!token_str.is_empty());
-    assert!(uuid::Uuid::parse_str(&token_str).is_ok());
-}
-
-#[test]
 fn test_inline_emoji_settings() {
     let _guard = crate::testing::TEST_LOCK
         .lock()

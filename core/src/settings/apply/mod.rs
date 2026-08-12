@@ -256,11 +256,6 @@ pub fn apply_setting_input_with_manager(
             manager.update_setting(actual_key, host.to_string())?;
             ApplySettingOutcome::default()
         }
-        "rpc_token" => {
-            let token = require_non_empty(value, actual_key)?;
-            manager.update_setting(actual_key, token.to_string())?;
-            ApplySettingOutcome::default()
-        }
         _ => {
             return Err(Error::Config(format!("unknown setting: {actual_key}")));
         }

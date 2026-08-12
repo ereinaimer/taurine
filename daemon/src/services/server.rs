@@ -16,7 +16,6 @@ pub struct RpcServerSettings {
     pub rpc_mode: taurine_core::settings::RpcMode,
     pub rpc_host: String,
     pub rpc_port: u16,
-    pub rpc_token: String,
 }
 
 pub struct DaemonService {
@@ -371,7 +370,6 @@ impl DaemonControl for DaemonService {
                 rpc_mode: settings.rpc_mode,
                 rpc_host: settings.rpc_host.clone(),
                 rpc_port: settings.rpc_port,
-                rpc_token: settings.rpc_token.clone(),
             };
             *active_rpc != db_rpc
         } else {
@@ -452,7 +450,6 @@ mod tests {
             rpc_mode: taurine_core::settings::RpcMode::Tcp,
             rpc_host: String::new(),
             rpc_port: 0,
-            rpc_token: String::new(),
         }));
 
         let (pause_tx, _pause_rx) = mpsc::channel(1);

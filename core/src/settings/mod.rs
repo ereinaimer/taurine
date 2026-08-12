@@ -205,7 +205,6 @@ pub struct Settings {
     pub rpc_mode: RpcMode,
     pub rpc_host: String,
     pub rpc_port: u16,
-    pub rpc_token: String,
     pub ignore_fullscreen: bool,
     pub script_timeout: u32,
     pub ai_temperature: Option<f32>,
@@ -261,7 +260,6 @@ impl std::fmt::Debug for Settings {
             .field("rpc_mode", &self.rpc_mode)
             .field("rpc_host", &self.rpc_host)
             .field("rpc_port", &self.rpc_port)
-            .field("rpc_token", &"(redacted)")
             .field("ignore_fullscreen", &self.ignore_fullscreen)
             .field("script_timeout", &self.script_timeout)
             .field("ai_temperature", &self.ai_temperature)
@@ -337,7 +335,6 @@ impl Settings {
             "rpc_mode" | "mode" => "rpc_mode",
             "rpc_host" | "host" => "rpc_host",
             "rpc_port" | "port" => "rpc_port",
-            "rpc_token" | "token" => "rpc_token",
             "script_timeout" => "script_timeout",
             "ai_temperature" | "temperature" => "ai_temperature",
             "ai_max_tokens" | "max_tokens" => "ai_max_tokens",
@@ -456,7 +453,6 @@ impl Default for Settings {
             rpc_mode: RpcMode::default(),
             rpc_host: "127.0.0.1".to_string(),
             rpc_port: Self::default_rpc_port(),
-            rpc_token: "".to_string(),
             ignore_fullscreen: true,
             script_timeout: 15,
             ai_temperature: None,
@@ -520,16 +516,5 @@ mod tests {
             Settings::resolve_key("inline_currency_words"),
             "inline_currency_to_words_enabled"
         );
-    }
-
-    #[test]
-    fn test_settings_debug_redacts_rpc_token() {
-        let settings = Settings {
-            rpc_token: "secret-token-12345".to_string(),
-            ..Settings::default()
-        };
-        let debug_str = format!("{:?}", settings);
-        assert!(!debug_str.contains("secret-token-12345"));
-        assert!(debug_str.contains("(redacted)"));
     }
 }

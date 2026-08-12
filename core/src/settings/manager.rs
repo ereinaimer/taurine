@@ -187,12 +187,6 @@ impl<'a> SettingsManager<'a> {
             settings.rpc_host = v;
         }
 
-        if let Some(val) = map.get("rpc_token")
-            && let Ok(v) = serde_json::from_str::<String>(val)
-        {
-            settings.rpc_token = v;
-        }
-
         if let Some(val) = map.get("inline_emoji_enabled")
             && let Ok(v) = serde_json::from_str::<bool>(val)
         {
@@ -246,15 +240,6 @@ impl<'a> SettingsManager<'a> {
             && let Ok(v) = serde_json::from_str::<String>(val)
         {
             settings.inline_datetime_dialect = v;
-        }
-
-        if settings.rpc_token.is_empty() {
-            let token = uuid::Uuid::new_v4().to_string();
-            settings.rpc_token = token.clone();
-            let _ = self.update_setting("rpc_token", token);
-            tracing::warn!(
-                "Generated a new secure RPC authentication token. If you configure Taurine to use TCP mode, ensure this token is kept confidential."
-            );
         }
 
         settings

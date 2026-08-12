@@ -349,9 +349,6 @@ fn import_settings(
 ) -> crate::Result<()> {
     if let Some(settings) = payload.settings.as_ref() {
         for setting in settings {
-            if setting.key.eq_ignore_ascii_case("rpc_token") {
-                continue;
-            }
             if !include_sensitive_settings
                 && crate::exchange::export::is_sensitive_setting_key(&setting.key)
             {
@@ -445,7 +442,7 @@ mod tests {
     use crate::testing::open_test_db;
 
     #[test]
-    fn import_settings_ignores_rpc_token() {
+    fn import_settings_filters_sensitive_settings() {
         let (_dir, mut conn) = open_test_db();
         let tx = conn.transaction().unwrap();
 
@@ -454,8 +451,8 @@ mod tests {
             triggers: vec![],
             settings: Some(vec![
                 SettingExport {
-                    key: "rpc_token".to_string(),
-                    value: "hacked_token".to_string(),
+                    key: "ai_custom_endpoint".to_string(),
+                    value: "https://secret.example.com".to_string(),
                 },
                 SettingExport {
                     key: "wpm".to_string(),
@@ -465,12 +462,12 @@ mod tests {
             stats: None,
         };
 
-        import_settings(&tx, &payload, true).unwrap();
+        import_settings(&tx, &payload, false).unwrap();
         tx.commit().unwrap();
 
         let manager = crate::settings::SettingsManager::new(&conn);
         let settings = manager.load_all();
-        assert_ne!(settings.rpc_token, "hacked_token");
+        assert_eq!(settings.ai_custom_endpoint, None);
         assert_eq!(settings.wpm, 100);
     }
 }

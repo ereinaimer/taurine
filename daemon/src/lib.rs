@@ -315,7 +315,6 @@ pub fn start() -> taurine_core::error::Result<()> {
                 rpc_mode: settings.rpc_mode,
                 rpc_host: settings.rpc_host.clone(),
                 rpc_port: settings.rpc_port,
-                rpc_token: settings.rpc_token.clone(),
             },
         ));
 
@@ -406,7 +405,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                 lock.clone()
             };
 
-            let token = current_rpc.rpc_token.clone();
+            let token = taurine_core::rpc::get_rpc_token();
             let use_tcp = current_rpc.rpc_mode == taurine_core::settings::RpcMode::Tcp;
 
             let shutdown_requested_for_signal = shutdown_requested.clone();
@@ -666,7 +665,6 @@ pub fn start() -> taurine_core::error::Result<()> {
                         rpc_mode: settings.rpc_mode,
                         rpc_host: settings.rpc_host.clone(),
                         rpc_port: settings.rpc_port,
-                        rpc_token: settings.rpc_token.clone(),
                     };
                 }
             }
