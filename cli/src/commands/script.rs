@@ -29,13 +29,7 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
         .sub
         .expect("add dispatch routes to script only when subcommand is present");
 
-    let trigger_type = if hotkey {
-        TriggerType::Hotkey
-    } else if regex {
-        TriggerType::Regex
-    } else {
-        TriggerType::Word
-    };
+    let trigger_type = TriggerType::from_cli_flags(hotkey, regex);
     let os = os
         .to_db_str()
         .map(|s| s.to_string())

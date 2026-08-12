@@ -11,6 +11,8 @@ pub enum TriggerType {
 }
 
 impl TriggerType {
+    pub const ALL: [Self; 3] = [Self::Word, Self::Hotkey, Self::Regex];
+
     pub const fn as_db_str(self) -> &'static str {
         match self {
             Self::Word => "word",
@@ -19,15 +21,39 @@ impl TriggerType {
         }
     }
 
-    pub fn parse_db(value: &str) -> crate::Result<Self> {
-        match value {
-            "word" => Ok(Self::Word),
-            "hotkey" => Ok(Self::Hotkey),
-            "regex" => Ok(Self::Regex),
-            other => Err(crate::Error::Config(format!(
-                "Invalid trigger_type '{other}'. Expected 'word', 'hotkey', or 'regex'."
-            ))),
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::Word => "Word",
+            Self::Hotkey => "Hotkey",
+            Self::Regex => "Regex",
         }
+    }
+
+    pub fn parse_str(s: &str) -> Option<Self> {
+        match s.trim().to_lowercase().as_str() {
+            "word" => Some(Self::Word),
+            "hotkey" => Some(Self::Hotkey),
+            "regex" => Some(Self::Regex),
+            _ => None,
+        }
+    }
+
+    pub fn from_cli_flags(hotkey: bool, regex: bool) -> Self {
+        if hotkey {
+            Self::Hotkey
+        } else if regex {
+            Self::Regex
+        } else {
+            Self::Word
+        }
+    }
+
+    pub fn parse_db(value: &str) -> crate::Result<Self> {
+        Self::parse_str(value).ok_or_else(|| {
+            crate::Error::Config(format!(
+                "Invalid trigger_type '{value}'. Expected 'word', 'hotkey', or 'regex'."
+            ))
+        })
     }
 }
 
@@ -328,5 +354,26 @@ mod tests {
         assert!(!ActionType::Script.is_text());
         assert!(ActionType::Text.is_text());
         assert!(!ActionType::Text.is_script());
+    }
+
+    #[test]
+    fn test_trigger_type_display_name_and_parse_roundtrip() {
+        for trigger_type in TriggerType::ALL {
+            let db_str = trigger_type.as_db_str();
+            let display = trigger_type.display_name();
+            assert_eq!(TriggerType::parse_str(db_str), Some(trigger_type));
+            assert_eq!(TriggerType::parse_str(display), Some(trigger_type));
+        }
+    }
+
+    #[test]
+    fn test_trigger_type_from_cli_flags() {
+        assert_eq!(
+            TriggerType::from_cli_flags(true, false),
+            TriggerType::Hotkey
+        );
+        assert_eq!(TriggerType::from_cli_flags(false, true), TriggerType::Regex);
+        assert_eq!(TriggerType::from_cli_flags(false, false), TriggerType::Word);
+        assert_eq!(TriggerType::from_cli_flags(true, true), TriggerType::Hotkey);
     }
 }

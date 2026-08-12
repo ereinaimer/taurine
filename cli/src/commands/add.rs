@@ -23,13 +23,7 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
         .to_db_str()
         .map(|s| s.to_string())
         .unwrap_or_else(|| taurine_core::db::get_current_os_db_string().to_string());
-    let trigger_type = if args.hotkey {
-        TriggerType::Hotkey
-    } else if args.regex {
-        TriggerType::Regex
-    } else {
-        TriggerType::Word
-    };
+    let trigger_type = TriggerType::from_cli_flags(args.hotkey, args.regex);
     execute_with_trigger_type(
         trigger,
         output,
