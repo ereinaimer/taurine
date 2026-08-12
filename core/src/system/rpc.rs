@@ -88,10 +88,6 @@ pub async fn connect_to_daemon() -> Result<tonic::transport::Channel, tonic::tra
 static FALLBACK_TOKEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 pub fn get_rpc_token() -> String {
-    if let Ok(val) = std::env::var("TAURINE_RPC_TOKEN") {
-        return val;
-    }
-
     if let Ok(entry) = keyring::Entry::new("taurine", "rpc_token") {
         if let Ok(token) = entry.get_password()
             && !token.is_empty()
@@ -246,14 +242,6 @@ mod tests {
     fn test_get_rpc_token_returns_non_empty_token() {
         let token = get_rpc_token();
         assert!(!token.trim().is_empty());
-    }
-
-    #[test]
-    fn test_get_rpc_token_honors_env_var_override() {
-        unsafe { std::env::set_var("TAURINE_RPC_TOKEN", "override_token_123") };
-        let token = get_rpc_token();
-        assert_eq!(token, "override_token_123");
-        unsafe { std::env::remove_var("TAURINE_RPC_TOKEN") };
     }
 
     #[test]

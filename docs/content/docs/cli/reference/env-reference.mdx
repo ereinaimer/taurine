@@ -1,29 +1,17 @@
 ---
 title: Environment Variables Reference
-description: Reference for all environment variables supported by Taurine to customize paths and connection tokens.
+description: Reference for all environment variables supported by Taurine to customize paths and data storage.
 ---
 
 import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 
-Taurine can be customized using environment variables. These variables allow you to redirect data storage paths, configure custom authentication tokens, and override default system behaviors.
+Taurine can be customized using environment variables. These variables allow you to redirect data storage paths and override default system behaviors.
 
 ## Taurine Specific Environment Variables
 
 These environment variables are specific to Taurine's client and service processes.
 
 <Accordions>
-<Accordion title="TAURINE_RPC_TOKEN">
-  Overrides the secret Bearer authorization token used to secure connection channels between the clients (TUI/CLI) and the background service across all modes (TCP, sockets, and named pipes).
-  
-  - **Type**: String (typically a UUID)
-  - **Usage**: Set this variable in the environment of your client terminal or script to bypass the local database lookup.
-  - **Example**:
-    ```bash
-    export TAURINE_RPC_TOKEN="your-secure-token-here"
-    taurine reload
-    ```
-</Accordion>
-
 <Accordion title="TAURINE_DATA_DIR">
   Overrides the default user data directory where Taurine stores configurations, logs, and sockets.
   

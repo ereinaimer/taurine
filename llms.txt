@@ -254,7 +254,6 @@ When HTML is detected in a snippet's output, Taurine writes both styled HTML and
 
 ## 10. Environment Variables
 
-*   `TAURINE_RPC_TOKEN`: Bearer token override for client↔service communication, bypassing the database lookup.
 *   `TAURINE_DATA_DIR`: Overrides the default user data directory (configs, logs, sockets).
 *   `TAURINE_DB_PATH`: Overrides the SQLite database path (default `<data dir>/taurine.db`).
 *   Referenced system vars: `HOME` (Linux/macOS), `USERPROFILE` (Windows), `SHELL` (completion installs), `WAYLAND_DISPLAY`/`DISPLAY` (Linux focus tracking).

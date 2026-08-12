@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Documentation Site Security**: Upgrade the documentation site's build toolchain (PostCSS, Sharp, js-yaml, brace-expansion) to resolve security advisories.
 
 ### Removed
+- **RPC Token Env Override**: Removed `TAURINE_RPC_TOKEN`; the local RPC token is now exclusively managed internally in the OS credential store.
 - **Hash Transformer**: Removed the `md5` hash modifier (SHA-256 and SHA-512 remain).
 - **Port Modifier**: Removed the `net.port(n)` template modifier (IP and lookup modifiers remain).
 - **Hex Generator**: Removed the `random.hex(len)` template modifier.
