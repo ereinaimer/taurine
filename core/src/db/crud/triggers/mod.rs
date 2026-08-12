@@ -1,3 +1,4 @@
+mod app_filter;
 mod assets;
 mod overlap;
 mod trigger_delete;
@@ -7,6 +8,8 @@ mod trigger_sync;
 mod trigger_types;
 mod usage;
 mod validate;
+
+pub use app_filter::AppFilterPrefix;
 
 pub use trigger_delete::{
     count_triggers_by_pattern, delete_trigger, delete_trigger_by_value, delete_triggers_by_pattern,

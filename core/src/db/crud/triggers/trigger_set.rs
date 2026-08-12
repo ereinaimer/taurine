@@ -1,3 +1,4 @@
+use super::app_filter::AppFilterPrefix;
 use super::assets::*;
 use super::overlap::*;
 use super::validate::*;
@@ -670,10 +671,11 @@ pub fn update_trigger_app_filters(
             }
             if let Some(pos) = entry.find(':') {
                 let prefix = &entry[..pos];
-                if !matches!(prefix.to_lowercase().as_str(), "exe" | "class" | "title") {
+                if AppFilterPrefix::parse_prefix(prefix).is_none() {
                     return Err(crate::Error::Config(format!(
-                        "unknown app filter prefix '{}' (use: exe:, class:, title:)",
-                        prefix
+                        "unknown app filter prefix '{}' (use: {})",
+                        prefix,
+                        AppFilterPrefix::valid_prefixes_hint()
                     )));
                 }
             }
