@@ -158,6 +158,56 @@ impl TriggerAction {
     }
 }
 
+pub const MAX_NAME_LENGTH: usize = 200;
+pub const MAX_DESCRIPTION_LENGTH: usize = 1000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TriggerLimits;
+
+impl TriggerLimits {
+    pub const MAX_NAME_LENGTH: usize = MAX_NAME_LENGTH;
+    pub const MAX_DESCRIPTION_LENGTH: usize = MAX_DESCRIPTION_LENGTH;
+    pub const MAX_SCRIPT_SIZE: usize = crate::engine::shell::MAX_SCRIPT_SIZE;
+
+    pub fn validate_name(name: &str) -> crate::Result<()> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err(crate::Error::Config(
+                "Trigger name cannot be empty".to_string(),
+            ));
+        }
+        if trimmed.chars().count() > Self::MAX_NAME_LENGTH {
+            return Err(crate::Error::Config(format!(
+                "Trigger name exceeds {} character limit",
+                Self::MAX_NAME_LENGTH
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn validate_description(description: Option<&str>) -> crate::Result<()> {
+        if let Some(desc) = description
+            && desc.chars().count() > Self::MAX_DESCRIPTION_LENGTH
+        {
+            return Err(crate::Error::Config(format!(
+                "Trigger description exceeds {} character limit",
+                Self::MAX_DESCRIPTION_LENGTH
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn validate_script_size(len: usize) -> crate::Result<()> {
+        if len > Self::MAX_SCRIPT_SIZE {
+            return Err(crate::Error::Config(format!(
+                "Script payload exceeds maximum allowed size of {} bytes",
+                Self::MAX_SCRIPT_SIZE
+            )));
+        }
+        Ok(())
+    }
+}
+
 /// Lightweight summary used by the fuzzy finder / command palette.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TriggerSummary {
@@ -199,9 +249,6 @@ pub struct TriggerConflict {
     pub trigger: String,
     pub target_os: String,
 }
-
-pub const MAX_NAME_LENGTH: usize = 200;
-pub const MAX_DESCRIPTION_LENGTH: usize = 1000;
 
 #[cfg(test)]
 mod tests {
@@ -375,5 +422,19 @@ mod tests {
         assert_eq!(TriggerType::from_cli_flags(false, true), TriggerType::Regex);
         assert_eq!(TriggerType::from_cli_flags(false, false), TriggerType::Word);
         assert_eq!(TriggerType::from_cli_flags(true, true), TriggerType::Hotkey);
+    }
+
+    #[test]
+    fn test_trigger_limits_validation() {
+        assert!(TriggerLimits::validate_name("valid name").is_ok());
+        assert!(TriggerLimits::validate_name("   ").is_err());
+        assert!(TriggerLimits::validate_name(&"a".repeat(201)).is_err());
+
+        assert!(TriggerLimits::validate_description(None).is_ok());
+        assert!(TriggerLimits::validate_description(Some("valid desc")).is_ok());
+        assert!(TriggerLimits::validate_description(Some(&"a".repeat(1001))).is_err());
+
+        assert!(TriggerLimits::validate_script_size(500).is_ok());
+        assert!(TriggerLimits::validate_script_size(1_048_577).is_err());
     }
 }

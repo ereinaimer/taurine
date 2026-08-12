@@ -136,7 +136,7 @@ pub fn infer_interpreter(
     None
 }
 
-const MAX_SCRIPT_SIZE: usize = 1_048_576; // 1MB
+pub const MAX_SCRIPT_SIZE: usize = 1_048_576; // 1MB
 
 /// Compresses a script string using zstd for efficient storage.
 pub fn compress(content: &str) -> crate::Result<Vec<u8>> {

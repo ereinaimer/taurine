@@ -6,17 +6,17 @@ pub mod triggers;
 pub use target_os::TargetOs;
 pub use triggers::{
     ActionType, AddOutcome, AppFilterPrefix, ExistingTriggerUpdate, NewTrigger, PreparedTrigger,
-    TriggerAction, TriggerConflict, TriggerListItem, TriggerRow, TriggerSummary, TriggerType,
-    add_trigger, add_trigger_by_type, add_trigger_by_type_with_case, add_trigger_with_case,
-    audit_payload_tags, audit_payload_tags_with_trigger_type, audit_script_payload_tags,
-    count_triggers_by_pattern, create_trigger, delete_trigger, delete_trigger_by_value,
-    delete_triggers_by_pattern, delete_triggers_by_tag, delete_triggers_by_values,
-    find_trigger_overlap_conflict, get_action_by_trigger, get_all_active_hotkey_triggers,
-    get_all_active_regex_triggers, get_all_active_triggers, get_syncable_triggers, get_trigger,
-    get_triggers_list, increment_usage_count_by_trigger, normalize_tags, prepare_trigger,
-    prepare_trigger_with_type, record_expansion_usage, search_triggers, target_os_values_overlap,
-    update_existing_trigger, update_trigger_app_filters, upsert_script, upsert_trigger,
-    upsert_trigger_with_type, upsert_trigger_with_type_and_case,
+    TriggerAction, TriggerConflict, TriggerLimits, TriggerListItem, TriggerRow, TriggerSummary,
+    TriggerType, add_trigger, add_trigger_by_type, add_trigger_by_type_with_case,
+    add_trigger_with_case, audit_payload_tags, audit_payload_tags_with_trigger_type,
+    audit_script_payload_tags, count_triggers_by_pattern, create_trigger, delete_trigger,
+    delete_trigger_by_value, delete_triggers_by_pattern, delete_triggers_by_tag,
+    delete_triggers_by_values, find_trigger_overlap_conflict, get_action_by_trigger,
+    get_all_active_hotkey_triggers, get_all_active_regex_triggers, get_all_active_triggers,
+    get_syncable_triggers, get_trigger, get_triggers_list, increment_usage_count_by_trigger,
+    normalize_tags, prepare_trigger, prepare_trigger_with_type, record_expansion_usage,
+    search_triggers, target_os_values_overlap, update_existing_trigger, update_trigger_app_filters,
+    upsert_script, upsert_trigger, upsert_trigger_with_type, upsert_trigger_with_type_and_case,
     validate_trigger_target_os_conflict,
 };
 

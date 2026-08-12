@@ -40,8 +40,8 @@ pub use trigger_set::{
 };
 pub use trigger_sync::get_syncable_triggers;
 pub use trigger_types::{
-    ActionType, TriggerAction, TriggerConflict, TriggerListItem, TriggerRow, TriggerSummary,
-    TriggerType,
+    ActionType, TriggerAction, TriggerConflict, TriggerLimits, TriggerListItem, TriggerRow,
+    TriggerSummary, TriggerType,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

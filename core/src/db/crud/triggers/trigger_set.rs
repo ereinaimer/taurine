@@ -1,6 +1,7 @@
 use super::app_filter::AppFilterPrefix;
 use super::assets::*;
 use super::overlap::*;
+use super::trigger_types::TriggerLimits;
 use super::validate::*;
 use unicode_normalization::UnicodeNormalization;
 
@@ -289,6 +290,7 @@ pub fn upsert_script(
     behavior: crate::engine::shell::ScriptBehavior,
     compressed_content: &[u8],
 ) -> Result<()> {
+    TriggerLimits::validate_script_size(compressed_content.len())?;
     let now = now_unix_secs();
     conn.execute(
         "INSERT INTO scripts (trigger_id, interpreter, behavior, compressed_content, updated_at)
@@ -456,20 +458,8 @@ pub fn create_trigger(conn: &mut Connection, new_trigger: NewTrigger<'_>) -> Res
         .name
         .filter(|name| !name.trim().is_empty())
         .unwrap_or(generated_name.as_str());
-    if name.len() > trigger_types::MAX_NAME_LENGTH {
-        return Err(crate::Error::Config(format!(
-            "Trigger name exceeds {} character limit",
-            trigger_types::MAX_NAME_LENGTH
-        )));
-    }
-    if let Some(desc) = new_trigger.description
-        && desc.len() > trigger_types::MAX_DESCRIPTION_LENGTH
-    {
-        return Err(crate::Error::Config(format!(
-            "Trigger description exceeds {} character limit",
-            trigger_types::MAX_DESCRIPTION_LENGTH
-        )));
-    }
+    TriggerLimits::validate_name(name)?;
+    TriggerLimits::validate_description(new_trigger.description)?;
     let tags_json = normalize_tags(new_trigger.tags_json)?;
 
     let duplicate_count: i64 = conn
