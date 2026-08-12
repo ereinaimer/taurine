@@ -20,12 +20,44 @@ pub struct TopAppStat {
     pub time_saved_ms: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AppStatsSortBy {
     #[default]
     Executions,
     TimeSaved,
     KeystrokesSaved,
+}
+
+impl AppStatsSortBy {
+    pub const ALL: [Self; 3] = [Self::Executions, Self::TimeSaved, Self::KeystrokesSaved];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Executions => "executions",
+            Self::TimeSaved => "time_saved",
+            Self::KeystrokesSaved => "keystrokes_saved",
+        }
+    }
+
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::Executions => "Executions",
+            Self::TimeSaved => "Time Saved",
+            Self::KeystrokesSaved => "Keystrokes Saved",
+        }
+    }
+
+    pub fn parse_str(s: &str) -> Option<Self> {
+        match s.trim().to_lowercase().as_str() {
+            "executions" | "exec" | "execs" => Some(Self::Executions),
+            "time_saved" | "time" => Some(Self::TimeSaved),
+            "keystrokes_saved" | "keystrokes" | "keys" => Some(Self::KeystrokesSaved),
+            _ => None,
+        }
+    }
 }
 
 /// Formats an application display name from an executable key.
@@ -185,5 +217,30 @@ mod tests {
         let top_time = get_top_app_stats_with_conn(&conn, AppStatsSortBy::TimeSaved, 10).unwrap();
         assert_eq!(top_time[0].app_key, "google-chrome.exe");
         assert_eq!(top_time[1].app_key, "code.exe");
+    }
+
+    #[test]
+    fn test_app_stats_sort_by_roundtrip() {
+        for sort_by in AppStatsSortBy::ALL {
+            let label = sort_by.as_str();
+            assert_eq!(AppStatsSortBy::parse_str(label), Some(sort_by));
+        }
+    }
+
+    #[test]
+    fn test_app_stats_sort_by_parse_aliases() {
+        assert_eq!(
+            AppStatsSortBy::parse_str("exec"),
+            Some(AppStatsSortBy::Executions)
+        );
+        assert_eq!(
+            AppStatsSortBy::parse_str("time"),
+            Some(AppStatsSortBy::TimeSaved)
+        );
+        assert_eq!(
+            AppStatsSortBy::parse_str("keystrokes"),
+            Some(AppStatsSortBy::KeystrokesSaved)
+        );
+        assert_eq!(AppStatsSortBy::parse_str("invalid"), None);
     }
 }
