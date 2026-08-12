@@ -368,3 +368,26 @@ fn split_system_tag_recognises_img_prefix() {
         Some(("img", Some("asset(deadbeef)")))
     );
 }
+
+#[test]
+fn test_system_variable_roots_catalog() {
+    let roots = system_variable_roots();
+    assert!(roots.contains(&"cursor"));
+    assert!(roots.contains(&"clip"));
+    assert!(roots.contains(&"time"));
+    assert!(is_valid_system_root("cursor"));
+    assert!(is_valid_system_root("  CURSOR  "));
+    assert!(!is_valid_system_root("bogus_root"));
+}
+
+#[test]
+fn test_system_transformers_catalog() {
+    let transformers = system_transformers();
+    assert!(transformers.contains(&"upper"));
+    assert!(transformers.contains(&"lower"));
+    assert!(transformers.contains(&"truncate"));
+    assert!(is_valid_transformer("upper"));
+    assert!(is_valid_transformer("  UPPER  "));
+    assert!(is_valid_transformer("truncate(5)"));
+    assert!(!is_valid_transformer("bogus_transformer"));
+}

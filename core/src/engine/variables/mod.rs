@@ -13,7 +13,8 @@ pub use interpolate::{
 };
 pub use parser::{parse_tokens, tokenize};
 pub use registry::{
-    ValidationError, split_system_tag, strip_global_transformers, valid_modifier_hint,
+    ValidationError, is_valid_system_root, is_valid_transformer, split_system_tag,
+    strip_global_transformers, system_transformers, system_variable_roots, valid_modifier_hint,
     validate_system_tag,
 };
 pub use system::{finalize, finalize_with_origin};

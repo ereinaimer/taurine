@@ -143,6 +143,25 @@ pub fn valid_modifier_hint(root: &str) -> String {
     }
 }
 
+pub fn system_variable_roots() -> &'static [&'static str] {
+    SYSTEM_ROOTS
+}
+
+pub fn system_transformers() -> &'static [&'static str] {
+    system::transformers::TRANSFORMERS
+}
+
+pub fn is_valid_system_root(root: &str) -> bool {
+    let cleaned = root.trim().to_lowercase();
+    SYSTEM_ROOTS.contains(&cleaned.as_str())
+}
+
+pub fn is_valid_transformer(name: &str) -> bool {
+    let cleaned = name.trim().to_lowercase();
+    let base = cleaned.split('(').next().unwrap_or(&cleaned).trim();
+    system::transformers::TRANSFORMERS.contains(&base)
+}
+
 #[cfg(test)]
 mod tests;
 mod validation;
