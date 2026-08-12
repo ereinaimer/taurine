@@ -14,6 +14,7 @@ pub struct TriggerStatEvent {
     pub output_chars: usize,
     pub kind: TriggerStatKind,
     pub wpm: Option<u32>,
+    pub app: Option<String>,
 }
 
 impl TriggerStatEvent {
@@ -111,6 +112,24 @@ pub fn record_trigger_stat_with_conn(
         keystrokes_saved,
         time_saved_ms,
     )?;
+
+    if let Some(app_key) = event.app.as_deref().map(str::trim)
+        && !app_key.is_empty()
+    {
+        let app_executions = if event.kind == TriggerStatKind::InlineAi {
+            1
+        } else {
+            executions.max(0) as u64
+        };
+        super::upsert_app_stat_with_conn(
+            &tx,
+            app_key,
+            &date,
+            app_executions,
+            keystrokes_saved.max(0) as u64,
+            time_saved_ms.max(0) as u64,
+        )?;
+    }
 
     tx.commit()?;
     Ok(())

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **App Expansion Stats**: Display a Top Apps card on the TUI Home page showing per-application expansion counts, keystrokes saved, and time saved.
 - **Country-Level Timezone Support**: Check current time, relative offsets, and conversions using country names and ISO codes (e.g. `time in france`, `10am pst to jp`) resolved locally via static capital-city timezone mappings.
 - **Post-Expansion Case Cycling**: Cycle expanded text capitalization (UPPERCASE, lowercase, Sentence case, Title Case) using Left and Right arrow keys within the active undo window.
 

@@ -22,8 +22,10 @@ pub use settings::{
     SettingRow, delete_setting, get_all_settings, get_setting, get_setting_value, upsert_setting,
 };
 pub use stats::{
-    StatRow, TriggerStatEvent, delete_stat, get_stat, get_stat_counters, increment_stat,
-    record_calculation_usage, record_trigger_stat, record_trigger_stat_with_conn,
+    AppStatRow, AppStatsSortBy, StatRow, TopAppStat, TriggerStatEvent, delete_stat,
+    format_app_display_name, get_stat, get_stat_counters, get_top_app_stats_with_conn,
+    increment_stat, record_calculation_usage, record_trigger_stat, record_trigger_stat_with_conn,
+    upsert_app_stat_with_conn,
 };
 
 pub const SUPPORTED_TARGET_OS_VALUES: [&str; 6] = ["all", "win", "linux", "mac", "android", "ios"];

@@ -166,6 +166,7 @@ pub(super) fn dispatch_expansion_with<I, L>(
     launch_follow_up_fn(follow_up, spinner_style);
 
     if track_usage && stat_kind != taurine_core::db::crud::TriggerStatKind::InlineAi {
+        let app = crate::platform::capture_active_app();
         taurine_core::db::crud::record_trigger_stat(taurine_core::db::crud::TriggerStatEvent {
             trigger: Some(trigger.clone()),
             trigger_chars: trigger.chars().count(),
@@ -177,6 +178,7 @@ pub(super) fn dispatch_expansion_with<I, L>(
                 stat_kind
             },
             wpm: None,
+            app,
         });
     }
 }

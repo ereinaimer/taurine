@@ -137,6 +137,17 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     prompt TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS app_stats (
+                    app_key          TEXT    NOT NULL,
+                    date             TEXT    NOT NULL,
+                    executions       INTEGER NOT NULL DEFAULT 0,
+                    keystrokes_saved INTEGER NOT NULL DEFAULT 0,
+                    time_saved_ms    INTEGER NOT NULL DEFAULT 0,
+                    version          INTEGER NOT NULL DEFAULT 1,
+                    updated_at       INTEGER NOT NULL DEFAULT (unixepoch()),
+                    PRIMARY KEY (app_key, date)
+                );
+
                 DROP INDEX IF EXISTS idx_active_trigger_uniqueness;
 
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_active_trigger_uniqueness
@@ -159,4 +170,28 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_app_stats_table_created() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        let table_exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='app_stats')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert!(
+            table_exists,
+            "app_stats table should be created by run_migrations"
+        );
+    }
 }

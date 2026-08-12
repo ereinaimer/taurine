@@ -11,6 +11,7 @@ pub struct HomeStats {
     pub expansions_run: u64,
     pub most_used_words: Vec<MostUsedTrigger>,
     pub most_used_hotkeys: Vec<MostUsedTrigger>,
+    pub top_apps: Vec<crate::db::crud::TopAppStat>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,6 +45,11 @@ pub fn load_home_stats_with_limit(conn: &Connection, limit: usize) -> crate::Res
     let os_str = get_current_os_db_string();
     let most_used_words = fetch_most_used(conn, os_str, TriggerType::Word, limit)?;
     let most_used_hotkeys = fetch_most_used(conn, os_str, TriggerType::Hotkey, limit)?;
+    let top_apps = crate::db::crud::get_top_app_stats_with_conn(
+        conn,
+        crate::db::crud::AppStatsSortBy::Executions,
+        limit,
+    )?;
 
     Ok(HomeStats {
         keystrokes_saved: keystrokes_saved.max(0) as u64,
@@ -51,6 +57,7 @@ pub fn load_home_stats_with_limit(conn: &Connection, limit: usize) -> crate::Res
         expansions_run: expansions_run.max(0) as u64,
         most_used_words,
         most_used_hotkeys,
+        top_apps,
     })
 }
 

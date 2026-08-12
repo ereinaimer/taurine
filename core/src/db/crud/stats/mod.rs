@@ -1,3 +1,4 @@
+pub mod app_stats;
 mod recorder;
 mod stat_delete;
 mod stat_get;
@@ -6,6 +7,10 @@ mod stat_types;
 
 use crate::stats::TriggerStatKind;
 
+pub use app_stats::{
+    AppStatRow, AppStatsSortBy, TopAppStat, format_app_display_name, get_top_app_stats_with_conn,
+    upsert_app_stat_with_conn,
+};
 pub use recorder::{TriggerStatEvent, record_trigger_stat, record_trigger_stat_with_conn};
 pub use stat_delete::delete_stat;
 pub use stat_get::{get_stat, get_stat_counters};
@@ -26,6 +31,7 @@ pub fn record_calculation_usage(output_len: usize, delete_count: usize, left_arr
         output_chars: output_len,
         kind: TriggerStatKind::Calculation,
         wpm: None,
+        app: None,
     });
 }
 
@@ -143,6 +149,7 @@ mod tests {
                 output_chars: 12,
                 kind: TriggerStatKind::InlineAi,
                 wpm: Some(60),
+                app: None,
             },
         )
         .unwrap();
@@ -185,6 +192,7 @@ mod tests {
                 output_chars: 100,
                 kind: TriggerStatKind::Snippet,
                 wpm: Some(60),
+                app: None,
             },
         )
         .unwrap();
@@ -217,6 +225,7 @@ mod tests {
                 output_chars: 150,
                 kind: TriggerStatKind::Hotkey,
                 wpm: Some(60),
+                app: None,
             },
         )
         .unwrap();
@@ -230,6 +239,7 @@ mod tests {
                 output_chars: 200,
                 kind: TriggerStatKind::Script,
                 wpm: Some(60),
+                app: None,
             },
         )
         .unwrap();
@@ -241,5 +251,32 @@ mod tests {
         assert_eq!(row.ai_executions, 0);
         assert_eq!(row.keystrokes_saved, 0);
         assert_eq!(row.time_saved_ms, 0);
+    }
+
+    #[test]
+    fn recorder_records_app_stat_in_same_transaction() {
+        init_tracing_for_tests();
+        let (_dir, mut conn) = open_test_db();
+
+        record_trigger_stat_with_conn(
+            &mut conn,
+            &TriggerStatEvent {
+                trigger: None,
+                trigger_chars: 2,
+                success: true,
+                output_chars: 50,
+                kind: TriggerStatKind::Snippet,
+                wpm: Some(60),
+                app: Some("google-chrome.exe".to_string()),
+            },
+        )
+        .unwrap();
+
+        let top = get_top_app_stats_with_conn(&conn, AppStatsSortBy::Executions, 10).unwrap();
+        assert_eq!(top.len(), 1);
+        assert_eq!(top[0].app_key, "google-chrome.exe");
+        assert_eq!(top[0].display_name, "Google Chrome");
+        assert_eq!(top[0].executions, 1);
+        assert_eq!(top[0].keystrokes_saved, 48);
     }
 }

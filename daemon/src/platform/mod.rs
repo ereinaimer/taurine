@@ -179,6 +179,14 @@ pub fn read_clipboard_text() -> Result<String, String> {
     clip.get_text()
 }
 
+pub fn capture_active_app() -> Option<String> {
+    let json = get_active_window_label()?;
+    let info: taurine_core::engine::ActiveWindowInfo = serde_json::from_str(&json).ok()?;
+    let exec_name = info.exec_name?;
+    let key = exec_name.trim().to_lowercase();
+    if key.is_empty() { None } else { Some(key) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

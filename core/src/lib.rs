@@ -28,5 +28,4 @@ pub mod utils;
 
 pub use system::{constants, error, paths, rpc};
 
-#[cfg(test)]
 pub use utils::test_utils as testing;

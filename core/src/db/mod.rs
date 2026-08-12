@@ -109,6 +109,9 @@ pub fn get_conn() -> Result<DbConnection, crate::error::Error> {
              PRAGMA synchronous = NORMAL;",
         )
         .map_err(|e| crate::error::Error::Service(format!("Failed to set pragmas: {}", e)))?;
+        init::migrate::run_migrations(&conn).map_err(|e| {
+            crate::error::Error::Service(format!("Failed to run migrations in test conn: {}", e))
+        })?;
         return Ok(DbConnection::Raw(conn));
     }
 

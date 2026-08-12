@@ -25,9 +25,11 @@ pub fn render_home_content(frame: &mut Frame, area: Rect, theme: &Theme, stats: 
     let activity_sections = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(50),
+            Constraint::Percentage(33),
             Constraint::Length(1),
-            Constraint::Percentage(50),
+            Constraint::Percentage(33),
+            Constraint::Length(1),
+            Constraint::Percentage(34),
         ])
         .split(sections[2]);
 
@@ -45,6 +47,7 @@ pub fn render_home_content(frame: &mut Frame, area: Rect, theme: &Theme, stats: 
         "TOP HOTKEYS",
         &stats.most_used_hotkeys,
     );
+    render_top_apps_list(frame, activity_sections[4], theme, &stats.top_apps);
 }
 
 fn render_stat_cards(frame: &mut Frame, area: Rect, theme: &Theme, stats: &HomeStats) {
@@ -132,6 +135,66 @@ fn render_most_used_list(
         Row::new([
             Cell::from(format!(" {}", trigger.trigger)).style(Style::default().fg(theme.text)),
             Cell::from(format!("{} ", util::format_number(trigger.uses)))
+                .style(Style::default().fg(theme.text_muted)),
+        ])
+    });
+
+    let table = Table::new(table_rows, [Constraint::Min(15), Constraint::Length(8)])
+        .header(header)
+        .column_spacing(1);
+
+    frame.render_widget(table, sections[2]);
+}
+
+fn render_top_apps_list(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    rows: &[taurine_core::db::crud::TopAppStat],
+) {
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
+        ])
+        .split(area);
+
+    frame.render_widget(
+        Paragraph::new("TOP APPS").style(
+            Style::default()
+                .fg(theme.text_muted)
+                .add_modifier(Modifier::BOLD),
+        ),
+        sections[0],
+    );
+
+    if rows.is_empty() {
+        frame.render_widget(
+            Paragraph::new("No activity recorded yet.").style(
+                Style::default()
+                    .fg(theme.text_muted)
+                    .add_modifier(Modifier::DIM),
+            ),
+            sections[2],
+        );
+        return;
+    }
+
+    let header = Row::new([Cell::from(" APP"), Cell::from("USES ")])
+        .style(
+            Style::default()
+                .fg(theme.text)
+                .bg(theme.surface)
+                .add_modifier(Modifier::BOLD),
+        )
+        .height(1);
+
+    let table_rows = rows.iter().take(8).map(|app| {
+        Row::new([
+            Cell::from(format!(" {}", app.display_name)).style(Style::default().fg(theme.text)),
+            Cell::from(format!("{} ", util::format_number(app.executions)))
                 .style(Style::default().fg(theme.text_muted)),
         ])
     });

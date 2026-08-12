@@ -448,7 +448,7 @@ fn trigger_assist_is_inactive_while_inline_ai_capture_mode_is_active() {
     );
 }
 
-pub(crate) static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) static TEST_LOCK: &std::sync::Mutex<()> = &taurine_core::testing::TEST_LOCK;
 
 #[test]
 fn test_dispatch_expansion_skips_ai_stats() {
