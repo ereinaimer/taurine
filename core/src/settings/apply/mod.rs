@@ -123,7 +123,7 @@ pub fn apply_setting_input_with_manager(
             )?;
             ApplySettingOutcome::default()
         }
-        "auto_update" => {
+        "auto_update" | "notify_on_update" => {
             manager.update_setting(
                 actual_key,
                 parse_boolean_setting_value(require_non_empty(value, actual_key)?)?,

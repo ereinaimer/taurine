@@ -239,8 +239,8 @@ fn asymmetric_mode_accepts_different_open_close_through_apply() {
 }
 
 #[test]
-fn setting_key_all_has_38_unique_storage_keys() {
-    assert_eq!(SettingKey::ALL.len(), 38);
+fn setting_key_all_has_39_unique_storage_keys() {
+    assert_eq!(SettingKey::ALL.len(), 39);
 
     let mut seen = HashSet::new();
     for key in SettingKey::ALL {
@@ -355,6 +355,7 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         inline_datetime_datetime_format: "DD/MM/YYYY HH:mm".to_string(),
         inline_datetime_dialect: "us".to_string(),
         inline_currency_to_words_enabled: true,
+        notify_on_update: false,
     };
     assert_eq!(manager.load_all(), expected);
 

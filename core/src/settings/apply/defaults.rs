@@ -64,6 +64,7 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "inline_currency_to_words_enabled" => {
             Ok(Some(defaults.inline_currency_to_words_enabled.to_string()))
         }
+        "notify_on_update" => Ok(Some(defaults.notify_on_update.to_string())),
         _ => Err(Error::Config(format!("unknown setting: {actual_key}"))),
     }
 }

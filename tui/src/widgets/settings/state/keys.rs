@@ -51,6 +51,7 @@ impl SettingKeyMeta for SettingKey {
             Self::InlineDatetimeDatetimeFormat => "DateTime Format",
             Self::InlineDatetimeDialect => "Dialect (uk/us)",
             Self::InlineCurrencyToWordsEnabled => "Inline Currency to Words",
+            Self::NotifyOnUpdate => "Notify on Update",
         }
     }
 
@@ -126,6 +127,9 @@ impl SettingKeyMeta for SettingKey {
             Self::InlineCurrencyToWordsEnabled => {
                 "Enable expanding numbers with currency symbols to their text representations on Enter"
             }
+            Self::NotifyOnUpdate => {
+                "Show a system notification when Taurine successfully updates in the background"
+            }
         }
     }
 
@@ -144,7 +148,8 @@ impl SettingKeyMeta for SettingKey {
             | Self::InlineEmojiEnabled
             | Self::SystemTrayEnabled
             | Self::InlineDatetimeEnabled
-            | Self::InlineCurrencyToWordsEnabled => EditorKind::Toggle,
+            | Self::InlineCurrencyToWordsEnabled
+            | Self::NotifyOnUpdate => EditorKind::Toggle,
             Self::Wpm
             | Self::ClipboardRestoreDelayMs
             | Self::RpcPort
@@ -234,6 +239,7 @@ impl SettingKeyMeta for SettingKey {
             Self::InlineCurrencyToWordsEnabled => {
                 settings.inline_currency_to_words_enabled.to_string()
             }
+            Self::NotifyOnUpdate => settings.notify_on_update.to_string(),
         }
     }
 
@@ -273,7 +279,8 @@ impl SettingKeyMeta for SettingKey {
             | Self::InlineEmojiTriggerChar
             | Self::SystemTrayEnabled
             | Self::InlineDatetimeEnabled
-            | Self::InlineCurrencyToWordsEnabled => self.display_value(settings),
+            | Self::InlineCurrencyToWordsEnabled
+            | Self::NotifyOnUpdate => self.display_value(settings),
             Self::AiTemperature => {
                 optional_value_label(settings.ai_temperature.map(|v| v.to_string()).as_deref())
                     .to_string()

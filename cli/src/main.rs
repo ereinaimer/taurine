@@ -66,7 +66,7 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
         LaunchTarget::Daemon => {
             info!("Initializing Taurine v{VERSION}");
 
-            // Auto-update: check at most once every 24 hours, non-blocking
+            // Auto-update: check via separate process
             let auto_update = {
                 use taurine_core::{db::init, settings::SettingsManager};
                 init::setup()
@@ -74,15 +74,17 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
                     .map(|conn| SettingsManager::new(&conn).load_all().auto_update)
                     .unwrap_or(true)
             };
-            if auto_update && commands::update::should_check_now() {
-                std::thread::spawn(|| {
-                    let _ = commands::update::run_auto_update();
-                });
+            if auto_update {
+                commands::update::spawn_updater_process();
             }
 
             // Execute the startup sequence (database init, seed, etc.)
             taurine_daemon::start()?;
             info!("Taurine service stopped cleanly.");
+        }
+        LaunchTarget::AutoUpdate => {
+            let _ = commands::update::run_auto_update();
+            return Ok(());
         }
         LaunchTarget::Tui => return taurine_tui::run(),
         LaunchTarget::Command => {}
@@ -172,6 +174,8 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
 fn launch_target(cli: &Cli) -> LaunchTarget {
     if cli.daemon {
         LaunchTarget::Daemon
+    } else if cli.auto_update {
+        LaunchTarget::AutoUpdate
     } else if cli.command.is_none() {
         LaunchTarget::Tui
     } else {

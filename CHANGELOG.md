@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0-alpha.16] - 2026-08-13
 
 ### Added
+- **Background Auto-Updates**: The daemon now silently checks for and applies updates in the background every 6 hours (configurable via `Auto Update`).
+- **Update Notifications**: Added a `Notify on Update` setting to show system notifications when Taurine successfully updates in the background.
 - **App Expansion Stats**: Display a Top Apps card on the TUI Home page showing per-application expansion counts, keystrokes saved, and time saved.
 - **Country-Level Timezone Support**: Check current time, relative offsets, and conversions using country names and ISO codes (e.g. `time in france`, `10am pst to jp`) resolved locally via static capital-city timezone mappings.
 - **Post-Expansion Case Cycling**: Cycle expanded text capitalization (UPPERCASE, lowercase, Sentence case, Title Case) using Left and Right arrow keys within the active undo window.

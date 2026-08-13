@@ -115,6 +115,13 @@ fn daemon_flag_keeps_daemon_launch_path() {
 }
 
 #[test]
+fn auto_update_flag_keeps_auto_update_launch_path() {
+    let cli =
+        Cli::try_parse_from(["taurine", "--auto-update"]).expect("--auto-update should parse");
+    assert_eq!(launch_target(&cli), LaunchTarget::AutoUpdate);
+}
+
+#[test]
 fn version_flag_prints_expected_format() {
     // --version should exit successfully and print "taurine <semver>"
     let cli = Cli::try_parse_from(["taurine", "--version"]).expect("--version should parse");

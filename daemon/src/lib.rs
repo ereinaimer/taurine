@@ -246,6 +246,36 @@ pub fn start() -> taurine_core::error::Result<()> {
     // 5. Start system tray icon
     crate::services::tray::spawn(paused.clone(), system_tray_enabled.clone());
 
+    // 6. Background Auto-Updater
+    std::thread::Builder::new()
+        .name("tau-updater".to_string())
+        .spawn(move || {
+            loop {
+                // Sleep for 6 hours
+                std::thread::sleep(std::time::Duration::from_secs(6 * 60 * 60));
+
+                if let Ok(conn) = taurine_core::db::init::setup() {
+                    let current_settings =
+                        taurine_core::settings::SettingsManager::new(&conn).load_all();
+                    if current_settings.auto_update
+                        && let Ok(exe) = std::env::current_exe()
+                    {
+                        let mut cmd = std::process::Command::new(exe);
+                        cmd.arg("--auto-update");
+
+                        #[cfg(target_os = "windows")]
+                        {
+                            use std::os::windows::process::CommandExt;
+                            const CREATE_NO_WINDOW: u32 = 0x08000000;
+                            cmd.creation_flags(CREATE_NO_WINDOW);
+                        }
+
+                        let _ = cmd.spawn();
+                    }
+                }
+            }
+        })?;
+
     // Activate daemon file logging immediately after hook thread starts capturing
     let guard = taurine_core::logs::activate_file_logging();
     let _ = FILE_LOG_GUARD.set(guard);

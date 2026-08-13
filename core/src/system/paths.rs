@@ -325,11 +325,7 @@ pub fn get_install_exe_path() -> PathBuf {
     get_install_bin_dir().join(exe_name)
 }
 
-/// Path to the file storing the last auto-update check timestamp (Unix seconds).
-/// Located at get_cache_dir()/last_update_check
-pub fn get_last_update_check_path() -> PathBuf {
-    ensure_cache_dir().join("last_update_check")
-}
+// get_last_update_check_path removed per Auto-Update Overhaul
 
 #[cfg(test)]
 mod tests {
@@ -481,10 +477,6 @@ mod tests {
         let cache_dir = ensure_cache_dir();
         assert!(cache_dir.exists());
         assert!(cache_dir.ends_with("cache"));
-
-        let update_path = get_last_update_check_path();
-        assert_eq!(update_path.parent().unwrap(), cache_dir.as_path());
-        assert!(update_path.ends_with("last_update_check"));
 
         #[cfg(all(unix, not(target_os = "android")))]
         {

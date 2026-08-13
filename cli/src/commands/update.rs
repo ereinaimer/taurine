@@ -4,7 +4,7 @@ use std::fs;
 use std::io::Read;
 use std::path::PathBuf;
 use taurine_core::error::{Error, Result};
-use taurine_core::paths::{get_install_bin_dir, get_install_exe_path, get_last_update_check_path};
+use taurine_core::paths::{get_install_bin_dir, get_install_exe_path};
 use taurine_core::settings::SpinnerStyle;
 use taurine_core::utils::spinner::{SpinnerRenderer, ThreadSpinnerHandle, spawn_threaded};
 use tracing::{error, info};
@@ -89,34 +89,26 @@ impl Stepper {
     }
 }
 
-pub fn should_check_now() -> bool {
-    let path = get_last_update_check_path();
-    if !path.exists() {
-        return true;
+pub fn spawn_updater_process() {
+    if let Ok(exe) = std::env::current_exe() {
+        let mut cmd = std::process::Command::new(exe);
+        cmd.arg("--auto-update");
+
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        let _ = cmd.spawn();
     }
-    if let Ok(content) = fs::read_to_string(&path)
-        && let Ok(last_check) = content.trim().parse::<u64>()
-    {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        return now.saturating_sub(last_check) > 24 * 60 * 60;
-    }
-    true
 }
 
 pub fn run_auto_update() -> Result<()> {
     if let Err(e) = execute_inner(true) {
         error!("Auto-update check failed: {}", e);
         return Err(e);
-    }
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    if let Err(e) = fs::write(get_last_update_check_path(), now.to_string()) {
-        error!("Failed to write last update check timestamp: {}", e);
     }
     Ok(())
 }
@@ -131,8 +123,12 @@ fn execute_inner(silent: bool) -> Result<()> {
         .build()
         .map_err(|e| Error::Engine(e.to_string()))?;
 
+    let manifest_url = std::env::var("TAURINE_UPDATE_MANIFEST_URL").unwrap_or_else(|_| {
+        "https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json".to_string()
+    });
+
     let manifest: Manifest = client
-        .get("https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json")
+        .get(&manifest_url)
         .send()
         .map_err(|e| Error::Engine(e.to_string()))?
         .error_for_status()
@@ -177,7 +173,16 @@ fn execute_inner(silent: bool) -> Result<()> {
     }
 
     let temp_dir = taurine_core::system::paths::ensure_temp_dir();
-    let archive_path = temp_dir.join(format!("taurine-update-{}", uuid::Uuid::new_v4()));
+    let archive_ext = if cfg!(target_os = "windows") {
+        "zip"
+    } else {
+        "tar"
+    };
+    let archive_path = temp_dir.join(format!(
+        "taurine-update-{}.{}",
+        uuid::Uuid::new_v4(),
+        archive_ext
+    ));
     let binary_path = temp_dir.join(format!("taurine-bin-{}", uuid::Uuid::new_v4()));
 
     let mut response = client
@@ -288,6 +293,19 @@ fn execute_inner(silent: bool) -> Result<()> {
         info!("✓ taurine updated to v{}", manifest.version);
     }
 
+    if let Ok(conn) = taurine_core::db::init::setup() {
+        let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
+        if settings.notify_on_update {
+            let _ = notify_rust::Notification::new()
+                .summary("Taurine Updated")
+                .body(&format!(
+                    "Taurine has been updated to v{}",
+                    manifest.version
+                ))
+                .show();
+        }
+    }
+
     std::process::Command::new(&canonical)
         .arg("up")
         .spawn()
@@ -376,59 +394,5 @@ fn ensure_on_path(dir: PathBuf) {
         for profile in crate::platform::shell::detect_shell_profiles() {
             let _ = crate::platform::shell::ensure_path_in_profile(&profile, &dir_str);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::env;
-    use std::fs;
-
-    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    #[test]
-    fn test_should_check_now_and_timestamps() {
-        let _guard = TEST_LOCK.lock().unwrap();
-
-        // Create temporary test directory
-        let temp_dir = std::env::temp_dir();
-        let test_dir = temp_dir.join(format!("taurine-update-test-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&test_dir).unwrap();
-
-        // Set env override
-        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
-        unsafe { env::set_var("TAURINE_DATA_DIR", &test_dir) };
-
-        // 1. When the file does not exist, should_check_now should return true
-        let path = get_last_update_check_path();
-        if path.exists() {
-            let _ = fs::remove_file(&path);
-        }
-        assert!(should_check_now());
-
-        // 2. Write a timestamp from 25 hours ago
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let past_timestamp = now - (25 * 60 * 60);
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, past_timestamp.to_string()).unwrap();
-        assert!(should_check_now());
-
-        // 3. Write a timestamp from 23 hours ago
-        let recent_timestamp = now - (23 * 60 * 60);
-        fs::write(&path, recent_timestamp.to_string()).unwrap();
-        assert!(!should_check_now());
-
-        // 4. Write an invalid (corrupted) timestamp
-        fs::write(&path, "not-a-number").unwrap();
-        assert!(should_check_now());
-
-        // Clean up
-        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
-        unsafe { env::remove_var("TAURINE_DATA_DIR") };
-        let _ = fs::remove_dir_all(&test_dir);
     }
 }

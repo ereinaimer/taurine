@@ -223,10 +223,11 @@ pub enum SettingKey {
     InlineDatetimeDatetimeFormat,
     InlineDatetimeDialect,
     InlineCurrencyToWordsEnabled,
+    NotifyOnUpdate,
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 38] = [
+    pub const ALL: [Self; 39] = [
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
         Self::PauseAudioEnabled,
@@ -265,6 +266,7 @@ impl SettingKey {
         Self::InlineDatetimeDatetimeFormat,
         Self::InlineDatetimeDialect,
         Self::InlineCurrencyToWordsEnabled,
+        Self::NotifyOnUpdate,
     ];
 
     pub const fn storage_key(self) -> &'static str {
@@ -307,6 +309,7 @@ impl SettingKey {
             Self::InlineDatetimeDatetimeFormat => "inline_datetime_datetime_format",
             Self::InlineDatetimeDialect => "inline_datetime_dialect",
             Self::InlineCurrencyToWordsEnabled => "inline_currency_to_words_enabled",
+            Self::NotifyOnUpdate => "notify_on_update",
         }
     }
 }
@@ -351,6 +354,7 @@ pub struct Settings {
     pub inline_datetime_datetime_format: String,
     pub inline_datetime_dialect: String,
     pub inline_currency_to_words_enabled: bool,
+    pub notify_on_update: bool,
 }
 
 impl std::fmt::Debug for Settings {
@@ -421,6 +425,7 @@ impl std::fmt::Debug for Settings {
                 "inline_currency_to_words_enabled",
                 &self.inline_currency_to_words_enabled,
             )
+            .field("notify_on_update", &self.notify_on_update)
             .finish()
     }
 }
@@ -493,6 +498,7 @@ impl Settings {
             "inline_emoji_trigger_char" | "emoji_trigger" => "inline_emoji_trigger_char",
             "scripts_enabled" => "scripts_enabled",
             "system_tray" | "system_tray_enabled" | "tray" => "system_tray_enabled",
+            "notify_on_update" | "notify_update" | "update_notify" => "notify_on_update",
             _ => key,
         }
     }
@@ -599,6 +605,7 @@ impl Default for Settings {
             inline_datetime_datetime_format: "MMMM D, YYYY 'at' h:mm A".to_string(),
             inline_datetime_dialect: "uk".to_string(),
             inline_currency_to_words_enabled: false,
+            notify_on_update: false,
         }
     }
 }

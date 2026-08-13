@@ -38,6 +38,10 @@ pub struct Cli {
     #[arg(long, hide = true)]
     pub(crate) daemon: bool,
 
+    /// Internal flag used to spawn the auto-updater process (DO NOT RUN MANUALLY)
+    #[arg(long, hide = true)]
+    pub(crate) auto_update: bool,
+
     /// Output in JSON format
     #[arg(long, global = true)]
     pub(crate) json: bool,
@@ -476,6 +480,7 @@ pub enum ImportStatsCli {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LaunchTarget {
     Daemon,
+    AutoUpdate,
     Tui,
     Command,
 }

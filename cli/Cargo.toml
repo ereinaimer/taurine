@@ -38,6 +38,7 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.11"
 unicode-normalization = "0.1"
+notify-rust = "4.18.0"
 
 [target."cfg(windows)".dependencies]
 sysinfo = "0.39.0"
