@@ -24,6 +24,7 @@ enum UnitCategory {
     Time,
     Speed,
     Data,
+    DataRate,
     Pressure,
     Power,
     Css,
@@ -53,7 +54,26 @@ pub fn is_conversion_pattern(s: &str) -> bool {
     re.is_match(s)
 }
 
+fn get_data_rate_factor(unit: &str) -> Option<f64> {
+    match unit {
+        "bps" => Some(0.125),
+        "Bps" => Some(1.0),
+        "kbps" | "Kbps" => Some(125.0),
+        "KBps" => Some(1000.0),
+        "mbps" | "Mbps" => Some(125000.0),
+        "MBps" => Some(1000000.0),
+        "gbps" | "Gbps" => Some(125000000.0),
+        "GBps" => Some(1000000000.0),
+        "tbps" | "Tbps" => Some(125000000000.0),
+        "TBps" => Some(1000000000000.0),
+        _ => None,
+    }
+}
+
 fn get_physical_unit_factor(unit: &str) -> Option<(UnitCategory, f64)> {
+    if let Some(factor) = get_data_rate_factor(unit) {
+        return Some((UnitCategory::DataRate, factor));
+    }
     let u = unit.to_lowercase();
     // Disambiguate MW (megawatt) vs mW (milliwatt)
     if u == "mw" {
@@ -435,10 +455,15 @@ pub fn convert(s: &str, _state: &crate::engine::state::EngineState) -> Option<St
             format!("{:.2}", converted_val)
         };
         let trimmed = formatted.trim_end_matches('0').trim_end_matches('.');
+        let suffix = if from_cat == UnitCategory::DataRate {
+            to_unit.to_string()
+        } else {
+            to_unit.to_lowercase()
+        };
         return Some(format!(
             "{}{}",
             if trimmed.is_empty() { "0" } else { trimmed },
-            to_unit.to_lowercase()
+            suffix
         ));
     }
 
@@ -611,6 +636,10 @@ fn get_currency_by_symbol(c: char) -> Option<&'static str> {
 }
 
 fn normalize_unit_name(name: &str) -> String {
+    let trimmed = name.trim();
+    if get_data_rate_factor(trimmed).is_some() {
+        return trimmed.to_string();
+    }
     let lower = name.to_lowercase();
 
     // Normalization rules for multi-word units

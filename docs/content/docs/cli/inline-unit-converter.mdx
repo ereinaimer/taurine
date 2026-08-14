@@ -106,6 +106,12 @@ Taurine supports both standard short abbreviations and their corresponding long 
 * **Bits:** `bit`, `kbit` (kilobit), `mbit` (megabit), `gbit` (gigabit) — 1 byte = 8 bits
 * **Binary:** `kib` (kibibyte), `mib`, `gib`, `tib`, `pib` (powers of 1024)
 
+### Data Rate
+* **Bytes per second:** `Bps`, `KBps`, `MBps`, `GBps`, `TBps` (capital `B` = bytes)
+* **Bits per second:** `bps`, `kbps`/`Kbps`, `mbps`/`Mbps`, `gbps`/`Gbps`, `tbps`/`Tbps` (lowercase `b` = bits)
+
+The `b` vs `B` distinction is case-sensitive: `50 Mbps to MBps` expands to `6.25 MBps` (megabits are 1/8 of megabytes). All-lowercase forms (`mbps`, `gbps`, …) are treated as bits per second, e.g. `50 mbps to MBps` → `6.25 MBps` and `1 gbps to MBps` → `125 MBps`.
+
 ### Tire Pressure
 * **PSI:** `psi`
 * **Bar:** `bar`

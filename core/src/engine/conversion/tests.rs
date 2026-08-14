@@ -540,6 +540,43 @@ fn test_extend_data_bits() {
 }
 
 #[test]
+fn test_extend_data_rate() {
+    let state = EngineState::new();
+
+    // Compact syntax
+    assert_eq!(convert("50Mbps=MBps", &state), Some("6.25MBps".to_string()));
+    assert_eq!(convert("10MBps=Mbps", &state), Some("80Mbps".to_string()));
+    assert_eq!(convert("1MBps=Bps", &state), Some("1000000Bps".to_string()));
+    assert_eq!(convert("1Gbps=MBps", &state), Some("125MBps".to_string()));
+    assert_eq!(convert("1KBps=Kbps", &state), Some("8Kbps".to_string()));
+    assert_eq!(convert("1TBps=Gbps", &state), Some("8000Gbps".to_string()));
+    assert_eq!(convert("50mbps=MBps", &state), Some("6.25MBps".to_string()));
+    assert_eq!(convert("10MBps=mbps", &state), Some("80mbps".to_string()));
+
+    // Cross-category rejections
+    assert!(convert("50Mbps=MB", &state).is_none());
+    assert!(convert("50mb=mbps", &state).is_none());
+
+    // Natural language
+    assert_eq!(
+        convert_natural("50 Mbps to MBps", &state),
+        Some("6.25 MBps".to_string())
+    );
+    assert_eq!(
+        convert_natural("10 MBps to Mbps", &state),
+        Some("80 Mbps".to_string())
+    );
+    assert_eq!(
+        convert_natural("1 gbps to MBps", &state),
+        Some("125 MBps".to_string())
+    );
+    assert_eq!(
+        convert_natural("50 mbps to MBps", &state),
+        Some("6.25 MBps".to_string())
+    );
+}
+
+#[test]
 fn test_extend_power_mw() {
     let state = EngineState::new();
     assert_eq!(convert("1MW=kW", &state), Some("1000kw".to_string()));

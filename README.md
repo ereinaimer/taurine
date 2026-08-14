@@ -2,11 +2,12 @@
 
 A fast, secure cross-platform text expander built in Rust.
 
-<a href="https://github.com/ereinaimer/taurine/actions/workflows/ci.yml"><img src="https://shieldcn.dev/github/ci/ereinaimer/taurine.svg?label=build&mode=dark&statusDot=false&logo=github&size=xs&color=22c55e&logoColor=f8fafc&labelTextColor=f8fafc" alt="Build Status" /></a>
-<a href="https://github.com/ereinaimer/taurine/releases"><img src="https://shieldcn.dev/github/ereinaimer/taurine/release.svg?label=version&mode=dark&logo=github&size=xs&color=a855f7&logoColor=f8fafc&labelTextColor=f8fafc" alt="Latest Release" /></a>
-<a href="https://discord.gg/Kc9XmHJgsS"><img src="https://shieldcn.dev/discord/members/Kc9XmHJgsS.svg?mode=dark&size=xs&color=5865f2&logoColor=f8fafc&labelTextColor=f8fafc" alt="Discord" /></a>
-<a href="https://github.com/ereinaimer/taurine/stargazers"><img src="https://shieldcn.dev/github/stars/ereinaimer/taurine.svg?mode=dark&size=xs&color=fcd34d" alt="Stars" /></a>
-<a href="https://www.rust-lang.org/"><img src="https://shieldcn.dev/badge/built%20in%20rust.svg?mode=dark&size=xs&logo=rust&color=ff964c" alt="Built in Rust" /></a>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/stars/ereinaimer/taurine.svg?variant=secondary&amp;size=sm&amp;mode=dark"><img alt="GitHub Stars" src="https://www.shieldcn.dev/github/stars/ereinaimer/taurine.svg?variant=secondary&amp;size=sm&amp;mode=light"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/last-commit/ereinaimer/taurine.svg?variant=secondary&amp;size=sm&amp;mode=dark"><img alt="Last commit" src="https://www.shieldcn.dev/github/last-commit/ereinaimer/taurine.svg?variant=secondary&amp;size=sm&amp;mode=light"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/commits/ereinaimer/taurine.svg?variant=secondary&amp;size=sm&amp;mode=dark"><img alt="Commits" src="https://www.shieldcn.dev/github/commits/ereinaimer/taurine.svg?variant=secondary&amp;size=sm&amp;mode=light"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/release/ereinaimer/taurine.svg?variant=secondary&amp;size=sm&amp;mode=dark"><img alt="Release" src="https://www.shieldcn.dev/github/release/ereinaimer/taurine.svg?variant=secondary&amp;size=sm&amp;mode=light"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/downloads/ereinaimer/taurine.svg?variant=secondary&amp;mode=dark"><img alt="GitHub Downloads" src="https://www.shieldcn.dev/github/downloads/ereinaimer/taurine.svg?variant=secondary&amp;mode=light"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/discord/members/Kc9XmHJgsS.svg?variant=secondary&amp;size=sm&amp;mode=dark"><img alt="Discord Members" src="https://www.shieldcn.dev/discord/members/Kc9XmHJgsS.svg?variant=secondary&amp;size=sm&amp;mode=light"></picture>
 
 ## Installation
 
@@ -61,7 +62,7 @@ Get Taurine running in under a minute:
     ```
 
 3.  **Try it anywhere**:
-    Type `hello` in any text field (browser, editor, chat) and press **Enter**. It instantly expands to: `Hello, world!`
+    Type `hello` anywhere and press **Enter**. It instantly expands to: `Hello, world!`
 
 > [!TIP]
 > **Prefer a UI?** Simply run `taurine` to open the interactive Terminal UI and manage your triggers visually.
