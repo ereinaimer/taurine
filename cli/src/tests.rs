@@ -1,5 +1,10 @@
 use super::*;
 use crate::args::{AddSubcommand, AiProvider};
+use crate::commands::completions::{
+    generate_powershell_with_alias, generate_with_alias, generate_zsh_with_alias,
+};
+use clap::CommandFactory;
+use clap_complete::shells::{Bash, Elvish, Fish};
 
 #[test]
 fn parses_ai_add_provider() {
@@ -262,6 +267,95 @@ fn global_json_on_completions_parses() {
     let cli = Cli::try_parse_from(["taurine", "completions", "bash", "--json"])
         .expect("completions --json should parse");
     assert!(cli.json);
+}
+
+#[test]
+fn powershell_completions_register_alias() {
+    let mut cmd = Cli::command();
+    let mut out = Vec::new();
+    generate_powershell_with_alias(&mut cmd, &mut out);
+
+    let text = String::from_utf8(out).expect("completions should be valid utf-8");
+    assert!(
+        text.contains("-CommandName 'taurine'"),
+        "expected registration for taurine, got: {text}"
+    );
+    assert!(
+        text.contains("-CommandName 'tau'"),
+        "expected registration for tau, got: {text}"
+    );
+
+    let lines: Vec<_> = text.lines().collect();
+    let first_registration = lines
+        .iter()
+        .position(|line| line.contains("Register-ArgumentCompleter"))
+        .expect("script should register a completer");
+    let last_using_namespace = lines
+        .iter()
+        .rposition(|line| line.starts_with("using namespace"))
+        .expect("script should have a using namespace header");
+    assert!(
+        last_using_namespace < first_registration,
+        "using namespace must precede all registrations, got: {text}"
+    );
+}
+
+#[test]
+fn zsh_completions_merge_compdef_header() {
+    let mut cmd = Cli::command();
+    let mut out = Vec::new();
+    generate_zsh_with_alias(&mut cmd, &mut out);
+
+    let text = String::from_utf8(out).expect("completions should be valid utf-8");
+    let first_line = text.lines().next().expect("script should not be empty");
+    assert_eq!(first_line, "#compdef taurine tau");
+    assert!(
+        text.contains("compdef _tau tau"),
+        "expected _tau registration, got: {text}"
+    );
+}
+
+#[test]
+fn bash_completions_register_alias() {
+    let mut cmd = Cli::command();
+    let mut out = Vec::new();
+    generate_with_alias(Bash, &mut cmd, &mut out);
+
+    let text = String::from_utf8(out).expect("completions should be valid utf-8");
+    assert!(
+        text.contains("_tau() {"),
+        "expected _tau function, got: {text}"
+    );
+    assert!(
+        text.contains("complete -F _tau"),
+        "expected complete -F _tau, got: {text}"
+    );
+}
+
+#[test]
+fn fish_completions_register_alias() {
+    let mut cmd = Cli::command();
+    let mut out = Vec::new();
+    generate_with_alias(Fish, &mut cmd, &mut out);
+
+    let text = String::from_utf8(out).expect("completions should be valid utf-8");
+    assert!(
+        text.contains("complete -c tau "),
+        "expected complete -c tau, got: {text}"
+    );
+}
+
+#[test]
+fn elvish_completions_register_alias() {
+    let mut cmd = Cli::command();
+    let mut out = Vec::new();
+    generate_with_alias(Elvish, &mut cmd, &mut out);
+
+    let text = String::from_utf8(out).expect("completions should be valid utf-8");
+    assert!(
+        text.contains("arg-completer[tau] = "),
+        "expected arg-completer[tau], got: {text}"
+    );
 }
 
 #[test]

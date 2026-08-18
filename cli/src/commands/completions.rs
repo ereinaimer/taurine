@@ -4,11 +4,14 @@ use clap_complete::shells::{Bash, Elvish, Fish, PowerShell, Zsh};
 use clap_complete::{Generator, generate};
 use std::fs;
 use std::io;
+use std::io::Write;
 #[cfg(target_os = "windows")]
 use std::path::PathBuf;
 #[cfg(target_os = "windows")]
 use std::process::Command;
 use tracing::{debug, error, info};
+
+const ALIAS: &str = "tau";
 
 pub(crate) fn handle_completion(action: &ShellCompletionAction) -> taurine_core::error::Result<()> {
     let mut cmd = Cli::command();
@@ -17,8 +20,8 @@ pub(crate) fn handle_completion(action: &ShellCompletionAction) -> taurine_core:
         ShellCompletionAction::Bash => print_completion(Bash, &mut cmd),
         ShellCompletionAction::Elvish => print_completion(Elvish, &mut cmd),
         ShellCompletionAction::Fish => print_completion(Fish, &mut cmd),
-        ShellCompletionAction::Powershell => print_completion(PowerShell, &mut cmd),
-        ShellCompletionAction::Zsh => print_completion(Zsh, &mut cmd),
+        ShellCompletionAction::Powershell => print_powershell_completion(&mut cmd),
+        ShellCompletionAction::Zsh => print_zsh_completion(&mut cmd),
         ShellCompletionAction::Install => install_completion(&mut cmd),
         ShellCompletionAction::Uninstall => uninstall_completion(),
     }
@@ -26,8 +29,57 @@ pub(crate) fn handle_completion(action: &ShellCompletionAction) -> taurine_core:
     Ok(())
 }
 
-fn print_completion<G: Generator>(generator: G, cmd: &mut clap::Command) {
-    generate(generator, cmd, "taurine", &mut io::stdout());
+fn print_completion<G: Generator + Copy>(generator: G, cmd: &mut clap::Command) {
+    generate_with_alias(generator, cmd, &mut io::stdout());
+}
+
+fn print_powershell_completion(cmd: &mut clap::Command) {
+    generate_powershell_with_alias(cmd, &mut io::stdout());
+}
+
+fn print_zsh_completion(cmd: &mut clap::Command) {
+    generate_zsh_with_alias(cmd, &mut io::stdout());
+}
+
+pub(crate) fn generate_with_alias<G: Generator + Copy>(
+    generator: G,
+    cmd: &mut clap::Command,
+    writer: &mut dyn io::Write,
+) {
+    let mut buf = Vec::new();
+    generate(generator, cmd, "taurine", &mut buf);
+    generate(generator, cmd, ALIAS, &mut buf);
+    let _ = writer.write_all(&buf);
+}
+
+pub(crate) fn generate_powershell_with_alias(cmd: &mut clap::Command, writer: &mut dyn io::Write) {
+    let mut buf1 = Vec::new();
+    generate(PowerShell, cmd, "taurine", &mut buf1);
+    let mut buf2 = Vec::new();
+    generate(PowerShell, cmd, ALIAS, &mut buf2);
+
+    let script2 = String::from_utf8_lossy(&buf2);
+    let body2 = script2
+        .lines()
+        .skip_while(|line| line.is_empty() || line.starts_with("using namespace"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let _ = writer.write_all(&buf1);
+    let _ = writer.write_all(body2.as_bytes());
+}
+
+pub(crate) fn generate_zsh_with_alias(cmd: &mut clap::Command, writer: &mut dyn io::Write) {
+    let mut buf1 = Vec::new();
+    generate(Zsh, cmd, "taurine", &mut buf1);
+    let mut buf2 = Vec::new();
+    generate(Zsh, cmd, ALIAS, &mut buf2);
+
+    let script1 = String::from_utf8_lossy(&buf1);
+    let script2 = String::from_utf8_lossy(&buf2);
+    let body1 = script1.lines().skip(1).collect::<Vec<_>>().join("\n");
+    let body2 = script2.lines().skip(1).collect::<Vec<_>>().join("\n");
+    let output = format!("#compdef taurine {ALIAS}\n{body1}\n{body2}");
+    let _ = writer.write_all(output.as_bytes());
 }
 
 fn install_completion(cmd: &mut clap::Command) {
@@ -85,7 +137,7 @@ fn install_windows(cmd: &mut clap::Command) {
             }
         };
 
-        generate(PowerShell, cmd, "taurine", &mut file);
+        generate_powershell_with_alias(cmd, &mut file);
         debug!("Installed PowerShell completion to: {}", ps_file.display());
 
         for profile_path in profile_paths {
@@ -100,8 +152,6 @@ fn install_windows(cmd: &mut clap::Command) {
             let source_line = format!(". \"{}\"", ps_file.display());
 
             if !profile_content.contains(&source_line) {
-                use std::io::Write;
-
                 let mut file = match fs::OpenOptions::new().append(true).open(&profile_path) {
                     Ok(file) => file,
                     Err(error) => {
@@ -146,7 +196,7 @@ fn install_windows(cmd: &mut clap::Command) {
         let bash_file = completions_dir.join("taurine.bash");
         match fs::File::create(&bash_file) {
             Ok(mut file) => {
-                generate(Bash, cmd, "taurine", &mut file);
+                generate_with_alias(Bash, cmd, &mut file);
                 debug!("Installed Bash completion to: {}", bash_file.display());
                 debug!(
                     "Ensure this line is sourced in ~/.bashrc or ~/.bash_profile: source \"{}\"",
@@ -196,7 +246,7 @@ fn install_bash(cmd: &mut clap::Command, completions_dir: &std::path::Path) {
 
     match fs::File::create(&bash_file) {
         Ok(mut file) => {
-            generate(Bash, cmd, "taurine", &mut file);
+            generate_with_alias(Bash, cmd, &mut file);
             debug!("Installed Bash completion to: {}", bash_file.display());
 
             if let Some(home) = dirs::home_dir() {
@@ -220,7 +270,7 @@ fn install_zsh(cmd: &mut clap::Command, completions_dir: &std::path::Path) {
 
     match fs::File::create(&zsh_file) {
         Ok(mut file) => {
-            generate(Zsh, cmd, "taurine", &mut file);
+            generate_zsh_with_alias(cmd, &mut file);
             debug!("Installed Zsh completion to: {}", zsh_file.display());
 
             if let Some(home) = dirs::home_dir() {
@@ -253,7 +303,7 @@ fn install_fish(cmd: &mut clap::Command) {
     let fish_file = completions_dir.join("taurine.fish");
     match fs::File::create(&fish_file) {
         Ok(mut file) => {
-            generate(Fish, cmd, "taurine", &mut file);
+            generate_with_alias(Fish, cmd, &mut file);
             debug!("Installed Fish completion to: {}", fish_file.display());
             info!("Fish completion scripts were installed successfully.");
         }

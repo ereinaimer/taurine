@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Data-Rate Conversions**: Inline conversions between data rates with case-sensitive bit/byte distinction (e.g. `50 Mbps to MBps` → `6.25 MBps`).
 
+### Fixed
+- **Alias Completions**: Tab-completions now work for the `tau` alias in PowerShell, Bash, Zsh, Fish, and Elvish (previously only the full `taurine` command name completed). Re-run `taurine completions install` to pick up the updated scripts.
+
 ## [1.0.0-alpha.16] - 2026-08-13
 
 ### Added
