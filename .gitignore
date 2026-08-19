@@ -69,3 +69,4 @@ graphify-out/
 .agent/
 GEMINI.md
 .superpowers
+.worktrees/
