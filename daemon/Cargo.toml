@@ -28,6 +28,7 @@ rodio = { version = "0.22", default-features = false, features = ["wav", "playba
 os_info = "3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 unicode-normalization = "0.1"
+reqwest = "0.13.4"
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 rdev = { version = "0.5.3", features = ["unstable_grab"] }
