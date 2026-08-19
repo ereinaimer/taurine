@@ -177,6 +177,23 @@ fn test_inline_currency_to_words_settings() {
 }
 
 #[test]
+fn test_inline_dictionary_settings() {
+    let (_dir, conn) = crate::testing::open_test_db();
+    let manager = SettingsManager::new(&conn);
+
+    assert_eq!(
+        default_setting_input("inline_dictionary_enabled").unwrap(),
+        Some("true".to_string())
+    );
+
+    apply_setting_input_with_manager(&manager, "inline_dictionary_enabled", Some("false")).unwrap();
+
+    let loaded = manager.load_all();
+    assert!(!loaded.inline_dictionary_enabled);
+    assert!(!crate::settings::get_cached_inline_dictionary_enabled());
+}
+
+#[test]
 fn asymmetric_mode_rejects_equal_open_close() {
     let settings = Settings {
         inline_ai_trigger_open: ">".to_string(),
@@ -239,8 +256,8 @@ fn asymmetric_mode_accepts_different_open_close_through_apply() {
 }
 
 #[test]
-fn setting_key_all_has_39_unique_storage_keys() {
-    assert_eq!(SettingKey::ALL.len(), 39);
+fn setting_key_all_has_40_unique_storage_keys() {
+    assert_eq!(SettingKey::ALL.len(), 40);
 
     let mut seen = HashSet::new();
     for key in SettingKey::ALL {
@@ -309,6 +326,8 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         ("inline_datetime_datetime_format", "DD/MM/YYYY HH:mm"),
         ("inline_datetime_dialect", "us"),
         ("inline_currency_to_words_enabled", "true"),
+        ("inline_dictionary_enabled", "false"),
+        ("notify_on_update", "false"),
     ];
 
     for (key, value) in sweep {
@@ -355,6 +374,7 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         inline_datetime_datetime_format: "DD/MM/YYYY HH:mm".to_string(),
         inline_datetime_dialect: "us".to_string(),
         inline_currency_to_words_enabled: true,
+        inline_dictionary_enabled: false,
         notify_on_update: false,
     };
     assert_eq!(manager.load_all(), expected);

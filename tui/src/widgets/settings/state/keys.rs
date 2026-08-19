@@ -51,6 +51,7 @@ impl SettingKeyMeta for SettingKey {
             Self::InlineDatetimeDatetimeFormat => "DateTime Format",
             Self::InlineDatetimeDialect => "Dialect (uk/us)",
             Self::InlineCurrencyToWordsEnabled => "Inline Currency to Words",
+            Self::InlineDictionaryEnabled => "Inline Dictionary",
             Self::NotifyOnUpdate => "Notify on Update",
         }
     }
@@ -127,6 +128,9 @@ impl SettingKeyMeta for SettingKey {
             Self::InlineCurrencyToWordsEnabled => {
                 "Enable expanding numbers with currency symbols to their text representations on Enter"
             }
+            Self::InlineDictionaryEnabled => {
+                "Enable expanding dictionary definitions, synonyms, and antonyms"
+            }
             Self::NotifyOnUpdate => {
                 "Show a system notification when Taurine successfully updates in the background"
             }
@@ -149,6 +153,7 @@ impl SettingKeyMeta for SettingKey {
             | Self::SystemTrayEnabled
             | Self::InlineDatetimeEnabled
             | Self::InlineCurrencyToWordsEnabled
+            | Self::InlineDictionaryEnabled
             | Self::NotifyOnUpdate => EditorKind::Toggle,
             Self::Wpm
             | Self::ClipboardRestoreDelayMs
@@ -239,6 +244,7 @@ impl SettingKeyMeta for SettingKey {
             Self::InlineCurrencyToWordsEnabled => {
                 settings.inline_currency_to_words_enabled.to_string()
             }
+            Self::InlineDictionaryEnabled => settings.inline_dictionary_enabled.to_string(),
             Self::NotifyOnUpdate => settings.notify_on_update.to_string(),
         }
     }
@@ -280,6 +286,7 @@ impl SettingKeyMeta for SettingKey {
             | Self::SystemTrayEnabled
             | Self::InlineDatetimeEnabled
             | Self::InlineCurrencyToWordsEnabled
+            | Self::InlineDictionaryEnabled
             | Self::NotifyOnUpdate => self.display_value(settings),
             Self::AiTemperature => {
                 optional_value_label(settings.ai_temperature.map(|v| v.to_string()).as_deref())

@@ -17,6 +17,8 @@ static CACHED_INLINE_CASE_TRANSFORM_ENABLED: std::sync::atomic::AtomicBool =
 
 static CACHED_INLINE_DATETIME_ENABLED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(true);
+static CACHED_INLINE_DICTIONARY_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(true);
 static CACHED_INLINE_DATETIME_DATE_FORMAT: parking_lot::RwLock<Option<String>> =
     parking_lot::RwLock::new(None);
 static CACHED_INLINE_DATETIME_TIME_FORMAT: parking_lot::RwLock<Option<String>> =
@@ -30,6 +32,14 @@ static CACHED_INLINE_CURRENCY_TO_WORDS_ENABLED: std::sync::atomic::AtomicBool =
 
 pub fn set_cached_inline_emoji_enabled(enabled: bool) {
     CACHED_INLINE_EMOJI_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub fn set_cached_inline_dictionary_enabled(enabled: bool) {
+    CACHED_INLINE_DICTIONARY_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub fn get_cached_inline_dictionary_enabled() -> bool {
+    CACHED_INLINE_DICTIONARY_ENABLED.load(Ordering::Relaxed)
 }
 
 pub fn set_cached_inline_emoji_trigger_char(c: char) {
@@ -223,11 +233,12 @@ pub enum SettingKey {
     InlineDatetimeDatetimeFormat,
     InlineDatetimeDialect,
     InlineCurrencyToWordsEnabled,
+    InlineDictionaryEnabled,
     NotifyOnUpdate,
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 39] = [
+    pub const ALL: [Self; 40] = [
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
         Self::PauseAudioEnabled,
@@ -266,6 +277,7 @@ impl SettingKey {
         Self::InlineDatetimeDatetimeFormat,
         Self::InlineDatetimeDialect,
         Self::InlineCurrencyToWordsEnabled,
+        Self::InlineDictionaryEnabled,
         Self::NotifyOnUpdate,
     ];
 
@@ -309,6 +321,7 @@ impl SettingKey {
             Self::InlineDatetimeDatetimeFormat => "inline_datetime_datetime_format",
             Self::InlineDatetimeDialect => "inline_datetime_dialect",
             Self::InlineCurrencyToWordsEnabled => "inline_currency_to_words_enabled",
+            Self::InlineDictionaryEnabled => "inline_dictionary_enabled",
             Self::NotifyOnUpdate => "notify_on_update",
         }
     }
@@ -354,6 +367,7 @@ pub struct Settings {
     pub inline_datetime_datetime_format: String,
     pub inline_datetime_dialect: String,
     pub inline_currency_to_words_enabled: bool,
+    pub inline_dictionary_enabled: bool,
     pub notify_on_update: bool,
 }
 
@@ -425,6 +439,7 @@ impl std::fmt::Debug for Settings {
                 "inline_currency_to_words_enabled",
                 &self.inline_currency_to_words_enabled,
             )
+            .field("inline_dictionary_enabled", &self.inline_dictionary_enabled)
             .field("notify_on_update", &self.notify_on_update)
             .finish()
     }
@@ -438,6 +453,9 @@ impl Settings {
             "pause_audio" => "pause_audio_enabled",
             "boot" => "start_on_boot",
             "inline_tab_completion" => "inline_tab_completion_enabled",
+            "inline_dictionary" | "inline_dictionary_enabled" | "dictionary" => {
+                "inline_dictionary_enabled"
+            }
             "inline_case_transform" | "inline_case_transform_enabled" => {
                 "inline_case_transform_enabled"
             }
@@ -605,6 +623,7 @@ impl Default for Settings {
             inline_datetime_datetime_format: "MMMM D, YYYY 'at' h:mm A".to_string(),
             inline_datetime_dialect: "uk".to_string(),
             inline_currency_to_words_enabled: false,
+            inline_dictionary_enabled: true,
             notify_on_update: false,
         }
     }
@@ -650,6 +669,27 @@ mod tests {
         assert_eq!(
             Settings::resolve_key("inline_currency_words"),
             "inline_currency_to_words_enabled"
+        );
+    }
+
+    #[test]
+    fn test_inline_dictionary_enabled_default_is_true() {
+        assert!(Settings::default().inline_dictionary_enabled);
+    }
+
+    #[test]
+    fn test_resolve_key_inline_dictionary() {
+        assert_eq!(
+            Settings::resolve_key("inline_dictionary"),
+            "inline_dictionary_enabled"
+        );
+        assert_eq!(
+            Settings::resolve_key("inline_dictionary_enabled"),
+            "inline_dictionary_enabled"
+        );
+        assert_eq!(
+            Settings::resolve_key("dictionary"),
+            "inline_dictionary_enabled"
         );
     }
 }

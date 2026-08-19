@@ -221,6 +221,11 @@ impl<'a> SettingsManager<'a> {
         {
             settings.inline_currency_to_words_enabled = v;
         }
+        if let Some(val) = map.get("inline_dictionary_enabled")
+            && let Ok(v) = serde_json::from_str::<bool>(val)
+        {
+            settings.inline_dictionary_enabled = v;
+        }
         if let Some(val) = map.get("inline_datetime_date_format")
             && let Ok(v) = serde_json::from_str::<String>(val)
         {

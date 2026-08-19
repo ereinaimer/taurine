@@ -286,8 +286,14 @@ impl DaemonControl for DaemonService {
             taurine_core::settings::set_cached_inline_datetime_dialect(
                 settings.inline_datetime_dialect.clone(),
             );
+            taurine_core::settings::set_cached_inline_datetime_enabled(
+                settings.inline_datetime_enabled,
+            );
             taurine_core::settings::set_cached_inline_currency_to_words_enabled(
                 settings.inline_currency_to_words_enabled,
+            );
+            taurine_core::settings::set_cached_inline_dictionary_enabled(
+                settings.inline_dictionary_enabled,
             );
             taurine_core::settings::set_cached_scripts_enabled(settings.scripts_enabled);
             taurine_core::settings::set_cached_inline_case_transform_enabled(
@@ -326,6 +332,9 @@ impl DaemonControl for DaemonService {
             self.state
                 .inline_case_transform_enabled
                 .store(settings.inline_case_transform_enabled, Ordering::Relaxed);
+            self.state
+                .inline_dictionary_enabled
+                .store(settings.inline_dictionary_enabled, Ordering::Relaxed);
 
             self.state
                 .instant_expand

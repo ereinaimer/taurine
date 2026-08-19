@@ -90,6 +90,45 @@ impl crate::engine::evaluator::Evaluator {
                 follow_up: None,
             });
         }
+        if !instant_expand
+            && self
+                .state
+                .inline_dictionary_enabled
+                .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            let buffer_str = self.buffer.buffer_string();
+            if let Some(captures) =
+                crate::engine::dictionary::DICTIONARY_REGEX.captures(&buffer_str)
+            {
+                let trigger_type = captures.get(1).unwrap().as_str().to_lowercase();
+                let word = captures.get(2).unwrap().as_str().to_string();
+
+                let lookup_type = if trigger_type == "meaning" {
+                    crate::engine::dictionary::DictionaryLookupType::Meaning
+                } else if trigger_type.starts_with("synonym") {
+                    crate::engine::dictionary::DictionaryLookupType::Synonyms
+                } else {
+                    crate::engine::dictionary::DictionaryLookupType::Antonyms
+                };
+
+                let match_str = captures.get(0).unwrap().as_str();
+                let delete_count = match_str.chars().count();
+                self.buffer.clear();
+
+                let initial_text = self.get_initial_spinner_text(match_str);
+
+                return Some(ExpansionResult {
+                    delete_count,
+                    steps: vec![ExpansionStep::Text(initial_text)],
+                    trigger: match_str.to_string(),
+                    undo_trigger: Some(match_str.to_string()),
+                    is_calculation: false,
+                    stat_kind: TriggerStatKind::Snippet, // Maybe define Dictionary type later
+                    track_usage: false,
+                    follow_up: Some(ExpansionFollowUp::DictionaryLookup { word, lookup_type }),
+                });
+            }
+        }
 
         let mut candidates = self.buffer.extract_suffix_candidates();
         candidates.sort_by_key(|a| std::cmp::Reverse(a.0.len()));

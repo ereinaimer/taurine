@@ -87,6 +87,9 @@ pub fn start() -> taurine_core::error::Result<()> {
     taurine_core::settings::set_cached_inline_case_transform_enabled(
         settings.inline_case_transform_enabled,
     );
+    taurine_core::settings::set_cached_inline_dictionary_enabled(
+        settings.inline_dictionary_enabled,
+    );
 
     let state = Arc::new(EngineState::new());
     state
@@ -95,6 +98,9 @@ pub fn start() -> taurine_core::error::Result<()> {
     state
         .inline_case_transform_enabled
         .store(settings.inline_case_transform_enabled, Ordering::Relaxed);
+    state
+        .inline_dictionary_enabled
+        .store(settings.inline_dictionary_enabled, Ordering::Relaxed);
     state
         .instant_expand
         .store(settings.instant_expand, Ordering::Relaxed);

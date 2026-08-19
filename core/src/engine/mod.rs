@@ -7,6 +7,7 @@ pub mod comma;
 pub mod completion;
 pub mod conversion;
 pub mod dates;
+pub mod dictionary;
 pub mod emoji;
 pub mod evaluator;
 pub mod expansion;

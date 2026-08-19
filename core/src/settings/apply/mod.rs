@@ -161,6 +161,12 @@ pub fn apply_setting_input_with_manager(
             manager.update_setting(actual_key, enabled)?;
             ApplySettingOutcome::default()
         }
+        "inline_dictionary_enabled" => {
+            let enabled = parse_boolean_setting_value(require_non_empty(value, actual_key)?)?;
+            crate::settings::set_cached_inline_dictionary_enabled(enabled);
+            manager.update_setting(actual_key, enabled)?;
+            ApplySettingOutcome::default()
+        }
         "inline_datetime_date_format" => {
             let val = require_non_empty(value, actual_key)?.to_string();
             crate::settings::set_cached_inline_datetime_date_format(val.clone());

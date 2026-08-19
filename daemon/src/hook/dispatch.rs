@@ -238,5 +238,89 @@ pub(super) fn launch_follow_up(
             .await;
             debug!("Finished AI transformer follow-up dispatch");
         });
+        return;
+    }
+
+    if let Some(taurine_core::engine::ExpansionFollowUp::DictionaryLookup { word, lookup_type }) =
+        follow_up
+    {
+        debug!("Starting dictionary follow-up dispatch for word: {}", word);
+        let injection_guard = crate::injector::InjectionFlagGuard::begin();
+
+        let spinner_handle = taurine_core::utils::spinner::spawn_async(
+            spinner_style,
+            OsSpinnerRenderer::default(),
+            &runtime_handle,
+        );
+
+        runtime_handle.spawn(async move {
+            let _guard = injection_guard;
+            let entries = taurine_core::engine::dictionary::lookup_word(&word).await;
+            let _ = spinner_handle.cancel.send(());
+
+            let mut output = String::from("\n\n");
+            if let Some(entries) = entries {
+                if entries.is_empty() {
+                    output.push_str("no results found\n");
+                } else {
+                    let entry = &entries[0];
+                    match lookup_type {
+                        taurine_core::engine::dictionary::types::DictionaryLookupType::Meaning => {
+                            output.push_str(&format!("{}:\n", entry.word));
+                            for meaning in &entry.meanings {
+                                if let Some(def) = meaning.definitions.first() {
+                                    output.push_str(&format!(
+                                        "  {}: {}\n",
+                                        meaning.part_of_speech, def.definition
+                                    ));
+                                }
+                            }
+                        }
+                        taurine_core::engine::dictionary::types::DictionaryLookupType::Synonyms => {
+                            output.push_str(&format!("synonyms of {}:\n", entry.word));
+                            let mut all_syns = Vec::new();
+                            for meaning in &entry.meanings {
+                                all_syns.extend(meaning.synonyms.clone());
+                                for def in &meaning.definitions {
+                                    all_syns.extend(def.synonyms.clone());
+                                }
+                            }
+                            if all_syns.is_empty() {
+                                output.push_str("    no synonyms found\n");
+                            } else {
+                                all_syns.sort();
+                                all_syns.dedup();
+                                output.push_str(&format!("    {}\n", all_syns.join(", ")));
+                            }
+                        }
+                        taurine_core::engine::dictionary::types::DictionaryLookupType::Antonyms => {
+                            output.push_str(&format!("antonyms of {}:\n", entry.word));
+                            let mut all_ants = Vec::new();
+                            for meaning in &entry.meanings {
+                                all_ants.extend(meaning.antonyms.clone());
+                                for def in &meaning.definitions {
+                                    all_ants.extend(def.antonyms.clone());
+                                }
+                            }
+                            if all_ants.is_empty() {
+                                output.push_str("    no antonyms found\n");
+                            } else {
+                                all_ants.sort();
+                                all_ants.dedup();
+                                output.push_str(&format!("    {}\n", all_ants.join(", ")));
+                            }
+                        }
+                    }
+                }
+            } else {
+                output.push_str("no results found\n");
+            }
+
+            // Remove the trailing newline
+            let final_output = output.trim_end().to_string();
+
+            crate::injector::inject_text_segment(&final_output, &None);
+            debug!("Finished dictionary follow-up dispatch");
+        });
     }
 }

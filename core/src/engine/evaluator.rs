@@ -30,6 +30,10 @@ pub enum ExpansionFollowUp {
         /// Markers use the form: `\x03<base64-input>\x1F<prompt>\x04`.
         template_with_markers: String,
     },
+    DictionaryLookup {
+        word: String,
+        lookup_type: crate::engine::dictionary::types::DictionaryLookupType,
+    },
 }
 
 /// Instructions the daemon must execute to perform a text expansion.

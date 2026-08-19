@@ -48,6 +48,7 @@ pub struct EngineState {
     pub inline_case_transform_enabled: AtomicBool,
     pub inline_datetime_enabled: std::sync::atomic::AtomicBool,
     pub inline_currency_to_words_enabled: std::sync::atomic::AtomicBool,
+    pub inline_dictionary_enabled: AtomicBool,
     inline_datetime_date_format: parking_lot::RwLock<String>,
     inline_datetime_time_format: parking_lot::RwLock<String>,
     inline_datetime_datetime_format: parking_lot::RwLock<String>,
@@ -86,6 +87,7 @@ impl EngineState {
             inline_case_transform_enabled: AtomicBool::new(true),
             inline_datetime_enabled: std::sync::atomic::AtomicBool::new(true),
             inline_currency_to_words_enabled: std::sync::atomic::AtomicBool::new(false),
+            inline_dictionary_enabled: AtomicBool::new(false),
 
             inline_datetime_date_format: parking_lot::RwLock::new("MMMM D, YYYY".to_string()),
             inline_datetime_time_format: parking_lot::RwLock::new("h:mm A".to_string()),
@@ -122,6 +124,7 @@ impl EngineState {
             inline_case_transform_enabled: AtomicBool::new(true),
             inline_datetime_enabled: std::sync::atomic::AtomicBool::new(true),
             inline_currency_to_words_enabled: std::sync::atomic::AtomicBool::new(false),
+            inline_dictionary_enabled: AtomicBool::new(false),
 
             inline_datetime_date_format: parking_lot::RwLock::new("MMMM D, YYYY".to_string()),
             inline_datetime_time_format: parking_lot::RwLock::new("h:mm A".to_string()),
