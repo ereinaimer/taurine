@@ -97,21 +97,42 @@ impl crate::engine::evaluator::Evaluator {
                 .load(std::sync::atomic::Ordering::Relaxed)
         {
             let buffer_str = self.buffer.buffer_string();
-            if let Some(captures) =
-                crate::engine::dictionary::DICTIONARY_REGEX.captures(&buffer_str)
-            {
-                let trigger_type = captures.get(1).unwrap().as_str().to_lowercase();
-                let word = captures.get(2).unwrap().as_str().to_string();
+            static DICT_REGEX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+                regex::Regex::new(r"(?i)\b(?:(?:meaning|definition) of (?P<def1>[a-zA-Z]+)|what does (?P<def2>[a-zA-Z]+) mean\??|define (?P<def3>[a-zA-Z]+)|(?P<def4>[a-zA-Z]+) (?:meaning|definition|means\??)|synonyms? of (?P<syn1>[a-zA-Z]+)|(?P<syn2>[a-zA-Z]+) synonyms?|antonyms? of (?P<ant1>[a-zA-Z]+)|(?P<ant2>[a-zA-Z]+) antonyms?|opposite of (?P<ant3>[a-zA-Z]+)|(?P<ant4>[a-zA-Z]+) opposite)$").expect("Valid dictionary regex")
+            });
 
-                let lookup_type = if trigger_type == "meaning" {
-                    crate::engine::dictionary::DictionaryLookupType::Meaning
-                } else if trigger_type.starts_with("synonym") {
-                    crate::engine::dictionary::DictionaryLookupType::Synonyms
+            if let Some(captures) = DICT_REGEX.captures(&buffer_str) {
+                let match_str = captures.get(0).unwrap().as_str();
+
+                let (word, lookup_type) = if let Some(w) = captures
+                    .name("def1")
+                    .or(captures.name("def2"))
+                    .or(captures.name("def3"))
+                    .or(captures.name("def4"))
+                {
+                    (
+                        w.as_str().to_string(),
+                        crate::engine::dictionary::DictionaryLookupType::Meaning,
+                    )
+                } else if let Some(w) = captures.name("syn1").or(captures.name("syn2")) {
+                    (
+                        w.as_str().to_string(),
+                        crate::engine::dictionary::DictionaryLookupType::Synonyms,
+                    )
+                } else if let Some(w) = captures
+                    .name("ant1")
+                    .or(captures.name("ant2"))
+                    .or(captures.name("ant3"))
+                    .or(captures.name("ant4"))
+                {
+                    (
+                        w.as_str().to_string(),
+                        crate::engine::dictionary::DictionaryLookupType::Antonyms,
+                    )
                 } else {
-                    crate::engine::dictionary::DictionaryLookupType::Antonyms
+                    return None;
                 };
 
-                let match_str = captures.get(0).unwrap().as_str();
                 let delete_count = match_str.chars().count();
                 self.buffer.clear();
 
@@ -123,7 +144,7 @@ impl crate::engine::evaluator::Evaluator {
                     trigger: match_str.to_string(),
                     undo_trigger: Some(match_str.to_string()),
                     is_calculation: false,
-                    stat_kind: TriggerStatKind::Snippet, // Maybe define Dictionary type later
+                    stat_kind: TriggerStatKind::Snippet,
                     track_usage: false,
                     follow_up: Some(ExpansionFollowUp::DictionaryLookup { word, lookup_type }),
                 });

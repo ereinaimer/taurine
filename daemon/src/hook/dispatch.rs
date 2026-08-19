@@ -257,6 +257,7 @@ pub(super) fn launch_follow_up(
             let _guard = injection_guard;
             let entries = taurine_core::engine::dictionary::lookup_word(&word).await;
             let _ = spinner_handle.cancel.send(());
+            let _ = spinner_handle.task.await;
 
             let mut output = String::from("\n\n");
             if let Some(entries) = entries {
