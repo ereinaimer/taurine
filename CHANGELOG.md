@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Inline Dictionary**: Search for word definitions, synonyms, and antonyms directly in any text field (e.g. `meaning of serendipity` or `synonyms of happy`) using a local, offline database.
 - **Data-Rate Conversions**: Inline conversions between data rates with case-sensitive bit/byte distinction (e.g. `50 Mbps to MBps` → `6.25 MBps`).
 
 ### Fixed
