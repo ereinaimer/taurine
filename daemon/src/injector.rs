@@ -11,6 +11,10 @@ pub use gate::{
 #[cfg(not(target_os = "linux"))]
 pub use simulate::{consume_simulated_event, simulate_monitored};
 
+#[cfg(test)]
+#[cfg(not(target_os = "linux"))]
+pub use simulate::{clear_simulated_events_for_test, enqueue_simulated_event_for_test};
+
 pub use clipboard::restore_clipboard_text;
 
 pub use inject::{

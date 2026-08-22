@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Data-Rate Conversions**: Inline conversions between data rates with case-sensitive bit/byte distinction (e.g. `50 Mbps to MBps` → `6.25 MBps`).
 
 ### Fixed
+- **Text Expansion Reliability**: Fixed a regression where word expansions, swallowing, and completions would fail to trigger or misbehave during rapid typing.
+- **Windows Keyboard Hook Resilience**: Added a secondary background Raw Input capture fallback, modifier state synchronization, and a 5-second watchdog health check to prevent keyboard capture from stopping after system suspend/resume, UAC prompts, or screen lock/unlock transitions.
 - **Alias Completions**: Tab-completions now work for the `tau` alias in PowerShell, Bash, Zsh, Fish, and Elvish (previously only the full `taurine` command name completed). Re-run `taurine completions install` to pick up the updated scripts.
 
 ## [1.0.0-alpha.16] - 2026-08-13

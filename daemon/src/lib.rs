@@ -578,7 +578,9 @@ pub fn start() -> taurine_core::error::Result<()> {
                 {
                     use tokio::net::windows::named_pipe::ServerOptions;
 
-                    let pipe_path = r"\\.\pipe\taurine";
+                    let pipe_path_raw = std::env::var("TAURINE_PIPE_PATH")
+                        .unwrap_or_else(|_| r"\\.\pipe\taurine".to_string());
+                    let pipe_path = &pipe_path_raw;
 
                     let first_server = match ServerOptions::new()
                         .first_pipe_instance(true)

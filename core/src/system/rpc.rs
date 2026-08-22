@@ -57,12 +57,16 @@ pub async fn connect_to_daemon_with_settings(
             use tokio::net::windows::named_pipe::ClientOptions;
             use tower::service_fn;
 
-            let pipe_path = r"\\.\pipe\taurine";
+            let pipe_path = std::env::var("TAURINE_PIPE_PATH")
+                .unwrap_or_else(|_| r"\\.\pipe\taurine".to_string());
 
             tonic::transport::Endpoint::try_from("http://[::]:50051")?
-                .connect_with_connector(service_fn(move |_: tonic::transport::Uri| async move {
-                    let client = ClientOptions::new().open(pipe_path)?;
-                    Ok::<_, std::io::Error>(hyper_util::rt::tokio::TokioIo::new(client))
+                .connect_with_connector(service_fn(move |_: tonic::transport::Uri| {
+                    let pipe_path = pipe_path.clone();
+                    async move {
+                        let client = ClientOptions::new().open(pipe_path)?;
+                        Ok::<_, std::io::Error>(hyper_util::rt::tokio::TokioIo::new(client))
+                    }
                 }))
                 .await
         }

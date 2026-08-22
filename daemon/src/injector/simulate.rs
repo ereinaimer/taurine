@@ -81,3 +81,31 @@ pub fn simulate_monitored(event: &EventType) -> Result<(), rdev::SimulateError> 
 
     res
 }
+
+/// Directly enqueue a simulated event without calling `rdev::simulate`.
+///
+/// Only intended for unit tests that run in headless environments where
+/// `rdev::simulate` always fails and removes the event from the queue.
+#[cfg(test)]
+#[cfg(not(target_os = "linux"))]
+pub fn enqueue_simulated_event_for_test(event: EventType) {
+    if let Ok(mut queue) = simulated_events().lock() {
+        prune_expired_simulated_events(&mut queue);
+        queue.push_back(SimulatedEvent {
+            event,
+            queued_at: Instant::now(),
+        });
+    }
+}
+
+/// Clear all queued simulated events.
+///
+/// Only intended for unit tests that need to reset the global queue between
+/// parallel test runs to avoid cross-test interference.
+#[cfg(test)]
+#[cfg(not(target_os = "linux"))]
+pub fn clear_simulated_events_for_test() {
+    if let Ok(mut queue) = simulated_events().lock() {
+        queue.clear();
+    }
+}
