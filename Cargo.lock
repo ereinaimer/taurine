@@ -5162,6 +5162,7 @@ name = "taurine_daemon"
 version = "1.0.0-alpha.16"
 dependencies = [
  "arboard",
+ "crossbeam-channel",
  "evdev",
  "futures",
  "genai",

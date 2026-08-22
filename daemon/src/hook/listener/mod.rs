@@ -2,7 +2,7 @@
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
-use tracing::{debug, error, trace};
+use tracing::{debug, error, trace, warn};
 #[cfg(not(target_os = "linux"))]
 use unicode_normalization::UnicodeNormalization;
 
@@ -14,6 +14,10 @@ mod windows;
 
 #[cfg(windows)]
 pub(super) use windows::spawn_windows_hook_listener;
+
+#[cfg(test)]
+#[cfg(windows)]
+mod pipeline_tests;
 
 #[cfg(not(target_os = "linux"))]
 use rdev::{Event, EventType, Key};
@@ -124,491 +128,94 @@ pub(super) fn run_listener_once(
     pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
     hook_health: Option<HookHealth>,
 ) -> Result<u64, String> {
-    let left_alt_down = std::sync::atomic::AtomicBool::new(false);
-    let right_alt_down = std::sync::atomic::AtomicBool::new(false);
-    let left_ctrl_down = std::sync::atomic::AtomicBool::new(false);
-    let right_ctrl_down = std::sync::atomic::AtomicBool::new(false);
-    let left_shift_down = std::sync::atomic::AtomicBool::new(false);
-    let right_shift_down = std::sync::atomic::AtomicBool::new(false);
-    let left_meta_down = std::sync::atomic::AtomicBool::new(false);
-    let right_meta_down = std::sync::atomic::AtomicBool::new(false);
-    let hotkey_evaluator = Mutex::new(HotkeyEvaluator::new());
+    let left_alt_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let right_alt_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let left_ctrl_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let right_ctrl_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let left_shift_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let right_shift_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let left_meta_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let right_meta_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let hotkey_evaluator = Arc::new(Mutex::new(HotkeyEvaluator::new()));
+    let event_counter = Arc::new(std::sync::atomic::AtomicU32::new(0));
+
     let callback_health = hook_health.clone();
     let my_epoch = LISTENER_EPOCH.load(Ordering::SeqCst);
+
+    // Context objects for the Raw Input fallback
+    #[cfg(windows)]
+    {
+        let raw_ctx = crate::hook::raw_input::RawInputContext {
+            evaluator: evaluator.clone(),
+            state: state.clone(),
+            paused: paused.clone(),
+            pause_hotkey: pause_hotkey.clone(),
+            spinner_style: spinner_style.clone(),
+            pause_transition_tx: pause_transition_tx.clone(),
+            left_alt_down: left_alt_down.clone(),
+            right_alt_down: right_alt_down.clone(),
+            left_ctrl_down: left_ctrl_down.clone(),
+            right_ctrl_down: right_ctrl_down.clone(),
+            left_shift_down: left_shift_down.clone(),
+            right_shift_down: right_shift_down.clone(),
+            left_meta_down: left_meta_down.clone(),
+            right_meta_down: right_meta_down.clone(),
+            hotkey_evaluator: hotkey_evaluator.clone(),
+            event_counter: event_counter.clone(),
+            hook_health: hook_health.clone(),
+        };
+        if let Err(e) = crate::hook::raw_input::start_raw_input_listener(raw_ctx) {
+            warn!("Failed to start Raw Input monitor fallback: {}", e);
+        }
+    }
+
+    let evaluator_clone = evaluator.clone();
+    let state_clone = state.clone();
+    let paused_clone = paused.clone();
+    let pause_hotkey_clone = pause_hotkey.clone();
+    let spinner_style_clone = spinner_style.clone();
+    let pause_transition_tx_clone = pause_transition_tx.clone();
+    let left_alt_down_clone = left_alt_down.clone();
+    let right_alt_down_clone = right_alt_down.clone();
+    let left_ctrl_down_clone = left_ctrl_down.clone();
+    let right_ctrl_down_clone = right_ctrl_down.clone();
+    let left_shift_down_clone = left_shift_down.clone();
+    let right_shift_down_clone = right_shift_down.clone();
+    let left_meta_down_clone = left_meta_down.clone();
+    let right_meta_down_clone = right_meta_down.clone();
+    let hotkey_evaluator_clone = hotkey_evaluator.clone();
+    let event_counter_clone = event_counter.clone();
 
     let callback = move |event: Event| -> Option<Event> {
         if LISTENER_EPOCH.load(Ordering::Relaxed) != my_epoch {
             return Some(event);
         }
 
-        #[cfg(windows)]
-        if matches!(
-            event.event_type,
-            EventType::KeyPress(Key::Unknown(255)) | EventType::KeyRelease(Key::Unknown(255))
-        ) {
-            if let Some(health) = callback_health.as_ref() {
-                health.record_keyboard_event();
-            }
-            return None;
+        if is_keyboard_event(&event.event_type)
+            && let Some(health) = callback_health.as_ref()
+        {
+            health.record_keyboard_event();
         }
 
-        if consume_simulated_event(&event.event_type) {
-            return Some(event);
-        }
-
-        if is_keyboard_event(&event.event_type) {
-            if let Some(health) = callback_health.as_ref() {
-                health.record_keyboard_event();
-            }
-            trace!(
-                event_kind = event_type_label(&event.event_type),
-                "Hook callback received keyboard event"
-            );
-        }
-
-        match event.event_type {
-            EventType::KeyPress(Key::Alt) => left_alt_down.store(true, Ordering::Relaxed),
-            EventType::KeyRelease(Key::Alt) => left_alt_down.store(false, Ordering::Relaxed),
-            EventType::KeyPress(Key::AltGr) => right_alt_down.store(true, Ordering::Relaxed),
-            EventType::KeyRelease(Key::AltGr) => right_alt_down.store(false, Ordering::Relaxed),
-            EventType::KeyPress(Key::ControlLeft) => {
-                left_ctrl_down.store(true, Ordering::Relaxed);
-            }
-            EventType::KeyRelease(Key::ControlLeft) => {
-                left_ctrl_down.store(false, Ordering::Relaxed);
-            }
-            EventType::KeyPress(Key::ControlRight) => {
-                right_ctrl_down.store(true, Ordering::Relaxed);
-            }
-            EventType::KeyRelease(Key::ControlRight) => {
-                right_ctrl_down.store(false, Ordering::Relaxed);
-            }
-            EventType::KeyPress(Key::ShiftLeft) => {
-                left_shift_down.store(true, Ordering::Relaxed);
-            }
-            EventType::KeyRelease(Key::ShiftLeft) => {
-                left_shift_down.store(false, Ordering::Relaxed);
-            }
-            EventType::KeyPress(Key::ShiftRight) => {
-                right_shift_down.store(true, Ordering::Relaxed);
-            }
-            EventType::KeyRelease(Key::ShiftRight) => {
-                right_shift_down.store(false, Ordering::Relaxed);
-            }
-            EventType::KeyPress(Key::MetaLeft) => {
-                left_meta_down.store(true, Ordering::Relaxed);
-            }
-            EventType::KeyRelease(Key::MetaLeft) => {
-                left_meta_down.store(false, Ordering::Relaxed);
-            }
-            EventType::KeyPress(Key::MetaRight) => {
-                right_meta_down.store(true, Ordering::Relaxed);
-            }
-            EventType::KeyRelease(Key::MetaRight) => {
-                right_meta_down.store(false, Ordering::Relaxed);
-            }
-            _ => {}
-        }
-
-        let left_ctrl_active = left_ctrl_down.load(Ordering::Relaxed);
-        let right_ctrl_active = right_ctrl_down.load(Ordering::Relaxed);
-        let left_shift_active = left_shift_down.load(Ordering::Relaxed);
-        let right_shift_active = right_shift_down.load(Ordering::Relaxed);
-        let left_alt_active = left_alt_down.load(Ordering::Relaxed);
-        let right_alt_active = right_alt_down.load(Ordering::Relaxed);
-        let left_meta_active = left_meta_down.load(Ordering::Relaxed);
-        let right_meta_active = right_meta_down.load(Ordering::Relaxed);
-        let modifiers = modifiers_from_sides(
-            left_ctrl_active,
-            right_ctrl_active,
-            left_shift_active,
-            right_shift_active,
-            left_alt_active,
-            right_alt_active,
-            left_meta_active,
-            right_meta_active,
-        );
-
-        if IS_INJECTING.load(Ordering::SeqCst) {
-            match event.event_type {
-                EventType::KeyRelease(key) => {
-                    if let Some(logical_key) = logical_key_from_rdev(key)
-                        && let Ok(mut lock) = hotkey_evaluator.lock()
-                    {
-                        let _ = lock.on_key_release(logical_key);
-                    }
-                    return Some(event);
-                }
-                EventType::KeyPress(_) => {
-                    injector::abort_injection();
-                    trace!(
-                        "Injection aborted by physical keypress, falling through to normal pipeline"
-                    );
-                }
-                _ => return Some(event),
-            }
-        }
-
-        let is_chord = if let Ok(spec) = pause_hotkey.read() {
-            hotkey::is_pause_chord(&event, modifiers, &spec)
-        } else {
-            false
-        };
-
-        let is_release_chord = if let Ok(spec) = pause_hotkey.read() {
-            if let EventType::KeyRelease(rdev_key) = event.event_type
-                && let Some(logical_key) = logical_key_from_rdev(rdev_key)
-            {
-                logical_key == spec.hotkey.key
-            } else {
-                false
-            }
-        } else {
-            false
-        };
-
-        if is_release_chord {
-            PAUSE_KEY_DOWN.store(false, Ordering::Relaxed);
-        }
-
-        if is_chord {
-            let was_down = PAUSE_KEY_DOWN.swap(true, Ordering::Relaxed);
-            if was_down {
-                return None; // Ignore repeating keys
-            }
-
-            let now_ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64;
-            let last_ms = LAST_PAUSE_TOGGLE_MS.load(Ordering::Relaxed);
-            if now_ms.saturating_sub(last_ms) >= 300 {
-                LAST_PAUSE_TOGGLE_MS.store(now_ms, Ordering::Relaxed);
-
-                clear_undo_state(state.as_ref());
-                let now_paused = !paused.load(Ordering::Relaxed);
-                paused.store(now_paused, Ordering::Relaxed);
-
-                // Notify coordinator
-                let _ = pause_transition_tx.try_send(now_paused);
-            }
-            return None;
-        }
-
-        // If we are currently paused and this is not the pause chord, immediately bypass
-        if paused.load(Ordering::Relaxed) {
-            return Some(event);
-        }
-
-        match event.event_type {
-            EventType::ButtonPress(_) => {
-                clear_undo_state(state.as_ref());
-                if let Ok(mut lock) = hotkey_evaluator.lock() {
-                    lock.clear();
-                }
-                if paused.load(Ordering::Relaxed) {
-                    return Some(event);
-                }
-                let _ = with_evaluator_lock(&evaluator, "button_interrupt", |lock| {
-                    let _ = lock.process_event(EngineEvent::Interrupt, None);
-                });
-            }
-            EventType::KeyPress(key) => {
-                let ctrl_active = left_ctrl_active || right_ctrl_active;
-                let shift_active = left_shift_active || right_shift_active;
-                let alt_active = left_alt_active || right_alt_active;
-                let meta_active = left_meta_active || right_meta_active;
-
-                if paused.load(Ordering::Relaxed) {
-                    return Some(event);
-                }
-
-                let assist_active = trigger_assist_is_active(&evaluator, state.as_ref());
-
-                if assist_active {
-                    clear_undo_state(state.as_ref());
-
-                    if key == Key::Backspace && !alt_active && !meta_active {
-                        let rewrite =
-                            with_evaluator_lock(&evaluator, "rewrite_backspace_query", |lock| {
-                                if ctrl_active {
-                                    lock.rewrite_word_backspace_query()
-                                } else {
-                                    lock.rewrite_backspace_query()
-                                }
-                            })
-                            .flatten();
-
-                        if let Some(rewrite) = rewrite {
-                            let spinner_style_inner =
-                                spinner_style.read().map(|s| *s).unwrap_or_default();
-                            spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
-                            return None;
-                        }
-                    }
-
-                    match trigger_assist_key_action(
-                        state.as_ref(),
-                        completion_key_kind_from_tab_like(
-                            key == Key::Tab,
-                            key == Key::Escape,
-                            key == Key::UpArrow,
-                            key == Key::DownArrow,
-                        ),
-                        shift_active,
-                        ctrl_active,
-                        alt_active,
-                        meta_active,
-                    ) {
-                        super::completion::CompletionKeyAction::CycleForward => {
-                            let rewrite =
-                                with_evaluator_lock(&evaluator, "cycle_completion_next", |lock| {
-                                    lock.cycle_completion_next()
-                                })
-                                .flatten();
-
-                            if let Some(rewrite) = rewrite {
-                                let spinner_style_inner =
-                                    spinner_style.read().map(|s| *s).unwrap_or_default();
-                                spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
-                            }
-
-                            return None;
-                        }
-                        super::completion::CompletionKeyAction::CycleBackward => {
-                            let rewrite =
-                                with_evaluator_lock(&evaluator, "cycle_completion_prev", |lock| {
-                                    lock.cycle_completion_prev()
-                                })
-                                .flatten();
-
-                            if let Some(rewrite) = rewrite {
-                                let spinner_style_inner =
-                                    spinner_style.read().map(|s| *s).unwrap_or_default();
-                                spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
-                            }
-
-                            return None;
-                        }
-                        super::completion::CompletionKeyAction::CancelAndSwallow => {
-                            let _ = with_evaluator_lock(
-                                &evaluator,
-                                "cancel_completion_swallow",
-                                |lock| {
-                                    lock.cancel_completion();
-                                },
-                            );
-                            return None;
-                        }
-                        super::completion::CompletionKeyAction::CancelAndPassThrough => {
-                            let _ = with_evaluator_lock(
-                                &evaluator,
-                                "cancel_completion_pass_through",
-                                |lock| {
-                                    lock.cancel_completion();
-                                },
-                            );
-                        }
-                        super::completion::CompletionKeyAction::PassThrough => {}
-                    }
-                } else if key == Key::Tab
-                    && !shift_active
-                    && !ctrl_active
-                    && !alt_active
-                    && !meta_active
-                {
-                    let rewrite = with_evaluator_lock(
-                        &evaluator,
-                        "activate_triggerless_completion",
-                        |lock| lock.activate_triggerless_completion(),
-                    )
-                    .flatten();
-
-                    if let Some(rewrite) = rewrite {
-                        clear_undo_state(state.as_ref());
-                        let spinner_style_inner =
-                            spinner_style.read().map(|s| *s).unwrap_or_default();
-                        spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
-                        return None;
-                    }
-                }
-
-                if let Some(logical_key) = logical_key_from_rdev(key)
-                    && let Ok(mut lock) = hotkey_evaluator.lock()
-                {
-                    match lock.on_key_event(state.as_ref(), true, modifiers, logical_key) {
-                        HotkeyEvaluation::Matched(expansion) => {
-                            debug!("Hotkey matched: {}", expansion.trigger);
-
-                            let spinner_style_inner =
-                                spinner_style.read().map(|s| *s).unwrap_or_default();
-
-                            spawn_expansion_dispatch(expansion, spinner_style_inner, state.clone());
-                            return None;
-                        }
-                        HotkeyEvaluation::Swallow => return None,
-                        HotkeyEvaluation::NoMatch => {}
-                    }
-                }
-
-                if let Some(direction) = crate::hook::case_cycle_key_action(
-                    key,
-                    shift_active,
-                    ctrl_active,
-                    alt_active,
-                    meta_active,
-                    state.engine_mode(),
-                    state.inline_case_transform_enabled(),
-                ) && let Some(rewrite) = state.advance_case_variant(direction)
-                {
-                    let style = spinner_style.read().map(|s| *s).unwrap_or_default();
-                    spawn_completion_rewrite_dispatch(rewrite, style);
-                    return None;
-                }
-
-                if key == Key::Backspace {
-                    if ctrl_active || alt_active || meta_active {
-                        clear_undo_state(state.as_ref());
-                        return Some(event);
-                    }
-
-                    if let Some((trigger_string, output_length)) =
-                        take_active_undo_state(state.as_ref())
-                    {
-                        spawn_undo_dispatch(trigger_string, output_length);
-                        return None;
-                    }
-                } else if is_solo_modifier_press(
-                    key,
-                    shift_active,
-                    ctrl_active,
-                    alt_active,
-                    meta_active,
-                ) {
-                    // Naked modifier presses should not expire the undo window.
-                } else {
-                    // Invalidate on any non-modifier or combo before normal evaluator handling.
-                    clear_undo_state(state.as_ref());
-                }
-
-                let engine_mode = state.engine_mode();
-
-                let engine_event = match key {
-                    Key::Escape => Some(EngineEvent::Interrupt),
-                    Key::Backspace => {
-                        if ctrl_active {
-                            Some(EngineEvent::WordBackspace)
-                        } else {
-                            Some(EngineEvent::Backspace)
-                        }
-                    }
-                    Key::Space => Some(EngineEvent::Char(' ')),
-                    Key::Return => Some(EngineEvent::ActionKey),
-                    Key::Tab => Some(EngineEvent::Interrupt),
-                    Key::UpArrow
-                    | Key::DownArrow
-                    | Key::LeftArrow
-                    | Key::RightArrow
-                    | Key::Home
-                    | Key::End
-                    | Key::PageUp
-                    | Key::PageDown => Some(EngineEvent::Interrupt),
-                    _ => {
-                        if is_ai_capture_paste_key(&engine_mode, ctrl_active, meta_active, key) {
-                            match crate::platform::read_clipboard_text() {
-                                Ok(text) if !text.is_empty() => {
-                                    let engine_event = EngineEvent::Paste(text);
-                                    let _ = with_evaluator_lock(&evaluator, "ai_paste", |lock| {
-                                        lock.process_event(engine_event, None)
-                                    });
-                                }
-                                _ => {}
-                            }
-                            return None;
-                        }
-
-                        if alt_active || ctrl_active || meta_active {
-                            return Some(event);
-                        }
-
-                        if let Some(ref text) = event.name {
-                            let normalized: String = text.nfc().collect();
-                            if normalized.chars().count() == 1 {
-                                normalized.chars().next().map(EngineEvent::Char)
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    }
-                };
-
-                if let Some(ev) = engine_event {
-                    trace!(
-                        engine_event = engine_event_label(&ev),
-                        "Dispatching engine event from hook callback"
-                    );
-                    let needs_window =
-                        matches!(ev, EngineEvent::ActionKey) || matches!(ev, EngineEvent::Char(_));
-
-                    let active_window = if needs_window {
-                        crate::platform::get_active_window_label()
-                    } else {
-                        None
-                    };
-
-                    let is_action_key = ev == EngineEvent::ActionKey;
-
-                    if let Some((expansion, state)) =
-                        with_evaluator_lock(&evaluator, "process_engine_event", |lock| {
-                            lock.process_event(ev, active_window.as_deref())
-                                .map(|expansion| {
-                                    let state = lock.state.clone();
-                                    (expansion, state)
-                                })
-                        })
-                        .flatten()
-                    {
-                        debug!("Trigger matched: {}", expansion.trigger);
-
-                        let spinner_style_inner =
-                            spinner_style.read().map(|s| *s).unwrap_or_default();
-
-                        spawn_expansion_dispatch(expansion, spinner_style_inner, state);
-
-                        if is_action_key {
-                            return None;
-                        }
-                    }
-                }
-            }
-            EventType::KeyRelease(key) => {
-                if trigger_assist_is_active(&evaluator, state.as_ref())
-                    && should_swallow_trigger_assist_key_release(
-                        state.as_ref(),
-                        completion_key_kind_from_tab_like(
-                            key == Key::Tab,
-                            false,
-                            key == Key::UpArrow,
-                            key == Key::DownArrow,
-                        ),
-                    )
-                {
-                    return None;
-                }
-
-                if let Some(logical_key) = logical_key_from_rdev(key)
-                    && let Ok(mut lock) = hotkey_evaluator.lock()
-                    && matches!(lock.on_key_release(logical_key), HotkeyEvaluation::Swallow)
-                {
-                    return None;
-                }
-            }
-            _ => {}
-        }
-
-        Some(event)
+        process_keyboard_event(
+            event,
+            &evaluator_clone,
+            &state_clone,
+            &paused_clone,
+            &pause_hotkey_clone,
+            &spinner_style_clone,
+            &pause_transition_tx_clone,
+            &left_alt_down_clone,
+            &right_alt_down_clone,
+            &left_ctrl_down_clone,
+            &right_ctrl_down_clone,
+            &left_shift_down_clone,
+            &right_shift_down_clone,
+            &left_meta_down_clone,
+            &right_meta_down_clone,
+            &hotkey_evaluator_clone,
+            &event_counter_clone,
+        )
     };
 
     if let Some(health) = hook_health.as_ref() {
@@ -622,10 +229,541 @@ pub(super) fn run_listener_once(
 
     debug!("Hook listener entering rdev::grab");
     #[cfg(windows)]
-    windows::windows_grab(callback).map_err(|error| format!("{error:?}"))?;
+    let res = windows::windows_grab(callback).map_err(|error| format!("{error:?}"));
     #[cfg(not(windows))]
-    rdev::grab(callback).map_err(|error| format!("{error:?}"))?;
+    let res = rdev::grab(callback).map_err(|error| format!("{error:?}"));
+
+    #[cfg(windows)]
+    crate::hook::raw_input::stop_raw_input_listener();
+
+    res?;
     Ok(my_epoch)
+}
+
+#[cfg(not(target_os = "linux"))]
+#[allow(clippy::too_many_arguments)]
+pub fn process_keyboard_event(
+    event: Event,
+    evaluator: &Arc<Mutex<Evaluator>>,
+    state: &Arc<taurine_core::engine::EngineState>,
+    paused: &Arc<std::sync::atomic::AtomicBool>,
+    pause_hotkey: &Arc<RwLock<hotkey::HotkeySpec>>,
+    spinner_style: &Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+    pause_transition_tx: &tokio::sync::mpsc::Sender<bool>,
+    left_alt_down: &std::sync::atomic::AtomicBool,
+    right_alt_down: &std::sync::atomic::AtomicBool,
+    left_ctrl_down: &std::sync::atomic::AtomicBool,
+    right_ctrl_down: &std::sync::atomic::AtomicBool,
+    left_shift_down: &std::sync::atomic::AtomicBool,
+    right_shift_down: &std::sync::atomic::AtomicBool,
+    left_meta_down: &std::sync::atomic::AtomicBool,
+    right_meta_down: &std::sync::atomic::AtomicBool,
+    hotkey_evaluator: &Arc<Mutex<HotkeyEvaluator>>,
+    event_counter: &Arc<std::sync::atomic::AtomicU32>,
+) -> Option<Event> {
+    #[cfg(windows)]
+    if matches!(
+        event.event_type,
+        EventType::KeyPress(Key::Unknown(255)) | EventType::KeyRelease(Key::Unknown(255))
+    ) {
+        return Some(event);
+    }
+
+    if consume_simulated_event(&event.event_type) {
+        return Some(event);
+    }
+
+    if is_keyboard_event(&event.event_type) {
+        trace!(
+            event_kind = event_type_label(&event.event_type),
+            "Hook callback received keyboard event"
+        );
+    }
+
+    match event.event_type {
+        EventType::KeyPress(Key::Alt) => left_alt_down.store(true, Ordering::Relaxed),
+        EventType::KeyRelease(Key::Alt) => left_alt_down.store(false, Ordering::Relaxed),
+        EventType::KeyPress(Key::AltGr) => right_alt_down.store(true, Ordering::Relaxed),
+        EventType::KeyRelease(Key::AltGr) => right_alt_down.store(false, Ordering::Relaxed),
+        EventType::KeyPress(Key::ControlLeft) => {
+            left_ctrl_down.store(true, Ordering::Relaxed);
+        }
+        EventType::KeyRelease(Key::ControlLeft) => {
+            left_ctrl_down.store(false, Ordering::Relaxed);
+        }
+        EventType::KeyPress(Key::ControlRight) => {
+            right_ctrl_down.store(true, Ordering::Relaxed);
+        }
+        EventType::KeyRelease(Key::ControlRight) => {
+            right_ctrl_down.store(false, Ordering::Relaxed);
+        }
+        EventType::KeyPress(Key::ShiftLeft) => {
+            left_shift_down.store(true, Ordering::Relaxed);
+        }
+        EventType::KeyRelease(Key::ShiftLeft) => {
+            left_shift_down.store(false, Ordering::Relaxed);
+        }
+        EventType::KeyPress(Key::ShiftRight) => {
+            right_shift_down.store(true, Ordering::Relaxed);
+        }
+        EventType::KeyRelease(Key::ShiftRight) => {
+            right_shift_down.store(false, Ordering::Relaxed);
+        }
+        EventType::KeyPress(Key::MetaLeft) => {
+            left_meta_down.store(true, Ordering::Relaxed);
+        }
+        EventType::KeyRelease(Key::MetaLeft) => {
+            left_meta_down.store(false, Ordering::Relaxed);
+        }
+        EventType::KeyPress(Key::MetaRight) => {
+            right_meta_down.store(true, Ordering::Relaxed);
+        }
+        EventType::KeyRelease(Key::MetaRight) => {
+            right_meta_down.store(false, Ordering::Relaxed);
+        }
+        _ => {}
+    }
+
+    // Modern active GetAsyncKeyState checks to ensure modifiers are always accurate
+    #[cfg(windows)]
+    {
+        let counter = event_counter.fetch_add(1, Ordering::Relaxed);
+        #[allow(clippy::manual_is_multiple_of)]
+        if counter % 100 == 0 {
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+                GetAsyncKeyState, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_RCONTROL, VK_RMENU,
+                VK_RSHIFT, VK_RWIN,
+            };
+            unsafe {
+                left_alt_down.store(
+                    (GetAsyncKeyState(VK_LMENU as i32) as u16 & 0x8000) != 0,
+                    Ordering::Relaxed,
+                );
+                right_alt_down.store(
+                    (GetAsyncKeyState(VK_RMENU as i32) as u16 & 0x8000) != 0,
+                    Ordering::Relaxed,
+                );
+                left_ctrl_down.store(
+                    (GetAsyncKeyState(VK_LCONTROL as i32) as u16 & 0x8000) != 0,
+                    Ordering::Relaxed,
+                );
+                right_ctrl_down.store(
+                    (GetAsyncKeyState(VK_RCONTROL as i32) as u16 & 0x8000) != 0,
+                    Ordering::Relaxed,
+                );
+                left_shift_down.store(
+                    (GetAsyncKeyState(VK_LSHIFT as i32) as u16 & 0x8000) != 0,
+                    Ordering::Relaxed,
+                );
+                right_shift_down.store(
+                    (GetAsyncKeyState(VK_RSHIFT as i32) as u16 & 0x8000) != 0,
+                    Ordering::Relaxed,
+                );
+                left_meta_down.store(
+                    (GetAsyncKeyState(VK_LWIN as i32) as u16 & 0x8000) != 0,
+                    Ordering::Relaxed,
+                );
+                right_meta_down.store(
+                    (GetAsyncKeyState(VK_RWIN as i32) as u16 & 0x8000) != 0,
+                    Ordering::Relaxed,
+                );
+            }
+        }
+    }
+
+    let left_ctrl_active = left_ctrl_down.load(Ordering::Relaxed);
+    let right_ctrl_active = right_ctrl_down.load(Ordering::Relaxed);
+    let left_shift_active = left_shift_down.load(Ordering::Relaxed);
+    let right_shift_active = right_shift_down.load(Ordering::Relaxed);
+    let left_alt_active = left_alt_down.load(Ordering::Relaxed);
+    let right_alt_active = right_alt_down.load(Ordering::Relaxed);
+    let left_meta_active = left_meta_down.load(Ordering::Relaxed);
+    let right_meta_active = right_meta_down.load(Ordering::Relaxed);
+    let modifiers = modifiers_from_sides(
+        left_ctrl_active,
+        right_ctrl_active,
+        left_shift_active,
+        right_shift_active,
+        left_alt_active,
+        right_alt_active,
+        left_meta_active,
+        right_meta_active,
+    );
+
+    if IS_INJECTING.load(Ordering::SeqCst) {
+        match event.event_type {
+            EventType::KeyRelease(key) => {
+                if let Some(logical_key) = logical_key_from_rdev(key)
+                    && let Ok(mut lock) = hotkey_evaluator.lock()
+                {
+                    let _ = lock.on_key_release(logical_key);
+                }
+                return Some(event);
+            }
+            EventType::KeyPress(_) => {
+                injector::abort_injection();
+                trace!(
+                    "Injection aborted by physical keypress, falling through to normal pipeline"
+                );
+            }
+            _ => return Some(event),
+        }
+    }
+
+    let is_chord = if let Ok(spec) = pause_hotkey.read() {
+        hotkey::is_pause_chord(&event, modifiers, &spec)
+    } else {
+        false
+    };
+
+    let is_release_chord = if let Ok(spec) = pause_hotkey.read() {
+        if let EventType::KeyRelease(rdev_key) = event.event_type
+            && let Some(logical_key) = logical_key_from_rdev(rdev_key)
+        {
+            logical_key == spec.hotkey.key
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    if is_release_chord {
+        PAUSE_KEY_DOWN.store(false, Ordering::Relaxed);
+    }
+
+    if is_chord {
+        let was_down = PAUSE_KEY_DOWN.swap(true, Ordering::Relaxed);
+        if was_down {
+            return None; // Ignore repeating keys
+        }
+
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let last_ms = LAST_PAUSE_TOGGLE_MS.load(Ordering::Relaxed);
+        if now_ms.saturating_sub(last_ms) >= 300 {
+            LAST_PAUSE_TOGGLE_MS.store(now_ms, Ordering::Relaxed);
+
+            clear_undo_state(state.as_ref());
+            let now_paused = !paused.load(Ordering::Relaxed);
+            paused.store(now_paused, Ordering::Relaxed);
+
+            // Notify coordinator
+            let _ = pause_transition_tx.try_send(now_paused);
+        }
+        return None;
+    }
+
+    // If we are currently paused and this is not the pause chord, immediately bypass
+    if paused.load(Ordering::Relaxed) {
+        return Some(event);
+    }
+
+    match event.event_type {
+        EventType::ButtonPress(_) => {
+            clear_undo_state(state.as_ref());
+            if let Ok(mut lock) = hotkey_evaluator.lock() {
+                lock.clear();
+            }
+            if paused.load(Ordering::Relaxed) {
+                return Some(event);
+            }
+            let _ = with_evaluator_lock(evaluator, "button_interrupt", |lock| {
+                let _ = lock.process_event(EngineEvent::Interrupt, None);
+            });
+        }
+        EventType::KeyPress(key) => {
+            let ctrl_active = left_ctrl_active || right_ctrl_active;
+            let shift_active = left_shift_active || right_shift_active;
+            let alt_active = left_alt_active || right_alt_active;
+            let meta_active = left_meta_active || right_meta_active;
+
+            if paused.load(Ordering::Relaxed) {
+                return Some(event);
+            }
+
+            let assist_active = trigger_assist_is_active(evaluator, state.as_ref());
+
+            if assist_active {
+                clear_undo_state(state.as_ref());
+
+                if key == Key::Backspace && !alt_active && !meta_active {
+                    let rewrite =
+                        with_evaluator_lock(evaluator, "rewrite_backspace_query", |lock| {
+                            if ctrl_active {
+                                lock.rewrite_word_backspace_query()
+                            } else {
+                                lock.rewrite_backspace_query()
+                            }
+                        })
+                        .flatten();
+
+                    if let Some(rewrite) = rewrite {
+                        let spinner_style_inner =
+                            spinner_style.read().map(|s| *s).unwrap_or_default();
+                        spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
+                        return None;
+                    }
+                }
+
+                match trigger_assist_key_action(
+                    state.as_ref(),
+                    completion_key_kind_from_tab_like(
+                        key == Key::Tab,
+                        key == Key::Escape,
+                        key == Key::UpArrow,
+                        key == Key::DownArrow,
+                    ),
+                    shift_active,
+                    ctrl_active,
+                    alt_active,
+                    meta_active,
+                ) {
+                    super::completion::CompletionKeyAction::CycleForward => {
+                        let rewrite =
+                            with_evaluator_lock(evaluator, "cycle_completion_next", |lock| {
+                                lock.cycle_completion_next()
+                            })
+                            .flatten();
+
+                        if let Some(rewrite) = rewrite {
+                            let spinner_style_inner =
+                                spinner_style.read().map(|s| *s).unwrap_or_default();
+                            spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
+                        }
+
+                        return None;
+                    }
+                    super::completion::CompletionKeyAction::CycleBackward => {
+                        let rewrite =
+                            with_evaluator_lock(evaluator, "cycle_completion_prev", |lock| {
+                                lock.cycle_completion_prev()
+                            })
+                            .flatten();
+
+                        if let Some(rewrite) = rewrite {
+                            let spinner_style_inner =
+                                spinner_style.read().map(|s| *s).unwrap_or_default();
+                            spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
+                        }
+
+                        return None;
+                    }
+                    super::completion::CompletionKeyAction::CancelAndSwallow => {
+                        let _ =
+                            with_evaluator_lock(evaluator, "cancel_completion_swallow", |lock| {
+                                lock.cancel_completion();
+                            });
+                        return None;
+                    }
+                    super::completion::CompletionKeyAction::CancelAndPassThrough => {
+                        let _ = with_evaluator_lock(
+                            evaluator,
+                            "cancel_completion_pass_through",
+                            |lock| {
+                                lock.cancel_completion();
+                            },
+                        );
+                    }
+                    super::completion::CompletionKeyAction::PassThrough => {}
+                }
+            } else if key == Key::Tab
+                && !shift_active
+                && !ctrl_active
+                && !alt_active
+                && !meta_active
+            {
+                let rewrite =
+                    with_evaluator_lock(evaluator, "activate_triggerless_completion", |lock| {
+                        lock.activate_triggerless_completion()
+                    })
+                    .flatten();
+
+                if let Some(rewrite) = rewrite {
+                    clear_undo_state(state.as_ref());
+                    let spinner_style_inner = spinner_style.read().map(|s| *s).unwrap_or_default();
+                    spawn_completion_rewrite_dispatch(rewrite, spinner_style_inner);
+                    return None;
+                }
+            }
+
+            if let Some(logical_key) = logical_key_from_rdev(key)
+                && let Ok(mut lock) = hotkey_evaluator.lock()
+            {
+                match lock.on_key_event(state.as_ref(), true, modifiers, logical_key) {
+                    HotkeyEvaluation::Matched(expansion) => {
+                        debug!("Hotkey matched: {}", expansion.trigger);
+
+                        let spinner_style_inner =
+                            spinner_style.read().map(|s| *s).unwrap_or_default();
+
+                        spawn_expansion_dispatch(expansion, spinner_style_inner, state.clone());
+                        return None;
+                    }
+                    HotkeyEvaluation::Swallow => return None,
+                    HotkeyEvaluation::NoMatch => {}
+                }
+            }
+
+            if let Some(direction) = crate::hook::case_cycle_key_action(
+                key,
+                shift_active,
+                ctrl_active,
+                alt_active,
+                meta_active,
+                state.engine_mode(),
+                state.inline_case_transform_enabled(),
+            ) && let Some(rewrite) = state.advance_case_variant(direction)
+            {
+                let style = spinner_style.read().map(|s| *s).unwrap_or_default();
+                spawn_completion_rewrite_dispatch(rewrite, style);
+                return None;
+            }
+
+            if key == Key::Backspace {
+                if ctrl_active || alt_active || meta_active {
+                    clear_undo_state(state.as_ref());
+                    return Some(event);
+                }
+
+                if let Some((trigger_string, output_length)) =
+                    take_active_undo_state(state.as_ref())
+                {
+                    spawn_undo_dispatch(trigger_string, output_length);
+                    return None;
+                }
+            } else if is_solo_modifier_press(
+                key,
+                shift_active,
+                ctrl_active,
+                alt_active,
+                meta_active,
+            ) {
+                // Naked modifier presses should not expire the undo window.
+            } else {
+                // Invalidate on any non-modifier or combo before normal evaluator handling.
+                clear_undo_state(state.as_ref());
+            }
+
+            let engine_mode = state.engine_mode();
+
+            let engine_event = match key {
+                Key::Escape => Some(EngineEvent::Interrupt),
+                Key::Backspace => {
+                    if ctrl_active {
+                        Some(EngineEvent::WordBackspace)
+                    } else {
+                        Some(EngineEvent::Backspace)
+                    }
+                }
+                Key::Space => Some(EngineEvent::Char(' ')),
+                Key::Return => Some(EngineEvent::ActionKey),
+                Key::Tab => Some(EngineEvent::Interrupt),
+                Key::UpArrow
+                | Key::DownArrow
+                | Key::LeftArrow
+                | Key::RightArrow
+                | Key::Home
+                | Key::End
+                | Key::PageUp
+                | Key::PageDown => Some(EngineEvent::Interrupt),
+                _ => {
+                    if is_ai_capture_paste_key(&engine_mode, ctrl_active, meta_active, key) {
+                        match crate::platform::read_clipboard_text() {
+                            Ok(text) if !text.is_empty() => {
+                                let engine_event = EngineEvent::Paste(text);
+                                let _ = with_evaluator_lock(evaluator, "ai_paste", |lock| {
+                                    lock.process_event(engine_event, None)
+                                });
+                            }
+                            _ => {}
+                        }
+                        return None;
+                    }
+
+                    if alt_active || ctrl_active || meta_active {
+                        return Some(event);
+                    }
+
+                    if let Some(ref text) = event.name {
+                        let normalized: String = text.nfc().collect();
+                        if normalized.chars().count() == 1 {
+                            normalized.chars().next().map(EngineEvent::Char)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+            };
+
+            if let Some(ev) = engine_event {
+                trace!(
+                    engine_event = engine_event_label(&ev),
+                    "Dispatching engine event from hook callback"
+                );
+                let needs_window =
+                    matches!(ev, EngineEvent::ActionKey) || matches!(ev, EngineEvent::Char(_));
+
+                let active_window = if needs_window {
+                    crate::platform::get_active_window_label()
+                } else {
+                    None
+                };
+
+                let is_action_key = ev == EngineEvent::ActionKey;
+
+                if let Some((expansion, state)) =
+                    with_evaluator_lock(evaluator, "process_engine_event", |lock| {
+                        lock.process_event(ev, active_window.as_deref())
+                            .map(|expansion| {
+                                let state = lock.state.clone();
+                                (expansion, state)
+                            })
+                    })
+                    .flatten()
+                {
+                    debug!("Trigger matched: {}", expansion.trigger);
+
+                    let spinner_style_inner = spinner_style.read().map(|s| *s).unwrap_or_default();
+
+                    spawn_expansion_dispatch(expansion, spinner_style_inner, state);
+
+                    if is_action_key {
+                        return None;
+                    }
+                }
+            }
+        }
+        EventType::KeyRelease(key) => {
+            if trigger_assist_is_active(evaluator, state.as_ref())
+                && should_swallow_trigger_assist_key_release(
+                    state.as_ref(),
+                    completion_key_kind_from_tab_like(
+                        key == Key::Tab,
+                        false,
+                        key == Key::UpArrow,
+                        key == Key::DownArrow,
+                    ),
+                )
+            {
+                return None;
+            }
+
+            if let Some(logical_key) = logical_key_from_rdev(key)
+                && let Ok(mut lock) = hotkey_evaluator.lock()
+                && matches!(lock.on_key_release(logical_key), HotkeyEvaluation::Swallow)
+            {
+                return None;
+            }
+        }
+        _ => {}
+    }
+
+    Some(event)
 }
 
 #[allow(dead_code)]

@@ -75,6 +75,9 @@ pub(super) fn windows_grab(
                     name,
                 };
 
+                // Record Low-Level Hook event for Raw Input duplicate checking
+                crate::hook::raw_input::record_ll_hook_event(vk_code, is_press);
+
                 let pass_through = TL_CALLBACK.with(|cb| {
                     cb.borrow_mut()
                         .as_mut()
@@ -299,7 +302,9 @@ fn vk_to_rdev_key(vk: u16) -> rdev::Key {
         0x08 => Key::Backspace,
         0x09 => Key::Tab,
         0x0D => Key::Return,
-        0x13 => Key::Pause,
+        0x10 => Key::ShiftLeft,
+        0x11 => Key::ControlLeft,
+        0x12 => Key::Alt,
         0x14 => Key::CapsLock,
         0x1B => Key::Escape,
         0x20 => Key::Space,
@@ -311,7 +316,6 @@ fn vk_to_rdev_key(vk: u16) -> rdev::Key {
         0x26 => Key::UpArrow,
         0x27 => Key::RightArrow,
         0x28 => Key::DownArrow,
-        0x2C => Key::PrintScreen,
         0x2D => Key::Insert,
         0x2E => Key::Delete,
         0x30 => Key::Num0,

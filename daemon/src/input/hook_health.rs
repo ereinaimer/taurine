@@ -88,6 +88,7 @@ struct HookHealthInner {
     last_hook_exit_at_unix_ms: AtomicU64,
     last_hook_error: RwLock<Option<String>>,
     pending_recovery_reason: RwLock<Option<String>>,
+    restart_count: std::sync::atomic::AtomicU64,
 }
 
 impl HookHealth {
@@ -100,6 +101,7 @@ impl HookHealth {
         self.inner
             .hook_thread_started_at_unix_ms
             .store(now_unix_ms(), Ordering::SeqCst);
+        self.inner.restart_count.fetch_add(1, Ordering::SeqCst);
     }
 
     pub fn mark_listener_entering_grab(&self) {
@@ -124,7 +126,10 @@ impl HookHealth {
             .last_hook_exit_at_unix_ms
             .store(now_unix_ms(), Ordering::SeqCst);
         if let Ok(mut last_error) = self.inner.last_hook_error.write() {
-            *last_error = error;
+            *last_error = error.clone();
+        }
+        if let Some(ref err) = error {
+            self.log_failure(err);
         }
     }
 
@@ -135,6 +140,7 @@ impl HookHealth {
         if let Ok(mut pending_reason) = self.inner.pending_recovery_reason.write() {
             *pending_reason = Some(reason.to_string());
         }
+        self.log_recovery(reason);
     }
 
     pub fn snapshot(&self) -> HookHealthSnapshot {
@@ -173,6 +179,31 @@ impl HookHealth {
             last_hook_error,
             pending_recovery_reason,
         }
+    }
+
+    pub fn restart_count(&self) -> u64 {
+        self.inner.restart_count.load(Ordering::SeqCst)
+    }
+
+    pub fn log_periodic_health(&self) {
+        let snapshot = self.snapshot();
+        let now = now_unix_ms();
+        tracing::info!(target: "taurine::hook",
+            listener_running = snapshot.listener_running,
+            ms_since_thread_start = now.saturating_sub(snapshot.hook_thread_started_at_unix_ms),
+            ms_since_grab = now.saturating_sub(snapshot.hook_entered_grab_at_unix_ms),
+            ms_since_last_event = now.saturating_sub(snapshot.last_keyboard_event_at_unix_ms),
+            total_restarts = self.restart_count(),
+            "health"
+        );
+    }
+
+    pub fn log_recovery(&self, reason: &str) {
+        tracing::warn!(target: "taurine::hook", reason, "recovery");
+    }
+
+    pub fn log_failure(&self, error: &str) {
+        tracing::error!(target: "taurine::hook", error, "failure");
     }
 }
 
