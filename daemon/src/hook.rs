@@ -5,6 +5,8 @@ mod dispatch;
 mod listener;
 
 #[cfg(windows)]
+pub(crate) mod raw_input;
+#[cfg(windows)]
 mod supervisor;
 
 #[cfg(not(target_os = "linux"))]
