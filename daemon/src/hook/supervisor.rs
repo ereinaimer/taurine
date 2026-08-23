@@ -208,16 +208,25 @@ pub fn start_windows_supervisor(
                                     ping_pending = true;
                                     last_ping_sent_at_unix_ms = now;
                                     force_ping_at_unix_ms = 0; // Clear scheduled ping
-                                    let _ = rdev::simulate(&rdev::EventType::KeyPress(rdev::Key::ShiftLeft));
-                                    let _ = rdev::simulate(&rdev::EventType::KeyRelease(rdev::Key::ShiftLeft));
+                                    let _ = rdev::simulate(&rdev::EventType::KeyPress(rdev::Key::Unknown(255)));
+                                    let _ = rdev::simulate(&rdev::EventType::KeyRelease(rdev::Key::Unknown(255)));
                                 } else if now >= last_ping_sent_at_unix_ms + 500 {
-                                    warn!(
-                                        "Watchdog: verification ping failed to roundtrip within 500ms; restarting stale hook"
-                                    );
-                                    hook_health.mark_recovery_signal("watchdog: stale hook");
-                                    LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
-                                    needs_restart = true;
-                                    ping_pending = false;
+                                    // Simulated event failed to roundtrip.
+                                    // Check if the foreground window is elevated/secure.
+                                    if is_foreground_window_elevated() {
+                                        debug!("Watchdog: verification ping blocked by UIPI/UAC; skipping restart");
+                                        ping_pending = false;
+                                        // Reset the last event time to now so we don't spam pings
+                                        hook_health.record_keyboard_event();
+                                    } else {
+                                        warn!(
+                                            "Watchdog: verification ping failed on normal window; restarting stale hook"
+                                        );
+                                        hook_health.mark_recovery_signal("watchdog: stale hook");
+                                        LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
+                                        needs_restart = true;
+                                        ping_pending = false;
+                                    }
                                 }
                             } else if !seems_stale && !scheduled_ping_due {
                                 ping_pending = false;
@@ -341,4 +350,39 @@ fn send_wm_quit_to_thread(thread_id: u32, join_handle: Option<&std::thread::Join
         thread_id,
         "Failed to post WM_QUIT after 500ms of retries; listener thread likely crashed before creating its message queue"
     );
+}
+
+fn is_foreground_window_elevated() -> bool {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowThreadProcessId,
+    };
+
+    // SAFETY: GetForegroundWindow and GetWindowThreadProcessId are safe Win32 APIs.
+    // OpenProcess and CloseHandle are standard process control APIs.
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.is_null() {
+            // Null foreground window indicates lock screen, UAC prompt, or desktop transition.
+            return true;
+        }
+        let mut pid = 0;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        if pid == 0 {
+            return true;
+        }
+        // Try to open process with query information (requires higher privileges for elevated processes)
+        let handle = OpenProcess(PROCESS_QUERY_INFORMATION, 0, pid);
+        if handle.is_null() {
+            let err = windows_sys::Win32::Foundation::GetLastError();
+            if err == 5 {
+                // 5 is ERROR_ACCESS_DENIED
+                return true;
+            }
+        } else {
+            CloseHandle(handle);
+        }
+        false
+    }
 }

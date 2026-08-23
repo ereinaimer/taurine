@@ -129,8 +129,15 @@ fn run_raw_input_message_loop() {
 
     let class_atom = unsafe { RegisterClassW(&window_class) };
     if class_atom == 0 {
-        error!("Failed to register Raw Input monitor window class");
-        return;
+        let err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+        if err != 1410 {
+            // 1410 is ERROR_CLASS_ALREADY_EXISTS
+            error!(
+                "Failed to register Raw Input monitor window class: error {}",
+                err
+            );
+            return;
+        }
     }
 
     let hwnd = unsafe {
