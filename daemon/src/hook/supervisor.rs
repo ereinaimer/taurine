@@ -116,21 +116,21 @@ pub fn start_windows_supervisor(
                         hook_health.mark_recovery_signal("resume from suspend");
                         warn!("Windows resume from suspend detected; tearing down stale hook listener");
                         tear_down_listener(&mut listener_handle);
-                        next_spawn_allowed_after = std::time::Instant::now() + Duration::from_secs(1);
+                        next_spawn_allowed_after = std::time::Instant::now() + Duration::from_secs(3);
                         force_ping_at_instant = None;
                     }
                     Ok(WindowsSupervisorEvent::SessionUnlock) => {
                         hook_health.mark_recovery_signal("session unlock");
                         warn!("Windows session unlock detected; tearing down stale hook listener");
                         tear_down_listener(&mut listener_handle);
-                        next_spawn_allowed_after = std::time::Instant::now() + Duration::from_secs(1);
+                        next_spawn_allowed_after = std::time::Instant::now() + Duration::from_secs(3);
                         force_ping_at_instant = None;
                     }
                     Ok(WindowsSupervisorEvent::SessionLogon) => {
                         hook_health.mark_recovery_signal("session logon");
                         warn!("Windows session logon detected; tearing down stale hook listener");
                         tear_down_listener(&mut listener_handle);
-                        next_spawn_allowed_after = std::time::Instant::now() + Duration::from_secs(1);
+                        next_spawn_allowed_after = std::time::Instant::now() + Duration::from_secs(3);
                         force_ping_at_instant = None;
                     }
                     Ok(WindowsSupervisorEvent::DisplayChange) => {
