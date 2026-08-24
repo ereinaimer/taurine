@@ -98,6 +98,15 @@ pub(super) fn windows_grab(
         }
     }
 
+    // SAFETY: GetCurrentThread and SetThreadPriority are safe Win32 APIs.
+    // Raising priority ensures the thread avoids CPU starvation and OS hook teardowns.
+    unsafe {
+        windows_sys::Win32::System::Threading::SetThreadPriority(
+            windows_sys::Win32::System::Threading::GetCurrentThread(),
+            windows_sys::Win32::System::Threading::THREAD_PRIORITY_TIME_CRITICAL,
+        );
+    }
+
     // SAFETY: SetWindowsHookExW installs a global WH_KEYBOARD_LL hook.
     // - `ll_keyboard_proc` is a valid `extern "system"` function.
     // - hmod=null_mut() and dwThreadId=0 are correct for a global low-level hook (MSDN).
