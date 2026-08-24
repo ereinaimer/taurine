@@ -76,11 +76,15 @@ pub fn start_windows_supervisor(
                 hook_health.clone(),
                 tx.clone(),
             ));
-            let mut last_ping_sent_at_unix_ms: u64 = 0;
+            let mut last_ping_sent_at_instant: Option<std::time::Instant> = None;
             let mut ping_pending = false;
-            let mut force_ping_at_unix_ms: u64 = 0;
+            let mut force_ping_at_instant: Option<std::time::Instant> = None;
             let mut next_spawn_allowed_after = std::time::Instant::now();
-            let mut last_health_log_at_unix_ms: u64 = 0;
+            let mut last_health_log_at_instant = std::time::Instant::now();
+            let mut last_seen_event_unix: u64 = 0;
+            let mut last_seen_event_instant = std::time::Instant::now();
+            let mut last_seen_started_unix: u64 = 0;
+            let mut last_seen_started_instant = std::time::Instant::now();
 
             loop {
                 let event = rx.recv_timeout(Duration::from_millis(100));
@@ -106,37 +110,33 @@ pub fn start_windows_supervisor(
                         // Coalesce sequential wakeup/session events by setting a 1s delay
                         // before the supervisor is allowed to spawn a new listener.
                         next_spawn_allowed_after = std::time::Instant::now() + Duration::from_secs(1);
-                        force_ping_at_unix_ms = 0;
+                        force_ping_at_instant = None;
                     }
                     Ok(WindowsSupervisorEvent::ResumeFromSuspend) => {
                         hook_health.mark_recovery_signal("resume from suspend");
                         warn!("Windows resume from suspend detected; tearing down stale hook listener");
                         tear_down_listener(&mut listener_handle);
                         next_spawn_allowed_after = std::time::Instant::now() + Duration::from_secs(1);
-                        force_ping_at_unix_ms = 0;
+                        force_ping_at_instant = None;
                     }
                     Ok(WindowsSupervisorEvent::SessionUnlock) => {
                         hook_health.mark_recovery_signal("session unlock");
                         warn!("Windows session unlock detected; tearing down stale hook listener");
                         tear_down_listener(&mut listener_handle);
                         next_spawn_allowed_after = std::time::Instant::now() + Duration::from_secs(1);
-                        force_ping_at_unix_ms = 0;
+                        force_ping_at_instant = None;
                     }
                     Ok(WindowsSupervisorEvent::SessionLogon) => {
                         hook_health.mark_recovery_signal("session logon");
                         warn!("Windows session logon detected; tearing down stale hook listener");
                         tear_down_listener(&mut listener_handle);
                         next_spawn_allowed_after = std::time::Instant::now() + Duration::from_secs(1);
-                        force_ping_at_unix_ms = 0;
+                        force_ping_at_instant = None;
                     }
                     Ok(WindowsSupervisorEvent::DisplayChange) => {
                         hook_health.mark_recovery_signal("display change");
                         warn!("Windows display change detected; scheduling liveness verification");
-                        let now = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as u64;
-                        force_ping_at_unix_ms = now + 3000;
+                        force_ping_at_instant = Some(std::time::Instant::now() + Duration::from_millis(3000));
                     }
                     Ok(WindowsSupervisorEvent::Shutdown) => {
                         debug!("Windows hook supervisor received Shutdown event");
@@ -148,24 +148,30 @@ pub fn start_windows_supervisor(
                         // listener_handle so tear_down_listener can borrow it mutably.
                         let mut needs_restart = false;
 
-                        let now = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as u64;
 
-                        if now >= last_health_log_at_unix_ms + 30_000 {
-                            last_health_log_at_unix_ms = now;
+
+                        if last_health_log_at_instant.elapsed().as_millis() >= 30_000 {
+                            last_health_log_at_instant = std::time::Instant::now();
                             hook_health.log_periodic_health();
                         }
 
                         if let Some(ref handle) = listener_handle {
                             let snapshot = hook_health.snapshot();
 
+                            if snapshot.last_keyboard_event_at_unix_ms != last_seen_event_unix {
+                                last_seen_event_unix = snapshot.last_keyboard_event_at_unix_ms;
+                                last_seen_event_instant = std::time::Instant::now();
+                            }
+                            if snapshot.hook_thread_started_at_unix_ms != last_seen_started_unix {
+                                last_seen_started_unix = snapshot.hook_thread_started_at_unix_ms;
+                                last_seen_started_instant = std::time::Instant::now();
+                            }
+
                             // Check 1: Startup/Reinstall Hang — listener started
                             // but hasn't entered rdev::grab within 3 seconds.
                             let startup_hang = snapshot.hook_thread_started_at_unix_ms > 0
                                 && snapshot.hook_entered_grab_at_unix_ms == 0
-                                && now >= snapshot.hook_thread_started_at_unix_ms + 3000;
+                                && last_seen_started_instant.elapsed().as_millis() >= 3000;
 
                             // Check 2: Silent Thread Termination — thread exited
                             // without sending ListenerExited.
@@ -175,10 +181,10 @@ pub fn start_windows_supervisor(
                             // and we are not currently awaiting a recovery.
                             let seems_stale = snapshot.hook_entered_grab_at_unix_ms > 0
                                 && snapshot.last_keyboard_event_at_unix_ms > 0
-                                && now >= snapshot.last_keyboard_event_at_unix_ms + STALE_THRESHOLD_MS
+                                && last_seen_event_instant.elapsed().as_millis() as u64 >= STALE_THRESHOLD_MS
                                 && snapshot.pending_recovery_reason.is_none();
 
-                            let scheduled_ping_due = force_ping_at_unix_ms > 0 && now >= force_ping_at_unix_ms;
+                            let scheduled_ping_due = force_ping_at_instant.is_some_and(|i| i <= std::time::Instant::now());
                             let should_ping = seems_stale || scheduled_ping_due;
 
                             if startup_hang {
@@ -206,11 +212,11 @@ pub fn start_windows_supervisor(
                                         );
                                     }
                                     ping_pending = true;
-                                    last_ping_sent_at_unix_ms = now;
-                                    force_ping_at_unix_ms = 0; // Clear scheduled ping
+                                    last_ping_sent_at_instant = Some(std::time::Instant::now());
+                                    force_ping_at_instant = None; // Clear scheduled ping
                                     let _ = rdev::simulate(&rdev::EventType::KeyPress(rdev::Key::Unknown(255)));
                                     let _ = rdev::simulate(&rdev::EventType::KeyRelease(rdev::Key::Unknown(255)));
-                                } else if now >= last_ping_sent_at_unix_ms + 500 {
+                                } else if last_ping_sent_at_instant.is_some_and(|i| i.elapsed().as_millis() >= 500) {
                                     // Simulated event failed to roundtrip.
                                     // Check if the foreground window is elevated/secure.
                                     if is_foreground_window_elevated() {
