@@ -269,6 +269,15 @@ pub fn process_keyboard_event(
         return Some(event);
     }
 
+    #[cfg(windows)]
+    if std::env::var("TAURINE_TEST_HANG_HOOK").is_ok()
+        && matches!(event.event_type, EventType::KeyPress(Key::Unknown(254)))
+    {
+        warn!("Test trigger: Hanging listener thread for 6 seconds!");
+        std::thread::sleep(Duration::from_secs(6));
+        return Some(event);
+    }
+
     if consume_simulated_event(&event.event_type) {
         return Some(event);
     }

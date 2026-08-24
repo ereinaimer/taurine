@@ -58,6 +58,7 @@ async fn hook_stress_24h_compressed() {
     let daemon_child = Command::new(&bin_path)
         .arg("--daemon")
         .env("TAURINE_PIPE_PATH", test_pipe_path)
+        .env("TAURINE_TEST_HANG_HOOK", "1")
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
         .spawn()
@@ -112,7 +113,29 @@ async fn hook_stress_24h_compressed() {
         println!("  Lock cycle {} complete", i + 1);
     }
 
-    // 8. Final verification
+    // 8. Phase 6: Watchdog Liveness Cycle (Simulated OS Hook Teardown)
+    println!("Phase 6: Watchdog Liveness Cycle");
+    // Simulate user typing
+    let _ = rdev::simulate(&rdev::EventType::KeyPress(rdev::Key::KeyA));
+    let _ = rdev::simulate(&rdev::EventType::KeyRelease(rdev::Key::KeyA));
+    // Trigger the internal debug hang
+    let _ = rdev::simulate(&rdev::EventType::KeyPress(rdev::Key::Unknown(254)));
+    println!(
+        "  Injected hang trigger (VK 254), waiting for watchdog recovery (should take ~6s)..."
+    );
+
+    assert_health_recovers_within(&mut client, Duration::from_secs(12)).await;
+
+    // Verify ghost state cleanup: sending keys shouldn't be swallowed permanently
+    let _ = rdev::simulate(&rdev::EventType::KeyPress(rdev::Key::Alt));
+    let _ = rdev::simulate(&rdev::EventType::KeyPress(rdev::Key::KeyA));
+    let _ = rdev::simulate(&rdev::EventType::KeyRelease(rdev::Key::KeyA));
+    let _ = rdev::simulate(&rdev::EventType::KeyRelease(rdev::Key::Alt));
+
+    assert_health_healthy(&mut client).await;
+    println!("  Watchdog recovery cycle complete");
+
+    // 9. Final verification
     let status_req = taurine_core::system::rpc::StatusRequest {};
     let status = client
         .get_status(status_req)
