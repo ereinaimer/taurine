@@ -245,6 +245,14 @@ pub fn start_windows_supervisor(
 
                 if listener_handle.is_none() && std::time::Instant::now() >= next_spawn_allowed_after {
                     debug!("Reinstalling Windows hook listener");
+
+                    // Clear ghost keyboard states before spawning the new listener thread
+                    // to prevent old keys from breaking expansions/hotkeys
+                    if let Ok(mut lock) = evaluator.lock() {
+                        lock.reset();
+                    }
+                    crate::hook::dispatch::clear_undo_state(state.as_ref());
+
                     listener_handle = Some(spawn_windows_hook_listener(
                         evaluator.clone(),
                         state.clone(),
