@@ -3,6 +3,27 @@ use chrono_tz::Tz;
 use regex::Regex;
 use std::sync::OnceLock;
 
+const NL_PREFIXES: &[&str] = &[
+    "convert ",
+    "transform ",
+    "change ",
+    "calculate ",
+    "compute ",
+    "what is ",
+    "what's ",
+    "how much is ",
+];
+
+fn strip_nl_prefix(s: &str) -> &str {
+    let lowered = s.to_lowercase();
+    for &prefix in NL_PREFIXES {
+        if lowered.starts_with(prefix) {
+            return s[prefix.len()..].trim_start();
+        }
+    }
+    s
+}
+
 fn has_time_pattern(input: &str) -> bool {
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| {
@@ -773,7 +794,7 @@ pub fn resolve_timezone(name: &str) -> Option<Tz> {
 }
 
 pub fn parse_timezone_expression(input: &str, time_format: &str, dialect: &str) -> Option<String> {
-    let trimmed = input.trim();
+    let trimmed = strip_nl_prefix(input).trim();
     if trimmed.is_empty() {
         return None;
     }
@@ -789,15 +810,22 @@ pub fn parse_timezone_expression(input: &str, time_format: &str, dialect: &str) 
 
 fn parse_current_time(input: &str, time_format: &str) -> Option<String> {
     let lower = input.to_lowercase();
+    let cleaned = lower.trim_end_matches('?').trim();
 
-    let city = if let Some(city) = lower.strip_prefix("time in ") {
+    let city = if let Some(city) = cleaned.strip_prefix("time in ") {
         city.trim()
-    } else if let Some(city) = lower.strip_prefix("now in ") {
+    } else if let Some(city) = cleaned.strip_prefix("now in ") {
         city.trim()
-    } else if let Some(city) = lower.strip_suffix(" time") {
+    } else if let Some(city) = cleaned.strip_prefix("what time is it in ") {
+        city.trim_end_matches(" right now").trim()
+    } else if let Some(city) = cleaned.strip_prefix("what's the time in ") {
+        city.trim()
+    } else if let Some(city) = cleaned.strip_prefix("the time in ") {
+        city.trim()
+    } else if let Some(city) = cleaned.strip_suffix(" time") {
         city.trim()
     } else {
-        lower.strip_suffix(" now")?.trim()
+        cleaned.strip_suffix(" now")?.trim()
     };
 
     if city.is_empty() {
@@ -811,6 +839,59 @@ fn parse_current_time(input: &str, time_format: &str) -> Option<String> {
 
 fn parse_conversion(input: &str, time_format: &str) -> Option<String> {
     let lower = input.to_lowercase();
+
+    // Helper to strip " time" suffix from timezone identifiers
+    fn strip_tz_suffix(s: &str) -> &str {
+        s.strip_suffix(" time").unwrap_or(s).trim()
+    }
+
+    // Pattern 1: Conversational long form - "when it is 9am in london what time is it in new york"
+    static RE_CONVERSATIONAL: OnceLock<Regex> = OnceLock::new();
+    let re_conversational = RE_CONVERSATIONAL.get_or_init(|| {
+        Regex::new(
+            r"^when\s+it\s+is\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.|noon|midnight)?)\s+in\s+(.+?)\s+what\s+time\s+is\s+it\s+in\s+(.+?)\??$",
+        )
+        .expect("valid conversational time conversion regex")
+    });
+    if let Some(caps) = re_conversational.captures(&lower) {
+        let time_str = caps.get(1)?.as_str().trim();
+        let from_tz_str = strip_tz_suffix(caps.get(2)?.as_str().trim());
+        let to_tz_str = strip_tz_suffix(caps.get(3)?.as_str().trim());
+
+        if !time_str.is_empty() && !from_tz_str.is_empty() && !to_tz_str.is_empty() {
+            let time = parse_time_str(time_str)?;
+            let from_tz = resolve_to_tz(from_tz_str)?;
+            let to_tz = resolve_to_tz(to_tz_str)?;
+
+            let today_utc = chrono::Utc::now().date_naive();
+            let from_dt = from_tz
+                .from_local_datetime(&today_utc.and_time(time))
+                .earliest()?;
+
+            let to_dt = from_dt.with_timezone(&to_tz);
+            let formatted = chrono_dt_to_formatted(&to_dt, time_format);
+
+            let from_date = from_dt.naive_local().date();
+            let to_date = to_dt.naive_local().date();
+            let day_diff = (to_date - from_date).num_days();
+
+            let result = if day_diff == 0 {
+                formatted
+            } else if day_diff == 1 {
+                format!("{formatted} (+1)")
+            } else if day_diff == -1 {
+                format!("{formatted} (-1)")
+            } else if day_diff > 0 {
+                format!("{formatted} (+{day_diff})")
+            } else {
+                format!("{formatted} ({day_diff})")
+            };
+
+            return Some(result);
+        }
+    }
+
+    // Pattern 2: Standard conversion - "10am pst to ist" or "3pm est in tokyo"
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| {
         Regex::new(
@@ -820,8 +901,8 @@ fn parse_conversion(input: &str, time_format: &str) -> Option<String> {
     });
     let caps = re.captures(&lower)?;
     let time_str = caps.get(1)?.as_str().trim();
-    let from_tz_str = caps.get(2)?.as_str().trim();
-    let to_tz_str = caps.get(3)?.as_str().trim();
+    let from_tz_str = strip_tz_suffix(caps.get(2)?.as_str().trim());
+    let to_tz_str = strip_tz_suffix(caps.get(3)?.as_str().trim());
 
     if time_str.is_empty() || from_tz_str.is_empty() || to_tz_str.is_empty() {
         return None;
@@ -1214,5 +1295,93 @@ mod tests {
         assert_eq!(resolve_timezone("japan"), Some(Asia::Tokyo));
         assert_eq!(resolve_timezone("united states"), Some(America::New_York));
         assert_eq!(resolve_timezone("us"), Some(America::New_York));
+    }
+
+    // --- NL Prefix Stripping Tests ---
+
+    #[test]
+    fn test_nl_prefix_stripping_conversion() {
+        let out = parse_timezone_expression("convert 10am pst to tokyo time", "h:mm A", "uk");
+        assert!(
+            out.is_some(),
+            "'convert 10am pst to tokyo time' should be recognized: got {}",
+            fmt_opt(out)
+        );
+        let out = parse_timezone_expression("what is 10am pst to tokyo time", "h:mm A", "uk");
+        assert!(
+            out.is_some(),
+            "'what is 10am pst to tokyo time' should be recognized: got {}",
+            fmt_opt(out)
+        );
+        let out = parse_timezone_expression("what's 10am pst to tokyo time", "h:mm A", "uk");
+        assert!(
+            out.is_some(),
+            "'what's 10am pst to tokyo time' should be recognized: got {}",
+            fmt_opt(out)
+        );
+        let out = parse_timezone_expression("how much is 10am pst to tokyo time", "h:mm A", "uk");
+        assert!(
+            out.is_some(),
+            "'how much is 10am pst to tokyo time' should be recognized: got {}",
+            fmt_opt(out)
+        );
+    }
+
+    #[test]
+    fn test_conversational_current_time_queries() {
+        let out = parse_timezone_expression("what time is it in london", "h:mm A", "uk");
+        assert!(
+            out.is_some(),
+            "'what time is it in london' should be recognized: got {}",
+            fmt_opt(out)
+        );
+        let out = parse_timezone_expression("what time is it in london right now", "h:mm A", "uk");
+        assert!(
+            out.is_some(),
+            "'what time is it in london right now' should be recognized: got {}",
+            fmt_opt(out)
+        );
+        let out = parse_timezone_expression("what time is it in london right now?", "h:mm A", "uk");
+        assert!(
+            out.is_some(),
+            "'what time is it in london right now?' should be recognized: got {}",
+            fmt_opt(out)
+        );
+        let out = parse_timezone_expression("what's the time in london", "h:mm A", "uk");
+        assert!(
+            out.is_some(),
+            "'what's the time in london' should be recognized: got {}",
+            fmt_opt(out)
+        );
+        let out = parse_timezone_expression("what's the time in london?", "h:mm A", "uk");
+        assert!(
+            out.is_some(),
+            "'what's the time in london?' should be recognized: got {}",
+            fmt_opt(out)
+        );
+    }
+
+    #[test]
+    fn test_conversational_time_conversions() {
+        let out = parse_timezone_expression(
+            "when it is 9am in london what time is it in new york",
+            "h:mm A",
+            "uk",
+        );
+        assert!(
+            out.is_some(),
+            "'when it is 9am in london what time is it in new york' should be recognized: got {}",
+            fmt_opt(out)
+        );
+        let out = parse_timezone_expression(
+            "when it is 9am in london what time is it in new york?",
+            "h:mm A",
+            "uk",
+        );
+        assert!(
+            out.is_some(),
+            "'when it is 9am in london what time is it in new york?' should be recognized: got {}",
+            fmt_opt(out)
+        );
     }
 }

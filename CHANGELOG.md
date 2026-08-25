@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Offline Inline Dictionary**: Search for word definitions, synonyms, and antonyms locally using an offline database (defaulting to Lite with an option to background-download a Full dictionary, and expanded triggers supporting apostrophized/hyphenated terms and plural opposites).
 - **Data-Rate Conversions**: Inline conversions between data rates with case-sensitive bit/byte distinction (e.g. `50 Mbps to MBps` → `6.25 MBps`).
+- **NL Prefixes for Timezone Queries**: Share unit converter's prefix list (`convert`, `what is`, `what's`, `how much is`) with timezone parser so queries like `convert 10am pst to tokyo time` now work.
+- **Conversational Current Time Queries**: Support `what time is it in <city>` and `what's the time in <city>?` for natural current time lookups.
+- **Conversational Time Conversions**: Support `when it is <time> in <from_tz> what time is it in <to_tz>?` for long-form timezone conversions.
 
 ### Fixed
 - **Text Expansion Reliability**: Fixed a regression where word expansions, swallowing, and completions would fail to trigger or misbehave during rapid typing.
