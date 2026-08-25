@@ -259,7 +259,7 @@ pub(super) fn launch_follow_up(
             let _ = spinner_handle.cancel.send(());
             let _ = spinner_handle.task.await;
 
-            let mut output = String::from("\n\n");
+            let mut output = String::new();
             if let Some(entries) = entries {
                 if entries.is_empty() {
                     output.push_str("no results found\n");
