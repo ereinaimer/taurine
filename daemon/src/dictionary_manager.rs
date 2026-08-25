@@ -24,6 +24,17 @@ pub async fn check_and_update_dictionary() {
     };
 
     let dict_dir = get_data_dir().join("dict");
+
+    if let Ok(entries) = fs::read_dir(&dict_dir) {
+        for entry in entries.flatten() {
+            if let Some(ext) = entry.path().extension()
+                && ext == "tmp"
+            {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
+
     let db_path = dict_dir.join(file_name);
 
     if db_path.exists() {
