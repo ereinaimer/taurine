@@ -23,6 +23,8 @@ futures = "0.3"
 zeroize = "1.8"
 subtle = "2.6"
 crossbeam-channel = "0.5"
+zstd = "0.13"
+rusqlite = { version = "0.39", features = ["bundled"] }
 
 rodio = { version = "0.22", default-features = false, features = ["wav", "playback"] }
 os_info = "3"

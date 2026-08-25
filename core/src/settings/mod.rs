@@ -19,6 +19,8 @@ static CACHED_INLINE_DATETIME_ENABLED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(true);
 static CACHED_INLINE_DICTIONARY_ENABLED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(true);
+static CACHED_INLINE_DICTIONARY_MODE: parking_lot::RwLock<InlineDictionaryMode> =
+    parking_lot::RwLock::new(InlineDictionaryMode::Lite);
 static CACHED_INLINE_DATETIME_DATE_FORMAT: parking_lot::RwLock<Option<String>> =
     parking_lot::RwLock::new(None);
 static CACHED_INLINE_DATETIME_TIME_FORMAT: parking_lot::RwLock<Option<String>> =
@@ -40,6 +42,14 @@ pub fn set_cached_inline_dictionary_enabled(enabled: bool) {
 
 pub fn get_cached_inline_dictionary_enabled() -> bool {
     CACHED_INLINE_DICTIONARY_ENABLED.load(Ordering::Relaxed)
+}
+
+pub fn set_cached_inline_dictionary_mode(mode: InlineDictionaryMode) {
+    *CACHED_INLINE_DICTIONARY_MODE.write() = mode;
+}
+
+pub fn get_cached_inline_dictionary_mode() -> InlineDictionaryMode {
+    *CACHED_INLINE_DICTIONARY_MODE.read()
 }
 
 pub fn set_cached_inline_emoji_trigger_char(c: char) {
@@ -187,6 +197,14 @@ pub enum InlineAiTriggerMode {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
+pub enum InlineDictionaryMode {
+    #[default]
+    Lite,
+    Full,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
 pub enum RpcMode {
     #[default]
     Socket,
@@ -234,11 +252,12 @@ pub enum SettingKey {
     InlineDatetimeDialect,
     InlineCurrencyToWordsEnabled,
     InlineDictionaryEnabled,
+    InlineDictionaryMode,
     NotifyOnUpdate,
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 40] = [
+    pub const ALL: [Self; 41] = [
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
         Self::PauseAudioEnabled,
@@ -278,6 +297,7 @@ impl SettingKey {
         Self::InlineDatetimeDialect,
         Self::InlineCurrencyToWordsEnabled,
         Self::InlineDictionaryEnabled,
+        Self::InlineDictionaryMode,
         Self::NotifyOnUpdate,
     ];
 
@@ -322,6 +342,7 @@ impl SettingKey {
             Self::InlineDatetimeDialect => "inline_datetime_dialect",
             Self::InlineCurrencyToWordsEnabled => "inline_currency_to_words_enabled",
             Self::InlineDictionaryEnabled => "inline_dictionary_enabled",
+            Self::InlineDictionaryMode => "inline_dictionary_mode",
             Self::NotifyOnUpdate => "notify_on_update",
         }
     }
@@ -368,6 +389,7 @@ pub struct Settings {
     pub inline_datetime_dialect: String,
     pub inline_currency_to_words_enabled: bool,
     pub inline_dictionary_enabled: bool,
+    pub inline_dictionary_mode: InlineDictionaryMode,
     pub notify_on_update: bool,
 }
 
@@ -440,6 +462,7 @@ impl std::fmt::Debug for Settings {
                 &self.inline_currency_to_words_enabled,
             )
             .field("inline_dictionary_enabled", &self.inline_dictionary_enabled)
+            .field("inline_dictionary_mode", &self.inline_dictionary_mode)
             .field("notify_on_update", &self.notify_on_update)
             .finish()
     }
@@ -456,6 +479,7 @@ impl Settings {
             "inline_dictionary" | "inline_dictionary_enabled" | "dictionary" => {
                 "inline_dictionary_enabled"
             }
+            "inline_dictionary_mode" | "dictionary_mode" => "inline_dictionary_mode",
             "inline_case_transform" | "inline_case_transform_enabled" => {
                 "inline_case_transform_enabled"
             }
@@ -624,6 +648,7 @@ impl Default for Settings {
             inline_datetime_dialect: "uk".to_string(),
             inline_currency_to_words_enabled: false,
             inline_dictionary_enabled: true,
+            inline_dictionary_mode: InlineDictionaryMode::default(),
             notify_on_update: false,
         }
     }
@@ -690,6 +715,26 @@ mod tests {
         assert_eq!(
             Settings::resolve_key("dictionary"),
             "inline_dictionary_enabled"
+        );
+    }
+
+    #[test]
+    fn test_inline_dictionary_mode_default_is_lite() {
+        assert_eq!(
+            Settings::default().inline_dictionary_mode,
+            InlineDictionaryMode::Lite
+        );
+    }
+
+    #[test]
+    fn test_resolve_key_inline_dictionary_mode() {
+        assert_eq!(
+            Settings::resolve_key("inline_dictionary_mode"),
+            "inline_dictionary_mode"
+        );
+        assert_eq!(
+            Settings::resolve_key("dictionary_mode"),
+            "inline_dictionary_mode"
         );
     }
 }

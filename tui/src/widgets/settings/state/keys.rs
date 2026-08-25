@@ -52,6 +52,7 @@ impl SettingKeyMeta for SettingKey {
             Self::InlineDatetimeDialect => "Dialect (uk/us)",
             Self::InlineCurrencyToWordsEnabled => "Inline Currency to Words",
             Self::InlineDictionaryEnabled => "Inline Dictionary",
+            Self::InlineDictionaryMode => "Inline Dictionary Mode",
             Self::NotifyOnUpdate => "Notify on Update",
         }
     }
@@ -131,6 +132,9 @@ impl SettingKeyMeta for SettingKey {
             Self::InlineDictionaryEnabled => {
                 "Enable expanding dictionary definitions, synonyms, and antonyms"
             }
+            Self::InlineDictionaryMode => {
+                "The database size used for offline dictionary lookups (Lite or Full)"
+            }
             Self::NotifyOnUpdate => {
                 "Show a system notification when Taurine successfully updates in the background"
             }
@@ -167,6 +171,7 @@ impl SettingKeyMeta for SettingKey {
                 EditorKind::OptionalTextInput
             }
             Self::InlineAiTriggerMode => EditorKind::InlineAiTriggerModeSelect,
+            Self::InlineDictionaryMode => EditorKind::InlineDictionaryModeSelect,
             Self::RpcMode => EditorKind::RpcModeSelect,
             Self::InlineEmojiTriggerChar => EditorKind::SingleCharInput,
             Self::PauseHotkey
@@ -245,6 +250,10 @@ impl SettingKeyMeta for SettingKey {
                 settings.inline_currency_to_words_enabled.to_string()
             }
             Self::InlineDictionaryEnabled => settings.inline_dictionary_enabled.to_string(),
+            Self::InlineDictionaryMode => match settings.inline_dictionary_mode {
+                taurine_core::settings::InlineDictionaryMode::Lite => "lite".to_string(),
+                taurine_core::settings::InlineDictionaryMode::Full => "full".to_string(),
+            },
             Self::NotifyOnUpdate => settings.notify_on_update.to_string(),
         }
     }
@@ -287,6 +296,7 @@ impl SettingKeyMeta for SettingKey {
             | Self::InlineDatetimeEnabled
             | Self::InlineCurrencyToWordsEnabled
             | Self::InlineDictionaryEnabled
+            | Self::InlineDictionaryMode
             | Self::NotifyOnUpdate => self.display_value(settings),
             Self::AiTemperature => {
                 optional_value_label(settings.ai_temperature.map(|v| v.to_string()).as_deref())
@@ -315,6 +325,7 @@ pub(crate) enum EditorKind {
     SpinnerSelect,
     AiProviderSelect,
     InlineAiTriggerModeSelect,
+    InlineDictionaryModeSelect,
     RpcModeSelect,
 }
 

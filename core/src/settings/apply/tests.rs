@@ -1,6 +1,7 @@
 use super::*;
 use crate::settings::{
-    InlineAiTriggerMode, RpcMode, SettingKey, Settings, SettingsManager, SpinnerStyle,
+    InlineAiTriggerMode, InlineDictionaryMode, RpcMode, SettingKey, Settings, SettingsManager,
+    SpinnerStyle,
 };
 use crate::testing::open_test_db;
 use std::collections::HashSet;
@@ -194,6 +195,31 @@ fn test_inline_dictionary_settings() {
 }
 
 #[test]
+fn test_inline_dictionary_mode_settings() {
+    let (_dir, conn) = crate::testing::open_test_db();
+    let manager = SettingsManager::new(&conn);
+
+    assert_eq!(
+        default_setting_input("inline_dictionary_mode").unwrap(),
+        Some("lite".to_string())
+    );
+
+    apply_setting_input_with_manager(&manager, "inline_dictionary_mode", Some("full")).unwrap();
+
+    let loaded = manager.load_all();
+    assert_eq!(loaded.inline_dictionary_mode, InlineDictionaryMode::Full);
+    assert_eq!(
+        crate::settings::get_cached_inline_dictionary_mode(),
+        InlineDictionaryMode::Full
+    );
+
+    // Test bad value rejects
+    let err =
+        apply_setting_input_with_manager(&manager, "inline_dictionary_mode", Some("invalid_mode"));
+    assert!(err.is_err());
+}
+
+#[test]
 fn asymmetric_mode_rejects_equal_open_close() {
     let settings = Settings {
         inline_ai_trigger_open: ">".to_string(),
@@ -256,8 +282,8 @@ fn asymmetric_mode_accepts_different_open_close_through_apply() {
 }
 
 #[test]
-fn setting_key_all_has_40_unique_storage_keys() {
-    assert_eq!(SettingKey::ALL.len(), 40);
+fn setting_key_all_has_41_unique_storage_keys() {
+    assert_eq!(SettingKey::ALL.len(), 41);
 
     let mut seen = HashSet::new();
     for key in SettingKey::ALL {
@@ -327,6 +353,7 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         ("inline_datetime_dialect", "us"),
         ("inline_currency_to_words_enabled", "true"),
         ("inline_dictionary_enabled", "false"),
+        ("inline_dictionary_mode", "full"),
         ("notify_on_update", "false"),
     ];
 
@@ -375,6 +402,7 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         inline_datetime_dialect: "us".to_string(),
         inline_currency_to_words_enabled: true,
         inline_dictionary_enabled: false,
+        inline_dictionary_mode: InlineDictionaryMode::Full,
         notify_on_update: false,
     };
     assert_eq!(manager.load_all(), expected);

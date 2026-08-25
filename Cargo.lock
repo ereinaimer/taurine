@@ -5178,6 +5178,7 @@ dependencies = [
  "rdev",
  "reqwest 0.13.4",
  "rodio",
+ "rusqlite",
  "serde_json",
  "subtle",
  "taurine_core",
@@ -5197,6 +5198,7 @@ dependencies = [
  "xkbcommon",
  "zbus",
  "zeroize",
+ "zstd",
 ]
 
 [[package]]

@@ -295,7 +295,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     let _ = TOKIO_HANDLE.set(rt.handle().clone());
 
     let run_result = rt.block_on(async move {
-        tokio::spawn(crate::dictionary_manager::initialize_dictionary_if_enabled());
+        tokio::spawn(crate::dictionary_manager::check_and_update_dictionary());
 
         let shutdown_requested = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let rpc_reload_requested = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));

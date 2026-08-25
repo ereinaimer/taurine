@@ -167,6 +167,13 @@ pub fn apply_setting_input_with_manager(
             manager.update_setting(actual_key, enabled)?;
             ApplySettingOutcome::default()
         }
+        "inline_dictionary_mode" => {
+            let mode_str = require_non_empty(value, actual_key)?;
+            let mode = parse_inline_dictionary_mode(mode_str)?;
+            crate::settings::set_cached_inline_dictionary_mode(mode);
+            manager.update_setting(actual_key, mode)?;
+            ApplySettingOutcome::default()
+        }
         "inline_datetime_date_format" => {
             let val = require_non_empty(value, actual_key)?.to_string();
             crate::settings::set_cached_inline_datetime_date_format(val.clone());
@@ -302,6 +309,16 @@ pub fn parse_inline_ai_trigger_mode(value: &str) -> Result<super::InlineAiTrigge
         "asymmetric" => Ok(super::InlineAiTriggerMode::Asymmetric),
         other => Err(Error::Config(format!(
             "bad inline_ai_trigger_mode '{other}' (use: symmetric, asymmetric)"
+        ))),
+    }
+}
+
+pub fn parse_inline_dictionary_mode(value: &str) -> Result<super::InlineDictionaryMode> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "lite" => Ok(super::InlineDictionaryMode::Lite),
+        "full" => Ok(super::InlineDictionaryMode::Full),
+        other => Err(Error::Config(format!(
+            "bad inline_dictionary_mode '{other}' (use: lite, full)"
         ))),
     }
 }

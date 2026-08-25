@@ -155,6 +155,8 @@ impl SettingsPageState {
             }
             SettingKey::PauseAudioEnabled => (!self.settings.pause_audio_enabled).to_string(),
             SettingKey::StartOnBoot => (!self.settings.start_on_boot).to_string(),
+            SettingKey::AutoUpdate => (!self.settings.auto_update).to_string(),
+            SettingKey::NotifyOnUpdate => (!self.settings.notify_on_update).to_string(),
             SettingKey::InlineTabCompletionEnabled => {
                 (!self.settings.inline_tab_completion_enabled).to_string()
             }
@@ -174,6 +176,9 @@ impl SettingsPageState {
             }
             SettingKey::InlineCurrencyToWordsEnabled => {
                 (!self.settings.inline_currency_to_words_enabled).to_string()
+            }
+            SettingKey::InlineDictionaryEnabled => {
+                (!self.settings.inline_dictionary_enabled).to_string()
             }
             _ => return SettingsInteraction::handled(),
         };
@@ -205,6 +210,13 @@ impl SettingsPageState {
                 Some(SettingsModal::Select(SelectModalState::new(
                     key,
                     vec!["symmetric".to_string(), "asymmetric".to_string()],
+                    key.display_value(&self.settings),
+                )))
+            }
+            EditorKind::InlineDictionaryModeSelect => {
+                Some(SettingsModal::Select(SelectModalState::new(
+                    key,
+                    vec!["lite".to_string(), "full".to_string()],
                     key.display_value(&self.settings),
                 )))
             }

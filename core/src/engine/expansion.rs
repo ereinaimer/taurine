@@ -17,6 +17,10 @@ pub(crate) fn stat_kind_for_steps(
     TriggerStatKind::Snippet
 }
 
+static DICT_REGEX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r"(?i)\b(?:(?:meaning|definition) (?:of|for) (?P<def1>[a-zA-Z]+(?:[-'][a-zA-Z]+)*)|what does (?P<def2>[a-zA-Z]+(?:[-'][a-zA-Z]+)*) mean\??|define (?P<def3>[a-zA-Z]+(?:[-'][a-zA-Z]+)*)|(?P<def4>[a-zA-Z]+(?:[-'][a-zA-Z]+)*) (?:meaning|definition|means\??)|synonyms? (?:of|for) (?P<syn1>[a-zA-Z]+(?:[-'][a-zA-Z]+)*)|(?P<syn2>[a-zA-Z]+(?:[-'][a-zA-Z]+)*) synonyms?|antonyms? (?:of|for) (?P<ant1>[a-zA-Z]+(?:[-'][a-zA-Z]+)*)|(?P<ant2>[a-zA-Z]+(?:[-'][a-zA-Z]+)*) antonyms?|opposites? (?:of|for) (?P<ant3>[a-zA-Z]+(?:[-'][a-zA-Z]+)*)|(?P<ant4>[a-zA-Z]+(?:[-'][a-zA-Z]+)*) opposites?)$").expect("Valid dictionary regex")
+});
+
 impl crate::engine::evaluator::Evaluator {
     pub(crate) fn evaluate_buffer_for_expansion(
         &mut self,
@@ -97,10 +101,6 @@ impl crate::engine::evaluator::Evaluator {
                 .load(std::sync::atomic::Ordering::Relaxed)
         {
             let buffer_str = self.buffer.buffer_string();
-            static DICT_REGEX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-                regex::Regex::new(r"(?i)\b(?:(?:meaning|definition) of (?P<def1>[a-zA-Z]+)|what does (?P<def2>[a-zA-Z]+) mean\??|define (?P<def3>[a-zA-Z]+)|(?P<def4>[a-zA-Z]+) (?:meaning|definition|means\??)|synonyms? of (?P<syn1>[a-zA-Z]+)|(?P<syn2>[a-zA-Z]+) synonyms?|antonyms? of (?P<ant1>[a-zA-Z]+)|(?P<ant2>[a-zA-Z]+) antonyms?|opposite of (?P<ant3>[a-zA-Z]+)|(?P<ant4>[a-zA-Z]+) opposite)$").expect("Valid dictionary regex")
-            });
-
             if let Some(captures) = DICT_REGEX.captures(&buffer_str) {
                 let match_str = captures.get(0).unwrap().as_str();
 
@@ -302,5 +302,63 @@ impl crate::engine::evaluator::Evaluator {
         }
 
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dict_regex_captures_natural_language_triggers() {
+        let cases = [
+            ("meaning of self-esteem", Some(("self-esteem", "Meaning"))),
+            ("definition of well-being", Some(("well-being", "Meaning"))),
+            ("what does o'clock mean", Some(("o'clock", "Meaning"))),
+            ("synonyms for happy", Some(("happy", "Synonyms"))),
+            ("antonyms for dark", Some(("dark", "Antonyms"))),
+            ("opposites for dark", Some(("dark", "Antonyms"))),
+            ("meaning of happy", Some(("happy", "Meaning"))),
+        ];
+
+        for (input, expected) in cases {
+            let captures = DICT_REGEX.captures(input);
+            if let Some(expected_val) = expected {
+                let caps = captures.unwrap_or_else(|| panic!("Failed to match input: {}", input));
+
+                let (word, type_str) = if let Some(w) = caps
+                    .name("def1")
+                    .or(caps.name("def2"))
+                    .or(caps.name("def3"))
+                    .or(caps.name("def4"))
+                {
+                    (w.as_str(), "Meaning")
+                } else if let Some(w) = caps.name("syn1").or(caps.name("syn2")) {
+                    (w.as_str(), "Synonyms")
+                } else if let Some(w) = caps
+                    .name("ant1")
+                    .or(caps.name("ant2"))
+                    .or(caps.name("ant3"))
+                    .or(caps.name("ant4"))
+                {
+                    (w.as_str(), "Antonyms")
+                } else {
+                    panic!("Match found but no group caught for {}", input);
+                };
+
+                assert_eq!(word, expected_val.0, "Word mismatch for input {}", input);
+                assert_eq!(
+                    type_str, expected_val.1,
+                    "Type mismatch for input {}",
+                    input
+                );
+            } else {
+                assert!(
+                    captures.is_none(),
+                    "Expected no match for {}, but got one",
+                    input
+                );
+            }
+        }
     }
 }

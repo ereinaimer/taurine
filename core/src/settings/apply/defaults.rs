@@ -1,4 +1,4 @@
-use super::super::{InlineAiTriggerMode, RpcMode, Settings, SpinnerStyle};
+use super::super::{InlineAiTriggerMode, InlineDictionaryMode, RpcMode, Settings, SpinnerStyle};
 use crate::error::{Error, Result};
 
 pub fn default_setting_input(key: &str) -> Result<Option<String>> {
@@ -65,6 +65,10 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
             Ok(Some(defaults.inline_currency_to_words_enabled.to_string()))
         }
         "inline_dictionary_enabled" => Ok(Some(defaults.inline_dictionary_enabled.to_string())),
+        "inline_dictionary_mode" => Ok(Some(match defaults.inline_dictionary_mode {
+            InlineDictionaryMode::Lite => "lite".to_string(),
+            InlineDictionaryMode::Full => "full".to_string(),
+        })),
         "notify_on_update" => Ok(Some(defaults.notify_on_update.to_string())),
         _ => Err(Error::Config(format!("unknown setting: {actual_key}"))),
     }

@@ -25,6 +25,8 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
             settings.pause_audio_enabled.to_string(),
         ),
         ("start_on_boot", settings.start_on_boot.to_string()),
+        ("auto_update", settings.auto_update.to_string()),
+        ("notify_on_update", settings.notify_on_update.to_string()),
         (
             "system_tray_enabled",
             settings.system_tray_enabled.to_string(),
@@ -95,17 +97,46 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
         ),
         ("scripts_enabled", settings.scripts_enabled.to_string()),
         ("instant_expand", settings.instant_expand.to_string()),
+        ("ignore_fullscreen", settings.ignore_fullscreen.to_string()),
         (
             "inline_emoji_enabled",
             settings.inline_emoji_enabled.to_string(),
+        ),
+        (
+            "inline_emoji_trigger_char",
+            settings.inline_emoji_trigger_char.to_string(),
         ),
         (
             "inline_datetime_enabled",
             settings.inline_datetime_enabled.to_string(),
         ),
         (
+            "inline_datetime_date_format",
+            settings.inline_datetime_date_format.clone(),
+        ),
+        (
+            "inline_datetime_time_format",
+            settings.inline_datetime_time_format.clone(),
+        ),
+        (
+            "inline_datetime_datetime_format",
+            settings.inline_datetime_datetime_format.clone(),
+        ),
+        (
+            "inline_datetime_dialect",
+            settings.inline_datetime_dialect.clone(),
+        ),
+        (
             "inline_currency_to_words_enabled",
             settings.inline_currency_to_words_enabled.to_string(),
+        ),
+        (
+            "inline_dictionary_enabled",
+            settings.inline_dictionary_enabled.to_string(),
+        ),
+        (
+            "inline_dictionary_mode",
+            format!("{:?}", settings.inline_dictionary_mode).to_lowercase(),
         ),
         (
             "rpc_mode",

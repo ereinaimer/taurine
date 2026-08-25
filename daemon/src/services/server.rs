@@ -295,6 +295,9 @@ impl DaemonControl for DaemonService {
             taurine_core::settings::set_cached_inline_dictionary_enabled(
                 settings.inline_dictionary_enabled,
             );
+            taurine_core::settings::set_cached_inline_dictionary_mode(
+                settings.inline_dictionary_mode,
+            );
             taurine_core::settings::set_cached_scripts_enabled(settings.scripts_enabled);
             taurine_core::settings::set_cached_inline_case_transform_enabled(
                 settings.inline_case_transform_enabled,
@@ -391,6 +394,7 @@ impl DaemonControl for DaemonService {
         }
 
         debug!("Successfully reloaded snippets and settings into service.");
+        tokio::spawn(crate::dictionary_manager::check_and_update_dictionary());
         Ok(Response::new(ReloadResponse { success: true }))
     }
 
