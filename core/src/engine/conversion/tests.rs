@@ -588,3 +588,144 @@ fn test_extend_mass_microgram() {
     let state = EngineState::new();
     assert_eq!(convert("1g=ug", &state), Some("1000000ug".to_string()));
 }
+
+#[test]
+fn test_nl_target_first_pattern() {
+    let state = EngineState::new();
+
+    // Basic "how many X in a Y" (singular article in source)
+    assert_eq!(
+        convert_natural("how many inches in a foot", &state),
+        Some("12 inches".to_string())
+    );
+    assert_eq!(
+        convert_natural("how many GB in a TB", &state),
+        Some("1000 GB".to_string())
+    );
+
+    // "how many X are in Y" (with "are")
+    assert_eq!(
+        convert_natural("how many inches are in a foot", &state),
+        Some("12 inches".to_string())
+    );
+
+    // "how many X in N Y" (numeric source value)
+    assert_eq!(
+        convert_natural("how many centimeters in 5 inches", &state),
+        Some("12.7 centimeters".to_string())
+    );
+    assert_eq!(
+        convert_natural("how many meters in 10 feet", &state),
+        Some("3.05 meters".to_string())
+    );
+
+    // Case insensitivity
+    assert_eq!(
+        convert_natural("HOW MANY INCHES IN A FOOT", &state),
+        Some("12 inches".to_string())
+    );
+
+    // Trailing punctuation
+    assert_eq!(
+        convert_natural("how many inches in a foot?", &state),
+        Some("12 inches".to_string())
+    );
+}
+
+#[test]
+fn test_nl_singular_articles_pattern() {
+    let state = EngineState::new();
+
+    // "a <unit> to <unit>"
+    assert_eq!(
+        convert_natural("a mile to feet", &state),
+        Some("5280 feet".to_string())
+    );
+    assert_eq!(
+        convert_natural("a km to meters", &state),
+        Some("1000 meters".to_string())
+    );
+
+    // "an <unit> to <unit>" (vowel-initial units)
+    assert_eq!(
+        convert_natural("an hour to minutes", &state),
+        Some("60 minutes".to_string())
+    );
+    assert_eq!(
+        convert_natural("an inch to cm", &state),
+        Some("2.54 cm".to_string())
+    );
+
+    // Other separators: in, into, as
+    assert_eq!(
+        convert_natural("a mile in feet", &state),
+        Some("5280 feet".to_string())
+    );
+    assert_eq!(
+        convert_natural("a mile into feet", &state),
+        Some("5280 feet".to_string())
+    );
+    assert_eq!(
+        convert_natural("a kg as lbs", &state),
+        Some("2.2 lbs".to_string())
+    );
+}
+
+#[test]
+fn test_nl_complex_prepositional_pattern() {
+    let state = EngineState::new();
+
+    // "how many X are in N Y"
+    assert_eq!(
+        convert_natural("how many centimeters are in 5 inches", &state),
+        Some("12.7 centimeters".to_string())
+    );
+    assert_eq!(
+        convert_natural("how many km are in 3 miles", &state),
+        Some("4.83 km".to_string())
+    );
+    assert_eq!(
+        convert_natural("how many GB are in 2 TB", &state),
+        Some("2000 GB".to_string())
+    );
+
+    // With decimal values
+    assert_eq!(
+        convert_natural("how many ml are in 1.5 cups", &state),
+        Some("354.88 ml".to_string())
+    );
+}
+
+#[test]
+fn test_nl_question_patterns_output_formatting() {
+    let state = EngineState::new();
+
+    // Preserves target unit casing/spacing (natural language style)
+    assert_eq!(
+        convert_natural("how many INCHES in a foot", &state),
+        Some("12 INCHES".to_string())
+    );
+    assert_eq!(
+        convert_natural("how many Feet in a mile", &state),
+        Some("5280 Feet".to_string())
+    );
+
+    // Comma formatting for large numbers
+    assert_eq!(
+        convert_natural("how many meters in 10000 feet", &state),
+        Some("3,048 meters".to_string())
+    );
+
+    // Currency works through transform
+    let mut mock = HashMap::new();
+    mock.insert("USD".to_string(), 1.0);
+    mock.insert("EUR".to_string(), 0.915);
+    MOCK_RATES.with(|m| *m.borrow_mut() = Some(mock));
+
+    assert_eq!(
+        convert_natural("how many euros in 100 dollars", &state),
+        Some("91.5 euros".to_string())
+    );
+
+    MOCK_RATES.with(|m| *m.borrow_mut() = None);
+}

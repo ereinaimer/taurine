@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **NL Question Patterns for Unit Converter**: Support three natural language question styles for unit conversions — target-first (`how many inches in a foot?`), singular articles (`a mile to feet`, `an hour to minutes`), and complex prepositional (`how many cm are in 5 inches?`). All patterns transform to canonical format and reuse existing conversion engine.
 - **Offline Inline Dictionary**: Search for word definitions, synonyms, and antonyms locally using an offline database (defaulting to Lite with an option to background-download a Full dictionary, and expanded triggers supporting apostrophized/hyphenated terms and plural opposites).
 - **Data-Rate Conversions**: Inline conversions between data rates with case-sensitive bit/byte distinction (e.g. `50 Mbps to MBps` → `6.25 MBps`).
 - **NL Prefixes for Timezone Queries**: Share unit converter's prefix list (`convert`, `what is`, `what's`, `how much is`) with timezone parser so queries like `convert 10am pst to tokyo time` now work.

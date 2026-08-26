@@ -512,11 +512,59 @@ fn strip_nl_prefix(s: &str) -> &str {
     s
 }
 
+fn preprocess_question_patterns(s: &str) -> Option<String> {
+    let trimmed = s.trim().trim_end_matches(['?', '.']);
+    let is_all_uppercase = trimmed.chars().all(|c| !c.is_lowercase());
+
+    // Pattern 1: "how many <target> (are)? in <source_spec>"
+    // e.g., "how many inches in a foot", "how many cm in 5 inches"
+    static HOW_MANY_IN: OnceLock<Regex> = OnceLock::new();
+    let how_many_in = HOW_MANY_IN.get_or_init(|| {
+        Regex::new(r"(?i)^how many\s+(.+?)\s+(?:are\s+)?in\s+(.+)$").expect("valid regex")
+    });
+
+    let mut current = trimmed.to_string();
+    if let Some(caps) = how_many_in.captures(trimmed) {
+        let mut target = caps.get(1)?.as_str().trim().to_string();
+        let source_spec = caps.get(2)?.as_str().trim();
+        // Normalize target casing for all-uppercase input
+        if is_all_uppercase {
+            target = target.to_lowercase();
+        }
+        current = format!("{} to {}", source_spec, target);
+    }
+
+    // Pattern 2: "a/an <source> (to|in|into|as) <target>"
+    // e.g., "a mile to feet", "an hour in minutes"
+    // Also handles output from Pattern 1 like "a foot to inches"
+    static A_AN_SEP: OnceLock<Regex> = OnceLock::new();
+    let a_an_sep = A_AN_SEP.get_or_init(|| {
+        Regex::new(r"(?i)^(?:a|an)\s+(.+?)\s+(?:to|in|into|as)\s+(.+)$").expect("valid regex")
+    });
+
+    if let Some(caps) = a_an_sep.captures(&current) {
+        let source = caps.get(1)?.as_str().trim();
+        let target = caps.get(2)?.as_str().trim();
+        current = format!("1 {} to {}", source, target);
+    }
+
+    // Only return Some if we actually transformed the input
+    if current != trimmed {
+        Some(current)
+    } else {
+        None
+    }
+}
+
 /// Parses a natural language conversion query (e.g. "100 dollars to Euros"),
 /// normalizes the units and currencies, executes the conversion, and formats the result.
 pub fn convert_natural(s: &str, state: &crate::engine::state::EngineState) -> Option<String> {
+    // Pre-process question patterns to canonical format
+    let preprocessed = preprocess_question_patterns(s);
+    let input = preprocessed.as_deref().unwrap_or(s);
+
     // 1. Pre-process separators: pad '=' with spaces to make it a distinct token
-    let cleaned = s.replace('=', " = ");
+    let cleaned = input.replace('=', " = ");
 
     // 2. Normalize whitespace and convert to lowercase for parsing
     let normalized = cleaned
@@ -601,10 +649,15 @@ pub fn convert_natural(s: &str, state: &crate::engine::state::EngineState) -> Op
     } else {
         &converted_res
     };
-
     // 11. Re-apply comma formatting to the numeric part
     let formatted_num = if let Some(ref ivs) = intervals {
         crate::engine::comma::format_result(numeric_res, ivs)
+    } else if let Ok(source_val) = cleaned_val_str.parse::<f64>()
+        && source_val.abs() >= 1000.0
+        && let Ok(num) = numeric_res.parse::<f64>()
+        && num.abs() >= 1000.0
+    {
+        crate::engine::comma::format_result(numeric_res, &[3])
     } else {
         numeric_res.to_string()
     };
