@@ -53,7 +53,8 @@ pub(super) static LISTENER_EPOCH: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 
 #[cfg(not(target_os = "linux"))]
-static LAST_PAUSE_TOGGLE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static LAST_PAUSE_TOGGLE_INSTANT: std::sync::OnceLock<std::sync::Mutex<std::time::Instant>> =
+    std::sync::OnceLock::new();
 
 #[cfg(not(target_os = "linux"))]
 static PAUSE_KEY_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -447,13 +448,20 @@ pub fn process_keyboard_event(
             return None; // Ignore repeating keys
         }
 
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        let last_ms = LAST_PAUSE_TOGGLE_MS.load(Ordering::Relaxed);
-        if now_ms.saturating_sub(last_ms) >= 300 {
-            LAST_PAUSE_TOGGLE_MS.store(now_ms, Ordering::Relaxed);
+        let now = std::time::Instant::now();
+        let mut last_toggle_lock = LAST_PAUSE_TOGGLE_INSTANT
+            .get_or_init(|| {
+                std::sync::Mutex::new(
+                    now.checked_sub(std::time::Duration::from_millis(300))
+                        .unwrap_or(now),
+                )
+            })
+            .lock()
+            .unwrap();
+
+        if now.duration_since(*last_toggle_lock).as_millis() >= 300 {
+            *last_toggle_lock = now;
+            drop(last_toggle_lock);
 
             clear_undo_state(state.as_ref());
             let now_paused = !paused.load(Ordering::Relaxed);
