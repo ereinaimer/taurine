@@ -516,11 +516,12 @@ fn preprocess_question_patterns(s: &str) -> Option<String> {
     let trimmed = s.trim().trim_end_matches(['?', '.']);
     let is_all_uppercase = trimmed.chars().all(|c| !c.is_lowercase());
 
-    // Pattern 1: "how many <target> (are)? in <source_spec>"
-    // e.g., "how many inches in a foot", "how many cm in 5 inches"
+    // Pattern 1: "how many <target> (are)? (there)? in <source_spec>"
+    // e.g., "how many inches in a foot", "how many cm in 5 inches", "how many inches are there in a foot"
     static HOW_MANY_IN: OnceLock<Regex> = OnceLock::new();
     let how_many_in = HOW_MANY_IN.get_or_init(|| {
-        Regex::new(r"(?i)^how many\s+(.+?)\s+(?:are\s+)?in\s+(.+)$").expect("valid regex")
+        Regex::new(r"(?i)^how many\s+(.+?)\s+(?:are\s+)?(?:there\s+)?in\s+(.+)$")
+            .expect("valid regex")
     });
 
     let mut current = trimmed.to_string();
@@ -534,12 +535,12 @@ fn preprocess_question_patterns(s: &str) -> Option<String> {
         current = format!("{} to {}", source_spec, target);
     }
 
-    // Pattern 2: "a/an <source> (to|in|into|as) <target>"
-    // e.g., "a mile to feet", "an hour in minutes"
+    // Pattern 2: "a/an/one <source> (to|in|into|as) <target>"
+    // e.g., "a mile to feet", "an hour in minutes", "one mile to feet"
     // Also handles output from Pattern 1 like "a foot to inches"
     static A_AN_SEP: OnceLock<Regex> = OnceLock::new();
     let a_an_sep = A_AN_SEP.get_or_init(|| {
-        Regex::new(r"(?i)^(?:a|an)\s+(.+?)\s+(?:to|in|into|as)\s+(.+)$").expect("valid regex")
+        Regex::new(r"(?i)^(?:a|an|one)\s+(.+?)\s+(?:to|in|into|as)\s+(.+)$").expect("valid regex")
     });
 
     if let Some(caps) = a_an_sep.captures(&current) {

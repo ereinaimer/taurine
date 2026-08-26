@@ -728,4 +728,22 @@ fn test_nl_question_patterns_output_formatting() {
     );
 
     MOCK_RATES.with(|m| *m.borrow_mut() = None);
+
+    // Verify "are there in" phrasing
+    assert_eq!(
+        convert_natural("how many inches are there in a foot", &state),
+        Some("12 inches".to_string())
+    );
+
+    // Verify "one" prefix
+    assert_eq!(
+        convert_natural("one hour to minutes", &state),
+        Some("60 minutes".to_string())
+    );
+
+    // Verify optimized output comma-formatting for small source / large target values
+    assert_eq!(
+        convert_natural("a mile to feet", &state),
+        Some("5280 feet".to_string())
+    );
 }
