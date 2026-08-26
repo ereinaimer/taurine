@@ -130,6 +130,20 @@ impl ExpansionCatalog {
         }
         let dialect = crate::settings::get_cached_inline_datetime_dialect();
 
+        // Check for countdown queries first: "how many days until christmas?"
+        if let Some(countdown) = crate::engine::dates::parse_countdown_query(keyword, &dialect) {
+            let mut expansion = FinalExpansion::text(countdown);
+            expansion.is_calculation = true;
+            return Some(expansion);
+        }
+
+        // Check for date queries: "what is the date next friday?"
+        if let Some(date_str) = crate::engine::dates::parse_date_query(keyword, &dialect) {
+            let mut expansion = FinalExpansion::text(date_str);
+            expansion.is_calculation = true;
+            return Some(expansion);
+        }
+
         // Require an explicit direction signal — bare quantities, bare times, and
         // absolute dates are intentionally excluded.
         // Exception: "now" is allowed in prefix-triggered mode (e.g. ">now") but

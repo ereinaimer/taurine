@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Natural Language Date Countdowns**: Support `how many <unit> until <target>` queries for holidays (christmas, new year, halloween, valentine, etc.), relative anchors (end of day/week/month/year), weekdays (next friday), and natural dates — returns numeric duration (e.g. `25 days`, `3 weeks`).
+- **Natural Language Date Queries**: Support `what is the date <target>` / `what date is it <target>` queries for the same target types — returns formatted date using configured date format (e.g. `December 25, 2024`).
 - **NL Question Patterns for Unit Converter**: Support three natural language question styles for unit conversions — target-first (`how many inches in a foot?`), singular articles (`a mile to feet`, `an hour to minutes`), and complex prepositional (`how many cm are in 5 inches?`). All patterns transform to canonical format and reuse existing conversion engine.
 - **Offline Inline Dictionary**: Search for word definitions, synonyms, and antonyms locally using an offline database (defaulting to Lite with an option to background-download a Full dictionary, and expanded triggers supporting apostrophized/hyphenated terms and plural opposites).
 - **Data-Rate Conversions**: Inline conversions between data rates with case-sensitive bit/byte distinction (e.g. `50 Mbps to MBps` → `6.25 MBps`).

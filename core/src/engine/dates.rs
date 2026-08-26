@@ -1,3 +1,4 @@
+use chrono::{DateTime, Datelike, Local, TimeZone, Timelike};
 use regex::Regex;
 use std::sync::OnceLock;
 use time::{OffsetDateTime, UtcOffset};
@@ -175,6 +176,348 @@ pub fn classify_date_expression(expr: &str) -> (bool, bool) {
     let is_time = has_time_indicator;
 
     (is_date, is_time)
+}
+
+/// Fixed-date holidays (month, day)
+const HOLIDAYS: &[(&str, u8, u8)] = &[
+    ("christmas", 12, 25),
+    ("christmas eve", 12, 24),
+    ("new year", 1, 1),
+    ("new years", 1, 1),
+    ("new year's", 1, 1),
+    ("new years eve", 12, 31),
+    ("new year's eve", 12, 31),
+    ("valentine", 2, 14),
+    ("valentine's", 2, 14),
+    ("st patrick", 3, 17),
+    ("st patricks", 3, 17),
+    ("april fool", 4, 1),
+    ("april fools", 4, 1),
+    ("halloween", 10, 31),
+    ("thanksgiving", 11, 1), // Approximate - 4th Thursday in Nov (US)
+    ("boxing day", 12, 26),
+];
+
+/// Relative anchor targets for "end of X" queries
+type AnchorFn = fn(DateTime<Local>) -> DateTime<Local>;
+const RELATIVE_ANCHORS: &[(&str, AnchorFn)] = &[
+    ("end of day", |dt| {
+        dt.with_hour(23)
+            .unwrap()
+            .with_minute(59)
+            .unwrap()
+            .with_second(59)
+            .unwrap()
+    }),
+    ("end of today", |dt| {
+        dt.with_hour(23)
+            .unwrap()
+            .with_minute(59)
+            .unwrap()
+            .with_second(59)
+            .unwrap()
+    }),
+    ("end of week", |dt| {
+        let days_until_sunday = (7 - dt.weekday().num_days_from_monday()) % 7;
+        (dt + chrono::Duration::days(days_until_sunday as i64))
+            .with_hour(23)
+            .unwrap()
+            .with_minute(59)
+            .unwrap()
+            .with_second(59)
+            .unwrap()
+    }),
+    ("end of month", |dt| {
+        let next_month = if dt.month() == 12 { 1 } else { dt.month() + 1 };
+        let next_year = if dt.month() == 12 {
+            dt.year() + 1
+        } else {
+            dt.year()
+        };
+        Local
+            .with_ymd_and_hms(next_year, next_month, 1, 0, 0, 0)
+            .unwrap()
+            - chrono::Duration::seconds(1)
+    }),
+    ("end of year", |dt| {
+        Local
+            .with_ymd_and_hms(dt.year() + 1, 1, 1, 0, 0, 0)
+            .unwrap()
+            - chrono::Duration::seconds(1)
+    }),
+];
+
+fn find_holiday(name: &str) -> Option<(u32, u32)> {
+    let lower = name.to_lowercase();
+    HOLIDAYS.iter().find_map(|(n, m, d)| {
+        if lower.contains(n) {
+            Some((*m as u32, *d as u32))
+        } else {
+            None
+        }
+    })
+}
+
+fn find_relative_anchor(name: &str) -> Option<fn(DateTime<Local>) -> DateTime<Local>> {
+    let lower = name.to_lowercase();
+    RELATIVE_ANCHORS
+        .iter()
+        .find_map(|(n, f)| if lower.contains(n) { Some(*f) } else { None })
+}
+
+fn chrono_to_time(dt: DateTime<Local>) -> Option<OffsetDateTime> {
+    let timestamp = dt.timestamp();
+    let nanoseconds = dt.timestamp_subsec_nanos();
+    time::OffsetDateTime::from_unix_timestamp_nanos(
+        (timestamp as i128) * 1_000_000_000 + (nanoseconds as i128),
+    )
+    .ok()
+}
+
+/// Parses "how many <unit> until <target>" countdown queries.
+/// Returns formatted duration string like "25 days", "3 weeks", etc.
+pub fn parse_countdown_query(expr: &str, preferred_dialect: &str) -> Option<String> {
+    let s = expr.to_lowercase().trim().to_string();
+    let s = s.trim_end_matches('?').trim();
+
+    static COUNTDOWN_RE: OnceLock<Regex> = OnceLock::new();
+    let re = COUNTDOWN_RE.get_or_init(|| {
+        Regex::new(r"^how many\s+(days?|weeks?|months?|hours?|minutes?|seconds?)\s+until\s+(.+)$")
+            .expect("valid countdown regex")
+    });
+
+    let caps = re.captures(s)?;
+    let unit = &caps[1];
+    let target = caps[2].trim();
+
+    let now = Local::now();
+
+    let target_dt = resolve_countdown_target(target, now, preferred_dialect)?;
+    let duration = target_dt.signed_duration_since(now);
+
+    if duration.num_seconds() <= 0 {
+        return Some("0".to_string());
+    }
+
+    let total_seconds = duration.num_seconds();
+    let (value, unit_str) = match unit {
+        "second" | "seconds" | "sec" | "secs" => (total_seconds, "seconds"),
+        "minute" | "minutes" | "min" | "mins" => (total_seconds / 60, "minutes"),
+        "hour" | "hours" | "hr" | "hrs" => (total_seconds / 3600, "hours"),
+        "day" | "days" => (total_seconds / 86400, "days"),
+        "week" | "weeks" => (total_seconds / 604800, "weeks"),
+        "month" | "months" => (total_seconds / 2592000, "months"),
+        _ => (total_seconds / 86400, "days"),
+    };
+
+    Some(format!("{} {}", value, unit_str))
+}
+
+fn resolve_countdown_target(
+    target: &str,
+    now: DateTime<Local>,
+    preferred_dialect: &str,
+) -> Option<DateTime<Local>> {
+    let target_lower = target.to_lowercase();
+
+    // Holiday?
+    if let Some((month, day)) = find_holiday(&target_lower) {
+        let year = now.year();
+        let dt = Local.with_ymd_and_hms(year, month, day, 0, 0, 0).single()?;
+        // If holiday already passed this year, use next year
+        if dt < now {
+            return Local
+                .with_ymd_and_hms(year + 1, month, day, 0, 0, 0)
+                .single();
+        }
+        return Some(dt);
+    }
+
+    // Relative anchor (end of day/week/month/year)?
+    if let Some(anchor_fn) = find_relative_anchor(&target_lower) {
+        return Some(anchor_fn(now));
+    }
+
+    // Weekday? (e.g., "next friday", "friday")
+    if let Some(dt) = parse_weekday_target(&target_lower, now, preferred_dialect) {
+        return Some(dt);
+    }
+
+    // Try parsing as a natural date expression (e.g., "june 15", "2024-12-25")
+    let cleaned = preprocess_date_phrase(target);
+    let primary_dialect = match preferred_dialect {
+        "us" => interim::Dialect::Us,
+        _ => interim::Dialect::Uk,
+    };
+    let alt_dialect = match primary_dialect {
+        interim::Dialect::Us => interim::Dialect::Uk,
+        interim::Dialect::Uk => interim::Dialect::Us,
+    };
+
+    interim::parse_date_string(&cleaned, now, primary_dialect)
+        .or_else(|_| interim::parse_date_string(&cleaned, now, alt_dialect))
+        .ok()
+}
+
+fn parse_weekday_target(
+    target: &str,
+    now: DateTime<Local>,
+    _preferred_dialect: &str,
+) -> Option<DateTime<Local>> {
+    let weekdays = [
+        ("monday", 1),
+        ("tuesday", 2),
+        ("wednesday", 3),
+        ("thursday", 4),
+        ("friday", 5),
+        ("saturday", 6),
+        ("sunday", 7),
+        ("mon", 1),
+        ("tue", 2),
+        ("wed", 3),
+        ("thu", 4),
+        ("fri", 5),
+        ("sat", 6),
+        ("sun", 7),
+    ];
+
+    let (_, weekday_num) = weekdays.iter().find(|(name, _)| target.contains(name))?;
+    let is_next = target.starts_with("next ");
+    let is_this = target.starts_with("this ");
+    let is_coming = target.contains("coming ");
+
+    let current_weekday = now.weekday().num_days_from_monday() as i64 + 1; // 1-7
+    let target_weekday = *weekday_num as i64;
+
+    let days_ahead = if is_next || is_coming || is_this {
+        (target_weekday - current_weekday + 7) % 7
+    } else {
+        // Bare weekday - assume next occurrence
+        (target_weekday - current_weekday + 7) % 7
+    };
+
+    let days_ahead = if days_ahead == 0 && (is_next || is_coming) {
+        7
+    } else {
+        days_ahead
+    };
+    let target_date = now.date_naive() + chrono::Duration::days(days_ahead);
+    Local
+        .from_local_datetime(&target_date.and_hms_opt(0, 0, 0).unwrap())
+        .single()
+}
+
+/// Parses "what is the date <target>" / "what date is it <target>" queries.
+/// Returns formatted date string using the configured date format.
+pub fn parse_date_query(expr: &str, preferred_dialect: &str) -> Option<String> {
+    let s = expr.to_lowercase().trim().to_string();
+    let s = s.trim_end_matches('?').trim();
+
+    static DATE_QUERY_RE: OnceLock<Regex> = OnceLock::new();
+    let re = DATE_QUERY_RE.get_or_init(|| {
+        Regex::new(r"^what'?s?\s+(?:is\s+)?(?:the\s+)?date\s+(?:is it\s+)?(.+)$")
+            .expect("valid date query regex")
+    });
+
+    let caps = re.captures(s)?;
+    let target = caps[1].trim();
+
+    let now = Local::now();
+
+    let target_dt = resolve_date_query_target(target, now, preferred_dialect)?;
+    let time_dt = chrono_to_time(target_dt)?;
+    let pattern = crate::settings::get_cached_inline_datetime_date_format();
+    Some(format_datetime(time_dt, &pattern))
+}
+
+fn resolve_date_query_target(
+    target: &str,
+    now: DateTime<Local>,
+    preferred_dialect: &str,
+) -> Option<DateTime<Local>> {
+    let target_lower = target.to_lowercase();
+
+    // Bare "today", "tomorrow", "yesterday"
+    match target_lower.as_str() {
+        "today" => {
+            return Some(
+                now.with_hour(0)
+                    .unwrap()
+                    .with_minute(0)
+                    .unwrap()
+                    .with_second(0)
+                    .unwrap(),
+            );
+        }
+        "tomorrow" => {
+            return Some(
+                (now + chrono::Duration::days(1))
+                    .with_hour(0)
+                    .unwrap()
+                    .with_minute(0)
+                    .unwrap()
+                    .with_second(0)
+                    .unwrap(),
+            );
+        }
+        "yesterday" => {
+            return Some(
+                (now - chrono::Duration::days(1))
+                    .with_hour(0)
+                    .unwrap()
+                    .with_minute(0)
+                    .unwrap()
+                    .with_second(0)
+                    .unwrap(),
+            );
+        }
+        "now" => return Some(now),
+        _ => {}
+    }
+
+    // Holiday?
+    if let Some((month, day)) = find_holiday(&target_lower) {
+        let year = now.year();
+        let dt = Local.with_ymd_and_hms(year, month, day, 0, 0, 0).single()?;
+        if dt < now {
+            return Local
+                .with_ymd_and_hms(year + 1, month, day, 0, 0, 0)
+                .single();
+        }
+        return Some(dt);
+    }
+
+    // Relative anchor?
+    if let Some(anchor_fn) = find_relative_anchor(&target_lower) {
+        return Some(anchor_fn(now));
+    }
+
+    // Weekday?
+    if let Some(dt) = parse_weekday_target(&target_lower, now, preferred_dialect) {
+        return Some(
+            dt.with_hour(0)
+                .unwrap()
+                .with_minute(0)
+                .unwrap()
+                .with_second(0)
+                .unwrap(),
+        );
+    }
+
+    // Try natural date parsing
+    let cleaned = preprocess_date_phrase(target);
+    let primary_dialect = match preferred_dialect {
+        "us" => interim::Dialect::Us,
+        _ => interim::Dialect::Uk,
+    };
+    let alt_dialect = match primary_dialect {
+        interim::Dialect::Us => interim::Dialect::Uk,
+        interim::Dialect::Uk => interim::Dialect::Us,
+    };
+
+    interim::parse_date_string(&cleaned, now, primary_dialect)
+        .or_else(|_| interim::parse_date_string(&cleaned, now, alt_dialect))
+        .ok()
 }
 
 /// Returns true if the expression has an explicit direction signal and should expand.
@@ -629,5 +972,98 @@ mod tests {
         assert_eq!(classify_date_expression("now"), (true, true));
         assert_eq!(classify_date_expression("next friday 8pm"), (true, true));
         assert_eq!(classify_date_expression("tomorrow 9am"), (true, true));
+    }
+
+    // ─── parse_countdown_query ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_countdown_holidays() {
+        // These test that parsing works; exact values depend on current date
+        assert!(parse_countdown_query("how many days until christmas", "uk").is_some());
+        assert!(parse_countdown_query("how many days until new year", "uk").is_some());
+        assert!(parse_countdown_query("how many days until halloween", "uk").is_some());
+        assert!(parse_countdown_query("how many days until valentine", "uk").is_some());
+        assert!(parse_countdown_query("how many weeks until christmas", "uk").is_some());
+        assert!(parse_countdown_query("how many hours until new year", "uk").is_some());
+    }
+
+    #[test]
+    fn test_countdown_relative_anchors() {
+        assert!(parse_countdown_query("how many hours until end of day", "uk").is_some());
+        assert!(parse_countdown_query("how many days until end of week", "uk").is_some());
+        assert!(parse_countdown_query("how many days until end of month", "uk").is_some());
+        assert!(parse_countdown_query("how many days until end of year", "uk").is_some());
+        assert!(parse_countdown_query("how many minutes until end of today", "uk").is_some());
+    }
+
+    #[test]
+    fn test_countdown_weekdays() {
+        assert!(parse_countdown_query("how many days until next friday", "uk").is_some());
+        assert!(parse_countdown_query("how many days until friday", "uk").is_some());
+        assert!(parse_countdown_query("how many weeks until next monday", "uk").is_some());
+    }
+
+    #[test]
+    fn test_countdown_natural_dates() {
+        assert!(parse_countdown_query("how many days until june 15", "uk").is_some());
+        assert!(parse_countdown_query("how many days until 2024-12-25", "uk").is_some());
+    }
+
+    #[test]
+    fn test_countdown_case_insensitive() {
+        assert!(parse_countdown_query("HOW MANY DAYS UNTIL CHRISTMAS", "uk").is_some());
+        assert!(parse_countdown_query("How Many Days Until Christmas?", "uk").is_some());
+        assert!(parse_countdown_query("how many days until CHRISTMAS?", "uk").is_some());
+    }
+
+    // ─── parse_date_query ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_date_query_basic() {
+        assert!(parse_date_query("what is the date today", "uk").is_some());
+        assert!(parse_date_query("what date is it tomorrow", "uk").is_some());
+        assert!(parse_date_query("what is the date yesterday", "uk").is_some());
+        assert!(parse_date_query("what date is it now", "uk").is_some());
+    }
+
+    #[test]
+    fn test_date_query_holidays() {
+        assert!(parse_date_query("what is the date christmas", "uk").is_some());
+        assert!(parse_date_query("what date is it new year", "uk").is_some());
+        assert!(parse_date_query("what is the date halloween", "uk").is_some());
+    }
+
+    #[test]
+    fn test_date_query_relative_anchors() {
+        assert!(parse_date_query("what is the date end of week", "uk").is_some());
+        assert!(parse_date_query("what date is it end of month", "uk").is_some());
+        assert!(parse_date_query("what is the date end of year", "uk").is_some());
+        assert!(parse_date_query("what date is it end of today", "uk").is_some());
+    }
+
+    #[test]
+    fn test_date_query_weekdays() {
+        assert!(parse_date_query("what is the date next friday", "uk").is_some());
+        assert!(parse_date_query("what date is it friday", "uk").is_some());
+        assert!(parse_date_query("what is the date next monday", "uk").is_some());
+    }
+
+    #[test]
+    fn test_date_query_natural_dates() {
+        assert!(parse_date_query("what is the date june 15", "uk").is_some());
+        assert!(parse_date_query("what date is it 2024-12-25", "uk").is_some());
+    }
+
+    #[test]
+    fn test_date_query_case_insensitive() {
+        assert!(parse_date_query("WHAT IS THE DATE TODAY", "uk").is_some());
+        assert!(parse_date_query("What Date Is It Tomorrow?", "uk").is_some());
+        assert!(parse_date_query("what is the date CHRISTMAS?", "uk").is_some());
+    }
+
+    #[test]
+    fn test_date_query_variations() {
+        assert!(parse_date_query("what's the date today", "uk").is_some());
+        assert!(parse_date_query("whats the date tomorrow", "uk").is_some());
     }
 }
