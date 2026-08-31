@@ -42,6 +42,12 @@ impl<'a> SettingsManager<'a> {
             settings.audio_theme = v;
         }
 
+        if let Some(val) = map.get("audio_volume")
+            && let Ok(v) = serde_json::from_str::<u32>(val)
+        {
+            settings.audio_volume = Settings::sanitize_audio_volume(v);
+        }
+
         if let Some(val) = map.get("start_on_boot")
             && let Ok(v) = serde_json::from_str::<bool>(val)
         {

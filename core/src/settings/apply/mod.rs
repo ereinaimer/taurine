@@ -51,6 +51,16 @@ pub fn apply_setting_input_with_manager(
             manager.update_setting(actual_key, theme)?;
             ApplySettingOutcome::default()
         }
+        "audio_volume" => {
+            let raw_value = require_non_empty(value, actual_key)?;
+            let parsed = raw_value
+                .parse::<u32>()
+                .map_err(|_| Error::Config(format!("bad audio_volume value: {raw_value}")))?;
+            let sanitized = Settings::sanitize_audio_volume(parsed);
+            crate::settings::set_cached_audio_volume(sanitized);
+            manager.update_setting(actual_key, sanitized)?;
+            ApplySettingOutcome::default()
+        }
         "start_on_boot" => {
             let enabled = parse_boolean_setting_value(require_non_empty(value, actual_key)?)?;
             manager.update_setting(actual_key, enabled)?;

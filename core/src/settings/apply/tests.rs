@@ -282,8 +282,8 @@ fn asymmetric_mode_accepts_different_open_close_through_apply() {
 }
 
 #[test]
-fn setting_key_all_has_42_unique_storage_keys() {
-    assert_eq!(SettingKey::ALL.len(), 42);
+fn setting_key_all_has_43_unique_storage_keys() {
+    assert_eq!(SettingKey::ALL.len(), 43);
 
     let mut seen = HashSet::new();
     for key in SettingKey::ALL {
@@ -319,6 +319,7 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         ("pause_notifications_enabled", "true"),
         ("pause_audio_enabled", "false"),
         ("audio_theme", "arcade"),
+        ("audio_volume", "80"),
         ("start_on_boot", "false"),
         ("inline_tab_completion_enabled", "false"),
         ("inline_case_transform_enabled", "false"),
@@ -368,6 +369,7 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         pause_notifications_enabled: true,
         pause_audio_enabled: false,
         audio_theme: AudioTheme::Arcade,
+        audio_volume: 80,
         start_on_boot: false,
         inline_tab_completion_enabled: false,
         inline_case_transform_enabled: false,
@@ -456,4 +458,29 @@ fn test_audio_theme_apply_and_defaults() {
     }
 
     assert!("invalid_theme".parse::<AudioTheme>().is_err());
+}
+
+#[test]
+fn test_audio_volume_settings() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, conn) = open_test_db();
+    let manager = SettingsManager::new(&conn);
+
+    assert_eq!(Settings::default().audio_volume, 50);
+    assert_eq!(Settings::sanitize_audio_volume(50), 50);
+    assert_eq!(Settings::sanitize_audio_volume(0), 0);
+    assert_eq!(Settings::sanitize_audio_volume(100), 100);
+    assert_eq!(Settings::sanitize_audio_volume(150), 100);
+
+    apply_setting_input_with_manager(&manager, "audio_volume", Some("75")).unwrap();
+    assert_eq!(manager.load_all().audio_volume, 75);
+    assert_eq!(crate::settings::get_cached_audio_volume(), 75);
+
+    apply_setting_input_with_manager(&manager, "audio_volume", Some("200")).unwrap();
+    assert_eq!(manager.load_all().audio_volume, 100);
+    assert_eq!(crate::settings::get_cached_audio_volume(), 100);
+
+    assert!(apply_setting_input_with_manager(&manager, "audio_volume", Some("invalid")).is_err());
 }

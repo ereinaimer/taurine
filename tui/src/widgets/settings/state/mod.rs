@@ -397,4 +397,14 @@ mod tests {
         state.settings.pause_audio_enabled = false;
         assert!(state.visible_keys().contains(&SettingKey::AudioTheme));
     }
+
+    #[test]
+    fn test_audio_volume_is_always_visible() {
+        let mut state = SettingsPageState::default();
+        state.settings.pause_audio_enabled = true;
+        assert!(state.visible_keys().contains(&SettingKey::AudioVolume));
+
+        state.settings.pause_audio_enabled = false;
+        assert!(state.visible_keys().contains(&SettingKey::AudioVolume));
+    }
 }

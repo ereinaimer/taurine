@@ -17,6 +17,7 @@ impl SettingKeyMeta for SettingKey {
             Self::PauseNotificationsEnabled => "Pause Notifications",
             Self::PauseAudioEnabled => "Pause Audio",
             Self::AudioTheme => "Audio Theme",
+            Self::AudioVolume => "Audio Volume (%)",
             Self::StartOnBoot => "Start on Boot",
             Self::AutoUpdate => "Auto Update",
             Self::InlineTabCompletionEnabled => "Inline Tab Completion",
@@ -66,6 +67,7 @@ impl SettingKeyMeta for SettingKey {
             }
             Self::PauseAudioEnabled => "Play an audio cue when Taurine is paused or resumed",
             Self::AudioTheme => "Sound pack theme used for pause and resume audio cues",
+            Self::AudioVolume => "Playback volume for pause and resume audio cues (0-100%)",
             Self::StartOnBoot => "Start Taurine automatically when the system starts",
             Self::AutoUpdate => {
                 "Automatically check for and install updates when the service starts"
@@ -162,6 +164,7 @@ impl SettingKeyMeta for SettingKey {
             | Self::InlineDictionaryEnabled
             | Self::NotifyOnUpdate => EditorKind::Toggle,
             Self::Wpm
+            | Self::AudioVolume
             | Self::ClipboardRestoreDelayMs
             | Self::RpcPort
             | Self::ScriptTimeout
@@ -196,6 +199,7 @@ impl SettingKeyMeta for SettingKey {
             Self::PauseNotificationsEnabled => settings.pause_notifications_enabled.to_string(),
             Self::PauseAudioEnabled => settings.pause_audio_enabled.to_string(),
             Self::AudioTheme => settings.audio_theme.as_str().to_string(),
+            Self::AudioVolume => settings.audio_volume.to_string(),
             Self::StartOnBoot => settings.start_on_boot.to_string(),
             Self::AutoUpdate => settings.auto_update.to_string(),
             Self::InlineTabCompletionEnabled => settings.inline_tab_completion_enabled.to_string(),
@@ -280,6 +284,7 @@ impl SettingKeyMeta for SettingKey {
             Self::PauseNotificationsEnabled
             | Self::PauseAudioEnabled
             | Self::AudioTheme
+            | Self::AudioVolume
             | Self::StartOnBoot
             | Self::AutoUpdate
             | Self::InlineTabCompletionEnabled

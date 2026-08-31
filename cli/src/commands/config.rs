@@ -25,6 +25,7 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
             settings.pause_audio_enabled.to_string(),
         ),
         ("audio_theme", settings.audio_theme.as_str().to_string()),
+        ("audio_volume", settings.audio_volume.to_string()),
         ("start_on_boot", settings.start_on_boot.to_string()),
         ("auto_update", settings.auto_update.to_string()),
         ("notify_on_update", settings.notify_on_update.to_string()),
@@ -457,5 +458,16 @@ mod tests {
             persisted.unwrap(),
             taurine_core::settings::AudioTheme::Arcade
         );
+    }
+
+    #[test]
+    fn test_set_audio_volume_persists() {
+        let persisted = with_test_db(|| -> taurine_core::error::Result<u32> {
+            execute_set("audio_volume".to_string(), "65".to_string(), false)?;
+            let conn = init::setup()?;
+            let manager = SettingsManager::new(&conn);
+            Ok(manager.load_all().audio_volume)
+        });
+        assert_eq!(persisted.unwrap(), 65);
     }
 }

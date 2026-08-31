@@ -33,6 +33,7 @@ static CACHED_INLINE_CURRENCY_TO_WORDS_ENABLED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 static CACHED_AUDIO_THEME: parking_lot::RwLock<AudioTheme> =
     parking_lot::RwLock::new(AudioTheme::Minimal);
+static CACHED_AUDIO_VOLUME: AtomicU32 = AtomicU32::new(50);
 
 pub fn set_cached_audio_theme(theme: AudioTheme) {
     *CACHED_AUDIO_THEME.write() = theme;
@@ -40,6 +41,14 @@ pub fn set_cached_audio_theme(theme: AudioTheme) {
 
 pub fn get_cached_audio_theme() -> AudioTheme {
     *CACHED_AUDIO_THEME.read()
+}
+
+pub fn set_cached_audio_volume(volume: u32) {
+    CACHED_AUDIO_VOLUME.store(Settings::sanitize_audio_volume(volume), Ordering::Relaxed);
+}
+
+pub fn get_cached_audio_volume() -> u32 {
+    CACHED_AUDIO_VOLUME.load(Ordering::Relaxed)
 }
 
 pub fn set_cached_inline_emoji_enabled(enabled: bool) {
@@ -309,6 +318,7 @@ pub enum SettingKey {
     PauseNotificationsEnabled,
     PauseAudioEnabled,
     AudioTheme,
+    AudioVolume,
     StartOnBoot,
     AutoUpdate,
     InlineTabCompletionEnabled,
@@ -350,11 +360,12 @@ pub enum SettingKey {
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 42] = [
+    pub const ALL: [Self; 43] = [
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
         Self::PauseAudioEnabled,
         Self::AudioTheme,
+        Self::AudioVolume,
         Self::StartOnBoot,
         Self::AutoUpdate,
         Self::InlineTabCompletionEnabled,
@@ -401,6 +412,7 @@ impl SettingKey {
             Self::PauseNotificationsEnabled => "pause_notifications_enabled",
             Self::PauseAudioEnabled => "pause_audio_enabled",
             Self::AudioTheme => "audio_theme",
+            Self::AudioVolume => "audio_volume",
             Self::StartOnBoot => "start_on_boot",
             Self::AutoUpdate => "auto_update",
             Self::InlineTabCompletionEnabled => "inline_tab_completion_enabled",
@@ -449,6 +461,7 @@ pub struct Settings {
     pub pause_notifications_enabled: bool,
     pub pause_audio_enabled: bool,
     pub audio_theme: AudioTheme,
+    pub audio_volume: u32,
     pub start_on_boot: bool,
     pub inline_tab_completion_enabled: bool,
     pub inline_case_transform_enabled: bool,
@@ -499,6 +512,7 @@ impl std::fmt::Debug for Settings {
             )
             .field("pause_audio_enabled", &self.pause_audio_enabled)
             .field("audio_theme", &self.audio_theme)
+            .field("audio_volume", &self.audio_volume)
             .field("start_on_boot", &self.start_on_boot)
             .field(
                 "inline_tab_completion_enabled",
@@ -572,6 +586,7 @@ impl Settings {
             "notifications" => "pause_notifications_enabled",
             "pause_audio" => "pause_audio_enabled",
             "audio_theme" | "sound_theme" | "theme" | "audio_pack" | "sound_pack" => "audio_theme",
+            "audio_volume" | "sound_volume" | "volume" => "audio_volume",
             "boot" => "start_on_boot",
             "inline_tab_completion" => "inline_tab_completion_enabled",
             "inline_dictionary" | "inline_dictionary_enabled" | "dictionary" => {
@@ -707,6 +722,14 @@ impl Settings {
     pub const fn sanitize_clipboard_history_retention_secs(secs: u32) -> u32 {
         if secs > 86400 { 86400 } else { secs }
     }
+
+    pub const fn default_audio_volume() -> u32 {
+        50
+    }
+
+    pub const fn sanitize_audio_volume(volume: u32) -> u32 {
+        if volume > 100 { 100 } else { volume }
+    }
 }
 
 impl Default for Settings {
@@ -716,6 +739,7 @@ impl Default for Settings {
             pause_notifications_enabled: false,
             pause_audio_enabled: true,
             audio_theme: AudioTheme::default(),
+            audio_volume: Self::default_audio_volume(),
             start_on_boot: true,
             inline_tab_completion_enabled: true,
             inline_case_transform_enabled: true,

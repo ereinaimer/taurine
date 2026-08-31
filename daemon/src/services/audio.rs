@@ -1,6 +1,6 @@
 use rodio::{Decoder, DeviceSinkBuilder, Player};
 use std::io::Cursor;
-use taurine_core::settings::{AudioTheme, get_cached_audio_theme};
+use taurine_core::settings::{AudioTheme, get_cached_audio_theme, get_cached_audio_volume};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
@@ -71,6 +71,7 @@ pub fn start_worker(mut rx: mpsc::Receiver<bool>) {
 
             while let Some(is_paused) = rx.blocking_recv() {
                 let theme = get_cached_audio_theme();
+                let volume = get_cached_audio_volume();
                 let data = get_audio_data(theme, is_paused);
 
                 // Acquire a fresh OutputStream/MixerDeviceSink on every trigger so we always bind
@@ -91,6 +92,7 @@ pub fn start_worker(mut rx: mpsc::Receiver<bool>) {
                 match Decoder::new(cursor) {
                     Ok(decoder) => {
                         let player = Player::connect_new(stream.mixer());
+                        player.set_volume(volume as f32 / 100.0);
                         player.append(decoder);
                         player.sleep_until_end();
                     }

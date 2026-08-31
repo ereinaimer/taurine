@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Audio Themes**: Choose from 12 distinct built-in sound pack themes for pause and resume audio cues, selectable via CLI and TUI settings.
+- **Audio Themes & Volume**: Choose from 12 built-in sound themes for pause and resume cues and configure cue playback volume (0-100%, defaulting to 50%).
 - **Natural Language Date Countdowns**: Support `how many <unit> until <target>` queries for holidays (christmas, new year, halloween, valentine, etc.), relative anchors (end of day/week/month/year), weekdays (next friday), and natural dates — returns numeric duration (e.g. `25 days`, `3 weeks`).
 - **Natural Language Date Queries**: Support `what is the date <target>` / `what date is it <target>` queries for the same target types — returns formatted date using configured date format (e.g. `December 25, 2024`).
 - **NL Question Patterns for Unit Converter**: Support three natural language question styles for unit conversions — target-first (`how many inches in a foot?`), singular articles (`a mile to feet`, `an hour to minutes`), and complex prepositional (`how many cm are in 5 inches?`). All patterns transform to canonical format and reuse existing conversion engine.
