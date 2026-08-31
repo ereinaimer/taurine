@@ -1,7 +1,7 @@
 use super::*;
 use crate::settings::{
-    InlineAiTriggerMode, InlineDictionaryMode, RpcMode, SettingKey, Settings, SettingsManager,
-    SpinnerStyle,
+    AudioTheme, InlineAiTriggerMode, InlineDictionaryMode, RpcMode, SettingKey, Settings,
+    SettingsManager, SpinnerStyle,
 };
 use crate::testing::open_test_db;
 use std::collections::HashSet;
@@ -282,8 +282,8 @@ fn asymmetric_mode_accepts_different_open_close_through_apply() {
 }
 
 #[test]
-fn setting_key_all_has_41_unique_storage_keys() {
-    assert_eq!(SettingKey::ALL.len(), 41);
+fn setting_key_all_has_42_unique_storage_keys() {
+    assert_eq!(SettingKey::ALL.len(), 42);
 
     let mut seen = HashSet::new();
     for key in SettingKey::ALL {
@@ -318,6 +318,7 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         ("pause_hotkey", "Ctrl + Shift + P"),
         ("pause_notifications_enabled", "true"),
         ("pause_audio_enabled", "false"),
+        ("audio_theme", "arcade"),
         ("start_on_boot", "false"),
         ("inline_tab_completion_enabled", "false"),
         ("inline_case_transform_enabled", "false"),
@@ -366,6 +367,7 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         pause_hotkey: "Ctrl + Shift + P".to_string(),
         pause_notifications_enabled: true,
         pause_audio_enabled: false,
+        audio_theme: AudioTheme::Arcade,
         start_on_boot: false,
         inline_tab_completion_enabled: false,
         inline_case_transform_enabled: false,
@@ -425,4 +427,33 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
     }
 
     assert_eq!(manager.load_all(), Settings::default());
+}
+
+#[test]
+fn test_audio_theme_apply_and_defaults() {
+    let defaults = Settings::default();
+    assert_eq!(defaults.audio_theme, AudioTheme::Minimal);
+    assert_eq!(defaults.audio_theme.as_str(), "minimal");
+
+    let valid_themes = [
+        "minimal",
+        "soft",
+        "glass",
+        "arcade",
+        "mechanical",
+        "organic",
+        "dreamy",
+        "scifi",
+        "rubber",
+        "cinematic",
+        "studio",
+        "zen",
+    ];
+
+    for theme_str in valid_themes {
+        let parsed: AudioTheme = theme_str.parse().expect("valid theme parse");
+        assert_eq!(parsed.as_str(), theme_str);
+    }
+
+    assert!("invalid_theme".parse::<AudioTheme>().is_err());
 }

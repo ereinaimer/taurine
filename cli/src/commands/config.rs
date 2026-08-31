@@ -24,6 +24,7 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
             "pause_audio_enabled",
             settings.pause_audio_enabled.to_string(),
         ),
+        ("audio_theme", settings.audio_theme.as_str().to_string()),
         ("start_on_boot", settings.start_on_boot.to_string()),
         ("auto_update", settings.auto_update.to_string()),
         ("notify_on_update", settings.notify_on_update.to_string()),
@@ -440,5 +441,21 @@ mod tests {
         assert_eq!(value["spinner_style"], "arc");
         assert_eq!(value["inline_ai_trigger_mode"], "symmetric");
         assert_eq!(value["rpc_mode"], "tcp");
+    }
+
+    #[test]
+    fn test_set_audio_theme_persists() {
+        let persisted = with_test_db(
+            || -> taurine_core::error::Result<taurine_core::settings::AudioTheme> {
+                execute_set("audio_theme".to_string(), "arcade".to_string(), false)?;
+                let conn = init::setup()?;
+                let manager = SettingsManager::new(&conn);
+                Ok(manager.load_all().audio_theme)
+            },
+        );
+        assert_eq!(
+            persisted.unwrap(),
+            taurine_core::settings::AudioTheme::Arcade
+        );
     }
 }

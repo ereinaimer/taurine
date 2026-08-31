@@ -16,6 +16,7 @@ impl SettingKeyMeta for SettingKey {
             Self::PauseHotkey => "Pause Hotkey",
             Self::PauseNotificationsEnabled => "Pause Notifications",
             Self::PauseAudioEnabled => "Pause Audio",
+            Self::AudioTheme => "Audio Theme",
             Self::StartOnBoot => "Start on Boot",
             Self::AutoUpdate => "Auto Update",
             Self::InlineTabCompletionEnabled => "Inline Tab Completion",
@@ -64,6 +65,7 @@ impl SettingKeyMeta for SettingKey {
                 "Show a notification when Taurine is paused or resumed"
             }
             Self::PauseAudioEnabled => "Play an audio cue when Taurine is paused or resumed",
+            Self::AudioTheme => "Sound pack theme used for pause and resume audio cues",
             Self::StartOnBoot => "Start Taurine automatically when the system starts",
             Self::AutoUpdate => {
                 "Automatically check for and install updates when the service starts"
@@ -166,6 +168,7 @@ impl SettingKeyMeta for SettingKey {
             | Self::AiMaxTokens
             | Self::ClipboardHistoryRetentionSecs => EditorKind::NumberInput,
             Self::SpinnerStyle => EditorKind::SpinnerSelect,
+            Self::AudioTheme => EditorKind::AudioThemeSelect,
             Self::AiProvider => EditorKind::AiProviderSelect,
             Self::AiCustomEndpoint | Self::AiTemperature | Self::AiSystemPrompt => {
                 EditorKind::OptionalTextInput
@@ -192,6 +195,7 @@ impl SettingKeyMeta for SettingKey {
             Self::PauseHotkey => settings.pause_hotkey.clone(),
             Self::PauseNotificationsEnabled => settings.pause_notifications_enabled.to_string(),
             Self::PauseAudioEnabled => settings.pause_audio_enabled.to_string(),
+            Self::AudioTheme => settings.audio_theme.as_str().to_string(),
             Self::StartOnBoot => settings.start_on_boot.to_string(),
             Self::AutoUpdate => settings.auto_update.to_string(),
             Self::InlineTabCompletionEnabled => settings.inline_tab_completion_enabled.to_string(),
@@ -275,6 +279,7 @@ impl SettingKeyMeta for SettingKey {
             Self::RpcHost => settings.rpc_host.clone(),
             Self::PauseNotificationsEnabled
             | Self::PauseAudioEnabled
+            | Self::AudioTheme
             | Self::StartOnBoot
             | Self::AutoUpdate
             | Self::InlineTabCompletionEnabled
@@ -323,6 +328,7 @@ pub(crate) enum EditorKind {
     OptionalTextInput,
     NumberInput,
     SpinnerSelect,
+    AudioThemeSelect,
     AiProviderSelect,
     InlineAiTriggerModeSelect,
     InlineDictionaryModeSelect,

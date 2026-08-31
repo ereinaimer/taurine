@@ -44,6 +44,13 @@ pub fn apply_setting_input_with_manager(
             )?;
             ApplySettingOutcome::default()
         }
+        "audio_theme" => {
+            let theme_str = require_non_empty(value, actual_key)?;
+            let theme: super::AudioTheme = theme_str.parse().map_err(Error::Config)?;
+            crate::settings::set_cached_audio_theme(theme);
+            manager.update_setting(actual_key, theme)?;
+            ApplySettingOutcome::default()
+        }
         "start_on_boot" => {
             let enabled = parse_boolean_setting_value(require_non_empty(value, actual_key)?)?;
             manager.update_setting(actual_key, enabled)?;

@@ -394,6 +394,7 @@ impl DaemonControl for DaemonService {
         }
 
         debug!("Successfully reloaded snippets and settings into service.");
+        taurine_core::settings::set_cached_audio_theme(settings.audio_theme);
         tokio::spawn(crate::dictionary_manager::check_and_update_dictionary());
         Ok(Response::new(ReloadResponse { success: true }))
     }

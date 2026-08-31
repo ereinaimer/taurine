@@ -31,6 +31,16 @@ static CACHED_INLINE_DATETIME_DIALECT: parking_lot::RwLock<Option<String>> =
     parking_lot::RwLock::new(None);
 static CACHED_INLINE_CURRENCY_TO_WORDS_ENABLED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
+static CACHED_AUDIO_THEME: parking_lot::RwLock<AudioTheme> =
+    parking_lot::RwLock::new(AudioTheme::Minimal);
+
+pub fn set_cached_audio_theme(theme: AudioTheme) {
+    *CACHED_AUDIO_THEME.write() = theme;
+}
+
+pub fn get_cached_audio_theme() -> AudioTheme {
+    *CACHED_AUDIO_THEME.read()
+}
 
 pub fn set_cached_inline_emoji_enabled(enabled: bool) {
     CACHED_INLINE_EMOJI_ENABLED.store(enabled, Ordering::Relaxed);
@@ -180,6 +190,88 @@ pub use manager::SettingsManager;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
+pub enum AudioTheme {
+    #[default]
+    Minimal,
+    Soft,
+    Glass,
+    Arcade,
+    Mechanical,
+    Organic,
+    Dreamy,
+    Scifi,
+    Rubber,
+    Cinematic,
+    Studio,
+    Zen,
+}
+
+impl AudioTheme {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Minimal => "minimal",
+            Self::Soft => "soft",
+            Self::Glass => "glass",
+            Self::Arcade => "arcade",
+            Self::Mechanical => "mechanical",
+            Self::Organic => "organic",
+            Self::Dreamy => "dreamy",
+            Self::Scifi => "scifi",
+            Self::Rubber => "rubber",
+            Self::Cinematic => "cinematic",
+            Self::Studio => "studio",
+            Self::Zen => "zen",
+        }
+    }
+
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Minimal,
+            Self::Soft,
+            Self::Glass,
+            Self::Arcade,
+            Self::Mechanical,
+            Self::Organic,
+            Self::Dreamy,
+            Self::Scifi,
+            Self::Rubber,
+            Self::Cinematic,
+            Self::Studio,
+            Self::Zen,
+        ]
+    }
+}
+
+impl std::str::FromStr for AudioTheme {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "minimal" => Ok(Self::Minimal),
+            "soft" => Ok(Self::Soft),
+            "glass" => Ok(Self::Glass),
+            "arcade" => Ok(Self::Arcade),
+            "mechanical" => Ok(Self::Mechanical),
+            "organic" => Ok(Self::Organic),
+            "dreamy" => Ok(Self::Dreamy),
+            "scifi" | "sci-fi" => Ok(Self::Scifi),
+            "rubber" => Ok(Self::Rubber),
+            "cinematic" => Ok(Self::Cinematic),
+            "studio" => Ok(Self::Studio),
+            "zen" => Ok(Self::Zen),
+            _ => Err(format!("Unknown audio theme: {s}")),
+        }
+    }
+}
+
+impl std::fmt::Display for AudioTheme {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
 pub enum SpinnerStyle {
     #[default]
     Braille,
@@ -216,6 +308,7 @@ pub enum SettingKey {
     PauseHotkey,
     PauseNotificationsEnabled,
     PauseAudioEnabled,
+    AudioTheme,
     StartOnBoot,
     AutoUpdate,
     InlineTabCompletionEnabled,
@@ -257,10 +350,11 @@ pub enum SettingKey {
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 41] = [
+    pub const ALL: [Self; 42] = [
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
         Self::PauseAudioEnabled,
+        Self::AudioTheme,
         Self::StartOnBoot,
         Self::AutoUpdate,
         Self::InlineTabCompletionEnabled,
@@ -306,6 +400,7 @@ impl SettingKey {
             Self::PauseHotkey => "pause_hotkey",
             Self::PauseNotificationsEnabled => "pause_notifications_enabled",
             Self::PauseAudioEnabled => "pause_audio_enabled",
+            Self::AudioTheme => "audio_theme",
             Self::StartOnBoot => "start_on_boot",
             Self::AutoUpdate => "auto_update",
             Self::InlineTabCompletionEnabled => "inline_tab_completion_enabled",
@@ -353,6 +448,7 @@ pub struct Settings {
     pub pause_hotkey: String,
     pub pause_notifications_enabled: bool,
     pub pause_audio_enabled: bool,
+    pub audio_theme: AudioTheme,
     pub start_on_boot: bool,
     pub inline_tab_completion_enabled: bool,
     pub inline_case_transform_enabled: bool,
@@ -402,6 +498,7 @@ impl std::fmt::Debug for Settings {
                 &self.pause_notifications_enabled,
             )
             .field("pause_audio_enabled", &self.pause_audio_enabled)
+            .field("audio_theme", &self.audio_theme)
             .field("start_on_boot", &self.start_on_boot)
             .field(
                 "inline_tab_completion_enabled",
@@ -474,6 +571,7 @@ impl Settings {
             "hotkey" => "pause_hotkey",
             "notifications" => "pause_notifications_enabled",
             "pause_audio" => "pause_audio_enabled",
+            "audio_theme" | "sound_theme" | "theme" | "audio_pack" | "sound_pack" => "audio_theme",
             "boot" => "start_on_boot",
             "inline_tab_completion" => "inline_tab_completion_enabled",
             "inline_dictionary" | "inline_dictionary_enabled" | "dictionary" => {
@@ -541,7 +639,7 @@ impl Settings {
             "scripts_enabled" => "scripts_enabled",
             "system_tray" | "system_tray_enabled" | "tray" => "system_tray_enabled",
             "notify_on_update" | "notify_update" | "update_notify" => "notify_on_update",
-            _ => key,
+            other => other,
         }
     }
 
@@ -590,7 +688,12 @@ impl Settings {
                 };
                 if is_win10 { 800 } else { 500 }
             } else if cfg!(target_os = "linux") {
-                500
+                let session = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
+                if session.eq_ignore_ascii_case("wayland") {
+                    600
+                } else {
+                    400
+                }
             } else {
                 350
             }
@@ -612,6 +715,7 @@ impl Default for Settings {
             pause_hotkey: "Alt + `".to_string(),
             pause_notifications_enabled: false,
             pause_audio_enabled: true,
+            audio_theme: AudioTheme::default(),
             start_on_boot: true,
             inline_tab_completion_enabled: true,
             inline_case_transform_enabled: true,

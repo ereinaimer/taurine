@@ -11,6 +11,20 @@ use taurine_core::{
 };
 
 const SPINNER_STYLE_OPTIONS: [&str; 3] = ["classic", "braille", "arc"];
+const AUDIO_THEME_OPTIONS: [&str; 12] = [
+    "minimal",
+    "soft",
+    "glass",
+    "arcade",
+    "mechanical",
+    "organic",
+    "dreamy",
+    "scifi",
+    "rubber",
+    "cinematic",
+    "studio",
+    "zen",
+];
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct SettingsPageState {
@@ -198,6 +212,14 @@ impl SettingsPageState {
                     .collect(),
                 key.display_value(&self.settings),
             ))),
+            EditorKind::AudioThemeSelect => Some(SettingsModal::Select(SelectModalState::new(
+                key,
+                AUDIO_THEME_OPTIONS
+                    .iter()
+                    .map(|value| (*value).to_string())
+                    .collect(),
+                key.display_value(&self.settings),
+            ))),
             EditorKind::AiProviderSelect => Some(SettingsModal::Select(SelectModalState::new(
                 key,
                 supported_providers()
@@ -338,5 +360,41 @@ impl SettingsInteraction {
             pending_reset: Some(PendingSettingReset { key }),
             close_modal: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_audio_theme_selection_modal_opens() {
+        let mut state = SettingsPageState::default();
+        let audio_theme_idx = state
+            .visible_keys()
+            .iter()
+            .position(|k| *k == SettingKey::AudioTheme)
+            .expect("AudioTheme should be visible");
+        state.selected = audio_theme_idx;
+        state.open_editor_for_selected();
+
+        assert!(matches!(state.modal, Some(SettingsModal::Select(_))));
+        if let Some(SettingsModal::Select(modal_state)) = state.modal {
+            assert_eq!(modal_state.options().len(), 12);
+            assert_eq!(
+                modal_state.options()[modal_state.selected_index()],
+                "minimal"
+            );
+        }
+    }
+
+    #[test]
+    fn test_audio_theme_is_always_visible() {
+        let mut state = SettingsPageState::default();
+        state.settings.pause_audio_enabled = true;
+        assert!(state.visible_keys().contains(&SettingKey::AudioTheme));
+
+        state.settings.pause_audio_enabled = false;
+        assert!(state.visible_keys().contains(&SettingKey::AudioTheme));
     }
 }

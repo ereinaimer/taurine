@@ -36,6 +36,12 @@ Taurine is built on the shoulders of some outstanding open source projects.
 | [futures](https://github.com/rust-lang/futures-rs) | Async primitives and stream combinators |
 | [scraper](https://github.com/causal-agent/scraper) | HTML parsing for web content extraction |
 
+### Assets & Media
+
+| Asset / Library | Role |
+|---|---|
+| [uisfx](https://github.com/romainsimon/uisfx) | Sound library providing curated UI audio packs for pause and resume audio cues |
+
 ### Tooling
 
 | Tool | Role |
@@ -46,3 +52,4 @@ Taurine is built on the shoulders of some outstanding open source projects.
 | [Fumadocs](https://fumadocs.vercel.app/) | MDX-based documentation toolkit |
 | [Orama](https://oramasearch.com/) | Full-text search for documentation |
 | [pre-commit](https://pre-commit.com/) | Managing and maintaining Git pre-commit hooks |
+

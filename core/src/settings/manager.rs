@@ -36,6 +36,12 @@ impl<'a> SettingsManager<'a> {
             settings.pause_audio_enabled = v;
         }
 
+        if let Some(val) = map.get("audio_theme")
+            && let Ok(v) = serde_json::from_str::<super::AudioTheme>(val)
+        {
+            settings.audio_theme = v;
+        }
+
         if let Some(val) = map.get("start_on_boot")
             && let Ok(v) = serde_json::from_str::<bool>(val)
         {

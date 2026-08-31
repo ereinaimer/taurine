@@ -91,6 +91,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     taurine_core::settings::set_cached_inline_dictionary_enabled(
         settings.inline_dictionary_enabled,
     );
+    taurine_core::settings::set_cached_audio_theme(settings.audio_theme);
 
     let state = Arc::new(EngineState::new());
     state

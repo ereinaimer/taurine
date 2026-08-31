@@ -9,6 +9,7 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "pause_hotkey" => Ok(Some(defaults.pause_hotkey)),
         "pause_notifications_enabled" => Ok(Some(defaults.pause_notifications_enabled.to_string())),
         "pause_audio_enabled" => Ok(Some(defaults.pause_audio_enabled.to_string())),
+        "audio_theme" => Ok(Some(defaults.audio_theme.as_str().to_string())),
         "start_on_boot" => Ok(Some(defaults.start_on_boot.to_string())),
         "inline_tab_completion_enabled" => {
             Ok(Some(defaults.inline_tab_completion_enabled.to_string()))
