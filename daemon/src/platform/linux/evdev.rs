@@ -630,36 +630,54 @@ fn process_frame(
         }
 
         if let Some(ev) = engine_event {
-            let needs_window =
-                matches!(ev, EngineEvent::ActionKey) || matches!(ev, EngineEvent::Char(_));
-
-            let active_window = if needs_window {
-                crate::platform::get_active_window_label()
-            } else {
-                None
-            };
-
             let is_action_key = ev == EngineEvent::ActionKey;
 
-            let mut lock = match evaluator.lock() {
-                Ok(guard) => guard,
-                Err(poisoned) => {
+            let start = std::time::Instant::now();
+            let lock_opt = match evaluator.try_lock() {
+                Ok(guard) => Some(guard),
+                Err(std::sync::TryLockError::Poisoned(poisoned)) => {
                     tracing::warn!("evdev evaluator mutex poisoned; recovering");
-                    poisoned.into_inner()
+                    Some(poisoned.into_inner())
+                }
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    let mut acquired = None;
+                    while start.elapsed() < std::time::Duration::from_micros(1500) {
+                        std::hint::spin_loop();
+                        match evaluator.try_lock() {
+                            Ok(guard) => {
+                                acquired = Some(guard);
+                                break;
+                            }
+                            Err(std::sync::TryLockError::Poisoned(poisoned)) => {
+                                acquired = Some(poisoned.into_inner());
+                                break;
+                            }
+                            Err(std::sync::TryLockError::WouldBlock) => {}
+                        }
+                    }
+                    if acquired.is_none() {
+                        tracing::warn!("evdev evaluator lock contention; passing frame through");
+                    }
+                    acquired
                 }
             };
-            if let Some(expansion) = lock.process_event(ev, active_window.as_deref()) {
-                let state = lock.state.clone();
-                drop(lock);
 
-                debug!("Trigger matched: {}", expansion.trigger);
+            if let Some(mut lock) = lock_opt {
+                if let Some(expansion) =
+                    lock.process_event_lazy(ev, crate::platform::get_active_window_label)
+                {
+                    let state = lock.state.clone();
+                    drop(lock);
 
-                let spinner_style_inner = spinner_style.read().map(|s| *s).unwrap_or_default();
+                    debug!("Trigger matched: {}", expansion.trigger);
 
-                crate::hook::spawn_expansion_dispatch(expansion, spinner_style_inner, state);
+                    let spinner_style_inner = spinner_style.read().map(|s| *s).unwrap_or_default();
 
-                if is_action_key {
-                    swallow_frame = true;
+                    crate::hook::spawn_expansion_dispatch(expansion, spinner_style_inner, state);
+
+                    if is_action_key {
+                        swallow_frame = true;
+                    }
                 }
             }
         }
