@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Streamlined Exchange**: Export and import now focus purely on trigger data, removing support for bundling local metrics, settings, or secrets into exchange files.
 
 ### Fixed
+- **Sequential Hotkey Reliability**: Fixed an issue where rapid consecutive hotkeys and application launchers failed to execute due to overly aggressive synthetic modifier releases.
 - **Hook Resilience & Self-Healing**: Prevented false hook restarts during typing pauses, deferred active-window inspection to match time, added auto-reenabling recovery on macOS, and bounded lock contention to ensure zero keyboard dropped frames.
 - **Text Expansion Reliability**: Fixed a regression where word expansions, swallowing, and completions would fail to trigger or misbehave during rapid typing.
 - **Modifier Tracking & Hook Resilience**: Fixed stuck modifier keys after dropped release events and eliminated keyboard unresponsiveness by pairing active hardware state checks with instant Raw Input failover.

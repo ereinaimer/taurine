@@ -701,3 +701,48 @@ fn test_inject_undo_fast_path() {
         .unwrap_or_else(|e| e.into_inner());
     super::inject::inject_undo("trigger".to_string(), 15);
 }
+
+#[test]
+fn test_expansion_requires_keystrokes_classification() {
+    use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter, ScriptMetadata};
+    use taurine_core::engine::variables::ExpansionStep;
+
+    // Silent scripts with 0 delete_count do not require keystrokes or modifier releases
+    let silent_script_steps = vec![ExpansionStep::Script(ScriptMetadata {
+        interpreter: ScriptInterpreter::PowerShell,
+        behavior: ScriptBehavior::Silent,
+        compressed_content: Vec::new(),
+    })];
+    assert!(!super::inject::expansion_requires_keystrokes(
+        &silent_script_steps,
+        0
+    ));
+
+    // Delete count > 0 requires keystrokes for backspacing
+    assert!(super::inject::expansion_requires_keystrokes(
+        &silent_script_steps,
+        1
+    ));
+
+    // Plain text requires keystrokes
+    let text_steps = vec![ExpansionStep::Text("hello".to_string())];
+    assert!(super::inject::expansion_requires_keystrokes(&text_steps, 0));
+
+    // Inline scripts require keystrokes
+    let inline_script_steps = vec![ExpansionStep::Script(ScriptMetadata {
+        interpreter: ScriptInterpreter::PowerShell,
+        behavior: ScriptBehavior::Inline,
+        compressed_content: Vec::new(),
+    })];
+    assert!(super::inject::expansion_requires_keystrokes(
+        &inline_script_steps,
+        0
+    ));
+
+    // Standalone delay does not require keystrokes
+    let delay_steps = vec![ExpansionStep::Delay(50)];
+    assert!(!super::inject::expansion_requires_keystrokes(
+        &delay_steps,
+        0
+    ));
+}

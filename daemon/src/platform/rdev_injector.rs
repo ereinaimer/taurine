@@ -115,18 +115,84 @@ impl Injector for RdevInjector {
     }
 
     fn pre_release_modifiers(&self) {
-        let modifiers = [
-            Key::ShiftLeft,
-            Key::ShiftRight,
-            Key::ControlLeft,
-            Key::ControlRight,
-            Key::Alt,
-            Key::AltGr,
-            Key::MetaLeft,
-            Key::MetaRight,
-        ];
-        for key in &modifiers {
-            let _ = crate::injector::simulate_monitored(&EventType::KeyRelease(*key));
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+                GetAsyncKeyState, VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU,
+                VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
+            };
+            // SAFETY: GetAsyncKeyState is a thread-safe Win32 API that reads the asynchronous
+            // keystate bitmap from kernel memory with no failure modes.
+            unsafe {
+                if (GetAsyncKeyState(VK_SHIFT as i32) as u16 & 0x8000) != 0 {
+                    let l = (GetAsyncKeyState(VK_LSHIFT as i32) as u16 & 0x8000) != 0;
+                    let r = (GetAsyncKeyState(VK_RSHIFT as i32) as u16 & 0x8000) != 0;
+                    if l || !r {
+                        let _ = crate::injector::simulate_monitored(&EventType::KeyRelease(
+                            Key::ShiftLeft,
+                        ));
+                    }
+                    if r {
+                        let _ = crate::injector::simulate_monitored(&EventType::KeyRelease(
+                            Key::ShiftRight,
+                        ));
+                    }
+                }
+
+                if (GetAsyncKeyState(VK_CONTROL as i32) as u16 & 0x8000) != 0 {
+                    let l = (GetAsyncKeyState(VK_LCONTROL as i32) as u16 & 0x8000) != 0;
+                    let r = (GetAsyncKeyState(VK_RCONTROL as i32) as u16 & 0x8000) != 0;
+                    if l || !r {
+                        let _ = crate::injector::simulate_monitored(&EventType::KeyRelease(
+                            Key::ControlLeft,
+                        ));
+                    }
+                    if r {
+                        let _ = crate::injector::simulate_monitored(&EventType::KeyRelease(
+                            Key::ControlRight,
+                        ));
+                    }
+                }
+
+                if (GetAsyncKeyState(VK_MENU as i32) as u16 & 0x8000) != 0 {
+                    let l = (GetAsyncKeyState(VK_LMENU as i32) as u16 & 0x8000) != 0;
+                    let r = (GetAsyncKeyState(VK_RMENU as i32) as u16 & 0x8000) != 0;
+                    if l || !r {
+                        let _ =
+                            crate::injector::simulate_monitored(&EventType::KeyRelease(Key::Alt));
+                    }
+                    if r {
+                        let _ =
+                            crate::injector::simulate_monitored(&EventType::KeyRelease(Key::AltGr));
+                    }
+                }
+
+                if (GetAsyncKeyState(VK_LWIN as i32) as u16 & 0x8000) != 0 {
+                    let _ =
+                        crate::injector::simulate_monitored(&EventType::KeyRelease(Key::MetaLeft));
+                }
+
+                if (GetAsyncKeyState(VK_RWIN as i32) as u16 & 0x8000) != 0 {
+                    let _ =
+                        crate::injector::simulate_monitored(&EventType::KeyRelease(Key::MetaRight));
+                }
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            let modifiers = [
+                Key::ShiftLeft,
+                Key::ShiftRight,
+                Key::ControlLeft,
+                Key::ControlRight,
+                Key::Alt,
+                Key::AltGr,
+                Key::MetaLeft,
+                Key::MetaRight,
+            ];
+            for key in &modifiers {
+                let _ = crate::injector::simulate_monitored(&EventType::KeyRelease(*key));
+            }
         }
     }
 

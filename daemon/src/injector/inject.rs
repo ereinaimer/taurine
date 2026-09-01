@@ -340,12 +340,38 @@ impl Drop for StreamingTextSession {
     }
 }
 
+pub(super) fn expansion_requires_keystrokes(steps: &[ExpansionStep], delete_count: usize) -> bool {
+    if delete_count > 0 {
+        return true;
+    }
+    steps.iter().any(|step| match step {
+        ExpansionStep::Text(text) => !text.is_empty(),
+        ExpansionStep::Image(_, _)
+        | ExpansionStep::KeyPress(_)
+        | ExpansionStep::MouseClick
+        | ExpansionStep::MouseRClick
+        | ExpansionStep::MouseMClick
+        | ExpansionStep::MouseMove(_, _)
+        | ExpansionStep::MouseScroll(_)
+        | ExpansionStep::MouseHold
+        | ExpansionStep::MouseRelease => true,
+        ExpansionStep::Script(metadata) => metadata.behavior == ScriptBehavior::Inline,
+        ExpansionStep::InlineRun(metadata, _) => metadata.behavior == ScriptBehavior::Inline,
+        ExpansionStep::Delay(_) => false,
+    })
+}
+
 pub fn inject_expansion(
     steps: Vec<ExpansionStep>,
     delete_count: usize,
     spinner_style: taurine_core::settings::SpinnerStyle,
 ) -> InjectionReport {
-    let _state_guard = InjectionFlagGuard::begin();
+    let requires_keys = expansion_requires_keystrokes(&steps, delete_count);
+    let _state_guard = if requires_keys {
+        Some(InjectionFlagGuard::begin())
+    } else {
+        None
+    };
     let _inject_guard = match inject_mutex().lock() {
         Ok(guard) => guard,
         Err(poisoned) => {
@@ -355,8 +381,10 @@ pub fn inject_expansion(
     };
     let captured_gen = capture_generation();
 
-    // Pre-Release: neutralize modifier state before any injection.
-    crate::platform::get_injector().pre_release_modifiers();
+    // Pre-Release: neutralize modifier state only when simulated keypresses or backspaces will occur.
+    if requires_keys {
+        crate::platform::get_injector().pre_release_modifiers();
+    }
 
     // Fast-Path: Single-segment plain text <= 1000 characters bypassing clipboard
     if let [ExpansionStep::Text(text)] = steps.as_slice()
@@ -365,7 +393,6 @@ pub fn inject_expansion(
     {
         let success =
             crate::platform::get_injector().inject_atomic_text_expansion(delete_count, text);
-        crate::platform::get_injector().pre_release_modifiers();
         return InjectionReport {
             successful_chars: if success { text.chars().count() } else { 0 },
             completed: success,
@@ -586,8 +613,10 @@ pub fn inject_expansion(
         restore_clipboard(original, captured_gen);
     }
 
-    // Panic Release: ensure all modifiers are logically released.
-    crate::platform::get_injector().pre_release_modifiers();
+    // Panic Release: ensure all modifiers are logically released if keystrokes were involved.
+    if requires_keys {
+        crate::platform::get_injector().pre_release_modifiers();
+    }
     report
 }
 
