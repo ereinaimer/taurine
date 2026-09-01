@@ -78,3 +78,28 @@ pub fn get_active_window_label() -> Option<String> {
         serde_json::to_string(&info).ok()
     }
 }
+
+pub fn is_foreground_window_elevated_or_restricted() -> bool {
+    // SAFETY: GetForegroundWindow returns a valid HWND or null.
+    // GetWindowThreadProcessId, OpenProcess, and CloseHandle are Win32 APIs, safe with null checks.
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.is_null() {
+            return false;
+        }
+
+        let mut process_id = 0;
+        GetWindowThreadProcessId(hwnd, &mut process_id);
+        if process_id == 0 {
+            return false;
+        }
+
+        let process_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, process_id);
+        if process_handle.is_null() {
+            return true;
+        }
+
+        CloseHandle(process_handle);
+        false
+    }
+}

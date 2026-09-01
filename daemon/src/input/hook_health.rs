@@ -89,6 +89,7 @@ struct HookHealthInner {
     last_hook_error: RwLock<Option<String>>,
     pending_recovery_reason: RwLock<Option<String>>,
     restart_count: std::sync::atomic::AtomicU64,
+    consecutive_missed_raw_inputs: std::sync::atomic::AtomicU32,
 }
 
 impl HookHealth {
@@ -102,6 +103,9 @@ impl HookHealth {
             .hook_thread_started_at_unix_ms
             .store(now_unix_ms(), Ordering::SeqCst);
         self.inner.restart_count.fetch_add(1, Ordering::SeqCst);
+        self.inner
+            .consecutive_missed_raw_inputs
+            .store(0, Ordering::Relaxed);
     }
 
     pub fn mark_listener_entering_grab(&self) {
@@ -109,15 +113,68 @@ impl HookHealth {
         self.inner
             .hook_entered_grab_at_unix_ms
             .store(now_unix_ms(), Ordering::SeqCst);
+        self.inner
+            .consecutive_missed_raw_inputs
+            .store(0, Ordering::Relaxed);
     }
 
     pub fn record_keyboard_event(&self) {
         self.inner
             .last_keyboard_event_at_unix_ms
             .store(now_unix_ms(), Ordering::SeqCst);
+        self.inner
+            .consecutive_missed_raw_inputs
+            .store(0, Ordering::Relaxed);
         if let Ok(mut reason) = self.inner.pending_recovery_reason.write() {
             *reason = None;
         }
+    }
+
+    pub fn check_raw_input_keystroke_and_evaluate(
+        &self,
+        is_physical_press: bool,
+        hook_grace_ms: u64,
+        threshold_misses: u32,
+    ) -> bool {
+        if !is_physical_press {
+            return false;
+        }
+
+        let now = now_unix_ms();
+        let last_hook = self
+            .inner
+            .last_keyboard_event_at_unix_ms
+            .load(Ordering::Relaxed);
+
+        if last_hook == 0 {
+            let grab_time = self
+                .inner
+                .hook_entered_grab_at_unix_ms
+                .load(Ordering::Relaxed);
+            if grab_time > 0 && now.saturating_sub(grab_time) < 1000 {
+                return false;
+            }
+        }
+
+        if now.saturating_sub(last_hook) >= hook_grace_ms {
+            let misses = self
+                .inner
+                .consecutive_missed_raw_inputs
+                .fetch_add(1, Ordering::SeqCst)
+                + 1;
+            if misses >= threshold_misses {
+                self.inner
+                    .consecutive_missed_raw_inputs
+                    .store(0, Ordering::Relaxed);
+                return true;
+            }
+        } else {
+            self.inner
+                .consecutive_missed_raw_inputs
+                .store(0, Ordering::Relaxed);
+        }
+
+        false
     }
 
     pub fn mark_listener_exit(&self, error: Option<String>) {
@@ -250,5 +307,42 @@ mod tests {
                 .unwrap()
                 .contains("press a key")
         );
+    }
+
+    #[test]
+    fn test_watchdog_does_not_trigger_on_normal_idle_pause() {
+        let health = HookHealth::new();
+        health.mark_listener_started();
+        health.mark_listener_entering_grab();
+
+        // User types, then pauses for 60 seconds
+        health.record_keyboard_event();
+
+        // Simulate Raw Input receiving first key after 60s pause
+        let should_recover = health.check_raw_input_keystroke_and_evaluate(
+            true, // is_physical_press
+            300,  // hook_event_grace_ms
+            3,    // threshold_misses
+        );
+
+        assert!(
+            !should_recover,
+            "First key after an idle pause must NOT trigger hook recovery"
+        );
+    }
+
+    #[test]
+    fn test_watchdog_triggers_after_consecutive_unacknowledged_presses() {
+        let health = HookHealth::new();
+        health.mark_listener_started();
+        health.mark_listener_entering_grab();
+        health.record_keyboard_event();
+
+        // 1st missed press
+        assert!(!health.check_raw_input_keystroke_and_evaluate(true, 0, 3));
+        // 2nd missed press
+        assert!(!health.check_raw_input_keystroke_and_evaluate(true, 0, 3));
+        // 3rd missed press without any hook events in between
+        assert!(health.check_raw_input_keystroke_and_evaluate(true, 0, 3));
     }
 }

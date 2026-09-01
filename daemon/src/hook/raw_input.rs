@@ -214,25 +214,21 @@ unsafe extern "system" fn raw_input_window_proc(
                         && let Some(ref ctx) = *slot
                         && let Some(ref health) = ctx.hook_health
                     {
-                        let snap = health.snapshot();
-                        let now_ms = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as u64;
-
-                        // If user is actively typing physical keys, but the low-level hook has not
-                        // received any event in the last 1500ms, the low-level hook is dead/unresponsive.
-                        if snap.last_keyboard_event_at_unix_ms > 0
-                            && now_ms.saturating_sub(snap.last_keyboard_event_at_unix_ms) > 1500
-                        {
-                            if let Some(ref tx) = ctx.supervisor_tx {
-                                let _ = tx.send(
-                                    crate::hook::supervisor::WindowsSupervisorEvent::HookUnresponsive,
+                        // Check if consecutive physical keypresses were missed by the low-level hook
+                        // with at least 300ms grace window since the last acknowledged hook event.
+                        if health.check_raw_input_keystroke_and_evaluate(true, 300, 3) {
+                            if !crate::platform::windows::is_foreground_window_elevated_or_restricted() {
+                                if let Some(ref tx) = ctx.supervisor_tx {
+                                    let _ = tx.send(
+                                        crate::hook::supervisor::WindowsSupervisorEvent::HookUnresponsive,
+                                    );
+                                }
+                                health.mark_recovery_signal(
+                                    "raw input watchdog: low-level hook unresponsive (3 consecutive missed inputs)",
                                 );
+                            } else {
+                                tracing::debug!("raw input watchdog: suppressing recovery for elevated/restricted foreground window");
                             }
-                            health.mark_recovery_signal(
-                                "raw input watchdog: low-level hook unresponsive",
-                            );
                         }
                     }
                 }

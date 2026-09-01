@@ -3,6 +3,8 @@ pub mod clipboard;
 pub mod fullscreen;
 pub mod power;
 
+pub use active_window::is_foreground_window_elevated_or_restricted;
+
 pub struct WindowsClipboard;
 
 impl crate::platform::ClipboardManager for WindowsClipboard {
