@@ -51,7 +51,7 @@ function Invoke-WithRetry ($ScriptBlock, $ArgumentList, $Label, $SuccessLabel = 
         $result = Show-SpinnerJob $job $Label $SuccessLabel
         $jobError = $job.Error
         $jobState = $job.State
-        if ($jobState -eq "Failed" -or $jobError -and $jobError.Count -gt 0) {
+        if ($jobState -eq "Failed" -or ($jobError -and $jobError.Count -gt 0)) {
             $attempt++
             if ($attempt -lt $MaxRetries) {
                 Write-Host "  Retrying in ${delay}s... ($attempt/$MaxRetries)"
@@ -60,7 +60,8 @@ function Invoke-WithRetry ($ScriptBlock, $ArgumentList, $Label, $SuccessLabel = 
             }
             continue
         }
-        if ($null -ne $result) {
+        # Only return if we have a meaningful result (not null, not empty string)
+        if ($null -ne $result -and $result -ne '') {
             return $result
         }
         $attempt++
@@ -192,14 +193,14 @@ function Main {
 
         if ($LocalVersion) {
             try {
-                $Releases = Invoke-RestMethod -Uri "https://api.github.com/repos/ereinaimer/taurine/releases" -Headers @{ Accept = "application/vnd.github+json" } -ErrorAction SilentlyContinue
+                $Releases = Invoke-RestMethod -Uri "https://api.github.com/repos/ereinaimer/taurine/releases" -Headers @{ Accept = "application/vnd.github+json" } -ErrorAction SilentlyContinue -TimeoutSec 10
                 if ($Releases -and $Releases.Count -gt 0) {
                     $LatestRelease = $Releases[0]
-                    $ReleaseDetail = Invoke-RestMethod -Uri $LatestRelease.url -Headers @{ Accept = "application/vnd.github+json" } -ErrorAction SilentlyContinue
+                    $ReleaseDetail = Invoke-RestMethod -Uri $LatestRelease.url -Headers @{ Accept = "application/vnd.github+json" } -ErrorAction SilentlyContinue -TimeoutSec 10
                     if ($ReleaseDetail -and $ReleaseDetail.assets) {
                         $ManifestAsset = $ReleaseDetail.assets | Where-Object { $_.name -eq "manifest.json" } | Select-Object -First 1
                         if ($ManifestAsset) {
-                            $Manifest = Invoke-RestMethod -Uri $ManifestAsset.browser_download_url -ErrorAction SilentlyContinue
+                            $Manifest = Invoke-RestMethod -Uri $ManifestAsset.browser_download_url -ErrorAction SilentlyContinue -TimeoutSec 10
                             if ($Manifest -is [string]) {
                                 $Manifest = $Manifest | ConvertFrom-Json
                             }
@@ -230,21 +231,26 @@ function Main {
     # 2. Manifest fetch if not already populated (e.g. fresh install or silent check failed)
     if ($null -eq $Version) {
         $ManifestJob = {
+            param($Platform)
             $ErrorActionPreference = "Stop"
-            $Releases = Invoke-RestMethod -Uri "https://api.github.com/repos/ereinaimer/taurine/releases" -Headers @{ Accept = "application/vnd.github+json" }
+            $Releases = Invoke-RestMethod -Uri "https://api.github.com/repos/ereinaimer/taurine/releases" -Headers @{ Accept = "application/vnd.github+json" } -TimeoutSec 10
             if (-not $Releases -or $Releases.Count -eq 0) {
                 throw "Could not find any releases."
             }
             $LatestRelease = $Releases[0]
-            $ReleaseDetail = Invoke-RestMethod -Uri $LatestRelease.url -Headers @{ Accept = "application/vnd.github+json" }
+            $ReleaseDetail = Invoke-RestMethod -Uri $LatestRelease.url -Headers @{ Accept = "application/vnd.github+json" } -TimeoutSec 10
             $ManifestAsset = $ReleaseDetail.assets | Where-Object { $_.name -eq "manifest.json" } | Select-Object -First 1
             if (-not $ManifestAsset) {
                 throw "No manifest.json asset found in latest release."
             }
-            $Manifest = Invoke-RestMethod -Uri $ManifestAsset.browser_download_url
+            $Manifest = Invoke-RestMethod -Uri $ManifestAsset.browser_download_url -TimeoutSec 10
+            # Validate manifest structure
+            if (-not $Manifest.version -or -not $Manifest.artifacts -or -not $Manifest.artifacts.$Platform -or -not $Manifest.artifacts.$Platform.url) {
+                throw "Invalid manifest: missing required fields"
+            }
             return $Manifest
         }
-        $Manifest = Invoke-WithRetry -ScriptBlock $ManifestJob -Label "Fetching release manifest" -SuccessLabel "Fetched release manifest"
+        $Manifest = Invoke-WithRetry -ScriptBlock $ManifestJob -ArgumentList @($Platform) -Label "Fetching release manifest" -SuccessLabel "Fetched release manifest"
         if ($Manifest -is [string]) {
             $Manifest = $Manifest | ConvertFrom-Json
         }
@@ -288,7 +294,7 @@ function Main {
             $DownloadJob = {
                 param($url, $out)
                 $ErrorActionPreference = "Stop"
-                Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing
+                Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing -TimeoutSec 300
                 return $out
             }
             Invoke-WithRetry -ScriptBlock $DownloadJob -ArgumentList @($Url, $TempZip) -Label "Downloading taurine v$Version" -SuccessLabel "Downloaded taurine v$Version" | Out-Null
@@ -298,16 +304,16 @@ function Main {
                 $ChecksumJob = {
                     param($zip, $expected)
                     $ErrorActionPreference = "Stop"
-                    $computed = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLower()
-                    return ($computed -eq $expected.ToLower())
+                    try {
+                        $computed = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLower()
+                        return ($computed -eq $expected.ToLower())
+                    } catch {
+                        throw "Checksum verification failed: $_"
+                    }
                 }
                 $job = Start-Job -ScriptBlock $ChecksumJob -ArgumentList @($TempZip, $Sha256)
                 $result = Show-SpinnerJob $job "Verifying checksum" "Verified checksum"
-                if ($result -isnot [bool] -or -not $result) {
-                    if ($result -isnot [bool]) {
-                        Write-Host -ForegroundColor Red "Error: Checksum verification tool failed for downloaded archive."
-                        throw "Checksum verification tool failed for downloaded archive."
-                    }
+                if ($result -ne $true) {
                     Write-Host -ForegroundColor Red "Error: Checksum mismatch for downloaded archive."
                     throw "Checksum mismatch for downloaded archive."
                 }
@@ -334,7 +340,7 @@ function Main {
                 $null = Start-Job -ScriptBlock {
                     param($url, $out)
                     $ErrorActionPreference = "Stop"
-                    Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing
+                    Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing -TimeoutSec 30
                 } -ArgumentList @("https://raw.githubusercontent.com/ereinaimer/taurine/main/uninstall.ps1", $UninstallScriptPath)
             } catch {}
 
@@ -460,8 +466,12 @@ public static extern IntPtr SendMessageTimeout(
 
         if ($IsFreshInstall) {
             try {
-                Start-Process -FilePath $ExePath -ArgumentList "up" -WindowStyle Hidden
-            } catch {}
+                if (Test-Path $ExePath) {
+                    Start-Process -FilePath $ExePath -ArgumentList "up" -WindowStyle Hidden -ErrorAction Stop
+                }
+            } catch {
+                Write-Host "Warning: Failed to start Taurine service automatically."
+            }
         }
 
         # Write registry uninstall keys to register in Add or Remove Programs
@@ -470,7 +480,7 @@ public static extern IntPtr SendMessageTimeout(
             $UninstallKeyPath = "Software\Microsoft\Windows\CurrentVersion\Uninstall\Taurine"
             $UninstallKey = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($UninstallKeyPath)
             $UninstallKey.SetValue("DisplayName", "Taurine")
-            $UninstallKey.SetValue("DisplayVersion", $Version)
+            $UninstallKey.SetValue("DisplayVersion", $Manifest.version)
             $UninstallKey.SetValue("Publisher", "Erein Aimer")
             $UninstallKey.SetValue("InstallLocation", $InstallDir)
             $UninstallKey.SetValue("DisplayIcon", $ExePath)
