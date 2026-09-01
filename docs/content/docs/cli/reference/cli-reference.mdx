@@ -107,16 +107,16 @@ Commands for backing up and restoring your Taurine environment.
 
 <Accordions>
 <Accordion title="export">
-  Exports triggers, settings, and stats to a encrypted or plaintext file.
+  Exports triggers to an encrypted or plaintext file.
   ```bash
-  taurine export [path] [-p, --plain] [-s, --settings] [-t, --stats] [-x, --sensitive] [-y, --yes]
+  taurine export [path] [-p, --plain] [-y, --yes]
   ```
 </Accordion>
 
 <Accordion title="import">
-  Imports data from a Taurine exchange file.
+  Imports triggers from a Taurine exchange file.
   ```bash
-  taurine import <path> [-c, --conflict <prompt|skip|overwrite>] [-s, --settings] [-t, --stats <ignore|merge|overwrite>] [-x, --sensitive] [-y, --yes]
+  taurine import [path] [-c, --conflict <prompt|skip|overwrite>] [-y, --yes]
   ```
 </Accordion>
 </Accordions>

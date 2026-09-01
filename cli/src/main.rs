@@ -112,25 +112,15 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
         }) => {
             commands::list::execute(sort, asc, desc, json, tag)?;
         }
-        Some(Commands::Export {
-            path,
-            plain,
-            settings,
-            stats,
-            sensitive,
-            yes,
-        }) => {
-            commands::export::execute(path, plain, settings, stats, sensitive, yes)?;
+        Some(Commands::Export { path, plain, yes }) => {
+            commands::export::execute(path, plain, yes)?;
         }
         Some(Commands::Import {
             path,
             conflict,
-            settings,
-            stats,
-            sensitive,
             yes,
         }) => {
-            commands::import::execute(path, conflict, settings, stats, sensitive, yes)?;
+            commands::import::execute(path, conflict, yes)?;
         }
         Some(Commands::Config { action }) => match action {
             ConfigAction::Set { key, value } => commands::config::execute_set(key, value, json)?,

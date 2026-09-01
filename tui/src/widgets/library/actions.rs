@@ -8,10 +8,9 @@ use taurine_core::db::crud::{
 };
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter, decompress};
 use taurine_core::exchange::{
-    ExchangeFormat, ExchangePayload, ExportOptions, ImportConflictAction, ImportOptions,
-    ImportStatsMode, decode_exchange_blob, detect_exchange_format, encode_exchange_blob,
-    export_triggers, import_payload_transactionally, payload_contains_run_variables,
-    resolve_export_path,
+    ExchangeFormat, ExchangePayload, ImportConflictAction, decode_exchange_blob,
+    detect_exchange_format, encode_exchange_blob, export_triggers, import_payload_transactionally,
+    payload_contains_run_variables, resolve_export_path,
 };
 
 use crate::widgets::library::state::{
@@ -175,23 +174,13 @@ pub(crate) struct PendingLibraryExport {
     pub(crate) path: String,
     pub(crate) encrypt: bool,
     pub(crate) password: Option<String>,
-    pub(crate) include_settings: bool,
-    pub(crate) include_sensitive_settings: bool,
-    pub(crate) include_stats: bool,
 }
 
 impl PendingLibraryExport {
     pub(crate) fn apply(&self) -> taurine_core::Result<PathBuf> {
         let path = resolve_export_path(Some(PathBuf::from(self.path.as_str())))?;
         let conn = taurine_core::db::init::setup()?;
-        let payload = export_triggers(
-            &conn,
-            ExportOptions {
-                include_settings: self.include_settings,
-                include_stats: self.include_stats,
-                include_sensitive_settings: self.include_sensitive_settings,
-            },
-        )?;
+        let payload = export_triggers(&conn)?;
         let mut pw = self.password.clone();
         let encoded_res = encode_exchange_blob(&payload, self.encrypt, pw.as_deref());
         if let Some(ref mut p) = pw {
@@ -205,21 +194,12 @@ impl PendingLibraryExport {
     pub(crate) const fn encrypt(&self) -> bool {
         self.encrypt
     }
-
-    pub(crate) const fn include_settings(&self) -> bool {
-        self.include_settings
-    }
-
-    pub(crate) const fn include_stats(&self) -> bool {
-        self.include_stats
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PendingLibraryImportPrepare {
     pub(crate) path: String,
     pub(crate) password: Option<String>,
-    pub(crate) options: ImportOptions,
     pub(crate) conflict_mode: LibraryImportConflictMode,
     pub(crate) return_to_modal: LibraryImportModalState,
 }
@@ -228,41 +208,22 @@ pub(crate) struct PendingLibraryImportPrepare {
 pub(crate) struct PreparedLibraryImport {
     path: String,
     payload: ExchangePayload,
-    options: ImportOptions,
     conflict_mode: LibraryImportConflictMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LibraryImportOutcome {
     imported: usize,
-    imported_settings: bool,
-    imported_stats: bool,
 }
 
 impl LibraryImportOutcome {
     #[cfg(test)]
-    pub(crate) const fn new(
-        imported: usize,
-        imported_settings: bool,
-        imported_stats: bool,
-    ) -> Self {
-        Self {
-            imported,
-            imported_settings,
-            imported_stats,
-        }
+    pub(crate) const fn new(imported: usize) -> Self {
+        Self { imported }
     }
 
     pub(crate) const fn imported(&self) -> usize {
         self.imported
-    }
-
-    pub(crate) const fn imported_settings(&self) -> bool {
-        self.imported_settings
-    }
-
-    pub(crate) const fn imported_stats(&self) -> bool {
-        self.imported_stats
     }
 }
 
@@ -291,7 +252,6 @@ impl PendingLibraryImportPrepare {
         let prepared = PreparedLibraryImport {
             path: self.path.clone(),
             payload,
-            options: self.options,
             conflict_mode: self.conflict_mode,
         };
 
@@ -315,17 +275,11 @@ impl PreparedLibraryImport {
 
     pub(crate) fn apply(&self) -> taurine_core::Result<LibraryImportOutcome> {
         let mut conn = taurine_core::db::init::setup()?;
-        let imported =
-            import_payload_transactionally(&mut conn, &self.payload, self.options, |_, _| {
-                Ok(self.conflict_mode.to_action())
-            })?;
+        let imported = import_payload_transactionally(&mut conn, &self.payload, |_, _| {
+            Ok(self.conflict_mode.to_action())
+        })?;
 
-        Ok(LibraryImportOutcome {
-            imported,
-            imported_settings: self.options.include_settings && self.payload.settings.is_some(),
-            imported_stats: self.options.stats_mode != ImportStatsMode::Ignore
-                && self.payload.stats.is_some(),
-        })
+        Ok(LibraryImportOutcome { imported })
     }
 }
 

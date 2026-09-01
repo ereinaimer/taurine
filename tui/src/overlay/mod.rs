@@ -65,18 +65,12 @@ pub struct ExportFormResult {
     pub path: PathBuf,
     pub encrypt: bool,
     pub password: Option<String>,
-    pub include_settings: bool,
-    pub include_sensitive_settings: bool,
-    pub include_stats: bool,
 }
 
 #[derive(Debug)]
 pub struct ImportFormResult {
     pub path: PathBuf,
     pub password: Option<String>,
-    pub include_settings: bool,
-    pub include_sensitive_settings: bool,
-    pub stats_mode: taurine_core::exchange::ImportStatsMode,
     pub conflict_mode: LibraryImportConflictMode,
 }
 
@@ -177,9 +171,6 @@ pub fn run_export_overlay() -> CoreResult<Option<ExportFormResult>> {
                 path: pending.path.clone().into(),
                 encrypt: pending.encrypt,
                 password: pending.password.clone(),
-                include_settings: pending.include_settings,
-                include_sensitive_settings: pending.include_sensitive_settings,
-                include_stats: pending.include_stats,
             });
         }
         if interaction.should_close_modal() {
@@ -291,43 +282,27 @@ pub fn run_import_overlay(path: Option<&str>) -> CoreResult<Option<ImportFormRes
             _ => continue,
         };
 
-        if interaction.pending_import_prepare().is_some() {
-            let (
-                path,
-                password,
-                include_settings,
-                include_sensitive_settings,
-                stats_mode,
-                conflict_mode,
-            ) = {
-                let p = interaction.pending_import_prepare().unwrap();
-                (
-                    p.path.clone(),
-                    p.password.clone(),
-                    p.options.include_settings,
-                    p.options.include_sensitive_settings,
-                    p.options.stats_mode,
-                    p.conflict_mode,
-                )
-            };
+        if let Some(p) = interaction.pending_import_prepare() {
+            let path = p.path.clone();
+            let password = p.password.clone();
+            let conflict_mode = p.conflict_mode;
             match std::fs::read(path.trim()) {
                 Ok(bytes) => match decode_exchange_blob(&bytes, password.as_deref()) {
                     Ok(_) => {
                         break Some(ImportFormResult {
                             path: path.into(),
                             password,
-                            include_settings,
-                            include_sensitive_settings,
-                            stats_mode,
                             conflict_mode,
                         });
                     }
                     Err(e) => {
-                        notification = Some(e.to_string());
+                        notification = Some(format!("Error: {e}"));
+                        state.set_error(e.to_string());
                     }
                 },
                 Err(e) => {
-                    notification = Some(format!("Failed to read file: {e}"));
+                    notification = Some(format!("Error reading file: {e}"));
+                    state.set_error(e.to_string());
                 }
             }
         } else if interaction.should_close_modal() {

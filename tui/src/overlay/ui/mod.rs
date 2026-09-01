@@ -32,11 +32,6 @@ pub(crate) fn render_export_popup(frame: &mut Frame, state: &LibraryExportModalS
             Constraint::Length(2),
             Constraint::Length(2),
             Constraint::Length(2),
-            Constraint::Length(2),
-            Constraint::Length(2),
-            Constraint::Length(2),
-            Constraint::Length(1),
-            Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Min(0),
@@ -96,53 +91,6 @@ pub(crate) fn render_export_popup(frame: &mut Frame, state: &LibraryExportModalS
         password_focused && encrypt,
     );
 
-    let (set_area, set_desc) = desc_area(sections[5]);
-    let settings_focused = state.focus() == LibraryExportModalField::IncludeSettings;
-    let settings_label = if state.include_settings() {
-        "yes"
-    } else {
-        "no"
-    };
-    row_key_value(
-        frame,
-        set_area,
-        " Settings",
-        settings_label,
-        settings_focused,
-    );
-    render_desc(frame, set_desc, "include preferences", settings_focused);
-
-    let (sen_area, sen_desc) = desc_area(sections[6]);
-    let sensitive_focused = state.focus() == LibraryExportModalField::IncludeSensitiveSettings;
-    let sensitive_label = if state.include_sensitive_settings() {
-        "yes"
-    } else {
-        "no"
-    };
-    row_key_value(
-        frame,
-        sen_area,
-        " Sensitive",
-        sensitive_label,
-        sensitive_focused && encrypt,
-    );
-    render_desc(
-        frame,
-        sen_desc,
-        if encrypt {
-            "include sensitive data (API keys)"
-        } else {
-            "encryption disabled"
-        },
-        sensitive_focused && encrypt,
-    );
-
-    let (stat_area, stat_desc) = desc_area(sections[7]);
-    let stats_focused = state.focus() == LibraryExportModalField::IncludeStats;
-    let stats_label = if state.include_stats() { "yes" } else { "no" };
-    row_key_value(frame, stat_area, " Stats", stats_label, stats_focused);
-    render_desc(frame, stat_desc, "include usage history", stats_focused);
-
     let feedback_style = if state.error().is_some() {
         Style::default()
             .fg(DARK_THEME.error)
@@ -155,12 +103,12 @@ pub(crate) fn render_export_popup(frame: &mut Frame, state: &LibraryExportModalS
     let feedback_text = state.error().unwrap_or("");
     frame.render_widget(
         Paragraph::new(feedback_text).style(feedback_style),
-        sections[8],
+        sections[5],
     );
 
     render_action_buttons_overlay(
         frame,
-        sections[9],
+        sections[6],
         "Cancel",
         "Export",
         state.focus() == LibraryExportModalField::ActionButton,
@@ -203,11 +151,6 @@ pub(crate) fn render_import_popup(frame: &mut Frame, state: &LibraryImportModalS
             Constraint::Length(2),
             Constraint::Length(2),
             Constraint::Length(2),
-            Constraint::Length(2),
-            Constraint::Length(2),
-            Constraint::Length(2),
-            Constraint::Length(1),
-            Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Min(0),
@@ -259,60 +202,7 @@ pub(crate) fn render_import_popup(frame: &mut Frame, state: &LibraryImportModalS
         password_focused && !password_disabled,
     );
 
-    let (set_area, set_desc) = desc_area(sections[4]);
-    let settings_focused = state.focus() == LibraryImportModalField::IncludeSettings;
-    let settings_label = if state.include_settings() {
-        "yes"
-    } else {
-        "no"
-    };
-    row_key_value(
-        frame,
-        set_area,
-        " Settings",
-        settings_label,
-        settings_focused,
-    );
-    render_desc(frame, set_desc, "restore preferences", settings_focused);
-
-    let (sen_area, sen_desc) = desc_area(sections[5]);
-    let sensitive_focused = state.focus() == LibraryImportModalField::IncludeSensitiveSettings;
-    let sensitive_label = if state.include_sensitive_settings() {
-        "yes"
-    } else {
-        "no"
-    };
-    row_key_value(
-        frame,
-        sen_area,
-        " Sensitive",
-        sensitive_label,
-        sensitive_focused,
-    );
-    render_desc(
-        frame,
-        sen_desc,
-        "restore sensitive data (API keys)",
-        sensitive_focused,
-    );
-
-    let (stat_area, stat_desc) = desc_area(sections[6]);
-    let stats_focused = state.focus() == LibraryImportModalField::StatsMode;
-    row_key_value(
-        frame,
-        stat_area,
-        " Stats",
-        state.stats_mode_label(),
-        stats_focused,
-    );
-    render_desc(
-        frame,
-        stat_desc,
-        "how usage data should be imported",
-        stats_focused,
-    );
-
-    let (conf_area, conf_desc) = desc_area(sections[7]);
+    let (conf_area, conf_desc) = desc_area(sections[4]);
     let conflict_focused = state.focus() == LibraryImportModalField::ConflictMode;
     row_key_value(
         frame,
@@ -328,18 +218,24 @@ pub(crate) fn render_import_popup(frame: &mut Frame, state: &LibraryImportModalS
         conflict_focused,
     );
 
+    let feedback_style = if state.error().is_some() {
+        Style::default()
+            .fg(DARK_THEME.error)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(DARK_THEME.text_muted)
+            .add_modifier(Modifier::DIM)
+    };
+    let feedback_text = state.error().unwrap_or("");
     frame.render_widget(
-        Paragraph::new("").style(
-            Style::default()
-                .fg(DARK_THEME.text_muted)
-                .add_modifier(Modifier::DIM),
-        ),
-        sections[8],
+        Paragraph::new(feedback_text).style(feedback_style),
+        sections[5],
     );
 
     render_action_buttons_overlay(
         frame,
-        sections[10],
+        sections[6],
         "Cancel",
         "Import",
         state.focus() == LibraryImportModalField::ActionButton,
@@ -482,23 +378,17 @@ pub(crate) fn export_field_at(
         2..=3 => 2,
         4..=5 => 3,
         6..=7 => 4,
-        8..=9 => 5,
-        10..=11 => 6,
-        12..=13 => 7,
-        15..=15 => 9,
+        9..=9 => 6,
         _ => return None,
     };
     let field = match section {
         2 => LibraryExportModalField::Path,
         3 => LibraryExportModalField::Encrypt,
         4 => LibraryExportModalField::Password,
-        5 => LibraryExportModalField::IncludeSettings,
-        6 => LibraryExportModalField::IncludeSensitiveSettings,
-        7 => LibraryExportModalField::IncludeStats,
-        9 => LibraryExportModalField::ActionButton,
+        6 => LibraryExportModalField::ActionButton,
         _ => return None,
     };
-    let button = if section == 9 {
+    let button = if section == 6 {
         let center = inner_x + inner_w / 2;
         Some(if col < center {
             ButtonSelection::Cancel
@@ -531,23 +421,17 @@ pub(crate) fn import_field_at(
         2..=3 => 2,
         4..=5 => 3,
         6..=7 => 4,
-        8..=9 => 5,
-        10..=11 => 6,
-        12..=13 => 7,
-        16..=16 => 10,
+        9..=9 => 6,
         _ => return None,
     };
     let field = match section {
         2 => LibraryImportModalField::Path,
         3 => LibraryImportModalField::Password,
-        4 => LibraryImportModalField::IncludeSettings,
-        5 => LibraryImportModalField::IncludeSensitiveSettings,
-        6 => LibraryImportModalField::StatsMode,
-        7 => LibraryImportModalField::ConflictMode,
-        10 => LibraryImportModalField::ActionButton,
+        4 => LibraryImportModalField::ConflictMode,
+        6 => LibraryImportModalField::ActionButton,
         _ => return None,
     };
-    let button = if section == 10 {
+    let button = if section == 6 {
         let center = inner_x + inner_w / 2;
         Some(if col < center {
             ButtonSelection::Cancel

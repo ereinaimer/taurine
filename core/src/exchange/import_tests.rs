@@ -45,8 +45,6 @@ fn text_export(
         is_enabled: true,
         target_os: target_os.to_string(),
         tags: vec!["imported".to_string()],
-        usage_count: None,
-        last_used_at: None,
         script: None,
         assets: Vec::new(),
     }
@@ -79,10 +77,7 @@ fn skip_conflict_preserves_existing_local_row() {
         "Imported output",
     )]);
     let tx = conn.transaction().unwrap();
-    let imported = import_triggers(&tx, &payload, ImportOptions::default(), |_, _| {
-        Ok(ImportConflictAction::Skip)
-    })
-    .unwrap();
+    let imported = import_triggers(&tx, &payload, |_, _| Ok(ImportConflictAction::Skip)).unwrap();
     tx.commit().unwrap();
 
     assert_eq!(imported, 0);
@@ -120,10 +115,8 @@ fn overwrite_conflict_replaces_existing_row_with_fresh_import() {
         "Imported output",
     )]);
     let tx = conn.transaction().unwrap();
-    let imported = import_triggers(&tx, &payload, ImportOptions::default(), |_, _| {
-        Ok(ImportConflictAction::Overwrite)
-    })
-    .unwrap();
+    let imported =
+        import_triggers(&tx, &payload, |_, _| Ok(ImportConflictAction::Overwrite)).unwrap();
     tx.commit().unwrap();
 
     assert_eq!(imported, 1);
@@ -174,10 +167,8 @@ fn import_restores_hotkey_trigger_type() {
         "git status",
     )]);
     let tx = conn.transaction().unwrap();
-    let imported = import_triggers(&tx, &payload, ImportOptions::default(), |_, _| {
-        Ok(ImportConflictAction::Overwrite)
-    })
-    .unwrap();
+    let imported =
+        import_triggers(&tx, &payload, |_, _| Ok(ImportConflictAction::Overwrite)).unwrap();
     tx.commit().unwrap();
 
     assert_eq!(imported, 1);
@@ -207,10 +198,8 @@ fn import_canonicalizes_hotkey_trigger_order() {
         "echo works",
     )]);
     let tx = conn.transaction().unwrap();
-    let imported = import_triggers(&tx, &payload, ImportOptions::default(), |_, _| {
-        Ok(ImportConflictAction::Overwrite)
-    })
-    .unwrap();
+    let imported =
+        import_triggers(&tx, &payload, |_, _| Ok(ImportConflictAction::Overwrite)).unwrap();
     tx.commit().unwrap();
 
     assert_eq!(imported, 1);
@@ -253,10 +242,8 @@ fn import_non_canonical_hotkey_detects_conflict_with_canonical_stored() {
         "imported output",
     )]);
     let tx = conn.transaction().unwrap();
-    let imported = import_triggers(&tx, &payload, ImportOptions::default(), |_, _| {
-        Ok(ImportConflictAction::Overwrite)
-    })
-    .unwrap();
+    let imported =
+        import_triggers(&tx, &payload, |_, _| Ok(ImportConflictAction::Overwrite)).unwrap();
     tx.commit().unwrap();
 
     assert_eq!(imported, 1);
@@ -304,10 +291,8 @@ fn import_conflict_identity_keeps_word_and_hotkey_triggers_independent() {
         "imported hotkey",
     )]);
     let tx = conn.transaction().unwrap();
-    let imported = import_triggers(&tx, &payload, ImportOptions::default(), |_, _| {
-        Ok(ImportConflictAction::Overwrite)
-    })
-    .unwrap();
+    let imported =
+        import_triggers(&tx, &payload, |_, _| Ok(ImportConflictAction::Overwrite)).unwrap();
     tx.commit().unwrap();
 
     assert_eq!(imported, 1);
@@ -337,8 +322,6 @@ fn failed_import_can_be_rolled_back_atomically() {
         is_enabled: true,
         target_os: "all".to_string(),
         tags: vec![],
-        usage_count: None,
-        last_used_at: None,
         script: Some(super::ScriptExport {
             interpreter: ScriptInterpreter::Bash,
             behavior: ScriptBehavior::Inline,
@@ -356,8 +339,6 @@ fn failed_import_can_be_rolled_back_atomically() {
         is_enabled: true,
         target_os: "all".to_string(),
         tags: vec![],
-        usage_count: None,
-        last_used_at: None,
         script: None,
         assets: Vec::new(),
     };
@@ -365,10 +346,8 @@ fn failed_import_can_be_rolled_back_atomically() {
     let payload = ExchangePayload::new(vec![valid_script, invalid_script]);
     let tx = conn.transaction().unwrap();
 
-    let err = import_triggers(&tx, &payload, ImportOptions::default(), |_, _| {
-        Ok(ImportConflictAction::Overwrite)
-    })
-    .unwrap_err();
+    let err =
+        import_triggers(&tx, &payload, |_, _| Ok(ImportConflictAction::Overwrite)).unwrap_err();
     assert!(err.to_string().contains("missing script data"));
     tx.rollback().unwrap();
 
@@ -406,10 +385,8 @@ fn overwrite_conflict_respects_target_os_overlap_for_same_trigger_type() {
     )]);
     let tx = conn.transaction().unwrap();
 
-    let imported = import_triggers(&tx, &payload, ImportOptions::default(), |_, _| {
-        Ok(ImportConflictAction::Overwrite)
-    })
-    .unwrap();
+    let imported =
+        import_triggers(&tx, &payload, |_, _| Ok(ImportConflictAction::Overwrite)).unwrap();
     tx.commit().unwrap();
     assert_eq!(imported, 1);
 
@@ -448,10 +425,8 @@ fn non_overlapping_target_os_values_do_not_conflict_for_same_trigger_type() {
         "imported",
     )]);
     let tx = conn.transaction().unwrap();
-    let imported = import_triggers(&tx, &payload, ImportOptions::default(), |_, _| {
-        Ok(ImportConflictAction::Overwrite)
-    })
-    .unwrap();
+    let imported =
+        import_triggers(&tx, &payload, |_, _| Ok(ImportConflictAction::Overwrite)).unwrap();
     tx.commit().unwrap();
 
     assert_eq!(imported, 1);
@@ -467,317 +442,6 @@ fn non_overlapping_target_os_values_do_not_conflict_for_same_trigger_type() {
         )
         .unwrap();
     assert_eq!(count, 2);
-}
-
-#[test]
-fn merge_stats_combines_local_and_imported_trigger_stats() {
-    init_tracing_for_tests();
-    let (_dir, mut conn) = open_test_db();
-
-    upsert_trigger(
-        &conn,
-        "local-id",
-        "Local GM",
-        None,
-        "gm",
-        "Local output",
-        "text",
-        "all",
-        "[]",
-        20,
-        Some(200),
-    )
-    .unwrap();
-
-    let mut imported = text_export(TriggerType::Word, "gm", "all", "Imported output");
-    imported.usage_count = Some(50);
-    imported.last_used_at = Some(100);
-
-    let tx = conn.transaction().unwrap();
-    import_triggers(
-        &tx,
-        &ExchangePayload::new(vec![imported]),
-        ImportOptions {
-            include_settings: false,
-            stats_mode: ImportStatsMode::Merge,
-            ..Default::default()
-        },
-        |_, _| Ok(ImportConflictAction::Overwrite),
-    )
-    .unwrap();
-    tx.commit().unwrap();
-
-    let (usage_count, last_used_at): (i64, Option<i64>) = conn
-        .query_row(
-            "SELECT usage_count, last_used_at
-                 FROM triggers
-                 WHERE trigger = ?1 AND target_os = ?2 AND is_deleted = 0",
-            ["gm", "all"],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .unwrap();
-
-    assert_eq!(usage_count, 70);
-    assert_eq!(last_used_at, Some(200));
-}
-
-#[test]
-fn overwrite_stats_replaces_local_trigger_stats() {
-    init_tracing_for_tests();
-    let (_dir, mut conn) = open_test_db();
-
-    upsert_trigger(
-        &conn,
-        "local-id",
-        "Local GM",
-        None,
-        "gm",
-        "Local output",
-        "text",
-        "all",
-        "[]",
-        20,
-        Some(200),
-    )
-    .unwrap();
-
-    let mut imported = text_export(TriggerType::Word, "gm", "all", "Imported output");
-    imported.usage_count = Some(50);
-    imported.last_used_at = Some(100);
-
-    let tx = conn.transaction().unwrap();
-    import_triggers(
-        &tx,
-        &ExchangePayload::new(vec![imported]),
-        ImportOptions {
-            include_settings: false,
-            stats_mode: ImportStatsMode::Overwrite,
-            ..Default::default()
-        },
-        |_, _| Ok(ImportConflictAction::Overwrite),
-    )
-    .unwrap();
-    tx.commit().unwrap();
-
-    let (usage_count, last_used_at): (i64, Option<i64>) = conn
-        .query_row(
-            "SELECT usage_count, last_used_at
-                 FROM triggers
-                 WHERE trigger = ?1 AND target_os = ?2 AND is_deleted = 0",
-            ["gm", "all"],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .unwrap();
-
-    assert_eq!(usage_count, 50);
-    assert_eq!(last_used_at, Some(100));
-}
-
-#[test]
-fn skip_conflict_also_skips_imported_stats() {
-    init_tracing_for_tests();
-    let (_dir, mut conn) = open_test_db();
-
-    upsert_trigger(
-        &conn,
-        "local-id",
-        "Local GM",
-        None,
-        "gm",
-        "Local output",
-        "text",
-        "all",
-        "[]",
-        20,
-        Some(200),
-    )
-    .unwrap();
-
-    let mut imported = text_export(TriggerType::Word, "gm", "all", "Imported output");
-    imported.usage_count = Some(50);
-    imported.last_used_at = Some(500);
-
-    let tx = conn.transaction().unwrap();
-    import_triggers(
-        &tx,
-        &ExchangePayload::new(vec![imported]),
-        ImportOptions {
-            include_settings: false,
-            stats_mode: ImportStatsMode::Merge,
-            ..Default::default()
-        },
-        |_, _| Ok(ImportConflictAction::Skip),
-    )
-    .unwrap();
-    tx.commit().unwrap();
-
-    let row = get_trigger(&conn, "local-id").unwrap().unwrap();
-    assert_eq!(row.usage_count, 20);
-    assert_eq!(row.last_used_at, Some(200));
-    assert!(!row.is_deleted);
-}
-
-#[test]
-fn include_settings_overwrites_local_setting_values() {
-    init_tracing_for_tests();
-    let (_dir, mut conn) = open_test_db();
-
-    let payload = ExchangePayload {
-        schema_version: super::EXCHANGE_SCHEMA_VERSION,
-        triggers: vec![],
-        settings: Some(vec![super::SettingExport {
-            key: "pause_hotkey".to_string(),
-            value: r#""Ctrl + Shift + P""#.to_string(),
-        }]),
-        stats: None,
-    };
-
-    let tx = conn.transaction().unwrap();
-    import_triggers(
-        &tx,
-        &payload,
-        ImportOptions {
-            include_settings: true,
-            stats_mode: ImportStatsMode::Ignore,
-            ..Default::default()
-        },
-        |_, _| Ok(ImportConflictAction::Overwrite),
-    )
-    .unwrap();
-    tx.commit().unwrap();
-
-    let value: String = conn
-        .query_row(
-            "SELECT value FROM settings WHERE key = 'pause_hotkey'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(value, r#""Ctrl + Shift + P""#);
-}
-
-#[test]
-fn merge_global_stats_sums_rows_by_date() {
-    init_tracing_for_tests();
-    let (_dir, mut conn) = open_test_db();
-
-    conn.execute(
-        "INSERT INTO stats (
-                date, executions, ai_executions, keystrokes_saved, time_saved_ms, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        (
-            "2026-04-01",
-            20_i64,
-            4_i64,
-            200_i64,
-            20_000_i64,
-            1_700_000_000_i64,
-        ),
-    )
-    .unwrap();
-
-    let payload = ExchangePayload {
-        schema_version: super::EXCHANGE_SCHEMA_VERSION,
-        triggers: vec![],
-        settings: None,
-        stats: Some(vec![StatExport {
-            date: "2026-04-01".to_string(),
-            executions: 50,
-            ai_executions: 5,
-            keystrokes_saved: 500,
-            time_saved_ms: 50_000,
-        }]),
-    };
-
-    let tx = conn.transaction().unwrap();
-    import_triggers(
-        &tx,
-        &payload,
-        ImportOptions {
-            include_settings: false,
-            stats_mode: ImportStatsMode::Merge,
-            ..Default::default()
-        },
-        |_, _| Ok(ImportConflictAction::Overwrite),
-    )
-    .unwrap();
-    tx.commit().unwrap();
-
-    let (executions, ai_executions, saved, time_saved_ms): (i64, i64, i64, i64) = conn
-        .query_row(
-            "SELECT executions, ai_executions, keystrokes_saved, time_saved_ms
-                 FROM stats
-                 WHERE date = ?1",
-            ["2026-04-01"],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .unwrap();
-    assert_eq!(executions, 70);
-    assert_eq!(ai_executions, 9);
-    assert_eq!(saved, 700);
-    assert_eq!(time_saved_ms, 70_000);
-}
-
-#[test]
-fn overwrite_global_stats_replaces_rows_by_date() {
-    init_tracing_for_tests();
-    let (_dir, mut conn) = open_test_db();
-
-    conn.execute(
-        "INSERT INTO stats (
-                date, executions, ai_executions, keystrokes_saved, time_saved_ms, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        (
-            "2026-04-01",
-            20_i64,
-            4_i64,
-            200_i64,
-            20_000_i64,
-            1_700_000_000_i64,
-        ),
-    )
-    .unwrap();
-
-    let payload = ExchangePayload {
-        schema_version: super::EXCHANGE_SCHEMA_VERSION,
-        triggers: vec![],
-        settings: None,
-        stats: Some(vec![StatExport {
-            date: "2026-04-01".to_string(),
-            executions: 50,
-            ai_executions: 5,
-            keystrokes_saved: 500,
-            time_saved_ms: 50_000,
-        }]),
-    };
-
-    let tx = conn.transaction().unwrap();
-    import_triggers(
-        &tx,
-        &payload,
-        ImportOptions {
-            include_settings: false,
-            stats_mode: ImportStatsMode::Overwrite,
-            ..Default::default()
-        },
-        |_, _| Ok(ImportConflictAction::Overwrite),
-    )
-    .unwrap();
-    tx.commit().unwrap();
-
-    let (executions, ai_executions, saved, time_saved_ms): (i64, i64, i64, i64) = conn
-        .query_row(
-            "SELECT executions, ai_executions, keystrokes_saved, time_saved_ms
-                 FROM stats
-                 WHERE date = ?1",
-            ["2026-04-01"],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .unwrap();
-    assert_eq!(executions, 50);
-    assert_eq!(ai_executions, 5);
-    assert_eq!(saved, 500);
-    assert_eq!(time_saved_ms, 50_000);
 }
 
 #[test]
@@ -798,8 +462,6 @@ fn test_import_rewrites_asset_uuids() {
             is_enabled: true,
             target_os: "all".to_string(),
             tags: vec![],
-            usage_count: None,
-            last_used_at: None,
             script: None,
             assets: vec![AssetExport {
                 id: old_asset_id.clone(),
@@ -807,24 +469,16 @@ fn test_import_rewrites_asset_uuids() {
                 compressed_content_hex: "89504e470d0a1a0a".to_string(),
             }],
         }],
-        settings: None,
-        stats: None,
     };
 
     // First import
     let tx1 = conn.transaction().unwrap();
-    import_triggers(&tx1, &payload, ImportOptions::default(), |_, _| {
-        Ok(ImportConflictAction::Overwrite)
-    })
-    .unwrap();
+    import_triggers(&tx1, &payload, |_, _| Ok(ImportConflictAction::Overwrite)).unwrap();
     tx1.commit().unwrap();
 
     // Second import (duplicate trigger, but let's import it with overwrite)
     let tx2 = conn.transaction().unwrap();
-    import_triggers(&tx2, &payload, ImportOptions::default(), |_, _| {
-        Ok(ImportConflictAction::Overwrite)
-    })
-    .unwrap();
+    import_triggers(&tx2, &payload, |_, _| Ok(ImportConflictAction::Overwrite)).unwrap();
     tx2.commit().unwrap();
 
     // Retrieve both triggers and assets
@@ -873,14 +527,10 @@ fn test_import_allows_older_schema_version() {
     let payload = ExchangePayload {
         schema_version: super::EXCHANGE_SCHEMA_VERSION - 1,
         triggers: vec![],
-        settings: None,
-        stats: None,
     };
 
     let tx = conn.transaction().unwrap();
-    let res = import_triggers(&tx, &payload, ImportOptions::default(), |_, _| {
-        Ok(ImportConflictAction::Overwrite)
-    });
+    let res = import_triggers(&tx, &payload, |_, _| Ok(ImportConflictAction::Overwrite));
     assert!(res.is_ok());
 }
 
@@ -900,22 +550,4 @@ fn test_import_conflict_action_roundtrip_and_parse_aliases() {
         Some(ImportConflictAction::Skip)
     );
     assert_eq!(ImportConflictAction::parse_str("invalid"), None);
-}
-
-#[test]
-fn test_import_stats_mode_roundtrip_and_parse_aliases() {
-    for mode in ImportStatsMode::ALL {
-        let label = mode.as_str();
-        assert_eq!(ImportStatsMode::parse_str(label), Some(mode));
-    }
-
-    assert_eq!(
-        ImportStatsMode::parse_str("combine"),
-        Some(ImportStatsMode::Merge)
-    );
-    assert_eq!(
-        ImportStatsMode::parse_str("skip"),
-        Some(ImportStatsMode::Ignore)
-    );
-    assert_eq!(ImportStatsMode::parse_str("invalid"), None);
 }

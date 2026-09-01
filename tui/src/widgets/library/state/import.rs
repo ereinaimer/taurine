@@ -1,5 +1,4 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use taurine_core::exchange::ImportStatsMode;
 
 use crate::widgets::library::actions::{
     LibraryImportConflictMode, LibraryImportOutcome, LibraryInteraction,
@@ -12,12 +11,9 @@ use super::{ButtonSelection, LibraryImportModalField};
 pub(crate) const LIBRARY_IMPORT_MODAL_FOOTER: &str = "↑/↓ Move   Tab Next";
 pub(crate) const LIBRARY_IMPORT_RESULT_FOOTER: &str = "Enter Close   Esc Close";
 pub(crate) const LIBRARY_IMPORT_RUN_VARIABLES_FOOTER: &str = "y Continue   n Cancel   Esc Cancel";
-pub(crate) const IMPORT_MODAL_FIELDS: [LibraryImportModalField; 7] = [
+pub(crate) const IMPORT_MODAL_FIELDS: [LibraryImportModalField; 4] = [
     LibraryImportModalField::Path,
     LibraryImportModalField::Password,
-    LibraryImportModalField::IncludeSettings,
-    LibraryImportModalField::IncludeSensitiveSettings,
-    LibraryImportModalField::StatsMode,
     LibraryImportModalField::ConflictMode,
     LibraryImportModalField::ActionButton,
 ];
@@ -28,9 +24,6 @@ pub(crate) struct LibraryImportModalState {
     path_cursor: usize,
     password: String,
     password_cursor: usize,
-    include_settings: bool,
-    include_sensitive_settings: bool,
-    stats_mode: ImportStatsMode,
     conflict_mode: LibraryImportConflictMode,
     focus: LibraryImportModalField,
     error: Option<String>,
@@ -46,9 +39,6 @@ impl LibraryImportModalState {
             path_cursor: 0,
             password: String::new(),
             password_cursor: 0,
-            include_settings: false,
-            include_sensitive_settings: false,
-            stats_mode: ImportStatsMode::Ignore,
             conflict_mode: LibraryImportConflictMode::Skip,
             focus: LibraryImportModalField::Path,
             error: None,
@@ -66,11 +56,8 @@ impl LibraryImportModalState {
             path_cursor,
             password: String::new(),
             password_cursor: 0,
-            include_settings: false,
-            include_sensitive_settings: false,
-            stats_mode: ImportStatsMode::Ignore,
             conflict_mode: LibraryImportConflictMode::Skip,
-            focus: LibraryImportModalField::IncludeSettings,
+            focus: LibraryImportModalField::ConflictMode,
             error: None,
             selector: None,
             button_selection: ButtonSelection::Cancel,
@@ -126,19 +113,6 @@ impl LibraryImportModalState {
         self.password_cursor
     }
 
-    pub(crate) const fn include_settings(&self) -> bool {
-        self.include_settings
-    }
-
-    pub(crate) const fn include_sensitive_settings(&self) -> bool {
-        self.include_sensitive_settings
-    }
-
-    #[cfg(test)]
-    pub(crate) const fn stats_mode(&self) -> ImportStatsMode {
-        self.stats_mode
-    }
-
     #[cfg(test)]
     pub(crate) const fn conflict_mode(&self) -> LibraryImportConflictMode {
         self.conflict_mode
@@ -186,14 +160,6 @@ impl LibraryImportModalState {
 
     pub(crate) fn selector(&self) -> Option<&LibrarySelectState> {
         self.selector.as_ref()
-    }
-
-    pub(crate) const fn stats_mode_label(&self) -> &'static str {
-        match self.stats_mode {
-            ImportStatsMode::Ignore => "ignore",
-            ImportStatsMode::Merge => "merge",
-            ImportStatsMode::Overwrite => "overwrite",
-        }
     }
 
     pub(crate) const fn conflict_mode_label(&self) -> &'static str {
@@ -288,11 +254,6 @@ impl LibraryImportModalState {
         Ok(PendingLibraryImportPrepare {
             path: self.path.clone(),
             password,
-            options: taurine_core::exchange::ImportOptions {
-                include_settings: self.include_settings,
-                stats_mode: self.stats_mode,
-                include_sensitive_settings: self.include_sensitive_settings,
-            },
             conflict_mode: self.conflict_mode,
             return_to_modal: self.clone(),
         })
@@ -302,11 +263,6 @@ impl LibraryImportModalState {
         match self.focus {
             LibraryImportModalField::Path => self.handle_path_key(key),
             LibraryImportModalField::Password => self.handle_password_key(key),
-            LibraryImportModalField::IncludeSettings => self.handle_include_settings_key(key),
-            LibraryImportModalField::IncludeSensitiveSettings => {
-                self.handle_include_sensitive_settings_key(key)
-            }
-            LibraryImportModalField::StatsMode => self.handle_stats_mode_key(key),
             LibraryImportModalField::ConflictMode => self.handle_conflict_mode_key(key),
             LibraryImportModalField::ActionButton => {
                 unreachable!("ActionButton is handled before focused key dispatch")
@@ -336,21 +292,11 @@ impl LibraryImportModalState {
                 LibraryInteraction::handled()
             }
             (KeyCode::Enter, KeyModifiers::NONE) => {
-                match self.focus {
-                    LibraryImportModalField::StatsMode => {
-                        self.stats_mode = match selector.selected {
-                            0 => ImportStatsMode::Ignore,
-                            1 => ImportStatsMode::Merge,
-                            _ => ImportStatsMode::Overwrite,
-                        };
-                    }
-                    LibraryImportModalField::ConflictMode => {
-                        self.conflict_mode = match selector.selected {
-                            0 => LibraryImportConflictMode::Skip,
-                            _ => LibraryImportConflictMode::Overwrite,
-                        };
-                    }
-                    _ => {}
+                if self.focus == LibraryImportModalField::ConflictMode {
+                    self.conflict_mode = match selector.selected {
+                        0 => LibraryImportConflictMode::Skip,
+                        _ => LibraryImportConflictMode::Overwrite,
+                    };
                 }
                 LibraryInteraction::handled()
             }
@@ -428,48 +374,6 @@ impl LibraryImportModalState {
                 if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
                 self.insert_password_char(ch);
-                LibraryInteraction::handled()
-            }
-            _ => LibraryInteraction::handled(),
-        }
-    }
-
-    fn handle_include_settings_key(&mut self, key: KeyEvent) -> LibraryInteraction {
-        match (key.code, key.modifiers) {
-            (KeyCode::Char(' '), KeyModifiers::NONE) => {
-                self.include_settings = !self.include_settings;
-                LibraryInteraction::handled()
-            }
-            _ => LibraryInteraction::handled(),
-        }
-    }
-
-    fn handle_include_sensitive_settings_key(&mut self, key: KeyEvent) -> LibraryInteraction {
-        match (key.code, key.modifiers) {
-            (KeyCode::Char(' '), KeyModifiers::NONE) => {
-                self.include_sensitive_settings = !self.include_sensitive_settings;
-                LibraryInteraction::handled()
-            }
-            _ => LibraryInteraction::handled(),
-        }
-    }
-
-    fn handle_stats_mode_key(&mut self, key: KeyEvent) -> LibraryInteraction {
-        match (key.code, key.modifiers) {
-            (KeyCode::Char(' '), KeyModifiers::NONE) => {
-                self.selector = Some(LibrarySelectState {
-                    title: "Select Stats Mode",
-                    options: vec![
-                        "ignore".to_string(),
-                        "merge".to_string(),
-                        "overwrite".to_string(),
-                    ],
-                    selected: match self.stats_mode {
-                        ImportStatsMode::Ignore => 0,
-                        ImportStatsMode::Merge => 1,
-                        ImportStatsMode::Overwrite => 2,
-                    },
-                });
                 LibraryInteraction::handled()
             }
             _ => LibraryInteraction::handled(),
@@ -621,13 +525,7 @@ pub(crate) struct LibraryImportResultModalState {
 
 impl LibraryImportResultModalState {
     pub(crate) fn from_outcome(outcome: &LibraryImportOutcome) -> Self {
-        let mut lines = vec![format!("Imported {} trigger(s).", outcome.imported())];
-        if outcome.imported_settings() {
-            lines.push("Settings imported.".to_string());
-        }
-        if outcome.imported_stats() {
-            lines.push("Stats updated.".to_string());
-        }
+        let lines = vec![format!("Imported {} trigger(s).", outcome.imported())];
         Self { lines }
     }
 

@@ -112,15 +112,6 @@ pub(crate) enum Commands {
         /// Plaintext (no encryption)
         #[arg(short = 'p', long)]
         plain: bool,
-        /// Include settings
-        #[arg(short = 's', long)]
-        settings: bool,
-        /// Include stats
-        #[arg(short = 't', long)]
-        stats: bool,
-        /// Include sensitive settings
-        #[arg(short = 'x', long)]
-        sensitive: bool,
         /// Skip interactive prompts
         #[arg(short = 'y', long)]
         yes: bool,
@@ -132,15 +123,6 @@ pub(crate) enum Commands {
         /// Collision resolution
         #[arg(short = 'c', long, value_enum)]
         conflict: Option<ImportConflictCli>,
-        /// Overwrite local settings
-        #[arg(short = 's', long)]
-        settings: bool,
-        /// Import stats strategy
-        #[arg(short = 't', long, value_enum, num_args = 0..=1, require_equals = true, default_missing_value = "merge")]
-        stats: Option<ImportStatsCli>,
-        /// Import sensitive settings
-        #[arg(short = 'x', long)]
-        sensitive: bool,
         /// Skip interactive prompts
         #[arg(short = 'y', long)]
         yes: bool,
@@ -467,13 +449,6 @@ pub enum SortBy {
 pub enum ImportConflictCli {
     Prompt,
     Skip,
-    Overwrite,
-}
-
-#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ImportStatsCli {
-    Ignore,
-    Merge,
     Overwrite,
 }
 

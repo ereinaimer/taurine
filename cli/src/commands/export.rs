@@ -1,50 +1,22 @@
 use std::path::PathBuf;
 
 use taurine_core::db::init;
-use taurine_core::exchange::{
-    ExportOptions, encode_exchange_blob, export_triggers, resolve_export_path,
-};
+use taurine_core::exchange::{encode_exchange_blob, export_triggers, resolve_export_path};
 use zeroize::Zeroize;
 
-pub fn execute(
-    path: Option<PathBuf>,
-    plain: bool,
-    settings: bool,
-    stats: bool,
-    sensitive: bool,
-    yes: bool,
-) -> taurine_core::error::Result<()> {
-    let (path, plain, settings, stats, sensitive, password) = if !yes {
+pub fn execute(path: Option<PathBuf>, plain: bool, yes: bool) -> taurine_core::error::Result<()> {
+    let (path, plain, password) = if !yes {
         match taurine_tui::run_export_overlay()? {
-            Some(result) => (
-                Some(result.path),
-                !result.encrypt,
-                result.include_settings,
-                result.include_stats,
-                result.include_sensitive_settings,
-                result.password,
-            ),
+            Some(result) => (Some(result.path), !result.encrypt, result.password),
             None => return Ok(()),
         }
     } else {
-        if sensitive && plain {
-            return Err(taurine_core::error::Error::Config(
-                    "Cannot export sensitive settings without encryption. Remove the --plain / -p flag to securely export sensitive data.".to_string(),
-                ));
-        }
-        (path, plain, settings, stats, sensitive, None)
+        (path, plain, None)
     };
 
     let path = resolve_export_path(path)?;
     let conn = init::setup()?;
-    let payload = export_triggers(
-        &conn,
-        ExportOptions {
-            include_settings: settings,
-            include_stats: stats,
-            include_sensitive_settings: sensitive,
-        },
-    )?;
+    let payload = export_triggers(&conn)?;
     let encoded = if plain {
         encode_exchange_blob(&payload, false, None)?
     } else if yes {
@@ -70,24 +42,6 @@ pub fn execute(
 
     taurine_core::exchange::write_export_file(&path, &encoded)?;
 
-    let mut parts = Vec::new();
-    if settings {
-        if sensitive {
-            parts.push("sensitive settings");
-        } else {
-            parts.push("settings");
-        }
-    }
-    if stats {
-        parts.push("stats");
-    }
-
-    let details = if parts.is_empty() {
-        "".to_string()
-    } else {
-        format!(" with {}", parts.join(" and "))
-    };
-
     let trigger_word = if payload.triggers.len() == 1 {
         "trigger"
     } else {
@@ -95,10 +49,9 @@ pub fn execute(
     };
 
     println!(
-        "Exported {} {}{} to {}",
+        "Exported {} {} to {}",
         payload.triggers.len(),
         trigger_word,
-        details,
         path.display()
     );
 

@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Conversational Current Time Queries**: Support `what time is it in <city>` and `what's the time in <city>?` for natural current time lookups.
 - **Conversational Time Conversions**: Support `when it is <time> in <from_tz> what time is it in <to_tz>?` for long-form timezone conversions.
 
+### Changed
+- **Streamlined Exchange**: Export and import now focus purely on trigger data, removing support for bundling local metrics, settings, or secrets into exchange files.
+
 ### Fixed
 - **Hook Resilience & Self-Healing**: Prevented false hook restarts during typing pauses, deferred active-window inspection to match time, added auto-reenabling recovery on macOS, and bounded lock contention to ensure zero keyboard dropped frames.
 - **Text Expansion Reliability**: Fixed a regression where word expansions, swallowing, and completions would fail to trigger or misbehave during rapid typing.

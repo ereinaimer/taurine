@@ -11,12 +11,11 @@ use serde::{Deserialize, Serialize};
 
 pub use crypto::{MIN_EXPORT_PASSWORD_LEN, validate_export_password};
 pub use export::{
-    ExportOptions, default_export_filename, default_export_path, encode_exchange_blob,
-    ensure_tau_extension, export_triggers, resolve_export_path, write_export_file,
+    default_export_filename, default_export_path, encode_exchange_blob, ensure_tau_extension,
+    export_triggers, resolve_export_path, write_export_file,
 };
 pub use import::{
-    ExistingTriggerConflict, ImportConflictAction, ImportOptions, ImportStatsMode,
-    import_payload_transactionally, import_triggers,
+    ExistingTriggerConflict, ImportConflictAction, import_payload_transactionally, import_triggers,
 };
 
 pub const PLAINTEXT_MAGIC_HEADER: [u8; 4] = *b"TAUP";
@@ -29,10 +28,6 @@ pub struct ExchangePayload {
     pub schema_version: u32,
     #[serde(default)]
     pub triggers: Vec<TriggerExport>,
-    #[serde(default)]
-    pub settings: Option<Vec<SettingExport>>,
-    #[serde(default)]
-    pub stats: Option<Vec<StatExport>>,
 }
 
 impl ExchangePayload {
@@ -40,8 +35,6 @@ impl ExchangePayload {
         Self {
             schema_version: EXCHANGE_SCHEMA_VERSION,
             triggers,
-            settings: None,
-            stats: None,
         }
     }
 
@@ -75,10 +68,6 @@ pub struct TriggerExport {
     pub target_os: String,
     #[serde(default)]
     pub tags: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub usage_count: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_used_at: Option<i64>,
     #[serde(default)]
     pub script: Option<ScriptExport>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -97,23 +86,6 @@ pub struct ScriptExport {
     pub interpreter: ScriptInterpreter,
     pub behavior: ScriptBehavior,
     pub content: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SettingExport {
-    pub key: String,
-    pub value: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct StatExport {
-    pub date: String,
-    pub executions: i64,
-    #[serde(default)]
-    pub ai_executions: i64,
-    pub keystrokes_saved: i64,
-    #[serde(default)]
-    pub time_saved_ms: i64,
 }
 
 pub fn encode_plaintext_payload(payload: &ExchangePayload) -> crate::Result<Vec<u8>> {
@@ -294,10 +266,8 @@ mod tests {
 
         insert_script_trigger(&conn);
 
-        let payload = export_triggers(&conn, ExportOptions::default()).unwrap();
+        let payload = export_triggers(&conn).unwrap();
         assert_eq!(payload.schema_version, EXCHANGE_SCHEMA_VERSION);
-        assert_eq!(payload.settings, None);
-        assert_eq!(payload.stats, None);
         assert_eq!(payload.triggers.len(), 1);
 
         let trigger = &payload.triggers[0];
@@ -347,7 +317,7 @@ mod tests {
 
         insert_hotkey_trigger(&conn);
 
-        let payload = export_triggers(&conn, ExportOptions::default()).unwrap();
+        let payload = export_triggers(&conn).unwrap();
         let trigger = payload
             .triggers
             .iter()
@@ -370,8 +340,6 @@ mod tests {
             is_enabled: true,
             target_os: "all".to_string(),
             tags: vec!["daily".to_string()],
-            usage_count: None,
-            last_used_at: None,
             script: None,
             assets: Vec::new(),
         }]);
@@ -431,8 +399,6 @@ mod tests {
             is_enabled: true,
             target_os: "all".to_string(),
             tags: vec![],
-            usage_count: None,
-            last_used_at: None,
             script: None,
             assets: Vec::new(),
         }]);
@@ -456,20 +422,18 @@ mod tests {
         insert_script_trigger(&conn);
         insert_hotkey_trigger(&conn);
 
-        let payload = export_triggers(&conn, ExportOptions::default()).unwrap();
+        let payload = export_triggers(&conn).unwrap();
 
         conn.execute("DELETE FROM scripts", []).unwrap();
         conn.execute("DELETE FROM triggers", []).unwrap();
 
         let tx = conn.transaction().unwrap();
-        let imported = import_triggers(&tx, &payload, ImportOptions::default(), |_, _| {
-            Ok(ImportConflictAction::Overwrite)
-        })
-        .unwrap();
+        let imported =
+            import_triggers(&tx, &payload, |_, _| Ok(ImportConflictAction::Overwrite)).unwrap();
         tx.commit().unwrap();
         assert_eq!(imported, 3);
 
-        let re_exported = export_triggers(&conn, ExportOptions::default()).unwrap();
+        let re_exported = export_triggers(&conn).unwrap();
         assert_eq!(re_exported, payload);
 
         let imported_text = conn
@@ -527,7 +491,7 @@ mod tests {
     }
 
     #[test]
-    fn export_with_settings_and_stats_includes_requested_sections() {
+    fn export_triggers_only_contains_triggers_and_no_stats_or_settings() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
@@ -547,15 +511,7 @@ mod tests {
         )
         .unwrap();
 
-        let payload = export_triggers(
-            &conn,
-            ExportOptions {
-                include_settings: true,
-                include_stats: true,
-                include_sensitive_settings: false,
-            },
-        )
-        .unwrap();
+        let payload = export_triggers(&conn).unwrap();
 
         let trigger = payload
             .triggers
@@ -563,23 +519,6 @@ mod tests {
             .find(|trigger| trigger.trigger == "gm")
             .unwrap();
         assert_eq!(trigger.trigger_type, TriggerType::Word);
-        assert_eq!(trigger.usage_count, Some(41));
-        assert_eq!(trigger.last_used_at, Some(1_700_000_123));
-
-        let settings = payload.settings.unwrap();
-        assert!(settings.iter().any(|setting| setting.key == "pause_hotkey"));
-
-        let stats = payload.stats.unwrap();
-        assert_eq!(
-            stats,
-            vec![StatExport {
-                date: "2026-04-01".to_string(),
-                executions: 5,
-                ai_executions: 2,
-                keystrokes_saved: 50,
-                time_saved_ms: 10_000,
-            }]
-        );
     }
 
     #[test]
@@ -683,7 +622,7 @@ mod tests {
         assert!(rewritten_output.contains("[img(asset("));
         assert!(rewritten_output.contains("file(asset("));
 
-        let payload = export_triggers(&conn, ExportOptions::default()).unwrap();
+        let payload = export_triggers(&conn).unwrap();
         assert_eq!(payload.triggers.len(), 1);
         assert_eq!(payload.triggers[0].assets.len(), 2);
 
@@ -691,10 +630,8 @@ mod tests {
         conn.execute("DELETE FROM triggers", []).unwrap();
 
         let tx = conn.transaction().unwrap();
-        let imported = import_triggers(&tx, &payload, ImportOptions::default(), |_, _| {
-            Ok(ImportConflictAction::Overwrite)
-        })
-        .unwrap();
+        let imported =
+            import_triggers(&tx, &payload, |_, _| Ok(ImportConflictAction::Overwrite)).unwrap();
         tx.commit().unwrap();
         assert_eq!(imported, 1);
 

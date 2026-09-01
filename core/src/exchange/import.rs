@@ -1,7 +1,6 @@
-use super::{ExchangePayload, StatExport, TriggerExport};
+use super::{ExchangePayload, TriggerExport};
 use crate::db::crud::{
-    TriggerType, increment_stat, target_os_values_overlap, upsert_script, upsert_setting,
-    upsert_trigger_with_type,
+    TriggerType, target_os_values_overlap, upsert_script, upsert_trigger_with_type,
 };
 use crate::engine::shell::compress;
 use crate::keys::normalize_hotkey;
@@ -44,51 +43,6 @@ impl ImportConflictAction {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ImportStatsMode {
-    #[default]
-    Ignore,
-    Merge,
-    Overwrite,
-}
-
-impl ImportStatsMode {
-    pub const ALL: [Self; 3] = [Self::Ignore, Self::Merge, Self::Overwrite];
-
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Ignore => "ignore",
-            Self::Merge => "merge",
-            Self::Overwrite => "overwrite",
-        }
-    }
-
-    pub const fn display_name(self) -> &'static str {
-        match self {
-            Self::Ignore => "Ignore",
-            Self::Merge => "Merge",
-            Self::Overwrite => "Overwrite",
-        }
-    }
-
-    pub fn parse_str(s: &str) -> Option<Self> {
-        match s.trim().to_lowercase().as_str() {
-            "ignore" | "skip" => Some(Self::Ignore),
-            "merge" | "combine" => Some(Self::Merge),
-            "overwrite" | "over" | "replace" => Some(Self::Overwrite),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct ImportOptions {
-    pub include_settings: bool,
-    pub stats_mode: ImportStatsMode,
-    pub include_sensitive_settings: bool,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExistingTriggerConflict {
     pub id: String,
@@ -107,7 +61,6 @@ pub struct ExistingTriggerConflict {
 pub fn import_triggers<F>(
     tx: &Transaction<'_>,
     payload: &ExchangePayload,
-    options: ImportOptions,
     mut resolve_conflict: F,
 ) -> crate::Result<usize>
 where
@@ -147,20 +100,9 @@ where
 
         let mut canonical_trigger_export = trigger.clone();
         canonical_trigger_export.trigger = canonical_trigger;
-        insert_imported_trigger(
-            tx,
-            &canonical_trigger_export,
-            existing.as_ref(),
-            options.stats_mode,
-        )?;
+        insert_imported_trigger(tx, &canonical_trigger_export)?;
         imported += 1;
     }
-
-    if options.include_settings {
-        import_settings(tx, payload, options.include_sensitive_settings)?;
-    }
-
-    import_global_stats(tx, payload, options.stats_mode)?;
 
     Ok(imported)
 }
@@ -168,14 +110,13 @@ where
 pub fn import_payload_transactionally<F>(
     conn: &mut Connection,
     payload: &ExchangePayload,
-    options: ImportOptions,
     mut resolve_conflict: F,
 ) -> crate::Result<usize>
 where
     F: FnMut(&TriggerExport, &ExistingTriggerConflict) -> crate::Result<ImportConflictAction>,
 {
     let tx = conn.transaction()?;
-    let result = import_triggers(&tx, payload, options, |incoming, existing| {
+    let result = import_triggers(&tx, payload, |incoming, existing| {
         resolve_conflict(incoming, existing)
     });
 
@@ -191,15 +132,9 @@ where
     }
 }
 
-fn insert_imported_trigger(
-    tx: &Transaction<'_>,
-    trigger: &TriggerExport,
-    existing: Option<&ExistingTriggerConflict>,
-    stats_mode: ImportStatsMode,
-) -> crate::Result<()> {
+fn insert_imported_trigger(tx: &Transaction<'_>, trigger: &TriggerExport) -> crate::Result<()> {
     let id = Uuid::new_v4().to_string();
     let tags_json = serde_json::to_string(&trigger.tags)?;
-    let (usage_count, last_used_at) = resolve_trigger_stats(trigger, existing, stats_mode);
 
     upsert_trigger_with_type(
         tx,
@@ -212,8 +147,8 @@ fn insert_imported_trigger(
         &trigger.action_type,
         &trigger.target_os,
         &tags_json,
-        usage_count,
-        last_used_at,
+        0,
+        None,
     )?;
 
     if !trigger.is_enabled {
@@ -376,158 +311,4 @@ fn tombstone_conflicting_triggers(
     }
 
     Ok(())
-}
-
-fn resolve_trigger_stats(
-    trigger: &TriggerExport,
-    existing: Option<&ExistingTriggerConflict>,
-    stats_mode: ImportStatsMode,
-) -> (i64, Option<i64>) {
-    let imported_usage_count = trigger.usage_count.unwrap_or(0);
-    let imported_last_used_at = trigger.last_used_at;
-
-    match stats_mode {
-        ImportStatsMode::Ignore => (0, None),
-        ImportStatsMode::Overwrite => (imported_usage_count, imported_last_used_at),
-        ImportStatsMode::Merge => {
-            if let Some(existing) = existing {
-                (
-                    existing.usage_count + imported_usage_count,
-                    max_option_i64(existing.last_used_at, imported_last_used_at),
-                )
-            } else {
-                (imported_usage_count, imported_last_used_at)
-            }
-        }
-    }
-}
-
-fn import_settings(
-    tx: &Transaction<'_>,
-    payload: &ExchangePayload,
-    include_sensitive_settings: bool,
-) -> crate::Result<()> {
-    if let Some(settings) = payload.settings.as_ref() {
-        for setting in settings {
-            if !include_sensitive_settings
-                && crate::exchange::export::is_sensitive_setting_key(&setting.key)
-            {
-                continue;
-            }
-            upsert_setting(tx, &setting.key, &setting.value)?;
-        }
-    }
-
-    Ok(())
-}
-
-fn import_global_stats(
-    tx: &Transaction<'_>,
-    payload: &ExchangePayload,
-    stats_mode: ImportStatsMode,
-) -> crate::Result<()> {
-    let Some(stats) = payload.stats.as_ref() else {
-        return Ok(());
-    };
-
-    match stats_mode {
-        ImportStatsMode::Ignore => Ok(()),
-        ImportStatsMode::Merge => {
-            for stat in stats {
-                increment_stat(
-                    tx,
-                    &stat.date,
-                    stat.executions,
-                    stat.ai_executions,
-                    stat.keystrokes_saved,
-                    stat.time_saved_ms,
-                )?;
-            }
-            Ok(())
-        }
-        ImportStatsMode::Overwrite => {
-            for stat in stats {
-                overwrite_stat_row(tx, stat)?;
-            }
-            Ok(())
-        }
-    }
-}
-
-fn overwrite_stat_row(tx: &Transaction<'_>, stat: &StatExport) -> crate::Result<()> {
-    tx.execute(
-        "INSERT INTO stats (
-             date,
-             executions,
-             ai_executions,
-             keystrokes_saved,
-             time_saved_ms,
-             version,
-             updated_at
-         )
-         VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6)
-         ON CONFLICT(date) DO UPDATE SET
-             executions = excluded.executions,
-             ai_executions = excluded.ai_executions,
-             keystrokes_saved = excluded.keystrokes_saved,
-             time_saved_ms = excluded.time_saved_ms,
-             version = version + 1,
-             updated_at = excluded.updated_at",
-        (
-            &stat.date,
-            stat.executions,
-            stat.ai_executions,
-            stat.keystrokes_saved,
-            stat.time_saved_ms,
-            crate::db::now_unix_secs(),
-        ),
-    )?;
-
-    Ok(())
-}
-
-fn max_option_i64(left: Option<i64>, right: Option<i64>) -> Option<i64> {
-    match (left, right) {
-        (Some(left), Some(right)) => Some(left.max(right)),
-        (Some(left), None) => Some(left),
-        (None, Some(right)) => Some(right),
-        (None, None) => None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::exchange::SettingExport;
-    use crate::testing::open_test_db;
-
-    #[test]
-    fn import_settings_filters_sensitive_settings() {
-        let (_dir, mut conn) = open_test_db();
-        let tx = conn.transaction().unwrap();
-
-        let payload = ExchangePayload {
-            schema_version: super::super::EXCHANGE_SCHEMA_VERSION,
-            triggers: vec![],
-            settings: Some(vec![
-                SettingExport {
-                    key: "ai_custom_endpoint".to_string(),
-                    value: "https://secret.example.com".to_string(),
-                },
-                SettingExport {
-                    key: "wpm".to_string(),
-                    value: "100".to_string(),
-                },
-            ]),
-            stats: None,
-        };
-
-        import_settings(&tx, &payload, false).unwrap();
-        tx.commit().unwrap();
-
-        let manager = crate::settings::SettingsManager::new(&conn);
-        let settings = manager.load_all();
-        assert_eq!(settings.ai_custom_endpoint, None);
-        assert_eq!(settings.wpm, 100);
-    }
 }

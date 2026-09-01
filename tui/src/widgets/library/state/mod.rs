@@ -41,9 +41,6 @@ pub(crate) enum ButtonSelection {
 pub(crate) enum LibraryImportModalField {
     Path,
     Password,
-    IncludeSettings,
-    IncludeSensitiveSettings,
-    StatsMode,
     ConflictMode,
     ActionButton,
 }
@@ -193,15 +190,9 @@ impl LibraryPageState {
         self.modal = Some(LibraryModal::Import(LibraryImportModalState::new()));
     }
 
-    pub(crate) fn open_export_result_modal(
-        &mut self,
-        path: &Path,
-        encrypt: bool,
-        include_settings: bool,
-        include_stats: bool,
-    ) {
+    pub(crate) fn open_export_result_modal(&mut self, path: &Path, encrypt: bool) {
         self.modal = Some(LibraryModal::ExportResult(
-            LibraryExportResultModalState::new(path, encrypt, include_settings, include_stats),
+            LibraryExportResultModalState::new(path, encrypt),
         ));
     }
 

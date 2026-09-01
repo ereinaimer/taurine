@@ -290,12 +290,6 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
                     taurine_core::rpc::notify_daemon_reload();
                 }
                 refresh_library_page(app);
-                if outcome.imported_settings() {
-                    refresh_settings_page(app);
-                }
-                if should_refresh_home_after_import(&outcome) {
-                    refresh_home_stats(app);
-                }
                 app.library_page_mut().open_import_result_modal(&outcome);
             }
             Err(error) => {
@@ -314,12 +308,6 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
                     taurine_core::rpc::notify_daemon_reload();
                 }
                 refresh_library_page(app);
-                if outcome.imported_settings() {
-                    refresh_settings_page(app);
-                }
-                if should_refresh_home_after_import(&outcome) {
-                    refresh_home_stats(app);
-                }
                 app.library_page_mut().open_import_result_modal(&outcome);
             }
             Err(error) => app.library_page_mut().set_save_error(error.to_string()),
@@ -331,12 +319,8 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
         match pending_export.apply() {
             Ok(path) => {
                 app.library_page_mut().clear_modal();
-                app.library_page_mut().open_export_result_modal(
-                    &path,
-                    pending_export.encrypt(),
-                    pending_export.include_settings(),
-                    pending_export.include_stats(),
-                );
+                app.library_page_mut()
+                    .open_export_result_modal(&path, pending_export.encrypt());
             }
             Err(error) => app.library_page_mut().set_save_error(error.to_string()),
         }
@@ -395,10 +379,6 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
             app.library_page_mut().open_create_modal();
         }
     }
-}
-
-fn should_refresh_home_after_import(outcome: &library::LibraryImportOutcome) -> bool {
-    outcome.imported_settings() || outcome.imported_stats()
 }
 
 fn refresh_home_stats(app: &mut App) {
@@ -700,14 +680,6 @@ mod tests {
         .unwrap()
     }
 
-    fn sample_import_outcome(
-        imported: usize,
-        imported_settings: bool,
-        imported_stats: bool,
-    ) -> library::LibraryImportOutcome {
-        library::LibraryImportOutcome::new(imported, imported_settings, imported_stats)
-    }
-
     #[test]
     fn pressing_x_on_home_calls_start_when_stopped() {
         install_mock_keyring();
@@ -774,27 +746,6 @@ mod tests {
 
         assert_eq!(controller.start_calls.get(), 0);
         assert_eq!(controller.stop_calls.get(), 0);
-    }
-
-    #[test]
-    fn home_stats_refreshes_after_import_when_settings_are_imported() {
-        let outcome = sample_import_outcome(0, true, false);
-
-        assert!(should_refresh_home_after_import(&outcome));
-    }
-
-    #[test]
-    fn home_stats_refreshes_after_import_when_stats_are_imported() {
-        let outcome = sample_import_outcome(0, false, true);
-
-        assert!(should_refresh_home_after_import(&outcome));
-    }
-
-    #[test]
-    fn home_stats_does_not_refresh_when_neither_settings_nor_stats_are_imported() {
-        let outcome = sample_import_outcome(0, false, false);
-
-        assert!(!should_refresh_home_after_import(&outcome));
     }
 
     #[test]

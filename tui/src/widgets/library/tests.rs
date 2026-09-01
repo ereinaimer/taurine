@@ -3,7 +3,6 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::PathBuf;
 use taurine_core::db::crud::{TriggerListItem, TriggerRow, TriggerType};
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
-use taurine_core::exchange::ImportStatsMode;
 
 #[allow(clippy::too_many_arguments)]
 fn list_item(
@@ -602,8 +601,6 @@ fn import_modal_defaults_match_current_behavior() {
     };
     assert_eq!(modal.path(), "");
     assert_eq!(modal.password_display_value(), "");
-    assert!(!modal.include_settings());
-    assert_eq!(modal.stats_mode(), ImportStatsMode::Ignore);
     assert_eq!(modal.conflict_mode(), LibraryImportConflictMode::Skip);
     assert_eq!(state.footer_text(), LIBRARY_IMPORT_MODAL_FOOTER);
 }
@@ -616,8 +613,8 @@ fn import_modal_requires_non_empty_path() {
     let Some(LibraryModal::Import(modal)) = state.modal.as_mut() else {
         panic!("expected import modal");
     };
-    // Tab through all fields to ActionButton
-    for _ in 0..6 {
+    // Tab through all fields to ActionButton: Path -> Password -> ConflictMode -> ActionButton
+    for _ in 0..3 {
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
     modal.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
@@ -644,25 +641,6 @@ fn import_modal_password_field_accepts_input_and_stays_masked() {
 }
 
 #[test]
-fn import_modal_stats_selector_uses_existing_modes() {
-    let mut state = sample_state();
-    state.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
-
-    let Some(LibraryModal::Import(modal)) = state.modal.as_mut() else {
-        panic!("expected import modal");
-    };
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-
-    let selector = modal.selector().expect("stats selector");
-    assert_eq!(selector.title(), "Select Stats Mode");
-    assert_eq!(selector.options, vec!["ignore", "merge", "overwrite"]);
-}
-
-#[test]
 fn import_modal_conflict_selector_uses_safe_modes() {
     let mut state = sample_state();
     state.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
@@ -670,9 +648,6 @@ fn import_modal_conflict_selector_uses_safe_modes() {
     let Some(LibraryModal::Import(modal)) = state.modal.as_mut() else {
         panic!("expected import modal");
     };
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     modal.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
@@ -695,7 +670,7 @@ fn import_modal_owns_input_and_keeps_search_inactive() {
 
 #[test]
 fn import_result_modal_uses_reliable_result_lines() {
-    let outcome = LibraryImportOutcome::new(12, true, true);
+    let outcome = LibraryImportOutcome::new(12);
     let mut state = sample_state();
 
     state.open_import_result_modal(&outcome);
@@ -704,19 +679,12 @@ fn import_result_modal_uses_reliable_result_lines() {
         panic!("expected import result modal");
     };
     assert_eq!(modal.lines()[0], "Imported 12 trigger(s).");
-    assert!(
-        modal
-            .lines()
-            .iter()
-            .any(|line| line == "Settings imported.")
-    );
-    assert!(modal.lines().iter().any(|line| line == "Stats updated."));
     assert_eq!(state.footer_text(), LIBRARY_IMPORT_RESULT_FOOTER);
 }
 
 #[test]
 fn import_result_modal_closes_on_enter() {
-    let outcome = LibraryImportOutcome::new(3, false, false);
+    let outcome = LibraryImportOutcome::new(3);
     let mut state = sample_state();
     state.open_import_result_modal(&outcome);
 
@@ -727,7 +695,7 @@ fn import_result_modal_closes_on_enter() {
 
 #[test]
 fn import_result_modal_closes_on_escape() {
-    let outcome = LibraryImportOutcome::new(3, false, false);
+    let outcome = LibraryImportOutcome::new(3);
     let mut state = sample_state();
     state.open_import_result_modal(&outcome);
 
@@ -738,7 +706,7 @@ fn import_result_modal_closes_on_escape() {
 
 #[test]
 fn import_result_modal_owns_input_and_keeps_search_inactive() {
-    let outcome = LibraryImportOutcome::new(3, false, false);
+    let outcome = LibraryImportOutcome::new(3);
     let mut state = sample_state();
     state.open_import_result_modal(&outcome);
 
@@ -753,7 +721,7 @@ fn export_result_modal_body_for_triggers_without_encryption_matches_exactly() {
     let mut state = sample_state();
     let path = PathBuf::from("backup.tau");
 
-    state.open_export_result_modal(&path, false, false, false);
+    state.open_export_result_modal(&path, false);
 
     let Some(LibraryModal::ExportResult(modal)) = state.modal() else {
         panic!("expected export result modal");
@@ -766,7 +734,7 @@ fn export_result_modal_body_for_triggers_with_encryption_matches_exactly() {
     let mut state = sample_state();
     let path = PathBuf::from("backup.tau");
 
-    state.open_export_result_modal(&path, true, false, false);
+    state.open_export_result_modal(&path, true);
 
     let Some(LibraryModal::ExportResult(modal)) = state.modal() else {
         panic!("expected export result modal");
@@ -778,120 +746,10 @@ fn export_result_modal_body_for_triggers_with_encryption_matches_exactly() {
 }
 
 #[test]
-fn export_result_modal_body_for_triggers_and_settings_matches_exactly() {
-    let mut state = sample_state();
-    let path = PathBuf::from("backup.tau");
-
-    state.open_export_result_modal(&path, false, true, false);
-
-    let Some(LibraryModal::ExportResult(modal)) = state.modal() else {
-        panic!("expected export result modal");
-    };
-    assert_eq!(
-        modal.body(),
-        "Triggers and Settings were exported to: backup.tau"
-    );
-}
-
-#[test]
-fn export_result_modal_body_for_triggers_and_settings_with_encryption_matches_exactly() {
-    let mut state = sample_state();
-    let path = PathBuf::from("backup.tau");
-
-    state.open_export_result_modal(&path, true, true, false);
-
-    let Some(LibraryModal::ExportResult(modal)) = state.modal() else {
-        panic!("expected export result modal");
-    };
-    assert_eq!(
-        modal.body(),
-        "Triggers and Settings were exported to: backup.tau with encryption."
-    );
-}
-
-#[test]
-fn export_result_modal_body_for_triggers_and_stats_matches_exactly() {
-    let mut state = sample_state();
-    let path = PathBuf::from("backup.tau");
-
-    state.open_export_result_modal(&path, false, false, true);
-
-    let Some(LibraryModal::ExportResult(modal)) = state.modal() else {
-        panic!("expected export result modal");
-    };
-    assert_eq!(
-        modal.body(),
-        "Triggers and Stats were exported to: backup.tau"
-    );
-}
-
-#[test]
-fn export_result_modal_body_for_triggers_and_stats_with_encryption_matches_exactly() {
-    let mut state = sample_state();
-    let path = PathBuf::from("backup.tau");
-
-    state.open_export_result_modal(&path, true, false, true);
-
-    let Some(LibraryModal::ExportResult(modal)) = state.modal() else {
-        panic!("expected export result modal");
-    };
-    assert_eq!(
-        modal.body(),
-        "Triggers and Stats were exported to: backup.tau with encryption."
-    );
-}
-
-#[test]
-fn export_result_modal_body_for_all_export_data_without_encryption_matches_exactly() {
-    let mut state = sample_state();
-    let path = PathBuf::from("backup.tau");
-
-    state.open_export_result_modal(&path, false, true, true);
-
-    let Some(LibraryModal::ExportResult(modal)) = state.modal() else {
-        panic!("expected export result modal");
-    };
-    assert_eq!(
-        modal.body(),
-        "Triggers, Settings and Stats were exported to: backup.tau"
-    );
-}
-
-#[test]
-fn export_result_modal_body_for_all_export_data_with_encryption_matches_exactly() {
-    let mut state = sample_state();
-    let path = PathBuf::from("backup.tau");
-
-    state.open_export_result_modal(&path, true, true, true);
-
-    let Some(LibraryModal::ExportResult(modal)) = state.modal() else {
-        panic!("expected export result modal");
-    };
-    assert_eq!(
-        modal.body(),
-        "Triggers, Settings and Stats were exported to: backup.tau with encryption."
-    );
-}
-
-#[test]
-fn export_result_modal_does_not_use_separate_encryption_line() {
-    let mut state = sample_state();
-    let path = PathBuf::from("backup.tau");
-
-    state.open_export_result_modal(&path, true, true, true);
-
-    let Some(LibraryModal::ExportResult(modal)) = state.modal() else {
-        panic!("expected export result modal");
-    };
-    assert!(!modal.body().contains("This export was encrypted."));
-    assert_eq!(state.footer_text(), LIBRARY_EXPORT_RESULT_FOOTER);
-}
-
-#[test]
 fn export_result_modal_closes_on_enter() {
     let mut state = sample_state();
     let path = PathBuf::from("backup.tau");
-    state.open_export_result_modal(&path, false, false, false);
+    state.open_export_result_modal(&path, false);
 
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
@@ -902,7 +760,7 @@ fn export_result_modal_closes_on_enter() {
 fn export_result_modal_closes_on_escape() {
     let mut state = sample_state();
     let path = PathBuf::from("backup.tau");
-    state.open_export_result_modal(&path, false, false, false);
+    state.open_export_result_modal(&path, false);
 
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
 
@@ -913,7 +771,7 @@ fn export_result_modal_closes_on_escape() {
 fn export_result_modal_owns_input_and_keeps_search_inactive() {
     let mut state = sample_state();
     let path = PathBuf::from("backup.tau");
-    state.open_export_result_modal(&path, false, false, false);
+    state.open_export_result_modal(&path, false);
 
     state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
 
@@ -932,8 +790,6 @@ fn export_modal_defaults_match_cli_behavior() {
     assert!(modal.path().ends_with(".tau"));
     assert!(modal.encrypt());
     assert_eq!(modal.password_display_value(), "");
-    assert!(!modal.include_settings());
-    assert!(!modal.include_stats());
     assert_eq!(state.footer_text(), LIBRARY_EXPORT_MODAL_FOOTER);
 }
 
@@ -952,7 +808,7 @@ fn export_modal_tab_skips_password_when_encryption_is_disabled() {
     assert!(!modal.encrypt());
 
     modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert_eq!(modal.focus(), LibraryExportModalField::IncludeSettings);
+    assert_eq!(modal.focus(), LibraryExportModalField::ActionButton);
 }
 
 #[test]
@@ -963,8 +819,8 @@ fn export_modal_requires_password_when_encryption_is_enabled() {
     let Some(LibraryModal::Export(modal)) = state.modal.as_mut() else {
         panic!("expected export modal");
     };
-    // Tab through all fields to ActionButton
-    for _ in 0..6 {
+    // Tab through all fields to ActionButton: Path -> Encrypt -> Password -> ActionButton
+    for _ in 0..3 {
         modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
     modal.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
@@ -1001,9 +857,7 @@ fn enter_on_confirm_creates_pending_export_when_plaintext() {
     };
     modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     modal.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-    // Tab through remaining fields to ActionButton
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    // Tab to ActionButton
     modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     modal.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
 
@@ -1012,8 +866,6 @@ fn enter_on_confirm_creates_pending_export_when_plaintext() {
     let pending = interaction.pending_export().expect("pending export");
     assert!(!pending.encrypt);
     assert_eq!(pending.password, None);
-    assert!(!pending.include_settings);
-    assert!(!pending.include_stats);
 }
 
 #[test]

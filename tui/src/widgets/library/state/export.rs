@@ -10,13 +10,10 @@ use super::ButtonSelection;
 
 pub(crate) const LIBRARY_EXPORT_MODAL_FOOTER: &str = "↑/↓ Move   Tab Next";
 pub(crate) const LIBRARY_EXPORT_RESULT_FOOTER: &str = "Enter Close   Esc Close";
-pub(crate) const EXPORT_MODAL_FIELDS: [LibraryExportModalField; 7] = [
+pub(crate) const EXPORT_MODAL_FIELDS: [LibraryExportModalField; 4] = [
     LibraryExportModalField::Path,
     LibraryExportModalField::Encrypt,
     LibraryExportModalField::Password,
-    LibraryExportModalField::IncludeSettings,
-    LibraryExportModalField::IncludeSensitiveSettings,
-    LibraryExportModalField::IncludeStats,
     LibraryExportModalField::ActionButton,
 ];
 
@@ -25,9 +22,6 @@ pub(crate) enum LibraryExportModalField {
     Path,
     Encrypt,
     Password,
-    IncludeSettings,
-    IncludeSensitiveSettings,
-    IncludeStats,
     ActionButton,
 }
 
@@ -44,9 +38,6 @@ pub(crate) struct LibraryExportModalState {
     encrypt: bool,
     password: String,
     password_cursor: usize,
-    include_settings: bool,
-    include_sensitive_settings: bool,
-    include_stats: bool,
     focus: LibraryExportModalField,
     error: Option<String>,
     button_selection: ButtonSelection,
@@ -65,9 +56,6 @@ impl LibraryExportModalState {
             encrypt: true,
             password: String::new(),
             password_cursor: 0,
-            include_settings: false,
-            include_sensitive_settings: false,
-            include_stats: false,
             focus: LibraryExportModalField::Path,
             error: None,
             button_selection: ButtonSelection::Cancel,
@@ -100,18 +88,6 @@ impl LibraryExportModalState {
 
     pub(crate) const fn password_cursor(&self) -> usize {
         self.password_cursor
-    }
-
-    pub(crate) const fn include_settings(&self) -> bool {
-        self.include_settings
-    }
-
-    pub(crate) const fn include_sensitive_settings(&self) -> bool {
-        self.include_sensitive_settings
-    }
-
-    pub(crate) const fn include_stats(&self) -> bool {
-        self.include_stats
     }
 
     pub(crate) const fn focus(&self) -> LibraryExportModalField {
@@ -151,12 +127,7 @@ impl LibraryExportModalState {
     }
 
     fn should_skip_field(&self, field: LibraryExportModalField) -> bool {
-        !self.encrypt
-            && matches!(
-                field,
-                LibraryExportModalField::Password
-                    | LibraryExportModalField::IncludeSensitiveSettings
-            )
+        !self.encrypt && matches!(field, LibraryExportModalField::Password)
     }
 
     pub(crate) fn footer_text(&self) -> &'static str {
@@ -237,9 +208,6 @@ impl LibraryExportModalState {
             path: self.path.clone(),
             encrypt: self.encrypt,
             password: self.encrypt.then(|| self.password.clone()),
-            include_settings: self.include_settings,
-            include_sensitive_settings: self.include_sensitive_settings,
-            include_stats: self.include_stats,
         })
     }
 
@@ -248,11 +216,6 @@ impl LibraryExportModalState {
             LibraryExportModalField::Path => self.handle_path_key(key),
             LibraryExportModalField::Encrypt => self.handle_encrypt_key(key),
             LibraryExportModalField::Password => self.handle_password_key(key),
-            LibraryExportModalField::IncludeSettings => self.handle_include_settings_key(key),
-            LibraryExportModalField::IncludeSensitiveSettings => {
-                self.handle_include_sensitive_settings_key(key)
-            }
-            LibraryExportModalField::IncludeStats => self.handle_include_stats_key(key),
             LibraryExportModalField::ActionButton => {
                 unreachable!("ActionButton is handled before focused key dispatch")
             }
@@ -302,7 +265,6 @@ impl LibraryExportModalState {
                 if !self.encrypt {
                     self.password.clear();
                     self.password_cursor = 0;
-                    self.include_sensitive_settings = false;
                 }
                 LibraryInteraction::handled()
             }
@@ -341,36 +303,6 @@ impl LibraryExportModalState {
                 if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
                 self.insert_password_char(ch);
-                LibraryInteraction::handled()
-            }
-            _ => LibraryInteraction::handled(),
-        }
-    }
-
-    fn handle_include_settings_key(&mut self, key: KeyEvent) -> LibraryInteraction {
-        match (key.code, key.modifiers) {
-            (KeyCode::Char(' '), KeyModifiers::NONE) => {
-                self.include_settings = !self.include_settings;
-                LibraryInteraction::handled()
-            }
-            _ => LibraryInteraction::handled(),
-        }
-    }
-
-    fn handle_include_sensitive_settings_key(&mut self, key: KeyEvent) -> LibraryInteraction {
-        match (key.code, key.modifiers) {
-            (KeyCode::Char(' '), KeyModifiers::NONE) if self.encrypt => {
-                self.include_sensitive_settings = !self.include_sensitive_settings;
-                LibraryInteraction::handled()
-            }
-            _ => LibraryInteraction::handled(),
-        }
-    }
-
-    fn handle_include_stats_key(&mut self, key: KeyEvent) -> LibraryInteraction {
-        match (key.code, key.modifiers) {
-            (KeyCode::Char(' '), KeyModifiers::NONE) => {
-                self.include_stats = !self.include_stats;
                 LibraryInteraction::handled()
             }
             _ => LibraryInteraction::handled(),
@@ -466,32 +398,14 @@ pub(crate) struct LibraryExportResultModalState {
 }
 
 impl LibraryExportResultModalState {
-    pub(crate) fn new(
-        path: &Path,
-        encrypt: bool,
-        include_settings: bool,
-        include_stats: bool,
-    ) -> Self {
-        let subject = match (include_settings, include_stats) {
-            (false, false) => "Triggers".to_string(),
-            (true, false) => "Triggers and Settings".to_string(),
-            (false, true) => "Triggers and Stats".to_string(),
-            (true, true) => "Triggers, Settings and Stats".to_string(),
-        };
-
-        let body = match (include_settings, include_stats, encrypt) {
-            (false, false, false) => format!("{} are exported to: {}", subject, path.display()),
-            (false, false, true) => format!(
-                "{} are exported to: {} as an encrypted export.",
-                subject,
+    pub(crate) fn new(path: &Path, encrypt: bool) -> Self {
+        let body = if encrypt {
+            format!(
+                "Triggers are exported to: {} as an encrypted export.",
                 path.display()
-            ),
-            (_, _, true) => format!(
-                "{} were exported to: {} with encryption.",
-                subject,
-                path.display()
-            ),
-            (_, _, false) => format!("{} were exported to: {}", subject, path.display()),
+            )
+        } else {
+            format!("Triggers are exported to: {}", path.display())
         };
 
         Self { body }

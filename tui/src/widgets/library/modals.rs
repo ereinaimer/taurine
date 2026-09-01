@@ -364,7 +364,7 @@ fn render_library_export_modal(
     } else {
         area.width.max(1)
     };
-    let height = area.height.clamp(1, 14);
+    let height = area.height.clamp(1, 10);
     let popup = centered_rect(width, height, area);
     frame.render_widget(Clear, popup);
     let inner = util::render_modal_block(frame, popup, "Export Triggers", theme);
@@ -372,9 +372,6 @@ fn render_library_export_modal(
     let sections = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
@@ -427,37 +424,7 @@ fn render_library_export_modal(
         theme,
     );
 
-    util::render_modal_key_value_row(
-        frame,
-        sections[4],
-        "Settings",
-        yes_no_label(state.include_settings()),
-        focused(LibraryExportModalField::IncludeSettings),
-        false,
-        theme,
-    );
-    let sensitive_focused = focused(LibraryExportModalField::IncludeSensitiveSettings);
-    util::render_modal_key_value_row(
-        frame,
-        sections[5],
-        "Sensitive",
-        yes_no_label(state.include_sensitive_settings()),
-        sensitive_focused && encrypt,
-        !encrypt,
-        theme,
-    );
-
-    util::render_modal_key_value_row(
-        frame,
-        sections[6],
-        "Stats",
-        yes_no_label(state.include_stats()),
-        focused(LibraryExportModalField::IncludeStats),
-        false,
-        theme,
-    );
-
-    let feedback_area = sections[7];
+    let feedback_area = sections[4];
     let (feedback_text, feedback_style) = if let Some(error) = state.error() {
         (
             error,
@@ -485,7 +452,7 @@ fn render_library_export_modal(
             Constraint::Length(1),
             Constraint::Length(0),
         ])
-        .split(sections[8]);
+        .split(sections[5]);
     util::render_action_buttons(
         frame,
         buttons_area[1],
@@ -525,16 +492,13 @@ fn render_library_import_modal(
     } else {
         area.width.max(1)
     };
-    let popup = centered_rect(width, area.height.clamp(1, 14), area);
+    let popup = centered_rect(width, area.height.clamp(1, 11), area);
     frame.render_widget(Clear, popup);
     let inner = util::render_modal_block(frame, popup, "Import Triggers", theme);
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
@@ -582,33 +546,6 @@ fn render_library_import_modal(
     util::render_modal_key_value_row(
         frame,
         sections[4],
-        "Settings",
-        yes_no_label(state.include_settings()),
-        state.focus() == LibraryImportModalField::IncludeSettings,
-        false,
-        theme,
-    );
-    util::render_modal_key_value_row(
-        frame,
-        sections[5],
-        "Sensitive",
-        yes_no_label(state.include_sensitive_settings()),
-        state.focus() == LibraryImportModalField::IncludeSensitiveSettings,
-        false,
-        theme,
-    );
-    util::render_modal_key_value_row(
-        frame,
-        sections[6],
-        "Stats",
-        state.stats_mode_label(),
-        state.focus() == LibraryImportModalField::StatsMode,
-        false,
-        theme,
-    );
-    util::render_modal_key_value_row(
-        frame,
-        sections[7],
         "Conflicts",
         state.conflict_mode_label(),
         state.focus() == LibraryImportModalField::ConflictMode,
@@ -616,13 +553,25 @@ fn render_library_import_modal(
         theme,
     );
 
-    frame.render_widget(
-        Paragraph::new("").style(
+    let feedback_area = sections[5];
+    let (feedback_text, feedback_style) = if let Some(error) = state.error() {
+        (
+            error,
+            Style::default()
+                .fg(theme.error)
+                .add_modifier(Modifier::BOLD),
+        )
+    } else {
+        (
+            "",
             Style::default()
                 .fg(theme.text_muted)
                 .add_modifier(Modifier::DIM),
-        ),
-        sections[8],
+        )
+    };
+    frame.render_widget(
+        Paragraph::new(feedback_text).style(feedback_style),
+        feedback_area,
     );
 
     let buttons_area = Layout::default()
@@ -632,7 +581,7 @@ fn render_library_import_modal(
             Constraint::Length(1),
             Constraint::Length(0),
         ])
-        .split(sections[9]);
+        .split(sections[6]);
     util::render_action_buttons(
         frame,
         buttons_area[1],

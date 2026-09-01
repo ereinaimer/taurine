@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use super::{
-    ExchangePayload, ScriptExport, SettingExport, StatExport, TriggerExport, crypto,
-    encode_plaintext_payload, serialize_payload,
+    ExchangePayload, ScriptExport, TriggerExport, crypto, encode_plaintext_payload,
+    serialize_payload,
 };
 use crate::db::crud::TriggerType;
 use crate::engine::shell::{ScriptBehavior, ScriptInterpreter, decompress};
@@ -10,13 +10,6 @@ use rusqlite::Connection;
 use rusqlite::types::Type;
 use time::OffsetDateTime;
 use zeroize::Zeroize;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct ExportOptions {
-    pub include_settings: bool,
-    pub include_stats: bool,
-    pub include_sensitive_settings: bool,
-}
 
 struct RawTriggerExport {
     id: String,
@@ -29,17 +22,12 @@ struct RawTriggerExport {
     is_enabled: bool,
     target_os: String,
     tags: String,
-    usage_count: i64,
-    last_used_at: Option<i64>,
     interpreter: Option<String>,
     behavior: Option<String>,
     script_binary: Option<Vec<u8>>,
 }
 
-pub fn export_triggers(
-    conn: &Connection,
-    options: ExportOptions,
-) -> crate::Result<ExchangePayload> {
+pub fn export_triggers(conn: &Connection) -> crate::Result<ExchangePayload> {
     let mut stmt = conn.prepare_cached(
         "SELECT
             a.id,
@@ -52,8 +40,6 @@ pub fn export_triggers(
             a.is_enabled,
             a.target_os,
             a.tags,
-            a.usage_count,
-            a.last_used_at,
             s.interpreter,
             s.behavior,
             s.compressed_content
@@ -77,36 +63,20 @@ pub fn export_triggers(
             is_enabled: row.get(7)?,
             target_os: row.get(8)?,
             tags: row.get(9)?,
-            usage_count: row.get(10)?,
-            last_used_at: row.get(11)?,
-            interpreter: row.get(12)?,
-            behavior: row.get(13)?,
-            script_binary: row.get(14)?,
+            interpreter: row.get(10)?,
+            behavior: row.get(11)?,
+            script_binary: row.get(12)?,
         })
     })?;
 
     let mut triggers = Vec::new();
     for row in rows {
-        triggers.push(to_trigger_export(conn, row?, options)?);
+        triggers.push(to_trigger_export(conn, row?)?);
     }
-
-    let settings = if options.include_settings {
-        Some(export_settings(conn, options.include_sensitive_settings)?)
-    } else {
-        None
-    };
-
-    let stats = if options.include_stats {
-        Some(export_stats(conn)?)
-    } else {
-        None
-    };
 
     Ok(ExchangePayload {
         schema_version: super::EXCHANGE_SCHEMA_VERSION,
         triggers,
-        settings,
-        stats,
     })
 }
 
@@ -186,11 +156,7 @@ pub fn write_export_file(path: &Path, data: &[u8]) -> crate::Result<()> {
     Ok(())
 }
 
-fn to_trigger_export(
-    conn: &Connection,
-    row: RawTriggerExport,
-    options: ExportOptions,
-) -> crate::Result<TriggerExport> {
+fn to_trigger_export(conn: &Connection, row: RawTriggerExport) -> crate::Result<TriggerExport> {
     let tags = serde_json::from_str::<Vec<String>>(&row.tags)?;
     let script = if row.action_type == "script" {
         let interpreter = parse_json_variant::<ScriptInterpreter>(row.interpreter.as_deref())?
@@ -252,12 +218,6 @@ fn to_trigger_export(
         is_enabled: row.is_enabled,
         target_os: row.target_os,
         tags,
-        usage_count: options.include_stats.then_some(row.usage_count),
-        last_used_at: if options.include_stats {
-            row.last_used_at
-        } else {
-            None
-        },
         script,
         assets,
     })
@@ -275,79 +235,6 @@ where
         }
         None => Ok(None),
     }
-}
-
-fn export_settings(
-    conn: &Connection,
-    include_sensitive_settings: bool,
-) -> crate::Result<Vec<SettingExport>> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT key, CAST(value AS TEXT)
-         FROM settings
-         ORDER BY key ASC",
-    )?;
-
-    let rows = stmt.query_map([], |row| {
-        Ok(SettingExport {
-            key: row.get(0)?,
-            value: row.get(1)?,
-        })
-    })?;
-
-    let mut settings = Vec::new();
-    for row in rows {
-        let setting = row?;
-        if include_sensitive_settings || !is_sensitive_setting_key(&setting.key) {
-            settings.push(setting);
-        }
-    }
-
-    Ok(settings)
-}
-
-fn export_stats(conn: &Connection) -> crate::Result<Vec<StatExport>> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT date, executions, ai_executions, keystrokes_saved, time_saved_ms
-         FROM stats
-         ORDER BY date ASC",
-    )?;
-
-    let rows = stmt.query_map([], |row| {
-        Ok(StatExport {
-            date: row.get(0)?,
-            executions: row.get(1)?,
-            ai_executions: row.get(2)?,
-            keystrokes_saved: row.get(3)?,
-            time_saved_ms: row.get(4)?,
-        })
-    })?;
-
-    let mut stats = Vec::new();
-    for row in rows {
-        stats.push(row?);
-    }
-
-    Ok(stats)
-}
-
-pub(crate) fn is_sensitive_setting_key(key: &str) -> bool {
-    let key_lower = key.to_ascii_lowercase();
-    let exact_matches = ["ai_custom_endpoint", "ai_system_prompt", "ai_api_key"];
-    if exact_matches.contains(&key_lower.as_str()) {
-        return true;
-    }
-
-    [
-        "password",
-        "secret",
-        "token",
-        "api_key",
-        "apikey",
-        "access_key",
-        "private_key",
-    ]
-    .iter()
-    .any(|needle| key_lower.contains(needle))
 }
 
 fn default_export_filename_for_timestamp(now: OffsetDateTime) -> String {
@@ -420,15 +307,6 @@ mod tests {
                 .any(|window| window == b"schema_version"),
             "Encrypted export should be opaque"
         );
-    }
-
-    #[test]
-    fn test_is_sensitive_setting_key_includes_ai_endpoints_and_tokens() {
-        assert!(is_sensitive_setting_key("ai_custom_endpoint"));
-        assert!(is_sensitive_setting_key("ai_system_prompt"));
-        assert!(is_sensitive_setting_key("openai_api_key"));
-        assert!(!is_sensitive_setting_key("wpm"));
-        assert!(!is_sensitive_setting_key("start_on_boot"));
     }
 
     #[test]
