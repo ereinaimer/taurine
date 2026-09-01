@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Zero-Latency Text & Undo Fast-Path**: Inject plain text expansions up to 1,000 characters and backspace undos atomically with zero clipboard touches or artificial delay loops.
+- **Instant Shell Launcher**: Launch application and URL triggers natively with sub-millisecond response times, bypassing shell interpreter startup overhead.
 - **Audio Themes & Volume**: Choose from 12 built-in sound themes for pause and resume cues and configure cue playback volume (0-100%, defaulting to 50%).
 - **Natural Language Date Countdowns**: Support `how many <unit> until <target>` queries for holidays (christmas, new year, halloween, valentine, etc.), relative anchors (end of day/week/month/year), weekdays (next friday), and natural dates — returns numeric duration (e.g. `25 days`, `3 weeks`).
 - **Natural Language Date Queries**: Support `what is the date <target>` / `what date is it <target>` queries for the same target types — returns formatted date using configured date format (e.g. `December 25, 2024`).
@@ -19,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Conversational Time Conversions**: Support `when it is <time> in <from_tz> what time is it in <to_tz>?` for long-form timezone conversions.
 
 ### Changed
+- **Zero-Overhead Hook & Hotkey Evaluation**: Eliminate redundant syscalls and process environment lock contention during typing.
 - **Streamlined Exchange**: Export and import now focus purely on trigger data, removing support for bundling local metrics, settings, or secrets into exchange files.
 
 ### Fixed
