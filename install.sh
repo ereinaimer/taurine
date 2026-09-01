@@ -87,8 +87,12 @@ verify_checksum() {
         echo "$expected  $file" | sha256sum -c - > /dev/null 2>&1
     elif command -v shasum >/dev/null 2>&1; then
         echo "$expected  $file" | shasum -a 256 -c - > /dev/null 2>&1
+    elif command -v openssl >/dev/null 2>&1; then
+        local actual
+        actual=$(openssl dgst -sha256 "$file" | cut -d' ' -f2)
+        [ "$actual" = "$expected" ]
     else
-        echo "Error: No sha256 checksum tool available (tried sha256sum, shasum)"
+        echo "Error: No sha256 checksum tool available (tried sha256sum, shasum, openssl)"
         exit 1
     fi
 }
@@ -245,27 +249,28 @@ if [ -x "$INSTALL_DIR/taurine" ]; then
     LOCAL_VERSION=$("$INSTALL_DIR/taurine" --version 2>/dev/null | awk '{print $2}') || true
     if [ -n "$LOCAL_VERSION" ]; then
         # Try fetching manifest silently to check if up to date
-        if curl -fsSL -H 'Accept: application/vnd.github+json' https://api.github.com/repos/ereinaimer/taurine/releases -o "$TMP_DIR/releases.json" >/dev/null 2>&1; then
+        if curl -fsSL -H 'Accept: application/vnd.github+json' --max-time 10 https://api.github.com/repos/ereinaimer/taurine/releases -o "$TMP_DIR/releases.json" >/dev/null 2>&1; then
             RELEASE_URL=$(grep -o '"url":"https://api.github.com/repos/ereinaimer/taurine/releases/[0-9]*"' "$TMP_DIR/releases.json" | head -n 1 | cut -d'"' -f4)
             if [ -n "$RELEASE_URL" ]; then
-                if curl -fsSL -H 'Accept: application/vnd.github+json' "$RELEASE_URL" -o "$TMP_DIR/release.json" >/dev/null 2>&1; then
+                if curl -fsSL -H 'Accept: application/vnd.github+json' --max-time 10 "$RELEASE_URL" -o "$TMP_DIR/release.json" >/dev/null 2>&1; then
                     MANIFEST_ASSET_URL=$(grep -o '"browser_download_url":"[^"]*manifest\.json"' "$TMP_DIR/release.json" | head -n 1 | cut -d'"' -f4)
                     if [ -n "$MANIFEST_ASSET_URL" ]; then
-                        if curl -fsSL "$MANIFEST_ASSET_URL" -o "$TMP_DIR/manifest.json" >/dev/null 2>&1; then
+                        if curl -fsSL --max-time 10 "$MANIFEST_ASSET_URL" -o "$TMP_DIR/manifest.json" >/dev/null 2>&1; then
                             MANIFEST=$(tr -d '\n\r\t ' < "$TMP_DIR/manifest.json")
                             VERSION=$(echo "$MANIFEST" | grep -o '"version":"[^"]*"' | head -n 1 | cut -d'"' -f4 || true)
                             URL=$(echo "$MANIFEST" | grep -o "\"$PLATFORM\":{[^}]*}" | grep -o '"url":"[^"]*"' | cut -d'"' -f4 || true)
                             SHA256=$(echo "$MANIFEST" | grep -o "\"$PLATFORM\":{[^}]*}" | grep -o '"sha256":"[^"]*"' | cut -d'"' -f4 || true)
+                            # Handle malformed sha256 with filename prefix (e.g. "checksums/file.sha256:hash")
+                            SHA256="${SHA256##*:}"
                         fi
                     fi
                 fi
             fi
         fi
 
-            if [ -n "$VERSION" ]; then
-                if [ "$LOCAL_VERSION" = "$VERSION" ] || version_gt "$LOCAL_VERSION" "$VERSION"; then
-                    printf "\x1b[32m✓\x1b[0m Taurine is up to date (v%s)\n" "$LOCAL_VERSION"
-                fi
+        if [ -n "$VERSION" ]; then
+            if [ "$LOCAL_VERSION" = "$VERSION" ] || version_gt "$LOCAL_VERSION" "$VERSION"; then
+                printf "\x1b[32m✓\x1b[0m Taurine is up to date (v%s)\n" "$LOCAL_VERSION"
             fi
         fi
     fi
@@ -273,14 +278,18 @@ fi
 
 # 2. Manifest fetch if not already populated (e.g. fresh install or silent check failed)
 if [ -z "$VERSION" ]; then
+    # Use a single pipeline to avoid subshell variable capture issues
     invoke_with_retry "Fetching release manifest" "
-        curl -fsSL -H 'Accept: application/vnd.github+json' https://api.github.com/repos/ereinaimer/taurine/releases -o \"$TMP_DIR/releases.json\" &&
-        RELEASE_URL=\$(grep -o '\"url\":\"https://api.github.com/repos/ereinaimer/taurine/releases/[0-9]*\"' \"$TMP_DIR/releases.json\" | head -n 1 | cut -d'\"' -f4) &&
-        [ -n \"\$RELEASE_URL\" ] &&
-        curl -fsSL -H 'Accept: application/vnd.github+json' \"\$RELEASE_URL\" -o \"$TMP_DIR/release.json\" &&
-        MANIFEST_ASSET_URL=\$(grep -o '\"browser_download_url\":\"[^\"]*manifest\\.json\"' \"$TMP_DIR/release.json\" | head -n 1 | cut -d'\"' -f4) &&
-        [ -n \"\$MANIFEST_ASSET_URL\" ] &&
-        curl -fsSL \"\$MANIFEST_ASSET_URL\" -o \"$TMP_DIR/manifest.json\"
+        set -e
+        curl -fsSL -H 'Accept: application/vnd.github+json' --max-time 10 https://api.github.com/repos/ereinaimer/taurine/releases \
+            | grep -o '\"url\":\"https://api.github.com/repos/ereinaimer/taurine/releases/[0-9]*\"' \
+            | head -n 1 \
+            | cut -d'\"' -f4 \
+            | xargs -r curl -fsSL -H 'Accept: application/vnd.github+json' --max-time 10 \
+            | grep -o '\"browser_download_url\":\"[^\"]*manifest\\.json\"' \
+            | head -n 1 \
+            | cut -d'\"' -f4 \
+            | xargs -r curl -fsSL --max-time 10 -o \"$TMP_DIR/manifest.json\"
     " "Fetched release manifest" || exit 1
 
     MANIFEST=$(tr -d '\n\r\t ' < "$TMP_DIR/manifest.json")
@@ -290,8 +299,9 @@ if [ -z "$VERSION" ]; then
     # Handle malformed sha256 with filename prefix (e.g. "checksums/file.sha256:hash")
     SHA256="${SHA256##*:}"
 
+    # Validate manifest structure
     if [ -z "$VERSION" ] || [ -z "$URL" ]; then
-        echo "Error: Could not determine latest version or download URL."
+        echo "Error: Invalid manifest - missing version or URL for $PLATFORM"
         exit 1
     fi
 fi
@@ -312,7 +322,7 @@ if [ "$IS_INSTALLED" = false ]; then
     ARCHIVE="$TMP_DIR/taurine.tar.xz"
 
     # Download archive with retry
-    invoke_with_retry "Downloading taurine v$VERSION" "curl -fsSL \"$URL\" -o \"$ARCHIVE\"" "Downloaded taurine v$VERSION" || exit 1
+    invoke_with_retry "Downloading taurine v$VERSION" "curl -fsSL --max-time 300 \"$URL\" -o \"$ARCHIVE\"" "Downloaded taurine v$VERSION" || exit 1
 
     # Verify checksum if available
     if [ -n "$SHA256" ]; then
@@ -335,7 +345,7 @@ if [ "$IS_INSTALLED" = false ]; then
 
     # Download uninstaller script silently in the background
     UNINSTALL_SCRIPT="$INSTALL_DIR/uninstall.sh"
-    { curl -fsSL "https://raw.githubusercontent.com/ereinaimer/taurine/main/uninstall.sh" -o "$UNINSTALL_SCRIPT" && chmod +x "$UNINSTALL_SCRIPT"; } > /dev/null 2>&1 &
+    { curl -fsSL --max-time 30 "https://raw.githubusercontent.com/ereinaimer/taurine/main/uninstall.sh" -o "$UNINSTALL_SCRIPT" && chmod +x "$UNINSTALL_SCRIPT"; } > /dev/null 2>&1 &
 
     IS_INSTALLED=true
     IS_FRESH_INSTALL=true
@@ -343,7 +353,9 @@ if [ "$IS_INSTALLED" = false ]; then
     printf "\x1b[32m✓\x1b[0m taurine v%s installed\n" "$VERSION"
 
     # Start the service after installation (detached)
-    "$INSTALL_DIR/taurine" up > /dev/null 2>&1 &
+    if [ -x "$INSTALL_DIR/taurine" ]; then
+        "$INSTALL_DIR/taurine" up > /dev/null 2>&1 &
+    fi
 fi
 
 # Configure shell profiles if installation succeeded (either fresh or pre-existing)
