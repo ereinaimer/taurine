@@ -567,4 +567,24 @@ mod listener_pipeline_tests {
             "Left Alt must be resynchronized to false on ButtonPress"
         );
     }
+
+    #[test]
+    fn test_hook_callback_drops_event_cleanly_if_evaluator_lock_held_too_long() {
+        let _guard = TestGuard::acquire();
+        let h = Harness::new();
+
+        // Artificially hold the lock in another thread / guard
+        let eval_clone = h.evaluator.clone();
+        let lock_guard = eval_clone.lock().unwrap();
+
+        // Process event should gracefully pass through rather than blocking past OS timeout
+        let event = named_event(EventType::KeyPress(rdev::Key::KeyA), "a");
+        let result = h.send(event);
+
+        drop(lock_guard);
+        assert!(
+            result.is_some(),
+            "Keystroke must pass through to OS if engine is temporarily locked"
+        );
+    }
 }
