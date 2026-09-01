@@ -165,13 +165,13 @@ pub fn start() -> taurine_core::error::Result<()> {
     let pause_audio_enabled_clone = pause_audio_enabled.clone();
     let audio_tx_clone = audio_tx.clone();
     let pause_transition_tx_clone = pause_transition_tx.clone();
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     let supervisor_handle: Arc<Mutex<Option<std::thread::JoinHandle<()>>>> =
         Arc::new(Mutex::new(None));
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     let supervisor_handle_clone = supervisor_handle.clone();
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     let hook_health_clone = hook_health.clone();
     let hook_thread = std::thread::Builder::new()
         .name("tau-hook".to_string())
@@ -196,7 +196,27 @@ pub fn start() -> taurine_core::error::Result<()> {
                 }
             }
 
-            #[cfg(not(windows))]
+            #[cfg(target_os = "macos")]
+            {
+                info!("Starting supervised macOS keyboard hook listener...");
+                let handle = hook::start_macos_supervisor(
+                    eval_clone,
+                    state_clone,
+                    paused_clone,
+                    pause_notifications_enabled_clone,
+                    pause_hotkey_spec_clone,
+                    spinner_style_clone,
+                    pause_audio_enabled_clone,
+                    audio_tx_clone,
+                    pause_transition_tx_clone,
+                    hook_health_clone,
+                );
+                if let Ok(mut lock) = supervisor_handle_clone.lock() {
+                    *lock = handle;
+                }
+            }
+
+            #[cfg(all(not(windows), not(target_os = "macos")))]
             {
                 info!("Starting OS keyboard hook listener...");
                 hook::start_listener(
