@@ -187,22 +187,38 @@ unsafe extern "system" fn raw_input_window_proc(
                 return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };
             }
 
-            let mut buffer = vec![0u8; size as usize];
-            let read_result = unsafe {
-                GetRawInputData(
-                    lparam as windows_sys::Win32::UI::Input::HRAWINPUT,
-                    RID_INPUT,
-                    buffer.as_mut_ptr() as *mut std::ffi::c_void,
-                    &mut size,
-                    header_size,
-                )
+            let mut stack_buffer = [0u8; 256];
+            let mut heap_buffer: Vec<u8>;
+            let (raw_ptr, read_result) = if (size as usize) <= stack_buffer.len() {
+                let res = unsafe {
+                    GetRawInputData(
+                        lparam as windows_sys::Win32::UI::Input::HRAWINPUT,
+                        RID_INPUT,
+                        stack_buffer.as_mut_ptr() as *mut std::ffi::c_void,
+                        &mut size,
+                        header_size,
+                    )
+                };
+                (stack_buffer.as_ptr() as *const RAWINPUT, res)
+            } else {
+                heap_buffer = vec![0u8; size as usize];
+                let res = unsafe {
+                    GetRawInputData(
+                        lparam as windows_sys::Win32::UI::Input::HRAWINPUT,
+                        RID_INPUT,
+                        heap_buffer.as_mut_ptr() as *mut std::ffi::c_void,
+                        &mut size,
+                        header_size,
+                    )
+                };
+                (heap_buffer.as_ptr() as *const RAWINPUT, res)
             };
 
             if read_result == u32::MAX {
                 return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };
             }
 
-            let raw = buffer.as_ptr() as *const RAWINPUT;
+            let raw = raw_ptr;
             unsafe {
                 if (*raw).header.dwType == RIM_TYPEKEYBOARD {
                     let keyboard = &(*raw).data.keyboard;
