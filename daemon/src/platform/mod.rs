@@ -139,18 +139,40 @@ pub fn get_mouse_pos() -> Option<(i32, i32)> {
     None
 }
 
-#[cfg(windows)]
+static ACTIVE_WINDOW_CACHE: std::sync::Mutex<Option<(std::time::Instant, Option<String>)>> =
+    std::sync::Mutex::new(None);
+
+const ACTIVE_WINDOW_CACHE_TTL: std::time::Duration = std::time::Duration::from_millis(50);
+
 pub fn get_active_window_label() -> Option<String> {
+    if let Ok(guard) = ACTIVE_WINDOW_CACHE.lock()
+        && let Some((cached_at, ref label)) = *guard
+        && cached_at.elapsed() < ACTIVE_WINDOW_CACHE_TTL
+    {
+        return label.clone();
+    }
+
+    let resolved = get_active_window_label_uncached();
+
+    if let Ok(mut guard) = ACTIVE_WINDOW_CACHE.lock() {
+        *guard = Some((std::time::Instant::now(), resolved.clone()));
+    }
+
+    resolved
+}
+
+#[cfg(windows)]
+fn get_active_window_label_uncached() -> Option<String> {
     windows::active_window::get_active_window_label()
 }
 
 #[cfg(target_os = "linux")]
-pub fn get_active_window_label() -> Option<String> {
+fn get_active_window_label_uncached() -> Option<String> {
     linux::toplevel::get_active_window_label()
 }
 
 #[cfg(target_os = "macos")]
-pub fn get_active_window_label() -> Option<String> {
+fn get_active_window_label_uncached() -> Option<String> {
     use objc2_app_kit::NSWorkspace;
 
     let workspace = NSWorkspace::sharedWorkspace();
@@ -170,7 +192,7 @@ pub fn get_active_window_label() -> Option<String> {
 }
 
 #[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
-pub fn get_active_window_label() -> Option<String> {
+fn get_active_window_label_uncached() -> Option<String> {
     None
 }
 
@@ -194,5 +216,12 @@ mod tests {
     #[test]
     fn test_read_clipboard_text_returns_string() {
         let _ = read_clipboard_text();
+    }
+
+    #[test]
+    fn test_get_active_window_label_caching() {
+        let first = get_active_window_label();
+        let second = get_active_window_label();
+        assert_eq!(first, second);
     }
 }
