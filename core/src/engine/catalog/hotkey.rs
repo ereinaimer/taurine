@@ -1,30 +1,12 @@
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 
+use super::WindowResolver;
 use crate::db::crud::TriggerAction;
 use crate::engine::catalog::{entry_has_app_filters, is_app_allowed};
 use crate::keys::{Hotkey, LogicalKey, hotkey_matches, parse_hotkey};
-struct WindowResolver {
-    cached: OnceLock<Option<String>>,
-}
 
-impl WindowResolver {
-    pub fn lazy() -> Self {
-        Self {
-            cached: OnceLock::new(),
-        }
-    }
-
-    pub fn resolve(&self, fetcher: impl FnOnce() -> Option<String>) -> Option<&str> {
-        self.cached.get_or_init(fetcher).as_deref()
-    }
-
-    #[allow(dead_code)]
-    pub fn get_cached(&self) -> Option<&str> {
-        self.cached.get().and_then(|o| o.as_deref())
-    }
-}
 pub struct HotkeyCatalog {
     snapshot: ArcSwap<CatalogSnapshot>,
 }

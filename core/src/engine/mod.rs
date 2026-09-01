@@ -29,7 +29,9 @@ pub use source::SnippetSource;
 pub use ai_session::{EngineMode, InlineAiSession};
 pub use buffer::FastBuffer;
 pub use case_cycle::{CaseCycleSession, CaseVariant, CycleDirection};
-pub use catalog::{ActiveWindowInfo, ExpansionCatalog, HotkeyCatalog, RegexCatalog};
+pub use catalog::{
+    ActiveWindowInfo, ExpansionCatalog, HotkeyCatalog, RegexCatalog, WindowResolver,
+};
 pub use evaluator::{
     CompletionRewrite, EngineEvent, Evaluator, ExpansionFollowUp, ExpansionResult,
 };

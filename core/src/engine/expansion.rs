@@ -22,9 +22,10 @@ static DICT_REGEX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(
 });
 
 impl crate::engine::evaluator::Evaluator {
-    pub(crate) fn evaluate_buffer_for_expansion(
+    pub(crate) fn evaluate_buffer_for_expansion_lazy(
         &mut self,
-        active_window: Option<&str>,
+        window: &crate::engine::catalog::WindowResolver,
+        mut fetch_window: Option<impl FnOnce() -> Option<String>>,
     ) -> Option<ExpansionResult> {
         let emoji_trigger = self.state.inline_emoji_trigger_char();
         let emoji_enabled = self.state.inline_emoji_enabled();
@@ -100,52 +101,48 @@ impl crate::engine::evaluator::Evaluator {
                 .inline_dictionary_enabled
                 .load(std::sync::atomic::Ordering::Relaxed)
         {
-            let buffer_str = self.buffer.buffer_string();
-            if let Some(captures) = DICT_REGEX.captures(&buffer_str) {
-                let match_str = captures.get(0).unwrap().as_str();
+            let buf_str = self.buffer.buffer_string();
+            let mut word_opt = None;
+            let mut matched_len = 0;
+            let mut lookup_type = crate::engine::dictionary::DictionaryLookupType::Meaning;
 
-                let (word, lookup_type) = if let Some(w) = captures
+            if let Some(caps) = DICT_REGEX.captures(&buf_str) {
+                if let Some(m) = caps
                     .name("def1")
-                    .or(captures.name("def2"))
-                    .or(captures.name("def3"))
-                    .or(captures.name("def4"))
+                    .or(caps.name("def2"))
+                    .or(caps.name("def3"))
+                    .or(caps.name("def4"))
                 {
-                    (
-                        w.as_str().to_string(),
-                        crate::engine::dictionary::DictionaryLookupType::Meaning,
-                    )
-                } else if let Some(w) = captures.name("syn1").or(captures.name("syn2")) {
-                    (
-                        w.as_str().to_string(),
-                        crate::engine::dictionary::DictionaryLookupType::Synonyms,
-                    )
-                } else if let Some(w) = captures
+                    word_opt = Some(m.as_str().to_string());
+                    matched_len = caps.get(0).map(|x| x.as_str().chars().count()).unwrap_or(0);
+                    lookup_type = crate::engine::dictionary::DictionaryLookupType::Meaning;
+                } else if let Some(m) = caps.name("syn1").or(caps.name("syn2")) {
+                    word_opt = Some(m.as_str().to_string());
+                    matched_len = caps.get(0).map(|x| x.as_str().chars().count()).unwrap_or(0);
+                    lookup_type = crate::engine::dictionary::DictionaryLookupType::Synonyms;
+                } else if let Some(m) = caps
                     .name("ant1")
-                    .or(captures.name("ant2"))
-                    .or(captures.name("ant3"))
-                    .or(captures.name("ant4"))
+                    .or(caps.name("ant2"))
+                    .or(caps.name("ant3"))
+                    .or(caps.name("ant4"))
                 {
-                    (
-                        w.as_str().to_string(),
-                        crate::engine::dictionary::DictionaryLookupType::Antonyms,
-                    )
-                } else {
-                    return None;
-                };
+                    word_opt = Some(m.as_str().to_string());
+                    matched_len = caps.get(0).map(|x| x.as_str().chars().count()).unwrap_or(0);
+                    lookup_type = crate::engine::dictionary::DictionaryLookupType::Antonyms;
+                }
+            }
 
-                let delete_count = match_str.chars().count();
+            if let Some(word) = word_opt {
+                let initial_text = self.get_thinking_text();
                 self.buffer.clear();
-
-                let initial_text = self.get_initial_spinner_text(match_str);
-
                 return Some(ExpansionResult {
-                    delete_count,
+                    delete_count: matched_len,
                     steps: vec![ExpansionStep::Text(initial_text)],
-                    trigger: match_str.to_string(),
-                    undo_trigger: Some(match_str.to_string()),
+                    trigger: word.clone(),
+                    undo_trigger: None,
                     is_calculation: false,
                     stat_kind: TriggerStatKind::Snippet,
-                    track_usage: false,
+                    track_usage: true,
                     follow_up: Some(ExpansionFollowUp::DictionaryLookup { word, lookup_type }),
                 });
             }
@@ -158,9 +155,11 @@ impl crate::engine::evaluator::Evaluator {
             let is_boundary = !instant_expand
                 || prev_char.is_none_or(|c| c.is_whitespace() || c.is_ascii_punctuation());
             if is_boundary
-                && let Some(expansion) = self
-                    .state
-                    .fetch_expansion_no_date_fallback(&word, active_window)
+                && let Some(expansion) = self.state.fetch_expansion_no_date_fallback_lazy(
+                    &word,
+                    window,
+                    fetch_window.take(),
+                )
             {
                 let delete_count = word.chars().count();
                 let stat_kind = stat_kind_for_steps(expansion.is_calculation, &expansion.steps);
@@ -200,7 +199,8 @@ impl crate::engine::evaluator::Evaluator {
         if !self.state.regex_catalog.is_empty() {
             let buf_str = self.buffer.buffer_string();
             if let Some((keyword, action, captures)) =
-                self.state.match_regex_action(&buf_str, active_window)
+                self.state
+                    .match_regex_action_lazy(&buf_str, window, fetch_window.take())
             {
                 use crate::engine::catalog::expand_trigger_action_with_args;
                 use crate::engine::variables::ArgMap;

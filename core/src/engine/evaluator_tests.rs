@@ -2441,3 +2441,69 @@ fn test_inline_ai_paste_respects_cap() {
     let buf = state.ai_prompt_buffer();
     assert_eq!(buf.len(), 64 * 1024);
 }
+
+#[test]
+fn test_lazy_window_provider_not_called_for_unrestricted_snippet() {
+    let state = Arc::new(EngineState::new());
+    state
+        .instant_expand
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    let mut evaluator = Evaluator::new(state.clone());
+
+    state.load_actions(vec![(
+        "hi.".to_string(),
+        crate::db::crud::TriggerAction::text("Hello!"),
+    )]);
+
+    let mut provider_called = false;
+    for c in "hi.".chars() {
+        let res = evaluator.process_event_lazy(EngineEvent::Char(c), || {
+            provider_called = true;
+            Some("code.exe".to_string())
+        });
+        if c == '.' {
+            assert!(res.is_some());
+        }
+    }
+
+    assert!(
+        !provider_called,
+        "Window provider must not be called when no app restrictions exist"
+    );
+}
+
+#[test]
+fn test_lazy_window_provider_called_only_when_restricted_trigger_matches() {
+    let state = Arc::new(EngineState::new());
+    state
+        .instant_expand
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    let mut evaluator = Evaluator::new(state.clone());
+
+    let mut action = crate::db::crud::TriggerAction::text("Allowed");
+    action.only_apps = Some("exe:code.exe".to_string());
+    state.load_actions(vec![("app.".to_string(), action)]);
+
+    let mut provider_call_count = 0;
+    for c in "app".chars() {
+        evaluator.process_event_lazy(EngineEvent::Char(c), || {
+            provider_call_count += 1;
+            Some("code.exe".to_string())
+        });
+    }
+    assert_eq!(
+        provider_call_count, 0,
+        "Provider must not be called before match candidate"
+    );
+
+    let res = evaluator.process_event_lazy(EngineEvent::Char('.'), || {
+        provider_call_count += 1;
+        Some(r#"{"title":null,"class":null,"exec_name":"code.exe","exec_path":null}"#.to_string())
+    });
+
+    assert_eq!(
+        provider_call_count, 1,
+        "Provider should be called exactly once upon candidate match"
+    );
+    assert!(res.is_some());
+}

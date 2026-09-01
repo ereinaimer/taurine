@@ -227,6 +227,16 @@ impl EngineState {
             .match_action(buffer_string, active_window)
     }
 
+    pub fn match_regex_action_lazy(
+        &self,
+        buffer_string: &str,
+        window: &crate::engine::catalog::WindowResolver,
+        fetch_window: Option<impl FnOnce() -> Option<String>>,
+    ) -> Option<(String, TriggerAction, Vec<String>)> {
+        self.regex_catalog
+            .match_action_lazy(buffer_string, window, fetch_window)
+    }
+
     pub fn fetch_expansion(
         &self,
         keyword: &str,
@@ -239,6 +249,19 @@ impl EngineState {
             .fetch_expansion(keyword, instant, active_window)
     }
 
+    pub fn fetch_expansion_lazy(
+        &self,
+        keyword: &str,
+        window: &crate::engine::catalog::WindowResolver,
+        fetch_window: Option<impl FnOnce() -> Option<String>>,
+    ) -> Option<FinalExpansion> {
+        let instant = self
+            .instant_expand
+            .load(std::sync::atomic::Ordering::Relaxed);
+        self.word_catalog
+            .fetch_expansion_lazy(keyword, instant, window, fetch_window)
+    }
+
     pub fn fetch_expansion_no_date_fallback(
         &self,
         keyword: &str,
@@ -249,6 +272,23 @@ impl EngineState {
             .load(std::sync::atomic::Ordering::Relaxed);
         self.word_catalog
             .fetch_expansion_no_date_fallback(keyword, instant, active_window)
+    }
+
+    pub fn fetch_expansion_no_date_fallback_lazy(
+        &self,
+        keyword: &str,
+        window: &crate::engine::catalog::WindowResolver,
+        fetch_window: Option<impl FnOnce() -> Option<String>>,
+    ) -> Option<FinalExpansion> {
+        let instant = self
+            .instant_expand
+            .load(std::sync::atomic::Ordering::Relaxed);
+        self.word_catalog.fetch_expansion_no_date_fallback_lazy(
+            keyword,
+            instant,
+            window,
+            fetch_window,
+        )
     }
 
     pub fn matching_word_triggers(&self, prefix: &str) -> Vec<String> {

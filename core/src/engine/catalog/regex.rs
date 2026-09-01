@@ -1,5 +1,6 @@
 use std::sync::{OnceLock, RwLock};
 
+use super::{WindowResolver, entry_has_app_filters};
 use crate::db::crud::TriggerAction;
 use crate::engine::catalog::is_app_allowed;
 pub struct RegexCatalog {
@@ -55,10 +56,11 @@ impl RegexCatalog {
         }
     }
 
-    pub fn match_action(
+    pub fn match_action_lazy(
         &self,
         buffer_string: &str,
-        active_window: Option<&str>,
+        window: &WindowResolver,
+        mut fetch_window: Option<impl FnOnce() -> Option<String>>,
     ) -> Option<(String, TriggerAction, Vec<String>)> {
         let guard = self.snapshot.read().ok()?;
         for entry in &guard.entries {
@@ -69,11 +71,16 @@ impl RegexCatalog {
                 Ok(re) => re,
                 Err(_) => continue,
             };
-            if is_app_allowed(&entry.action, active_window)
-                && let Some(m) = re.find_iter(buffer_string).last()
+            if let Some(m) = re.find_iter(buffer_string).last()
                 && m.end() == buffer_string.len()
                 && !m.as_str().is_empty()
             {
+                if entry_has_app_filters(&entry.action) {
+                    let w = window.resolve(|| fetch_window.take().and_then(|f| f()));
+                    if !is_app_allowed(&entry.action, w) {
+                        continue;
+                    }
+                }
                 let matched_str = m.as_str();
                 let mut captures_list = Vec::new();
                 if let Some(caps) = re.captures(matched_str) {
@@ -89,6 +96,15 @@ impl RegexCatalog {
             }
         }
         None
+    }
+
+    pub fn match_action(
+        &self,
+        buffer_string: &str,
+        active_window: Option<&str>,
+    ) -> Option<(String, TriggerAction, Vec<String>)> {
+        let window = WindowResolver::from_static(active_window);
+        self.match_action_lazy(buffer_string, &window, None::<fn() -> Option<String>>)
     }
 }
 

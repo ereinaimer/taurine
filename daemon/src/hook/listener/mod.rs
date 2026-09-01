@@ -689,20 +689,11 @@ pub fn process_keyboard_event(
                     engine_event = engine_event_label(&ev),
                     "Dispatching engine event from hook callback"
                 );
-                let needs_window =
-                    matches!(ev, EngineEvent::ActionKey) || matches!(ev, EngineEvent::Char(_));
-
-                let active_window = if needs_window {
-                    crate::platform::get_active_window_label()
-                } else {
-                    None
-                };
-
                 let is_action_key = ev == EngineEvent::ActionKey;
 
                 if let Some((expansion, state)) =
                     with_evaluator_lock(evaluator, "process_engine_event", |lock| {
-                        lock.process_event(ev, active_window.as_deref())
+                        lock.process_event_lazy(ev, crate::platform::get_active_window_label)
                             .map(|expansion| {
                                 let state = lock.state.clone();
                                 (expansion, state)
@@ -769,15 +760,49 @@ pub(super) fn with_evaluator_lock<T>(
     action: impl FnOnce(&mut Evaluator) -> T,
 ) -> Option<T> {
     let lock_wait_started = Instant::now();
-    let mut lock = match evaluator.lock() {
+    let mut lock = match evaluator.try_lock() {
         Ok(lock) => lock,
-        Err(error) => {
+        Err(std::sync::TryLockError::Poisoned(error)) => {
             error!(
                 operation,
                 error = %error,
                 "Evaluator mutex poisoned inside hook callback"
             );
             return None;
+        }
+        Err(std::sync::TryLockError::WouldBlock) => {
+            // Contention backoff: brief spin-wait for up to 1.5ms
+            let mut acquired = None;
+            while lock_wait_started.elapsed() < Duration::from_micros(1500) {
+                std::hint::spin_loop();
+                match evaluator.try_lock() {
+                    Ok(guard) => {
+                        acquired = Some(guard);
+                        break;
+                    }
+                    Err(std::sync::TryLockError::Poisoned(error)) => {
+                        error!(
+                            operation,
+                            error = %error,
+                            "Evaluator mutex poisoned inside hook callback"
+                        );
+                        return None;
+                    }
+                    Err(std::sync::TryLockError::WouldBlock) => {}
+                }
+            }
+
+            match acquired {
+                Some(guard) => guard,
+                None => {
+                    warn!(
+                        operation,
+                        elapsed_us = lock_wait_started.elapsed().as_micros() as u64,
+                        "Evaluator mutex contention in hook callback; passing keystroke through"
+                    );
+                    return None;
+                }
+            }
         }
     };
     let lock_wait = lock_wait_started.elapsed();

@@ -176,6 +176,28 @@ impl Evaluator {
         event: EngineEvent,
         active_window: Option<&str>,
     ) -> Option<ExpansionResult> {
+        let window = crate::engine::catalog::WindowResolver::from_static(active_window);
+        self.process_event_with_resolver(event, &window, None::<fn() -> Option<String>>)
+    }
+
+    pub fn process_event_lazy<F>(
+        &mut self,
+        event: EngineEvent,
+        window_provider: F,
+    ) -> Option<ExpansionResult>
+    where
+        F: FnOnce() -> Option<String>,
+    {
+        let window = crate::engine::catalog::WindowResolver::lazy();
+        self.process_event_with_resolver(event, &window, Some(window_provider))
+    }
+
+    fn process_event_with_resolver(
+        &mut self,
+        event: EngineEvent,
+        window: &crate::engine::catalog::WindowResolver,
+        mut fetch_window: Option<impl FnOnce() -> Option<String>>,
+    ) -> Option<ExpansionResult> {
         use std::sync::atomic::Ordering;
         if self.state.ignore_fullscreen_enabled.load(Ordering::Relaxed)
             && self.state.is_os_fullscreen.load(Ordering::Relaxed)
@@ -218,7 +240,7 @@ impl Evaluator {
             }
             EngineEvent::ActionKey => {
                 let was_completion_active = self.completion.active;
-                let result = self.evaluate_buffer_for_expansion(active_window);
+                let result = self.evaluate_buffer_for_expansion_lazy(window, fetch_window.take());
                 if was_completion_active {
                     self.completion.deactivate(&self.state.completion_active);
                 }
@@ -250,7 +272,8 @@ impl Evaluator {
                 }
 
                 if self.state.instant_expand.load(Ordering::Relaxed)
-                    && let Some(result) = self.evaluate_buffer_for_expansion(active_window)
+                    && let Some(result) =
+                        self.evaluate_buffer_for_expansion_lazy(window, fetch_window.take())
                 {
                     if self.completion.active {
                         self.completion.deactivate(&self.state.completion_active);

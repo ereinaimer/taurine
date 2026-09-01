@@ -1,5 +1,6 @@
 use std::sync::{Arc, RwLock};
 
+use super::WindowResolver;
 use crate::db::crud::TriggerAction;
 use crate::engine::shell::{ScriptMetadata, compress, decompress};
 use crate::engine::source::{AdaptiveSource, MemorySource, SnippetSource};
@@ -59,19 +60,33 @@ impl ExpansionCatalog {
             .unwrap_or_default()
     }
 
-    fn get_raw_action(&self, keyword: &str, active_window: Option<&str>) -> Option<TriggerAction> {
-        if let Some(action) = self.source.get_action(keyword)
-            && is_app_allowed(&action, active_window)
-        {
-            return Some(action);
+    fn get_raw_action_lazy(
+        &self,
+        keyword: &str,
+        window: &WindowResolver,
+        fetch_window: &mut Option<impl FnOnce() -> Option<String>>,
+    ) -> Option<TriggerAction> {
+        if let Some(action) = self.source.get_action(keyword) {
+            if !entry_has_app_filters(&action) {
+                return Some(action);
+            }
+            let w = window.resolve(|| fetch_window.take().and_then(|f| f()));
+            if is_app_allowed(&action, w) {
+                return Some(action);
+            }
         }
 
         let lower_keyword = keyword.to_lowercase();
         if lower_keyword != keyword
             && let Some(action) = self.source.get_action(&lower_keyword)
-            && is_app_allowed(&action, active_window)
         {
-            return Some(action);
+            if !entry_has_app_filters(&action) {
+                return Some(action);
+            }
+            let w = window.resolve(|| fetch_window.take().and_then(|f| f()));
+            if is_app_allowed(&action, w) {
+                return Some(action);
+            }
         }
 
         None
@@ -86,19 +101,21 @@ impl ExpansionCatalog {
         expand_trigger_action_with_args(action, args, matched_keyword)
     }
 
-    fn fetch_exact_match(
+    fn fetch_exact_match_lazy(
         &self,
         keyword: &str,
-        active_window: Option<&str>,
+        window: &WindowResolver,
+        fetch_window: &mut Option<impl FnOnce() -> Option<String>>,
     ) -> Option<FinalExpansion> {
-        let action = self.get_raw_action(keyword, active_window)?;
+        let action = self.get_raw_action_lazy(keyword, window, fetch_window)?;
         self.expand_action(action, &ArgMap::default(), keyword)
     }
 
-    fn fetch_hybrid_arguments(
+    fn fetch_hybrid_arguments_lazy(
         &self,
         keyword: &str,
-        active_window: Option<&str>,
+        window: &WindowResolver,
+        fetch_window: &mut Option<impl FnOnce() -> Option<String>>,
     ) -> Option<FinalExpansion> {
         let tokens = tokenize(keyword, ':');
         if tokens.len() <= 1 {
@@ -106,7 +123,7 @@ impl ExpansionCatalog {
         }
 
         let base = tokens.first()?.trim();
-        let action = self.get_raw_action(base, active_window)?;
+        let action = self.get_raw_action_lazy(base, window, fetch_window)?;
         let args = parse_tokens(&tokens[1..]);
         self.expand_action(action, &args, base)
     }
@@ -232,17 +249,47 @@ impl ExpansionCatalog {
         Some(expansion)
     }
 
+    pub fn fetch_expansion_lazy(
+        &self,
+        keyword: &str,
+        instant_expand: bool,
+        window: &WindowResolver,
+        mut fetch_window: Option<impl FnOnce() -> Option<String>>,
+    ) -> Option<FinalExpansion> {
+        self.fetch_exact_match_lazy(keyword, window, &mut fetch_window)
+            .or_else(|| self.fetch_hybrid_arguments_lazy(keyword, window, &mut fetch_window))
+            .or_else(|| self.fetch_math_fallback(keyword, instant_expand))
+            .or_else(|| self.fetch_date_fallback(keyword, instant_expand))
+            .or_else(|| self.fetch_timezone_fallback(keyword, instant_expand))
+            .or_else(|| self.fetch_currency_words_fallback(keyword, instant_expand))
+            .or_else(|| self.fetch_nl_unit_conversion_fallback(keyword, instant_expand))
+    }
+
     pub fn fetch_expansion(
         &self,
         keyword: &str,
         instant_expand: bool,
         active_window: Option<&str>,
     ) -> Option<FinalExpansion> {
-        self.fetch_exact_match(keyword, active_window)
-            .or_else(|| self.fetch_hybrid_arguments(keyword, active_window))
+        let window = WindowResolver::from_static(active_window);
+        self.fetch_expansion_lazy(
+            keyword,
+            instant_expand,
+            &window,
+            None::<fn() -> Option<String>>,
+        )
+    }
+
+    pub fn fetch_expansion_no_date_fallback_lazy(
+        &self,
+        keyword: &str,
+        instant_expand: bool,
+        window: &WindowResolver,
+        mut fetch_window: Option<impl FnOnce() -> Option<String>>,
+    ) -> Option<FinalExpansion> {
+        self.fetch_exact_match_lazy(keyword, window, &mut fetch_window)
+            .or_else(|| self.fetch_hybrid_arguments_lazy(keyword, window, &mut fetch_window))
             .or_else(|| self.fetch_math_fallback(keyword, instant_expand))
-            .or_else(|| self.fetch_date_fallback(keyword, instant_expand))
-            .or_else(|| self.fetch_timezone_fallback(keyword, instant_expand))
             .or_else(|| self.fetch_currency_words_fallback(keyword, instant_expand))
             .or_else(|| self.fetch_nl_unit_conversion_fallback(keyword, instant_expand))
     }
@@ -253,11 +300,13 @@ impl ExpansionCatalog {
         instant_expand: bool,
         active_window: Option<&str>,
     ) -> Option<FinalExpansion> {
-        self.fetch_exact_match(keyword, active_window)
-            .or_else(|| self.fetch_hybrid_arguments(keyword, active_window))
-            .or_else(|| self.fetch_math_fallback(keyword, instant_expand))
-            .or_else(|| self.fetch_currency_words_fallback(keyword, instant_expand))
-            .or_else(|| self.fetch_nl_unit_conversion_fallback(keyword, instant_expand))
+        let window = WindowResolver::from_static(active_window);
+        self.fetch_expansion_no_date_fallback_lazy(
+            keyword,
+            instant_expand,
+            &window,
+            None::<fn() -> Option<String>>,
+        )
     }
 }
 pub(crate) fn is_excluded_phrase(phrase: &str) -> bool {
