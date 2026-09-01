@@ -257,29 +257,16 @@ pub fn inject_undo(trigger_string: String, output_length: usize) {
     };
     crate::platform::get_injector().pre_release_modifiers();
 
-    #[cfg(target_os = "linux")]
-    thread::sleep(Duration::from_millis(10));
-
-    erase_trigger(output_length);
-
-    #[cfg(target_os = "linux")]
-    thread::sleep(Duration::from_millis(20));
-
-    let original_clipboard = inject_text_segment(&trigger_string, &None);
-
-    if let Some(ref original) = original_clipboard.original_clipboard {
-        restore_clipboard(original, 0);
-    }
+    // Fast-path atomic backspaces and direct unicode restoration
+    crate::platform::get_injector().inject_atomic_backspaces(output_length);
+    crate::platform::get_injector().inject_unicode_text_direct(&trigger_string);
 
     crate::platform::get_injector().pre_release_modifiers();
 }
 
 fn erase_trigger(delete_count: usize) {
     trace!("Injecting {} backspaces", delete_count);
-    for _ in 0..delete_count {
-        crate::platform::get_injector().simulate_backspace(1);
-        thread::sleep(Duration::from_millis(3));
-    }
+    crate::platform::get_injector().inject_atomic_backspaces(delete_count);
 }
 
 pub struct StreamingTextSession {
@@ -370,6 +357,20 @@ pub fn inject_expansion(
 
     // Pre-Release: neutralize modifier state before any injection.
     crate::platform::get_injector().pre_release_modifiers();
+
+    // Fast-Path: Single-segment plain text <= 1000 characters bypassing clipboard
+    if let [ExpansionStep::Text(text)] = steps.as_slice()
+        && text.chars().count() <= 1000
+        && !taurine_core::utils::html::has_html_tags(text)
+    {
+        let success =
+            crate::platform::get_injector().inject_atomic_text_expansion(delete_count, text);
+        crate::platform::get_injector().pre_release_modifiers();
+        return InjectionReport {
+            successful_chars: if success { text.chars().count() } else { 0 },
+            completed: success,
+        };
+    }
 
     // On Linux, give the OS a moment to register the released modifiers before typing starts.
     #[cfg(target_os = "linux")]
@@ -480,90 +481,49 @@ pub fn inject_expansion(
                     remaining -= chunk;
                 }
             }
-            ExpansionStep::Script(metadata) => {
-                match metadata.behavior {
-                    ScriptBehavior::Inline => {
-                        // Start the modern Braille spinner from core
-                        let spinner_handle = taurine_core::utils::spinner::spawn_threaded(
-                            spinner_style,
-                            crate::platform::spinner_renderer::OsSpinnerRenderer::default(),
-                        );
+            ExpansionStep::Script(metadata) => match metadata.behavior {
+                ScriptBehavior::Inline => {
+                    let spinner_handle = taurine_core::utils::spinner::spawn_threaded(
+                        spinner_style,
+                        crate::platform::spinner_renderer::OsSpinnerRenderer::default(),
+                    );
 
-                        // Execute script and block until completion (or abort/timeout)
-                        let rt = match tokio::runtime::Builder::new_current_thread()
-                            .enable_all()
-                            .build()
-                        {
-                            Ok(rt) => rt,
-                            Err(error) => {
-                                error!(
-                                    error = %error,
-                                    "Failed to initialize script runtime"
-                                );
-                                spinner_handle.stop();
-                                report.completed = false;
-                                continue;
-                            }
-                        };
+                    let script_result = run_script_sync(metadata);
+                    spinner_handle.stop();
 
-                        let script_result: taurine_core::Result<String> =
-                            rt.block_on(crate::platform::executor::execute_script(metadata));
-
-                        // Stop the spinner
-                        spinner_handle.stop();
-
-                        match script_result {
-                            Ok(output) => {
-                                let out: String = output;
-                                if !out.is_empty() {
-                                    let injection = inject_text_segment(&out, &original_clipboard);
-                                    report.successful_chars = report
-                                        .successful_chars
-                                        .saturating_add(injection.injected_chars);
-                                    if original_clipboard.is_none() {
-                                        original_clipboard = injection.original_clipboard;
-                                    }
-                                    if !injection.success {
-                                        report.completed = false;
-                                    }
+                    match script_result {
+                        Ok(output) => {
+                            let out: String = output;
+                            if !out.is_empty() {
+                                let injection = inject_text_segment(&out, &original_clipboard);
+                                report.successful_chars = report
+                                    .successful_chars
+                                    .saturating_add(injection.injected_chars);
+                                if original_clipboard.is_none() {
+                                    original_clipboard = injection.original_clipboard;
                                 }
-                            }
-                            Err(e) => {
-                                report.completed = false;
-                                // Silent abort: if the user killed it, don't paste an error.
-                                let err_str = e.to_string();
-                                if !err_str.contains("aborted by user") {
-                                    let err_msg = format!(" [Error: {}] ", e);
-                                    let injection =
-                                        inject_text_segment(&err_msg, &original_clipboard);
-                                    if original_clipboard.is_none() {
-                                        original_clipboard = injection.original_clipboard;
-                                    }
+                                if !injection.success {
+                                    report.completed = false;
                                 }
                             }
                         }
-                    }
-                    ScriptBehavior::Silent => {
-                        // Fire and forget in the background
-                        let metadata_clone = metadata.clone();
-                        let spawn_res = thread::Builder::new()
-                            .name("tau-script-bg".to_string())
-                            .spawn(move || {
-                                if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
-                                    .enable_all()
-                                    .build()
-                                {
-                                    let _ = rt.block_on(crate::platform::executor::execute_script(
-                                        &metadata_clone,
-                                    ));
+                        Err(e) => {
+                            report.completed = false;
+                            let err_str = e.to_string();
+                            if !err_str.contains("aborted by user") {
+                                let err_msg = format!(" [Error: {}] ", e);
+                                let injection = inject_text_segment(&err_msg, &original_clipboard);
+                                if original_clipboard.is_none() {
+                                    original_clipboard = injection.original_clipboard;
                                 }
-                            });
-                        if let Err(e) = spawn_res {
-                            error!("Failed to spawn background script thread: {}", e);
+                            }
                         }
                     }
                 }
-            }
+                ScriptBehavior::Silent => {
+                    spawn_script_bg(metadata.clone());
+                }
+            },
             ExpansionStep::InlineRun(metadata, transformers) => match metadata.behavior {
                 ScriptBehavior::Inline => {
                     let spinner_handle = taurine_core::utils::spinner::spawn_threaded(
@@ -571,25 +531,7 @@ pub fn inject_expansion(
                         crate::platform::spinner_renderer::OsSpinnerRenderer::default(),
                     );
 
-                    let rt = match tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                    {
-                        Ok(rt) => rt,
-                        Err(error) => {
-                            error!(
-                                error = %error,
-                                "Failed to initialize inline run runtime"
-                            );
-                            spinner_handle.stop();
-                            report.completed = false;
-                            continue;
-                        }
-                    };
-
-                    let mut script_result: taurine_core::Result<String> =
-                        rt.block_on(crate::platform::executor::execute_script(metadata));
-
+                    let mut script_result = run_script_sync(metadata);
                     spinner_handle.stop();
 
                     if let Ok(ref mut output) = script_result {
@@ -633,22 +575,7 @@ pub fn inject_expansion(
                     }
                 }
                 ScriptBehavior::Silent => {
-                    let metadata_clone = metadata.clone();
-                    let spawn_res = thread::Builder::new()
-                        .name("tau-script-bg".to_string())
-                        .spawn(move || {
-                            if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
-                                .enable_all()
-                                .build()
-                            {
-                                let _ = rt.block_on(crate::platform::executor::execute_script(
-                                    &metadata_clone,
-                                ));
-                            }
-                        });
-                    if let Err(e) = spawn_res {
-                        error!("Failed to spawn background script thread: {}", e);
-                    }
+                    spawn_script_bg(metadata.clone());
                 }
             },
         }
@@ -662,4 +589,44 @@ pub fn inject_expansion(
     // Panic Release: ensure all modifiers are logically released.
     crate::platform::get_injector().pre_release_modifiers();
     report
+}
+
+fn run_script_sync(
+    metadata: &taurine_core::engine::shell::ScriptMetadata,
+) -> taurine_core::Result<String> {
+    if let Some(handle) = crate::TOKIO_HANDLE.get() {
+        tokio::task::block_in_place(|| {
+            handle.block_on(crate::platform::executor::execute_script(metadata))
+        })
+    } else {
+        match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt.block_on(crate::platform::executor::execute_script(metadata)),
+            Err(e) => Err(taurine_core::Error::Service(e.to_string())),
+        }
+    }
+}
+
+fn spawn_script_bg(metadata: taurine_core::engine::shell::ScriptMetadata) {
+    if let Some(handle) = crate::TOKIO_HANDLE.get() {
+        handle.spawn(async move {
+            let _ = crate::platform::executor::execute_script(&metadata).await;
+        });
+    } else {
+        let spawn_res = thread::Builder::new()
+            .name("tau-script-bg".to_string())
+            .spawn(move || {
+                if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    let _ = rt.block_on(crate::platform::executor::execute_script(&metadata));
+                }
+            });
+        if let Err(e) = spawn_res {
+            tracing::error!("Failed to spawn background script thread: {}", e);
+        }
+    }
 }

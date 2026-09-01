@@ -65,8 +65,10 @@ pub(super) fn prepare_clipboard_for_expansion(
     // Poll clipboard to ensure the OS has registered the write.
     let mut actual = String::new();
     let mut success = false;
-    for _ in 0..20 {
-        thread::sleep(Duration::from_millis(10));
+    for attempt in 0..20 {
+        if attempt > 0 {
+            thread::sleep(Duration::from_millis(10));
+        }
         if captured_gen != 0 && is_aborted(captured_gen) {
             return Err("injection aborted during clipboard poll".to_string());
         }

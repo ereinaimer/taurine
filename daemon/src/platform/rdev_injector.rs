@@ -133,6 +133,141 @@ impl Injector for RdevInjector {
     fn try_inject_frame_raw(&self, _frame: &str) -> bool {
         false
     }
+
+    fn inject_atomic_text_expansion(&self, delete_count: usize, text: &str) -> bool {
+        #[cfg(windows)]
+        {
+            let utf16_units: Vec<u16> = text.encode_utf16().collect();
+            let mut inputs = Vec::with_capacity((delete_count + utf16_units.len()) * 2);
+            for _ in 0..delete_count {
+                inputs.push(make_backspace_input(false));
+                inputs.push(make_backspace_input(true));
+            }
+            for unit in utf16_units {
+                inputs.push(make_unicode_input(unit, false));
+                inputs.push(make_unicode_input(unit, true));
+            }
+            if send_inputs_batch(&inputs) {
+                return true;
+            }
+            // Fallback if SendInput was blocked by OS (e.g. UIPI or headless session)
+            self.simulate_backspace(delete_count);
+            self.inject_unicode_text_direct(text)
+        }
+        #[cfg(not(windows))]
+        {
+            self.simulate_backspace(delete_count);
+            self.inject_unicode_text_direct(text)
+        }
+    }
+
+    fn inject_atomic_backspaces(&self, count: usize) {
+        if count == 0 {
+            return;
+        }
+        #[cfg(windows)]
+        {
+            let mut inputs = Vec::with_capacity(count * 2);
+            for _ in 0..count {
+                inputs.push(make_backspace_input(false));
+                inputs.push(make_backspace_input(true));
+            }
+            if !send_inputs_batch(&inputs) {
+                self.simulate_backspace(count);
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            self.simulate_backspace(count);
+        }
+    }
+
+    fn inject_unicode_text_direct(&self, text: &str) -> bool {
+        if text.is_empty() {
+            return true;
+        }
+        #[cfg(windows)]
+        {
+            let utf16_units: Vec<u16> = text.encode_utf16().collect();
+            let mut inputs = Vec::with_capacity(utf16_units.len() * 2);
+            for unit in utf16_units {
+                inputs.push(make_unicode_input(unit, false));
+                inputs.push(make_unicode_input(unit, true));
+            }
+            if send_inputs_batch(&inputs) {
+                return true;
+            }
+            crate::injector::inject_text_segment(text, &None).success
+        }
+        #[cfg(not(windows))]
+        {
+            crate::injector::inject_text_segment(text, &None).success
+        }
+    }
+}
+
+#[cfg(windows)]
+fn make_backspace_input(key_up: bool) -> windows_sys::Win32::UI::Input::KeyboardAndMouse::INPUT {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_BACK,
+    };
+    INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VK_BACK,
+                wScan: 0,
+                dwFlags: if key_up { KEYEVENTF_KEYUP } else { 0 },
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    }
+}
+
+#[cfg(windows)]
+fn make_unicode_input(
+    code_unit: u16,
+    key_up: bool,
+) -> windows_sys::Win32::UI::Input::KeyboardAndMouse::INPUT {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
+    };
+    INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: 0,
+                wScan: code_unit,
+                dwFlags: if key_up {
+                    KEYEVENTF_UNICODE | KEYEVENTF_KEYUP
+                } else {
+                    KEYEVENTF_UNICODE
+                },
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    }
+}
+
+#[cfg(windows)]
+fn send_inputs_batch(inputs: &[windows_sys::Win32::UI::Input::KeyboardAndMouse::INPUT]) -> bool {
+    if inputs.is_empty() {
+        return true;
+    }
+    // SAFETY: SendInput is a standard Win32 call. `inputs` is an initialized contiguous slice
+    // of INPUT structures whose lifetime is valid for the duration of the call.
+    // `size_of::<INPUT>()` matches the layout expected by Windows.
+    unsafe {
+        let count = inputs.len() as u32;
+        let sent = windows_sys::Win32::UI::Input::KeyboardAndMouse::SendInput(
+            count,
+            inputs.as_ptr(),
+            std::mem::size_of::<windows_sys::Win32::UI::Input::KeyboardAndMouse::INPUT>() as i32,
+        );
+        sent == count
+    }
 }
 
 pub(crate) fn modifier_alias_to_rdev_key(alias: &str) -> Option<Key> {

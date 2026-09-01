@@ -119,8 +119,27 @@ impl Injector for LinuxInjector {
         let Some(lookup) = crate::platform::linux::get_reverse_lookup() else {
             return false;
         };
-        if frame.chars().count() == 1 && lookup.contains_key(&c) {
-            crate::platform::linux::uinput::simulate_type_string(frame, lookup);
+        let Some(key_info) = lookup.get(&c) else {
+            return false;
+        };
+        crate::platform::linux::uinput::simulate_keypress(key_info.key);
+        true
+    }
+
+    fn inject_atomic_text_expansion(&self, delete_count: usize, text: &str) -> bool {
+        self.simulate_backspace(delete_count);
+        self.inject_unicode_text_direct(text)
+    }
+
+    fn inject_atomic_backspaces(&self, count: usize) {
+        for _ in 0..count {
+            crate::platform::linux::uinput::simulate_keypress(evdev::KeyCode::KEY_BACKSPACE);
+        }
+    }
+
+    fn inject_unicode_text_direct(&self, text: &str) -> bool {
+        if let Some(lookup) = crate::platform::linux::get_reverse_lookup() {
+            crate::platform::linux::uinput::simulate_type_string(text, lookup);
             true
         } else {
             false

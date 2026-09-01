@@ -653,3 +653,51 @@ fn alias_rejects_unknown_keys() {
     assert!(!resolve_alias("unknown_key"));
     assert!(!resolve_alias("hyper"));
 }
+
+#[test]
+fn test_atomic_unicode_expansion_batches_backspaces_and_chars() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let injector = crate::platform::get_injector();
+    let _ = injector.inject_atomic_text_expansion(3, "Hello World! 🚀");
+}
+
+#[test]
+fn test_atomic_backspaces_batch() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let injector = crate::platform::get_injector();
+    injector.inject_atomic_backspaces(10);
+}
+
+#[test]
+fn test_inject_unicode_text_direct() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let injector = crate::platform::get_injector();
+    let _ = injector.inject_unicode_text_direct("Unicode: é, ñ, 🚀, 中文");
+}
+
+#[test]
+fn test_dual_path_routes_plain_text_to_fast_path() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let steps = vec![taurine_core::engine::variables::ExpansionStep::Text(
+        "instant text".to_string(),
+    )];
+    let report =
+        super::inject::inject_expansion(steps, 2, taurine_core::settings::SpinnerStyle::Braille);
+    assert_eq!(report.successful_chars, 12);
+}
+
+#[test]
+fn test_inject_undo_fast_path() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    super::inject::inject_undo("trigger".to_string(), 15);
+}
