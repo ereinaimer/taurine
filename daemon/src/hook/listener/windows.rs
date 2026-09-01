@@ -45,6 +45,17 @@ pub(super) fn windows_grab(
                 // Parse KBDLLHOOKSTRUCT: { vkCode: u32, scanCode: u32, flags: u32, time: u32, dwExtraInfo: usize }
                 // SAFETY: lparam is a valid pointer to KBDLLHOOKSTRUCT for the duration of this call.
                 let kbds = lparam as *const [u32; 5];
+                let flags = (*kbds)[2];
+                // LLKHF_INJECTED is 0x00000010 (bit 4); LLKHF_LOWER_IL_INJECTED is 0x00000002 (bit 1).
+                let is_injected = (flags & 0x10) != 0 || (flags & 0x02) != 0;
+
+                if is_injected {
+                    // Synthetic event from SendInput (e.g. Taurine's simulated backspaces or paste).
+                    // Pass directly to the next hook and never process as physical input.
+                    let hhook = TL_HHOOK.with(|h| *h.borrow());
+                    return CallNextHookEx(hhook, code, wparam, lparam);
+                }
+
                 let vk_code = (*kbds)[0] as u16;
                 let scan_code = (*kbds)[1];
                 let is_press =
@@ -60,11 +71,7 @@ pub(super) fn windows_grab(
                 // Resolve the Unicode name of this keypress (for character events).
                 // Only needed on KeyPress; KeyRelease never produces a character.
                 let name = if is_press {
-                    TL_KEYBOARD.with(|kb| {
-                        // SAFETY: called from the hook proc; Windows guarantees the
-                        // foreground window and keyboard layout are valid here.
-                        kb.borrow_mut().get_name(vk_code as u32, scan_code)
-                    })
+                    resolve_key_name(vk_code as u32, scan_code)
                 } else {
                     None
                 };
@@ -74,9 +81,6 @@ pub(super) fn windows_grab(
                     time: SystemTime::now(),
                     name,
                 };
-
-                // Record Low-Level Hook event for Raw Input duplicate checking
-                crate::hook::raw_input::record_ll_hook_event(vk_code, is_press);
 
                 let pass_through = TL_CALLBACK.with(|cb| {
                     cb.borrow_mut()
@@ -303,6 +307,18 @@ impl KeyboardDecoder {
     }
 }
 
+/// Resolve the Unicode character name of a Windows virtual keypress.
+///
+/// SAFETY: Calls Windows keyboard layout and state translation APIs safely on the calling thread.
+pub(crate) fn resolve_key_name(vk_code: u32, scan_code: u32) -> Option<String> {
+    use std::cell::RefCell;
+    thread_local! {
+        static TL_DECODER: RefCell<KeyboardDecoder> = RefCell::new(KeyboardDecoder::new());
+    }
+    // SAFETY: GetKeyboardLayout and ToUnicodeEx are thread-safe Win32 APIs.
+    TL_DECODER.with(|kb| unsafe { kb.borrow_mut().get_name(vk_code, scan_code) })
+}
+
 /// Map a Windows virtual-key code to an `rdev::Key`, matching rdev's keycodes.rs table.
 /// Unknown VK codes become `Key::Unknown(vk_code as u32)`.
 fn vk_to_rdev_key(vk: u16) -> rdev::Key {
@@ -415,6 +431,84 @@ fn vk_to_rdev_key(vk: u16) -> rdev::Key {
     }
 }
 
+/// Query the current physical state of all modifier keys via GetAsyncKeyState.
+///
+/// SAFETY: GetAsyncKeyState is a thread-safe Win32 API that reads from the kernel-mapped
+/// input state bitmap in user-space memory. It takes a valid VK code and has no failure mode.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn sync_physical_modifiers(
+    left_alt_down: &std::sync::atomic::AtomicBool,
+    right_alt_down: &std::sync::atomic::AtomicBool,
+    left_ctrl_down: &std::sync::atomic::AtomicBool,
+    right_ctrl_down: &std::sync::atomic::AtomicBool,
+    left_shift_down: &std::sync::atomic::AtomicBool,
+    right_shift_down: &std::sync::atomic::AtomicBool,
+    left_meta_down: &std::sync::atomic::AtomicBool,
+    right_meta_down: &std::sync::atomic::AtomicBool,
+) {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        GetAsyncKeyState, VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU,
+        VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
+    };
+    // SAFETY: GetAsyncKeyState is a thread-safe user32/win32k query that reads from the
+    // kernel-mapped input state bitmap. It takes a valid VK code and has no unsafe failure modes.
+    unsafe {
+        let shift_any = (GetAsyncKeyState(VK_SHIFT as i32) as u16 & 0x8000) != 0;
+        if !shift_any {
+            left_shift_down.store(false, Ordering::Relaxed);
+            right_shift_down.store(false, Ordering::Relaxed);
+        } else {
+            let l = (GetAsyncKeyState(VK_LSHIFT as i32) as u16 & 0x8000) != 0;
+            let r = (GetAsyncKeyState(VK_RSHIFT as i32) as u16 & 0x8000) != 0;
+            if !l && !r {
+                left_shift_down.store(true, Ordering::Relaxed);
+            } else {
+                left_shift_down.store(l, Ordering::Relaxed);
+                right_shift_down.store(r, Ordering::Relaxed);
+            }
+        }
+
+        let ctrl_any = (GetAsyncKeyState(VK_CONTROL as i32) as u16 & 0x8000) != 0;
+        if !ctrl_any {
+            left_ctrl_down.store(false, Ordering::Relaxed);
+            right_ctrl_down.store(false, Ordering::Relaxed);
+        } else {
+            let l = (GetAsyncKeyState(VK_LCONTROL as i32) as u16 & 0x8000) != 0;
+            let r = (GetAsyncKeyState(VK_RCONTROL as i32) as u16 & 0x8000) != 0;
+            if !l && !r {
+                left_ctrl_down.store(true, Ordering::Relaxed);
+            } else {
+                left_ctrl_down.store(l, Ordering::Relaxed);
+                right_ctrl_down.store(r, Ordering::Relaxed);
+            }
+        }
+
+        let alt_any = (GetAsyncKeyState(VK_MENU as i32) as u16 & 0x8000) != 0;
+        if !alt_any {
+            left_alt_down.store(false, Ordering::Relaxed);
+            right_alt_down.store(false, Ordering::Relaxed);
+        } else {
+            let l = (GetAsyncKeyState(VK_LMENU as i32) as u16 & 0x8000) != 0;
+            let r = (GetAsyncKeyState(VK_RMENU as i32) as u16 & 0x8000) != 0;
+            if !l && !r {
+                left_alt_down.store(true, Ordering::Relaxed);
+            } else {
+                left_alt_down.store(l, Ordering::Relaxed);
+                right_alt_down.store(r, Ordering::Relaxed);
+            }
+        }
+
+        left_meta_down.store(
+            (GetAsyncKeyState(VK_LWIN as i32) as u16 & 0x8000) != 0,
+            Ordering::Relaxed,
+        );
+        right_meta_down.store(
+            (GetAsyncKeyState(VK_RWIN as i32) as u16 & 0x8000) != 0,
+            Ordering::Relaxed,
+        );
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn spawn_windows_hook_listener(
     evaluator: Arc<Mutex<Evaluator>>,
@@ -428,6 +522,16 @@ pub(crate) fn spawn_windows_hook_listener(
     pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
     hook_health: HookHealth,
     supervisor_tx: std::sync::mpsc::Sender<crate::hook::supervisor::WindowsSupervisorEvent>,
+    left_alt_down: Arc<std::sync::atomic::AtomicBool>,
+    right_alt_down: Arc<std::sync::atomic::AtomicBool>,
+    left_ctrl_down: Arc<std::sync::atomic::AtomicBool>,
+    right_ctrl_down: Arc<std::sync::atomic::AtomicBool>,
+    left_shift_down: Arc<std::sync::atomic::AtomicBool>,
+    right_shift_down: Arc<std::sync::atomic::AtomicBool>,
+    left_meta_down: Arc<std::sync::atomic::AtomicBool>,
+    right_meta_down: Arc<std::sync::atomic::AtomicBool>,
+    hotkey_evaluator: Arc<Mutex<crate::input::hotkey_evaluator::HotkeyEvaluator>>,
+    event_counter: Arc<std::sync::atomic::AtomicU32>,
 ) -> crate::hook::supervisor::ListenerHandle {
     use std::panic::{AssertUnwindSafe, catch_unwind};
     use windows_sys::Win32::System::Threading::GetCurrentThreadId;
@@ -483,6 +587,16 @@ pub(crate) fn spawn_windows_hook_listener(
                     audio_tx,
                     pause_transition_tx,
                     Some(listener_health.clone()),
+                    left_alt_down,
+                    right_alt_down,
+                    left_ctrl_down,
+                    right_ctrl_down,
+                    left_shift_down,
+                    right_shift_down,
+                    left_meta_down,
+                    right_meta_down,
+                    hotkey_evaluator,
+                    event_counter,
                 )
             }));
 

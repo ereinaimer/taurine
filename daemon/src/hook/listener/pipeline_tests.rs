@@ -515,4 +515,56 @@ mod listener_pipeline_tests {
             assert_eq!(r2.trigger, "ty");
         }
     }
+
+    /// When a modifier key release was missed by the OS (e.g. left Alt was stuck high),
+    /// the very next keystroke must synchronize physical modifier state via GetAsyncKeyState
+    /// and reset the stuck modifier, preventing accidental hotkey triggers.
+    #[test]
+    fn dropped_modifier_release_is_synced_on_next_key() {
+        let _guard = TestGuard::acquire();
+        let h = Harness::new();
+        // Type 'a' first so counter is non-zero (counter = 1)
+        h.type_char('a');
+        assert_eq!(h.buf(), "a");
+
+        // Artificially simulate a dropped Alt release by setting left Alt to true in memory
+        h.l_alt.store(true, Ordering::Relaxed);
+
+        // Type 'i' (counter = 2, which would NOT be 0 mod 100 in old code)
+        let res = h.type_char('i');
+        assert!(
+            res.is_some(),
+            "Character 'i' should pass through and be processed"
+        );
+
+        // The modifier sync must have updated l_alt to false (assuming Alt is not physically pressed on runner)
+        assert!(
+            !h.l_alt.load(Ordering::Relaxed),
+            "Left Alt must be resynchronized to false after processing keystroke"
+        );
+        assert_eq!(h.buf(), "ai", "Buffer must contain 'ai'");
+    }
+
+    /// When a mouse button is pressed, stale modifier states are flushed and
+    /// any pending buffer evaluation is safely interrupted.
+    #[test]
+    fn mouse_button_press_clears_stale_modifiers_and_interrupts_buffer() {
+        let _guard = TestGuard::acquire();
+        let h = Harness::new();
+        h.type_str("abc");
+        assert_eq!(h.buf(), "abc");
+
+        h.l_alt.store(true, Ordering::Relaxed);
+        let r = h.send(bare_event(EventType::ButtonPress(rdev::Button::Left)));
+        assert!(r.is_some(), "ButtonPress must pass through to OS");
+        assert_eq!(
+            h.buf(),
+            "",
+            "Buffer must be cleared on ButtonPress interrupt"
+        );
+        assert!(
+            !h.l_alt.load(Ordering::Relaxed),
+            "Left Alt must be resynchronized to false on ButtonPress"
+        );
+    }
 }

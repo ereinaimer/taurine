@@ -13,7 +13,7 @@ mod macos;
 mod windows;
 
 #[cfg(windows)]
-pub(super) use windows::spawn_windows_hook_listener;
+pub(crate) use windows::{spawn_windows_hook_listener, sync_physical_modifiers};
 
 #[cfg(test)]
 #[cfg(windows)]
@@ -110,6 +110,16 @@ pub fn start_listener(
         audio_tx,
         pause_transition_tx,
         None,
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        Arc::new(Mutex::new(HotkeyEvaluator::new())),
+        Arc::new(std::sync::atomic::AtomicU32::new(0)),
     ) {
         error!(error = %error, "Fatal OS global hook crash");
     }
@@ -128,47 +138,19 @@ pub(super) fn run_listener_once(
     _audio_tx: tokio::sync::mpsc::Sender<bool>,
     pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
     hook_health: Option<HookHealth>,
+    left_alt_down: Arc<std::sync::atomic::AtomicBool>,
+    right_alt_down: Arc<std::sync::atomic::AtomicBool>,
+    left_ctrl_down: Arc<std::sync::atomic::AtomicBool>,
+    right_ctrl_down: Arc<std::sync::atomic::AtomicBool>,
+    left_shift_down: Arc<std::sync::atomic::AtomicBool>,
+    right_shift_down: Arc<std::sync::atomic::AtomicBool>,
+    left_meta_down: Arc<std::sync::atomic::AtomicBool>,
+    right_meta_down: Arc<std::sync::atomic::AtomicBool>,
+    hotkey_evaluator: Arc<Mutex<HotkeyEvaluator>>,
+    event_counter: Arc<std::sync::atomic::AtomicU32>,
 ) -> Result<u64, String> {
-    let left_alt_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let right_alt_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let left_ctrl_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let right_ctrl_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let left_shift_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let right_shift_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let left_meta_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let right_meta_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let hotkey_evaluator = Arc::new(Mutex::new(HotkeyEvaluator::new()));
-    let event_counter = Arc::new(std::sync::atomic::AtomicU32::new(0));
-
     let callback_health = hook_health.clone();
     let my_epoch = LISTENER_EPOCH.load(Ordering::SeqCst);
-
-    // Context objects for the Raw Input fallback
-    #[cfg(windows)]
-    {
-        let raw_ctx = crate::hook::raw_input::RawInputContext {
-            evaluator: evaluator.clone(),
-            state: state.clone(),
-            paused: paused.clone(),
-            pause_hotkey: pause_hotkey.clone(),
-            spinner_style: spinner_style.clone(),
-            pause_transition_tx: pause_transition_tx.clone(),
-            left_alt_down: left_alt_down.clone(),
-            right_alt_down: right_alt_down.clone(),
-            left_ctrl_down: left_ctrl_down.clone(),
-            right_ctrl_down: right_ctrl_down.clone(),
-            left_shift_down: left_shift_down.clone(),
-            right_shift_down: right_shift_down.clone(),
-            left_meta_down: left_meta_down.clone(),
-            right_meta_down: right_meta_down.clone(),
-            hotkey_evaluator: hotkey_evaluator.clone(),
-            event_counter: event_counter.clone(),
-            hook_health: hook_health.clone(),
-        };
-        if let Err(e) = crate::hook::raw_input::start_raw_input_listener(raw_ctx) {
-            warn!("Failed to start Raw Input monitor fallback: {}", e);
-        }
-    }
 
     let evaluator_clone = evaluator.clone();
     let state_clone = state.clone();
@@ -234,9 +216,6 @@ pub(super) fn run_listener_once(
     #[cfg(not(windows))]
     let res = rdev::grab(callback).map_err(|error| format!("{error:?}"));
 
-    #[cfg(windows)]
-    crate::hook::raw_input::stop_raw_input_listener();
-
     res?;
     Ok(my_epoch)
 }
@@ -260,7 +239,7 @@ pub fn process_keyboard_event(
     left_meta_down: &std::sync::atomic::AtomicBool,
     right_meta_down: &std::sync::atomic::AtomicBool,
     hotkey_evaluator: &Arc<Mutex<HotkeyEvaluator>>,
-    event_counter: &Arc<std::sync::atomic::AtomicU32>,
+    _event_counter: &Arc<std::sync::atomic::AtomicU32>,
 ) -> Option<Event> {
     #[cfg(windows)]
     if matches!(
@@ -336,50 +315,16 @@ pub fn process_keyboard_event(
 
     // Modern active GetAsyncKeyState checks to ensure modifiers are always accurate
     #[cfg(windows)]
-    {
-        let counter = event_counter.fetch_add(1, Ordering::Relaxed);
-        #[allow(clippy::manual_is_multiple_of)]
-        if counter % 100 == 0 {
-            use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-                GetAsyncKeyState, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_RCONTROL, VK_RMENU,
-                VK_RSHIFT, VK_RWIN,
-            };
-            unsafe {
-                left_alt_down.store(
-                    (GetAsyncKeyState(VK_LMENU as i32) as u16 & 0x8000) != 0,
-                    Ordering::Relaxed,
-                );
-                right_alt_down.store(
-                    (GetAsyncKeyState(VK_RMENU as i32) as u16 & 0x8000) != 0,
-                    Ordering::Relaxed,
-                );
-                left_ctrl_down.store(
-                    (GetAsyncKeyState(VK_LCONTROL as i32) as u16 & 0x8000) != 0,
-                    Ordering::Relaxed,
-                );
-                right_ctrl_down.store(
-                    (GetAsyncKeyState(VK_RCONTROL as i32) as u16 & 0x8000) != 0,
-                    Ordering::Relaxed,
-                );
-                left_shift_down.store(
-                    (GetAsyncKeyState(VK_LSHIFT as i32) as u16 & 0x8000) != 0,
-                    Ordering::Relaxed,
-                );
-                right_shift_down.store(
-                    (GetAsyncKeyState(VK_RSHIFT as i32) as u16 & 0x8000) != 0,
-                    Ordering::Relaxed,
-                );
-                left_meta_down.store(
-                    (GetAsyncKeyState(VK_LWIN as i32) as u16 & 0x8000) != 0,
-                    Ordering::Relaxed,
-                );
-                right_meta_down.store(
-                    (GetAsyncKeyState(VK_RWIN as i32) as u16 & 0x8000) != 0,
-                    Ordering::Relaxed,
-                );
-            }
-        }
-    }
+    sync_physical_modifiers(
+        left_alt_down,
+        right_alt_down,
+        left_ctrl_down,
+        right_ctrl_down,
+        left_shift_down,
+        right_shift_down,
+        left_meta_down,
+        right_meta_down,
+    );
 
     let left_ctrl_active = left_ctrl_down.load(Ordering::Relaxed);
     let right_ctrl_active = right_ctrl_down.load(Ordering::Relaxed);
@@ -480,6 +425,28 @@ pub fn process_keyboard_event(
 
     match event.event_type {
         EventType::ButtonPress(_) => {
+            #[cfg(windows)]
+            sync_physical_modifiers(
+                left_alt_down,
+                right_alt_down,
+                left_ctrl_down,
+                right_ctrl_down,
+                left_shift_down,
+                right_shift_down,
+                left_meta_down,
+                right_meta_down,
+            );
+            #[cfg(not(windows))]
+            {
+                left_alt_down.store(false, Ordering::Relaxed);
+                right_alt_down.store(false, Ordering::Relaxed);
+                left_ctrl_down.store(false, Ordering::Relaxed);
+                right_ctrl_down.store(false, Ordering::Relaxed);
+                left_shift_down.store(false, Ordering::Relaxed);
+                right_shift_down.store(false, Ordering::Relaxed);
+                left_meta_down.store(false, Ordering::Relaxed);
+                right_meta_down.store(false, Ordering::Relaxed);
+            }
             clear_undo_state(state.as_ref());
             if let Ok(mut lock) = hotkey_evaluator.lock() {
                 lock.clear();

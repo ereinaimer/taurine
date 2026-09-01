@@ -20,6 +20,7 @@ pub enum WindowsSupervisorEvent {
     SessionLogon,
     DisplayChange,
     ListenerExited { error: Option<String> },
+    HookUnresponsive,
     Shutdown,
 }
 
@@ -57,12 +58,31 @@ pub fn start_windows_supervisor(
         );
     }
 
+    let left_alt_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let right_alt_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let left_ctrl_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let right_ctrl_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let left_shift_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let right_shift_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let left_meta_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let right_meta_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let hotkey_evaluator = Arc::new(Mutex::new(
+        crate::input::hotkey_evaluator::HotkeyEvaluator::new(),
+    ));
+    let event_counter = Arc::new(std::sync::atomic::AtomicU32::new(0));
+
+    // Start permanent Raw Input monitor as watchdog
+    let raw_ctx = crate::hook::raw_input::RawInputContext {
+        hook_health: Some(hook_health.clone()),
+        supervisor_tx: Some(tx.clone()),
+    };
+    if let Err(e) = crate::hook::raw_input::start_raw_input_listener(raw_ctx) {
+        warn!("Failed to start Raw Input monitor watchdog: {}", e);
+    }
+
     let spawn_result = std::thread::Builder::new()
         .name("tau-hook-super".to_string())
         .spawn(move || {
-            const RESTART_BACKOFF: Duration = Duration::from_secs(2);
-            const STALE_THRESHOLD_MS: u64 = 5_000;
-
             let mut listener_handle: Option<ListenerHandle> = Some(spawn_windows_hook_listener(
                 evaluator.clone(),
                 state.clone(),
@@ -75,21 +95,40 @@ pub fn start_windows_supervisor(
                 pause_transition_tx.clone(),
                 hook_health.clone(),
                 tx.clone(),
+                left_alt_down.clone(),
+                right_alt_down.clone(),
+                left_ctrl_down.clone(),
+                right_ctrl_down.clone(),
+                left_shift_down.clone(),
+                right_shift_down.clone(),
+                left_meta_down.clone(),
+                right_meta_down.clone(),
+                hotkey_evaluator.clone(),
+                event_counter.clone(),
             ));
-            let mut last_ping_sent_at_instant: Option<std::time::Instant> = None;
-            let mut ping_pending = false;
-            let mut force_ping_at_instant: Option<std::time::Instant> = None;
             let mut next_spawn_allowed_after = std::time::Instant::now();
             let mut last_health_log_at_instant = std::time::Instant::now();
-            let mut last_seen_event_unix: u64 = 0;
-            let mut last_seen_event_instant = std::time::Instant::now();
             let mut last_seen_started_unix: u64 = 0;
             let mut last_seen_started_instant = std::time::Instant::now();
+            let mut last_unresponsive_recovery =
+                std::time::Instant::now() - Duration::from_secs(10);
 
             loop {
                 let event = rx.recv_timeout(Duration::from_millis(100));
 
                 match event {
+                    Ok(WindowsSupervisorEvent::HookUnresponsive) => {
+                        if last_unresponsive_recovery.elapsed() >= Duration::from_millis(1000) {
+                            last_unresponsive_recovery = std::time::Instant::now();
+                            hook_health.mark_recovery_signal("raw input detected unresponsive hook");
+                            warn!(
+                                "Raw Input shadow detected missed events; reinstalling low-level hook immediately"
+                            );
+                            LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
+                            tear_down_listener(&mut listener_handle);
+                            next_spawn_allowed_after = std::time::Instant::now();
+                        }
+                    }
                     Ok(WindowsSupervisorEvent::ListenerExited { error }) => {
                         hook_health.mark_listener_exit(error.clone());
 
@@ -100,68 +139,57 @@ pub fn start_windows_supervisor(
                         }
 
                         listener_handle.take();
-                        std::thread::sleep(RESTART_BACKOFF);
-                        debug!("Restarting Windows hook listener after backoff");
+                        next_spawn_allowed_after =
+                            std::time::Instant::now() + Duration::from_millis(50);
+                        debug!("Reinstalling Windows hook listener immediately");
                     }
                     Ok(WindowsSupervisorEvent::ResumeAutomatic) => {
                         hook_health.mark_recovery_signal("automatic resume");
-                        warn!("Windows automatic resume detected; tearing down stale hook listener");
+                        warn!("Windows automatic resume detected; re-attaching hook listener");
                         tear_down_listener(&mut listener_handle);
-                        // Coalesce sequential wakeup/session events by setting a 1s delay
-                        // before the supervisor is allowed to spawn a new listener.
-                        next_spawn_allowed_after = std::time::Instant::now() + Duration::from_secs(1);
-                        force_ping_at_instant = None;
+                        next_spawn_allowed_after =
+                            std::time::Instant::now() + Duration::from_millis(150);
                     }
                     Ok(WindowsSupervisorEvent::ResumeFromSuspend) => {
                         hook_health.mark_recovery_signal("resume from suspend");
-                        warn!("Windows resume from suspend detected; tearing down stale hook listener");
+                        warn!("Windows resume from suspend detected; re-attaching hook listener");
                         tear_down_listener(&mut listener_handle);
-                        next_spawn_allowed_after = std::time::Instant::now() + Duration::from_secs(3);
-                        force_ping_at_instant = None;
+                        next_spawn_allowed_after =
+                            std::time::Instant::now() + Duration::from_millis(200);
                     }
                     Ok(WindowsSupervisorEvent::SessionUnlock) => {
                         hook_health.mark_recovery_signal("session unlock");
-                        warn!("Windows session unlock detected; tearing down stale hook listener");
+                        warn!("Windows session unlock detected; re-attaching hook listener");
                         tear_down_listener(&mut listener_handle);
-                        next_spawn_allowed_after = std::time::Instant::now() + Duration::from_secs(3);
-                        force_ping_at_instant = None;
+                        next_spawn_allowed_after =
+                            std::time::Instant::now() + Duration::from_millis(200);
                     }
                     Ok(WindowsSupervisorEvent::SessionLogon) => {
                         hook_health.mark_recovery_signal("session logon");
-                        warn!("Windows session logon detected; tearing down stale hook listener");
+                        warn!("Windows session logon detected; re-attaching hook listener");
                         tear_down_listener(&mut listener_handle);
-                        next_spawn_allowed_after = std::time::Instant::now() + Duration::from_secs(3);
-                        force_ping_at_instant = None;
+                        next_spawn_allowed_after =
+                            std::time::Instant::now() + Duration::from_millis(200);
                     }
                     Ok(WindowsSupervisorEvent::DisplayChange) => {
                         hook_health.mark_recovery_signal("display change");
-                        warn!("Windows display change detected; scheduling liveness verification");
-                        force_ping_at_instant = Some(std::time::Instant::now() + Duration::from_millis(3000));
+                        debug!("Windows display change detected");
                     }
                     Ok(WindowsSupervisorEvent::Shutdown) => {
                         debug!("Windows hook supervisor received Shutdown event");
                         break;
                     }
                     Err(mpsc::RecvTimeoutError::Timeout) => {
-                        // Watchdog timer: periodically check listener health.
-                        // Compute restart decision without holding a borrow on
-                        // listener_handle so tear_down_listener can borrow it mutably.
-                        let mut needs_restart = false;
-
-
-
                         if last_health_log_at_instant.elapsed().as_millis() >= 30_000 {
                             last_health_log_at_instant = std::time::Instant::now();
                             hook_health.log_periodic_health();
                         }
 
+                        let mut needs_restart = false;
+
                         if let Some(ref handle) = listener_handle {
                             let snapshot = hook_health.snapshot();
 
-                            if snapshot.last_keyboard_event_at_unix_ms != last_seen_event_unix {
-                                last_seen_event_unix = snapshot.last_keyboard_event_at_unix_ms;
-                                last_seen_event_instant = std::time::Instant::now();
-                            }
                             if snapshot.hook_thread_started_at_unix_ms != last_seen_started_unix {
                                 last_seen_started_unix = snapshot.hook_thread_started_at_unix_ms;
                                 last_seen_started_instant = std::time::Instant::now();
@@ -177,16 +205,6 @@ pub fn start_windows_supervisor(
                             // without sending ListenerExited.
                             let silent_exit = handle.join.as_ref().is_none_or(|j| j.is_finished());
 
-                            // Check 3: Hook seems stale — hook entered grab, but last keyboard event is too old
-                            // and we are not currently awaiting a recovery.
-                            let seems_stale = snapshot.hook_entered_grab_at_unix_ms > 0
-                                && snapshot.last_keyboard_event_at_unix_ms > 0
-                                && last_seen_event_instant.elapsed().as_millis() as u64 >= STALE_THRESHOLD_MS
-                                && snapshot.pending_recovery_reason.is_none();
-
-                            let scheduled_ping_due = force_ping_at_instant.is_some_and(|i| i <= std::time::Instant::now());
-                            let should_ping = seems_stale || scheduled_ping_due;
-
                             if startup_hang {
                                 warn!(
                                     "Watchdog: hook listener started but hasn't entered grab after 3s; restarting"
@@ -201,42 +219,6 @@ pub fn start_windows_supervisor(
                             }
 
                             needs_restart = startup_hang || silent_exit;
-
-                            if should_ping && !needs_restart {
-                                if !ping_pending {
-                                    if scheduled_ping_due {
-                                        debug!("Watchdog: executing scheduled liveness verification ping");
-                                    } else {
-                                        warn!(
-                                            "Watchdog: hook inactive for 5s; sending active verification ping"
-                                        );
-                                    }
-                                    ping_pending = true;
-                                    last_ping_sent_at_instant = Some(std::time::Instant::now());
-                                    force_ping_at_instant = None; // Clear scheduled ping
-                                    let _ = rdev::simulate(&rdev::EventType::KeyPress(rdev::Key::Unknown(255)));
-                                    let _ = rdev::simulate(&rdev::EventType::KeyRelease(rdev::Key::Unknown(255)));
-                                } else if last_ping_sent_at_instant.is_some_and(|i| i.elapsed().as_millis() >= 500) {
-                                    // Simulated event failed to roundtrip.
-                                    // Check if the foreground window is elevated/secure.
-                                    if is_foreground_window_elevated() {
-                                        debug!("Watchdog: verification ping blocked by UIPI/UAC; skipping restart");
-                                        ping_pending = false;
-                                        // Reset the last event time to now so we don't spam pings
-                                        hook_health.record_keyboard_event();
-                                    } else {
-                                        warn!(
-                                            "Watchdog: verification ping failed on normal window; restarting stale hook"
-                                        );
-                                        hook_health.mark_recovery_signal("watchdog: stale hook");
-                                        LISTENER_EPOCH.fetch_add(1, Ordering::SeqCst);
-                                        needs_restart = true;
-                                        ping_pending = false;
-                                    }
-                                }
-                            } else if !seems_stale && !scheduled_ping_due {
-                                ping_pending = false;
-                            }
                         }
 
                         if needs_restart {
@@ -249,7 +231,9 @@ pub fn start_windows_supervisor(
                     }
                 }
 
-                if listener_handle.is_none() && std::time::Instant::now() >= next_spawn_allowed_after {
+                if listener_handle.is_none()
+                    && std::time::Instant::now() >= next_spawn_allowed_after
+                {
                     debug!("Reinstalling Windows hook listener");
 
                     // Clear ghost keyboard states before spawning the new listener thread
@@ -271,6 +255,16 @@ pub fn start_windows_supervisor(
                         pause_transition_tx.clone(),
                         hook_health.clone(),
                         tx.clone(),
+                        left_alt_down.clone(),
+                        right_alt_down.clone(),
+                        left_ctrl_down.clone(),
+                        right_ctrl_down.clone(),
+                        left_shift_down.clone(),
+                        right_shift_down.clone(),
+                        left_meta_down.clone(),
+                        right_meta_down.clone(),
+                        hotkey_evaluator.clone(),
+                        event_counter.clone(),
                     ));
                 }
             }
@@ -364,39 +358,4 @@ fn send_wm_quit_to_thread(thread_id: u32, join_handle: Option<&std::thread::Join
         thread_id,
         "Failed to post WM_QUIT after 500ms of retries; listener thread likely crashed before creating its message queue"
     );
-}
-
-fn is_foreground_window_elevated() -> bool {
-    use windows_sys::Win32::Foundation::CloseHandle;
-    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION};
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, GetWindowThreadProcessId,
-    };
-
-    // SAFETY: GetForegroundWindow and GetWindowThreadProcessId are safe Win32 APIs.
-    // OpenProcess and CloseHandle are standard process control APIs.
-    unsafe {
-        let hwnd = GetForegroundWindow();
-        if hwnd.is_null() {
-            // Null foreground window indicates lock screen, UAC prompt, or desktop transition.
-            return true;
-        }
-        let mut pid = 0;
-        GetWindowThreadProcessId(hwnd, &mut pid);
-        if pid == 0 {
-            return true;
-        }
-        // Try to open process with query information (requires higher privileges for elevated processes)
-        let handle = OpenProcess(PROCESS_QUERY_INFORMATION, 0, pid);
-        if handle.is_null() {
-            let err = windows_sys::Win32::Foundation::GetLastError();
-            if err == 5 {
-                // 5 is ERROR_ACCESS_DENIED
-                return true;
-            }
-        } else {
-            CloseHandle(handle);
-        }
-        false
-    }
 }
