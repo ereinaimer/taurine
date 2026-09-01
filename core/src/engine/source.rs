@@ -74,17 +74,22 @@ impl SnippetSource for DatabaseSource {
 /// based on the presence of the `TAURINE_DB_PATH` environment variable.
 pub struct AdaptiveSource {
     fallback: Arc<dyn SnippetSource>,
+    is_db_override: bool,
 }
 
 impl AdaptiveSource {
     pub fn new(fallback: Arc<dyn SnippetSource>) -> Self {
-        Self { fallback }
+        let is_db_override = std::env::var("TAURINE_DB_PATH").is_ok();
+        Self {
+            fallback,
+            is_db_override,
+        }
     }
 }
 
 impl SnippetSource for AdaptiveSource {
     fn get_action(&self, keyword: &str) -> Option<crate::db::crud::TriggerAction> {
-        if std::env::var("TAURINE_DB_PATH").is_ok() {
+        if self.is_db_override {
             return DatabaseSource.get_action(keyword);
         }
         self.fallback.get_action(keyword)

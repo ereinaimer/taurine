@@ -313,18 +313,53 @@ pub fn process_keyboard_event(
         _ => {}
     }
 
-    // Modern active GetAsyncKeyState checks to ensure modifiers are always accurate
-    #[cfg(windows)]
-    sync_physical_modifiers(
-        left_alt_down,
-        right_alt_down,
-        left_ctrl_down,
-        right_ctrl_down,
-        left_shift_down,
-        right_shift_down,
-        left_meta_down,
-        right_meta_down,
+    let is_modifier_event = matches!(
+        event.event_type,
+        EventType::KeyPress(
+            Key::ShiftLeft
+                | Key::ShiftRight
+                | Key::ControlLeft
+                | Key::ControlRight
+                | Key::Alt
+                | Key::AltGr
+                | Key::MetaLeft
+                | Key::MetaRight
+        ) | EventType::KeyRelease(
+            Key::ShiftLeft
+                | Key::ShiftRight
+                | Key::ControlLeft
+                | Key::ControlRight
+                | Key::Alt
+                | Key::AltGr
+                | Key::MetaLeft
+                | Key::MetaRight
+        )
     );
+
+    let any_modifier_active = left_ctrl_down.load(Ordering::Relaxed)
+        || right_ctrl_down.load(Ordering::Relaxed)
+        || left_shift_down.load(Ordering::Relaxed)
+        || right_shift_down.load(Ordering::Relaxed)
+        || left_alt_down.load(Ordering::Relaxed)
+        || right_alt_down.load(Ordering::Relaxed)
+        || left_meta_down.load(Ordering::Relaxed)
+        || right_meta_down.load(Ordering::Relaxed);
+
+    // Active GetAsyncKeyState checks executed on modifier key transitions or when a modifier
+    // is active in memory to ensure physical state is always synchronized with zero overhead on normal typing.
+    #[cfg(windows)]
+    if is_modifier_event || any_modifier_active {
+        sync_physical_modifiers(
+            left_alt_down,
+            right_alt_down,
+            left_ctrl_down,
+            right_ctrl_down,
+            left_shift_down,
+            right_shift_down,
+            left_meta_down,
+            right_meta_down,
+        );
+    }
 
     let left_ctrl_active = left_ctrl_down.load(Ordering::Relaxed);
     let right_ctrl_active = right_ctrl_down.load(Ordering::Relaxed);
