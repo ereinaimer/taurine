@@ -386,9 +386,12 @@ pub fn inject_expansion(
         crate::platform::get_injector().pre_release_modifiers();
     }
 
-    // Fast-Path: Single-segment plain text <= 1000 characters bypassing clipboard
+    // Fast-Path: Single-segment plain text <= 1000 characters without newlines or tabs bypassing clipboard
     if let [ExpansionStep::Text(text)] = steps.as_slice()
         && text.chars().count() <= 1000
+        && !text.contains('\n')
+        && !text.contains('\r')
+        && !text.contains('\t')
         && !taurine_core::utils::html::has_html_tags(text)
     {
         let success =

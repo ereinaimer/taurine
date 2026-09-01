@@ -746,3 +746,31 @@ fn test_expansion_requires_keystrokes_classification() {
         0
     ));
 }
+
+#[test]
+fn test_dual_path_routes_multiline_text_to_clipboard_path() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    // Multiline expansions (e.g. git commit messages with bullet points) must not be typed directly
+    // via SendInput to avoid triggering shell execution or line re-ordering races.
+    let steps = vec![taurine_core::engine::variables::ExpansionStep::Text(
+        "git commit -m \"title\" -m\n\"- bullet 1\n- bullet 2\"".to_string(),
+    )];
+    let report =
+        super::inject::inject_expansion(steps, 2, taurine_core::settings::SpinnerStyle::Braille);
+    assert_eq!(report.successful_chars, 48);
+}
+
+#[test]
+fn test_dual_path_routes_tabbed_text_to_clipboard_path() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let steps = vec![taurine_core::engine::variables::ExpansionStep::Text(
+        "col1\tcol2".to_string(),
+    )];
+    let report =
+        super::inject::inject_expansion(steps, 0, taurine_core::settings::SpinnerStyle::Braille);
+    assert_eq!(report.successful_chars, 9);
+}
