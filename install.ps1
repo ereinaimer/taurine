@@ -49,7 +49,18 @@ function Invoke-WithRetry ($ScriptBlock, $ArgumentList, $Label, $SuccessLabel = 
     while ($attempt -lt $MaxRetries) {
         $job = Start-Job -ScriptBlock $ScriptBlock -ArgumentList $ArgumentList
         $result = Show-SpinnerJob $job $Label $SuccessLabel
-        if ($null -ne $result -and ($result -is [string] -or $result.PSObject.Properties.Name -contains 'version')) {
+        $jobError = $job.Error
+        $jobState = $job.State
+        if ($jobState -eq "Failed" -or $jobError -and $jobError.Count -gt 0) {
+            $attempt++
+            if ($attempt -lt $MaxRetries) {
+                Write-Host "  Retrying in ${delay}s... ($attempt/$MaxRetries)"
+                Start-Sleep -Seconds $delay
+                $delay *= 2
+            }
+            continue
+        }
+        if ($null -ne $result) {
             return $result
         }
         $attempt++
@@ -181,19 +192,33 @@ function Main {
 
         if ($LocalVersion) {
             try {
-                $Manifest = Invoke-RestMethod -Uri "https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json" -ErrorAction SilentlyContinue
-                if ($Manifest -is [string]) {
-                    $Manifest = $Manifest | ConvertFrom-Json
-                }
-                $Version = $Manifest.version
-                $Url = $Manifest.artifacts.$Platform.url
-                $Sha256 = $Manifest.artifacts.$Platform.sha256
+                $Releases = Invoke-RestMethod -Uri "https://api.github.com/repos/ereinaimer/taurine/releases" -Headers @{ Accept = "application/vnd.github+json" } -ErrorAction SilentlyContinue
+                if ($Releases -and $Releases.Count -gt 0) {
+                    $LatestRelease = $Releases[0]
+                    $ReleaseDetail = Invoke-RestMethod -Uri $LatestRelease.url -Headers @{ Accept = "application/vnd.github+json" } -ErrorAction SilentlyContinue
+                    if ($ReleaseDetail -and $ReleaseDetail.assets) {
+                        $ManifestAsset = $ReleaseDetail.assets | Where-Object { $_.name -eq "manifest.json" } | Select-Object -First 1
+                        if ($ManifestAsset) {
+                            $Manifest = Invoke-RestMethod -Uri $ManifestAsset.browser_download_url -ErrorAction SilentlyContinue
+                            if ($Manifest -is [string]) {
+                                $Manifest = $Manifest | ConvertFrom-Json
+                            }
+                            $Version = $Manifest.version
+                            $Url = $Manifest.artifacts.$Platform.url
+                            $Sha256 = $Manifest.artifacts.$Platform.sha256
+                            # Handle malformed sha256 with filename prefix
+                            if ($Sha256 -and $Sha256.Contains(':')) {
+                                $Sha256 = $Sha256.Split(':')[-1]
+                            }
 
-                if ($Version) {
-                    $cmp = Compare-Versions $LocalVersion $Version
-                    if ($cmp -ge 0) {
-                        Write-Host -ForegroundColor Green -NoNewline "$([char]0x2713) "
-                        Write-Host "Taurine is up to date (v$LocalVersion)"
+                            if ($Version) {
+                                $cmp = Compare-Versions $LocalVersion $Version
+                                if ($cmp -ge 0) {
+                                    Write-Host -ForegroundColor Green -NoNewline "$([char]0x2713) "
+                                    Write-Host "Taurine is up to date (v$LocalVersion)"
+                                }
+                            }
+                        }
                     }
                 }
             } catch {
@@ -205,17 +230,31 @@ function Main {
     # 2. Manifest fetch if not already populated (e.g. fresh install or silent check failed)
     if ($null -eq $Version) {
         $ManifestJob = {
-            param($url)
             $ErrorActionPreference = "Stop"
-            Invoke-RestMethod -Uri $url
+            $Releases = Invoke-RestMethod -Uri "https://api.github.com/repos/ereinaimer/taurine/releases" -Headers @{ Accept = "application/vnd.github+json" }
+            if (-not $Releases -or $Releases.Count -eq 0) {
+                throw "Could not find any releases."
+            }
+            $LatestRelease = $Releases[0]
+            $ReleaseDetail = Invoke-RestMethod -Uri $LatestRelease.url -Headers @{ Accept = "application/vnd.github+json" }
+            $ManifestAsset = $ReleaseDetail.assets | Where-Object { $_.name -eq "manifest.json" } | Select-Object -First 1
+            if (-not $ManifestAsset) {
+                throw "No manifest.json asset found in latest release."
+            }
+            $Manifest = Invoke-RestMethod -Uri $ManifestAsset.browser_download_url
+            return $Manifest
         }
-        $Manifest = Invoke-WithRetry -ScriptBlock $ManifestJob -ArgumentList @("https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json") -Label "Fetching latest release manifest" -SuccessLabel "Fetched latest release manifest"
+        $Manifest = Invoke-WithRetry -ScriptBlock $ManifestJob -Label "Fetching release manifest" -SuccessLabel "Fetched release manifest"
         if ($Manifest -is [string]) {
             $Manifest = $Manifest | ConvertFrom-Json
         }
         $Version = $Manifest.version
         $Url = $Manifest.artifacts.$Platform.url
         $Sha256 = $Manifest.artifacts.$Platform.sha256
+        # Handle malformed sha256 with filename prefix (e.g. "checksums/file.sha256:hash")
+        if ($Sha256 -and $Sha256.Contains(':')) {
+            $Sha256 = $Sha256.Split(':')[-1]
+        }
 
         if (-not $Version -or -not $Url) {
             Write-Host -ForegroundColor Red "Error: Could not determine latest version or download URL."

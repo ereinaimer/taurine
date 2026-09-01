@@ -245,11 +245,22 @@ if [ -x "$INSTALL_DIR/taurine" ]; then
     LOCAL_VERSION=$("$INSTALL_DIR/taurine" --version 2>/dev/null | awk '{print $2}') || true
     if [ -n "$LOCAL_VERSION" ]; then
         # Try fetching manifest silently to check if up to date
-        if curl -fsSL https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json -o "$TMP_DIR/manifest.json" >/dev/null 2>&1; then
-            MANIFEST=$(tr -d '\n\r\t ' < "$TMP_DIR/manifest.json")
-            VERSION=$(echo "$MANIFEST" | grep -o '"version":"[^"]*"' | head -n 1 | cut -d'"' -f4 || true)
-            URL=$(echo "$MANIFEST" | grep -o "\"$PLATFORM\":{[^}]*}" | grep -o '"url":"[^"]*"' | cut -d'"' -f4 || true)
-            SHA256=$(echo "$MANIFEST" | grep -o "\"$PLATFORM\":{[^}]*}" | grep -o '"sha256":"[^"]*"' | cut -d'"' -f4 || true)
+        if curl -fsSL -H 'Accept: application/vnd.github+json' https://api.github.com/repos/ereinaimer/taurine/releases -o "$TMP_DIR/releases.json" >/dev/null 2>&1; then
+            RELEASE_URL=$(grep -o '"url":"https://api.github.com/repos/ereinaimer/taurine/releases/[0-9]*"' "$TMP_DIR/releases.json" | head -n 1 | cut -d'"' -f4)
+            if [ -n "$RELEASE_URL" ]; then
+                if curl -fsSL -H 'Accept: application/vnd.github+json' "$RELEASE_URL" -o "$TMP_DIR/release.json" >/dev/null 2>&1; then
+                    MANIFEST_ASSET_URL=$(grep -o '"browser_download_url":"[^"]*manifest\.json"' "$TMP_DIR/release.json" | head -n 1 | cut -d'"' -f4)
+                    if [ -n "$MANIFEST_ASSET_URL" ]; then
+                        if curl -fsSL "$MANIFEST_ASSET_URL" -o "$TMP_DIR/manifest.json" >/dev/null 2>&1; then
+                            MANIFEST=$(tr -d '\n\r\t ' < "$TMP_DIR/manifest.json")
+                            VERSION=$(echo "$MANIFEST" | grep -o '"version":"[^"]*"' | head -n 1 | cut -d'"' -f4 || true)
+                            URL=$(echo "$MANIFEST" | grep -o "\"$PLATFORM\":{[^}]*}" | grep -o '"url":"[^"]*"' | cut -d'"' -f4 || true)
+                            SHA256=$(echo "$MANIFEST" | grep -o "\"$PLATFORM\":{[^}]*}" | grep -o '"sha256":"[^"]*"' | cut -d'"' -f4 || true)
+                        fi
+                    fi
+                fi
+            fi
+        fi
 
             if [ -n "$VERSION" ]; then
                 if [ "$LOCAL_VERSION" = "$VERSION" ] || version_gt "$LOCAL_VERSION" "$VERSION"; then
@@ -262,12 +273,22 @@ fi
 
 # 2. Manifest fetch if not already populated (e.g. fresh install or silent check failed)
 if [ -z "$VERSION" ]; then
-    invoke_with_retry "Fetching latest release manifest" "curl -fsSL https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json -o \"$TMP_DIR/manifest.json\"" "Fetched latest release manifest" || exit 1
+    invoke_with_retry "Fetching release manifest" "
+        curl -fsSL -H 'Accept: application/vnd.github+json' https://api.github.com/repos/ereinaimer/taurine/releases -o \"$TMP_DIR/releases.json\" &&
+        RELEASE_URL=\$(grep -o '\"url\":\"https://api.github.com/repos/ereinaimer/taurine/releases/[0-9]*\"' \"$TMP_DIR/releases.json\" | head -n 1 | cut -d'\"' -f4) &&
+        [ -n \"\$RELEASE_URL\" ] &&
+        curl -fsSL -H 'Accept: application/vnd.github+json' \"\$RELEASE_URL\" -o \"$TMP_DIR/release.json\" &&
+        MANIFEST_ASSET_URL=\$(grep -o '\"browser_download_url\":\"[^\"]*manifest\\.json\"' \"$TMP_DIR/release.json\" | head -n 1 | cut -d'\"' -f4) &&
+        [ -n \"\$MANIFEST_ASSET_URL\" ] &&
+        curl -fsSL \"\$MANIFEST_ASSET_URL\" -o \"$TMP_DIR/manifest.json\"
+    " "Fetched release manifest" || exit 1
 
     MANIFEST=$(tr -d '\n\r\t ' < "$TMP_DIR/manifest.json")
     VERSION=$(echo "$MANIFEST" | grep -o '"version":"[^"]*"' | head -n 1 | cut -d'"' -f4 || true)
     URL=$(echo "$MANIFEST" | grep -o "\"$PLATFORM\":{[^}]*}" | grep -o '"url":"[^"]*"' | cut -d'"' -f4 || true)
     SHA256=$(echo "$MANIFEST" | grep -o "\"$PLATFORM\":{[^}]*}" | grep -o '"sha256":"[^"]*"' | cut -d'"' -f4 || true)
+    # Handle malformed sha256 with filename prefix (e.g. "checksums/file.sha256:hash")
+    SHA256="${SHA256##*:}"
 
     if [ -z "$VERSION" ] || [ -z "$URL" ]; then
         echo "Error: Could not determine latest version or download URL."
