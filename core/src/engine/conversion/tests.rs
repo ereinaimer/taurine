@@ -747,3 +747,14 @@ fn test_nl_question_patterns_output_formatting() {
         Some("5280 feet".to_string())
     );
 }
+
+#[test]
+fn test_has_natural_conversion_intent() {
+    assert!(has_natural_conversion_intent("100 dollars to euros"));
+    assert!(has_natural_conversion_intent("5cm in inches"));
+    assert!(has_natural_conversion_intent("how many cm in a foot"));
+    assert!(has_natural_conversion_intent("a mile to km"));
+    assert!(has_natural_conversion_intent("100c=f"));
+    assert!(!has_natural_conversion_intent("just ordinary conversation"));
+    assert!(!has_natural_conversion_intent("the quick brown fox"));
+}

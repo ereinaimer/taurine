@@ -793,7 +793,36 @@ pub fn resolve_timezone(name: &str) -> Option<Tz> {
     resolve_to_tz(name)
 }
 
+#[inline]
+pub fn has_timezone_intent(input: &str) -> bool {
+    let lower = input.to_lowercase();
+    let trimmed = lower.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    if trimmed.chars().any(|c| c.is_ascii_digit() || c == ':') {
+        return true;
+    }
+
+    trimmed.contains("time")
+        || trimmed.contains("now")
+        || trimmed.contains("noon")
+        || trimmed.contains("midnight")
+        || trimmed.contains("convert")
+        || trimmed.contains("what")
+        || trimmed.contains("when")
+        || trimmed.contains("am")
+        || trimmed.contains("pm")
+        || trimmed.contains("today")
+        || trimmed.contains("tomorrow")
+        || trimmed.contains("yesterday")
+}
+
 pub fn parse_timezone_expression(input: &str, time_format: &str, dialect: &str) -> Option<String> {
+    if !has_timezone_intent(input) {
+        return None;
+    }
     let trimmed = strip_nl_prefix(input).trim();
     if trimmed.is_empty() {
         return None;
@@ -1383,5 +1412,17 @@ mod tests {
             "'when it is 9am in london what time is it in new york?' should be recognized: got {}",
             fmt_opt(out)
         );
+    }
+
+    #[test]
+    fn test_has_timezone_intent() {
+        assert!(has_timezone_intent("10am pst to tokyo"));
+        assert!(has_timezone_intent("time in london"));
+        assert!(has_timezone_intent("now in tokyo"));
+        assert!(has_timezone_intent(
+            "when it is 9am in london what time is it in new york"
+        ));
+        assert!(!has_timezone_intent("just standard text without numbers"));
+        assert!(!has_timezone_intent("hello world"));
     }
 }

@@ -557,9 +557,36 @@ fn preprocess_question_patterns(s: &str) -> Option<String> {
     }
 }
 
+#[inline]
+pub fn has_natural_conversion_intent(s: &str) -> bool {
+    let lower = s.to_lowercase();
+    let trimmed = lower.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    trimmed.contains('=')
+        || trimmed.contains(" to ")
+        || trimmed.contains(" in ")
+        || trimmed.contains(" into ")
+        || trimmed.contains(" as ")
+        || trimmed.starts_with("how many")
+        || trimmed.starts_with("what is")
+        || trimmed.starts_with("what's")
+        || trimmed.starts_with("how much")
+        || trimmed.starts_with("convert")
+        || trimmed.starts_with("a ")
+        || trimmed.starts_with("an ")
+        || trimmed.starts_with("one ")
+}
+
 /// Parses a natural language conversion query (e.g. "100 dollars to Euros"),
 /// normalizes the units and currencies, executes the conversion, and formats the result.
 pub fn convert_natural(s: &str, state: &crate::engine::state::EngineState) -> Option<String> {
+    if !has_natural_conversion_intent(s) {
+        return None;
+    }
+
     // Pre-process question patterns to canonical format
     let preprocessed = preprocess_question_patterns(s);
     let input = preprocessed.as_deref().unwrap_or(s);
