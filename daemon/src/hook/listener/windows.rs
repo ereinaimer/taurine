@@ -169,6 +169,8 @@ struct KeyboardDecoder {
     last_scan_code: u32,
     last_state: Box<[u8; 256]>,
     last_is_dead: bool,
+    last_hwnd: windows_sys::Win32::Foundation::HWND,
+    last_layout: windows_sys::Win32::UI::Input::KeyboardAndMouse::HKL,
 }
 
 impl KeyboardDecoder {
@@ -178,6 +180,8 @@ impl KeyboardDecoder {
             last_scan_code: 0,
             last_state: Box::new([0u8; 256]),
             last_is_dead: false,
+            last_hwnd: std::ptr::null_mut(),
+            last_layout: std::ptr::null_mut(),
         }
     }
 
@@ -187,6 +191,18 @@ impl KeyboardDecoder {
             GetAsyncKeyState, GetKeyState, GetKeyboardState, VK_CAPITAL, VK_CONTROL, VK_MENU,
             VK_SHIFT,
         };
+
+        // Invalidate layout cache on modifier or layout-switch keys (Alt+Shift, Win+Space)
+        if vk_code == VK_SHIFT as u32
+            || vk_code == VK_CONTROL as u32
+            || vk_code == VK_MENU as u32
+            || vk_code == 0x5B // VK_LWIN
+            || vk_code == 0x5C // VK_RWIN
+            || vk_code == 0x20
+        // VK_SPACE
+        {
+            self.last_layout = std::ptr::null_mut();
+        }
 
         let mut state = [0u8; 256];
         unsafe { GetKeyboardState(state.as_mut_ptr()) };
@@ -236,10 +252,16 @@ impl KeyboardDecoder {
             *self.last_state = *state;
 
             let fg_window = GetForegroundWindow();
-            let fg_thread = GetWindowThreadProcessId(fg_window, std::ptr::null_mut());
-
-            // SAFETY: GetKeyboardLayout returns the layout for the given thread.
-            let layout = GetKeyboardLayout(fg_thread);
+            let layout = if !self.last_layout.is_null() && fg_window == self.last_hwnd {
+                self.last_layout
+            } else {
+                let fg_thread = GetWindowThreadProcessId(fg_window, std::ptr::null_mut());
+                // SAFETY: GetKeyboardLayout returns the layout for the given thread.
+                let l = GetKeyboardLayout(fg_thread);
+                self.last_hwnd = fg_window;
+                self.last_layout = l;
+                l
+            };
 
             let mut buf = [0u16; 8];
             // SAFETY: ToUnicodeEx writes at most `buf.len()` UTF-16 code units.
