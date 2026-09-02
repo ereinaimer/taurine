@@ -50,12 +50,6 @@ pub async fn check_and_update_dictionary() {
         mode
     );
 
-    let mode_name = match mode {
-        InlineDictionaryMode::Lite => "Lite",
-        InlineDictionaryMode::Full => "Full",
-    };
-    crate::services::notify::notify_dictionary_download_started(mode_name);
-
     if let Err(e) = fs::create_dir_all(&dict_dir) {
         error!("Failed to create dictionary directory: {}", e);
         return;
@@ -74,7 +68,6 @@ pub async fn check_and_update_dictionary() {
             }
 
             info!("Successfully installed offline {:?} dictionary", mode);
-            crate::services::notify::notify_dictionary_installed(mode_name);
         }
         Err(e) => {
             error!("Failed to download and decompress dictionary: {}", e);
