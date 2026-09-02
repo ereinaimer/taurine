@@ -257,9 +257,8 @@ pub fn inject_undo(trigger_string: String, output_length: usize) {
     };
     crate::platform::get_injector().pre_release_modifiers();
 
-    // Fast-path atomic backspaces and direct unicode restoration
-    crate::platform::get_injector().inject_atomic_backspaces(output_length);
-    crate::platform::get_injector().inject_unicode_text_direct(&trigger_string);
+    // Fast-path atomic single-batch backspaces and direct unicode restoration
+    crate::platform::get_injector().inject_atomic_undo(output_length, &trigger_string);
 
     crate::platform::get_injector().pre_release_modifiers();
 }

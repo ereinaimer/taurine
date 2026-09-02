@@ -45,6 +45,7 @@ pub trait Injector {
     fn inject_atomic_text_expansion(&self, delete_count: usize, text: &str) -> bool;
     fn inject_atomic_backspaces(&self, count: usize);
     fn inject_unicode_text_direct(&self, text: &str) -> bool;
+    fn inject_atomic_undo(&self, backspaces: usize, text: &str) -> bool;
 }
 
 #[allow(clippy::needless_return)]

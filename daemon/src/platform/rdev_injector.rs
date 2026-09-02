@@ -270,6 +270,32 @@ impl Injector for RdevInjector {
             crate::injector::inject_text_segment(text, &None).success
         }
     }
+
+    fn inject_atomic_undo(&self, backspaces: usize, text: &str) -> bool {
+        #[cfg(windows)]
+        {
+            let utf16_units: Vec<u16> = text.encode_utf16().collect();
+            let mut inputs = Vec::with_capacity(backspaces * 2 + utf16_units.len() * 2);
+            for _ in 0..backspaces {
+                inputs.push(make_backspace_input(false));
+                inputs.push(make_backspace_input(true));
+            }
+            for unit in utf16_units {
+                inputs.push(make_unicode_input(unit, false));
+                inputs.push(make_unicode_input(unit, true));
+            }
+            if send_inputs_batch(&inputs) {
+                return true;
+            }
+            self.simulate_backspace(backspaces);
+            self.inject_unicode_text_direct(text)
+        }
+        #[cfg(not(windows))]
+        {
+            self.simulate_backspace(backspaces);
+            self.inject_unicode_text_direct(text)
+        }
+    }
 }
 
 #[cfg(windows)]

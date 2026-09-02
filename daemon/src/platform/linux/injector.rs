@@ -145,6 +145,11 @@ impl Injector for LinuxInjector {
             false
         }
     }
+
+    fn inject_atomic_undo(&self, backspaces: usize, text: &str) -> bool {
+        self.simulate_backspace(backspaces);
+        self.inject_unicode_text_direct(text)
+    }
 }
 
 pub(crate) fn modifier_alias_to_evdev_key(alias: &str) -> Option<evdev::KeyCode> {

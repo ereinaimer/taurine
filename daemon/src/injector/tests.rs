@@ -703,6 +703,16 @@ fn test_inject_undo_fast_path() {
 }
 
 #[test]
+fn test_inject_atomic_undo_batch() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let injector = crate::platform::get_injector();
+    let res = injector.inject_atomic_undo(4, "test_undo");
+    assert!(res);
+}
+
+#[test]
 fn test_expansion_requires_keystrokes_classification() {
     use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter, ScriptMetadata};
     use taurine_core::engine::variables::ExpansionStep;
