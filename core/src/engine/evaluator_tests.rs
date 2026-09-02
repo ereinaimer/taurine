@@ -2459,7 +2459,10 @@ fn test_lazy_window_provider_not_called_for_unrestricted_snippet() {
     for c in "hi.".chars() {
         let res = evaluator.process_event_lazy(EngineEvent::Char(c), || {
             provider_called = true;
-            Some("code.exe".to_string())
+            Some(crate::engine::catalog::ActiveWindowInfo {
+                exec_name: Some("code.exe".to_string()),
+                ..Default::default()
+            })
         });
         if c == '.' {
             assert!(res.is_some());
@@ -2488,7 +2491,10 @@ fn test_lazy_window_provider_called_only_when_restricted_trigger_matches() {
     for c in "app".chars() {
         evaluator.process_event_lazy(EngineEvent::Char(c), || {
             provider_call_count += 1;
-            Some("code.exe".to_string())
+            Some(crate::engine::catalog::ActiveWindowInfo {
+                exec_name: Some("code.exe".to_string()),
+                ..Default::default()
+            })
         });
     }
     assert_eq!(
@@ -2498,7 +2504,10 @@ fn test_lazy_window_provider_called_only_when_restricted_trigger_matches() {
 
     let res = evaluator.process_event_lazy(EngineEvent::Char('.'), || {
         provider_call_count += 1;
-        Some(r#"{"title":null,"class":null,"exec_name":"code.exe","exec_path":null}"#.to_string())
+        Some(crate::engine::catalog::ActiveWindowInfo {
+            exec_name: Some("code.exe".to_string()),
+            ..Default::default()
+        })
     });
 
     assert_eq!(

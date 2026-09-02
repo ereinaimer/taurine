@@ -4,7 +4,7 @@ use arc_swap::ArcSwap;
 
 use super::WindowResolver;
 use crate::db::crud::TriggerAction;
-use crate::engine::catalog::{entry_has_app_filters, is_app_allowed};
+use crate::engine::catalog::{ActiveWindowInfo, entry_has_app_filters, is_app_allowed};
 use crate::keys::{Hotkey, LogicalKey, hotkey_matches, parse_hotkey};
 
 pub struct HotkeyCatalog {
@@ -83,6 +83,15 @@ impl HotkeyCatalog {
         pressed: Hotkey,
         active_window: Option<&str>,
     ) -> Option<(String, TriggerAction)> {
+        let window = WindowResolver::from_static(active_window);
+        self.match_action_info(pressed, window.get_cached())
+    }
+
+    pub fn match_action_info(
+        &self,
+        pressed: Hotkey,
+        active_window: Option<&ActiveWindowInfo>,
+    ) -> Option<(String, TriggerAction)> {
         let base_key = pressed.logical_key();
         let guard = self.snapshot.load();
         let bucket = guard.parsed_actions.get(&base_key)?;
@@ -112,7 +121,7 @@ impl HotkeyCatalog {
     pub fn match_action_lazy(
         &self,
         pressed: Hotkey,
-        fetch_window: impl FnOnce() -> Option<String>,
+        fetch_window: impl FnOnce() -> Option<ActiveWindowInfo>,
     ) -> Option<(String, TriggerAction)> {
         let base_key = pressed.logical_key();
         let guard = self.snapshot.load();

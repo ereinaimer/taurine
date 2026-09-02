@@ -1,6 +1,6 @@
 use std::sync::{OnceLock, RwLock};
 
-use super::{WindowResolver, entry_has_app_filters};
+use super::{ActiveWindowInfo, WindowResolver, entry_has_app_filters};
 use crate::db::crud::TriggerAction;
 use crate::engine::catalog::is_app_allowed;
 pub struct RegexCatalog {
@@ -60,7 +60,7 @@ impl RegexCatalog {
         &self,
         buffer_string: &str,
         window: &WindowResolver,
-        mut fetch_window: Option<impl FnOnce() -> Option<String>>,
+        mut fetch_window: Option<impl FnOnce() -> Option<ActiveWindowInfo>>,
     ) -> Option<(String, TriggerAction, Vec<String>)> {
         let guard = self.snapshot.read().ok()?;
         for entry in &guard.entries {
@@ -104,7 +104,11 @@ impl RegexCatalog {
         active_window: Option<&str>,
     ) -> Option<(String, TriggerAction, Vec<String>)> {
         let window = WindowResolver::from_static(active_window);
-        self.match_action_lazy(buffer_string, &window, None::<fn() -> Option<String>>)
+        self.match_action_lazy(
+            buffer_string,
+            &window,
+            None::<fn() -> Option<ActiveWindowInfo>>,
+        )
     }
 }
 

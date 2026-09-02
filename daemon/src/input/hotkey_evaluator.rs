@@ -65,7 +65,7 @@ impl HotkeyEvaluator {
             return HotkeyEvaluation::NoMatch;
         }
         let Some((trigger, expansion)) =
-            state.fetch_hotkey_expansion_lazy(hotkey, crate::platform::get_active_window_label)
+            state.fetch_hotkey_expansion_lazy(hotkey, crate::platform::get_active_window_info)
         else {
             return HotkeyEvaluation::NoMatch;
         };

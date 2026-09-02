@@ -7,9 +7,15 @@ use crate::engine::source::{AdaptiveSource, MemorySource, SnippetSource};
 use crate::engine::variables::{
     ArgMap, ExpansionStep, FinalExpansion, finalize, interpolate, parse_tokens, tokenize,
 };
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreNormalizedTrigger {
+    pub original: Arc<str>,
+    pub normalized: Arc<str>,
+}
+
 pub struct ExpansionCatalog {
     source: Arc<dyn SnippetSource>,
-    triggers: RwLock<Vec<Arc<str>>>,
+    triggers: RwLock<Vec<PreNormalizedTrigger>>,
 }
 impl ExpansionCatalog {
     pub fn new() -> Self {
@@ -30,9 +36,12 @@ impl ExpansionCatalog {
 
     pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, TriggerAction)>) {
         let actions: Vec<_> = actions.into_iter().collect();
-        let mut triggers: Vec<Arc<str>> = actions
+        let mut triggers: Vec<PreNormalizedTrigger> = actions
             .iter()
-            .map(|(trigger, _)| Arc::from(trigger.as_str()))
+            .map(|(trigger, _)| PreNormalizedTrigger {
+                original: Arc::from(trigger.as_str()),
+                normalized: Arc::from(trigger.to_lowercase().as_str()),
+            })
             .collect();
         sort_completion_triggers(&mut triggers);
 
@@ -48,23 +57,26 @@ impl ExpansionCatalog {
             return Vec::new();
         }
         let normalized_prefix = prefix.to_lowercase();
-        self.triggers
-            .read()
-            .map(|guard| {
-                guard
-                    .iter()
-                    .filter(|trigger| trigger.to_lowercase().starts_with(&normalized_prefix))
-                    .map(|arc| arc.as_ref().to_string())
-                    .collect()
-            })
-            .unwrap_or_default()
+        let guard = match self.triggers.read() {
+            Ok(g) => g,
+            Err(_) => return Vec::new(),
+        };
+
+        let start_idx =
+            guard.partition_point(|entry| entry.normalized.as_ref() < normalized_prefix.as_str());
+
+        guard[start_idx..]
+            .iter()
+            .take_while(|entry| entry.normalized.starts_with(&normalized_prefix))
+            .map(|entry| entry.original.as_ref().to_string())
+            .collect()
     }
 
     fn get_raw_action_lazy(
         &self,
         keyword: &str,
         window: &WindowResolver,
-        fetch_window: &mut Option<impl FnOnce() -> Option<String>>,
+        fetch_window: &mut Option<impl FnOnce() -> Option<ActiveWindowInfo>>,
     ) -> Option<TriggerAction> {
         if let Some(action) = self.source.get_action(keyword) {
             if !entry_has_app_filters(&action) {
@@ -105,7 +117,7 @@ impl ExpansionCatalog {
         &self,
         keyword: &str,
         window: &WindowResolver,
-        fetch_window: &mut Option<impl FnOnce() -> Option<String>>,
+        fetch_window: &mut Option<impl FnOnce() -> Option<ActiveWindowInfo>>,
     ) -> Option<FinalExpansion> {
         let action = self.get_raw_action_lazy(keyword, window, fetch_window)?;
         self.expand_action(action, &ArgMap::default(), keyword)
@@ -115,7 +127,7 @@ impl ExpansionCatalog {
         &self,
         keyword: &str,
         window: &WindowResolver,
-        fetch_window: &mut Option<impl FnOnce() -> Option<String>>,
+        fetch_window: &mut Option<impl FnOnce() -> Option<ActiveWindowInfo>>,
     ) -> Option<FinalExpansion> {
         let tokens = tokenize(keyword, ':');
         if tokens.len() <= 1 {
@@ -254,7 +266,7 @@ impl ExpansionCatalog {
         keyword: &str,
         instant_expand: bool,
         window: &WindowResolver,
-        mut fetch_window: Option<impl FnOnce() -> Option<String>>,
+        mut fetch_window: Option<impl FnOnce() -> Option<ActiveWindowInfo>>,
     ) -> Option<FinalExpansion> {
         self.fetch_exact_match_lazy(keyword, window, &mut fetch_window)
             .or_else(|| self.fetch_hybrid_arguments_lazy(keyword, window, &mut fetch_window))
@@ -276,7 +288,22 @@ impl ExpansionCatalog {
             keyword,
             instant_expand,
             &window,
-            None::<fn() -> Option<String>>,
+            None::<fn() -> Option<ActiveWindowInfo>>,
+        )
+    }
+
+    pub fn fetch_expansion_info(
+        &self,
+        keyword: &str,
+        instant_expand: bool,
+        active_window: Option<ActiveWindowInfo>,
+    ) -> Option<FinalExpansion> {
+        let window = WindowResolver::from_info(active_window);
+        self.fetch_expansion_lazy(
+            keyword,
+            instant_expand,
+            &window,
+            None::<fn() -> Option<ActiveWindowInfo>>,
         )
     }
 
@@ -285,7 +312,7 @@ impl ExpansionCatalog {
         keyword: &str,
         instant_expand: bool,
         window: &WindowResolver,
-        mut fetch_window: Option<impl FnOnce() -> Option<String>>,
+        mut fetch_window: Option<impl FnOnce() -> Option<ActiveWindowInfo>>,
     ) -> Option<FinalExpansion> {
         self.fetch_exact_match_lazy(keyword, window, &mut fetch_window)
             .or_else(|| self.fetch_hybrid_arguments_lazy(keyword, window, &mut fetch_window))
@@ -305,7 +332,22 @@ impl ExpansionCatalog {
             keyword,
             instant_expand,
             &window,
-            None::<fn() -> Option<String>>,
+            None::<fn() -> Option<ActiveWindowInfo>>,
+        )
+    }
+
+    pub fn fetch_expansion_no_date_fallback_info(
+        &self,
+        keyword: &str,
+        instant_expand: bool,
+        active_window: Option<ActiveWindowInfo>,
+    ) -> Option<FinalExpansion> {
+        let window = WindowResolver::from_info(active_window);
+        self.fetch_expansion_no_date_fallback_lazy(
+            keyword,
+            instant_expand,
+            &window,
+            None::<fn() -> Option<ActiveWindowInfo>>,
         )
     }
 }
@@ -360,13 +402,13 @@ impl Default for ExpansionCatalog {
         Self::new()
     }
 }
-fn sort_completion_triggers(triggers: &mut Vec<Arc<str>>) {
+fn sort_completion_triggers(triggers: &mut Vec<PreNormalizedTrigger>) {
     triggers.sort_by(|left, right| {
-        left.to_lowercase()
-            .cmp(&right.to_lowercase())
-            .then_with(|| left.cmp(right))
+        left.normalized
+            .cmp(&right.normalized)
+            .then_with(|| left.original.cmp(&right.original))
     });
-    triggers.dedup();
+    triggers.dedup_by(|a, b| a.normalized == b.normalized && a.original == b.original);
 }
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ActiveWindowInfo {
@@ -475,7 +517,10 @@ pub(crate) fn entry_has_app_filters(action: &TriggerAction) -> bool {
             .as_ref()
             .is_some_and(|s| !s.trim().is_empty())
 }
-pub(crate) fn is_app_allowed(action: &TriggerAction, active_window: Option<&str>) -> bool {
+pub(crate) fn is_app_allowed(
+    action: &TriggerAction,
+    active_window: Option<&ActiveWindowInfo>,
+) -> bool {
     let has_only = action
         .only_apps
         .as_ref()
@@ -489,30 +534,15 @@ pub(crate) fn is_app_allowed(action: &TriggerAction, active_window: Option<&str>
         return true;
     }
 
-    let info = match active_window {
-        Some(s) => {
-            if s.starts_with('{') {
-                serde_json::from_str::<ActiveWindowInfo>(s).unwrap_or_else(|_| ActiveWindowInfo {
-                    exec_name: Some(s.to_string()),
-                    ..Default::default()
-                })
-            } else {
-                ActiveWindowInfo {
-                    exec_name: Some(s.to_string()),
-                    ..Default::default()
-                }
-            }
-        }
-        None => {
-            return false;
-        }
+    let Some(info) = active_window else {
+        return false;
     };
 
     if has_only {
         let Some(allowed) = action.only_apps.as_ref() else {
             return false;
         };
-        if !match_rules(allowed, &info) {
+        if !match_rules(allowed, info) {
             return false;
         }
     }
@@ -521,7 +551,7 @@ pub(crate) fn is_app_allowed(action: &TriggerAction, active_window: Option<&str>
         let Some(denied) = action.except_apps.as_ref() else {
             return false;
         };
-        if match_rules(denied, &info) {
+        if match_rules(denied, info) {
             return false;
         }
     }
@@ -563,6 +593,28 @@ pub(crate) fn expand_trigger_action_with_args(
 ) -> Option<FinalExpansion> {
     if action.is_script() {
         return interpolate_script_action(action, args);
+    }
+
+    if args.positional.is_empty()
+        && args.named.is_empty()
+        && !action.output.contains('[')
+        && !action.output.contains('|')
+        && !action.output.contains('\\')
+    {
+        let output = if action.auto_case {
+            apply_auto_case(&action.output, matched_keyword)
+        } else {
+            action.output
+        };
+        return Some(FinalExpansion {
+            steps: if output.is_empty() {
+                Vec::new()
+            } else {
+                vec![ExpansionStep::Text(output)]
+            },
+            is_calculation: false,
+            ai_transformer_template: None,
+        });
     }
 
     let interpolated = interpolate(&action.output, args);

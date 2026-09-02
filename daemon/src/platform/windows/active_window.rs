@@ -6,7 +6,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetClassNameW, GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
 };
 
-pub fn get_active_window_label() -> Option<String> {
+pub fn get_active_window_info() -> Option<taurine_core::engine::ActiveWindowInfo> {
     // SAFETY: GetForegroundWindow returns a valid HWND or null.
     // GetWindowThreadProcessId, OpenProcess, QueryFullProcessImageNameW, GetClassNameW, GetWindowTextW
     // and CloseHandle are Win32 APIs, safe with null/bounds checks.
@@ -43,13 +43,12 @@ pub fn get_active_window_label() -> Option<String> {
         // 3. Get process path & name
         let process_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, process_id);
         if process_handle.is_null() {
-            let info = taurine_core::engine::ActiveWindowInfo {
+            return Some(taurine_core::engine::ActiveWindowInfo {
                 title,
                 class: class_name,
                 exec_name: None,
                 exec_path: None,
-            };
-            return serde_json::to_string(&info).ok();
+            });
         }
 
         let mut buffer = [0u16; MAX_PATH as usize];
@@ -68,15 +67,18 @@ pub fn get_active_window_label() -> Option<String> {
             }
         }
 
-        let info = taurine_core::engine::ActiveWindowInfo {
+        Some(taurine_core::engine::ActiveWindowInfo {
             title,
             class: class_name,
             exec_name,
             exec_path,
-        };
-
-        serde_json::to_string(&info).ok()
+        })
     }
+}
+
+pub fn get_active_window_label() -> Option<String> {
+    let info = get_active_window_info()?;
+    serde_json::to_string(&info).ok()
 }
 
 pub fn is_foreground_window_elevated_or_restricted() -> bool {

@@ -143,40 +143,55 @@ pub fn get_mouse_pos() -> Option<(i32, i32)> {
     None
 }
 
-static ACTIVE_WINDOW_CACHE: std::sync::Mutex<Option<(std::time::Instant, Option<String>)>> =
-    std::sync::Mutex::new(None);
+static ACTIVE_WINDOW_INFO_CACHE: std::sync::Mutex<
+    Option<(
+        std::time::Instant,
+        Option<taurine_core::engine::ActiveWindowInfo>,
+    )>,
+> = std::sync::Mutex::new(None);
 
 const ACTIVE_WINDOW_CACHE_TTL: std::time::Duration = std::time::Duration::from_millis(50);
 
-pub fn get_active_window_label() -> Option<String> {
-    if let Ok(guard) = ACTIVE_WINDOW_CACHE.lock()
-        && let Some((cached_at, ref label)) = *guard
+pub fn get_active_window_info() -> Option<taurine_core::engine::ActiveWindowInfo> {
+    if let Ok(guard) = ACTIVE_WINDOW_INFO_CACHE.lock()
+        && let Some((cached_at, ref info)) = *guard
         && cached_at.elapsed() < ACTIVE_WINDOW_CACHE_TTL
     {
-        return label.clone();
+        return info.clone();
     }
 
-    let resolved = get_active_window_label_uncached();
+    let resolved = get_active_window_info_uncached();
 
-    if let Ok(mut guard) = ACTIVE_WINDOW_CACHE.lock() {
+    if let Ok(mut guard) = ACTIVE_WINDOW_INFO_CACHE.lock() {
         *guard = Some((std::time::Instant::now(), resolved.clone()));
     }
 
     resolved
 }
 
+pub fn get_active_window_label() -> Option<String> {
+    let info = get_active_window_info()?;
+    serde_json::to_string(&info).ok()
+}
+
 #[cfg(windows)]
-fn get_active_window_label_uncached() -> Option<String> {
-    windows::active_window::get_active_window_label()
+fn get_active_window_info_uncached() -> Option<taurine_core::engine::ActiveWindowInfo> {
+    windows::active_window::get_active_window_info()
 }
 
 #[cfg(target_os = "linux")]
-fn get_active_window_label_uncached() -> Option<String> {
-    linux::toplevel::get_active_window_label()
+fn get_active_window_info_uncached() -> Option<taurine_core::engine::ActiveWindowInfo> {
+    let s = linux::toplevel::get_active_window_label()?;
+    serde_json::from_str(&s).ok().or_else(|| {
+        Some(taurine_core::engine::ActiveWindowInfo {
+            exec_name: Some(s),
+            ..Default::default()
+        })
+    })
 }
 
 #[cfg(target_os = "macos")]
-fn get_active_window_label_uncached() -> Option<String> {
+fn get_active_window_info_uncached() -> Option<taurine_core::engine::ActiveWindowInfo> {
     use objc2_app_kit::NSWorkspace;
 
     let workspace = NSWorkspace::sharedWorkspace();
@@ -185,18 +200,16 @@ fn get_active_window_label_uncached() -> Option<String> {
     let localized_name = frontmost_app.localizedName().map(|s| s.to_string());
     let bundle_id = frontmost_app.bundleIdentifier().map(|s| s.to_string());
 
-    let info = taurine_core::engine::ActiveWindowInfo {
+    Some(taurine_core::engine::ActiveWindowInfo {
         title: None,
         class: bundle_id,
         exec_name: localized_name,
         exec_path: None,
-    };
-
-    serde_json::to_string(&info).ok()
+    })
 }
 
 #[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
-fn get_active_window_label_uncached() -> Option<String> {
+fn get_active_window_info_uncached() -> Option<taurine_core::engine::ActiveWindowInfo> {
     None
 }
 

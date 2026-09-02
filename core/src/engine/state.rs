@@ -3,7 +3,7 @@ pub use crate::engine::ai_session::EngineMode;
 use crate::engine::ai_session::InlineAiSession;
 use crate::engine::case_cycle::{CaseCycleSession, CycleDirection};
 use crate::engine::catalog::{
-    ExpansionCatalog, HotkeyCatalog, RegexCatalog, expand_trigger_action,
+    ActiveWindowInfo, ExpansionCatalog, HotkeyCatalog, RegexCatalog, expand_trigger_action,
 };
 use crate::engine::source::SnippetSource;
 use crate::engine::variables::FinalExpansion;
@@ -231,7 +231,7 @@ impl EngineState {
         &self,
         buffer_string: &str,
         window: &crate::engine::catalog::WindowResolver,
-        fetch_window: Option<impl FnOnce() -> Option<String>>,
+        fetch_window: Option<impl FnOnce() -> Option<ActiveWindowInfo>>,
     ) -> Option<(String, TriggerAction, Vec<String>)> {
         self.regex_catalog
             .match_action_lazy(buffer_string, window, fetch_window)
@@ -253,7 +253,7 @@ impl EngineState {
         &self,
         keyword: &str,
         window: &crate::engine::catalog::WindowResolver,
-        fetch_window: Option<impl FnOnce() -> Option<String>>,
+        fetch_window: Option<impl FnOnce() -> Option<ActiveWindowInfo>>,
     ) -> Option<FinalExpansion> {
         let instant = self
             .instant_expand
@@ -278,7 +278,7 @@ impl EngineState {
         &self,
         keyword: &str,
         window: &crate::engine::catalog::WindowResolver,
-        fetch_window: Option<impl FnOnce() -> Option<String>>,
+        fetch_window: Option<impl FnOnce() -> Option<ActiveWindowInfo>>,
     ) -> Option<FinalExpansion> {
         let instant = self
             .instant_expand
@@ -313,10 +313,22 @@ impl EngineState {
         Some((trigger, expansion))
     }
 
+    pub fn fetch_hotkey_expansion_info(
+        &self,
+        hotkey: Hotkey,
+        active_window: Option<&ActiveWindowInfo>,
+    ) -> Option<(String, FinalExpansion)> {
+        let (trigger, action) = self
+            .hotkey_catalog
+            .match_action_info(hotkey, active_window)?;
+        let expansion = expand_trigger_action(action, &trigger)?;
+        Some((trigger, expansion))
+    }
+
     pub fn fetch_hotkey_expansion_lazy(
         &self,
         hotkey: Hotkey,
-        fetch_window: impl FnOnce() -> Option<String>,
+        fetch_window: impl FnOnce() -> Option<ActiveWindowInfo>,
     ) -> Option<(String, FinalExpansion)> {
         let (trigger, action) = self
             .hotkey_catalog

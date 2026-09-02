@@ -177,7 +177,24 @@ impl Evaluator {
         active_window: Option<&str>,
     ) -> Option<ExpansionResult> {
         let window = crate::engine::catalog::WindowResolver::from_static(active_window);
-        self.process_event_with_resolver(event, &window, None::<fn() -> Option<String>>)
+        self.process_event_with_resolver(
+            event,
+            &window,
+            None::<fn() -> Option<crate::engine::catalog::ActiveWindowInfo>>,
+        )
+    }
+
+    pub fn process_event_info(
+        &mut self,
+        event: EngineEvent,
+        active_window: Option<crate::engine::catalog::ActiveWindowInfo>,
+    ) -> Option<ExpansionResult> {
+        let window = crate::engine::catalog::WindowResolver::from_info(active_window);
+        self.process_event_with_resolver(
+            event,
+            &window,
+            None::<fn() -> Option<crate::engine::catalog::ActiveWindowInfo>>,
+        )
     }
 
     pub fn process_event_lazy<F>(
@@ -186,7 +203,7 @@ impl Evaluator {
         window_provider: F,
     ) -> Option<ExpansionResult>
     where
-        F: FnOnce() -> Option<String>,
+        F: FnOnce() -> Option<crate::engine::catalog::ActiveWindowInfo>,
     {
         let window = crate::engine::catalog::WindowResolver::lazy();
         self.process_event_with_resolver(event, &window, Some(window_provider))
@@ -196,7 +213,7 @@ impl Evaluator {
         &mut self,
         event: EngineEvent,
         window: &crate::engine::catalog::WindowResolver,
-        mut fetch_window: Option<impl FnOnce() -> Option<String>>,
+        mut fetch_window: Option<impl FnOnce() -> Option<crate::engine::catalog::ActiveWindowInfo>>,
     ) -> Option<ExpansionResult> {
         use std::sync::atomic::Ordering;
         if self.state.ignore_fullscreen_enabled.load(Ordering::Relaxed)

@@ -728,7 +728,7 @@ pub fn process_keyboard_event(
 
                 if let Some((expansion, state)) =
                     with_evaluator_lock(evaluator, "process_engine_event", |lock| {
-                        lock.process_event_lazy(ev, crate::platform::get_active_window_label)
+                        lock.process_event_lazy(ev, crate::platform::get_active_window_info)
                             .map(|expansion| {
                                 let state = lock.state.clone();
                                 (expansion, state)

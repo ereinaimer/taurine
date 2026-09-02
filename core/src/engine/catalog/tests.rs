@@ -292,21 +292,18 @@ fn test_app_gating_prefix_rules() {
     // 1. exe: prefix (exact match, case-insensitive, strips .exe)
     action.only_apps = Some("exe:chrome,exe:firefox".to_string());
 
-    let info_chrome = serde_json::to_string(&ActiveWindowInfo {
+    let info_chrome = ActiveWindowInfo {
         exec_name: Some("Chrome.exe".to_string()),
         ..Default::default()
-    })
-    .unwrap();
-    let info_firefox = serde_json::to_string(&ActiveWindowInfo {
+    };
+    let info_firefox = ActiveWindowInfo {
         exec_name: Some("firefox".to_string()),
         ..Default::default()
-    })
-    .unwrap();
-    let info_notepad = serde_json::to_string(&ActiveWindowInfo {
+    };
+    let info_notepad = ActiveWindowInfo {
         exec_name: Some("notepad.exe".to_string()),
         ..Default::default()
-    })
-    .unwrap();
+    };
 
     assert!(is_app_allowed(&action, Some(&info_chrome)));
     assert!(is_app_allowed(&action, Some(&info_firefox)));
@@ -314,32 +311,28 @@ fn test_app_gating_prefix_rules() {
 
     // 2. class: prefix (exact match, case-insensitive)
     action.only_apps = Some("class:CabinetWClass".to_string());
-    let info_class_match = serde_json::to_string(&ActiveWindowInfo {
+    let info_class_match = ActiveWindowInfo {
         class: Some("cabinetwclass".to_string()),
         ..Default::default()
-    })
-    .unwrap();
-    let info_class_miss = serde_json::to_string(&ActiveWindowInfo {
+    };
+    let info_class_miss = ActiveWindowInfo {
         class: Some("Chrome_WidgetWin_1".to_string()),
         ..Default::default()
-    })
-    .unwrap();
+    };
 
     assert!(is_app_allowed(&action, Some(&info_class_match)));
     assert!(!is_app_allowed(&action, Some(&info_class_miss)));
 
     // 3. title: prefix (substring match, case-insensitive)
     action.only_apps = Some("title:Github,title:Google".to_string());
-    let info_title_match = serde_json::to_string(&ActiveWindowInfo {
+    let info_title_match = ActiveWindowInfo {
         title: Some("Taurine Pull Request - GitHub - Google Chrome".to_string()),
         ..Default::default()
-    })
-    .unwrap();
-    let info_title_miss = serde_json::to_string(&ActiveWindowInfo {
+    };
+    let info_title_miss = ActiveWindowInfo {
         title: Some("Index of /docs".to_string()),
         ..Default::default()
-    })
-    .unwrap();
+    };
 
     assert!(is_app_allowed(&action, Some(&info_title_match)));
     assert!(!is_app_allowed(&action, Some(&info_title_miss)));
@@ -353,16 +346,14 @@ fn test_app_gating_prefix_rules() {
     action.only_apps = None;
     action.except_apps = Some("title:Gmail,exe:doom".to_string());
 
-    let info_gmail = serde_json::to_string(&ActiveWindowInfo {
+    let info_gmail = ActiveWindowInfo {
         title: Some("Inbox (1) - Gmail".to_string()),
         ..Default::default()
-    })
-    .unwrap();
-    let info_doom = serde_json::to_string(&ActiveWindowInfo {
+    };
+    let info_doom = ActiveWindowInfo {
         exec_name: Some("doom.exe".to_string()),
         ..Default::default()
-    })
-    .unwrap();
+    };
 
     assert!(!is_app_allowed(&action, Some(&info_gmail)));
     assert!(!is_app_allowed(&action, Some(&info_doom)));
@@ -373,21 +364,18 @@ fn test_app_gating_prefix_rules() {
 
     // 7. Full path match (contains path separators)
     action.except_apps = Some("exe:/usr/bin/python3,exe:C:\\bin\\python.exe".to_string());
-    let info_python_linux = serde_json::to_string(&ActiveWindowInfo {
+    let info_python_linux = ActiveWindowInfo {
         exec_path: Some("/usr/bin/python3".to_string()),
         ..Default::default()
-    })
-    .unwrap();
-    let info_python_win = serde_json::to_string(&ActiveWindowInfo {
+    };
+    let info_python_win = ActiveWindowInfo {
         exec_path: Some("c:\\bin\\python.exe".to_string()),
         ..Default::default()
-    })
-    .unwrap();
-    let info_python_other = serde_json::to_string(&ActiveWindowInfo {
+    };
+    let info_python_other = ActiveWindowInfo {
         exec_path: Some("/usr/local/bin/python3".to_string()),
         ..Default::default()
-    })
-    .unwrap();
+    };
 
     assert!(!is_app_allowed(&action, Some(&info_python_linux)));
     assert!(!is_app_allowed(&action, Some(&info_python_win)));
@@ -438,7 +426,10 @@ fn match_action_lazy_matches_entry_without_filters_without_calling_fetcher() {
     let called = std::cell::Cell::new(false);
     let result = hotkeys.match_action_lazy(parse_hotkey("ctrl+shift+g").unwrap(), || {
         called.set(true);
-        Some("chrome.exe".to_string())
+        Some(ActiveWindowInfo {
+            exec_name: Some("chrome.exe".to_string()),
+            ..Default::default()
+        })
     });
     assert!(
         !called.get(),
@@ -473,7 +464,10 @@ fn match_action_lazy_prefers_canonical_match_over_hotkey_matches_when_both_have_
 
     let (trigger, action) = hotkeys
         .match_action_lazy(parse_hotkey("ralt+m").unwrap(), || {
-            Some("chrome.exe".to_string())
+            Some(ActiveWindowInfo {
+                exec_name: Some("chrome.exe".to_string()),
+                ..Default::default()
+            })
         })
         .unwrap();
     assert_eq!(trigger, "ralt+m");
@@ -494,7 +488,10 @@ fn match_action_lazy_matches_app_filtered_entry_in_correct_window() {
 
     let (trigger, action) = hotkeys
         .match_action_lazy(parse_hotkey("ctrl+shift+g").unwrap(), || {
-            Some("chrome.exe".to_string())
+            Some(ActiveWindowInfo {
+                exec_name: Some("chrome.exe".to_string()),
+                ..Default::default()
+            })
         })
         .unwrap();
     assert_eq!(trigger, "ctrl+shift+g");
@@ -514,7 +511,10 @@ fn match_action_lazy_does_not_match_app_filtered_entry_in_wrong_window() {
     )]);
 
     let result = hotkeys.match_action_lazy(parse_hotkey("ctrl+shift+g").unwrap(), || {
-        Some("notepad.exe".to_string())
+        Some(ActiveWindowInfo {
+            exec_name: Some("notepad.exe".to_string()),
+            ..Default::default()
+        })
     });
     assert!(result.is_none());
 }
@@ -523,7 +523,10 @@ fn match_action_lazy_does_not_match_app_filtered_entry_in_wrong_window() {
 fn match_action_lazy_returns_none_on_empty_catalog() {
     let hotkeys = HotkeyCatalog::new();
     let result = hotkeys.match_action_lazy(parse_hotkey("ctrl+shift+g").unwrap(), || {
-        Some("chrome.exe".to_string())
+        Some(ActiveWindowInfo {
+            exec_name: Some("chrome.exe".to_string()),
+            ..Default::default()
+        })
     });
     assert!(result.is_none());
 }
