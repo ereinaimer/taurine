@@ -213,19 +213,19 @@ fn append_unescaped_segment(segment: &str, output: &mut String) {
     }
 }
 
-fn parse_key_directive(inner: &str) -> Option<&str> {
+pub(crate) fn parse_key_directive(inner: &str) -> Option<&str> {
     let rest = inner.strip_prefix("key(")?;
     let alias = rest.strip_suffix(')')?;
     Some(strip_argument_quotes(alias))
 }
 
-fn parse_delay_directive(inner: &str) -> Option<u64> {
+pub(crate) fn parse_delay_directive(inner: &str) -> Option<u64> {
     let rest = inner.strip_prefix("delay(")?;
     let delay_str = rest.strip_suffix(')')?;
     parse_delay_ms(strip_argument_quotes(delay_str))
 }
 
-fn parse_mouse_directive(inner: &str) -> Option<ExpansionStep> {
+pub(crate) fn parse_mouse_directive(inner: &str) -> Option<ExpansionStep> {
     if inner == "mouse.click" {
         Some(ExpansionStep::MouseClick)
     } else if inner == "mouse.rclick" {

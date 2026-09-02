@@ -1,5 +1,6 @@
 pub mod interpolate;
 pub mod parser;
+pub mod plan;
 pub mod registry;
 pub mod system;
 pub mod tags;
@@ -12,6 +13,7 @@ pub use interpolate::{
     contains_ai_markers, contains_non_sys_markers, extract_ai_markers, interpolate,
 };
 pub use parser::{parse_tokens, tokenize};
+pub use plan::{ExecutionPlan, PlanOp};
 pub use registry::{
     ValidationError, is_valid_system_root, is_valid_transformer, split_system_tag,
     strip_global_transformers, system_transformers, system_variable_roots, valid_modifier_hint,

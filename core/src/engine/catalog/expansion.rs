@@ -5,7 +5,8 @@ use crate::db::crud::TriggerAction;
 use crate::engine::shell::{ScriptMetadata, compress, decompress};
 use crate::engine::source::{AdaptiveSource, MemorySource, SnippetSource};
 use crate::engine::variables::{
-    ArgMap, ExpansionStep, FinalExpansion, finalize, interpolate, parse_tokens, tokenize,
+    ArgMap, ExecutionPlan, ExpansionOrigin, ExpansionStep, FinalExpansion, interpolate,
+    parse_tokens, tokenize,
 };
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreNormalizedTrigger {
@@ -595,40 +596,8 @@ pub(crate) fn expand_trigger_action_with_args(
         return interpolate_script_action(action, args);
     }
 
-    if args.positional.is_empty()
-        && args.named.is_empty()
-        && !action.output.contains('[')
-        && !action.output.contains('|')
-        && !action.output.contains('\\')
-    {
-        let output = if action.auto_case {
-            apply_auto_case(&action.output, matched_keyword)
-        } else {
-            action.output
-        };
-        return Some(FinalExpansion {
-            steps: if output.is_empty() {
-                Vec::new()
-            } else {
-                vec![ExpansionStep::Text(output)]
-            },
-            is_calculation: false,
-            ai_transformer_template: None,
-        });
-    }
-
-    let interpolated = interpolate(&action.output, args);
-
-    if crate::engine::variables::contains_ai_markers(&interpolated) {
-        // Template contains | ai(...) transformer(s) — hand off to daemon for async resolution.
-        return Some(FinalExpansion {
-            steps: vec![],
-            is_calculation: false,
-            ai_transformer_template: Some(interpolated),
-        });
-    }
-
-    let mut final_exp = finalize(&interpolated, Some(matched_keyword));
+    let plan = ExecutionPlan::compile(&action.output);
+    let mut final_exp = plan.evaluate(args, Some(matched_keyword), ExpansionOrigin::User);
     if action.auto_case {
         for step in &mut final_exp.steps {
             if let ExpansionStep::Text(text) = step {
