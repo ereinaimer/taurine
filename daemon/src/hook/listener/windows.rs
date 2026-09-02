@@ -402,6 +402,7 @@ fn vk_to_rdev_key(vk: u16) -> rdev::Key {
         0x59 => Key::KeyY,
         0x5A => Key::KeyZ,
         0x5B => Key::MetaLeft,
+        0x5C => Key::MetaRight,
         0x60 => Key::Kp0,
         0x61 => Key::Kp1,
         0x62 => Key::Kp2,
@@ -469,65 +470,47 @@ pub(crate) fn sync_physical_modifiers(
     right_meta_down: &std::sync::atomic::AtomicBool,
 ) {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-        GetAsyncKeyState, VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU,
-        VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
+        GetAsyncKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
     };
     // SAFETY: GetAsyncKeyState is a thread-safe user32/win32k query that reads from the
     // kernel-mapped input state bitmap. It takes a valid VK code and has no unsafe failure modes.
+    //
+    // Only clear modifier states that the OS confirms are released — never overwrite pressed
+    // states. The event-based tracking (atomic bools set on KeyPress/KeyRelease) is
+    // authoritative for press: it fires before this sync. GetAsyncKeyState reports the
+    // *current* physical state, not the state at event time, so if the hook callback is
+    // delayed and the user releases a modifier, the OS will report it released even though
+    // it was held when the keystroke was generated. Overwriting true→false on a legitimately
+    // held modifier causes hotkeys to silently fail to match.
+    //
+    // The only correction needed is for missed release events: the hook drops a release,
+    // the event-based state stays true, but the OS correctly reports false. Clearing in
+    // that direction is safe — it fixes a stale state without introducing a new race.
     unsafe {
         let shift_any = (GetAsyncKeyState(VK_SHIFT as i32) as u16 & 0x8000) != 0;
         if !shift_any {
             left_shift_down.store(false, Ordering::Relaxed);
             right_shift_down.store(false, Ordering::Relaxed);
-        } else {
-            let l = (GetAsyncKeyState(VK_LSHIFT as i32) as u16 & 0x8000) != 0;
-            let r = (GetAsyncKeyState(VK_RSHIFT as i32) as u16 & 0x8000) != 0;
-            if !l && !r {
-                left_shift_down.store(true, Ordering::Relaxed);
-            } else {
-                left_shift_down.store(l, Ordering::Relaxed);
-                right_shift_down.store(r, Ordering::Relaxed);
-            }
         }
 
         let ctrl_any = (GetAsyncKeyState(VK_CONTROL as i32) as u16 & 0x8000) != 0;
         if !ctrl_any {
             left_ctrl_down.store(false, Ordering::Relaxed);
             right_ctrl_down.store(false, Ordering::Relaxed);
-        } else {
-            let l = (GetAsyncKeyState(VK_LCONTROL as i32) as u16 & 0x8000) != 0;
-            let r = (GetAsyncKeyState(VK_RCONTROL as i32) as u16 & 0x8000) != 0;
-            if !l && !r {
-                left_ctrl_down.store(true, Ordering::Relaxed);
-            } else {
-                left_ctrl_down.store(l, Ordering::Relaxed);
-                right_ctrl_down.store(r, Ordering::Relaxed);
-            }
         }
 
         let alt_any = (GetAsyncKeyState(VK_MENU as i32) as u16 & 0x8000) != 0;
         if !alt_any {
             left_alt_down.store(false, Ordering::Relaxed);
             right_alt_down.store(false, Ordering::Relaxed);
-        } else {
-            let l = (GetAsyncKeyState(VK_LMENU as i32) as u16 & 0x8000) != 0;
-            let r = (GetAsyncKeyState(VK_RMENU as i32) as u16 & 0x8000) != 0;
-            if !l && !r {
-                left_alt_down.store(true, Ordering::Relaxed);
-            } else {
-                left_alt_down.store(l, Ordering::Relaxed);
-                right_alt_down.store(r, Ordering::Relaxed);
-            }
         }
 
-        left_meta_down.store(
-            (GetAsyncKeyState(VK_LWIN as i32) as u16 & 0x8000) != 0,
-            Ordering::Relaxed,
-        );
-        right_meta_down.store(
-            (GetAsyncKeyState(VK_RWIN as i32) as u16 & 0x8000) != 0,
-            Ordering::Relaxed,
-        );
+        if (GetAsyncKeyState(VK_LWIN as i32) as u16 & 0x8000) == 0 {
+            left_meta_down.store(false, Ordering::Relaxed);
+        }
+        if (GetAsyncKeyState(VK_RWIN as i32) as u16 & 0x8000) == 0 {
+            right_meta_down.store(false, Ordering::Relaxed);
+        }
     }
 }
 

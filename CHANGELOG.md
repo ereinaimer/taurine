@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Streamlined Exchange**: Export and import now focus purely on trigger data, removing support for bundling local metrics, settings, or secrets into exchange files.
 
 ### Fixed
+- **Hotkey Trigger Reliability**: Fixed an issue where rapid hotkey combinations failed intermittently after typing due to modifier state synchronization race conditions.
 - **Multi-Line Text Ordering**: Route multi-line and tabbed expansions through the clipboard pipeline to preserve line order and prevent premature command execution in terminals.
 - **Sequential Hotkey Reliability**: Fixed an issue where rapid consecutive hotkeys and application launchers failed to execute due to overly aggressive synthetic modifier releases.
 - **Hook Resilience & Self-Healing**: Prevented false hook restarts during typing pauses, deferred active-window inspection to match time, added auto-reenabling recovery on macOS, and bounded lock contention to ensure zero keyboard dropped frames.

@@ -98,6 +98,13 @@ mod listener_pipeline_tests {
             self
         }
 
+        fn with_hotkey_trigger(self, trigger: &str, output: &str) -> Self {
+            let action = taurine_core::db::crud::TriggerAction::text(output);
+            self.state
+                .load_hotkey_actions(vec![(trigger.to_string(), action)]);
+            self
+        }
+
         fn send(&self, ev: Event) -> Option<Event> {
             process_keyboard_event(
                 ev,
@@ -516,31 +523,33 @@ mod listener_pipeline_tests {
         }
     }
 
-    /// When a modifier key release was missed by the OS (e.g. left Alt was stuck high),
-    /// the very next keystroke must synchronize physical modifier state via GetAsyncKeyState
-    /// and reset the stuck modifier, preventing accidental hotkey triggers.
+    /// When a modifier key release is received by the pipeline, it clears the active modifier state.
     #[test]
-    fn dropped_modifier_release_is_synced_on_next_key() {
+    fn modifier_release_clears_active_modifier_state() {
         let _guard = TestGuard::acquire();
         let h = Harness::new();
-        // Type 'a' first so counter is non-zero (counter = 1)
         h.type_char('a');
         assert_eq!(h.buf(), "a");
 
-        // Artificially simulate a dropped Alt release by setting left Alt to true in memory
-        h.l_alt.store(true, Ordering::Relaxed);
+        // Press Left Alt
+        h.send(bare_event(EventType::KeyPress(Key::Alt)));
+        assert!(
+            h.l_alt.load(Ordering::Relaxed),
+            "Left Alt must be active on KeyPress"
+        );
 
-        // Type 'i' (counter = 2, which would NOT be 0 mod 100 in old code)
+        // Release Left Alt
+        h.send(bare_event(EventType::KeyRelease(Key::Alt)));
+        assert!(
+            !h.l_alt.load(Ordering::Relaxed),
+            "Left Alt must be inactive after KeyRelease"
+        );
+
+        // Type 'i'
         let res = h.type_char('i');
         assert!(
             res.is_some(),
             "Character 'i' should pass through and be processed"
-        );
-
-        // The modifier sync must have updated l_alt to false (assuming Alt is not physically pressed on runner)
-        assert!(
-            !h.l_alt.load(Ordering::Relaxed),
-            "Left Alt must be resynchronized to false after processing keystroke"
         );
         assert_eq!(h.buf(), "ai", "Buffer must contain 'ai'");
     }
@@ -585,6 +594,27 @@ mod listener_pipeline_tests {
         assert!(
             result.is_some(),
             "Keystroke must pass through to OS if engine is temporarily locked"
+        );
+    }
+
+    /// Fast typing or short-dwell key combinations (like `Alt + G` or `Alt + M`) must reliably
+    /// match hotkeys without having their modifier states erroneously wiped out by asynchronous
+    /// hardware polling during the base keypress event.
+    #[test]
+    fn rapid_alt_hotkey_matches_reliably_without_physical_modifier_interference() {
+        let _guard = TestGuard::acquire();
+        let h = Harness::new().with_hotkey_trigger("alt+g", "gemini_script_output");
+
+        // 1. Press Alt (sets left Alt in memory)
+        let r_alt = h.send(bare_event(EventType::KeyPress(Key::Alt)));
+        assert!(r_alt.is_some(), "Alt key press should pass through to OS");
+        assert!(h.l_alt.load(Ordering::Relaxed), "Left Alt must be active");
+
+        // 2. Press G while Alt is active
+        let r_g = h.send(named_event(EventType::KeyPress(Key::KeyG), "g"));
+        assert!(
+            r_g.is_none(),
+            "Alt+G hotkey must match and be swallowed, even in headless / fast typing environments"
         );
     }
 }
