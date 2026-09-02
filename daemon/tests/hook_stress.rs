@@ -52,12 +52,17 @@ async fn hook_stress_24h_compressed() {
         std::env::set_var("TAURINE_PIPE_PATH", test_pipe_path);
     }
 
-    // 1. Start daemon subprocess
+    // 1. Start daemon subprocess in an isolated temporary data/db environment
+    let test_dir = tempfile::tempdir().expect("Failed to create stress test temp dir");
+    let test_db_path = test_dir.path().join("taurine_stress.db");
+
     let bin_path = get_taurine_binary();
     println!("Spawning daemon binary from: {:?}", bin_path);
     let daemon_child = Command::new(&bin_path)
         .arg("--daemon")
         .env("TAURINE_PIPE_PATH", test_pipe_path)
+        .env("TAURINE_DATA_DIR", test_dir.path())
+        .env("TAURINE_DB_PATH", &test_db_path)
         .env("TAURINE_TEST_HANG_HOOK", "1")
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
