@@ -149,10 +149,9 @@ impl crate::engine::evaluator::Evaluator {
             }
         }
 
-        let mut candidates = self.buffer.extract_suffix_candidates();
-        candidates.sort_by_key(|a| std::cmp::Reverse(a.0.len()));
+        let candidates = self.buffer.extract_suffix_candidates();
 
-        for (word, prev_char) in candidates {
+        for (word, prev_char) in candidates.into_iter().rev() {
             let is_boundary = !instant_expand
                 || prev_char.is_none_or(|c| c.is_whitespace() || c.is_ascii_punctuation());
             if is_boundary

@@ -382,18 +382,19 @@ impl FastBuffer {
             || tail_slice.windows(7).any(|w| w == b"opposit")
     }
 
-    pub fn extract_suffix_candidates(&self) -> SmallVec<[(String, Option<char>); 4]> {
+    pub fn extract_suffix_candidates(&self) -> SmallVec<[(String, Option<char>); 16]> {
         let mut candidates = SmallVec::new();
         if self.len == 0 {
             return candidates;
         }
 
         let capacity = self.data.len();
-        let mut collected: Vec<char> = Vec::with_capacity(30.min(self.len));
+        let mut collected = ['\0'; 30];
+        let mut collected_len = 0;
         let mut curr = (self.head + capacity - 1) % capacity;
         let mut n = 0;
 
-        while n < self.len && n < 30 {
+        while n < self.len && n < 30 && collected_len < 30 {
             let c = self.data[curr];
             if c.is_whitespace() {
                 let mut space_collected = false;
@@ -401,14 +402,16 @@ impl FastBuffer {
                     let mut check_curr = (curr + capacity - 1) % capacity;
                     let mut check_n = n + 1;
                     let mut ok = true;
-                    let mut chars_to_collect = Vec::new();
+                    let mut chars_to_collect = ['\0'; 3];
+                    let mut chars_to_collect_count = 0;
 
-                    for _ in 0..3 {
+                    for slot in &mut chars_to_collect {
                         if check_n < self.len
                             && check_n < 30
                             && self.data[check_curr].is_ascii_uppercase()
                         {
-                            chars_to_collect.push(self.data[check_curr]);
+                            *slot = self.data[check_curr];
+                            chars_to_collect_count += 1;
                             check_curr = (check_curr + capacity - 1) % capacity;
                             check_n += 1;
                         } else {
@@ -425,12 +428,19 @@ impl FastBuffer {
                             check_n += 1;
                         }
 
-                        collected.push(' ');
-                        for uc in chars_to_collect {
-                            collected.push(uc);
+                        if collected_len < 30 {
+                            collected[collected_len] = ' ';
+                            collected_len += 1;
                         }
-                        if has_minus {
-                            collected.push('-');
+                        for &uc in &chars_to_collect[..chars_to_collect_count] {
+                            if collected_len < 30 {
+                                collected[collected_len] = uc;
+                                collected_len += 1;
+                            }
+                        }
+                        if has_minus && collected_len < 30 {
+                            collected[collected_len] = '-';
+                            collected_len += 1;
                         }
 
                         curr = check_curr;
@@ -440,22 +450,29 @@ impl FastBuffer {
                 }
                 if !space_collected {
                     // Include space in collected and continue to build multi-word candidates
-                    collected.push(' ');
+                    if collected_len < 30 {
+                        collected[collected_len] = ' ';
+                        collected_len += 1;
+                    }
                     curr = (curr + capacity - 1) % capacity;
                     n += 1;
                     continue;
                 }
                 continue;
             }
-            collected.push(c);
+            if collected_len < 30 {
+                collected[collected_len] = c;
+                collected_len += 1;
+            }
             curr = (curr + capacity - 1) % capacity;
             n += 1;
         }
 
-        // Build candidates in one pass (no O(n²) cloning)
-        for len in 1..=collected.len() {
-            let word: String = collected[..len].iter().rev().collect();
-            let prev_char = collected.get(len).copied();
+        let collected_slice = &collected[..collected_len];
+        // Build candidates in one pass from stack buffer
+        for len in 1..=collected_len {
+            let word: String = collected_slice[..len].iter().rev().collect();
+            let prev_char = collected_slice.get(len).copied();
             candidates.push((word, prev_char));
         }
 
