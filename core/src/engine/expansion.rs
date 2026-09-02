@@ -25,7 +25,7 @@ impl crate::engine::evaluator::Evaluator {
     pub(crate) fn evaluate_buffer_for_expansion_lazy(
         &mut self,
         window: &crate::engine::catalog::WindowResolver,
-        mut fetch_window: Option<impl FnOnce() -> Option<String>>,
+        mut fetch_window: Option<impl FnOnce() -> Option<crate::engine::catalog::ActiveWindowInfo>>,
     ) -> Option<ExpansionResult> {
         let emoji_trigger = self.state.inline_emoji_trigger_char();
         let emoji_enabled = self.state.inline_emoji_enabled();
@@ -100,6 +100,7 @@ impl crate::engine::evaluator::Evaluator {
                 .state
                 .inline_dictionary_enabled
                 .load(std::sync::atomic::Ordering::Relaxed)
+            && self.buffer.has_dictionary_intent()
         {
             let buf_str = self.buffer.buffer_string();
             let mut word_opt = None;

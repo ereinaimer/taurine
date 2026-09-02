@@ -148,6 +148,19 @@ pub fn finalize_with_origin(
 ) -> FinalExpansion {
     let _ = validate_output(interpolated, trigger);
 
+    // Fast path: if there are no tags '[' and no escapes '\', return single text step immediately.
+    if !interpolated.contains('[') && !interpolated.contains('\\') {
+        return FinalExpansion {
+            steps: if interpolated.is_empty() {
+                Vec::new()
+            } else {
+                vec![ExpansionStep::Text(interpolated.to_string())]
+            },
+            is_calculation: false,
+            ai_transformer_template: None,
+        };
+    }
+
     let has_key_directives = contains_key_or_delay_directives(interpolated);
 
     // Unified pipeline: always split into steps.

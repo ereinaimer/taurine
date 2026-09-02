@@ -624,4 +624,23 @@ mod compatibility_interpolation_tests {
             "\x03\x1Fsys:http.get(httpbin.org/json) | json.get('slideshow.title') | upper\x04"
         );
     }
+
+    #[test]
+    fn test_interpolate_static_fast_path() {
+        let args = ArgMap::default();
+        let tpl = "Hello world! 12345 @#%&*()_+=~`?><,./;:'\"";
+        assert_eq!(interpolate(tpl, &args), tpl);
+    }
+
+    #[test]
+    fn test_finalize_static_fast_path() {
+        let res = finalize("Plain text output for omw expansion", Some("omw"));
+        assert_eq!(res.steps.len(), 1);
+        assert_eq!(
+            res.steps[0],
+            ExpansionStep::Text("Plain text output for omw expansion".to_string())
+        );
+        assert!(!res.is_calculation);
+        assert!(res.ai_transformer_template.is_none());
+    }
 }

@@ -114,6 +114,17 @@ fn resolve_default_value(default_value: &str, args: &ArgMap, depth: usize) -> St
 }
 
 pub fn interpolate(template: &str, args: &ArgMap) -> String {
+    // Fast path: if template contains no variable tags, pipelines, or escape characters,
+    // and args are empty, return template immediately without pipeline splitting or placeholder extraction.
+    if args.positional.is_empty()
+        && args.named.is_empty()
+        && !template.contains('[')
+        && !template.contains('|')
+        && !template.contains('\\')
+    {
+        return template.to_string();
+    }
+
     let segments = system::transformers::split_pipeline(template);
     if segments.len() > 1 {
         let mut all_valid = true;

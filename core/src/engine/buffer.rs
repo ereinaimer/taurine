@@ -353,6 +353,35 @@ impl FastBuffer {
         Some(collected.into_iter().collect())
     }
 
+    /// Returns true if the buffer tail contains any dictionary trigger keywords
+    /// ("mean", "defin", "synonym", "antonym", "opposit").
+    pub fn has_dictionary_intent(&self) -> bool {
+        if self.len < 4 {
+            return false;
+        }
+
+        let check_len = self.len.min(80);
+        let capacity = self.data.len();
+        let mut tail = [0u8; 80];
+
+        for (i, byte) in tail[..check_len].iter_mut().enumerate() {
+            let idx = (self.head + capacity - check_len + i) % capacity;
+            let c = self.data[idx];
+            *byte = if c.is_ascii() {
+                (c as u8).to_ascii_lowercase()
+            } else {
+                b' '
+            };
+        }
+
+        let tail_slice = &tail[..check_len];
+        tail_slice.windows(4).any(|w| w == b"mean")
+            || tail_slice.windows(5).any(|w| w == b"defin")
+            || tail_slice.windows(7).any(|w| w == b"synonym")
+            || tail_slice.windows(7).any(|w| w == b"antonym")
+            || tail_slice.windows(7).any(|w| w == b"opposit")
+    }
+
     pub fn extract_suffix_candidates(&self) -> SmallVec<[(String, Option<char>); 4]> {
         let mut candidates = SmallVec::new();
         if self.len == 0 {
@@ -871,5 +900,32 @@ mod tests {
         assert_eq!(b.len, FAST_BUFFER_CAPACITY);
         assert_eq!(b.data.len(), FAST_BUFFER_CAPACITY);
         assert_eq!(b.data[0], 'Z');
+    }
+
+    #[test]
+    fn test_has_dictionary_intent() {
+        let mut b = FastBuffer::new();
+        type_str(&mut b, "hello world this is normal text");
+        assert!(!b.has_dictionary_intent());
+
+        let mut b2 = FastBuffer::new();
+        type_str(&mut b2, "what does serendipity mean");
+        assert!(b2.has_dictionary_intent());
+
+        let mut b3 = FastBuffer::new();
+        type_str(&mut b3, "define ephemeral");
+        assert!(b3.has_dictionary_intent());
+
+        let mut b4 = FastBuffer::new();
+        type_str(&mut b4, "synonyms for fast");
+        assert!(b4.has_dictionary_intent());
+
+        let mut b5 = FastBuffer::new();
+        type_str(&mut b5, "antonym of cold");
+        assert!(b5.has_dictionary_intent());
+
+        let mut b6 = FastBuffer::new();
+        type_str(&mut b6, "opposite of hot");
+        assert!(b6.has_dictionary_intent());
     }
 }
