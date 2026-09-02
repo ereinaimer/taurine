@@ -7,6 +7,62 @@ use crate::platform::ClipboardManager;
 
 use super::gate::is_aborted;
 
+/// RAII guard that requests 1ms multimedia timer resolution on Windows.
+///
+/// Ensures high precision for `thread::sleep` intervals (down to 1ms instead of ~15.6ms default).
+/// When dropped, restores the previous OS timer resolution.
+pub struct HighResolutionTimerGuard {
+    #[cfg(windows)]
+    _private: (),
+}
+
+impl HighResolutionTimerGuard {
+    #[inline]
+    pub fn acquire() -> Self {
+        #[cfg(windows)]
+        {
+            // SAFETY: timeBeginPeriod requests a minimum timer resolution of 1 millisecond for
+            // multimedia and high-precision sleep operations. It is paired with timeEndPeriod(1)
+            // in Drop.
+            unsafe {
+                windows_sys::Win32::Media::timeBeginPeriod(1);
+            }
+            Self { _private: () }
+        }
+        #[cfg(not(windows))]
+        {
+            Self {}
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for HighResolutionTimerGuard {
+    fn drop(&mut self) {
+        // SAFETY: timeEndPeriod clears the 1 millisecond timer resolution request made by
+        // timeBeginPeriod(1) during acquisition.
+        unsafe {
+            windows_sys::Win32::Media::timeEndPeriod(1);
+        }
+    }
+}
+
+/// Returns the current Windows clipboard sequence number, or 0 on non-Windows platforms.
+#[allow(dead_code)]
+#[inline]
+pub fn get_clipboard_sequence_number() -> u32 {
+    #[cfg(windows)]
+    {
+        // SAFETY: GetClipboardSequenceNumber retrieves the current sequence number of the clipboard.
+        // It has no side-effects and is thread-safe.
+        unsafe { windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber() }
+    }
+    #[cfg(not(windows))]
+    {
+        0
+    }
+}
+
 impl ClipboardManager for Clipboard {
     fn get_text(&mut self) -> Result<String, String> {
         Ok(self.get_text().unwrap_or_default())
@@ -50,6 +106,7 @@ pub(super) fn prepare_clipboard_for_expansion(
     payload: &str,
     captured_gen: u64,
 ) -> Result<String, String> {
+    let _timer_guard = HighResolutionTimerGuard::acquire();
     let original = clipboard.get_text()?;
 
     let is_html = taurine_core::utils::html::has_html_tags(payload);
@@ -63,15 +120,25 @@ pub(super) fn prepare_clipboard_for_expansion(
     };
 
     // Poll clipboard to ensure the OS has registered the write.
+    // Micro-yield for the first 3 attempts (sub-millisecond turnaround),
+    // then fall back to 1ms sleeps for up to 25 attempts.
     let mut actual = String::new();
     let mut success = false;
-    for attempt in 0..20 {
+
+    for attempt in 0..25 {
         if attempt > 0 {
-            thread::sleep(Duration::from_millis(10));
+            if attempt <= 3 {
+                std::hint::spin_loop();
+                std::thread::yield_now();
+            } else {
+                thread::sleep(Duration::from_millis(1));
+            }
         }
+
         if captured_gen != 0 && is_aborted(captured_gen) {
             return Err("injection aborted during clipboard poll".to_string());
         }
+
         match clipboard.get_text() {
             Ok(ref text) if text == &expected => {
                 success = true;
@@ -97,20 +164,32 @@ pub(super) fn prepare_clipboard_for_expansion(
 /// When `captured_gen` is non-zero, the verification polling loop bails
 /// early if the injection generation advances.
 pub(super) fn restore_clipboard(original: &str, captured_gen: u64) {
+    let _timer_guard = HighResolutionTimerGuard::acquire();
     match crate::platform::get_clipboard_manager() {
         Ok(mut clip) => {
             if let Err(e) = clip.set_text(original) {
                 error!("Failed to restore clipboard: {}", e);
                 return;
             }
-            // Poll to verify clipboard was restored correctly
+            // Poll to verify clipboard was restored correctly.
+            // Micro-yield for the first 3 attempts, then fall back to 1ms sleeps.
             let mut actual = String::new();
             let mut success = false;
-            for _ in 0..15 {
-                thread::sleep(Duration::from_millis(10));
+
+            for attempt in 0..25 {
+                if attempt > 0 {
+                    if attempt <= 3 {
+                        std::hint::spin_loop();
+                        std::thread::yield_now();
+                    } else {
+                        thread::sleep(Duration::from_millis(1));
+                    }
+                }
+
                 if captured_gen != 0 && is_aborted(captured_gen) {
                     return;
                 }
+
                 match clip.get_text() {
                     Ok(ref text) if text == original => {
                         success = true;

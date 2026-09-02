@@ -826,3 +826,47 @@ fn test_dual_path_routes_html_to_clipboard_path() {
     assert!(report.completed);
     assert_eq!(report.successful_chars, 19);
 }
+
+#[test]
+fn test_high_resolution_timer_guard_lifecycle() {
+    let guard = super::clipboard::HighResolutionTimerGuard::acquire();
+    std::thread::sleep(Duration::from_millis(2));
+    drop(guard);
+}
+
+#[test]
+fn test_clipboard_sequence_number_retrieval() {
+    let _seq = super::clipboard::get_clipboard_sequence_number();
+    #[cfg(windows)]
+    let _ = _seq;
+}
+
+#[test]
+fn test_prepare_clipboard_micro_polling_fast_turnaround() {
+    let mut mock = MockClipboard::new("initial text");
+    let start = std::time::Instant::now();
+    let result = prepare_clipboard_for_expansion(&mut mock, "quick payload", 0);
+    let elapsed = start.elapsed();
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), "initial text");
+    assert!(
+        elapsed < Duration::from_millis(5),
+        "fast path clipboard prep should complete in sub-5ms, took {:?}",
+        elapsed
+    );
+}
+
+#[test]
+fn test_prepare_clipboard_aborts_immediately_on_generation_advance() {
+    let mut mock = MockSlowClipboard::new("initial text", 999);
+    let captured_gen = crate::injector::gate::capture_generation();
+    crate::injector::gate::abort_injection();
+
+    let result = prepare_clipboard_for_expansion(&mut mock, "payload", captured_gen);
+    assert!(result.is_err());
+    assert_eq!(
+        result.unwrap_err(),
+        "injection aborted during clipboard poll"
+    );
+}

@@ -14,7 +14,7 @@ pub static IS_INJECTING: AtomicBool = AtomicBool::new(false);
 /// This gives per-task abort isolation with a single atomic counter,
 /// avoiding the cross‑task contamination that a boolean flag causes when
 /// multiple pool threads run concurrently.
-pub static INJECTION_GENERATION: AtomicU64 = AtomicU64::new(0);
+pub static INJECTION_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 pub(super) static INJECTION_SCOPE_DEPTH: AtomicUsize = AtomicUsize::new(0);
 pub(super) static INJECTION_VISIBILITY_DEPTH: AtomicUsize = AtomicUsize::new(0);
