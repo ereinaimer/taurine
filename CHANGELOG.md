@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Conversational Time Conversions**: Support `when it is <time> in <from_tz> what time is it in <to_tz>?` for long-form timezone conversions.
 
 ### Changed
+- **Single-Pass Fallbacks & Atomic Undo**: Consolidated natural language fallbacks into a single zero-allocation evaluation pass, added intent pre-filters, and batched backspace undo Win32 injections.
 - **Zero-Latency Hot-Path Pipeline**: Optimized keystroke processing latency across static snippet interpolation, dictionary triggers, Windows hook layout decoding, and autocomplete matching.
 - **Zero-Overhead Hook & Hotkey Evaluation**: Eliminate redundant syscalls and process environment lock contention during typing.
 - **Streamlined Exchange**: Export and import now focus purely on trigger data, removing support for bundling local metrics, settings, or secrets into exchange files.
