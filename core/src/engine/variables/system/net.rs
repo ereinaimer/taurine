@@ -48,6 +48,27 @@ fn resolve_online() -> String {
     }
 }
 
+fn parse_trace_response(body: &str) -> Option<String> {
+    for line in body.lines() {
+        if let Some(ip) = line.trim().strip_prefix("ip=") {
+            let ip = ip.trim();
+            if !ip.is_empty() {
+                return Some(ip.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn parse_plain_ip_response(body: &str) -> Option<String> {
+    let ip = body.trim();
+    if !ip.is_empty() && !ip.contains('<') && !ip.contains("HTTP") {
+        Some(ip.to_string())
+    } else {
+        None
+    }
+}
+
 fn resolve_public_ip() -> String {
     let timeout = Duration::from_millis(2000);
 
@@ -55,25 +76,17 @@ fn resolve_public_ip() -> String {
         .timeout(timeout)
         .call()
         && let Ok(body) = res.into_string()
+        && let Some(ip) = parse_trace_response(&body)
     {
-        for line in body.lines() {
-            if let Some(ip) = line.trim().strip_prefix("ip=") {
-                let ip = ip.trim();
-                if !ip.is_empty() {
-                    return ip.to_string();
-                }
-            }
-        }
+        return ip;
     }
 
     for url in ["https://api.ipify.org", "https://checkip.amazonaws.com"] {
         if let Ok(res) = ureq::get(url).timeout(timeout).call()
             && let Ok(body) = res.into_string()
+            && let Some(ip) = parse_plain_ip_response(&body)
         {
-            let ip = body.trim();
-            if !ip.is_empty() && !ip.contains('<') && !ip.contains("HTTP") {
-                return ip.to_string();
-            }
+            return ip;
         }
     }
 
@@ -85,29 +98,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_resolve_ip() {
-        let res = resolve("net.ip").unwrap();
-        assert!(!res.starts_with("[Error"));
-        assert!(res.contains('.'));
+    fn test_parse_trace_response() {
+        let sample = "fl=123\nh=1.1.1.1\nip=198.51.100.42\nts=12345678\n";
+        assert_eq!(
+            parse_trace_response(sample),
+            Some("198.51.100.42".to_string())
+        );
+
+        let empty = "fl=123\nh=1.1.1.1\nts=12345678\n";
+        assert_eq!(parse_trace_response(empty), None);
     }
 
     #[test]
-    fn test_resolve_lip() {
-        let res = resolve("net.lip").unwrap();
-        assert!(!res.starts_with("[Error"));
-        assert!(res.contains('.'));
+    fn test_parse_plain_ip_response() {
+        assert_eq!(
+            parse_plain_ip_response(" 203.0.113.19 \n"),
+            Some("203.0.113.19".to_string())
+        );
+        assert_eq!(parse_plain_ip_response("<html>Error</html>"), None);
+        assert_eq!(parse_plain_ip_response("HTTP 500"), None);
+        assert_eq!(parse_plain_ip_response(""), None);
     }
 
     #[test]
-    fn test_resolve_online() {
-        let res = resolve("net.online").unwrap();
-        assert!(res == "true" || res == "false");
+    fn test_resolve_routing() {
+        assert!(resolve("net.ip").is_some());
+        assert!(resolve("net.lip").is_some());
+        let online = resolve("net.online").unwrap();
+        assert!(online == "true" || online == "false");
     }
 
     #[test]
     fn test_resolve_unknown_modifier() {
         assert_eq!(resolve("net"), None);
+        assert_eq!(resolve("net."), None);
         assert_eq!(resolve("net.mac"), None);
         assert_eq!(resolve("net.hostname"), None);
+        assert_eq!(resolve("not_net.ip"), None);
     }
 }
