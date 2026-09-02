@@ -248,58 +248,10 @@ impl crate::engine::evaluator::Evaluator {
                 }
             }
         }
-        if !instant_expand && let Some(result) = self.check_inline_unit_conversion_fallback() {
+
+        if !instant_expand && let Some(result) = self.check_all_inline_fallbacks() {
             self.buffer.clear();
             return Some(result);
-        }
-
-        if !instant_expand && let Some(result) = self.check_inline_timezone_fallback() {
-            self.buffer.clear();
-            return Some(result);
-        }
-
-        if !instant_expand && let Some(result) = self.check_inline_datetime_fallback() {
-            self.buffer.clear();
-            return Some(result);
-        }
-
-        if !instant_expand && let Some(result) = self.check_inline_color_fallback() {
-            self.buffer.clear();
-            return Some(result);
-        }
-
-        if emoji_enabled {
-            let buf_str = self.buffer.buffer_string();
-            let words: Vec<&str> = buf_str.split_whitespace().collect();
-            for i in (0..words.len().min(4)).rev() {
-                let phrase = words[words.len() - 1 - i..].join(" ");
-                let normalized: String = words[words.len() - 1 - i..]
-                    .iter()
-                    .map(|w| w.trim_end_matches(|c: char| !c.is_alphanumeric()))
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                if let Some(trimmed) = normalized.strip_suffix(" emoji") {
-                    if trimmed.is_empty() || trimmed.chars().all(|c| c.is_whitespace()) {
-                        continue;
-                    }
-                    let matches = crate::engine::emoji::search_natural_language_emojis(trimmed);
-                    if !matches.is_empty() {
-                        let emoji_char = matches[0].clone();
-                        let delete_count = phrase.chars().count();
-                        self.buffer.clear();
-                        return Some(ExpansionResult {
-                            delete_count,
-                            steps: vec![ExpansionStep::Text(emoji_char)],
-                            trigger: phrase.clone(),
-                            undo_trigger: Some(phrase),
-                            is_calculation: false,
-                            stat_kind: TriggerStatKind::Snippet,
-                            track_usage: true,
-                            follow_up: None,
-                        });
-                    }
-                }
-            }
         }
 
         None

@@ -3,7 +3,7 @@ use crate::engine::variables::ExpansionStep;
 use crate::stats::TriggerStatKind;
 
 impl crate::engine::evaluator::Evaluator {
-    pub(crate) fn check_inline_unit_conversion_fallback(&self) -> Option<ExpansionResult> {
+    pub(crate) fn check_all_inline_fallbacks(&self) -> Option<ExpansionResult> {
         let buf_str = self.buffer.buffer_string();
         if buf_str.trim().is_empty() {
             return None;
@@ -11,20 +11,27 @@ impl crate::engine::evaluator::Evaluator {
 
         let words: Vec<&str> = buf_str.split_whitespace().collect();
         let max_words = 6.min(words.len());
+        if max_words == 0 {
+            return None;
+        }
 
+        let mut candidates = Vec::with_capacity(max_words);
         for k in (1..=max_words).rev() {
             let suffix_words = &words[words.len() - k..];
-            let candidate = suffix_words.join(" ");
+            candidates.push(suffix_words.join(" "));
+        }
 
+        // 1. Try unit conversion fallback
+        for candidate in &candidates {
             if let Some(result_text) =
-                crate::engine::conversion::convert_natural(&candidate, &self.state)
+                crate::engine::conversion::convert_natural(candidate, &self.state)
             {
                 let delete_count = candidate.chars().count();
                 return Some(ExpansionResult {
                     delete_count,
                     steps: vec![ExpansionStep::Text(result_text)],
                     trigger: candidate.clone(),
-                    undo_trigger: Some(candidate),
+                    undo_trigger: Some(candidate.clone()),
                     is_calculation: true,
                     stat_kind: TriggerStatKind::Calculation,
                     track_usage: true,
@@ -32,101 +39,80 @@ impl crate::engine::evaluator::Evaluator {
                 });
             }
         }
-        None
-    }
 
-    pub(crate) fn check_inline_datetime_fallback(&self) -> Option<ExpansionResult> {
-        if !self.state.inline_datetime_enabled() {
-            return None;
-        }
+        // 2. Try timezone fallback
+        if self.state.inline_datetime_enabled() {
+            let time_format = crate::settings::get_cached_inline_datetime_time_format();
+            let dialect = self.state.get_inline_datetime_dialect();
 
-        let buf_str = self.buffer.buffer_string();
-        if buf_str.trim().is_empty() {
-            return None;
-        }
-
-        let words: Vec<&str> = buf_str.split_whitespace().collect();
-        let max_words = 6.min(words.len());
-        let dialect = self.state.get_inline_datetime_dialect();
-
-        for k in (1..=max_words).rev() {
-            let suffix_words = &words[words.len() - k..];
-            let candidate = suffix_words.join(" ");
-
-            // Gate: must have an explicit direction signal. Bare quantities ("2 days"),
-            // bare times ("3pm"), bare absolute dates ("2024-06-15") and bare "now"
-            // are excluded — they are ambiguous or calendar-anchored.
-            if !crate::engine::dates::has_expansion_intent(&candidate) {
-                continue;
+            for candidate in &candidates {
+                if let Some(result_text) = crate::engine::timezones::parse_timezone_expression(
+                    candidate,
+                    &time_format,
+                    &dialect,
+                ) {
+                    let delete_count = candidate.chars().count();
+                    return Some(ExpansionResult {
+                        delete_count,
+                        steps: vec![ExpansionStep::Text(result_text)],
+                        trigger: candidate.clone(),
+                        undo_trigger: Some(candidate.clone()),
+                        is_calculation: true,
+                        stat_kind: TriggerStatKind::Calculation,
+                        track_usage: true,
+                        follow_up: None,
+                    });
+                }
             }
 
-            // Strip leading + so interim receives a clean phrase;
-            // - prefix is handled inside preprocess_date_phrase (converted to "ago" suffix)
-            let candidate_clean = candidate.trim_start_matches('+').to_string();
+            // 3. Try datetime fallback
+            for candidate in &candidates {
+                if !crate::engine::dates::has_expansion_intent(candidate) {
+                    continue;
+                }
 
-            if crate::engine::catalog::is_excluded_phrase(&candidate_clean) {
-                continue;
+                let candidate_clean = candidate.trim_start_matches('+');
+                if crate::engine::catalog::is_excluded_phrase(candidate_clean) {
+                    continue;
+                }
+
+                if let Some((dt, is_date, is_time)) =
+                    crate::engine::dates::parse_natural_date(candidate_clean, &dialect)
+                {
+                    let pattern = if is_date && is_time {
+                        self.state.get_inline_datetime_datetime_format()
+                    } else if is_time {
+                        self.state.get_inline_datetime_time_format()
+                    } else {
+                        self.state.get_inline_datetime_date_format()
+                    };
+
+                    let date_str = crate::engine::dates::format_datetime(dt, &pattern);
+                    let delete_count = candidate.chars().count();
+
+                    return Some(ExpansionResult {
+                        delete_count,
+                        steps: vec![ExpansionStep::Text(date_str)],
+                        trigger: candidate.clone(),
+                        undo_trigger: Some(candidate.clone()),
+                        is_calculation: true,
+                        stat_kind: TriggerStatKind::Calculation,
+                        track_usage: true,
+                        follow_up: None,
+                    });
+                }
             }
-
-            if let Some((dt, is_date, is_time)) =
-                crate::engine::dates::parse_natural_date(&candidate_clean, &dialect)
-            {
-                let pattern = if is_date && is_time {
-                    self.state.get_inline_datetime_datetime_format()
-                } else if is_time {
-                    self.state.get_inline_datetime_time_format()
-                } else {
-                    self.state.get_inline_datetime_date_format()
-                };
-
-                let date_str = crate::engine::dates::format_datetime(dt, &pattern);
-                let delete_count = candidate.chars().count();
-
-                return Some(ExpansionResult {
-                    delete_count,
-                    steps: vec![ExpansionStep::Text(date_str)],
-                    trigger: candidate.clone(),
-                    undo_trigger: Some(candidate),
-                    is_calculation: true,
-                    stat_kind: TriggerStatKind::Calculation,
-                    track_usage: true,
-                    follow_up: None,
-                });
-            }
-        }
-        None
-    }
-
-    pub(crate) fn check_inline_timezone_fallback(&self) -> Option<ExpansionResult> {
-        if !self.state.inline_datetime_enabled() {
-            return None;
         }
 
-        let buf_str = self.buffer.buffer_string();
-        if buf_str.trim().is_empty() {
-            return None;
-        }
-
-        let words: Vec<&str> = buf_str.split_whitespace().collect();
-        let max_words = 6.min(words.len());
-        let time_format = crate::settings::get_cached_inline_datetime_time_format();
-        let dialect = self.state.get_inline_datetime_dialect();
-
-        for k in (1..=max_words).rev() {
-            let suffix_words = &words[words.len() - k..];
-            let candidate = suffix_words.join(" ");
-
-            if let Some(result_text) = crate::engine::timezones::parse_timezone_expression(
-                &candidate,
-                &time_format,
-                &dialect,
-            ) {
+        // 4. Try color fallback
+        for candidate in &candidates {
+            if let Some(result_text) = crate::engine::conversion::convert_color(candidate) {
                 let delete_count = candidate.chars().count();
                 return Some(ExpansionResult {
                     delete_count,
                     steps: vec![ExpansionStep::Text(result_text)],
                     trigger: candidate.clone(),
-                    undo_trigger: Some(candidate),
+                    undo_trigger: Some(candidate.clone()),
                     is_calculation: true,
                     stat_kind: TriggerStatKind::Calculation,
                     track_usage: true,
@@ -134,36 +120,38 @@ impl crate::engine::evaluator::Evaluator {
                 });
             }
         }
-        None
-    }
 
-    pub(crate) fn check_inline_color_fallback(&self) -> Option<ExpansionResult> {
-        let buf_str = self.buffer.buffer_string();
-        if buf_str.trim().is_empty() {
-            return None;
-        }
-
-        let words: Vec<&str> = buf_str.split_whitespace().collect();
-        let max_words = 6.min(words.len());
-
-        for k in (1..=max_words).rev() {
-            let suffix_words = &words[words.len() - k..];
-            let candidate = suffix_words.join(" ");
-
-            if let Some(result_text) = crate::engine::conversion::convert_color(&candidate) {
-                let delete_count = candidate.chars().count();
-                return Some(ExpansionResult {
-                    delete_count,
-                    steps: vec![ExpansionStep::Text(result_text)],
-                    trigger: candidate.clone(),
-                    undo_trigger: Some(candidate),
-                    is_calculation: true,
-                    stat_kind: TriggerStatKind::Calculation,
-                    track_usage: true,
-                    follow_up: None,
-                });
+        // 5. Try natural language emoji fallback
+        if self.state.inline_emoji_enabled() {
+            for candidate in &candidates {
+                let normalized: String = candidate
+                    .split_whitespace()
+                    .map(|w| w.trim_end_matches(|c: char| !c.is_alphanumeric()))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                if let Some(trimmed) = normalized.strip_suffix(" emoji")
+                    && !trimmed.is_empty()
+                    && !trimmed.chars().all(|c| c.is_whitespace())
+                {
+                    let matches = crate::engine::emoji::search_natural_language_emojis(trimmed);
+                    if !matches.is_empty() {
+                        let emoji_char = matches[0].clone();
+                        let delete_count = candidate.chars().count();
+                        return Some(ExpansionResult {
+                            delete_count,
+                            steps: vec![ExpansionStep::Text(emoji_char)],
+                            trigger: candidate.clone(),
+                            undo_trigger: Some(candidate.clone()),
+                            is_calculation: false,
+                            stat_kind: TriggerStatKind::Snippet,
+                            track_usage: true,
+                            follow_up: None,
+                        });
+                    }
+                }
             }
         }
+
         None
     }
 }
