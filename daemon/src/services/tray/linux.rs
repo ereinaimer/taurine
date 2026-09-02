@@ -7,8 +7,7 @@ use ksni::menu::StandardItem;
 use tokio::sync::mpsc;
 use tracing::{error, warn};
 
-const TOOLTIP_RUNNING: &str = "Taurine Running";
-const TOOLTIP_PAUSED: &str = "Taurine Paused";
+const TOOLTIP: &str = "Taurine";
 
 pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> JoinHandle<()> {
     std::thread::Builder::new()
@@ -70,14 +69,9 @@ impl ksni::Tray for KsniTray {
     }
 
     fn tool_tip(&self) -> ksni::ToolTip {
-        let description = if self.paused.load(Ordering::Relaxed) {
-            TOOLTIP_PAUSED
-        } else {
-            TOOLTIP_RUNNING
-        };
         ksni::ToolTip {
-            title: "Taurine".into(),
-            description: description.into(),
+            title: TOOLTIP.into(),
+            description: TOOLTIP.into(),
             ..Default::default()
         }
     }

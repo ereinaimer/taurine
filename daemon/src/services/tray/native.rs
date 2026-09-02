@@ -4,8 +4,7 @@ use std::thread::JoinHandle;
 use tray_icon::menu::{Menu, MenuEvent, MenuItem};
 use tray_icon::{TrayIconBuilder, TrayIconEvent};
 
-const TOOLTIP_RUNNING: &str = "Taurine Running";
-const TOOLTIP_PAUSED: &str = "Taurine Paused";
+const TOOLTIP: &str = "Taurine";
 
 #[cfg(target_os = "windows")]
 fn initialize_windows_ui() {
@@ -54,16 +53,11 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
             } else {
                 running_icon.clone()
             };
-            let initial_tooltip = if initial_paused {
-                TOOLTIP_PAUSED
-            } else {
-                TOOLTIP_RUNNING
-            };
 
             let _tray = match TrayIconBuilder::new()
                 .with_menu(Box::new(menu))
                 .with_menu_on_left_click(false)
-                .with_tooltip(initial_tooltip)
+                .with_tooltip(TOOLTIP)
                 .with_icon(initial_icon)
                 .build()
             {
@@ -119,11 +113,6 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
                     if last_paused != Some(now_paused) {
                         last_paused = Some(now_paused);
                         pause_item.set_text(if now_paused { "Resume" } else { "Pause" });
-                        let _ = _tray.set_tooltip(Some(if now_paused {
-                            TOOLTIP_PAUSED
-                        } else {
-                            TOOLTIP_RUNNING
-                        }));
                         let _ = _tray.set_icon(Some(if now_paused {
                             paused_icon.clone()
                         } else {
@@ -161,11 +150,6 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
                     if last_paused != Some(now_paused) {
                         last_paused = Some(now_paused);
                         pause_item.set_text(if now_paused { "Resume" } else { "Pause" });
-                        let _ = _tray.set_tooltip(Some(if now_paused {
-                            TOOLTIP_PAUSED
-                        } else {
-                            TOOLTIP_RUNNING
-                        }));
                         let _ = _tray.set_icon(Some(if now_paused {
                             paused_icon.clone()
                         } else {
