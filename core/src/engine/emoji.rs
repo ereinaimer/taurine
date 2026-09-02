@@ -182,12 +182,38 @@ const NL_EMOJI_ALIASES: &[(&str, &[&str])] = &[
     ("🚗", &["car", "drive", "vehicle", "trip"]),
 ];
 
+static EXACT_NL_EMOJI_CACHE: std::sync::LazyLock<std::collections::HashMap<String, Vec<String>>> =
+    std::sync::LazyLock::new(|| {
+        let mut map = std::collections::HashMap::new();
+        for &(_emoji_char, aliases) in NL_EMOJI_ALIASES {
+            for &alias in aliases {
+                let key = alias.to_lowercase();
+                map.entry(key.clone())
+                    .or_insert_with(|| search_natural_language_emojis_uncached(&key));
+            }
+        }
+        for emoji in emojis::iter() {
+            let key = emoji.name().to_lowercase();
+            map.entry(key.clone())
+                .or_insert_with(|| search_natural_language_emojis_uncached(&key));
+        }
+        map
+    });
+
 pub fn search_natural_language_emojis(query: &str) -> Vec<String> {
     let normalized_query = query.to_lowercase().trim().to_string();
     if normalized_query.is_empty() {
         return Vec::new();
     }
 
+    if let Some(cached) = EXACT_NL_EMOJI_CACHE.get(&normalized_query) {
+        return cached.clone();
+    }
+
+    search_natural_language_emojis_uncached(&normalized_query)
+}
+
+fn search_natural_language_emojis_uncached(normalized_query: &str) -> Vec<String> {
     let query_words: Vec<&str> = normalized_query
         .split(|c: char| !c.is_alphanumeric())
         .filter(|s| !s.is_empty())
