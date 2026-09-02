@@ -45,10 +45,26 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
             menu.append(&pause_item).ok();
             menu.append(&quit_item).ok();
 
+            let running_icon = super::icons::running_icon();
+            let paused_icon = super::icons::paused_icon();
+
+            let initial_paused = paused.load(Ordering::Relaxed);
+            let initial_icon = if initial_paused {
+                paused_icon.clone()
+            } else {
+                running_icon.clone()
+            };
+            let initial_tooltip = if initial_paused {
+                TOOLTIP_PAUSED
+            } else {
+                TOOLTIP_RUNNING
+            };
+
             let _tray = match TrayIconBuilder::new()
                 .with_menu(Box::new(menu))
                 .with_menu_on_left_click(false)
-                .with_tooltip(TOOLTIP_RUNNING)
+                .with_tooltip(initial_tooltip)
+                .with_icon(initial_icon)
                 .build()
             {
                 Ok(tray) => tray,
@@ -70,7 +86,7 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
                 };
 
                 let mut msg = unsafe { std::mem::zeroed() };
-                let mut last_paused = None;
+                let mut last_paused = Some(initial_paused);
                 let mut last_visible = None;
                 loop {
                     // Update tray visibility based on settings
@@ -80,6 +96,8 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
                         let _ = _tray.set_visible(now_visible);
                     }
 
+                    // SAFETY: PeekMessageW, TranslateMessage, and DispatchMessageW are standard Win32
+                    // message pump routines processing thread-local GUI messages for the tray icon.
                     unsafe {
                         while PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) > 0 {
                             TranslateMessage(&msg);
@@ -106,6 +124,11 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
                         } else {
                             TOOLTIP_RUNNING
                         }));
+                        let _ = _tray.set_icon(Some(if now_paused {
+                            paused_icon.clone()
+                        } else {
+                            running_icon.clone()
+                        }));
                     }
 
                     std::thread::sleep(std::time::Duration::from_millis(100));
@@ -114,7 +137,7 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
 
             #[cfg(target_os = "macos")]
             {
-                let mut last_paused = None;
+                let mut last_paused = Some(initial_paused);
                 let mut last_visible = None;
                 loop {
                     // Update tray visibility based on settings
@@ -142,6 +165,11 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
                             TOOLTIP_PAUSED
                         } else {
                             TOOLTIP_RUNNING
+                        }));
+                        let _ = _tray.set_icon(Some(if now_paused {
+                            paused_icon.clone()
+                        } else {
+                            running_icon.clone()
                         }));
                     }
 
@@ -241,6 +269,14 @@ mod tests {
         let paused = Arc::new(AtomicBool::new(false));
         let enabled = Arc::new(AtomicBool::new(false));
         // Verify it spawns a thread successfully without panic
+        spawn(paused, enabled);
+    }
+
+    #[test]
+    fn test_tray_spawn_with_paused_state() {
+        let paused = Arc::new(AtomicBool::new(true));
+        let enabled = Arc::new(AtomicBool::new(false));
+        // Verify it spawns a thread successfully in paused state without panic
         spawn(paused, enabled);
     }
 }

@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::thread::JoinHandle;
 
+pub mod icons;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(any(windows, target_os = "macos"))]

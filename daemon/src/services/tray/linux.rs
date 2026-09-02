@@ -53,6 +53,14 @@ impl ksni::Tray for KsniTray {
         "input-keyboard".into()
     }
 
+    fn icon_pixmap(&self) -> Vec<ksni::Icon> {
+        if self.paused.load(Ordering::Relaxed) {
+            super::icons::paused_pixmap().to_vec()
+        } else {
+            super::icons::running_pixmap().to_vec()
+        }
+    }
+
     fn status(&self) -> ksni::Status {
         if self.system_tray_enabled.load(Ordering::Relaxed) {
             ksni::Status::Active
