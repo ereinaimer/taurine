@@ -758,6 +758,46 @@ fn test_expansion_requires_keystrokes_classification() {
 }
 
 #[test]
+fn test_atomic_expansion_with_nav() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let injector = crate::platform::get_injector();
+    let res = injector.inject_atomic_text_expansion_with_nav(2, "fn test()\t{ }", 2, 0);
+    assert!(res);
+}
+
+#[test]
+fn test_dual_path_routes_tabbed_text_to_fast_path() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let steps = vec![taurine_core::engine::variables::ExpansionStep::Text(
+        "col1\tcol2".to_string(),
+    )];
+    let report =
+        super::inject::inject_expansion(steps, 0, taurine_core::settings::SpinnerStyle::Braille);
+    assert!(report.completed);
+    assert_eq!(report.successful_chars, 9);
+}
+
+#[test]
+fn test_dual_path_routes_text_with_cursor_nav_to_fast_path() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    // Snippet with [cursor] e.g. "console.log([cursor])" produces Text("console.log()") + KeyPress("left")
+    let steps = vec![
+        ExpansionStep::Text("console.log()".to_string()),
+        ExpansionStep::KeyPress("left".to_string()),
+    ];
+    let report =
+        super::inject::inject_expansion(steps, 4, taurine_core::settings::SpinnerStyle::Braille);
+    assert!(report.completed);
+    assert_eq!(report.successful_chars, 13);
+}
+
+#[test]
 fn test_dual_path_routes_multiline_text_to_clipboard_path() {
     let _lock = crate::hook::tests::TEST_LOCK
         .lock()
@@ -769,18 +809,20 @@ fn test_dual_path_routes_multiline_text_to_clipboard_path() {
     )];
     let report =
         super::inject::inject_expansion(steps, 2, taurine_core::settings::SpinnerStyle::Braille);
+    assert!(report.completed);
     assert_eq!(report.successful_chars, 48);
 }
 
 #[test]
-fn test_dual_path_routes_tabbed_text_to_clipboard_path() {
+fn test_dual_path_routes_html_to_clipboard_path() {
     let _lock = crate::hook::tests::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let steps = vec![taurine_core::engine::variables::ExpansionStep::Text(
-        "col1\tcol2".to_string(),
+        "<b>bold snippet</b>".to_string(),
     )];
     let report =
         super::inject::inject_expansion(steps, 0, taurine_core::settings::SpinnerStyle::Braille);
-    assert_eq!(report.successful_chars, 9);
+    assert!(report.completed);
+    assert_eq!(report.successful_chars, 19);
 }

@@ -42,7 +42,16 @@ pub trait Injector {
     fn pre_release_modifiers(&self);
     fn try_inject_frame_raw(&self, frame: &str) -> bool;
 
-    fn inject_atomic_text_expansion(&self, delete_count: usize, text: &str) -> bool;
+    fn inject_atomic_text_expansion(&self, delete_count: usize, text: &str) -> bool {
+        self.inject_atomic_text_expansion_with_nav(delete_count, text, 0, 0)
+    }
+    fn inject_atomic_text_expansion_with_nav(
+        &self,
+        delete_count: usize,
+        text: &str,
+        left_nav: usize,
+        right_nav: usize,
+    ) -> bool;
     fn inject_atomic_backspaces(&self, count: usize);
     fn inject_unicode_text_direct(&self, text: &str) -> bool;
     fn inject_atomic_undo(&self, backspaces: usize, text: &str) -> bool;

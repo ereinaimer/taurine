@@ -360,6 +360,19 @@ pub(super) fn expansion_requires_keystrokes(steps: &[ExpansionStep], delete_coun
     })
 }
 
+fn extract_nav_steps(steps: &[ExpansionStep]) -> Option<(usize, usize)> {
+    let mut left_nav = 0;
+    let mut right_nav = 0;
+    for step in steps {
+        match step {
+            ExpansionStep::KeyPress(k) if k.eq_ignore_ascii_case("left") => left_nav += 1,
+            ExpansionStep::KeyPress(k) if k.eq_ignore_ascii_case("right") => right_nav += 1,
+            _ => return None,
+        }
+    }
+    Some((left_nav, right_nav))
+}
+
 pub fn inject_expansion(
     steps: Vec<ExpansionStep>,
     delete_count: usize,
@@ -385,16 +398,20 @@ pub fn inject_expansion(
         crate::platform::get_injector().pre_release_modifiers();
     }
 
-    // Fast-Path: Single-segment plain text <= 1000 characters without newlines or tabs bypassing clipboard
-    if let [ExpansionStep::Text(text)] = steps.as_slice()
+    // Fast-Path: Single-segment plain text <= 1000 characters without newlines (supporting \t and cursor navigation) bypassing clipboard
+    if let Some(ExpansionStep::Text(text)) = steps.first()
         && text.chars().count() <= 1000
         && !text.contains('\n')
         && !text.contains('\r')
-        && !text.contains('\t')
         && !taurine_core::utils::html::has_html_tags(text)
+        && let Some((left_nav, right_nav)) = extract_nav_steps(&steps[1..])
     {
-        let success =
-            crate::platform::get_injector().inject_atomic_text_expansion(delete_count, text);
+        let success = crate::platform::get_injector().inject_atomic_text_expansion_with_nav(
+            delete_count,
+            text,
+            left_nav,
+            right_nav,
+        );
         return InjectionReport {
             successful_chars: if success { text.chars().count() } else { 0 },
             completed: success,

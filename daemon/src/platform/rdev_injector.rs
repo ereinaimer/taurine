@@ -201,29 +201,62 @@ impl Injector for RdevInjector {
     }
 
     fn inject_atomic_text_expansion(&self, delete_count: usize, text: &str) -> bool {
+        self.inject_atomic_text_expansion_with_nav(delete_count, text, 0, 0)
+    }
+
+    fn inject_atomic_text_expansion_with_nav(
+        &self,
+        delete_count: usize,
+        text: &str,
+        left_nav: usize,
+        right_nav: usize,
+    ) -> bool {
         #[cfg(windows)]
         {
-            let utf16_units: Vec<u16> = text.encode_utf16().collect();
-            let mut inputs = Vec::with_capacity((delete_count + utf16_units.len()) * 2);
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::{VK_LEFT, VK_RIGHT, VK_TAB};
+            let mut inputs =
+                Vec::with_capacity((delete_count + text.len() + left_nav + right_nav) * 2);
             for _ in 0..delete_count {
                 inputs.push(make_backspace_input(false));
                 inputs.push(make_backspace_input(true));
             }
-            for unit in utf16_units {
-                inputs.push(make_unicode_input(unit, false));
-                inputs.push(make_unicode_input(unit, true));
+            for c in text.chars() {
+                if c == '\t' {
+                    inputs.push(make_vk_input(VK_TAB, false));
+                    inputs.push(make_vk_input(VK_TAB, true));
+                } else {
+                    let mut buf = [0u16; 2];
+                    for unit in c.encode_utf16(&mut buf).iter().copied() {
+                        inputs.push(make_unicode_input(unit, false));
+                        inputs.push(make_unicode_input(unit, true));
+                    }
+                }
+            }
+            for _ in 0..left_nav {
+                inputs.push(make_vk_input(VK_LEFT, false));
+                inputs.push(make_vk_input(VK_LEFT, true));
+            }
+            for _ in 0..right_nav {
+                inputs.push(make_vk_input(VK_RIGHT, false));
+                inputs.push(make_vk_input(VK_RIGHT, true));
             }
             if send_inputs_batch(&inputs) {
                 return true;
             }
             // Fallback if SendInput was blocked by OS (e.g. UIPI or headless session)
             self.simulate_backspace(delete_count);
-            self.inject_unicode_text_direct(text)
+            let ok = self.inject_unicode_text_direct(text);
+            self.simulate_left(left_nav);
+            self.simulate_right(right_nav);
+            ok
         }
         #[cfg(not(windows))]
         {
             self.simulate_backspace(delete_count);
-            self.inject_unicode_text_direct(text)
+            let ok = self.inject_unicode_text_direct(text);
+            self.simulate_left(left_nav);
+            self.simulate_right(right_nav);
+            ok
         }
     }
 
@@ -254,11 +287,19 @@ impl Injector for RdevInjector {
         }
         #[cfg(windows)]
         {
-            let utf16_units: Vec<u16> = text.encode_utf16().collect();
-            let mut inputs = Vec::with_capacity(utf16_units.len() * 2);
-            for unit in utf16_units {
-                inputs.push(make_unicode_input(unit, false));
-                inputs.push(make_unicode_input(unit, true));
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_TAB;
+            let mut inputs = Vec::with_capacity(text.len() * 2);
+            for c in text.chars() {
+                if c == '\t' {
+                    inputs.push(make_vk_input(VK_TAB, false));
+                    inputs.push(make_vk_input(VK_TAB, true));
+                } else {
+                    let mut buf = [0u16; 2];
+                    for unit in c.encode_utf16(&mut buf).iter().copied() {
+                        inputs.push(make_unicode_input(unit, false));
+                        inputs.push(make_unicode_input(unit, true));
+                    }
+                }
             }
             if send_inputs_batch(&inputs) {
                 return true;
@@ -272,42 +313,20 @@ impl Injector for RdevInjector {
     }
 
     fn inject_atomic_undo(&self, backspaces: usize, text: &str) -> bool {
-        #[cfg(windows)]
-        {
-            let utf16_units: Vec<u16> = text.encode_utf16().collect();
-            let mut inputs = Vec::with_capacity(backspaces * 2 + utf16_units.len() * 2);
-            for _ in 0..backspaces {
-                inputs.push(make_backspace_input(false));
-                inputs.push(make_backspace_input(true));
-            }
-            for unit in utf16_units {
-                inputs.push(make_unicode_input(unit, false));
-                inputs.push(make_unicode_input(unit, true));
-            }
-            if send_inputs_batch(&inputs) {
-                return true;
-            }
-            self.simulate_backspace(backspaces);
-            self.inject_unicode_text_direct(text)
-        }
-        #[cfg(not(windows))]
-        {
-            self.simulate_backspace(backspaces);
-            self.inject_unicode_text_direct(text)
-        }
+        self.inject_atomic_text_expansion(backspaces, text)
     }
 }
 
 #[cfg(windows)]
-fn make_backspace_input(key_up: bool) -> windows_sys::Win32::UI::Input::KeyboardAndMouse::INPUT {
+fn make_vk_input(vk: u16, key_up: bool) -> windows_sys::Win32::UI::Input::KeyboardAndMouse::INPUT {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-        INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_BACK,
+        INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
     };
     INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
             ki: KEYBDINPUT {
-                wVk: VK_BACK,
+                wVk: vk,
                 wScan: 0,
                 dwFlags: if key_up { KEYEVENTF_KEYUP } else { 0 },
                 time: 0,
@@ -315,6 +334,12 @@ fn make_backspace_input(key_up: bool) -> windows_sys::Win32::UI::Input::Keyboard
             },
         },
     }
+}
+
+#[cfg(windows)]
+fn make_backspace_input(key_up: bool) -> windows_sys::Win32::UI::Input::KeyboardAndMouse::INPUT {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_BACK;
+    make_vk_input(VK_BACK, key_up)
 }
 
 #[cfg(windows)]
