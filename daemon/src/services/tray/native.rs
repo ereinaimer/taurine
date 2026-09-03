@@ -9,11 +9,21 @@ const TOOLTIP: &str = "Taurine";
 #[cfg(target_os = "windows")]
 fn initialize_windows_ui() {
     use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
-    use windows_sys::Win32::UI::HiDpi::SetProcessDpiAwareness;
+    use windows_sys::Win32::UI::HiDpi::{
+        DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwareness,
+        SetProcessDpiAwarenessContext, SetThreadDpiAwarenessContext,
+    };
 
+    // SAFETY: SetProcessDpiAwarenessContext and SetThreadDpiAwarenessContext configure process
+    // and thread DPI scaling contexts for Win32 menus and windows. LoadLibraryW and GetProcAddress
+    // safely load uxtheme.dll to invoke undocumented SetPreferredAppMode for dark mode support.
     unsafe {
-        // 1. Enable high-resolution menus by disabling DWM bitmap scaling for this process
-        let _ = SetProcessDpiAwareness(2);
+        // 1. Enable Per-Monitor v2 DPI awareness for dynamically scaled context menus across displays
+        if SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) == 0 {
+            // Fallback for earlier Windows 10/8.1 builds
+            let _ = SetProcessDpiAwareness(2);
+        }
+        SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
         // 2. Opt the application into Windows Dark Mode for context menus
         let uxtheme = LoadLibraryW(windows_sys::w!("uxtheme.dll"));

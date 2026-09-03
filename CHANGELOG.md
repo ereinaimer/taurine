@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Text Expansion Reliability**: Fixed a regression where word expansions, swallowing, and completions would fail to trigger or misbehave during rapid typing.
 - **Modifier Tracking & Hook Resilience**: Fixed stuck modifier keys after dropped release events and eliminated keyboard unresponsiveness by pairing active hardware state checks with instant Raw Input failover.
 - **Alias Completions**: Tab-completions now work for the `tau` alias in PowerShell, Bash, Zsh, Fish, and Elvish (previously only the full `taurine` command name completed). Re-run `taurine completions install` to pick up the updated scripts.
+- **Multi-Monitor Tray Menu Scaling**: Fixed oversized tray context menu rendering on secondary displays with mismatched DPI scaling on Windows.
 
 ## [1.0.0-alpha.16] - 2026-08-13
 
