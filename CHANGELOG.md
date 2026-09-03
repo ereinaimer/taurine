@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Zero-Lag Offline Snippet Operations**: Instant CLI execution when Taurine is stopped via sub-microsecond in-memory service liveness detection.
 - **Mouse Hotkey Triggers**: Trigger snippet expansions and actions using mouse button combinations.
 - **Dynamic System Tray Icons**: Display state-aware play and pause tray icons reflecting Taurine's active and paused states.
 - **Zero-Latency Text & Undo Fast-Path**: Inject plain text expansions up to 1,000 characters and backspace undos atomically with zero clipboard touches or artificial delay loops.
@@ -31,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Streamlined Exchange**: Export and import now focus purely on trigger data, removing support for bundling local metrics, settings, or secrets into exchange files.
 
 ### Fixed
+- **Environment Variable Expansion in Launchers**: Fixed an issue where instant application and file triggers failed to open when target paths contained environment variables (such as `$ENV:VAR` or `%VAR%`).
 - **Hotkey Trigger Reliability**: Fixed an issue where rapid hotkey combinations failed intermittently after typing due to modifier state synchronization race conditions.
 - **Multi-Line Text Ordering**: Route multi-line and tabbed expansions through the clipboard pipeline to preserve line order and prevent premature command execution in terminals.
 - **Sequential Hotkey Reliability**: Fixed an issue where rapid consecutive hotkeys and application launchers failed to execute due to overly aggressive synthetic modifier releases.

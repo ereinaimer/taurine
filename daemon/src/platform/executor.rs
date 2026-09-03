@@ -18,8 +18,10 @@ pub enum LaunchTarget {
 
 fn strip_quotes(s: &str) -> &str {
     let s = s.trim();
-    if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
-        if s.len() >= 2 { &s[1..s.len() - 1] } else { s }
+    if ((s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')))
+        && s.len() >= 2
+    {
+        &s[1..s.len() - 1]
     } else {
         s
     }
@@ -32,6 +34,117 @@ fn is_url_target(s: &str) -> bool {
         || s.starts_with("mailto:")
         || s.starts_with("ms-settings:")
         || s.starts_with("file://")
+}
+
+pub fn expand_env_vars(input: &str) -> String {
+    let mut result = String::with_capacity(input.len());
+    let chars: Vec<char> = input.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
+
+    while i < len {
+        // Handle ~ at start or after whitespace/quotes
+        if chars[i] == '~'
+            && (i == 0 || chars[i - 1] == ' ' || chars[i - 1] == '"' || chars[i - 1] == '\'')
+            && (i + 1 == len
+                || chars[i + 1] == '/'
+                || chars[i + 1] == '\\'
+                || chars[i + 1] == ' '
+                || chars[i + 1] == '"'
+                || chars[i + 1] == '\'')
+        {
+            let home = std::env::var("USERPROFILE")
+                .or_else(|_| std::env::var("HOME"))
+                .unwrap_or_else(|_| "~".to_string());
+            result.push_str(&home);
+            i += 1;
+            continue;
+        }
+
+        // Handle ${env:VAR} or ${ENV:VAR} or ${VAR}
+        if chars[i] == '$'
+            && i + 1 < len
+            && chars[i + 1] == '{'
+            && let Some(close_pos) = chars[i + 2..].iter().position(|&c| c == '}')
+        {
+            let end = i + 2 + close_pos;
+            let var_expr: String = chars[i + 2..end].iter().collect();
+            let var_name = if let Some(stripped) = var_expr.strip_prefix("env:") {
+                stripped
+            } else if let Some(stripped) = var_expr.strip_prefix("ENV:") {
+                stripped
+            } else {
+                &var_expr
+            };
+            if let Ok(val) = std::env::var(var_name) {
+                result.push_str(&val);
+                i = end + 1;
+                continue;
+            }
+        }
+
+        // Handle $env:VAR or $ENV:VAR
+        if chars[i] == '$' && i + 4 < len {
+            let prefix: String = chars[i + 1..i + 5].iter().collect();
+            if prefix.eq_ignore_ascii_case("env:") {
+                let start = i + 5;
+                let mut end = start;
+                while end < len {
+                    let c = chars[end];
+                    if c.is_alphanumeric() || c == '_' || c == '(' || c == ')' || c == '-' {
+                        end += 1;
+                    } else {
+                        break;
+                    }
+                }
+                if end > start {
+                    let var_name: String = chars[start..end].iter().collect();
+                    if let Ok(val) = std::env::var(&var_name) {
+                        result.push_str(&val);
+                        i = end;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // Handle $HOME / $home
+        if chars[i] == '$' && i + 4 <= len {
+            let name: String = chars[i + 1..i.saturating_add(5).min(len)].iter().collect();
+            if name.eq_ignore_ascii_case("home")
+                && (i + 5 == len || (!chars[i + 5].is_alphanumeric() && chars[i + 5] != '_'))
+                && let Ok(val) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME"))
+            {
+                result.push_str(&val);
+                i += 5;
+                continue;
+            }
+        }
+
+        // Handle %VAR%
+        if chars[i] == '%'
+            && i + 1 < len
+            && let Some(close_pos) = chars[i + 1..].iter().position(|&c| c == '%')
+        {
+            let end = i + 1 + close_pos;
+            let candidate: String = chars[i + 1..end].iter().collect();
+            if !candidate.is_empty()
+                && candidate
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '_' || c == '(' || c == ')' || c == '-')
+                && let Ok(val) = std::env::var(&candidate)
+            {
+                result.push_str(&val);
+                i = end + 1;
+                continue;
+            }
+        }
+
+        result.push(chars[i]);
+        i += 1;
+    }
+
+    result
 }
 
 pub fn parse_instant_launch_intent(
@@ -76,20 +189,19 @@ pub fn parse_instant_launch_intent(
                 let mut i = 0;
                 while i < parts.len() {
                     let p = &parts[i];
-                    if p.eq_ignore_ascii_case("-filepath") || p.eq_ignore_ascii_case("-file") {
-                        if i + 1 < parts.len() {
-                            target = Some(strip_quotes(&parts[i + 1]).to_string());
-                            i += 2;
-                            continue;
-                        }
-                    } else if p.eq_ignore_ascii_case("-argumentlist")
-                        || p.eq_ignore_ascii_case("-args")
+                    if (p.eq_ignore_ascii_case("-filepath") || p.eq_ignore_ascii_case("-file"))
+                        && i + 1 < parts.len()
                     {
-                        if i + 1 < parts.len() {
-                            args.push(strip_quotes(&parts[i + 1]).to_string());
-                            i += 2;
-                            continue;
-                        }
+                        target = Some(strip_quotes(&parts[i + 1]).to_string());
+                        i += 2;
+                        continue;
+                    } else if (p.eq_ignore_ascii_case("-argumentlist")
+                        || p.eq_ignore_ascii_case("-args"))
+                        && i + 1 < parts.len()
+                    {
+                        args.push(strip_quotes(&parts[i + 1]).to_string());
+                        i += 2;
+                        continue;
                     } else if !p.starts_with('-') && target.is_none() {
                         target = Some(strip_quotes(p).to_string());
                     } else if target.is_some() && !p.starts_with('-') {
@@ -99,10 +211,18 @@ pub fn parse_instant_launch_intent(
                 }
 
                 if let Some(target) = target {
-                    if is_url_target(&target) {
-                        return LaunchTarget::Url(target);
+                    let target_expanded = expand_env_vars(&target);
+                    if is_url_target(&target_expanded) {
+                        return LaunchTarget::Url(target_expanded);
                     }
-                    return LaunchTarget::AppOrFile { path: target, args };
+                    if target_expanded.contains('$') {
+                        return LaunchTarget::ComplexScript;
+                    }
+                    let args = args.into_iter().map(|a| expand_env_vars(&a)).collect();
+                    return LaunchTarget::AppOrFile {
+                        path: target_expanded,
+                        args,
+                    };
                 }
             }
             LaunchTarget::ComplexScript
@@ -116,16 +236,17 @@ pub fn parse_instant_launch_intent(
                     parts.remove(0);
                 }
                 if let Some(target) = parts.first() {
-                    let target_clean = strip_quotes(target).to_string();
-                    if is_url_target(&target_clean) {
-                        return LaunchTarget::Url(target_clean);
+                    let target_clean = strip_quotes(target);
+                    let target_expanded = expand_env_vars(target_clean);
+                    if is_url_target(&target_expanded) {
+                        return LaunchTarget::Url(target_expanded);
                     }
                     let args = parts[1..]
                         .iter()
-                        .map(|a| strip_quotes(a).to_string())
+                        .map(|a| expand_env_vars(strip_quotes(a)))
                         .collect();
                     return LaunchTarget::AppOrFile {
-                        path: target_clean,
+                        path: target_expanded,
                         args,
                     };
                 }
@@ -142,16 +263,17 @@ pub fn parse_instant_launch_intent(
                 };
                 let parts = split_cmd_args(rest);
                 if let Some(target) = parts.first() {
-                    let target_clean = strip_quotes(target).to_string();
-                    if is_url_target(&target_clean) {
-                        return LaunchTarget::Url(target_clean);
+                    let target_clean = strip_quotes(target);
+                    let target_expanded = expand_env_vars(target_clean);
+                    if is_url_target(&target_expanded) {
+                        return LaunchTarget::Url(target_expanded);
                     }
                     let args = parts[1..]
                         .iter()
-                        .map(|a| strip_quotes(a).to_string())
+                        .map(|a| expand_env_vars(strip_quotes(a)))
                         .collect();
                     return LaunchTarget::AppOrFile {
-                        path: target_clean,
+                        path: target_expanded,
                         args,
                     };
                 }
@@ -255,8 +377,9 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
     let launch_intent = parse_instant_launch_intent(&script_content, metadata.interpreter);
     match launch_intent {
         LaunchTarget::Url(url) => {
-            native_shell_open(&url, None).map_err(taurine_core::Error::Service)?;
-            return Ok(String::new());
+            if native_shell_open(&url, None).is_ok() {
+                return Ok(String::new());
+            }
         }
         LaunchTarget::AppOrFile { path, args } => {
             let args_str = if args.is_empty() {
@@ -264,8 +387,9 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
             } else {
                 Some(args.join(" "))
             };
-            native_shell_open(&path, args_str.as_deref()).map_err(taurine_core::Error::Service)?;
-            return Ok(String::new());
+            if native_shell_open(&path, args_str.as_deref()).is_ok() {
+                return Ok(String::new());
+            }
         }
         LaunchTarget::ComplexScript => {}
     }
@@ -349,7 +473,7 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
     let mut bounded_stderr = stderr_pipe.take(MAX_SCRIPT_OUTPUT_BYTES as u64);
 
     // script_timeout = 0 (None) disables the timeout: the sleep branch stays
-    // pending forever and the script simply runs until it finishes on its own.
+    // pending forever and the script runs until it finishes on its own.
     let timeout_fut = async {
         if let Some(t) = timeout {
             tokio::time::sleep(t).await;
@@ -413,6 +537,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_expand_env_vars() {
+        let _guard = taurine_core::testing::TEST_LOCK.lock().unwrap();
+        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
+        unsafe { std::env::set_var("TAURINE_TEST_DIR", "C:\\TaurineData") };
+
+        assert_eq!(
+            expand_env_vars("$ENV:TAURINE_TEST_DIR\\sub"),
+            "C:\\TaurineData\\sub"
+        );
+        assert_eq!(
+            expand_env_vars("$env:TAURINE_TEST_DIR\\sub"),
+            "C:\\TaurineData\\sub"
+        );
+        assert_eq!(
+            expand_env_vars("${env:TAURINE_TEST_DIR}\\sub"),
+            "C:\\TaurineData\\sub"
+        );
+        assert_eq!(
+            expand_env_vars("%TAURINE_TEST_DIR%\\sub"),
+            "C:\\TaurineData\\sub"
+        );
+
+        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
+        unsafe { std::env::remove_var("TAURINE_TEST_DIR") };
+    }
+
+    #[test]
     fn test_parse_powershell_start_process_url() {
         assert_eq!(
             parse_instant_launch_intent(
@@ -438,6 +589,38 @@ mod tests {
                 path: "notepad.exe".to_string(),
                 args: vec![]
             }
+        );
+    }
+
+    #[test]
+    fn test_parse_powershell_start_process_env_var() {
+        let _guard = taurine_core::testing::TEST_LOCK.lock().unwrap();
+        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
+        unsafe { std::env::set_var("LOCALAPPDATA", "C:\\Users\\Test\\AppData\\Local") };
+
+        assert_eq!(
+            parse_instant_launch_intent(
+                "Start-Process $ENV:LOCALAPPDATA\\Taurine",
+                ScriptInterpreter::PowerShell
+            ),
+            LaunchTarget::AppOrFile {
+                path: "C:\\Users\\Test\\AppData\\Local\\Taurine".to_string(),
+                args: vec![]
+            }
+        );
+
+        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
+        unsafe { std::env::remove_var("LOCALAPPDATA") };
+    }
+
+    #[test]
+    fn test_parse_powershell_custom_var_falls_back() {
+        assert_eq!(
+            parse_instant_launch_intent(
+                "Start-Process $myCustomPath",
+                ScriptInterpreter::PowerShell
+            ),
+            LaunchTarget::ComplexScript
         );
     }
 
