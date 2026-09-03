@@ -362,7 +362,7 @@ fn create_dib_payload(rgba: &[u8], width: u32, height: u32) -> Vec<u8> {
     payload.extend_from_slice(header_bytes);
 
     // Swap red and blue channels (RGBA -> BGRA) for Windows DIB format
-    for chunk in rgba.chunks_exact(4) {
+    for chunk in rgba.as_chunks::<4>().0 {
         payload.push(chunk[2]); // B
         payload.push(chunk[1]); // G
         payload.push(chunk[0]); // R

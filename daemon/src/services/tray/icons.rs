@@ -71,7 +71,7 @@ pub fn paused_icon() -> tray_icon::Icon {
 #[cfg(target_os = "linux")]
 pub fn rgba_to_argb32(rgba: &[u8]) -> Vec<u8> {
     let mut argb = Vec::with_capacity(rgba.len());
-    for chunk in rgba.chunks_exact(4) {
+    for chunk in rgba.as_chunks::<4>().0 {
         // KSNI/DBus SNI expects ARGB32 in network byte order: [A, R, G, B]
         argb.push(chunk[3]); // Alpha
         argb.push(chunk[0]); // Red
@@ -141,7 +141,7 @@ mod tests {
         #[cfg(not(target_os = "linux"))]
         let argb = {
             let mut argb = Vec::with_capacity(rgba.len());
-            for chunk in rgba.chunks_exact(4) {
+            for chunk in rgba.as_chunks::<4>().0 {
                 argb.push(chunk[3]);
                 argb.push(chunk[0]);
                 argb.push(chunk[1]);

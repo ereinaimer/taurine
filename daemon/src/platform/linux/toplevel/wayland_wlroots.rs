@@ -141,9 +141,8 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for AppState {
                 let mut is_active = false;
                 let mut is_fullscreen = false;
 
-                let chunks = state_arr.chunks_exact(4);
-                for chunk in chunks {
-                    let val = u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+                for chunk in state_arr.as_chunks::<4>().0 {
+                    let val = u32::from_ne_bytes(*chunk);
                     if val == zwlr_foreign_toplevel_handle_v1::State::Activated as u32 {
                         is_active = true;
                     } else if val == zwlr_foreign_toplevel_handle_v1::State::Fullscreen as u32 {
