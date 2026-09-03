@@ -128,7 +128,9 @@ pub fn start() -> taurine_core::error::Result<()> {
     state.set_inline_datetime_time_format(settings.inline_datetime_time_format.clone());
     state.set_inline_datetime_datetime_format(settings.inline_datetime_datetime_format.clone());
     state.set_inline_datetime_dialect(settings.inline_datetime_dialect.clone());
-    state.set_inline_ai_trigger_mode(settings.inline_ai_trigger_mode);
+    state
+        .inline_ai_enabled
+        .store(settings.inline_ai_enabled, Ordering::Relaxed);
 
     // Global pause toggle hotkey (display + parse).
     let pause_hotkey = Arc::new(RwLock::new(settings.pause_hotkey.clone()));

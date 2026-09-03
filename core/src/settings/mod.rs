@@ -193,7 +193,7 @@ pub mod manager;
 pub use apply::{
     ApplySettingOutcome, apply_setting_input, apply_setting_input_with_manager,
     default_setting_input, parse_boolean_setting_value, parse_spinner_style,
-    reset_setting_to_default, validate_delimiter_conflicts,
+    reset_setting_to_default,
 };
 pub use manager::SettingsManager;
 
@@ -290,14 +290,6 @@ pub enum SpinnerStyle {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
-pub enum InlineAiTriggerMode {
-    Symmetric,
-    #[default]
-    Asymmetric,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "lowercase")]
 pub enum InlineDictionaryMode {
     #[default]
     Lite,
@@ -328,10 +320,7 @@ pub enum SettingKey {
     AiProvider,
     AiModel,
     AiCustomEndpoint,
-    InlineAiTriggerMode,
-    InlineAiTrigger,
-    InlineAiTriggerOpen,
-    InlineAiTriggerClose,
+    InlineAiEnabled,
     ClipboardRestoreDelayMs,
     InstantExpand,
     IgnoreFullscreen,
@@ -360,7 +349,7 @@ pub enum SettingKey {
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 43] = [
+    pub const ALL: [Self; 40] = [
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
         Self::PauseAudioEnabled,
@@ -375,10 +364,7 @@ impl SettingKey {
         Self::AiProvider,
         Self::AiModel,
         Self::AiCustomEndpoint,
-        Self::InlineAiTriggerMode,
-        Self::InlineAiTrigger,
-        Self::InlineAiTriggerOpen,
-        Self::InlineAiTriggerClose,
+        Self::InlineAiEnabled,
         Self::ClipboardRestoreDelayMs,
         Self::InstantExpand,
         Self::IgnoreFullscreen,
@@ -422,10 +408,7 @@ impl SettingKey {
             Self::AiProvider => "ai_provider",
             Self::AiModel => "ai_model",
             Self::AiCustomEndpoint => "ai_custom_endpoint",
-            Self::InlineAiTriggerMode => "inline_ai_trigger_mode",
-            Self::InlineAiTrigger => "inline_ai_trigger",
-            Self::InlineAiTriggerOpen => "inline_ai_trigger_open",
-            Self::InlineAiTriggerClose => "inline_ai_trigger_close",
+            Self::InlineAiEnabled => "inline_ai_enabled",
             Self::ClipboardRestoreDelayMs => "clipboard_restore_delay_ms",
             Self::InstantExpand => "instant_expand",
             Self::IgnoreFullscreen => "ignore_fullscreen",
@@ -470,10 +453,7 @@ pub struct Settings {
     pub ai_provider: Option<String>,
     pub ai_model: Option<String>,
     pub ai_custom_endpoint: Option<String>,
-    pub inline_ai_trigger_mode: InlineAiTriggerMode,
-    pub inline_ai_trigger: String,
-    pub inline_ai_trigger_open: String,
-    pub inline_ai_trigger_close: String,
+    pub inline_ai_enabled: bool,
     pub clipboard_restore_delay_ms: u32,
     pub instant_expand: bool,
     pub rpc_mode: RpcMode,
@@ -527,10 +507,7 @@ impl std::fmt::Debug for Settings {
             .field("ai_provider", &self.ai_provider)
             .field("ai_model", &self.ai_model)
             .field("ai_custom_endpoint", &self.ai_custom_endpoint)
-            .field("inline_ai_trigger_mode", &self.inline_ai_trigger_mode)
-            .field("inline_ai_trigger", &self.inline_ai_trigger)
-            .field("inline_ai_trigger_open", &self.inline_ai_trigger_open)
-            .field("inline_ai_trigger_close", &self.inline_ai_trigger_close)
+            .field("inline_ai_enabled", &self.inline_ai_enabled)
             .field(
                 "clipboard_restore_delay_ms",
                 &self.clipboard_restore_delay_ms,
@@ -600,18 +577,7 @@ impl Settings {
             "spinner" => "spinner_style",
             "ai_provider" => "ai_provider",
             "ai_model" => "ai_model",
-            "inline_ai_trigger_mode" | "ai_delimiter_mode" | "delimiter_mode" => {
-                "inline_ai_trigger_mode"
-            }
-            "inline_ai_trigger" | "ai_symmetric_delimiter" | "symmetric_delimiter" => {
-                "inline_ai_trigger"
-            }
-            "inline_ai_trigger_open" | "ai_open_delimiter" | "open_delimiter" | "delimiter" => {
-                "inline_ai_trigger_open"
-            }
-            "inline_ai_trigger_close" | "ai_close_delimiter" | "close_delimiter" => {
-                "inline_ai_trigger_close"
-            }
+            "inline_ai" | "inline_ai_enabled" | "ai" => "inline_ai_enabled",
             "endpoint" => "ai_custom_endpoint",
             "custom_endpoint" => "ai_custom_endpoint",
             "ai_custom_endpoint" => "ai_custom_endpoint",
@@ -748,10 +714,7 @@ impl Default for Settings {
             ai_provider: None,
             ai_model: None,
             ai_custom_endpoint: None,
-            inline_ai_trigger_mode: InlineAiTriggerMode::default(),
-            inline_ai_trigger: "^".to_string(),
-            inline_ai_trigger_open: ">>".to_string(),
-            inline_ai_trigger_close: "<<".to_string(),
+            inline_ai_enabled: true,
             clipboard_restore_delay_ms: Self::default_clipboard_restore_delay_ms(),
             instant_expand: false,
             rpc_mode: RpcMode::default(),

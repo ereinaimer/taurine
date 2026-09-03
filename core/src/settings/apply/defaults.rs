@@ -1,4 +1,4 @@
-use super::super::{InlineAiTriggerMode, InlineDictionaryMode, RpcMode, Settings, SpinnerStyle};
+use super::super::{InlineDictionaryMode, RpcMode, Settings, SpinnerStyle};
 use crate::error::{Error, Result};
 
 pub fn default_setting_input(key: &str) -> Result<Option<String>> {
@@ -27,13 +27,7 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "ai_provider" => Ok(defaults.ai_provider),
         "ai_model" => Ok(defaults.ai_model),
         "ai_custom_endpoint" => Ok(defaults.ai_custom_endpoint),
-        "inline_ai_trigger_mode" => Ok(Some(match defaults.inline_ai_trigger_mode {
-            InlineAiTriggerMode::Symmetric => "symmetric".to_string(),
-            InlineAiTriggerMode::Asymmetric => "asymmetric".to_string(),
-        })),
-        "inline_ai_trigger" => Ok(Some(defaults.inline_ai_trigger)),
-        "inline_ai_trigger_open" => Ok(Some(defaults.inline_ai_trigger_open)),
-        "inline_ai_trigger_close" => Ok(Some(defaults.inline_ai_trigger_close)),
+        "inline_ai_enabled" => Ok(Some(defaults.inline_ai_enabled.to_string())),
         "clipboard_restore_delay_ms" => Ok(Some(defaults.clipboard_restore_delay_ms.to_string())),
         "instant_expand" => Ok(Some(defaults.instant_expand.to_string())),
         "ignore_fullscreen" => Ok(Some(defaults.ignore_fullscreen.to_string())),

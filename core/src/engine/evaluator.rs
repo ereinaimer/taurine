@@ -4,7 +4,7 @@ use crate::engine::variables::ExpansionStep;
 use crate::stats::TriggerStatKind;
 
 use crate::engine::buffer::FastBuffer;
-use crate::engine::state::{EngineMode, EngineState};
+use crate::engine::state::EngineState;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EngineEvent {
@@ -224,10 +224,6 @@ impl Evaluator {
             return None;
         }
 
-        if let EngineMode::AiCapture { .. } = self.state.engine_mode() {
-            return self.process_ai_capture_event(event);
-        }
-
         match event {
             EngineEvent::Interrupt => {
                 // Severe interrupts ruin active sequences
@@ -257,7 +253,13 @@ impl Evaluator {
             }
             EngineEvent::ActionKey => {
                 let was_completion_active = self.completion.active;
-                let result = self.evaluate_buffer_for_expansion_lazy(window, fetch_window.take());
+                let result = if self.state.inline_ai_enabled()
+                    && let Some(ai_result) = self.check_inline_ai_trigger()
+                {
+                    Some(ai_result)
+                } else {
+                    self.evaluate_buffer_for_expansion_lazy(window, fetch_window.take())
+                };
                 if was_completion_active {
                     self.completion.deactivate(&self.state.completion_active);
                 }
@@ -271,22 +273,6 @@ impl Evaluator {
                 // Normal typing tracking
                 self.buffer.push(c);
                 self.update_completion_after_char(c);
-
-                let mode = self.state.get_inline_ai_trigger_mode();
-                let open_delim = match mode {
-                    crate::settings::InlineAiTriggerMode::Symmetric => {
-                        self.state.get_inline_ai_trigger()
-                    }
-                    crate::settings::InlineAiTriggerMode::Asymmetric => {
-                        self.state.get_inline_ai_trigger_open()
-                    }
-                };
-                if self.buffer.buffer_string().ends_with(&open_delim) {
-                    if self.completion.active {
-                        self.completion.deactivate(&self.state.completion_active);
-                    }
-                    return Some(self.start_inline_ai_capture(&open_delim));
-                }
 
                 if self.state.instant_expand.load(Ordering::Relaxed)
                     && let Some(result) =
@@ -302,4 +288,38 @@ impl Evaluator {
             }
         }
     }
+
+    pub(crate) fn check_inline_ai_trigger(&mut self) -> Option<ExpansionResult> {
+        let buf_str = self.buffer.buffer_string();
+        let line = buf_str.rsplit('\n').next().unwrap_or(&buf_str);
+        let caps = TAU_AI_REGEX.captures(line)?;
+
+        let full_span = caps.name("full_span")?.as_str();
+        let prompt = caps.name("prompt")?.as_str().trim();
+        if prompt.is_empty() {
+            return None;
+        }
+
+        let delete_count = full_span.chars().count();
+        self.buffer.clear();
+
+        Some(ExpansionResult {
+            delete_count,
+            steps: vec![ExpansionStep::Text(self.get_thinking_text())],
+            trigger: "tau,".to_string(),
+            undo_trigger: None,
+            is_calculation: false,
+            stat_kind: TriggerStatKind::InlineAi,
+            track_usage: false,
+            follow_up: Some(ExpansionFollowUp::InlineAi {
+                prompt: prompt.to_string(),
+                system_prompt_override: None,
+            }),
+        })
+    }
 }
+
+static TAU_AI_REGEX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r"(?i)(?:^|[\s])(?P<full_span>(?P<prefix>tau,)\s*(?P<prompt>\S.*))$")
+        .expect("Valid tau inline AI regex")
+});

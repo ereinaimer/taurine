@@ -319,15 +319,10 @@ impl DaemonControl for DaemonService {
             self.state
                 .set_inline_datetime_dialect(settings.inline_datetime_dialect.clone());
 
-            // Update AI triggers
+            // Update AI setting
             self.state
-                .set_inline_ai_trigger_mode(settings.inline_ai_trigger_mode);
-            self.state
-                .set_inline_ai_trigger(settings.inline_ai_trigger.clone());
-            self.state
-                .set_inline_ai_trigger_open(settings.inline_ai_trigger_open.clone());
-            self.state
-                .set_inline_ai_trigger_close(settings.inline_ai_trigger_close.clone());
+                .inline_ai_enabled
+                .store(settings.inline_ai_enabled, Ordering::Relaxed);
 
             self.state
                 .inline_tab_completion_enabled

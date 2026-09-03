@@ -14,7 +14,7 @@ taurine config ls
 
 ```bash
 taurine config set start_on_boot true
-taurine config set inline_ai_trigger_mode Asymmetric
+taurine config set inline_ai_enabled false
 ```
 
 ## Reset A Value
@@ -41,9 +41,7 @@ taurine config reset --all
 | `ai_provider` | - | The default AI provider for Inline AI commands. |
 | `ai_model` | - | The default model for the selected AI provider. |
 | `ai_custom_endpoint` | - | Custom OpenAI-compatible URL for the `custom` provider. |
-| `inline_ai_trigger_mode` | `Symmetric` | The behavior mode (`Symmetric` or `Asymmetric`) for inline AI triggers. |
-| `inline_ai_trigger_open` | `>>` | The opening trigger text boundary for inline AI prompts. |
-| `inline_ai_trigger_close` | `<<` | The closing trigger text boundary for inline AI prompts. |
+| `inline_ai_enabled` | `true` | Enables or disables natural inline AI copilot completions. |
 | `inline_tab_completion_enabled` | `true` | Enables or disables inline `Tab` / `Shift+Tab` completion. |
 | `rpc_mode` | `socket` | RPC transport mode (`socket` using Unix domain sockets / Windows named pipes, or `tcp`). |
 | `rpc_host` | `127.0.0.1` | Network interface address the service binds to. |
@@ -61,9 +59,8 @@ You can use these shorter aliases when running `taurine config set`:
 | `system_tray` | `system_tray_enabled` |
 | `tray` | `system_tray_enabled` |
 | `spinner` | `spinner_style` |
-| `delimiter_mode` | `inline_ai_trigger_mode` |
-| `open_delimiter` | `inline_ai_trigger_open` |
-| `close_delimiter` | `inline_ai_trigger_close` |
+| `inline_ai` | `inline_ai_enabled` |
+| `ai` | `inline_ai_enabled` |
 | `endpoint` | `ai_custom_endpoint` |
 | `custom_endpoint` | `ai_custom_endpoint` |
 | `inline_tab_completion` | `inline_tab_completion_enabled` |

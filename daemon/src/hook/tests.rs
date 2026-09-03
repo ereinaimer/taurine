@@ -1,7 +1,7 @@
 use super::completion::{
     CompletionKeyAction, CompletionKeyKind, completion_is_active, completion_key_action,
     completion_key_kind_from_tab_like, should_swallow_trigger_assist_key_release,
-    trigger_assist_is_active, trigger_assist_key_action,
+    trigger_assist_key_action,
 };
 use super::dispatch::{dispatch_completion_rewrite_with, dispatch_expansion_with};
 use std::sync::{Arc, Mutex};
@@ -430,24 +430,6 @@ fn completion_is_inactive_after_typed_text_is_deleted() {
     );
 }
 
-#[test]
-fn trigger_assist_is_inactive_while_inline_ai_capture_mode_is_active() {
-    let state = Arc::new(taurine_core::engine::EngineState::new());
-    let mut evaluator = taurine_core::engine::Evaluator::new(state.clone());
-
-    let _ = evaluator.process_event(taurine_core::engine::EngineEvent::Char('>'), None);
-    let expansion = evaluator
-        .process_event(taurine_core::engine::EngineEvent::Char('>'), None)
-        .expect("inline ai capture should start on >>");
-    assert_eq!(expansion.trigger, ">>");
-
-    let evaluator = Arc::new(Mutex::new(evaluator));
-    assert!(
-        !trigger_assist_is_active(&evaluator, state.as_ref()),
-        "history and completion keys must not be hijacked once AI capture is active"
-    );
-}
-
 pub(crate) static TEST_LOCK: &std::sync::Mutex<()> = &taurine_core::testing::TEST_LOCK;
 
 #[test]
@@ -659,101 +641,36 @@ fn test_case_cycle_key_action() {
     use super::case_cycle::case_cycle_key_action;
     use rdev::Key;
     use taurine_core::engine::CycleDirection;
-    use taurine_core::engine::EngineMode;
 
     // Normal mode, enabled, no modifiers
     assert_eq!(
-        case_cycle_key_action(
-            Key::LeftArrow,
-            false,
-            false,
-            false,
-            false,
-            EngineMode::Normal,
-            true
-        ),
+        case_cycle_key_action(Key::LeftArrow, false, false, false, false, true),
         Some(CycleDirection::Prev)
     );
     assert_eq!(
-        case_cycle_key_action(
-            Key::RightArrow,
-            false,
-            false,
-            false,
-            false,
-            EngineMode::Normal,
-            true
-        ),
+        case_cycle_key_action(Key::RightArrow, false, false, false, false, true),
         Some(CycleDirection::Next)
     );
 
     // Enabled, but with shift/ctrl/alt/meta active -> None
     assert_eq!(
-        case_cycle_key_action(
-            Key::LeftArrow,
-            true,
-            false,
-            false,
-            false,
-            EngineMode::Normal,
-            true
-        ),
+        case_cycle_key_action(Key::LeftArrow, true, false, false, false, true),
         None
     );
     assert_eq!(
-        case_cycle_key_action(
-            Key::LeftArrow,
-            false,
-            true,
-            false,
-            false,
-            EngineMode::Normal,
-            true
-        ),
+        case_cycle_key_action(Key::LeftArrow, false, true, false, false, true),
         None
     );
 
     // Non-arrows -> None
     assert_eq!(
-        case_cycle_key_action(
-            Key::Backspace,
-            false,
-            false,
-            false,
-            false,
-            EngineMode::Normal,
-            true
-        ),
+        case_cycle_key_action(Key::Backspace, false, false, false, false, true),
         None
     );
 
     // Disabled -> None
     assert_eq!(
-        case_cycle_key_action(
-            Key::LeftArrow,
-            false,
-            false,
-            false,
-            false,
-            EngineMode::Normal,
-            false
-        ),
-        None
-    );
-
-    // AiCapture mode -> None
-    assert_eq!(
-        case_cycle_key_action(
-            Key::LeftArrow,
-            false,
-            false,
-            false,
-            false,
-            EngineMode::AiCapture {
-                system_prompt_override: None
-            },
-            true
-        ),
+        case_cycle_key_action(Key::LeftArrow, false, false, false, false, false),
         None
     );
 }

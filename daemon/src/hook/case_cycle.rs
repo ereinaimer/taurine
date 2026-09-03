@@ -1,5 +1,5 @@
 use rdev::Key;
-use taurine_core::engine::{CycleDirection, EngineMode};
+use taurine_core::engine::CycleDirection;
 
 pub(crate) fn case_cycle_key_action(
     key: Key,
@@ -7,10 +7,9 @@ pub(crate) fn case_cycle_key_action(
     ctrl: bool,
     alt: bool,
     meta: bool,
-    engine_mode: EngineMode,
     enabled: bool,
 ) -> Option<CycleDirection> {
-    if !enabled || matches!(engine_mode, EngineMode::AiCapture { .. }) {
+    if !enabled {
         return None;
     }
     if shift || ctrl || alt || meta {

@@ -46,15 +46,6 @@ impl SettingsPageState {
 
     pub(crate) fn visible_keys(&self) -> Vec<SettingKey> {
         let mut keys = SettingKey::ALL.to_vec();
-        if self.settings.inline_ai_trigger_mode
-            == taurine_core::settings::InlineAiTriggerMode::Symmetric
-        {
-            keys.retain(|k| {
-                *k != SettingKey::InlineAiTriggerOpen && *k != SettingKey::InlineAiTriggerClose
-            });
-        } else {
-            keys.retain(|k| *k != SettingKey::InlineAiTrigger);
-        }
 
         if self.settings.rpc_mode == taurine_core::settings::RpcMode::Socket {
             keys.retain(|k| *k != SettingKey::RpcHost && *k != SettingKey::RpcPort);
@@ -228,13 +219,6 @@ impl SettingsPageState {
                     .collect(),
                 self.settings.ai_provider.clone().unwrap_or_default(),
             ))),
-            EditorKind::InlineAiTriggerModeSelect => {
-                Some(SettingsModal::Select(SelectModalState::new(
-                    key,
-                    vec!["symmetric".to_string(), "asymmetric".to_string()],
-                    key.display_value(&self.settings),
-                )))
-            }
             EditorKind::InlineDictionaryModeSelect => {
                 Some(SettingsModal::Select(SelectModalState::new(
                     key,

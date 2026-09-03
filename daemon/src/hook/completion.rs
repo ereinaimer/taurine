@@ -101,10 +101,7 @@ pub(crate) fn trigger_assist_is_active(
     evaluator: &Arc<Mutex<Evaluator>>,
     state: &taurine_core::engine::EngineState,
 ) -> bool {
-    !matches!(
-        state.engine_mode(),
-        taurine_core::engine::EngineMode::AiCapture { .. }
-    ) && state
+    state
         .completion_active
         .load(std::sync::atomic::Ordering::Relaxed)
         && completion_is_active(evaluator)

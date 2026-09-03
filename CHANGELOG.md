@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Conversational Time Conversions**: Support `when it is <time> in <from_tz> what time is it in <to_tz>?` for long-form timezone conversions.
 
 ### Changed
+- **Natural Inline AI Copilot**: Replaced delimiter-based capture modes with prefix syntax (`tau, <prompt>`) evaluated on Enter anywhere on a line.
 - **Sub-Millisecond Expansion Pipeline**: Pre-compiled snippet execution plans, atomic single-line cursor repositioning, and high-precision clipboard synchronization for instant expansions.
 - **Silent Dictionary Downloads**: Background offline dictionary downloads and updates now complete silently without sending desktop notifications.
 - **Single-Pass Fallbacks & Atomic Undo**: Consolidated natural language fallbacks into a single zero-allocation evaluation pass, added intent pre-filters, and batched backspace undo Win32 injections.

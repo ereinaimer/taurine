@@ -1,6 +1,4 @@
 use crate::db::crud::TriggerAction;
-pub use crate::engine::ai_session::EngineMode;
-use crate::engine::ai_session::InlineAiSession;
 use crate::engine::case_cycle::{CaseCycleSession, CycleDirection};
 use crate::engine::catalog::{
     ActiveWindowInfo, ExpansionCatalog, HotkeyCatalog, RegexCatalog, expand_trigger_action,
@@ -40,10 +38,7 @@ impl UndoState {
 }
 
 pub struct EngineState {
-    inline_ai_trigger_mode: RwLock<crate::settings::InlineAiTriggerMode>,
-    inline_ai_trigger: RwLock<String>,
-    inline_ai_trigger_open: RwLock<String>,
-    inline_ai_trigger_close: RwLock<String>,
+    pub inline_ai_enabled: AtomicBool,
     pub inline_tab_completion_enabled: AtomicBool,
     pub inline_case_transform_enabled: AtomicBool,
     pub inline_datetime_enabled: std::sync::atomic::AtomicBool,
@@ -64,7 +59,6 @@ pub struct EngineState {
     pub spinner_style: RwLock<crate::settings::SpinnerStyle>,
     undo_state: RwLock<Option<UndoState>>,
     case_cycle: RwLock<Option<CaseCycleSession>>,
-    ai_session: InlineAiSession,
     word_catalog: ExpansionCatalog,
     hotkey_catalog: HotkeyCatalog,
     pub regex_catalog: RegexCatalog,
@@ -79,10 +73,7 @@ impl Default for EngineState {
 impl EngineState {
     pub fn new() -> Self {
         Self {
-            inline_ai_trigger_mode: RwLock::new(crate::settings::InlineAiTriggerMode::default()),
-            inline_ai_trigger: RwLock::new("^".to_string()),
-            inline_ai_trigger_open: RwLock::new(">>".to_string()),
-            inline_ai_trigger_close: RwLock::new("<<".to_string()),
+            inline_ai_enabled: AtomicBool::new(true),
             inline_tab_completion_enabled: AtomicBool::new(true),
             inline_case_transform_enabled: AtomicBool::new(true),
             inline_datetime_enabled: std::sync::atomic::AtomicBool::new(true),
@@ -106,7 +97,6 @@ impl EngineState {
             spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
             undo_state: RwLock::new(None),
             case_cycle: RwLock::new(None),
-            ai_session: InlineAiSession::new(),
             word_catalog: ExpansionCatalog::new(),
             hotkey_catalog: HotkeyCatalog::new(),
             regex_catalog: RegexCatalog::new(),
@@ -116,10 +106,7 @@ impl EngineState {
     /// Creates an EngineState with a custom snippet source.
     pub fn with_source(source: Arc<dyn SnippetSource>) -> Self {
         Self {
-            inline_ai_trigger_mode: RwLock::new(crate::settings::InlineAiTriggerMode::default()),
-            inline_ai_trigger: RwLock::new("^".to_string()),
-            inline_ai_trigger_open: RwLock::new(">>".to_string()),
-            inline_ai_trigger_close: RwLock::new("<<".to_string()),
+            inline_ai_enabled: AtomicBool::new(true),
             inline_tab_completion_enabled: AtomicBool::new(true),
             inline_case_transform_enabled: AtomicBool::new(true),
             inline_datetime_enabled: std::sync::atomic::AtomicBool::new(true),
@@ -143,45 +130,15 @@ impl EngineState {
             spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
             undo_state: RwLock::new(None),
             case_cycle: RwLock::new(None),
-            ai_session: InlineAiSession::new(),
             word_catalog: ExpansionCatalog::with_source(source),
             hotkey_catalog: HotkeyCatalog::new(),
             regex_catalog: RegexCatalog::new(),
         }
     }
 
-    pub fn engine_mode(&self) -> EngineMode {
-        self.ai_session.engine_mode()
-    }
-
-    pub fn set_engine_mode(&self, mode: EngineMode) {
-        self.ai_session.set_engine_mode(mode);
-    }
-
-    pub fn append_ai_prompt_char(&self, c: char) {
-        self.ai_session.append_prompt_char(c);
-    }
-
-    pub fn append_ai_prompt_text(&self, text: &str) {
-        for c in text.chars() {
-            self.ai_session.append_prompt_char(c);
-        }
-    }
-
-    pub fn pop_ai_prompt_char(&self) {
-        self.ai_session.pop_prompt_char();
-    }
-
-    pub fn pop_ai_prompt_word(&self) {
-        self.ai_session.pop_prompt_word();
-    }
-
-    pub fn clear_ai_prompt_buffer(&self) {
-        self.ai_session.clear_prompt_buffer();
-    }
-
-    pub fn ai_prompt_buffer(&self) -> String {
-        self.ai_session.prompt_buffer()
+    pub fn inline_ai_enabled(&self) -> bool {
+        self.inline_ai_enabled
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn inline_tab_completion_enabled(&self) -> bool {
@@ -200,10 +157,6 @@ impl EngineState {
 
     pub fn inline_emoji_trigger_char(&self) -> char {
         crate::settings::get_cached_inline_emoji_trigger_char()
-    }
-
-    pub fn is_ai_prompt_empty(&self) -> bool {
-        self.ai_session.is_prompt_empty()
     }
 
     pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, TriggerAction)>) {
@@ -358,58 +311,6 @@ impl EngineState {
         }
     }
 
-    pub fn set_inline_ai_trigger_mode(&self, mode: crate::settings::InlineAiTriggerMode) {
-        if let Ok(mut guard) = self.inline_ai_trigger_mode.write() {
-            *guard = mode;
-        }
-    }
-
-    pub fn set_inline_ai_trigger_open(&self, open: String) {
-        if let Ok(mut guard) = self.inline_ai_trigger_open.write() {
-            *guard = open;
-        }
-    }
-
-    pub fn set_inline_ai_trigger(&self, delim: String) {
-        if let Ok(mut guard) = self.inline_ai_trigger.write() {
-            *guard = delim;
-        }
-    }
-
-    pub fn set_inline_ai_trigger_close(&self, close: String) {
-        if let Ok(mut guard) = self.inline_ai_trigger_close.write() {
-            *guard = close;
-        }
-    }
-
-    pub fn get_inline_ai_trigger_mode(&self) -> crate::settings::InlineAiTriggerMode {
-        self.inline_ai_trigger_mode
-            .read()
-            .map(|guard| *guard)
-            .unwrap_or_default()
-    }
-
-    pub fn get_inline_ai_trigger_open(&self) -> String {
-        self.inline_ai_trigger_open
-            .read()
-            .map(|guard| guard.clone())
-            .unwrap_or_else(|_| ">>".to_string())
-    }
-
-    pub fn get_inline_ai_trigger(&self) -> String {
-        self.inline_ai_trigger
-            .read()
-            .map(|guard| guard.clone())
-            .unwrap_or_else(|_| "^".to_string())
-    }
-
-    pub fn get_inline_ai_trigger_close(&self) -> String {
-        self.inline_ai_trigger_close
-            .read()
-            .map(|guard| guard.clone())
-            .unwrap_or_else(|_| "<<".to_string())
-    }
-
     pub fn inline_datetime_enabled(&self) -> bool {
         crate::settings::get_cached_inline_datetime_enabled()
     }
@@ -515,38 +416,11 @@ mod tests {
     }
 
     #[test]
-    fn engine_state_defaults_to_normal_mode_with_empty_ai_prompt() {
+    fn engine_state_defaults() {
         let state = EngineState::new();
 
-        assert_eq!(state.engine_mode(), EngineMode::Normal);
-        assert_eq!(state.ai_prompt_buffer(), "");
+        assert!(state.inline_ai_enabled());
         assert!(state.inline_tab_completion_enabled());
-    }
-
-    #[test]
-    fn engine_state_ai_prompt_helpers_track_chars_and_words() {
-        let state = EngineState::new();
-
-        state.set_engine_mode(EngineMode::AiCapture {
-            system_prompt_override: None,
-        });
-        state.append_ai_prompt_char('h');
-        state.append_ai_prompt_char('i');
-        state.append_ai_prompt_char(' ');
-        state.append_ai_prompt_char('世');
-        state.append_ai_prompt_char('界');
-        assert_eq!(state.ai_prompt_buffer(), "hi 世界");
-
-        state.pop_ai_prompt_char();
-        assert_eq!(state.ai_prompt_buffer(), "hi 世");
-
-        state.pop_ai_prompt_word();
-        assert_eq!(state.ai_prompt_buffer(), "hi ");
-
-        state.clear_ai_prompt_buffer();
-        assert_eq!(state.ai_prompt_buffer(), "");
-        assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
-        assert!(state.is_ai_prompt_empty());
     }
 
     #[test]

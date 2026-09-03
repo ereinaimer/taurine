@@ -1,6 +1,7 @@
 use super::*;
 use crate::engine::variables::ExpansionStep;
 use crate::engine::variables::system::clip::MAX_PAYLOAD_BYTES;
+use crate::stats::TriggerStatKind;
 use std::sync::Arc;
 
 #[test]
@@ -559,26 +560,6 @@ fn completion_space_after_rewrite_uses_existing_word_expansion_path() {
 }
 
 #[test]
-fn completion_does_not_break_inline_ai_capture_priority() {
-    let state = Arc::new(EngineState::new());
-    let mut eval = Evaluator::new(state.clone());
-
-    eval.completion
-        .activate(&eval.state.completion_active, false);
-    // The AI capture delimiter is ">>" (double-chevron).
-    // Typing the first ">" pushes it into buffer but does not yet trigger capture.
-    eval.process(EngineEvent::Char('>'));
-    // Typing the second ">" completes the ">>" sequence and starts AI capture.
-    let result = eval
-        .process(EngineEvent::Char('>'))
-        .expect("inline ai capture should start");
-
-    assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
-    assert_eq!(result.trigger, ">>");
-    assert!(!eval.is_completion_active());
-    assert_eq!(eval.completion.selection_mode, None);
-}
-#[test]
 fn completion_backspace_edits_original_query_not_selected_completion() {
     let state = Arc::new(EngineState::new());
     state.load_actions(vec![
@@ -638,7 +619,7 @@ fn inline_tab_completion_setting_disables_completion_rewrites() {
 }
 
 #[test]
-fn disabling_inline_assist_does_not_break_word_expansion_or_inline_ai() {
+fn disabling_inline_assist_does_not_break_word_expansion() {
     use std::sync::atomic::Ordering;
 
     let state = Arc::new(EngineState::new());
@@ -659,14 +640,6 @@ fn disabling_inline_assist_does_not_break_word_expansion_or_inline_ai() {
         .process(EngineEvent::ActionKey)
         .expect("word trigger expansion should still work");
     assert_eq!(expansion.trigger, "gs");
-
-    let mut ai_eval = Evaluator::new(state.clone());
-    assert_eq!(ai_eval.process(EngineEvent::Char('>')), None);
-    let ai_result = ai_eval
-        .process(EngineEvent::Char('>'))
-        .expect("inline ai should start");
-    assert_eq!(ai_result.trigger, ">>");
-    assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
 }
 
 #[test]
@@ -1283,239 +1256,150 @@ fn test_inline_math_whitespace_and_newline_do_not_multiply() {
 }
 
 #[test]
-fn inline_ai_capture_trigger_enters_micro_state_and_paints_opening_delimiter() {
+fn inline_ai_tau_comma_trigger_expands_prompt() {
     let state = Arc::new(EngineState::new());
-    let mut eval = Evaluator::new(state.clone());
+    let mut eval = Evaluator::new(state);
 
-    assert_eq!(eval.process(EngineEvent::Char('>')), None);
-    let result = eval
-        .process(EngineEvent::Char('>'))
-        .expect("Should enter capture");
-
-    assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
-    assert_eq!(result.trigger, ">>");
-    assert_eq!(result.steps, vec![ExpansionStep::Text(">>".to_string())]);
-    assert_eq!(result.undo_trigger, None);
-    assert_no_follow_up(&result);
-}
-
-#[test]
-fn inline_ai_capture_exits_on_closing_delimiter_and_hands_prompt_to_stream() {
-    let state = Arc::new(EngineState::new());
-    let mut eval = Evaluator::new(state.clone());
-
-    assert_eq!(eval.process(EngineEvent::Char('>')), None);
-    let _ = eval.process(EngineEvent::Char('>'));
-
-    for c in "What is Rust?<<".chars() {
+    for c in "tau, what is the capital of france?".chars() {
         assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
 
     let result = eval
         .process(EngineEvent::ActionKey)
-        .expect("closing delimiter plus Enter should submit captured prompt");
+        .expect("tau, prompt followed by Enter should trigger inline AI");
 
-    assert_eq!(state.engine_mode(), EngineMode::Normal);
-    assert_eq!(state.ai_prompt_buffer(), "");
-    assert_eq!(result.delete_count, "What is Rust?<<".chars().count() + 2);
+    assert_eq!(
+        result.delete_count,
+        "tau, what is the capital of france?".chars().count()
+    );
+    assert_eq!(result.trigger, "tau,");
+    assert_eq!(result.stat_kind, TriggerStatKind::InlineAi);
     assert_eq!(
         result.steps,
         vec![ExpansionStep::Text(eval.get_thinking_text())]
     );
-    assert_eq!(result.undo_trigger, None);
-    assert_inline_ai_follow_up(&result, "What is Rust?", None);
+    assert_inline_ai_follow_up(&result, "what is the capital of france?", None);
 }
 
 #[test]
-fn inline_ai_success_path_returns_to_normal_and_allows_later_word_expansion() {
+fn inline_ai_tau_without_comma_is_rejected_and_does_not_conflict_with_cli_alias() {
     let state = Arc::new(EngineState::new());
-    state.load_actions(vec![(
-        "gm".to_string(),
-        crate::db::crud::TriggerAction::text("Good morning!"),
-    )]);
-    let mut eval = Evaluator::new(state.clone());
+    let mut eval = Evaluator::new(state);
 
-    assert_eq!(eval.process(EngineEvent::Char('>')), None);
-    let _ = eval.process(EngineEvent::Char('>'));
-    for c in "What is Rust?<<".chars() {
+    // Typing `tau what is the capital of france?` or `tau config list` without comma
+    // must NOT trigger inline AI, preventing conflicts with the `tau` CLI alias.
+    for c in "tau what is the capital of france?".chars() {
         assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
 
-    let ai_result = eval
-        .process(EngineEvent::ActionKey)
-        .expect("inline ai follow-up should dispatch on closing delimiter plus Enter");
-    assert_eq!(state.engine_mode(), EngineMode::Normal);
-    assert_inline_ai_follow_up(&ai_result, "What is Rust?", None);
-
-    for c in ">gm".chars() {
-        assert_eq!(eval.process(EngineEvent::Char(c)), None);
-    }
-
-    let expansion = eval
-        .process(EngineEvent::ActionKey)
-        .expect("normal word trigger should still expand after inline ai success");
     assert_eq!(
-        expansion.steps,
-        vec![ExpansionStep::Text("Good morning!".to_string())]
+        eval.process(EngineEvent::ActionKey),
+        None,
+        "tau without comma must not trigger inline AI"
     );
 }
 
 #[test]
-fn test_ai_capture_interrupted_by_esc_reverts_to_normal() {
+fn inline_ai_tau_case_insensitive_variants() {
     let state = Arc::new(EngineState::new());
-    state.load_actions(vec![(
-        "gm".to_string(),
-        crate::db::crud::TriggerAction::text("Good morning!"),
-    )]);
-    let mut eval = Evaluator::new(state.clone());
 
-    assert_eq!(eval.process(EngineEvent::Char('>')), None);
-    let _ = eval.process(EngineEvent::Char('>'));
-    for c in "draft".chars() {
+    for input in [
+        "tau, write a poem",
+        "Tau, write a poem",
+        "TAu, write a poem",
+        "TAU, write a poem",
+    ] {
+        let mut eval = Evaluator::new(state.clone());
+        for c in input.chars() {
+            assert_eq!(eval.process(EngineEvent::Char(c)), None);
+        }
+        let result = eval
+            .process(EngineEvent::ActionKey)
+            .unwrap_or_else(|| panic!("failed for input {input}"));
+        assert_eq!(result.delete_count, input.chars().count());
+        assert_eq!(result.trigger, "tau,");
+        assert_inline_ai_follow_up(&result, "write a poem", None);
+    }
+}
+
+#[test]
+fn inline_ai_tau_colon_is_rejected() {
+    let state = Arc::new(EngineState::new());
+    let mut eval = Evaluator::new(state);
+
+    for c in "tau: write a poem".chars() {
         assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
 
-    assert_eq!(eval.process(EngineEvent::Interrupt), None);
-    assert_eq!(state.engine_mode(), EngineMode::Normal);
-    assert!(state.is_ai_prompt_empty());
-
-    for c in ">gm".chars() {
-        assert_eq!(eval.process(EngineEvent::Char(c)), None);
-    }
-
-    let expansion = eval
-        .process(EngineEvent::ActionKey)
-        .expect("normal word trigger should still expand after inline ai cancelled");
     assert_eq!(
-        expansion.steps,
-        vec![ExpansionStep::Text("Good morning!".to_string())]
+        eval.process(EngineEvent::ActionKey),
+        None,
+        "tau: must not trigger inline AI"
     );
 }
 
 #[test]
-fn test_ai_capture_backspaced_to_empty_reverts_to_normal() {
+fn inline_ai_tau_empty_prompt_is_rejected() {
     let state = Arc::new(EngineState::new());
-    state.load_actions(vec![(
-        "gm".to_string(),
-        crate::db::crud::TriggerAction::text("Good morning!"),
-    )]);
-    let mut eval = Evaluator::new(state.clone());
 
-    assert_eq!(eval.process(EngineEvent::Char('>')), None);
-    let _ = eval.process(EngineEvent::Char('>'));
-
-    assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
-    assert!(state.is_ai_prompt_empty());
-    assert_eq!(eval.process(EngineEvent::Backspace), None);
-    assert_eq!(state.engine_mode(), EngineMode::Normal);
-    assert!(state.is_ai_prompt_empty());
-
-    for c in ">gm".chars() {
-        assert_eq!(eval.process(EngineEvent::Char(c)), None);
+    for input in [
+        "tau",
+        "tau,",
+        "tau,   ",
+        "tau   ",
+        "the greek letter is tau",
+    ] {
+        let mut eval = Evaluator::new(state.clone());
+        for c in input.chars() {
+            assert_eq!(eval.process(EngineEvent::Char(c)), None);
+        }
+        assert_eq!(
+            eval.process(EngineEvent::ActionKey),
+            None,
+            "empty prompt '{input}' must not trigger inline AI"
+        );
     }
-    let result = eval
-        .process(EngineEvent::ActionKey)
-        .expect("normal trigger should work after empty-buffer backspace exits capture");
-    assert_eq!(
-        result.steps,
-        vec![ExpansionStep::Text("Good morning!".to_string())]
-    );
 }
 
 #[test]
-fn test_ai_capture_word_backspaced_to_empty_reverts_to_normal() {
+fn inline_ai_tau_mid_line_partial_deletion() {
     let state = Arc::new(EngineState::new());
-    state.load_actions(vec![(
-        "gm".to_string(),
-        crate::db::crud::TriggerAction::text("Good morning!"),
-    )]);
-    let mut eval = Evaluator::new(state.clone());
+    let mut eval = Evaluator::new(state);
 
-    assert_eq!(eval.process(EngineEvent::Char('>')), None);
-    let _ = eval.process(EngineEvent::Char('>'));
+    let prefix = "Dear Sarah, ";
+    let trigger_prompt = "tau, summarize the meeting";
+    let full = format!("{prefix}{trigger_prompt}");
 
-    assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
-    assert!(state.is_ai_prompt_empty());
-    assert_eq!(eval.process(EngineEvent::WordBackspace), None);
-    assert_eq!(state.engine_mode(), EngineMode::Normal);
-
-    for c in ">gm".chars() {
-        assert_eq!(eval.process(EngineEvent::Char(c)), None);
-    }
-    let result = eval
-        .process(EngineEvent::ActionKey)
-        .expect("normal trigger should work after empty-buffer word-backspace exits capture");
-    assert_eq!(
-        result.steps,
-        vec![ExpansionStep::Text("Good morning!".to_string())]
-    );
-}
-
-#[test]
-fn test_ai_capture_finish_with_asymmetric_delimiters() {
-    let state = Arc::new(EngineState::new());
-    let mut eval = Evaluator::new(state.clone());
-
-    assert_eq!(eval.process(EngineEvent::Char('>')), None);
-    let _ = eval.process(EngineEvent::Char('>'));
-    for c in "prompt<<".chars() {
+    for c in full.chars() {
         assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
 
     let result = eval
         .process(EngineEvent::ActionKey)
-        .expect("action key should submit captured asymmetric prompt");
+        .expect("mid-line tau, should trigger");
 
-    assert_eq!(state.engine_mode(), EngineMode::Normal);
-    assert!(state.is_ai_prompt_empty());
-    assert_eq!(result.delete_count, "prompt<<".chars().count() + 2);
-    assert_eq!(
-        result.steps,
-        vec![ExpansionStep::Text(eval.get_thinking_text())]
-    );
-    assert_inline_ai_follow_up(&result, "prompt", None);
+    // delete_count must ONLY count trigger_prompt, leaving prefix untouched!
+    assert_eq!(result.delete_count, trigger_prompt.chars().count());
+    assert_inline_ai_follow_up(&result, "summarize the meeting", None);
 }
 
 #[test]
-fn test_ai_capture_finish_with_symmetric_delimiters() {
+fn inline_ai_disabled_setting_rejects_tau_trigger() {
     let state = Arc::new(EngineState::new());
-    state.set_inline_ai_trigger_mode(crate::settings::InlineAiTriggerMode::Symmetric);
-    state.set_inline_ai_trigger("^".to_string());
-    let mut eval = Evaluator::new(state.clone());
+    state
+        .inline_ai_enabled
+        .store(false, std::sync::atomic::Ordering::Relaxed);
+    let mut eval = Evaluator::new(state);
 
-    let _ = eval.process(EngineEvent::Char('^'));
-    for c in "prompt^".chars() {
+    for c in "tau, write a poem".chars() {
         assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
 
-    let result = eval
-        .process(EngineEvent::ActionKey)
-        .expect("action key should submit captured symmetric prompt");
-
-    assert_eq!(state.engine_mode(), EngineMode::Normal);
-    assert!(state.is_ai_prompt_empty());
-    assert_eq!(result.delete_count, "prompt^".chars().count() + 1);
     assert_eq!(
-        result.steps,
-        vec![ExpansionStep::Text(eval.get_thinking_text())]
+        eval.process(EngineEvent::ActionKey),
+        None,
+        "disabled inline AI must not trigger"
     );
-    assert_inline_ai_follow_up(&result, "prompt", None);
-}
-
-#[test]
-fn inline_ai_capture_keeps_collecting_without_closing_delimiter() {
-    let state = Arc::new(EngineState::new());
-    let mut eval = Evaluator::new(state.clone());
-
-    assert_eq!(eval.process(EngineEvent::Char('>')), None);
-    let _ = eval.process(EngineEvent::Char('>'));
-
-    for c in "draft prompt ".chars() {
-        assert_eq!(eval.process(EngineEvent::Char(c)), None);
-    }
-
-    assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
-    assert_eq!(state.ai_prompt_buffer(), "draft prompt ");
 }
 
 #[test]
@@ -1523,36 +1407,6 @@ fn inline_ai_thinking_text_matches_spec() {
     let state = Arc::new(EngineState::new());
     let eval = Evaluator::new(state);
     assert_eq!(eval.get_thinking_text(), "⠋");
-}
-
-#[test]
-fn inline_ai_capture_works_with_custom_delimiter() {
-    let state = Arc::new(EngineState::new());
-    state.set_inline_ai_trigger_mode(crate::settings::InlineAiTriggerMode::Asymmetric);
-    state.set_inline_ai_trigger_open("[[".to_string());
-    state.set_inline_ai_trigger_close("]]".to_string());
-    let mut eval = Evaluator::new(state.clone());
-
-    // 1. Enter capture
-    assert_eq!(eval.process(EngineEvent::Char('[')), None);
-    let start_res = eval
-        .process(EngineEvent::Char('['))
-        .expect("Should enter capture");
-
-    assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
-    assert_eq!(start_res.steps, vec![ExpansionStep::Text("[[".to_string())]);
-
-    // 2. Type prompt
-    for c in "Hello AI]]".chars() {
-        assert_eq!(eval.process(EngineEvent::Char(c)), None);
-    }
-
-    // 3. Finish capture
-    let finish_res = eval
-        .process(EngineEvent::ActionKey)
-        .expect("Should finish capture");
-    assert_eq!(state.engine_mode(), EngineMode::Normal);
-    assert_inline_ai_follow_up(&finish_res, "Hello AI", None);
 }
 
 #[test]
@@ -2379,67 +2233,6 @@ fn test_triggerless_multi_word_tab_does_not_cross_line() {
     let result = eval.process(EngineEvent::ActionKey);
     // Tab is not a space — multi-word should NOT cross tab boundaries
     assert!(result.is_none(), "should not expand across tab");
-}
-
-#[test]
-fn test_inline_ai_paste_appends_characters() {
-    let state = Arc::new(EngineState::new());
-    let mut eval = Evaluator::new(state.clone());
-
-    assert_eq!(eval.process(EngineEvent::Char('>')), None);
-    let _ = eval.process(EngineEvent::Char('>'));
-    assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
-
-    assert_eq!(eval.process(EngineEvent::Paste("hello".to_string())), None);
-
-    assert_eq!(state.ai_prompt_buffer(), "hello");
-}
-
-#[test]
-fn test_inline_ai_paste_does_not_auto_submit() {
-    let state = Arc::new(EngineState::new());
-    let mut eval = Evaluator::new(state.clone());
-
-    assert_eq!(eval.process(EngineEvent::Char('>')), None);
-    let _ = eval.process(EngineEvent::Char('>'));
-    assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
-
-    assert_eq!(
-        eval.process(EngineEvent::Paste("hello<<".to_string())),
-        None
-    );
-
-    assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
-    assert_eq!(state.ai_prompt_buffer(), "hello<<");
-}
-
-#[test]
-fn test_inline_ai_paste_outside_ai_capture_is_nop() {
-    let state = Arc::new(EngineState::new());
-    let mut eval = Evaluator::new(state.clone());
-
-    assert_eq!(state.engine_mode(), EngineMode::Normal);
-
-    assert_eq!(eval.process(EngineEvent::Paste("hello".to_string())), None);
-
-    assert_eq!(state.engine_mode(), EngineMode::Normal);
-    assert_eq!(state.ai_prompt_buffer(), "");
-}
-
-#[test]
-fn test_inline_ai_paste_respects_cap() {
-    let state = Arc::new(EngineState::new());
-    let mut eval = Evaluator::new(state.clone());
-
-    assert_eq!(eval.process(EngineEvent::Char('>')), None);
-    let _ = eval.process(EngineEvent::Char('>'));
-    assert!(matches!(state.engine_mode(), EngineMode::AiCapture { .. }));
-
-    let large = "a".repeat(100 * 1024);
-    assert_eq!(eval.process(EngineEvent::Paste(large)), None);
-
-    let buf = state.ai_prompt_buffer();
-    assert_eq!(buf.len(), 64 * 1024);
 }
 
 #[test]

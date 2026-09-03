@@ -27,10 +27,7 @@ impl SettingKeyMeta for SettingKey {
             Self::AiProvider => "AI Provider",
             Self::AiModel => "AI Model",
             Self::AiCustomEndpoint => "AI Custom Endpoint",
-            Self::InlineAiTriggerMode => "Inline AI Trigger Mode",
-            Self::InlineAiTrigger => "Inline AI Trigger",
-            Self::InlineAiTriggerOpen => "Inline AI Trigger Open",
-            Self::InlineAiTriggerClose => "Inline AI Trigger Close",
+            Self::InlineAiEnabled => "Inline AI Copilot",
             Self::ClipboardRestoreDelayMs => "Clipboard Restore Delay (ms)",
             Self::InstantExpand => "Instant Expand",
             Self::IgnoreFullscreen => "Ignore Fullscreen on Windows",
@@ -83,14 +80,9 @@ impl SettingKeyMeta for SettingKey {
             Self::AiProvider => "Default AI provider used for inline AI",
             Self::AiModel => "Default AI model used for inline AI",
             Self::AiCustomEndpoint => "Optional custom API endpoint for AI requests",
-            Self::InlineAiTriggerMode => {
-                "The behavior style of inline AI triggers (Symmetric or Asymmetric)"
+            Self::InlineAiEnabled => {
+                "Enable natural inline AI completions triggered via 'tau,' followed by Enter"
             }
-            Self::InlineAiTrigger => {
-                "The trigger symbol used to both open and close an inline AI prompt in symmetric mode"
-            }
-            Self::InlineAiTriggerOpen => "The trigger text used to start an inline AI prompt",
-            Self::InlineAiTriggerClose => "The trigger text used to end an inline AI prompt",
             Self::ClipboardRestoreDelayMs => {
                 "The delay in milliseconds between pasting and restoring the clipboard"
             }
@@ -162,6 +154,7 @@ impl SettingKeyMeta for SettingKey {
             | Self::InlineDatetimeEnabled
             | Self::InlineCurrencyToWordsEnabled
             | Self::InlineDictionaryEnabled
+            | Self::InlineAiEnabled
             | Self::NotifyOnUpdate => EditorKind::Toggle,
             Self::Wpm
             | Self::AudioVolume
@@ -176,15 +169,11 @@ impl SettingKeyMeta for SettingKey {
             Self::AiCustomEndpoint | Self::AiTemperature | Self::AiSystemPrompt => {
                 EditorKind::OptionalTextInput
             }
-            Self::InlineAiTriggerMode => EditorKind::InlineAiTriggerModeSelect,
             Self::InlineDictionaryMode => EditorKind::InlineDictionaryModeSelect,
             Self::RpcMode => EditorKind::RpcModeSelect,
             Self::InlineEmojiTriggerChar => EditorKind::SingleCharInput,
             Self::PauseHotkey
             | Self::AiModel
-            | Self::InlineAiTrigger
-            | Self::InlineAiTriggerOpen
-            | Self::InlineAiTriggerClose
             | Self::RpcHost
             | Self::InlineDatetimeDateFormat
             | Self::InlineDatetimeTimeFormat
@@ -211,13 +200,7 @@ impl SettingKeyMeta for SettingKey {
             Self::AiCustomEndpoint => {
                 optional_value_label(settings.ai_custom_endpoint.as_deref()).to_string()
             }
-            Self::InlineAiTriggerMode => match settings.inline_ai_trigger_mode {
-                taurine_core::settings::InlineAiTriggerMode::Symmetric => "symmetric".to_string(),
-                taurine_core::settings::InlineAiTriggerMode::Asymmetric => "asymmetric".to_string(),
-            },
-            Self::InlineAiTrigger => settings.inline_ai_trigger.clone(),
-            Self::InlineAiTriggerOpen => settings.inline_ai_trigger_open.clone(),
-            Self::InlineAiTriggerClose => settings.inline_ai_trigger_close.clone(),
+            Self::InlineAiEnabled => settings.inline_ai_enabled.to_string(),
             Self::ClipboardRestoreDelayMs => settings.clipboard_restore_delay_ms.to_string(),
             Self::InstantExpand => settings.instant_expand.to_string(),
             Self::IgnoreFullscreen => settings.ignore_fullscreen.to_string(),
@@ -277,9 +260,6 @@ impl SettingKeyMeta for SettingKey {
             Self::AiProvider => settings.ai_provider.clone().unwrap_or_default(),
             Self::AiModel => settings.ai_model.clone().unwrap_or_default(),
             Self::AiCustomEndpoint => settings.ai_custom_endpoint.clone().unwrap_or_default(),
-            Self::InlineAiTrigger => settings.inline_ai_trigger.clone(),
-            Self::InlineAiTriggerOpen => settings.inline_ai_trigger_open.clone(),
-            Self::InlineAiTriggerClose => settings.inline_ai_trigger_close.clone(),
             Self::RpcHost => settings.rpc_host.clone(),
             Self::PauseNotificationsEnabled
             | Self::PauseAudioEnabled
@@ -292,7 +272,7 @@ impl SettingKeyMeta for SettingKey {
             | Self::InstantExpand
             | Self::IgnoreFullscreen
             | Self::SpinnerStyle
-            | Self::InlineAiTriggerMode
+            | Self::InlineAiEnabled
             | Self::RpcMode
             | Self::ScriptsEnabled
             | Self::ClipboardRestoreDelayMs
@@ -335,7 +315,6 @@ pub(crate) enum EditorKind {
     SpinnerSelect,
     AudioThemeSelect,
     AiProviderSelect,
-    InlineAiTriggerModeSelect,
     InlineDictionaryModeSelect,
     RpcModeSelect,
 }

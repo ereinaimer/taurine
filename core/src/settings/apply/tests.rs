@@ -1,7 +1,6 @@
 use super::*;
 use crate::settings::{
-    AudioTheme, InlineAiTriggerMode, InlineDictionaryMode, RpcMode, SettingKey, Settings,
-    SettingsManager, SpinnerStyle,
+    AudioTheme, InlineDictionaryMode, RpcMode, SettingKey, Settings, SettingsManager, SpinnerStyle,
 };
 use crate::testing::open_test_db;
 use std::collections::HashSet;
@@ -220,70 +219,8 @@ fn test_inline_dictionary_mode_settings() {
 }
 
 #[test]
-fn asymmetric_mode_rejects_equal_open_close() {
-    let settings = Settings {
-        inline_ai_trigger_open: ">".to_string(),
-        inline_ai_trigger_close: ">".to_string(),
-        ..Settings::default()
-    };
-    let result = validate_delimiter_conflicts(&settings, "inline_ai_trigger_mode", "asymmetric");
-    assert!(result.is_err());
-}
-
-#[test]
-fn asymmetric_mode_accepts_different_open_close() {
-    let settings = Settings {
-        inline_ai_trigger_open: ">>".to_string(),
-        inline_ai_trigger_close: "<<".to_string(),
-        ..Settings::default()
-    };
-    let result = validate_delimiter_conflicts(&settings, "inline_ai_trigger_mode", "asymmetric");
-    assert!(result.is_ok());
-}
-
-#[test]
-fn non_conflict_key_passes_through() {
-    let settings = Settings::default();
-    let result = validate_delimiter_conflicts(&settings, "wpm", "60");
-    assert!(result.is_ok());
-}
-
-#[test]
-fn asymmetric_mode_rejects_equal_open_close_through_apply() {
-    let (_dir, conn) = open_test_db();
-    let manager = SettingsManager::new(&conn);
-    manager
-        .update_setting("inline_ai_trigger_open", ">".to_string())
-        .unwrap();
-    manager
-        .update_setting("inline_ai_trigger_close", ">".to_string())
-        .unwrap();
-    let result =
-        apply_setting_input_with_manager(&manager, "inline_ai_trigger_mode", Some("asymmetric"));
-    assert!(result.is_err());
-}
-
-#[test]
-fn asymmetric_mode_accepts_different_open_close_through_apply() {
-    let (_dir, conn) = open_test_db();
-    let manager = SettingsManager::new(&conn);
-    manager
-        .update_setting("inline_ai_trigger_open", ">>".to_string())
-        .unwrap();
-    manager
-        .update_setting("inline_ai_trigger_close", "<<".to_string())
-        .unwrap();
-    apply_setting_input_with_manager(&manager, "inline_ai_trigger_mode", Some("asymmetric"))
-        .unwrap();
-    assert_eq!(
-        manager.load_all().inline_ai_trigger_mode,
-        InlineAiTriggerMode::Asymmetric
-    );
-}
-
-#[test]
-fn setting_key_all_has_43_unique_storage_keys() {
-    assert_eq!(SettingKey::ALL.len(), 43);
+fn setting_key_all_has_40_unique_storage_keys() {
+    assert_eq!(SettingKey::ALL.len(), 40);
 
     let mut seen = HashSet::new();
     for key in SettingKey::ALL {
@@ -328,10 +265,7 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         ("ai_provider", "gemini"),
         ("ai_model", "gpt-test"),
         ("ai_custom_endpoint", "https://example.com"),
-        ("inline_ai_trigger_mode", "symmetric"),
-        ("inline_ai_trigger", "="),
-        ("inline_ai_trigger_open", "[["),
-        ("inline_ai_trigger_close", "]]"),
+        ("inline_ai_enabled", "false"),
         ("clipboard_restore_delay_ms", "1000"),
         ("instant_expand", "true"),
         ("ignore_fullscreen", "false"),
@@ -378,10 +312,7 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         ai_provider: Some("gemini".to_string()),
         ai_model: Some("gpt-test".to_string()),
         ai_custom_endpoint: Some("https://example.com".to_string()),
-        inline_ai_trigger_mode: InlineAiTriggerMode::Symmetric,
-        inline_ai_trigger: "=".to_string(),
-        inline_ai_trigger_open: "[[".to_string(),
-        inline_ai_trigger_close: "]]".to_string(),
+        inline_ai_enabled: false,
         clipboard_restore_delay_ms: 1000,
         instant_expand: true,
         rpc_mode: RpcMode::Tcp,

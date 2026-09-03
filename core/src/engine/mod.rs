@@ -1,5 +1,3 @@
-pub mod ai_capture;
-pub mod ai_session;
 pub mod buffer;
 pub mod case_cycle;
 pub mod catalog;
@@ -26,7 +24,6 @@ mod evaluator_tests;
 pub use shell::{ScriptBehavior, ScriptInterpreter, ScriptMetadata};
 pub use source::SnippetSource;
 
-pub use ai_session::{EngineMode, InlineAiSession};
 pub use buffer::FastBuffer;
 pub use case_cycle::{CaseCycleSession, CaseVariant, CycleDirection};
 pub use catalog::{

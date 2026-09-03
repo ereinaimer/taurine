@@ -14,7 +14,7 @@ use crate::input::hotkey::{HotkeySpec, is_pause_chord_evdev};
 use crate::input::hotkey_evaluator::{
     HotkeyEvaluation, HotkeyEvaluator, logical_key_from_evdev, modifiers_from_sides,
 };
-use taurine_core::engine::{EngineEvent, EngineMode, Evaluator};
+use taurine_core::engine::{EngineEvent, Evaluator};
 
 #[derive(Debug)]
 pub(crate) struct DeviceExit {
@@ -365,7 +365,6 @@ fn process_frame(
         }
 
         let logical_key = logical_key_from_evdev(key);
-        let engine_mode = state.engine_mode();
         let engine_event = xkb.process_key(key, is_press);
         let modifiers = modifier_sides.current_modifiers();
 
@@ -417,23 +416,6 @@ fn process_frame(
             let ctrl_active = modifier_sides.ctrl_active();
             let alt_active = modifier_sides.alt_active();
             let meta_active = modifier_sides.meta_active();
-
-            if matches!(engine_mode, EngineMode::AiCapture { .. })
-                && ctrl_active
-                && key == KeyCode::KEY_V
-            {
-                match crate::platform::read_clipboard_text() {
-                    Ok(text) if !text.is_empty() => {
-                        let ev = EngineEvent::Paste(text);
-                        if let Ok(mut lock) = evaluator.lock() {
-                            let _ = lock.process_event(ev, None);
-                        }
-                    }
-                    _ => {}
-                }
-                swallow_frame = true;
-                continue;
-            }
 
             if trigger_assist_active {
                 clear_undo_state(state);
@@ -550,7 +532,6 @@ fn process_frame(
             }
 
             let cycle_dir = if state.inline_case_transform_enabled()
-                && !matches!(state.engine_mode(), EngineMode::AiCapture { .. })
                 && !shift_active
                 && !ctrl_active
                 && !alt_active

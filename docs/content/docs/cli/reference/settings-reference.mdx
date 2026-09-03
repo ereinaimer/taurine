@@ -118,41 +118,14 @@ Configure your AI provider integrations and capture behavior.
   - **Default**: `unset`
   - **Example**: `taurine config set endpoint http://localhost:11434/v1`
 </Accordion>
-<Accordion title="inline_ai_trigger_mode">
-  The behavior style of inline AI triggers. When Symmetric, the single trigger symbol is used for both sides.
+<Accordion title="inline_ai_enabled">
+  Enables or disables natural inline AI copilot completions triggered via case-insensitive `tau, <prompt>` followed by Enter.
   
-  - **Key**: `inline_ai_trigger_mode`
-  - **Alias**: `delimiter_mode`
-  - **Default**: `Symmetric`
-  - **Values**: `Symmetric`, `Asymmetric`
-  - **Example**: `taurine config set inline_ai_trigger_mode Asymmetric`
-</Accordion>
-
-<Accordion title="inline_ai_trigger">
-  The single trigger symbol used to both open and close an inline AI prompt. (Only used if `inline_ai_trigger_mode` is Symmetric)
-  
-  - **Key**: `inline_ai_trigger`
-  - **Alias**: `symmetric_delimiter`
-  - **Default**: `^`
-  - **Example**: `taurine config set inline_ai_trigger "~"`
-</Accordion>
-
-<Accordion title="inline_ai_trigger_open">
-  The trigger text used to start an inline AI prompt. (Only used if `inline_ai_trigger_mode` is Asymmetric)
-  
-  - **Key**: `inline_ai_trigger_open`
-  - **Alias**: `open_delimiter`
-  - **Default**: `>>`
-  - **Example**: `taurine config set inline_ai_trigger_open "[["`
-</Accordion>
-
-<Accordion title="inline_ai_trigger_close">
-  The trigger text used to end an inline AI prompt. (Only used if `inline_ai_trigger_mode` is Asymmetric)
-  
-  - **Key**: `inline_ai_trigger_close`
-  - **Alias**: `close_delimiter`
-  - **Default**: `<<`
-  - **Example**: `taurine config set inline_ai_trigger_close "]]"`
+  - **Key**: `inline_ai_enabled`
+  - **Aliases**: `inline_ai`, `ai`
+  - **Default**: `true`
+  - **Values**: `true`, `false`
+  - **Example**: `taurine config set inline_ai_enabled false`
 </Accordion>
 </Accordions>
 

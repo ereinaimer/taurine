@@ -60,13 +60,13 @@ Validation limits: trigger string ≤200 chars, text output ≤100 KB, script co
 *   `taurine config set <key> <value>`: Updates a specific setting.
 *   `taurine config list` (or `ls`): Lists all current settings.
 *   `taurine config reset <key>`: Resets a setting to factory defaults (`--all` resets everything).
-*   Key aliases: `hotkey`→`pause_hotkey`, `boot`→`start_on_boot`, `tray`→`system_tray_enabled`, `spinner`→`spinner_style`, `notifications`→`pause_notifications_enabled`, `delimiter_mode`→`inline_ai_trigger_mode`, `open_delimiter`→`inline_ai_trigger_open`, `close_delimiter`→`inline_ai_trigger_close`, `inline_tab_completion`→`inline_tab_completion_enabled`, `instant`→`instant_expand`, and `mode`/`host`/`port`/`token` for the RPC settings.
+*   Key aliases: `hotkey`→`pause_hotkey`, `boot`→`start_on_boot`, `tray`→`system_tray_enabled`, `spinner`→`spinner_style`, `notifications`→`pause_notifications_enabled`, `inline_ai`→`inline_ai_enabled`, `ai`→`inline_ai_enabled`, `inline_tab_completion`→`inline_tab_completion_enabled`, `instant`→`instant_expand`, and `mode`/`host`/`port`/`token` for the RPC settings.
 
 | Category | Keys (default) |
 |----------|----------------|
 | Core | `pause_hotkey` (`Alt + \``), `start_on_boot` (`true`), `instant_expand` (`false`), `script_timeout` (`15`) |
 | UI | `spinner_style` (`braille`; `arc`/`classic`), `pause_notifications_enabled` (`false`), `ignore_fullscreen` (`true`), `system_tray_enabled` (`true`) |
-| AI | `ai_provider`, `ai_model`, `ai_custom_endpoint`, `inline_ai_trigger_mode` (`asymmetric`; `symmetric`), `inline_ai_trigger` (symmetric delimiter, `^`), `inline_ai_trigger_open` (`>>`), `inline_ai_trigger_close` (`<<`) |
+| AI | `ai_provider`, `ai_model`, `ai_custom_endpoint`, `inline_ai_enabled` (`true`) |
 | Inline Assist | `inline_tab_completion_enabled` (`true`), `inline_emoji_enabled` (`true`), `inline_emoji_trigger_char` (`:`), `inline_datetime_enabled` (`true`), `inline_currency_to_words_enabled` (`false`) |
 | Service RPC | `rpc_mode` (`socket`; `tcp`), `rpc_host` (`127.0.0.1`), `rpc_port` (`50051`) |
 
@@ -199,8 +199,8 @@ Evaluate expressions typed into any text field prefixed by the trigger char.
 ### 7.2 Inline AI Copilot
 Stream LLM responses directly into the active text field.
 1.  Configure a provider: `taurine ai add --provider gemini` (and optionally `taurine config set ai_provider gemini`).
-2.  Type the opening delimiter `>>`, your prompt, the closing delimiter `<<`, then press **Enter** (default `>>prompt<<`). The delimiters and prompt are replaced by the response.
-3.  Symmetric mode uses `inline_ai_trigger` (default `^`); asymmetric mode uses `inline_ai_trigger_open`/`inline_ai_trigger_close` (`>>`/`<<`). Custom delimiters and endpoints (`taurine config set ai_custom_endpoint http://localhost:11434/v1` for Ollama/LM Studio) are supported.
+2.  Type `tau, <prompt>` anywhere on a line and press **Enter** (e.g. `tau, summarize this paragraph`). The trigger and prompt are replaced by the streamed AI response.
+3.  The trailing comma is strictly required (`tau,`) to prevent collision with the `tau` CLI alias. Case-insensitive variants (`tau,`, `Tau,`, `TAu,`, `TAU,`) are supported; `tau <prompt>` and `tau: <prompt>` are rejected. Empty prompts (`tau,` followed by Enter) pass through without triggering. Custom endpoints (`taurine config set ai_custom_endpoint http://localhost:11434/v1` for Ollama/LM Studio) and disabling via `taurine config set inline_ai_enabled false` are supported.
 
 ### 7.3 Inline Trigger Assist
 Headless assist for word triggers (no popups):

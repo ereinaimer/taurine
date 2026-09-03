@@ -1,4 +1,4 @@
-use super::{InlineAiTriggerMode, Settings, SettingsManager, SpinnerStyle};
+use super::{Settings, SettingsManager, SpinnerStyle};
 use crate::{
     ai::AiProvider,
     error::{Error, Result},
@@ -108,18 +108,11 @@ pub fn apply_setting_input_with_manager(
             manager.update_setting(actual_key, endpoint)?;
             ApplySettingOutcome::default()
         }
-        "inline_ai_trigger_mode" => {
-            let mode_str = require_non_empty(value, actual_key)?;
-            let current = manager.load_all();
-            validate_delimiter_conflicts(&current, actual_key, mode_str)?;
-            manager.update_setting(actual_key, parse_inline_ai_trigger_mode(mode_str)?)?;
-            ApplySettingOutcome::default()
-        }
-        "inline_ai_trigger_open" | "inline_ai_trigger_close" | "inline_ai_trigger" => {
-            let parsed = require_non_empty(value, actual_key)?;
-            let current = manager.load_all();
-            validate_delimiter_conflicts(&current, actual_key, parsed)?;
-            manager.update_setting(actual_key, parsed.to_string())?;
+        "inline_ai_enabled" => {
+            manager.update_setting(
+                actual_key,
+                parse_boolean_setting_value(require_non_empty(value, actual_key)?)?,
+            )?;
             ApplySettingOutcome::default()
         }
         "clipboard_restore_delay_ms" => {
@@ -320,16 +313,6 @@ pub fn parse_spinner_style(value: &str) -> Result<SpinnerStyle> {
     }
 }
 
-pub fn parse_inline_ai_trigger_mode(value: &str) -> Result<super::InlineAiTriggerMode> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "symmetric" => Ok(super::InlineAiTriggerMode::Symmetric),
-        "asymmetric" => Ok(super::InlineAiTriggerMode::Asymmetric),
-        other => Err(Error::Config(format!(
-            "bad inline_ai_trigger_mode '{other}' (use: symmetric, asymmetric)"
-        ))),
-    }
-}
-
 pub fn parse_inline_dictionary_mode(value: &str) -> Result<super::InlineDictionaryMode> {
     match value.trim().to_ascii_lowercase().as_str() {
         "lite" => Ok(super::InlineDictionaryMode::Lite),
@@ -360,46 +343,6 @@ fn require_non_empty<'a>(value: Option<&'a str>, key: &str) -> Result<&'a str> {
     value
         .filter(|value| !value.is_empty())
         .ok_or_else(|| Error::Config(format!("{key} must not be empty")))
-}
-
-pub fn validate_delimiter_conflicts(settings: &Settings, key: &str, new_value: &str) -> Result<()> {
-    match key {
-        "inline_ai_trigger_open" => {
-            if settings.inline_ai_trigger_mode == InlineAiTriggerMode::Asymmetric
-                && new_value == settings.inline_ai_trigger_close
-            {
-                return Err(Error::Config(format!(
-                    "'{}' value '{}' conflicts with '{}' value '{}'",
-                    key, new_value, "inline_ai_trigger_close", settings.inline_ai_trigger_close
-                )));
-            }
-            Ok(())
-        }
-        "inline_ai_trigger_close" => {
-            if settings.inline_ai_trigger_mode == InlineAiTriggerMode::Asymmetric
-                && new_value == settings.inline_ai_trigger_open
-            {
-                return Err(Error::Config(format!(
-                    "'{}' value '{}' conflicts with '{}' value '{}'",
-                    key, new_value, "inline_ai_trigger_open", settings.inline_ai_trigger_open
-                )));
-            }
-            Ok(())
-        }
-        "inline_ai_trigger" => Ok(()),
-        "inline_ai_trigger_mode" => {
-            if new_value.trim().eq_ignore_ascii_case("asymmetric")
-                && settings.inline_ai_trigger_open == settings.inline_ai_trigger_close
-            {
-                return Err(Error::Config(format!(
-                    "'{}' value '{}' conflicts with '{}' value '{}'",
-                    key, new_value, "inline_ai_trigger_open", settings.inline_ai_trigger_open
-                )));
-            }
-            Ok(())
-        }
-        _ => Ok(()),
-    }
 }
 
 mod defaults;

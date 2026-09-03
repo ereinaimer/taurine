@@ -34,9 +34,9 @@ use crate::input::hotkey_evaluator::{
     HotkeyEvaluation, HotkeyEvaluator, logical_key_from_rdev, logical_key_from_rdev_button,
     modifiers_from_sides,
 };
-use taurine_core::engine::Evaluator;
 #[cfg(not(target_os = "linux"))]
-use taurine_core::engine::{EngineEvent, EngineMode};
+use taurine_core::engine::EngineEvent;
+use taurine_core::engine::Evaluator;
 
 #[cfg(not(target_os = "linux"))]
 use super::completion::{
@@ -612,7 +612,6 @@ pub fn process_keyboard_event(
                 ctrl_active,
                 alt_active,
                 meta_active,
-                state.engine_mode(),
                 state.inline_case_transform_enabled(),
             ) && let Some(rewrite) = state.advance_case_variant(direction)
             {
@@ -646,8 +645,6 @@ pub fn process_keyboard_event(
                 clear_undo_state(state.as_ref());
             }
 
-            let engine_mode = state.engine_mode();
-
             let engine_event = match key {
                 Key::Escape => Some(EngineEvent::Interrupt),
                 Key::Backspace => {
@@ -669,19 +666,6 @@ pub fn process_keyboard_event(
                 | Key::PageUp
                 | Key::PageDown => Some(EngineEvent::Interrupt),
                 _ => {
-                    if is_ai_capture_paste_key(&engine_mode, ctrl_active, meta_active, key) {
-                        match crate::platform::read_clipboard_text() {
-                            Ok(text) if !text.is_empty() => {
-                                let engine_event = EngineEvent::Paste(text);
-                                let _ = with_evaluator_lock(evaluator, "ai_paste", |lock| {
-                                    lock.process_event(engine_event, None)
-                                });
-                            }
-                            _ => {}
-                        }
-                        return None;
-                    }
-
                     if alt_active || ctrl_active || meta_active {
                         return Some(event);
                     }
@@ -904,21 +888,6 @@ fn is_modifier_key(key: Key) -> bool {
 }
 
 #[cfg(not(target_os = "linux"))]
-fn is_ai_capture_paste_key(
-    engine_mode: &EngineMode,
-    ctrl_active: bool,
-    meta_active: bool,
-    key: Key,
-) -> bool {
-    if !matches!(engine_mode, EngineMode::AiCapture { .. }) {
-        return false;
-    }
-    let modifier_active =
-        cfg!(target_os = "macos") && meta_active || cfg!(not(target_os = "macos")) && ctrl_active;
-    modifier_active && key == Key::KeyV
-}
-
-#[cfg(not(target_os = "linux"))]
 fn is_solo_modifier_press(
     key: Key,
     shift_active: bool,
@@ -932,43 +901,5 @@ fn is_solo_modifier_press(
         Key::Alt | Key::AltGr => !shift_active && !ctrl_active && !meta_active,
         Key::MetaLeft | Key::MetaRight => !shift_active && !ctrl_active && !alt_active,
         _ => is_modifier_key(key) && !shift_active && !ctrl_active && !alt_active && !meta_active,
-    }
-}
-
-#[cfg(test)]
-#[cfg(not(target_os = "linux"))]
-mod paste_detection_tests {
-    use super::*;
-
-    #[test]
-    fn test_is_ai_capture_paste_key_in_ai_capture() {
-        let ai = EngineMode::AiCapture {
-            system_prompt_override: None,
-        };
-
-        #[cfg(target_os = "macos")]
-        let paste_modifier = (false, true);
-        #[cfg(not(target_os = "macos"))]
-        let paste_modifier = (true, false);
-
-        assert!(is_ai_capture_paste_key(
-            &ai,
-            paste_modifier.0,
-            paste_modifier.1,
-            Key::KeyV
-        ));
-
-        assert!(!is_ai_capture_paste_key(&ai, false, false, Key::KeyV));
-        assert!(!is_ai_capture_paste_key(&ai, true, false, Key::KeyC));
-        assert!(!is_ai_capture_paste_key(&ai, false, true, Key::KeyX));
-    }
-
-    #[test]
-    fn test_is_ai_capture_paste_key_outside_ai_capture() {
-        let normal = EngineMode::Normal;
-
-        assert!(!is_ai_capture_paste_key(&normal, true, false, Key::KeyV));
-        assert!(!is_ai_capture_paste_key(&normal, false, true, Key::KeyV));
-        assert!(!is_ai_capture_paste_key(&normal, false, false, Key::KeyV));
     }
 }

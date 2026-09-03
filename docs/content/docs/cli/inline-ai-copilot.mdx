@@ -48,43 +48,61 @@ When you add a provider, Taurine uses the following default models (which you ca
 
 ## Usage
 
-Taurine provides a highly customizable inline capture mode to interact with AI directly from anywhere you type.
-
-To trigger the AI copilot, simply type your configured **opening delimiter** (default: `>>`). Taurine will enter capture mode and insert the opening delimiter.
-
-Type your prompt, and then type your **closing delimiter** (default: `<<`). Finally, press **Enter** to submit the request:
+Taurine operates inline anywhere you can type. There are no special delimiters, modal states, or capture modes to remember. Simply use the natural prefix **`tau,`** followed by your prompt, and hit **Enter**:
 
 ```text
->>write a haiku about rust<<[Enter]
+tau, what is the capital of France?[Enter]
 ```
 
-This immediately starts the AI request and replaces the delimiters and your prompt with the response.
+Or for code generation:
 
-## Advanced Configuration
+```text
+tau, write a rust function to parse json[Enter]
+```
+
+### Prefix Requirements
+
+To prevent conflicts with Taurine's CLI alias `tau`, the trailing comma is strictly required. Any case-insensitive variation of `tau,` is supported:
+
+- `tau, <prompt>`
+- `Tau, <prompt>`
+- `TAu, <prompt>`
+- `TAU, <prompt>`
+
+<Callout title="Comma Required" type="warning">
+  Taurine strictly requires the trailing comma (`tau,`). Prompts typed as `tau <prompt>` or `tau: <prompt>` will not trigger inline AI, ensuring that daily CLI usage like `tau add` or `tau config` in terminals is never intercepted.
+</Callout>
+
+### Mid-Line Typing
+
+You do not need to be at the beginning of a line to invoke AI assistance. If you are drafting a message or document:
+
+```text
+The team discussed the launch timeline. tau, summarize key risks[Enter]
+```
+
+Taurine precisely backspaces only the `tau, summarize key risks` portion, leaving `"The team discussed the launch timeline. "` completely intact, and streams the AI output directly after it.
+
+### Empty Prompt Safety
+
+If you type `tau` or `tau,` and press **Enter** without a prompt, Taurine treats it as standard typing and lets your Enter key pass straight through to the operating system.
+
+## Configuration
+
+### Enabling / Disabling Inline AI
+
+Inline AI is enabled by default. You can toggle it at any time:
+
+```bash
+taurine config set inline_ai_enabled false
+```
 
 ### Custom Endpoints
-If you are using the `custom` provider (e.g., Local LLMs via Ollama or LM Studio), set your endpoint:
+
+If you are using the `custom` provider (e.g., Local LLMs via Ollama or LM Studio), configure your endpoint:
 
 ```bash
 taurine config set ai_custom_endpoint http://localhost:11434/v1
-```
-
-### Custom Triggers
-You can customize the text boundaries used to trigger and close the AI copilot. Taurine supports both **Symmetric** (same boundary for open/close) and **Asymmetric** (different boundaries) modes.
-
-To configure an asymmetric setup (e.g., `[[` to open and `]]` to close):
-
-```bash
-taurine config set inline_ai_trigger_mode asymmetric
-taurine config set inline_ai_trigger_open "[["
-taurine config set inline_ai_trigger_close "]]"
-```
-
-To configure a symmetric setup (e.g., `~` for both):
-
-```bash
-taurine config set inline_ai_trigger_mode symmetric
-taurine config set inline_ai_trigger "~"
 ```
 
 ## Provider Selection

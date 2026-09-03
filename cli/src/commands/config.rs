@@ -72,19 +72,7 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
             "ai_custom_endpoint",
             render_optional_setting(settings.ai_custom_endpoint.as_deref()).to_string(),
         ),
-        (
-            "inline_ai_trigger_mode",
-            format!("{:?}", settings.inline_ai_trigger_mode).to_lowercase(),
-        ),
-        ("inline_ai_trigger", settings.inline_ai_trigger.clone()),
-        (
-            "inline_ai_trigger_open",
-            settings.inline_ai_trigger_open.clone(),
-        ),
-        (
-            "inline_ai_trigger_close",
-            settings.inline_ai_trigger_close.clone(),
-        ),
+        ("inline_ai_enabled", settings.inline_ai_enabled.to_string()),
         (
             "clipboard_restore_delay_ms",
             settings.clipboard_restore_delay_ms.to_string(),
@@ -300,42 +288,15 @@ mod tests {
     }
 
     #[test]
-    fn set_inline_ai_trigger_keys_persist() {
-        let persisted = with_test_db(
-            || -> taurine_core::error::Result<(bool, bool, bool, bool)> {
-                execute_set(
-                    "inline_ai_trigger_mode".to_string(),
-                    "symmetric".to_string(),
-                    false,
-                )?;
-                execute_set("inline_ai_trigger".to_string(), "=".to_string(), false)?;
-                execute_set(
-                    "inline_ai_trigger_open".to_string(),
-                    "[[".to_string(),
-                    false,
-                )?;
-                execute_set(
-                    "inline_ai_trigger_close".to_string(),
-                    "]]".to_string(),
-                    false,
-                )?;
-                let conn = init::setup()?;
-                let manager = SettingsManager::new(&conn);
-                let settings = manager.load_all();
-                Ok((
-                    settings.inline_ai_trigger_mode
-                        == taurine_core::settings::InlineAiTriggerMode::Symmetric,
-                    settings.inline_ai_trigger == "=",
-                    settings.inline_ai_trigger_open == "[[",
-                    settings.inline_ai_trigger_close == "]]",
-                ))
-            },
-        );
-        let (mode, trigger, open, close) = persisted.unwrap();
-        assert!(mode);
-        assert!(trigger);
-        assert!(open);
-        assert!(close);
+    fn set_inline_ai_enabled_persists() {
+        let persisted = with_test_db(|| -> taurine_core::error::Result<bool> {
+            execute_set("inline_ai_enabled".to_string(), "false".to_string(), false)?;
+            let conn = init::setup()?;
+            let manager = SettingsManager::new(&conn);
+            let settings = manager.load_all();
+            Ok(settings.inline_ai_enabled)
+        });
+        assert!(!persisted.unwrap());
     }
 
     #[test]
@@ -432,7 +393,6 @@ mod tests {
     fn test_settings_all_enum_variants_serialize() {
         let settings = Settings {
             spinner_style: taurine_core::settings::SpinnerStyle::Arc,
-            inline_ai_trigger_mode: taurine_core::settings::InlineAiTriggerMode::Symmetric,
             rpc_mode: taurine_core::settings::RpcMode::Tcp,
             ..Settings::default()
         };
@@ -440,7 +400,6 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
 
         assert_eq!(value["spinner_style"], "arc");
-        assert_eq!(value["inline_ai_trigger_mode"], "symmetric");
         assert_eq!(value["rpc_mode"], "tcp");
     }
 

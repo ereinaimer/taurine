@@ -96,28 +96,10 @@ impl<'a> SettingsManager<'a> {
             settings.ai_custom_endpoint = v;
         }
 
-        if let Some(val) = map.get("inline_ai_trigger_mode")
-            && let Ok(v) = serde_json::from_str::<super::InlineAiTriggerMode>(val)
+        if let Some(val) = map.get("inline_ai_enabled")
+            && let Ok(v) = serde_json::from_str::<bool>(val)
         {
-            settings.inline_ai_trigger_mode = v;
-        }
-
-        if let Some(val) = map.get("inline_ai_trigger")
-            && let Ok(v) = serde_json::from_str::<String>(val)
-        {
-            settings.inline_ai_trigger = v;
-        }
-
-        if let Some(val) = map.get("inline_ai_trigger_open")
-            && let Ok(v) = serde_json::from_str::<String>(val)
-        {
-            settings.inline_ai_trigger_open = v;
-        }
-
-        if let Some(val) = map.get("inline_ai_trigger_close")
-            && let Ok(v) = serde_json::from_str::<String>(val)
-        {
-            settings.inline_ai_trigger_close = v;
+            settings.inline_ai_enabled = v;
         }
 
         if let Some(val) = map.get("clipboard_restore_delay_ms")
