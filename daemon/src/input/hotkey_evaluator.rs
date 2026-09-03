@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use taurine_core::db::crud::TriggerStatKind;
 use taurine_core::engine::{EngineState, ExpansionResult};
-use taurine_core::keys::{KeyPress, LogicalKey, Modifier, Modifiers};
+use taurine_core::keys::{KeyPress, LogicalKey, Modifier, Modifiers, MouseButton};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum HotkeyEvaluation {
@@ -267,6 +267,18 @@ pub fn logical_key_from_rdev(key: rdev::Key) -> Option<LogicalKey> {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
+pub fn logical_key_from_rdev_button(button: rdev::Button) -> Option<LogicalKey> {
+    match button {
+        rdev::Button::Left => Some(LogicalKey::Mouse(MouseButton::Left)),
+        rdev::Button::Right => Some(LogicalKey::Mouse(MouseButton::Right)),
+        rdev::Button::Middle => Some(LogicalKey::Mouse(MouseButton::Middle)),
+        rdev::Button::Unknown(4) => Some(LogicalKey::Mouse(MouseButton::Button4)),
+        rdev::Button::Unknown(5) => Some(LogicalKey::Mouse(MouseButton::Button5)),
+        rdev::Button::Unknown(code) => Some(LogicalKey::Mouse(MouseButton::Other(code))),
+    }
+}
+
 #[cfg(target_os = "linux")]
 pub fn logical_key_from_evdev(key: evdev::KeyCode) -> Option<LogicalKey> {
     use evdev::KeyCode;
@@ -369,6 +381,12 @@ pub fn logical_key_from_evdev(key: evdev::KeyCode) -> Option<LogicalKey> {
         KeyCode::KEY_X => Some(LogicalKey::Letter('x')),
         KeyCode::KEY_Y => Some(LogicalKey::Letter('y')),
         KeyCode::KEY_Z => Some(LogicalKey::Letter('z')),
+        KeyCode::BTN_LEFT => Some(LogicalKey::Mouse(MouseButton::Left)),
+        KeyCode::BTN_RIGHT => Some(LogicalKey::Mouse(MouseButton::Right)),
+        KeyCode::BTN_MIDDLE => Some(LogicalKey::Mouse(MouseButton::Middle)),
+        KeyCode::BTN_SIDE | KeyCode::BTN_BACK => Some(LogicalKey::Mouse(MouseButton::Button4)),
+        KeyCode::BTN_EXTRA | KeyCode::BTN_FORWARD => Some(LogicalKey::Mouse(MouseButton::Button5)),
+        KeyCode::BTN_TASK => Some(LogicalKey::Mouse(MouseButton::Other(6))),
         _ => None,
     }
 }

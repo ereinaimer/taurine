@@ -23,4 +23,8 @@ pub enum KeyParseError {
     MultipleBaseKeys { first: String, second: String },
     #[error("keypress alias is missing a main key")]
     MissingKeypressMainKey,
+    #[error(
+        "mouse button '{key}' requires at least one modifier key (e.g. 'ralt+{key}', 'ctrl+{key}')"
+    )]
+    MouseButtonRequiresModifier { key: String },
 }

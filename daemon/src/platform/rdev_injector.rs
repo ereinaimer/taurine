@@ -512,5 +512,6 @@ pub(crate) fn alias_to_rdev_key(alias: &str) -> Option<Key> {
             }
             taurine_core::keys::Modifier::RightMeta => Some(Key::MetaRight),
         },
+        LogicalKey::Mouse(_) => None,
     }
 }

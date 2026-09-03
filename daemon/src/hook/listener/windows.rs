@@ -14,14 +14,19 @@ pub(super) fn windows_grab(
     use std::time::SystemTime;
     use windows_sys::Win32::Foundation::LPARAM;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CallNextHookEx, GetMessageW, HC_ACTION, MSG, SetWindowsHookExW, UnhookWindowsHookEx,
-        WH_KEYBOARD_LL, WM_KEYDOWN, WM_SYSKEYDOWN,
+        CallNextHookEx, GetMessageW, HC_ACTION, MSG, MSLLHOOKSTRUCT, SetWindowsHookExW,
+        UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
+        WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN,
+        WM_XBUTTONDOWN, WM_XBUTTONUP,
     };
 
     thread_local! {
         // The HHOOK handle for this thread's keyboard hook.
         // *mut std::ffi::c_void because HHOOK is a pointer type.
         static TL_HHOOK: RefCell<*mut c_void> = const { RefCell::new(std::ptr::null_mut()) };
+
+        // The HHOOK handle for this thread's mouse hook.
+        static TL_MOUSE_HHOOK: RefCell<*mut c_void> = const { RefCell::new(std::ptr::null_mut()) };
 
         // The event callback for this thread's hook invocation.
         #[allow(clippy::type_complexity)]
@@ -102,6 +107,92 @@ pub(super) fn windows_grab(
         }
     }
 
+    // SAFETY: This is the Win32 low-level mouse hook procedure. It is called by
+    // Windows on the thread that installed the hook, so thread-local access is valid.
+    // `code`, `wparam`, and `lparam` are provided by Windows and are always valid
+    // for a WH_MOUSE_LL hook. `lparam` points to an MSLLHOOKSTRUCT that is valid
+    // for the duration of this call.
+    unsafe extern "system" fn ll_mouse_proc(code: i32, wparam: usize, lparam: LPARAM) -> isize {
+        unsafe {
+            if code == HC_ACTION as i32 {
+                if wparam == WM_MOUSEMOVE as usize {
+                    let hhook = TL_MOUSE_HHOOK.with(|h| *h.borrow());
+                    return CallNextHookEx(hhook, code, wparam, lparam);
+                }
+
+                // SAFETY: lparam is a valid pointer to MSLLHOOKSTRUCT for the duration of this call.
+                let ms = *(lparam as *const MSLLHOOKSTRUCT);
+                let flags = ms.flags;
+                // LLMHF_INJECTED is 0x00000001 (bit 0); LLMHF_LOWER_IL_INJECTED is 0x00000002 (bit 1).
+                let is_injected = (flags & 0x01) != 0 || (flags & 0x02) != 0;
+
+                if is_injected {
+                    let hhook = TL_MOUSE_HHOOK.with(|h| *h.borrow());
+                    return CallNextHookEx(hhook, code, wparam, lparam);
+                }
+
+                let decoded = match wparam as u32 {
+                    WM_LBUTTONDOWN => Some((rdev::Button::Left, true)),
+                    WM_LBUTTONUP => Some((rdev::Button::Left, false)),
+                    WM_RBUTTONDOWN => Some((rdev::Button::Right, true)),
+                    WM_RBUTTONUP => Some((rdev::Button::Right, false)),
+                    WM_MBUTTONDOWN => Some((rdev::Button::Middle, true)),
+                    WM_MBUTTONUP => Some((rdev::Button::Middle, false)),
+                    WM_XBUTTONDOWN => {
+                        let xbutton = (ms.mouseData >> 16) as u16;
+                        let btn = if xbutton == 1 {
+                            rdev::Button::Unknown(4)
+                        } else {
+                            rdev::Button::Unknown(5)
+                        };
+                        Some((btn, true))
+                    }
+                    WM_XBUTTONUP => {
+                        let xbutton = (ms.mouseData >> 16) as u16;
+                        let btn = if xbutton == 1 {
+                            rdev::Button::Unknown(4)
+                        } else {
+                            rdev::Button::Unknown(5)
+                        };
+                        Some((btn, false))
+                    }
+                    _ => None,
+                };
+
+                if let Some((button, is_press)) = decoded {
+                    let event_type = if is_press {
+                        rdev::EventType::ButtonPress(button)
+                    } else {
+                        rdev::EventType::ButtonRelease(button)
+                    };
+
+                    let event = rdev::Event {
+                        event_type,
+                        time: SystemTime::now(),
+                        name: None,
+                    };
+
+                    let pass_through = TL_CALLBACK.with(|cb| {
+                        cb.borrow_mut()
+                            .as_mut()
+                            .map(|f| f(event).is_some())
+                            .unwrap_or(true)
+                    });
+
+                    if !pass_through {
+                        // Swallowed — do NOT call next hook.
+                        return 1;
+                    }
+                }
+            }
+
+            let hhook = TL_MOUSE_HHOOK.with(|h| *h.borrow());
+            // SAFETY: CallNextHookEx is always safe to call from within a hook proc.
+            // hhook is the handle for this thread's mouse hook.
+            CallNextHookEx(hhook, code, wparam, lparam)
+        }
+    }
+
     // SAFETY: GetCurrentThread and SetThreadPriority are safe Win32 APIs.
     // Raising priority ensures the thread avoids CPU starvation and OS hook teardowns.
     unsafe {
@@ -133,6 +224,28 @@ pub(super) fn windows_grab(
 
     TL_HHOOK.with(|h| *h.borrow_mut() = hhook);
 
+    // SAFETY: SetWindowsHookExW installs a global WH_MOUSE_LL hook.
+    // - `ll_mouse_proc` is a valid `extern "system"` function.
+    // - hmod=null_mut() and dwThreadId=0 are correct for a global low-level hook (MSDN).
+    // - The hook will fire on the thread running GetMessageW below.
+    let mouse_hhook =
+        unsafe { SetWindowsHookExW(WH_MOUSE_LL, Some(ll_mouse_proc), std::ptr::null_mut(), 0) };
+    if mouse_hhook.is_null() {
+        let err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+        error!(error = err, "SetWindowsHookExW(WH_MOUSE_LL) failed");
+        // SAFETY: Unhook keyboard hook on mouse hook installation failure.
+        unsafe {
+            UnhookWindowsHookEx(hhook);
+        }
+        TL_HHOOK.with(|h| *h.borrow_mut() = std::ptr::null_mut());
+        TL_CALLBACK.with(|cb| cb.borrow_mut().take());
+        return Err(format!(
+            "SetWindowsHookExW(WH_MOUSE_LL) failed with error {err}"
+        ));
+    }
+
+    TL_MOUSE_HHOOK.with(|h| *h.borrow_mut() = mouse_hhook);
+
     // Run the message pump. WM_QUIT (posted by send_wm_quit_to_thread in the
     // supervisor) causes GetMessageW to return 0, exiting the loop cleanly.
     // SAFETY: GetMessageW is safe to call; it blocks until a message arrives.
@@ -141,7 +254,7 @@ pub(super) fn windows_grab(
         let mut msg: MSG = std::mem::zeroed();
         while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
             // No TranslateMessage/DispatchMessageW needed: low-level keyboard
-            // hooks are delivered directly through GetMessageW, not through
+            // and mouse hooks are delivered directly through GetMessageW, not through
             // window messages dispatched to a WNDPROC.
         }
     }
@@ -151,12 +264,14 @@ pub(super) fn windows_grab(
     // the OS-level hook timeout (1 second by default) before cleaning up. Explicit
     // unhooking makes teardown deterministic and prevents Windows from treating the
     // newly-spawned hook thread's handle as stale.
-    // SAFETY: hhook is the handle we registered above on this thread. Unhooking
-    // from the same thread that hooked is always valid.
+    // SAFETY: hhook and mouse_hhook are the handles we registered above on this thread.
+    // Unhooking from the same thread that hooked is always valid.
     unsafe {
         UnhookWindowsHookEx(hhook);
+        UnhookWindowsHookEx(mouse_hhook);
     }
     TL_HHOOK.with(|h| *h.borrow_mut() = std::ptr::null_mut());
+    TL_MOUSE_HHOOK.with(|h| *h.borrow_mut() = std::ptr::null_mut());
     TL_CALLBACK.with(|cb| cb.borrow_mut().take());
 
     Ok(())

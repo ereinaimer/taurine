@@ -9,4 +9,6 @@ pub use hotkey::{
     hotkey_strings_overlap, hotkeys_overlap, normalize_hotkey, normalize_keypress_alias,
     parse_hotkey, parse_keypress_alias, taurine_pause_hotkey,
 };
-pub use key::{LogicalKey, Modifier, ModifierFamily, ModifierSide, ModifierState, Modifiers};
+pub use key::{
+    LogicalKey, Modifier, ModifierFamily, ModifierSide, ModifierState, Modifiers, MouseButton,
+};

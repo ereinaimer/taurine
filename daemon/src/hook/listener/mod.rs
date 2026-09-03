@@ -31,7 +31,8 @@ use crate::input::hook_health::HookHealth;
 use crate::input::hotkey;
 #[cfg(not(target_os = "linux"))]
 use crate::input::hotkey_evaluator::{
-    HotkeyEvaluation, HotkeyEvaluator, logical_key_from_rdev, modifiers_from_sides,
+    HotkeyEvaluation, HotkeyEvaluator, logical_key_from_rdev, logical_key_from_rdev_button,
+    modifiers_from_sides,
 };
 use taurine_core::engine::Evaluator;
 #[cfg(not(target_os = "linux"))]
@@ -337,15 +338,25 @@ pub fn process_keyboard_event(
             EventType::KeyRelease(key) => {
                 if let Some(logical_key) = logical_key_from_rdev(key)
                     && let Ok(mut lock) = hotkey_evaluator.lock()
+                    && matches!(lock.on_key_release(logical_key), HotkeyEvaluation::Swallow)
                 {
-                    let _ = lock.on_key_release(logical_key);
+                    return None;
                 }
                 return Some(event);
             }
-            EventType::KeyPress(_) => {
+            EventType::ButtonRelease(button) => {
+                if let Some(logical_key) = logical_key_from_rdev_button(button)
+                    && let Ok(mut lock) = hotkey_evaluator.lock()
+                    && matches!(lock.on_key_release(logical_key), HotkeyEvaluation::Swallow)
+                {
+                    return None;
+                }
+                return Some(event);
+            }
+            EventType::KeyPress(_) | EventType::ButtonPress(_) => {
                 injector::abort_injection();
                 trace!(
-                    "Injection aborted by physical keypress, falling through to normal pipeline"
+                    "Injection aborted by physical key/button press, falling through to normal pipeline"
                 );
             }
             _ => return Some(event),
@@ -411,7 +422,7 @@ pub fn process_keyboard_event(
     }
 
     match event.event_type {
-        EventType::ButtonPress(_) => {
+        EventType::ButtonPress(button) => {
             #[cfg(windows)]
             sync_physical_modifiers(
                 left_alt_down,
@@ -434,6 +445,23 @@ pub fn process_keyboard_event(
                 left_meta_down.store(false, Ordering::Relaxed);
                 right_meta_down.store(false, Ordering::Relaxed);
             }
+
+            if let Some(logical_key) = logical_key_from_rdev_button(button)
+                && let Ok(mut lock) = hotkey_evaluator.lock()
+            {
+                match lock.on_key_event(state.as_ref(), true, modifiers, logical_key) {
+                    HotkeyEvaluation::Matched(expansion) => {
+                        debug!("Mouse hotkey matched: {}", expansion.trigger);
+                        let spinner_style_inner =
+                            spinner_style.read().map(|s| *s).unwrap_or_default();
+                        spawn_expansion_dispatch(expansion, spinner_style_inner, state.clone());
+                        return None;
+                    }
+                    HotkeyEvaluation::Swallow => return None,
+                    HotkeyEvaluation::NoMatch => {}
+                }
+            }
+
             clear_undo_state(state.as_ref());
             if let Ok(mut lock) = hotkey_evaluator.lock() {
                 lock.clear();
@@ -716,6 +744,14 @@ pub fn process_keyboard_event(
             }
 
             if let Some(logical_key) = logical_key_from_rdev(key)
+                && let Ok(mut lock) = hotkey_evaluator.lock()
+                && matches!(lock.on_key_release(logical_key), HotkeyEvaluation::Swallow)
+            {
+                return None;
+            }
+        }
+        EventType::ButtonRelease(button) => {
+            if let Some(logical_key) = logical_key_from_rdev_button(button)
                 && let Ok(mut lock) = hotkey_evaluator.lock()
                 && matches!(lock.on_key_release(logical_key), HotkeyEvaluation::Swallow)
             {

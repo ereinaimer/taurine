@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Mouse Hotkey Triggers**: Trigger snippet expansions and actions using mouse button combinations.
 - **Dynamic System Tray Icons**: Display state-aware play and pause tray icons reflecting Taurine's active and paused states.
 - **Zero-Latency Text & Undo Fast-Path**: Inject plain text expansions up to 1,000 characters and backspace undos atomically with zero clipboard touches or artificial delay loops.
 - **Instant Shell Launcher**: Launch application and URL triggers natively with sub-millisecond response times, bypassing shell interpreter startup overhead.

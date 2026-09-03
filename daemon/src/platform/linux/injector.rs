@@ -290,5 +290,6 @@ pub(crate) fn alias_to_evdev_key(alias: &str) -> Option<evdev::KeyCode> {
             }
             taurine_core::keys::Modifier::RightMeta => Some(evdev::KeyCode::KEY_RIGHTMETA),
         },
+        LogicalKey::Mouse(_) => None,
     }
 }

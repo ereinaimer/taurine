@@ -617,4 +617,130 @@ mod listener_pipeline_tests {
             "Alt+G hotkey must match and be swallowed, even in headless / fast typing environments"
         );
     }
+
+    /// Mouse hotkey triggers (e.g. `ctrl+mouse1` and `ralt+mouse4`) must match,
+    /// be swallowed on press, swallow the subsequent release, and leave subsequent releases unswallowed.
+    #[test]
+    fn mouse_hotkey_trigger_matches_and_swallows_press_and_release() {
+        let _guard = TestGuard::acquire();
+        let h = Harness::new();
+        h.state.load_hotkey_actions(vec![
+            (
+                "ctrl+mouse1".to_string(),
+                taurine_core::db::crud::TriggerAction::text("clicked_ctrl_mouse1"),
+            ),
+            (
+                "ralt+mouse4".to_string(),
+                taurine_core::db::crud::TriggerAction::text("clicked_ralt_mouse4"),
+            ),
+        ]);
+
+        // 1. Test ctrl+mouse1
+        let r_ctrl = h.send(bare_event(EventType::KeyPress(Key::ControlLeft)));
+        assert!(r_ctrl.is_some(), "Ctrl key press should pass through");
+        assert!(h.l_ctrl.load(Ordering::Relaxed), "Left Ctrl must be active");
+
+        let r_click = h.send(bare_event(EventType::ButtonPress(rdev::Button::Left)));
+        assert!(
+            r_click.is_none(),
+            "ctrl+mouse1 hotkey must match and be swallowed on press"
+        );
+
+        let r_release = h.send(bare_event(EventType::ButtonRelease(rdev::Button::Left)));
+        assert!(
+            r_release.is_none(),
+            "mouse1 release after match must be swallowed"
+        );
+
+        let r_subsequent_release = h.send(bare_event(EventType::ButtonRelease(rdev::Button::Left)));
+        assert!(
+            r_subsequent_release.is_some(),
+            "subsequent mouse1 release should pass through"
+        );
+
+        let _ = h.send(bare_event(EventType::KeyRelease(Key::ControlLeft)));
+
+        // 2. Test ralt+mouse4
+        let r_alt = h.send(bare_event(EventType::KeyPress(Key::AltGr)));
+        assert!(r_alt.is_some(), "AltGr key press should pass through");
+        assert!(
+            h.r_alt.load(Ordering::Relaxed),
+            "Right Alt (AltGr) must be active"
+        );
+
+        let r_m4 = h.send(bare_event(EventType::ButtonPress(rdev::Button::Unknown(4))));
+        assert!(
+            r_m4.is_none(),
+            "ralt+mouse4 hotkey must match and be swallowed on press"
+        );
+
+        let r_m4_rel = h.send(bare_event(EventType::ButtonRelease(rdev::Button::Unknown(
+            4,
+        ))));
+        assert!(
+            r_m4_rel.is_none(),
+            "mouse4 release after match must be swallowed"
+        );
+
+        let r_m4_rel2 = h.send(bare_event(EventType::ButtonRelease(rdev::Button::Unknown(
+            4,
+        ))));
+        assert!(
+            r_m4_rel2.is_some(),
+            "subsequent mouse4 release should pass through"
+        );
+    }
+
+    /// Unmapped mouse clicks must interrupt any active typing buffer and pass through to the OS.
+    #[test]
+    fn unmapped_mouse_clicks_interrupt_buffer_and_pass_through() {
+        let _guard = TestGuard::acquire();
+        let h = Harness::new()
+            .with_trigger("gm", "Good morning!")
+            .with_hotkey_trigger("ctrl+mouse1", "clicked_ctrl_mouse1");
+
+        // Type partial trigger into buffer
+        h.type_str("gm");
+        assert_eq!(h.buf(), "gm");
+
+        // Unmapped right click (no modifiers)
+        let r_click = h.send(bare_event(EventType::ButtonPress(rdev::Button::Right)));
+        assert!(
+            r_click.is_some(),
+            "Unmapped right click must pass through to OS"
+        );
+        assert_eq!(
+            h.buf(),
+            "",
+            "Unmapped mouse click must clear and interrupt the buffer"
+        );
+
+        let r_rel = h.send(bare_event(EventType::ButtonRelease(rdev::Button::Right)));
+        assert!(
+            r_rel.is_some(),
+            "Unmapped mouse release must pass through to OS"
+        );
+
+        // Type again and test unmapped modifier+click (e.g. ctrl+mouse2 when only ctrl+mouse1 is mapped)
+        h.type_str("gm");
+        assert_eq!(h.buf(), "gm");
+
+        let _ = h.send(bare_event(EventType::KeyPress(Key::ControlLeft)));
+        let r_click2 = h.send(bare_event(EventType::ButtonPress(rdev::Button::Right)));
+        assert!(
+            r_click2.is_some(),
+            "Unmapped ctrl+mouse2 must pass through to OS"
+        );
+        assert_eq!(
+            h.buf(),
+            "",
+            "Unmapped ctrl+mouse2 must clear and interrupt the buffer"
+        );
+
+        let r_rel2 = h.send(bare_event(EventType::ButtonRelease(rdev::Button::Right)));
+        assert!(
+            r_rel2.is_some(),
+            "Unmapped mouse release must pass through to OS"
+        );
+    }
 }

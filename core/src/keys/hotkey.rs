@@ -109,6 +109,12 @@ pub fn parse_hotkey(input: &str) -> Result<Hotkey, KeyParseError> {
         return Err(KeyParseError::ModifierOnlyHotkey);
     }
 
+    if key.is_mouse_button().is_some() && modifiers.is_empty() {
+        return Err(KeyParseError::MouseButtonRequiresModifier {
+            key: base_token.unwrap_or_else(|| key.canonical_name().into_owned()),
+        });
+    }
+
     Ok(Hotkey { modifiers, key })
 }
 
@@ -597,5 +603,52 @@ mod tests {
         let ordered: Vec<ModifierFamily> =
             hotkey.modifiers.ordered().map(Modifier::family).collect();
         assert_eq!(ordered, vec![ModifierFamily::Ctrl, ModifierFamily::Alt]);
+    }
+
+    #[test]
+    fn parses_and_normalizes_mouse_button_hotkeys() {
+        assert_eq!(normalize_hotkey("ralt+mouse4").unwrap(), "ralt+mouse4");
+        assert_eq!(normalize_hotkey("ctrl+mouse1").unwrap(), "ctrl+mouse1");
+        assert_eq!(normalize_hotkey("shift+m5").unwrap(), "shift+mouse5");
+        assert_eq!(normalize_hotkey("alt+middleclick").unwrap(), "alt+mouse3");
+        assert_eq!(
+            normalize_hotkey("ctrl+shift+mouse3").unwrap(),
+            "ctrl+shift+mouse3"
+        );
+
+        let parsed = parse_hotkey("ralt+mouse4").unwrap();
+        assert_eq!(
+            parsed.key,
+            LogicalKey::Mouse(crate::keys::MouseButton::Button4)
+        );
+        assert!(parsed.modifiers.contains(Modifier::RightAlt));
+    }
+
+    #[test]
+    fn rejects_bare_mouse_buttons_without_modifiers() {
+        assert_eq!(
+            parse_hotkey("mouse4").unwrap_err(),
+            KeyParseError::MouseButtonRequiresModifier {
+                key: "mouse4".to_string(),
+            }
+        );
+        assert_eq!(
+            parse_hotkey("mouse1").unwrap_err(),
+            KeyParseError::MouseButtonRequiresModifier {
+                key: "mouse1".to_string(),
+            }
+        );
+        assert_eq!(
+            parse_hotkey("lclick").unwrap_err(),
+            KeyParseError::MouseButtonRequiresModifier {
+                key: "lclick".to_string(),
+            }
+        );
+        assert_eq!(
+            parse_hotkey("m5").unwrap_err(),
+            KeyParseError::MouseButtonRequiresModifier {
+                key: "m5".to_string(),
+            }
+        );
     }
 }

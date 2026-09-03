@@ -299,6 +299,29 @@ const fn family_requirement_matches(required: ModifierState, active: ModifierSta
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MouseButton {
+    Left,
+    Right,
+    Middle,
+    Button4,
+    Button5,
+    Other(u8),
+}
+
+impl MouseButton {
+    pub fn canonical_name(&self) -> Cow<'static, str> {
+        match self {
+            Self::Left => Cow::Borrowed("mouse1"),
+            Self::Right => Cow::Borrowed("mouse2"),
+            Self::Middle => Cow::Borrowed("mouse3"),
+            Self::Button4 => Cow::Borrowed("mouse4"),
+            Self::Button5 => Cow::Borrowed("mouse5"),
+            Self::Other(n) => Cow::Owned(format!("mouse{n}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LogicalKey {
     Letter(char),
     Digit(u8),
@@ -336,6 +359,7 @@ pub enum LogicalKey {
     PrintScreen,
     Pause,
     Modifier(Modifier),
+    Mouse(MouseButton),
 }
 
 impl LogicalKey {
@@ -371,7 +395,30 @@ impl LogicalKey {
             return Some(Self::Function(number));
         }
 
+        if let Some(rest) = alias.strip_prefix("mouse")
+            && let Ok(number) = rest.parse::<u8>()
+        {
+            let button = match number {
+                1 => MouseButton::Left,
+                2 => MouseButton::Right,
+                3 => MouseButton::Middle,
+                4 => MouseButton::Button4,
+                5 => MouseButton::Button5,
+                n => MouseButton::Other(n),
+            };
+            return Some(Self::Mouse(button));
+        }
+
         match alias {
+            "mouseleft" | "lclick" | "leftclick" => Some(Self::Mouse(MouseButton::Left)),
+            "mouseright" | "rclick" | "rightclick" => Some(Self::Mouse(MouseButton::Right)),
+            "mousemiddle" | "mclick" | "midclick" | "middleclick" | "wheelclick" => {
+                Some(Self::Mouse(MouseButton::Middle))
+            }
+            "m4" | "thumb1" | "xbutton1" | "x1" | "back" => Some(Self::Mouse(MouseButton::Button4)),
+            "m5" | "thumb2" | "xbutton2" | "x2" | "forward" => {
+                Some(Self::Mouse(MouseButton::Button5))
+            }
             "enter" | "return" => Some(Self::Enter),
             "esc" | "escape" => Some(Self::Escape),
             "tab" => Some(Self::Tab),
@@ -414,6 +461,13 @@ impl LogicalKey {
         }
     }
 
+    pub const fn is_mouse_button(self) -> Option<MouseButton> {
+        match self {
+            Self::Mouse(button) => Some(button),
+            _ => None,
+        }
+    }
+
     pub fn canonical_name(self) -> Cow<'static, str> {
         match self {
             Self::Letter(ch) => Cow::Owned(ch.to_string()),
@@ -452,6 +506,161 @@ impl LogicalKey {
             Self::PrintScreen => Cow::Borrowed("printscreen"),
             Self::Pause => Cow::Borrowed("pause"),
             Self::Modifier(modifier) => Cow::Borrowed(modifier.canonical_name()),
+            Self::Mouse(button) => button.canonical_name(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_mouse_button_aliases() {
+        assert_eq!(
+            LogicalKey::from_alias("mouse1"),
+            Some(LogicalKey::Mouse(MouseButton::Left))
+        );
+        assert_eq!(
+            LogicalKey::from_alias("mouseleft"),
+            Some(LogicalKey::Mouse(MouseButton::Left))
+        );
+        assert_eq!(
+            LogicalKey::from_alias("lclick"),
+            Some(LogicalKey::Mouse(MouseButton::Left))
+        );
+        assert_eq!(
+            LogicalKey::from_alias("leftclick"),
+            Some(LogicalKey::Mouse(MouseButton::Left))
+        );
+
+        assert_eq!(
+            LogicalKey::from_alias("mouse2"),
+            Some(LogicalKey::Mouse(MouseButton::Right))
+        );
+        assert_eq!(
+            LogicalKey::from_alias("mouseright"),
+            Some(LogicalKey::Mouse(MouseButton::Right))
+        );
+        assert_eq!(
+            LogicalKey::from_alias("rclick"),
+            Some(LogicalKey::Mouse(MouseButton::Right))
+        );
+        assert_eq!(
+            LogicalKey::from_alias("rightclick"),
+            Some(LogicalKey::Mouse(MouseButton::Right))
+        );
+
+        assert_eq!(
+            LogicalKey::from_alias("mouse3"),
+            Some(LogicalKey::Mouse(MouseButton::Middle))
+        );
+        assert_eq!(
+            LogicalKey::from_alias("mousemiddle"),
+            Some(LogicalKey::Mouse(MouseButton::Middle))
+        );
+        assert_eq!(
+            LogicalKey::from_alias("mclick"),
+            Some(LogicalKey::Mouse(MouseButton::Middle))
+        );
+        assert_eq!(
+            LogicalKey::from_alias("midclick"),
+            Some(LogicalKey::Mouse(MouseButton::Middle))
+        );
+        assert_eq!(
+            LogicalKey::from_alias("middleclick"),
+            Some(LogicalKey::Mouse(MouseButton::Middle))
+        );
+        assert_eq!(
+            LogicalKey::from_alias("wheelclick"),
+            Some(LogicalKey::Mouse(MouseButton::Middle))
+        );
+
+        assert_eq!(
+            LogicalKey::from_alias("mouse4"),
+            Some(LogicalKey::Mouse(MouseButton::Button4))
+        );
+        assert_eq!(
+            LogicalKey::from_alias("m4"),
+            Some(LogicalKey::Mouse(MouseButton::Button4))
+        );
+        assert_eq!(
+            LogicalKey::from_alias("thumb1"),
+            Some(LogicalKey::Mouse(MouseButton::Button4))
+        );
+        assert_eq!(
+            LogicalKey::from_alias("xbutton1"),
+            Some(LogicalKey::Mouse(MouseButton::Button4))
+        );
+        assert_eq!(
+            LogicalKey::from_alias("x1"),
+            Some(LogicalKey::Mouse(MouseButton::Button4))
+        );
+        assert_eq!(
+            LogicalKey::from_alias("back"),
+            Some(LogicalKey::Mouse(MouseButton::Button4))
+        );
+
+        assert_eq!(
+            LogicalKey::from_alias("mouse5"),
+            Some(LogicalKey::Mouse(MouseButton::Button5))
+        );
+        assert_eq!(
+            LogicalKey::from_alias("m5"),
+            Some(LogicalKey::Mouse(MouseButton::Button5))
+        );
+        assert_eq!(
+            LogicalKey::from_alias("thumb2"),
+            Some(LogicalKey::Mouse(MouseButton::Button5))
+        );
+        assert_eq!(
+            LogicalKey::from_alias("xbutton2"),
+            Some(LogicalKey::Mouse(MouseButton::Button5))
+        );
+        assert_eq!(
+            LogicalKey::from_alias("x2"),
+            Some(LogicalKey::Mouse(MouseButton::Button5))
+        );
+        assert_eq!(
+            LogicalKey::from_alias("forward"),
+            Some(LogicalKey::Mouse(MouseButton::Button5))
+        );
+
+        assert_eq!(
+            LogicalKey::from_alias("mouse6"),
+            Some(LogicalKey::Mouse(MouseButton::Other(6)))
+        );
+        assert_eq!(
+            LogicalKey::from_alias("mouse7"),
+            Some(LogicalKey::Mouse(MouseButton::Other(7)))
+        );
+    }
+
+    #[test]
+    fn mouse_button_canonical_names() {
+        assert_eq!(MouseButton::Left.canonical_name(), "mouse1");
+        assert_eq!(MouseButton::Right.canonical_name(), "mouse2");
+        assert_eq!(MouseButton::Middle.canonical_name(), "mouse3");
+        assert_eq!(MouseButton::Button4.canonical_name(), "mouse4");
+        assert_eq!(MouseButton::Button5.canonical_name(), "mouse5");
+        assert_eq!(MouseButton::Other(6).canonical_name(), "mouse6");
+
+        assert_eq!(
+            LogicalKey::Mouse(MouseButton::Left).canonical_name(),
+            "mouse1"
+        );
+        assert_eq!(
+            LogicalKey::Mouse(MouseButton::Other(8)).canonical_name(),
+            "mouse8"
+        );
+    }
+
+    #[test]
+    fn detects_mouse_buttons() {
+        assert_eq!(
+            LogicalKey::Mouse(MouseButton::Left).is_mouse_button(),
+            Some(MouseButton::Left)
+        );
+        assert_eq!(LogicalKey::Letter('a').is_mouse_button(), None);
     }
 }

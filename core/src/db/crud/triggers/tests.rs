@@ -738,6 +738,232 @@ fn add_trigger_allows_same_hotkey_with_distinct_app_filters() {
 }
 
 #[test]
+fn creates_and_validates_mouse_button_hotkey_triggers() {
+    init_tracing_for_tests();
+    let (_dir, mut conn) = open_test_db();
+
+    // 1. prepare_trigger_with_type for mouse button hotkeys
+    let prepared1 = prepare_trigger_with_type("ralt+mouse4", TriggerType::Hotkey, "all").unwrap();
+    assert_eq!(prepared1.stored_trigger, "ralt+mouse4");
+    assert_eq!(prepared1.trigger_type, TriggerType::Hotkey);
+
+    let prepared2 = prepare_trigger_with_type("ctrl+mouse1", TriggerType::Hotkey, "win").unwrap();
+    assert_eq!(prepared2.stored_trigger, "ctrl+mouse1");
+    assert_eq!(prepared2.trigger_type, TriggerType::Hotkey);
+
+    let prepared3 = prepare_trigger_with_type("alt+mouse3", TriggerType::Hotkey, "all").unwrap();
+    assert_eq!(prepared3.stored_trigger, "alt+mouse3");
+    assert_eq!(prepared3.trigger_type, TriggerType::Hotkey);
+
+    // 2. create_trigger with mouse button hotkeys
+    let id1 = create_trigger(
+        &mut conn,
+        NewTrigger {
+            name: Some("Right Alt Mouse 4"),
+            description: None,
+            trigger_type: TriggerType::Hotkey,
+            trigger: "ralt+mouse4",
+            content: "Action 1",
+            action_type: "text",
+            target_os: "all",
+            tags_json: "[]",
+            auto_case: false,
+            interpreter: None,
+            behavior: None,
+        },
+    )
+    .unwrap();
+
+    let row1 = get_trigger(&conn, &id1).unwrap().unwrap();
+    assert_eq!(row1.trigger_type, TriggerType::Hotkey);
+    assert_eq!(row1.trigger, "ralt+mouse4");
+    assert_eq!(row1.output, "Action 1");
+
+    // 3. add_trigger_by_type with mouse button hotkeys
+    let outcome = add_trigger_by_type(
+        &conn,
+        TriggerType::Hotkey,
+        "ctrl+mouse1",
+        "Action 2",
+        "win",
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    assert_eq!(outcome, AddOutcome::Created);
+
+    let outcome3 = add_trigger_by_type(
+        &conn,
+        TriggerType::Hotkey,
+        "alt+mouse3",
+        "Action 3",
+        "all",
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    assert_eq!(outcome3, AddOutcome::Created);
+}
+
+#[test]
+fn bare_mouse_buttons_fail_trigger_validation_with_informative_error() {
+    init_tracing_for_tests();
+    let (_dir, mut conn) = open_test_db();
+
+    // 1. prepare_trigger_with_type fails for bare mouse4 and mouse1
+    let err_mouse4 = prepare_trigger_with_type("mouse4", TriggerType::Hotkey, "all").unwrap_err();
+    assert!(
+        err_mouse4
+            .to_string()
+            .contains("mouse button 'mouse4' requires at least one modifier key"),
+        "unexpected error message: {err_mouse4}"
+    );
+
+    let err_mouse1 = prepare_trigger_with_type("mouse1", TriggerType::Hotkey, "win").unwrap_err();
+    assert!(
+        err_mouse1
+            .to_string()
+            .contains("mouse button 'mouse1' requires at least one modifier key"),
+        "unexpected error message: {err_mouse1}"
+    );
+
+    // 2. create_trigger fails for bare mouse button
+    let err_create = create_trigger(
+        &mut conn,
+        NewTrigger {
+            name: Some("Bare Mouse Button"),
+            description: None,
+            trigger_type: TriggerType::Hotkey,
+            trigger: "mouse4",
+            content: "payload",
+            action_type: "text",
+            target_os: "all",
+            tags_json: "[]",
+            auto_case: false,
+            interpreter: None,
+            behavior: None,
+        },
+    )
+    .unwrap_err();
+    assert!(
+        err_create
+            .to_string()
+            .contains("mouse button 'mouse4' requires at least one modifier key"),
+        "unexpected error message: {err_create}"
+    );
+
+    // 3. validate_trigger_target_os_conflict fails for bare mouse button
+    let err_conflict = validate_trigger_target_os_conflict(
+        &conn,
+        TriggerType::Hotkey,
+        "mouse1",
+        "all",
+        None,
+        None,
+        None,
+    )
+    .unwrap_err();
+    assert!(
+        err_conflict
+            .to_string()
+            .contains("mouse button 'mouse1' requires at least one modifier key"),
+        "unexpected error message: {err_conflict}"
+    );
+}
+
+#[test]
+fn mouse_hotkey_overlap_detection() {
+    init_tracing_for_tests();
+    let (_dir, conn) = open_test_db();
+
+    // 1. Direct overlap checks via hotkey_strings_overlap
+    // alt+mouse4 overlaps with ralt+mouse4 (generic alt overlaps with right alt)
+    assert!(crate::keys::hotkey_strings_overlap("alt+mouse4", "ralt+mouse4").unwrap());
+    assert!(crate::keys::hotkey_strings_overlap("ralt+mouse4", "alt+mouse4").unwrap());
+
+    // ctrl+mouse4 does not overlap with alt+mouse4
+    assert!(!crate::keys::hotkey_strings_overlap("ctrl+mouse4", "alt+mouse4").unwrap());
+
+    // ralt+mouse4 does not overlap with ralt+mouse5 (different mouse buttons)
+    assert!(!crate::keys::hotkey_strings_overlap("ralt+mouse4", "ralt+mouse5").unwrap());
+
+    // 2. Database conflict validation for mouse hotkeys
+    upsert_trigger_with_type(
+        &conn,
+        "uuid-alt-mouse4",
+        "Alt Mouse4",
+        None,
+        TriggerType::Hotkey,
+        "alt+mouse4",
+        "payload alt mouse4",
+        "text",
+        "all",
+        "[]",
+        0,
+        None,
+    )
+    .unwrap();
+
+    // alt+mouse4 conflicts with ralt+mouse4
+    let err = validate_trigger_target_os_conflict(
+        &conn,
+        TriggerType::Hotkey,
+        "ralt+mouse4",
+        "win",
+        None,
+        None,
+        None,
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains("conflicts"),
+        "unexpected error: {err}"
+    );
+
+    // ctrl+mouse4 does NOT conflict with alt+mouse4
+    validate_trigger_target_os_conflict(
+        &conn,
+        TriggerType::Hotkey,
+        "ctrl+mouse4",
+        "all",
+        None,
+        None,
+        None,
+    )
+    .expect("ctrl+mouse4 should not conflict with alt+mouse4");
+
+    // ralt+mouse4 does NOT conflict with ralt+mouse5
+    upsert_trigger_with_type(
+        &conn,
+        "uuid-ralt-mouse4",
+        "Right Alt Mouse4",
+        None,
+        TriggerType::Hotkey,
+        "ralt+mouse4",
+        "payload ralt mouse4",
+        "text",
+        "linux",
+        "[]",
+        0,
+        None,
+    )
+    .unwrap();
+
+    validate_trigger_target_os_conflict(
+        &conn,
+        TriggerType::Hotkey,
+        "ralt+mouse5",
+        "linux",
+        None,
+        None,
+        None,
+    )
+    .expect("ralt+mouse5 should not conflict with ralt+mouse4");
+}
+
+#[test]
 fn get_action_by_trigger_respects_target_os() {
     init_tracing_for_tests();
     let (_dir, conn) = open_test_db();

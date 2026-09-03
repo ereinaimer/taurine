@@ -3,7 +3,7 @@ use taurine_core::db::crud::TriggerAction;
 use taurine_core::engine::EngineState;
 use taurine_core::engine::{EngineEvent, Evaluator};
 use taurine_core::keys::Modifier;
-use taurine_core::keys::{LogicalKey, Modifiers};
+use taurine_core::keys::{LogicalKey, Modifiers, MouseButton};
 
 fn modifiers_with(modifiers: &[Modifier]) -> Modifiers {
     let mut bitset = Modifiers::new();
@@ -478,6 +478,127 @@ fn rdev_mapping_keeps_top_row_and_numpad_digits_distinct() {
     );
 }
 
+#[cfg(not(target_os = "linux"))]
+#[test]
+fn rdev_button_mapping_all_variants() {
+    assert_eq!(
+        logical_key_from_rdev_button(rdev::Button::Left),
+        Some(LogicalKey::Mouse(MouseButton::Left))
+    );
+    assert_eq!(
+        logical_key_from_rdev_button(rdev::Button::Right),
+        Some(LogicalKey::Mouse(MouseButton::Right))
+    );
+    assert_eq!(
+        logical_key_from_rdev_button(rdev::Button::Middle),
+        Some(LogicalKey::Mouse(MouseButton::Middle))
+    );
+    assert_eq!(
+        logical_key_from_rdev_button(rdev::Button::Unknown(4)),
+        Some(LogicalKey::Mouse(MouseButton::Button4))
+    );
+    assert_eq!(
+        logical_key_from_rdev_button(rdev::Button::Unknown(5)),
+        Some(LogicalKey::Mouse(MouseButton::Button5))
+    );
+    assert_eq!(
+        logical_key_from_rdev_button(rdev::Button::Unknown(9)),
+        Some(LogicalKey::Mouse(MouseButton::Other(9)))
+    );
+}
+
+#[test]
+fn mouse_hotkey_ralt_mouse4_and_ctrl_mouse1_match_and_swallow_release() {
+    let state = EngineState::new();
+    state.load_hotkey_actions(vec![
+        (
+            "ralt+mouse4".to_string(),
+            TriggerAction::text("action ralt mouse4"),
+        ),
+        (
+            "ctrl+mouse1".to_string(),
+            TriggerAction::text("action ctrl mouse1"),
+        ),
+    ]);
+    let mut evaluator = HotkeyEvaluator::new();
+
+    let ralt = modifiers_from_sides(false, false, false, false, false, true, false, false);
+    let lalt = modifiers_from_sides(false, false, false, false, true, false, false, false);
+    let ctrl = modifiers_with(&[Modifier::Ctrl]);
+    let mouse4 = LogicalKey::Mouse(MouseButton::Button4);
+    let mouse1 = LogicalKey::Mouse(MouseButton::Left);
+    let mouse2 = LogicalKey::Mouse(MouseButton::Right);
+    let mouse3 = LogicalKey::Mouse(MouseButton::Middle);
+
+    // 1. ralt+mouse4 matches
+    match evaluator.on_key_event(&state, true, ralt, mouse4) {
+        HotkeyEvaluation::Matched(expansion) => {
+            assert_eq!(expansion.trigger, "ralt+mouse4");
+            assert_eq!(
+                expansion.steps,
+                vec![taurine_core::engine::variables::ExpansionStep::Text(
+                    "action ralt mouse4".to_string()
+                )]
+            );
+        }
+        other => panic!("expected ralt+mouse4 match, got {other:?}"),
+    }
+
+    // Repeated press while down is swallowed
+    assert_eq!(
+        evaluator.on_key_event(&state, true, ralt, mouse4),
+        HotkeyEvaluation::Swallow
+    );
+
+    // Release is swallowed
+    assert_eq!(
+        evaluator.on_key_event(&state, false, ralt, mouse4),
+        HotkeyEvaluation::Swallow
+    );
+
+    // Next release is NoMatch since already removed
+    assert_eq!(evaluator.on_key_release(mouse4), HotkeyEvaluation::NoMatch);
+
+    // 2. ctrl+mouse1 matches
+    match evaluator.on_key_event(&state, true, ctrl, mouse1) {
+        HotkeyEvaluation::Matched(expansion) => {
+            assert_eq!(expansion.trigger, "ctrl+mouse1");
+            assert_eq!(
+                expansion.steps,
+                vec![taurine_core::engine::variables::ExpansionStep::Text(
+                    "action ctrl mouse1".to_string()
+                )]
+            );
+        }
+        other => panic!("expected ctrl+mouse1 match, got {other:?}"),
+    }
+
+    // Release is swallowed
+    assert_eq!(
+        evaluator.on_key_event(&state, false, ctrl, mouse1),
+        HotkeyEvaluation::Swallow
+    );
+
+    // 3. Unmapped button clicks return NoMatch
+    // Different modifier with mouse4 (lalt instead of ralt)
+    assert_eq!(
+        evaluator.on_key_event(&state, true, lalt, mouse4),
+        HotkeyEvaluation::NoMatch
+    );
+
+    // Unmapped mouse button with ctrl (ctrl+mouse2)
+    assert_eq!(
+        evaluator.on_key_event(&state, true, ctrl, mouse2),
+        HotkeyEvaluation::NoMatch
+    );
+
+    // Plain unmapped mouse click (mouse3 without modifiers)
+    assert_eq!(
+        evaluator.on_key_event(&state, true, Modifiers::new(), mouse3),
+        HotkeyEvaluation::NoMatch
+    );
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn evdev_mapping_keeps_top_row_and_numpad_digits_distinct() {
@@ -496,5 +617,42 @@ fn evdev_mapping_keeps_top_row_and_numpad_digits_distinct() {
     assert_eq!(
         logical_key_from_evdev(evdev::KeyCode::KEY_LEFTCTRL),
         Some(LogicalKey::Modifier(Modifier::LeftCtrl))
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn evdev_button_mapping_all_variants() {
+    assert_eq!(
+        logical_key_from_evdev(evdev::KeyCode::BTN_LEFT),
+        Some(LogicalKey::Mouse(MouseButton::Left))
+    );
+    assert_eq!(
+        logical_key_from_evdev(evdev::KeyCode::BTN_RIGHT),
+        Some(LogicalKey::Mouse(MouseButton::Right))
+    );
+    assert_eq!(
+        logical_key_from_evdev(evdev::KeyCode::BTN_MIDDLE),
+        Some(LogicalKey::Mouse(MouseButton::Middle))
+    );
+    assert_eq!(
+        logical_key_from_evdev(evdev::KeyCode::BTN_SIDE),
+        Some(LogicalKey::Mouse(MouseButton::Button4))
+    );
+    assert_eq!(
+        logical_key_from_evdev(evdev::KeyCode::BTN_BACK),
+        Some(LogicalKey::Mouse(MouseButton::Button4))
+    );
+    assert_eq!(
+        logical_key_from_evdev(evdev::KeyCode::BTN_EXTRA),
+        Some(LogicalKey::Mouse(MouseButton::Button5))
+    );
+    assert_eq!(
+        logical_key_from_evdev(evdev::KeyCode::BTN_FORWARD),
+        Some(LogicalKey::Mouse(MouseButton::Button5))
+    );
+    assert_eq!(
+        logical_key_from_evdev(evdev::KeyCode::BTN_TASK),
+        Some(LogicalKey::Mouse(MouseButton::Other(6)))
     );
 }

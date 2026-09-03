@@ -165,8 +165,11 @@ pub(crate) fn open_keyboard_device(path: &Path) -> io::Result<Option<Device>> {
         return Ok(None);
     }
 
-    if is_keyboard_device(&device) {
-        debug!("Found potential keyboard device: {} ({:?})", name, path);
+    if is_keyboard_device(&device) || is_mouse_device(&device) {
+        debug!(
+            "Found potential input trigger device: {} ({:?})",
+            name, path
+        );
         Ok(Some(device))
     } else {
         Ok(None)
@@ -281,6 +284,12 @@ fn is_keyboard_device(device: &Device) -> bool {
             && keys.contains(KeyCode::KEY_SPACE)
             && keys.contains(KeyCode::KEY_A)
     })
+}
+
+fn is_mouse_device(device: &Device) -> bool {
+    device
+        .supported_keys()
+        .is_some_and(|keys| keys.contains(KeyCode::BTN_LEFT) && keys.contains(KeyCode::BTN_RIGHT))
 }
 
 #[allow(clippy::too_many_arguments)]
