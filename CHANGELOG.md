@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Streamlined Exchange**: Export and import now focus purely on trigger data, removing support for bundling local metrics, settings, or secrets into exchange files.
 
 ### Fixed
+- **Clipboard Expansion Synchronization**: Fixed an issue where snippet expansions would occasionally paste previously copied clipboard text under heavy system load.
 - **Environment Variable Expansion in Launchers**: Fixed an issue where instant application and file triggers failed to open when target paths contained environment variables (such as `$ENV:VAR` or `%VAR%`).
 - **Hotkey Trigger Reliability**: Fixed an issue where rapid hotkey combinations failed intermittently after typing due to modifier state synchronization race conditions.
 - **Multi-Line Text Ordering**: Route multi-line and tabbed expansions through the clipboard pipeline to preserve line order and prevent premature command execution in terminals.

@@ -1,10 +1,15 @@
-use windows_sys::Win32::Foundation::{CloseHandle, MAX_PATH};
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, MAX_PATH};
 use windows_sys::Win32::System::Threading::{
     OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetClassNameW, GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
 };
+
+#[link(name = "user32")]
+unsafe extern "system" {
+    fn WaitForInputIdle(hprocess: HANDLE, dwmilliseconds: u32) -> u32;
+}
 
 pub fn get_active_window_info() -> Option<taurine_core::engine::ActiveWindowInfo> {
     // SAFETY: GetForegroundWindow returns a valid HWND or null.
@@ -103,5 +108,40 @@ pub fn is_foreground_window_elevated_or_restricted() -> bool {
 
         CloseHandle(process_handle);
         false
+    }
+}
+
+/// Waits until the foreground window's process has processed all pending input
+/// in its message queue and entered an idle state, or until `timeout_ms` elapses.
+/// Returns `true` if the process successfully reached the idle state.
+pub fn wait_for_foreground_window_idle(timeout_ms: u32) -> bool {
+    // SAFETY: GetForegroundWindow, GetWindowThreadProcessId, OpenProcess, WaitForInputIdle,
+    // and CloseHandle are standard Win32 calls. All handles are validated for null and
+    // properly closed.
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.is_null() {
+            return false;
+        }
+
+        let mut process_id = 0;
+        GetWindowThreadProcessId(hwnd, &mut process_id);
+        if process_id == 0 {
+            return false;
+        }
+
+        const SYNCHRONIZE_RIGHT: u32 = 0x00100000;
+        let process_handle = OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE_RIGHT,
+            0,
+            process_id,
+        );
+        if process_handle.is_null() {
+            return false;
+        }
+
+        let wait_result = WaitForInputIdle(process_handle, timeout_ms);
+        CloseHandle(process_handle);
+        wait_result == 0
     }
 }

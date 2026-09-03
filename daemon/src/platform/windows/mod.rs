@@ -3,7 +3,9 @@ pub mod clipboard;
 pub mod fullscreen;
 pub mod power;
 
-pub use active_window::is_foreground_window_elevated_or_restricted;
+pub use active_window::{
+    is_foreground_window_elevated_or_restricted, wait_for_foreground_window_idle,
+};
 
 pub struct WindowsClipboard;
 

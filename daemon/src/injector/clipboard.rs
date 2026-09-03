@@ -93,6 +93,60 @@ impl ClipboardManager for Clipboard {
     }
 }
 
+/// Runs a progressive 3-tier polling loop against a condition check.
+///
+/// - Tier 1: 5 micro-yield / spin-loop iterations for sub-millisecond turnaround (<1ms).
+/// - Tier 2: 20 x 2ms sleeps (~40ms) for normal OS message loop turnaround.
+/// - Tier 3: 15 x 10ms sleeps (~150ms) for heavy load or clipboard lock contention.
+fn poll_clipboard_progressive<F>(captured_gen: u64, mut check: F) -> Result<bool, String>
+where
+    F: FnMut() -> Result<bool, String>,
+{
+    // Tier 1: Micro-yield / spin-loop for immediate turnaround
+    for attempt in 0..5 {
+        if attempt > 0 {
+            std::hint::spin_loop();
+            std::thread::yield_now();
+        }
+
+        if captured_gen != 0 && is_aborted(captured_gen) {
+            return Err("injection aborted during clipboard poll".to_string());
+        }
+
+        if check().unwrap_or(false) {
+            return Ok(true);
+        }
+    }
+
+    // Tier 2: 2ms sleeps
+    for _ in 0..20 {
+        thread::sleep(Duration::from_millis(2));
+
+        if captured_gen != 0 && is_aborted(captured_gen) {
+            return Err("injection aborted during clipboard poll".to_string());
+        }
+
+        if check().unwrap_or(false) {
+            return Ok(true);
+        }
+    }
+
+    // Tier 3: 10ms sleeps for heavy CPU/memory load and contention
+    for _ in 0..15 {
+        thread::sleep(Duration::from_millis(10));
+
+        if captured_gen != 0 && is_aborted(captured_gen) {
+            return Err("injection aborted during clipboard poll".to_string());
+        }
+
+        if check().unwrap_or(false) {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
 /// Reads the user's current clipboard, writes `payload`, waits, then verifies the clipboard
 /// still equals `payload`. Returns the original text for restore after paste.
 ///
@@ -119,35 +173,15 @@ pub(super) fn prepare_clipboard_for_expansion(
         payload.to_string()
     };
 
-    // Poll clipboard to ensure the OS has registered the write.
-    // Micro-yield for the first 3 attempts (sub-millisecond turnaround),
-    // then fall back to 1ms sleeps for up to 25 attempts.
     let mut actual = String::new();
-    let mut success = false;
-
-    for attempt in 0..25 {
-        if attempt > 0 {
-            if attempt <= 3 {
-                std::hint::spin_loop();
-                std::thread::yield_now();
-            } else {
-                thread::sleep(Duration::from_millis(1));
-            }
+    let success = poll_clipboard_progressive(captured_gen, || match clipboard.get_text() {
+        Ok(ref text) if text == &expected => Ok(true),
+        Ok(text) => {
+            actual = text;
+            Ok(false)
         }
-
-        if captured_gen != 0 && is_aborted(captured_gen) {
-            return Err("injection aborted during clipboard poll".to_string());
-        }
-
-        match clipboard.get_text() {
-            Ok(ref text) if text == &expected => {
-                success = true;
-                break;
-            }
-            Ok(text) => actual = text,
-            Err(_) => {}
-        }
-    }
+        Err(_) => Ok(false),
+    })?;
 
     if success {
         Ok(original)
@@ -159,48 +193,58 @@ pub(super) fn prepare_clipboard_for_expansion(
     }
 }
 
-/// Restores the user's original clipboard content.
+/// Restores the user's original clipboard content with optional payload guard.
 ///
-/// When `captured_gen` is non-zero, the verification polling loop bails
-/// early if the injection generation advances.
-pub(super) fn restore_clipboard(original: &str, captured_gen: u64) {
+/// If `expected_payload` is provided and the clipboard currently contains something
+/// different from `expected_payload` (e.g. user initiated a `Ctrl+C` while expansion ran),
+/// the restore is skipped to avoid destroying the user's fresh copy.
+pub(super) fn restore_clipboard_guarded(
+    expected_payload: Option<&str>,
+    original: &str,
+    captured_gen: u64,
+) {
     let _timer_guard = HighResolutionTimerGuard::acquire();
     match crate::platform::get_clipboard_manager() {
         Ok(mut clip) => {
-            if let Err(e) = clip.set_text(original) {
-                error!("Failed to restore clipboard: {}", e);
+            // Pre-restore integrity check: if the clipboard was changed externally (e.g. by user Ctrl+C),
+            // preserve the user's fresh copy and do not overwrite it with old clipboard data.
+            if let Some(expected) = expected_payload
+                && !expected.is_empty()
+                && let Ok(ref current) = clip.get_text()
+                && !current.is_empty()
+                && current != expected
+            {
+                tracing::debug!(
+                    "Clipboard changed externally during expansion; preserving fresh user copy"
+                );
                 return;
             }
-            // Poll to verify clipboard was restored correctly.
-            // Micro-yield for the first 3 attempts, then fall back to 1ms sleeps.
-            let mut actual = String::new();
-            let mut success = false;
 
-            for attempt in 0..25 {
-                if attempt > 0 {
-                    if attempt <= 3 {
-                        std::hint::spin_loop();
-                        std::thread::yield_now();
-                    } else {
-                        thread::sleep(Duration::from_millis(1));
-                    }
-                }
+            // Write original text back with progressive retry on lock contention
+            let set_success =
+                poll_clipboard_progressive(captured_gen, || match clip.set_text(original) {
+                    Ok(()) => Ok(true),
+                    Err(_) => Ok(false),
+                });
 
-                if captured_gen != 0 && is_aborted(captured_gen) {
-                    return;
-                }
-
-                match clip.get_text() {
-                    Ok(ref text) if text == original => {
-                        success = true;
-                        break;
-                    }
-                    Ok(text) => actual = text,
-                    Err(_) => {}
-                }
+            if let Err(e) = set_success {
+                tracing::debug!("Clipboard restore aborted: {}", e);
+                return;
             }
 
-            if !success {
+            // Poll to verify clipboard was restored correctly
+            let mut actual = String::new();
+            let success = poll_clipboard_progressive(captured_gen, || match clip.get_text() {
+                Ok(ref text) if text == original => Ok(true),
+                Ok(text) => {
+                    actual = text;
+                    Ok(false)
+                }
+                Err(_) => Ok(false),
+            })
+            .unwrap_or(false);
+
+            if !success && (captured_gen == 0 || !is_aborted(captured_gen)) {
                 error!(
                     "Clipboard restore verify failed after polling: expected {:?}, got {:?}",
                     original, actual
@@ -211,6 +255,14 @@ pub(super) fn restore_clipboard(original: &str, captured_gen: u64) {
             error!("Failed to get clipboard manager: {}", e);
         }
     }
+}
+
+/// Restores the user's original clipboard content.
+///
+/// When `captured_gen` is non-zero, the verification polling loop bails
+/// early if the injection generation advances.
+pub(super) fn restore_clipboard(original: &str, captured_gen: u64) {
+    restore_clipboard_guarded(None, original, captured_gen);
 }
 
 pub fn restore_clipboard_text(original: &str) {

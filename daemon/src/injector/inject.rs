@@ -8,7 +8,9 @@ use tracing::{debug, error, trace};
 use taurine_core::engine::shell::ScriptBehavior;
 use taurine_core::engine::variables::ExpansionStep;
 
-use super::clipboard::{prepare_clipboard_for_expansion, restore_clipboard};
+use super::clipboard::{
+    prepare_clipboard_for_expansion, restore_clipboard, restore_clipboard_guarded,
+};
 use super::gate::{InjectionFlagGuard, capture_generation, inject_mutex, is_aborted};
 
 #[cfg(target_os = "linux")]
@@ -116,6 +118,10 @@ fn inject_text_segment_with_gen(
         match prepare_clipboard_for_expansion(&mut clipboard, text, captured_gen) {
             Ok(orig) => {
                 crate::platform::get_injector().simulate_paste();
+                #[cfg(windows)]
+                {
+                    crate::platform::windows::wait_for_foreground_window_idle(delay_ms);
+                }
                 if captured_gen != 0 {
                     abortable_sleep(post_paste_wait, captured_gen);
                 } else {
@@ -149,22 +155,47 @@ fn inject_text_segment_with_gen(
         }
     } else {
         let is_html = taurine_core::utils::html::has_html_tags(text);
-        let set_res = if is_html {
+        let expected = if is_html {
             let plaintext = taurine_core::utils::html::strip_html(text);
-            clipboard.set_html(text, &plaintext)
+            if let Err(e) = clipboard.set_html(text, &plaintext) {
+                error!("Failed to set HTML clipboard for text segment: {}", e);
+                return TextSegmentInjection {
+                    original_clipboard: original_clipboard.clone(),
+                    injected_chars: 0,
+                    success: false,
+                };
+            }
+            plaintext
         } else {
-            clipboard.set_text(text)
+            if let Err(e) = clipboard.set_text(text) {
+                error!("Failed to set clipboard for text segment: {}", e);
+                return TextSegmentInjection {
+                    original_clipboard: original_clipboard.clone(),
+                    injected_chars: 0,
+                    success: false,
+                };
+            }
+            text.to_string()
         };
-        if let Err(e) = set_res {
-            error!("Failed to set clipboard for text segment: {}", e);
-            return TextSegmentInjection {
-                original_clipboard: original_clipboard.clone(),
-                injected_chars: 0,
-                success: false,
-            };
+
+        // Micro-yield check to ensure clipboard updated before paste
+        for attempt in 0..5 {
+            if attempt > 0 {
+                std::hint::spin_loop();
+                std::thread::yield_now();
+            }
+            if let Ok(ref current) = clipboard.get_text()
+                && current == &expected
+            {
+                break;
+            }
         }
-        thread::sleep(Duration::from_millis(25));
+
         crate::platform::get_injector().simulate_paste();
+        #[cfg(windows)]
+        {
+            crate::platform::windows::wait_for_foreground_window_idle(delay_ms);
+        }
         if captured_gen != 0 {
             abortable_sleep(post_paste_wait, captured_gen);
         } else {
@@ -233,6 +264,10 @@ fn inject_image_segment_with_gen(
 
     thread::sleep(Duration::from_millis(50));
     crate::platform::get_injector().simulate_paste();
+    #[cfg(windows)]
+    {
+        crate::platform::windows::wait_for_foreground_window_idle(delay_ms);
+    }
     if captured_gen != 0 {
         abortable_sleep(post_paste_wait, captured_gen);
     } else {
@@ -430,6 +465,7 @@ pub fn inject_expansion(
 
     // 2. Execute each step in sequence.
     let mut original_clipboard: Option<String> = None;
+    let mut last_clipboard_payload: Option<String> = None;
     let mut report = InjectionReport {
         successful_chars: 0,
         completed: true,
@@ -450,6 +486,7 @@ pub fn inject_expansion(
 
         match step {
             ExpansionStep::Text(text) => {
+                last_clipboard_payload = Some(text.clone());
                 let injection =
                     inject_text_segment_with_gen(text, &original_clipboard, captured_gen);
                 report.successful_chars = report
@@ -468,6 +505,7 @@ pub fn inject_expansion(
                 }
             }
             ExpansionStep::Image(bytes, mime_type) => {
+                last_clipboard_payload = None;
                 let injection = inject_image_segment_with_gen(
                     bytes,
                     mime_type,
@@ -541,6 +579,7 @@ pub fn inject_expansion(
                         Ok(output) => {
                             let out: String = output;
                             if !out.is_empty() {
+                                last_clipboard_payload = Some(out.clone());
                                 let injection = inject_text_segment(&out, &original_clipboard);
                                 report.successful_chars = report
                                     .successful_chars
@@ -558,6 +597,7 @@ pub fn inject_expansion(
                             let err_str = e.to_string();
                             if !err_str.contains("aborted by user") {
                                 let err_msg = format!(" [Error: {}] ", e);
+                                last_clipboard_payload = Some(err_msg.clone());
                                 let injection = inject_text_segment(&err_msg, &original_clipboard);
                                 if original_clipboard.is_none() {
                                     original_clipboard = injection.original_clipboard;
@@ -595,6 +635,7 @@ pub fn inject_expansion(
                     match script_result {
                         Ok(output) => {
                             if !output.is_empty() {
+                                last_clipboard_payload = Some(output.clone());
                                 let injection = inject_text_segment(&output, &original_clipboard);
                                 report.successful_chars = report
                                     .successful_chars
@@ -612,6 +653,7 @@ pub fn inject_expansion(
                             let err_str = e.to_string();
                             if !err_str.contains("aborted by user") {
                                 let err_msg = format!("[Error: {}]", e);
+                                last_clipboard_payload = Some(err_msg.clone());
                                 let injection = inject_text_segment(&err_msg, &original_clipboard);
                                 if original_clipboard.is_none() {
                                     original_clipboard = injection.original_clipboard;
@@ -629,7 +671,7 @@ pub fn inject_expansion(
 
     // 3. Restore the user's original clipboard (if we touched it).
     if let Some(ref original) = original_clipboard {
-        restore_clipboard(original, captured_gen);
+        restore_clipboard_guarded(last_clipboard_payload.as_deref(), original, captured_gen);
     }
 
     // Panic Release: ensure all modifiers are logically released if keystrokes were involved.
