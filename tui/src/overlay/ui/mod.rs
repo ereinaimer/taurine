@@ -1,5 +1,5 @@
-mod actions;
-mod rows;
+pub(crate) mod actions;
+pub(crate) mod rows;
 
 use crate::theme::builtin::DARK_THEME;
 use crate::widgets::library::{

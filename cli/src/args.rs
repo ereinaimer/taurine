@@ -134,8 +134,33 @@ pub(crate) enum Commands {
     },
     /// Configure AI
     Ai {
-        #[command(subcommand)]
-        action: AiAction,
+        /// Run non-interactively without launching the TUI wizard
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+
+        /// AI provider to configure
+        #[arg(long, value_enum)]
+        provider: Option<AiProvider>,
+
+        /// API key for the provider (stored securely in OS keyring)
+        #[arg(long)]
+        key: Option<String>,
+
+        /// Model name to set
+        #[arg(long)]
+        model: Option<String>,
+
+        /// Custom OpenAI-compatible endpoint URL (for custom/local providers)
+        #[arg(long)]
+        endpoint: Option<String>,
+
+        /// Remove the specified provider credentials
+        #[arg(long, value_enum)]
+        remove: Option<AiProvider>,
+
+        /// Remove all configured AI credentials
+        #[arg(long)]
+        remove_all: bool,
     },
     /// Generate or install shell completions
     Completions {
@@ -170,39 +195,6 @@ pub enum ShellCompletionAction {
     Zsh,
     Install,
     Uninstall,
-}
-
-#[derive(Subcommand, Debug)]
-pub(crate) enum AiAction {
-    /// Add/update AI provider
-    Add {
-        #[arg(long, value_enum)]
-        provider: AiProvider,
-    },
-    /// List providers
-    List,
-    /// List provider models
-    Models {
-        #[arg(long, value_enum)]
-        provider: AiProvider,
-    },
-    /// Remove AI provider(s)
-    Remove {
-        /// Provider name (required unless --all is set)
-        #[arg(
-            long,
-            value_enum,
-            required_unless_present = "all",
-            conflicts_with = "all"
-        )]
-        provider: Option<AiProvider>,
-        /// Remove all configured providers
-        #[arg(short, long)]
-        all: bool,
-        /// Skip confirmation prompt
-        #[arg(short = 'y', long)]
-        yes: bool,
-    },
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]

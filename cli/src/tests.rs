@@ -7,49 +7,75 @@ use clap::CommandFactory;
 use clap_complete::shells::{Bash, Elvish, Fish};
 
 #[test]
-fn parses_ai_add_provider() {
-    let cli = Cli::try_parse_from(["taurine", "ai", "add", "--provider", "openai"])
-        .expect("ai add should parse");
+fn parses_ai_interactive_default() {
+    let cli = Cli::try_parse_from(["taurine", "ai"]).expect("ai default should parse");
 
     match cli.command {
         Some(Commands::Ai {
-            action: AiAction::Add { provider },
-        }) => assert_eq!(provider, AiProvider::Openai),
+            yes,
+            provider,
+            key,
+            model,
+            endpoint,
+            remove,
+            remove_all,
+        }) => {
+            assert!(!yes);
+            assert_eq!(provider, None);
+            assert_eq!(key, None);
+            assert_eq!(model, None);
+            assert_eq!(endpoint, None);
+            assert_eq!(remove, None);
+            assert!(!remove_all);
+        }
         other => panic!("unexpected command parse: {other:?}"),
     }
 }
 
 #[test]
-fn parses_ai_models_provider() {
-    let cli = Cli::try_parse_from(["taurine", "ai", "models", "--provider", "gemini"])
-        .expect("ai models should parse");
-
-    match cli.command {
-        Some(Commands::Ai {
-            action: AiAction::Models { provider },
-        }) => assert_eq!(provider, AiProvider::Gemini),
-        other => panic!("unexpected command parse: {other:?}"),
-    }
-}
-
-#[test]
-fn rejects_forbidden_ai_add_key_flag() {
-    let err = Cli::try_parse_from([
+fn parses_ai_headless_configure() {
+    let cli = Cli::try_parse_from([
         "taurine",
         "ai",
-        "add",
+        "-y",
         "--provider",
-        "claude",
+        "openai",
         "--key",
-        "secret",
+        "sk-secret",
+        "--model",
+        "gpt-4o",
     ])
-    .expect_err("--key must be rejected");
+    .expect("ai headless configure should parse");
 
-    let rendered = err.to_string();
-    assert!(
-        rendered.contains("--key"),
-        "expected clap to mention the forbidden flag, got: {rendered}"
-    );
+    match cli.command {
+        Some(Commands::Ai {
+            yes,
+            provider,
+            key,
+            model,
+            ..
+        }) => {
+            assert!(yes);
+            assert_eq!(provider, Some(AiProvider::Openai));
+            assert_eq!(key.as_deref(), Some("sk-secret"));
+            assert_eq!(model.as_deref(), Some("gpt-4o"));
+        }
+        other => panic!("unexpected command parse: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_ai_headless_remove() {
+    let cli = Cli::try_parse_from(["taurine", "ai", "-y", "--remove", "gemini"])
+        .expect("ai remove should parse");
+
+    match cli.command {
+        Some(Commands::Ai { yes, remove, .. }) => {
+            assert!(yes);
+            assert_eq!(remove, Some(AiProvider::Gemini));
+        }
+        other => panic!("unexpected command parse: {other:?}"),
+    }
 }
 
 #[test]
@@ -174,16 +200,16 @@ fn global_json_flag_on_config_list() {
 }
 
 #[test]
-fn global_json_flag_on_ai_list() {
-    let cli = Cli::try_parse_from(["taurine", "ai", "list", "--json"])
-        .expect("ai list --json should parse");
+fn global_json_flag_on_ai_status() {
+    let cli =
+        Cli::try_parse_from(["taurine", "ai", "-y", "--json"]).expect("ai -y --json should parse");
     assert!(cli.json);
 }
 
 #[test]
-fn global_json_flag_on_ai_models() {
-    let cli = Cli::try_parse_from(["taurine", "ai", "models", "--provider", "gemini", "--json"])
-        .expect("ai models --json should parse");
+fn global_json_flag_on_ai_configure() {
+    let cli = Cli::try_parse_from(["taurine", "ai", "-y", "--provider", "gemini", "--json"])
+        .expect("ai -y --provider gemini --json should parse");
     assert!(cli.json);
 }
 
@@ -235,9 +261,9 @@ fn global_json_flag_on_config_reset() {
 }
 
 #[test]
-fn global_json_flag_on_ai_add() {
-    let cli = Cli::try_parse_from(["taurine", "ai", "add", "--provider", "openai", "--json"])
-        .expect("ai add --json should parse");
+fn global_json_flag_on_ai_remove() {
+    let cli = Cli::try_parse_from(["taurine", "ai", "-y", "--remove", "openai", "--json"])
+        .expect("ai remove --json should parse");
     assert!(cli.json);
 }
 

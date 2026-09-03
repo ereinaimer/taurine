@@ -3,123 +3,164 @@ use std::collections::BTreeMap;
 #[cfg(test)]
 use std::sync::Mutex;
 
-use genai::resolver::AuthData;
-use genai::{Client, ServiceTarget};
-use std::io::Write;
-use tokio::runtime::Builder;
 use tracing::info;
-use zeroize::Zeroize;
 
 use taurine_core::ai::{AiProvider, CredentialStore, OsKeyringStore, configured_providers};
+use taurine_core::db::init;
+use taurine_core::settings::SettingsManager;
 
-trait ModelCatalog {
-    fn list_models(
-        &self,
-        provider: AiProvider,
-        api_key: &str,
-    ) -> taurine_core::error::Result<Vec<String>>;
+#[derive(Debug, Clone, Default)]
+pub struct AiCommandArgs {
+    pub yes: bool,
+    pub provider: Option<AiProvider>,
+    pub key: Option<String>,
+    pub model: Option<String>,
+    pub endpoint: Option<String>,
+    pub remove: Option<AiProvider>,
+    pub remove_all: bool,
+    pub json: bool,
 }
 
-pub fn execute_add(provider: AiProvider, json: bool) -> taurine_core::error::Result<()> {
-    add_provider_with_prompt(&OsKeyringStore, provider, prompt_provider_secret)?;
-    info!("configured {}", provider.as_str());
-
-    if provider == AiProvider::Custom {
-        info!("Remember to set your endpoint: taurine config set ai_custom_endpoint <URL>");
+pub fn execute(args: AiCommandArgs) -> taurine_core::error::Result<()> {
+    if !args.yes {
+        return taurine_tui::run_ai_overlay();
     }
 
-    if json {
+    let conn = init::setup()?;
+    let manager = SettingsManager::new(&conn);
+
+    if args.remove_all {
+        let removed = remove_all_providers(&OsKeyringStore)?;
+        manager.update_setting("ai_provider", "")?;
+        manager.update_setting("ai_model", "")?;
+        if args.json {
+            println!(
+                "{}",
+                serde_json::json!({"status": "removed", "providers": removed})
+            );
+        } else {
+            info!("removed {} providers", removed.len());
+        }
+        return Ok(());
+    }
+
+    if let Some(p) = args.remove {
+        let was_removed = remove_provider_credential(&OsKeyringStore, p)?;
+        let settings = manager.load_all();
+        if let Some(active) = settings.ai_provider
+            && active.eq_ignore_ascii_case(p.as_str())
+        {
+            let remaining = configured_providers(&OsKeyringStore)?;
+            if let Some(next) = remaining.first() {
+                manager.update_setting("ai_provider", next.as_str())?;
+                manager.update_setting("ai_model", next.default_model())?;
+            } else {
+                manager.update_setting("ai_provider", "")?;
+                manager.update_setting("ai_model", "")?;
+            }
+        }
+        if args.json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "status": if was_removed { "removed" } else { "not_configured" },
+                    "provider": p.as_str(),
+                })
+            );
+        } else if was_removed {
+            info!("removed {}", p.as_str());
+        } else {
+            info!("{} not configured", p.as_str());
+        }
+        return Ok(());
+    }
+
+    if let Some(p) = args.provider {
+        if p != AiProvider::Custom && args.key.is_none() {
+            return Err(taurine_core::Error::Config(format!(
+                "API key is required for provider '{}'. Use --key <KEY>.",
+                p.as_str()
+            )));
+        }
+
+        if let Some(ref k) = args.key {
+            OsKeyringStore.set_secret(p, k.trim())?;
+        }
+
+        manager.update_setting("ai_provider", p.as_str())?;
+
+        let model_str = args
+            .model
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| p.default_model());
+        manager.update_setting("ai_model", model_str)?;
+
+        if p == AiProvider::Custom
+            && let Some(ref ep) = args.endpoint
+        {
+            manager.update_setting("ai_custom_endpoint", ep.trim())?;
+        }
+
+        if args.json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "status": "configured",
+                    "provider": p.as_str(),
+                    "model": model_str,
+                })
+            );
+        } else {
+            info!(
+                "configured and activated {} (model: {})",
+                p.as_str(),
+                model_str
+            );
+        }
+        return Ok(());
+    }
+
+    // Status / info output when -y is provided without mutation flags
+    let settings = manager.load_all();
+    let configured = configured_providers(&OsKeyringStore)?;
+
+    if args.json {
+        let prov_names: Vec<&str> = configured.iter().map(|p| p.as_str()).collect();
         println!(
             "{}",
-            serde_json::json!({"status": "configured", "provider": provider.as_str()})
+            serde_json::json!({
+                "active_provider": settings.ai_provider,
+                "active_model": settings.ai_model,
+                "custom_endpoint": settings.ai_custom_endpoint,
+                "configured_providers": prov_names,
+            })
         );
-    }
-
-    Ok(())
-}
-
-pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
-    let providers = configured_providers(&OsKeyringStore)?;
-
-    if json {
-        let names: Vec<&str> = providers.iter().map(|p| p.as_str()).collect();
-        println!("{}", serde_json::to_string(&names).unwrap());
-        return Ok(());
-    }
-
-    for provider in providers {
-        println!("{}", provider.as_str());
-    }
-
-    Ok(())
-}
-
-pub fn execute_models(provider: AiProvider, json: bool) -> taurine_core::error::Result<()> {
-    let models = models_for_provider(&OsKeyringStore, &GenaiModelCatalog, provider)?;
-
-    if json {
-        println!("{}", serde_json::to_string(&models).unwrap());
-        return Ok(());
-    }
-
-    for model in models {
-        println!("{model}");
-    }
-
-    Ok(())
-}
-
-pub fn execute_remove(provider: AiProvider, json: bool) -> taurine_core::error::Result<()> {
-    if remove_provider_credential(&OsKeyringStore, provider)? {
-        info!("removed {}", provider.as_str());
-        if json {
-            println!(
-                "{}",
-                serde_json::json!({"status": "removed", "provider": provider.as_str()})
-            );
-        }
     } else {
-        info!("{} not configured", provider.as_str());
-        if json {
-            println!(
-                "{}",
-                serde_json::json!({"status": "not_configured", "provider": provider.as_str()})
-            );
+        if let Some(ref active) = settings.ai_provider {
+            let model = settings.ai_model.as_deref().unwrap_or("<default>");
+            println!("Active Provider: {active} (model: {model})");
+        } else {
+            println!("Active Provider: None");
+        }
+        if configured.is_empty() {
+            println!("Configured Providers: none");
+        } else {
+            println!("Configured Providers:");
+            for p in &configured {
+                let is_active = settings
+                    .ai_provider
+                    .as_deref()
+                    .map(|a| a.eq_ignore_ascii_case(p.as_str()))
+                    .unwrap_or(false);
+                let tag = if is_active { " [Active]" } else { "" };
+                println!("  - {}{tag}", p.display_name());
+            }
         }
     }
 
     Ok(())
-}
-
-fn add_provider_with_prompt<S, F>(
-    store: &S,
-    provider: AiProvider,
-    prompt: F,
-) -> taurine_core::error::Result<()>
-where
-    S: CredentialStore,
-    F: FnOnce(AiProvider) -> taurine_core::error::Result<String>,
-{
-    let mut secret = prompt(provider)?;
-    store_provider_secret(store, provider, &mut secret)
-}
-
-fn models_for_provider<S, M>(
-    store: &S,
-    catalog: &M,
-    provider: AiProvider,
-) -> taurine_core::error::Result<Vec<String>>
-where
-    S: CredentialStore,
-    M: ModelCatalog,
-{
-    let secret = store.get_secret(provider)?.ok_or_else(|| {
-        taurine_core::error::Error::Config(format!(
-            "Provider '{}' is not configured",
-            provider.as_str()
-        ))
-    })?;
-    catalog.list_models(provider, secret.as_str())
 }
 
 fn remove_provider_credential<S>(
@@ -145,130 +186,62 @@ fn remove_all_providers<S: CredentialStore>(
     Ok(removed)
 }
 
-pub fn execute_remove_all(yes: bool, json: bool) -> taurine_core::error::Result<()> {
-    let configured = configured_providers(&OsKeyringStore)?;
-    if configured.is_empty() {
-        if json {
-            println!(r#"{{"status":"removed","providers":[]}}"#);
-        } else {
-            info!("no providers configured");
-        }
-        return Ok(());
-    }
-
-    if !yes {
-        let label = if configured.len() == 1 {
-            "provider"
-        } else {
-            "providers"
-        };
-        eprint!(
-            "This will remove {} {} ({}). Continue? [y/N] ",
-            configured.len(),
-            label,
-            configured
-                .iter()
-                .map(|p| p.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-        std::io::stdout().flush()?;
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input)?;
-        if input.trim().to_lowercase() != "y" {
-            info!("Operation cancelled");
-            return Ok(());
-        }
-    }
-
-    let removed = remove_all_providers(&OsKeyringStore)?;
-    if json {
-        println!(
-            "{}",
-            serde_json::json!({"status": "removed", "providers": removed})
-        );
-    } else {
-        let label = if removed.len() == 1 {
-            "provider"
-        } else {
-            "providers"
-        };
-        info!("removed {} {}", removed.len(), label);
-    }
-    Ok(())
-}
-
-fn store_provider_secret<S>(
-    store: &S,
-    provider: AiProvider,
-    secret: &mut String,
-) -> taurine_core::error::Result<()>
-where
-    S: CredentialStore,
-{
-    let result = store.set_secret(provider, secret.as_str());
-    secret.zeroize();
-    result
-}
-
-fn prompt_provider_secret(provider: AiProvider) -> taurine_core::error::Result<String> {
-    taurine_tui::prompt_password(&format!("{} API key:", provider.as_str()), false)?
-        .ok_or_else(|| taurine_core::error::Error::Config("API key entry cancelled.".to_string()))
-}
-
-struct GenaiModelCatalog;
-
-impl ModelCatalog for GenaiModelCatalog {
-    fn list_models(
-        &self,
-        provider: AiProvider,
-        api_key: &str,
-    ) -> taurine_core::error::Result<Vec<String>> {
-        let runtime = Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|e| {
-                taurine_core::error::Error::Service(format!(
-                    "Failed to start async runtime for model lookup: {e}"
-                ))
-            })?;
-
-        let mut secret = api_key.to_string();
-        let result = runtime.block_on(async {
-            let client = build_model_client(secret.as_str());
-            let mut models = client
-                .all_model_names(provider.to_genai_adapter(), ())
-                .await
-                .map_err(|e| {
-                    taurine_core::error::Error::Service(format!(
-                        "Failed to list models for '{}': {e}",
-                        provider.as_str()
-                    ))
-                })?;
-            models.sort();
-            models.dedup();
-            Ok(models)
-        });
-        secret.zeroize();
-        result
-    }
-}
-
-fn build_model_client(api_key: &str) -> Client {
-    let api_key = api_key.to_string();
-    Client::builder()
-        .with_service_target_resolver_fn(move |service_target: ServiceTarget| {
-            Ok(ServiceTarget {
-                auth: AuthData::from_single(api_key.clone()),
-                ..service_target
-            })
-        })
-        .build()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zeroize::Zeroize;
+
+    trait ModelCatalog {
+        fn list_models(
+            &self,
+            provider: AiProvider,
+            api_key: &str,
+        ) -> taurine_core::error::Result<Vec<String>>;
+    }
+
+    fn add_provider_with_prompt<S, F>(
+        store: &S,
+        provider: AiProvider,
+        prompt: F,
+    ) -> taurine_core::error::Result<()>
+    where
+        S: CredentialStore,
+        F: FnOnce(AiProvider) -> taurine_core::error::Result<String>,
+    {
+        let mut secret = prompt(provider)?;
+        store_provider_secret(store, provider, &mut secret)
+    }
+
+    fn models_for_provider<S, M>(
+        store: &S,
+        catalog: &M,
+        provider: AiProvider,
+    ) -> taurine_core::error::Result<Vec<String>>
+    where
+        S: CredentialStore,
+        M: ModelCatalog,
+    {
+        let secret = store.get_secret(provider)?.ok_or_else(|| {
+            taurine_core::error::Error::Config(format!(
+                "Provider '{}' is not configured",
+                provider.as_str()
+            ))
+        })?;
+        catalog.list_models(provider, secret.as_str())
+    }
+
+    fn store_provider_secret<S>(
+        store: &S,
+        provider: AiProvider,
+        secret: &mut String,
+    ) -> taurine_core::error::Result<()>
+    where
+        S: CredentialStore,
+    {
+        let result = store.set_secret(provider, secret.as_str());
+        secret.zeroize();
+        result
+    }
 
     #[derive(Default)]
     struct MemoryCredentialStore {

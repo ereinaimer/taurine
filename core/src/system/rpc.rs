@@ -281,9 +281,20 @@ mod tests {
     #[test]
     fn test_notify_daemon_reload_skips_when_service_not_running() {
         use_mock_keyring();
+        // SAFETY: Single-threaded unit test modifying environment variable for isolation.
+        unsafe {
+            std::env::set_var(
+                "TAURINE_SERVICE_LIVENESS_NAME",
+                "Local\\TaurineTestNonExistent",
+            );
+        }
         let start = std::time::Instant::now();
         notify_daemon_reload();
         let elapsed = start.elapsed();
+        // SAFETY: Single-threaded unit test cleaning up environment variable.
+        unsafe {
+            std::env::remove_var("TAURINE_SERVICE_LIVENESS_NAME");
+        }
         assert!(
             elapsed.as_millis() < 50,
             "notify_daemon_reload should return in < 50ms when service is offline, took {:?}",

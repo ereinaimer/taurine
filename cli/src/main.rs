@@ -4,7 +4,7 @@ pub mod args;
 pub mod commands;
 pub mod platform;
 
-use args::{AiAction, Cli, Commands, ConfigAction, LaunchTarget, VERSION};
+use args::{Cli, Commands, ConfigAction, LaunchTarget, VERSION};
 use clap::Parser;
 use tracing::{error, info};
 
@@ -18,11 +18,13 @@ fn main() -> std::process::ExitCode {
 
     let launch_target = launch_target(&cli);
 
-    // Suppress console tracing for interactive import/export commands
-    // to prevent tracing output from interleaving with prompts.
+    // Suppress console tracing for interactive import/export/ai commands
+    // to prevent tracing output from interleaving with prompts and TUI overlays.
     let is_interactive_command = matches!(
         &cli.command,
-        Some(Commands::Import { .. }) | Some(Commands::Export { .. })
+        Some(Commands::Import { .. })
+            | Some(Commands::Export { .. })
+            | Some(Commands::Ai { yes: false, .. })
     );
     let quiet = cli.quiet || (is_interactive_command && cli.verbose == 0);
 
@@ -136,18 +138,26 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
                 }
             }
         },
-        Some(Commands::Ai { action }) => match action {
-            AiAction::Add { provider } => commands::ai::execute_add(provider.into(), json)?,
-            AiAction::List => commands::ai::execute_list(json)?,
-            AiAction::Models { provider } => commands::ai::execute_models(provider.into(), json)?,
-            AiAction::Remove { provider, all, yes } => {
-                if all {
-                    commands::ai::execute_remove_all(yes, json)?;
-                } else if let Some(p) = provider {
-                    commands::ai::execute_remove(p.into(), json)?;
-                }
-            }
-        },
+        Some(Commands::Ai {
+            yes,
+            provider,
+            key,
+            model,
+            endpoint,
+            remove,
+            remove_all,
+        }) => {
+            commands::ai::execute(commands::ai::AiCommandArgs {
+                yes,
+                provider: provider.map(Into::into),
+                key,
+                model,
+                endpoint,
+                remove: remove.map(Into::into),
+                remove_all,
+                json,
+            })?;
+        }
         Some(Commands::Completions { action }) => {
             commands::completions::handle_completion(&action)?;
         }

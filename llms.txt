@@ -71,11 +71,8 @@ Validation limits: trigger string ≤200 chars, text output ≤100 KB, script co
 | Service RPC | `rpc_mode` (`socket`; `tcp`), `rpc_host` (`127.0.0.1`), `rpc_port` (`50051`) |
 
 ### 2.5 AI Copilot
-*   `taurine ai add --provider <name>`: Adds a provider credential (stored in the OS keyring, never plaintext).
-*   `taurine ai models --provider <name>`: Lists models supported by a provider.
-*   `taurine ai list` (or `ls`): Lists all configured AI providers.
-*   `taurine ai remove --provider <name>`: Removes a provider's credentials.
-*   `taurine ai preset add/rm/list`: Manage shortcuts for specific AI personas or tasks.
+*   `taurine ai` (or `tau ai`): Launches the interactive Ratatui overlay configuration wizard. Hotkeys: `j`/`k` (navigate), `n` (add new provider), `Enter` (select active & edit model), `d` (remove provider from keyring), `q`/`Esc` (exit).
+*   `taurine ai -y` (headless): Non-interactive command execution. Supports `--provider <name>`, `--key <key>`, `--model <name>`, `--endpoint <url>`, `--remove <name>`, `--remove-all`, and `--json`.
 *   Supported providers and default models: openai (`gpt-4o`), claude/anthropic (`claude-3-5-sonnet-latest`), gemini (`gemini-2.5-flash`), xai (`grok-2-latest`), deepseek (`deepseek-chat`), groq (`llama-3.3-70b-versatile`), cohere (`command-r-plus`), together (`meta-llama/Llama-3.3-70B-Instruct-Turbo`), fireworks (`llama-v3p3-70b-instruct`), nebius (`Meta-Llama-3.1-70B-Instruct`), github_copilot (`gpt-4o`), mimo (`mimo-2`), zai (`glm-4`), custom (`gpt-3.5-turbo`).
 *   Provider selection: explicit `ai_provider` wins; otherwise a single configured provider is auto-used; multiple providers without a default prompt you to set `ai_provider`.
 

@@ -6,8 +6,8 @@ pub mod terminal;
 mod theme;
 pub use crate::widgets::library::actions::{LibraryImportConflictMode, RememberedConflictChoice};
 pub use overlay::{
-    ExportFormResult, ImportFormResult, prompt_password, run_conflict_prompt, run_export_overlay,
-    run_import_overlay,
+    ExportFormResult, ImportFormResult, prompt_password, run_ai_overlay, run_conflict_prompt,
+    run_export_overlay, run_import_overlay,
 };
 mod widgets;
 

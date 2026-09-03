@@ -8,43 +8,50 @@ import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 
 Taurine's **Inline AI Copilot** brings powerful Large Language Models directly to your cursor. Whether you need to rewrite a sentence, generate a function, or brainstorm ideas, you can trigger AI assistance without leaving your active window.
 
-## Add An AI Provider
+## Configuration Wizard
 
-Taurine supports a vast range of top-tier AI providers, including specialized platforms for performance and low latency
+Launch the interactive AI configuration wizard from any terminal:
 
 ```bash
-taurine ai add --provider <name>
+tau ai
 ```
 
-### Supported Providers & Default Models
+### Interactive Hotkeys
 
-When you add a provider, Taurine uses the following default models (which you can override in your configuration).
+| Key | Action |
+| :--- | :--- |
+| `j` / `k` | Navigate between configured providers |
+| `n` | Add a new AI provider (Gemini, OpenAI, Claude, Groq, Ollama, etc.) |
+| `Enter` | Set selected provider as active and edit model name |
+| `d` | Remove provider credentials from OS keyring |
+| `q` / `Esc` | Exit configuration wizard |
 
-| Provider | Key Name | Default Model |
-| :--- | :--- | :--- |
-| **OpenAI** | `openai` | `gpt-4o` |
-| **Anthropic** | `claude` | `claude-3-5-sonnet-latest` |
-| **Google** | `gemini` | `gemini-2.5-flash` |
-| **xAI** | `xai` | `grok-2-latest` |
-| **DeepSeek** | `deepseek` | `deepseek-chat` |
-| **Groq** | `groq` | `llama-3.3-70b-versatile` |
-| **Cohere** | `cohere` | `command-r-plus` |
-| **Together AI** | `together` | `meta-llama/Llama-3.3-70B-Instruct-Turbo` |
-| **Fireworks AI** | `fireworks` | `llama-v3p3-70b-instruct` |
-| **Nebius AI** | `nebius` | `Meta-Llama-3.1-70B-Instruct` |
-| **GitHub Copilot** | `github_copilot` | `gpt-4o` |
-| **Mimo** | `mimo` | `mimo-2` |
-| **Zhipu / Zai** | `zai` | `glm-4` |
-| **Custom** | `custom` | `gpt-3.5-turbo` |
+### Non-Interactive (Headless) Automation
 
-<Callout title="Security" type="info">
-  Taurine stores your API keys securely in the OS keyring. They are never saved as plain text.
-</Callout>
+For headless environments, automated setups, and scripts, pass the `-y` flag:
 
-### Provider Management
-- **List providers**: `taurine ai list`
-- **List models**: `taurine ai models --provider <name>`
-- **Remove provider**: `taurine ai remove --provider <name>`
+```bash
+# Check active and configured providers
+tau ai -y
+
+# Output status in JSON format
+tau ai -y --json
+
+# Configure a provider
+tau ai -y --provider gemini --key <YOUR_API_KEY>
+
+# Configure a provider with a specific model
+tau ai -y --provider openai --key <YOUR_API_KEY> --model gpt-4o
+
+# Configure a custom local endpoint (e.g. Ollama or LM Studio)
+tau ai -y --provider custom --endpoint http://localhost:11434/v1 --model llama3
+
+# Remove a provider
+tau ai -y --remove gemini
+
+# Remove all configured providers
+tau ai -y --remove-all
+```
 
 ## Usage
 
@@ -110,5 +117,5 @@ taurine config set ai_custom_endpoint http://localhost:11434/v1
 Taurine determines which provider to use based on your active configuration:
 
 1. **Explicit Setting**: If `ai_provider` is set via `taurine config set ai_provider <name>`, that provider is always used.
-2. **Auto-Selection**: If `ai_provider` is not set but you have exactly **one** provider configured (via `taurine ai add`), Taurine will use it automatically.
+2. **Auto-Selection**: If `ai_provider` is not set but you have exactly **one** provider configured (via `tau ai`), Taurine will use it automatically.
 3. **Manual Conflict**: If multiple providers are configured but no default is set, Taurine will prompt you to set an `ai_provider` before it can execute a request.
