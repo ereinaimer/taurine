@@ -46,7 +46,6 @@ pub fn start_macos_supervisor(
         .name("tau-macos-supervisor".to_string())
         .spawn(move || {
             info!("macOS Event Tap supervisor active");
-            let mut active_listener: Option<std::thread::JoinHandle<()>> = None;
 
             let spawn_listener =
                 |listener_tx: mpsc::Sender<MacosSupervisorEvent>| -> std::thread::JoinHandle<()> {
@@ -70,13 +69,13 @@ pub fn start_macos_supervisor(
                     })
                 };
 
-            active_listener = Some(spawn_listener(supervisor_tx.clone()));
+            let mut active_listener = Some(spawn_listener(supervisor_tx.clone()));
 
             while let Ok(event) = rx.recv() {
                 match event {
                     MacosSupervisorEvent::Shutdown => {
                         debug!("macOS supervisor shutting down");
-                        crate::hook::listener::macos::stop_run_loop();
+                        crate::hook::stop_listener();
                         if let Some(handle) = active_listener.take() {
                             let _ = handle.join();
                         }
@@ -84,7 +83,7 @@ pub fn start_macos_supervisor(
                     }
                     MacosSupervisorEvent::WillSleep => {
                         debug!("macOS sleep notification received; stopping event tap");
-                        crate::hook::listener::macos::stop_run_loop();
+                        crate::hook::stop_listener();
                         if let Some(handle) = active_listener.take() {
                             let _ = handle.join();
                         }
@@ -93,7 +92,7 @@ pub fn start_macos_supervisor(
                         info!("macOS wake notification received; re-initializing event tap");
                         hook_health.mark_recovery_signal("macOS wake from sleep");
                         std::thread::sleep(Duration::from_millis(250));
-                        crate::hook::listener::macos::stop_run_loop();
+                        crate::hook::stop_listener();
                         if let Some(handle) = active_listener.take() {
                             let _ = handle.join();
                         }

@@ -29,9 +29,8 @@ pub use listener::{start_listener, stop_listener};
 pub use supervisor::{WindowsSupervisorEvent, start_windows_supervisor, stop_windows_supervisor};
 
 #[cfg(target_os = "macos")]
-pub use crate::platform::macos::supervisor::{
-    MacosSupervisorEvent, start_macos_supervisor, stop_macos_supervisor,
-};
+#[allow(unused_imports)]
+pub use crate::platform::macos::supervisor::{start_macos_supervisor, stop_macos_supervisor};
 
 #[cfg(test)]
 pub(crate) mod tests;

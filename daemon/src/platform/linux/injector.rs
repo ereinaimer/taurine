@@ -119,10 +119,18 @@ impl Injector for LinuxInjector {
         let Some(lookup) = crate::platform::linux::get_reverse_lookup() else {
             return false;
         };
-        let Some(key_info) = lookup.get(&c) else {
+        let Some(&(key, shift)) = lookup.get(&c) else {
             return false;
         };
-        crate::platform::linux::uinput::simulate_keypress(key_info.key);
+        if shift {
+            crate::platform::linux::uinput::simulate_key(evdev::KeyCode::KEY_LEFTSHIFT, true);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        crate::platform::linux::uinput::simulate_keypress(key);
+        if shift {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            crate::platform::linux::uinput::simulate_key(evdev::KeyCode::KEY_LEFTSHIFT, false);
+        }
         true
     }
 

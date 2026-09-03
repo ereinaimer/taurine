@@ -763,7 +763,22 @@ pub fn start() -> taurine_core::error::Result<()> {
             }
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        hook::stop_macos_supervisor();
+        // Join the supervisor thread
+        let handle = match supervisor_handle.lock() {
+            Ok(mut guard) => guard.take(),
+            Err(poisoned) => poisoned.into_inner().take(),
+        };
+        if let Some(h) = handle {
+            let res = h.join();
+            if let Err(e) = res {
+                error!("Error joining supervisor thread: {:?}", e);
+            }
+        }
+    }
+    #[cfg(all(not(windows), not(target_os = "macos")))]
     {
         hook::stop_listener();
     }

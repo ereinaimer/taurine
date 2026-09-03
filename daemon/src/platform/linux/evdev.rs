@@ -654,7 +654,7 @@ fn process_frame(
 
             if let Some(mut lock) = lock_opt {
                 if let Some(expansion) =
-                    lock.process_event_lazy(ev, crate::platform::get_active_window_label)
+                    lock.process_event_lazy(ev, crate::platform::get_active_window_info)
                 {
                     let state = lock.state.clone();
                     drop(lock);
