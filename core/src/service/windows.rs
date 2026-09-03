@@ -181,7 +181,7 @@ pub fn down() -> crate::error::Result<()> {
     if grpc_success {
         for _ in 0..10 {
             if !is_daemon_running(&mut sys) {
-                info!("Taurine is stopped.");
+                info!("Taurine has been stopped.");
                 return Ok(());
             }
             std::thread::sleep(std::time::Duration::from_millis(500));

@@ -427,7 +427,7 @@ pub fn down() -> crate::error::Result<()> {
                 label: label.clone(),
             }) {
                 Ok(ServiceStatus::Stopped(_)) | Ok(ServiceStatus::NotInstalled) | Err(_) => {
-                    info!("Taurine is stopped.");
+                    info!("Taurine has been stopped.");
                     return Ok(());
                 }
                 _ => {}
