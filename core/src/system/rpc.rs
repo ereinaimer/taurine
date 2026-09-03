@@ -31,6 +31,8 @@ pub async fn connect_to_daemon_with_settings(
         };
         let rpc_url = format!("http://{}:{}", host, settings.rpc_port);
         tonic::transport::Endpoint::from_shared(rpc_url)?
+            .connect_timeout(std::time::Duration::from_millis(500))
+            .timeout(std::time::Duration::from_secs(2))
             .connect()
             .await
     } else {
@@ -43,6 +45,8 @@ pub async fn connect_to_daemon_with_settings(
             let socket_path = crate::paths::get_data_dir().join("taurine.sock");
 
             tonic::transport::Endpoint::try_from("http://[::]:50051")?
+                .connect_timeout(std::time::Duration::from_millis(500))
+                .timeout(std::time::Duration::from_secs(2))
                 .connect_with_connector(service_fn(move |_: tonic::transport::Uri| {
                     let socket_path = socket_path.clone();
                     async move {
@@ -61,6 +65,8 @@ pub async fn connect_to_daemon_with_settings(
                 .unwrap_or_else(|_| r"\\.\pipe\taurine".to_string());
 
             tonic::transport::Endpoint::try_from("http://[::]:50051")?
+                .connect_timeout(std::time::Duration::from_millis(500))
+                .timeout(std::time::Duration::from_secs(2))
                 .connect_with_connector(service_fn(move |_: tonic::transport::Uri| {
                     let pipe_path = pipe_path.clone();
                     async move {
@@ -73,6 +79,8 @@ pub async fn connect_to_daemon_with_settings(
         #[cfg(not(any(all(unix, not(target_os = "android")), target_os = "windows")))]
         {
             tonic::transport::Endpoint::from_shared(get_rpc_url())?
+                .connect_timeout(std::time::Duration::from_millis(500))
+                .timeout(std::time::Duration::from_secs(2))
                 .connect()
                 .await
         }
@@ -182,6 +190,11 @@ pub async fn get_client() -> Result<
 }
 
 pub fn notify_daemon_reload() {
+    if !crate::service::is_service_running() {
+        tracing::debug!("Service is offline; skipping reload notification.");
+        return;
+    }
+
     tracing::debug!("Dispatching Reload instruction to service...");
 
     let perform_reload = async {
@@ -263,5 +276,18 @@ mod tests {
     fn test_delete_rpc_token_runs_without_panic() {
         use_mock_keyring();
         delete_rpc_token();
+    }
+
+    #[test]
+    fn test_notify_daemon_reload_skips_when_service_not_running() {
+        use_mock_keyring();
+        let start = std::time::Instant::now();
+        notify_daemon_reload();
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed.as_millis() < 50,
+            "notify_daemon_reload should return in < 50ms when service is offline, took {:?}",
+            elapsed
+        );
     }
 }
