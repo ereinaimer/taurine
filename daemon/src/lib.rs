@@ -26,6 +26,14 @@ pub(crate) static TOKIO_HANDLE: std::sync::OnceLock<tokio::runtime::Handle> =
     std::sync::OnceLock::new();
 
 pub fn start() -> taurine_core::error::Result<()> {
+    let _liveness_guard = match taurine_core::service::acquire_service_liveness() {
+        Some(guard) => guard,
+        None => {
+            info!("Taurine service is already running in another process.");
+            return Ok(());
+        }
+    };
+
     // Wipe stale temp files from previous sessions or crashes
     taurine_core::system::paths::wipe_temp_dir();
 
