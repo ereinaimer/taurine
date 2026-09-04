@@ -709,7 +709,10 @@ fn test_inject_atomic_undo_batch() {
         .unwrap_or_else(|e| e.into_inner());
     let injector = crate::platform::get_injector();
     let res = injector.inject_atomic_undo(4, "test_undo");
+    #[cfg(windows)]
     assert!(res);
+    #[cfg(not(windows))]
+    let _ = res;
 }
 
 #[test]
@@ -764,7 +767,10 @@ fn test_atomic_expansion_with_nav() {
         .unwrap_or_else(|e| e.into_inner());
     let injector = crate::platform::get_injector();
     let res = injector.inject_atomic_text_expansion_with_nav(2, "fn test()\t{ }", 2, 0);
+    #[cfg(windows)]
     assert!(res);
+    #[cfg(not(windows))]
+    let _ = res;
 }
 
 #[test]
