@@ -829,9 +829,8 @@ fn test_dual_path_routes_html_to_clipboard_path() {
 
 #[test]
 fn test_high_resolution_timer_guard_lifecycle() {
-    let guard = super::clipboard::HighResolutionTimerGuard::acquire();
+    let _guard = super::clipboard::HighResolutionTimerGuard::acquire();
     std::thread::sleep(Duration::from_millis(2));
-    drop(guard);
 }
 
 #[test]

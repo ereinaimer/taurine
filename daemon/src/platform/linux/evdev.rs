@@ -652,22 +652,21 @@ fn process_frame(
                 }
             };
 
-            if let Some(mut lock) = lock_opt {
-                if let Some(expansion) =
+            if let Some(mut lock) = lock_opt
+                && let Some(expansion) =
                     lock.process_event_lazy(ev, crate::platform::get_active_window_info)
-                {
-                    let state = lock.state.clone();
-                    drop(lock);
+            {
+                let state = lock.state.clone();
+                drop(lock);
 
-                    debug!("Trigger matched: {}", expansion.trigger);
+                debug!("Trigger matched: {}", expansion.trigger);
 
-                    let spinner_style_inner = spinner_style.read().map(|s| *s).unwrap_or_default();
+                let spinner_style_inner = spinner_style.read().map(|s| *s).unwrap_or_default();
 
-                    crate::hook::spawn_expansion_dispatch(expansion, spinner_style_inner, state);
+                crate::hook::spawn_expansion_dispatch(expansion, spinner_style_inner, state);
 
-                    if is_action_key {
-                        swallow_frame = true;
-                    }
+                if is_action_key {
+                    swallow_frame = true;
                 }
             }
         }

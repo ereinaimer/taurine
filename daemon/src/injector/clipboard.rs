@@ -47,6 +47,11 @@ impl Drop for HighResolutionTimerGuard {
     }
 }
 
+#[cfg(not(windows))]
+impl Drop for HighResolutionTimerGuard {
+    fn drop(&mut self) {}
+}
+
 /// Returns the current Windows clipboard sequence number, or 0 on non-Windows platforms.
 #[allow(dead_code)]
 #[inline]
