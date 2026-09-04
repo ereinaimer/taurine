@@ -1,0 +1,10 @@
+[test-groups]
+system_clipboard = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = 'package(taurine_daemon) and test(injector::tests::)'
+test-group = 'system_clipboard'
+
+[[profile.default.overrides]]
+filter = 'test(variables::system::clip::tests::)'
+test-group = 'system_clipboard'
