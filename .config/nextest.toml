@@ -2,7 +2,7 @@
 system_clipboard = { max-threads = 1 }
 
 [[profile.default.overrides]]
-filter = 'package(taurine_daemon) and test(injector::tests::)'
+filter = 'package(taurine_daemon) and (test(injector::tests::) or test(platform::tests::test_read_clipboard_text_returns_string))'
 test-group = 'system_clipboard'
 
 [[profile.default.overrides]]
