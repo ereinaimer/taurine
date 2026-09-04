@@ -4,6 +4,7 @@ use clap_complete::shells::{Bash, Elvish, Fish, PowerShell, Zsh};
 use clap_complete::{Generator, generate};
 use std::fs;
 use std::io;
+#[cfg(target_os = "windows")]
 use std::io::Write;
 #[cfg(target_os = "windows")]
 use std::path::PathBuf;
