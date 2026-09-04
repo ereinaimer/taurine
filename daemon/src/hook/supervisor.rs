@@ -4,7 +4,7 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::input::hook_health::HookHealth;
 use crate::input::hotkey;
@@ -16,6 +16,7 @@ use super::listener::{LISTENER_EPOCH, spawn_windows_hook_listener};
 pub enum WindowsSupervisorEvent {
     ResumeAutomatic,
     ResumeFromSuspend,
+    SessionLock,
     SessionUnlock,
     SessionLogon,
     DisplayChange,
@@ -112,13 +113,14 @@ pub fn start_windows_supervisor(
             let mut last_seen_started_instant = std::time::Instant::now();
             let mut last_unresponsive_recovery =
                 std::time::Instant::now() - Duration::from_secs(10);
+            let mut is_session_locked = false;
 
             loop {
                 let event = rx.recv_timeout(Duration::from_millis(100));
 
                 match event {
                     Ok(WindowsSupervisorEvent::HookUnresponsive) => {
-                        if last_unresponsive_recovery.elapsed() >= Duration::from_millis(1000) {
+                        if !is_session_locked && last_unresponsive_recovery.elapsed() >= Duration::from_millis(1000) {
                             last_unresponsive_recovery = std::time::Instant::now();
                             hook_health.mark_recovery_signal("raw input detected unresponsive hook");
                             warn!(
@@ -157,7 +159,14 @@ pub fn start_windows_supervisor(
                         next_spawn_allowed_after =
                             std::time::Instant::now() + Duration::from_millis(200);
                     }
+                    Ok(WindowsSupervisorEvent::SessionLock) => {
+                        is_session_locked = true;
+                        hook_health.mark_recovery_signal("session lock");
+                        info!("Windows session lock detected; safely unhooking keyboard listener for secure desktop");
+                        tear_down_listener(&mut listener_handle);
+                    }
                     Ok(WindowsSupervisorEvent::SessionUnlock) => {
+                        is_session_locked = false;
                         hook_health.mark_recovery_signal("session unlock");
                         warn!("Windows session unlock detected; re-attaching hook listener");
                         tear_down_listener(&mut listener_handle);
@@ -165,6 +174,7 @@ pub fn start_windows_supervisor(
                             std::time::Instant::now() + Duration::from_millis(200);
                     }
                     Ok(WindowsSupervisorEvent::SessionLogon) => {
+                        is_session_locked = false;
                         hook_health.mark_recovery_signal("session logon");
                         warn!("Windows session logon detected; re-attaching hook listener");
                         tear_down_listener(&mut listener_handle);
@@ -187,7 +197,7 @@ pub fn start_windows_supervisor(
 
                         let mut needs_restart = false;
 
-                        if let Some(ref handle) = listener_handle {
+                        if !is_session_locked && let Some(ref handle) = listener_handle {
                             let snapshot = hook_health.snapshot();
 
                             if snapshot.hook_thread_started_at_unix_ms != last_seen_started_unix {
@@ -232,6 +242,7 @@ pub fn start_windows_supervisor(
                 }
 
                 if listener_handle.is_none()
+                    && !is_session_locked
                     && std::time::Instant::now() >= next_spawn_allowed_after
                 {
                     debug!("Reinstalling Windows hook listener");

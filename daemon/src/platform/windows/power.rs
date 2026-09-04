@@ -19,6 +19,7 @@ use crate::hook::WindowsSupervisorEvent;
 
 const WINDOW_CLASS_NAME: &str = "TaurinePowerSessionMonitor";
 const WTS_SESSION_LOGON: u32 = 0x5;
+const WTS_SESSION_LOCK: u32 = 0x7;
 const WTS_SESSION_UNLOCK: u32 = 0x8;
 
 static POWER_THREAD_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
@@ -178,6 +179,11 @@ unsafe extern "system" fn window_proc(
             }
         },
         WM_WTSSESSION_CHANGE => match wparam as u32 {
+            WTS_SESSION_LOCK => {
+                info!("Detected Windows session lock event");
+                send_event(WindowsSupervisorEvent::SessionLock);
+                0
+            }
             WTS_SESSION_UNLOCK => {
                 info!("Detected Windows session unlock event");
                 send_event(WindowsSupervisorEvent::SessionUnlock);

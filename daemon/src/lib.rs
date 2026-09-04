@@ -285,14 +285,14 @@ pub fn start() -> taurine_core::error::Result<()> {
     // 5. Start system tray icon
     crate::services::tray::spawn(paused.clone(), system_tray_enabled.clone());
 
-    // 6. Background Auto-Updater
+    // 6. Background Auto-Updater (initial deferred check after 60s, then every 6 hours)
     std::thread::Builder::new()
         .name("tau-updater".to_string())
         .spawn(move || {
-            loop {
-                // Sleep for 6 hours
-                std::thread::sleep(std::time::Duration::from_secs(6 * 60 * 60));
+            // Wait 60 seconds before first check to prioritize immediate hook startup
+            std::thread::sleep(std::time::Duration::from_secs(60));
 
+            loop {
                 if let Ok(conn) = taurine_core::db::init::setup() {
                     let current_settings =
                         taurine_core::settings::SettingsManager::new(&conn).load_all();
@@ -312,6 +312,9 @@ pub fn start() -> taurine_core::error::Result<()> {
                         let _ = cmd.spawn();
                     }
                 }
+
+                // Sleep for 6 hours between checks
+                std::thread::sleep(std::time::Duration::from_secs(6 * 60 * 60));
             }
         })?;
 

@@ -68,18 +68,6 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
         LaunchTarget::Daemon => {
             info!("Initializing Taurine v{VERSION}");
 
-            // Auto-update: check via separate process
-            let auto_update = {
-                use taurine_core::{db::init, settings::SettingsManager};
-                init::setup()
-                    .ok()
-                    .map(|conn| SettingsManager::new(&conn).load_all().auto_update)
-                    .unwrap_or(true)
-            };
-            if auto_update {
-                commands::update::spawn_updater_process();
-            }
-
             // Execute the startup sequence (database init, seed, etc.)
             taurine_daemon::start()?;
             info!("Taurine service has been stopped cleanly.");

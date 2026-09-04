@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Instant Windows Startup**: Launch Taurine immediately on user logon via Windows Task Scheduler integration with automatic registry fallback.
 - **Zero-Lag Offline Snippet Operations**: Instant CLI execution when Taurine is stopped via sub-microsecond in-memory service liveness detection.
 - **Mouse Hotkey Triggers**: Trigger snippet expansions and actions using mouse button combinations.
 - **Dynamic System Tray Icons**: Display state-aware play and pause tray icons reflecting Taurine's active and paused states.
@@ -34,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Streamlined Exchange**: Export and import now focus purely on trigger data, removing support for bundling local metrics, settings, or secrets into exchange files.
 
 ### Fixed
+- **Lock Screen Safety**: Gracefully suspend and restore keyboard monitoring across Windows lock screen transitions to prevent hook timeouts and OS security conflicts.
 - **Clipboard Expansion Synchronization**: Fixed an issue where snippet expansions would occasionally paste previously copied clipboard text under heavy system load.
 - **Environment Variable Expansion in Launchers**: Fixed an issue where instant application and file triggers failed to open when target paths contained environment variables (such as `$ENV:VAR` or `%VAR%`).
 - **Hotkey Trigger Reliability**: Fixed an issue where rapid hotkey combinations failed intermittently after typing due to modifier state synchronization race conditions.
