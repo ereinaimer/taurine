@@ -18,16 +18,13 @@ static REVERSE_LOOKUP: OnceLock<HashMap<char, (KeyCode, bool)>> = OnceLock::new(
 pub const VIRTUAL_DEVICE_NAME: &str = "Taurine Virtual Keyboard";
 
 pub fn init() -> Result<(), String> {
+    let _ = get_reverse_lookup();
     uinput::init_uinput()?;
-    let mapper = XkbMapper::new().map_err(|e| format!("XKB init failed: {}", e))?;
-    REVERSE_LOOKUP
-        .set(mapper.get_reverse_map().clone())
-        .map_err(|_| "REVERSE_LOOKUP already initialized".to_string())?;
     Ok(())
 }
 
 pub fn get_reverse_lookup() -> Option<&'static HashMap<char, (KeyCode, bool)>> {
-    REVERSE_LOOKUP.get()
+    Some(REVERSE_LOOKUP.get_or_init(|| XkbMapper::default().get_reverse_map().clone()))
 }
 
 /// Safely runs a closure with the shared Linux clipboard connection.

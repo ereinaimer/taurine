@@ -2,20 +2,26 @@ use evdev::uinput::VirtualDevice;
 use evdev::{
     AttributeSet, BusType, EventType, InputEvent, InputId, KeyCode, MiscCode, RelativeAxisCode,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
-use tracing::error;
+use tracing::{error, trace};
 
 static UINPUT_DEVICE: OnceLock<Mutex<VirtualDevice>> = OnceLock::new();
-static UINPUT_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
-pub fn init_uinput() -> Result<(), String> {
-    if UINPUT_INITIALIZED.load(Ordering::SeqCst) {
-        return Ok(());
-    }
+const UINPUT_STATE_UNINITIALIZED: u8 = 0;
+const UINPUT_STATE_INITIALIZING: u8 = 1;
+const UINPUT_STATE_READY: u8 = 2;
+const UINPUT_STATE_FAILED: u8 = 3;
 
+static UINPUT_STATE: AtomicU8 = AtomicU8::new(UINPUT_STATE_UNINITIALIZED);
+
+pub fn is_uinput_ready() -> bool {
+    UINPUT_STATE.load(Ordering::SeqCst) == UINPUT_STATE_READY
+}
+
+fn create_virtual_device() -> Result<VirtualDevice, String> {
     let mut keys = AttributeSet::<KeyCode>::new();
     for code in 1..256 {
         keys.insert(KeyCode::new(code as u16));
@@ -32,7 +38,7 @@ pub fn init_uinput() -> Result<(), String> {
     let mut msc = AttributeSet::<MiscCode>::new();
     msc.insert(MiscCode::MSC_SCAN);
 
-    let device = VirtualDevice::builder()
+    VirtualDevice::builder()
         .map_err(|e| format!("Uinput VirtualDeviceBuilder failed: {}", e))?
         .name(crate::platform::linux::VIRTUAL_DEVICE_NAME)
         .input_id(InputId::new(BusType::BUS_USB, 0x1234, 0x5678, 0x0001))
@@ -43,14 +49,48 @@ pub fn init_uinput() -> Result<(), String> {
         .with_msc(&msc)
         .map_err(|e| format!("Failed to set uinput msc codes: {}", e))?
         .build()
-        .map_err(|e| format!("Failed to create uinput device: {}", e))?;
+        .map_err(|e| format!("Failed to create uinput device: {}", e))
+}
 
-    UINPUT_DEVICE
-        .set(Mutex::new(device))
-        .map_err(|_| "Failed to store uinput device in OnceLock".to_string())?;
-
-    UINPUT_INITIALIZED.store(true, Ordering::SeqCst);
-    Ok(())
+pub fn init_uinput() -> Result<(), String> {
+    match UINPUT_STATE.compare_exchange(
+        UINPUT_STATE_UNINITIALIZED,
+        UINPUT_STATE_INITIALIZING,
+        Ordering::SeqCst,
+        Ordering::SeqCst,
+    ) {
+        Ok(_) => match create_virtual_device() {
+            Ok(device) => {
+                let _ = UINPUT_DEVICE.set(Mutex::new(device));
+                UINPUT_STATE.store(UINPUT_STATE_READY, Ordering::SeqCst);
+                Ok(())
+            }
+            Err(e) => {
+                UINPUT_STATE.store(UINPUT_STATE_FAILED, Ordering::SeqCst);
+                Err(e)
+            }
+        },
+        Err(current) => {
+            if current == UINPUT_STATE_READY {
+                Ok(())
+            } else if current == UINPUT_STATE_FAILED {
+                Err("uinput initialization already failed previously".to_string())
+            } else {
+                let mut retries = 0;
+                while UINPUT_STATE.load(Ordering::SeqCst) == UINPUT_STATE_INITIALIZING
+                    && retries < 50
+                {
+                    thread::sleep(Duration::from_millis(10));
+                    retries += 1;
+                }
+                if UINPUT_STATE.load(Ordering::SeqCst) == UINPUT_STATE_READY {
+                    Ok(())
+                } else {
+                    Err("uinput initialization failed or timed out".to_string())
+                }
+            }
+        }
+    }
 }
 
 pub fn simulate_key(key: KeyCode, is_press: bool) {
@@ -66,10 +106,15 @@ pub fn emit_batch(events: &[InputEvent]) {
         return;
     }
 
-    let mut retries = 0;
-    while !UINPUT_INITIALIZED.load(Ordering::SeqCst) && retries < 50 {
-        thread::sleep(Duration::from_millis(10));
-        retries += 1;
+    let state = UINPUT_STATE.load(Ordering::SeqCst);
+    if state == UINPUT_STATE_UNINITIALIZED {
+        let _ = init_uinput();
+    } else if state == UINPUT_STATE_INITIALIZING {
+        let mut retries = 0;
+        while UINPUT_STATE.load(Ordering::SeqCst) == UINPUT_STATE_INITIALIZING && retries < 50 {
+            thread::sleep(Duration::from_millis(10));
+            retries += 1;
+        }
     }
 
     if let Some(mutex) = UINPUT_DEVICE.get() {
@@ -79,31 +124,40 @@ pub fn emit_batch(events: &[InputEvent]) {
             error!("Failed to emit uinput event: {}", e);
         }
     } else {
-        error!("uinput simulate called before initialization");
+        trace!("uinput simulate called before initialization or device unavailable");
     }
 }
 
 pub fn simulate_keypress(key: KeyCode) {
     simulate_key(key, true);
-    // Increased hold duration for better reliability across different desktop environments.
-    thread::sleep(Duration::from_millis(12));
+    if is_uinput_ready() {
+        // Increased hold duration for better reliability across different desktop environments.
+        thread::sleep(Duration::from_millis(12));
+    }
     simulate_key(key, false);
 }
 
 pub fn simulate_type_string(s: &str, lookup: &std::collections::HashMap<char, (KeyCode, bool)>) {
+    let ready = is_uinput_ready();
     for c in s.chars() {
         if let Some((key, shift)) = lookup.get(&c) {
             if *shift {
                 simulate_key(KeyCode::KEY_LEFTSHIFT, true);
-                thread::sleep(Duration::from_millis(1));
+                if ready {
+                    thread::sleep(Duration::from_millis(1));
+                }
             }
             simulate_keypress(*key);
             if *shift {
-                thread::sleep(Duration::from_millis(1));
+                if ready {
+                    thread::sleep(Duration::from_millis(1));
+                }
                 simulate_key(KeyCode::KEY_LEFTSHIFT, false);
             }
-            // Increase delay between characters for better OS event synchronization.
-            thread::sleep(Duration::from_millis(8));
+            if ready {
+                // Increase delay between characters for better OS event synchronization.
+                thread::sleep(Duration::from_millis(8));
+            }
         }
     }
 }
