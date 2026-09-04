@@ -1,3 +1,5 @@
+#![cfg(windows)]
+
 // daemon/tests/hook_stress.rs
 use std::process::Command;
 use std::time::Duration;
