@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.17] - 2026-09-05
+
 ### Added
 - **Tray Menu Snooze & Quick Settings**: Snooze expansions for set durations (15m, 30m, 1h) with a live-updating countdown timer on the resume item, toggle instant expansion and start on boot, and swap menus dynamically from the system tray.
 - **Instant Windows Startup**: Launch Taurine immediately on user logon via Windows Task Scheduler integration with automatic registry fallback.
