@@ -277,7 +277,7 @@ async fn run_tray(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>)
                 }
                 TrayEvent::Quit => {
                     handle_shutdown();
-                    let _ = handle.shutdown();
+                    handle.shutdown().await;
                     return;
                 }
             }
