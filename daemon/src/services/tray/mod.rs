@@ -7,6 +7,8 @@ pub mod icons;
 mod linux;
 #[cfg(any(windows, target_os = "macos"))]
 mod native;
+pub mod settings;
+pub mod snooze;
 
 pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> JoinHandle<()> {
     #[cfg(target_os = "linux")]

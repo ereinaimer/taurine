@@ -1,11 +1,15 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use ksni::TrayMethods;
-use ksni::menu::StandardItem;
+use ksni::menu::{CheckmarkItem, MenuItem, StandardItem, SubMenu};
 use tokio::sync::mpsc;
 use tracing::{error, warn};
+
+use super::settings::TraySettings;
+use super::snooze::SnoozeController;
 
 const TOOLTIP: &str = "Taurine";
 
@@ -28,14 +32,20 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
         .expect("tray thread spawn")
 }
 
+#[derive(Clone)]
 struct KsniTray {
     paused: Arc<AtomicBool>,
     system_tray_enabled: Arc<AtomicBool>,
     events: mpsc::UnboundedSender<TrayEvent>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum TrayEvent {
-    TogglePause,
+    Snooze(Duration),
+    PauseUntilResumed,
+    Resume,
+    ToggleInstantExpand,
+    ToggleStartOnBoot,
     Quit,
 }
 
@@ -76,36 +86,127 @@ impl ksni::Tray for KsniTray {
         }
     }
 
-    fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
-        let pause_label = if self.paused.load(Ordering::Relaxed) {
-            "Resume"
-        } else {
-            "Pause"
-        };
-        vec![
-            StandardItem {
-                label: pause_label.into(),
-                activate: Box::new(|tray: &mut Self| {
-                    let _ = tray.events.send(TrayEvent::TogglePause);
-                }),
-                ..Default::default()
-            }
-            .into(),
-            ksni::MenuItem::Separator,
-            StandardItem {
-                label: "Quit".into(),
-                activate: Box::new(|tray: &mut Self| {
-                    let _ = tray.events.send(TrayEvent::Quit);
-                }),
-                ..Default::default()
-            }
-            .into(),
-        ]
+    fn menu(&self) -> Vec<MenuItem<Self>> {
+        build_menu(self.paused.load(Ordering::Relaxed), &self.events)
     }
+}
+
+fn build_menu(
+    is_paused: bool,
+    events: &mpsc::UnboundedSender<TrayEvent>,
+) -> Vec<MenuItem<KsniTray>> {
+    let (instant_expand, start_on_boot) = TraySettings::load_quick_settings();
+
+    let mut menu_items: Vec<MenuItem<KsniTray>> = Vec::new();
+
+    if is_paused {
+        let events_clone = events.clone();
+        menu_items.push(
+            StandardItem {
+                label: "Resume".into(),
+                activate: Box::new(move |_tray: &mut KsniTray| {
+                    let _ = events_clone.send(TrayEvent::Resume);
+                }),
+                ..Default::default()
+            }
+            .into(),
+        );
+    } else {
+        let events_15m = events.clone();
+        let events_30m = events.clone();
+        let events_1h = events.clone();
+        let events_until_resumed = events.clone();
+
+        let pause_submenu = SubMenu {
+            label: "Pause".into(),
+            submenu: vec![
+                StandardItem {
+                    label: "15 minutes".into(),
+                    activate: Box::new(move |_tray: &mut KsniTray| {
+                        let _ = events_15m.send(TrayEvent::Snooze(Duration::from_secs(15 * 60)));
+                    }),
+                    ..Default::default()
+                }
+                .into(),
+                StandardItem {
+                    label: "30 minutes".into(),
+                    activate: Box::new(move |_tray: &mut KsniTray| {
+                        let _ = events_30m.send(TrayEvent::Snooze(Duration::from_secs(30 * 60)));
+                    }),
+                    ..Default::default()
+                }
+                .into(),
+                StandardItem {
+                    label: "1 hour".into(),
+                    activate: Box::new(move |_tray: &mut KsniTray| {
+                        let _ = events_1h.send(TrayEvent::Snooze(Duration::from_secs(60 * 60)));
+                    }),
+                    ..Default::default()
+                }
+                .into(),
+                MenuItem::Separator,
+                StandardItem {
+                    label: "Until resumed".into(),
+                    activate: Box::new(move |_tray: &mut KsniTray| {
+                        let _ = events_until_resumed.send(TrayEvent::PauseUntilResumed);
+                    }),
+                    ..Default::default()
+                }
+                .into(),
+            ],
+            ..Default::default()
+        };
+        menu_items.push(pause_submenu.into());
+    }
+
+    menu_items.push(MenuItem::Separator);
+
+    let events_instant = events.clone();
+    menu_items.push(
+        CheckmarkItem {
+            label: "Instant Expansion".into(),
+            checked: instant_expand,
+            activate: Box::new(move |_tray: &mut KsniTray| {
+                let _ = events_instant.send(TrayEvent::ToggleInstantExpand);
+            }),
+            ..Default::default()
+        }
+        .into(),
+    );
+
+    let events_boot = events.clone();
+    menu_items.push(
+        CheckmarkItem {
+            label: "Start on Boot".into(),
+            checked: start_on_boot,
+            activate: Box::new(move |_tray: &mut KsniTray| {
+                let _ = events_boot.send(TrayEvent::ToggleStartOnBoot);
+            }),
+            ..Default::default()
+        }
+        .into(),
+    );
+
+    menu_items.push(MenuItem::Separator);
+
+    let events_quit = events.clone();
+    menu_items.push(
+        StandardItem {
+            label: "Quit".into(),
+            activate: Box::new(move |_tray: &mut KsniTray| {
+                let _ = events_quit.send(TrayEvent::Quit);
+            }),
+            ..Default::default()
+        }
+        .into(),
+    );
+
+    menu_items
 }
 
 async fn run_tray(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) {
     let (events_tx, mut events_rx) = mpsc::unbounded_channel();
+    let snooze = SnoozeController::new();
 
     let mut handle = spawn_tray(&paused, &system_tray_enabled, &events_tx, true).await;
 
@@ -127,22 +228,55 @@ async fn run_tray(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>)
 
         let now_paused = paused.load(Ordering::Relaxed);
         if last_paused != Some(now_paused) {
+            let previously_paused = last_paused.unwrap_or(false);
             last_paused = Some(now_paused);
+
+            if previously_paused && !now_paused {
+                snooze.cancel();
+            }
+
             let _ = handle.update(|_state| {}).await;
         }
 
         while let Ok(event) = events_rx.try_recv() {
             match event {
-                TrayEvent::TogglePause => handle_toggle_pause(&paused),
+                TrayEvent::Snooze(duration) => {
+                    handle_pause();
+
+                    let paused_clone = paused.clone();
+                    snooze.start_snooze(duration, move || {
+                        paused_clone.store(false, Ordering::Relaxed);
+                        handle_resume();
+                    });
+                    let _ = handle.update(|_| {}).await;
+                }
+                TrayEvent::PauseUntilResumed => {
+                    snooze.cancel();
+                    handle_pause();
+                    let _ = handle.update(|_| {}).await;
+                }
+                TrayEvent::Resume => {
+                    snooze.cancel();
+                    handle_resume();
+                    let _ = handle.update(|_| {}).await;
+                }
+                TrayEvent::ToggleInstantExpand => {
+                    let _ = TraySettings::toggle_instant_expand();
+                    let _ = handle.update(|_| {}).await;
+                }
+                TrayEvent::ToggleStartOnBoot => {
+                    let _ = TraySettings::toggle_start_on_boot();
+                    let _ = handle.update(|_| {}).await;
+                }
                 TrayEvent::Quit => {
                     handle_shutdown();
-                    handle.shutdown();
+                    let _ = handle.shutdown();
                     return;
                 }
             }
         }
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
 
@@ -166,22 +300,27 @@ async fn spawn_tray(
                     warn!(%spawn_error, "system tray unavailable, retrying");
                     failed_logged = true;
                 }
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                tokio::time::sleep(Duration::from_secs(5)).await;
             }
         }
     }
 }
 
-fn handle_toggle_pause(paused: &Arc<AtomicBool>) {
-    let paused = paused.clone();
+fn handle_pause() {
     if let Some(rt) = crate::TOKIO_HANDLE.get() {
         rt.spawn(async move {
             if let Ok(mut client) = taurine_core::rpc::get_client().await {
-                if paused.load(Ordering::Relaxed) {
-                    let _ = client.resume(taurine_core::rpc::ResumeRequest {}).await;
-                } else {
-                    let _ = client.pause(taurine_core::rpc::PauseRequest {}).await;
-                }
+                let _ = client.pause(taurine_core::rpc::PauseRequest {}).await;
+            }
+        });
+    }
+}
+
+fn handle_resume() {
+    if let Some(rt) = crate::TOKIO_HANDLE.get() {
+        rt.spawn(async move {
+            if let Ok(mut client) = taurine_core::rpc::get_client().await {
+                let _ = client.resume(taurine_core::rpc::ResumeRequest {}).await;
             }
         });
     }
@@ -194,5 +333,164 @@ fn handle_shutdown() {
                 let _ = client.shutdown(taurine_core::rpc::ShutdownRequest {}).await;
             }
         });
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_menu_unpaused_structure() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let items = build_menu(false, &tx);
+
+        // Expect: SubMenu(Pause), Separator, Checkmark(Instant), Checkmark(Boot), Separator, Standard(Quit)
+        assert_eq!(items.len(), 6);
+
+        match &items[0] {
+            MenuItem::SubMenu(submenu) => {
+                assert_eq!(submenu.label, "Pause");
+                assert_eq!(submenu.submenu.len(), 5); // 15m, 30m, 1h, separator, until resumed
+                match &submenu.submenu[0] {
+                    MenuItem::Standard(item) => {
+                        assert_eq!(item.label, "15 minutes");
+                        let mut mock_tray = KsniTray {
+                            paused: Arc::new(AtomicBool::new(false)),
+                            system_tray_enabled: Arc::new(AtomicBool::new(true)),
+                            events: tx.clone(),
+                        };
+                        (item.activate)(&mut mock_tray);
+                        assert_eq!(
+                            rx.try_recv().ok(),
+                            Some(TrayEvent::Snooze(Duration::from_secs(15 * 60)))
+                        );
+                    }
+                    _ => panic!("Expected StandardItem for 15 minutes"),
+                }
+                match &submenu.submenu[1] {
+                    MenuItem::Standard(item) => {
+                        assert_eq!(item.label, "30 minutes");
+                        let mut mock_tray = KsniTray {
+                            paused: Arc::new(AtomicBool::new(false)),
+                            system_tray_enabled: Arc::new(AtomicBool::new(true)),
+                            events: tx.clone(),
+                        };
+                        (item.activate)(&mut mock_tray);
+                        assert_eq!(
+                            rx.try_recv().ok(),
+                            Some(TrayEvent::Snooze(Duration::from_secs(30 * 60)))
+                        );
+                    }
+                    _ => panic!("Expected StandardItem for 30 minutes"),
+                }
+                match &submenu.submenu[2] {
+                    MenuItem::Standard(item) => {
+                        assert_eq!(item.label, "1 hour");
+                        let mut mock_tray = KsniTray {
+                            paused: Arc::new(AtomicBool::new(false)),
+                            system_tray_enabled: Arc::new(AtomicBool::new(true)),
+                            events: tx.clone(),
+                        };
+                        (item.activate)(&mut mock_tray);
+                        assert_eq!(
+                            rx.try_recv().ok(),
+                            Some(TrayEvent::Snooze(Duration::from_secs(60 * 60)))
+                        );
+                    }
+                    _ => panic!("Expected StandardItem for 1 hour"),
+                }
+                assert!(matches!(&submenu.submenu[3], MenuItem::Separator));
+                match &submenu.submenu[4] {
+                    MenuItem::Standard(item) => {
+                        assert_eq!(item.label, "Until resumed");
+                        let mut mock_tray = KsniTray {
+                            paused: Arc::new(AtomicBool::new(false)),
+                            system_tray_enabled: Arc::new(AtomicBool::new(true)),
+                            events: tx.clone(),
+                        };
+                        (item.activate)(&mut mock_tray);
+                        assert_eq!(rx.try_recv().ok(), Some(TrayEvent::PauseUntilResumed));
+                    }
+                    _ => panic!("Expected StandardItem for Until resumed"),
+                }
+            }
+            _ => panic!("Expected SubMenu for unpaused menu item 0"),
+        }
+
+        assert!(matches!(&items[1], MenuItem::Separator));
+
+        match &items[2] {
+            MenuItem::Checkmark(item) => {
+                assert_eq!(item.label, "Instant Expansion");
+                let mut mock_tray = KsniTray {
+                    paused: Arc::new(AtomicBool::new(false)),
+                    system_tray_enabled: Arc::new(AtomicBool::new(true)),
+                    events: tx.clone(),
+                };
+                (item.activate)(&mut mock_tray);
+                assert_eq!(rx.try_recv().ok(), Some(TrayEvent::ToggleInstantExpand));
+            }
+            _ => panic!("Expected CheckmarkItem for Instant Expansion"),
+        }
+
+        match &items[3] {
+            MenuItem::Checkmark(item) => {
+                assert_eq!(item.label, "Start on Boot");
+                let mut mock_tray = KsniTray {
+                    paused: Arc::new(AtomicBool::new(false)),
+                    system_tray_enabled: Arc::new(AtomicBool::new(true)),
+                    events: tx.clone(),
+                };
+                (item.activate)(&mut mock_tray);
+                assert_eq!(rx.try_recv().ok(), Some(TrayEvent::ToggleStartOnBoot));
+            }
+            _ => panic!("Expected CheckmarkItem for Start on Boot"),
+        }
+
+        assert!(matches!(&items[4], MenuItem::Separator));
+
+        match &items[5] {
+            MenuItem::Standard(item) => {
+                assert_eq!(item.label, "Quit");
+                let mut mock_tray = KsniTray {
+                    paused: Arc::new(AtomicBool::new(false)),
+                    system_tray_enabled: Arc::new(AtomicBool::new(true)),
+                    events: tx.clone(),
+                };
+                (item.activate)(&mut mock_tray);
+                assert_eq!(rx.try_recv().ok(), Some(TrayEvent::Quit));
+            }
+            _ => panic!("Expected StandardItem for Quit"),
+        }
+    }
+
+    #[test]
+    fn test_menu_paused_structure() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let items = build_menu(true, &tx);
+
+        // Expect: Standard(Resume), Separator, Checkmark(Instant), Checkmark(Boot), Separator, Standard(Quit)
+        assert_eq!(items.len(), 6);
+
+        match &items[0] {
+            MenuItem::Standard(item) => {
+                assert_eq!(item.label, "Resume");
+                let mut mock_tray = KsniTray {
+                    paused: Arc::new(AtomicBool::new(true)),
+                    system_tray_enabled: Arc::new(AtomicBool::new(true)),
+                    events: tx.clone(),
+                };
+                (item.activate)(&mut mock_tray);
+                assert_eq!(rx.try_recv().ok(), Some(TrayEvent::Resume));
+            }
+            _ => panic!("Expected StandardItem for Resume"),
+        }
+
+        assert!(matches!(&items[1], MenuItem::Separator));
+        assert!(matches!(&items[2], MenuItem::Checkmark(_)));
+        assert!(matches!(&items[3], MenuItem::Checkmark(_)));
+        assert!(matches!(&items[4], MenuItem::Separator));
+        assert!(matches!(&items[5], MenuItem::Standard(_)));
     }
 }

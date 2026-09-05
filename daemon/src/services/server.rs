@@ -549,4 +549,75 @@ mod tests {
         unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
         unsafe { std::env::remove_var("TAURINE_DB_PATH") };
     }
+
+    #[tokio::test]
+    async fn test_grpc_pause_and_resume_trigger_transition_tx() {
+        let state = Arc::new(EngineState::new());
+        let (tx, _rx) = mpsc::channel(1);
+        let pause_hotkey = "Alt + `".to_string();
+        let pause_hotkey_spec = Arc::new(std::sync::RwLock::new(
+            crate::input::hotkey::parse_pause_hotkey_setting(&pause_hotkey).unwrap(),
+        ));
+        let (reload_tx, _reload_rx) = mpsc::channel(1);
+        let active_rpc_settings = Arc::new(std::sync::RwLock::new(RpcServerSettings {
+            rpc_mode: taurine_core::settings::RpcMode::Tcp,
+            rpc_host: String::new(),
+            rpc_port: 0,
+        }));
+
+        let paused = Arc::new(AtomicBool::new(false));
+        let (pause_tx, mut pause_rx) = mpsc::channel(8);
+        let service = DaemonService::builder()
+            .shutdown_sender(tx)
+            .state(state)
+            .paused(paused.clone())
+            .pause_notifications_enabled(Arc::new(AtomicBool::new(false)))
+            .pause_hotkey_spec(pause_hotkey_spec)
+            .pause_hotkey_display(Arc::new(std::sync::RwLock::new(pause_hotkey)))
+            .spinner_style(Arc::new(std::sync::RwLock::new(
+                taurine_core::settings::SpinnerStyle::default(),
+            )))
+            .pause_audio_enabled(Arc::new(AtomicBool::new(true)))
+            .system_tray_enabled(Arc::new(AtomicBool::new(true)))
+            .hook_health(crate::input::hook_health::HookHealth::new())
+            .active_rpc_settings(active_rpc_settings)
+            .rpc_reload_sender(reload_tx)
+            .pause_transition_tx(pause_tx)
+            .build()
+            .expect("builder call site is fully populated");
+
+        // 1. Send Pause RPC
+        let res = service
+            .pause(Request::new(taurine_core::rpc::PauseRequest {}))
+            .await
+            .expect("pause request");
+        assert!(res.into_inner().success);
+        assert!(paused.load(Ordering::Relaxed));
+        assert_eq!(pause_rx.try_recv(), Ok(true));
+
+        // 2. Duplicate pause should be a no-op for transition tx
+        let res = service
+            .pause(Request::new(taurine_core::rpc::PauseRequest {}))
+            .await
+            .expect("duplicate pause request");
+        assert!(res.into_inner().success);
+        assert!(pause_rx.try_recv().is_err());
+
+        // 3. Send Resume RPC
+        let res = service
+            .resume(Request::new(taurine_core::rpc::ResumeRequest {}))
+            .await
+            .expect("resume request");
+        assert!(res.into_inner().success);
+        assert!(!paused.load(Ordering::Relaxed));
+        assert_eq!(pause_rx.try_recv(), Ok(false));
+
+        // 4. Duplicate resume should be a no-op for transition tx
+        let res = service
+            .resume(Request::new(taurine_core::rpc::ResumeRequest {}))
+            .await
+            .expect("duplicate resume request");
+        assert!(res.into_inner().success);
+        assert!(pause_rx.try_recv().is_err());
+    }
 }
