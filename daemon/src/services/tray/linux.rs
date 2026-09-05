@@ -36,6 +36,7 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
 struct KsniTray {
     paused: Arc<AtomicBool>,
     system_tray_enabled: Arc<AtomicBool>,
+    snooze: SnoozeController,
     events: mpsc::UnboundedSender<TrayEvent>,
 }
 
@@ -87,12 +88,17 @@ impl ksni::Tray for KsniTray {
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
-        build_menu(self.paused.load(Ordering::Relaxed), &self.events)
+        build_menu(
+            self.paused.load(Ordering::Relaxed),
+            &self.snooze,
+            &self.events,
+        )
     }
 }
 
 fn build_menu(
     is_paused: bool,
+    snooze: &SnoozeController,
     events: &mpsc::UnboundedSender<TrayEvent>,
 ) -> Vec<MenuItem<KsniTray>> {
     let (instant_expand, start_on_boot) = TraySettings::load_quick_settings();
@@ -103,7 +109,7 @@ fn build_menu(
         let events_clone = events.clone();
         menu_items.push(
             StandardItem {
-                label: "Resume".into(),
+                label: snooze.resume_label(),
                 activate: Box::new(move |_tray: &mut KsniTray| {
                     let _ = events_clone.send(TrayEvent::Resume);
                 }),
@@ -208,14 +214,15 @@ async fn run_tray(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>)
     let (events_tx, mut events_rx) = mpsc::unbounded_channel();
     let snooze = SnoozeController::new();
 
-    let mut handle = spawn_tray(&paused, &system_tray_enabled, &events_tx, true).await;
+    let mut handle = spawn_tray(&paused, &system_tray_enabled, &snooze, &events_tx, true).await;
 
     let mut last_paused = None;
     let mut last_visible = None;
+    let mut live_counter: u32 = 0;
     loop {
         if handle.is_closed() {
             warn!("system tray connection lost, restarting");
-            handle = spawn_tray(&paused, &system_tray_enabled, &events_tx, false).await;
+            handle = spawn_tray(&paused, &system_tray_enabled, &snooze, &events_tx, false).await;
             last_paused = None;
             last_visible = None;
         }
@@ -276,6 +283,17 @@ async fn run_tray(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>)
             }
         }
 
+        // Live-update countdown once per second only while actively snoozed
+        if paused.load(Ordering::Relaxed) && snooze.is_active() {
+            live_counter += 1;
+            if live_counter >= 10 {
+                live_counter = 0;
+                let _ = handle.update(|_| {}).await;
+            }
+        } else {
+            live_counter = 0;
+        }
+
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
@@ -283,6 +301,7 @@ async fn run_tray(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>)
 async fn spawn_tray(
     paused: &Arc<AtomicBool>,
     system_tray_enabled: &Arc<AtomicBool>,
+    snooze: &SnoozeController,
     events_tx: &mpsc::UnboundedSender<TrayEvent>,
     initial: bool,
 ) -> ksni::Handle<KsniTray> {
@@ -291,6 +310,7 @@ async fn spawn_tray(
         let tray = KsniTray {
             paused: paused.clone(),
             system_tray_enabled: system_tray_enabled.clone(),
+            snooze: snooze.clone(),
             events: events_tx.clone(),
         };
         match tray.spawn().await {
@@ -343,7 +363,8 @@ mod tests {
     #[test]
     fn test_menu_unpaused_structure() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let items = build_menu(false, &tx);
+        let snooze = SnoozeController::new();
+        let items = build_menu(false, &snooze, &tx);
 
         // Expect: SubMenu(Pause), Separator, Checkmark(Instant), Checkmark(Boot), Separator, Standard(Quit)
         assert_eq!(items.len(), 6);
@@ -358,6 +379,7 @@ mod tests {
                         let mut mock_tray = KsniTray {
                             paused: Arc::new(AtomicBool::new(false)),
                             system_tray_enabled: Arc::new(AtomicBool::new(true)),
+                            snooze: snooze.clone(),
                             events: tx.clone(),
                         };
                         (item.activate)(&mut mock_tray);
@@ -374,6 +396,7 @@ mod tests {
                         let mut mock_tray = KsniTray {
                             paused: Arc::new(AtomicBool::new(false)),
                             system_tray_enabled: Arc::new(AtomicBool::new(true)),
+                            snooze: snooze.clone(),
                             events: tx.clone(),
                         };
                         (item.activate)(&mut mock_tray);
@@ -390,6 +413,7 @@ mod tests {
                         let mut mock_tray = KsniTray {
                             paused: Arc::new(AtomicBool::new(false)),
                             system_tray_enabled: Arc::new(AtomicBool::new(true)),
+                            snooze: snooze.clone(),
                             events: tx.clone(),
                         };
                         (item.activate)(&mut mock_tray);
@@ -407,6 +431,7 @@ mod tests {
                         let mut mock_tray = KsniTray {
                             paused: Arc::new(AtomicBool::new(false)),
                             system_tray_enabled: Arc::new(AtomicBool::new(true)),
+                            snooze: snooze.clone(),
                             events: tx.clone(),
                         };
                         (item.activate)(&mut mock_tray);
@@ -426,6 +451,7 @@ mod tests {
                 let mut mock_tray = KsniTray {
                     paused: Arc::new(AtomicBool::new(false)),
                     system_tray_enabled: Arc::new(AtomicBool::new(true)),
+                    snooze: snooze.clone(),
                     events: tx.clone(),
                 };
                 (item.activate)(&mut mock_tray);
@@ -440,6 +466,7 @@ mod tests {
                 let mut mock_tray = KsniTray {
                     paused: Arc::new(AtomicBool::new(false)),
                     system_tray_enabled: Arc::new(AtomicBool::new(true)),
+                    snooze: snooze.clone(),
                     events: tx.clone(),
                 };
                 (item.activate)(&mut mock_tray);
@@ -456,6 +483,7 @@ mod tests {
                 let mut mock_tray = KsniTray {
                     paused: Arc::new(AtomicBool::new(false)),
                     system_tray_enabled: Arc::new(AtomicBool::new(true)),
+                    snooze: snooze.clone(),
                     events: tx.clone(),
                 };
                 (item.activate)(&mut mock_tray);
@@ -468,7 +496,8 @@ mod tests {
     #[test]
     fn test_menu_paused_structure() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let items = build_menu(true, &tx);
+        let snooze = SnoozeController::new();
+        let items = build_menu(true, &snooze, &tx);
 
         // Expect: Standard(Resume), Separator, Checkmark(Instant), Checkmark(Boot), Separator, Standard(Quit)
         assert_eq!(items.len(), 6);
@@ -479,6 +508,7 @@ mod tests {
                 let mut mock_tray = KsniTray {
                     paused: Arc::new(AtomicBool::new(true)),
                     system_tray_enabled: Arc::new(AtomicBool::new(true)),
+                    snooze: snooze.clone(),
                     events: tx.clone(),
                 };
                 (item.activate)(&mut mock_tray);
@@ -492,5 +522,34 @@ mod tests {
         assert!(matches!(&items[3], MenuItem::Checkmark(_)));
         assert!(matches!(&items[4], MenuItem::Separator));
         assert!(matches!(&items[5], MenuItem::Standard(_)));
+    }
+
+    #[test]
+    fn test_menu_snoozed_structure() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let snooze = SnoozeController::new();
+        snooze.start_snooze(Duration::from_secs(15 * 60), || {});
+        let items = build_menu(true, &snooze, &tx);
+
+        assert_eq!(items.len(), 6);
+
+        match &items[0] {
+            MenuItem::Standard(item) => {
+                assert!(
+                    item.label.starts_with("Resume (14m ") || item.label == "Resume (15m 00s)",
+                    "Unexpected label: {}",
+                    item.label
+                );
+                let mut mock_tray = KsniTray {
+                    paused: Arc::new(AtomicBool::new(true)),
+                    system_tray_enabled: Arc::new(AtomicBool::new(true)),
+                    snooze: snooze.clone(),
+                    events: tx.clone(),
+                };
+                (item.activate)(&mut mock_tray);
+                assert_eq!(rx.try_recv().ok(), Some(TrayEvent::Resume));
+            }
+            _ => panic!("Expected StandardItem for Resume"),
+        }
     }
 }

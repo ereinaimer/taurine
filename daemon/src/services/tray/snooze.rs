@@ -21,6 +21,7 @@ pub struct SnoozeController {
     version: Arc<AtomicU64>,
     active: Arc<AtomicBool>,
     current_abort: Arc<Mutex<Option<AbortHandle>>>,
+    target_time: Arc<Mutex<Option<std::time::Instant>>>,
 }
 
 impl SnoozeController {
@@ -29,6 +30,7 @@ impl SnoozeController {
             version: Arc::new(AtomicU64::new(0)),
             active: Arc::new(AtomicBool::new(false)),
             current_abort: Arc::new(Mutex::new(None)),
+            target_time: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -46,9 +48,15 @@ impl SnoozeController {
         let token = self.version.fetch_add(1, Ordering::SeqCst) + 1;
         self.active.store(true, Ordering::SeqCst);
 
+        let deadline = std::time::Instant::now() + duration;
+        if let Ok(mut guard) = self.target_time.lock() {
+            *guard = Some(deadline);
+        }
+
         let version = self.version.clone();
         let active = self.active.clone();
         let abort_holder = self.current_abort.clone();
+        let target_holder = self.target_time.clone();
 
         let handle = tokio::runtime::Handle::try_current()
             .ok()
@@ -59,6 +67,9 @@ impl SnoozeController {
                 tokio::time::sleep(duration).await;
                 if version.load(Ordering::SeqCst) == token {
                     active.store(false, Ordering::SeqCst);
+                    if let Ok(mut guard) = target_holder.lock() {
+                        *guard = None;
+                    }
                     if let Ok(mut guard) = abort_holder.lock() {
                         *guard = None;
                     }
@@ -86,6 +97,9 @@ impl SnoozeController {
                     && version.load(Ordering::SeqCst) == token
                 {
                     active.store(false, Ordering::SeqCst);
+                    if let Ok(mut guard) = target_holder.lock() {
+                        *guard = None;
+                    }
                     if let Ok(mut guard) = abort_holder.lock() {
                         *guard = None;
                     }
@@ -103,6 +117,9 @@ impl SnoozeController {
         {
             prev.abort();
         }
+        if let Ok(mut guard) = self.target_time.lock() {
+            *guard = None;
+        }
         self.active.store(false, Ordering::SeqCst);
         self.version.fetch_add(1, Ordering::SeqCst) + 1
     }
@@ -110,6 +127,35 @@ impl SnoozeController {
     #[allow(dead_code)]
     pub fn is_active(&self) -> bool {
         self.active.load(Ordering::SeqCst)
+    }
+
+    pub fn remaining_time(&self) -> Option<Duration> {
+        if !self.is_active() {
+            return None;
+        }
+        let guard = self.target_time.lock().ok()?;
+        let target = (*guard)?;
+        let now = std::time::Instant::now();
+        if target > now {
+            Some(target - now)
+        } else {
+            Some(Duration::ZERO)
+        }
+    }
+
+    pub fn resume_label(&self) -> String {
+        if let Some(remaining) = self.remaining_time() {
+            let total_secs = remaining.as_secs();
+            let mins = total_secs / 60;
+            let secs = total_secs % 60;
+            if mins > 0 {
+                format!("Resume ({}m {:02}s)", mins, secs)
+            } else {
+                format!("Resume ({}s)", secs)
+            }
+        } else {
+            "Resume".to_string()
+        }
     }
 }
 
@@ -185,5 +231,55 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(150)).await;
         assert!(!fired1.load(Ordering::SeqCst));
         assert!(fired2.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_remaining_time_and_resume_label_when_inactive() {
+        let controller = SnoozeController::new();
+        assert!(!controller.is_active());
+        assert_eq!(controller.remaining_time(), None);
+        assert_eq!(controller.resume_label(), "Resume");
+    }
+
+    #[test]
+    fn test_remaining_time_and_resume_label_during_snooze() {
+        let controller = SnoozeController::new();
+        controller.start_snooze(Duration::from_secs(15 * 60), || {});
+
+        assert!(controller.is_active());
+        let remaining = controller
+            .remaining_time()
+            .expect("active snooze remaining");
+        assert!(remaining >= Duration::from_secs(14 * 60 + 50));
+        assert!(remaining <= Duration::from_secs(15 * 60));
+
+        let label = controller.resume_label();
+        assert!(
+            label.starts_with("Resume (14m ") || label == "Resume (15m 00s)",
+            "Unexpected label: {label}"
+        );
+    }
+
+    #[test]
+    fn test_resume_label_under_one_minute() {
+        let controller = SnoozeController::new();
+        controller.start_snooze(Duration::from_secs(45), || {});
+
+        let label = controller.resume_label();
+        assert!(
+            label.starts_with("Resume (4") && label.ends_with("s)"),
+            "Unexpected under-minute label: {label}"
+        );
+    }
+
+    #[test]
+    fn test_remaining_time_cleared_on_cancel() {
+        let controller = SnoozeController::new();
+        controller.start_snooze(Duration::from_secs(30 * 60), || {});
+        assert!(controller.remaining_time().is_some());
+
+        controller.cancel();
+        assert_eq!(controller.remaining_time(), None);
+        assert_eq!(controller.resume_label(), "Resume");
     }
 }

@@ -44,6 +44,142 @@ fn initialize_windows_ui() {
     }
 }
 
+#[cfg(target_os = "windows")]
+const TRAY_SUBCLASS_ID: usize = 0x544155; // "TAU"
+#[cfg(target_os = "windows")]
+const SNOOZE_TIMER_ID: usize = 0x534E5A; // "SNZ"
+
+#[cfg(target_os = "windows")]
+struct TrayLiveState {
+    paused: Arc<AtomicBool>,
+    snooze: SnoozeController,
+    resume_item: MenuItem,
+}
+
+#[cfg(target_os = "windows")]
+impl TrayLiveState {
+    fn update_label_and_redraw(&self) {
+        let label = self.snooze.resume_label();
+        self.resume_item.set_text(&label);
+
+        // SAFETY: FindWindowW locates the active context menu window (#32768) and InvalidateRect/UpdateWindow
+        // forces an immediate repaint of the menu items so the countdown live-updates on screen.
+        unsafe {
+            let menu_hwnd = windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW(
+                windows_sys::w!("#32768"),
+                std::ptr::null(),
+            );
+            if !menu_hwnd.is_null() {
+                windows_sys::Win32::Graphics::Gdi::InvalidateRect(menu_hwnd, std::ptr::null(), 1);
+                windows_sys::Win32::Graphics::Gdi::UpdateWindow(menu_hwnd);
+            }
+        }
+    }
+
+    fn reset_label_and_redraw(&self) {
+        self.resume_item.set_text("Resume");
+
+        // SAFETY: FindWindowW locates the active context menu window (#32768) and InvalidateRect/UpdateWindow
+        // forces an immediate repaint of the menu items so the text resets on screen.
+        unsafe {
+            let menu_hwnd = windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW(
+                windows_sys::w!("#32768"),
+                std::ptr::null(),
+            );
+            if !menu_hwnd.is_null() {
+                windows_sys::Win32::Graphics::Gdi::InvalidateRect(menu_hwnd, std::ptr::null(), 1);
+                windows_sys::Win32::Graphics::Gdi::UpdateWindow(menu_hwnd);
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+// SAFETY: tray_menu_subclass_proc is invoked by ComCtl32 for the tray window on the GUI thread.
+// ref_data is a valid pointer to TrayLiveState that lives on the stack of the tau-tray thread.
+unsafe extern "system" fn tray_menu_subclass_proc(
+    hwnd: windows_sys::Win32::Foundation::HWND,
+    msg: u32,
+    wparam: windows_sys::Win32::Foundation::WPARAM,
+    lparam: windows_sys::Win32::Foundation::LPARAM,
+    _id: usize,
+    ref_data: usize,
+) -> windows_sys::Win32::Foundation::LRESULT {
+    use windows_sys::Win32::UI::Shell::DefSubclassProc;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        KillTimer, SetTimer, WM_ENTERMENULOOP, WM_EXITMENULOOP, WM_TIMER,
+    };
+
+    match msg {
+        WM_ENTERMENULOOP => {
+            // SAFETY: ref_data points to live_state valid for the duration of the tau-tray thread.
+            let state = unsafe { &*(ref_data as *const TrayLiveState) };
+            if state.paused.load(Ordering::Relaxed) && state.snooze.is_active() {
+                state.update_label_and_redraw();
+                // SAFETY: SetTimer configures the 1000ms live countdown timer during context menu display.
+                unsafe {
+                    SetTimer(hwnd, SNOOZE_TIMER_ID, 1000, None);
+                }
+            }
+        }
+        WM_TIMER if wparam == SNOOZE_TIMER_ID => {
+            // SAFETY: ref_data points to live_state valid for the duration of the tau-tray thread.
+            let state = unsafe { &*(ref_data as *const TrayLiveState) };
+            if state.paused.load(Ordering::Relaxed) && state.snooze.is_active() {
+                state.update_label_and_redraw();
+            } else {
+                // SAFETY: KillTimer halts the timer when snooze expires.
+                unsafe {
+                    KillTimer(hwnd, SNOOZE_TIMER_ID);
+                }
+                state.reset_label_and_redraw();
+            }
+            return 0;
+        }
+        WM_EXITMENULOOP => {
+            // SAFETY: KillTimer halts the timer as soon as the context menu closes.
+            unsafe {
+                KillTimer(hwnd, SNOOZE_TIMER_ID);
+            }
+        }
+        _ => {}
+    }
+
+    // SAFETY: DefSubclassProc forwards unhandled messages down the subclass chain.
+    unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
+}
+
+#[cfg(target_os = "windows")]
+// SAFETY: enum_thread_windows_cb is invoked by Win32 for each thread window to capture the HWND.
+unsafe extern "system" fn enum_thread_windows_cb(
+    hwnd: windows_sys::Win32::Foundation::HWND,
+    lparam: windows_sys::Win32::Foundation::LPARAM,
+) -> i32 {
+    let target = lparam as *mut windows_sys::Win32::Foundation::HWND;
+    // SAFETY: target is a valid pointer to a local HWND variable passed from find_current_thread_window.
+    unsafe {
+        *target = hwnd;
+    }
+    0
+}
+
+#[cfg(target_os = "windows")]
+fn find_current_thread_window() -> windows_sys::Win32::Foundation::HWND {
+    use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+    use windows_sys::Win32::UI::WindowsAndMessaging::EnumThreadWindows;
+
+    let mut hwnd = std::ptr::null_mut();
+    // SAFETY: EnumThreadWindows safely queries windows created on the current thread and writes to local hwnd.
+    unsafe {
+        EnumThreadWindows(
+            GetCurrentThreadId(),
+            Some(enum_thread_windows_cb),
+            &mut hwnd as *mut _ as _,
+        );
+    }
+    hwnd
+}
+
 pub struct TrayMenuItems {
     pub pause_submenu: Submenu,
     pub snooze_15m: MenuItem,
@@ -150,14 +286,36 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
 
             #[cfg(target_os = "windows")]
             {
+                use windows_sys::Win32::UI::Shell::{RemoveWindowSubclass, SetWindowSubclass};
                 use windows_sys::Win32::UI::WindowsAndMessaging::{
                     DispatchMessageW, PM_REMOVE, PeekMessageW, TranslateMessage,
                 };
+
+                let live_state = TrayLiveState {
+                    paused: paused.clone(),
+                    snooze: snooze.clone(),
+                    resume_item: items.resume_item.clone(),
+                };
+
+                let mut tray_hwnd = find_current_thread_window();
+                if !tray_hwnd.is_null() {
+                    // SAFETY: SetWindowSubclass attaches our tray_menu_subclass_proc to the tray window.
+                    // live_state lives on this thread's stack until the thread terminates.
+                    unsafe {
+                        SetWindowSubclass(
+                            tray_hwnd,
+                            Some(tray_menu_subclass_proc),
+                            TRAY_SUBCLASS_ID,
+                            &live_state as *const _ as _,
+                        );
+                    }
+                }
 
                 let mut msg = unsafe { std::mem::zeroed() };
                 let mut last_paused = Some(initial_paused);
                 let mut menu_displayed_paused = initial_paused;
                 let mut last_visible = None;
+                let mut last_resume_label = "Resume".to_string();
                 let mut sync_counter: u32 = 0;
                 loop {
                     // Update tray visibility based on settings
@@ -171,6 +329,32 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
                     // message pump routines processing thread-local GUI messages for the tray icon.
                     unsafe {
                         while PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) > 0 {
+                            if tray_hwnd.is_null() && !msg.hwnd.is_null() {
+                                tray_hwnd = msg.hwnd;
+                                // SAFETY: SetWindowSubclass attaches our tray_menu_subclass_proc to the tray window.
+                                SetWindowSubclass(
+                                    tray_hwnd,
+                                    Some(tray_menu_subclass_proc),
+                                    TRAY_SUBCLASS_ID,
+                                    &live_state as *const _ as _,
+                                );
+                            }
+
+                            // Update dynamic countdown label immediately before displaying the popup menu
+                            if paused.load(Ordering::Relaxed)
+                                && msg.message == 0x0401
+                                && matches!(
+                                    msg.lParam as u32,
+                                    0x0201 | 0x0202 | 0x0204 | 0x0205 | 0x007B
+                                )
+                            {
+                                let label = snooze.resume_label();
+                                if label != last_resume_label {
+                                    items.resume_item.set_text(&label);
+                                    last_resume_label = label;
+                                }
+                            }
+
                             TranslateMessage(&msg);
                             DispatchMessageW(&msg);
                         }
@@ -180,6 +364,16 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
                         let should_continue = process_menu_event(&event, &items, &paused, &snooze);
 
                         if !should_continue {
+                            if !tray_hwnd.is_null() {
+                                // SAFETY: RemoveWindowSubclass unhooks the subclass before the thread terminates.
+                                unsafe {
+                                    RemoveWindowSubclass(
+                                        tray_hwnd,
+                                        Some(tray_menu_subclass_proc),
+                                        TRAY_SUBCLASS_ID,
+                                    );
+                                }
+                            }
                             return;
                         }
                     }
@@ -196,10 +390,15 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
                         }
 
                         if now_paused && !menu_displayed_paused {
+                            let label = snooze.resume_label();
+                            items.resume_item.set_text(&label);
+                            last_resume_label = label;
                             let _ = menu.remove(&items.pause_submenu);
                             let _ = menu.insert(&items.resume_item, 0);
                             menu_displayed_paused = true;
                         } else if !now_paused && menu_displayed_paused {
+                            items.resume_item.set_text("Resume");
+                            last_resume_label = "Resume".to_string();
                             let _ = menu.remove(&items.resume_item);
                             let _ = menu.insert(&items.pause_submenu, 0);
                             menu_displayed_paused = false;
@@ -209,6 +408,18 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
                         } else {
                             running_icon.clone()
                         }));
+                    }
+
+                    // Update dynamic countdown label if snoozed
+                    if now_paused && snooze.is_active() {
+                        let label = snooze.resume_label();
+                        if label != last_resume_label {
+                            items.resume_item.set_text(&label);
+                            last_resume_label = label;
+                        }
+                    } else if now_paused && last_resume_label != "Resume" {
+                        last_resume_label = "Resume".to_string();
+                        items.resume_item.set_text("Resume");
                     }
 
                     // Periodically synchronize checkmarks with database (every 500ms)
@@ -233,6 +444,7 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
                 let mut last_paused = Some(initial_paused);
                 let mut menu_displayed_paused = initial_paused;
                 let mut last_visible = None;
+                let mut last_resume_label = "Resume".to_string();
                 let mut sync_counter: u32 = 0;
                 loop {
                     // Update tray visibility based on settings
@@ -262,10 +474,15 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
                         }
 
                         if now_paused && !menu_displayed_paused {
+                            let label = snooze.resume_label();
+                            items.resume_item.set_text(&label);
+                            last_resume_label = label;
                             let _ = menu.remove(&items.pause_submenu);
                             let _ = menu.insert(&items.resume_item, 0);
                             menu_displayed_paused = true;
                         } else if !now_paused && menu_displayed_paused {
+                            items.resume_item.set_text("Resume");
+                            last_resume_label = "Resume".to_string();
                             let _ = menu.remove(&items.resume_item);
                             let _ = menu.insert(&items.pause_submenu, 0);
                             menu_displayed_paused = false;
@@ -275,6 +492,18 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
                         } else {
                             running_icon.clone()
                         }));
+                    }
+
+                    // Update dynamic countdown label if snoozed
+                    if now_paused && snooze.is_active() {
+                        let label = snooze.resume_label();
+                        if label != last_resume_label {
+                            items.resume_item.set_text(&label);
+                            last_resume_label = label;
+                        }
+                    } else if now_paused && last_resume_label != "Resume" {
+                        last_resume_label = "Resume".to_string();
+                        items.resume_item.set_text("Resume");
                     }
 
                     // Periodically synchronize checkmarks with database (every 500ms)
@@ -333,6 +562,7 @@ pub fn process_menu_event(
                 });
             }
         });
+        items.resume_item.set_text(snooze.resume_label());
 
         if let Some(rt) = crate::TOKIO_HANDLE.get() {
             rt.spawn(async move {
@@ -347,6 +577,7 @@ pub fn process_menu_event(
         true
     } else if event_id == items.pause_until_resumed.id() {
         snooze.cancel();
+        items.resume_item.set_text("Resume");
         if let Some(rt) = crate::TOKIO_HANDLE.get() {
             rt.spawn(async move {
                 if let Ok(mut client) = taurine_core::rpc::get_client().await {
@@ -359,6 +590,7 @@ pub fn process_menu_event(
         true
     } else if event_id == items.resume_item.id() {
         snooze.cancel();
+        items.resume_item.set_text("Resume");
         if let Some(rt) = crate::TOKIO_HANDLE.get() {
             rt.spawn(async move {
                 if let Ok(mut client) = taurine_core::rpc::get_client().await {
@@ -411,6 +643,11 @@ mod tests {
         assert!(should_continue);
         assert!(paused.load(Ordering::Relaxed));
         assert!(snooze.is_active());
+        let label = snooze.resume_label();
+        assert!(
+            label.starts_with("Resume (14m ") || label == "Resume (15m 00s)",
+            "Unexpected resume label: {label}"
+        );
     }
 
     #[tokio::test]
@@ -427,6 +664,11 @@ mod tests {
         assert!(should_continue);
         assert!(paused.load(Ordering::Relaxed));
         assert!(snooze.is_active());
+        let label = snooze.resume_label();
+        assert!(
+            label.starts_with("Resume (29m ") || label == "Resume (30m 00s)",
+            "Unexpected resume label: {label}"
+        );
     }
 
     #[tokio::test]
@@ -443,6 +685,11 @@ mod tests {
         assert!(should_continue);
         assert!(paused.load(Ordering::Relaxed));
         assert!(snooze.is_active());
+        let label = snooze.resume_label();
+        assert!(
+            label.starts_with("Resume (59m ") || label == "Resume (60m 00s)",
+            "Unexpected resume label: {label}"
+        );
     }
 
     #[tokio::test]
@@ -462,6 +709,7 @@ mod tests {
         assert!(should_continue);
         assert!(paused.load(Ordering::Relaxed));
         assert!(!snooze.is_active());
+        assert_eq!(snooze.resume_label(), "Resume");
     }
 
     #[tokio::test]
@@ -481,6 +729,7 @@ mod tests {
         assert!(should_continue);
         assert!(!paused.load(Ordering::Relaxed));
         assert!(!snooze.is_active());
+        assert_eq!(snooze.resume_label(), "Resume");
     }
 
     #[tokio::test]
