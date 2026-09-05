@@ -482,3 +482,19 @@ fn parses_import_conflict_flags() {
         other => panic!("unexpected command parse: {other:?}"),
     }
 }
+
+#[test]
+fn parses_auto_update_flag_and_routes_to_launch_target() {
+    let cli = Cli::try_parse_from(["taurine", "--auto-update"])
+        .expect("taurine --auto-update should parse");
+    assert!(cli.auto_update);
+    assert_eq!(launch_target(&cli), LaunchTarget::AutoUpdate);
+}
+
+#[test]
+fn update_subcommand_routes_to_command_launch_target() {
+    let cli = Cli::try_parse_from(["taurine", "update"]).expect("taurine update should parse");
+    assert!(!cli.auto_update);
+    assert_eq!(launch_target(&cli), LaunchTarget::Command);
+    assert!(matches!(cli.command, Some(Commands::Update)));
+}

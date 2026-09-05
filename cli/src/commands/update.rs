@@ -89,21 +89,7 @@ impl Stepper {
     }
 }
 
-pub fn spawn_updater_process() {
-    if let Ok(exe) = std::env::current_exe() {
-        let mut cmd = std::process::Command::new(exe);
-        cmd.arg("--auto-update");
-
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            cmd.creation_flags(CREATE_NO_WINDOW);
-        }
-
-        let _ = cmd.spawn();
-    }
-}
+pub use taurine_core::service::spawn_updater_process;
 
 pub fn run_auto_update() -> Result<()> {
     if let Err(e) = execute_inner(true) {
@@ -153,11 +139,6 @@ fn execute_inner(silent: bool) -> Result<()> {
         .artifacts
         .get(platform_key())
         .ok_or_else(|| Error::Engine("Platform not supported by latest release".into()))?;
-
-    // Stop the service BEFORE the spinner starts, so "Taurine is stopped."
-    // (emitted via tracing::info! to stderr) doesn't interleave with the spinner's
-    // stdout carriage-return frames.
-    let _ = taurine_core::service::down();
 
     let mut sp = if !silent {
         Some(Stepper::start(&format!(
@@ -270,6 +251,11 @@ fn execute_inner(silent: bool) -> Result<()> {
         s.step("Installing");
     }
 
+    // Stop the running service only after the archive is fully downloaded,
+    // validated, and extracted, minimizing service downtime and avoiding stopping
+    // if download or checksum fails.
+    let _ = taurine_core::service::down();
+
     let current = std::env::current_exe().map_err(|e| Error::Engine(e.to_string()))?;
     let canonical = get_install_exe_path();
 
@@ -278,6 +264,14 @@ fn execute_inner(silent: bool) -> Result<()> {
         false
     } else {
         fs::create_dir_all(get_install_bin_dir()).map_err(|e| Error::Engine(e.to_string()))?;
+        if canonical.exists() {
+            let backup_path = temp_dir.join(format!("taurine-old-{}", uuid::Uuid::new_v4()));
+            if let Err(e) = fs::rename(&canonical, &backup_path) {
+                tracing::debug!("Failed to rename canonical binary before copy: {}", e);
+            } else {
+                let _ = fs::remove_file(backup_path);
+            }
+        }
         fs::copy(&binary_path, &canonical).map_err(|e| Error::Engine(e.to_string()))?;
         ensure_on_path(get_install_bin_dir());
         true
@@ -394,5 +388,115 @@ fn ensure_on_path(dir: PathBuf) {
         for profile in crate::platform::shell::detect_shell_profiles() {
             let _ = crate::platform::shell::ensure_path_in_profile(&profile, &dir_str);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_platform_key_returns_valid_supported_platform() {
+        let key = platform_key();
+        assert!(
+            key == "windows-x86_64"
+                || key == "linux-x86_64"
+                || key == "macos-x86_64"
+                || key == "macos-aarch64",
+            "unexpected platform key: {key}"
+        );
+    }
+
+    #[test]
+    fn test_manifest_deserialization() {
+        let json = r#"{
+            "version": "1.0.0",
+            "artifacts": {
+                "windows-x86_64": {
+                    "url": "https://example.com/taurine-windows.zip",
+                    "sha256": "abcdef1234567890"
+                },
+                "linux-x86_64": {
+                    "url": "https://example.com/taurine-linux.tar"
+                }
+            }
+        }"#;
+
+        let manifest: Manifest = serde_json::from_str(json).expect("manifest should deserialize");
+        assert_eq!(manifest.version, "1.0.0");
+        assert_eq!(manifest.artifacts.len(), 2);
+
+        let win_artifact = manifest.artifacts.get("windows-x86_64").unwrap();
+        assert_eq!(win_artifact.url, "https://example.com/taurine-windows.zip");
+        assert_eq!(win_artifact.sha256.as_deref(), Some("abcdef1234567890"));
+
+        let linux_artifact = manifest.artifacts.get("linux-x86_64").unwrap();
+        assert_eq!(linux_artifact.url, "https://example.com/taurine-linux.tar");
+        assert_eq!(linux_artifact.sha256, None);
+    }
+
+    #[test]
+    fn test_is_newer_version_major_bump() {
+        assert!(is_newer_version("1.0.0", "2.0.0"));
+        assert!(!is_newer_version("2.0.0", "1.0.0"));
+    }
+
+    #[test]
+    fn test_is_newer_version_minor_bump() {
+        assert!(is_newer_version("1.0.0", "1.1.0"));
+        assert!(!is_newer_version("1.1.0", "1.0.0"));
+    }
+
+    #[test]
+    fn test_is_newer_version_patch_bump() {
+        assert!(is_newer_version("1.0.0", "1.0.1"));
+        assert!(!is_newer_version("1.0.1", "1.0.0"));
+    }
+
+    #[test]
+    fn test_is_newer_version_identical_release() {
+        assert!(!is_newer_version("1.0.0", "1.0.0"));
+        assert!(!is_newer_version("2.3.4", "2.3.4"));
+    }
+
+    #[test]
+    fn test_is_newer_version_release_vs_prerelease() {
+        // A release version is newer than any pre-release of the same base
+        assert!(is_newer_version("1.0.0-alpha.1", "1.0.0"));
+        assert!(!is_newer_version("1.0.0", "1.0.0-alpha.1"));
+    }
+
+    #[test]
+    fn test_is_newer_version_prerelease_numeric_increments() {
+        // e.g. alpha.9 vs alpha.10 (numeric comparison, not lexicographic)
+        assert!(is_newer_version("1.0.0-alpha.9", "1.0.0-alpha.10"));
+        assert!(!is_newer_version("1.0.0-alpha.10", "1.0.0-alpha.9"));
+        assert!(is_newer_version("1.0.0-alpha.17", "1.0.0-alpha.18"));
+        assert!(!is_newer_version("1.0.0-alpha.18", "1.0.0-alpha.17"));
+    }
+
+    #[test]
+    fn test_is_newer_version_prerelease_ident_comparison() {
+        // alpha vs beta
+        assert!(is_newer_version("1.0.0-alpha.1", "1.0.0-beta.1"));
+        assert!(!is_newer_version("1.0.0-beta.1", "1.0.0-alpha.1"));
+    }
+
+    #[test]
+    fn test_is_newer_version_prerelease_length_tiebreak() {
+        // alpha.1 vs alpha.1.1
+        assert!(is_newer_version("1.0.0-alpha.1", "1.0.0-alpha.1.1"));
+        assert!(!is_newer_version("1.0.0-alpha.1.1", "1.0.0-alpha.1"));
+    }
+
+    #[test]
+    fn test_is_newer_version_identical_prerelease() {
+        assert!(!is_newer_version("1.0.0-alpha.17", "1.0.0-alpha.17"));
+    }
+
+    #[test]
+    fn test_is_newer_version_higher_base_even_with_lower_prerelease() {
+        assert!(is_newer_version("1.0.0", "1.1.0-alpha.1"));
+        assert!(is_newer_version("1.0.0-alpha.10", "2.0.0-alpha.1"));
     }
 }

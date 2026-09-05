@@ -63,6 +63,9 @@ pub fn start() -> taurine_core::error::Result<()> {
     let settings_manager = SettingsManager::new(&conn);
     let settings = settings_manager.load_all();
 
+    // Check for updates on startup when auto-update is enabled
+    taurine_core::service::check_on_startup(&conn, settings.auto_update);
+
     taurine_core::settings::set_cached_wpm(settings.wpm);
     taurine_core::settings::set_cached_clipboard_restore_delay(settings.clipboard_restore_delay_ms);
     taurine_core::settings::set_cached_script_timeout(settings.script_timeout);
@@ -285,36 +288,34 @@ pub fn start() -> taurine_core::error::Result<()> {
     // 5. Start system tray icon
     crate::services::tray::spawn(paused.clone(), system_tray_enabled.clone());
 
-    // 6. Background Auto-Updater (initial deferred check after 60s, then every 6 hours)
+    // 6. Background Auto-Updater (interval checks every 6 hours)
     std::thread::Builder::new()
         .name("tau-updater".to_string())
         .spawn(move || {
-            // Wait 60 seconds before first check to prioritize immediate hook startup
+            // Wait 60 seconds before entering the interval loop
             std::thread::sleep(std::time::Duration::from_secs(60));
 
             loop {
                 if let Ok(conn) = taurine_core::db::init::setup() {
                     let current_settings =
                         taurine_core::settings::SettingsManager::new(&conn).load_all();
-                    if current_settings.auto_update
-                        && let Ok(exe) = std::env::current_exe()
-                    {
-                        let mut cmd = std::process::Command::new(exe);
-                        cmd.arg("--auto-update");
-
-                        #[cfg(target_os = "windows")]
-                        {
-                            use std::os::windows::process::CommandExt;
-                            const CREATE_NO_WINDOW: u32 = 0x08000000;
-                            cmd.creation_flags(CREATE_NO_WINDOW);
+                    if current_settings.auto_update {
+                        let now = taurine_core::service::now_unix_secs();
+                        if let Err(e) = taurine_core::service::set_last_update_check(&conn, now) {
+                            error!(
+                                "Failed to update {} in interval worker: {}",
+                                taurine_core::service::LAST_UPDATE_CHECK_KEY,
+                                e
+                            );
                         }
-
-                        let _ = cmd.spawn();
+                        taurine_core::service::spawn_updater_process();
                     }
                 }
 
                 // Sleep for 6 hours between checks
-                std::thread::sleep(std::time::Duration::from_secs(6 * 60 * 60));
+                std::thread::sleep(std::time::Duration::from_secs(
+                    taurine_core::service::UPDATE_CHECK_INTERVAL_SECS,
+                ));
             }
         })?;
 

@@ -10,3 +10,6 @@ pub use windows::*;
 
 pub mod liveness;
 pub use liveness::*;
+
+pub mod updater;
+pub use updater::*;
