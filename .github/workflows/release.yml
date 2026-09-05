@@ -176,34 +176,41 @@ jobs:
           VERSION=${GITHUB_REF_NAME#v}
           base_url="https://github.com/ereinaimer/taurine/releases/download/v${VERSION}"
           
-          # Read checksums into variables
-          windows_sha256=$(grep "windows-x86_64" checksums/*.sha256 2>/dev/null | cut -d' ' -f1 || echo "")
-          linux_sha256=$(grep "linux-x86_64" checksums/*.sha256 2>/dev/null | cut -d' ' -f1 || echo "")
-          macos_x64_sha256=$(grep "macos-x86_64" checksums/*.sha256 2>/dev/null | cut -d' ' -f1 || echo "")
-          macos_arm_sha256=$(grep "macos-aarch64" checksums/*.sha256 2>/dev/null | cut -d' ' -f1 || echo "")
+          # Read checksums into variables (-h suppresses filename prefixes from grep)
+          windows_sha256=$(grep -h "windows-x86_64" checksums/*.sha256 2>/dev/null | cut -d' ' -f1 || echo "")
+          linux_sha256=$(grep -h "linux-x86_64" checksums/*.sha256 2>/dev/null | cut -d' ' -f1 || echo "")
+          macos_x64_sha256=$(grep -h "macos-x86_64" checksums/*.sha256 2>/dev/null | cut -d' ' -f1 || echo "")
+          macos_arm_sha256=$(grep -h "macos-aarch64" checksums/*.sha256 2>/dev/null | cut -d' ' -f1 || echo "")
           
           python3 -c "
           import json, os
           version = '$VERSION'
           base_url = f'https://github.com/ereinaimer/taurine/releases/download/v{version}'
+          def clean_hash(h):
+              h = h.strip()
+              if ':' in h:
+                  h = h.rsplit(':', 1)[-1].strip()
+              tokens = h.split()
+              return tokens[0] if tokens else ''
+
           manifest = {
               'version': version,
               'artifacts': {
                   'windows-x86_64': {
                       'url': f'{base_url}/taurine-v{version}-windows-x86_64.zip',
-                      'sha256': '$windows_sha256'
+                      'sha256': clean_hash('$windows_sha256')
                   },
                   'linux-x86_64': {
                       'url': f'{base_url}/taurine-v{version}-linux-x86_64.tar.xz',
-                      'sha256': '$linux_sha256'
+                      'sha256': clean_hash('$linux_sha256')
                   },
                   'macos-x86_64': {
                       'url': f'{base_url}/taurine-v{version}-macos-x86_64.tar.xz',
-                      'sha256': '$macos_x64_sha256'
+                      'sha256': clean_hash('$macos_x64_sha256')
                   },
                   'macos-aarch64': {
                       'url': f'{base_url}/taurine-v{version}-macos-aarch64.tar.xz',
-                      'sha256': '$macos_arm_sha256'
+                      'sha256': clean_hash('$macos_arm_sha256')
                   },
               }
           }

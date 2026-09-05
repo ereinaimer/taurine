@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Startup & Periodic Auto-Update Checks**: Check for updates immediately on daemon startup and periodically every 6 hours.
 
+### Fixed
+- **Release Checksum Verification**: Correctly parse prefixed checksums in release manifests so updates download and verify without mismatch errors.
+
 ## [1.0.0-alpha.17] - 2026-09-05
 
 ### Added

@@ -2,7 +2,7 @@ use reqwest::blocking::Client;
 use sha2::Digest;
 use std::fs;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use taurine_core::error::{Error, Result};
 use taurine_core::paths::{get_install_bin_dir, get_install_exe_path};
 use taurine_core::settings::SpinnerStyle;
@@ -21,6 +21,37 @@ fn platform_key() -> &'static str {
     } else {
         panic!("unsupported platform")
     }
+}
+
+pub(crate) fn parse_expected_sha256(raw: &str) -> &str {
+    let trimmed = raw.trim();
+    let after_colon = match trimmed.rsplit_once(':') {
+        Some((_, hash)) => hash.trim(),
+        None => trimmed,
+    };
+    after_colon.split_whitespace().next().unwrap_or(after_colon)
+}
+
+fn find_binary_in_dir(dir: &Path, target_name: &str) -> Option<PathBuf> {
+    let direct = dir.join(target_name);
+    if direct.is_file() {
+        return Some(direct);
+    }
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if let Some(found) = find_binary_in_dir(&path, target_name) {
+                    return Some(found);
+                }
+            } else if path.is_file()
+                && path.file_name().and_then(|n| n.to_str()) == Some(target_name)
+            {
+                return Some(path);
+            }
+        }
+    }
+    None
 }
 
 #[derive(serde::Deserialize)]
@@ -154,7 +185,11 @@ fn execute_inner(silent: bool) -> Result<()> {
     }
 
     let temp_dir = taurine_core::system::paths::ensure_temp_dir();
-    let archive_ext = if cfg!(target_os = "windows") {
+    let archive_ext = if artifact.url.ends_with(".tar.xz") {
+        "tar.xz"
+    } else if artifact.url.ends_with(".tar.gz") {
+        "tar.gz"
+    } else if artifact.url.ends_with(".zip") || cfg!(target_os = "windows") {
         "zip"
     } else {
         "tar"
@@ -178,7 +213,8 @@ fn execute_inner(silent: bool) -> Result<()> {
     drop(archive_file);
 
     // Verify checksum if available in manifest
-    if let Some(expected_sha256) = &artifact.sha256 {
+    if let Some(expected_sha256_raw) = &artifact.sha256 {
+        let expected = parse_expected_sha256(expected_sha256_raw);
         let computed = {
             let mut hasher = sha2::Sha256::new();
             let mut f = fs::File::open(&archive_path).map_err(|e| Error::Engine(e.to_string()))?;
@@ -196,11 +232,11 @@ fn execute_inner(silent: bool) -> Result<()> {
                 .map(|b| format!("{:02x}", b))
                 .collect::<String>()
         };
-        if computed != *expected_sha256 {
+        if !computed.eq_ignore_ascii_case(expected) {
             let _ = fs::remove_file(&archive_path);
             return Err(Error::Engine(format!(
                 "Checksum mismatch for downloaded update: expected {}, got {}",
-                expected_sha256, computed
+                expected, computed
             )));
         }
     }
@@ -224,8 +260,9 @@ fn execute_inner(silent: bool) -> Result<()> {
         if !status.success() {
             return Err(Error::Engine("Failed to extract update".into()));
         }
-        fs::copy(extract_dir.join("taurine.exe"), &binary_path)
-            .map_err(|e| Error::Engine(e.to_string()))?;
+        let source_bin = find_binary_in_dir(&extract_dir, "taurine.exe")
+            .ok_or_else(|| Error::Engine("Extracted archive did not contain taurine.exe".into()))?;
+        fs::copy(source_bin, &binary_path).map_err(|e| Error::Engine(e.to_string()))?;
         let _ = fs::remove_dir_all(extract_dir);
     } else {
         let extract_dir = temp_dir.join(format!("taurine-ext-{}", uuid::Uuid::new_v4()));
@@ -240,8 +277,10 @@ fn execute_inner(silent: bool) -> Result<()> {
         if !status.success() {
             return Err(Error::Engine("Failed to extract update".into()));
         }
-        fs::copy(extract_dir.join("taurine"), &binary_path)
-            .map_err(|e| Error::Engine(e.to_string()))?;
+        let source_bin = find_binary_in_dir(&extract_dir, "taurine").ok_or_else(|| {
+            Error::Engine("Extracted archive did not contain taurine binary".into())
+        })?;
+        fs::copy(source_bin, &binary_path).map_err(|e| Error::Engine(e.to_string()))?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -513,5 +552,45 @@ mod tests {
     fn test_is_newer_version_higher_base_even_with_lower_prerelease() {
         assert!(is_newer_version("1.0.0", "1.1.0-alpha.1"));
         assert!(is_newer_version("1.0.0-alpha.10", "2.0.0-alpha.1"));
+    }
+
+    #[test]
+    fn test_parse_expected_sha256() {
+        // Formats seen in release manifests and checksum files:
+        // 1. colon-prefixed from multi-file grep
+        assert_eq!(
+            parse_expected_sha256(
+                "checksums/checksums-windows-x86_64.sha256:6c7be92d1ab87ad13c9ed3af58ac6ca956b3b9a994ecf83909f6b280c45595be"
+            ),
+            "6c7be92d1ab87ad13c9ed3af58ac6ca956b3b9a994ecf83909f6b280c45595be"
+        );
+        // 2. sha256: prefix
+        assert_eq!(
+            parse_expected_sha256(
+                "sha256:6c7be92d1ab87ad13c9ed3af58ac6ca956b3b9a994ecf83909f6b280c45595be"
+            ),
+            "6c7be92d1ab87ad13c9ed3af58ac6ca956b3b9a994ecf83909f6b280c45595be"
+        );
+        // 3. raw hash string
+        assert_eq!(
+            parse_expected_sha256(
+                "6c7be92d1ab87ad13c9ed3af58ac6ca956b3b9a994ecf83909f6b280c45595be"
+            ),
+            "6c7be92d1ab87ad13c9ed3af58ac6ca956b3b9a994ecf83909f6b280c45595be"
+        );
+        // 4. standard sha256sum line with filename
+        assert_eq!(
+            parse_expected_sha256(
+                "6c7be92d1ab87ad13c9ed3af58ac6ca956b3b9a994ecf83909f6b280c45595be  taurine-v1.0.0-windows-x86_64.zip"
+            ),
+            "6c7be92d1ab87ad13c9ed3af58ac6ca956b3b9a994ecf83909f6b280c45595be"
+        );
+        // 5. with leading/trailing whitespace
+        assert_eq!(
+            parse_expected_sha256(
+                "   6c7be92d1ab87ad13c9ed3af58ac6ca956b3b9a994ecf83909f6b280c45595be \n\t"
+            ),
+            "6c7be92d1ab87ad13c9ed3af58ac6ca956b3b9a994ecf83909f6b280c45595be"
+        );
     }
 }
