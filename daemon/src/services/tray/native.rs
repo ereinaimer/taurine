@@ -733,11 +733,25 @@ mod tests {
         assert_eq!(snooze.resume_label(), "Resume");
     }
 
-    #[tokio::test]
-    async fn test_process_menu_event_quick_settings_toggles() {
+    #[test]
+    fn test_process_menu_event_quick_settings_toggles() {
         let _lock = taurine_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("process_menu_quick_settings.db");
+        // SAFETY: Serialized under TEST_LOCK for test database isolation.
+        unsafe { std::env::set_var("TAURINE_DB_PATH", db_path.to_str().unwrap()) };
+
+        struct EnvGuard(&'static str);
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                // SAFETY: Serialized under TEST_LOCK for test database isolation.
+                unsafe { std::env::remove_var(self.0) };
+            }
+        }
+        let _guard = EnvGuard("TAURINE_DB_PATH");
+
         let paused = Arc::new(AtomicBool::new(false));
         let snooze = SnoozeController::new();
         let (items, _) = TrayMenuItems::new(false);

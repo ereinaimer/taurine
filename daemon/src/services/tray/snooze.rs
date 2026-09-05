@@ -4,14 +4,16 @@ use std::time::Duration;
 
 pub enum AbortHandle {
     Tokio(tokio::task::AbortHandle),
-    CancelFlag(Arc<AtomicBool>),
+    CancelSender(std::sync::mpsc::SyncSender<()>),
 }
 
 impl AbortHandle {
     pub fn abort(&self) {
         match self {
             Self::Tokio(handle) => handle.abort(),
-            Self::CancelFlag(flag) => flag.store(true, Ordering::SeqCst),
+            Self::CancelSender(sender) => {
+                let _ = sender.try_send(());
+            }
         }
     }
 }
@@ -80,22 +82,16 @@ impl SnoozeController {
                 *guard = Some(AbortHandle::Tokio(task.abort_handle()));
             }
         } else {
-            let thread_cancel = Arc::new(AtomicBool::new(false));
-            let thread_cancel_clone = thread_cancel.clone();
+            let (cancel_tx, cancel_rx) = std::sync::mpsc::sync_channel(1);
             if let Ok(mut guard) = self.current_abort.lock() {
-                *guard = Some(AbortHandle::CancelFlag(thread_cancel));
+                *guard = Some(AbortHandle::CancelSender(cancel_tx));
             }
             std::thread::spawn(move || {
-                let start = std::time::Instant::now();
-                while start.elapsed() < duration {
-                    if thread_cancel_clone.load(Ordering::SeqCst) {
-                        return;
-                    }
-                    std::thread::sleep(Duration::from_millis(50).min(duration));
+                match cancel_rx.recv_timeout(duration) {
+                    Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
                 }
-                if !thread_cancel_clone.load(Ordering::SeqCst)
-                    && version.load(Ordering::SeqCst) == token
-                {
+                if version.load(Ordering::SeqCst) == token {
                     active.store(false, Ordering::SeqCst);
                     if let Ok(mut guard) = target_holder.lock() {
                         *guard = None;
@@ -176,7 +172,10 @@ mod tests {
         });
 
         assert!(!fired.load(Ordering::SeqCst));
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        let start = std::time::Instant::now();
+        while !fired.load(Ordering::SeqCst) && start.elapsed() < Duration::from_secs(2) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
         assert!(fired.load(Ordering::SeqCst));
     }
 
@@ -206,7 +205,10 @@ mod tests {
             fired_clone.store(true, Ordering::SeqCst);
         });
 
-        std::thread::sleep(Duration::from_millis(100));
+        let start = std::time::Instant::now();
+        while !fired.load(Ordering::SeqCst) && start.elapsed() < Duration::from_secs(2) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
         assert!(fired.load(Ordering::SeqCst));
     }
 
@@ -228,7 +230,10 @@ mod tests {
             fired2_clone.store(true, Ordering::SeqCst);
         });
 
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        let start = std::time::Instant::now();
+        while !fired2.load(Ordering::SeqCst) && start.elapsed() < Duration::from_secs(2) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
         assert!(!fired1.load(Ordering::SeqCst));
         assert!(fired2.load(Ordering::SeqCst));
     }

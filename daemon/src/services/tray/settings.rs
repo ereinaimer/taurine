@@ -49,11 +49,25 @@ impl TraySettings {
 mod tests {
     use super::*;
 
+    struct EnvVarGuard(&'static str);
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            // SAFETY: Serialized under TEST_LOCK for test database isolation.
+            unsafe { std::env::remove_var(self.0) };
+        }
+    }
+
     #[test]
     fn test_toggle_instant_expand() {
         let _lock = taurine_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("toggle_instant_test.db");
+        // SAFETY: Serialized under TEST_LOCK for test database isolation.
+        unsafe { std::env::set_var("TAURINE_DB_PATH", db_path.to_str().unwrap()) };
+        let _env_guard = EnvVarGuard("TAURINE_DB_PATH");
+
         let (initial_instant, _) = TraySettings::load_quick_settings();
         let new_val = TraySettings::toggle_instant_expand().expect("toggle instant expand");
         assert_eq!(new_val, !initial_instant);
@@ -67,6 +81,12 @@ mod tests {
         let _lock = taurine_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("toggle_boot_test.db");
+        // SAFETY: Serialized under TEST_LOCK for test database isolation.
+        unsafe { std::env::set_var("TAURINE_DB_PATH", db_path.to_str().unwrap()) };
+        let _env_guard = EnvVarGuard("TAURINE_DB_PATH");
+
         let (_, initial_boot) = TraySettings::load_quick_settings();
         let new_val = TraySettings::toggle_start_on_boot().expect("toggle start on boot");
         assert_eq!(new_val, !initial_boot);
