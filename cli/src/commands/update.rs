@@ -242,6 +242,11 @@ fn execute_inner(silent: bool) -> Result<()> {
         }
         fs::copy(extract_dir.join("taurine"), &binary_path)
             .map_err(|e| Error::Engine(e.to_string()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&binary_path, fs::Permissions::from_mode(0o755));
+        }
         let _ = fs::remove_dir_all(extract_dir);
     }
 
@@ -273,6 +278,11 @@ fn execute_inner(silent: bool) -> Result<()> {
             }
         }
         fs::copy(&binary_path, &canonical).map_err(|e| Error::Engine(e.to_string()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&canonical, fs::Permissions::from_mode(0o755));
+        }
         ensure_on_path(get_install_bin_dir());
         true
     };
@@ -300,10 +310,15 @@ fn execute_inner(silent: bool) -> Result<()> {
         }
     }
 
-    std::process::Command::new(&canonical)
-        .arg("up")
-        .spawn()
-        .map_err(|e| Error::Engine(e.to_string()))?;
+    let mut up_cmd = std::process::Command::new(&canonical);
+    up_cmd.arg("up");
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        up_cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    up_cmd.spawn().map_err(|e| Error::Engine(e.to_string()))?;
 
     Ok(())
 }
