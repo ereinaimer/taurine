@@ -63,14 +63,15 @@ impl TrayLiveState {
         self.resume_item.set_text(&label);
 
         // SAFETY: FindWindowW locates the active context menu window (#32768) and InvalidateRect/UpdateWindow
-        // forces an immediate repaint of the menu items so the countdown live-updates on screen.
+        // forces an immediate repaint of the menu items so the countdown live-updates on screen without erasing
+        // the background (bErase = 0) to eliminate full-menu flicker.
         unsafe {
             let menu_hwnd = windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW(
                 windows_sys::w!("#32768"),
                 std::ptr::null(),
             );
             if !menu_hwnd.is_null() {
-                windows_sys::Win32::Graphics::Gdi::InvalidateRect(menu_hwnd, std::ptr::null(), 1);
+                windows_sys::Win32::Graphics::Gdi::InvalidateRect(menu_hwnd, std::ptr::null(), 0);
                 windows_sys::Win32::Graphics::Gdi::UpdateWindow(menu_hwnd);
             }
         }
@@ -80,14 +81,14 @@ impl TrayLiveState {
         self.resume_item.set_text("Resume");
 
         // SAFETY: FindWindowW locates the active context menu window (#32768) and InvalidateRect/UpdateWindow
-        // forces an immediate repaint of the menu items so the text resets on screen.
+        // forces an immediate repaint of the menu items so the text resets on screen without full-menu flicker.
         unsafe {
             let menu_hwnd = windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW(
                 windows_sys::w!("#32768"),
                 std::ptr::null(),
             );
             if !menu_hwnd.is_null() {
-                windows_sys::Win32::Graphics::Gdi::InvalidateRect(menu_hwnd, std::ptr::null(), 1);
+                windows_sys::Win32::Graphics::Gdi::InvalidateRect(menu_hwnd, std::ptr::null(), 0);
                 windows_sys::Win32::Graphics::Gdi::UpdateWindow(menu_hwnd);
             }
         }
