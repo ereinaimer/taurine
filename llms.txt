@@ -143,7 +143,7 @@ System variables inject machine data or generate values using `[namespace.variab
 *   **Random**: `[random.int(min, max)]` (default `0..99`), `[random.str(len)]` (alnum, 16), `[random.pass(len)]` (secure w/ symbols, 20), `[random.choice(a, b, …)]`.
 *   **UUID**: `[uuid.v4]`, `[uuid.v7]` (time-ordered). A version modifier is required.
 *   **Newline**: `[newline]` resolves to a literal newline (raw `\n` is never unescaped, protecting Windows paths).
-*   **Mouse**: `[mouse.pos]` (current `x,y`), `[mouse.click]`, `[mouse.rclick]`, `[mouse.mclick]`, `[mouse.move(x, y)]`, `[mouse.scroll(delta)]`, `[mouse.hold]`/`[mouse.release]` (drag operations). Wayland absolute moving fails silently.
+*   **Mouse**: `[mouse.pos]` (current `x,y`), `[mouse.click([btn])]`, `[mouse.dblclick([btn])]`, `[mouse.rclick]`, `[mouse.mclick]`, `[mouse.m4]`/`[mouse.m5]`, `[mouse.move(x, y)]`, `[mouse.scroll(delta)]`, `[mouse.down([btn])]`/`[mouse.up([btn])]` (drag operations; `hold`/`release` supported). Buttons: `left`, `right`, `middle`, `m4`/`back`, `m5`/`forward`, `m<N>`. Wayland absolute moving fails silently.
 
 ### 4.2 Expansion Directives
 *   **Keystroke**: `[key(tab)]`, `[key(enter)]`, `[key(ctrl+shift+t)]`, `[key(mod+a)]` (cross-platform modifier). Modifiers come first with `+`.

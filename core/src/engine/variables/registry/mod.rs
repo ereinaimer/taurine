@@ -137,7 +137,7 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "delay" => "Valid form: [delay(<ms>)] or [delay(<u64>ms)]".to_string(),
         "use" => "Valid form: [use(\"trigger_name\")]".to_string(),
         "http" => "Valid forms: [http.get(<url>)], [http.status(<url>)]".to_string(),
-        "mouse" => "Valid forms: [mouse.click], [mouse.rclick], [mouse.mclick], [mouse.move(x, y)], [mouse.scroll(delta)], [mouse.hold], [mouse.release], [mouse.pos]".to_string(),
+        "mouse" => "Valid forms: [mouse.click([button])], [mouse.dblclick([button])], [mouse.down([button])], [mouse.up([button])], [mouse.rclick], [mouse.mclick], [mouse.m4], [mouse.m5], [mouse.move(x, y)], [mouse.scroll(delta)], [mouse.hold], [mouse.release], [mouse.pos]".to_string(),
         "newline" => "Valid form: [newline]".to_string(),
         _ => "No modifier help available.".to_string(),
     }

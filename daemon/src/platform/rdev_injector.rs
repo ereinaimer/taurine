@@ -5,16 +5,29 @@ use std::time::Duration;
 
 pub struct RdevInjector;
 
+fn mouse_button_to_rdev(button: MouseButton) -> rdev::Button {
+    match button {
+        MouseButton::Left => rdev::Button::Left,
+        MouseButton::Right => rdev::Button::Right,
+        MouseButton::Middle => rdev::Button::Middle,
+        MouseButton::Button4 => rdev::Button::Unknown(4),
+        MouseButton::Button5 => rdev::Button::Unknown(5),
+        MouseButton::Other(code) => rdev::Button::Unknown(code),
+    }
+}
+
 impl Injector for RdevInjector {
     fn simulate_mouse_click(&self, button: MouseButton) {
-        let rdev_btn = match button {
-            MouseButton::Left => rdev::Button::Left,
-            MouseButton::Right => rdev::Button::Right,
-            MouseButton::Middle => rdev::Button::Middle,
-        };
+        let rdev_btn = mouse_button_to_rdev(button);
         let _ = crate::injector::simulate_monitored(&rdev::EventType::ButtonPress(rdev_btn));
         thread::sleep(Duration::from_millis(10));
         let _ = crate::injector::simulate_monitored(&rdev::EventType::ButtonRelease(rdev_btn));
+    }
+
+    fn simulate_mouse_dblclick(&self, button: MouseButton) {
+        self.simulate_mouse_click(button);
+        thread::sleep(Duration::from_millis(50));
+        self.simulate_mouse_click(button);
     }
 
     fn simulate_mouse_move(&self, x: u16, y: u16) {
@@ -32,11 +45,7 @@ impl Injector for RdevInjector {
     }
 
     fn simulate_mouse_hold(&self, button: MouseButton, hold: bool) {
-        let rdev_btn = match button {
-            MouseButton::Left => rdev::Button::Left,
-            MouseButton::Right => rdev::Button::Right,
-            MouseButton::Middle => rdev::Button::Middle,
-        };
+        let rdev_btn = mouse_button_to_rdev(button);
         let event = if hold {
             rdev::EventType::ButtonPress(rdev_btn)
         } else {

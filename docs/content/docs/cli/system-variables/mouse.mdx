@@ -8,21 +8,63 @@ Taurine provides a built-in `mouse` namespace to simulate hardware mouse actions
 ### Mouse Directives (Actions)
 Directives are executed in sequence as post-processing steps when a snippet is expanded.
 
-| Directive | Description |
-| :--- | :--- |
-| `[mouse.click]` | Simulates a left mouse button click. |
-| `[mouse.rclick]` | Simulates a right mouse button click. |
-| `[mouse.mclick]` | Simulates a middle mouse button click. |
-| `[mouse.move(x, y)]` | Warps the mouse pointer to absolute screen coordinates `(x, y)`. |
-| `[mouse.scroll(delta)]` | Scrolls the mouse wheel vertically (positive scrolls up, negative down). |
-| `[mouse.hold]` | Presses and holds the left mouse button. |
-| `[mouse.release]` | Releases the left mouse button (ends a drag). |
+| Directive | Arguments | Description | Default |
+| :--- | :--- | :--- | :--- |
+| `[mouse.click]` | `[button]` | Simulates a mouse button click (press + 10ms + release). | `left` |
+| `[mouse.dblclick]` | `[button]` | Simulates a rapid double-click sequence. | `left` |
+| `[mouse.down]` / `[mouse.hold]` | `[button]` | Presses and holds a mouse button down. | `left` |
+| `[mouse.up]` / `[mouse.release]` | `[button]` | Releases a held mouse button. | `left` |
+| `[mouse.rclick]` | None | Shorthand for `[mouse.click(right)]`. | Secondary click |
+| `[mouse.mclick]` | None | Shorthand for `[mouse.click(middle)]`. | Middle / wheel click |
+| `[mouse.m4]` | None | Shorthand for `[mouse.click(m4)]`. | Browser Back |
+| `[mouse.m5]` | None | Shorthand for `[mouse.click(m5)]`. | Browser Forward |
+| `[mouse.move(x, y)]` | `x, y` | Warps the pointer to absolute screen coordinates `(x, y)`. | N/A |
+| `[mouse.scroll(delta)]` | `delta` | Scrolls the mouse wheel vertically (positive up, negative down). | N/A |
 
-#### Drag and Drop Example
-You can combine mouse movement, holds, and delays to automate complex drag-and-drop actions:
+### Supported Button Specifiers
+
+Any click or hold directive accepts button names, aliases, or button index numbers:
+
+| Button | Recognized Specifiers | Common Function |
+| :--- | :--- | :--- |
+| **Left** | `left`, `1`, `l`, `mouseleft`, `lclick`, `leftclick`, `primary` | Select, activate |
+| **Right** | `right`, `2`, `r`, `mouseright`, `rclick`, `rightclick`, `secondary` | Context menu |
+| **Middle** | `middle`, `3`, `m`, `mousemiddle`, `mclick`, `wheelclick`, `wheel` | Open in background tab / pan |
+| **Button 4** | `m4`, `4`, `back`, `thumb1`, `xbutton1`, `x1` | Browser / Explorer Back |
+| **Button 5** | `m5`, `5`, `forward`, `thumb2`, `xbutton2`, `x2` | Browser / Explorer Forward |
+| **Button $N$** | `m6`, `m7`, `mouse<N>` | Dedicated macro or gaming mouse buttons |
+
+#### Navigation & Automation Examples
+
+**Browser Navigation:**
+```text
+# Click the browser Back button:
+[mouse.click(m4)]
+# or with alias:
+[mouse.click(back)]
+
+# Click the browser Forward button:
+[mouse.click(m5)]
+```
+
+**Double-Clicking Items:**
+```text
+# Double-click at current position:
+[mouse.dblclick]
+
+# Move and double-click:
+[mouse.move(450, 300)][mouse.dblclick]
+```
+
+**Drag and Drop with Any Button:**
+Combine mouse movement, press, and release to automate drag-and-drop workflows:
 
 ```text
-[mouse.move(100, 200)][mouse.hold][delay(200)][mouse.move(800, 600)][delay(100)][mouse.release]
+# Left-click drag:
+[mouse.move(100, 200)][mouse.down][delay(200)][mouse.move(800, 600)][delay(100)][mouse.up]
+
+# Middle-click drag (e.g., pan canvas in CAD or Figma):
+[mouse.down(middle)][mouse.move(800, 600)][mouse.up(middle)]
 ```
 
 <Callout type="warning" title="Linux Wayland Compatibility">

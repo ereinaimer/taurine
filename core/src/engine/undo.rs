@@ -14,13 +14,12 @@ impl crate::engine::evaluator::Evaluator {
                 // backspace replay would corrupt surrounding text instead of the expansion.
                 ExpansionStep::KeyPress(_)
                 | ExpansionStep::Delay(_)
-                | ExpansionStep::MouseClick
-                | ExpansionStep::MouseRClick
-                | ExpansionStep::MouseMClick
+                | ExpansionStep::MouseClick(_)
+                | ExpansionStep::MouseDblClick(_)
+                | ExpansionStep::MouseDown(_)
+                | ExpansionStep::MouseUp(_)
                 | ExpansionStep::MouseMove(_, _)
-                | ExpansionStep::MouseScroll(_)
-                | ExpansionStep::MouseHold
-                | ExpansionStep::MouseRelease => return false,
+                | ExpansionStep::MouseScroll(_) => return false,
                 ExpansionStep::Script(_)
                 | ExpansionStep::InlineRun(_, _)
                 | ExpansionStep::Image(_, _) => return false,

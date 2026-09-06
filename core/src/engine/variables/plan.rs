@@ -721,12 +721,29 @@ fn resolve_use_snippet(trigger_name: &str, args: &ArgMap, depth: usize) -> Strin
 }
 
 fn format_mouse_directive(step: &ExpansionStep) -> String {
+    use crate::keys::MouseButton;
+
     match step {
-        ExpansionStep::MouseClick => "[mouse.click]".to_string(),
-        ExpansionStep::MouseRClick => "[mouse.rclick]".to_string(),
-        ExpansionStep::MouseMClick => "[mouse.mclick]".to_string(),
-        ExpansionStep::MouseHold => "[mouse.hold]".to_string(),
-        ExpansionStep::MouseRelease => "[mouse.release]".to_string(),
+        ExpansionStep::MouseClick(btn) => match btn {
+            MouseButton::Left => "[mouse.click]".to_string(),
+            MouseButton::Right => "[mouse.rclick]".to_string(),
+            MouseButton::Middle => "[mouse.mclick]".to_string(),
+            MouseButton::Button4 => "[mouse.m4]".to_string(),
+            MouseButton::Button5 => "[mouse.m5]".to_string(),
+            MouseButton::Other(n) => format!("[mouse.click(m{n})]"),
+        },
+        ExpansionStep::MouseDblClick(btn) => match btn {
+            MouseButton::Left => "[mouse.dblclick]".to_string(),
+            btn => format!("[mouse.dblclick({})]", btn.canonical_name()),
+        },
+        ExpansionStep::MouseDown(btn) => match btn {
+            MouseButton::Left => "[mouse.down]".to_string(),
+            btn => format!("[mouse.down({})]", btn.canonical_name()),
+        },
+        ExpansionStep::MouseUp(btn) => match btn {
+            MouseButton::Left => "[mouse.up]".to_string(),
+            btn => format!("[mouse.up({})]", btn.canonical_name()),
+        },
         ExpansionStep::MouseMove(x, y) => format!("[mouse.move({x},{y})]"),
         ExpansionStep::MouseScroll(d) => format!("[mouse.scroll({d})]"),
         _ => String::new(),

@@ -782,3 +782,111 @@ fn test_finalize_user_origin_preserves_exec_inline_run() {
     );
     assert!(matches!(res.steps[1], ExpansionStep::InlineRun(_, _)));
 }
+
+#[test]
+fn test_parse_mouse_directive_all_buttons() {
+    use crate::keys::MouseButton;
+
+    assert_eq!(
+        parse_mouse_directive("mouse.click"),
+        Some(ExpansionStep::MouseClick(MouseButton::Left))
+    );
+    assert_eq!(
+        parse_mouse_directive("mouse.click(left)"),
+        Some(ExpansionStep::MouseClick(MouseButton::Left))
+    );
+    assert_eq!(
+        parse_mouse_directive("mouse.click(right)"),
+        Some(ExpansionStep::MouseClick(MouseButton::Right))
+    );
+    assert_eq!(
+        parse_mouse_directive("mouse.click(middle)"),
+        Some(ExpansionStep::MouseClick(MouseButton::Middle))
+    );
+    assert_eq!(
+        parse_mouse_directive("mouse.click(m4)"),
+        Some(ExpansionStep::MouseClick(MouseButton::Button4))
+    );
+    assert_eq!(
+        parse_mouse_directive("mouse.click(back)"),
+        Some(ExpansionStep::MouseClick(MouseButton::Button4))
+    );
+    assert_eq!(
+        parse_mouse_directive("mouse.click(m5)"),
+        Some(ExpansionStep::MouseClick(MouseButton::Button5))
+    );
+    assert_eq!(
+        parse_mouse_directive("mouse.click(forward)"),
+        Some(ExpansionStep::MouseClick(MouseButton::Button5))
+    );
+    assert_eq!(
+        parse_mouse_directive("mouse.click(m6)"),
+        Some(ExpansionStep::MouseClick(MouseButton::Other(6)))
+    );
+    assert_eq!(
+        parse_mouse_directive("mouse.m4"),
+        Some(ExpansionStep::MouseClick(MouseButton::Button4))
+    );
+    assert_eq!(
+        parse_mouse_directive("mouse.m5"),
+        Some(ExpansionStep::MouseClick(MouseButton::Button5))
+    );
+    assert_eq!(
+        parse_mouse_directive("mouse.dblclick"),
+        Some(ExpansionStep::MouseDblClick(MouseButton::Left))
+    );
+    assert_eq!(
+        parse_mouse_directive("mouse.dblclick(m4)"),
+        Some(ExpansionStep::MouseDblClick(MouseButton::Button4))
+    );
+    assert_eq!(
+        parse_mouse_directive("mouse.down"),
+        Some(ExpansionStep::MouseDown(MouseButton::Left))
+    );
+    assert_eq!(
+        parse_mouse_directive("mouse.down(middle)"),
+        Some(ExpansionStep::MouseDown(MouseButton::Middle))
+    );
+    assert_eq!(
+        parse_mouse_directive("mouse.up"),
+        Some(ExpansionStep::MouseUp(MouseButton::Left))
+    );
+    assert_eq!(
+        parse_mouse_directive("mouse.up(middle)"),
+        Some(ExpansionStep::MouseUp(MouseButton::Middle))
+    );
+    assert_eq!(
+        parse_mouse_directive("mouse.hold(m5)"),
+        Some(ExpansionStep::MouseDown(MouseButton::Button5))
+    );
+    assert_eq!(
+        parse_mouse_directive("mouse.release(m5)"),
+        Some(ExpansionStep::MouseUp(MouseButton::Button5))
+    );
+    assert_eq!(
+        parse_mouse_directive("mouse.move(1920, 1080)"),
+        Some(ExpansionStep::MouseMove(1920, 1080))
+    );
+    assert_eq!(
+        parse_mouse_directive("mouse.scroll(-120)"),
+        Some(ExpansionStep::MouseScroll(-120))
+    );
+    assert_eq!(parse_mouse_directive("mouse.click(invalid)"), None);
+}
+
+#[test]
+fn test_finalize_mouse_directives() {
+    use crate::keys::MouseButton;
+
+    let input = "Action: [mouse.click(m4)][delay(50)][mouse.dblclick(left)]";
+    let res = finalize(input, None);
+    assert_eq!(
+        res.steps,
+        vec![
+            ExpansionStep::Text("Action: ".to_string()),
+            ExpansionStep::MouseClick(MouseButton::Button4),
+            ExpansionStep::Delay(50),
+            ExpansionStep::MouseDblClick(MouseButton::Left),
+        ]
+    );
+}

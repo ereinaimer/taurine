@@ -22,6 +22,7 @@ The following roots are reserved by the Taurine engine and cannot be used as cus
 | `file` | Read local file contents. |
 | `key` | Keyboard triggers (simulating key presses). |
 | `delay` | Timing delays in execution sequences. |
+| `mouse` | Mouse clicks, movement, drag-and-drop, and coordinates. |
 
 ---
 
@@ -92,6 +93,19 @@ Modifiers for generating IDs or simulating hardware interaction.
 <Accordion title="delay">
   Pause execution for a specific duration (milliseconds).
   - `[delay(100ms)]` or `[delay(100)]`
+</Accordion>
+
+<Accordion title="mouse">
+  Simulate mouse clicks, double clicks, movement, and drag actions.
+  - `[mouse.click([button])]`: Click mouse button (defaults to `left`).
+  - `[mouse.dblclick([button])]`: Double-click mouse button (defaults to `left`).
+  - `[mouse.rclick]`, `[mouse.mclick]`, `[mouse.m4]`, `[mouse.m5]`: Direct button click shorthands.
+  - `[mouse.down([button])]` / `[mouse.hold([button])]`: Press and hold button.
+  - `[mouse.up([button])]` / `[mouse.release([button])]`: Release held button.
+  - `[mouse.move(x, y)]`: Warps pointer to screen coordinates.
+  - `[mouse.scroll(delta)]`: Vertical scroll wheel.
+  - `[mouse.pos]`: Resolves current pointer coordinates (`x,y`).
+  - **Supported Buttons:** `left`, `right`, `middle`, `m4` / `back`, `m5` / `forward`, `m<N>`.
 </Accordion>
 </Accordions>
 

@@ -319,6 +319,51 @@ impl MouseButton {
             Self::Other(n) => Cow::Owned(format!("mouse{n}")),
         }
     }
+
+    pub fn from_alias(alias: &str) -> Option<Self> {
+        let alias = alias.trim().to_ascii_lowercase();
+        if let Some(rest) = alias.strip_prefix("mouse")
+            && let Ok(number) = rest.parse::<u8>()
+        {
+            return Some(match number {
+                1 => Self::Left,
+                2 => Self::Right,
+                3 => Self::Middle,
+                4 => Self::Button4,
+                5 => Self::Button5,
+                n => Self::Other(n),
+            });
+        }
+
+        match alias.as_str() {
+            "left" | "1" | "l" | "mouseleft" | "lclick" | "leftclick" | "primary" => {
+                Some(Self::Left)
+            }
+            "right" | "2" | "r" | "mouseright" | "rclick" | "rightclick" | "secondary" => {
+                Some(Self::Right)
+            }
+            "middle" | "3" | "m" | "mousemiddle" | "mclick" | "midclick" | "middleclick"
+            | "wheelclick" | "wheel" => Some(Self::Middle),
+            "m4" | "4" | "thumb1" | "xbutton1" | "x1" | "back" => Some(Self::Button4),
+            "m5" | "5" | "thumb2" | "xbutton2" | "x2" | "forward" => Some(Self::Button5),
+            _ => {
+                if let Some(rest) = alias.strip_prefix('m')
+                    && let Ok(number) = rest.parse::<u8>()
+                {
+                    Some(match number {
+                        1 => Self::Left,
+                        2 => Self::Right,
+                        3 => Self::Middle,
+                        4 => Self::Button4,
+                        5 => Self::Button5,
+                        n => Self::Other(n),
+                    })
+                } else {
+                    None
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -1,4 +1,5 @@
 use crate::engine::shell::ScriptMetadata;
+use crate::keys::MouseButton;
 use indexmap::IndexMap;
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -36,20 +37,18 @@ pub enum ExpansionStep {
     Script(ScriptMetadata),
     /// A shell script to execute inline while preserving preceding injected text.
     InlineRun(ScriptMetadata, Vec<String>),
-    /// Simulates a mouse left-click.
-    MouseClick,
-    /// Simulates a mouse right-click.
-    MouseRClick,
-    /// Simulates a mouse middle-click.
-    MouseMClick,
+    /// Simulates a mouse button click.
+    MouseClick(MouseButton),
+    /// Simulates a mouse button double-click.
+    MouseDblClick(MouseButton),
     /// Moves mouse to absolute coordinates (x, y).
     MouseMove(u16, u16),
     /// Scrolls mouse wheel vertically by delta.
     MouseScroll(i32),
-    /// Holds the mouse left button down.
-    MouseHold,
-    /// Releases the mouse left button.
-    MouseRelease,
+    /// Holds a mouse button down.
+    MouseDown(MouseButton),
+    /// Releases a mouse button.
+    MouseUp(MouseButton),
 }
 
 #[derive(Debug, Clone, PartialEq)]

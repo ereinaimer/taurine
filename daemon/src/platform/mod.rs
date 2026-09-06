@@ -15,12 +15,7 @@ pub mod spinner_renderer;
 #[cfg(not(target_os = "linux"))]
 pub mod rdev_injector;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MouseButton {
-    Left,
-    Right,
-    Middle,
-}
+pub use taurine_core::keys::MouseButton;
 
 pub trait ClipboardManager {
     fn get_text(&mut self) -> Result<String, String>;
@@ -31,6 +26,7 @@ pub trait ClipboardManager {
 
 pub trait Injector {
     fn simulate_mouse_click(&self, button: MouseButton);
+    fn simulate_mouse_dblclick(&self, button: MouseButton);
     fn simulate_mouse_move(&self, x: u16, y: u16);
     fn simulate_mouse_scroll(&self, delta: i32);
     fn simulate_mouse_hold(&self, button: MouseButton, hold: bool);

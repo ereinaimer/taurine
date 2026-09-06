@@ -2,18 +2,32 @@ use crate::platform::{Injector, MouseButton};
 use std::thread;
 use std::time::Duration;
 
+fn mouse_button_to_evdev(button: MouseButton) -> evdev::KeyCode {
+    match button {
+        MouseButton::Left => evdev::KeyCode::BTN_LEFT,
+        MouseButton::Right => evdev::KeyCode::BTN_RIGHT,
+        MouseButton::Middle => evdev::KeyCode::BTN_MIDDLE,
+        MouseButton::Button4 => evdev::KeyCode::BTN_SIDE,
+        MouseButton::Button5 => evdev::KeyCode::BTN_EXTRA,
+        MouseButton::Other(6) => evdev::KeyCode::BTN_TASK,
+        MouseButton::Other(_) => evdev::KeyCode::BTN_SIDE,
+    }
+}
+
 pub struct LinuxInjector;
 
 impl Injector for LinuxInjector {
     fn simulate_mouse_click(&self, button: MouseButton) {
-        let evdev_btn = match button {
-            MouseButton::Left => evdev::KeyCode::BTN_LEFT,
-            MouseButton::Right => evdev::KeyCode::BTN_RIGHT,
-            MouseButton::Middle => evdev::KeyCode::BTN_MIDDLE,
-        };
+        let evdev_btn = mouse_button_to_evdev(button);
         crate::platform::linux::uinput::simulate_mouse_button(evdev_btn, true);
         thread::sleep(Duration::from_millis(10));
         crate::platform::linux::uinput::simulate_mouse_button(evdev_btn, false);
+    }
+
+    fn simulate_mouse_dblclick(&self, button: MouseButton) {
+        self.simulate_mouse_click(button);
+        thread::sleep(Duration::from_millis(50));
+        self.simulate_mouse_click(button);
     }
 
     fn simulate_mouse_move(&self, x: u16, y: u16) {
@@ -32,11 +46,7 @@ impl Injector for LinuxInjector {
     }
 
     fn simulate_mouse_hold(&self, button: MouseButton, hold: bool) {
-        let evdev_btn = match button {
-            MouseButton::Left => evdev::KeyCode::BTN_LEFT,
-            MouseButton::Right => evdev::KeyCode::BTN_RIGHT,
-            MouseButton::Middle => evdev::KeyCode::BTN_MIDDLE,
-        };
+        let evdev_btn = mouse_button_to_evdev(button);
         crate::platform::linux::uinput::simulate_mouse_button(evdev_btn, hold);
     }
 

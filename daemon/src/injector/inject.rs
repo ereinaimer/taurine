@@ -1,4 +1,4 @@
-use crate::platform::{ClipboardManager, MouseButton};
+use crate::platform::ClipboardManager;
 use std::thread;
 use std::time::Duration;
 #[cfg(not(target_os = "linux"))]
@@ -382,13 +382,12 @@ pub(super) fn expansion_requires_keystrokes(steps: &[ExpansionStep], delete_coun
         ExpansionStep::Text(text) => !text.is_empty(),
         ExpansionStep::Image(_, _)
         | ExpansionStep::KeyPress(_)
-        | ExpansionStep::MouseClick
-        | ExpansionStep::MouseRClick
-        | ExpansionStep::MouseMClick
+        | ExpansionStep::MouseClick(_)
+        | ExpansionStep::MouseDblClick(_)
+        | ExpansionStep::MouseDown(_)
+        | ExpansionStep::MouseUp(_)
         | ExpansionStep::MouseMove(_, _)
-        | ExpansionStep::MouseScroll(_)
-        | ExpansionStep::MouseHold
-        | ExpansionStep::MouseRelease => true,
+        | ExpansionStep::MouseScroll(_) => true,
         ExpansionStep::Script(metadata) => metadata.behavior == ScriptBehavior::Inline,
         ExpansionStep::InlineRun(metadata, _) => metadata.behavior == ScriptBehavior::Inline,
         ExpansionStep::Delay(_) => false,
@@ -531,14 +530,11 @@ pub fn inject_expansion(
                     debug!("Unknown key alias '{}', skipping", alias);
                 }
             }
-            ExpansionStep::MouseClick => {
-                crate::platform::get_injector().simulate_mouse_click(MouseButton::Left);
+            ExpansionStep::MouseClick(button) => {
+                crate::platform::get_injector().simulate_mouse_click(*button);
             }
-            ExpansionStep::MouseRClick => {
-                crate::platform::get_injector().simulate_mouse_click(MouseButton::Right);
-            }
-            ExpansionStep::MouseMClick => {
-                crate::platform::get_injector().simulate_mouse_click(MouseButton::Middle);
+            ExpansionStep::MouseDblClick(button) => {
+                crate::platform::get_injector().simulate_mouse_dblclick(*button);
             }
             ExpansionStep::MouseMove(x, y) => {
                 crate::platform::get_injector().simulate_mouse_move(*x, *y);
@@ -546,11 +542,11 @@ pub fn inject_expansion(
             ExpansionStep::MouseScroll(delta) => {
                 crate::platform::get_injector().simulate_mouse_scroll(*delta);
             }
-            ExpansionStep::MouseHold => {
-                crate::platform::get_injector().simulate_mouse_hold(MouseButton::Left, true);
+            ExpansionStep::MouseDown(button) => {
+                crate::platform::get_injector().simulate_mouse_hold(*button, true);
             }
-            ExpansionStep::MouseRelease => {
-                crate::platform::get_injector().simulate_mouse_hold(MouseButton::Left, false);
+            ExpansionStep::MouseUp(button) => {
+                crate::platform::get_injector().simulate_mouse_hold(*button, false);
             }
             ExpansionStep::Delay(ms) => {
                 // Split long delays into smaller chunks so abort is responsive.

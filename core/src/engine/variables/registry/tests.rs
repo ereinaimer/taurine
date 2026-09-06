@@ -391,3 +391,33 @@ fn test_system_transformers_catalog() {
     assert!(is_valid_transformer("truncate(5)"));
     assert!(!is_valid_transformer("bogus_transformer"));
 }
+
+#[test]
+fn test_mouse_validation() {
+    assert!(validate_system_tag("mouse", Some("click")).is_ok());
+    assert!(validate_system_tag("mouse", Some("click(left)")).is_ok());
+    assert!(validate_system_tag("mouse", Some("click(m4)")).is_ok());
+    assert!(validate_system_tag("mouse", Some("click(back)")).is_ok());
+    assert!(validate_system_tag("mouse", Some("click(m5)")).is_ok());
+    assert!(validate_system_tag("mouse", Some("click(forward)")).is_ok());
+    assert!(validate_system_tag("mouse", Some("click(thumb1)")).is_ok());
+    assert!(validate_system_tag("mouse", Some("m4")).is_ok());
+    assert!(validate_system_tag("mouse", Some("m5")).is_ok());
+    assert!(validate_system_tag("mouse", Some("dblclick")).is_ok());
+    assert!(validate_system_tag("mouse", Some("dblclick(right)")).is_ok());
+    assert!(validate_system_tag("mouse", Some("dblclick(m4)")).is_ok());
+    assert!(validate_system_tag("mouse", Some("down")).is_ok());
+    assert!(validate_system_tag("mouse", Some("down(middle)")).is_ok());
+    assert!(validate_system_tag("mouse", Some("up")).is_ok());
+    assert!(validate_system_tag("mouse", Some("up(m4)")).is_ok());
+    assert!(validate_system_tag("mouse", Some("hold(m5)")).is_ok());
+    assert!(validate_system_tag("mouse", Some("release(m5)")).is_ok());
+    assert!(validate_system_tag("mouse", Some("move(100, 200)")).is_ok());
+    assert!(validate_system_tag("mouse", Some("scroll(-120)")).is_ok());
+    assert!(validate_system_tag("mouse", Some("pos")).is_ok());
+
+    // Rejections
+    assert!(validate_system_tag("mouse", Some("click(nonexistent)")).is_err());
+    assert!(validate_system_tag("mouse", Some("move(100)")).is_err());
+    assert!(validate_system_tag("mouse", Some("invalid_action")).is_err());
+}

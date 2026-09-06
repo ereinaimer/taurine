@@ -226,33 +226,104 @@ pub(crate) fn parse_delay_directive(inner: &str) -> Option<u64> {
 }
 
 pub(crate) fn parse_mouse_directive(inner: &str) -> Option<ExpansionStep> {
+    use crate::keys::MouseButton;
+
+    let inner = inner.trim();
     if inner == "mouse.click" {
-        Some(ExpansionStep::MouseClick)
-    } else if inner == "mouse.rclick" {
-        Some(ExpansionStep::MouseRClick)
-    } else if inner == "mouse.mclick" {
-        Some(ExpansionStep::MouseMClick)
-    } else if inner == "mouse.hold" {
-        Some(ExpansionStep::MouseHold)
-    } else if inner == "mouse.release" {
-        Some(ExpansionStep::MouseRelease)
-    } else if let Some(rest) = inner.strip_prefix("mouse.move(") {
+        return Some(ExpansionStep::MouseClick(MouseButton::Left));
+    }
+    if inner == "mouse.rclick" {
+        return Some(ExpansionStep::MouseClick(MouseButton::Right));
+    }
+    if inner == "mouse.mclick" {
+        return Some(ExpansionStep::MouseClick(MouseButton::Middle));
+    }
+    if inner == "mouse.m4" {
+        return Some(ExpansionStep::MouseClick(MouseButton::Button4));
+    }
+    if inner == "mouse.m5" {
+        return Some(ExpansionStep::MouseClick(MouseButton::Button5));
+    }
+    if inner == "mouse.dblclick" {
+        return Some(ExpansionStep::MouseDblClick(MouseButton::Left));
+    }
+    if inner == "mouse.hold" || inner == "mouse.down" {
+        return Some(ExpansionStep::MouseDown(MouseButton::Left));
+    }
+    if inner == "mouse.release" || inner == "mouse.up" {
+        return Some(ExpansionStep::MouseUp(MouseButton::Left));
+    }
+
+    if let Some(rest) = inner.strip_prefix("mouse.click(")
+        && let Some(arg) = rest.strip_suffix(')')
+    {
+        let clean = strip_argument_quotes(arg).trim();
+        let btn = if clean.is_empty() {
+            MouseButton::Left
+        } else {
+            MouseButton::from_alias(clean)?
+        };
+        return Some(ExpansionStep::MouseClick(btn));
+    }
+
+    if let Some(rest) = inner.strip_prefix("mouse.dblclick(")
+        && let Some(arg) = rest.strip_suffix(')')
+    {
+        let clean = strip_argument_quotes(arg).trim();
+        let btn = if clean.is_empty() {
+            MouseButton::Left
+        } else {
+            MouseButton::from_alias(clean)?
+        };
+        return Some(ExpansionStep::MouseDblClick(btn));
+    }
+
+    if let Some(rest) = inner
+        .strip_prefix("mouse.down(")
+        .or_else(|| inner.strip_prefix("mouse.hold("))
+        && let Some(arg) = rest.strip_suffix(')')
+    {
+        let clean = strip_argument_quotes(arg).trim();
+        let btn = if clean.is_empty() {
+            MouseButton::Left
+        } else {
+            MouseButton::from_alias(clean)?
+        };
+        return Some(ExpansionStep::MouseDown(btn));
+    }
+
+    if let Some(rest) = inner
+        .strip_prefix("mouse.up(")
+        .or_else(|| inner.strip_prefix("mouse.release("))
+        && let Some(arg) = rest.strip_suffix(')')
+    {
+        let clean = strip_argument_quotes(arg).trim();
+        let btn = if clean.is_empty() {
+            MouseButton::Left
+        } else {
+            MouseButton::from_alias(clean)?
+        };
+        return Some(ExpansionStep::MouseUp(btn));
+    }
+
+    if let Some(rest) = inner.strip_prefix("mouse.move(") {
         let args = rest.strip_suffix(')')?;
         let parts: Vec<&str> = args.split(',').collect();
         if parts.len() == 2 {
             let x = strip_argument_quotes(parts[0]).parse().ok()?;
             let y = strip_argument_quotes(parts[1]).parse().ok()?;
-            Some(ExpansionStep::MouseMove(x, y))
-        } else {
-            None
+            return Some(ExpansionStep::MouseMove(x, y));
         }
-    } else if let Some(rest) = inner.strip_prefix("mouse.scroll(") {
+        return None;
+    }
+
+    if let Some(rest) = inner.strip_prefix("mouse.scroll(") {
         let arg = rest.strip_suffix(')')?.trim();
         let delta = strip_argument_quotes(arg).parse().ok()?;
-        Some(ExpansionStep::MouseScroll(delta))
-    } else {
-        None
+        return Some(ExpansionStep::MouseScroll(delta));
     }
+
+    None
 }
 
 /// Checks whether the interpolated string contains any `[key.*]`, `[delay.*]`, or `[mouse.*]` directives.

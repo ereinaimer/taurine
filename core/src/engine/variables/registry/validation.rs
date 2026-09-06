@@ -344,22 +344,43 @@ fn validate_http_modifier(modifier: Option<&str>) -> Result<(), ValidationError>
 const MOUSE_MODIFIERS: &[&str] = &[
     "pos",
     "click",
+    "click(button)",
+    "dblclick",
+    "dblclick(button)",
+    "down",
+    "down(button)",
+    "up",
+    "up(button)",
+    "hold",
+    "hold(button)",
+    "release",
+    "release(button)",
     "rclick",
     "mclick",
-    "hold",
-    "release",
+    "m4",
+    "m5",
     "move(x, y)",
     "scroll(delta)",
 ];
 
 fn validate_mouse_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
+    use crate::keys::MouseButton;
+
     let modifier =
         normalize_modifier(modifier.ok_or(ValidationError::MissingModifier { root: "mouse" })?)
             .ok_or(ValidationError::MissingModifier { root: "mouse" })?;
 
     if let Some((variant, args)) = parse_file_modifier(modifier)
         && (match variant {
-            "pos" | "click" | "rclick" | "mclick" | "hold" | "release" => args.is_none(),
+            "pos" | "rclick" | "mclick" | "m4" | "m5" => args.is_none(),
+            "click" | "dblclick" | "down" | "up" | "hold" | "release" => {
+                if let Some(arg_str) = args {
+                    let parts = split_modifier_args(arg_str);
+                    parts.len() == 1 && MouseButton::from_alias(parts[0]).is_some()
+                } else {
+                    true
+                }
+            }
             "move" => args.is_some_and(|args| split_modifier_args(args).len() == 2),
             "scroll" => args.is_some_and(|args| split_modifier_args(args).len() == 1),
             _ => false,
