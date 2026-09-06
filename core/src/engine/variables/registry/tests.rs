@@ -93,7 +93,9 @@ fn validates_uuid_modifiers() {
 #[test]
 fn validates_net_modifiers() {
     assert_eq!(validate_system_tag("net", Some("ip")), Ok(()));
+    assert_eq!(validate_system_tag("net", Some("publicip")), Ok(()));
     assert_eq!(validate_system_tag("net", Some("lip")), Ok(()));
+    assert_eq!(validate_system_tag("net", Some("localip")), Ok(()));
     assert_eq!(validate_system_tag("net", Some("online")), Ok(()));
 
     assert_eq!(
@@ -256,8 +258,10 @@ fn validates_exec_modifier_syntax() {
 
 #[test]
 fn validates_random_modifier_syntax() {
+    assert_eq!(validate_system_tag("random", None), Ok(()));
     assert_eq!(validate_system_tag("random", Some("int")), Ok(()));
     assert_eq!(validate_system_tag("random", Some("int()")), Ok(()));
+    assert_eq!(validate_system_tag("random", Some("int(10)")), Ok(()));
     assert_eq!(validate_system_tag("random", Some("int(1, 2)")), Ok(()));
     assert_eq!(
         validate_system_tag("random", Some("choice(alpha(one, two), beta)")),
@@ -267,10 +271,10 @@ fn validates_random_modifier_syntax() {
     assert_eq!(validate_system_tag("random", Some("pass(8)")), Ok(()));
 
     assert_eq!(
-        validate_system_tag("random", Some("int(1)")),
+        validate_system_tag("random", Some("int(1, 2, 3)")),
         Err(ValidationError::InvalidModifier {
             root: "random",
-            modifier: "int(1)".to_string(),
+            modifier: "int(1, 2, 3)".to_string(),
             allowed: RANDOM_MODIFIERS,
         })
     );
@@ -362,6 +366,47 @@ fn validates_delay_with_same_shape_as_system_parser() {
             root: "delay",
             modifier: "200s".to_string(),
             allowed: &["<u64>ms"],
+        })
+    );
+}
+
+#[test]
+fn validates_file_modifier_syntax() {
+    assert_eq!(
+        validate_system_tag("file", Some("read(/path/to/file.txt)")),
+        Ok(())
+    );
+    assert_eq!(
+        validate_system_tag("file", Some("line(/path/to/file.txt, 1)")),
+        Ok(())
+    );
+    assert_eq!(
+        validate_system_tag("file", Some("lines(/path/to/file.txt, 1)")),
+        Ok(())
+    );
+    assert_eq!(
+        validate_system_tag("file", Some("lines(/path/to/file.txt, 1, 5)")),
+        Ok(())
+    );
+
+    assert_eq!(
+        validate_system_tag("file", None),
+        Err(ValidationError::MissingModifier { root: "file" })
+    );
+    assert_eq!(
+        validate_system_tag("file", Some("read")),
+        Err(ValidationError::InvalidModifier {
+            root: "file",
+            modifier: "read".to_string(),
+            allowed: FILE_MODIFIERS,
+        })
+    );
+    assert_eq!(
+        validate_system_tag("file", Some("read_line(/path, 1)")),
+        Err(ValidationError::InvalidModifier {
+            root: "file",
+            modifier: "read_line(/path, 1)".to_string(),
+            allowed: FILE_MODIFIERS,
         })
     );
 }

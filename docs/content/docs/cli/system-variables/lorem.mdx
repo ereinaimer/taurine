@@ -5,23 +5,29 @@ description: Generate placeholder text for your trigger templates.
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-The `[lorem.*]` namespace allows you to quickly generate placeholder text directly within your templates. This is perfect for mockups, testing layout constraints, or filling out forms during trigger development.
+The `[lorem]` namespace allows you to quickly generate placeholder text directly within your templates. This is perfect for mockups, testing layout constraints, or filling out forms during trigger development.
+
+Bare `[lorem]` defaults to 1 paragraph (`[lorem.paragraph]`).
 
 ## Available Variants
 
 | Variable | Description | Default | Example Output |
 | :--- | :--- | :--- | :--- |
-| `[lorem.word(n)]` | Generates a specific number of words. | `15` | `consectetur adipiscing elit` |
-| `[lorem.sentence(n)]` | Generates a specific number of sentences. | `1` | `Sed do eiusmod tempor incididunt.` |
-| `[lorem.paragraph(n)]` | Generates a specific number of paragraphs. | `1` | `(Multiple paragraphs separated by \n\n)` |
+| `[lorem]` | Generates 1 paragraph of placeholder text. | `1` | `(Paragraph separated by \n\n)` |
+| `[lorem.word]` or `[lorem.word(n)]` | Generates words (default 15). | `15` | `consectetur adipiscing elit` |
+| `[lorem.sentence]` or `[lorem.sentence(n)]` | Generates sentences (default 1). | `1` | `Sed do eiusmod tempor incididunt.` |
+| `[lorem.paragraph]` or `[lorem.paragraph(n)]` | Generates paragraphs (default 1). | `1` | `(Multiple paragraphs separated by \n\n)` |
 
 ## Usage Details
 
 ### Numeric Arguments
-All `lorem` variants accept an optional numeric argument `n` to control the amount of text generated. If omitted, Taurine falls back to a sensible default.
+All `lorem` variants accept an optional numeric argument `n` to control the amount of text generated. If omitted, Taurine falls back to sensible defaults (`15` words, `1` sentence, or `1` paragraph).
 
 ```text
+[lorem] -> 1 paragraph
+[lorem.word] -> 15 words
 [lorem.word(3)] -> "lorem ipsum dolor"
+[lorem.sentence] -> 1 sentence
 [lorem.sentence(2)] -> "Lorem ipsum dolor sit amet. Consectetur adipiscing elit."
 ```
 

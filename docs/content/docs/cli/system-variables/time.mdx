@@ -46,8 +46,6 @@ Use the `.format()` method to format the time.
 | `X` | Unix timestamp (seconds) | `1713709845` |
 | `x` | Unix timestamp (millis) | `1713709845000` |
 
-*Note: Date-related tokens (like `YYYY`, `MM`) cannot be used in `time.format()`.*
-
 ### Literal Text Escaping
 
 To include literal text inside your format string without it being interpreted as a token, wrap the text in single quotes (`'...'`).
@@ -68,8 +66,10 @@ Use the `.calc()` method to calculate relative times. You **must** provide a lea
 | `h` / `H` | Hours |
 | `m` | Minutes |
 | `s` / `S` | Seconds |
-
-*Note: Date-related units (like `d`, `w`) cannot be used in `time.calc()`.*
+| `d` | Days |
+| `w` | Weeks |
+| `M` | Months |
+| `y` / `Y` | Years |
 
 ### Examples
 

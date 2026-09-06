@@ -4,6 +4,7 @@
     "index",
     "time",
     "date",
+    "datetime",
     "clip",
     "env",
     "file",

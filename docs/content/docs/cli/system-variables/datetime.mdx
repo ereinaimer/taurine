@@ -1,0 +1,85 @@
+---
+title: Datetime
+description: Using datetime system variables in Taurine.
+---
+
+The `[datetime]` system variable inserts the current date and time together. Like `[date]` and `[time]`, it uses a method-based API that lets you switch between local and UTC context, perform calculations, and customize the output with standard LDML formatting tokens.
+
+By default, `[datetime]` outputs the current local date and time in ISO format: `YYYY-MM-DDTHH:mm:ss`.
+
+## Methods
+
+You can chain methods onto `[datetime]` to customize the output.
+
+| Method | Description | Example |
+| :--- | :--- | :--- |
+| `.utc` | Switches the context to UTC instead of local time. | `[datetime.utc]` |
+| `.calc(±...<units>)` | Adds or subtracts time and date amounts. Requires a `+` or `-` sign. | `[datetime.calc(+1d-2h)]` |
+| `.format(<pattern>)` | Formats using LDML tokens. | `[datetime.format(YYYY-MM-DD hh:mm A)]` |
+
+### Method Chaining
+
+Methods are evaluated from left to right.
+```text
+[datetime.utc.calc(+1d).format(dddd, MMMM D, YYYY 'at' HH:mm)]
+```
+
+## Formatting
+
+Use the `.format()` method with LDML pattern tokens.
+
+### Supported LDML Tokens
+
+| Category | Token | Description | Example Output |
+| :--- | :--- | :--- | :--- |
+| **Year** | `YYYY` | 4-digit year | `2026` |
+| | `YY` | 2-digit year | `26` |
+| **Month** | `MMMM` | Full month name | `April` |
+| | `MMM` | Short month name | `Apr` |
+| | `MM` | 2-digit month | `04` |
+| | `M` | 1 or 2 digit month | `4` |
+| **Day** | `DD` | 2-digit day of month | `08` |
+| | `D` | 1 or 2 digit day of month | `8` |
+| | `dddd` | Full weekday name | `Tuesday` |
+| | `ddd` | Short weekday name | `Tue` |
+| **Hour** | `HH` | 24-hour hour, 2 digits | `14` |
+| | `H` | 24-hour hour, 1 or 2 digits | `14` |
+| | `hh` | 12-hour hour, 2 digits | `02` |
+| | `h` | 12-hour hour, 1 or 2 digits | `2` |
+| **Minute** | `mm` | Minutes, 2 digits | `05` |
+| | `m` | Minutes, 1 or 2 digits | `5` |
+| **Second** | `ss` | Seconds, 2 digits | `09` |
+| | `s` | Seconds, 1 or 2 digits | `9` |
+| **Period** | `A` | AM/PM (uppercase) | `PM` |
+| | `a` | am/pm (lowercase) | `pm` |
+| **Timezone** | `Z` | Timezone offset | `+05:30` |
+| **Epoch** | `X` | Unix timestamp (seconds) | `1713709845` |
+| | `x` | Unix timestamp (milliseconds) | `1713709845000` |
+
+### Literal Text Escaping
+
+To include literal words in format patterns without token substitution, wrap them in single quotes (`'...'`):
+
+```text
+[datetime.format('Created on' YYYY-MM-DD 'at' HH:mm)]
+```
+
+## Calculations
+
+Use `.calc()` with a leading `+` or `-` sign, amounts, and unit characters. Multiple units can be combined.
+
+| Unit | Description |
+| :--- | :--- |
+| `y` / `Y` | Years |
+| `M` | Months |
+| `w` | Weeks |
+| `d` | Days |
+| `h` / `H` | Hours |
+| `m` | Minutes |
+| `s` / `S` | Seconds |
+
+### Examples
+
+- `[datetime.calc(+1d)]` (Tomorrow at the same time)
+- `[datetime.calc(-2h30m)]` (2 hours and 30 minutes ago)
+- `[datetime.utc.calc(+1w).format(YYYY-MM-DD HH:mm:ss)]`

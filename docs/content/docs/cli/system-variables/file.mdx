@@ -24,26 +24,29 @@ License terms:
 
 ---
 
-### `[file.read_line(path, line)]`
+### `[file.line(path, n)]`
 
 Reads a single, 1-indexed line from a target file.
 
 ```text
 Today's quote:
-[file.read_line(C:\notes\quotes.txt, 1)]
+[file.line(C:\notes\quotes.txt, 1)]
 ```
 
-If the requested line number exceeds the file's total lines, Taurine inserts an empty string.
+If the requested line number exceeds the file's total lines, Taurine returns an out-of-bounds error.
 
 ---
 
-### `[file.read_line(path, start, end)]`
+### `[file.lines(path, start, [end])]`
 
-Extracts a contiguous range of lines from a target file.
+Extracts a contiguous range of lines from a target file. If `end` is omitted, it reads from `start` through to the end of the file.
 
 ```text
 Header section:
-[file.read_line(C:\notes\changelog.md, 1, 10)]
+[file.lines(C:\notes\changelog.md, 1, 10)]
+
+From line 5 to EOF:
+[file.lines(C:\notes\changelog.md, 5)]
 ```
 
 Lines within the specified range (inclusive) are joined with standard line breaks.
@@ -56,17 +59,18 @@ You can pipe file content directly into transformers to modify it before expansi
 
 ```text
 [file.read(~/.bashrc) | upper]
-[file.read_line(~/todo.txt, 1) | trim]
+[file.line(~/todo.txt, 1) | trim]
+[file.lines(~/changelog.md, 1, 3) | lower]
 ```
 
 ---
 
-## Example Usage: Random Line Selection
+## Example Usage: Line Selection
 
-If you have a file named `quotes.txt` with one quote per line, you can configure a trigger to randomly pull a single quote.
+If you have a file named `quotes.txt` with one quote per line, you can configure a trigger to pull specific lines.
 
 ```text
-[file.read_line(C:\notes\quotes.txt, 1, 5) | trim]
+[file.lines(C:\notes\quotes.txt, 1, 5) | trim]
 ```
 ---
 
@@ -93,11 +97,11 @@ You can store your email signature in a `.txt` file and inject it effortlessly.
   output="Best regards,\n\nJohn Doe\nSenior Engineer | Taurine Inc.\njohn@taurine.app"
 />
 
-### Pulling a Random Quote
-If you have a file named `quotes.txt` with one quote per line, you can configure a trigger to randomly pull a single quote.
+### Pulling a Quote Line
+If you have a file named `quotes.txt` with one quote per line, you can configure a trigger to pull a single line.
 
 <Transformation
   trigger=";quote"
-  template="Here is your quote for the day:\n[file.read_line(~/Documents/quotes.txt, 1)]"
+  template="Here is your quote for the day:\n[file.line(~/Documents/quotes.txt, 1)]"
   output="Here is your quote for the day:\nThe only way to do great work is to love what you do."
 />

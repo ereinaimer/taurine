@@ -5,9 +5,11 @@ description: Generate dynamic data and random values in your trigger templates.
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-The `[random.*]` namespace allows you to inject randomized data directly into your snippets. This is ideal for generating test data, passwords, unique tokens, or making probabilistic choices within a template.
+The `[random]` namespace allows you to inject randomized data directly into your snippets. This is ideal for generating test data, passwords, unique tokens, or making probabilistic choices within a template.
 
-All `random` variables follow a function-call syntax. Arguments are passed inside `(...)` and are optional for most variants.
+Bare `[random]` defaults to a random integer between 0 and 100 (`[random.int]`).
+
+All `random` sub-variables support optional arguments passed inside `(...)`.
 
 ## Available Variants
 
@@ -15,14 +17,17 @@ All `random` variables follow a function-call syntax. Arguments are passed insid
 
 | Variable | Description | Default | Example |
 | :--- | :--- | :--- | :--- |
-| `[random.int(min, max)]` | Random integer between min and max. | `0..99` | `42` |
+| `[random]` | Random integer between 0 and 100. | `0..100` | `42` |
+| `[random.int]` | Random integer between 0 and 100. | `0..100` | `42` |
+| `[random.int(max)]` | Random integer between 1 and max. | — | `7` |
+| `[random.int(min, max)]` | Random integer between min and max (inclusive). | — | `15` |
 
 ### Strings & Identifiers
 
 | Variable | Description | Default | Example |
 | :--- | :--- | :--- | :--- |
-| `[random.str(len)]` or `[random.string]` | Alphanumeric string (A-Z, a-z, 0-9). | `16` | `aB3k9Lp2Qx8vM1nQ` |
-| `[random.pass(len)]` or `[random.password]` | Secure string with special symbols. | `20` | `kL9!pQ#zR2*j$m8W` |
+| `[random.str]` or `[random.str(len)]` | Alphanumeric string (A-Z, a-z, 0-9). | `16` | `aB3k9Lp2Qx8vM1nQ` |
+| `[random.pass]` or `[random.pass(len)]` | Secure string with uppercase, lowercase, numbers, and special symbols. | `20` | `kL9!pQ#zR2*j$m8W-9aB` |
 
 ### Choices
 

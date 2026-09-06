@@ -177,16 +177,36 @@ pub fn resolve(key: &str) -> Option<String> {
             }
             Some(read_file(&invocation.raw_args))
         }
-        "read_line" => {
+        "line" => {
+            if invocation.raw_args.is_empty() {
+                return Some("[Error: Missing path]".to_string());
+            }
+
+            // Format: path, n
+            let parts: Vec<&str> = invocation.raw_args.rsplitn(2, ',').collect();
+            if parts.len() < 2 {
+                return Some("[Error: line needs path and line number]".to_string());
+            }
+
+            let path_str = parts[1].trim();
+            let n_str = parts[0].trim();
+
+            let line_num = match n_str.parse::<usize>() {
+                Ok(n) if n > 0 => n,
+                _ => return Some("[Error: invalid line number]".to_string()),
+            };
+
+            Some(read_lines(path_str, line_num, line_num))
+        }
+        "lines" => {
             if invocation.raw_args.is_empty() {
                 return Some("[Error: Missing path]".to_string());
             }
 
             // Format: path, start, [end]
             let parts: Vec<&str> = invocation.raw_args.rsplitn(3, ',').collect();
-
             if parts.len() < 2 {
-                return Some("[Error: read_line needs path and start line]".to_string());
+                return Some("[Error: lines needs path and start line]".to_string());
             }
 
             let path_str: &str;
@@ -213,7 +233,7 @@ pub fn resolve(key: &str) -> Option<String> {
                     _ => return Some("[Error: invalid end line]".to_string()),
                 }
             } else {
-                start
+                usize::MAX
             };
 
             Some(read_lines(path_str, start, end))
@@ -244,9 +264,16 @@ mod tests {
             }
         );
         assert_eq!(
-            parse_invocation("file.read_line(/path/with, comma.txt, 1, 5)").unwrap(),
+            parse_invocation("file.line(/path/with, comma.txt, 2)").unwrap(),
             FileInvocation {
-                variant: "read_line".to_string(),
+                variant: "line".to_string(),
+                raw_args: "/path/with, comma.txt, 2".to_string(),
+            }
+        );
+        assert_eq!(
+            parse_invocation("file.lines(/path/with, comma.txt, 1, 5)").unwrap(),
+            FileInvocation {
+                variant: "lines".to_string(),
                 raw_args: "/path/with, comma.txt, 1, 5".to_string(),
             }
         );
@@ -287,15 +314,18 @@ mod tests {
     }
 
     #[test]
-    fn resolve_read_line_args() {
-        let file = create_temp_file("one\ntwo\nthree");
+    fn resolve_line_and_lines_args() {
+        let file = create_temp_file("one\ntwo\nthree\nfour");
         let path = file.path().to_str().unwrap();
 
-        let key_single = format!("file.read_line({}, 2)", path);
+        let key_single = format!("file.line({}, 2)", path);
         assert_eq!(resolve(&key_single).unwrap(), "two");
 
-        let key_range = format!("file.read_line({}, 1, 2)", path);
+        let key_range = format!("file.lines({}, 1, 2)", path);
         assert_eq!(resolve(&key_range).unwrap(), "one\ntwo");
+
+        let key_to_end = format!("file.lines({}, 3)", path);
+        assert_eq!(resolve(&key_to_end).unwrap(), "three\nfour");
     }
 
     #[test]

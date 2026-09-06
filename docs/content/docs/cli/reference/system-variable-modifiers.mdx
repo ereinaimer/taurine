@@ -20,6 +20,8 @@ The following roots are reserved by the Taurine engine and cannot be used as cus
 | `cursor` | Directs the final cursor position (placeholder). |
 | `uuid` | Unique identifier generation (defaults to v4). |
 | `lorem` | Dummy text generation (words, sentences, paragraphs). |
+| `random` | Random number, string, choice, and password generation. |
+| `net` | Network status and public/local IP lookup. |
 | `env` | System environment variables. |
 | `file` | Read local file contents. |
 | `key` | Keyboard triggers (simulating key presses). |
@@ -78,7 +80,15 @@ Interact with your local system state and shell environment.
 <Accordion title="file">
   Read and inject local file contents natively.
   - `[file.read(path)]`: Reads the entire contents of a file (up to 5MB).
-  - `[file.read_line(path, start, [end])]`: Extracts specific lines using a 1-indexed range.
+  - `[file.line(path, n)]`: Extracts a single 1-indexed line `n`.
+  - `[file.lines(path, start, [end])]`: Extracts a line range from `start` to `end` (or to end-of-file if `end` is omitted).
+</Accordion>
+
+<Accordion title="net">
+  Network status and IP address discovery.
+  - `[net.ip]` / `[net.publicip]`: Public WAN IP address (resolved via Cloudflare / ipify).
+  - `[net.localip]` / `[net.lip]`: Local network LAN IP address.
+  - `[net.online]`: Returns `true` or `false` based on network connectivity.
 </Accordion>
 </Accordions>
 
@@ -93,6 +103,16 @@ Modifiers for generating IDs, filler text, or simulating hardware interaction.
   - `[uuid]`: Generates a UUID v4 by default.
   - `[uuid.v4]`: Explicit version 4 UUID.
   - `[uuid.v7]`: Time-sorted version 7 UUID.
+</Accordion>
+
+<Accordion title="random">
+  - `[random]`: Generates a random integer between 0 and 100 inclusive.
+  - `[random.int]`: Random integer between 0 and 100.
+  - `[random.int(max)]`: Random integer between 1 and `max`.
+  - `[random.int(min, max)]`: Random integer between `min` and `max`.
+  - `[random.choice(a, b, ...)]`: Randomly picks one item from comma-separated choices.
+  - `[random.str]` / `[random.str(len)]`: Alphanumeric string (defaults to 16 characters).
+  - `[random.pass]` / `[random.pass(len)]`: Secure password string with symbols (defaults to 20 characters).
 </Accordion>
 
 <Accordion title="lorem">

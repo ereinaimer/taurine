@@ -51,12 +51,17 @@ pub(crate) fn parse_invocation(key: &str) -> Result<RandomInvocation, RandomPars
 }
 
 pub fn resolve(key: &str) -> Option<String> {
+    if key == "random" {
+        let mut rng = rand::rng();
+        return Some(rng.random_range(0..=100).to_string());
+    }
+
     let invocation = parse_invocation(key).ok()?;
     let mut rng = rand::rng();
 
     match invocation.variant.as_str() {
         "int" => {
-            let (min, max) = parse_int_range(&invocation.args, 0, 99)?;
+            let (min, max) = parse_int_range(&invocation.args, 0, 100)?;
             Some(rng.random_range(min..=max).to_string())
         }
         "choice" => {
@@ -142,6 +147,7 @@ fn push_arg(args: &mut Vec<String>, raw: &str) {
 fn parse_int_range(args: &[String], default_min: i64, default_max: i64) -> Option<(i64, i64)> {
     let (min, max) = match args {
         [] => (default_min, default_max),
+        [max] => (1, max.parse::<i64>().ok()?),
         [min, max] => (min.parse::<i64>().ok()?, max.parse::<i64>().ok()?),
         _ => return None,
     };
@@ -219,8 +225,16 @@ mod tests {
     fn resolves_int_ranges_and_rejects_invalid_ranges() {
         assert_eq!(resolve("random.int(5, 5)"), Some("5".to_string()));
         assert!(matches!(
+            resolve("random"),
+            Some(value) if (0..=100).contains(&value.parse::<i64>().unwrap())
+        ));
+        assert!(matches!(
             resolve("random.int"),
-            Some(value) if (0..=99).contains(&value.parse::<i64>().unwrap())
+            Some(value) if (0..=100).contains(&value.parse::<i64>().unwrap())
+        ));
+        assert!(matches!(
+            resolve("random.int(6)"),
+            Some(value) if (1..=6).contains(&value.parse::<i64>().unwrap())
         ));
         assert_eq!(resolve("random.int(10, 5)"), None);
     }

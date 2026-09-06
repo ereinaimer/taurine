@@ -267,7 +267,7 @@ mod tests {
         assert!(audit_payload_tags("Escaped brackets: \\[0=ignored\\] | Literal pipe: [0='default value' \\| upper] | Parsed pipe: [0='hello' | upper]").is_ok());
         assert!(audit_payload_tags("Local: [date] [time] | UTC +1w: [date.utc.calc(+1w).format('Today is' dddd, MMMM D, YYYY)] | UTC Time -2h: [time.utc.calc(-2h).format(hh:mm A)] | Cased AM/PM: [time.format(A) | lower]").is_ok());
         assert!(audit_payload_tags("User (Title Case): [env(USERNAME) | title] | Home Path (Lowercase): [env(USERPROFILE) | lower]").is_ok());
-        assert!(audit_payload_tags("Full Content: [file.read(~/taurine_test.txt) | trim] | Line 2: [file.read_line(~/taurine_test.txt, 2) | upper] | Lines 1-3: [file.read_line(~/taurine_test.txt, 1, 3)]").is_ok());
+        assert!(audit_payload_tags("Full Content: [file.read(~/taurine_test.txt) | trim] | Line 2: [file.line(~/taurine_test.txt, 2) | upper] | Lines 1-3: [file.lines(~/taurine_test.txt, 1, 3)]").is_ok());
         assert!(audit_payload_tags("Latest (Slugified): [clip | slug] | Second: [clip(0) | trim] | Third (Upper): [clip(1) | upper] | Empty index: [clip(2) | squote]").is_ok());
         assert!(audit_payload_tags("Cwd Path: [exec.powershell((Get-Location).Path) | trim] | Cmd Command: [exec.cmd(echo hello from cmd) | upper] | Silent Task: [exec.silent.powershell(echo 'background task')]").is_ok());
         assert!(audit_payload_tags("Status: [http.status(https://httpbin.org/status/200)] | UA: [http.get(https://httpbin.org/headers) | json.get('headers.User-Agent') | truncate(15)]").is_ok());

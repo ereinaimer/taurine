@@ -32,6 +32,7 @@ pub fn is_reserved(key: &str) -> bool {
         || key == "uuid"
         || clip::is_clip_key(key)
         || key == "lorem"
+        || key == "random"
         || key.starts_with("uuid.")
         || key == "time"
         || key.starts_with("time.")
@@ -73,7 +74,7 @@ pub fn is_directive(key: &str) -> bool {
 /// Deferred variables are replaced with a special marker during interpolation
 /// so the daemon can evaluate them in a non-blocking thread and show a braille spinner.
 pub fn is_deferred(key: &str) -> bool {
-    key == "net.ip" || key.starts_with("net.dns(") || key.starts_with("http.") || key == "mouse.pos"
+    key == "net.ip" || key == "net.publicip" || key.starts_with("http.") || key == "mouse.pos"
 }
 
 /// Resolves a content-producing system variable.
@@ -102,7 +103,7 @@ pub fn resolve(key: &str) -> Option<String> {
     if key.starts_with("http.") {
         return http::resolve(key);
     }
-    if key.starts_with("random.") {
+    if key == "random" || key.starts_with("random.") {
         return random::resolve(key);
     }
     if key == "lorem" || key.starts_with("lorem.") {

@@ -634,4 +634,10 @@ mod tests {
             LaunchTarget::ComplexScript
         );
     }
+
+    #[test]
+    fn test_native_shell_open_wt() {
+        let res = native_shell_open("wt", None);
+        println!("native_shell_open result: {:?}", res);
+    }
 }

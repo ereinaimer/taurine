@@ -9,23 +9,25 @@ The `[net.*]` namespace provides essential utilities for checking internet conne
 
 | Variable | Description | Example Output |
 | :--- | :--- | :--- |
-| `[net.ip]` | Public WAN IP address | `198.51.100.42` |
-| `[net.lip]` | Local LAN IPv4 address | `192.168.1.15` |
+| `[net.ip]` / `[net.publicip]` | Public WAN IP address | `198.51.100.42` |
+| `[net.localip]` / `[net.lip]` | Local LAN IPv4 address | `192.168.1.15` |
 | `[net.online]` | Internet connection status | `true` or `false` |
 
 ## Usage Details
 
-### Public IP (`net.ip`)
-`[net.ip]` resolves your external WAN IP address using a lightweight, non-blocking HTTP lookup with a strict timeout.
+### Public IP (`net.ip`, `net.publicip`)
+`[net.ip]` (or `[net.publicip]`) resolves your external WAN IP address using a lightweight, non-blocking HTTP lookup with a strict timeout.
 
 ```text
 Public IP: [net.ip] -> "Public IP: 198.51.100.42"
+Public IP: [net.publicip] -> "Public IP: 198.51.100.42"
 ```
 
-### Local IP (`net.lip`)
-`[net.lip]` resolves your primary active local IPv4 address. It automatically filters out loopback (`127.0.0.1`) and unassigned interfaces.
+### Local IP (`net.localip`, `net.lip`)
+`[net.localip]` (or `[net.lip]`) resolves your primary active local IPv4 address. It automatically filters out loopback (`127.0.0.1`) and unassigned interfaces.
 
 ```text
+Local IP: [net.localip] -> "Local IP: 192.168.1.15"
 Local IP: [net.lip] -> "Local IP: 192.168.1.15"
 ```
 

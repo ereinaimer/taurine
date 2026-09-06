@@ -43,8 +43,6 @@ Use the `.format()` method to format the date.
 | `dddd` | Full weekday name | `Tuesday` |
 | `ddd` | Short weekday name | `Tue` |
 
-*Note: Time-related tokens (like `HH`, `mm`, `ss`) cannot be used in `date.format()`.*
-
 ### Literal Text Escaping
 
 To include literal text inside your format string without it being interpreted as a token, wrap the text in single quotes (`'...'`). This avoids any collision with Taurine's macro syntax.
@@ -66,8 +64,8 @@ Use the `.calc()` method to calculate relative dates. You **must** provide a lea
 | `w` | Weeks |
 | `m` / `M` | Months |
 | `y` / `Y` | Years |
-
-*Note: Time-related units (like `h`, `s`) cannot be used in `date.calc()`.*
+| `h` / `H` | Hours |
+| `s` / `S` | Seconds |
 
 ### Examples
 

@@ -9,14 +9,14 @@ Taurine maintains a secure, in-memory history of your recent copies, enabling yo
 
 ## Usage
 
-Simply insert `[clip]` into your snippet to inject the most recent item. You can access previous clipboard entries using a simple index syntax:
+Simply insert `[clip]` or `[clipboard]` into your snippet to inject the most recent item. You can access previous clipboard entries using a simple index syntax:
 
 | Variable | Description |
 | :--- | :--- |
-| `[clip]` | The most recent clipboard item (same as index 0). |
-| `[clip(0)]` | The most recent clipboard item. |
-| `[clip(1)]` | The second most recent item. |
-| `[clip(2)]` | The third most recent item. |
+| `[clip]` or `[clipboard]` | The most recent clipboard item (same as index 0). |
+| `[clip(0)]` or `[clipboard(0)]` | The most recent clipboard item. |
+| `[clip(1)]` or `[clipboard(1)]` | The second most recent item. |
+| `[clip(2)]` or `[clipboard(2)]` | The third most recent item. |
 
 Taurine keeps a "ring buffer" of the last 3 items. If you request an index that hasn't been filled yet (e.g., you've only copied one thing since starting Taurine), the variable will resolve to an empty string.
 

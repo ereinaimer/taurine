@@ -583,7 +583,7 @@ mod compatibility_finalize_tests {
                 let path = home.join("taurine_test.txt");
                 std::fs::write(&path, "line one\nline two\nline three").ok();
                 let res = evaluate_template(
-                    "Full Content: [file.read(~/taurine_test.txt) | trim] | Line 2: [file.read_line(~/taurine_test.txt, 2) | upper] | Lines 1-3: [file.read_line(~/taurine_test.txt, 1, 3)]",
+                    "Full Content: [file.read(~/taurine_test.txt) | trim] | Line 2: [file.line(~/taurine_test.txt, 2) | upper] | Lines 1-3: [file.lines(~/taurine_test.txt, 1, 3)]",
                     None,
                 );
                 std::fs::remove_file(&path).ok();

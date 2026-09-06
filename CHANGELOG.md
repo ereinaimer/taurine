@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **File Slicing Operations**: Replace ambiguous read_line with dedicated [file.line(path, n)] for single line extraction and [file.lines(path, start, [end])] for multi-line ranges.
+- **Network IP Synonyms**: Add [net.localip] and [net.publicip] synonyms for local and public IP lookups.
+- **Random Range & Default Generators**: Expand bare [random] to a 0..100 integer, support zero-argument [random.int] and single-argument [random.int(max)], and update [random.pass] default length to 20 characters.
 - **Unified Datetime System Variable**: Insert and calculate timestamps via new [datetime] root with universal calculation units and complete token formatting support across date and time.
 - **Bare Root Defaults**: Expand bare [uuid] to v4, bare [lorem] to one paragraph, and bare [lorem.word]/[lorem.sentence]/[lorem.paragraph] with zero arguments.
 - **Clipboard Variable Synonym**: Support [clipboard] and [clipboard(index)] as first-class synonyms for [clip].

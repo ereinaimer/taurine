@@ -27,20 +27,20 @@ const DATE_METHODS: &[&str] = &["utc", "calc(±...)", "format(...)"];
 const DATETIME_METHODS: &[&str] = &["utc", "calc(±...)", "format(...)"];
 
 const UUID_MODIFIERS: &[&str] = &["v4", "v7"];
-const NET_MODIFIERS: &[&str] = &["ip", "lip", "online"];
+const NET_MODIFIERS: &[&str] = &["ip", "publicip", "lip", "localip", "online"];
 const EXEC_MODIFIERS: &[&str] = &[
     "exec.<lang>(...)",
     "exec.silent.<lang>(...)",
     "exec.<lang>.file(...).args(...)",
 ];
 const RANDOM_MODIFIERS: &[&str] = &[
-    "int(min, max)",
+    "int([min], [max])",
     "choice(a, b, ...)",
-    "str(len)",
-    "pass(len)",
+    "str([len])",
+    "pass([len])",
 ];
 const LOREM_MODIFIERS: &[&str] = &["word(n)", "sentence(n)", "paragraph(n)"];
-const FILE_MODIFIERS: &[&str] = &["read(path)", "read_line(path, start, [end])"];
+const FILE_MODIFIERS: &[&str] = &["read(path)", "line(path, n)", "lines(path, start, [end])"];
 const KEY_MODIFIERS: &[&str] = &[
     "enter",
     "tab",
@@ -160,7 +160,7 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "env" => "Valid form: [env(<var_name>)] or [env(\"<var_name>\")]".to_string(),
         "net" => format!("Valid modifiers: {}", NET_MODIFIERS.join(", ")),
         "exec" => "Valid forms: [exec.bash(...)], [exec.powershell(...)], [exec.python(...)], [exec.node(...)], [exec.cmd(...)]".to_string(),
-        "random" => format!("Valid modifiers: {}", RANDOM_MODIFIERS.join(", ")),
+        "random" => "Valid forms: [random], [random.int([min], [max])], [random.choice(...)], [random.str([len])], [random.pass([len])]".to_string(),
         "lorem" => "Valid forms: [lorem], [lorem.word([n])], [lorem.sentence([n])], [lorem.paragraph([n])]".to_string(),
         "file" => format!("Valid modifiers: {}", FILE_MODIFIERS.join(", ")),
         "key" => format!(
@@ -170,7 +170,7 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "delay" => "Valid form: [delay(<ms>)] or [delay(<u64>ms)]".to_string(),
         "use" => "Valid form: [use(\"trigger_name\")]".to_string(),
         "http" => "Valid forms: [http.get(<url>)], [http.status(<url>)]".to_string(),
-        "mouse" => "Valid forms: [mouse.click([btn])], [mouse.dblclick([btn])], [mouse.down([btn])], [mouse.up([btn])], [mouse.rclick], [mouse.mclick], [mouse.m4], [mouse.m5], [mouse.move(x,y)], [mouse.scroll(delta)], [mouse.pos]. Buttons: left, right, middle, m4, m5, m<N>".to_string(),
+        "mouse" => "Valid directives:\n  [mouse.click(btn)]    Click button (default: left)\n  [mouse.dblclick(btn)] Double-click button (default: left)\n  [mouse.down(btn)]     Press and hold button (synonym: [mouse.hold])\n  [mouse.up(btn)]       Release button (synonym: [mouse.release])\n  [mouse.rclick]        Right-click shortcut\n  [mouse.mclick]        Middle-click shortcut\n  [mouse.m4]            Back button shortcut (mouse4)\n  [mouse.m5]            Forward button shortcut (mouse5)\n  [mouse.move(x, y)]    Move cursor to absolute coordinates (x, y)\n  [mouse.scroll(delta)] Scroll wheel vertically (positive: up, negative: down)\n  [mouse.pos]           Insert current cursor position as x, y\n\nSupported buttons:\n  left, right, middle, m4 (back), m5 (forward), m<N>".to_string(),
         "newline" => "Valid form: [newline]".to_string(),
         _ => "No modifier help available.".to_string(),
     }

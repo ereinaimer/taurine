@@ -159,7 +159,10 @@ fn validate_net_modifier(modifier: Option<&str>) -> Result<(), ValidationError> 
         });
     };
 
-    let valid = matches!((variant, args), ("ip" | "lip" | "online", None));
+    let valid = matches!(
+        (variant, args),
+        ("ip" | "publicip" | "lip" | "localip" | "online", None)
+    );
 
     if valid {
         Ok(())
@@ -232,9 +235,10 @@ fn scan_exec_parenthesized(input: &str) -> Option<(&str, &str)> {
 }
 
 fn validate_random_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
-    let modifier =
-        normalize_modifier(modifier.ok_or(ValidationError::MissingModifier { root: "random" })?)
-            .ok_or(ValidationError::MissingModifier { root: "random" })?;
+    let modifier = match modifier.and_then(normalize_modifier) {
+        None => return Ok(()),
+        Some(m) => m,
+    };
 
     let Some((variant, args)) = parse_random_modifier(modifier) else {
         return Err(ValidationError::InvalidModifier {
@@ -247,7 +251,7 @@ fn validate_random_modifier(modifier: Option<&str>) -> Result<(), ValidationErro
     let valid = match variant {
         "int" => args.is_none_or(|args| {
             let args = split_random_args(args);
-            args.is_empty() || args.len() == 2
+            args.is_empty() || args.len() == 1 || args.len() == 2
         }),
         "str" | "pass" => args.is_none_or(|args| {
             let args = split_random_args(args);
@@ -309,7 +313,8 @@ fn validate_file_modifier(modifier: Option<&str>) -> Result<(), ValidationError>
     if let Some((variant, args)) = parse_file_modifier(modifier) {
         let valid = match variant {
             "read" => args.is_some_and(|args| split_modifier_args(args).len() == 1),
-            "read_line" => args.is_some_and(|args| {
+            "line" => args.is_some_and(|args| split_modifier_args(args).len() == 2),
+            "lines" => args.is_some_and(|args| {
                 let count = split_modifier_args(args).len();
                 count == 2 || count == 3
             }),
