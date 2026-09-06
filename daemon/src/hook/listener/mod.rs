@@ -926,7 +926,7 @@ fn is_solo_modifier_press(
 #[cfg(not(target_os = "linux"))]
 fn is_paste_key_press(
     key: Key,
-    shift_active: bool,
+    _shift_active: bool,
     ctrl_active: bool,
     alt_active: bool,
     meta_active: bool,
@@ -938,6 +938,6 @@ fn is_paste_key_press(
     #[cfg(not(target_os = "macos"))]
     {
         (ctrl_active && !meta_active && !alt_active && key == Key::KeyV)
-            || (shift_active && !ctrl_active && !alt_active && !meta_active && key == Key::Insert)
+            || (_shift_active && !ctrl_active && !alt_active && !meta_active && key == Key::Insert)
     }
 }

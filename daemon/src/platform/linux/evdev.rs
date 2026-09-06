@@ -818,6 +818,7 @@ mod tests {
         let mut swallow = false;
         let mut swallow_left = false;
         let mut swallow_right = false;
+        let mut swallow_v = false;
 
         let frame = vec![
             InputEvent::new(EventType::KEY.0, KeyCode::KEY_LEFTCTRL.code(), 1),
@@ -846,6 +847,7 @@ mod tests {
             &mut swallow,
             &mut swallow_left,
             &mut swallow_right,
+            &mut swallow_v,
         );
 
         // Verification 1: abort_injection bumped the generation
