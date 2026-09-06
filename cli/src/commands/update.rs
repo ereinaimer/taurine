@@ -104,7 +104,7 @@ impl Stepper {
     fn step(&mut self, next_label: &str) {
         if let Some(h) = self.handle.take() {
             h.stop();
-            info!("\x1b[32m✓\x1b[0m {}", self.label);
+            info!("✓ {}", self.label);
         }
         self.label = next_label.to_string();
         let renderer = StdoutStepRenderer {
@@ -115,7 +115,7 @@ impl Stepper {
     fn finish(mut self) {
         if let Some(h) = self.handle.take() {
             h.stop();
-            info!("\x1b[32m✓\x1b[0m {}", self.label);
+            info!("✓ {}", self.label);
         }
     }
 }
