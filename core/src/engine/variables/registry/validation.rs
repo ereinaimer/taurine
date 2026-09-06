@@ -285,10 +285,10 @@ fn validate_lorem_modifier(modifier: Option<&str>) -> Result<(), ValidationError
             };
 
             let valid = match args {
-                None => matches!(variant, "word" | "sentence" | "paragraph"),
+                None => matches!(variant, "paragraph" | "word" | "sentence"),
                 Some(args_str) => {
                     let args = split_modifier_args(args_str);
-                    matches!(variant, "word" | "sentence" | "paragraph") && args.len() <= 1
+                    matches!(variant, "paragraph" | "word" | "sentence") && args.len() <= 1
                 }
             };
 
@@ -454,7 +454,14 @@ fn parse_file_modifier(input: &str) -> Option<(&str, Option<&str>)> {
 }
 
 fn parse_lorem_modifier(input: &str) -> Option<(&str, Option<&str>)> {
-    if let Some(paren_idx) = input.find('(') {
+    if input.starts_with('(') {
+        let (args, trailing) = scan_exec_parenthesized(input)?;
+        if trailing.trim().is_empty() {
+            Some(("paragraph", Some(args)))
+        } else {
+            None
+        }
+    } else if let Some(paren_idx) = input.find('(') {
         let variant = input[..paren_idx].trim();
         let (args, trailing) = scan_exec_parenthesized(&input[paren_idx..])?;
         if !variant.is_empty() && trailing.trim().is_empty() {

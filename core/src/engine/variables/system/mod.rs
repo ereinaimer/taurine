@@ -49,6 +49,7 @@ pub fn is_reserved(key: &str) -> bool {
         || key.starts_with("img(")
         || key.starts_with("random.")
         || key.starts_with("lorem.")
+        || key.starts_with("lorem(")
         || key == "mouse"
         || key.starts_with("mouse.")
         || key == "key"
@@ -106,7 +107,7 @@ pub fn resolve(key: &str) -> Option<String> {
     if key == "random" || key.starts_with("random.") {
         return random::resolve(key);
     }
-    if key == "lorem" || key.starts_with("lorem.") {
+    if key == "lorem" || key.starts_with("lorem.") || key.starts_with("lorem(") {
         return lorem::resolve(key);
     }
     if key == "uuid" || key.starts_with("uuid.") {

@@ -13,7 +13,7 @@ Bare `[lorem]` defaults to 1 paragraph (`[lorem.paragraph]`).
 
 | Variable | Description | Default | Example Output |
 | :--- | :--- | :--- | :--- |
-| `[lorem]` | Generates 1 paragraph of placeholder text. | `1` | `(Paragraph separated by \n\n)` |
+| `[lorem]` or `[lorem(n)]` | Generates paragraphs of placeholder text. | `1` | `(Paragraph separated by \n\n)` |
 | `[lorem.word]` or `[lorem.word(n)]` | Generates words (default 15). | `15` | `consectetur adipiscing elit` |
 | `[lorem.sentence]` or `[lorem.sentence(n)]` | Generates sentences (default 1). | `1` | `Sed do eiusmod tempor incididunt.` |
 | `[lorem.paragraph]` or `[lorem.paragraph(n)]` | Generates paragraphs (default 1). | `1` | `(Multiple paragraphs separated by \n\n)` |
@@ -21,10 +21,11 @@ Bare `[lorem]` defaults to 1 paragraph (`[lorem.paragraph]`).
 ## Usage Details
 
 ### Numeric Arguments
-All `lorem` variants accept an optional numeric argument `n` to control the amount of text generated. If omitted, Taurine falls back to sensible defaults (`15` words, `1` sentence, or `1` paragraph).
+All `lorem` variants accept an optional numeric argument `n` to control the amount of text generated. If omitted, Taurine falls back to sensible defaults (`1` paragraph, `15` words, or `1` sentence).
 
 ```text
 [lorem] -> 1 paragraph
+[lorem(3)] -> 3 paragraphs
 [lorem.word] -> 15 words
 [lorem.word(3)] -> "lorem ipsum dolor"
 [lorem.sentence] -> 1 sentence

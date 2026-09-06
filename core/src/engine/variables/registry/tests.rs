@@ -299,6 +299,8 @@ fn validates_random_modifier_syntax() {
 #[test]
 fn validates_lorem_modifier_syntax() {
     assert_eq!(validate_system_tag("lorem", None), Ok(()));
+    assert_eq!(validate_system_tag("lorem", Some("(3)")), Ok(()));
+    assert_eq!(validate_system_tag("lorem", Some("()")), Ok(()));
     assert_eq!(validate_system_tag("lorem", Some("word")), Ok(()));
     assert_eq!(validate_system_tag("lorem", Some("sentence")), Ok(()));
     assert_eq!(validate_system_tag("lorem", Some("paragraph")), Ok(()));

@@ -170,6 +170,18 @@ pub(crate) fn parse_invocation(key: &str) -> Result<LoremInvocation, LoremParseE
         });
     }
 
+    if rest.starts_with('(') {
+        let (args, trailing) = scan_parenthesized(rest)?;
+        if !trailing.trim().is_empty() {
+            return Err(LoremParseError::InvalidTrailingSyntax);
+        }
+        let count = parse_count_arg(args)?;
+        return Ok(LoremInvocation {
+            variant: LoremVariant::Paragraph,
+            count: count.unwrap_or(DEFAULT_PARAGRAPH_COUNT),
+        });
+    }
+
     let modifier = rest
         .strip_prefix('.')
         .ok_or(LoremParseError::InvalidRoot)?
@@ -292,6 +304,14 @@ mod tests {
     fn resolves_bare_lorem_tag() {
         let res = resolve("lorem").unwrap();
         assert!(!res.is_empty());
+    }
+
+    #[test]
+    fn resolves_lorem_with_count_arg() {
+        let paragraphs = resolve("lorem(3)").unwrap();
+        assert_eq!(paragraphs.split("\n\n").count(), 3);
+        let default_paragraphs = resolve("lorem()").unwrap();
+        assert_eq!(default_paragraphs.split("\n\n").count(), 1);
     }
 
     #[test]

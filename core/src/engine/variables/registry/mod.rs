@@ -39,7 +39,7 @@ const RANDOM_MODIFIERS: &[&str] = &[
     "str([len])",
     "pass([len])",
 ];
-const LOREM_MODIFIERS: &[&str] = &["word(n)", "sentence(n)", "paragraph(n)"];
+const LOREM_MODIFIERS: &[&str] = &["(n)", "word(n)", "sentence(n)", "paragraph(n)"];
 const FILE_MODIFIERS: &[&str] = &["read(path)", "line(path, n)", "lines(path, start, [end])"];
 const KEY_MODIFIERS: &[&str] = &[
     "enter",
@@ -137,6 +137,11 @@ pub fn split_system_tag(key: &str) -> Option<(&str, Option<&str>)> {
     {
         return Some(("img", Some(inner)));
     }
+    if let Some(rest) = base.strip_prefix("lorem(")
+        && let Some(inner) = rest.strip_suffix(')')
+    {
+        return Some(("lorem", Some(inner)));
+    }
 
     let (root, modifier) = match base.split_once('.') {
         Some((root, modifier)) => (root, Some(modifier.trim()).filter(|m| !m.is_empty())),
@@ -161,7 +166,7 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "net" => format!("Valid modifiers: {}", NET_MODIFIERS.join(", ")),
         "exec" => "Valid forms: [exec.bash(...)], [exec.powershell(...)], [exec.python(...)], [exec.node(...)], [exec.cmd(...)]".to_string(),
         "random" => "Valid forms: [random], [random.int([min], [max])], [random.choice(...)], [random.str([len])], [random.pass([len])]".to_string(),
-        "lorem" => "Valid forms: [lorem], [lorem.word([n])], [lorem.sentence([n])], [lorem.paragraph([n])]".to_string(),
+        "lorem" => "Valid forms: [lorem], [lorem([n])], [lorem.word([n])], [lorem.sentence([n])], [lorem.paragraph([n])]".to_string(),
         "file" => format!("Valid modifiers: {}", FILE_MODIFIERS.join(", ")),
         "key" => format!(
             "Valid forms: [key(<token>)]. Tokens: {}. You can combine them with `+`, and any single character token is also allowed.",
