@@ -50,6 +50,21 @@ pub(crate) fn spawn_completion_rewrite_dispatch(
     });
 }
 
+pub(crate) fn spawn_placeholder_injection_dispatch(
+    placeholder: String,
+    spinner_style: taurine_core::settings::SpinnerStyle,
+) {
+    injector::spawn_guarded_injection_thread("tau-placeholder", move || {
+        crate::injector::inject_expansion(
+            vec![taurine_core::engine::variables::ExpansionStep::Text(
+                placeholder,
+            )],
+            0,
+            spinner_style,
+        );
+    });
+}
+
 pub(super) fn dispatch_completion_rewrite_with<I>(
     rewrite: taurine_core::engine::CompletionRewrite,
     spinner_style: taurine_core::settings::SpinnerStyle,

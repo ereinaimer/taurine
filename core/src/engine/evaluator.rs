@@ -124,6 +124,7 @@ pub struct Evaluator {
     pub buffer: FastBuffer,
     pub state: Arc<EngineState>,
     pub(crate) completion: TriggerCompletionState,
+    pub(crate) captured_ai_clipboard: Option<String>,
 }
 
 impl Evaluator {
@@ -135,12 +136,14 @@ impl Evaluator {
             buffer: FastBuffer::new(),
             state,
             completion: TriggerCompletionState::default(),
+            captured_ai_clipboard: None,
         }
     }
 
     pub fn reset(&mut self) {
         self.buffer.clear();
         self.completion.deactivate(&self.state.completion_active);
+        self.captured_ai_clipboard = None;
     }
 
     pub(crate) fn get_thinking_text(&self) -> String {
@@ -229,6 +232,7 @@ impl Evaluator {
                 // Severe interrupts ruin active sequences
                 self.buffer.clear();
                 self.completion.deactivate(&self.state.completion_active);
+                self.captured_ai_clipboard = None;
                 None
             }
             EngineEvent::Backspace => {
@@ -289,19 +293,61 @@ impl Evaluator {
         }
     }
 
+    pub fn has_inline_ai_prefix(&self) -> bool {
+        let buf_str = self.buffer.buffer_string();
+        let line = buf_str.rsplit('\n').next().unwrap_or(&buf_str);
+        TAU_PREFIX_REGEX.is_match(line)
+    }
+
+    pub fn set_captured_ai_clipboard(&mut self, text: String) {
+        self.captured_ai_clipboard = Some(text);
+    }
+
+    pub fn append_to_buffer(&mut self, text: &str) {
+        for c in text.chars() {
+            self.buffer.push(c);
+        }
+    }
+
     pub(crate) fn check_inline_ai_trigger(&mut self) -> Option<ExpansionResult> {
         let buf_str = self.buffer.buffer_string();
         let line = buf_str.rsplit('\n').next().unwrap_or(&buf_str);
         let caps = TAU_AI_REGEX.captures(line)?;
 
         let full_span = caps.name("full_span")?.as_str();
-        let prompt = caps.name("prompt")?.as_str().trim();
-        if prompt.is_empty() {
+        let prompt_raw = caps.name("prompt")?.as_str().trim();
+        if prompt_raw.is_empty() {
             return None;
         }
 
         let delete_count = full_span.chars().count();
         self.buffer.clear();
+
+        let mut resolved_prompt = prompt_raw.to_string();
+
+        if AI_CLIPBOARD_PLACEHOLDER_REGEX.is_match(&resolved_prompt) {
+            let clip_content = self
+                .captured_ai_clipboard
+                .take()
+                .or_else(|| crate::engine::variables::system::clip::resolve("clip"))
+                .unwrap_or_default();
+            resolved_prompt = AI_CLIPBOARD_PLACEHOLDER_REGEX
+                .replace_all(&resolved_prompt, regex::NoExpand(&clip_content))
+                .to_string();
+        } else {
+            self.captured_ai_clipboard = None;
+        }
+
+        if resolved_prompt.contains("[clip]") {
+            let clip_content =
+                crate::engine::variables::system::clip::resolve("clip").unwrap_or_default();
+            resolved_prompt = resolved_prompt.replace("[clip]", &clip_content);
+        }
+
+        let trimmed_prompt = resolved_prompt.trim();
+        if trimmed_prompt.is_empty() {
+            return None;
+        }
 
         Some(ExpansionResult {
             delete_count,
@@ -312,12 +358,36 @@ impl Evaluator {
             stat_kind: TriggerStatKind::InlineAi,
             track_usage: false,
             follow_up: Some(ExpansionFollowUp::InlineAi {
-                prompt: prompt.to_string(),
+                prompt: trimmed_prompt.to_string(),
                 system_prompt_override: None,
             }),
         })
     }
 }
+
+pub fn format_clipboard_placeholder(clip_text: &str) -> String {
+    let line_count = clip_text.lines().count();
+    if line_count > 1 {
+        format!("[clipboard: {} lines]", line_count)
+    } else {
+        let word_count = clip_text.split_whitespace().count();
+        if word_count == 1 {
+            "[clipboard: 1 word]".to_string()
+        } else {
+            format!("[clipboard: {} words]", word_count)
+        }
+    }
+}
+
+static TAU_PREFIX_REGEX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r"(?i)(?:^|[\s])tau,").expect("Valid tau prefix regex")
+});
+
+static AI_CLIPBOARD_PLACEHOLDER_REGEX: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"\[clipboard:\s*\d+\s*(?:lines?|words?)\]")
+            .expect("Valid placeholder regex")
+    });
 
 static TAU_AI_REGEX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
     regex::Regex::new(r"(?i)(?:^|[\s])(?P<full_span>(?P<prefix>tau,)\s*(?P<prompt>\S.*))$")

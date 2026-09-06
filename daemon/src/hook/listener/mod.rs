@@ -645,6 +645,25 @@ pub fn process_keyboard_event(
                 clear_undo_state(state.as_ref());
             }
 
+            if is_paste_key_press(key, shift_active, ctrl_active, alt_active, meta_active)
+                && state.inline_ai_enabled()
+                && with_evaluator_lock(evaluator, "check_inline_ai_prefix", |lock| {
+                    lock.has_inline_ai_prefix()
+                })
+                .unwrap_or(false)
+            {
+                let clip_text = crate::platform::read_clipboard_text().unwrap_or_default();
+                let placeholder =
+                    taurine_core::engine::evaluator::format_clipboard_placeholder(&clip_text);
+                let _ = with_evaluator_lock(evaluator, "record_ai_clipboard", |lock| {
+                    lock.set_captured_ai_clipboard(clip_text);
+                    lock.append_to_buffer(&placeholder);
+                });
+                let style = spinner_style.read().map(|s| *s).unwrap_or_default();
+                crate::hook::spawn_placeholder_injection_dispatch(placeholder, style);
+                return None;
+            }
+
             let engine_event = match key {
                 Key::Escape => Some(EngineEvent::Interrupt),
                 Key::Backspace => {
@@ -901,5 +920,24 @@ fn is_solo_modifier_press(
         Key::Alt | Key::AltGr => !shift_active && !ctrl_active && !meta_active,
         Key::MetaLeft | Key::MetaRight => !shift_active && !ctrl_active && !alt_active,
         _ => is_modifier_key(key) && !shift_active && !ctrl_active && !alt_active && !meta_active,
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn is_paste_key_press(
+    key: Key,
+    shift_active: bool,
+    ctrl_active: bool,
+    alt_active: bool,
+    meta_active: bool,
+) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        meta_active && !ctrl_active && !alt_active && key == Key::KeyV
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        (ctrl_active && !meta_active && !alt_active && key == Key::KeyV)
+            || (shift_active && !ctrl_active && !alt_active && !meta_active && key == Key::Insert)
     }
 }

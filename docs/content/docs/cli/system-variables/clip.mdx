@@ -65,3 +65,14 @@ Encodes a copied URL to ensure it's safe for use in identifiers.
 ```text
 https://example.com/api/search?q=[clip | url.encode]
 ```
+
+## Inline AI Copilot Integration
+
+You can also pass clipboard content directly into the [Inline AI Copilot](/docs/cli/inline-ai-copilot) as context:
+
+- **Type `[clip]` directly**:
+  ```text
+  tau, reformat this in json: [clip][Enter]
+  ```
+- **Press `Ctrl + V` / `Cmd + V`**:
+  While typing after a `tau,` prefix, pressing your paste shortcut automatically inserts a compact token like `[clipboard: 34 lines]` or `[clipboard: 18 words]` and binds the clipboard payload to the prompt without dumping raw text into the input field. On Enter, Taurine cleanly backspaces the token and passes the raw clipboard content into the AI prompt as-is.

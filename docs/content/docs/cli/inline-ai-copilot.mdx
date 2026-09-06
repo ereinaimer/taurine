@@ -90,6 +90,24 @@ The team discussed the launch timeline. tau, summarize key risks[Enter]
 
 Taurine precisely backspaces only the `tau, summarize key risks` portion, leaving `"The team discussed the launch timeline. "` completely intact, and streams the AI output directly after it.
 
+### Clipboard Context
+
+You can provide copied text or code as context to your inline AI prompt in two seamless ways:
+
+1. **Paste Shortcut (`Ctrl + V` / `Cmd + V`)**: When typing after a `tau,` prefix, pressing your paste shortcut automatically intercepts the paste, preventing large code or multi-line text from flooding your editor. Instead, Taurine types a compact placeholder token:
+   - For multi-line text: `[clipboard: 34 lines]`
+   - For single-line text: `[clipboard: 18 words]` (or `[clipboard: 1 word]`)
+2. **Explicit Token (`[clip]`)**: You can also manually type `[clip]` anywhere inside your prompt:
+   ```text
+   tau, reformat this in json: [clip][Enter]
+   ```
+
+When you hit **Enter**, Taurine deletes only the concise single line on screen, substitutes the raw clipboard content directly into the prompt as-is, and streams the AI response directly into your active window.
+
+<Callout title="Atomic Erasure & Chat Apps" type="info">
+  By replacing large pastes with compact placeholder tokens, Taurine only needs to backspace a single line of text on Enter. This avoids the multi-line backspace lag and accidental message sends common when pasting raw multi-line text into chat applications like Slack or Discord.
+</Callout>
+
 ### Empty Prompt Safety
 
 If you type `tau` or `tau,` and press **Enter** without a prompt, Taurine treats it as standard typing and lets your Enter key pass straight through to the operating system.

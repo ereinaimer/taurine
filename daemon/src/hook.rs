@@ -20,7 +20,10 @@ pub(crate) use completion::{
 };
 
 #[allow(unused_imports)]
-pub(crate) use dispatch::{spawn_completion_rewrite_dispatch, spawn_expansion_dispatch};
+pub(crate) use dispatch::{
+    spawn_completion_rewrite_dispatch, spawn_expansion_dispatch,
+    spawn_placeholder_injection_dispatch,
+};
 
 #[allow(unused_imports)]
 pub use listener::{start_listener, stop_listener};

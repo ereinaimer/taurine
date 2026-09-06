@@ -211,6 +211,7 @@ pub(crate) fn spawn_device_listener(
             let mut swallow_next_backspace_release = false;
             let mut swallow_next_left_arrow_release = false;
             let mut swallow_next_right_arrow_release = false;
+            let mut swallow_next_v_release = false;
 
             loop {
                 match device.fetch_events() {
@@ -236,6 +237,7 @@ pub(crate) fn spawn_device_listener(
                                     &mut swallow_next_backspace_release,
                                     &mut swallow_next_left_arrow_release,
                                     &mut swallow_next_right_arrow_release,
+                                    &mut swallow_next_v_release,
                                 );
                                 frame.clear();
                                 continue;
@@ -263,6 +265,7 @@ pub(crate) fn spawn_device_listener(
                                 &mut swallow_next_backspace_release,
                                 &mut swallow_next_left_arrow_release,
                                 &mut swallow_next_right_arrow_release,
+                                &mut swallow_next_v_release,
                             );
                         }
                     }
@@ -311,6 +314,7 @@ fn process_frame(
     swallow_next_backspace_release: &mut bool,
     swallow_next_left_arrow_release: &mut bool,
     swallow_next_right_arrow_release: &mut bool,
+    swallow_next_v_release: &mut bool,
 ) {
     let mut swallow_frame = false;
 
@@ -345,6 +349,12 @@ fn process_frame(
         if *swallow_next_right_arrow_release && is_release && key == KeyCode::KEY_RIGHT {
             swallow_frame = true;
             *swallow_next_right_arrow_release = false;
+            continue;
+        }
+
+        if *swallow_next_v_release && is_release && key == KeyCode::KEY_V {
+            swallow_frame = true;
+            *swallow_next_v_release = false;
             continue;
         }
 
@@ -585,6 +595,30 @@ fn process_frame(
             } else {
                 // Invalidate on any non-modifier or combo.
                 clear_undo_state(state);
+            }
+
+            if ctrl_active
+                && !meta_active
+                && !alt_active
+                && key == KeyCode::KEY_V
+                && state.inline_ai_enabled()
+                && evaluator
+                    .lock()
+                    .ok()
+                    .is_some_and(|lock| lock.has_inline_ai_prefix())
+            {
+                let clip_text = crate::platform::read_clipboard_text().unwrap_or_default();
+                let placeholder =
+                    taurine_core::engine::evaluator::format_clipboard_placeholder(&clip_text);
+                if let Ok(mut lock) = evaluator.lock() {
+                    lock.set_captured_ai_clipboard(clip_text);
+                    lock.append_to_buffer(&placeholder);
+                }
+                let spinner_style_inner = spinner_style.read().map(|s| *s).unwrap_or_default();
+                crate::hook::spawn_placeholder_injection_dispatch(placeholder, spinner_style_inner);
+                swallow_frame = true;
+                *swallow_next_v_release = true;
+                continue;
             }
         } else {
             if grab_enabled

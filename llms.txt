@@ -198,6 +198,7 @@ Stream LLM responses directly into the active text field.
 1.  Configure a provider: `taurine ai add --provider gemini` (and optionally `taurine config set ai_provider gemini`).
 2.  Type `tau, <prompt>` anywhere on a line and press **Enter** (e.g. `tau, summarize this paragraph`). The trigger and prompt are replaced by the streamed AI response.
 3.  The trailing comma is strictly required (`tau,`) to prevent collision with the `tau` CLI alias. Case-insensitive variants (`tau,`, `Tau,`, `TAu,`, `TAU,`) are supported; `tau <prompt>` and `tau: <prompt>` are rejected. Empty prompts (`tau,` followed by Enter) pass through without triggering. Custom endpoints (`taurine config set ai_custom_endpoint http://localhost:11434/v1` for Ollama/LM Studio) and disabling via `taurine config set inline_ai_enabled false` are supported.
+4.  Clipboard context: Pass copied text or code as context to your prompt by typing `[clip]` (e.g. `tau, reformat this: [clip]`) or pressing `Ctrl + V` / `Cmd + V` after `tau,` (automatically inserts `[clipboard: N lines]` or `[clipboard: N words]` and binds the clipboard payload without dumping raw text into the field). Substitutes the raw clipboard text directly into the prompt on Enter.
 
 ### 7.3 Inline Trigger Assist
 Headless assist for word triggers (no popups):

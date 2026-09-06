@@ -1410,6 +1410,132 @@ fn inline_ai_thinking_text_matches_spec() {
 }
 
 #[test]
+fn inline_ai_has_prefix_detection() {
+    let state = Arc::new(EngineState::new());
+    let mut eval = Evaluator::new(state);
+
+    assert!(!eval.has_inline_ai_prefix());
+
+    for c in "tau,".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    assert!(eval.has_inline_ai_prefix());
+
+    for c in " reformat this".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    assert!(eval.has_inline_ai_prefix());
+
+    eval.reset();
+    assert!(!eval.has_inline_ai_prefix());
+
+    for c in "Hello world, tau, explain".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    assert!(eval.has_inline_ai_prefix());
+
+    eval.reset();
+    for c in "tau without comma".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    assert!(!eval.has_inline_ai_prefix());
+
+    eval.reset();
+    for c in "tau: with colon".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    assert!(!eval.has_inline_ai_prefix());
+}
+
+#[test]
+fn inline_ai_placeholder_formatting_matches_spec() {
+    use crate::engine::evaluator::format_clipboard_placeholder;
+
+    assert_eq!(format_clipboard_placeholder(""), "[clipboard: 0 words]");
+    assert_eq!(format_clipboard_placeholder("   "), "[clipboard: 0 words]");
+    assert_eq!(
+        format_clipboard_placeholder("single"),
+        "[clipboard: 1 word]"
+    );
+    assert_eq!(
+        format_clipboard_placeholder("hello world from taurine inline ai copilot test suite"),
+        "[clipboard: 9 words]"
+    );
+    assert_eq!(
+        format_clipboard_placeholder("one\ntwo"),
+        "[clipboard: 2 lines]"
+    );
+    assert_eq!(
+        format_clipboard_placeholder("a\nb\nc\nd\ne"),
+        "[clipboard: 5 lines]"
+    );
+}
+
+#[test]
+fn inline_ai_manual_clip_token_substitutes_clipboard() {
+    crate::engine::variables::system::clip::set_mock_clip(Some("const x = 1;".to_string()));
+    let state = Arc::new(EngineState::new());
+    let mut eval = Evaluator::new(state);
+
+    let input = "tau, reformat this: [clip]";
+    for c in input.chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+
+    let result = eval
+        .process(EngineEvent::ActionKey)
+        .expect("tau, with [clip] should trigger");
+
+    assert_eq!(result.delete_count, input.chars().count());
+    assert_inline_ai_follow_up(&result, "reformat this: const x = 1;", None);
+
+    crate::engine::variables::system::clip::set_mock_clip(None);
+}
+
+#[test]
+fn inline_ai_captured_clipboard_placeholder_substitutes_payload() {
+    let state = Arc::new(EngineState::new());
+    let mut eval = Evaluator::new(state);
+
+    for c in "tau, reformat this: ".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+
+    let payload = "fn main() {\n    println!(\"$100 and $VAR\");\n}";
+    eval.set_captured_ai_clipboard(payload.to_string());
+    eval.append_to_buffer("[clipboard: 3 lines]");
+
+    let result = eval
+        .process(EngineEvent::ActionKey)
+        .expect("tau, with clipboard placeholder should trigger");
+
+    assert_eq!(
+        result.delete_count,
+        "tau, reformat this: [clipboard: 3 lines]".chars().count()
+    );
+    assert_inline_ai_follow_up(&result, &format!("reformat this: {payload}"), None);
+}
+
+#[test]
+fn inline_ai_empty_clip_token_does_not_trigger() {
+    crate::engine::variables::system::clip::set_mock_clip(Some("".to_string()));
+    let state = Arc::new(EngineState::new());
+    let mut eval = Evaluator::new(state);
+
+    for c in "tau, [clip]".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+
+    assert_eq!(
+        eval.process(EngineEvent::ActionKey),
+        None,
+        "tau, [clip] with empty clipboard must not trigger"
+    );
+
+    crate::engine::variables::system::clip::set_mock_clip(None);
+}
+
+#[test]
 fn bare_word_suffix_expands_without_prefix() {
     let state = Arc::new(EngineState::new());
     state.load_actions(vec![(

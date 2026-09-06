@@ -743,4 +743,58 @@ mod listener_pipeline_tests {
             "Unmapped mouse release must pass through to OS"
         );
     }
+
+    #[test]
+    fn test_ctrl_v_outside_inline_ai_passes_through() {
+        let h = Harness::new();
+        h.type_str("hello world ");
+        let _ = h.send(bare_event(EventType::KeyPress(Key::ControlLeft)));
+        let paste_ev = h.send(bare_event(EventType::KeyPress(Key::KeyV)));
+        let _ = h.send(bare_event(EventType::KeyRelease(Key::KeyV)));
+        let _ = h.send(bare_event(EventType::KeyRelease(Key::ControlLeft)));
+
+        assert!(
+            paste_ev.is_some(),
+            "Ctrl+V outside inline AI must pass through to OS"
+        );
+    }
+
+    #[test]
+    fn test_ctrl_v_inside_inline_ai_is_swallowed_and_appends_placeholder() {
+        let h = Harness::new();
+        h.type_str("tau, reformat this: ");
+
+        let _ = h.send(bare_event(EventType::KeyPress(Key::ControlLeft)));
+        let paste_ev = h.send(bare_event(EventType::KeyPress(Key::KeyV)));
+        let _ = h.send(bare_event(EventType::KeyRelease(Key::KeyV)));
+        let _ = h.send(bare_event(EventType::KeyRelease(Key::ControlLeft)));
+
+        assert!(
+            paste_ev.is_none(),
+            "Ctrl+V inside inline AI prompt must be swallowed by Taurine"
+        );
+
+        let buf = h.buf();
+        assert!(
+            buf.starts_with("tau, reformat this: [clipboard:"),
+            "Buffer must contain the clipboard placeholder, got: {buf}"
+        );
+    }
+
+    #[test]
+    fn test_ctrl_v_when_inline_ai_disabled_passes_through() {
+        let h = Harness::new();
+        h.state.inline_ai_enabled.store(false, Ordering::Relaxed);
+        h.type_str("tau, reformat this: ");
+
+        let _ = h.send(bare_event(EventType::KeyPress(Key::ControlLeft)));
+        let paste_ev = h.send(bare_event(EventType::KeyPress(Key::KeyV)));
+        let _ = h.send(bare_event(EventType::KeyRelease(Key::KeyV)));
+        let _ = h.send(bare_event(EventType::KeyRelease(Key::ControlLeft)));
+
+        assert!(
+            paste_ev.is_some(),
+            "Ctrl+V when inline AI is disabled must pass through to OS"
+        );
+    }
 }
