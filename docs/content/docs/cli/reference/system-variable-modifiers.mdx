@@ -189,6 +189,8 @@ These can be appended to **any** variable (system or custom) using Unix pipe syn
 </Accordion>
 
 <Accordion title="Text & Line Utilities">
+  - `digits`: Filters string to keep only digits `0-9`.
+  - `alnum`: Filters string to keep only alphanumeric characters.
   - `wordcount`: Returns the number of whitespace-separated words (e.g. `[clip | wordcount]`).
   - `linecount`: Returns the total number of lines (e.g. `[clip | linecount]`).
   - `sortline([options])`: Sorts lines alphabetically or numerically (e.g. `[clip | sortline("numeric", "desc")]`).
@@ -197,13 +199,13 @@ These can be appended to **any** variable (system or custom) using Unix pipe syn
 
 <Accordion title="Data Extraction">
   Extract values from structured payloads or web content. Pairs perfectly with `[http.get(...)]` and `[file.read(...)]`.
-  - `json.get(path)`: Extracts a value via dot-notation (e.g., `user.hobbies.1`).
+  - `json(path)`: Extracts a value via dot-notation (e.g., `user.hobbies.1`).
   - `json.pretty`: Indents and formats a JSON payload.
   - `json.minify`: Strips all formatting whitespace from JSON.
   - `html(selector)`: Scrapes HTML inner text using a standard CSS selector (e.g., `.price > span`).
   - `xml(selector)`: Scrapes XML text using CSS selectors.
   - `yaml(path)`: Extracts a value from YAML via dot-notation.
   - `toml(path)`: Extracts a value from TOML via dot-notation.
-  - `regexmatch("pattern", [group])`: Extracts a specific regex capturing group (defaults to group 0, the full match).
+  - `regex("pattern", [group])`: Extracts a specific regex capturing group (defaults to group 0, the full match).
 </Accordion>
 </Accordions>

@@ -658,14 +658,14 @@ mod compatibility_finalize_tests {
         // Test Case 8: testhttp
         {
             let res = evaluate_template(
-                "Status: [http.status(https://httpbin.org/status/200)] | UA: [http.get(https://httpbin.org/headers) | json.get('headers.User-Agent') | truncate(15)]",
+                "Status: [http.status(https://httpbin.org/status/200)] | UA: [http.get(https://httpbin.org/headers) | json('headers.User-Agent') | truncate(15)]",
                 None,
             );
             assert_eq!(res.steps.len(), 1);
             if let ExpansionStep::Text(ref text) = res.steps[0] {
                 assert_eq!(
                     text,
-                    "Status: \x03\x1Fsys:http.status(https://httpbin.org/status/200)\x04 | UA: \x03\x1Fsys:http.get(https://httpbin.org/headers) | json.get('headers.User-Agent') | truncate(15)\x04"
+                    "Status: \x03\x1Fsys:http.status(https://httpbin.org/status/200)\x04 | UA: \x03\x1Fsys:http.get(https://httpbin.org/headers) | json('headers.User-Agent') | truncate(15)\x04"
                 );
             } else {
                 panic!("Expected Text step");
@@ -715,13 +715,13 @@ mod compatibility_finalize_tests {
         // Test Case 12: testcombo
         {
             let res = evaluate_template(
-                "User [name='Developer'] checked [url='httpbin.org/json'] at [time.utc.format(HH:mm)] UTC. Title of JSON: [http.get([url]) | json.get('slideshow.title') | upper]",
+                "User [name='Developer'] checked [url='httpbin.org/json'] at [time.utc.format(HH:mm)] UTC. Title of JSON: [http.get([url]) | json('slideshow.title') | upper]",
                 None,
             );
             assert_eq!(res.steps.len(), 1);
             if let ExpansionStep::Text(ref text) = res.steps[0] {
                 assert!(text.contains("User Developer checked httpbin.org/json at "));
-                assert!(text.contains(" UTC. Title of JSON: \x03\x1Fsys:http.get(httpbin.org/json) | json.get('slideshow.title') | upper\x04"));
+                assert!(text.contains(" UTC. Title of JSON: \x03\x1Fsys:http.get(httpbin.org/json) | json('slideshow.title') | upper\x04"));
             } else {
                 panic!("Expected Text step");
             }

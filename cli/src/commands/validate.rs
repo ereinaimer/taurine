@@ -249,8 +249,8 @@ mod tests {
 
     #[test]
     fn accepts_nested_and_reused_variables() {
-        assert!(audit_payload_tags("Status: [http.status(https://httpbin.org/status/200)] | UA: [[http.get(https://httpbin.org/headers)] | json.get('headers.User-Agent') | truncate(15)]").is_ok());
-        assert!(audit_payload_tags("User [name='Developer'] checked [url='httpbin.org/json'] at [time.utc.format(HH:mm)] UTC. Title of JSON: [http.get([url]) | json.get('slideshow.title') | upper]").is_ok());
+        assert!(audit_payload_tags("Status: [http.status(https://httpbin.org/status/200)] | UA: [[http.get(https://httpbin.org/headers)] | json('headers.User-Agent') | truncate(15)]").is_ok());
+        assert!(audit_payload_tags("User [name='Developer'] checked [url='httpbin.org/json'] at [time.utc.format(HH:mm)] UTC. Title of JSON: [http.get([url]) | json('slideshow.title') | upper]").is_ok());
     }
 
     #[test]
@@ -270,11 +270,11 @@ mod tests {
         assert!(audit_payload_tags("Full Content: [file.read(~/taurine_test.txt) | trim] | Line 2: [file.line(~/taurine_test.txt, 2) | upper] | Lines 1-3: [file.lines(~/taurine_test.txt, 1, 3)]").is_ok());
         assert!(audit_payload_tags("Latest (Slugified): [clip | slug] | Second: [clip(0) | trim] | Third (Upper): [clip(1) | upper] | Empty index: [clip(2) | squote]").is_ok());
         assert!(audit_payload_tags("Cwd Path: [exec.powershell((Get-Location).Path) | trim] | Cmd Command: [exec.cmd(echo hello from cmd) | upper] | Silent Task: [exec.silent.powershell(echo 'background task')]").is_ok());
-        assert!(audit_payload_tags("Status: [http.status(https://httpbin.org/status/200)] | UA: [http.get(https://httpbin.org/headers) | json.get('headers.User-Agent') | truncate(15)]").is_ok());
-        assert!(audit_payload_tags("Status: [http.status(https://httpbin.org/status/200)] | UA: [[http.get(https://httpbin.org/headers)] | json.get('headers.User-Agent') | truncate(15)]").is_ok());
+        assert!(audit_payload_tags("Status: [http.status(https://httpbin.org/status/200)] | UA: [http.get(https://httpbin.org/headers) | json('headers.User-Agent') | truncate(15)]").is_ok());
+        assert!(audit_payload_tags("Status: [http.status(https://httpbin.org/status/200)] | UA: [[http.get(https://httpbin.org/headers)] | json('headers.User-Agent') | truncate(15)]").is_ok());
         assert!(audit_payload_tags("Int (10-50): [random.int(10, 50)] | Pass (12): [random.pass(12)] | Choice: [random.choice(apple, banana, cherry) | title] | Lorem (Dynamic Count): [lorem.word([random.int(2, 4)]) | kebab]").is_ok());
         assert!(audit_payload_tags("Output: [use('testinner') | upper] | Date: [date]").is_ok());
-        assert!(audit_payload_tags("User [name='Developer'] checked [url='httpbin.org/json'] at [time.utc.format(HH:mm)] UTC. Title of JSON: [http.get([url]) | json.get('slideshow.title') | upper]").is_ok());
+        assert!(audit_payload_tags("User [name='Developer'] checked [url='httpbin.org/json'] at [time.utc.format(HH:mm)] UTC. Title of JSON: [http.get([url]) | json('slideshow.title') | upper]").is_ok());
         assert!(audit_payload_tags("[0=first][key(tab)][delay(100ms)][1=second][key(tab)][delay(50)][2=third][key(enter)]").is_ok());
 
         // Negative Test Cases

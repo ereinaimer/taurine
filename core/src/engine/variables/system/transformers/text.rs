@@ -14,8 +14,8 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
         "regexreplace" if args.len() == 2 => Some(regex_replace(content, args[0], args[1])),
         "substring" if args.len() == 2 => substring(content, args[0], args[1]),
 
-        "onlydigit" if args.is_empty() => Some(only_digits(content)),
-        "onlyalphanumeric" if args.is_empty() => Some(only_alphanumeric(content)),
+        "digits" if args.is_empty() => Some(only_digits(content)),
+        "alnum" if args.is_empty() => Some(only_alphanumeric(content)),
         "stripall" if args.is_empty() => Some(strip_all(content)),
         "stripemoji" if args.is_empty() => Some(strip_emoji(content)),
         _ => None,
@@ -166,14 +166,8 @@ mod tests {
             Some("bonono".to_string())
         );
 
-        assert_eq!(
-            apply("onlydigit", &[], "ID: A-10-9"),
-            Some("109".to_string())
-        );
-        assert_eq!(
-            apply("onlyalphanumeric", &[], "a b-c_1!"),
-            Some("abc1".to_string())
-        );
+        assert_eq!(apply("digits", &[], "ID: A-10-9"), Some("109".to_string()));
+        assert_eq!(apply("alnum", &[], "a b-c_1!"), Some("abc1".to_string()));
         assert_eq!(
             apply("stripall", &[], " a \n b\tc "),
             Some("abc".to_string())

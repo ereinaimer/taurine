@@ -13,7 +13,7 @@ Data extraction transformers allow you to parse and extract specific values from
 | `xml(selector)` | Parses XML and extracts the inner text of the first matching CSS selector |
 | `toml(path)` | Extracts a value from a TOML string using dot-notation |
 | `yaml(path)` | Extracts a value from a YAML string using dot-notation |
-| `regexmatch(pattern, [group])` | Extracts a specific capturing group from a regex match (default: group 0) |
+| `regex(pattern, [group])` | Extracts a specific capturing group from a regex match (default: group 0) |
 
 ### Detailed Usage
 
@@ -39,7 +39,7 @@ Similar to JSON extraction, you can traverse YAML and TOML configurations using 
 Extract specific segments of a text using capturing groups. Provide the regex pattern as the first argument, and the optional 0-based capturing group index as the second argument.
 
 <Transformation
-  template='[0 | regexmatch("#([0-9]+)", 1)]'
+  template='[0 | regex("#([0-9]+)", 1)]'
   input="text:Order ID: #12345 (Completed)"
   result="12345"
 />

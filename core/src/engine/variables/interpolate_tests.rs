@@ -617,11 +617,11 @@ mod compatibility_interpolation_tests {
         let mut args = ArgMap::default();
         args.named
             .insert("url".to_string(), "httpbin.org/json".to_string());
-        let tpl = "[http.get([url]) | json.get('slideshow.title') | upper]";
+        let tpl = "[http.get([url]) | json('slideshow.title') | upper]";
         let result = interpolate(tpl, &args);
         assert_eq!(
             result,
-            "\x03\x1Fsys:http.get(httpbin.org/json) | json.get('slideshow.title') | upper\x04"
+            "\x03\x1Fsys:http.get(httpbin.org/json) | json('slideshow.title') | upper\x04"
         );
     }
 

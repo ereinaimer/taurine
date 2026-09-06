@@ -9,13 +9,13 @@ use super::strip_argument_quotes;
 
 pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> {
     match transformer {
-        "json.get" => apply_json(args, content),
+        "json" => apply_json(args, content),
         "json.pretty" if args.is_empty() => apply_json_pretty(content),
         "json.minify" if args.is_empty() => apply_json_minify(content),
         "html" | "xml" => apply_html_xml(args, content),
         "toml" => apply_toml(args, content),
         "yaml" => apply_yaml(args, content),
-        "regexmatch" => apply_regexmatch(args, content),
+        "regex" => apply_regex(args, content),
         "ext.url" => Some(extract_url(content)),
         "ext.email" => Some(extract_email(content)),
         "ext.phone" => Some(extract_phone(content)),
@@ -120,7 +120,7 @@ fn apply_yaml(args: &[&str], content: &str) -> Option<String> {
     }
 }
 
-fn apply_regexmatch(args: &[&str], content: &str) -> Option<String> {
+fn apply_regex(args: &[&str], content: &str) -> Option<String> {
     let pattern = strip_argument_quotes(args.first()?);
     let group_index: usize = args
         .get(1)
@@ -400,14 +400,14 @@ mod tests {
     fn test_json_transformers() {
         let json = r#"{"user": {"name": "Alice", "hobbies": ["reading", "gaming"]}}"#;
         assert_eq!(
-            apply("json.get", &["user.name"], json),
+            apply("json", &["user.name"], json),
             Some("Alice".to_string())
         );
         assert_eq!(
-            apply("json.get", &["user.hobbies.1"], json),
+            apply("json", &["user.hobbies.1"], json),
             Some("gaming".to_string())
         );
-        assert_eq!(apply("json.get", &["invalid.path"], json), None);
+        assert_eq!(apply("json", &["invalid.path"], json), None);
 
         // test json.pretty
         let minified = r#"{"a":1,"b":[2,3]}"#;
@@ -479,17 +479,17 @@ services:
     }
 
     #[test]
-    fn test_apply_regexmatch() {
+    fn test_apply_regex() {
         let text = "Order ID: #12345 (Completed)";
         assert_eq!(
-            apply_regexmatch(&["#([0-9]+)", "1"], text),
+            apply_regex(&["#([0-9]+)", "1"], text),
             Some("12345".to_string())
         );
         assert_eq!(
-            apply_regexmatch(&["#([0-9]+)"], text),
+            apply_regex(&["#([0-9]+)"], text),
             Some("#12345".to_string()) // Default to group 0 (full match)
         );
-        assert_eq!(apply_regexmatch(&["invalid_regex["], text), None);
+        assert_eq!(apply_regex(&["invalid_regex["], text), None);
     }
 
     #[test]
