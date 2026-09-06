@@ -1451,7 +1451,7 @@ fn suffix_expansion_with_punctuation_prefix() {
 }
 
 #[test]
-fn middle_word_expands() {
+fn middle_word_does_not_expand() {
     let state = Arc::new(EngineState::new());
     state.load_actions(vec![(
         "gm".to_string(),
@@ -1463,12 +1463,109 @@ fn middle_word_expands() {
         eval.process(EngineEvent::Char(c));
     }
 
-    let result = eval
+    let result = eval.process(EngineEvent::ActionKey);
+    assert_eq!(result, None);
+}
+
+#[test]
+fn test_trigger_boundary_rules_action_key() {
+    let state = Arc::new(EngineState::new());
+    state.load_actions(vec![(
+        "em".to_string(),
+        crate::db::crud::TriggerAction::text("ereinaimer@gmail.com"),
+    )]);
+    let mut eval = Evaluator::new(state);
+
+    // 1. Alphabet prefix (e.g. "them") must NOT expand
+    for c in "them".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    assert_eq!(eval.process(EngineEvent::ActionKey), None);
+
+    // 2. Start of buffer ("em") DOES expand
+    eval.reset();
+    for c in "em".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    let res = eval
         .process(EngineEvent::ActionKey)
-        .expect("should expand triggerless despite boundary prefix");
-    assert_eq!(result.delete_count, 2);
-    assert_eq!(result.trigger, "gm");
-    assert_eq!(result.undo_trigger, Some("gm".to_string()));
+        .expect("em at start of buffer should expand");
+    assert_eq!(res.trigger, "em");
+    assert_eq!(res.delete_count, 2);
+
+    // 3. Whitespace prefix ("hello em") DOES expand
+    eval.reset();
+    for c in "hello em".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    let res = eval
+        .process(EngineEvent::ActionKey)
+        .expect("em with space prefix should expand");
+    assert_eq!(res.trigger, "em");
+    assert_eq!(res.delete_count, 2);
+
+    // 4. Newline prefix ("hello\nem") DOES expand
+    eval.reset();
+    for c in "hello\nem".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    let res = eval
+        .process(EngineEvent::ActionKey)
+        .expect("em with newline prefix should expand");
+    assert_eq!(res.trigger, "em");
+    assert_eq!(res.delete_count, 2);
+
+    // 5. Symbol / punctuation prefix ("(em") DOES expand
+    eval.reset();
+    for c in "(em".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    let res = eval
+        .process(EngineEvent::ActionKey)
+        .expect("em with punctuation prefix should expand");
+    assert_eq!(res.trigger, "em");
+    assert_eq!(res.delete_count, 2);
+
+    // 6. Number prefix (e.g. "1em") must NOT expand
+    eval.reset();
+    for c in "1em".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    assert_eq!(eval.process(EngineEvent::ActionKey), None);
+}
+
+#[test]
+fn test_trigger_boundary_rules_instant_expand() {
+    use std::sync::atomic::Ordering;
+    let state = Arc::new(EngineState::new());
+    state.instant_expand.store(true, Ordering::Relaxed);
+    state.load_actions(vec![(
+        "em".to_string(),
+        crate::db::crud::TriggerAction::text("ereinaimer@gmail.com"),
+    )]);
+    let mut eval = Evaluator::new(state);
+
+    // 1. Alphabet prefix ("them") must NOT expand
+    for c in "the".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    assert_eq!(eval.process(EngineEvent::Char('m')), None);
+
+    // 2. Number prefix ("1em") must NOT expand
+    eval.reset();
+    eval.process(EngineEvent::Char('1'));
+    eval.process(EngineEvent::Char('e'));
+    assert_eq!(eval.process(EngineEvent::Char('m')), None);
+
+    // 3. Symbol prefix ("(em") DOES expand
+    eval.reset();
+    eval.process(EngineEvent::Char('('));
+    eval.process(EngineEvent::Char('e'));
+    let res = eval
+        .process(EngineEvent::Char('m'))
+        .expect("(em should expand in instant mode");
+    assert_eq!(res.trigger, "em");
+    assert_eq!(res.delete_count, 2);
 }
 
 #[test]

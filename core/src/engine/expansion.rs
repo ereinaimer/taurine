@@ -152,8 +152,7 @@ impl crate::engine::evaluator::Evaluator {
         let candidates = self.buffer.extract_suffix_candidates();
 
         for (word, prev_char) in candidates.into_iter().rev() {
-            let is_boundary = !instant_expand
-                || prev_char.is_none_or(|c| c.is_whitespace() || c.is_ascii_punctuation());
+            let is_boundary = prev_char.is_none_or(|c| !c.is_alphanumeric());
             if is_boundary
                 && let Some(expansion) = self.state.fetch_expansion_no_date_fallback_lazy(
                     &word,
