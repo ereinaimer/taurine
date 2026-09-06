@@ -137,7 +137,22 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "delay" => "Valid form: [delay(<ms>)] or [delay(<u64>ms)]".to_string(),
         "use" => "Valid form: [use(\"trigger_name\")]".to_string(),
         "http" => "Valid forms: [http.get(<url>)], [http.status(<url>)]".to_string(),
-        "mouse" => "Valid forms: [mouse.click([button])], [mouse.dblclick([button])], [mouse.down([button])], [mouse.up([button])], [mouse.rclick], [mouse.mclick], [mouse.m4], [mouse.m5], [mouse.move(x, y)], [mouse.scroll(delta)], [mouse.hold], [mouse.release], [mouse.pos]".to_string(),
+        "mouse" => concat!(
+            "Valid directives:\n",
+            "  [mouse.click([btn])]    Click button (default: left)\n",
+            "  [mouse.dblclick([btn])] Double-click button (default: left)\n",
+            "  [mouse.down([btn])]     Press and hold button (synonym: [mouse.hold])\n",
+            "  [mouse.up([btn])]       Release button (synonym: [mouse.release])\n",
+            "  [mouse.rclick]          Right-click shortcut\n",
+            "  [mouse.mclick]          Middle-click shortcut\n",
+            "  [mouse.m4]              Back button shortcut (mouse4)\n",
+            "  [mouse.m5]              Forward button shortcut (mouse5)\n",
+            "  [mouse.move(x, y)]      Move cursor to absolute coordinates (x, y)\n",
+            "  [mouse.scroll(delta)]   Scroll wheel vertically (positive: up, negative: down)\n",
+            "  [mouse.pos]             Insert current cursor position as x, y\n\n",
+            "Supported buttons:\n",
+            "  left, right, middle, m4 (back), m5 (forward), m<N>"
+        ).to_string(),
         "newline" => "Valid form: [newline]".to_string(),
         _ => "No modifier help available.".to_string(),
     }

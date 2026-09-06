@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Inline AI Clipboard Context**: Pass copied clipboard text into inline AI prompts via natural paste shortcut (Ctrl+V / Cmd+V) or by typing [clip].
 
 ### Fixed
+- **Mouse Button 4 and 5 Simulation**: Direct Win32 input simulation for mouse buttons 4 and 5 (browser back/forward) on Windows.
 - **Update Progress Display**: Prevent raw terminal escape codes from displaying during update progress.
 - **Word Boundary Expansion Accuracy**: Prevent unwanted expansions when triggers appear inside larger words or follow digits by requiring non-alphanumeric boundaries.
 

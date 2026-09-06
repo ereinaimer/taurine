@@ -18,6 +18,17 @@ fn mouse_button_to_rdev(button: MouseButton) -> rdev::Button {
 
 impl Injector for RdevInjector {
     fn simulate_mouse_click(&self, button: MouseButton) {
+        #[cfg(windows)]
+        {
+            if let Some(event) = make_mouse_event(button, false) {
+                let _ = send_inputs_batch(&[event]);
+                thread::sleep(Duration::from_millis(10));
+                if let Some(event_up) = make_mouse_event(button, true) {
+                    let _ = send_inputs_batch(&[event_up]);
+                }
+                return;
+            }
+        }
         let rdev_btn = mouse_button_to_rdev(button);
         let _ = crate::injector::simulate_monitored(&rdev::EventType::ButtonPress(rdev_btn));
         thread::sleep(Duration::from_millis(10));
@@ -45,6 +56,13 @@ impl Injector for RdevInjector {
     }
 
     fn simulate_mouse_hold(&self, button: MouseButton, hold: bool) {
+        #[cfg(windows)]
+        {
+            if let Some(event) = make_mouse_event(button, !hold) {
+                let _ = send_inputs_batch(&[event]);
+                return;
+            }
+        }
         let rdev_btn = mouse_button_to_rdev(button);
         let event = if hold {
             rdev::EventType::ButtonPress(rdev_btn)
@@ -375,6 +393,79 @@ fn make_unicode_input(
             },
         },
     }
+}
+
+#[cfg(windows)]
+fn make_mouse_event(
+    button: MouseButton,
+    button_up: bool,
+) -> Option<windows_sys::Win32::UI::Input::KeyboardAndMouse::INPUT> {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
+        MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
+        MOUSEEVENTF_XDOWN, MOUSEEVENTF_XUP, MOUSEINPUT,
+    };
+
+    const XBUTTON1: u32 = 0x0001;
+    const XBUTTON2: u32 = 0x0002;
+
+    let (dw_flags, mouse_data) = match button {
+        MouseButton::Left => (
+            if button_up {
+                MOUSEEVENTF_LEFTUP
+            } else {
+                MOUSEEVENTF_LEFTDOWN
+            },
+            0,
+        ),
+        MouseButton::Right => (
+            if button_up {
+                MOUSEEVENTF_RIGHTUP
+            } else {
+                MOUSEEVENTF_RIGHTDOWN
+            },
+            0,
+        ),
+        MouseButton::Middle => (
+            if button_up {
+                MOUSEEVENTF_MIDDLEUP
+            } else {
+                MOUSEEVENTF_MIDDLEDOWN
+            },
+            0,
+        ),
+        MouseButton::Button4 => (
+            if button_up {
+                MOUSEEVENTF_XUP
+            } else {
+                MOUSEEVENTF_XDOWN
+            },
+            XBUTTON1,
+        ),
+        MouseButton::Button5 => (
+            if button_up {
+                MOUSEEVENTF_XUP
+            } else {
+                MOUSEEVENTF_XDOWN
+            },
+            XBUTTON2,
+        ),
+        MouseButton::Other(_) => return None,
+    };
+
+    Some(INPUT {
+        r#type: INPUT_MOUSE,
+        Anonymous: INPUT_0 {
+            mi: MOUSEINPUT {
+                dx: 0,
+                dy: 0,
+                mouseData: mouse_data,
+                dwFlags: dw_flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    })
 }
 
 #[cfg(windows)]

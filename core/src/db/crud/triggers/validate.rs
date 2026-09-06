@@ -213,26 +213,48 @@ pub(crate) fn format_validation_error(
     error: &ValidationError,
 ) -> String {
     match error {
-        ValidationError::MissingModifier { .. } => format!(
-            "[{}]: `{}` needs a modifier. {}",
-            raw_tag,
-            root,
-            valid_modifier_hint(root)
-        ),
-        ValidationError::UnexpectedModifier { .. } => format!(
-            "[{}]: `{}` has no modifier `{}`. {}",
-            raw_tag,
-            root,
-            modifier.unwrap_or_default(),
-            valid_modifier_hint(root)
-        ),
-        ValidationError::InvalidModifier { modifier, .. } => format!(
-            "[{}]: modifier `{}` invalid for `{}`. {}",
-            raw_tag,
-            modifier,
-            root,
-            valid_modifier_hint(root)
-        ),
+        ValidationError::MissingModifier { .. } => {
+            let hint = valid_modifier_hint(root);
+            if hint.contains('\n') {
+                format!("[{}]: `{}` needs a modifier.\n\n{}", raw_tag, root, hint)
+            } else {
+                format!("[{}]: `{}` needs a modifier. {}", raw_tag, root, hint)
+            }
+        }
+        ValidationError::UnexpectedModifier { .. } => {
+            let hint = valid_modifier_hint(root);
+            if hint.contains('\n') {
+                format!(
+                    "[{}]: `{}` has no modifier `{}`.\n\n{}",
+                    raw_tag,
+                    root,
+                    modifier.unwrap_or_default(),
+                    hint
+                )
+            } else {
+                format!(
+                    "[{}]: `{}` has no modifier `{}`. {}",
+                    raw_tag,
+                    root,
+                    modifier.unwrap_or_default(),
+                    hint
+                )
+            }
+        }
+        ValidationError::InvalidModifier { modifier, .. } => {
+            let hint = valid_modifier_hint(root);
+            if hint.contains('\n') {
+                format!(
+                    "[{}]: modifier `{}` invalid for `{}`.\n\n{}",
+                    raw_tag, modifier, root, hint
+                )
+            } else {
+                format!(
+                    "[{}]: modifier `{}` invalid for `{}`. {}",
+                    raw_tag, modifier, root, hint
+                )
+            }
+        }
         ValidationError::UnknownRoot(root) => {
             format!("[{}]: unknown root `{}`", raw_tag, root)
         }
