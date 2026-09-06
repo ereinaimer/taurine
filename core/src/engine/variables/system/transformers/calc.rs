@@ -23,8 +23,8 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
 
     let expr = if arg.starts_with(['+', '-', '*', '/', '%', '^']) {
         format!("{content_trimmed} {arg}")
-    } else if has_variable_x(arg) {
-        replace_variable_x(arg, content_trimmed)
+    } else if has_calc_variable(arg) {
+        replace_calc_variable(arg, content_trimmed)
     } else {
         arg.to_string()
     };
@@ -32,22 +32,25 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
     math::evaluate(&expr)
 }
 
-fn has_variable_x(arg: &str) -> bool {
+fn is_calc_placeholder(ch: char) -> bool {
+    ch == 'x' || ch == 'X' || ch == '$' || ch == '_'
+}
+
+fn has_calc_variable(arg: &str) -> bool {
     let chars: Vec<char> = arg.chars().collect();
     let len = chars.len();
     for idx in 0..len {
         let ch = chars[idx];
-        let prev_is_ident = idx > 0 && (chars[idx - 1].is_alphanumeric() || chars[idx - 1] == '_');
-        let next_is_ident =
-            idx + 1 < len && (chars[idx + 1].is_alphanumeric() || chars[idx + 1] == '_');
-        if (ch == 'x' || ch == 'X') && !prev_is_ident && !next_is_ident {
+        let prev_is_ident = idx > 0 && chars[idx - 1].is_alphanumeric();
+        let next_is_ident = idx + 1 < len && chars[idx + 1].is_alphanumeric();
+        if is_calc_placeholder(ch) && !prev_is_ident && !next_is_ident {
             return true;
         }
     }
     false
 }
 
-fn replace_variable_x(arg: &str, replacement: &str) -> String {
+fn replace_calc_variable(arg: &str, replacement: &str) -> String {
     let mut result = String::with_capacity(arg.len() + replacement.len());
     let chars: Vec<char> = arg.chars().collect();
     let len = chars.len();
@@ -55,10 +58,9 @@ fn replace_variable_x(arg: &str, replacement: &str) -> String {
 
     while idx < len {
         let ch = chars[idx];
-        let prev_is_ident = idx > 0 && (chars[idx - 1].is_alphanumeric() || chars[idx - 1] == '_');
-        let next_is_ident =
-            idx + 1 < len && (chars[idx + 1].is_alphanumeric() || chars[idx + 1] == '_');
-        if (ch == 'x' || ch == 'X') && !prev_is_ident && !next_is_ident {
+        let prev_is_ident = idx > 0 && chars[idx - 1].is_alphanumeric();
+        let next_is_ident = idx + 1 < len && chars[idx + 1].is_alphanumeric();
+        if is_calc_placeholder(ch) && !prev_is_ident && !next_is_ident {
             result.push_str(replacement);
             idx += 1;
             continue;
@@ -106,11 +108,25 @@ mod tests {
             Some("25".to_string())
         );
         assert_eq!(
+            apply("calc", &["\"$ * 2 + 5\""], "10"),
+            Some("25".to_string())
+        );
+        assert_eq!(
+            apply("calc", &["\"_ * 2 + 5\""], "10"),
+            Some("25".to_string())
+        );
+        assert_eq!(
             apply("calc", &["\"X + 100\""], "50"),
             Some("150".to_string())
         );
+        assert_eq!(apply("calc", &["\"$ + _\""], "12"), Some("24".to_string()));
         assert_eq!(apply("calc", &["\"x + x\""], "12"), Some("24".to_string()));
+        assert_eq!(apply("calc", &["\"sqrt($)\""], "16"), Some("4".to_string()));
         assert_eq!(apply("calc", &["\"sqrt(x)\""], "16"), Some("4".to_string()));
+        assert_eq!(
+            apply("calc", &["\"abs(_)\""], "-42"),
+            Some("42".to_string())
+        );
         assert_eq!(
             apply("calc", &["\"abs(x)\""], "-42"),
             Some("42".to_string())
@@ -120,11 +136,11 @@ mod tests {
             Some("3".to_string())
         );
         assert_eq!(
-            apply("calc", &["\"ceil(x)\""], "3.1"),
+            apply("calc", &["\"ceil($)\""], "3.1"),
             Some("4".to_string())
         );
         assert_eq!(
-            apply("calc", &["\"round(x)\""], "3.5"),
+            apply("calc", &["\"round(_)\""], "3.5"),
             Some("4".to_string())
         );
     }

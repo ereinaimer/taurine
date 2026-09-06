@@ -23,11 +23,12 @@ When the argument starts with an arithmetic operator (`+`, `-`, `*`, `/`, `%`, `
 | `[price=50 \| calc("- 10")]` | `50` | `40` | Flat Discount |
 | `[total=100 \| calc("/ 2")]` | `100` | `50` | Split Bill / Halving |
 
-#### 2. Variable Reference (`x`)
-You can use `x` inside the argument expression to represent the incoming base value.
+#### 2. Variable References (`$`, `_`, `x`)
+You can use `$`, `_`, or `x` inside the argument expression to represent the incoming base value.
 
 ```text
-[val=10 | calc("x * 2 + 5")]  -> 25
+[val=10 | calc("$ * 2 + 5")]  -> 25
+[val=10 | calc("_ * 2 + 5")]  -> 25
 [area=16 | calc("sqrt(x)")]    -> 4
 ```
 

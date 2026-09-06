@@ -20,11 +20,14 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
 
 fn url_clean(content: &str) -> String {
     let content = content.trim();
+    let mut end = content.len();
     if let Some(idx) = content.find('?') {
-        content[..idx].to_string()
-    } else {
-        content.to_string()
+        end = end.min(idx);
     }
+    if let Some(idx) = content.find('#') {
+        end = end.min(idx);
+    }
+    content[..end].to_string()
 }
 
 fn urlencode_string(content: &str) -> String {
@@ -98,9 +101,13 @@ mod tests {
             apply(
                 "url.clean",
                 &[],
-                "https://google.com/search?q=rust&utm_source=facebook"
+                "https://google.com/search?q=rust&utm_source=facebook#results"
             ),
             Some("https://google.com/search".to_string())
+        );
+        assert_eq!(
+            apply("url.clean", &[], "https://google.com/docs#section-2"),
+            Some("https://google.com/docs".to_string())
         );
         assert_eq!(
             apply("url.clean", &[], "https://google.com/search"),

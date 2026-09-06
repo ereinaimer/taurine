@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **URL Sanitation & Calculation Placeholders**: Strip both query parameters and hash anchors in [| url.clean], and support $, _, and x as incoming value placeholders in [| calc(...)].
 - **Extractor & Filter Transformer Symmetry**: Standardize [| json("path")] and [| regex("pattern", [group])] transformers, and rename digit and alphanumeric filters to [| digits] and [| alnum].
 - **File Slicing Operations**: Replace ambiguous read_line with dedicated [file.line(path, n)] for single line extraction and [file.lines(path, start, [end])] for multi-line ranges.
 - **Network IP Synonyms**: Add [net.localip] and [net.publicip] synonyms for local and public IP lookups.
