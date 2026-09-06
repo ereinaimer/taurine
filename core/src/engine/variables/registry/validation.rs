@@ -1,7 +1,7 @@
 use super::super::system;
 use super::{
-    DATE_METHODS, EXEC_MODIFIERS, FILE_MODIFIERS, KEY_MODIFIERS, LOREM_MODIFIERS, NET_MODIFIERS,
-    RANDOM_MODIFIERS, TIME_METHODS, UUID_MODIFIERS,
+    DATE_METHODS, DATETIME_METHODS, EXEC_MODIFIERS, FILE_MODIFIERS, KEY_MODIFIERS, LOREM_MODIFIERS,
+    NET_MODIFIERS, RANDOM_MODIFIERS, TIME_METHODS, UUID_MODIFIERS,
 };
 use crate::engine::variables::system::exec::parse_invocation;
 
@@ -26,10 +26,12 @@ pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), Val
     match root {
         "newline" => validate_no_modifier("newline", modifier),
         "cursor" => validate_no_modifier("cursor", modifier),
-        "clip" => validate_clip_modifier(modifier),
+        "clip" => validate_clip_modifier("clip", modifier),
+        "clipboard" => validate_clip_modifier("clipboard", modifier),
         "time" => validate_time_modifier(modifier),
         "date" => validate_date_modifier(modifier),
-        "uuid" => validate_known_modifier("uuid", modifier, UUID_MODIFIERS),
+        "datetime" => validate_datetime_modifier(modifier),
+        "uuid" => validate_uuid_modifier(modifier),
         "env" => validate_env_modifier(modifier),
         "net" => validate_net_modifier(modifier),
         "exec" => validate_exec_modifier(modifier),
@@ -66,34 +68,30 @@ fn validate_no_modifier(root: &'static str, modifier: Option<&str>) -> Result<()
 
 const CLIP_INDEX_MODIFIERS: &[&str] = &["(0)", "(1)", "(2)"];
 
-fn validate_clip_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
+fn validate_clip_modifier(
+    root: &'static str,
+    modifier: Option<&str>,
+) -> Result<(), ValidationError> {
     match modifier.and_then(normalize_modifier) {
         None => Ok(()),
         Some(m) if CLIP_INDEX_MODIFIERS.contains(&m) => Ok(()),
         Some(m) => Err(ValidationError::InvalidModifier {
-            root: "clip",
+            root,
             modifier: m.to_string(),
             allowed: CLIP_INDEX_MODIFIERS,
         }),
     }
 }
 
-fn validate_known_modifier(
-    root: &'static str,
-    modifier: Option<&str>,
-    allowed: &'static [&'static str],
-) -> Result<(), ValidationError> {
-    let modifier = normalize_modifier(modifier.ok_or(ValidationError::MissingModifier { root })?)
-        .ok_or(ValidationError::MissingModifier { root })?;
-
-    if allowed.contains(&modifier) {
-        Ok(())
-    } else {
-        Err(ValidationError::InvalidModifier {
-            root,
-            modifier: modifier.to_string(),
-            allowed,
-        })
+fn validate_uuid_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
+    match modifier.and_then(normalize_modifier) {
+        None => Ok(()),
+        Some(m) if UUID_MODIFIERS.contains(&m) => Ok(()),
+        Some(m) => Err(ValidationError::InvalidModifier {
+            root: "uuid",
+            modifier: m.to_string(),
+            allowed: UUID_MODIFIERS,
+        }),
     }
 }
 
@@ -101,7 +99,7 @@ fn validate_time_modifier(modifier: Option<&str>) -> Result<(), ValidationError>
     match modifier.and_then(normalize_modifier) {
         None => Ok(()),
         Some(m) => {
-            if system::time::parse_methods(m).is_ok() {
+            if system::datetime::parse_methods(m).is_ok() {
                 Ok(())
             } else {
                 Err(ValidationError::InvalidModifier {
@@ -118,13 +116,30 @@ fn validate_date_modifier(modifier: Option<&str>) -> Result<(), ValidationError>
     match modifier.and_then(normalize_modifier) {
         None => Ok(()),
         Some(m) => {
-            if system::date::parse_methods(m).is_ok() {
+            if system::datetime::parse_methods(m).is_ok() {
                 Ok(())
             } else {
                 Err(ValidationError::InvalidModifier {
                     root: "date",
                     modifier: m.to_string(),
                     allowed: DATE_METHODS,
+                })
+            }
+        }
+    }
+}
+
+fn validate_datetime_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
+    match modifier.and_then(normalize_modifier) {
+        None => Ok(()),
+        Some(m) => {
+            if system::datetime::parse_methods(m).is_ok() {
+                Ok(())
+            } else {
+                Err(ValidationError::InvalidModifier {
+                    root: "datetime",
+                    modifier: m.to_string(),
+                    allowed: DATETIME_METHODS,
                 })
             }
         }
@@ -255,7 +270,7 @@ fn validate_random_modifier(modifier: Option<&str>) -> Result<(), ValidationErro
 
 fn validate_lorem_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
     match modifier.and_then(normalize_modifier) {
-        None => Err(ValidationError::MissingModifier { root: "lorem" }),
+        None => Ok(()),
         Some(modifier) => {
             let Some((variant, args)) = parse_lorem_modifier(modifier) else {
                 return Err(ValidationError::InvalidModifier {
@@ -265,8 +280,13 @@ fn validate_lorem_modifier(modifier: Option<&str>) -> Result<(), ValidationError
                 });
             };
 
-            let args = split_modifier_args(args);
-            let valid = matches!(variant, "word" | "sentence" | "paragraph") && args.len() <= 1;
+            let valid = match args {
+                None => matches!(variant, "word" | "sentence" | "paragraph"),
+                Some(args_str) => {
+                    let args = split_modifier_args(args_str);
+                    matches!(variant, "word" | "sentence" | "paragraph") && args.len() <= 1
+                }
+            };
 
             if valid {
                 Ok(())
@@ -428,15 +448,19 @@ fn parse_file_modifier(input: &str) -> Option<(&str, Option<&str>)> {
     }
 }
 
-fn parse_lorem_modifier(input: &str) -> Option<(&str, &str)> {
-    let paren_idx = input.find('(')?;
-    let variant = input[..paren_idx].trim();
-    let (args, trailing) = scan_exec_parenthesized(&input[paren_idx..])?;
-
-    if variant.is_empty() || !trailing.trim().is_empty() {
+fn parse_lorem_modifier(input: &str) -> Option<(&str, Option<&str>)> {
+    if let Some(paren_idx) = input.find('(') {
+        let variant = input[..paren_idx].trim();
+        let (args, trailing) = scan_exec_parenthesized(&input[paren_idx..])?;
+        if !variant.is_empty() && trailing.trim().is_empty() {
+            Some((variant, Some(args)))
+        } else {
+            None
+        }
+    } else if input.contains(')') {
         None
     } else {
-        Some((variant, args))
+        Some((input.trim(), None)).filter(|(variant, _)| !variant.is_empty())
     }
 }
 

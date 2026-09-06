@@ -164,7 +164,10 @@ pub(crate) fn parse_invocation(key: &str) -> Result<LoremInvocation, LoremParseE
         .ok_or(LoremParseError::InvalidRoot)?;
 
     if rest.is_empty() {
-        return Err(LoremParseError::InvalidVariant);
+        return Ok(LoremInvocation {
+            variant: LoremVariant::Paragraph,
+            count: DEFAULT_PARAGRAPH_COUNT,
+        });
     }
 
     let modifier = rest
@@ -172,31 +175,46 @@ pub(crate) fn parse_invocation(key: &str) -> Result<LoremInvocation, LoremParseE
         .ok_or(LoremParseError::InvalidRoot)?
         .trim();
 
-    let paren_idx = modifier
-        .find('(')
-        .ok_or(LoremParseError::MissingParentheses)?;
-    let variant = modifier[..paren_idx].trim();
-    let (args, trailing) = scan_parenthesized(&modifier[paren_idx..])?;
-    if !trailing.trim().is_empty() {
-        return Err(LoremParseError::InvalidTrailingSyntax);
-    }
+    if let Some(paren_idx) = modifier.find('(') {
+        let variant = modifier[..paren_idx].trim();
+        let (args, trailing) = scan_parenthesized(&modifier[paren_idx..])?;
+        if !trailing.trim().is_empty() {
+            return Err(LoremParseError::InvalidTrailingSyntax);
+        }
 
-    let count = parse_count_arg(args)?;
+        let count = parse_count_arg(args)?;
 
-    match variant {
-        "word" => Ok(LoremInvocation {
-            variant: LoremVariant::Word,
-            count: count.unwrap_or(DEFAULT_WORD_COUNT),
-        }),
-        "sentence" => Ok(LoremInvocation {
-            variant: LoremVariant::Sentence,
-            count: count.unwrap_or(DEFAULT_SENTENCE_COUNT),
-        }),
-        "paragraph" => Ok(LoremInvocation {
-            variant: LoremVariant::Paragraph,
-            count: count.unwrap_or(DEFAULT_PARAGRAPH_COUNT),
-        }),
-        _ => Err(LoremParseError::InvalidVariant),
+        match variant {
+            "word" => Ok(LoremInvocation {
+                variant: LoremVariant::Word,
+                count: count.unwrap_or(DEFAULT_WORD_COUNT),
+            }),
+            "sentence" => Ok(LoremInvocation {
+                variant: LoremVariant::Sentence,
+                count: count.unwrap_or(DEFAULT_SENTENCE_COUNT),
+            }),
+            "paragraph" => Ok(LoremInvocation {
+                variant: LoremVariant::Paragraph,
+                count: count.unwrap_or(DEFAULT_PARAGRAPH_COUNT),
+            }),
+            _ => Err(LoremParseError::InvalidVariant),
+        }
+    } else {
+        match modifier {
+            "word" => Ok(LoremInvocation {
+                variant: LoremVariant::Word,
+                count: DEFAULT_WORD_COUNT,
+            }),
+            "sentence" => Ok(LoremInvocation {
+                variant: LoremVariant::Sentence,
+                count: DEFAULT_SENTENCE_COUNT,
+            }),
+            "paragraph" => Ok(LoremInvocation {
+                variant: LoremVariant::Paragraph,
+                count: DEFAULT_PARAGRAPH_COUNT,
+            }),
+            _ => Err(LoremParseError::InvalidVariant),
+        }
     }
 }
 
@@ -271,12 +289,17 @@ mod tests {
     }
 
     #[test]
-    fn rejects_bare_lorem_tag() {
-        assert_eq!(resolve("lorem"), None);
+    fn resolves_bare_lorem_tag() {
+        let res = resolve("lorem").unwrap();
+        assert!(!res.is_empty());
     }
 
     #[test]
     fn resolves_words_with_exact_counts() {
+        assert_eq!(
+            resolve("lorem.word").unwrap().split_whitespace().count(),
+            DEFAULT_WORD_COUNT
+        );
         assert_eq!(
             resolve("lorem.word(1)").unwrap().split_whitespace().count(),
             1
@@ -303,7 +326,7 @@ mod tests {
 
     #[test]
     fn rejects_invalid_input_for_fallback() {
-        assert_eq!(resolve("lorem.word"), None);
+        assert_eq!(resolve("lorem.unknown"), None);
         assert_eq!(resolve("lorem.word(nope)"), None);
         assert_eq!(resolve("lorem.sentence(1, 2)"), None);
         assert_eq!(resolve("lorem.paragraph(1).upper"), None);

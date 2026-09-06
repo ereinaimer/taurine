@@ -1,12 +1,30 @@
 use super::system;
 
 const SYSTEM_ROOTS: &[&str] = &[
-    "cursor", "clip", "time", "date", "uuid", "env", "net", "exec", "random", "key", "delay",
-    "lorem", "file", "use", "http", "mouse", "img",
+    "cursor",
+    "clip",
+    "clipboard",
+    "time",
+    "date",
+    "datetime",
+    "uuid",
+    "env",
+    "net",
+    "exec",
+    "random",
+    "key",
+    "delay",
+    "lorem",
+    "file",
+    "use",
+    "http",
+    "mouse",
+    "img",
 ];
 
 const TIME_METHODS: &[&str] = &["utc", "calc(±...)", "format(...)"];
 const DATE_METHODS: &[&str] = &["utc", "calc(±...)", "format(...)"];
+const DATETIME_METHODS: &[&str] = &["utc", "calc(±...)", "format(...)"];
 
 const UUID_MODIFIERS: &[&str] = &["v4", "v7"];
 const NET_MODIFIERS: &[&str] = &["ip", "lip", "online"];
@@ -79,7 +97,19 @@ pub fn split_system_tag(key: &str) -> Option<(&str, Option<&str>)> {
         return Some(("newline", None));
     }
     if system::clip::is_clip_key(base) {
-        return Some(("clip", None));
+        let (root, idx_str) = if let Some(rest) = base.strip_prefix("clipboard") {
+            ("clipboard", rest)
+        } else if let Some(rest) = base.strip_prefix("clip") {
+            ("clip", rest)
+        } else {
+            return None;
+        };
+        let modifier = if idx_str.is_empty() {
+            None
+        } else {
+            Some(idx_str)
+        };
+        return Some((root, modifier));
     }
 
     if let Some(rest) = base.strip_prefix("key(")
@@ -121,14 +151,17 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "cursor" => "Valid form: [cursor]".to_string(),
         "clip" => "Valid forms: [clip], [clip(0)], [clip(1)], [clip(2)]"
             .to_string(),
+        "clipboard" => "Valid forms: [clipboard], [clipboard(0)], [clipboard(1)], [clipboard(2)]"
+            .to_string(),
         "time" => format!("Valid modifiers / methods: {}", TIME_METHODS.join(", ")),
         "date" => format!("Valid modifiers / methods: {}", DATE_METHODS.join(", ")),
-        "uuid" => format!("Valid modifiers: uuid, {}", UUID_MODIFIERS.join(", ")),
+        "datetime" => format!("Valid modifiers / methods: {}", DATETIME_METHODS.join(", ")),
+        "uuid" => "Valid forms: [uuid], [uuid.v4], [uuid.v7]".to_string(),
         "env" => "Valid form: [env(<var_name>)] or [env(\"<var_name>\")]".to_string(),
         "net" => format!("Valid modifiers: {}", NET_MODIFIERS.join(", ")),
         "exec" => "Valid forms: [exec.bash(...)], [exec.powershell(...)], [exec.python(...)], [exec.node(...)], [exec.cmd(...)]".to_string(),
         "random" => format!("Valid modifiers: {}", RANDOM_MODIFIERS.join(", ")),
-        "lorem" => format!("A modifier is required. Valid modifiers: {}", LOREM_MODIFIERS.join(", ")),
+        "lorem" => "Valid forms: [lorem], [lorem.word([n])], [lorem.sentence([n])], [lorem.paragraph([n])]".to_string(),
         "file" => format!("Valid modifiers: {}", FILE_MODIFIERS.join(", ")),
         "key" => format!(
             "Valid forms: [key(<token>)]. Tokens: {}. You can combine them with `+`, and any single character token is also allowed.",
@@ -137,22 +170,7 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "delay" => "Valid form: [delay(<ms>)] or [delay(<u64>ms)]".to_string(),
         "use" => "Valid form: [use(\"trigger_name\")]".to_string(),
         "http" => "Valid forms: [http.get(<url>)], [http.status(<url>)]".to_string(),
-        "mouse" => concat!(
-            "Valid directives:\n",
-            "  [mouse.click([btn])]    Click button (default: left)\n",
-            "  [mouse.dblclick([btn])] Double-click button (default: left)\n",
-            "  [mouse.down([btn])]     Press and hold button (synonym: [mouse.hold])\n",
-            "  [mouse.up([btn])]       Release button (synonym: [mouse.release])\n",
-            "  [mouse.rclick]          Right-click shortcut\n",
-            "  [mouse.mclick]          Middle-click shortcut\n",
-            "  [mouse.m4]              Back button shortcut (mouse4)\n",
-            "  [mouse.m5]              Forward button shortcut (mouse5)\n",
-            "  [mouse.move(x, y)]      Move cursor to absolute coordinates (x, y)\n",
-            "  [mouse.scroll(delta)]   Scroll wheel vertically (positive: up, negative: down)\n",
-            "  [mouse.pos]             Insert current cursor position as x, y\n\n",
-            "Supported buttons:\n",
-            "  left, right, middle, m4 (back), m5 (forward), m<N>"
-        ).to_string(),
+        "mouse" => "Valid forms: [mouse.click([btn])], [mouse.dblclick([btn])], [mouse.down([btn])], [mouse.up([btn])], [mouse.rclick], [mouse.mclick], [mouse.m4], [mouse.m5], [mouse.move(x,y)], [mouse.scroll(delta)], [mouse.pos]. Buttons: left, right, middle, m4, m5, m<N>".to_string(),
         "newline" => "Valid form: [newline]".to_string(),
         _ => "No modifier help available.".to_string(),
     }

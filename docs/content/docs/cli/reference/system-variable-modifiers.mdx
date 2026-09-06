@@ -13,11 +13,13 @@ The following roots are reserved by the Taurine engine and cannot be used as cus
 
 | Root | Description |
 | :--- | :--- |
+| `datetime` | Current system datetime in ISO 8601 or custom formats. |
 | `time` | Current system time in various formats. |
 | `date` | Current system date in various formats. |
-| `clip` | Content of the system clipboard. |
+| `clip` / `clipboard` | Content of the system clipboard. |
 | `cursor` | Directs the final cursor position (placeholder). |
-| `uuid` | Unique identifier generation. |
+| `uuid` | Unique identifier generation (defaults to v4). |
+| `lorem` | Dummy text generation (words, sentences, paragraphs). |
 | `env` | System environment variables. |
 | `file` | Read local file contents. |
 | `key` | Keyboard triggers (simulating key presses). |
@@ -26,21 +28,30 @@ The following roots are reserved by the Taurine engine and cannot be used as cus
 
 ---
 
-## Time & Date
+## Time, Date & Datetime
 
-Method-based API for inserting and calculating timestamps and dates.
+Method-based API for inserting, calculating, and formatting timestamps, dates, and combined date-times. Universal calculation units (`y`, `m`, `w`, `d`, `h`, `min`, `s`) and LDML formatting tokens are supported across all three roots.
 
 <Accordions>
-<Accordion title="time">
-  - `utc`: Switches the time context to UTC.
-  - `calc(±...<units>)`: Performs time calculations using `h` (hours), `m` (minutes), or `s`/`S` (seconds).
+<Accordion title="datetime">
+  - `[datetime]`: Bare root default formatted as ISO 8601 (`YYYY-MM-DDTHH:mm:ss`).
+  - `utc`: Switches the context to UTC.
+  - `calc(±...<units>)`: Performs temporal calculations using `y` (years), `m` (months), `w` (weeks), `d` (days), `h` (hours), `min`/`i` (minutes), or `s` (seconds). Compound strings like `+1d12h` are supported.
   - `format(<pattern>)`: Formats the output using standard LDML tokens.
 </Accordion>
 
+<Accordion title="time">
+  - `[time]`: Bare root default formatted as `HH:mm`.
+  - `utc`: Switches the time context to UTC.
+  - `calc(±...<units>)`: Performs temporal calculations using universal units (`y`, `m`, `w`, `d`, `h`, `min`, `s`).
+  - `format(<pattern>)`: Formats the output using standard LDML tokens (date and time tokens are fully supported).
+</Accordion>
+
 <Accordion title="date">
+  - `[date]`: Bare root default formatted as `YYYY-MM-DD`.
   - `utc`: Switches the date context to UTC.
-  - `calc(±...<units>)`: Performs date calculations using `d` (days), `w` (weeks), `m`/`M` (months), or `y`/`Y` (years).
-  - `format(<pattern>)`: Formats the output using standard LDML tokens.
+  - `calc(±...<units>)`: Performs temporal calculations using universal units (`y`, `m`, `w`, `d`, `h`, `min`, `s`).
+  - `format(<pattern>)`: Formats the output using standard LDML tokens (date and time tokens are fully supported).
 </Accordion>
 </Accordions>
 
@@ -51,9 +62,10 @@ Method-based API for inserting and calculating timestamps and dates.
 Interact with your local system state and shell environment.
 
 <Accordions>
-<Accordion title="clip">
-  - `[clip]`: The most recent clipboard item (same as `[clip(0)]`).
-  - `[clip(0)]` / `[clip(1)]` / `[clip(2)]`: Indexed clipboard history (up to 3 entries).
+<Accordion title="clip / clipboard">
+  - `[clip]` / `[clipboard]`: The most recent clipboard item (same as index 0).
+  - `[clip(0)]` / `[clipboard(0)]`: Most recent clipboard entry.
+  - `[clip(1)]` / `[clipboard(1)]`, `[clip(2)]` / `[clipboard(2)]`: Historical clipboard entries (up to 3 items).
 </Accordion>
 
 <Accordion title="env">
@@ -74,12 +86,23 @@ Interact with your local system state and shell environment.
 
 ## Triggers & Identity
 
-Modifiers for generating IDs or simulating hardware interaction.
+Modifiers for generating IDs, filler text, or simulating hardware interaction.
 
 <Accordions>
 <Accordion title="uuid">
+  - `[uuid]`: Generates a UUID v4 by default.
   - `[uuid.v4]`: Explicit version 4 UUID.
   - `[uuid.v7]`: Time-sorted version 7 UUID.
+</Accordion>
+
+<Accordion title="lorem">
+  - `[lorem]`: Generates 1 paragraph of lorem ipsum placeholder text.
+  - `[lorem.word]`: Generates default 15 words.
+  - `[lorem.word(n)]`: Generates `n` words.
+  - `[lorem.sentence]`: Generates default 5 sentences.
+  - `[lorem.sentence(n)]`: Generates `n` sentences.
+  - `[lorem.paragraph]`: Generates default 1 paragraph.
+  - `[lorem.paragraph(n)]`: Generates `n` paragraphs separated by double newlines.
 </Accordion>
 
 <Accordion title="key">

@@ -5,6 +5,7 @@
 
 pub mod clip;
 pub mod date;
+pub mod datetime;
 pub mod env;
 pub mod exec;
 pub mod file;
@@ -36,6 +37,8 @@ pub fn is_reserved(key: &str) -> bool {
         || key.starts_with("time.")
         || key == "date"
         || key.starts_with("date.")
+        || key == "datetime"
+        || key.starts_with("datetime.")
         || key.starts_with("use(")
         || key.starts_with("env(")
         || key.starts_with("file.")
@@ -83,6 +86,9 @@ pub fn resolve(key: &str) -> Option<String> {
     }
     if key == "date" || key.starts_with("date.") {
         return date::resolve(key);
+    }
+    if key == "datetime" || key.starts_with("datetime.") {
+        return datetime::resolve(key);
     }
     if key.starts_with("env(") {
         return env::resolve(key);

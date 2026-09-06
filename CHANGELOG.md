@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Unified Datetime System Variable**: Insert and calculate timestamps via new [datetime] root with universal calculation units and complete token formatting support across date and time.
+- **Bare Root Defaults**: Expand bare [uuid] to v4, bare [lorem] to one paragraph, and bare [lorem.word]/[lorem.sentence]/[lorem.paragraph] with zero arguments.
+- **Clipboard Variable Synonym**: Support [clipboard] and [clipboard(index)] as first-class synonyms for [clip].
 - **Multi-Button Mouse Automation**: Support parameterized mouse button clicks (including M4, M5, and custom buttons), double-clicking, and parameterized press/release drag actions.
 - **Inline AI Clipboard Context**: Pass copied clipboard text into inline AI prompts via natural paste shortcut (Ctrl+V / Cmd+V) or by typing [clip].
 

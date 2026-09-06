@@ -117,13 +117,17 @@ enum ClipKey {
 }
 
 fn parse_clip_key(key: &str) -> Option<ClipKey> {
-    if matches!(key, "clip" | "clip(0)") {
+    if matches!(key, "clip" | "clip(0)" | "clipboard" | "clipboard(0)") {
         return Some(ClipKey::Valid(0));
     }
 
-    let inner = key
-        .strip_prefix("clip(")
-        .and_then(|rest| rest.strip_suffix(')'))?;
+    let inner = if let Some(rest) = key.strip_prefix("clip(") {
+        rest.strip_suffix(')')?
+    } else if let Some(rest) = key.strip_prefix("clipboard(") {
+        rest.strip_suffix(')')?
+    } else {
+        return None;
+    };
 
     let inner = crate::engine::variables::system::strip_argument_quotes(inner);
 
@@ -192,6 +196,8 @@ mod tests {
     fn test_resolve_clip_mocked() {
         set_mock_clip(Some("mocked content".to_string()));
         assert_eq!(resolve("clip"), Some("mocked content".to_string()));
+        assert_eq!(resolve("clipboard"), Some("mocked content".to_string()));
+        assert_eq!(resolve("clipboard(0)"), Some("mocked content".to_string()));
         set_mock_clip(None);
     }
 

@@ -17,8 +17,21 @@ fn splits_known_system_roots_only() {
         Some(("net", Some("hostname")))
     );
     assert_eq!(split_system_tag("clip"), Some(("clip", None)));
-    assert_eq!(split_system_tag("clip(1)"), Some(("clip", None)));
-    assert_eq!(split_system_tag("clip(2) | upper"), Some(("clip", None)));
+    assert_eq!(split_system_tag("clip(1)"), Some(("clip", Some("(1)"))));
+    assert_eq!(
+        split_system_tag("clip(2) | upper"),
+        Some(("clip", Some("(2)")))
+    );
+    assert_eq!(split_system_tag("clipboard"), Some(("clipboard", None)));
+    assert_eq!(
+        split_system_tag("clipboard(1)"),
+        Some(("clipboard", Some("(1)")))
+    );
+    assert_eq!(split_system_tag("datetime"), Some(("datetime", None)));
+    assert_eq!(
+        split_system_tag("datetime.utc"),
+        Some(("datetime", Some("utc")))
+    );
     assert_eq!(split_system_tag("newline"), Some(("newline", None)));
     assert_eq!(split_system_tag("query | upper"), None);
 }
@@ -63,10 +76,7 @@ fn validates_date_modifiers_from_resolver_match_arms() {
 
 #[test]
 fn validates_uuid_modifiers() {
-    assert_eq!(
-        validate_system_tag("uuid", None),
-        Err(ValidationError::MissingModifier { root: "uuid" })
-    );
+    assert_eq!(validate_system_tag("uuid", None), Ok(()));
     for modifier in UUID_MODIFIERS {
         assert_eq!(validate_system_tag("uuid", Some(modifier)), Ok(()));
     }
@@ -126,6 +136,37 @@ fn validates_clip_syntax() {
             root: "clip",
             modifier: "unknown".to_string(),
             allowed: &["(0)", "(1)", "(2)"],
+        })
+    );
+
+    assert_eq!(validate_system_tag("clipboard", None), Ok(()));
+    assert_eq!(validate_system_tag("clipboard", Some("(0)")), Ok(()));
+    assert_eq!(validate_system_tag("clipboard", Some("(1)")), Ok(()));
+    assert_eq!(validate_system_tag("clipboard", Some("(2)")), Ok(()));
+    assert_eq!(
+        validate_system_tag("clipboard", Some("unknown")),
+        Err(ValidationError::InvalidModifier {
+            root: "clipboard",
+            modifier: "unknown".to_string(),
+            allowed: &["(0)", "(1)", "(2)"],
+        })
+    );
+}
+
+#[test]
+fn validates_datetime_modifiers() {
+    assert_eq!(validate_system_tag("datetime", None), Ok(()));
+    assert_eq!(validate_system_tag("datetime", Some("utc")), Ok(()));
+    assert_eq!(
+        validate_system_tag("datetime", Some("utc.calc(+1d).format(YYYY-MM-DD)")),
+        Ok(())
+    );
+    assert_eq!(
+        validate_system_tag("datetime", Some("invalid_method")),
+        Err(ValidationError::InvalidModifier {
+            root: "datetime",
+            modifier: "invalid_method".to_string(),
+            allowed: DATETIME_METHODS,
         })
     );
 }
@@ -253,6 +294,10 @@ fn validates_random_modifier_syntax() {
 
 #[test]
 fn validates_lorem_modifier_syntax() {
+    assert_eq!(validate_system_tag("lorem", None), Ok(()));
+    assert_eq!(validate_system_tag("lorem", Some("word")), Ok(()));
+    assert_eq!(validate_system_tag("lorem", Some("sentence")), Ok(()));
+    assert_eq!(validate_system_tag("lorem", Some("paragraph")), Ok(()));
     assert_eq!(validate_system_tag("lorem", Some("word(3)")), Ok(()));
     assert_eq!(validate_system_tag("lorem", Some("word()")), Ok(()));
     assert_eq!(validate_system_tag("lorem", Some("sentence(2)")), Ok(()));
@@ -263,19 +308,15 @@ fn validates_lorem_modifier_syntax() {
         Ok(())
     );
     assert_eq!(
-        validate_system_tag("lorem", None),
-        Err(ValidationError::MissingModifier { root: "lorem" })
-    );
-    assert_eq!(
         validate_system_tag("lorem", Some("paragraph(nope)")),
         Ok(())
     );
 
     assert_eq!(
-        validate_system_tag("lorem", Some("word")),
+        validate_system_tag("lorem", Some("unknown")),
         Err(ValidationError::InvalidModifier {
             root: "lorem",
-            modifier: "word".to_string(),
+            modifier: "unknown".to_string(),
             allowed: LOREM_MODIFIERS,
         })
     );
