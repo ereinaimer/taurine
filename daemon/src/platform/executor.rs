@@ -321,38 +321,91 @@ fn split_cmd_args(input: &str) -> Vec<String> {
 pub fn native_shell_open(target: &str, args: Option<&str>) -> Result<(), String> {
     #[cfg(windows)]
     {
-        use std::ptr;
-        use windows_sys::Win32::UI::Shell::ShellExecuteW;
-        use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-
-        let wide_verb: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
-        let wide_target: Vec<u16> = target.encode_utf16().chain(std::iter::once(0)).collect();
-        let wide_args: Option<Vec<u16>> =
-            args.map(|a| a.encode_utf16().chain(std::iter::once(0)).collect());
-
-        // SAFETY: ShellExecuteW takes valid null-terminated UTF-16 pointers.
-        // Memory is valid for the duration of the system call. Return > 32 indicates success.
-        unsafe {
-            let res = ShellExecuteW(
-                ptr::null_mut(),
-                wide_verb.as_ptr(),
-                wide_target.as_ptr(),
-                wide_args
-                    .as_ref()
-                    .map(|a| a.as_ptr())
-                    .unwrap_or(ptr::null()),
-                ptr::null(),
-                SW_SHOWNORMAL,
-            );
-            if res as usize > 32 {
-                Ok(())
-            } else {
-                Err(format!(
-                    "ShellExecuteW failed with error code: {}",
-                    res as usize
-                ))
+        // For non-URL, non-shell targets (e.g. executable names or App Execution Aliases like "wt"),
+        // attempt direct process creation via CreateProcessW first. This isolates execution from
+        // the host daemon process, bypasses in-process Explorer COM extensions, and prevents
+        // access violations inside windows.storage.dll when resolving App Execution Aliases.
+        if !is_url_target(target) && !target.to_lowercase().starts_with("shell:") {
+            let mut cmd = std::process::Command::new(target);
+            if let Some(args_str) = args {
+                cmd.args(split_cmd_args(args_str));
+            }
+            if cmd.spawn().is_ok() {
+                return Ok(());
             }
         }
+
+        // For URLs, document associations, and shell folder items, dispatch via ShellExecuteExW
+        // on a dedicated thread with an initialized Single-Threaded Apartment (STA) COM context.
+        let target_owned = target.to_string();
+        let args_owned = args.map(|a| a.to_string());
+
+        let handle = std::thread::Builder::new()
+            .name("tau-shell-open".to_string())
+            .spawn(move || {
+                use std::ptr;
+                use windows_sys::Win32::Foundation::{S_FALSE, S_OK};
+                use windows_sys::Win32::System::Com::{
+                    COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx,
+                    CoUninitialize,
+                };
+                use windows_sys::Win32::UI::Shell::{
+                    SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SHELLEXECUTEINFOW, ShellExecuteExW,
+                };
+                use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+                // SAFETY: Initializes COM Single-Threaded Apartment for this dedicated worker thread.
+                // Required by Win32 Shell APIs to prevent null-pointer dereferences in windows.storage.dll.
+                let init_hr = unsafe {
+                    CoInitializeEx(
+                        ptr::null_mut(),
+                        (COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) as u32,
+                    )
+                };
+                let should_uninit = init_hr == S_OK || init_hr == S_FALSE;
+
+                let wide_verb: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
+                let wide_target: Vec<u16> = target_owned
+                    .encode_utf16()
+                    .chain(std::iter::once(0))
+                    .collect();
+                let wide_args: Option<Vec<u16>> =
+                    args_owned.map(|a| a.encode_utf16().chain(std::iter::once(0)).collect());
+
+                let mut exec_info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
+                exec_info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+                exec_info.fMask = SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
+                exec_info.lpVerb = wide_verb.as_ptr();
+                exec_info.lpFile = wide_target.as_ptr();
+                exec_info.lpParameters = wide_args
+                    .as_ref()
+                    .map(|a| a.as_ptr())
+                    .unwrap_or(ptr::null());
+                exec_info.nShow = SW_SHOWNORMAL;
+
+                // SAFETY: ShellExecuteExW executes the shell verb with valid null-terminated UTF-16 strings.
+                // SEE_MASK_NOASYNC guarantees the operation completes synchronously before the thread exits.
+                let success = unsafe { ShellExecuteExW(&mut exec_info) != 0 };
+
+                if should_uninit {
+                    // SAFETY: CoUninitialize balances successful CoInitializeEx on this dedicated thread.
+                    unsafe { CoUninitialize() };
+                }
+
+                if success {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "ShellExecuteExW failed with code: {:?}",
+                        exec_info.hInstApp as usize
+                    ))
+                }
+            })
+            .map_err(|e| format!("Failed to spawn shell open thread: {}", e))?;
+
+        handle
+            .join()
+            .map_err(|_| "Shell open thread panicked".to_string())?
     }
     #[cfg(not(windows))]
     {
@@ -636,8 +689,15 @@ mod tests {
     }
 
     #[test]
-    fn test_native_shell_open_wt() {
-        let res = native_shell_open("wt", None);
-        println!("native_shell_open result: {:?}", res);
+    #[cfg(windows)]
+    fn test_native_shell_open_safe_execution() {
+        let res = native_shell_open("cmd.exe", Some("/c exit 0"));
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_native_shell_open_wt_does_not_panic() {
+        let _ = native_shell_open("wt", None);
     }
 }
