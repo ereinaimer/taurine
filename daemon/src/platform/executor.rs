@@ -460,6 +460,76 @@ pub fn native_shell_open(target: &str, args: Option<&str>) -> Result<(), String>
     }
 }
 
+#[cfg(windows)]
+pub struct JobObjectTreeGuard {
+    handle: windows_sys::Win32::Foundation::HANDLE,
+}
+
+#[cfg(windows)]
+impl JobObjectTreeGuard {
+    pub fn new() -> Option<Self> {
+        use std::ptr;
+        use windows_sys::Win32::System::JobObjects::{
+            CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+            SetInformationJobObject,
+        };
+
+        // SAFETY: CreateJobObjectW creates an unnamed job object.
+        let job = unsafe { CreateJobObjectW(ptr::null(), ptr::null()) };
+        if job.is_null() {
+            return None;
+        }
+
+        // Configure the job object so that when the job object handle closes,
+        // Windows kernel terminates all processes in the job automatically.
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+
+        // SAFETY: SetInformationJobObject configures the job limits with valid struct and size.
+        let ok = unsafe {
+            SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                &info as *const _ as *const _,
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            ) != 0
+        };
+
+        if !ok {
+            // SAFETY: CloseHandle cleans up the job object handle on configuration failure.
+            unsafe { windows_sys::Win32::Foundation::CloseHandle(job) };
+            return None;
+        }
+
+        Some(Self { handle: job })
+    }
+
+    pub fn assign_process(&self, process_handle: std::os::windows::io::RawHandle) -> bool {
+        use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
+        // SAFETY: AssignProcessToJobObject assigns the child process handle to this job object.
+        unsafe { AssignProcessToJobObject(self.handle, process_handle as _) != 0 }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for JobObjectTreeGuard {
+    fn drop(&mut self) {
+        // SAFETY: CloseHandle closes the job object handle. When closed,
+        // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE ensures any lingering child/grandchild processes are terminated.
+        unsafe {
+            windows_sys::Win32::Foundation::CloseHandle(self.handle);
+        }
+    }
+}
+
+// SAFETY: Windows kernel HANDLE values are thread-safe OS descriptors that can be safely
+// transferred between threads and closed from any thread context.
+#[cfg(windows)]
+unsafe impl Send for JobObjectTreeGuard {}
+#[cfg(windows)]
+unsafe impl Sync for JobObjectTreeGuard {}
+
 pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<String> {
     let script_content = decompress(&metadata.compressed_content)?;
 
@@ -545,6 +615,18 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
             taurine_core::Error::Service(format!("Failed to spawn interpreter: {}", e))
         }
     })?;
+
+    #[cfg(windows)]
+    let _job_guard = {
+        if let Some(job) = JobObjectTreeGuard::new() {
+            if let Some(raw_h) = child.raw_handle() {
+                job.assign_process(raw_h);
+            }
+            Some(job)
+        } else {
+            None
+        }
+    };
 
     // We take the pipes from the child so we can read them concurrently with wait()
     let stdout_pipe = child
