@@ -33,7 +33,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     let version: u32 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .map_err(|e| {
-            error!(error=%e, "Failed to read schema version (PRAGMA user_version)");
+            if super::is_rusqlite_corrupt(&e) {
+                error!(error=%e, "Corrupted SQLite database detected during schema version check (PRAGMA user_version)");
+            } else {
+                error!(error=%e, "Failed to read schema version (PRAGMA user_version)");
+            }
             e
         })?;
 
@@ -157,7 +161,14 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                 PRAGMA user_version = 1;",
                     )
                     .map_err(|e| {
-                        error!(error=%e, "Schema migration v0 -> v1 failed");
+                        if super::is_rusqlite_corrupt(&e) {
+                            error!(
+                                error = %e,
+                                "Corrupted SQLite database detected during schema migration v0 -> v1"
+                            );
+                        } else {
+                            error!(error = %e, "Schema migration v0 -> v1 failed");
+                        }
                         e
                     })?,
 

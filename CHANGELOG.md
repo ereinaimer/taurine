@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Inline AI Clipboard Context**: Pass copied clipboard text into inline AI prompts via natural paste shortcut (Ctrl+V / Cmd+V) or by typing [clip].
 
 ### Fixed
+- **Database Corruption Self-Healing**: Automatically quarantine corrupted SQLite database files and initialize fresh storage to prevent persistent daemon boot loops.
 - **In-Band Error Elimination**: Erase triggers cleanly without inserting error strings into documents when snippet expansions or system variables encounter errors.
 - **Terminal & Shell Launch Resilience**: Allocate dedicated console hosts for terminal applications and isolate URL shell activations to prevent crashes and invisible zombie processes.
 - **Mouse Button 4 and 5 Simulation**: Direct Win32 input simulation for mouse buttons 4 and 5 (browser back/forward) on Windows.
