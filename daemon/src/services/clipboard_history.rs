@@ -70,10 +70,8 @@ pub fn resume_listener() {
 const INIT_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
 #[cfg(target_os = "linux")]
-pub fn start_listener() {
+fn run_listener_once() {
     const POLL_INTERVAL: Duration = Duration::from_millis(350);
-
-    CLIPBOARD_SHOULD_SHUTDOWN.store(false, std::sync::atomic::Ordering::Relaxed);
 
     loop {
         if CLIPBOARD_SHOULD_SHUTDOWN.load(std::sync::atomic::Ordering::Relaxed) {
@@ -126,7 +124,7 @@ pub fn start_listener() {
 }
 
 #[cfg(target_os = "macos")]
-pub fn start_listener() {
+fn run_listener_once() {
     use objc2_app_kit::NSPasteboard;
 
     const POLL_INTERVAL: Duration = Duration::from_millis(200);
@@ -218,12 +216,11 @@ pub fn start_listener() {
 }
 
 #[cfg(windows)]
-pub fn start_listener() {
+fn run_listener_once() {
     // SAFETY: GetCurrentThreadId retrieves the OS thread ID of the calling thread.
     // It always succeeds and has no failure modes.
     let tid = unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() };
     CLIPBOARD_THREAD_ID.store(tid, std::sync::atomic::Ordering::Relaxed);
-    CLIPBOARD_SHOULD_SHUTDOWN.store(false, std::sync::atomic::Ordering::Relaxed);
 
     use std::ptr::null;
     use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
@@ -391,12 +388,42 @@ pub fn start_listener() {
     }
 
     // SAFETY: RemoveClipboardFormatListener unregisters `hwnd` from clipboard
-    // update notifications. `hwnd` is the valid window created above. The call
-    // is safe even during shutdown because the window still exists at this point.
+    // update notifications and DestroyWindow destroys the message-only window.
+    // `hwnd` is the valid window created above. The call is safe even during
+    // shutdown because the window still exists at this point.
     unsafe {
         let _ = RemoveClipboardFormatListener(hwnd);
+        let _ = windows_sys::Win32::UI::WindowsAndMessaging::DestroyWindow(hwnd);
     }
     CLIPBOARD_HWND.store(std::ptr::null_mut(), std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
+fn run_listener_once() {
+    std::thread::sleep(std::time::Duration::from_millis(500));
+}
+
+pub fn start_listener() {
+    CLIPBOARD_SHOULD_SHUTDOWN.store(false, std::sync::atomic::Ordering::Relaxed);
+    let mut backoff = crate::platform::circuit_breaker::ExponentialBackoff::default();
+    while !CLIPBOARD_SHOULD_SHUTDOWN.load(std::sync::atomic::Ordering::Relaxed) {
+        let started = std::time::Instant::now();
+        let res = crate::platform::panic::catch_worker_panic("tau-clip", || {
+            run_listener_once();
+        });
+        if CLIPBOARD_SHOULD_SHUTDOWN.load(std::sync::atomic::Ordering::Relaxed) {
+            break;
+        }
+        if started.elapsed() > std::time::Duration::from_secs(30) {
+            backoff.record_success();
+        }
+        if let Err(err) = res {
+            tracing::error!(error = %err, "Clipboard listener crashed; restarting");
+        } else {
+            tracing::warn!("Clipboard listener exited unexpectedly; restarting");
+        }
+        backoff.wait();
+    }
 }
 
 pub fn stop_listener() {

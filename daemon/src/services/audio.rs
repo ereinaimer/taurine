@@ -63,6 +63,33 @@ pub fn create_channel() -> (mpsc::Sender<bool>, mpsc::Receiver<bool>) {
     mpsc::channel::<bool>(4)
 }
 
+fn play_cue(is_paused: bool) -> Result<(), String> {
+    let theme = get_cached_audio_theme();
+    let volume = get_cached_audio_volume();
+    let data = get_audio_data(theme, is_paused);
+
+    // Acquire a fresh OutputStream/MixerDeviceSink on every trigger so we always bind
+    // to the *current* default device. Cached streams silently play
+    // into dead endpoints on Windows (WASAPI) after a device unplug
+    // because rodio/cpal does not surface device-loss errors through
+    // the Sink API.
+    let mut stream = match DeviceSinkBuilder::open_default_sink() {
+        Ok(s) => s,
+        Err(e) => {
+            return Err(format!("no audio device available: {e}"));
+        }
+    };
+    stream.log_on_drop(false);
+
+    let cursor = Cursor::new(data);
+    let decoder = Decoder::new(cursor).map_err(|e| format!("failed to decode audio: {e}"))?;
+    let player = Player::connect_new(stream.mixer());
+    player.set_volume(volume as f32 / 100.0);
+    player.append(decoder);
+    player.sleep_until_end();
+    Ok(())
+}
+
 pub fn start_worker(mut rx: mpsc::Receiver<bool>) {
     let spawn_result = std::thread::Builder::new()
         .name("tau-audio".to_string())
@@ -71,39 +98,31 @@ pub fn start_worker(mut rx: mpsc::Receiver<bool>) {
                 "tau-audio",
                 std::panic::AssertUnwindSafe(move || {
                     debug!("Audio worker thread started (embedded audio themes)");
+                    let mut backoff =
+                        crate::platform::circuit_breaker::ExponentialBackoff::default();
 
                     while let Some(is_paused) = rx.blocking_recv() {
-                        let theme = get_cached_audio_theme();
-                        let volume = get_cached_audio_volume();
-                        let data = get_audio_data(theme, is_paused);
+                        let res = crate::platform::panic::catch_worker_panic(
+                            "tau-audio-cue",
+                            std::panic::AssertUnwindSafe(|| play_cue(is_paused)),
+                        );
 
-                        // Acquire a fresh OutputStream/MixerDeviceSink on every trigger so we always bind
-                        // to the *current* default device. Cached streams silently play
-                        // into dead endpoints on Windows (WASAPI) after a device unplug
-                        // because rodio/cpal does not surface device-loss errors through
-                        // the Sink API.
-                        let mut stream = match DeviceSinkBuilder::open_default_sink() {
-                            Ok(s) => s,
-                            Err(e) => {
-                                warn!("Audio playback skipped: no audio device available: {}", e);
-                                continue;
+                        match res {
+                            Ok(Ok(())) => {
+                                backoff.record_success();
                             }
-                        };
-                        stream.log_on_drop(false);
-
-                        let cursor = Cursor::new(data);
-                        match Decoder::new(cursor) {
-                            Ok(decoder) => {
-                                let player = Player::connect_new(stream.mixer());
-                                player.set_volume(volume as f32 / 100.0);
-                                player.append(decoder);
-                                player.sleep_until_end();
+                            Ok(Err(err)) => {
+                                warn!("Audio playback skipped: {}", err);
+                                backoff.wait();
                             }
-                            Err(e) => {
-                                warn!("Failed to decode audio: {}", e);
+                            Err(panic_err) => {
+                                warn!(
+                                    error = %panic_err,
+                                    "Audio cue playback panicked; backing off"
+                                );
+                                backoff.wait();
                             }
                         }
-                        // stream drops here, releasing the device cleanly.
                     }
                 }),
             );

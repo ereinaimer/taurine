@@ -9,6 +9,7 @@ pub mod linux;
 #[cfg(target_os = "macos")]
 pub mod macos;
 
+pub mod circuit_breaker;
 pub mod executor;
 pub mod panic;
 pub mod spinner_renderer;

@@ -246,63 +246,90 @@ impl TrayMenuItems {
     }
 }
 
-pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> JoinHandle<()> {
-    let spawn_result = std::thread::Builder::new()
-        .name("tau-tray".to_string())
-        .spawn(move || {
-            #[cfg(target_os = "windows")]
-            initialize_windows_ui();
+fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<AtomicBool>) -> bool {
+    #[cfg(target_os = "windows")]
+    initialize_windows_ui();
 
-            let initial_paused = paused.load(Ordering::Relaxed);
-            let (items, menu) = TrayMenuItems::new(initial_paused);
-            let snooze = SnoozeController::new();
+    let initial_paused = paused.load(Ordering::Relaxed);
+    let (items, menu) = TrayMenuItems::new(initial_paused);
+    let snooze = SnoozeController::new();
 
-            let running_icon = super::icons::running_icon();
-            let paused_icon = super::icons::paused_icon();
+    let running_icon = super::icons::running_icon();
+    let paused_icon = super::icons::paused_icon();
 
-            let initial_icon = if initial_paused {
-                paused_icon.clone()
-            } else {
-                running_icon.clone()
-            };
+    let initial_icon = if initial_paused {
+        paused_icon.clone()
+    } else {
+        running_icon.clone()
+    };
 
-            let _tray = match TrayIconBuilder::new()
-                .with_menu(Box::new(menu.clone()))
-                .with_menu_on_left_click(false)
-                .with_tooltip(TOOLTIP)
-                .with_icon(initial_icon)
-                .build()
-            {
-                Ok(tray) => tray,
-                Err(error) => {
-                    tracing::warn!(error = %error, "System tray init failed");
-                    return;
-                }
-            };
+    let _tray = match TrayIconBuilder::new()
+        .with_menu(Box::new(menu.clone()))
+        .with_menu_on_left_click(false)
+        .with_tooltip(TOOLTIP)
+        .with_icon(initial_icon)
+        .build()
+    {
+        Ok(tray) => tray,
+        Err(error) => {
+            tracing::warn!(error = %error, "System tray init failed");
+            return false;
+        }
+    };
 
-            let _ = _tray.set_visible(system_tray_enabled.load(Ordering::Relaxed));
+    let _ = _tray.set_visible(system_tray_enabled.load(Ordering::Relaxed));
 
-            let menu_rx = MenuEvent::receiver();
-            let _tray_rx = TrayIconEvent::receiver();
+    let menu_rx = MenuEvent::receiver();
+    let _tray_rx = TrayIconEvent::receiver();
 
-            #[cfg(target_os = "windows")]
-            {
-                use windows_sys::Win32::UI::Shell::{RemoveWindowSubclass, SetWindowSubclass};
-                use windows_sys::Win32::UI::WindowsAndMessaging::{
-                    DispatchMessageW, PM_REMOVE, PeekMessageW, TranslateMessage,
-                };
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::UI::Shell::{RemoveWindowSubclass, SetWindowSubclass};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            DispatchMessageW, PM_REMOVE, PeekMessageW, TranslateMessage,
+        };
 
-                let live_state = TrayLiveState {
-                    paused: paused.clone(),
-                    snooze: snooze.clone(),
-                    resume_item: items.resume_item.clone(),
-                };
+        let live_state = TrayLiveState {
+            paused: paused.clone(),
+            snooze: snooze.clone(),
+            resume_item: items.resume_item.clone(),
+        };
 
-                let mut tray_hwnd = find_current_thread_window();
-                if !tray_hwnd.is_null() {
-                    // SAFETY: SetWindowSubclass attaches our tray_menu_subclass_proc to the tray window.
-                    // live_state lives on this thread's stack until the thread terminates.
-                    unsafe {
+        let mut tray_hwnd = find_current_thread_window();
+        if !tray_hwnd.is_null() {
+            // SAFETY: SetWindowSubclass attaches our tray_menu_subclass_proc to the tray window.
+            // live_state lives on this thread's stack until the thread terminates.
+            unsafe {
+                SetWindowSubclass(
+                    tray_hwnd,
+                    Some(tray_menu_subclass_proc),
+                    TRAY_SUBCLASS_ID,
+                    &live_state as *const _ as _,
+                );
+            }
+        }
+
+        let mut msg = unsafe { std::mem::zeroed() };
+        let mut last_paused = Some(initial_paused);
+        let mut menu_displayed_paused = initial_paused;
+        let mut last_visible = None;
+        let mut last_resume_label = "Resume".to_string();
+        let mut sync_counter: u32 = 0;
+        loop {
+            // Update tray visibility based on settings
+            let now_visible = system_tray_enabled.load(Ordering::Relaxed);
+            if last_visible != Some(now_visible) {
+                last_visible = Some(now_visible);
+                let _ = _tray.set_visible(now_visible);
+            }
+
+            // SAFETY: PeekMessageW, TranslateMessage, and DispatchMessageW are standard Win32
+            // message pump routines processing thread-local GUI messages for the tray icon.
+            unsafe {
+                while PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) > 0 {
+                    if tray_hwnd.is_null() && !msg.hwnd.is_null() {
+                        tray_hwnd = msg.hwnd;
+                        // SAFETY: SetWindowSubclass attaches our tray_menu_subclass_proc to the tray window.
                         SetWindowSubclass(
                             tray_hwnd,
                             Some(tray_menu_subclass_proc),
@@ -310,217 +337,221 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
                             &live_state as *const _ as _,
                         );
                     }
-                }
 
-                let mut msg = unsafe { std::mem::zeroed() };
-                let mut last_paused = Some(initial_paused);
-                let mut menu_displayed_paused = initial_paused;
-                let mut last_visible = None;
-                let mut last_resume_label = "Resume".to_string();
-                let mut sync_counter: u32 = 0;
-                loop {
-                    // Update tray visibility based on settings
-                    let now_visible = system_tray_enabled.load(Ordering::Relaxed);
-                    if last_visible != Some(now_visible) {
-                        last_visible = Some(now_visible);
-                        let _ = _tray.set_visible(now_visible);
-                    }
-
-                    // SAFETY: PeekMessageW, TranslateMessage, and DispatchMessageW are standard Win32
-                    // message pump routines processing thread-local GUI messages for the tray icon.
-                    unsafe {
-                        while PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) > 0 {
-                            if tray_hwnd.is_null() && !msg.hwnd.is_null() {
-                                tray_hwnd = msg.hwnd;
-                                // SAFETY: SetWindowSubclass attaches our tray_menu_subclass_proc to the tray window.
-                                SetWindowSubclass(
-                                    tray_hwnd,
-                                    Some(tray_menu_subclass_proc),
-                                    TRAY_SUBCLASS_ID,
-                                    &live_state as *const _ as _,
-                                );
-                            }
-
-                            // Update dynamic countdown label immediately before displaying the popup menu
-                            if paused.load(Ordering::Relaxed)
-                                && msg.message == 0x0401
-                                && matches!(
-                                    msg.lParam as u32,
-                                    0x0201 | 0x0202 | 0x0204 | 0x0205 | 0x007B
-                                )
-                            {
-                                let label = snooze.resume_label();
-                                if label != last_resume_label {
-                                    items.resume_item.set_text(&label);
-                                    last_resume_label = label;
-                                }
-                            }
-
-                            TranslateMessage(&msg);
-                            DispatchMessageW(&msg);
-                        }
-                    }
-
-                    while let Ok(event) = menu_rx.try_recv() {
-                        let should_continue = process_menu_event(&event, &items, &paused, &snooze);
-
-                        if !should_continue {
-                            if !tray_hwnd.is_null() {
-                                // SAFETY: RemoveWindowSubclass unhooks the subclass before the thread terminates.
-                                unsafe {
-                                    RemoveWindowSubclass(
-                                        tray_hwnd,
-                                        Some(tray_menu_subclass_proc),
-                                        TRAY_SUBCLASS_ID,
-                                    );
-                                }
-                            }
-                            return;
-                        }
-                    }
-
-                    // Update UI state based on current paused state
-                    let now_paused = paused.load(Ordering::Relaxed);
-                    if last_paused != Some(now_paused) {
-                        let previously_paused = last_paused.unwrap_or(false);
-                        last_paused = Some(now_paused);
-
-                        // If unpaused externally (e.g. via global keyboard shortcut), cancel any pending snooze
-                        if previously_paused && !now_paused {
-                            snooze.cancel();
-                        }
-
-                        if now_paused && !menu_displayed_paused {
-                            let label = snooze.resume_label();
-                            items.resume_item.set_text(&label);
-                            last_resume_label = label;
-                            let _ = menu.remove(&items.pause_submenu);
-                            let _ = menu.insert(&items.resume_item, 0);
-                            menu_displayed_paused = true;
-                        } else if !now_paused && menu_displayed_paused {
-                            items.resume_item.set_text("Resume");
-                            last_resume_label = "Resume".to_string();
-                            let _ = menu.remove(&items.resume_item);
-                            let _ = menu.insert(&items.pause_submenu, 0);
-                            menu_displayed_paused = false;
-                        }
-                        let _ = _tray.set_icon(Some(if now_paused {
-                            paused_icon.clone()
-                        } else {
-                            running_icon.clone()
-                        }));
-                    }
-
-                    // Update dynamic countdown label if snoozed
-                    if now_paused && snooze.is_active() {
+                    // Update dynamic countdown label immediately before displaying the popup menu
+                    if paused.load(Ordering::Relaxed)
+                        && msg.message == 0x0401
+                        && matches!(
+                            msg.lParam as u32,
+                            0x0201 | 0x0202 | 0x0204 | 0x0205 | 0x007B
+                        )
+                    {
                         let label = snooze.resume_label();
                         if label != last_resume_label {
                             items.resume_item.set_text(&label);
                             last_resume_label = label;
                         }
-                    } else if now_paused && last_resume_label != "Resume" {
-                        last_resume_label = "Resume".to_string();
-                        items.resume_item.set_text("Resume");
                     }
 
-                    // Periodically synchronize checkmarks with database (every 500ms)
-                    sync_counter += 1;
-                    if sync_counter >= 5 {
-                        sync_counter = 0;
-                        let (instant, boot) = TraySettings::load_quick_settings();
-                        if items.instant_expand_item.is_checked() != instant {
-                            items.instant_expand_item.set_checked(instant);
-                        }
-                        if items.start_on_boot_item.is_checked() != boot {
-                            items.start_on_boot_item.set_checked(boot);
-                        }
-                    }
-
-                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
                 }
             }
 
-            #[cfg(target_os = "macos")]
-            {
-                let mut last_paused = Some(initial_paused);
-                let mut menu_displayed_paused = initial_paused;
-                let mut last_visible = None;
-                let mut last_resume_label = "Resume".to_string();
-                let mut sync_counter: u32 = 0;
-                loop {
-                    // Update tray visibility based on settings
-                    let now_visible = system_tray_enabled.load(Ordering::Relaxed);
-                    if last_visible != Some(now_visible) {
-                        last_visible = Some(now_visible);
-                        let _ = _tray.set_visible(now_visible);
-                    }
+            while let Ok(event) = menu_rx.try_recv() {
+                let should_continue = process_menu_event(&event, &items, paused, &snooze);
 
-                    while let Ok(event) = menu_rx.try_recv() {
-                        let should_continue = process_menu_event(&event, &items, &paused, &snooze);
-
-                        if !should_continue {
-                            return;
+                if !should_continue {
+                    if !tray_hwnd.is_null() {
+                        // SAFETY: RemoveWindowSubclass unhooks the subclass before the thread terminates.
+                        unsafe {
+                            RemoveWindowSubclass(
+                                tray_hwnd,
+                                Some(tray_menu_subclass_proc),
+                                TRAY_SUBCLASS_ID,
+                            );
                         }
                     }
+                    return true;
+                }
+            }
 
-                    // Update UI state based on current paused state
-                    let now_paused = paused.load(Ordering::Relaxed);
-                    if last_paused != Some(now_paused) {
-                        let previously_paused = last_paused.unwrap_or(false);
-                        last_paused = Some(now_paused);
+            // Update UI state based on current paused state
+            let now_paused = paused.load(Ordering::Relaxed);
+            if last_paused != Some(now_paused) {
+                let previously_paused = last_paused.unwrap_or(false);
+                last_paused = Some(now_paused);
 
-                        // If unpaused externally (e.g. via global keyboard shortcut), cancel any pending snooze
-                        if previously_paused && !now_paused {
-                            snooze.cancel();
-                        }
+                // If unpaused externally (e.g. via global keyboard shortcut), cancel any pending snooze
+                if previously_paused && !now_paused {
+                    snooze.cancel();
+                }
 
-                        if now_paused && !menu_displayed_paused {
-                            let label = snooze.resume_label();
-                            items.resume_item.set_text(&label);
-                            last_resume_label = label;
-                            let _ = menu.remove(&items.pause_submenu);
-                            let _ = menu.insert(&items.resume_item, 0);
-                            menu_displayed_paused = true;
-                        } else if !now_paused && menu_displayed_paused {
-                            items.resume_item.set_text("Resume");
-                            last_resume_label = "Resume".to_string();
-                            let _ = menu.remove(&items.resume_item);
-                            let _ = menu.insert(&items.pause_submenu, 0);
-                            menu_displayed_paused = false;
-                        }
-                        let _ = _tray.set_icon(Some(if now_paused {
-                            paused_icon.clone()
-                        } else {
-                            running_icon.clone()
-                        }));
+                if now_paused && !menu_displayed_paused {
+                    let label = snooze.resume_label();
+                    items.resume_item.set_text(&label);
+                    last_resume_label = label;
+                    let _ = menu.remove(&items.pause_submenu);
+                    let _ = menu.insert(&items.resume_item, 0);
+                    menu_displayed_paused = true;
+                } else if !now_paused && menu_displayed_paused {
+                    items.resume_item.set_text("Resume");
+                    last_resume_label = "Resume".to_string();
+                    let _ = menu.remove(&items.resume_item);
+                    let _ = menu.insert(&items.pause_submenu, 0);
+                    menu_displayed_paused = false;
+                }
+                let _ = _tray.set_icon(Some(if now_paused {
+                    paused_icon.clone()
+                } else {
+                    running_icon.clone()
+                }));
+            }
+
+            // Update dynamic countdown label if snoozed
+            if now_paused && snooze.is_active() {
+                let label = snooze.resume_label();
+                if label != last_resume_label {
+                    items.resume_item.set_text(&label);
+                    last_resume_label = label;
+                }
+            } else if now_paused && last_resume_label != "Resume" {
+                last_resume_label = "Resume".to_string();
+                items.resume_item.set_text("Resume");
+            }
+
+            // Periodically synchronize checkmarks with database (every 500ms)
+            sync_counter += 1;
+            if sync_counter >= 5 {
+                sync_counter = 0;
+                let (instant, boot) = TraySettings::load_quick_settings();
+                if items.instant_expand_item.is_checked() != instant {
+                    items.instant_expand_item.set_checked(instant);
+                }
+                if items.start_on_boot_item.is_checked() != boot {
+                    items.start_on_boot_item.set_checked(boot);
+                }
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut last_paused = Some(initial_paused);
+        let mut menu_displayed_paused = initial_paused;
+        let mut last_visible = None;
+        let mut last_resume_label = "Resume".to_string();
+        let mut sync_counter: u32 = 0;
+        loop {
+            // Update tray visibility based on settings
+            let now_visible = system_tray_enabled.load(Ordering::Relaxed);
+            if last_visible != Some(now_visible) {
+                last_visible = Some(now_visible);
+                let _ = _tray.set_visible(now_visible);
+            }
+
+            while let Ok(event) = menu_rx.try_recv() {
+                let should_continue = process_menu_event(&event, &items, paused, &snooze);
+
+                if !should_continue {
+                    return true;
+                }
+            }
+
+            // Update UI state based on current paused state
+            let now_paused = paused.load(Ordering::Relaxed);
+            if last_paused != Some(now_paused) {
+                let previously_paused = last_paused.unwrap_or(false);
+                last_paused = Some(now_paused);
+
+                // If unpaused externally (e.g. via global keyboard shortcut), cancel any pending snooze
+                if previously_paused && !now_paused {
+                    snooze.cancel();
+                }
+
+                if now_paused && !menu_displayed_paused {
+                    let label = snooze.resume_label();
+                    items.resume_item.set_text(&label);
+                    last_resume_label = label;
+                    let _ = menu.remove(&items.pause_submenu);
+                    let _ = menu.insert(&items.resume_item, 0);
+                    menu_displayed_paused = true;
+                } else if !now_paused && menu_displayed_paused {
+                    items.resume_item.set_text("Resume");
+                    last_resume_label = "Resume".to_string();
+                    let _ = menu.remove(&items.resume_item);
+                    let _ = menu.insert(&items.pause_submenu, 0);
+                    menu_displayed_paused = false;
+                }
+                let _ = _tray.set_icon(Some(if now_paused {
+                    paused_icon.clone()
+                } else {
+                    running_icon.clone()
+                }));
+            }
+
+            // Update dynamic countdown label if snoozed
+            if now_paused && snooze.is_active() {
+                let label = snooze.resume_label();
+                if label != last_resume_label {
+                    items.resume_item.set_text(&label);
+                    last_resume_label = label;
+                }
+            } else if now_paused && last_resume_label != "Resume" {
+                last_resume_label = "Resume".to_string();
+                items.resume_item.set_text("Resume");
+            }
+
+            // Periodically synchronize checkmarks with database (every 500ms)
+            sync_counter += 1;
+            if sync_counter >= 5 {
+                sync_counter = 0;
+                let (instant, boot) = TraySettings::load_quick_settings();
+                if items.instant_expand_item.is_checked() != instant {
+                    items.instant_expand_item.set_checked(instant);
+                }
+                if items.start_on_boot_item.is_checked() != boot {
+                    items.start_on_boot_item.set_checked(boot);
+                }
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+    #[allow(unreachable_code)]
+    false
+}
+
+pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> JoinHandle<()> {
+    let spawn_result = std::thread::Builder::new()
+        .name("tau-tray".to_string())
+        .spawn(move || {
+            let mut backoff = crate::platform::circuit_breaker::ExponentialBackoff::default();
+            loop {
+                let p = paused.clone();
+                let ste = system_tray_enabled.clone();
+                let run_res = crate::platform::panic::catch_worker_panic(
+                    "tau-tray",
+                    std::panic::AssertUnwindSafe(|| run_tray_loop_once(&p, &ste)),
+                );
+                match run_res {
+                    Ok(true) => {
+                        // User clicked quit / clean exit requested
+                        break;
                     }
-
-                    // Update dynamic countdown label if snoozed
-                    if now_paused && snooze.is_active() {
-                        let label = snooze.resume_label();
-                        if label != last_resume_label {
-                            items.resume_item.set_text(&label);
-                            last_resume_label = label;
-                        }
-                    } else if now_paused && last_resume_label != "Resume" {
-                        last_resume_label = "Resume".to_string();
-                        items.resume_item.set_text("Resume");
+                    Ok(false) => {
+                        tracing::warn!("System tray event loop exited unexpectedly; restarting");
+                        backoff.wait();
                     }
-
-                    // Periodically synchronize checkmarks with database (every 500ms)
-                    sync_counter += 1;
-                    if sync_counter >= 5 {
-                        sync_counter = 0;
-                        let (instant, boot) = TraySettings::load_quick_settings();
-                        if items.instant_expand_item.is_checked() != instant {
-                            items.instant_expand_item.set_checked(instant);
-                        }
-                        if items.start_on_boot_item.is_checked() != boot {
-                            items.start_on_boot_item.set_checked(boot);
-                        }
+                    Err(err) => {
+                        tracing::error!(
+                            error = %err,
+                            "System tray thread panicked; restarting with backoff"
+                        );
+                        backoff.wait();
                     }
-
-                    std::thread::sleep(std::time::Duration::from_millis(100));
                 }
             }
         });
