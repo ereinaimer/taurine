@@ -35,9 +35,7 @@ For example, `~/Pictures/logo.png` will safely resolve to `C:\Users\Username\Pic
   To prevent memory exhaustion and maintain zero-latency execution, **compiled image assets are strictly limited to 16MB.**
 </Callout>
 
-Taurine currently supports decoding standard **PNG** and **JPEG** image formats. If a file cannot be found, has an unsupported format, or exceeds the size limit, Taurine will inject an inline error rather than failing silently.
-
-For example, if the image is missing, the engine will expand to `[Error: File does not exist: <path>]` directly in your text field.
+Taurine currently supports decoding standard **PNG** and **JPEG** image formats. If a file cannot be found, has an unsupported format, or exceeds the size limit, Taurine intercepts the error, logs a warning to the service logger, and cancels expansion cleanly without injecting error text into your active document.
 
 ---
 

@@ -33,7 +33,12 @@ fn repeat(content: &str, arg: &str) -> Option<String> {
     let raw_count = strip_argument_quotes(arg).parse::<usize>().ok()?;
     let count = raw_count.min(100);
     if content.len().saturating_mul(count) > MAX_REPEAT_BUFFER_BYTES {
-        return Some("[Error: Transformer output exceeded maximum character limit]".to_string());
+        warn!(
+            transformer = "repeat",
+            bytes = content.len().saturating_mul(count),
+            "transformer output exceeded maximum character limit"
+        );
+        return None;
     }
     Some(content.repeat(count))
 }
@@ -157,10 +162,7 @@ mod tests {
         assert_eq!(apply("repeat", &["3"], "hi"), Some("hihihi".to_string()));
         assert_eq!(apply("repeat", &["0"], "hi"), Some("".to_string()));
         assert_eq!(apply("repeat", &["150"], "a"), Some("a".repeat(100)));
-        assert_eq!(
-            apply("repeat", &["100"], &"x".repeat(3000)),
-            Some("[Error: Transformer output exceeded maximum character limit]".to_string())
-        );
+        assert_eq!(apply("repeat", &["100"], &"x".repeat(3000)), None);
         assert_eq!(
             apply("replace", &["\"a\"", "\"o\""], "banana"),
             Some("bonono".to_string())

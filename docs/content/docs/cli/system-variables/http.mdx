@@ -15,7 +15,7 @@ Fetches the raw response body from the specified URL. If the protocol (`http://`
 ```text
 The current bitcoin price is: [http.get(api.coindesk.com/v1/bpi/currentprice.json)]
 ```
-If the request fails or times out (after 5 seconds), it will return an error string such as `[Error: HTTP request failed]` or `[Error: HTTP 404]`.
+If the request fails, returns a non-2xx status, or times out (after 5 seconds), the engine logs a warning and cleanly cancels expansion without injecting error text into your document.
 
 ### Get Status `[http.status(url)]`
 Fetches only the HTTP status code (e.g., `200`, `404`, `500`) of the given URL. This is perfect for quick uptime checks without downloading massive response bodies.

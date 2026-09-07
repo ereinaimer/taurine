@@ -10,7 +10,10 @@ pub fn resolve(key: &str) -> Option<String> {
     let method_str = if key == "date" { "" } else { &key[5..] };
     let methods = match parse_methods(method_str) {
         Ok(m) => m,
-        Err(e) => return Some(e),
+        Err(e) => {
+            tracing::warn!("Failed to parse date methods from '{}': {}", key, e);
+            return None;
+        }
     };
 
     let mut dt = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
@@ -24,7 +27,10 @@ pub fn resolve(key: &str) -> Option<String> {
             super::datetime::Method::Calc(args) => {
                 dt = match apply_temporal_calc(dt, args) {
                     Ok(new_dt) => new_dt,
-                    Err(e) => return Some(e),
+                    Err(e) => {
+                        tracing::warn!("Failed to calculate date offset '{}': {}", args, e);
+                        return None;
+                    }
                 };
             }
             super::datetime::Method::Format(args) => {
@@ -34,7 +40,13 @@ pub fn resolve(key: &str) -> Option<String> {
         }
     }
 
-    Some(format_temporal(dt, format_str).unwrap_or_else(|e| e))
+    match format_temporal(dt, format_str) {
+        Ok(formatted) => Some(formatted),
+        Err(e) => {
+            tracing::warn!("Failed to format date '{}': {}", format_str, e);
+            None
+        }
+    }
 }
 
 #[cfg(test)]
@@ -48,18 +60,15 @@ mod tests {
 
         let res = resolve("date.calc(+1d)");
         assert!(res.is_some());
-        assert!(!res.as_ref().unwrap().contains("[Error"));
 
         let res_double = resolve("date.calc(\"+1d\")");
         assert!(res_double.is_some());
-        assert!(!res_double.as_ref().unwrap().contains("[Error"));
 
         let res_single = resolve("date.calc('+1d')");
         assert!(res_single.is_some());
-        assert!(!res_single.as_ref().unwrap().contains("[Error"));
 
-        let err_no_sign = resolve("date.calc(1d)").unwrap();
-        assert_eq!(err_no_sign, "[Error: calc needs + or -]");
+        let err_no_sign = resolve("date.calc(1d)");
+        assert_eq!(err_no_sign, None);
 
         let res_time_unit = resolve("date.calc(+1h)").unwrap();
         assert!(!res_time_unit.contains("[Error"));

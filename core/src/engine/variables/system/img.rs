@@ -75,7 +75,10 @@ pub fn parse_img_directive(inner: &str) -> Option<ExpansionStep> {
 
         match res {
             Ok((bytes, mime_type)) => Some(ExpansionStep::Image(bytes, mime_type)),
-            Err(e) => Some(ExpansionStep::Text(format!("[Error: {}]", e))),
+            Err(e) => {
+                tracing::warn!("Failed to load image '{}': {}", path, e);
+                None
+            }
         }
     } else {
         None

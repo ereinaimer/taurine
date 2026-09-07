@@ -628,9 +628,7 @@ fn interpolate_script_action(action: TriggerAction, args: &ArgMap) -> Option<Fin
             "Blocked execution of Script trigger because scripts are disabled globally."
         );
         Some(FinalExpansion {
-            steps: vec![ExpansionStep::Text(
-                "[Error: Script execution is disabled globally]".to_string(),
-            )],
+            steps: Vec::new(),
             is_calculation: false,
             ai_transformer_template: None,
         })

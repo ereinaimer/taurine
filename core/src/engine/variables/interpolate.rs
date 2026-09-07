@@ -261,27 +261,52 @@ fn parse_use_key(key: &str) -> Option<String> {
 
 fn resolve_use_placeholder(key: &str, args: &ArgMap, depth: usize) -> String {
     if depth >= 5 {
-        return "[Error: Max recursion depth reached]".to_string();
+        tracing::warn!(
+            "Max recursion depth reached resolving snippet key '{}'",
+            key
+        );
+        return String::new();
     }
 
     let trigger_name = match parse_use_key(key) {
         Some(name) => name,
-        None => return "[Error: Malformed use key]".to_string(),
+        None => {
+            tracing::warn!("Malformed use key '{}'", key);
+            return String::new();
+        }
     };
 
     let conn = match crate::db::get_conn() {
         Ok(c) => c,
-        Err(e) => return format!("[Error: Database pool error: {}]", e),
+        Err(e) => {
+            tracing::warn!(
+                "Database pool error resolving snippet '{}': {}",
+                trigger_name,
+                e
+            );
+            return String::new();
+        }
     };
 
     let action = match crate::db::crud::triggers::get_action_by_trigger(&conn, &trigger_name) {
         Ok(Some(act)) => act,
-        Ok(None) => return format!("[Error: Snippet '{}' does not exist]", trigger_name),
-        Err(e) => return format!("[Error: Database query error: {}]", e),
+        Ok(None) => {
+            tracing::warn!("Snippet '{}' does not exist", trigger_name);
+            return String::new();
+        }
+        Err(e) => {
+            tracing::warn!(
+                "Database query error resolving snippet '{}': {}",
+                trigger_name,
+                e
+            );
+            return String::new();
+        }
     };
 
     if !action.is_text() {
-        return format!("[Error: Cannot invoke non-text snippet '{}']", trigger_name);
+        tracing::warn!("Cannot invoke non-text snippet '{}'", trigger_name);
+        return String::new();
     }
 
     interpolate_with_depth(&action.output, args, depth + 1)

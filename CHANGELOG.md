@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Multi-Button Mouse Automation**: Support parameterized mouse button clicks (including M4, M5, and custom buttons), double-clicking, and parameterized press/release drag actions.
 - **Inline AI Clipboard Context**: Pass copied clipboard text into inline AI prompts via natural paste shortcut (Ctrl+V / Cmd+V) or by typing [clip].
 
-### Fixed
+- **In-Band Error Elimination**: Erase triggers cleanly without inserting error strings into documents when snippet expansions or system variables encounter errors.
 - **App Execution Alias Launch Crash**: Prevent service crashes on Windows when launching Windows Terminal or external application targets from background script hotkeys.
 - **Mouse Button 4 and 5 Simulation**: Direct Win32 input simulation for mouse buttons 4 and 5 (browser back/forward) on Windows.
 - **Update Progress Display**: Prevent raw terminal escape codes from displaying during update progress.

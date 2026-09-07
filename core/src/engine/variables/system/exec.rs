@@ -6,7 +6,7 @@ use std::thread;
 use crate::engine::shell::{ScriptBehavior, ScriptInterpreter, ScriptMetadata, compress};
 use wait_timeout::ChildExt;
 
-const SCRIPT_NOT_FOUND: &str = "[Error: path to script not found!]";
+const SCRIPT_NOT_FOUND: &str = "path to script not found";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExecuteInvocation {
@@ -95,14 +95,27 @@ pub fn resolve(key: &str) -> Option<String> {
     let invocation = parse_invocation(key).ok()?;
 
     if invocation.file && !Path::new(invocation.subject.trim()).exists() {
-        return Some(SCRIPT_NOT_FOUND.to_string());
+        tracing::warn!("Script file not found: '{}'", invocation.subject.trim());
+        return None;
     }
 
     if invocation.silent {
-        return Some(spawn_silent(&invocation).unwrap_or_else(format_error));
+        return match spawn_silent(&invocation) {
+            Ok(output) => Some(output),
+            Err(e) => {
+                tracing::warn!("Failed to spawn silent script: {}", e);
+                None
+            }
+        };
     }
 
-    Some(execute_inline(&invocation).unwrap_or_else(format_error))
+    match execute_inline(&invocation) {
+        Ok(output) => Some(output),
+        Err(e) => {
+            tracing::warn!("Inline script execution failed: {}", e);
+            None
+        }
+    }
 }
 
 pub(crate) fn to_script_metadata(key: &str) -> Result<ScriptMetadata, String> {
@@ -513,10 +526,6 @@ fn join_reader(handle: thread::JoinHandle<Result<Vec<u8>, String>>) -> Result<Ve
         .map_err(|_| "Failed to join script output reader".to_string())?
 }
 
-fn format_error(error: String) -> String {
-    format!("[Error: {error}]")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -610,7 +619,7 @@ mod tests {
         let path = dir.path().join("missing.sh");
         let key = format!("exec.bash.file({})", path.display());
 
-        assert_eq!(resolve(&key).unwrap(), SCRIPT_NOT_FOUND);
+        assert_eq!(resolve(&key), None);
     }
 
     #[test]

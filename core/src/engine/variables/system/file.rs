@@ -105,43 +105,57 @@ pub(crate) fn expand_path(path_str: &str) -> Option<PathBuf> {
     }
 }
 
-fn check_file(path: &Path) -> Result<File, String> {
-    let file = File::open(path).map_err(|e| format!("[Error: {}]", e))?;
-    let metadata = file.metadata().map_err(|e| format!("[Error: {}]", e))?;
+fn check_file(path: &Path) -> Option<File> {
+    let file = match File::open(path) {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::warn!("Failed to open file '{}': {}", path.display(), e);
+            return None;
+        }
+    };
+    let metadata = match file.metadata() {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::warn!("Failed to read metadata for '{}': {}", path.display(), e);
+            return None;
+        }
+    };
     if metadata.len() > MAX_FILE_SIZE {
-        return Err("[Error: File exceeds 5MB limit]".to_string());
+        tracing::warn!("File '{}' exceeds 5MB limit", path.display());
+        return None;
     }
-    Ok(file)
+    Some(file)
 }
 
-fn read_file(path_str: &str) -> String {
+fn read_file(path_str: &str) -> Option<String> {
     let path = match expand_path(path_str) {
         Some(p) => p,
-        None => return "[Error: Invalid path]".to_string(),
+        None => {
+            tracing::warn!("Invalid file path: '{}'", path_str);
+            return None;
+        }
     };
 
-    let mut file = match check_file(&path) {
-        Ok(f) => f,
-        Err(e) => return e,
-    };
+    let mut file = check_file(&path)?;
 
     let mut contents = String::new();
     if let Err(e) = file.read_to_string(&mut contents) {
-        return format!("[Error: {}]", e);
+        tracing::warn!("Failed to read file '{}': {}", path.display(), e);
+        return None;
     }
-    contents
+    Some(contents)
 }
 
-fn read_lines(path_str: &str, start: usize, end: usize) -> String {
+fn read_lines(path_str: &str, start: usize, end: usize) -> Option<String> {
     let path = match expand_path(path_str) {
         Some(p) => p,
-        None => return "[Error: Invalid path]".to_string(),
+        None => {
+            tracing::warn!("Invalid file path: '{}'", path_str);
+            return None;
+        }
     };
 
-    let file = match check_file(&path) {
-        Ok(f) => f,
-        Err(e) => return e,
-    };
+    let file = check_file(&path)?;
 
     let reader = BufReader::new(file);
     let mut result = Vec::new();
@@ -160,10 +174,16 @@ fn read_lines(path_str: &str, start: usize, end: usize) -> String {
     }
 
     if result.is_empty() {
-        return "[Error: Lines out of bounds]".to_string();
+        tracing::warn!(
+            "Lines {}-{} out of bounds for '{}'",
+            start,
+            end,
+            path.display()
+        );
+        return None;
     }
 
-    result.join("\n")
+    Some(result.join("\n"))
 }
 
 pub fn resolve(key: &str) -> Option<String> {
@@ -173,19 +193,22 @@ pub fn resolve(key: &str) -> Option<String> {
     match variant {
         "read" => {
             if invocation.raw_args.is_empty() {
-                return Some("[Error: Missing path]".to_string());
+                tracing::warn!("file.read called with missing path");
+                return None;
             }
-            Some(read_file(&invocation.raw_args))
+            read_file(&invocation.raw_args)
         }
         "line" => {
             if invocation.raw_args.is_empty() {
-                return Some("[Error: Missing path]".to_string());
+                tracing::warn!("file.line called with missing path");
+                return None;
             }
 
             // Format: path, n
             let parts: Vec<&str> = invocation.raw_args.rsplitn(2, ',').collect();
             if parts.len() < 2 {
-                return Some("[Error: line needs path and line number]".to_string());
+                tracing::warn!("file.line needs path and line number");
+                return None;
             }
 
             let path_str = parts[1].trim();
@@ -193,20 +216,25 @@ pub fn resolve(key: &str) -> Option<String> {
 
             let line_num = match n_str.parse::<usize>() {
                 Ok(n) if n > 0 => n,
-                _ => return Some("[Error: invalid line number]".to_string()),
+                _ => {
+                    tracing::warn!("file.line invalid line number: '{}'", n_str);
+                    return None;
+                }
             };
 
-            Some(read_lines(path_str, line_num, line_num))
+            read_lines(path_str, line_num, line_num)
         }
         "lines" => {
             if invocation.raw_args.is_empty() {
-                return Some("[Error: Missing path]".to_string());
+                tracing::warn!("file.lines called with missing path");
+                return None;
             }
 
             // Format: path, start, [end]
             let parts: Vec<&str> = invocation.raw_args.rsplitn(3, ',').collect();
             if parts.len() < 2 {
-                return Some("[Error: lines needs path and start line]".to_string());
+                tracing::warn!("file.lines needs path and start line");
+                return None;
             }
 
             let path_str: &str;
@@ -224,19 +252,25 @@ pub fn resolve(key: &str) -> Option<String> {
 
             let start = match start_str.parse::<usize>() {
                 Ok(n) if n > 0 => n,
-                _ => return Some("[Error: invalid start line]".to_string()),
+                _ => {
+                    tracing::warn!("file.lines invalid start line: '{}'", start_str);
+                    return None;
+                }
             };
 
             let end = if let Some(e) = end_str {
                 match e.parse::<usize>() {
                     Ok(n) if n >= start => n,
-                    _ => return Some("[Error: invalid end line]".to_string()),
+                    _ => {
+                        tracing::warn!("file.lines invalid end line: '{}'", e);
+                        return None;
+                    }
                 }
             } else {
                 usize::MAX
             };
 
-            Some(read_lines(path_str, start, end))
+            read_lines(path_str, start, end)
         }
         _ => None,
     }
@@ -283,34 +317,34 @@ mod tests {
     fn read_file_success() {
         let file = create_temp_file("hello world");
         let path = file.path().to_str().unwrap();
-        assert_eq!(read_file(path), "hello world");
+        assert_eq!(read_file(path), Some("hello world".to_string()));
     }
 
     #[test]
     fn read_file_missing() {
         let result = read_file("/path/does/not/exist.txt");
-        assert!(result.starts_with("[Error: "));
+        assert_eq!(result, None);
     }
 
     #[test]
     fn read_line_single() {
         let file = create_temp_file("one\ntwo\nthree\nfour");
         let path = file.path().to_str().unwrap();
-        assert_eq!(read_lines(path, 2, 2), "two");
+        assert_eq!(read_lines(path, 2, 2), Some("two".to_string()));
     }
 
     #[test]
     fn read_line_range() {
         let file = create_temp_file("one\ntwo\nthree\nfour");
         let path = file.path().to_str().unwrap();
-        assert_eq!(read_lines(path, 2, 3), "two\nthree");
+        assert_eq!(read_lines(path, 2, 3), Some("two\nthree".to_string()));
     }
 
     #[test]
     fn read_line_out_of_bounds() {
         let file = create_temp_file("one\ntwo");
         let path = file.path().to_str().unwrap();
-        assert_eq!(read_lines(path, 5, 6), "[Error: Lines out of bounds]");
+        assert_eq!(read_lines(path, 5, 6), None);
     }
 
     #[test]
@@ -334,7 +368,7 @@ mod tests {
         file.as_file().set_len(MAX_FILE_SIZE + 1).unwrap();
         let path = file.path().to_str().unwrap();
         let result = read_file(path);
-        assert_eq!(result, "[Error: File exceeds 5MB limit]");
+        assert_eq!(result, None);
     }
 
     #[test]

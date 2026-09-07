@@ -592,12 +592,7 @@ pub fn inject_expansion(
                             report.completed = false;
                             let err_str = e.to_string();
                             if !err_str.contains("aborted by user") {
-                                let err_msg = format!(" [Error: {}] ", e);
-                                last_clipboard_payload = Some(err_msg.clone());
-                                let injection = inject_text_segment(&err_msg, &original_clipboard);
-                                if original_clipboard.is_none() {
-                                    original_clipboard = injection.original_clipboard;
-                                }
+                                tracing::warn!("Script trigger execution failed: {}", e);
                             }
                         }
                     }
@@ -648,12 +643,7 @@ pub fn inject_expansion(
                             report.completed = false;
                             let err_str = e.to_string();
                             if !err_str.contains("aborted by user") {
-                                let err_msg = format!("[Error: {}]", e);
-                                last_clipboard_payload = Some(err_msg.clone());
-                                let injection = inject_text_segment(&err_msg, &original_clipboard);
-                                if original_clipboard.is_none() {
-                                    original_clipboard = injection.original_clipboard;
-                                }
+                                tracing::warn!("Inline script execution failed: {}", e);
                             }
                         }
                     }

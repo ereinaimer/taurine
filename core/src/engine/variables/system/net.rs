@@ -8,9 +8,9 @@ pub fn resolve(key: &str) -> Option<String> {
 
     let modifier = &key[4..];
     if modifier == "ip" || modifier == "publicip" {
-        Some(resolve_public_ip())
+        resolve_public_ip()
     } else if modifier == "lip" || modifier == "localip" {
-        Some(resolve_local_ip())
+        resolve_local_ip()
     } else if modifier == "online" {
         Some(resolve_online())
     } else {
@@ -18,11 +18,12 @@ pub fn resolve(key: &str) -> Option<String> {
     }
 }
 
-fn resolve_local_ip() -> String {
+fn resolve_local_ip() -> Option<String> {
     if let Some(ip) = routed_local_ipv4() {
-        return ip.to_string();
+        return Some(ip.to_string());
     }
-    "[Error: no local IP found]".to_string()
+    tracing::warn!("Failed to resolve local IP address");
+    None
 }
 
 fn routed_local_ipv4() -> Option<IpAddr> {
@@ -69,7 +70,7 @@ fn parse_plain_ip_response(body: &str) -> Option<String> {
     }
 }
 
-fn resolve_public_ip() -> String {
+fn resolve_public_ip() -> Option<String> {
     let timeout = Duration::from_millis(2000);
 
     if let Ok(res) = ureq::get("https://1.1.1.1/cdn-cgi/trace")
@@ -78,7 +79,7 @@ fn resolve_public_ip() -> String {
         && let Ok(body) = res.into_string()
         && let Some(ip) = parse_trace_response(&body)
     {
-        return ip;
+        return Some(ip);
     }
 
     for url in ["https://api.ipify.org", "https://checkip.amazonaws.com"] {
@@ -86,11 +87,12 @@ fn resolve_public_ip() -> String {
             && let Ok(body) = res.into_string()
             && let Some(ip) = parse_plain_ip_response(&body)
         {
-            return ip;
+            return Some(ip);
         }
     }
 
-    "[Error: public IP unavailable]".to_string()
+    tracing::warn!("Failed to resolve public IP address");
+    None
 }
 
 #[cfg(test)]

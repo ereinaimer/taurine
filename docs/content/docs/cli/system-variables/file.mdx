@@ -19,7 +19,7 @@ License terms:
 ```
 
 - **File Path**: Must be an absolute path (or start with `~` for the home directory).
-- **Size Limit**: Files larger than **5MB** will return `[Error: File size exceeds 5MB limit]`.
+- **Size Limit**: Files larger than **5MB** are rejected to protect performance, failing safely without injecting text into the document.
 - **UTF-8 Support**: Reads standard UTF-8 text files. Binary files will return an error or produce unreadable sequences.
 
 ---
@@ -80,9 +80,7 @@ If you have a file named `quotes.txt` with one quote per line, you can configure
 To prevent memory exhaustion on the service thread and ensure zero-latency execution, **all file reads are strictly limited to 5MB.** 
 </Callout>
 
-Taurine is designed for stability. If a file cannot be found, permissions are denied, or the file size exceeds the 5MB limit, the engine **will not crash**. Instead, it intercepts the error and returns a formatted inline text string.
-
-For example, if the file is missing, the engine will expand to `[Error: The system cannot find the file specified.]` directly in your text field, allowing you to easily identify and fix the issue.
+Taurine is designed for stability and clean document editing. If a file cannot be found, permissions are denied, or the file size exceeds the 5MB limit, the engine **will not crash or inject in-band error messages into your active document**. Instead, it safely intercepts the failure, logs a warning to the service logger, and erases the trigger keyword without expanding.
 
 ---
 

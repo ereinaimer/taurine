@@ -169,12 +169,7 @@ fn test_finalize_inline_run_with_transformers() {
 fn test_finalize_missing_run_file_emits_error_text() {
     let res = finalize("[exec.bash.file(C:\\definitely\\missing.sh)]", None);
 
-    assert_eq!(
-        res.steps,
-        vec![ExpansionStep::Text(
-            "[Error: path to script not found!]".to_string()
-        )]
-    );
+    assert_eq!(res.steps, vec![]);
 }
 
 #[test]

@@ -43,15 +43,30 @@ fn resolve_get(url: &str) -> Option<String> {
             let mut reader = res.into_reader().take(MAX_HTTP_RESPONSE_BYTES as u64);
             let mut buf = Vec::new();
             if reader.read_to_end(&mut buf).is_ok() {
-                String::from_utf8(buf)
-                    .ok()
-                    .or_else(|| Some("[Error: Response not UTF-8]".to_string()))
+                match String::from_utf8(buf) {
+                    Ok(body) => Some(body),
+                    Err(e) => {
+                        tracing::warn!(
+                            "HTTP GET response from '{}' is not valid UTF-8: {}",
+                            url_str,
+                            e
+                        );
+                        None
+                    }
+                }
             } else {
-                Some("[Error: HTTP request failed]".to_string())
+                tracing::warn!("Failed to read HTTP GET response body from '{}'", url_str);
+                None
             }
         }
-        Err(ureq::Error::Status(code, _)) => Some(format!("[Error: HTTP {}]", code)),
-        Err(_) => Some("[Error: HTTP request failed]".to_string()),
+        Err(ureq::Error::Status(code, _)) => {
+            tracing::warn!("HTTP GET request to '{}' returned status {}", url_str, code);
+            None
+        }
+        Err(e) => {
+            tracing::warn!("HTTP GET request to '{}' failed: {}", url_str, e);
+            None
+        }
     }
 }
 
@@ -65,7 +80,10 @@ fn resolve_status(url: &str) -> Option<String> {
     match req.call() {
         Ok(res) => Some(res.status().to_string()),
         Err(ureq::Error::Status(code, _)) => Some(code.to_string()),
-        Err(_) => Some("[Error: Request failed]".to_string()),
+        Err(e) => {
+            tracing::warn!("HTTP status check to '{}' failed: {}", url_str, e);
+            None
+        }
     }
 }
 
@@ -144,13 +162,13 @@ mod tests {
 
         let url = format!("http://127.0.0.1:{}", port);
         let res = resolve_get(&url);
-        assert_eq!(res, Some("[Error: HTTP request failed]".to_string()));
+        assert_eq!(res, None);
     }
 
     #[test]
     fn test_resolve_invalid_url() {
         let res = resolve_get("http://127.0.0.1:1");
-        assert_eq!(res, Some("[Error: HTTP request failed]".to_string()));
+        assert_eq!(res, None);
     }
 
     #[test]

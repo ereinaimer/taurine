@@ -10,7 +10,9 @@ pub(crate) enum Method<'a> {
 pub(crate) fn parse_methods(mut key: &str) -> Result<Vec<Method<'_>>, String> {
     let mut methods = Vec::new();
     while !key.is_empty() {
-        if key.starts_with("utc") {
+        if key.starts_with("now") {
+            key = &key[3..];
+        } else if key.starts_with("utc") {
             methods.push(Method::Utc);
             key = &key[3..];
         } else if key.starts_with("calc(") {
@@ -29,7 +31,7 @@ pub(crate) fn parse_methods(mut key: &str) -> Result<Vec<Method<'_>>, String> {
                 }
             }
             if end == 0 {
-                return Err("[Error: unclosed paren in calc]".to_string());
+                return Err("unclosed paren in calc".to_string());
             }
             methods.push(Method::Calc(&key[5..end]));
             key = &key[end + 1..];
@@ -53,20 +55,17 @@ pub(crate) fn parse_methods(mut key: &str) -> Result<Vec<Method<'_>>, String> {
                 }
             }
             if end == 0 {
-                return Err("[Error: unclosed paren in format]".to_string());
+                return Err("unclosed paren in format".to_string());
             }
             methods.push(Method::Format(&key[7..end]));
             key = &key[end + 1..];
         } else {
-            return Err(format!("[Error: unknown method '{}']", key));
+            return Err(format!("unknown method '{}'", key));
         }
 
         if !key.is_empty() {
             if !key.starts_with('.') {
-                return Err(format!(
-                    "[Error: expected '.' before method, got '{}']",
-                    key
-                ));
+                return Err(format!("expected '.' before method, got '{}'", key));
             }
             key = &key[1..];
         }
@@ -100,13 +99,13 @@ pub(crate) fn apply_temporal_calc(
 ) -> Result<OffsetDateTime, String> {
     let args = crate::engine::variables::system::strip_quotes(args.trim()).unwrap_or(args.trim());
     if args.is_empty() {
-        return Err("[Error: calc requires arguments]".to_string());
+        return Err("calc requires arguments".to_string());
     }
     let Some(first) = args.chars().next() else {
-        return Err("[Error: calc requires arguments]".to_string());
+        return Err("calc requires arguments".to_string());
     };
     if first != '+' && first != '-' {
-        return Err("[Error: calc needs + or -]".to_string());
+        return Err("calc needs + or -".to_string());
     }
 
     let mut is_positive = true;
@@ -127,11 +126,11 @@ pub(crate) fn apply_temporal_calc(
             i += 1;
         } else if c.is_alphabetic() {
             if current_num.is_empty() {
-                return Err("[Error: Missing number in calc]".to_string());
+                return Err("Missing number in calc".to_string());
             }
             let val = current_num
                 .parse::<i64>()
-                .map_err(|_| "[Error: Invalid number]".to_string())?;
+                .map_err(|_| "Invalid number in calc".to_string())?;
             let val = if is_positive { val } else { -val };
 
             // Check if multi-char unit like "min"
@@ -166,7 +165,7 @@ pub(crate) fn apply_temporal_calc(
                     's' | 'S' => {
                         dt += Duration::seconds(val);
                     }
-                    _ => return Err(format!("[Error: Unknown unit '{}' in calc]", c)),
+                    _ => return Err(format!("Unknown unit '{}' in calc", c)),
                 }
                 i += 1;
             }
@@ -174,7 +173,7 @@ pub(crate) fn apply_temporal_calc(
         } else if c.is_whitespace() {
             i += 1;
         } else {
-            return Err(format!("[Error: Invalid character '{}' in calc]", c));
+            return Err(format!("Invalid character '{}' in calc", c));
         }
     }
     Ok(dt)
@@ -296,7 +295,10 @@ pub fn resolve(key: &str) -> Option<String> {
     let method_str = if key == "datetime" { "" } else { &key[9..] };
     let methods = match parse_methods(method_str) {
         Ok(m) => m,
-        Err(e) => return Some(e),
+        Err(e) => {
+            tracing::warn!("Failed to parse datetime methods from '{}': {}", key, e);
+            return None;
+        }
     };
 
     let mut dt = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
@@ -310,7 +312,10 @@ pub fn resolve(key: &str) -> Option<String> {
             Method::Calc(args) => {
                 dt = match apply_temporal_calc(dt, args) {
                     Ok(new_dt) => new_dt,
-                    Err(e) => return Some(e),
+                    Err(e) => {
+                        tracing::warn!("Failed to calculate datetime offset '{}': {}", args, e);
+                        return None;
+                    }
                 };
             }
             Method::Format(args) => {
@@ -320,7 +325,13 @@ pub fn resolve(key: &str) -> Option<String> {
         }
     }
 
-    Some(format_temporal(dt, format_str).unwrap_or_else(|e| e))
+    match format_temporal(dt, format_str) {
+        Ok(formatted) => Some(formatted),
+        Err(e) => {
+            tracing::warn!("Failed to format datetime '{}': {}", format_str, e);
+            None
+        }
+    }
 }
 
 #[cfg(test)]

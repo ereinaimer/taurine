@@ -450,15 +450,18 @@ fn split_into_steps_with_origin(text: &str, origin: ExpansionOrigin) -> Vec<Expa
                     tracing::warn!(
                         "Blocked execution of [exec.*] block because scripts are disabled globally."
                     );
-                    steps.push(ExpansionStep::Text(
-                        "[Error: Script execution is disabled globally]".to_string(),
-                    ));
                 } else {
                     match exec::to_script_metadata(base_expr) {
                         Ok(metadata) => {
                             steps.push(ExpansionStep::InlineRun(metadata, transformers))
                         }
-                        Err(error) => steps.push(ExpansionStep::Text(format_run_error(error))),
+                        Err(error) => {
+                            tracing::warn!(
+                                "Failed to prepare exec script '{}': {}",
+                                base_expr,
+                                error
+                            );
+                        }
                     }
                 }
             } else if let Some(alias) = parse_key_directive(inner) {
@@ -540,14 +543,6 @@ fn restore_cursor_sentinels(steps: &mut [ExpansionStep]) {
 fn flush_text(steps: &mut Vec<ExpansionStep>, buf: &mut String) {
     if !buf.is_empty() {
         steps.push(ExpansionStep::Text(std::mem::take(buf)));
-    }
-}
-
-fn format_run_error(error: String) -> String {
-    if error.starts_with("[Error:") {
-        error
-    } else {
-        format!("[Error: {error}]")
     }
 }
 
