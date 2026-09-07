@@ -2,6 +2,7 @@ pub mod active_window;
 pub mod clipboard;
 pub mod fullscreen;
 pub mod power;
+pub mod veh;
 
 pub use active_window::{
     is_foreground_window_elevated_or_restricted, wait_for_foreground_window_idle,

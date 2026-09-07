@@ -60,6 +60,9 @@ pub fn start() -> taurine_core::error::Result<()> {
     use taurine_core::engine::{EngineState, Evaluator};
     use taurine_core::settings::SettingsManager;
 
+    #[cfg(windows)]
+    crate::platform::windows::veh::init_veh_handler();
+
     let settings_manager = SettingsManager::new(&conn);
     let settings = settings_manager.load_all();
 
