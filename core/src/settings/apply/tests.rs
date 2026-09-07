@@ -451,8 +451,8 @@ fn test_invalid_audio_theme_diagnostic() {
         "expected problem message, got: {msg}"
     );
     assert!(
-        msg.contains("default, typewriter, mechanical"),
-        "expected options listing default, typewriter, mechanical, got: {msg}"
+        msg.contains("minimal, soft, glass, arcade, mechanical, organic, dreamy, scifi, rubber, cinematic, studio, zen"),
+        "expected options listing all 12 themes, got: {msg}"
     );
     assert!(
         msg.contains("taurine config set audio_theme"),

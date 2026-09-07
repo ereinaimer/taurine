@@ -381,27 +381,9 @@ pub fn parse_audio_theme(value: &str) -> Result<super::AudioTheme> {
         "zen" => Ok(super::AudioTheme::Zen),
         other => {
             let diag = Diagnostic::problem(format!("{other} is not an available audio theme"))
-                .suggest(
-                    other,
-                    &[
-                        "default",
-                        "typewriter",
-                        "mechanical",
-                        "minimal",
-                        "soft",
-                        "glass",
-                        "arcade",
-                        "organic",
-                        "dreamy",
-                        "scifi",
-                        "rubber",
-                        "cinematic",
-                        "studio",
-                        "zen",
-                    ],
-                )
-                .options("Available themes", &["default", "typewriter", "mechanical"])
-                .example("taurine config set audio_theme mechanical")
+                .suggest(other, &super::AudioTheme::ALL_NAMES)
+                .options("Available themes", &super::AudioTheme::ALL_NAMES)
+                .example("taurine config set audio_theme minimal")
                 .render();
             Err(Error::Config(diag))
         }

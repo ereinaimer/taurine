@@ -321,22 +321,13 @@ fn split_cmd_args(input: &str) -> Vec<String> {
 pub fn native_shell_open(target: &str, args: Option<&str>) -> Result<(), String> {
     #[cfg(windows)]
     {
-        // For non-URL, non-shell targets (e.g. executable names or App Execution Aliases like "wt"),
-        // attempt direct process creation via CreateProcessW first. This isolates execution from
-        // the host daemon process, bypasses in-process Explorer COM extensions, and prevents
-        // access violations inside windows.storage.dll when resolving App Execution Aliases.
-        if !is_url_target(target) && !target.to_lowercase().starts_with("shell:") {
-            let mut cmd = std::process::Command::new(target);
-            if let Some(args_str) = args {
-                cmd.args(split_cmd_args(args_str));
-            }
-            if cmd.spawn().is_ok() {
-                return Ok(());
-            }
-        }
-
-        // For URLs, document associations, and shell folder items, dispatch via ShellExecuteExW
-        // on a dedicated thread with an initialized Single-Threaded Apartment (STA) COM context.
+        // Dispatch all targets (applications, App Execution Aliases like "wt", URLs, documents,
+        // and shell folders) via ShellExecuteExW on a dedicated thread with an initialized
+        // Single-Threaded Apartment (STA) COM context.
+        // Direct CreateProcessW from a windowless background daemon (CREATE_NO_WINDOW) causes
+        // MSIX App Execution Aliases such as Windows Terminal to launch into a headless zombie
+        // state with 0 windows. ShellExecuteExW within an active STA apartment resolves the alias
+        // cleanly through Windows Shell activation into the user's interactive desktop.
         let target_owned = target.to_string();
         let args_owned = args.map(|a| a.to_string());
 
@@ -349,9 +340,7 @@ pub fn native_shell_open(target: &str, args: Option<&str>) -> Result<(), String>
                     COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx,
                     CoUninitialize,
                 };
-                use windows_sys::Win32::UI::Shell::{
-                    SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SHELLEXECUTEINFOW, ShellExecuteExW,
-                };
+                use windows_sys::Win32::UI::Shell::{SHELLEXECUTEINFOW, ShellExecuteExW};
                 use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
                 // SAFETY: Initializes COM Single-Threaded Apartment for this dedicated worker thread.
@@ -372,9 +361,10 @@ pub fn native_shell_open(target: &str, args: Option<&str>) -> Result<(), String>
                 let wide_args: Option<Vec<u16>> =
                     args_owned.map(|a| a.encode_utf16().chain(std::iter::once(0)).collect());
 
+                // SAFETY: Zeroed memory is a valid initial state for SHELLEXECUTEINFOW before setting cbSize.
                 let mut exec_info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
                 exec_info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
-                exec_info.fMask = SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
+                exec_info.fMask = 0;
                 exec_info.lpVerb = wide_verb.as_ptr();
                 exec_info.lpFile = wide_target.as_ptr();
                 exec_info.lpParameters = wide_args
@@ -383,8 +373,8 @@ pub fn native_shell_open(target: &str, args: Option<&str>) -> Result<(), String>
                     .unwrap_or(ptr::null());
                 exec_info.nShow = SW_SHOWNORMAL;
 
-                // SAFETY: ShellExecuteExW executes the shell verb with valid null-terminated UTF-16 strings.
-                // SEE_MASK_NOASYNC guarantees the operation completes synchronously before the thread exits.
+                // SAFETY: ShellExecuteExW executes the shell verb with valid null-terminated UTF-16 strings
+                // within an initialized STA COM apartment, ensuring safe desktop shell resolution.
                 let success = unsafe { ShellExecuteExW(&mut exec_info) != 0 };
 
                 if should_uninit {

@@ -249,6 +249,21 @@ impl AudioTheme {
             Self::Zen,
         ]
     }
+
+    pub const ALL_NAMES: [&'static str; 12] = [
+        "minimal",
+        "soft",
+        "glass",
+        "arcade",
+        "mechanical",
+        "organic",
+        "dreamy",
+        "scifi",
+        "rubber",
+        "cinematic",
+        "studio",
+        "zen",
+    ];
 }
 
 impl std::str::FromStr for AudioTheme {
