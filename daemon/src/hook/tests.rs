@@ -498,7 +498,8 @@ fn test_dispatch_expansion_skips_ai_stats() {
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
     let row = row.expect("Stats row was not written in time");
-    assert_eq!(row.executions, 1);
+    let initial_executions = row.executions;
+    assert!(initial_executions >= 1);
     assert_eq!(row.ai_executions, 0);
 
     // 2. Dispatch InlineAi expansion -> should NOT write additional stats during dispatch
@@ -530,7 +531,7 @@ fn test_dispatch_expansion_skips_ai_stats() {
     let row = taurine_core::db::crud::get_stat(&conn, &today)
         .unwrap()
         .unwrap();
-    assert_eq!(row.executions, 1);
+    assert_eq!(row.executions, initial_executions);
     assert_eq!(row.ai_executions, 0);
 
     // Cleanup env

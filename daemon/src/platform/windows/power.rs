@@ -38,7 +38,12 @@ pub fn start_listener(tx: Sender<WindowsSupervisorEvent>) -> Result<(), String> 
 
     let handle = thread::Builder::new()
         .name("tau-win-power".to_string())
-        .spawn(run_message_loop)
+        .spawn(|| {
+            let _ = crate::platform::panic::catch_worker_panic(
+                "tau-win-power",
+                std::panic::AssertUnwindSafe(run_message_loop),
+            );
+        })
         .map_err(|error| error.to_string())?;
 
     if let Ok(mut lock) = POWER_JOIN_HANDLE.lock() {
@@ -155,7 +160,7 @@ unsafe extern "system" fn window_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    match message {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match message {
         WM_DISPLAYCHANGE => {
             info!("Detected Windows display change event");
             send_event(WindowsSupervisorEvent::DisplayChange);
@@ -210,6 +215,17 @@ unsafe extern "system" fn window_proc(
         _ => {
             // SAFETY: Default DefWindowProcW for any unhandled message.
             // `hwnd` is valid, all parameters are OS-provided.
+            unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
+        }
+    }));
+
+    match result {
+        Ok(res) => res,
+        Err(_) => {
+            tracing::error!(
+                "Panic caught in power/session window procedure; falling back to DefWindowProcW"
+            );
+            // SAFETY: Safe fallback on caught panic.
             unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
         }
     }

@@ -26,61 +26,67 @@ pub fn start_listener(state: Arc<EngineState>) {
     let spawn_result = std::thread::Builder::new()
         .name("tau-win-full".to_string())
         .spawn(move || {
-            // SAFETY: GetCurrentThreadId retrieves the OS thread ID of the calling thread.
-            // It always succeeds and has no failure modes.
-            let tid = unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() };
-            FULLSCREEN_THREAD_ID.store(tid, Ordering::Relaxed);
+            let _ = crate::platform::panic::catch_worker_panic(
+                "tau-win-full",
+                std::panic::AssertUnwindSafe(move || {
+                    // SAFETY: GetCurrentThreadId retrieves the OS thread ID of the calling thread.
+                    // It always succeeds and has no failure modes.
+                    let tid =
+                        unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() };
+                    FULLSCREEN_THREAD_ID.store(tid, Ordering::Relaxed);
 
-            ENGINE_STATE.with(|s| *s.borrow_mut() = Some(state));
+                    ENGINE_STATE.with(|s| *s.borrow_mut() = Some(state));
 
-            // SAFETY: All Win32 calls in this block operate on the current thread's
-            // message queue. SetWinEventHook registers callback functions for system
-            // events (foreground window changes and object location changes). The
-            // null hmod argument (third param) means the callback lives in this module.
-            // SetTimer creates a 100ms timer with a callback function. GetMessageW,
-            // TranslateMessage, and DispatchMessageW drive the message loop.
-            // `win_event_proc` and `timer_proc` are safe `extern "system"` functions.
-            // `std::mem::zeroed()` is safe for MSG (it is a POD struct). All HWND
-            // null checks are done before use. The WinEvent hooks are never explicitly
-            // unhooked — they are automatically removed when the thread terminates.
-            unsafe {
-                let hook_foreground = SetWinEventHook(
-                    EVENT_SYSTEM_FOREGROUND,
-                    EVENT_SYSTEM_FOREGROUND,
-                    std::ptr::null_mut(),
-                    Some(win_event_proc),
-                    0,
-                    0,
-                    WINEVENT_OUTOFCONTEXT,
-                );
+                    // SAFETY: All Win32 calls in this block operate on the current thread's
+                    // message queue. SetWinEventHook registers callback functions for system
+                    // events (foreground window changes and object location changes). The
+                    // null hmod argument (third param) means the callback lives in this module.
+                    // SetTimer creates a 100ms timer with a callback function. GetMessageW,
+                    // TranslateMessage, and DispatchMessageW drive the message loop.
+                    // `win_event_proc` and `timer_proc` are safe `extern "system"` functions.
+                    // `std::mem::zeroed()` is safe for MSG (it is a POD struct). All HWND
+                    // null checks are done before use. The WinEvent hooks are never explicitly
+                    // unhooked — they are automatically removed when the thread terminates.
+                    unsafe {
+                        let hook_foreground = SetWinEventHook(
+                            EVENT_SYSTEM_FOREGROUND,
+                            EVENT_SYSTEM_FOREGROUND,
+                            std::ptr::null_mut(),
+                            Some(win_event_proc),
+                            0,
+                            0,
+                            WINEVENT_OUTOFCONTEXT,
+                        );
 
-                let hook_location = SetWinEventHook(
-                    EVENT_OBJECT_LOCATIONCHANGE,
-                    EVENT_OBJECT_LOCATIONCHANGE,
-                    std::ptr::null_mut(),
-                    Some(win_event_proc),
-                    0,
-                    0,
-                    WINEVENT_OUTOFCONTEXT,
-                );
+                        let hook_location = SetWinEventHook(
+                            EVENT_OBJECT_LOCATIONCHANGE,
+                            EVENT_OBJECT_LOCATIONCHANGE,
+                            std::ptr::null_mut(),
+                            Some(win_event_proc),
+                            0,
+                            0,
+                            WINEVENT_OUTOFCONTEXT,
+                        );
 
-                if hook_foreground.is_null() || hook_location.is_null() {
-                    error!("Failed to set Windows event hooks for fullscreen detection.");
-                    return;
-                }
+                        if hook_foreground.is_null() || hook_location.is_null() {
+                            error!("Failed to set Windows event hooks for fullscreen detection.");
+                            return;
+                        }
 
-                // Fallback polling timer (runs every 100ms) to handle edge cases
-                // where WinEvents are silently dropped or delayed.
-                SetTimer(std::ptr::null_mut(), 0, 100, Some(timer_proc));
+                        // Fallback polling timer (runs every 100ms) to handle edge cases
+                        // where WinEvents are silently dropped or delayed.
+                        SetTimer(std::ptr::null_mut(), 0, 100, Some(timer_proc));
 
-                check_fullscreen_state();
+                        check_fullscreen_state();
 
-                let mut msg: MSG = std::mem::zeroed();
-                while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
-                    TranslateMessage(&msg);
-                    DispatchMessageW(&msg);
-                }
-            }
+                        let mut msg: MSG = std::mem::zeroed();
+                        while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
+                            TranslateMessage(&msg);
+                            DispatchMessageW(&msg);
+                        }
+                    }
+                }),
+            );
         });
 
     match spawn_result {
@@ -140,20 +146,22 @@ unsafe extern "system" fn win_event_proc(
     _ideventthread: u32,
     _dwmsceventtime: u32,
 ) {
-    if hwnd.is_null() || idobject != OBJID_WINDOW {
-        return;
-    }
-
-    if event == EVENT_OBJECT_LOCATIONCHANGE {
-        // SAFETY: GetForegroundWindow returns a handle to the foreground window
-        // (or null). No error state; always safe to call from any thread.
-        let fg = unsafe { GetForegroundWindow() };
-        if fg != hwnd {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if hwnd.is_null() || idobject != OBJID_WINDOW {
             return;
         }
-    }
 
-    check_fullscreen_state();
+        if event == EVENT_OBJECT_LOCATIONCHANGE {
+            // SAFETY: GetForegroundWindow returns a handle to the foreground window
+            // (or null). No error state; always safe to call from any thread.
+            let fg = unsafe { GetForegroundWindow() };
+            if fg != hwnd {
+                return;
+            }
+        }
+
+        check_fullscreen_state();
+    }));
 }
 
 // SAFETY: Timer callback invoked by the OS message loop. Registered via SetTimer.
@@ -161,7 +169,7 @@ unsafe extern "system" fn win_event_proc(
 // (check_fullscreen_state) is needed. The callback is always safe to call from
 // the thread that created the timer.
 unsafe extern "system" fn timer_proc(_hwnd: HWND, _msg: u32, _id_event: usize, _time: u32) {
-    check_fullscreen_state();
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(check_fullscreen_state));
 }
 
 fn check_fullscreen_state() {

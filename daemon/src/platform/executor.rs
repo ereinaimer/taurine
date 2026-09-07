@@ -710,7 +710,9 @@ mod tests {
 
     #[test]
     fn test_expand_env_vars() {
-        let _guard = taurine_core::testing::TEST_LOCK.lock().unwrap();
+        let _guard = taurine_core::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
         unsafe { std::env::set_var("TAURINE_TEST_DIR", "C:\\TaurineData") };
 
@@ -766,7 +768,9 @@ mod tests {
 
     #[test]
     fn test_parse_powershell_start_process_env_var() {
-        let _guard = taurine_core::testing::TEST_LOCK.lock().unwrap();
+        let _guard = taurine_core::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
         unsafe { std::env::set_var("LOCALAPPDATA", "C:\\Users\\Test\\AppData\\Local") };
 

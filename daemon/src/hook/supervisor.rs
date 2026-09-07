@@ -84,7 +84,10 @@ pub fn start_windows_supervisor(
     let spawn_result = std::thread::Builder::new()
         .name("tau-hook-super".to_string())
         .spawn(move || {
-            let mut listener_handle: Option<ListenerHandle> = Some(spawn_windows_hook_listener(
+            let _ = crate::platform::panic::catch_worker_panic(
+                "tau-hook-super",
+                std::panic::AssertUnwindSafe(move || {
+                    let mut listener_handle: Option<ListenerHandle> = Some(spawn_windows_hook_listener(
                 evaluator.clone(),
                 state.clone(),
                 paused.clone(),
@@ -282,7 +285,9 @@ pub fn start_windows_supervisor(
 
             debug!("Hook supervisor thread is shutting down");
             tear_down_listener(&mut listener_handle);
-        });
+        }),
+    );
+});
 
     if let Err(error) = spawn_result {
         error!(error = %error, "Failed to spawn Windows hook supervisor thread");
