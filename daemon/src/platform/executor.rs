@@ -323,14 +323,21 @@ pub fn native_shell_open(target: &str, args: Option<&str>) -> Result<(), String>
     {
         use std::os::windows::process::CommandExt;
 
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        // CREATE_NEW_CONSOLE forces Windows to allocate a dedicated console host for the child,
+        // breaking console apps (pwsh.exe, cmd.exe) and wrappers (wt.exe) out of Taurine daemon's
+        // windowless CREATE_NO_WINDOW context to prevent headless zombie states and missing console errors.
+        // For GUI applications (Notepad, Calculator, etc.), Windows safely ignores CREATE_NEW_CONSOLE.
+        const CREATE_NEW_CONSOLE: u32 = 0x00000010;
 
         let clean_target = strip_quotes(target);
         let is_url_or_shell = is_url_target(clean_target)
             || clean_target.starts_with("shell:")
             || clean_target.contains("://");
 
-        // For non-URL, non-shell targets: first try direct Command::new
+        // 1. Direct executable launch:
+        // Attempt direct process creation via Command::new with CREATE_NEW_CONSOLE first.
+        // This isolates execution out-of-process, bypasses in-process Explorer COM extensions,
+        // and guarantees console allocations for CLI tools and terminal wrappers.
         if !is_url_or_shell {
             let mut direct_cmd = std::process::Command::new(clean_target);
             if let Some(args_str) = args {
@@ -338,29 +345,104 @@ pub fn native_shell_open(target: &str, args: Option<&str>) -> Result<(), String>
                     direct_cmd.arg(arg);
                 }
             }
+            direct_cmd.creation_flags(CREATE_NEW_CONSOLE);
             if direct_cmd.spawn().is_ok() {
                 return Ok(());
             }
-        }
 
-        // Fallback for execution aliases, documents, URLs, or shell items:
-        // Spawn out-of-process via cmd.exe /c start "" <target> [args]
-        // This isolates third-party shell extensions and COM handlers entirely out of Taurine's process.
-        let mut start_cmd = std::process::Command::new("cmd.exe");
-        start_cmd.arg("/c").arg("start").arg("").arg(clean_target);
-
-        if let Some(args_str) = args {
-            for arg in split_cmd_args(args_str) {
-                start_cmd.arg(arg);
+            if !clean_target.contains('.') {
+                let exe_target = format!("{}.exe", clean_target);
+                let mut exe_cmd = std::process::Command::new(&exe_target);
+                if let Some(args_str) = args {
+                    for arg in split_cmd_args(args_str) {
+                        exe_cmd.arg(arg);
+                    }
+                }
+                exe_cmd.creation_flags(CREATE_NEW_CONSOLE);
+                if exe_cmd.spawn().is_ok() {
+                    return Ok(());
+                }
             }
         }
 
-        start_cmd.creation_flags(CREATE_NO_WINDOW);
+        // 2. URLs, shell associations, and documents requiring shell resolution:
+        // Dispatch via ShellExecuteExW on a dedicated fire-and-forget worker thread with an STA COM apartment.
+        // - SEE_MASK_NOASYNC ensures ShellExecuteExW blocks until shell DDE / extension handoff completes
+        //   before CoUninitialize() runs, preventing 0xc0000005 access violations in windows.storage.dll.
+        // - Omitting .join() guarantees the caller (e.g. low-level WH_MOUSE_LL / WH_KEYBOARD_LL hook)
+        //   returns immediately without blocking or timing out.
+        let target_owned = clean_target.to_string();
+        let args_owned = args.map(|a| a.to_string());
 
-        start_cmd
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| format!("Failed to spawn out-of-process shell start: {}", e))
+        std::thread::Builder::new()
+            .name("tau-shell-open".into())
+            .spawn(move || {
+                let _ = crate::platform::panic::catch_worker_panic(
+                    "tau-shell-open",
+                    std::panic::AssertUnwindSafe(|| {
+                        use std::ptr;
+                        use windows_sys::Win32::System::Com::{
+                            COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx,
+                            CoUninitialize,
+                        };
+                        use windows_sys::Win32::UI::Shell::{
+                            SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SHELLEXECUTEINFOW,
+                            ShellExecuteExW,
+                        };
+                        use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+                        // SAFETY: Initializes COM Single-Threaded Apartment for this dedicated worker thread.
+                        let hr = unsafe {
+                            CoInitializeEx(
+                                ptr::null_mut(),
+                                (COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) as u32,
+                            )
+                        };
+                        let should_uninit = hr >= 0;
+
+                        let wide_verb: Vec<u16> = "open\0".encode_utf16().collect();
+                        let wide_target: Vec<u16> = target_owned
+                            .encode_utf16()
+                            .chain(std::iter::once(0))
+                            .collect();
+                        let wide_args: Option<Vec<u16>> = args_owned
+                            .map(|a| a.encode_utf16().chain(std::iter::once(0)).collect());
+
+                        // SAFETY: Zeroed memory is a valid initial state for SHELLEXECUTEINFOW before setting cbSize.
+                        let mut exec_info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
+                        exec_info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+                        exec_info.fMask = SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
+                        exec_info.lpVerb = wide_verb.as_ptr();
+                        exec_info.lpFile = wide_target.as_ptr();
+                        exec_info.lpParameters = wide_args
+                            .as_ref()
+                            .map(|a| a.as_ptr())
+                            .unwrap_or(ptr::null());
+                        exec_info.nShow = SW_SHOWNORMAL;
+
+                        // SAFETY: ShellExecuteExW executes the shell verb with valid null-terminated UTF-16 strings
+                        // within an initialized STA COM apartment. SEE_MASK_NOASYNC guarantees asynchronous
+                        // shell extension handoff completes cleanly before CoUninitialize runs.
+                        let success = unsafe { ShellExecuteExW(&mut exec_info) != 0 };
+
+                        if should_uninit {
+                            // SAFETY: CoUninitialize balances successful CoInitializeEx on this dedicated thread.
+                            unsafe { CoUninitialize() };
+                        }
+
+                        if !success {
+                            tracing::warn!(
+                                "ShellExecuteExW failed for target '{}' with code: {:?}",
+                                target_owned,
+                                exec_info.hInstApp as usize
+                            );
+                        }
+                    }),
+                );
+            })
+            .map_err(|e| format!("Failed to spawn shell open thread: {}", e))?;
+
+        Ok(())
     }
     #[cfg(not(windows))]
     {

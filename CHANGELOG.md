@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **In-Band Error Elimination**: Erase triggers cleanly without inserting error strings into documents when snippet expansions or system variables encounter errors.
-- **Windows Terminal Headless Launch**: Prevent Windows Terminal and PowerShell from launching into an invisible zombie state when invoked from background script hotkeys.
+- **Terminal & Shell Launch Resilience**: Allocate dedicated console hosts for terminal applications and isolate URL shell activations to prevent crashes and invisible zombie processes.
 - **Mouse Button 4 and 5 Simulation**: Direct Win32 input simulation for mouse buttons 4 and 5 (browser back/forward) on Windows.
 - **Update Progress Display**: Prevent raw terminal escape codes from displaying during update progress.
 - **Word Boundary Expansion Accuracy**: Prevent unwanted expansions when triggers appear inside larger words or follow digits by requiring non-alphanumeric boundaries.
