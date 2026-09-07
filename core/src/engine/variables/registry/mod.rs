@@ -169,7 +169,7 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "lorem" => "Valid forms: [lorem], [lorem([n])], [lorem.word([n])], [lorem.sentence([n])], [lorem.paragraph([n])]".to_string(),
         "file" => format!("Valid modifiers: {}", FILE_MODIFIERS.join(", ")),
         "key" => format!(
-            "Valid forms: [key(<token>)]. Tokens: {}. You can combine them with `+`, and any single character token is also allowed.",
+            "Valid forms: [key(<token>)]. Tokens: {}. You can combine them with +, and any single character token is also allowed.",
             KEY_MODIFIERS.join(", ")
         ),
         "delay" => "Valid form: [delay(<ms>)] or [delay(<u64>ms)]".to_string(),

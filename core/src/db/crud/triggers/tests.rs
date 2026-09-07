@@ -817,7 +817,8 @@ fn bare_mouse_buttons_fail_trigger_validation_with_informative_error() {
     assert!(
         err_mouse4
             .to_string()
-            .contains("mouse button 'mouse4' requires at least one modifier key"),
+            .to_lowercase()
+            .contains("mouse button mouse4 requires at least one modifier key"),
         "unexpected error message: {err_mouse4}"
     );
 
@@ -825,7 +826,8 @@ fn bare_mouse_buttons_fail_trigger_validation_with_informative_error() {
     assert!(
         err_mouse1
             .to_string()
-            .contains("mouse button 'mouse1' requires at least one modifier key"),
+            .to_lowercase()
+            .contains("mouse button mouse1 requires at least one modifier key"),
         "unexpected error message: {err_mouse1}"
     );
 
@@ -850,7 +852,8 @@ fn bare_mouse_buttons_fail_trigger_validation_with_informative_error() {
     assert!(
         err_create
             .to_string()
-            .contains("mouse button 'mouse4' requires at least one modifier key"),
+            .to_lowercase()
+            .contains("mouse button mouse4 requires at least one modifier key"),
         "unexpected error message: {err_create}"
     );
 
@@ -868,7 +871,8 @@ fn bare_mouse_buttons_fail_trigger_validation_with_informative_error() {
     assert!(
         err_conflict
             .to_string()
-            .contains("mouse button 'mouse1' requires at least one modifier key"),
+            .to_lowercase()
+            .contains("mouse button mouse1 requires at least one modifier key"),
         "unexpected error message: {err_conflict}"
     );
 }
@@ -1712,4 +1716,52 @@ fn delete_triggers_by_pattern_ignores_already_deleted() {
 
     let deleted = crate::db::crud::delete_triggers_by_pattern(&conn, "test_*").unwrap();
     assert_eq!(deleted, 0);
+}
+
+#[test]
+fn test_audit_payload_tags_mouse_invalid_directive_diagnostic() {
+    let err = audit_payload_tags("[mouse.click(nonextent)]").unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("modifier click(nonextent) invalid for mouse"),
+        "expected unquoted modifier error, got: {msg}"
+    );
+    assert!(!msg.contains('`'), "must not contain backticks: {msg}");
+    assert!(
+        msg.contains("Valid directives:"),
+        "expected valid directives list, got: {msg}"
+    );
+    assert!(
+        msg.contains("Supported buttons:"),
+        "expected supported buttons list, got: {msg}"
+    );
+}
+
+#[test]
+fn test_audit_payload_tags_unknown_variable_suggests_clipboard() {
+    let err = audit_payload_tags("[clipbd]").unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("dynamic variables need a default"),
+        "expected dynamic variable error, got: {msg}"
+    );
+    assert!(
+        msg.contains("Did you mean [clipboard]?") || msg.contains("Did you mean [clip]?"),
+        "expected suggestion for clipboard, got: {msg}"
+    );
+}
+
+#[test]
+fn test_audit_payload_tags_date_today_invalid_modifier_diagnostic() {
+    let err = audit_payload_tags("[date.today]").unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("modifier today invalid for date"),
+        "expected unquoted modifier error, got: {msg}"
+    );
+    assert!(!msg.contains('`'), "must not contain backticks: {msg}");
+    assert!(
+        msg.contains("Valid modifiers / methods:"),
+        "expected valid methods guidance, got: {msg}"
+    );
 }

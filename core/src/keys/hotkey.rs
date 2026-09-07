@@ -651,4 +651,50 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn test_hotkey_unknown_modifier_typo_suggests_shift() {
+        let err = parse_hotkey("super+shft+a").unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("shft is not a recognized key or modifier"),
+            "expected problem message, got: {msg}"
+        );
+        assert!(
+            msg.contains("Did you mean shift?"),
+            "expected suggestion for shift, got: {msg}"
+        );
+        assert!(
+            msg.contains("Valid modifiers:"),
+            "expected valid modifiers list, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_hotkey_unknown_modifier_transposition_suggests_alt() {
+        let err = parse_hotkey("atl+a").unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("atl is not a recognized key or modifier"),
+            "expected problem message, got: {msg}"
+        );
+        assert!(
+            msg.contains("Did you mean alt?"),
+            "expected suggestion for alt, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_hotkey_unknown_modifier_transposition_suggests_ctrl() {
+        let err = parse_hotkey("ctlr+b").unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("ctlr is not a recognized key or modifier"),
+            "expected problem message, got: {msg}"
+        );
+        assert!(
+            msg.contains("Did you mean ctrl?"),
+            "expected suggestion for ctrl, got: {msg}"
+        );
+    }
 }

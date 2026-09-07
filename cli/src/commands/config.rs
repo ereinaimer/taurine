@@ -217,6 +217,26 @@ pub fn execute_reset_all(json: bool) -> taurine_core::error::Result<()> {
     Ok(())
 }
 
+pub fn execute_reset_command(
+    key: Option<String>,
+    all: bool,
+    json: bool,
+) -> taurine_core::error::Result<()> {
+    if all {
+        execute_reset_all(json)
+    } else if let Some(k) = key {
+        execute_reset(k, json)
+    } else {
+        Err(taurine_core::error::Error::Config(
+            taurine_core::diagnostic::Diagnostic::problem("Missing setting key to reset")
+                .help("Specify a key or use --all to restore factory defaults:")
+                .example("taurine config reset audio_theme")
+                .example("taurine config reset --all")
+                .render(),
+        ))
+    }
+}
+
 fn render_optional_setting(value: Option<&str>) -> &str {
     value.filter(|v| !v.is_empty()).unwrap_or("<unset>")
 }
@@ -428,5 +448,15 @@ mod tests {
             Ok(manager.load_all().audio_volume)
         });
         assert_eq!(persisted.unwrap(), 65);
+    }
+
+    #[test]
+    fn test_reset_missing_key_diagnostic() {
+        let err = execute_reset_command(None, false, false).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("Missing setting key to reset"));
+        assert!(msg.contains("Specify a key or use --all to restore factory defaults:"));
+        assert!(msg.contains("taurine config reset audio_theme"));
+        assert!(msg.contains("taurine config reset --all"));
     }
 }

@@ -55,7 +55,7 @@ fn main() -> std::process::ExitCode {
     }));
 
     if let Err(e) = run(cli, launch_target) {
-        error!("Error: {}", e);
+        error!("{}", e);
         return std::process::ExitCode::from(1);
     }
 
@@ -116,14 +116,7 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
             ConfigAction::Set { key, value } => commands::config::execute_set(key, value, json)?,
             ConfigAction::List => commands::config::execute_list(json)?,
             ConfigAction::Reset { key, all } => {
-                if all {
-                    commands::config::execute_reset_all(json)?;
-                } else if let Some(k) = key {
-                    commands::config::execute_reset(k, json)?;
-                } else {
-                    error!("error: provide a key to reset or use --all to reset everything");
-                    std::process::exit(1);
-                }
+                commands::config::execute_reset_command(key, all, json)?;
             }
         },
         Some(Commands::Ai {

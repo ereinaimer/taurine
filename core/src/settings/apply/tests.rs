@@ -415,3 +415,157 @@ fn test_audio_volume_settings() {
 
     assert!(apply_setting_input_with_manager(&manager, "audio_volume", Some("invalid")).is_err());
 }
+
+#[test]
+fn test_unknown_setting_key_diagnostic() {
+    let (_dir, conn) = open_test_db();
+    let manager = SettingsManager::new(&conn);
+
+    let err = apply_setting_input_with_manager(&manager, "theme", Some("arcade")).unwrap_err();
+    let msg = err.to_string();
+
+    assert!(
+        msg.contains("theme is not a valid configuration setting"),
+        "expected problem message, got: {msg}"
+    );
+    assert!(
+        msg.contains("Did you mean audio_theme?"),
+        "expected suggestion for audio_theme, got: {msg}"
+    );
+    assert!(
+        msg.contains("To view all available settings and their values, run: taurine config list"),
+        "expected guidance to taurine config list, got: {msg}"
+    );
+}
+
+#[test]
+fn test_invalid_audio_theme_diagnostic() {
+    let (_dir, conn) = open_test_db();
+    let manager = SettingsManager::new(&conn);
+
+    let err = apply_setting_input_with_manager(&manager, "audio_theme", Some("synth")).unwrap_err();
+    let msg = err.to_string();
+
+    assert!(
+        msg.contains("synth is not an available audio theme"),
+        "expected problem message, got: {msg}"
+    );
+    assert!(
+        msg.contains("default, typewriter, mechanical"),
+        "expected options listing default, typewriter, mechanical, got: {msg}"
+    );
+    assert!(
+        msg.contains("taurine config set audio_theme"),
+        "expected example command, got: {msg}"
+    );
+}
+
+#[test]
+fn test_invalid_boolean_diagnostic() {
+    let (_dir, conn) = open_test_db();
+    let manager = SettingsManager::new(&conn);
+
+    let err = apply_setting_input_with_manager(&manager, "start_on_boot", Some("yes")).unwrap_err();
+    let msg = err.to_string();
+
+    assert!(
+        msg.contains("yes is not a valid boolean value"),
+        "expected problem message, got: {msg}"
+    );
+    assert!(
+        msg.contains("Expected true or false (or 1 / 0)"),
+        "expected help message, got: {msg}"
+    );
+}
+
+#[test]
+fn test_out_of_range_rpc_port_diagnostic() {
+    let (_dir, conn) = open_test_db();
+    let manager = SettingsManager::new(&conn);
+
+    let err = apply_setting_input_with_manager(&manager, "rpc_port", Some("80")).unwrap_err();
+    let msg = err.to_string();
+
+    assert!(
+        msg.contains("Port 80 is outside the allowed range (1024-65535)"),
+        "expected problem message, got: {msg}"
+    );
+}
+
+#[test]
+fn test_invalid_spinner_style_diagnostic() {
+    let (_dir, conn) = open_test_db();
+    let manager = SettingsManager::new(&conn);
+
+    let err = apply_setting_input_with_manager(&manager, "spinner_style", Some("dot")).unwrap_err();
+    let msg = err.to_string();
+
+    assert!(
+        msg.contains("dot is not an available spinner style"),
+        "expected problem message, got: {msg}"
+    );
+    assert!(
+        msg.contains("classic, braille, arc"),
+        "expected options listing classic, braille, arc, got: {msg}"
+    );
+    assert!(
+        msg.contains("taurine config set spinner_style"),
+        "expected example command, got: {msg}"
+    );
+}
+
+#[test]
+fn test_invalid_rpc_mode_diagnostic() {
+    let (_dir, conn) = open_test_db();
+    let manager = SettingsManager::new(&conn);
+
+    let err = apply_setting_input_with_manager(&manager, "rpc_mode", Some("grpc")).unwrap_err();
+    let msg = err.to_string();
+
+    assert!(
+        msg.contains("grpc is not an available RPC mode"),
+        "expected problem message, got: {msg}"
+    );
+    assert!(
+        msg.contains("socket, tcp"),
+        "expected options listing socket, tcp, got: {msg}"
+    );
+}
+
+#[test]
+fn test_invalid_inline_dictionary_mode_diagnostic() {
+    let (_dir, conn) = open_test_db();
+    let manager = SettingsManager::new(&conn);
+
+    let err = apply_setting_input_with_manager(&manager, "inline_dictionary_mode", Some("ultra"))
+        .unwrap_err();
+    let msg = err.to_string();
+
+    assert!(
+        msg.contains("ultra is not an available dictionary mode"),
+        "expected problem message, got: {msg}"
+    );
+    assert!(
+        msg.contains("lite, full"),
+        "expected options listing lite, full, got: {msg}"
+    );
+}
+
+#[test]
+fn test_invalid_inline_datetime_dialect_diagnostic() {
+    let (_dir, conn) = open_test_db();
+    let manager = SettingsManager::new(&conn);
+
+    let err = apply_setting_input_with_manager(&manager, "inline_datetime_dialect", Some("au"))
+        .unwrap_err();
+    let msg = err.to_string();
+
+    assert!(
+        msg.contains("au is not an available datetime dialect"),
+        "expected problem message, got: {msg}"
+    );
+    assert!(
+        msg.contains("uk, us"),
+        "expected options listing uk, us, got: {msg}"
+    );
+}

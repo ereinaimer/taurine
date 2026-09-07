@@ -8,14 +8,26 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
         return crate::commands::script::execute_args(args, json);
     }
 
-    let (Some(trigger), Some(output)) = (args.trigger, args.output) else {
-        // Show help for add command if neither subcommand nor positional args are valid
-        use clap::CommandFactory;
-        let mut cmd = crate::args::Cli::command();
-        if let Some(add_cmd) = cmd.get_subcommands_mut().find(|c| c.get_name() == "add") {
-            add_cmd.print_help()?;
+    let (trigger, output) = match (args.trigger, args.output) {
+        (Some(t), Some(o)) => (t, o),
+        (Some(t), None) => {
+            let diag = taurine_core::diagnostic::Diagnostic::problem(format!(
+                "Missing replacement output for trigger {t}"
+            ))
+            .help("Specify both the trigger and its replacement output:")
+            .example(format!("taurine add {t} <OUTPUT>"))
+            .example("taurine add :brb Be right back!");
+            return Err(taurine_core::Error::Config(diag.render()));
         }
-        return Ok(());
+        _ => {
+            let diag = taurine_core::diagnostic::Diagnostic::problem(
+                "Missing trigger and replacement output",
+            )
+            .help("Specify both the trigger and the replacement output, or add a script trigger:")
+            .example("taurine add :brb Be right back!")
+            .example("taurine add script ./greet.sh :greet --lang bash");
+            return Err(taurine_core::Error::Config(diag.render()));
+        }
     };
 
     let os = args
@@ -670,5 +682,71 @@ mod tests {
                 .unwrap();
             assert_eq!(count, 2);
         });
+    }
+
+    #[test]
+    fn test_add_missing_output_diagnostic() {
+        let args = AddArgs {
+            sub: None,
+            hotkey: false,
+            regex: false,
+            include_apps: None,
+            exclude_apps: None,
+            trigger: Some(":brb".to_string()),
+            output: None,
+            os: crate::args::TargetOsCli::All,
+            tag: None,
+            name: None,
+            description: None,
+            auto_case: false,
+        };
+
+        let result = execute_args(args, false);
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Missing replacement output for trigger :brb"),
+            "Error was: {err}"
+        );
+        assert!(
+            err.contains("Specify both the trigger and its replacement output:"),
+            "Error was: {err}"
+        );
+        assert!(
+            err.contains("taurine add :brb <OUTPUT>"),
+            "Error was: {err}"
+        );
+        assert!(!err.contains('`'), "Must not contain backticks: {err}");
+        assert!(!err.contains('\''), "Must not contain single quotes: {err}");
+    }
+
+    #[test]
+    fn test_add_missing_both_diagnostic() {
+        let args = AddArgs {
+            sub: None,
+            hotkey: false,
+            regex: false,
+            include_apps: None,
+            exclude_apps: None,
+            trigger: None,
+            output: None,
+            os: crate::args::TargetOsCli::All,
+            tag: None,
+            name: None,
+            description: None,
+            auto_case: false,
+        };
+
+        let result = execute_args(args, false);
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Missing trigger and replacement output"),
+            "Error was: {err}"
+        );
+        assert!(
+            err.contains("taurine add :brb Be right back!"),
+            "Error was: {err}"
+        );
+        assert!(!err.contains('`'), "Must not contain backticks: {err}");
+        assert!(!err.contains('\''), "Must not contain single quotes: {err}");
     }
 }

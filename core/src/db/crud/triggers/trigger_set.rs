@@ -107,27 +107,35 @@ pub fn prepare_trigger_with_type(
         });
     }
 
-    let hotkey = parse_hotkey(trigger).map_err(|error| {
-        crate::Error::Config(format!("Invalid hotkey '{}': {}", trigger, error))
-    })?;
+    let hotkey = parse_hotkey(trigger)
+        .map_err(|error| crate::Error::Config(format!("Invalid hotkey {trigger}: {error}")))?;
     let canonical = hotkey.canonical_string();
 
     if conflicts_with_taurine_global_hotkey(hotkey).is_some() {
-        return Err(crate::Error::Config(format!(
-            "Hotkey '{}' conflicts with Taurine's global pause hotkey alt+`",
-            canonical
-        )));
+        let diag = crate::diagnostic::Diagnostic::problem(format!(
+            "Hotkey {canonical} conflicts with Taurine's global pause hotkey"
+        ))
+        .help("alt+` is reserved globally to pause and resume Taurine expansion.")
+        .example("taurine config set pause_hotkey <NEW_HOTKEY>")
+        .render();
+        return Err(crate::Error::Config(diag));
     }
 
     for platform in desktop_platforms_for_target_os(target_os)? {
         if let Some(danger) = danger_for_platform(hotkey, *platform) {
-            return Err(crate::Error::Config(format!(
-                "Hotkey '{}' is not allowed for target_os '{}': conflicts with the {} on {}",
-                canonical,
-                target_os,
-                danger.description(),
-                platform.as_label(),
-            )));
+            let key_name = hotkey.logical_key().canonical_name();
+            let diag = crate::diagnostic::Diagnostic::problem(format!(
+                "Hotkey {canonical} is not allowed for target_os {target_os}: conflicts with the system {desc} on {platform_label}",
+                desc = danger.description(),
+                platform_label = platform.as_label(),
+            ))
+            .help(format!(
+                "To avoid overriding system shortcuts on {target_os}, use an alternative modifier combination."
+            ))
+            .example(format!("alt+{key_name}"))
+            .example(format!("super+{key_name}"))
+            .render();
+            return Err(crate::Error::Config(diag));
         }
     }
 
@@ -582,9 +590,9 @@ trait PlatformLabel {
 impl PlatformLabel for HotkeyPlatform {
     fn as_label(&self) -> &'static str {
         match self {
-            HotkeyPlatform::Windows => "windows",
-            HotkeyPlatform::Linux => "linux",
-            HotkeyPlatform::Mac => "mac",
+            HotkeyPlatform::Windows => "Windows",
+            HotkeyPlatform::Linux => "Linux",
+            HotkeyPlatform::Mac => "macOS",
         }
     }
 }

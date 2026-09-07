@@ -13,6 +13,15 @@ pub fn execute(
     yes: bool,
     json: bool,
 ) -> taurine_core::error::Result<()> {
+    if triggers.is_empty() && tag.is_none() {
+        let diag =
+            taurine_core::diagnostic::Diagnostic::problem("Missing trigger or tag to delete")
+                .help("Specify one or more triggers or use --tag to delete triggers by tag:")
+                .example("taurine delete :brb")
+                .example("taurine delete --tag snippet");
+        return Err(taurine_core::Error::Config(diag.render()));
+    }
+
     let conn = init::setup()?;
     let is_glob = tag.is_none() && triggers.iter().any(|t| t.contains('*'));
 
@@ -51,14 +60,44 @@ pub fn execute(
 
     if removed_count == 0 {
         if let Some(ref t) = tag {
-            warn!("No active trigger found with tag: {}", t);
+            let mut stmt = conn.prepare("SELECT DISTINCT tag FROM trigger_tags")?;
+            let existing_tags: Vec<String> = stmt
+                .query_map([], |row| row.get(0))?
+                .filter_map(|r| r.ok())
+                .collect();
+            let tag_refs: Vec<&str> = existing_tags.iter().map(|s| s.as_str()).collect();
+
+            let diag = taurine_core::diagnostic::Diagnostic::problem(format!(
+                "No active trigger found with tag {t}"
+            ))
+            .suggest(t, &tag_refs)
+            .help("To view all active triggers and their tags, run: taurine list")
+            .example("taurine list");
+            warn!("{}", diag.render());
+
             if json {
                 println!("{}", serde_json::json!({"status": "not_found", "tag": t}));
             }
         } else if !is_glob {
-            let triggers_str = triggers.join(", ");
-            warn!("No active trigger found for triggers: {}", triggers_str);
+            let mut stmt = conn.prepare("SELECT trigger FROM triggers WHERE is_deleted = 0")?;
+            let active_triggers: Vec<String> = stmt
+                .query_map([], |row| row.get(0))?
+                .filter_map(|r| r.ok())
+                .collect();
+            let active_refs: Vec<&str> = active_triggers.iter().map(|s| s.as_str()).collect();
+
+            for trig in &triggers {
+                let diag = taurine_core::diagnostic::Diagnostic::problem(format!(
+                    "No active trigger matches {trig}"
+                ))
+                .suggest(trig, &active_refs)
+                .help("To view all active triggers, run: taurine list")
+                .example("taurine list");
+                warn!("{}", diag.render());
+            }
+
             if json {
+                let triggers_str = triggers.join(", ");
                 println!(
                     "{}",
                     serde_json::json!({"status": "not_found", "triggers": triggers_str})
@@ -425,5 +464,22 @@ mod tests {
 
         // Should not error, just warn
         execute(vec!["nomatch_*".to_string()], None, true, false).unwrap();
+    }
+
+    #[test]
+    fn test_delete_missing_args_diagnostic() {
+        let result = execute(vec![], None, false, false);
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Missing trigger or tag to delete"),
+            "Error was: {err}"
+        );
+        assert!(
+            err.contains("Specify one or more triggers or use --tag to delete triggers by tag:"),
+            "Error was: {err}"
+        );
+        assert!(err.contains("taurine delete :brb"), "Error was: {err}");
+        assert!(!err.contains('`'), "Must not contain backticks: {err}");
+        assert!(!err.contains('\''), "Must not contain single quotes: {err}");
     }
 }

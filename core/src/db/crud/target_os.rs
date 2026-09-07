@@ -67,6 +67,24 @@ impl TargetOs {
     }
 }
 
+impl std::str::FromStr for TargetOs {
+    type Err = crate::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse_str(s).ok_or_else(|| {
+            let diag =
+                crate::diagnostic::Diagnostic::problem(format!("{s} is not a valid target OS"))
+                    .suggest(s, &["windows", "macos", "linux", "all", "android", "ios"])
+                    .options(
+                        "Supported operating systems",
+                        &["windows", "macos", "linux", "all", "android", "ios"],
+                    )
+                    .example("taurine add :shrug ¯\\_(ツ)_/¯ --os windows");
+            crate::Error::Config(diag.render())
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -94,5 +112,27 @@ mod tests {
     fn test_target_os_current_returns_valid_variant() {
         let current = TargetOs::current();
         assert!(TargetOs::ALL.contains(&current));
+    }
+
+    #[test]
+    fn test_target_os_from_str_diagnostics() {
+        use std::str::FromStr;
+
+        assert_eq!(TargetOs::from_str("windows").unwrap(), TargetOs::Windows);
+        assert_eq!(TargetOs::from_str("linux").unwrap(), TargetOs::Linux);
+
+        // Unknown value with suggestion
+        let err = TargetOs::from_str("winodws").unwrap_err().to_string();
+        assert!(
+            err.contains("winodws is not a valid target OS"),
+            "Error was: {err}"
+        );
+        assert!(err.contains("Did you mean windows?"), "Error was: {err}");
+        assert!(
+            err.contains("Supported operating systems: windows, macos, linux, all, android, ios"),
+            "Error was: {err}"
+        );
+        assert!(!err.contains('`'), "Must not contain backticks: {err}");
+        assert!(!err.contains('\''), "Must not contain single quotes: {err}");
     }
 }

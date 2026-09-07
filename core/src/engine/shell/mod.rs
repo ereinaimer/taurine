@@ -56,6 +56,25 @@ impl ScriptInterpreter {
     }
 }
 
+impl std::str::FromStr for ScriptInterpreter {
+    type Err = crate::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse_str(s).ok_or_else(|| {
+            let diag = crate::diagnostic::Diagnostic::problem(format!(
+                "{s} is not a supported script language"
+            ))
+            .suggest(s, &["bash", "powershell", "python", "node", "cmd"])
+            .options(
+                "Supported languages",
+                &["bash", "powershell", "python", "node", "cmd"],
+            )
+            .example("taurine add script ./greet.sh :greet --lang bash");
+            crate::Error::Config(diag.render())
+        })
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ScriptBehavior {
@@ -295,5 +314,35 @@ mod tests {
             Some(ScriptBehavior::Silent)
         );
         assert_eq!(ScriptBehavior::parse_str("bogus"), None);
+    }
+
+    #[test]
+    fn test_script_interpreter_from_str_diagnostics() {
+        use std::str::FromStr;
+
+        // Valid values
+        assert_eq!(
+            ScriptInterpreter::from_str("python").unwrap(),
+            ScriptInterpreter::Python
+        );
+        assert_eq!(
+            ScriptInterpreter::from_str("py").unwrap(),
+            ScriptInterpreter::Python
+        );
+
+        // Unknown value with suggestion
+        let err = ScriptInterpreter::from_str("pyt").unwrap_err().to_string();
+        assert!(
+            err.contains("pyt is not a supported script language"),
+            "Error was: {err}"
+        );
+        assert!(err.contains("Did you mean python?"), "Error was: {err}");
+        assert!(
+            err.contains("Supported languages: bash, powershell, python, node, cmd"),
+            "Error was: {err}"
+        );
+        assert!(err.contains("taurine add script"), "Error was: {err}");
+        assert!(!err.contains('`'), "Must not contain backticks: {err}");
+        assert!(!err.contains('\''), "Must not contain single quotes: {err}");
     }
 }

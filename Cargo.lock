@@ -5089,6 +5089,7 @@ dependencies = [
  "service-manager",
  "sha2",
  "smallvec",
+ "strsim",
  "subtle",
  "sysinfo",
  "tempfile",

@@ -77,10 +77,25 @@ pub fn execute(args: AiCommandArgs) -> taurine_core::error::Result<()> {
 
     if let Some(p) = args.provider {
         if p != AiProvider::Custom && args.key.is_none() {
-            return Err(taurine_core::Error::Config(format!(
-                "API key is required for provider '{}'. Use --key <KEY>.",
+            let diag = taurine_core::diagnostic::Diagnostic::problem(format!(
+                "API key is required for provider {}",
                 p.as_str()
-            )));
+            ))
+            .help("Provide an API key using the --key flag:")
+            .example(format!("taurine ai --provider {} --key <KEY>", p.as_str()));
+            return Err(taurine_core::Error::Config(diag.render()));
+        }
+
+        if p == AiProvider::Custom
+            && args.endpoint.is_none()
+            && manager.load_all().ai_custom_endpoint.is_none()
+        {
+            let diag = taurine_core::diagnostic::Diagnostic::problem(
+                "Endpoint URL is required for custom AI provider",
+            )
+            .help("Specify the custom API endpoint URL using --endpoint:")
+            .example("taurine ai --provider custom --endpoint https://api.example.com/v1");
+            return Err(taurine_core::Error::Config(diag.render()));
         }
 
         if let Some(ref k) = args.key {
@@ -508,5 +523,79 @@ mod tests {
             response["providers"],
             serde_json::json!(["openai", "claude"])
         );
+    }
+
+    #[test]
+    fn test_ai_missing_key_diagnostic() {
+        let _guard = crate::commands::TEST_LOCK.lock().unwrap();
+        let db_path =
+            std::env::temp_dir().join(format!("taurine-ai-test-{}.db", uuid::Uuid::new_v4()));
+        // SAFETY: Test runs under TEST_LOCK and temporary path is cleaned up.
+        unsafe { std::env::set_var("TAURINE_DB_PATH", db_path.to_str().unwrap()) };
+
+        let result = execute(AiCommandArgs {
+            yes: true,
+            provider: Some(AiProvider::Openai),
+            key: None,
+            ..Default::default()
+        });
+
+        // SAFETY: Test runs under TEST_LOCK to restore process environment safely.
+        unsafe { std::env::remove_var("TAURINE_DB_PATH") };
+        let _ = std::fs::remove_file(&db_path);
+
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("API key is required for provider openai"),
+            "Error was: {err}"
+        );
+        assert!(
+            err.contains("Provide an API key using the --key flag:"),
+            "Error was: {err}"
+        );
+        assert!(
+            err.contains("taurine ai --provider openai --key <KEY>"),
+            "Error was: {err}"
+        );
+        assert!(!err.contains('`'), "Must not contain backticks: {err}");
+        assert!(!err.contains('\''), "Must not contain single quotes: {err}");
+    }
+
+    #[test]
+    fn test_ai_missing_custom_endpoint_diagnostic() {
+        let _guard = crate::commands::TEST_LOCK.lock().unwrap();
+        let db_path = std::env::temp_dir().join(format!(
+            "taurine-ai-custom-test-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        // SAFETY: Test runs under TEST_LOCK and temporary path is cleaned up.
+        unsafe { std::env::set_var("TAURINE_DB_PATH", db_path.to_str().unwrap()) };
+
+        let result = execute(AiCommandArgs {
+            yes: true,
+            provider: Some(AiProvider::Custom),
+            endpoint: None,
+            ..Default::default()
+        });
+
+        // SAFETY: Test runs under TEST_LOCK to restore process environment safely.
+        unsafe { std::env::remove_var("TAURINE_DB_PATH") };
+        let _ = std::fs::remove_file(&db_path);
+
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Endpoint URL is required for custom AI provider"),
+            "Error was: {err}"
+        );
+        assert!(
+            err.contains("Specify the custom API endpoint URL using --endpoint:"),
+            "Error was: {err}"
+        );
+        assert!(
+            err.contains("taurine ai --provider custom --endpoint"),
+            "Error was: {err}"
+        );
+        assert!(!err.contains('`'), "Must not contain backticks: {err}");
+        assert!(!err.contains('\''), "Must not contain single quotes: {err}");
     }
 }

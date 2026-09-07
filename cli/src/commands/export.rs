@@ -20,9 +20,13 @@ pub fn execute(path: Option<PathBuf>, plain: bool, yes: bool) -> taurine_core::e
     let encoded = if plain {
         encode_exchange_blob(&payload, false, None)?
     } else if yes {
-        return Err(taurine_core::error::Error::Config(
-            "Encryption password is required. Use --plain for unencrypted export.".into(),
-        ));
+        let diag = taurine_core::diagnostic::Diagnostic::problem(
+            "Encryption password is required for non-interactive export",
+        )
+        .help("Use --plain to export unencrypted triggers, or run without -y for interactive password prompt:")
+        .example("taurine export --plain -y")
+        .example("taurine export ./backup.tau --plain -y");
+        return Err(taurine_core::error::Error::Config(diag.render()));
     } else {
         let mut password =
             match password {
@@ -83,5 +87,29 @@ mod tests {
                 .any(|window| window == b"schema_version"),
             "Encrypted export should be an opaque binary blob"
         );
+    }
+
+    #[test]
+    fn test_export_non_interactive_missing_password_diagnostic() {
+        let _guard = crate::commands::TEST_LOCK.lock().unwrap();
+        let db_path =
+            std::env::temp_dir().join(format!("taurine-cli-export-{}.db", uuid::Uuid::new_v4()));
+        // SAFETY: Test runs under TEST_LOCK and temporary path is cleaned up.
+        unsafe { std::env::set_var("TAURINE_DB_PATH", db_path.to_str().unwrap()) };
+
+        let result = execute(None, false, true);
+
+        // SAFETY: Test runs under TEST_LOCK to restore process environment safely.
+        unsafe { std::env::remove_var("TAURINE_DB_PATH") };
+        let _ = std::fs::remove_file(&db_path);
+
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Encryption password is required for non-interactive export"),
+            "Error was: {err}"
+        );
+        assert!(err.contains("--plain"), "Error was: {err}");
+        assert!(!err.contains('`'), "Must not contain backticks: {err}");
+        assert!(!err.contains('\''), "Must not contain single quotes: {err}");
     }
 }

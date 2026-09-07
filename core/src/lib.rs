@@ -13,6 +13,7 @@
 
 pub mod ai;
 pub mod db;
+pub mod diagnostic;
 pub mod engine;
 pub mod exchange;
 pub mod keys;

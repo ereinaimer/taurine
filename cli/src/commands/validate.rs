@@ -186,7 +186,7 @@ mod tests {
     fn prepare_trigger_rejects_dangerous_hotkeys_for_target_os() {
         let error = prepare_trigger("ctrl+c", true, "win").unwrap_err();
         assert!(error.to_string().contains("copy shortcut"));
-        assert!(error.to_string().contains("windows"));
+        assert!(error.to_string().to_lowercase().contains("windows"));
     }
 
     #[test]

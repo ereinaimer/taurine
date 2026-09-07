@@ -66,6 +66,14 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
             InlineDictionaryMode::Full => "full".to_string(),
         })),
         "notify_on_update" => Ok(Some(defaults.notify_on_update.to_string())),
-        _ => Err(Error::Config(format!("unknown setting: {actual_key}"))),
+        _ => {
+            let diag = crate::diagnostic::Diagnostic::problem(format!(
+                "{actual_key} is not a valid configuration setting"
+            ))
+            .suggest(actual_key, &Settings::ALL_KEYS)
+            .help("To view all available settings and their values, run: taurine config list")
+            .render();
+            Err(Error::Config(diag))
+        }
     }
 }

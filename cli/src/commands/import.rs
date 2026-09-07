@@ -31,9 +31,13 @@ pub fn execute(
         }
     } else {
         let path = path.ok_or_else(|| {
-            taurine_core::error::Error::Config(
-                "a PATH is required for non-interactive import".into(),
+            let diag = taurine_core::diagnostic::Diagnostic::problem(
+                "Missing file path for non-interactive import",
             )
+            .help("Specify the file path to import triggers from:")
+            .example("taurine import ./backup.tau -y")
+            .example("taurine import ./backup.tau --conflict overwrite -y");
+            taurine_core::error::Error::Config(diag.render())
         })?;
         (path, conflict, None)
     };
@@ -44,9 +48,12 @@ pub fn execute(
         ExchangeFormat::Encrypted => Some(match overlay_password {
             Some(pw) => pw,
             None => {
-                return Err(taurine_core::error::Error::Config(
-                    "File is encrypted. Enter the decryption password in the import form.".into(),
-                ));
+                let diag = taurine_core::diagnostic::Diagnostic::problem(
+                    "Cannot import encrypted file in non-interactive mode without password",
+                )
+                .help("Run import without -y to enter the decryption password interactively:")
+                .example("taurine import ./backup.tau");
+                return Err(taurine_core::error::Error::Config(diag.render()));
             }
         }),
         ExchangeFormat::Plaintext => overlay_password,
@@ -205,5 +212,25 @@ mod tests {
         .unwrap();
 
         assert_eq!(action, ImportConflictAction::Skip);
+    }
+
+    #[test]
+    fn test_import_non_interactive_missing_path_diagnostic() {
+        let result = execute(None, None, true);
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Missing file path for non-interactive import"),
+            "Error was: {err}"
+        );
+        assert!(
+            err.contains("Specify the file path to import triggers from:"),
+            "Error was: {err}"
+        );
+        assert!(
+            err.contains("taurine import ./backup.tau -y"),
+            "Error was: {err}"
+        );
+        assert!(!err.contains('`'), "Must not contain backticks: {err}");
+        assert!(!err.contains('\''), "Must not contain single quotes: {err}");
     }
 }

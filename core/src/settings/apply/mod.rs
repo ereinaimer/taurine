@@ -1,6 +1,7 @@
 use super::{Settings, SettingsManager, SpinnerStyle};
 use crate::{
     ai::AiProvider,
+    diagnostic::Diagnostic,
     error::{Error, Result},
     keys::parse_hotkey,
 };
@@ -40,13 +41,16 @@ pub fn apply_setting_input_with_manager(
         | "system_tray_enabled" => {
             manager.update_setting(
                 actual_key,
-                parse_boolean_setting_value(require_non_empty(value, actual_key)?)?,
+                parse_boolean_setting_value_with_key(
+                    actual_key,
+                    require_non_empty(value, actual_key)?,
+                )?,
             )?;
             ApplySettingOutcome::default()
         }
         "audio_theme" => {
             let theme_str = require_non_empty(value, actual_key)?;
-            let theme: super::AudioTheme = theme_str.parse().map_err(Error::Config)?;
+            let theme = parse_audio_theme(theme_str)?;
             crate::settings::set_cached_audio_theme(theme);
             manager.update_setting(actual_key, theme)?;
             ApplySettingOutcome::default()
@@ -62,7 +66,10 @@ pub fn apply_setting_input_with_manager(
             ApplySettingOutcome::default()
         }
         "start_on_boot" => {
-            let enabled = parse_boolean_setting_value(require_non_empty(value, actual_key)?)?;
+            let enabled = parse_boolean_setting_value_with_key(
+                actual_key,
+                require_non_empty(value, actual_key)?,
+            )?;
             manager.update_setting(actual_key, enabled)?;
             ApplySettingOutcome {
                 sync_boot: Some(enabled),
@@ -111,7 +118,10 @@ pub fn apply_setting_input_with_manager(
         "inline_ai_enabled" => {
             manager.update_setting(
                 actual_key,
-                parse_boolean_setting_value(require_non_empty(value, actual_key)?)?,
+                parse_boolean_setting_value_with_key(
+                    actual_key,
+                    require_non_empty(value, actual_key)?,
+                )?,
             )?;
             ApplySettingOutcome::default()
         }
@@ -129,19 +139,28 @@ pub fn apply_setting_input_with_manager(
         "instant_expand" => {
             manager.update_setting(
                 actual_key,
-                parse_boolean_setting_value(require_non_empty(value, actual_key)?)?,
+                parse_boolean_setting_value_with_key(
+                    actual_key,
+                    require_non_empty(value, actual_key)?,
+                )?,
             )?;
             ApplySettingOutcome::default()
         }
         "auto_update" | "notify_on_update" => {
             manager.update_setting(
                 actual_key,
-                parse_boolean_setting_value(require_non_empty(value, actual_key)?)?,
+                parse_boolean_setting_value_with_key(
+                    actual_key,
+                    require_non_empty(value, actual_key)?,
+                )?,
             )?;
             ApplySettingOutcome::default()
         }
         "clipboard_history_enabled" => {
-            let enabled = parse_boolean_setting_value(require_non_empty(value, actual_key)?)?;
+            let enabled = parse_boolean_setting_value_with_key(
+                actual_key,
+                require_non_empty(value, actual_key)?,
+            )?;
             manager.update_setting(actual_key, enabled)?;
             if !enabled {
                 crate::engine::variables::system::clip::clip_manager().clear();
@@ -160,19 +179,28 @@ pub fn apply_setting_input_with_manager(
             ApplySettingOutcome::default()
         }
         "inline_datetime_enabled" => {
-            let enabled = parse_boolean_setting_value(require_non_empty(value, actual_key)?)?;
+            let enabled = parse_boolean_setting_value_with_key(
+                actual_key,
+                require_non_empty(value, actual_key)?,
+            )?;
             crate::settings::set_cached_inline_datetime_enabled(enabled);
             manager.update_setting(actual_key, enabled)?;
             ApplySettingOutcome::default()
         }
         "inline_currency_to_words_enabled" => {
-            let enabled = parse_boolean_setting_value(require_non_empty(value, actual_key)?)?;
+            let enabled = parse_boolean_setting_value_with_key(
+                actual_key,
+                require_non_empty(value, actual_key)?,
+            )?;
             crate::settings::set_cached_inline_currency_to_words_enabled(enabled);
             manager.update_setting(actual_key, enabled)?;
             ApplySettingOutcome::default()
         }
         "inline_dictionary_enabled" => {
-            let enabled = parse_boolean_setting_value(require_non_empty(value, actual_key)?)?;
+            let enabled = parse_boolean_setting_value_with_key(
+                actual_key,
+                require_non_empty(value, actual_key)?,
+            )?;
             crate::settings::set_cached_inline_dictionary_enabled(enabled);
             manager.update_setting(actual_key, enabled)?;
             ApplySettingOutcome::default()
@@ -205,14 +233,23 @@ pub fn apply_setting_input_with_manager(
         "inline_datetime_dialect" => {
             let val = require_non_empty(value, actual_key)?.to_lowercase();
             if val != "uk" && val != "us" {
-                return Err(Error::Config("dialect must be 'uk' or 'us'".to_string()));
+                let diag =
+                    Diagnostic::problem(format!("{val} is not an available datetime dialect"))
+                        .suggest(&val, &["uk", "us"])
+                        .options("Available dialects", &["uk", "us"])
+                        .example("taurine config set inline_datetime_dialect uk")
+                        .render();
+                return Err(Error::Config(diag));
             }
             crate::settings::set_cached_inline_datetime_dialect(val.clone());
             manager.update_setting(actual_key, val)?;
             ApplySettingOutcome::default()
         }
         "inline_emoji_enabled" => {
-            let enabled = parse_boolean_setting_value(require_non_empty(value, actual_key)?)?;
+            let enabled = parse_boolean_setting_value_with_key(
+                actual_key,
+                require_non_empty(value, actual_key)?,
+            )?;
             crate::settings::set_cached_inline_emoji_enabled(enabled);
             manager.update_setting(actual_key, enabled)?;
             ApplySettingOutcome::default()
@@ -225,13 +262,22 @@ pub fn apply_setting_input_with_manager(
         }
         "rpc_port" => {
             let raw_value = require_non_empty(value, actual_key)?;
-            let parsed = raw_value
-                .parse::<u16>()
-                .map_err(|_| Error::Config(format!("bad port value: {raw_value}")))?;
+            let parsed = raw_value.parse::<u16>().map_err(|_| {
+                Error::Config(
+                    Diagnostic::problem(format!("{raw_value} is not a valid port number"))
+                        .help("Expected an integer between 1024 and 65535")
+                        .example("taurine config set rpc_port 50051")
+                        .render(),
+                )
+            })?;
             if parsed < 1024 {
-                return Err(Error::Config(format!(
-                    "port must be 1024-65535, got {raw_value}"
-                )));
+                let diag = Diagnostic::problem(format!(
+                    "Port {raw_value} is outside the allowed range (1024-65535)"
+                ))
+                .help("Choose an unprivileged user port between 1024 and 65535")
+                .example("taurine config set rpc_port 50051")
+                .render();
+                return Err(Error::Config(diag));
             }
             manager.update_setting(actual_key, parsed)?;
             ApplySettingOutcome::default()
@@ -287,7 +333,14 @@ pub fn apply_setting_input_with_manager(
             ApplySettingOutcome::default()
         }
         _ => {
-            return Err(Error::Config(format!("unknown setting: {actual_key}")));
+            let diag =
+                Diagnostic::problem(format!("{actual_key} is not a valid configuration setting"))
+                    .suggest(actual_key, &Settings::ALL_KEYS)
+                    .help(
+                        "To view all available settings and their values, run: taurine config list",
+                    )
+                    .render();
+            return Err(Error::Config(diag));
         }
     };
 
@@ -295,11 +348,64 @@ pub fn apply_setting_input_with_manager(
 }
 
 pub fn parse_boolean_setting_value(value: &str) -> Result<bool> {
-    value
-        .trim()
-        .to_ascii_lowercase()
-        .parse::<bool>()
-        .map_err(|_| Error::Config(format!("bad boolean value: {value}")))
+    parse_boolean_setting_value_with_key("setting_name", value)
+}
+
+pub fn parse_boolean_setting_value_with_key(key: &str, value: &str) -> Result<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "true" | "1" => Ok(true),
+        "false" | "0" => Ok(false),
+        _ => {
+            let diag = Diagnostic::problem(format!("{value} is not a valid boolean value"))
+                .help("Expected true or false (or 1 / 0)")
+                .example(format!("taurine config set {key} true"))
+                .render();
+            Err(Error::Config(diag))
+        }
+    }
+}
+
+pub fn parse_audio_theme(value: &str) -> Result<super::AudioTheme> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "minimal" | "default" => Ok(super::AudioTheme::Minimal),
+        "soft" => Ok(super::AudioTheme::Soft),
+        "glass" => Ok(super::AudioTheme::Glass),
+        "arcade" => Ok(super::AudioTheme::Arcade),
+        "mechanical" | "typewriter" => Ok(super::AudioTheme::Mechanical),
+        "organic" => Ok(super::AudioTheme::Organic),
+        "dreamy" => Ok(super::AudioTheme::Dreamy),
+        "scifi" | "sci-fi" => Ok(super::AudioTheme::Scifi),
+        "rubber" => Ok(super::AudioTheme::Rubber),
+        "cinematic" => Ok(super::AudioTheme::Cinematic),
+        "studio" => Ok(super::AudioTheme::Studio),
+        "zen" => Ok(super::AudioTheme::Zen),
+        other => {
+            let diag = Diagnostic::problem(format!("{other} is not an available audio theme"))
+                .suggest(
+                    other,
+                    &[
+                        "default",
+                        "typewriter",
+                        "mechanical",
+                        "minimal",
+                        "soft",
+                        "glass",
+                        "arcade",
+                        "organic",
+                        "dreamy",
+                        "scifi",
+                        "rubber",
+                        "cinematic",
+                        "studio",
+                        "zen",
+                    ],
+                )
+                .options("Available themes", &["default", "typewriter", "mechanical"])
+                .example("taurine config set audio_theme mechanical")
+                .render();
+            Err(Error::Config(diag))
+        }
+    }
 }
 
 pub fn parse_spinner_style(value: &str) -> Result<SpinnerStyle> {
@@ -307,9 +413,14 @@ pub fn parse_spinner_style(value: &str) -> Result<SpinnerStyle> {
         "classic" => Ok(SpinnerStyle::Classic),
         "braille" => Ok(SpinnerStyle::Braille),
         "arc" => Ok(SpinnerStyle::Arc),
-        other => Err(Error::Config(format!(
-            "bad spinner_style '{other}' (use: classic, braille, arc)"
-        ))),
+        other => {
+            let diag = Diagnostic::problem(format!("{other} is not an available spinner style"))
+                .suggest(other, &["classic", "braille", "arc"])
+                .options("Available styles", &["classic", "braille", "arc"])
+                .example("taurine config set spinner_style braille")
+                .render();
+            Err(Error::Config(diag))
+        }
     }
 }
 
@@ -317,9 +428,14 @@ pub fn parse_inline_dictionary_mode(value: &str) -> Result<super::InlineDictiona
     match value.trim().to_ascii_lowercase().as_str() {
         "lite" => Ok(super::InlineDictionaryMode::Lite),
         "full" => Ok(super::InlineDictionaryMode::Full),
-        other => Err(Error::Config(format!(
-            "bad inline_dictionary_mode '{other}' (use: lite, full)"
-        ))),
+        other => {
+            let diag = Diagnostic::problem(format!("{other} is not an available dictionary mode"))
+                .suggest(other, &["lite", "full"])
+                .options("Available modes", &["lite", "full"])
+                .example("taurine config set inline_dictionary_mode lite")
+                .render();
+            Err(Error::Config(diag))
+        }
     }
 }
 
@@ -327,9 +443,14 @@ pub fn parse_rpc_mode(value: &str) -> Result<super::RpcMode> {
     match value.trim().to_ascii_lowercase().as_str() {
         "socket" => Ok(super::RpcMode::Socket),
         "tcp" => Ok(super::RpcMode::Tcp),
-        other => Err(Error::Config(format!(
-            "bad rpc_mode '{other}' (use: socket, tcp)"
-        ))),
+        other => {
+            let diag = Diagnostic::problem(format!("{other} is not an available RPC mode"))
+                .suggest(other, &["socket", "tcp"])
+                .options("Available modes", &["socket", "tcp"])
+                .example("taurine config set rpc_mode socket")
+                .render();
+            Err(Error::Config(diag))
+        }
     }
 }
 

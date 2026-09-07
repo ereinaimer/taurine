@@ -108,10 +108,13 @@ pub fn execute_with_trigger_type(
     // 1. Resolve content and source description
     let (content, source_desc) = if let Some(ref path) = file_path {
         if !path.exists() {
-            return Err(taurine_core::error::Error::NotFound(format!(
-                "Script file not found: {}",
+            let diag = taurine_core::diagnostic::Diagnostic::problem(format!(
+                "Script file does not exist: {}",
                 path.display()
-            )));
+            ))
+            .help("Verify that the file path is correct and accessible.")
+            .example("taurine add script -f ./scripts/deploy.sh :deploy");
+            return Err(taurine_core::error::Error::NotFound(diag.render()));
         }
         let text = fs::read_to_string(path).map_err(|e| {
             taurine_core::error::Error::Service(format!("Failed to read script file: {}", e))
@@ -121,9 +124,12 @@ pub fn execute_with_trigger_type(
         (text, "CLI argument".to_string())
     } else {
         // unreachable due to clap constraints (required_unless_present)
-        return Err(taurine_core::error::Error::Service(
-            "Neither script file nor content provided".to_string(),
-        ));
+        let diag = taurine_core::diagnostic::Diagnostic::problem(
+            "Neither script content nor script file provided",
+        )
+        .help("Provide inline script content or specify a script file using -f / --file:")
+        .example("taurine add script -f ./myscript.sh :run");
+        return Err(taurine_core::error::Error::Service(diag.render()));
     };
 
     let trigger = if auto_case && !matches!(trigger_type, TriggerType::Regex) {
@@ -162,9 +168,16 @@ pub fn execute_with_trigger_type(
     let lang = match lang {
         Some(i) => i,
         None => infer_interpreter(file_path.as_deref(), &content).ok_or_else(|| {
-            taurine_core::error::Error::Service(
-                "Could not infer script language. Please specify with --lang".to_string(),
+            let diag = taurine_core::diagnostic::Diagnostic::problem(
+                "Could not infer script language from content or file extension",
             )
+            .help("Specify the interpreter explicitly using --lang:")
+            .options(
+                "Supported languages",
+                &["bash", "powershell", "python", "node", "cmd"],
+            )
+            .example("taurine add script print(1) :py --lang python");
+            taurine_core::error::Error::Service(diag.render())
         })?,
     };
 

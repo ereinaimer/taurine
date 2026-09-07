@@ -489,3 +489,63 @@ fn text_to_script_update_creates_script_attachment() {
         );
     });
 }
+
+#[test]
+fn test_script_inference_failure_diagnostic() {
+    let result = execute(
+        "test".to_string(),
+        false,
+        Some("plain text without shebang".to_string()),
+        None,
+        None,
+        ScriptBehavior::Inline,
+        "all".to_string(),
+        None,
+        None,
+    );
+
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("Could not infer script language from content or file extension"),
+        "Error was: {err}"
+    );
+    assert!(
+        err.contains("Specify the interpreter explicitly using --lang:"),
+        "Error was: {err}"
+    );
+    assert!(
+        err.contains("Supported languages: bash, powershell, python, node, cmd"),
+        "Error was: {err}"
+    );
+    assert!(err.contains("taurine add script"), "Error was: {err}");
+    assert!(!err.contains('`'), "Must not contain backticks: {err}");
+    assert!(!err.contains('\''), "Must not contain single quotes: {err}");
+}
+
+#[test]
+fn test_script_file_not_found_diagnostic() {
+    let result = execute(
+        "test".to_string(),
+        false,
+        None,
+        Some(PathBuf::from("nonexistent_script_file.sh")),
+        None,
+        ScriptBehavior::Inline,
+        "all".to_string(),
+        None,
+        None,
+    );
+
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("Script file does not exist: nonexistent_script_file.sh"),
+        "Error was: {err}"
+    );
+    assert!(
+        err.contains("Verify that the file path is correct and accessible."),
+        "Error was: {err}"
+    );
+    assert!(err.contains("taurine add script -f"), "Error was: {err}");
+    assert!(!err.contains('`'), "Must not contain backticks: {err}");
+    assert!(!err.contains('\''), "Must not contain single quotes: {err}");
+}

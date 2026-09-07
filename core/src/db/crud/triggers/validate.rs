@@ -148,10 +148,18 @@ pub(crate) fn audit_payload_tags_impl_opt(
                                 matches!(trigger_type, TriggerType::Regex) && is_positional;
                             if !defined_vars.contains(key_unquoted) && !is_allowed_regex_positional
                             {
-                                return Err(crate::Error::Config(format!(
-                                    "[{}]: dynamic variables need a default (e.g., [key=default])",
-                                    inner
-                                )));
+                                let mut diag = crate::diagnostic::Diagnostic::problem(format!(
+                                    "[{inner}]: dynamic variables need a default (e.g., [key=default])"
+                                ));
+                                if let Some(suggestion) =
+                                    crate::diagnostic::matcher::find_best_match(
+                                        key_unquoted,
+                                        crate::engine::variables::system_variable_roots(),
+                                    )
+                                {
+                                    diag = diag.did_you_mean(format!("[{suggestion}]"));
+                                }
+                                return Err(crate::Error::Config(diag.render()));
                             }
                         }
                         Some(val) => {
@@ -215,49 +223,32 @@ pub(crate) fn format_validation_error(
     match error {
         ValidationError::MissingModifier { .. } => {
             let hint = valid_modifier_hint(root);
-            if hint.contains('\n') {
-                format!("[{}]: `{}` needs a modifier.\n\n{}", raw_tag, root, hint)
-            } else {
-                format!("[{}]: `{}` needs a modifier. {}", raw_tag, root, hint)
-            }
+            crate::diagnostic::Diagnostic::problem(format!("[{raw_tag}]: {root} needs a modifier"))
+                .help(hint)
+                .render()
         }
         ValidationError::UnexpectedModifier { .. } => {
+            let mod_str = modifier.unwrap_or_default();
             let hint = valid_modifier_hint(root);
-            if hint.contains('\n') {
-                format!(
-                    "[{}]: `{}` has no modifier `{}`.\n\n{}",
-                    raw_tag,
-                    root,
-                    modifier.unwrap_or_default(),
-                    hint
-                )
-            } else {
-                format!(
-                    "[{}]: `{}` has no modifier `{}`. {}",
-                    raw_tag,
-                    root,
-                    modifier.unwrap_or_default(),
-                    hint
-                )
-            }
+            crate::diagnostic::Diagnostic::problem(format!(
+                "[{raw_tag}]: {root} has no modifier {mod_str}"
+            ))
+            .help(hint)
+            .render()
         }
         ValidationError::InvalidModifier { modifier, .. } => {
             let hint = valid_modifier_hint(root);
-            if hint.contains('\n') {
-                format!(
-                    "[{}]: modifier `{}` invalid for `{}`.\n\n{}",
-                    raw_tag, modifier, root, hint
-                )
-            } else {
-                format!(
-                    "[{}]: modifier `{}` invalid for `{}`. {}",
-                    raw_tag, modifier, root, hint
-                )
-            }
+            crate::diagnostic::Diagnostic::problem(format!(
+                "[{raw_tag}]: modifier {modifier} invalid for {root}"
+            ))
+            .help(hint)
+            .render()
         }
-        ValidationError::UnknownRoot(root) => {
-            format!("[{}]: unknown root `{}`", raw_tag, root)
-        }
+        ValidationError::UnknownRoot(root) => crate::diagnostic::Diagnostic::problem(format!(
+            "[{raw_tag}]: unknown directive or variable {root}"
+        ))
+        .suggest(root, crate::engine::variables::system_variable_roots())
+        .render(),
     }
 }
 

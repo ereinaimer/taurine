@@ -48,6 +48,24 @@ impl AiProvider {
         Self::Custom,
     ];
 
+    pub const ALL_NAMES: [&'static str; 15] = [
+        "openai",
+        "claude",
+        "gemini",
+        "xai",
+        "groq",
+        "deepseek",
+        "cohere",
+        "together",
+        "fireworks",
+        "nebius",
+        "mimo",
+        "zai",
+        "bigmodel",
+        "github_copilot",
+        "custom",
+    ];
+
     pub const fn display_name(self) -> &'static str {
         match self {
             Self::Openai => "OpenAI",
@@ -161,9 +179,12 @@ impl FromStr for AiProvider {
 
     fn from_str(s: &str) -> Result<Self> {
         Self::parse(s).ok_or_else(|| {
-            Error::Config(format!(
-                "Invalid ai_provider setting '{s}'. Use openai, claude, gemini, xai, groq, deepseek, cohere, together, fireworks, nebius, mimo, zai, bigmodel, github_copilot, or custom."
-            ))
+            let diag =
+                crate::diagnostic::Diagnostic::problem(format!("{s} is not a valid AI provider"))
+                    .suggest(s, &Self::ALL_NAMES)
+                    .options("Supported providers", &Self::ALL_NAMES)
+                    .example("taurine ai --provider groq");
+            Error::Config(diag.render())
         })
     }
 }
@@ -408,5 +429,31 @@ mod tests {
             assert!(!display.is_empty());
             assert_eq!(AiProvider::parse(label), Some(provider));
         }
+    }
+
+    #[test]
+    fn test_ai_provider_from_str_diagnostics() {
+        use std::str::FromStr;
+
+        assert_eq!(AiProvider::from_str("openai").unwrap(), AiProvider::Openai);
+        assert_eq!(AiProvider::from_str("claude").unwrap(), AiProvider::Claude);
+
+        // Unknown provider with suggestion
+        let err = AiProvider::from_str("grok").unwrap_err().to_string();
+        assert!(
+            err.contains("grok is not a valid AI provider"),
+            "Error was: {err}"
+        );
+        assert!(err.contains("Did you mean groq?"), "Error was: {err}");
+        assert!(
+            err.contains("Supported providers: openai, claude, gemini, xai, groq"),
+            "Error was: {err}"
+        );
+        assert!(
+            err.contains("taurine ai --provider groq"),
+            "Error was: {err}"
+        );
+        assert!(!err.contains('`'), "Must not contain backticks: {err}");
+        assert!(!err.contains('\''), "Must not contain single quotes: {err}");
     }
 }

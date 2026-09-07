@@ -1061,3 +1061,31 @@ fn test_app_filters_overlap_logic() {
         Some("exe:code")
     ));
 }
+
+#[test]
+fn test_prepare_trigger_dangerous_hotkey_diagnostic() {
+    let err = prepare_trigger("ctrl+c", true, "win").unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("conflicts with the system copy shortcut on Windows"),
+        "expected danger problem message, got: {msg}"
+    );
+    assert!(
+        msg.contains("alt+c"),
+        "expected alternative suggestion alt+c, got: {msg}"
+    );
+}
+
+#[test]
+fn test_prepare_trigger_taurine_pause_conflict_diagnostic() {
+    let err = prepare_trigger("alt+`", true, "all").unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("conflicts with Taurine's global pause hotkey"),
+        "expected pause conflict message, got: {msg}"
+    );
+    assert!(
+        msg.contains("pause_hotkey"),
+        "expected config guidance, got: {msg}"
+    );
+}
