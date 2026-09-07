@@ -67,41 +67,46 @@ pub fn start_worker(mut rx: mpsc::Receiver<bool>) {
     let spawn_result = std::thread::Builder::new()
         .name("tau-audio".to_string())
         .spawn(move || {
-            debug!("Audio worker thread started (embedded audio themes)");
+            let _ = crate::platform::panic::catch_worker_panic(
+                "tau-audio",
+                std::panic::AssertUnwindSafe(move || {
+                    debug!("Audio worker thread started (embedded audio themes)");
 
-            while let Some(is_paused) = rx.blocking_recv() {
-                let theme = get_cached_audio_theme();
-                let volume = get_cached_audio_volume();
-                let data = get_audio_data(theme, is_paused);
+                    while let Some(is_paused) = rx.blocking_recv() {
+                        let theme = get_cached_audio_theme();
+                        let volume = get_cached_audio_volume();
+                        let data = get_audio_data(theme, is_paused);
 
-                // Acquire a fresh OutputStream/MixerDeviceSink on every trigger so we always bind
-                // to the *current* default device. Cached streams silently play
-                // into dead endpoints on Windows (WASAPI) after a device unplug
-                // because rodio/cpal does not surface device-loss errors through
-                // the Sink API.
-                let mut stream = match DeviceSinkBuilder::open_default_sink() {
-                    Ok(s) => s,
-                    Err(e) => {
-                        warn!("Audio playback skipped: no audio device available: {}", e);
-                        continue;
-                    }
-                };
-                stream.log_on_drop(false);
+                        // Acquire a fresh OutputStream/MixerDeviceSink on every trigger so we always bind
+                        // to the *current* default device. Cached streams silently play
+                        // into dead endpoints on Windows (WASAPI) after a device unplug
+                        // because rodio/cpal does not surface device-loss errors through
+                        // the Sink API.
+                        let mut stream = match DeviceSinkBuilder::open_default_sink() {
+                            Ok(s) => s,
+                            Err(e) => {
+                                warn!("Audio playback skipped: no audio device available: {}", e);
+                                continue;
+                            }
+                        };
+                        stream.log_on_drop(false);
 
-                let cursor = Cursor::new(data);
-                match Decoder::new(cursor) {
-                    Ok(decoder) => {
-                        let player = Player::connect_new(stream.mixer());
-                        player.set_volume(volume as f32 / 100.0);
-                        player.append(decoder);
-                        player.sleep_until_end();
+                        let cursor = Cursor::new(data);
+                        match Decoder::new(cursor) {
+                            Ok(decoder) => {
+                                let player = Player::connect_new(stream.mixer());
+                                player.set_volume(volume as f32 / 100.0);
+                                player.append(decoder);
+                                player.sleep_until_end();
+                            }
+                            Err(e) => {
+                                warn!("Failed to decode audio: {}", e);
+                            }
+                        }
+                        // stream drops here, releasing the device cleanly.
                     }
-                    Err(e) => {
-                        warn!("Failed to decode audio: {}", e);
-                    }
-                }
-                // stream drops here, releasing the device cleanly.
-            }
+                }),
+            );
         });
     if let Err(error) = spawn_result {
         warn!(error = %error, "Failed to spawn audio worker thread");

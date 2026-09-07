@@ -10,6 +10,7 @@ pub mod linux;
 pub mod macos;
 
 pub mod executor;
+pub mod panic;
 pub mod spinner_renderer;
 
 #[cfg(not(target_os = "linux"))]

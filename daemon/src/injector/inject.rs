@@ -694,12 +694,14 @@ fn spawn_script_bg(metadata: taurine_core::engine::shell::ScriptMetadata) {
         let spawn_res = thread::Builder::new()
             .name("tau-script-bg".to_string())
             .spawn(move || {
-                if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                {
-                    let _ = rt.block_on(crate::platform::executor::execute_script(&metadata));
-                }
+                let _ = crate::platform::panic::catch_worker_panic("tau-script-bg", move || {
+                    if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                    {
+                        let _ = rt.block_on(crate::platform::executor::execute_script(&metadata));
+                    }
+                });
             });
         if let Err(e) = spawn_res {
             tracing::error!("Failed to spawn background script thread: {}", e);

@@ -253,25 +253,32 @@ pub fn start() -> taurine_core::error::Result<()> {
     std::thread::Builder::new()
         .name("tau-db-load".to_string())
         .spawn(move || {
-            if let Ok(conn) = taurine_core::db::init::setup() {
-                if let Ok(active) = get_all_active_triggers(&conn) {
-                    state_for_bg.load_actions(active);
-                }
-                if let Ok(active_hotkeys) = get_all_active_hotkey_triggers(&conn) {
-                    state_for_bg.load_hotkey_actions(active_hotkeys);
-                }
-                if let Ok(active_regex) = get_all_active_regex_triggers(&conn) {
-                    state_for_bg.load_regex_actions(active_regex);
-                }
-            }
+            let _ = crate::platform::panic::catch_worker_panic(
+                "tau-db-load",
+                std::panic::AssertUnwindSafe(move || {
+                    if let Ok(conn) = taurine_core::db::init::setup() {
+                        if let Ok(active) = get_all_active_triggers(&conn) {
+                            state_for_bg.load_actions(active);
+                        }
+                        if let Ok(active_hotkeys) = get_all_active_hotkey_triggers(&conn) {
+                            state_for_bg.load_hotkey_actions(active_hotkeys);
+                        }
+                        if let Ok(active_regex) = get_all_active_regex_triggers(&conn) {
+                            state_for_bg.load_regex_actions(active_regex);
+                        }
+                    }
+                }),
+            );
         })?;
 
     // 2. Start clipboard history listener
     let clipboard_thread = std::thread::Builder::new()
         .name("tau-clip".to_string())
         .spawn(|| {
-            info!("Starting clipboard history listener...");
-            services::clipboard_history::start_listener();
+            let _ = crate::platform::panic::catch_worker_panic("tau-clip", || {
+                info!("Starting clipboard history listener...");
+                services::clipboard_history::start_listener();
+            });
         })?;
 
     // 3. Start fullscreen listeners
@@ -292,31 +299,34 @@ pub fn start() -> taurine_core::error::Result<()> {
     std::thread::Builder::new()
         .name("tau-updater".to_string())
         .spawn(move || {
-            // Wait 60 seconds before entering the interval loop
-            std::thread::sleep(std::time::Duration::from_secs(60));
+            let _ = crate::platform::panic::catch_worker_panic("tau-updater", move || {
+                // Wait 60 seconds before entering the interval loop
+                std::thread::sleep(std::time::Duration::from_secs(60));
 
-            loop {
-                if let Ok(conn) = taurine_core::db::init::setup() {
-                    let current_settings =
-                        taurine_core::settings::SettingsManager::new(&conn).load_all();
-                    if current_settings.auto_update {
-                        let now = taurine_core::service::now_unix_secs();
-                        if let Err(e) = taurine_core::service::set_last_update_check(&conn, now) {
-                            error!(
-                                "Failed to update {} in interval worker: {}",
-                                taurine_core::service::LAST_UPDATE_CHECK_KEY,
-                                e
-                            );
+                loop {
+                    if let Ok(conn) = taurine_core::db::init::setup() {
+                        let current_settings =
+                            taurine_core::settings::SettingsManager::new(&conn).load_all();
+                        if current_settings.auto_update {
+                            let now = taurine_core::service::now_unix_secs();
+                            if let Err(e) = taurine_core::service::set_last_update_check(&conn, now)
+                            {
+                                error!(
+                                    "Failed to update {} in interval worker: {}",
+                                    taurine_core::service::LAST_UPDATE_CHECK_KEY,
+                                    e
+                                );
+                            }
+                            taurine_core::service::spawn_updater_process();
                         }
-                        taurine_core::service::spawn_updater_process();
                     }
-                }
 
-                // Sleep for 6 hours between checks
-                std::thread::sleep(std::time::Duration::from_secs(
-                    taurine_core::service::UPDATE_CHECK_INTERVAL_SECS,
-                ));
-            }
+                    // Sleep for 6 hours between checks
+                    std::thread::sleep(std::time::Duration::from_secs(
+                        taurine_core::service::UPDATE_CHECK_INTERVAL_SECS,
+                    ));
+                }
+            });
         })?;
 
     // Activate daemon file logging immediately after hook thread starts capturing

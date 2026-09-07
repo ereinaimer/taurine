@@ -704,24 +704,30 @@ impl LiveOutputHandle {
         let join = match thread::Builder::new()
             .name("tau-ai-stream".to_string())
             .spawn(move || {
-                let mut session = crate::injector::StreamingTextSession::begin();
+                crate::platform::panic::catch_worker_panic(
+                    "tau-ai-stream",
+                    std::panic::AssertUnwindSafe(move || {
+                        let mut session = crate::injector::StreamingTextSession::begin();
 
-                while let Ok(command) = rx.recv() {
-                    match command {
-                        LiveOutputCommand::Text { text, track_stats } => {
-                            if !session.push_text(&text, track_stats) {
+                        while let Ok(command) = rx.recv() {
+                            match command {
+                                LiveOutputCommand::Text { text, track_stats } => {
+                                    if !session.push_text(&text, track_stats) {
+                                        break;
+                                    }
+                                }
+                                LiveOutputCommand::Finish => break,
+                            }
+
+                            if session.abort_requested() {
                                 break;
                             }
                         }
-                        LiveOutputCommand::Finish => break,
-                    }
 
-                    if session.abort_requested() {
-                        break;
-                    }
-                }
-
-                session.finish()
+                        session.finish()
+                    }),
+                )
+                .unwrap_or_default()
             }) {
             Ok(handle) => Some(handle),
             Err(error) => {
