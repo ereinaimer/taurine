@@ -87,11 +87,19 @@ pub(super) fn windows_grab(
                     name,
                 };
 
-                let pass_through = TL_CALLBACK.with(|cb| {
-                    cb.borrow_mut()
-                        .as_mut()
-                        .map(|f| f(event).is_some())
-                        .unwrap_or(true)
+                let pass_through = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    TL_CALLBACK.with(|cb| {
+                        cb.borrow_mut()
+                            .as_mut()
+                            .map(|f| f(event).is_some())
+                            .unwrap_or(true)
+                    })
+                }))
+                .unwrap_or_else(|_| {
+                    tracing::error!(
+                        "Panic caught inside low-level keyboard hook procedure; passing event through"
+                    );
+                    true
                 });
 
                 if !pass_through {
@@ -172,11 +180,19 @@ pub(super) fn windows_grab(
                         name: None,
                     };
 
-                    let pass_through = TL_CALLBACK.with(|cb| {
-                        cb.borrow_mut()
-                            .as_mut()
-                            .map(|f| f(event).is_some())
-                            .unwrap_or(true)
+                    let pass_through = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        TL_CALLBACK.with(|cb| {
+                            cb.borrow_mut()
+                                .as_mut()
+                                .map(|f| f(event).is_some())
+                                .unwrap_or(true)
+                        })
+                    }))
+                    .unwrap_or_else(|_| {
+                        tracing::error!(
+                            "Panic caught inside low-level mouse hook procedure; passing event through"
+                        );
+                        true
                     });
 
                     if !pass_through {
