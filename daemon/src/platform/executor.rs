@@ -321,81 +321,46 @@ fn split_cmd_args(input: &str) -> Vec<String> {
 pub fn native_shell_open(target: &str, args: Option<&str>) -> Result<(), String> {
     #[cfg(windows)]
     {
-        // Dispatch all targets (applications, App Execution Aliases like "wt", URLs, documents,
-        // and shell folders) via ShellExecuteExW on a dedicated thread with an initialized
-        // Single-Threaded Apartment (STA) COM context.
-        // Direct CreateProcessW from a windowless background daemon (CREATE_NO_WINDOW) causes
-        // MSIX App Execution Aliases such as Windows Terminal to launch into a headless zombie
-        // state with 0 windows. ShellExecuteExW within an active STA apartment resolves the alias
-        // cleanly through Windows Shell activation into the user's interactive desktop.
-        let target_owned = target.to_string();
-        let args_owned = args.map(|a| a.to_string());
+        use std::os::windows::process::CommandExt;
 
-        let handle = std::thread::Builder::new()
-            .name("tau-shell-open".to_string())
-            .spawn(move || {
-                use std::ptr;
-                use windows_sys::Win32::Foundation::{S_FALSE, S_OK};
-                use windows_sys::Win32::System::Com::{
-                    COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx,
-                    CoUninitialize,
-                };
-                use windows_sys::Win32::UI::Shell::{SHELLEXECUTEINFOW, ShellExecuteExW};
-                use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-                // SAFETY: Initializes COM Single-Threaded Apartment for this dedicated worker thread.
-                // Required by Win32 Shell APIs to prevent null-pointer dereferences in windows.storage.dll.
-                let init_hr = unsafe {
-                    CoInitializeEx(
-                        ptr::null_mut(),
-                        (COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) as u32,
-                    )
-                };
-                let should_uninit = init_hr == S_OK || init_hr == S_FALSE;
+        let clean_target = strip_quotes(target);
+        let is_url_or_shell = is_url_target(clean_target)
+            || clean_target.starts_with("shell:")
+            || clean_target.contains("://");
 
-                let wide_verb: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
-                let wide_target: Vec<u16> = target_owned
-                    .encode_utf16()
-                    .chain(std::iter::once(0))
-                    .collect();
-                let wide_args: Option<Vec<u16>> =
-                    args_owned.map(|a| a.encode_utf16().chain(std::iter::once(0)).collect());
-
-                // SAFETY: Zeroed memory is a valid initial state for SHELLEXECUTEINFOW before setting cbSize.
-                let mut exec_info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
-                exec_info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
-                exec_info.fMask = 0;
-                exec_info.lpVerb = wide_verb.as_ptr();
-                exec_info.lpFile = wide_target.as_ptr();
-                exec_info.lpParameters = wide_args
-                    .as_ref()
-                    .map(|a| a.as_ptr())
-                    .unwrap_or(ptr::null());
-                exec_info.nShow = SW_SHOWNORMAL;
-
-                // SAFETY: ShellExecuteExW executes the shell verb with valid null-terminated UTF-16 strings
-                // within an initialized STA COM apartment, ensuring safe desktop shell resolution.
-                let success = unsafe { ShellExecuteExW(&mut exec_info) != 0 };
-
-                if should_uninit {
-                    // SAFETY: CoUninitialize balances successful CoInitializeEx on this dedicated thread.
-                    unsafe { CoUninitialize() };
+        // For non-URL, non-shell targets: first try direct Command::new
+        if !is_url_or_shell {
+            let mut direct_cmd = std::process::Command::new(clean_target);
+            if let Some(args_str) = args {
+                for arg in split_cmd_args(args_str) {
+                    direct_cmd.arg(arg);
                 }
+            }
+            if direct_cmd.spawn().is_ok() {
+                return Ok(());
+            }
+        }
 
-                if success {
-                    Ok(())
-                } else {
-                    Err(format!(
-                        "ShellExecuteExW failed with code: {:?}",
-                        exec_info.hInstApp as usize
-                    ))
-                }
-            })
-            .map_err(|e| format!("Failed to spawn shell open thread: {}", e))?;
+        // Fallback for execution aliases, documents, URLs, or shell items:
+        // Spawn out-of-process via cmd.exe /c start "" <target> [args]
+        // This isolates third-party shell extensions and COM handlers entirely out of Taurine's process.
+        let mut start_cmd = std::process::Command::new("cmd.exe");
+        start_cmd.arg("/c").arg("start").arg("").arg(clean_target);
 
-        handle
-            .join()
-            .map_err(|_| "Shell open thread panicked".to_string())?
+        if let Some(args_str) = args {
+            for arg in split_cmd_args(args_str) {
+                start_cmd.arg(arg);
+            }
+        }
+
+        start_cmd.creation_flags(CREATE_NO_WINDOW);
+
+        start_cmd
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("Failed to spawn out-of-process shell start: {}", e))
     }
     #[cfg(not(windows))]
     {
@@ -689,5 +654,12 @@ mod tests {
     #[cfg(windows)]
     fn test_native_shell_open_wt_does_not_panic() {
         let _ = native_shell_open("wt", None);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_native_shell_open_url_out_of_process() {
+        let res = native_shell_open("https://127.0.0.1:65535", None);
+        assert!(res.is_ok());
     }
 }
