@@ -181,7 +181,30 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
     Ok(())
 }
 
-pub fn execute_set(key: String, value: String, json: bool) -> taurine_core::error::Result<()> {
+pub fn execute_set(
+    key: Option<String>,
+    value: Option<String>,
+    json: bool,
+) -> taurine_core::error::Result<()> {
+    let (key, value) = match (key, value) {
+        (Some(k), Some(v)) => (k, v),
+        (Some(k), None) => {
+            let diag = taurine_core::diagnostic::Diagnostic::problem(format!(
+                "Missing value for setting {k}"
+            ))
+            .help("Specify the value to set:")
+            .example(format!("taurine config set {k} <VALUE>"));
+            return Err(taurine_core::error::Error::Config(diag.render()));
+        }
+        _ => {
+            let diag =
+                taurine_core::diagnostic::Diagnostic::problem("Missing setting key and value")
+                    .help("Specify both the setting key and the new value to set:")
+                    .example("taurine config set audio_theme minimal")
+                    .example("taurine config set wpm 80");
+            return Err(taurine_core::error::Error::Config(diag.render()));
+        }
+    };
     let actual_key = Settings::resolve_key(&key);
     apply_setting_input(actual_key, Some(&value))?;
 
@@ -274,7 +297,11 @@ mod tests {
     #[test]
     fn reset_auto_update_restores_default() {
         let restored = with_test_db(|| -> taurine_core::error::Result<bool> {
-            execute_set("auto_update".to_string(), "false".to_string(), false)?;
+            execute_set(
+                Some("auto_update".to_string()),
+                Some("false".to_string()),
+                false,
+            )?;
             execute_reset("auto_update".to_string(), false)?;
             let conn = init::setup()?;
             let manager = SettingsManager::new(&conn);
@@ -310,7 +337,11 @@ mod tests {
     #[test]
     fn set_inline_ai_enabled_persists() {
         let persisted = with_test_db(|| -> taurine_core::error::Result<bool> {
-            execute_set("inline_ai_enabled".to_string(), "false".to_string(), false)?;
+            execute_set(
+                Some("inline_ai_enabled".to_string()),
+                Some("false".to_string()),
+                false,
+            )?;
             let conn = init::setup()?;
             let manager = SettingsManager::new(&conn);
             let settings = manager.load_all();
@@ -321,8 +352,9 @@ mod tests {
 
     #[test]
     fn set_unknown_key_returns_error() {
-        let is_err =
-            with_test_db(|| execute_set("bogus_key".to_string(), "x".to_string(), false).is_err());
+        let is_err = with_test_db(|| {
+            execute_set(Some("bogus_key".to_string()), Some("x".to_string()), false).is_err()
+        });
         assert!(is_err);
     }
 
@@ -427,7 +459,11 @@ mod tests {
     fn test_set_audio_theme_persists() {
         let persisted = with_test_db(
             || -> taurine_core::error::Result<taurine_core::settings::AudioTheme> {
-                execute_set("audio_theme".to_string(), "arcade".to_string(), false)?;
+                execute_set(
+                    Some("audio_theme".to_string()),
+                    Some("arcade".to_string()),
+                    false,
+                )?;
                 let conn = init::setup()?;
                 let manager = SettingsManager::new(&conn);
                 Ok(manager.load_all().audio_theme)
@@ -442,12 +478,33 @@ mod tests {
     #[test]
     fn test_set_audio_volume_persists() {
         let persisted = with_test_db(|| -> taurine_core::error::Result<u32> {
-            execute_set("audio_volume".to_string(), "65".to_string(), false)?;
+            execute_set(
+                Some("audio_volume".to_string()),
+                Some("65".to_string()),
+                false,
+            )?;
             let conn = init::setup()?;
             let manager = SettingsManager::new(&conn);
             Ok(manager.load_all().audio_volume)
         });
         assert_eq!(persisted.unwrap(), 65);
+    }
+
+    #[test]
+    fn test_set_missing_key_and_value_diagnostic() {
+        let err = execute_set(None, None, false).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("Missing setting key and value"));
+        assert!(msg.contains("Specify both the setting key and the new value to set:"));
+        assert!(msg.contains("taurine config set audio_theme minimal"));
+    }
+
+    #[test]
+    fn test_set_missing_value_diagnostic() {
+        let err = execute_set(Some("audio_theme".to_string()), None, false).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("Missing value for setting audio_theme"));
+        assert!(msg.contains("taurine config set audio_theme <VALUE>"));
     }
 
     #[test]

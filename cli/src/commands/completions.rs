@@ -14,7 +14,30 @@ use tracing::{debug, error, info};
 
 const ALIAS: &str = "tau";
 
-pub(crate) fn handle_completion(action: &ShellCompletionAction) -> taurine_core::error::Result<()> {
+pub(crate) fn handle_completion(
+    action: Option<&ShellCompletionAction>,
+) -> taurine_core::error::Result<()> {
+    let Some(action) = action else {
+        let diag =
+            taurine_core::diagnostic::Diagnostic::problem("Missing shell completions action")
+                .help("Specify a shell to generate completions for, or use install:")
+                .options(
+                    "Available actions",
+                    &[
+                        "bash",
+                        "elvish",
+                        "fish",
+                        "powershell",
+                        "zsh",
+                        "install",
+                        "uninstall",
+                    ],
+                )
+                .example("taurine completions powershell")
+                .example("taurine completions install");
+        return Err(taurine_core::error::Error::Config(diag.render()));
+    };
+
     let mut cmd = Cli::command();
 
     match action {

@@ -117,7 +117,7 @@ fn parses_add_script_hotkey_flag() {
             }) = &args.sub
             {
                 assert!(hotkey);
-                assert_eq!(trigger, "ctrl+shift+w");
+                assert_eq!(trigger.as_deref(), Some("ctrl+shift+w"));
                 assert_eq!(content.as_deref(), Some("winget install [0]"));
             } else {
                 panic!("expected script subcommand");
@@ -497,4 +497,69 @@ fn update_subcommand_routes_to_command_launch_target() {
     assert!(!cli.auto_update);
     assert_eq!(launch_target(&cli), LaunchTarget::Command);
     assert!(matches!(cli.command, Some(Commands::Update)));
+}
+
+#[test]
+fn delete_without_args_parses_successfully() {
+    let cli = Cli::try_parse_from(["taurine", "delete"]).expect("delete without args should parse");
+    match cli.command {
+        Some(Commands::Delete { triggers, tag, .. }) => {
+            assert!(triggers.is_empty());
+            assert!(tag.is_none());
+        }
+        other => panic!("unexpected command parse: {other:?}"),
+    }
+}
+
+#[test]
+fn config_set_without_args_parses_successfully() {
+    let cli = Cli::try_parse_from(["taurine", "config", "set"])
+        .expect("config set without args should parse");
+    match cli.command {
+        Some(Commands::Config {
+            action: Some(ConfigAction::Set { key, value }),
+        }) => {
+            assert!(key.is_none());
+            assert!(value.is_none());
+        }
+        other => panic!("unexpected command parse: {other:?}"),
+    }
+}
+
+#[test]
+fn config_without_args_parses_successfully() {
+    let cli = Cli::try_parse_from(["taurine", "config"]).expect("config without args should parse");
+    match cli.command {
+        Some(Commands::Config { action }) => {
+            assert!(action.is_none());
+        }
+        other => panic!("unexpected command parse: {other:?}"),
+    }
+}
+
+#[test]
+fn completions_without_args_parses_successfully() {
+    let cli = Cli::try_parse_from(["taurine", "completions"])
+        .expect("completions without args should parse");
+    match cli.command {
+        Some(Commands::Completions { action }) => {
+            assert!(action.is_none());
+        }
+        other => panic!("unexpected command parse: {other:?}"),
+    }
+}
+
+#[test]
+fn add_script_without_args_parses_successfully() {
+    let cli = Cli::try_parse_from(["taurine", "add", "script"])
+        .expect("add script without args should parse");
+    match cli.command {
+        Some(Commands::Add(args)) => match args.sub {
+            Some(AddSubcommand::Script { trigger, .. }) => {
+                assert!(trigger.is_none());
+            }
+            other => panic!("unexpected sub parse: {other:?}"),
+        },
+        other => panic!("unexpected command parse: {other:?}"),
+    }
 }

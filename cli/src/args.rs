@@ -83,7 +83,7 @@ pub(crate) enum Commands {
         #[arg(short = 'y', long)]
         yes: bool,
 
-        #[arg(required_unless_present = "tag", num_args = 0..)]
+        #[arg(num_args = 0..)]
         triggers: Vec<String>,
     },
     /// List all triggers
@@ -130,7 +130,7 @@ pub(crate) enum Commands {
     /// Manage application settings
     Config {
         #[command(subcommand)]
-        action: ConfigAction,
+        action: Option<ConfigAction>,
     },
     /// Configure AI
     Ai {
@@ -165,14 +165,17 @@ pub(crate) enum Commands {
     /// Generate or install shell completions
     Completions {
         #[command(subcommand)]
-        action: ShellCompletionAction,
+        action: Option<ShellCompletionAction>,
     },
 }
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum ConfigAction {
     /// Set a configuration value
-    Set { key: String, value: String },
+    Set {
+        key: Option<String>,
+        value: Option<String>,
+    },
     /// List configuration
     #[command(alias = "ls")]
     List,
@@ -312,7 +315,7 @@ pub enum AddSubcommand {
     /// Add script trigger
     Script {
         /// Trigger
-        trigger: String,
+        trigger: Option<String>,
         /// Hotkey trigger
         #[arg(long)]
         hotkey: bool,
@@ -320,18 +323,12 @@ pub enum AddSubcommand {
         #[arg(long, conflicts_with = "hotkey")]
         regex: bool,
         /// Script content
-        #[arg(required_unless_present = "file")]
         content: Option<String>,
         /// Script file
         #[arg(short, long)]
         file: Option<std::path::PathBuf>,
         /// Interpreter
-        #[arg(
-            short = 'l',
-            long = "lang",
-            value_enum,
-            required_unless_present = "file"
-        )]
+        #[arg(short = 'l', long = "lang", value_enum)]
         lang: Option<ScriptInterpreterCli>,
         /// Run mode
         #[arg(short = 'm', long = "mode", value_enum, default_value = "inline")]

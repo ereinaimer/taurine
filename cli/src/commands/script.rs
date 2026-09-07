@@ -29,6 +29,17 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
         .sub
         .expect("add dispatch routes to script only when subcommand is present");
 
+    let trigger = match trigger {
+        Some(t) => t,
+        None => {
+            let diag = taurine_core::diagnostic::Diagnostic::problem("Missing trigger for script")
+                .help("Specify a trigger word or hotkey for the script:")
+                .example("taurine add script :run -f ./myscript.sh")
+                .example("taurine add script :greet \"echo hello\"");
+            return Err(taurine_core::error::Error::Config(diag.render()));
+        }
+    };
+
     let trigger_type = TriggerType::from_cli_flags(hotkey, regex);
     let os = os
         .to_db_str()
@@ -128,7 +139,7 @@ pub fn execute_with_trigger_type(
             "Neither script content nor script file provided",
         )
         .help("Provide inline script content or specify a script file using -f / --file:")
-        .example("taurine add script -f ./myscript.sh :run");
+        .example("taurine add script :run -f ./myscript.sh");
         return Err(taurine_core::error::Error::Service(diag.render()));
     };
 
@@ -176,7 +187,7 @@ pub fn execute_with_trigger_type(
                 "Supported languages",
                 &["bash", "powershell", "python", "node", "cmd"],
             )
-            .example("taurine add script print(1) :py --lang python");
+            .example("taurine add script :py \"print(1)\" --lang python");
             taurine_core::error::Error::Service(diag.render())
         })?,
     };

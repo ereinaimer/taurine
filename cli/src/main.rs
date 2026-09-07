@@ -22,8 +22,8 @@ fn main() -> std::process::ExitCode {
     // to prevent tracing output from interleaving with prompts and TUI overlays.
     let is_interactive_command = matches!(
         &cli.command,
-        Some(Commands::Import { .. })
-            | Some(Commands::Export { .. })
+        Some(Commands::Import { yes: false, .. })
+            | Some(Commands::Export { yes: false, .. })
             | Some(Commands::Ai { yes: false, .. })
     );
     let quiet = cli.quiet || (is_interactive_command && cli.verbose == 0);
@@ -113,9 +113,11 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
             commands::import::execute(path, conflict, yes)?;
         }
         Some(Commands::Config { action }) => match action {
-            ConfigAction::Set { key, value } => commands::config::execute_set(key, value, json)?,
-            ConfigAction::List => commands::config::execute_list(json)?,
-            ConfigAction::Reset { key, all } => {
+            Some(ConfigAction::Set { key, value }) => {
+                commands::config::execute_set(key, value, json)?
+            }
+            Some(ConfigAction::List) | None => commands::config::execute_list(json)?,
+            Some(ConfigAction::Reset { key, all }) => {
                 commands::config::execute_reset_command(key, all, json)?;
             }
         },
@@ -140,7 +142,7 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
             })?;
         }
         Some(Commands::Completions { action }) => {
-            commands::completions::handle_completion(&action)?;
+            commands::completions::handle_completion(action.as_ref())?;
         }
         None => {
             use clap::CommandFactory;
