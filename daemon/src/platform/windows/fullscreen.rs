@@ -9,9 +9,8 @@ use windows_sys::Win32::Graphics::Gdi::{
 use windows_sys::Win32::UI::Accessibility::{HWINEVENTHOOK, SetWinEventHook};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, EVENT_OBJECT_LOCATIONCHANGE, EVENT_SYSTEM_FOREGROUND, GWL_STYLE,
-    GetClassNameW, GetClientRect, GetForegroundWindow, GetMessageW, GetWindowLongW,
-    GetWindowPlacement, GetWindowRect, MSG, OBJID_WINDOW, SW_SHOWMAXIMIZED, SetTimer,
-    TranslateMessage, WINDOWPLACEMENT, WINEVENT_OUTOFCONTEXT, WS_CAPTION,
+    GetClassNameW, GetClientRect, GetForegroundWindow, GetMessageW, GetWindowLongW, GetWindowRect,
+    MSG, OBJID_WINDOW, SetTimer, TranslateMessage, WINEVENT_OUTOFCONTEXT, WS_CAPTION,
 };
 
 thread_local! {
@@ -209,15 +208,6 @@ fn check_borderless_fullscreen() -> bool {
             {
                 return false;
             }
-        }
-
-        let mut placement: WINDOWPLACEMENT = std::mem::zeroed();
-        placement.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
-        if GetWindowPlacement(hwnd, &mut placement) != 0
-            && placement.showCmd == SW_SHOWMAXIMIZED as u32
-        {
-            // A maximized window is not an exclusive borderless fullscreen game
-            return false;
         }
 
         let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
