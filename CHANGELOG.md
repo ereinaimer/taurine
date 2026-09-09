@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Inline AI Clipboard Context**: Pass copied clipboard text into inline AI prompts via natural paste shortcut (Ctrl+V / Cmd+V) or by typing [clip].
 
 ### Fixed
+- **Linux Fast Typing Lag**: Batch direct text-injection and trigger-removal events so expansions no longer pause between characters.
 - **Linux Installer Manifest Fetch**: Fix fresh installs failing when the release manifest URL could not be resolved.
 - **Uninstaller Cleanup**: Prevent partial removal when the binary is missing and ensure the uninstaller is available before installation completes.
 - **Database Corruption Self-Healing**: Automatically quarantine corrupted SQLite database files and initialize fresh storage to prevent persistent daemon boot loops.

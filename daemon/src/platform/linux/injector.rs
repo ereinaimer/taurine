@@ -83,21 +83,18 @@ impl Injector for LinuxInjector {
     }
 
     fn simulate_left(&self, count: usize) {
-        for _ in 0..count {
-            crate::platform::linux::uinput::simulate_keypress(evdev::KeyCode::KEY_LEFT);
-        }
+        let keys = vec![evdev::KeyCode::KEY_LEFT; count];
+        crate::platform::linux::uinput::simulate_keypresses(&keys);
     }
 
     fn simulate_right(&self, count: usize) {
-        for _ in 0..count {
-            crate::platform::linux::uinput::simulate_keypress(evdev::KeyCode::KEY_RIGHT);
-        }
+        let keys = vec![evdev::KeyCode::KEY_RIGHT; count];
+        crate::platform::linux::uinput::simulate_keypresses(&keys);
     }
 
     fn simulate_backspace(&self, count: usize) {
-        for _ in 0..count {
-            crate::platform::linux::uinput::simulate_keypress(evdev::KeyCode::KEY_BACKSPACE);
-        }
+        let keys = vec![evdev::KeyCode::KEY_BACKSPACE; count];
+        crate::platform::linux::uinput::simulate_keypresses(&keys);
     }
 
     fn simulate_paste(&self) {
@@ -117,9 +114,7 @@ impl Injector for LinuxInjector {
             evdev::KeyCode::KEY_LEFTMETA,
             evdev::KeyCode::KEY_RIGHTMETA,
         ];
-        for key in &modifiers {
-            crate::platform::linux::uinput::simulate_key(*key, false);
-        }
+        crate::platform::linux::uinput::simulate_key_releases(&modifiers);
     }
 
     fn try_inject_frame_raw(&self, frame: &str) -> bool {
@@ -163,9 +158,7 @@ impl Injector for LinuxInjector {
     }
 
     fn inject_atomic_backspaces(&self, count: usize) {
-        for _ in 0..count {
-            crate::platform::linux::uinput::simulate_keypress(evdev::KeyCode::KEY_BACKSPACE);
-        }
+        self.simulate_backspace(count);
     }
 
     fn inject_unicode_text_direct(&self, text: &str) -> bool {
