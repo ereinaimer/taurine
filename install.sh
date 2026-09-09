@@ -1,5 +1,11 @@
 #!/bin/sh
 set -eu
+umask 022
+
+if [ -z "${HOME:-}" ]; then
+    echo "Error: HOME is not set. Please set HOME and try again." >&2
+    exit 1
+fi
 
 # Detect OS and Architecture
 OS="$(uname -s)"
@@ -44,27 +50,27 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 run_with_spinner() {
-    local label=$1
-    local cmd=$2
-    local success_label=${3:-$label}
-    local err_file="${TMP_DIR}/spinner_err.$$"
+    label=$1
+    cmd=$2
+    success_label=${3:-$label}
+    err_file="${TMP_DIR}/spinner_err.$$"
 
     eval "$cmd" >/dev/null 2>"$err_file" &
-    local pid=$!
-    local delay=0.08
-    local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    pid=$!
+    delay=0.08
+    spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 
     # Disable set -e temporarily to safely manage spinner loop and wait
     set +e
     while kill -0 $pid 2>/dev/null; do
-        local temp=${spinstr#?}
+        temp=${spinstr#?}
         printf "\r%c %s" "$spinstr" "$label"
         spinstr=$temp${spinstr%"$temp"}
         sleep $delay
     done
 
     wait $pid
-    local exit_code=$?
+    exit_code=$?
     set -e
 
     if [ $exit_code -eq 0 ]; then
@@ -81,14 +87,13 @@ run_with_spinner() {
 }
 
 verify_checksum() {
-    local file=$1
-    local expected=$2
+    file=$1
+    expected=$2
     if command -v sha256sum >/dev/null 2>&1; then
         echo "$expected  $file" | sha256sum -c - > /dev/null 2>&1
     elif command -v shasum >/dev/null 2>&1; then
         echo "$expected  $file" | shasum -a 256 -c - > /dev/null 2>&1
     elif command -v openssl >/dev/null 2>&1; then
-        local actual
         actual=$(openssl dgst -sha256 "$file" | cut -d' ' -f2)
         [ "$actual" = "$expected" ]
     else
@@ -99,15 +104,15 @@ verify_checksum() {
 
 # Invoke a command with retry and spinner
 invoke_with_retry() {
-    local label=$1
-    local cmd=$2
-    local success_label=${3:-$label}
-    local max_attempts=3
-    local attempt=1
-    local delay=2
+    label=$1
+    cmd=$2
+    success_label=${3:-$label}
+    max_attempts=3
+    attempt=1
+    delay=2
 
     while [ $attempt -le $max_attempts ]; do
-        local current_label="$label"
+        current_label="$label"
         if [ $attempt -gt 1 ]; then
             current_label="$label (attempt $attempt/$max_attempts)"
         fi
@@ -130,13 +135,11 @@ invoke_with_retry() {
 
 version_gt() {
     # Returns 0 if $1 > $2, 1 otherwise
-    local v1="${1%%-*}"
-    local v2="${2%%-*}"
+    v1="${1%%-*}"
+    v2="${2%%-*}"
 
-    local i=1
+    i=1
     while [ $i -le 4 ]; do
-        local a
-        local b
         a=$(echo "$v1" | cut -d. -f$i)
         b=$(echo "$v2" | cut -d. -f$i)
         a="${a%%[!0-9]*}"
@@ -155,16 +158,16 @@ trim() {
 }
 
 configure_profile() {
-    local profile="$1"
-    local shell_type="$2"
-    local modified=false
+    profile="$1"
+    shell_type="$2"
+    modified=false
 
     # Ensure profile directory exists
     mkdir -p "$(dirname "$profile")"
 
     # 1. Handle PATH (idempotent)
     if [ "$shell_type" = "fish" ]; then
-        local path_line="fish_add_path \"$INSTALL_DIR\""
+        path_line="fish_add_path \"$INSTALL_DIR\""
         if [ -f "$profile" ]; then
             if ! grep -Fq "$path_line" "$profile" 2>/dev/null; then
                 printf "\n%s\n" "$path_line" >> "$profile"
@@ -175,7 +178,7 @@ configure_profile() {
             modified=true
         fi
     elif [ "$shell_type" = "csh" ]; then
-        local path_line="set path = ( \$path \"$INSTALL_DIR\" )"
+        path_line="set path = ( \$path \"$INSTALL_DIR\" )"
         if [ -f "$profile" ]; then
             if ! grep -Fq "$path_line" "$profile" 2>/dev/null; then
                 printf "\n%s\n" "$path_line" >> "$profile"
@@ -186,7 +189,7 @@ configure_profile() {
             modified=true
         fi
     else
-        local path_line="export PATH=\"$INSTALL_DIR:\$PATH\""
+        path_line="export PATH=\"$INSTALL_DIR:\$PATH\""
         if [ -f "$profile" ]; then
             if ! grep -Fxq "$path_line" "$profile" 2>/dev/null; then
                 printf "\n%s\n" "$path_line" >> "$profile"
@@ -199,25 +202,21 @@ configure_profile() {
     fi
 
     # 2. Handle Alias (Ensure only ONE entry of the alias exists, and it's correct)
-    local alias_line="alias tau='taurine'"
-    local alias_prefix="alias tau="
+    alias_line="alias tau='taurine'"
+    alias_prefix="alias tau="
     if [ "$shell_type" = "csh" ]; then
         alias_line="alias tau taurine"
         alias_prefix="alias tau "
     fi
 
     if [ -f "$profile" ]; then
-        local matches
         matches=$(grep -F "$alias_prefix" "$profile" || true)
-        local count
         count=$(echo "$matches" | grep -c . || true)
-        local trimmed_match
         trimmed_match=$(trim "$matches")
 
         if [ "$count" -eq 1 ] && [ "$trimmed_match" = "$alias_line" ]; then
             : # Already correct
         else
-            local tmp_profile
             tmp_profile=$(mktemp)
             grep -Fv "$alias_prefix" "$profile" > "$tmp_profile" || true
             cat "$tmp_profile" > "$profile"
@@ -250,10 +249,10 @@ if [ -x "$INSTALL_DIR/taurine" ]; then
     if [ -n "$LOCAL_VERSION" ]; then
         # Try fetching manifest silently to check if up to date
         if curl -fsSL -H 'Accept: application/vnd.github+json' --max-time 10 https://api.github.com/repos/ereinaimer/taurine/releases -o "$TMP_DIR/releases.json" >/dev/null 2>&1; then
-            RELEASE_URL=$(grep -o '"url":"https://api.github.com/repos/ereinaimer/taurine/releases/[0-9]*"' "$TMP_DIR/releases.json" | head -n 1 | cut -d'"' -f4)
+            RELEASE_URL=$(grep -o '"url"[[:space:]]*:[[:space:]]*"https://api.github.com/repos/ereinaimer/taurine/releases/[0-9]*"' "$TMP_DIR/releases.json" | head -n 1 | cut -d'"' -f4)
             if [ -n "$RELEASE_URL" ]; then
                 if curl -fsSL -H 'Accept: application/vnd.github+json' --max-time 10 "$RELEASE_URL" -o "$TMP_DIR/release.json" >/dev/null 2>&1; then
-                    MANIFEST_ASSET_URL=$(grep -o '"browser_download_url":"[^"]*manifest\.json"' "$TMP_DIR/release.json" | head -n 1 | cut -d'"' -f4)
+                    MANIFEST_ASSET_URL=$(grep -o '"browser_download_url"[[:space:]]*:[[:space:]]*"[^"]*manifest\.json"' "$TMP_DIR/release.json" | head -n 1 | cut -d'"' -f4)
                     if [ -n "$MANIFEST_ASSET_URL" ]; then
                         if curl -fsSL --max-time 10 "$MANIFEST_ASSET_URL" -o "$TMP_DIR/manifest.json" >/dev/null 2>&1; then
                             MANIFEST=$(tr -d '\n\r\t ' < "$TMP_DIR/manifest.json")
@@ -268,7 +267,7 @@ if [ -x "$INSTALL_DIR/taurine" ]; then
             fi
         fi
 
-        if [ -n "$VERSION" ]; then
+        if [ -n "$VERSION" ] && [ -n "$URL" ]; then
             if [ "$LOCAL_VERSION" = "$VERSION" ] || version_gt "$LOCAL_VERSION" "$VERSION"; then
                 printf "\x1b[32m✓\x1b[0m Taurine is up to date (v%s)\n" "$LOCAL_VERSION"
             fi
@@ -277,19 +276,19 @@ if [ -x "$INSTALL_DIR/taurine" ]; then
 fi
 
 # 2. Manifest fetch if not already populated (e.g. fresh install or silent check failed)
-if [ -z "$VERSION" ]; then
-    # Use a single pipeline to avoid subshell variable capture issues
+if [ -z "$VERSION" ] || [ -z "$URL" ]; then
     invoke_with_retry "Fetching release manifest" "
         set -e
-        curl -fsSL -H 'Accept: application/vnd.github+json' --max-time 10 https://api.github.com/repos/ereinaimer/taurine/releases \
-            | grep -o '\"url\":\"https://api.github.com/repos/ereinaimer/taurine/releases/[0-9]*\"' \
-            | head -n 1 \
-            | cut -d'\"' -f4 \
-            | xargs -r curl -fsSL -H 'Accept: application/vnd.github+json' --max-time 10 \
-            | grep -o '\"browser_download_url\":\"[^\"]*manifest\\.json\"' \
-            | head -n 1 \
-            | cut -d'\"' -f4 \
-            | xargs -r curl -fsSL --max-time 10 -o \"$TMP_DIR/manifest.json\"
+        curl -fsSL -H 'Accept: application/vnd.github+json' --max-time 10 \
+            https://api.github.com/repos/ereinaimer/taurine/releases \
+            -o \"$TMP_DIR/releases.json\"
+        RELEASE_URL=\$(grep -o '\"url\"[[:space:]]*:[[:space:]]*\"https://api.github.com/repos/ereinaimer/taurine/releases/[0-9]*\"' \"$TMP_DIR/releases.json\" | head -n 1 | cut -d'\"' -f4)
+        [ -n \"\$RELEASE_URL\" ]
+        curl -fsSL -H 'Accept: application/vnd.github+json' --max-time 10 \"\$RELEASE_URL\" \
+            -o \"$TMP_DIR/release.json\"
+        MANIFEST_ASSET_URL=\$(grep -o '\"browser_download_url\"[[:space:]]*:[[:space:]]*\"[^\"]*manifest\\.json\"' \"$TMP_DIR/release.json\" | head -n 1 | cut -d'\"' -f4)
+        [ -n \"\$MANIFEST_ASSET_URL\" ]
+        curl -fsSL --max-time 10 \"\$MANIFEST_ASSET_URL\" -o \"$TMP_DIR/manifest.json\"
     " "Fetched release manifest" || exit 1
 
     MANIFEST=$(tr -d '\n\r\t ' < "$TMP_DIR/manifest.json")
@@ -343,9 +342,14 @@ if [ "$IS_INSTALLED" = false ]; then
     cp "$TMP_DIR/taurine" "$INSTALL_DIR/"
     chmod +x "$INSTALL_DIR/taurine"
 
-    # Download uninstaller script silently in the background
+    # Download the uninstaller before reporting a successful installation.
     UNINSTALL_SCRIPT="$INSTALL_DIR/uninstall.sh"
-    { curl -fsSL --max-time 30 "https://raw.githubusercontent.com/ereinaimer/taurine/main/uninstall.sh" -o "$UNINSTALL_SCRIPT" && chmod +x "$UNINSTALL_SCRIPT"; } > /dev/null 2>&1 &
+    if ! curl -fsSL --max-time 30 "https://raw.githubusercontent.com/ereinaimer/taurine/main/uninstall.sh" -o "$UNINSTALL_SCRIPT" >/dev/null 2>&1; then
+        rm -f "$UNINSTALL_SCRIPT"
+        echo "Error: Failed to download the Taurine uninstaller script." >&2
+        exit 1
+    fi
+    chmod +x "$UNINSTALL_SCRIPT"
 
     IS_INSTALLED=true
     IS_FRESH_INSTALL=true

@@ -1,5 +1,11 @@
 #!/bin/sh
 set -eu
+umask 022
+
+if [ -z "${HOME:-}" ]; then
+    echo "Error: HOME is not set. Please set HOME and try again." >&2
+    exit 1
+fi
 
 # Detect OS and setup paths
 OS="$(uname -s)"
@@ -14,34 +20,13 @@ else
     exit 1
 fi
 
-# Check if Taurine is installed
-DATA_DIR_EMPTY=0
-if [ ! -d "$DATA_DIR" ] || [ -z "$(ls -A "$DATA_DIR" 2>/dev/null)" ]; then
-    DATA_DIR_EMPTY=1
-fi
-
-BIN_IN_DATA_DIR=0
-if [ -f "$INSTALL_DIR/taurine" ]; then
-    BIN_IN_DATA_DIR=1
-fi
-
-BIN_IN_PATH=0
-if command -v taurine >/dev/null 2>&1; then
-    BIN_IN_PATH=1
-fi
-
-if [ "$DATA_DIR_EMPTY" -eq 1 ] && [ "$BIN_IN_DATA_DIR" -eq 0 ] && [ "$BIN_IN_PATH" -eq 0 ]; then
-    printf "\033[32m✓\033[0m Taurine is not installed on this system.\n"
-    exit 0
-fi
-
-# Stop service if running via the installed binary
+# Stop service if the installed binary is available.
 if [ -x "$INSTALL_DIR/taurine" ]; then
     "$INSTALL_DIR/taurine" down >/dev/null 2>&1 || true
 fi
 
 # Stop and clean up systemd service on Linux
-if [ "$OS" = "Linux" ]; then
+if [ "$OS" = "Linux" ] && command -v systemctl >/dev/null 2>&1; then
     systemctl --user stop ereinaimer-taurine.service >/dev/null 2>&1 || true
     systemctl --user disable ereinaimer-taurine.service >/dev/null 2>&1 || true
     rm -f "$HOME/.config/systemd/user/ereinaimer-taurine.service" || true
@@ -50,10 +35,13 @@ if [ "$OS" = "Linux" ]; then
 fi
 
 # Stop and clean up launchd service on macOS
-if [ "$OS" = "Darwin" ]; then
-    if [ -f "$HOME/Library/LaunchAgents/com.ereinaimer.taurine.plist" ]; then
-        launchctl unload "$HOME/Library/LaunchAgents/com.ereinaimer.taurine.plist" >/dev/null 2>&1 || true
-        rm -f "$HOME/Library/LaunchAgents/com.ereinaimer.taurine.plist" || true
+if [ "$OS" = "Darwin" ] && command -v launchctl >/dev/null 2>&1; then
+    LAUNCH_AGENT="$HOME/Library/LaunchAgents/com.ereinaimer.taurine.plist"
+    if [ -f "$LAUNCH_AGENT" ]; then
+        USER_ID=$(id -u)
+        launchctl bootout "gui/$USER_ID" "$LAUNCH_AGENT" >/dev/null 2>&1 || \
+            launchctl unload "$LAUNCH_AGENT" >/dev/null 2>&1 || true
+        rm -f "$LAUNCH_AGENT" || true
     fi
 fi
 
@@ -64,9 +52,8 @@ fi
 
 # Clean shell profiles
 clean_profile() {
-    local profile="$1"
+    profile="$1"
     if [ -f "$profile" ]; then
-        local temp_file
         temp_file=$(mktemp)
         grep -v -F "export PATH=\"$INSTALL_DIR:\$PATH\"" "$profile" | \
         grep -v -F "alias tau='taurine'" | \
@@ -91,13 +78,15 @@ if [ -x "$INSTALL_DIR/taurine" ]; then
     "$INSTALL_DIR/taurine" ai remove --all --yes --json >/dev/null 2>&1 || true
 fi
 if command -v secret-tool >/dev/null 2>&1; then
-    secret-tool clear service taurine account rpc_token >/dev/null 2>&1 || true
+    secret-tool clear service taurine >/dev/null 2>&1 || true
 fi
 if [ "$OS" = "Darwin" ]; then
-    security delete-generic-password -s taurine -a rpc_token >/dev/null 2>&1 || true
+    security delete-generic-password -s taurine >/dev/null 2>&1 || true
 fi
 
 # Delete all data (config, database, logs, binary)
-rm -rf "$DATA_DIR"
+if [ -n "${DATA_DIR:-}" ] && [ "$DATA_DIR" != "/" ]; then
+    rm -rf "$DATA_DIR"
+fi
 
 echo "Taurine uninstalled successfully."
