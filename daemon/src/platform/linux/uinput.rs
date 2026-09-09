@@ -137,29 +137,66 @@ pub fn simulate_keypress(key: KeyCode) {
     simulate_key(key, false);
 }
 
+pub fn simulate_keypresses(keys: &[KeyCode]) {
+    let mut events = Vec::with_capacity(keys.len() * 3);
+    for key in keys {
+        events.push(InputEvent::new(
+            EventType::MISC.0,
+            MiscCode::MSC_SCAN.0,
+            key.code() as i32,
+        ));
+        events.push(InputEvent::new(EventType::KEY.0, key.code(), 1));
+        events.push(InputEvent::new(EventType::KEY.0, key.code(), 0));
+    }
+    emit_batch(&events);
+}
+
+pub fn simulate_key_releases(keys: &[KeyCode]) {
+    let mut events = Vec::with_capacity(keys.len() * 2);
+    for key in keys {
+        events.push(InputEvent::new(
+            EventType::MISC.0,
+            MiscCode::MSC_SCAN.0,
+            key.code() as i32,
+        ));
+        events.push(InputEvent::new(EventType::KEY.0, key.code(), 0));
+    }
+    emit_batch(&events);
+}
+
 pub fn simulate_type_string(s: &str, lookup: &std::collections::HashMap<char, (KeyCode, bool)>) {
-    let ready = is_uinput_ready();
+    let mut events = Vec::with_capacity(s.chars().count() * 6);
     for c in s.chars() {
         if let Some((key, shift)) = lookup.get(&c) {
             if *shift {
-                simulate_key(KeyCode::KEY_LEFTSHIFT, true);
-                if ready {
-                    thread::sleep(Duration::from_millis(1));
-                }
+                events.push(InputEvent::new(
+                    EventType::MISC.0,
+                    MiscCode::MSC_SCAN.0,
+                    KeyCode::KEY_LEFTSHIFT.code() as i32,
+                ));
+                events.push(InputEvent::new(
+                    EventType::KEY.0,
+                    KeyCode::KEY_LEFTSHIFT.code(),
+                    1,
+                ));
             }
-            simulate_keypress(*key);
+            events.push(InputEvent::new(
+                EventType::MISC.0,
+                MiscCode::MSC_SCAN.0,
+                key.code() as i32,
+            ));
+            events.push(InputEvent::new(EventType::KEY.0, key.code(), 1));
+            events.push(InputEvent::new(EventType::KEY.0, key.code(), 0));
             if *shift {
-                if ready {
-                    thread::sleep(Duration::from_millis(1));
-                }
-                simulate_key(KeyCode::KEY_LEFTSHIFT, false);
-            }
-            if ready {
-                // Increase delay between characters for better OS event synchronization.
-                thread::sleep(Duration::from_millis(8));
+                events.push(InputEvent::new(
+                    EventType::KEY.0,
+                    KeyCode::KEY_LEFTSHIFT.code(),
+                    0,
+                ));
             }
         }
     }
+    emit_batch(&events);
 }
 
 pub fn simulate_mouse_button(button: KeyCode, is_press: bool) {

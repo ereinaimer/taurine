@@ -156,7 +156,16 @@ pub fn start_listener(
     super::input_supervisor::start(context);
 }
 
-pub(crate) fn open_keyboard_device(path: &Path) -> io::Result<Option<Device>> {
+/// Whether an input device acts as a keyboard, a mouse, or both.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DeviceKind {
+    Keyboard,
+    Mouse,
+    /// Device reports both keyboard keys and mouse buttons (e.g. multimedia keyboards).
+    Combo,
+}
+
+pub(crate) fn open_keyboard_device(path: &Path) -> io::Result<Option<(Device, DeviceKind)>> {
     let device = Device::open(path)?;
 
     let name = device.name().unwrap_or("Unknown Device");
@@ -165,21 +174,28 @@ pub(crate) fn open_keyboard_device(path: &Path) -> io::Result<Option<Device>> {
         return Ok(None);
     }
 
-    if is_keyboard_device(&device) || is_mouse_device(&device) {
-        debug!(
-            "Found potential input trigger device: {} ({:?})",
-            name, path
-        );
-        Ok(Some(device))
-    } else {
-        Ok(None)
-    }
+    let has_keyboard = is_keyboard_device(&device);
+    let has_mouse = is_mouse_device(&device);
+
+    let kind = match (has_keyboard, has_mouse) {
+        (true, true) => DeviceKind::Combo,
+        (true, false) => DeviceKind::Keyboard,
+        (false, true) => DeviceKind::Mouse,
+        (false, false) => return Ok(None),
+    };
+
+    debug!(
+        "Found potential input trigger device: {} ({:?})",
+        name, path
+    );
+    Ok(Some((device, kind)))
 }
 
 pub(crate) fn spawn_device_listener(
     path: PathBuf,
     worker_id: u64,
     mut device: Device,
+    kind: DeviceKind,
     context: ListenerContext,
     exit_tx: Sender<DeviceExit>,
 ) -> io::Result<()> {
@@ -192,20 +208,33 @@ pub(crate) fn spawn_device_listener(
             let mut modifier_sides = ModifierSides::default();
             let mut hotkey_evaluator = HotkeyEvaluator::new();
             let device_name = device.name().map(|s| s.to_string());
-            let grab_enabled = match device.grab() {
-                Ok(()) => {
-                    info!(
-                        "Grabbed evdev device {:?}; Linux undo backspaces can now be swallowed",
-                        device_name
-                    );
-                    true
-                }
-                Err(e) => {
-                    warn!(
-                        "Failed to EVIOCGRAB {:?}: {}. Falling back to passive mode; Linux cannot swallow undo backspaces without an exclusive grab.",
-                        device_name, e
-                    );
-                    false
+
+            // Only grab keyboard devices. An exclusive grab on a mouse device swallows all
+            // click events before the compositor sees them, which breaks left/right click
+            // entirely. Mouse devices are observed passively: we only need them to clear the
+            // undo state on click, which does not require exclusive ownership of the device.
+            let grab_enabled = if kind == DeviceKind::Mouse {
+                debug!(
+                    "Skipping EVIOCGRAB for mouse device {:?}; passively observing click events",
+                    device_name
+                );
+                false
+            } else {
+                match device.grab() {
+                    Ok(()) => {
+                        info!(
+                            "Grabbed evdev device {:?}; Linux undo backspaces can now be swallowed",
+                            device_name
+                        );
+                        true
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to EVIOCGRAB {:?}: {}. Falling back to passive mode; Linux cannot swallow undo backspaces without an exclusive grab.",
+                            device_name, e
+                        );
+                        false
+                    }
                 }
             };
             let mut swallow_next_backspace_release = false;

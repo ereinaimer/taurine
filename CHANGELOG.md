@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **In-Band Error Elimination**: Erase triggers cleanly without inserting error strings into documents when snippet expansions or system variables encounter errors.
 - **Terminal & Shell Launch Resilience**: Allocate dedicated console hosts for terminal applications and isolate URL shell activations to prevent crashes and invisible zombie processes.
 - **Mouse Button 4 and 5 Simulation**: Direct Win32 input simulation for mouse buttons 4 and 5 (browser back/forward) on Windows.
+- **Linux Mouse Input Broken**: Fix left and right click becoming completely unresponsive while Taurine is running on Linux. Mouse devices were incorrectly grabbed exclusively, swallowing all click events before the compositor could receive them.
+- **Linux Text Expansion Speed**: Batch all uinput key events into a single kernel call per expansion, eliminating per-character sleep delays and making text injection significantly faster.
 - **Update Progress Display**: Prevent raw terminal escape codes from displaying during update progress.
 - **Word Boundary Expansion Accuracy**: Prevent unwanted expansions when triggers appear inside larger words or follow digits by requiring non-alphanumeric boundaries.
 

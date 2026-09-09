@@ -95,7 +95,7 @@ fn run(context: ListenerContext) {
             }
 
             match evdev::open_keyboard_device(&path) {
-                Ok(Some(device)) => {
+                Ok(Some((device, kind))) => {
                     let worker_id = next_worker_id;
                     next_worker_id = next_worker_id.wrapping_add(1).max(1);
 
@@ -103,6 +103,7 @@ fn run(context: ListenerContext) {
                         path.clone(),
                         worker_id,
                         device,
+                        kind,
                         context.clone(),
                         exit_tx.clone(),
                     ) {
