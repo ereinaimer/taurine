@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Uninstall Data Prompt**: Ask before deleting configuration and data files during uninstallation; kept by default.
 
 ### Fixed
+- **INR Currency Conversion Grouping**: Format inline conversion results in rupees/taka with lakh/crore commas (e.g. 9,454.41 INR).
 - **Linux Installer Manifest Fetch**: Fix fresh installs failing when the release manifest URL could not be resolved.
 - **Uninstaller Cleanup**: Prevent partial removal when the binary is missing and ensure the uninstaller is available before installation completes.
 - **Database Corruption Self-Healing**: Automatically quarantine corrupted SQLite database files and initialize fresh storage to prevent persistent daemon boot loops.

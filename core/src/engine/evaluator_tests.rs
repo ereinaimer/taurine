@@ -1985,6 +1985,38 @@ fn test_inline_unit_conversion_simple() {
 }
 
 #[test]
+fn test_inline_currency_conversion_inr_lakh_grouping() {
+    use std::collections::HashMap;
+    let state = Arc::new(EngineState::new());
+    let mut eval = Evaluator::new(state);
+
+    let mut mock = HashMap::new();
+    mock.insert("USD".to_string(), 1.0);
+    mock.insert("INR".to_string(), 83.5);
+    crate::engine::conversion::MOCK_RATES.with(|m| *m.borrow_mut() = Some(mock));
+
+    let input = "110usd=inr";
+    let mut last_result = None;
+
+    for c in input.chars() {
+        if let Some(res) = eval.process(EngineEvent::Char(c)) {
+            last_result = Some(res);
+        }
+    }
+    if let Some(res) = eval.process(EngineEvent::ActionKey) {
+        last_result = Some(res);
+    }
+
+    let result = last_result.expect("Currency conversion should have triggered");
+    assert_eq!(
+        result.steps,
+        vec![ExpansionStep::Text("9,185inr".to_string())]
+    );
+
+    crate::engine::conversion::MOCK_RATES.with(|m| *m.borrow_mut() = None);
+}
+
+#[test]
 fn test_inline_unit_conversion_instant_expand_disabled() {
     let state = Arc::new(EngineState::new());
     state

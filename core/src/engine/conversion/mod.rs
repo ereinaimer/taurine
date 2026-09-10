@@ -677,8 +677,16 @@ pub fn convert_natural(s: &str, state: &crate::engine::state::EngineState) -> Op
     } else {
         &converted_res
     };
-    // 11. Re-apply comma formatting to the numeric part
-    let formatted_num = if let Some(ref ivs) = intervals {
+    // 11. Re-apply comma formatting to the numeric part.
+    // Indian currencies (INR/BDT) use lakh/crore grouping ([3, 2]) whenever the
+    // result reaches 1,000 — even when the source amount is small, since exchange
+    // rates inflate values (e.g. "110 dollars to INR" → "9,185 INR").
+    let formatted_num = if currency::is_indian_currency_code(&to_unit_normalized)
+        && let Ok(num) = numeric_res.parse::<f64>()
+        && num.abs() >= 1000.0
+    {
+        crate::engine::comma::format_result(numeric_res, &[3, 2])
+    } else if let Some(ref ivs) = intervals {
         crate::engine::comma::format_result(numeric_res, ivs)
     } else if let Ok(source_val) = cleaned_val_str.parse::<f64>()
         && source_val.abs() >= 1000.0

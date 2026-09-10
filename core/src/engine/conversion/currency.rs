@@ -335,6 +335,13 @@ enum CurrencySource {
     IsoCode(&'static IsoCurrencyInfo),
 }
 
+/// True for ISO codes using Indian (lakh/crore) digit grouping (INR, BDT).
+pub fn is_indian_currency_code(code: &str) -> bool {
+    ISO_CURRENCIES
+        .iter()
+        .any(|c| c.is_indian && c.code.eq_ignore_ascii_case(code))
+}
+
 pub fn has_currency_prefix(input: &str) -> bool {
     let trimmed = input.trim();
     let mut remaining = trimmed;

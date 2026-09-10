@@ -57,7 +57,23 @@ impl crate::engine::evaluator::Evaluator {
                 && let Some(result_text) =
                     crate::engine::conversion::convert(&cleaned_word, &self.state)
             {
-                let formatted = if let Some(ref ivs) = intervals {
+                let to_unit = cleaned_word.rsplit('=').next().unwrap_or("");
+                // honey: Indian currency targets (INR/BDT) use lakh/crore
+                // grouping once the result reaches 1,000; revisit if other
+                // locales need target-driven grouping.
+                let needs_indian_grouping =
+                    crate::engine::conversion::currency::is_indian_currency_code(to_unit)
+                        && result_text
+                            .chars()
+                            .take_while(|c| {
+                                c.is_ascii_digit() || *c == '.' || *c == '+' || *c == '-'
+                            })
+                            .collect::<String>()
+                            .parse::<f64>()
+                            .is_ok_and(|n| n.abs() >= 1000.0);
+                let formatted = if needs_indian_grouping {
+                    crate::engine::comma::format_result(&result_text, &[3, 2])
+                } else if let Some(ref ivs) = intervals {
                     crate::engine::comma::format_result(&result_text, ivs)
                 } else {
                     result_text

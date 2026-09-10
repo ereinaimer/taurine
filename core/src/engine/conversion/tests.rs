@@ -749,6 +749,48 @@ fn test_nl_question_patterns_output_formatting() {
 }
 
 #[test]
+fn test_convert_natural_inr_lakh_formatting() {
+    let state = EngineState::new();
+
+    let mut mock = HashMap::new();
+    mock.insert("USD".to_string(), 1.0);
+    mock.insert("EUR".to_string(), 0.915);
+    mock.insert("INR".to_string(), 83.5);
+    mock.insert("BDT".to_string(), 110.0);
+    MOCK_RATES.with(|m| *m.borrow_mut() = Some(mock));
+
+    // Result >= 1,000 with small source must still gain lakh/crore commas,
+    // keeping the decimal (paise) part separated.
+    assert_eq!(
+        convert_natural("100 eur to inr", &state),
+        Some("9,125.68 inr".to_string())
+    );
+    assert_eq!(
+        convert_natural("110 dollars to INR", &state),
+        Some("9,185 INR".to_string())
+    );
+    assert_eq!(
+        convert_natural("1500 dollars to inr", &state),
+        Some("1,25,250 inr".to_string())
+    );
+    assert_eq!(
+        convert_natural("150000 dollars to inr", &state),
+        Some("1,25,25,000 inr".to_string())
+    );
+    assert_eq!(
+        convert_natural("1000 dollars to BDT", &state),
+        Some("1,10,000 BDT".to_string())
+    );
+    // Small results stay ungrouped.
+    assert_eq!(
+        convert_natural("1 dollar to inr", &state),
+        Some("83.5 inr".to_string())
+    );
+
+    MOCK_RATES.with(|m| *m.borrow_mut() = None);
+}
+
+#[test]
 fn test_has_natural_conversion_intent() {
     assert!(has_natural_conversion_intent("100 dollars to euros"));
     assert!(has_natural_conversion_intent("5cm in inches"));
