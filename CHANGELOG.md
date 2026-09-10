@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Linux Text Expansion Speed**: Batch all uinput key events into a single kernel call per expansion, eliminating per-character sleep delays and making text injection significantly faster.
 - **Linux Tray Icon**: Fix the system tray showing a generic keyboard icon instead of Taurine's branded icon. The SNI spec prioritizes named theme icons over custom pixmaps, and the hardcoded "input-keyboard" name was overriding the embedded PNG entirely.
 - **Update Progress Display**: Prevent raw terminal escape codes from displaying during update progress.
+- **Uninstall Progress Display**: Show step-by-step progress logs during Unix uninstallation.
 - **Word Boundary Expansion Accuracy**: Prevent unwanted expansions when triggers appear inside larger words or follow digits by requiring non-alphanumeric boundaries.
 
 ## [1.0.0-alpha.18] - 2026-09-06

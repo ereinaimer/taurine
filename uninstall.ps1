@@ -48,7 +48,7 @@ if ($isDataDirEmpty -and (-not $hasExeInDataDir) -and (-not $hasExeInPath)) {
 }
 
 # Stop service and kill leftover processes
-Run-Step "Stopping Taurine service" {
+Run-Step "Stopping Taurine" {
     $exe = Join-Path $env:LOCALAPPDATA "Taurine\bin\taurine.exe"
     if (Test-Path $exe) {
         try { & $exe down | Out-Null } catch {}
@@ -152,10 +152,10 @@ if (Test-Path $exe) {
 try { cmdkey /delete:taurine:rpc_token | Out-Null } catch {}
 
 # Delete all data (config, database, logs, binary) via background process to avoid file locking
-Run-Step "Removing Taurine files" {
+Run-Step "Removing data files" {
     $DataDir = Join-Path $env:LOCALAPPDATA "Taurine"
     $cleanupCmd = "Start-Sleep -Seconds 1; Remove-Item -Path '$DataDir' -Recurse -Force -ErrorAction SilentlyContinue"
     Start-Process powershell.exe -ArgumentList "-NoProfile -Command $cleanupCmd" -WindowStyle Hidden
 }
 
-Write-Host -ForegroundColor Green "Taurine uninstalled successfully."
+Write-Host -ForegroundColor Green "Taurine has been uninstalled successfully."
