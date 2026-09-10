@@ -138,11 +138,24 @@ remove_files() {
     fi
 }
 
+PURGE_DATA=false
+if [ -t 0 ]; then
+    printf "Remove configuration and data files? [y/N] "
+    read -r answer || answer=""
+    case "$answer" in
+        [Yy]*) PURGE_DATA=true ;;
+    esac
+fi
+
 run_with_spinner "Stopping Taurine" "stop_service" || true
 run_with_spinner "Removing background service" "remove_background_service" || true
 run_with_spinner "Removing shell completions" "remove_completions" || true
 run_with_spinner "Cleaning shell profiles" "clean_all_profiles" || true
-run_with_spinner "Removing credentials" "remove_credentials" || true
-run_with_spinner "Removing data files" "remove_files" || true
+if [ "$PURGE_DATA" = true ]; then
+    run_with_spinner "Removing credentials" "remove_credentials" || true
+    run_with_spinner "Removing data files" "remove_files" || true
+else
+    printf "\x1b[32m✓\x1b[0m Kept configuration and data files.\n"
+fi
 
 printf "\x1b[32m✓\x1b[0m Taurine has been uninstalled successfully.\n"

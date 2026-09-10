@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Clipboard Variable Synonym**: Support [clipboard] and [clipboard(index)] as first-class synonyms for [clip].
 - **Multi-Button Mouse Automation**: Support parameterized mouse button clicks (including M4, M5, and custom buttons), double-clicking, and parameterized press/release drag actions.
 - **Inline AI Clipboard Context**: Pass copied clipboard text into inline AI prompts via natural paste shortcut (Ctrl+V / Cmd+V) or by typing [clip].
+- **Uninstall Data Prompt**: Ask before deleting configuration and data files during uninstallation; kept by default.
 
 ### Fixed
 - **Linux Installer Manifest Fetch**: Fix fresh installs failing when the release manifest URL could not be resolved.
