@@ -351,6 +351,11 @@ fn handle_resume() {
 }
 
 fn handle_shutdown() {
+    // Register a systemd stop job BEFORE self-exiting via gRPC. A stop job
+    // never triggers `Restart=`; a bare self-exit does (legacy units used
+    // `Restart=always`). Best-effort: no-op outside systemd sessions, where
+    // the gRPC shutdown below still stops a standalone daemon.
+    taurine_core::service::request_systemd_stop();
     if let Some(rt) = crate::TOKIO_HANDLE.get() {
         rt.spawn(async move {
             if let Ok(mut client) = taurine_core::rpc::get_client().await {
