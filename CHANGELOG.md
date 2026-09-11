@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Uninstall Data Prompt**: Ask before deleting configuration and data files during uninstallation; kept by default.
 
 ### Fixed
+- **Uninstall Binary Removal**: Ensure uninstallers always remove the Taurine binary even when configuration and data files are kept.
+- **Windows Startup Hook Removal**: Remove the logon scheduled task, registry Run entry, and startup launcher during uninstallation even when the Taurine binary is missing or broken.
+- **Windows Purge Path Quoting**: Fix data purge failing for user profiles containing an apostrophe.
+- **Unix Uninstall Guard & Shutdown Fallback**: Skip early with a clean status when Taurine is not installed, and force-kill lingering daemon processes when graceful shutdown fails.
 - **INR Currency Conversion Grouping**: Format inline conversion results in rupees/taka with lakh/crore commas (e.g. 9,454.41 INR).
 - **Linux Installer Manifest Fetch**: Fix fresh installs failing when the release manifest URL could not be resolved.
 - **Uninstaller Cleanup**: Prevent partial removal when the binary is missing and ensure the uninstaller is available before installation completes.

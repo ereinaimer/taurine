@@ -26,7 +26,7 @@ function Run-Step ($Label, [scriptblock]$Action) {
     Remove-Job -Job $job
 
     if ($hasError) {
-        Write-Host -ForegroundColor Yellow -NoNewline "$([char]0x2713) "
+        Write-Host -ForegroundColor Red -NoNewline "$([char]0x2717) "
     } else {
         Write-Host -ForegroundColor Green -NoNewline "$([char]0x2713) "
     }
@@ -60,6 +60,20 @@ Run-Step "Stopping Taurine" {
         try { & $exe down | Out-Null } catch {}
     }
     Stop-Process -Name "taurine" -Force -ErrorAction SilentlyContinue
+    Stop-Process -Name "taurine-startup" -Force -ErrorAction SilentlyContinue
+}
+
+# Remove startup hooks directly (covers a missing or broken binary, where taurine down cannot run)
+Run-Step "Removing startup hooks" {
+    Unregister-ScheduledTask -TaskName "TaurineStartup" -Confirm:$false -ErrorAction SilentlyContinue
+    $RunKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Software\Microsoft\Windows\CurrentVersion\Run", $true)
+    if ($null -ne $RunKey) {
+        $RunKey.DeleteValue("Taurine", $false)
+        $RunKey.Close()
+    }
+    $StartupDir = Join-Path $env:LOCALAPPDATA "Taurine\startup"
+    Remove-Item -Path (Join-Path $StartupDir "taurine-startup.exe") -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path (Join-Path $StartupDir "taurine-startup.path") -Force -ErrorAction SilentlyContinue
 }
 
 # Uninstall shell completions
@@ -159,11 +173,22 @@ if ($PurgeData) {
     try { cmdkey /delete:taurine:rpc_token | Out-Null } catch {}
 }
 
-# Delete all data (config, database, logs, binary) via background process to avoid file locking
+# Always remove the binary, even when configuration and data files are kept
+Run-Step "Removing binary" {
+    $InstallDir = Join-Path $env:LOCALAPPDATA "Taurine\bin"
+    Remove-Item -Path (Join-Path $InstallDir "taurine.exe") -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path (Join-Path $InstallDir "uninstall.ps1") -Force -ErrorAction SilentlyContinue
+    if ((Test-Path $InstallDir) -and ((Get-ChildItem -Path $InstallDir -Force -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0)) {
+        Remove-Item -Path $InstallDir -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# Delete remaining data (config, database, logs) via background process to avoid file locking
 if ($PurgeData) {
     Run-Step "Removing data files" {
         $DataDir = Join-Path $env:LOCALAPPDATA "Taurine"
-        $cleanupCmd = "Start-Sleep -Seconds 1; Remove-Item -Path '$DataDir' -Recurse -Force -ErrorAction SilentlyContinue"
+        $EscapedDataDir = $DataDir -replace "'", "''"
+        $cleanupCmd = "Start-Sleep -Seconds 1; Remove-Item -Path '$EscapedDataDir' -Recurse -Force -ErrorAction SilentlyContinue"
         Start-Process powershell.exe -ArgumentList "-NoProfile -Command $cleanupCmd" -WindowStyle Hidden
     }
 } else {

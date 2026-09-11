@@ -20,6 +20,11 @@ else
     exit 1
 fi
 
+if [ ! -x "$INSTALL_DIR/taurine" ] && ! command -v taurine >/dev/null 2>&1 && [ ! -e "$DATA_DIR" ]; then
+    printf "\x1b[32m✓\x1b[0m Taurine is not installed on this system.\n"
+    exit 0
+fi
+
 # Cleanup handler — always remove temp dir on exit
 TMP_DIR=$(mktemp -d)
 cleanup() {
@@ -83,6 +88,9 @@ stop_service() {
     if [ -x "$INSTALL_DIR/taurine" ]; then
         "$INSTALL_DIR/taurine" down >/dev/null 2>&1 || true
     fi
+    if command -v pkill >/dev/null 2>&1; then
+        pkill -x taurine >/dev/null 2>&1 || true
+    fi
 }
 
 remove_background_service() {
@@ -138,6 +146,13 @@ remove_files() {
     fi
 }
 
+remove_binary() {
+    if [ -n "${INSTALL_DIR:-}" ] && [ "$INSTALL_DIR" != "/" ]; then
+        rm -f "$INSTALL_DIR/taurine" "$INSTALL_DIR/uninstall.sh" || true
+        rmdir "$INSTALL_DIR" >/dev/null 2>&1 || true
+    fi
+}
+
 PURGE_DATA=false
 if [ -t 0 ]; then
     printf "Remove configuration and data files? [y/N] "
@@ -153,6 +168,9 @@ run_with_spinner "Removing shell completions" "remove_completions" || true
 run_with_spinner "Cleaning shell profiles" "clean_all_profiles" || true
 if [ "$PURGE_DATA" = true ]; then
     run_with_spinner "Removing credentials" "remove_credentials" || true
+fi
+run_with_spinner "Removing binary" "remove_binary" || true
+if [ "$PURGE_DATA" = true ]; then
     run_with_spinner "Removing data files" "remove_files" || true
 else
     printf "\x1b[32m✓\x1b[0m Kept configuration and data files.\n"
