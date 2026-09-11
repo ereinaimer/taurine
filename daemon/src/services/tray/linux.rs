@@ -363,6 +363,16 @@ fn handle_shutdown() {
             }
         });
     }
+    // Watcher: dies with the process on a successful shutdown. If we are
+    // still alive past the stop timeout, the quit did not stick — say so.
+    let _ = std::thread::Builder::new()
+        .name("tau-quit-watch".to_string())
+        .spawn(|| {
+            std::thread::sleep(std::time::Duration::from_secs(20));
+            if taurine_core::service::is_service_running() {
+                crate::services::notify::notify_shutdown_failed();
+            }
+        });
 }
 
 #[cfg(all(test, target_os = "linux"))]

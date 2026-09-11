@@ -246,27 +246,34 @@ fn systemd_daemon_reload() {
 /// loop and must register a stop job *before* the process self-exits —
 /// otherwise `Restart=` resurrects it. Never fails the caller; falls back to
 /// the gRPC shutdown the caller already issues when systemd is absent.
+/// Runs in a detached thread that waits on the child so a hung daemon cannot
+/// accumulate zombie `systemctl` processes.
 #[cfg(target_os = "linux")]
 pub fn request_systemd_stop() {
     let service_name = TAURINE_SERVICE_LABEL
         .parse::<ServiceLabel>()
         .map(|label| format!("{}.service", label.to_script_name()))
         .unwrap_or_else(|_| "ereinaimer-taurine.service".to_string());
-    if let Err(e) = std::process::Command::new("systemctl")
-        .arg("--user")
-        .arg("stop")
-        .arg(&service_name)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
+    if let Err(e) = std::thread::Builder::new()
+        .name("tau-systemd-stop".to_string())
+        .spawn(move || {
+            let _ = std::process::Command::new("systemctl")
+                .arg("--user")
+                .arg("stop")
+                .arg(&service_name)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .output();
+        })
     {
         debug!("systemd stop request failed (non-systemd session?): {}", e);
     }
 }
 
 /// Rewrites units written by previous releases with `Restart=always`, which
-/// resurrects user-initiated shutdowns. Preserves the autostart symlink.
+/// resurrects user-initiated shutdowns. Patches only the restart policy lines
+/// so the installed `ExecStart` path and any user edits are preserved.
 /// Best-effort: returns false instead of failing the caller's shutdown path.
 #[cfg(target_os = "linux")]
 fn migrate_linux_restart_policy(label: &ServiceLabel) -> bool {
@@ -282,22 +289,130 @@ fn migrate_linux_restart_policy(label: &ServiceLabel) -> bool {
         return true;
     }
     debug!("Migrating legacy systemd unit (Restart=always -> on-failure)...");
-    // Preserve the user's autostart choice across the rewrite.
-    let autostart = service_path
-        .file_name()
-        .and_then(|name| {
-            service_path
-                .parent()
-                .map(|dir| dir.join("default.target.wants").join(name))
-        })
-        .map(|link| link.exists())
-        .unwrap_or(false);
-    // linux_direct_install rewrites the unit and reloads systemd.
-    linux_direct_install(autostart, label).is_ok()
+    let mut out: Vec<String> = Vec::new();
+    let mut in_service = false;
+    let mut saw_service = false;
+    let mut saw_restart = false;
+    let mut saw_restart_sec = false;
+    let mut saw_timeout_stop = false;
+    let mut service_end = 0;
+    for line in content.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('[') {
+            if in_service {
+                service_end = out.len();
+            }
+            in_service = trimmed.starts_with("[Service]");
+            saw_service = saw_service || in_service;
+            out.push(line.to_string());
+            continue;
+        }
+        if in_service {
+            let key = trimmed.split(['=', ' ']).next().unwrap_or_default();
+            match key {
+                "Restart" => {
+                    out.push("Restart=on-failure".to_string());
+                    saw_restart = true;
+                    continue;
+                }
+                "RestartSec" => saw_restart_sec = true,
+                "TimeoutStopSec" => saw_timeout_stop = true,
+                _ => {}
+            }
+        }
+        out.push(line.to_string());
+    }
+    if in_service {
+        service_end = out.len();
+    }
+    // Missing policy keys belong at the end of [Service], never after a
+    // later section such as [Install] where systemd would reject them.
+    let mut missing: Vec<&str> = Vec::new();
+    if !saw_restart {
+        missing.push("Restart=on-failure");
+    }
+    if !saw_restart_sec {
+        missing.push("RestartSec=2");
+    }
+    if !saw_timeout_stop {
+        missing.push("TimeoutStopSec=15");
+    }
+    if !missing.is_empty() {
+        let insert_at = if saw_service {
+            service_end
+        } else {
+            out.push("[Service]".to_string());
+            out.len()
+        };
+        for (i, key) in missing.iter().enumerate() {
+            out.insert(insert_at + i, (*key).to_string());
+        }
+    }
+    let mut migrated = out.join("\n");
+    migrated.push('\n');
+    if std::fs::write(&service_path, migrated).is_err() {
+        return false;
+    }
+    systemd_daemon_reload();
+    true
 }
 
+/// Reports whether a settle wait is needed before trusting a `Stopped`
+/// observation. Only legacy (`Restart=always`) or unreadable units can
+/// resurrect a stopped process, so migrated units skip the wait.
 #[cfg(target_os = "linux")]
-fn manager_is_running(manager: &Box<dyn ServiceManager>, label: &ServiceLabel) -> bool {
+fn linux_unit_needs_settle(label: &ServiceLabel) -> bool {
+    match linux_unit_path(label).and_then(|p| std::fs::read_to_string(p).ok()) {
+        None => true,
+        Some(content) => content.contains("Restart=always"),
+    }
+}
+
+/// Refuses service commands run through sudo: a user-service stop job must run
+/// as the owning user on their own session bus, which root cannot reach.
+/// Failing silently there reports a false already-stopped success.
+#[cfg(target_os = "linux")]
+fn reject_sudo_service_command(command: &str) -> crate::error::Result<()> {
+    // SAFETY: geteuid takes no arguments and only reads the process credentials.
+    let is_root = unsafe { libc::geteuid() } == 0;
+    if is_root
+        && let Ok(user) = std::env::var("SUDO_USER")
+        && !user.trim().is_empty()
+    {
+        return Err(crate::Error::Service(format!(
+            "taurine {command} must be run as {user}, not with sudo."
+        )));
+    }
+    Ok(())
+}
+
+/// Sends a graceful shutdown over gRPC. Covers standalone daemons with no
+/// systemd unit. Returns true when the daemon acknowledged the request.
+fn grpc_shutdown_request() -> bool {
+    if let Ok(rt) = Runtime::new() {
+        rt.block_on(async {
+            if let Ok(mut client) = crate::rpc::get_client().await {
+                let request = tonic::Request::new(ShutdownRequest {});
+                match client.shutdown(request).await {
+                    Ok(_) => {
+                        debug!("Shutdown signal sent successfully.");
+                        return true;
+                    }
+                    Err(e) => error!("Failed to send graceful shutdown signal: {}", e),
+                }
+            } else {
+                debug!(
+                    "Failed to connect to service for graceful shutdown. It may already be stopped."
+                );
+            }
+            false
+        })
+    } else {
+        false
+    }
+}
+
+fn manager_is_running(manager: &dyn ServiceManager, label: &ServiceLabel) -> bool {
     matches!(
         manager.status(ServiceStatusCtx {
             label: label.clone(),
@@ -306,12 +421,7 @@ fn manager_is_running(manager: &Box<dyn ServiceManager>, label: &ServiceLabel) -
     )
 }
 
-#[cfg(target_os = "linux")]
-fn wait_for_manager_stop(
-    manager: &Box<dyn ServiceManager>,
-    label: &ServiceLabel,
-    iters: u32,
-) -> bool {
+fn wait_for_manager_stop(manager: &dyn ServiceManager, label: &ServiceLabel, iters: u32) -> bool {
     for _ in 0..iters {
         match manager.status(ServiceStatusCtx {
             label: label.clone(),
@@ -336,7 +446,8 @@ fn linux_direct_install(autostart: bool, label: &ServiceLabel) -> crate::error::
          [Service]\n\
          ExecStart=\"{}\" --daemon\n\
          Restart=on-failure\n\
-         RestartSec=2\n\n\
+         RestartSec=2\n\
+         TimeoutStopSec=15\n\n\
          [Install]\n\
          WantedBy=default.target\n",
         exe_path
@@ -443,6 +554,9 @@ pub fn sync_boot(enabled: bool) -> crate::error::Result<()> {
 
 pub fn up(start_on_boot: bool) -> crate::error::Result<()> {
     #[cfg(target_os = "linux")]
+    reject_sudo_service_command("up")?;
+
+    #[cfg(target_os = "linux")]
     ensure_linux_permissions()?;
 
     let manager = get_manager()?;
@@ -509,17 +623,26 @@ pub fn up(start_on_boot: bool) -> crate::error::Result<()> {
 }
 
 #[cfg(target_os = "linux")]
-fn confirm_stays_stopped(manager: &Box<dyn ServiceManager>, label: &ServiceLabel) -> bool {
+fn confirm_stays_stopped(
+    manager: &dyn ServiceManager,
+    label: &ServiceLabel,
+    needs_settle: bool,
+) -> bool {
     // A single `Stopped` sample may be the transient gap between the old
     // process exiting and systemd resurrecting it (legacy `Restart=always`
     // restarts in ~100ms by default). Settle past that window before
-    // reporting success. Units migrated to `Restart=on-failure` never restart
-    // on a clean exit, so this is a cheap one-time wait on a rare path.
-    std::thread::sleep(std::time::Duration::from_millis(1200));
+    // reporting success. Units already on `Restart=on-failure` never restart
+    // on a clean exit, so they skip the wait.
+    if needs_settle {
+        std::thread::sleep(std::time::Duration::from_millis(1200));
+    }
     !manager_is_running(manager, label)
 }
 
 pub fn down() -> crate::error::Result<()> {
+    #[cfg(target_os = "linux")]
+    reject_sudo_service_command("down")?;
+
     let manager = get_manager()?;
     let label: ServiceLabel =
         TAURINE_SERVICE_LABEL
@@ -529,9 +652,16 @@ pub fn down() -> crate::error::Result<()> {
             })?;
 
     #[cfg(target_os = "linux")]
-    {
+    let needs_settle = {
         // Heal legacy `Restart=always` units so this and future stops stick.
-        let _ = migrate_linux_restart_policy(&label);
+        // A fresh rewrite may not have reloaded, so settle whenever the unit
+        // was touched, still legacy, or unreadable.
+        let migrated = migrate_linux_restart_policy(&label);
+        migrated || linux_unit_needs_settle(&label)
+    };
+
+    #[cfg(target_os = "linux")]
+    {
         // Stop via a systemd stop job FIRST. Unlike a gRPC self-exit, a stop
         // job never triggers `Restart=` — even on a legacy unit.
         if manager_is_running(&manager, &label) {
@@ -542,7 +672,7 @@ pub fn down() -> crate::error::Result<()> {
                 })
                 .is_ok()
                 && wait_for_manager_stop(&manager, &label, 10)
-                && confirm_stays_stopped(&manager, &label)
+                && confirm_stays_stopped(&manager, &label, needs_settle)
             {
                 info!("Taurine has been stopped.");
                 return Ok(());
@@ -553,25 +683,7 @@ pub fn down() -> crate::error::Result<()> {
 
     debug!("Attempting graceful shutdown via gRPC...");
 
-    let mut grpc_success = false;
-    if let Ok(rt) = Runtime::new() {
-        rt.block_on(async {
-            if let Ok(mut client) = crate::rpc::get_client().await {
-                let request = tonic::Request::new(ShutdownRequest {});
-                match client.shutdown(request).await {
-                    Ok(_) => {
-                        debug!("Shutdown signal sent successfully.");
-                        grpc_success = true;
-                    }
-                    Err(e) => error!("Failed to send graceful shutdown signal: {}", e),
-                }
-            } else {
-                debug!(
-                    "Failed to connect to service for graceful shutdown. It may already be stopped."
-                );
-            }
-        });
-    }
+    let grpc_success = grpc_shutdown_request();
 
     if grpc_success {
         for _ in 0..10 {
@@ -581,7 +693,7 @@ pub fn down() -> crate::error::Result<()> {
                 Ok(ServiceStatus::Stopped(_)) | Ok(ServiceStatus::NotInstalled) | Err(_) => {
                     #[cfg(target_os = "linux")]
                     {
-                        if confirm_stays_stopped(&manager, &label) {
+                        if confirm_stays_stopped(&manager, &label, needs_settle) {
                             info!("Taurine has been stopped.");
                             return Ok(());
                         }
@@ -605,7 +717,7 @@ pub fn down() -> crate::error::Result<()> {
         Ok(ServiceStatus::Stopped(_)) | Ok(ServiceStatus::NotInstalled) | Err(_) => {
             #[cfg(target_os = "linux")]
             {
-                if confirm_stays_stopped(&manager, &label) {
+                if confirm_stays_stopped(&manager, &label, needs_settle) {
                     info!("Taurine is already stopped.");
                     return Ok(());
                 }
@@ -631,7 +743,7 @@ pub fn down() -> crate::error::Result<()> {
                 // A legacy unit may have resurrected the process between the
                 // gRPC exit and this stop; verify it stays down.
                 if wait_for_manager_stop(&manager, &label, 10)
-                    && confirm_stays_stopped(&manager, &label)
+                    && confirm_stays_stopped(&manager, &label, needs_settle)
                 {
                     info!("Taurine has been stopped (fallback).");
                     return Ok(());
@@ -657,6 +769,9 @@ pub fn down() -> crate::error::Result<()> {
 
 pub fn restart(start_on_boot: bool) -> crate::error::Result<()> {
     #[cfg(target_os = "linux")]
+    reject_sudo_service_command("restart")?;
+
+    #[cfg(target_os = "linux")]
     ensure_linux_permissions()?;
 
     let manager = get_manager()?;
@@ -681,40 +796,19 @@ pub fn restart(start_on_boot: bool) -> crate::error::Result<()> {
     );
 
     if is_running {
-        let mut grpc_success = false;
-        if let Ok(rt) = Runtime::new() {
-            rt.block_on(async {
-                if let Ok(mut client) = crate::rpc::get_client().await {
-                    let request = tonic::Request::new(ShutdownRequest {});
-                    if client.shutdown(request).await.is_ok() {
-                        grpc_success = true;
-                    }
-                }
+        #[cfg(target_os = "linux")]
+        {
+            // Stop job first: no `Restart=` churn from a bare self-exit.
+            debug!("Requesting service manager stop for restart...");
+            let _ = manager.stop(ServiceStopCtx {
+                label: label.clone(),
             });
         }
-
-        if grpc_success {
-            for _ in 0..10 {
-                match manager.status(ServiceStatusCtx {
-                    label: label.clone(),
-                }) {
-                    Ok(ServiceStatus::Stopped(_)) | Ok(ServiceStatus::NotInstalled) | Err(_) => {
-                        break;
-                    }
-                    _ => {}
-                }
-                std::thread::sleep(std::time::Duration::from_millis(500));
-            }
+        if !wait_for_manager_stop(&manager, &label, 10) && grpc_shutdown_request() {
+            wait_for_manager_stop(&manager, &label, 10);
         }
 
-        let still_running = matches!(
-            manager.status(ServiceStatusCtx {
-                label: label.clone(),
-            }),
-            Ok(ServiceStatus::Running)
-        );
-
-        if still_running {
+        if manager_is_running(&manager, &label) {
             debug!("Service did not exit gracefully; hard-stopping for restart.");
             let _ = manager.stop(ServiceStopCtx {
                 label: label.clone(),
@@ -941,17 +1035,47 @@ mod tests {
             !content.contains("Restart=always"),
             "unit must not resurrect user-initiated shutdowns"
         );
+        assert!(
+            content.contains("TimeoutStopSec="),
+            "unit must bound shutdown time so a hung stop cannot resurrect"
+        );
 
-        // Legacy units from previous releases migrate in place.
+        // Legacy units from previous releases migrate in place, preserving
+        // the installed binary path and the autostart symlink.
         let path = linux_unit_path(&label).expect("unit path");
+        let wants_dir = path
+            .parent()
+            .expect("unit dir")
+            .join("default.target.wants");
+        std::fs::create_dir_all(&wants_dir).unwrap();
+        let link_path = wants_dir.join(path.file_name().expect("unit file name"));
+        std::os::unix::fs::symlink(&path, &link_path).unwrap();
         std::fs::write(
             &path,
-            "[Service]\nExecStart=\"x\" --daemon\nRestart=always\n",
+            "[Unit]\nDescription=Taurine\n\n[Service]\nExecStart=\"/custom/location/taurine\" --daemon\nRestart=always\n\n[Install]\nWantedBy=default.target\n",
         )
         .unwrap();
         assert!(migrate_linux_restart_policy(&label));
         let migrated = std::fs::read_to_string(&path).unwrap();
         assert!(migrated.contains("Restart=on-failure"));
         assert!(!migrated.contains("Restart=always"));
+        assert!(
+            migrated.contains("ExecStart=\"/custom/location/taurine\" --daemon"),
+            "migration must preserve the installed binary path"
+        );
+        assert!(
+            migrated.find("RestartSec=").expect("RestartSec key")
+                < migrated.find("[Install]").expect("Install section"),
+            "policy keys must stay inside [Service], not leak under [Install]"
+        );
+        assert!(
+            link_path.exists(),
+            "migration must preserve the autostart symlink"
+        );
+        assert!(!linux_unit_needs_settle(&label));
+
+        // Units already on the fixed policy are left untouched.
+        assert!(migrate_linux_restart_policy(&label));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), migrated);
     }
 }

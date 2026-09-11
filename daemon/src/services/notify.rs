@@ -19,3 +19,17 @@ pub fn notify_pause_toggled(paused: bool) {
         Err(e) => debug!("Desktop notification failed: {}", e),
     }
 }
+
+#[cfg(target_os = "linux")]
+pub fn notify_shutdown_failed() {
+    match Notification::new()
+        .summary("Taurine Did Not Stop")
+        .body(
+            "Quit was requested but Taurine is still running. Try taurine down or check the logs.",
+        )
+        .show()
+    {
+        Ok(_) => {}
+        Err(e) => debug!("Desktop notification failed: {}", e),
+    }
+}
