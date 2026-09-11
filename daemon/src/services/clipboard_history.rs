@@ -66,7 +66,7 @@ pub fn resume_listener() {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
 const INIT_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
 #[cfg(target_os = "linux")]

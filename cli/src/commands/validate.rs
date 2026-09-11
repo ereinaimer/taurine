@@ -81,6 +81,9 @@ mod tests {
         assert!(audit_payload_tags("json = \\[1, 2, 3\\]").is_ok());
         assert!(audit_payload_tags("[name=John | upper]").is_ok());
         assert!(audit_payload_tags("[clipboard | ai(\"summarize\")]").is_ok());
+        assert!(audit_payload_tags(
+            "[execute.powershell(curl https://ipinfo.io/json) | json(\"ip\") | case(upper) | strip(whitespace)]"
+        ).is_ok());
     }
 
     #[test]

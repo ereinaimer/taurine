@@ -716,19 +716,17 @@ pub fn down() -> crate::error::Result<()> {
     match manager.status(ServiceStatusCtx {
         label: label.clone(),
     }) {
+        #[cfg(target_os = "linux")]
+        Ok(ServiceStatus::Stopped(_)) | Ok(ServiceStatus::NotInstalled) | Err(_)
+            if confirm_stays_stopped(&*manager, &label, needs_settle) =>
+        {
+            info!("Taurine is already stopped.");
+            return Ok(());
+        }
+        #[cfg(not(target_os = "linux"))]
         Ok(ServiceStatus::Stopped(_)) | Ok(ServiceStatus::NotInstalled) | Err(_) => {
-            #[cfg(target_os = "linux")]
-            {
-                if confirm_stays_stopped(&*manager, &label, needs_settle) {
-                    info!("Taurine is already stopped.");
-                    return Ok(());
-                }
-            }
-            #[cfg(not(target_os = "linux"))]
-            {
-                info!("Taurine is already stopped.");
-                return Ok(());
-            }
+            info!("Taurine is already stopped.");
+            return Ok(());
         }
         _ => {}
     }

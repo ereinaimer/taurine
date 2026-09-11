@@ -125,10 +125,8 @@ pub fn ensure_icons_exported() -> Option<std::path::PathBuf> {
             Ok(existing) => existing != bytes,
             Err(_) => true,
         };
-        if needs_write {
-            if let Err(e) = std::fs::write(path, bytes) {
-                tracing::warn!("Failed to write icon file {:?}: {}", path, e);
-            }
+        if needs_write && let Err(e) = std::fs::write(path, bytes) {
+            tracing::warn!("Failed to write icon file {:?}: {}", path, e);
         }
     };
 
