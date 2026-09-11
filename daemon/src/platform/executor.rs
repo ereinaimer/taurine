@@ -147,6 +147,95 @@ pub fn expand_env_vars(input: &str) -> String {
     result
 }
 
+fn parse_dotnet_process_start(trimmed: &str) -> Option<LaunchTarget> {
+    const PREFIX: &str = "[system.diagnostics.process]";
+    if trimmed.len() < PREFIX.len() || !trimmed[..PREFIX.len()].eq_ignore_ascii_case(PREFIX) {
+        return None;
+    }
+    let mut rest = trimmed[PREFIX.len()..].trim_start();
+    rest = rest.strip_prefix("::")?.trim_start();
+    if rest.len() < "start".len() || !rest[..5].eq_ignore_ascii_case("start") {
+        return None;
+    }
+    rest = rest[5..].trim_start();
+    if !rest.starts_with('(') {
+        return None;
+    }
+    let paren = rest.trim_end();
+    if !paren.ends_with(')') {
+        return None;
+    }
+    let inner = paren[1..paren.len() - 1].trim();
+    if inner.is_empty() || inner.contains(',') {
+        // Empty or two-arg ::Start(path, args) overload: stay on interpreter path.
+        return None;
+    }
+    let q = inner.chars().next()?;
+    if q != '"' && q != '\'' {
+        // Unquoted (e.g. variable): stay on interpreter path.
+        return None;
+    }
+    let target = strip_quotes(inner);
+    if target.is_empty() {
+        return None;
+    }
+    let expanded = expand_env_vars(target);
+    if is_url_target(&expanded) {
+        return Some(LaunchTarget::Url(expanded));
+    }
+    if expanded.contains('$') {
+        return None;
+    }
+    Some(LaunchTarget::AppOrFile {
+        path: expanded,
+        args: Vec::new(),
+    })
+}
+
+fn parse_invoke_item(trimmed: &str) -> Option<LaunchTarget> {
+    // Single-path only: `Invoke-Item <path>` / `ii <path>`, with optional
+    // -Path / -LiteralPath. Anything else stays on the interpreter path.
+    let lower = trimmed.to_lowercase();
+    let rest = if lower.starts_with("invoke-item") {
+        let after = &trimmed["invoke-item".len()..];
+        if !after.is_empty() && !after.starts_with(char::is_whitespace) {
+            return None;
+        }
+        after.trim()
+    } else if lower == "ii" || lower.starts_with("ii ") || lower.starts_with("ii\t") {
+        trimmed[2..].trim()
+    } else {
+        return None;
+    };
+    if rest.is_empty() {
+        return None;
+    }
+    let parts = split_cmd_args(rest);
+    let target = match parts.as_slice() {
+        [single] if !single.starts_with('-') => strip_quotes(single).to_string(),
+        [flag, value]
+            if flag.eq_ignore_ascii_case("-path") || flag.eq_ignore_ascii_case("-literalpath") =>
+        {
+            strip_quotes(value).to_string()
+        }
+        _ => return None,
+    };
+    if target.is_empty() {
+        return None;
+    }
+    let expanded = expand_env_vars(&target);
+    if is_url_target(&expanded) {
+        return Some(LaunchTarget::Url(expanded));
+    }
+    if expanded.contains('$') {
+        return None;
+    }
+    Some(LaunchTarget::AppOrFile {
+        path: expanded,
+        args: Vec::new(),
+    })
+}
+
 pub fn parse_instant_launch_intent(
     script_content: &str,
     interpreter: ScriptInterpreter,
@@ -168,9 +257,12 @@ pub fn parse_instant_launch_intent(
     match interpreter {
         ScriptInterpreter::PowerShell => {
             let lower = trimmed.to_lowercase();
-            if lower.starts_with("start-process") || lower.starts_with("start ") {
+            let saps = lower == "saps" || lower.starts_with("saps ") || lower.starts_with("saps\t");
+            if lower.starts_with("start-process") || saps || lower.starts_with("start ") {
                 let rest = if lower.starts_with("start-process") {
                     trimmed["start-process".len()..].trim()
+                } else if saps {
+                    trimmed["saps".len()..].trim()
                 } else {
                     trimmed["start".len()..].trim()
                 };
@@ -224,6 +316,12 @@ pub fn parse_instant_launch_intent(
                         args,
                     };
                 }
+            }
+            if let Some(launch) = parse_dotnet_process_start(trimmed) {
+                return launch;
+            }
+            if let Some(launch) = parse_invoke_item(trimmed) {
+                return launch;
             }
             LaunchTarget::ComplexScript
         }
@@ -796,6 +894,103 @@ mod tests {
                 "Start-Process $myCustomPath",
                 ScriptInterpreter::PowerShell
             ),
+            LaunchTarget::ComplexScript
+        );
+    }
+
+    #[test]
+    fn test_parse_dotnet_process_start_single_arg() {
+        assert_eq!(
+            parse_instant_launch_intent(
+                "[System.Diagnostics.Process]::Start(\"C:\\Program Files\\RealVNC\\VNC Viewer\\vncviewer.exe\")",
+                ScriptInterpreter::PowerShell
+            ),
+            LaunchTarget::AppOrFile {
+                path: "C:\\Program Files\\RealVNC\\VNC Viewer\\vncviewer.exe".to_string(),
+                args: vec![]
+            }
+        );
+        assert_eq!(
+            parse_instant_launch_intent(
+                "[System.Diagnostics.Process]::Start('C:\\Program Files\\Proton\\VPN\\ProtonVPN.Launcher.exe')",
+                ScriptInterpreter::PowerShell
+            ),
+            LaunchTarget::AppOrFile {
+                path: "C:\\Program Files\\Proton\\VPN\\ProtonVPN.Launcher.exe".to_string(),
+                args: vec![]
+            }
+        );
+        assert_eq!(
+            parse_instant_launch_intent(
+                " [System.Diagnostics.Process]::Start(\"C:\\Users\\aimer\\AppData\\Local\\Programs\\Antigravity IDE\\Antigravity IDE.exe\")",
+                ScriptInterpreter::PowerShell
+            ),
+            LaunchTarget::AppOrFile {
+                path: "C:\\Users\\aimer\\AppData\\Local\\Programs\\Antigravity IDE\\Antigravity IDE.exe"
+                    .to_string(),
+                args: vec![]
+            }
+        );
+        assert_eq!(
+            parse_instant_launch_intent(
+                "[System.Diagnostics.Process]::Start(\"shell:AppsFolder\\md.obsidian\")",
+                ScriptInterpreter::PowerShell
+            ),
+            LaunchTarget::AppOrFile {
+                path: "shell:AppsFolder\\md.obsidian".to_string(),
+                args: vec![]
+            }
+        );
+        // Two-arg overload and variable arg stay on the interpreter path.
+        assert_eq!(
+            parse_instant_launch_intent(
+                "[System.Diagnostics.Process]::Start(\"notepad.exe\", \"--help\")",
+                ScriptInterpreter::PowerShell
+            ),
+            LaunchTarget::ComplexScript
+        );
+        assert_eq!(
+            parse_instant_launch_intent(
+                "[System.Diagnostics.Process]::Start($myCustomPath)",
+                ScriptInterpreter::PowerShell
+            ),
+            LaunchTarget::ComplexScript
+        );
+    }
+
+    #[test]
+    fn test_parse_launch_aliases_single_path() {
+        assert_eq!(
+            parse_instant_launch_intent("saps notepad.exe", ScriptInterpreter::PowerShell),
+            LaunchTarget::AppOrFile {
+                path: "notepad.exe".to_string(),
+                args: vec![]
+            }
+        );
+        assert_eq!(
+            parse_instant_launch_intent(
+                "Invoke-Item \"C:\\Projects\"",
+                ScriptInterpreter::PowerShell
+            ),
+            LaunchTarget::AppOrFile {
+                path: "C:\\Projects".to_string(),
+                args: vec![]
+            }
+        );
+        assert_eq!(
+            parse_instant_launch_intent("ii 'C:\\Projects'", ScriptInterpreter::PowerShell),
+            LaunchTarget::AppOrFile {
+                path: "C:\\Projects".to_string(),
+                args: vec![]
+            }
+        );
+        // Multi-target or flag soup stays on the interpreter path.
+        assert_eq!(
+            parse_instant_launch_intent("Invoke-Item a.txt b.txt", ScriptInterpreter::PowerShell),
+            LaunchTarget::ComplexScript
+        );
+        assert_eq!(
+            parse_instant_launch_intent("Invoke-Item $myPath", ScriptInterpreter::PowerShell),
             LaunchTarget::ComplexScript
         );
     }
