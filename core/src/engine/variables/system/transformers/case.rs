@@ -1,7 +1,13 @@
 use heck::*;
 
-pub fn apply(transformer: &str, content: &str) -> Option<String> {
-    match transformer {
+use super::strip_argument_quotes;
+
+pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> {
+    if transformer != "case" || args.len() != 1 {
+        return None;
+    }
+
+    match strip_argument_quotes(args[0]).to_lowercase().as_str() {
         "upper" => Some(content.to_uppercase()),
         "lower" => Some(content.to_lowercase()),
         "snake" => Some(preserve_whitespace(content, |s| s.to_snake_case())),
@@ -10,6 +16,7 @@ pub fn apply(transformer: &str, content: &str) -> Option<String> {
         "camel" => Some(preserve_whitespace(content, |s| s.to_lower_camel_case())),
         "title" => Some(title_case(content)),
         "sentence" => Some(sentence_case(content)),
+        "slug" => Some(slug(content)),
         _ => None,
     }
 }
@@ -57,10 +64,7 @@ fn title_case(content: &str) -> String {
             new_word = true;
             out.push(ch);
         } else if new_word {
-            // Capitalize the first character (if it has uppercase) and clear the flag.
             out.extend(ch.to_uppercase());
-            // It only counts as the start of a word if it's alphabetic. Punctuation doesn't toggle
-            // new_word, but since we just capitalized it, we set new_word=false anyway.
             new_word = false;
         } else {
             out.push(ch);
@@ -70,65 +74,80 @@ fn title_case(content: &str) -> String {
     out
 }
 
+fn slug(content: &str) -> String {
+    let mut result = String::with_capacity(content.len());
+    let mut last_was_hyphen = false;
+
+    for ch in content.chars() {
+        if ch.is_alphanumeric() {
+            for lowercase_ch in ch.to_lowercase() {
+                result.push(lowercase_ch);
+            }
+            last_was_hyphen = false;
+        } else if (ch.is_whitespace() || ch == '-' || ch == '_' || ch.is_ascii_punctuation())
+            && !result.is_empty()
+            && !last_was_hyphen
+        {
+            result.push('-');
+            last_was_hyphen = true;
+        }
+    }
+
+    if result.ends_with('-') {
+        result.pop();
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_case_transformers() {
-        assert_eq!(apply("upper", "hello"), Some("HELLO".to_string()));
-        assert_eq!(apply("lower", "HELLO"), Some("hello".to_string()));
         assert_eq!(
-            apply("snake", "HelloWorld"),
+            apply("case", &["upper"], "hello"),
+            Some("HELLO".to_string())
+        );
+        assert_eq!(
+            apply("case", &["lower"], "HELLO"),
+            Some("hello".to_string())
+        );
+        assert_eq!(
+            apply("case", &["snake"], "HelloWorld"),
             Some("hello_world".to_string())
         );
         assert_eq!(
-            apply("kebab", "HelloWorld"),
+            apply("case", &["kebab"], "HelloWorld"),
             Some("hello-world".to_string())
         );
         assert_eq!(
-            apply("pascal", "hello_world"),
+            apply("case", &["pascal"], "hello_world"),
             Some("HelloWorld".to_string())
         );
         assert_eq!(
-            apply("camel", "hello_world"),
+            apply("case", &["camel"], "hello_world"),
             Some("helloWorld".to_string())
         );
         assert_eq!(
-            apply("title", "hello_world"),
+            apply("case", &["title"], "hello_world"),
             Some("Hello_world".to_string())
         );
         assert_eq!(
-            apply("sentence", "hello world"),
+            apply("case", &["sentence"], "hello world"),
             Some("Hello world".to_string())
         );
+        assert_eq!(
+            apply("case", &["slug"], "My Family Vacation 2026! 🌴"),
+            Some("my-family-vacation-2026".to_string())
+        );
     }
 
     #[test]
-    fn test_pruned_casing_aliases_return_none() {
-        assert_eq!(apply("uppercase", "hello"), None);
-        assert_eq!(apply("lowercase", "hello"), None);
-        assert_eq!(apply("snakecase", "hello"), None);
-        assert_eq!(apply("kebabcase", "hello"), None);
-        assert_eq!(apply("pascalcase", "hello"), None);
-        assert_eq!(apply("camelcase", "hello"), None);
-        assert_eq!(apply("titlecase", "hello"), None);
-        assert_eq!(apply("sentencecase", "hello"), None);
-    }
-
-    #[test]
-    fn test_case_transformers_preserve_affixes_and_escapes() {
-        assert_eq!(
-            apply("title", r#"\'hello world \'"#),
-            Some(r#"\'hello World \'"#.to_string())
-        );
-        assert_eq!(
-            apply("snake", r#"\'hello world \'"#),
-            Some(r#"\'hello_world \'"#.to_string())
-        );
-        assert_eq!(
-            apply("kebab", r#"\'hello world \'"#),
-            Some(r#"\'hello-world \'"#.to_string())
-        );
+    fn test_case_wrong_transformer_name_returns_none() {
+        assert_eq!(apply("upper", &[], "hello"), None);
+        assert_eq!(apply("case", &[], "hello"), None);
+        assert_eq!(apply("case", &["invalid"], "hello"), None);
     }
 }

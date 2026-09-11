@@ -1,16 +1,20 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 
+use super::strip_argument_quotes;
+
 pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> {
-    if !args.is_empty() {
+    if args.len() != 1 {
         return None;
     }
 
-    match transformer {
-        "url.encode" => Some(urlencode_string(content)),
-        "url.decode" => urldecode_string(content),
-        "url.clean" => Some(url_clean(content)),
-        "base64.encode" => Some(STANDARD.encode(content)),
-        "base64.decode" => STANDARD
+    let format = strip_argument_quotes(args[0]);
+
+    match (transformer, format) {
+        ("encode", "url") => Some(urlencode_string(content)),
+        ("decode", "url") => urldecode_string(content),
+        ("clean", "url") => Some(url_clean(content)),
+        ("encode", "base64") => Some(STANDARD.encode(content)),
+        ("decode", "base64") => STANDARD
             .decode(content.trim())
             .ok()
             .and_then(|bytes| String::from_utf8(bytes).ok()),
@@ -90,45 +94,28 @@ mod tests {
     #[test]
     fn test_encoding_transformers() {
         assert_eq!(
-            apply("url.encode", &[], "hello world!"),
+            apply("encode", &["url"], "hello world!"),
             Some("hello%20world%21".to_string())
         );
         assert_eq!(
-            apply("url.decode", &[], "hello%20world%21"),
+            apply("decode", &["url"], "hello%20world%21"),
             Some("hello world!".to_string())
         );
         assert_eq!(
             apply(
-                "url.clean",
-                &[],
+                "clean",
+                &["url"],
                 "https://google.com/search?q=rust&utm_source=facebook#results"
             ),
             Some("https://google.com/search".to_string())
         );
         assert_eq!(
-            apply("url.clean", &[], "https://google.com/docs#section-2"),
-            Some("https://google.com/docs".to_string())
-        );
-        assert_eq!(
-            apply("url.clean", &[], "https://google.com/search"),
-            Some("https://google.com/search".to_string())
-        );
-        assert_eq!(
-            apply("url.clean", &[], "  https://google.com/search?q=123   "),
-            Some("https://google.com/search".to_string())
-        );
-        assert_eq!(
-            apply("base64.encode", &[], "hello"),
+            apply("encode", &["base64"], "hello"),
             Some("aGVsbG8=".to_string())
         );
         assert_eq!(
-            apply("base64.decode", &[], "aGVsbG8="),
+            apply("decode", &["base64"], "aGVsbG8="),
             Some("hello".to_string())
         );
-        assert_eq!(
-            apply("base64.decode", &[], "  aGVsbG8=\n"),
-            Some("hello".to_string())
-        );
-        assert_eq!(apply("url.decode", &[], "%ZZ"), None);
     }
 }

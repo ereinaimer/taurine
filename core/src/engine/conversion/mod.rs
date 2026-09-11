@@ -298,15 +298,7 @@ pub fn convert_color(s: &str) -> Option<String> {
 }
 
 fn format_color(color_str: &str, format: &str) -> Option<String> {
-    let transformer_name = match format {
-        "hex" => "color.hex",
-        "rgb" => "color.rgb",
-        "rgba" => "color.rgba",
-        "hsl" => "color.hsl",
-        "hsla" => "color.hsla",
-        _ => return None,
-    };
-    crate::engine::variables::system::transformers::color::apply(transformer_name, &[], color_str)
+    crate::engine::variables::system::transformers::color::apply("color", &[format], color_str)
 }
 
 fn get_cache_path() -> PathBuf {

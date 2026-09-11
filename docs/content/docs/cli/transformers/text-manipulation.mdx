@@ -1,51 +1,50 @@
 ---
 title: Text Manipulation
-description: Perform powerful string operations like truncation, replacement, and reversal.
+description: Perform powerful string operations like truncation, replacement, slicing, and filtering.
 ---
 
-These transformers allow you to modify the content of a string beyond simple casing changes. All operations are **UTF-8 char-aware**, meaning they correctly handle multi-byte characters like emojis.
+These transformers allow you to modify text content using clean, explicit function calls. All operations are **UTF-8 char-aware**, correctly handling multi-byte characters and emojis.
 
 ### Available Modifiers
 
 | Modifier | Description | Example |
 | :--- | :--- | :--- |
-| `trim` | Removes leading and trailing whitespace | `"  hi  "` → `"hi"` |
-| `length` | Returns the number of characters | `"aßc"` → `3` |
-| `wordcount` | Returns the number of whitespace-separated words | `"Hello world"` → `2` |
+| `strip(whitespace)` | Removes leading and trailing whitespace | `"  hi  "` → `"hi"` |
+| `strip(emoji)` | Removes all emoji characters from the text | `"Huge update! 🚀🔥"` → `"Huge update! "` |
+| `count(chars)` | Returns the total number of characters | `"aßc"` → `3` |
+| `count(words)` | Returns the number of whitespace-separated words | `"Hello world"` → `2` |
 | `truncate(n)` | Limits text to `n` characters | `"abcdef"` → `"abc..."` |
 | `replace(old, new)` | Replaces all occurrences of `old` with `new` | `"a,b,c"` → `"a;b;c"` |
-| `slug` | Converts text to a clean URL/filename-safe slug (lowercase, hyphens for separators, emojis/symbols stripped) | `"My Vacation 2026! 🌴"` → `"my-vacation-2026"` |
-| `substring(s, e)` | Precise char-aware slicing | `"naïve"` → `"ïve"` |
-| `stripall` | Removes ALL whitespace | `" a b c "` → `"abc"` |
-| `stripemoji` | Removes all emoji characters from the text | `"Huge update! 🚀🔥"` → `"Huge update! "` |
-| `digits` | Keeps only digits `0-9` | `"A-10-9"` → `"109"` |
-| `alnum` | Keeps only letters and numbers | `"a-b_1!"` → `"ab1"` |
+| `replace(regex, p, r)` | Replaces regex matches of `p` with `r` | `"a,B c,D"` → `"a B c D"` |
+| `slice(start, end)` | Precise char-aware slicing | `"naïve"` → `"ïve"` |
+| `filter(digits)` | Keeps only digits `0-9` | `"A-10-9"` → `"109"` |
+| `filter(alphanumeric)` | Keeps only letters and numbers | `"a-b_1!"` → `"ab1"` |
 
 ### Advanced Manipulation
 
 #### Regex Replacement
-The `regexreplace(pattern, replacement)` transformer uses the Rust [regex](https://docs.rs/regex/) crate. It supports Perl-like syntax and captures groups. If the pattern is invalid, the transformer fails gracefully and returns the original text.
+The `replace(regex, pattern, replacement)` transformer uses the Rust [regex](https://docs.rs/regex/) crate. It supports capture groups (`$1`, `$2`). If the pattern is invalid, the transformer fails gracefully and returns the original text.
 
 <Transformation
-  template='[0 | regexreplace("([a-z]),([A-Z])", "$1 $2")]'
+  template='[0 | replace(regex, "([a-z]),([A-Z])", "$1 $2")]'
   input="text:'a,B c,D'"
   result="a B c D"
 />
 
-#### Precise Slicing
-Unlike byte-based slicing in many languages, `substring(start, end)` is fully UTF-8 char-aware. Indices are 0-based.
+#### Precise Slicing (`slice`)
+Unlike byte-based slicing, `slice(start, end)` is fully UTF-8 char-aware. Indices are 0-based.
 
 <Transformation
-  template="[0 | substring(1, 3)]"
+  template="[0 | slice(1, 3)]"
   input="text:'aßc'"
   result="ßc"
 />
 
-#### Word Count
+#### Word Count (`count(words)`)
 Returns the total number of words in a string, ignoring leading, trailing, or multiple adjacent spaces.
 
 <Transformation
-  template="[0 | wordcount]"
+  template="[0 | count(words)]"
   input="text:'  This is a   sentence.  '"
   result="4"
 />

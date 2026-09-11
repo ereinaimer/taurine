@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Autonomous Self-Healing & Crash Resilience**: Automatically recover background worker threads, isolate native shell launches out-of-process, intercept native exceptions, and auto-restart on system failure via Windows Task Scheduler.
 - **Conversational CLI Diagnostics**: Provide actionable terminal error messages across all CLI commands with fuzzy did-you-mean suggestions and clean copy-paste examples.
 - **URL Sanitation & Calculation Placeholders**: Strip both query parameters and hash anchors in [| url.clean], and support $, _, and x as incoming value placeholders in [| calc(...)].
-- **Extractor & Filter Transformer Symmetry**: Standardize [| json("path")] and [| regex("pattern", [group])] transformers, and rename digit and alphanumeric filters to [| digits] and [| alnum].
+- **Unified Transformer Syntax**: Standardize all text transformers to follow consistent action(arguments) and category(action) syntax with zero unparenthesized bare words.
 - **File Slicing Operations**: Replace ambiguous read_line with dedicated [file.line(path, n)] for single line extraction and [file.lines(path, start, [end])] for multi-line ranges.
 - **Network IP Synonyms**: Add [net.localip] and [net.publicip] synonyms for local and public IP lookups.
 - **Random Range & Default Generators**: Expand bare [random] to a 0..100 integer, support zero-argument [random.int] and single-argument [random.int(max)], and update [random.pass] default length to 20 characters.

@@ -471,11 +471,11 @@ fn test_system_variable_roots_catalog() {
 #[test]
 fn test_system_transformers_catalog() {
     let transformers = system_transformers();
-    assert!(transformers.contains(&"upper"));
-    assert!(transformers.contains(&"lower"));
+    assert!(transformers.contains(&"case"));
+    assert!(transformers.contains(&"lines"));
     assert!(transformers.contains(&"truncate"));
-    assert!(is_valid_transformer("upper"));
-    assert!(is_valid_transformer("  UPPER  "));
+    assert!(is_valid_transformer("case(upper)"));
+    assert!(is_valid_transformer("  CASE(UPPER)  "));
     assert!(is_valid_transformer("truncate(5)"));
     assert!(!is_valid_transformer("bogus_transformer"));
 }

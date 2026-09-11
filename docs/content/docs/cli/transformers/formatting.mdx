@@ -1,28 +1,28 @@
 ---
-title: Formatting
-description: Wrap, unwrap, and quote your text for consistent documentation and code output.
+title: Formatting & Quotes
+description: Wrap and unwrap your text for consistent code and documentation snippets.
 ---
 
-Formatting transformers help you manage quotes and other wrapping characters around your variables.
+Formatting transformers manage quotes and wrapping characters around your variables using explicit function calls.
 
 ### Quote Management
 
-These modifiers are essential for ensuring that user input is correctly escaped or quoted when inserted into code snippets or JSON payloads.
+These transformers ensure user input is correctly escaped or quoted when inserted into code snippets, markdown, or JSON payloads.
 
 | Modifier | Description | Example |
 | :--- | :--- | :--- |
-| `quote` | Wraps in `"` | `hi` → `"hi"` |
-| `squote` | Wraps in `'` | `hi` → `'hi'` |
-| `backtick` | Wraps in ``` ` ``` | `hi` → `` `hi` `` |
-| `unquote` | Removes leading/trailing quotes | `"hi"` → `hi` |
+| `wrap(doublequote)` | Wraps text in double quotes `"` | `hi` → `"hi"` |
+| `wrap(singlequote)` | Wraps text in single quotes `'` | `hi` → `'hi'` |
+| `wrap(backtick)` | Wraps text in backticks ``` ` ``` | `hi` → `` `hi` `` |
+| `unwrap(quotes)` | Removes surrounding quotes | `"hi"` → `hi` |
 
-### Practical Examples
+### Examples
 
 #### Quoting for JSON
 Ensure a variable is safely wrapped in double quotes for a JSON structure.
 
 <Transformation
-  template='{ "value": [0 | quote] }'
+  template='{ "value": [0 | wrap(doublequote)] }'
   input="text:'hello world'"
   result='{ "value": "hello world" }'
 />
@@ -31,16 +31,16 @@ Ensure a variable is safely wrapped in double quotes for a JSON structure.
 Wrap dynamic strings in backticks for markdown or documentation snippets.
 
 <Transformation
-  template="Use the [0 | backtick] variable."
+  template="Use the [0 | wrap(backtick)] variable."
   input="text:'user_id'"
   result="Use the `user_id` variable."
 />
 
 #### Safely Unquoting
-If you are passing a variable that might already be quoted (like a clipboard item), use `unquote` to normalize it before processing.
+If you are passing a variable that might already be quoted, use `unwrap(quotes)` to normalize it before processing.
 
 <Transformation
-  template="[clip | unquote | upper]"
-  input='clip:"taurine"'
+  template="[clipboard | unwrap(quotes) | case(upper)]"
+  input='clipboard:"taurine"'
   result="TAURINE"
 />

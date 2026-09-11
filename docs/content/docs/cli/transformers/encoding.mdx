@@ -3,43 +3,41 @@ title: Encoding
 description: Encode and decode text for URLs and binary-safe transfers.
 ---
 
-Encoding transformers are essential for generating safe URLs, handling API payloads, or processing Base64 data.
+Encoding transformers allow you to generate safe URLs, handle API payloads, or process Base64 data using explicit function calls.
 
 ### URL Encoding & Cleaning
 
-Use `url.encode` and `url.decode` to handle URI components (percent-encoding). Use `url.clean` to strip query and tracking parameters.
+Use `encode(url)` and `decode(url)` to handle URI components (percent-encoding). Use `clean(url)` to strip query and tracking parameters.
 
 | Modifier | Description | Example |
 | :--- | :--- | :--- |
-| `url.encode` | Percent-encodes characters for safe URI inclusion | `hello world!` → `hello%20world%21` |
-| `url.decode` | Decodes percent-encoded URL components | `hello%20world%21` → `hello world!` |
-| `url.clean` | Strips tracking/query parameters and hash anchors from a URL | `https://site.com/p?utm_id=123#ref` → `https://site.com/p` |
+| `encode(url)` | Percent-encodes characters for safe URI inclusion | `hello world!` → `hello%20world%21` |
+| `decode(url)` | Decodes percent-encoded URL components | `hello%20world%21` → `hello world!` |
+| `clean(url)` | Strips tracking/query parameters and hash anchors | `https://site.com/p?utm_id=123#ref` → `https://site.com/p` |
 
 <Transformation
-  template="https://google.com/search?q=[0 | url.encode]"
+  template="https://google.com/search?q=[0 | encode(url)]"
   input="query:'rust programming'"
   result="https://google.com/search?q=rust%20programming"
 />
 
 <Transformation
-  template="Clean URL: [0 | url.clean]"
+  template="Clean URL: [0 | clean(url)]"
   input="url:'https://example.com/item?id=45&utm_source=share'"
   result="Clean URL: https://example.com/item"
 />
 
 ### Base64
 
-Base64 modifiers allow you to convert text to and from the standard Base64 encoding.
+Base64 transformers convert text to and from standard Base64 encoding.
 
 | Modifier | Example |
 | :--- | :--- |
-| `base64.encode` | `hello` → `aGVsbG8=` |
-| `base64.decode` | `aGVsbG8=` → `hello` |
+| `encode(base64)` | `hello` → `aGVsbG8=` |
+| `decode(base64)` | `aGVsbG8=` → `hello` |
 
 <Transformation
-  template="Authorization: Basic [0 | base64.encode]"
+  template="Authorization: Basic [0 | encode(base64)]"
   input="creds:'admin:password'"
   result="Authorization: Basic YWRtaW46cGFzc3dvcmQ="
 />
-
-

@@ -1,18 +1,21 @@
-pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> {
-    if !args.is_empty() {
-        return None;
-    }
+use super::strip_argument_quotes;
 
+pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> {
     match transformer {
-        "quote" => Some(format!("\"{content}\"")),
-        "squote" => Some(format!("'{content}'")),
-        "backtick" => Some(format!("`{content}`")),
-        "unquote" => Some(unquote(content)),
+        "wrap" if args.len() == 1 => match strip_argument_quotes(args[0]) {
+            "doublequote" => Some(format!("\"{content}\"")),
+            "singlequote" => Some(format!("'{content}'")),
+            "backtick" => Some(format!("`{content}`")),
+            _ => None,
+        },
+        "unwrap" if args.len() == 1 && strip_argument_quotes(args[0]) == "quotes" => {
+            Some(unwrap_quotes(content))
+        }
         _ => None,
     }
 }
 
-fn unquote(content: &str) -> String {
+fn unwrap_quotes(content: &str) -> String {
     super::super::strip_quotes(content)
         .unwrap_or(content)
         .to_string()
@@ -23,20 +26,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_formatting_transformers() {
-        assert_eq!(apply("quote", &[], "hello"), Some("\"hello\"".to_string()));
-        assert_eq!(apply("squote", &[], "hello"), Some("'hello'".to_string()));
-        assert_eq!(apply("backtick", &[], "hello"), Some("`hello`".to_string()));
+    fn test_wrap_transformers() {
         assert_eq!(
-            apply("unquote", &[], "\"hello\""),
-            Some("hello".to_string())
+            apply("wrap", &["doublequote"], "hello"),
+            Some("\"hello\"".to_string())
         );
-        assert_eq!(apply("unquote", &[], "hello"), Some("hello".to_string()));
+        assert_eq!(
+            apply("wrap", &["singlequote"], "hello"),
+            Some("'hello'".to_string())
+        );
+        assert_eq!(
+            apply("wrap", &["backtick"], "hello"),
+            Some("`hello`".to_string())
+        );
     }
 
     #[test]
-    fn test_pruned_formatting_aliases_return_none() {
-        assert_eq!(apply("doublequote", &[], "hello"), None);
-        assert_eq!(apply("singlequote", &[], "hello"), None);
+    fn test_unwrap_transformer() {
+        assert_eq!(
+            apply("unwrap", &["quotes"], "\"hello\""),
+            Some("hello".to_string())
+        );
+        assert_eq!(
+            apply("unwrap", &["quotes"], "hello"),
+            Some("hello".to_string())
+        );
     }
 }

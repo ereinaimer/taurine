@@ -10,78 +10,9 @@ mod lines;
 mod text;
 
 pub const TRANSFORMERS: &[&str] = &[
-    "upper",
-    "lower",
-    "snake",
-    "kebab",
-    "pascal",
-    "camel",
-    "title",
-    "sentence",
-    "length",
-    "trim",
-    "truncate",
-    "repeat",
-    "replace",
-    "slug",
-    "regexreplace",
-    "substring",
-    "ext.url",
-    "ext.email",
-    "ext.phone",
-    "ext.mention",
-    "ext.hashtag",
-    "ext.ip",
-    "ext.mac",
-    "ext.path",
-    "ext.path.filename",
-    "ext.path.dir",
-    "ext.jwt",
-    "ext.semver",
-    "ext.mdcode",
-    "ext.mdtable",
-    "ext.mdlist",
-    "digits",
-    "alnum",
-    "stripall",
-    "stripemoji",
-    "url.encode",
-    "url.decode",
-    "url.clean",
-    "base64.encode",
-    "base64.decode",
-    "sha256",
-    "sha512",
-    "firstline",
-    "lastline",
-    "prefixline",
-    "suffixline",
-    "joinline",
-    "splitline",
-    "compactline",
-    "color.hex",
-    "color.rgb",
-    "color.rgba",
-    "color.hsl",
-    "color.hsla",
-    "quote",
-    "squote",
-    "backtick",
-    "unquote",
-    "calc",
-    "ai",
-    "json",
-    "json.pretty",
-    "json.minify",
-    "html",
-    "xml",
-    "toml",
-    "yaml",
-    "regex",
-    "wordcount",
-    "linecount",
-    "sortline",
-    "uniqline",
+    "case", "lines", "count", "truncate", "repeat", "replace", "slice", "filter", "strip",
+    "encode", "decode", "clean", "hash", "extract", "wrap", "unwrap", "color", "pretty", "minify",
+    "json", "html", "xml", "toml", "yaml", "regex", "calc", "ai",
 ];
 
 #[derive(Debug)]
@@ -142,7 +73,7 @@ pub use ai::{extract_ai_prompt, is_ai_transformer};
 pub fn apply(transformer: &str, content: &str) -> Option<String> {
     let parsed = parse_transformer(transformer)?;
 
-    case::apply(parsed.name, content)
+    case::apply(parsed.name, &parsed.args, content)
         .or_else(|| text::apply(parsed.name, &parsed.args, content))
         .or_else(|| encoding::apply(parsed.name, &parsed.args, content))
         .or_else(|| crypto::apply(parsed.name, &parsed.args, content))
@@ -272,8 +203,8 @@ mod tests {
             vec!["clipboard", "truncate(5)"]
         );
         assert_eq!(
-            split_pipeline("clipboard | replace(\",\", \";\") | upper"),
-            vec!["clipboard", "replace(\",\", \";\")", "upper"]
+            split_pipeline("clipboard | replace(\",\", \";\") | case(upper)"),
+            vec!["clipboard", "replace(\",\", \";\")", "case(upper)"]
         );
         assert_eq!(
             split_pipeline("'a|b' | replace(\"|\", \"-\")"),
@@ -289,22 +220,72 @@ mod tests {
             Some("a;b;c".to_string())
         );
         assert_eq!(
-            apply("regexreplace(\"([a-z]),([A-Z])\", \"$1 $2\")", "a,B"),
+            apply("replace(regex, \"([a-z]),([A-Z])\", \"$1 $2\")", "a,B"),
             Some("a B".to_string())
         );
-        assert_eq!(apply("substring(1, 3)", "aßc"), Some("ßc".to_string()));
-        assert_eq!(apply("length", "aßc"), Some("3".to_string()));
+        assert_eq!(apply("slice(1, 3)", "aßc"), Some("ßc".to_string()));
+        assert_eq!(apply("count(chars)", "aßc"), Some("3".to_string()));
+    }
+
+    #[test]
+    fn test_case_transformer_integration() {
+        assert_eq!(apply("case(upper)", "hello"), Some("HELLO".to_string()));
+        assert_eq!(apply("case(lower)", "HELLO"), Some("hello".to_string()));
+        assert_eq!(
+            apply("case(snake)", "HelloWorld"),
+            Some("hello_world".to_string())
+        );
+        assert_eq!(
+            apply("case(slug)", "Hello World 2026!"),
+            Some("hello-world-2026".to_string())
+        );
     }
 
     #[test]
     fn test_color_transformer_integration() {
         assert_eq!(
-            apply("color.hex", "rgb(255, 0, 0)"),
+            apply("color(hex)", "rgb(255, 0, 0)"),
             Some("#FF0000".to_string())
         );
         assert_eq!(
-            apply("color.rgb", "#ff0000"),
+            apply("color(rgb)", "#ff0000"),
             Some("rgb(255, 0, 0)".to_string())
+        );
+    }
+
+    #[test]
+    fn test_encoding_transformer_integration() {
+        assert_eq!(
+            apply("encode(url)", "hello world!"),
+            Some("hello%20world%21".to_string())
+        );
+        assert_eq!(
+            apply("encode(base64)", "hello"),
+            Some("aGVsbG8=".to_string())
+        );
+    }
+
+    #[test]
+    fn test_hash_transformer_integration() {
+        assert_eq!(
+            apply("hash(sha256)", "hello"),
+            Some("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824".to_string())
+        );
+    }
+
+    #[test]
+    fn test_wrap_transformer_integration() {
+        assert_eq!(
+            apply("wrap(doublequote)", "hello"),
+            Some("\"hello\"".to_string())
+        );
+        assert_eq!(
+            apply("wrap(singlequote)", "hello"),
+            Some("'hello'".to_string())
+        );
+        assert_eq!(
+            apply("unwrap(quotes)", "\"hello\""),
+            Some("hello".to_string())
         );
     }
 }

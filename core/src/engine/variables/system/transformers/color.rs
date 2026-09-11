@@ -33,7 +33,7 @@ fn rgba_to_hsla(rgba: [f32; 4]) -> (f64, f64, f64, f64) {
 }
 
 pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> {
-    if !args.is_empty() {
+    if transformer != "color" || args.len() != 1 {
         return None;
     }
 
@@ -41,8 +41,8 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
     let rgba8 = parsed.to_rgba8();
     let rgba_f32 = parsed.to_array();
 
-    match transformer {
-        "color.hex" => {
+    match super::strip_argument_quotes(args[0]) {
+        "hex" => {
             if rgba8[3] == 255 {
                 Some(format!("#{:02X}{:02X}{:02X}", rgba8[0], rgba8[1], rgba8[2]))
             } else {
@@ -52,22 +52,22 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
                 ))
             }
         }
-        "color.rgb" => {
+        "rgb" => {
             if rgba8[3] == 255 {
                 Some(format!("rgb({}, {}, {})", rgba8[0], rgba8[1], rgba8[2]))
             } else {
                 Some(format_rgba(rgba8, rgba_f32))
             }
         }
-        "color.rgba" => Some(format_rgba(rgba8, rgba_f32)),
-        "color.hsl" => {
+        "rgba" => Some(format_rgba(rgba8, rgba_f32)),
+        "hsl" => {
             if rgba8[3] == 255 {
                 Some(format_hsl(rgba_f32))
             } else {
                 Some(format_hsla(rgba_f32))
             }
         }
-        "color.hsla" => Some(format_hsla(rgba_f32)),
+        "hsla" => Some(format_hsla(rgba_f32)),
         _ => None,
     }
 }
@@ -121,25 +121,25 @@ mod tests {
     #[test]
     fn test_color_conversions() {
         assert_eq!(
-            apply("color.hex", &[], "#ff0000"),
+            apply("color", &["hex"], "#ff0000"),
             Some("#FF0000".to_string())
         );
         assert_eq!(
-            apply("color.rgb", &[], "#ff0000"),
+            apply("color", &["rgb"], "#ff0000"),
             Some("rgb(255, 0, 0)".to_string())
         );
         assert_eq!(
-            apply("color.rgba", &[], "red"),
+            apply("color", &["rgba"], "red"),
             Some("rgba(255, 0, 0, 1)".to_string())
         );
         assert_eq!(
-            apply("color.hsl", &[], "#00ff00"),
+            apply("color", &["hsl"], "#00ff00"),
             Some("hsl(120, 100%, 50%)".to_string())
         );
         assert_eq!(
-            apply("color.hsla", &[], "rgba(255,255,255,0.5)"),
+            apply("color", &["hsla"], "rgba(255,255,255,0.5)"),
             Some("hsla(0, 0%, 100%, 0.5)".to_string())
         );
-        assert_eq!(apply("color.hex", &[], "invalid-color"), None);
+        assert_eq!(apply("color", &["hex"], "invalid-color"), None);
     }
 }

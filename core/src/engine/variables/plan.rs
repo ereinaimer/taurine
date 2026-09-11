@@ -30,7 +30,7 @@ pub enum PlanOp {
         key: String,
         transformers: Vec<String>,
     },
-    /// Quoted literal text with transformers (e.g. `['hello' | upper]`).
+    /// Quoted literal text with transformers (e.g. `['hello' | case(upper)]`).
     QuotedLiteral {
         value: String,
         transformers: Vec<String>,
@@ -818,7 +818,7 @@ mod tests {
         let mut args = ArgMap::default();
         args.named.insert("name".to_string(), "john".to_string());
 
-        let plan = ExecutionPlan::compile("Hello [name=default | upper]!");
+        let plan = ExecutionPlan::compile("Hello [name=default | case(upper)]!");
         let expansion = plan.evaluate(&args, None, ExpansionOrigin::User);
         assert_eq!(
             expansion.steps,
@@ -850,7 +850,7 @@ mod tests {
         args.positional.push("cli".to_string());
         args.positional.push("add custom pipelines".to_string());
 
-        let tpl = "git commit -m \"feat([0=core]): [1=update codebase | sentence]\"[key(enter)][delay(500ms)]git push origin main[key(enter)]";
+        let tpl = "git commit -m \"feat([0=core]): [1=update codebase | case(sentence)]\"[key(enter)][delay(500ms)]git push origin main[key(enter)]";
         let plan = ExecutionPlan::compile(tpl);
         let expansion = plan.evaluate(&args, None, ExpansionOrigin::User);
 
@@ -886,7 +886,7 @@ mod tests {
     #[test]
     fn test_compile_ai_transformer() {
         crate::engine::variables::system::clip::set_mock_clip(Some("Article text".to_string()));
-        let tpl = "Summary: [clip | ai(summarize this in 3 bullets) | trim]";
+        let tpl = "Summary: [clip | ai(summarize this in 3 bullets) | strip(whitespace)]";
         let plan = ExecutionPlan::compile(tpl);
         let expansion = plan.evaluate(&ArgMap::default(), None, ExpansionOrigin::User);
 
@@ -904,7 +904,7 @@ mod tests {
 
     #[test]
     fn test_compile_global_pipeline() {
-        let tpl = "\"hello world \" | title | repeat(2)";
+        let tpl = "\"hello world \" | case(title) | repeat(2)";
         let plan = ExecutionPlan::compile(tpl);
         let expansion = plan.evaluate(&ArgMap::default(), None, ExpansionOrigin::User);
 
@@ -923,13 +923,13 @@ mod tests {
                 m.positional.push("Alice".to_string());
                 m
             }),
-            ("User: [user=guest | upper]", {
+            ("User: [user=guest | case(upper)]", {
                 let mut m = ArgMap::default();
                 m.named.insert("user".to_string(), "bob".to_string());
                 m
             }),
             ("Escaped: \\[cursor\\] and \\\\ path", ArgMap::default()),
-            ("| [0=ID] | [1=Name | title] |[key(enter)]", {
+            ("| [0=ID] | [1=Name | case(title)] |[key(enter)]", {
                 let mut m = ArgMap::default();
                 m.positional.push("42".to_string());
                 m.positional.push("jane doe".to_string());

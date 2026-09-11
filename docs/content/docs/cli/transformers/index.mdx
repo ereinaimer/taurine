@@ -3,26 +3,27 @@ title: Introduction
 description: Elevate your snippets with powerful, global text transformers.
 ---
 
-Transformers are a powerful feature of the Taurine engine that allow you to manipulate the casing, encoding, and structure of your text dynamically. They are applied using **Unix pipe syntax** (e.g., `| upper`) immediately following a variable name or default value.
+Transformers allow you to manipulate the casing, encoding, lines, formatting, and structure of your text dynamically. They are applied using **Unix pipe syntax** (e.g., `| case(upper)`) immediately following a variable name or default value.
 
 ```
-[clip | upper]
-[0=text | snake]
-[name=john | title]
+[clipboard | case(upper)]
+[0=text | case(snake)]
+[name=john | case(title)]
 ```
 
 ### Key Concepts
 
+*   **Strict Uniform Syntax**: Every transformer follows the consistent `action(arguments)` or `category(action)` call style.
 *   **Global Availability**: Transformers can be applied to any variable, whether it is a user-defined argument, a system variable, or even a literal string inside a tag.
 *   **Recursive Chaining**: You can chain multiple transformers together using additional pipes. They are processed sequentially from left to right.
-*   **UTF-8 Awareness**: All text-based transformers (like `truncate` or `substring`) are fully UTF-8 aware, ensuring safe manipulation of emojis and special characters.
+*   **UTF-8 Awareness**: All text-based transformers (like `truncate` or `slice`) are fully UTF-8 aware, ensuring safe manipulation of emojis and special characters.
 
 ### Chaining Transformers
 
 Taurine supports recursive transformation chaining using unix pipes. This allows you to perform complex cleanup and formatting in a single tag.
 
 <Transformation
-  template="[0=text | trim | upper | repeat(2)]"
+  template="[0=text | strip(whitespace) | case(upper) | repeat(2)]"
   input="text:'  taurine  '"
   result="TAURINETAURINE"
 />
@@ -32,7 +33,7 @@ Taurine supports recursive transformation chaining using unix pipes. This allows
 You can apply transformers directly to quoted strings. This is useful for formatting static text without defining a variable.
 
 <Transformation
-  template="['hello world' | title]"
+  template="['hello world' | case(title)]"
   input=""
   result="Hello World"
 />
@@ -50,15 +51,20 @@ Explore the different categories of transformers:
   <Card 
     title="Casing" 
     href="/docs/cli/transformers/casing" 
-    description="Upper, lower, snake, and camel." 
+    description="Upper, lower, snake, camel, kebab, pascal, title, sentence, and slug." 
+  />
+  <Card 
+    title="Line Manipulation" 
+    href="/docs/cli/transformers/lines" 
+    description="First, last, count, sort, unique, compact, join, split, prefix, and suffix." 
   />
   <Card 
     title="Text Manipulation" 
     href="/docs/cli/transformers/text-manipulation" 
-    description="Truncate, replace, regex, and extraction." 
+    description="Truncate, replace, regex, slice, count, strip, and filter." 
   />
   <Card 
-    title="Extractors (ext.*)" 
+    title="Extractors" 
     href="/docs/cli/transformers/ext" 
     description="Extract URLs, emails, paths, IPs, JWTs, semver, and markdown structures from raw text." 
   />

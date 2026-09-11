@@ -202,21 +202,21 @@ fn test_interpolate_nested_system() {
     let mut args = ArgMap::default();
     args.named
         .insert("val".to_string(), "MixedCase".to_string());
-    let tpl = "[[val | lower] | upper]";
-    // Pass 1: [val | lower] -> mixedcase
-    // Pass 2: [mixedcase | upper] remains literal because mixedcase is not a variable
-    assert_eq!(interpolate(tpl, &args), "[mixedcase | upper]");
+    let tpl = "[[val | case(lower)] | case(upper)]";
+    // Pass 1: [val | case(lower)] -> mixedcase
+    // Pass 2: [mixedcase | case(upper)] remains literal because mixedcase is not a variable
+    assert_eq!(interpolate(tpl, &args), "[mixedcase | case(upper)]");
 }
 
 #[test]
 fn test_interpolate_nested_user() {
     let mut args = ArgMap::default();
     args.named.insert("name".to_string(), "john".to_string());
-    let tpl = "[[name=] | upper]";
+    let tpl = "[[name=] | case(upper)]";
     // Under strict validation, unquoted tags that are not variables are left as-is.
-    // [name=] resolves to john, resulting in [john | upper].
-    // john is not a variable, so [john | upper] remains literal.
-    assert_eq!(interpolate(tpl, &args), "[john | upper]");
+    // [name=] resolves to john, resulting in [john | case(upper)].
+    // john is not a variable, so [john | case(upper)] remains literal.
+    assert_eq!(interpolate(tpl, &args), "[john | case(upper)]");
 }
 
 #[test]
@@ -242,9 +242,9 @@ fn test_interpolate_modified_default_prefers_positional_arg() {
     let mut args = ArgMap::default();
     args.positional.push("aimer".to_string());
 
-    assert_eq!(interpolate("[name=erein | title]", &args), "Erein");
+    assert_eq!(interpolate("[name=erein | case(title)]", &args), "Erein");
     assert_eq!(
-        interpolate("[name=erein | title]", &ArgMap::default()),
+        interpolate("[name=erein | case(title)]", &ArgMap::default()),
         "Erein"
     );
 }
@@ -260,8 +260,8 @@ fn test_interpolate_balanced_with_escapes() {
 #[test]
 fn test_interpolate_flattened_system() {
     let args = ArgMap::default();
-    // time.now | upper should resolve to the current time in uppercase
-    let res = interpolate("[time.now | upper]", &args);
+    // time.now | case(upper) should resolve to the current time in uppercase
+    let res = interpolate("[time.now | case(upper)]", &args);
     // We check if it resolved to SOMETHING that isn't the literal string or empty
     assert!(!res.is_empty());
     assert!(!res.contains("time.now"));
@@ -273,16 +273,19 @@ fn test_interpolate_flattened_system() {
 fn test_interpolate_flattened_user() {
     let mut args = ArgMap::default();
     args.named.insert("name".to_string(), "john".to_string());
-    // name | upper should resolve to JOHN
-    assert_eq!(interpolate("[name= | upper]", &args), "JOHN");
+    // name | case(upper) should resolve to JOHN
+    assert_eq!(interpolate("[name= | case(upper)]", &args), "JOHN");
 }
 
 #[test]
 fn test_interpolate_quoted_literal() {
     let args = ArgMap::default();
-    assert_eq!(interpolate("['hello world' | upper]", &args), "HELLO WORLD");
     assert_eq!(
-        interpolate("[\"hello world\" | upper]", &args),
+        interpolate("['hello world' | case(upper)]", &args),
+        "HELLO WORLD"
+    );
+    assert_eq!(
+        interpolate("[\"hello world\" | case(upper)]", &args),
         "HELLO WORLD"
     );
 }
@@ -292,12 +295,15 @@ fn test_interpolate_deep_flattened() {
     let mut args = ArgMap::default();
     args.named
         .insert("val".to_string(), "MixedCase".to_string());
-    assert_eq!(interpolate("[val | lower | upper]", &args), "MIXEDCASE");
+    assert_eq!(
+        interpolate("[val | case(lower) | case(upper)]", &args),
+        "MIXEDCASE"
+    );
 }
 
 #[test]
 fn test_extract_placeholders_suffixed() {
-    let text = "Hello [name=John | upper] and [email=DEFAULT@EMAIL.COM | lower]";
+    let text = "Hello [name=John | case(upper)] and [email=DEFAULT@EMAIL.COM | case(lower)]";
     let p = extract_placeholders(text);
     assert_eq!(p.len(), 2);
     assert!(p.contains_key("name"));
@@ -321,7 +327,10 @@ fn test_extract_placeholders_parameterized_transformers() {
 #[test]
 fn test_interpolate_unknown_transformed_tag_remains_literal() {
     let args = ArgMap::default();
-    assert_eq!(interpolate("[foo | upper]", &args), "[foo | upper]");
+    assert_eq!(
+        interpolate("[foo | case(upper)]", &args),
+        "[foo | case(upper)]"
+    );
 }
 
 #[test]
@@ -331,7 +340,10 @@ fn test_interpolate_parameterized_transformers_for_user_values() {
 
     assert_eq!(interpolate("[name=default | truncate(2)]", &args), "jo");
     assert_eq!(
-        interpolate("[name=default | replace(\"o\", \"0\") | upper]", &args),
+        interpolate(
+            "[name=default | replace(\"o\", \"0\") | case(upper)]",
+            &args
+        ),
         "J0HN"
     );
 }
@@ -357,7 +369,7 @@ fn test_interpolate_clipboard_history_function_syntax() {
 
     assert_eq!(interpolate("[clip]", &args), "current");
     assert_eq!(interpolate("[clip(0)]", &args), "current");
-    assert_eq!(interpolate("[clip(1) | upper]", &args), "PREVIOUS");
+    assert_eq!(interpolate("[clip(1) | case(upper)]", &args), "PREVIOUS");
     assert_eq!(interpolate("[clip(2)]", &args), "");
 
     system::clip::set_mock_clip(None);
@@ -377,7 +389,7 @@ fn test_interpolate_regexreplace_handles_commas_in_quoted_args() {
     let args = ArgMap::default();
     assert_eq!(
         interpolate(
-            r#"['a,B,c,D' | regexreplace("([a-z]),([A-Z])", "$1 $2")]"#,
+            r#"['a,B,c,D' | replace(regex, "([a-z]),([A-Z])", "$1 $2")]"#,
             &args
         ),
         "a B,c D"
@@ -387,7 +399,7 @@ fn test_interpolate_regexreplace_handles_commas_in_quoted_args() {
 #[test]
 fn test_interpolate_substring_is_utf8_safe() {
     let args = ArgMap::default();
-    assert_eq!(interpolate(r#"['aßç' | substring(1, 3)]"#, &args), "ßç");
+    assert_eq!(interpolate(r#"['aßç' | slice(1, 3)]"#, &args), "ßç");
 }
 
 #[test]
@@ -479,11 +491,11 @@ mod compatibility_interpolation_tests {
         args.positional.push("banana".to_string());
 
         assert_eq!(
-            interpolate("nested=[[0=val] | url.encode]", &args),
-            "nested=[banana | url.encode]"
+            interpolate("nested=[[0=val] | encode(url)]", &args),
+            "nested=[banana | encode(url)]"
         );
         assert_eq!(
-            interpolate("flat=[0=val | url.encode]", &args),
+            interpolate("flat=[0=val | encode(url)]", &args),
             "flat=banana"
         );
     }
@@ -514,10 +526,13 @@ mod compatibility_interpolation_tests {
         let args = ArgMap::default();
         // Test 1.1: Global pipeline quote stripping
         assert_eq!(
-            interpolate("\"hello world \" | title | repeat(2)", &args),
+            interpolate("\"hello world \" | case(title) | repeat(2)", &args),
             "Hello World Hello World "
         );
-        assert_eq!(interpolate("'hello world ' | upper", &args), "HELLO WORLD ");
+        assert_eq!(
+            interpolate("'hello world ' | case(upper)", &args),
+            "HELLO WORLD "
+        );
     }
 
     #[test]
@@ -538,7 +553,7 @@ mod compatibility_interpolation_tests {
         args.positional.push("cli".to_string());
         args.positional
             .push("add support for custom pipelines".to_string());
-        let tpl = "git commit -m \"feat([0=core]): [1=update codebase | sentence]\"[key(enter)][delay(500ms)]git push origin main[key(enter)]";
+        let tpl = "git commit -m \"feat([0=core]): [1=update codebase | case(sentence)]\"[key(enter)][delay(500ms)]git push origin main[key(enter)]";
         assert_eq!(
             interpolate(tpl, &args),
             "git commit -m \"feat(cli): Add support for custom pipelines\"[key(enter)][delay(500ms)]git push origin main[key(enter)]"
@@ -551,7 +566,7 @@ mod compatibility_interpolation_tests {
         args.positional.push("101".to_string());
         args.positional.push("john doe".to_string());
         args.positional.push("active".to_string());
-        let tpl = "| [0=ID] | [1=Name | title] | [2=Status | upper] |[key(enter)]| ['--- | ' | repeat(3)][key(enter)]";
+        let tpl = "| [0=ID] | [1=Name | case(title)] | [2=Status | case(upper)] |[key(enter)]| ['--- | ' | repeat(3)][key(enter)]";
         assert_eq!(
             interpolate(tpl, &args),
             "| 101 | John Doe | ACTIVE |[key(enter)]| --- | --- | --- | [key(enter)]"
@@ -561,7 +576,7 @@ mod compatibility_interpolation_tests {
     #[test]
     fn test_docsnippet_manual_case() {
         let args = ArgMap::default();
-        let tpl = r#"\'\[key(enter)\]\' directive | title | repeat(2)"#;
+        let tpl = r#"\'\[key(enter)\]\' directive | case(title) | repeat(2)"#;
         assert_eq!(
             interpolate(tpl, &args),
             r#"\'\[key(enter)\]\' Directive\'\[key(enter)\]\' Directive"#
@@ -576,8 +591,7 @@ mod compatibility_interpolation_tests {
         // Since we can't easily mock UUID without a lock, we can use a known value.
         // Wait, UUID changes. We'll skip [uuid] and [date.iso] for exact match and just test env
         // actually we can test the interpolation of `[env(TAURINE_TEST_USER=admin)]`.
-        let tpl =
-            r#"{"user": "[env(TAURINE_TEST_USER=admin) | lower]", "action": "[0=login | upper]"}"#;
+        let tpl = r#"{"user": "[env(TAURINE_TEST_USER=admin) | case(lower)]", "action": "[0=login | case(upper)]"}"#;
         assert_eq!(
             interpolate(tpl, &args),
             r#"{"user": "admin", "action": "PASSWORD_RESET"}"#
@@ -587,7 +601,7 @@ mod compatibility_interpolation_tests {
     #[test]
     fn test_aisummary_manual_case() {
         let args = ArgMap::default();
-        let tpl = "### SUMMARY OF COPIED TEXT ([date]):[key(enter)][clip | ai(summarize this in 3 concise bullet points) | trim]";
+        let tpl = "### SUMMARY OF COPIED TEXT ([date]):[key(enter)][clip | ai(summarize this in 3 concise bullet points) | strip(whitespace)]";
         system::clip::set_mock_clip(Some("Long article text".to_string()));
         let result = interpolate(tpl, &args);
         // date.short will be the actual date, so we just check the AI marker structure
@@ -596,7 +610,7 @@ mod compatibility_interpolation_tests {
             "):[key(enter)]\x03Long article text\x1Fsummarize this in 3 concise bullet points\x04"
         ));
         // trim is applied to the AI marker?
-        // the pipeline handles `clipboard | ai(...) | trim` by adding \x03 and \x04.
+        // the pipeline handles `clipboard | ai(...) | strip(whitespace)` by adding \x03 and \x04.
         // Wait, the test checks if it generates correct markers.
         system::clip::set_mock_clip(None);
     }
@@ -604,8 +618,7 @@ mod compatibility_interpolation_tests {
     #[test]
     fn test_testchain_manual_case() {
         let args = ArgMap::default();
-        let tpl =
-            "'hello_world-demo_test' | replace('_', ' ') | replace('-', ' ') | title | repeat(2)";
+        let tpl = "'hello_world-demo_test' | replace('_', ' ') | replace('-', ' ') | case(title) | repeat(2)";
         assert_eq!(
             interpolate(tpl, &args),
             "Hello World Demo TestHello World Demo Test"
@@ -617,11 +630,11 @@ mod compatibility_interpolation_tests {
         let mut args = ArgMap::default();
         args.named
             .insert("url".to_string(), "httpbin.org/json".to_string());
-        let tpl = "[http.get([url]) | json('slideshow.title') | upper]";
+        let tpl = "[http.get([url]) | json('slideshow.title') | case(upper)]";
         let result = interpolate(tpl, &args);
         assert_eq!(
             result,
-            "\x03\x1Fsys:http.get(httpbin.org/json) | json('slideshow.title') | upper\x04"
+            "\x03\x1Fsys:http.get(httpbin.org/json) | json('slideshow.title') | case(upper)\x04"
         );
     }
 

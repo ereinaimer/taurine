@@ -151,7 +151,10 @@ fn test_finalize_silent_inline_run_uses_silent_metadata() {
 
 #[test]
 fn test_finalize_inline_run_with_transformers() {
-    let res = finalize("[exec.bash(echo done) | upper | trim]", None);
+    let res = finalize(
+        "[exec.bash(echo done) | case(upper) | strip(whitespace)]",
+        None,
+    );
     assert_eq!(res.steps.len(), 1);
     match &res.steps[0] {
         ExpansionStep::InlineRun(metadata, transformers) => {
@@ -159,7 +162,10 @@ fn test_finalize_inline_run_with_transformers() {
                 crate::engine::shell::decompress(&metadata.compressed_content).unwrap(),
                 "echo done"
             );
-            assert_eq!(transformers, &vec!["upper".to_string(), "trim".to_string()]);
+            assert_eq!(
+                transformers,
+                &vec!["case(upper)".to_string(), "strip(whitespace)".to_string()]
+            );
         }
         other => panic!("expected InlineRun step, got {other:?}"),
     }
@@ -518,7 +524,7 @@ mod compatibility_finalize_tests {
             let mut args = crate::engine::variables::types::ArgMap::default();
             args.positional.push("custom".to_string());
             let res = evaluate_template(
-                "Escaped brackets: \\[0=ignored\\] | Literal pipe: [0='default value' \\| upper] | Parsed pipe: [0='hello' | upper]",
+                "Escaped brackets: \\[0=ignored\\] | Literal pipe: [0='default value' \\| case(upper)] | Parsed pipe: [0='hello' | case(upper)]",
                 Some(&args),
             );
             assert_eq!(
@@ -530,16 +536,16 @@ mod compatibility_finalize_tests {
             );
 
             let res_no_args = evaluate_template(
-                "Escaped brackets: \\[0=ignored\\] | Literal pipe: [0='default value' \\| upper] | Parsed pipe: [0='hello' | upper]",
+                "Escaped brackets: \\[0=ignored\\] | Literal pipe: [0='default value' \\| case(upper)] | Parsed pipe: [0='hello' | case(upper)]",
                 None,
             );
-            assert_eq!(res_no_args.steps, vec![ExpansionStep::Text("Escaped brackets: [0=ignored] | Literal pipe: 'default value' | upper | Parsed pipe: 'DEFAULT VALUE' | UPPER".to_string())]);
+            assert_eq!(res_no_args.steps, vec![ExpansionStep::Text("Escaped brackets: [0=ignored] | Literal pipe: 'default value' | case(upper) | Parsed pipe: 'DEFAULT VALUE' | CASE(UPPER)".to_string())]);
         }
 
         // Test Case 3: testdatetime
         {
             let res = evaluate_template(
-                "Local: [date] [time] | UTC +1w: [date.utc.calc(+1w).format('Today is' dddd, MMMM D, YYYY)] | UTC Time -2h: [time.utc.calc(-2h).format(hh:mm A)] | Cased AM/PM: [time.format(A) | lower]",
+                "Local: [date] [time] | UTC +1w: [date.utc.calc(+1w).format('Today is' dddd, MMMM D, YYYY)] | UTC Time -2h: [time.utc.calc(-2h).format(hh:mm A)] | Cased AM/PM: [time.format(A) | case(lower)]",
                 None,
             );
             assert_eq!(res.steps.len(), 1);
@@ -560,7 +566,7 @@ mod compatibility_finalize_tests {
                 std::env::set_var("USERPROFILE", "c:\\users\\aimer");
             }
             let res = evaluate_template(
-                "User (Title Case): [env(USERNAME) | title] | Home Path (Lowercase): [env(USERPROFILE) | lower]",
+                "User (Title Case): [env(USERNAME) | case(title)] | Home Path (Lowercase): [env(USERPROFILE) | case(lower)]",
                 None,
             );
             assert_eq!(
@@ -578,7 +584,7 @@ mod compatibility_finalize_tests {
                 let path = home.join("taurine_test.txt");
                 std::fs::write(&path, "line one\nline two\nline three").ok();
                 let res = evaluate_template(
-                    "Full Content: [file.read(~/taurine_test.txt) | trim] | Line 2: [file.line(~/taurine_test.txt, 2) | upper] | Lines 1-3: [file.lines(~/taurine_test.txt, 1, 3)]",
+                    "Full Content: [file.read(~/taurine_test.txt) | strip(whitespace)] | Line 2: [file.line(~/taurine_test.txt, 2) | case(upper)] | Lines 1-3: [file.lines(~/taurine_test.txt, 1, 3)]",
                     None,
                 );
                 std::fs::remove_file(&path).ok();
@@ -603,7 +609,7 @@ mod compatibility_finalize_tests {
                 "banana".to_string(),
             ]);
             let res = evaluate_template(
-                "Latest (Slugified): [clip | slug] | Second: [clip(0) | trim] | Third (Upper): [clip(1) | upper] | Empty index: [clip(2) | squote]",
+                "Latest (Slugified): [clip | case(slug)] | Second: [clip(0) | strip(whitespace)] | Third (Upper): [clip(1) | case(upper)] | Empty index: [clip(2) | wrap(singlequote)]",
                 None,
             );
             super::clip::set_mock_clip(None);
@@ -617,13 +623,13 @@ mod compatibility_finalize_tests {
         // Test Case 7: testexec
         {
             let res = evaluate_template(
-                "Cwd Path: [exec.powershell((Get-Location).Path) | trim] | Cmd Command: [exec.cmd(echo hello from cmd) | upper] | Silent Task: [exec.silent.powershell(echo 'background task')]",
+                "Cwd Path: [exec.powershell((Get-Location).Path) | strip(whitespace)] | Cmd Command: [exec.cmd(echo hello from cmd) | case(upper)] | Silent Task: [exec.silent.powershell(echo 'background task')]",
                 None,
             );
             assert_eq!(res.steps.len(), 6);
             assert_eq!(res.steps[0], ExpansionStep::Text("Cwd Path: ".to_string()));
             if let ExpansionStep::InlineRun(ref m, ref t) = res.steps[1] {
-                assert_eq!(t, &vec!["trim".to_string()]);
+                assert_eq!(t, &vec!["strip(whitespace)".to_string()]);
                 assert_eq!(m.behavior, crate::engine::shell::ScriptBehavior::Inline);
             } else {
                 panic!("Expected InlineRun");
@@ -633,7 +639,7 @@ mod compatibility_finalize_tests {
                 ExpansionStep::Text(" | Cmd Command: ".to_string())
             );
             if let ExpansionStep::InlineRun(ref m, ref t) = res.steps[3] {
-                assert_eq!(t, &vec!["upper".to_string()]);
+                assert_eq!(t, &vec!["case(upper)".to_string()]);
                 assert_eq!(m.behavior, crate::engine::shell::ScriptBehavior::Inline);
             } else {
                 panic!("Expected InlineRun");
@@ -693,7 +699,10 @@ mod compatibility_finalize_tests {
                     []
                 ).unwrap();
 
-            let res = evaluate_template("Output: [use('testinner') | upper] | Date: [date]", None);
+            let res = evaluate_template(
+                "Output: [use('testinner') | case(upper)] | Date: [date]",
+                None,
+            );
 
             conn.execute("DELETE FROM triggers WHERE id = 'test_inner_id'", [])
                 .ok();
@@ -710,13 +719,13 @@ mod compatibility_finalize_tests {
         // Test Case 12: testcombo
         {
             let res = evaluate_template(
-                "User [name='Developer'] checked [url='httpbin.org/json'] at [time.utc.format(HH:mm)] UTC. Title of JSON: [http.get([url]) | json('slideshow.title') | upper]",
+                "User [name='Developer'] checked [url='httpbin.org/json'] at [time.utc.format(HH:mm)] UTC. Title of JSON: [http.get([url]) | json('slideshow.title') | case(upper)]",
                 None,
             );
             assert_eq!(res.steps.len(), 1);
             if let ExpansionStep::Text(ref text) = res.steps[0] {
                 assert!(text.contains("User Developer checked httpbin.org/json at "));
-                assert!(text.contains(" UTC. Title of JSON: \x03\x1Fsys:http.get(httpbin.org/json) | json('slideshow.title') | upper\x04"));
+                assert!(text.contains(" UTC. Title of JSON: \x03\x1Fsys:http.get(httpbin.org/json) | json('slideshow.title') | case(upper)\x04"));
             } else {
                 panic!("Expected Text step");
             }
