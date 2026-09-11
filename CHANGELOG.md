@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Linux Text Expansion Speed**: Batch all uinput key events into a single kernel call per expansion, eliminating per-character sleep delays and making text injection significantly faster.
 - **Linux Tray Icon**: Export branded pause and resume PNG assets to the local user data directory and register the theme search path with SNI hosts to ensure the tray icon displays and toggles accurately across Linux desktop environments.
 - **Linux Clipboard Listener Resilience**: Treat empty or non-text clipboards as empty rather than errors, and apply exponential backoff on display server connection failures.
+- **Linux Service Restart Reload**: Automatically reload systemd user unit definitions before starting or restarting the service to prevent failures when unit files change on disk.
 - **Update Progress Display**: Prevent raw terminal escape codes from displaying during update progress.
 - **Uninstall Progress Display**: Show step-by-step progress logs during Unix uninstallation.
 - **Word Boundary Expansion Accuracy**: Prevent unwanted expansions when triggers appear inside larger words or follow digits by requiring non-alphanumeric boundaries.

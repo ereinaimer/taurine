@@ -575,6 +575,8 @@ pub fn up(start_on_boot: bool) -> crate::error::Result<()> {
         }
         Ok(ServiceStatus::Stopped(_)) => {
             debug!("Taurine service found but stopped. Starting...");
+            #[cfg(target_os = "linux")]
+            systemd_daemon_reload();
             manager
                 .start(ServiceStartCtx {
                     label: label.clone(),
@@ -664,15 +666,15 @@ pub fn down() -> crate::error::Result<()> {
     {
         // Stop via a systemd stop job FIRST. Unlike a gRPC self-exit, a stop
         // job never triggers `Restart=` — even on a legacy unit.
-        if manager_is_running(&manager, &label) {
+        if manager_is_running(&*manager, &label) {
             debug!("Requesting service manager stop...");
             if manager
                 .stop(ServiceStopCtx {
                     label: label.clone(),
                 })
                 .is_ok()
-                && wait_for_manager_stop(&manager, &label, 10)
-                && confirm_stays_stopped(&manager, &label, needs_settle)
+                && wait_for_manager_stop(&*manager, &label, 10)
+                && confirm_stays_stopped(&*manager, &label, needs_settle)
             {
                 info!("Taurine has been stopped.");
                 return Ok(());
@@ -693,7 +695,7 @@ pub fn down() -> crate::error::Result<()> {
                 Ok(ServiceStatus::Stopped(_)) | Ok(ServiceStatus::NotInstalled) | Err(_) => {
                     #[cfg(target_os = "linux")]
                     {
-                        if confirm_stays_stopped(&manager, &label, needs_settle) {
+                        if confirm_stays_stopped(&*manager, &label, needs_settle) {
                             info!("Taurine has been stopped.");
                             return Ok(());
                         }
@@ -717,7 +719,7 @@ pub fn down() -> crate::error::Result<()> {
         Ok(ServiceStatus::Stopped(_)) | Ok(ServiceStatus::NotInstalled) | Err(_) => {
             #[cfg(target_os = "linux")]
             {
-                if confirm_stays_stopped(&manager, &label, needs_settle) {
+                if confirm_stays_stopped(&*manager, &label, needs_settle) {
                     info!("Taurine is already stopped.");
                     return Ok(());
                 }
@@ -742,29 +744,28 @@ pub fn down() -> crate::error::Result<()> {
             {
                 // A legacy unit may have resurrected the process between the
                 // gRPC exit and this stop; verify it stays down.
-                if wait_for_manager_stop(&manager, &label, 10)
-                    && confirm_stays_stopped(&manager, &label, needs_settle)
+                if wait_for_manager_stop(&*manager, &label, 10)
+                    && confirm_stays_stopped(&*manager, &label, needs_settle)
                 {
                     info!("Taurine has been stopped (fallback).");
                     return Ok(());
                 }
                 error!("Service was stopped but did not stay stopped.");
-                return Err(crate::Error::Service(
+                Err(crate::Error::Service(
                     "Taurine did not stay stopped.".to_string(),
-                ));
+                ))
             }
             #[cfg(not(target_os = "linux"))]
             {
                 info!("Taurine has been stopped (fallback).");
+                Ok(())
             }
         }
         Err(e) => {
             error!("Failed to stop service: {}", e);
-            return Err(crate::Error::Service(e.to_string()));
+            Err(crate::Error::Service(e.to_string()))
         }
     }
-
-    Ok(())
 }
 
 pub fn restart(start_on_boot: bool) -> crate::error::Result<()> {
@@ -804,11 +805,11 @@ pub fn restart(start_on_boot: bool) -> crate::error::Result<()> {
                 label: label.clone(),
             });
         }
-        if !wait_for_manager_stop(&manager, &label, 10) && grpc_shutdown_request() {
-            wait_for_manager_stop(&manager, &label, 10);
+        if !wait_for_manager_stop(&*manager, &label, 10) && grpc_shutdown_request() {
+            wait_for_manager_stop(&*manager, &label, 10);
         }
 
-        if manager_is_running(&manager, &label) {
+        if manager_is_running(&*manager, &label) {
             debug!("Service did not exit gracefully; hard-stopping for restart.");
             let _ = manager.stop(ServiceStopCtx {
                 label: label.clone(),
@@ -845,6 +846,9 @@ pub fn restart(start_on_boot: bool) -> crate::error::Result<()> {
         }
         _ => {}
     }
+
+    #[cfg(target_os = "linux")]
+    systemd_daemon_reload();
 
     match manager.start(ServiceStartCtx {
         label: label.clone(),
