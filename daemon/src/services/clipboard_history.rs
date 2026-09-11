@@ -72,6 +72,12 @@ const INIT_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 #[cfg(target_os = "linux")]
 fn run_listener_once() {
     const POLL_INTERVAL: Duration = Duration::from_millis(350);
+    let mut backoff = crate::platform::circuit_breaker::ExponentialBackoff::new(
+        Duration::from_millis(500),
+        Duration::from_secs(10),
+        2.0,
+        Duration::from_secs(30),
+    );
 
     loop {
         if CLIPBOARD_SHOULD_SHUTDOWN.load(std::sync::atomic::Ordering::Relaxed) {
@@ -108,16 +114,20 @@ fn run_listener_once() {
 
         match read_result {
             Ok(Some(text)) => {
+                backoff.record_success();
                 let _ = clip_manager().record_text(text);
                 thread::sleep(POLL_INTERVAL);
             }
-            Ok(None) => thread::sleep(POLL_INTERVAL),
+            Ok(None) => {
+                backoff.record_success();
+                thread::sleep(POLL_INTERVAL);
+            }
             Err(error) => {
                 tracing::warn!(
                     "Clipboard history listener error: {}. Resetting connection.",
                     error
                 );
-                thread::sleep(INIT_RETRY_INTERVAL);
+                backoff.wait();
             }
         }
     }
@@ -565,6 +575,7 @@ fn try_read_clipboard_text_bounded(
                 }
             }
         }
+        Err(arboard::Error::ContentNotAvailable) => Ok(None),
         #[cfg(windows)]
         Err(arboard::Error::ContentNotReady) => Ok(None),
         Err(e) => Err(e.to_string()),
