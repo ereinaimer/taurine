@@ -3,8 +3,6 @@ use super::{
     DATE_METHODS, DATETIME_METHODS, EXEC_MODIFIERS, FILE_MODIFIERS, KEY_MODIFIERS, LOREM_MODIFIERS,
     NET_MODIFIERS, RANDOM_MODIFIERS, TIME_METHODS, UUID_MODIFIERS,
 };
-use crate::engine::variables::system::exec::parse_invocation;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationError {
     UnknownRoot(String),
@@ -26,7 +24,6 @@ pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), Val
     match root {
         "newline" => validate_no_modifier("newline", modifier),
         "cursor" => validate_no_modifier("cursor", modifier),
-        "clip" => validate_clip_modifier("clip", modifier),
         "clipboard" => validate_clip_modifier("clipboard", modifier),
         "time" => validate_time_modifier(modifier),
         "date" => validate_date_modifier(modifier),
@@ -34,7 +31,7 @@ pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), Val
         "uuid" => validate_uuid_modifier(modifier),
         "env" => validate_env_modifier(modifier),
         "net" => validate_net_modifier(modifier),
-        "exec" => validate_exec_modifier(modifier),
+        "execute" => validate_exec_modifier(modifier),
         "random" => validate_random_modifier(modifier),
         "lorem" => validate_lorem_modifier(modifier),
         "file" => validate_file_modifier(modifier),
@@ -43,15 +40,15 @@ pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), Val
         "use" => validate_use_modifier(modifier),
         "http" => validate_http_modifier(modifier),
         "mouse" => validate_mouse_modifier(modifier),
-        "img" => validate_img_modifier(modifier),
+        "image" => validate_image_modifier(modifier),
         _ => Err(ValidationError::UnknownRoot(root.to_string())),
     }
 }
 
-fn validate_img_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
+fn validate_image_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
     let raw = modifier.unwrap_or_default().trim();
     if raw.is_empty() {
-        return Err(ValidationError::MissingModifier { root: "img" });
+        return Err(ValidationError::MissingModifier { root: "image" });
     }
     Ok(())
 }
@@ -159,10 +156,7 @@ fn validate_net_modifier(modifier: Option<&str>) -> Result<(), ValidationError> 
         });
     };
 
-    let valid = matches!(
-        (variant, args),
-        ("ip" | "publicip" | "lip" | "localip" | "online", None)
-    );
+    let valid = matches!((variant, args), ("publicip" | "localip" | "online", None));
 
     if valid {
         Ok(())
@@ -187,14 +181,14 @@ fn validate_env_modifier(modifier: Option<&str>) -> Result<(), ValidationError> 
 
 fn validate_exec_modifier(modifier: Option<&str>) -> Result<(), ValidationError> {
     let modifier =
-        normalize_modifier(modifier.ok_or(ValidationError::MissingModifier { root: "exec" })?)
-            .ok_or(ValidationError::MissingModifier { root: "exec" })?;
+        normalize_modifier(modifier.ok_or(ValidationError::MissingModifier { root: "execute" })?)
+            .ok_or(ValidationError::MissingModifier { root: "execute" })?;
 
-    // Delegate to the real order-independent parser from exec.rs
-    match parse_invocation(&format!("exec.{}", modifier)) {
+    // Delegate to the real order-independent parser from execute.rs
+    match system::execute::parse_invocation(&format!("execute.{}", modifier)) {
         Ok(_) => Ok(()),
         Err(_) => Err(ValidationError::InvalidModifier {
-            root: "exec",
+            root: "execute",
             modifier: modifier.to_string(),
             allowed: EXEC_MODIFIERS,
         }),

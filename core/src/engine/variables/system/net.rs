@@ -7,9 +7,9 @@ pub fn resolve(key: &str) -> Option<String> {
     }
 
     let modifier = &key[4..];
-    if modifier == "ip" || modifier == "publicip" {
+    if modifier == "publicip" {
         resolve_public_ip()
-    } else if modifier == "lip" || modifier == "localip" {
+    } else if modifier == "localip" {
         resolve_local_ip()
     } else if modifier == "online" {
         Some(resolve_online())
@@ -124,9 +124,7 @@ mod tests {
 
     #[test]
     fn test_resolve_routing() {
-        assert!(resolve("net.ip").is_some());
         assert!(resolve("net.publicip").is_some());
-        assert!(resolve("net.lip").is_some());
         assert!(resolve("net.localip").is_some());
         let online = resolve("net.online").unwrap();
         assert!(online == "true" || online == "false");

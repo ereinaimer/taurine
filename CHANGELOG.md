@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Unified System Variable Syntax**: Standardize all system variable roots to explicit canonical names (`execute`, `image`, `clipboard`, `net.publicip`, `net.localip`, `lorem.words`, `lorem.sentences`, `lorem.paragraphs`).
 - **Autonomous Self-Healing & Crash Resilience**: Automatically recover background worker threads, isolate native shell launches out-of-process, intercept native exceptions, and auto-restart on system failure via Windows Task Scheduler.
 - **Conversational CLI Diagnostics**: Provide actionable terminal error messages across all CLI commands with fuzzy did-you-mean suggestions and clean copy-paste examples.
 - **URL Sanitation & Calculation Placeholders**: Strip both query parameters and hash anchors in [| url.clean], and support $, _, and x as incoming value placeholders in [| calc(...)].

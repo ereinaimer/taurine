@@ -16,16 +16,14 @@ fn splits_known_system_roots_only() {
         split_system_tag("net.hostname | upper"),
         Some(("net", Some("hostname")))
     );
-    assert_eq!(split_system_tag("clip"), Some(("clip", None)));
-    assert_eq!(split_system_tag("clip(1)"), Some(("clip", Some("(1)"))));
-    assert_eq!(
-        split_system_tag("clip(2) | upper"),
-        Some(("clip", Some("(2)")))
-    );
     assert_eq!(split_system_tag("clipboard"), Some(("clipboard", None)));
     assert_eq!(
         split_system_tag("clipboard(1)"),
         Some(("clipboard", Some("(1)")))
+    );
+    assert_eq!(
+        split_system_tag("clipboard(2) | upper"),
+        Some(("clipboard", Some("(2)")))
     );
     assert_eq!(split_system_tag("datetime"), Some(("datetime", None)));
     assert_eq!(
@@ -92,9 +90,7 @@ fn validates_uuid_modifiers() {
 
 #[test]
 fn validates_net_modifiers() {
-    assert_eq!(validate_system_tag("net", Some("ip")), Ok(()));
     assert_eq!(validate_system_tag("net", Some("publicip")), Ok(()));
-    assert_eq!(validate_system_tag("net", Some("lip")), Ok(()));
     assert_eq!(validate_system_tag("net", Some("localip")), Ok(()));
     assert_eq!(validate_system_tag("net", Some("online")), Ok(()));
 
@@ -115,7 +111,7 @@ fn validates_net_modifiers() {
 #[test]
 fn validates_roots_with_no_modifiers() {
     assert_eq!(validate_system_tag("cursor", None), Ok(()));
-    assert_eq!(validate_system_tag("clip", None), Ok(()));
+    assert_eq!(validate_system_tag("clipboard", None), Ok(()));
     assert_eq!(
         validate_system_tag("cursor", Some("now")),
         Err(ValidationError::UnexpectedModifier {
@@ -127,15 +123,15 @@ fn validates_roots_with_no_modifiers() {
 
 #[test]
 fn validates_clip_syntax() {
-    assert_eq!(validate_system_tag("clip", None), Ok(()));
-    assert_eq!(validate_system_tag("clip", Some("(0)")), Ok(()));
-    assert_eq!(validate_system_tag("clip", Some("(1)")), Ok(()));
-    assert_eq!(validate_system_tag("clip", Some("(2)")), Ok(()));
+    assert_eq!(validate_system_tag("clipboard", None), Ok(()));
+    assert_eq!(validate_system_tag("clipboard", Some("(0)")), Ok(()));
+    assert_eq!(validate_system_tag("clipboard", Some("(1)")), Ok(()));
+    assert_eq!(validate_system_tag("clipboard", Some("(2)")), Ok(()));
 
     assert_eq!(
-        validate_system_tag("clip", Some("unknown")),
+        validate_system_tag("clipboard", Some("unknown")),
         Err(ValidationError::InvalidModifier {
-            root: "clip",
+            root: "clipboard",
             modifier: "unknown".to_string(),
             allowed: &["(0)", "(1)", "(2)"],
         })
@@ -196,60 +192,66 @@ fn test_validate_env_modifier() {
 #[test]
 fn validates_exec_modifier_syntax() {
     // Standard forms
-    assert_eq!(validate_system_tag("exec", Some("bash(echo 42)")), Ok(()));
     assert_eq!(
-        validate_system_tag("exec", Some("silent.bash(echo start)")),
+        validate_system_tag("execute", Some("bash(echo 42)")),
         Ok(())
     );
     assert_eq!(
-        validate_system_tag("exec", Some("bash.file(/tmp/test.sh).args(arg1, arg2)")),
+        validate_system_tag("execute", Some("silent.bash(echo start)")),
+        Ok(())
+    );
+    assert_eq!(
+        validate_system_tag("execute", Some("bash.file(/tmp/test.sh).args(arg1, arg2)")),
         Ok(())
     );
     // Order-independence: language can come after .file()
     assert_eq!(
-        validate_system_tag("exec", Some("file(/tmp/test.sh).bash")),
+        validate_system_tag("execute", Some("file(/tmp/test.sh).bash")),
         Ok(())
     );
     assert_eq!(
-        validate_system_tag("exec", Some("file(/tmp/test.sh).bash.args(a, b)")),
+        validate_system_tag("execute", Some("file(/tmp/test.sh).bash.args(a, b)")),
         Ok(())
     );
     assert_eq!(
-        validate_system_tag("exec", Some("file(/tmp/test.sh).python.silent")),
+        validate_system_tag("execute", Some("file(/tmp/test.sh).python.silent")),
         Ok(())
     );
     assert_eq!(
-        validate_system_tag("exec", Some("file(/tmp/test.sh).silent.bash")),
+        validate_system_tag("execute", Some("file(/tmp/test.sh).silent.bash")),
         Ok(())
     );
 
     // Order-independence: .silent after the language or subject
     assert_eq!(
-        validate_system_tag("exec", Some("bash(echo 1).silent")),
+        validate_system_tag("execute", Some("bash(echo 1).silent")),
         Ok(())
     );
     assert_eq!(
-        validate_system_tag("exec", Some("bash(echo 1).silent.args(a, b)")),
+        validate_system_tag("execute", Some("bash(echo 1).silent.args(a, b)")),
         Ok(())
     );
     assert_eq!(
-        validate_system_tag("exec", Some("file(/tmp/test.sh).python.silent.args(a, b)")),
+        validate_system_tag(
+            "execute",
+            Some("file(/tmp/test.sh).python.silent.args(a, b)")
+        ),
         Ok(())
     );
 
     // Error cases remain the same
     assert_eq!(
-        validate_system_tag("exec", Some("ruby(puts 1)")),
+        validate_system_tag("execute", Some("ruby(puts 1)")),
         Err(ValidationError::InvalidModifier {
-            root: "exec",
+            root: "execute",
             modifier: "ruby(puts 1)".to_string(),
             allowed: EXEC_MODIFIERS,
         })
     );
     assert_eq!(
-        validate_system_tag("exec", Some("bash(echo 1")),
+        validate_system_tag("execute", Some("bash(echo 1")),
         Err(ValidationError::InvalidModifier {
-            root: "exec",
+            root: "execute",
             modifier: "bash(echo 1".to_string(),
             allowed: EXEC_MODIFIERS,
         })
@@ -426,34 +428,34 @@ fn validates_img_modifier_accepts_any_nonempty_path() {
     // Any non-empty string is accepted; format validation happens at compile time when the
     // file is read, not during static template validation.
     assert_eq!(
-        validate_system_tag("img", Some(r"C:\Users\aimer\Pictures\logo.png")),
+        validate_system_tag("image", Some(r"C:\Users\aimer\Pictures\logo.png")),
         Ok(())
     );
     assert_eq!(
-        validate_system_tag("img", Some("/home/user/logo.png")),
+        validate_system_tag("image", Some("/home/user/logo.png")),
         Ok(())
     );
     // asset references are also valid path strings
-    assert_eq!(validate_system_tag("img", Some("asset(abc123)")), Ok(()));
+    assert_eq!(validate_system_tag("image", Some("asset(abc123)")), Ok(()));
     assert_eq!(
-        validate_system_tag("img", None),
-        Err(ValidationError::MissingModifier { root: "img" })
+        validate_system_tag("image", None),
+        Err(ValidationError::MissingModifier { root: "image" })
     );
 }
 
 #[test]
-fn split_system_tag_recognises_img_prefix() {
+fn split_system_tag_recognises_image_prefix() {
     assert_eq!(
-        split_system_tag("img(/path/to/logo.png)"),
-        Some(("img", Some("/path/to/logo.png")))
+        split_system_tag("image(/path/to/logo.png)"),
+        Some(("image", Some("/path/to/logo.png")))
     );
     assert_eq!(
-        split_system_tag(r"img(C:\Users\aimer\Pictures\Screenshots\hi.png)"),
-        Some(("img", Some(r"C:\Users\aimer\Pictures\Screenshots\hi.png")))
+        split_system_tag(r"image(C:\Users\aimer\Pictures\Screenshots\hi.png)"),
+        Some(("image", Some(r"C:\Users\aimer\Pictures\Screenshots\hi.png")))
     );
     assert_eq!(
-        split_system_tag("img(asset(deadbeef))"),
-        Some(("img", Some("asset(deadbeef)")))
+        split_system_tag("image(asset(deadbeef))"),
+        Some(("image", Some("asset(deadbeef)")))
     );
 }
 
@@ -461,7 +463,7 @@ fn split_system_tag_recognises_img_prefix() {
 fn test_system_variable_roots_catalog() {
     let roots = system_variable_roots();
     assert!(roots.contains(&"cursor"));
-    assert!(roots.contains(&"clip"));
+    assert!(roots.contains(&"clipboard"));
     assert!(roots.contains(&"time"));
     assert!(is_valid_system_root("cursor"));
     assert!(is_valid_system_root("  CURSOR  "));

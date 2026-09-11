@@ -197,15 +197,15 @@ pub(crate) fn parse_invocation(key: &str) -> Result<LoremInvocation, LoremParseE
         let count = parse_count_arg(args)?;
 
         match variant {
-            "word" => Ok(LoremInvocation {
+            "word" | "words" => Ok(LoremInvocation {
                 variant: LoremVariant::Word,
                 count: count.unwrap_or(DEFAULT_WORD_COUNT),
             }),
-            "sentence" => Ok(LoremInvocation {
+            "sentence" | "sentences" => Ok(LoremInvocation {
                 variant: LoremVariant::Sentence,
                 count: count.unwrap_or(DEFAULT_SENTENCE_COUNT),
             }),
-            "paragraph" => Ok(LoremInvocation {
+            "paragraph" | "paragraphs" => Ok(LoremInvocation {
                 variant: LoremVariant::Paragraph,
                 count: count.unwrap_or(DEFAULT_PARAGRAPH_COUNT),
             }),
@@ -213,15 +213,15 @@ pub(crate) fn parse_invocation(key: &str) -> Result<LoremInvocation, LoremParseE
         }
     } else {
         match modifier {
-            "word" => Ok(LoremInvocation {
+            "word" | "words" => Ok(LoremInvocation {
                 variant: LoremVariant::Word,
                 count: DEFAULT_WORD_COUNT,
             }),
-            "sentence" => Ok(LoremInvocation {
+            "sentence" | "sentences" => Ok(LoremInvocation {
                 variant: LoremVariant::Sentence,
                 count: DEFAULT_SENTENCE_COUNT,
             }),
-            "paragraph" => Ok(LoremInvocation {
+            "paragraph" | "paragraphs" => Ok(LoremInvocation {
                 variant: LoremVariant::Paragraph,
                 count: DEFAULT_PARAGRAPH_COUNT,
             }),

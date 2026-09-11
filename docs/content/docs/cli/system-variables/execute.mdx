@@ -1,0 +1,33 @@
+---
+title: Shell Execution
+description: Execute bash, PowerShell, Python, Node, and CMD scripts inside your snippet expansions.
+---
+
+The `[execute.*]` system variable family allows you to execute shell scripts inline or silently during snippet expansion.
+
+## Supported Interpreters
+
+| Variable | Interpreter |
+| :--- | :--- |
+| `[execute.bash("cmd")]` | Bash (`bash -c`) |
+| `[execute.powershell("cmd")]` | PowerShell (`powershell -Command`) |
+| `[execute.python("script")]` | Python (`python -c`) |
+| `[execute.node("script")]` | Node.js (`node -e`) |
+| `[execute.cmd("cmd")]` | Windows Command Prompt (`cmd /C`) |
+
+## Direct Execution vs Script Files
+
+Execute commands inline or execute standalone script files:
+
+```text
+[execute.bash("echo hello from bash")]
+[execute.powershell.file(C:\scripts\build.ps1).args("arg1", "arg2")]
+```
+
+## Silent Background Tasks
+
+Use `.silent` to launch tasks asynchronously without waiting for output:
+
+```text
+[execute.silent.powershell("Start-Process notepad")]
+```

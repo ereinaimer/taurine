@@ -1,0 +1,49 @@
+---
+title: Clipboard
+description: Inject system clipboard content and history into your snippets.
+---
+
+The `[clipboard]` variable allows you to take text you've copied and immediately use it inside a template, with full support for [transformers](/docs/cli/dynamic-variables/transformers).
+
+Taurine maintains a secure, in-memory history of your recent copies, enabling you to reference previous items without re-copying them.
+
+## Usage
+
+Simply insert `[clipboard]` into your snippet to inject the most recent item. You can access previous clipboard entries using a simple index syntax:
+
+| Variable | Description |
+| :--- | :--- |
+| `[clipboard]` | The most recent clipboard item (same as index 0). |
+| `[clipboard(0)]` | The most recent clipboard item. |
+| `[clipboard(1)]` | The second most recent item. |
+| `[clipboard(2)]` | The third most recent item. |
+
+Taurine keeps a "ring buffer" of the last 3 items. If you request an index that hasn't been filled yet, the variable resolves to an empty string.
+
+```text
+The selected text was: "[clipboard]"
+```
+
+## Smart Filtering
+
+Taurine is designed to keep your history clean and your system fast:
+
+- **Size Limit**: Only text payloads under **64KB** are recorded.
+- **Smart Deduplication**: Duplicate sequential copies are ignored.
+- **Junk Filter**: Items consisting entirely of whitespace, newlines, or tabs are automatically ignored.
+- **Text Only**: Only text data is captured.
+
+## Privacy & Security
+
+- **Zero-Trace**: Your clipboard history is never saved to your hard drive. It lives entirely in volatile memory and is wiped whenever Taurine restarts.
+- **Sensitive Data Detection**: Taurine automatically detects and ignores transient data flags used by popular password managers like 1Password and Bitwarden.
+
+## Transforming Clipboard Data
+
+You can sanitize or reformat copied text on the fly:
+
+<Transformation
+  template="git checkout -b feature/[clipboard(1)]-[clipboard(0) | case(kebab)]"
+  input="branch "
+  result="git checkout -b feature/TAUR-123-update-clipboard-docs"
+/>

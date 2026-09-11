@@ -5,19 +5,19 @@ use crate::engine::variables::types::ExpansionStep;
 fn test_is_reserved() {
     assert!(is_reserved("cursor"));
     assert!(is_reserved("uuid"));
-    assert!(is_reserved("clip"));
-    assert!(is_reserved("clip(1)"));
-    assert!(is_reserved("clip.truncate(5)"));
-    assert!(is_reserved("clip(2).upper"));
+    assert!(is_reserved("clipboard"));
+    assert!(is_reserved("clipboard(1)"));
+    assert!(is_reserved("clipboard.truncate(5)"));
+    assert!(is_reserved("clipboard(2).upper"));
     assert!(is_reserved("uuid.v4"));
     assert!(is_reserved("time"));
     assert!(is_reserved("time.utc"));
     assert!(is_reserved("net.localip"));
-    assert!(is_reserved("net.localip"));
-    assert!(is_reserved("exec.bash(echo hi)"));
+    assert!(is_reserved("net.publicip"));
+    assert!(is_reserved("execute.bash(echo hi)"));
     assert!(is_reserved("random.int(1, 9)"));
     assert!(is_reserved("lorem"));
-    assert!(is_reserved("lorem.word(3)"));
+    assert!(is_reserved("lorem.words(3)"));
 
     // These are valid user variables and should not be reserved
     assert!(!is_reserved("username"));
@@ -114,7 +114,7 @@ fn test_finalize_delay_directive() {
 
 #[test]
 fn test_finalize_inline_run_splits_progressive_steps() {
-    let res = finalize("Wait for it... [exec.bash(echo Done!)]", None);
+    let res = finalize("Wait for it... [execute.bash(echo Done!)]", None);
 
     assert_eq!(
         res.steps[0],
@@ -134,7 +134,7 @@ fn test_finalize_inline_run_splits_progressive_steps() {
 
 #[test]
 fn test_finalize_silent_inline_run_uses_silent_metadata() {
-    let res = finalize("start[exec.silent.bash(echo background)]end", None);
+    let res = finalize("start[execute.silent.bash(echo background)]end", None);
 
     assert_eq!(res.steps.len(), 3);
     match &res.steps[1] {
@@ -152,7 +152,7 @@ fn test_finalize_silent_inline_run_uses_silent_metadata() {
 #[test]
 fn test_finalize_inline_run_with_transformers() {
     let res = finalize(
-        "[exec.bash(echo done) | case(upper) | strip(whitespace)]",
+        "[execute.bash(echo done) | case(upper) | strip(whitespace)]",
         None,
     );
     assert_eq!(res.steps.len(), 1);
@@ -173,7 +173,7 @@ fn test_finalize_inline_run_with_transformers() {
 
 #[test]
 fn test_finalize_missing_run_file_emits_error_text() {
-    let res = finalize("[exec.bash.file(C:\\definitely\\missing.sh)]", None);
+    let res = finalize("[execute.bash.file(C:\\definitely\\missing.sh)]", None);
 
     assert_eq!(res.steps, vec![]);
 }
@@ -604,15 +604,15 @@ mod compatibility_finalize_tests {
 
         // Test Case 6: testclip
         {
-            super::clip::set_mock_clip_history(vec![
+            super::clipboard::set_mock_clip_history(vec![
                 "  apple pie  ".to_string(),
                 "banana".to_string(),
             ]);
             let res = evaluate_template(
-                "Latest (Slugified): [clip | case(slug)] | Second: [clip(0) | strip(whitespace)] | Third (Upper): [clip(1) | case(upper)] | Empty index: [clip(2) | wrap(singlequote)]",
+                "Latest (Slugified): [clipboard | case(slug)] | Second: [clipboard(0) | strip(whitespace)] | Third (Upper): [clipboard(1) | case(upper)] | Empty index: [clipboard(2) | wrap(singlequote)]",
                 None,
             );
-            super::clip::set_mock_clip(None);
+            super::clipboard::set_mock_clip(None);
 
             assert_eq!(
                     res.steps,
@@ -623,7 +623,7 @@ mod compatibility_finalize_tests {
         // Test Case 7: testexec
         {
             let res = evaluate_template(
-                "Cwd Path: [exec.powershell((Get-Location).Path) | strip(whitespace)] | Cmd Command: [exec.cmd(echo hello from cmd) | case(upper)] | Silent Task: [exec.silent.powershell(echo 'background task')]",
+                "Cwd Path: [execute.powershell((Get-Location).Path) | strip(whitespace)] | Cmd Command: [execute.cmd(echo hello from cmd) | case(upper)] | Silent Task: [execute.silent.powershell(echo 'background task')]",
                 None,
             );
             assert_eq!(res.steps.len(), 6);
@@ -762,12 +762,12 @@ mod compatibility_finalize_tests {
 fn test_finalize_ai_origin_blocks_all_directives_and_cursor() {
     use crate::engine::variables::types::ExpansionOrigin;
 
-    let input = "AI output with [key(tab)] [delay(100ms)] [mouse.click] [img(file:\"a.png\")] [exec.python(\"1\")] and [cursor]";
+    let input = "AI output with [key(tab)] [delay(100ms)] [mouse.click] [image(file:\"a.png\")] [execute.python(\"1\")] and [cursor]";
     let res = finalize_with_origin(input, None, ExpansionOrigin::Ai);
     assert_eq!(
         res.steps,
         vec![ExpansionStep::Text(
-            "AI output with [key(tab)] [delay(100ms)] [mouse.click] [img(file:\"a.png\")] [exec.python(\"1\")] and [cursor]"
+            "AI output with [key(tab)] [delay(100ms)] [mouse.click] [image(file:\"a.png\")] [execute.python(\"1\")] and [cursor]"
                 .to_string()
         )]
     );
@@ -777,7 +777,7 @@ fn test_finalize_ai_origin_blocks_all_directives_and_cursor() {
 fn test_finalize_user_origin_preserves_exec_inline_run() {
     use crate::engine::variables::types::ExpansionOrigin;
 
-    let input = "User snippet [exec.powershell(\"whoami\")]";
+    let input = "User snippet [execute.powershell(\"whoami\")]";
     let res = finalize_with_origin(input, None, ExpansionOrigin::User);
     assert_eq!(res.steps.len(), 2);
     assert_eq!(

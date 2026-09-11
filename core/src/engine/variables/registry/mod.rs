@@ -1,8 +1,7 @@
-use super::system;
+use crate::engine::variables::system;
 
 const SYSTEM_ROOTS: &[&str] = &[
     "cursor",
-    "clip",
     "clipboard",
     "time",
     "date",
@@ -10,7 +9,7 @@ const SYSTEM_ROOTS: &[&str] = &[
     "uuid",
     "env",
     "net",
-    "exec",
+    "execute",
     "random",
     "key",
     "delay",
@@ -19,7 +18,7 @@ const SYSTEM_ROOTS: &[&str] = &[
     "use",
     "http",
     "mouse",
-    "img",
+    "image",
 ];
 
 const TIME_METHODS: &[&str] = &["utc", "calc(±...)", "format(...)"];
@@ -27,11 +26,11 @@ const DATE_METHODS: &[&str] = &["utc", "calc(±...)", "format(...)"];
 const DATETIME_METHODS: &[&str] = &["utc", "calc(±...)", "format(...)"];
 
 const UUID_MODIFIERS: &[&str] = &["v4", "v7"];
-const NET_MODIFIERS: &[&str] = &["ip", "publicip", "lip", "localip", "online"];
+const NET_MODIFIERS: &[&str] = &["publicip", "localip", "online"];
 const EXEC_MODIFIERS: &[&str] = &[
-    "exec.<lang>(...)",
-    "exec.silent.<lang>(...)",
-    "exec.<lang>.file(...).args(...)",
+    "execute.<lang>(...)",
+    "execute.silent.<lang>(...)",
+    "execute.<lang>.file(...).args(...)",
 ];
 const RANDOM_MODIFIERS: &[&str] = &[
     "int([min], [max])",
@@ -39,7 +38,7 @@ const RANDOM_MODIFIERS: &[&str] = &[
     "str([len])",
     "pass([len])",
 ];
-const LOREM_MODIFIERS: &[&str] = &["(n)", "word(n)", "sentence(n)", "paragraph(n)"];
+const LOREM_MODIFIERS: &[&str] = &["(n)", "words(n)", "sentences(n)", "paragraphs(n)"];
 const FILE_MODIFIERS: &[&str] = &["read(path)", "line(path, n)", "lines(path, start, [end])"];
 const KEY_MODIFIERS: &[&str] = &[
     "enter",
@@ -96,20 +95,10 @@ pub fn split_system_tag(key: &str) -> Option<(&str, Option<&str>)> {
     if base == "newline" {
         return Some(("newline", None));
     }
-    if system::clip::is_clip_key(base) {
-        let (root, idx_str) = if let Some(rest) = base.strip_prefix("clipboard") {
-            ("clipboard", rest)
-        } else if let Some(rest) = base.strip_prefix("clip") {
-            ("clip", rest)
-        } else {
-            return None;
-        };
-        let modifier = if idx_str.is_empty() {
-            None
-        } else {
-            Some(idx_str)
-        };
-        return Some((root, modifier));
+    if system::clipboard::is_clip_key(base) {
+        let rest = base.strip_prefix("clipboard").unwrap_or("");
+        let modifier = if rest.is_empty() { None } else { Some(rest) };
+        return Some(("clipboard", modifier));
     }
 
     if let Some(rest) = base.strip_prefix("key(")
@@ -132,10 +121,10 @@ pub fn split_system_tag(key: &str) -> Option<(&str, Option<&str>)> {
     {
         return Some(("use", Some(inner)));
     }
-    if let Some(rest) = base.strip_prefix("img(")
+    if let Some(rest) = base.strip_prefix("image(")
         && let Some(inner) = rest.strip_suffix(')')
     {
-        return Some(("img", Some(inner)));
+        return Some(("image", Some(inner)));
     }
     if let Some(rest) = base.strip_prefix("lorem(")
         && let Some(inner) = rest.strip_suffix(')')
@@ -154,8 +143,6 @@ pub fn split_system_tag(key: &str) -> Option<(&str, Option<&str>)> {
 pub fn valid_modifier_hint(root: &str) -> String {
     match root {
         "cursor" => "Valid form: [cursor]".to_string(),
-        "clip" => "Valid forms: [clip], [clip(0)], [clip(1)], [clip(2)]"
-            .to_string(),
         "clipboard" => "Valid forms: [clipboard], [clipboard(0)], [clipboard(1)], [clipboard(2)]"
             .to_string(),
         "time" => format!("Valid modifiers / methods: {}", TIME_METHODS.join(", ")),
@@ -164,9 +151,9 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "uuid" => "Valid forms: [uuid], [uuid.v4], [uuid.v7]".to_string(),
         "env" => "Valid form: [env(<var_name>)] or [env(\"<var_name>\")]".to_string(),
         "net" => format!("Valid modifiers: {}", NET_MODIFIERS.join(", ")),
-        "exec" => "Valid forms: [exec.bash(...)], [exec.powershell(...)], [exec.python(...)], [exec.node(...)], [exec.cmd(...)]".to_string(),
+        "execute" => "Valid forms: [execute.bash(...)], [execute.powershell(...)], [execute.python(...)], [execute.node(...)], [execute.cmd(...)]".to_string(),
         "random" => "Valid forms: [random], [random.int([min], [max])], [random.choice(...)], [random.str([len])], [random.pass([len])]".to_string(),
-        "lorem" => "Valid forms: [lorem], [lorem([n])], [lorem.word([n])], [lorem.sentence([n])], [lorem.paragraph([n])]".to_string(),
+        "lorem" => "Valid forms: [lorem], [lorem([n])], [lorem.words([n])], [lorem.sentences([n])], [lorem.paragraphs([n])]".to_string(),
         "file" => format!("Valid modifiers: {}", FILE_MODIFIERS.join(", ")),
         "key" => format!(
             "Valid forms: [key(<token>)]. Tokens: {}. You can combine them with +, and any single character token is also allowed.",
@@ -175,7 +162,8 @@ pub fn valid_modifier_hint(root: &str) -> String {
         "delay" => "Valid form: [delay(<ms>)] or [delay(<u64>ms)]".to_string(),
         "use" => "Valid form: [use(\"trigger_name\")]".to_string(),
         "http" => "Valid forms: [http.get(<url>)], [http.status(<url>)]".to_string(),
-        "mouse" => "Valid directives:\n  [mouse.click(btn)]    Click button (default: left)\n  [mouse.dblclick(btn)] Double-click button (default: left)\n  [mouse.down(btn)]     Press and hold button (synonym: [mouse.hold])\n  [mouse.up(btn)]       Release button (synonym: [mouse.release])\n  [mouse.rclick]        Right-click shortcut\n  [mouse.mclick]        Middle-click shortcut\n  [mouse.m4]            Back button shortcut (mouse4)\n  [mouse.m5]            Forward button shortcut (mouse5)\n  [mouse.move(x, y)]    Move cursor to absolute coordinates (x, y)\n  [mouse.scroll(delta)] Scroll wheel vertically (positive: up, negative: down)\n  [mouse.pos]           Insert current cursor position as x, y\n\nSupported buttons:\n  left, right, middle, m4 (back), m5 (forward), m<N>".to_string(),
+        "mouse" => "Valid directives:\n  [mouse.click(btn)]    Click button (default: left)\n  [mouse.dblclick(btn)] Double-click button (default: left)\n  [mouse.hold(btn)]     Press and hold button\n  [mouse.release(btn)]  Release button\n  [mouse.rclick]        Right-click shortcut\n  [mouse.mclick]        Middle-click shortcut\n  [mouse.m4]            Back button shortcut (mouse4)\n  [mouse.m5]            Forward button shortcut (mouse5)\n  [mouse.move(x, y)]    Move cursor to absolute coordinates (x, y)\n  [mouse.scroll(delta)] Scroll wheel vertically (positive: up, negative: down)\n  [mouse.pos]           Insert current cursor position as x, y\n\nSupported buttons:\n  left, right, middle, m4 (back), m5 (forward), m<N>".to_string(),
+        "image" => "Valid form: [image(path/to/image.png)]".to_string(),
         "newline" => "Valid form: [newline]".to_string(),
         _ => "No modifier help available.".to_string(),
     }

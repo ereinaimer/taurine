@@ -16,7 +16,7 @@ The following roots are reserved by the Taurine engine and cannot be used as cus
 | `datetime` | Current system datetime in ISO 8601 or custom formats. |
 | `time` | Current system time in various formats. |
 | `date` | Current system date in various formats. |
-| `clip` / `clipboard` | Content of the system clipboard. |
+| `clipboard` | Content of the system clipboard. |
 | `cursor` | Directs the final cursor position (placeholder). |
 | `uuid` | Unique identifier generation (defaults to v4). |
 | `lorem` | Dummy text generation (words, sentences, paragraphs). |
@@ -64,10 +64,10 @@ Method-based API for inserting, calculating, and formatting timestamps, dates, a
 Interact with your local system state and shell environment.
 
 <Accordions>
-<Accordion title="clip / clipboard">
-  - `[clip]` / `[clipboard]`: The most recent clipboard item (same as index 0).
-  - `[clip(0)]` / `[clipboard(0)]`: Most recent clipboard entry.
-  - `[clip(1)]` / `[clipboard(1)]`, `[clip(2)]` / `[clipboard(2)]`: Historical clipboard entries (up to 3 items).
+<Accordion title="clipboard">
+  - `[clipboard]`: The most recent clipboard item (same as index 0).
+  - `[clipboard(0)]`: Most recent clipboard entry.
+  - `[clipboard(1)]`, `[clipboard(2)]`: Historical clipboard entries (up to 3 items).
 </Accordion>
 
 <Accordion title="env">
@@ -86,8 +86,8 @@ Interact with your local system state and shell environment.
 
 <Accordion title="net">
   Network status and IP address discovery.
-  - `[net.ip]` / `[net.publicip]`: Public WAN IP address (resolved via Cloudflare / ipify).
-  - `[net.localip]` / `[net.lip]`: Local network LAN IP address.
+  - `[net.publicip]`: Public WAN IP address (resolved via Cloudflare / ipify).
+  - `[net.localip]`: Local network LAN IP address.
   - `[net.online]`: Returns `true` or `false` based on network connectivity.
 </Accordion>
 </Accordions>
@@ -117,12 +117,12 @@ Modifiers for generating IDs, filler text, or simulating hardware interaction.
 
 <Accordion title="lorem">
   - `[lorem]` / `[lorem(n)]`: Generates lorem ipsum placeholder paragraphs (default 1 paragraph).
-  - `[lorem.word]`: Generates default 15 words.
-  - `[lorem.word(n)]`: Generates `n` words.
-  - `[lorem.sentence]`: Generates default 1 sentence.
-  - `[lorem.sentence(n)]`: Generates `n` sentences.
-  - `[lorem.paragraph]`: Generates default 1 paragraph.
-  - `[lorem.paragraph(n)]`: Generates `n` paragraphs separated by double newlines.
+  - `[lorem.words]`: Generates default 15 words.
+  - `[lorem.words(n)]`: Generates `n` words.
+  - `[lorem.sentences]`: Generates default 1 sentence.
+  - `[lorem.sentences(n)]`: Generates `n` sentences.
+  - `[lorem.paragraphs]`: Generates default 1 paragraph.
+  - `[lorem.paragraphs(n)]`: Generates `n` paragraphs separated by double newlines.
 </Accordion>
 
 <Accordion title="key">

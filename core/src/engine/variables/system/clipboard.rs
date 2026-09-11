@@ -117,17 +117,11 @@ enum ClipKey {
 }
 
 fn parse_clip_key(key: &str) -> Option<ClipKey> {
-    if matches!(key, "clip" | "clip(0)" | "clipboard" | "clipboard(0)") {
+    if matches!(key, "clipboard" | "clipboard(0)") {
         return Some(ClipKey::Valid(0));
     }
 
-    let inner = if let Some(rest) = key.strip_prefix("clip(") {
-        rest.strip_suffix(')')?
-    } else if let Some(rest) = key.strip_prefix("clipboard(") {
-        rest.strip_suffix(')')?
-    } else {
-        return None;
-    };
+    let inner = key.strip_prefix("clipboard(")?.strip_suffix(')')?;
 
     let inner = crate::engine::variables::system::strip_argument_quotes(inner);
 
@@ -195,7 +189,7 @@ mod tests {
     #[test]
     fn test_resolve_clip_mocked() {
         set_mock_clip(Some("mocked content".to_string()));
-        assert_eq!(resolve("clip"), Some("mocked content".to_string()));
+        assert_eq!(resolve("clipboard"), Some("mocked content".to_string()));
         assert_eq!(resolve("clipboard"), Some("mocked content".to_string()));
         assert_eq!(resolve("clipboard(0)"), Some("mocked content".to_string()));
         set_mock_clip(None);
@@ -214,13 +208,13 @@ mod tests {
             "oldest".to_string(),
         ]);
 
-        assert_eq!(resolve("clip"), Some("current".to_string()));
-        assert_eq!(resolve("clip(0)"), Some("current".to_string()));
-        assert_eq!(resolve("clip(1)"), Some("previous".to_string()));
-        assert_eq!(resolve("clip(2)"), Some("oldest".to_string()));
-        assert_eq!(resolve("clip(9)"), Some(String::new()));
-        assert_eq!(resolve("clip(abc)"), None);
-        assert_eq!(resolve("clip(-1)"), None);
+        assert_eq!(resolve("clipboard"), Some("current".to_string()));
+        assert_eq!(resolve("clipboard(0)"), Some("current".to_string()));
+        assert_eq!(resolve("clipboard(1)"), Some("previous".to_string()));
+        assert_eq!(resolve("clipboard(2)"), Some("oldest".to_string()));
+        assert_eq!(resolve("clipboard(9)"), Some(String::new()));
+        assert_eq!(resolve("clipboard(abc)"), None);
+        assert_eq!(resolve("clipboard(-1)"), None);
 
         set_mock_clip(None);
     }
@@ -228,7 +222,7 @@ mod tests {
     #[test]
     fn test_resolve_clip_history_missing_slot_is_empty_string() {
         set_mock_clip_history(vec!["current".to_string()]);
-        assert_eq!(resolve("clip(2)"), Some(String::new()));
+        assert_eq!(resolve("clipboard(2)"), Some(String::new()));
         set_mock_clip(None);
     }
 

@@ -1739,14 +1739,14 @@ fn test_audit_payload_tags_mouse_invalid_directive_diagnostic() {
 
 #[test]
 fn test_audit_payload_tags_unknown_variable_suggests_clipboard() {
-    let err = audit_payload_tags("[clipbd]").unwrap_err();
+    let err = audit_payload_tags("[clipbrd]").unwrap_err();
     let msg = err.to_string();
     assert!(
         msg.contains("dynamic variables need a default"),
         "expected dynamic variable error, got: {msg}"
     );
     assert!(
-        msg.contains("Did you mean [clipboard]?") || msg.contains("Did you mean [clip]?"),
+        msg.contains("Did you mean [clipboard]?"),
         "expected suggestion for clipboard, got: {msg}"
     );
 }

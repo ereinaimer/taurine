@@ -1,7 +1,7 @@
 use crate::engine::variables::interpolate::{contains_ai_markers, interpolate};
 use crate::engine::variables::registry::{split_system_tag, validate_system_tag};
 use crate::engine::variables::system::{
-    self, img, parse_delay_directive, parse_key_directive, parse_mouse_directive, transformers,
+    self, image, parse_delay_directive, parse_key_directive, parse_mouse_directive, transformers,
 };
 use crate::engine::variables::tags::{
     TAG_CLOSE, TAG_OPEN, find_next_tag, split_key_default, tag_inner,
@@ -48,9 +48,9 @@ pub enum PlanOp {
     Delay(u64),
     /// Mouse action directive `[mouse.*]`.
     Mouse(ExpansionStep),
-    /// Image insertion directive `[img(path)]`.
+    /// Image insertion directive `[image(path)]`.
     Image(ExpansionStep),
-    /// Inline script execution directive `[exec.*]`.
+    /// Inline script execution directive `[execute.*]`.
     InlineRun {
         raw_cmd: String,
         transformers: Vec<String>,
@@ -156,7 +156,7 @@ impl ExecutionPlan {
                     PlanOp::Delay(ms) => text.push_str(&format!("[delay({ms}ms)]")),
                     PlanOp::Mouse(step) => text.push_str(&format_mouse_directive(step)),
                     PlanOp::Image(ExpansionStep::Image(_, path)) => {
-                        text.push_str(&format!("[img({path})]"))
+                        text.push_str(&format!("[image({path})]"))
                     }
                     PlanOp::InlineRun {
                         raw_cmd,
@@ -210,10 +210,10 @@ impl ExecutionPlan {
                         flush_text(&mut steps, &mut current_text);
                         if !crate::settings::get_cached_scripts_enabled() {
                             tracing::warn!(
-                                "Blocked execution of [exec.*] block because scripts are disabled globally."
+                                "Blocked execution of [execute.*] block because scripts are disabled globally."
                             );
                         } else {
-                            match system::exec::to_script_metadata(raw_cmd) {
+                            match system::execute::to_script_metadata(raw_cmd) {
                                 Ok(metadata) => {
                                     steps.push(ExpansionStep::InlineRun(metadata, trs.clone()))
                                 }
@@ -233,8 +233,8 @@ impl ExecutionPlan {
                             && (text.contains("[key(")
                                 || text.contains("[delay(")
                                 || text.contains("[mouse.")
-                                || text.contains("[exec.")
-                                || text.contains("[img("))
+                                || text.contains("[execute.")
+                                || text.contains("[image("))
                         {
                             let sub_steps = system::finalize(&text, None).steps;
                             for s in sub_steps {
@@ -385,10 +385,10 @@ fn compile_ops(expr: &str) -> (Vec<PlanOp>, bool, bool) {
         } else if let Some(step) = parse_mouse_directive(inner) {
             has_directive_steps = true;
             ops.push(PlanOp::Mouse(step));
-        } else if let Some(step) = img::parse_img_directive(inner) {
+        } else if let Some(step) = image::parse_img_directive(inner) {
             has_directive_steps = true;
             ops.push(PlanOp::Image(step));
-        } else if inner.starts_with("exec.") {
+        } else if inner.starts_with("execute.") {
             has_directive_steps = true;
             let pipeline = transformers::split_pipeline(inner);
             let base = pipeline[0];
@@ -609,7 +609,7 @@ fn evaluate_text_op(op: &PlanOp, args: &ArgMap) -> String {
         PlanOp::KeyPress(alias) => format!("[key({alias})]"),
         PlanOp::Delay(ms) => format!("[delay({ms}ms)]"),
         PlanOp::Mouse(step) => format_mouse_directive(step),
-        PlanOp::Image(ExpansionStep::Image(_, path)) => format!("[img({path})]"),
+        PlanOp::Image(ExpansionStep::Image(_, path)) => format!("[image({path})]"),
         PlanOp::Image(_) => String::new(),
         PlanOp::InlineRun {
             raw_cmd,
@@ -760,11 +760,11 @@ fn format_mouse_directive(step: &ExpansionStep) -> String {
             btn => format!("[mouse.dblclick({})]", btn.canonical_name()),
         },
         ExpansionStep::MouseDown(btn) => match btn {
-            MouseButton::Left => "[mouse.down]".to_string(),
+            MouseButton::Left => "[mouse.hold]".to_string(),
             btn => format!("[mouse.down({})]", btn.canonical_name()),
         },
         ExpansionStep::MouseUp(btn) => match btn {
-            MouseButton::Left => "[mouse.up]".to_string(),
+            MouseButton::Left => "[mouse.release]".to_string(),
             btn => format!("[mouse.up({})]", btn.canonical_name()),
         },
         ExpansionStep::MouseMove(x, y) => format!("[mouse.move({x},{y})]"),
@@ -885,8 +885,10 @@ mod tests {
 
     #[test]
     fn test_compile_ai_transformer() {
-        crate::engine::variables::system::clip::set_mock_clip(Some("Article text".to_string()));
-        let tpl = "Summary: [clip | ai(summarize this in 3 bullets) | strip(whitespace)]";
+        crate::engine::variables::system::clipboard::set_mock_clip(Some(
+            "Article text".to_string(),
+        ));
+        let tpl = "Summary: [clipboard | ai(summarize this in 3 bullets) | strip(whitespace)]";
         let plan = ExecutionPlan::compile(tpl);
         let expansion = plan.evaluate(&ArgMap::default(), None, ExpansionOrigin::User);
 
@@ -899,7 +901,7 @@ mod tests {
                 .unwrap()
                 .contains("\x03Article text\x1Fsummarize this in 3 bullets\x04")
         );
-        crate::engine::variables::system::clip::set_mock_clip(None);
+        crate::engine::variables::system::clipboard::set_mock_clip(None);
     }
 
     #[test]

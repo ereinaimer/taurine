@@ -1,6 +1,6 @@
 use super::*;
 use crate::engine::variables::ExpansionStep;
-use crate::engine::variables::system::clip::MAX_PAYLOAD_BYTES;
+use crate::engine::variables::system::clipboard::MAX_PAYLOAD_BYTES;
 use crate::stats::TriggerStatKind;
 use std::sync::Arc;
 
@@ -747,7 +747,7 @@ fn inline_run_templates_skip_blind_undo_registration() {
     let state = Arc::new(EngineState::new());
     state.load_actions(vec![(
         "runme".to_string(),
-        crate::db::crud::TriggerAction::text("before [exec.bash(echo hi)] after"),
+        crate::db::crud::TriggerAction::text("before [execute.bash(echo hi)] after"),
     )]);
     let mut eval = Evaluator::new(state);
 
@@ -769,12 +769,12 @@ fn inline_run_templates_skip_blind_undo_registration() {
 
 #[test]
 fn clipboard_payload_at_history_ceiling_skips_blind_undo_registration() {
-    crate::engine::variables::system::clip::set_mock_clip(Some("x".repeat(MAX_PAYLOAD_BYTES)));
+    crate::engine::variables::system::clipboard::set_mock_clip(Some("x".repeat(MAX_PAYLOAD_BYTES)));
 
     let state = Arc::new(EngineState::new());
     state.load_actions(vec![(
         "clip".to_string(),
-        crate::db::crud::TriggerAction::text("[clip]"),
+        crate::db::crud::TriggerAction::text("[clipboard]"),
     )]);
     let mut eval = Evaluator::new(state);
 
@@ -788,7 +788,7 @@ fn clipboard_payload_at_history_ceiling_skips_blind_undo_registration() {
         .expect("clipboard template should expand");
     assert_eq!(result.undo_trigger, None);
 
-    crate::engine::variables::system::clip::set_mock_clip(None);
+    crate::engine::variables::system::clipboard::set_mock_clip(None);
 }
 
 #[test]
@@ -1473,7 +1473,7 @@ fn inline_ai_placeholder_formatting_matches_spec() {
 
 #[test]
 fn inline_ai_manual_clip_token_substitutes_clipboard() {
-    crate::engine::variables::system::clip::set_mock_clip(Some("const x = 1;".to_string()));
+    crate::engine::variables::system::clipboard::set_mock_clip(Some("const x = 1;".to_string()));
     let state = Arc::new(EngineState::new());
     let mut eval = Evaluator::new(state);
 
@@ -1489,7 +1489,7 @@ fn inline_ai_manual_clip_token_substitutes_clipboard() {
     assert_eq!(result.delete_count, input.chars().count());
     assert_inline_ai_follow_up(&result, "reformat this: const x = 1;", None);
 
-    crate::engine::variables::system::clip::set_mock_clip(None);
+    crate::engine::variables::system::clipboard::set_mock_clip(None);
 }
 
 #[test]
@@ -1518,7 +1518,7 @@ fn inline_ai_captured_clipboard_placeholder_substitutes_payload() {
 
 #[test]
 fn inline_ai_empty_clip_token_does_not_trigger() {
-    crate::engine::variables::system::clip::set_mock_clip(Some("".to_string()));
+    crate::engine::variables::system::clipboard::set_mock_clip(Some("".to_string()));
     let state = Arc::new(EngineState::new());
     let mut eval = Evaluator::new(state);
 
@@ -1532,7 +1532,7 @@ fn inline_ai_empty_clip_token_does_not_trigger() {
         "tau, [clip] with empty clipboard must not trigger"
     );
 
-    crate::engine::variables::system::clip::set_mock_clip(None);
+    crate::engine::variables::system::clipboard::set_mock_clip(None);
 }
 
 #[test]

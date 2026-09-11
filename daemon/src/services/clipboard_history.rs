@@ -2,8 +2,8 @@
 use std::thread;
 #[cfg(not(windows))]
 use std::time::Duration;
-use taurine_core::engine::variables::system::clip::MAX_PAYLOAD_BYTES;
-use taurine_core::engine::variables::system::clip::clip_manager;
+use taurine_core::engine::variables::system::clipboard::MAX_PAYLOAD_BYTES;
+use taurine_core::engine::variables::system::clipboard::clip_manager;
 
 use crate::injector::IS_INJECTING;
 use std::sync::atomic::AtomicBool;

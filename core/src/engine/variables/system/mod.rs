@@ -3,14 +3,14 @@
 //! Centralizes logic for reserved keywords and system-wide markers like `[cursor]`,
 //! and future variables like `[time]`.
 
-pub mod clip;
+pub mod clipboard;
 pub mod date;
 pub mod datetime;
 pub mod env;
-pub mod exec;
+pub mod execute;
 pub mod file;
 pub mod http;
-pub mod img;
+pub mod image;
 pub mod lorem;
 pub mod net;
 pub mod random;
@@ -30,7 +30,7 @@ pub fn is_reserved(key: &str) -> bool {
     key == "cursor"
         || key == "newline"
         || key == "uuid"
-        || clip::is_clip_key(key)
+        || clipboard::is_clip_key(key)
         || key == "lorem"
         || key == "random"
         || key.starts_with("uuid.")
@@ -45,8 +45,8 @@ pub fn is_reserved(key: &str) -> bool {
         || key.starts_with("file.")
         || key.starts_with("net.")
         || key.starts_with("http.")
-        || key.starts_with("exec.")
-        || key.starts_with("img(")
+        || key.starts_with("execute.")
+        || key.starts_with("image(")
         || key.starts_with("random.")
         || key.starts_with("lorem.")
         || key.starts_with("lorem(")
@@ -75,7 +75,7 @@ pub fn is_directive(key: &str) -> bool {
 /// Deferred variables are replaced with a special marker during interpolation
 /// so the daemon can evaluate them in a non-blocking thread and show a braille spinner.
 pub fn is_deferred(key: &str) -> bool {
-    key == "net.ip" || key == "net.publicip" || key.starts_with("http.") || key == "mouse.pos"
+    key == "net.publicip" || key.starts_with("http.") || key == "mouse.pos"
 }
 
 /// Resolves a content-producing system variable.
@@ -113,8 +113,8 @@ pub fn resolve(key: &str) -> Option<String> {
     if key == "uuid" || key.starts_with("uuid.") {
         return uuid::resolve(key);
     }
-    if clip::is_clip_key(key) {
-        return clip::resolve(key);
+    if clipboard::is_clip_key(key) {
+        return clipboard::resolve(key);
     }
 
     None
@@ -444,14 +444,14 @@ fn split_into_steps_with_origin(text: &str, origin: ExpansionOrigin) -> Vec<Expa
             let base_expr = pipeline[0];
             let transformers: Vec<String> = pipeline[1..].iter().map(|s| s.to_string()).collect();
 
-            if base_expr.starts_with("exec.") {
+            if base_expr.starts_with("execute.") {
                 flush_text(&mut steps, &mut current_text);
                 if !crate::settings::get_cached_scripts_enabled() {
                     tracing::warn!(
-                        "Blocked execution of [exec.*] block because scripts are disabled globally."
+                        "Blocked execution of [execute.*] block because scripts are disabled globally."
                     );
                 } else {
-                    match exec::to_script_metadata(base_expr) {
+                    match execute::to_script_metadata(base_expr) {
                         Ok(metadata) => {
                             steps.push(ExpansionStep::InlineRun(metadata, transformers))
                         }
@@ -473,7 +473,7 @@ fn split_into_steps_with_origin(text: &str, origin: ExpansionOrigin) -> Vec<Expa
             } else if let Some(step) = parse_mouse_directive(inner) {
                 flush_text(&mut steps, &mut current_text);
                 steps.push(step);
-            } else if let Some(step) = img::parse_img_directive(inner) {
+            } else if let Some(step) = image::parse_img_directive(inner) {
                 flush_text(&mut steps, &mut current_text);
                 steps.push(step);
             } else {

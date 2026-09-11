@@ -27,7 +27,7 @@ pub enum ExecuteParseError {
 
 pub fn parse_invocation(key: &str) -> Result<ExecuteInvocation, ExecuteParseError> {
     let mut rest = key
-        .strip_prefix("exec.")
+        .strip_prefix("execute.")
         .ok_or(ExecuteParseError::InvalidLanguage)?;
 
     let mut silent = false;
@@ -545,7 +545,7 @@ mod tests {
 
     #[test]
     fn parses_inline_command() {
-        let parsed = parse_invocation("exec.bash(curl -s wttr.in/?format=3)").unwrap();
+        let parsed = parse_invocation("execute.bash(curl -s wttr.in/?format=3)").unwrap();
         assert!(!parsed.silent);
         assert_eq!(parsed.interpreter, ScriptInterpreter::Bash);
         assert!(!parsed.file);
@@ -556,7 +556,8 @@ mod tests {
     #[test]
     fn parses_silent_file_with_args() {
         let parsed =
-            parse_invocation("exec.silent.python.file(/tmp/script.py).args(arg1, arg2)").unwrap();
+            parse_invocation("execute.silent.python.file(/tmp/script.py).args(arg1, arg2)")
+                .unwrap();
         assert!(parsed.silent);
         assert_eq!(parsed.interpreter, ScriptInterpreter::Python);
         assert!(parsed.file);
@@ -566,7 +567,7 @@ mod tests {
 
     #[test]
     fn parses_nested_parentheses_in_subject_and_args() {
-        let parsed = parse_invocation("exec.node(console.log((1 + 2))).args(a(b), c)").unwrap();
+        let parsed = parse_invocation("execute.node(console.log((1 + 2))).args(a(b), c)").unwrap();
         assert_eq!(parsed.interpreter, ScriptInterpreter::Node);
         assert_eq!(parsed.subject, "console.log((1 + 2))");
         assert_eq!(parsed.args, vec!["a(b)", "c"]);
@@ -575,15 +576,15 @@ mod tests {
     #[test]
     fn rejects_invalid_execute_syntax() {
         assert_eq!(
-            parse_invocation("exec.ruby(puts 1)"),
+            parse_invocation("execute.ruby(puts 1)"),
             Err(ExecuteParseError::InvalidTrailingSyntax)
         );
         assert_eq!(
-            parse_invocation("exec.bash(echo 1"),
+            parse_invocation("execute.bash(echo 1"),
             Err(ExecuteParseError::UnbalancedParentheses)
         );
         assert_eq!(
-            parse_invocation("exec.bash"),
+            parse_invocation("execute.bash"),
             Err(ExecuteParseError::MissingSubject)
         );
     }
@@ -595,7 +596,7 @@ mod tests {
             return;
         }
 
-        assert_eq!(resolve("exec.bash(echo 42)").unwrap(), "42");
+        assert_eq!(resolve("execute.bash(echo 42)").unwrap(), "42");
     }
 
     #[test]
@@ -609,7 +610,7 @@ mod tests {
         let path = dir.path().join("test.sh");
         std::fs::write(&path, "echo file:$1\n").unwrap();
 
-        let key = format!("exec.bash.file({}).args(ok)", path.display());
+        let key = format!("execute.bash.file({}).args(ok)", path.display());
         assert_eq!(resolve(&key).unwrap(), "file:ok");
     }
 
@@ -617,14 +618,14 @@ mod tests {
     fn missing_file_returns_plan_error() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("missing.sh");
-        let key = format!("exec.bash.file({})", path.display());
+        let key = format!("execute.bash.file({})", path.display());
 
         assert_eq!(resolve(&key), None);
     }
 
     #[test]
     fn converts_inline_execute_to_script_metadata() {
-        let metadata = to_script_metadata("exec.bash(echo 42)").unwrap();
+        let metadata = to_script_metadata("execute.bash(echo 42)").unwrap();
         assert_eq!(metadata.interpreter, ScriptInterpreter::Bash);
         assert_eq!(metadata.behavior, ScriptBehavior::Inline);
         assert_eq!(
@@ -640,7 +641,7 @@ mod tests {
         std::fs::write(&path, "echo file:$1\n").unwrap();
 
         let metadata = to_script_metadata(&format!(
-            "exec.silent.bash.file({}).args(ok)",
+            "execute.silent.bash.file({}).args(ok)",
             path.display()
         ))
         .unwrap();
@@ -659,7 +660,7 @@ mod tests {
         }
 
         let start = Instant::now();
-        let output = resolve("exec.silent.bash(sleep 5)").unwrap();
+        let output = resolve("execute.silent.bash(sleep 5)").unwrap();
 
         assert_eq!(output, "");
         assert!(start.elapsed() < std::time::Duration::from_secs(2));
@@ -669,10 +670,10 @@ mod tests {
     fn interpolation_keeps_execute_tags_for_finalization() {
         assert_eq!(
             crate::engine::variables::interpolate::interpolate(
-                "[exec.bash(echo hi)]",
+                "[execute.bash(echo hi)]",
                 &crate::engine::variables::types::ArgMap::default()
             ),
-            "[exec.bash(echo hi)]"
+            "[execute.bash(echo hi)]"
         );
     }
 }

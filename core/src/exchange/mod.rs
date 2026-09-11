@@ -586,7 +586,7 @@ mod tests {
 
         let trigger = "asset_test";
         let output = format!(
-            "Img: [img({})] Script: [exec.bash.file({})]",
+            "Img: [image({})] Script: [execute.bash.file({})]",
             img_path.to_string_lossy(),
             script_path.to_string_lossy()
         );
@@ -619,7 +619,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(rewritten_output.contains("[img(asset("));
+        assert!(rewritten_output.contains("[image(asset("));
         assert!(rewritten_output.contains("file(asset("));
 
         let payload = export_triggers(&conn).unwrap();
@@ -643,7 +643,7 @@ mod tests {
         let restored_output: String = conn
             .query_row("SELECT output FROM triggers", [], |row| row.get(0))
             .unwrap();
-        assert!(restored_output.contains("[img(asset("));
+        assert!(restored_output.contains("[image(asset("));
         assert!(restored_output.contains("file(asset("));
     }
 }

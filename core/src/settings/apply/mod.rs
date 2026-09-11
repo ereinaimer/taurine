@@ -163,7 +163,7 @@ pub fn apply_setting_input_with_manager(
             )?;
             manager.update_setting(actual_key, enabled)?;
             if !enabled {
-                crate::engine::variables::system::clip::clip_manager().clear();
+                crate::engine::variables::system::clipboard::clip_manager().clear();
             }
             ApplySettingOutcome::default()
         }

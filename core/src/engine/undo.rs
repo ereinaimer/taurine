@@ -1,5 +1,5 @@
 use crate::engine::variables::ExpansionStep;
-use crate::engine::variables::system::clip::MAX_PAYLOAD_BYTES;
+use crate::engine::variables::system::clipboard::MAX_PAYLOAD_BYTES;
 
 impl crate::engine::evaluator::Evaluator {
     pub(crate) fn allows_blind_undo(&self, steps: &[ExpansionStep]) -> bool {

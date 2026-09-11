@@ -58,7 +58,7 @@ fn load_file_image(path_str: &str) -> Result<(Vec<u8>, String), String> {
 }
 
 pub fn parse_img_directive(inner: &str) -> Option<ExpansionStep> {
-    if let Some(rest) = inner.strip_prefix("img(")
+    if let Some(rest) = inner.strip_prefix("image(")
         && rest.ends_with(')')
     {
         let path = rest[..rest.len() - 1].trim();

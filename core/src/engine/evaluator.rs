@@ -329,7 +329,7 @@ impl Evaluator {
             let clip_content = self
                 .captured_ai_clipboard
                 .take()
-                .or_else(|| crate::engine::variables::system::clip::resolve("clip"))
+                .or_else(|| crate::engine::variables::system::clipboard::resolve("clipboard"))
                 .unwrap_or_default();
             resolved_prompt = AI_CLIPBOARD_PLACEHOLDER_REGEX
                 .replace_all(&resolved_prompt, regex::NoExpand(&clip_content))
@@ -338,10 +338,12 @@ impl Evaluator {
             self.captured_ai_clipboard = None;
         }
 
-        if resolved_prompt.contains("[clip]") {
-            let clip_content =
-                crate::engine::variables::system::clip::resolve("clip").unwrap_or_default();
-            resolved_prompt = resolved_prompt.replace("[clip]", &clip_content);
+        if resolved_prompt.contains("[clipboard]") || resolved_prompt.contains("[clip]") {
+            let clip_content = crate::engine::variables::system::clipboard::resolve("clipboard")
+                .unwrap_or_default();
+            resolved_prompt = resolved_prompt
+                .replace("[clipboard]", &clip_content)
+                .replace("[clip]", &clip_content);
         }
 
         let trimmed_prompt = resolved_prompt.trim();

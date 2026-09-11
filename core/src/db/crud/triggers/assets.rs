@@ -19,25 +19,25 @@ pub(crate) fn compile_and_save_assets(
         let inner = trim_slice(&output[tag.start + 1..tag.end]);
         let mut rewritten_tag = None;
 
-        if let Some(rest) = inner.strip_prefix("img(")
+        if let Some(rest) = inner.strip_prefix("image(")
             && rest.ends_with(')')
         {
             let path = trim_slice(&rest[..rest.len() - 1]);
             if path.starts_with("asset(") && path.ends_with(')') {
                 let hash = trim_slice(&path[6..path.len() - 1]);
                 active_hashes.insert(hash.to_string());
-                rewritten_tag = Some(format!("[img(asset({}))]", hash));
+                rewritten_tag = Some(format!("[image(asset({}))]", hash));
             } else if !path.is_empty()
                 && let Some(path_buf) = crate::engine::variables::system::file::expand_path(path)
             {
                 let bytes = std::fs::read(&path_buf).map_err(|_| {
-                    crate::Error::Config(format!("img: file not found: {}", path_buf.display()))
+                    crate::Error::Config(format!("image: file not found: {}", path_buf.display()))
                 })?;
 
                 // Validate the bytes are a recognized image format.
                 image::guess_format(&bytes).map_err(|_| {
                     crate::Error::Config(format!(
-                        "img: '{}' is not a supported image file (PNG or JPEG required)",
+                        "image: '{}' is not a supported image file (PNG or JPEG required)",
                         path_buf.display()
                     ))
                 })?;
@@ -74,11 +74,12 @@ pub(crate) fn compile_and_save_assets(
                 )?;
 
                 active_hashes.insert(hash.clone());
-                rewritten_tag = Some(format!("[img(asset({}))]", hash));
+                rewritten_tag = Some(format!("[image(asset({}))]", hash));
             }
-        } else if inner.starts_with("exec.")
+        } else if inner.starts_with("execute.")
             && inner.contains(".file(")
-            && let Ok(invocation) = crate::engine::variables::system::exec::parse_invocation(inner)
+            && let Ok(invocation) =
+                crate::engine::variables::system::execute::parse_invocation(inner)
             && invocation.file
         {
             let path = invocation.subject.trim();
