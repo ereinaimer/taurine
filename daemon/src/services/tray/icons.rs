@@ -109,6 +109,47 @@ pub fn paused_pixmap() -> &'static [ksni::Icon] {
     })
 }
 
+#[cfg(target_os = "linux")]
+pub fn ensure_icons_exported() -> Option<std::path::PathBuf> {
+    let icon_dir = taurine_core::system::paths::get_data_dir().join("icons");
+    if let Err(e) = std::fs::create_dir_all(&icon_dir) {
+        tracing::warn!("Failed to create icon directory {:?}: {}", icon_dir, e);
+        return None;
+    }
+
+    let running_path = icon_dir.join("resume.png");
+    let paused_path = icon_dir.join("pause.png");
+
+    let write_if_different = |path: &std::path::Path, bytes: &[u8]| {
+        let needs_write = match std::fs::read(path) {
+            Ok(existing) => existing != bytes,
+            Err(_) => true,
+        };
+        if needs_write {
+            if let Err(e) = std::fs::write(path, bytes) {
+                tracing::warn!("Failed to write icon file {:?}: {}", path, e);
+            }
+        }
+    };
+
+    write_if_different(&running_path, RUNNING_ICON_BYTES);
+    write_if_different(&paused_path, PAUSED_ICON_BYTES);
+
+    Some(icon_dir)
+}
+
+#[cfg(target_os = "linux")]
+pub fn icon_theme_dir() -> String {
+    static THEME_DIR: OnceLock<String> = OnceLock::new();
+    THEME_DIR
+        .get_or_init(|| {
+            ensure_icons_exported()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        })
+        .clone()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

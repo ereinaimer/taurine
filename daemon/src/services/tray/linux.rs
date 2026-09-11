@@ -59,12 +59,16 @@ impl ksni::Tray for KsniTray {
         "Taurine".into()
     }
 
+    fn icon_theme_path(&self) -> String {
+        super::icons::icon_theme_dir()
+    }
+
     fn icon_name(&self) -> String {
-        // Return empty so SNI hosts fall back to icon_pixmap. A non-empty icon_name
-        // has higher priority than icon_pixmap per the StatusNotifierItem spec, and
-        // "input-keyboard" is a real Freedesktop theme icon that overrides our custom
-        // branded PNG entirely regardless of what icon_pixmap returns.
-        String::new()
+        if self.paused.load(Ordering::Relaxed) {
+            "pause".into()
+        } else {
+            "resume".into()
+        }
     }
 
     fn icon_pixmap(&self) -> Vec<ksni::Icon> {
