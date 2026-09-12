@@ -50,27 +50,27 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 run_with_spinner() {
-    label=$1
-    cmd=$2
-    success_label=${3:-$label}
-    err_file="${TMP_DIR}/spinner_err.$$"
+    local label=$1
+    local cmd=$2
+    local success_label=${3:-$label}
+    local err_file="${TMP_DIR}/spinner_err.$$"
 
     eval "$cmd" >/dev/null 2>"$err_file" &
-    pid=$!
-    delay=0.08
-    spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    local pid=$!
+    local delay=0.08
+    local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 
     # Disable set -e temporarily to safely manage spinner loop and wait
     set +e
     while kill -0 $pid 2>/dev/null; do
-        temp=${spinstr#?}
+        local temp=${spinstr#?}
         printf "\r%c %s" "$spinstr" "$label"
         spinstr=$temp${spinstr%"$temp"}
         sleep $delay
     done
 
     wait $pid
-    exit_code=$?
+    local exit_code=$?
     set -e
 
     if [ $exit_code -eq 0 ]; then
@@ -102,17 +102,224 @@ verify_checksum() {
     fi
 }
 
-# Invoke a command with retry and spinner
-invoke_with_retry() {
-    label=$1
-    cmd=$2
-    success_label=${3:-$label}
-    max_attempts=3
-    attempt=1
-    delay=2
+# Human-readable byte size (1024-based, 1 decimal, rounded): "12.4 MB", "512 B"
+format_bytes() {
+    local b=${1:-0}
+    case $b in ''|*[!0-9]*) b=0 ;; esac
+    if [ "$b" -lt 1024 ]; then
+        printf "%s B" "$b"
+    elif [ "$b" -lt 1048576 ]; then
+        scaled_tenth $(( (b * 10 + 512) / 1024 )) "KB"
+    elif [ "$b" -lt 1073741824 ]; then
+        scaled_tenth $(( (b * 10 + 524288) / 1048576 )) "MB"
+    else
+        scaled_tenth $(( (b * 10 + 536870912) / 1073741824 )) "GB"
+    fi
+}
+
+# Print "<whole>.<tenth> <unit>" from a value already scaled x10, carrying
+# overflow (e.g. 9.95 KB rounds to 10.0 KB, not 9.10 KB)
+scaled_tenth() {
+    local t=$1
+    local unit=$2
+    printf "%s.%s %s" "$((t / 10))" "$((t % 10))" "$unit"
+}
+
+# downloaded/total sharing one unit picked from total: "12.4/28.1 MB"
+format_pair() {
+    local cur=${1:-0}
+    local total=${2:-0}
+    case $cur in ''|*[!0-9]*) cur=0 ;; esac
+    case $total in ''|*[!0-9]*) total=0 ;; esac
+    local div
+    local unit
+    if [ "$total" -ge 1073741824 ]; then
+        div=1073741824; unit="GB"
+    elif [ "$total" -ge 1048576 ]; then
+        div=1048576; unit="MB"
+    elif [ "$total" -ge 1024 ]; then
+        div=1024; unit="KB"
+    else
+        printf "%s/%s B" "$cur" "$total"
+        return 0
+    fi
+    printf "%s/%s %s" "$(scaled_pair "$cur" "$div")" "$(scaled_pair "$total" "$div")" "$unit"
+}
+
+# One side of a pair, rounded to 1 decimal in the shared unit
+scaled_pair() {
+    local v=$1
+    local div=$2
+    local t=$(( (v * 10 + div / 2) / div ))
+    printf "%s.%s" "$((t / 10))" "$((t % 10))"
+}
+
+format_speed() {
+    local s=${1:-0}
+    case $s in ''|*[!0-9]*) s=0 ;; esac
+    printf "%s/s" "$(format_bytes "$s")"
+}
+
+format_duration() {
+    local secs=${1:-0}
+    case $secs in ''|*[!0-9]*) secs=0 ;; esac
+    if [ "$secs" -lt 60 ]; then
+        printf "%ss" "$secs"
+    else
+        printf "%sm %ss" "$((secs / 60))" "$((secs % 60))"
+    fi
+}
+
+# Line-2 content for the open download block
+progress_line2() {
+    local cur=$1
+    local total=$2
+    local speed=$3
+    case $total in ''|*[!0-9]*|0)
+        printf "  %s downloaded @ %s" "$(format_bytes "$cur")" "$(format_speed "$speed")"
+        ;;
+        *)
+        local pct=$((cur * 100 / total))
+        if [ "$pct" -gt 100 ]; then pct=100; fi
+        printf "  %s (%s%%) @ %s" "$(format_pair "$cur" "$total")" "$pct" "$(format_speed "$speed")"
+        ;;
+    esac
+}
+
+file_size() {
+    if [ "$OS" = "Darwin" ]; then
+        stat -f%z "$1" 2>/dev/null || echo 0
+    else
+        stat -c%s "$1" 2>/dev/null || echo 0
+    fi
+}
+
+# Best-effort total via HEAD (follows GitHub/S3 redirects); empty = unknown
+fetch_content_length() {
+    local len
+    len=$(curl -fsSLI --max-time 10 "$1" 2>/dev/null | grep -i '^content-length:' | tail -n 1 | tr -d '\r' | awk '{print $2}' || true)
+    case $len in ''|*[!0-9]*) printf "" ;; *) printf "%s" "$len" ;; esac
+}
+
+# Two-line download: line 1 spins the label, line 2 shows live progress.
+# Appends " (28.1 MB in 8s)" totals to the success label on completion.
+download_with_progress() {
+    local url=$1
+    local out=$2
+    local label=$3
+    local success_label=${4:-$label}
+    local err_file="${TMP_DIR}/dl_err.$$"
+    local total=""
+    local start
+    start=$(date +%s)
+
+    if [ ! -t 1 ]; then
+        printf "%s...\n" "$label"
+        if curl -fsSL --max-time 300 "$url" -o "$out" 2>"$err_file"; then
+            local end
+            end=$(date +%s)
+            printf "%s (%s in %s)\n" "$success_label" \
+                "$(format_bytes "$(file_size "$out")")" "$(format_duration $((end - start)))"
+            rm -f "$err_file"
+            return 0
+        fi
+        if [ -s "$err_file" ]; then sed 's/^/  /' "$err_file" >&2; fi
+        rm -f "$err_file"
+        return 1
+    fi
+
+    rm -f "$out"
+    # Total is only needed for the live percentage; skip the HEAD round-trip
+    # entirely when non-interactive.
+    total=$(fetch_content_length "$url")
+    curl -fsSL --max-time 300 "$url" -o "$out" 2>"$err_file" &
+    local cpid=$!
+    local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    printf "%s\n" "$label"
+
+    set +e
+    local tick=0
+    local size_1s_ago=0
+    local speed=0
+    while kill -0 $cpid 2>/dev/null; do
+        local temp=${spinstr#?}
+        local frame="$spinstr"
+        spinstr=$temp${spinstr%"$temp"}
+        local cur
+        cur=$(file_size "$out")
+        tick=$((tick + 1))
+        if [ $((tick % 5)) -eq 0 ]; then
+            speed=$((cur - size_1s_ago))
+            size_1s_ago=$cur
+        fi
+        printf "\x1b[1A\r%c %s\x1b[K\n\r%s\x1b[K" "$frame" "$label" "$(progress_line2 "$cur" "$total" "$speed")"
+        sleep 0.2
+    done
+
+    wait $cpid
+    local exit_code=$?
+    set -e
+
+    local end
+    end=$(date +%s)
+    local elapsed=$((end - start))
+    if [ $exit_code -eq 0 ]; then
+        printf "\r\x1b[K\x1b[1A\r\x1b[32m✓\x1b[0m %s (%s in %s)\x1b[K\n" "$success_label" \
+            "$(format_bytes "$(file_size "$out")")" "$(format_duration "$elapsed")"
+    else
+        printf "\r\x1b[K\x1b[1A\r\x1b[31m✗\x1b[0m %s\x1b[K\n" "$label"
+        if [ -s "$err_file" ]; then
+            sed 's/^/  /' "$err_file" >&2
+        fi
+    fi
+
+    rm -f "$err_file"
+    return $exit_code
+}
+
+# Retry wrapper for downloads (mirrors invoke_with_retry messaging)
+download_with_retry() {
+    local url=$1
+    local out=$2
+    local label=$3
+    local success_label=${4:-$label}
+    local max_attempts=3
+    local attempt=1
+    local delay=2
 
     while [ $attempt -le $max_attempts ]; do
-        current_label="$label"
+        local current_label="$label"
+        if [ $attempt -gt 1 ]; then
+            current_label="$label (attempt $attempt/$max_attempts)"
+        fi
+
+        if download_with_progress "$url" "$out" "$current_label" "$success_label"; then
+            return 0
+        fi
+
+        if [ $attempt -lt $max_attempts ]; then
+            echo "  Retrying in ${delay}s... ($attempt/$max_attempts)" >&2
+            sleep $delay
+            delay=$((delay * 2))
+        fi
+        attempt=$((attempt + 1))
+    done
+
+    echo "Error: Failed after $max_attempts attempts: $label" >&2
+    return 1
+}
+
+# Invoke a command with retry and spinner
+invoke_with_retry() {
+    local label=$1
+    local cmd=$2
+    local success_label=${3:-$label}
+    local max_attempts=3
+    local attempt=1
+    local delay=2
+
+    while [ $attempt -le $max_attempts ]; do
+        local current_label="$label"
         if [ $attempt -gt 1 ]; then
             current_label="$label (attempt $attempt/$max_attempts)"
         fi
@@ -320,8 +527,8 @@ fi
 if [ "$IS_INSTALLED" = false ]; then
     ARCHIVE="$TMP_DIR/taurine.tar.xz"
 
-    # Download archive with retry
-    invoke_with_retry "Downloading taurine v$VERSION" "curl -fsSL --max-time 300 \"$URL\" -o \"$ARCHIVE\"" "Downloaded taurine v$VERSION" || exit 1
+    # Download archive with retry and live two-line progress
+    download_with_retry "$URL" "$ARCHIVE" "Downloading taurine v$VERSION" "Downloaded taurine v$VERSION" || exit 1
 
     # Verify checksum if available
     if [ -n "$SHA256" ]; then

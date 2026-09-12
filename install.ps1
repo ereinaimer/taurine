@@ -74,6 +74,140 @@ function Invoke-WithRetry ($ScriptBlock, $ArgumentList, $Label, $SuccessLabel = 
     throw "Failed after $MaxRetries attempts: $Label"
 }
 
+function Format-Bytes {
+    param([long]$Bytes)
+    $inv = [Globalization.CultureInfo]::InvariantCulture
+    if ($Bytes -lt 1024) { return "$Bytes B" }
+    if ($Bytes -lt 1048576) { return ([string]::Format($inv, "{0:F1} KB", $Bytes / 1024)) }
+    if ($Bytes -lt 1073741824) { return ([string]::Format($inv, "{0:F1} MB", $Bytes / 1048576)) }
+    return ([string]::Format($inv, "{0:F1} GB", $Bytes / 1073741824))
+}
+
+function Format-Pair {
+    param([long]$Downloaded, [long]$Total)
+    $inv = [Globalization.CultureInfo]::InvariantCulture
+    if ($Total -ge 1073741824) { $d = 1073741824; $u = "GB" }
+    elseif ($Total -ge 1048576) { $d = 1048576; $u = "MB" }
+    elseif ($Total -ge 1024) { $d = 1024; $u = "KB" }
+    else { return "$Downloaded/$Total B" }
+    return ([string]::Format($inv, "{0:F1}/{1:F1} {2}", $Downloaded / $d, $Total / $d, $u))
+}
+
+function Format-Speed {
+    param([double]$BytesPerSec)
+    # NB: [double]::IsFinite is .NET Core only — IsNaN/IsInfinity work on 5.1 too.
+    if ([double]::IsNaN($BytesPerSec) -or [double]::IsInfinity($BytesPerSec) -or $BytesPerSec -le 0) { return "0 B/s" }
+    return "$(Format-Bytes ([long]$BytesPerSec))/s"
+}
+
+function Format-Duration {
+    param([long]$Seconds)
+    if ($Seconds -lt 60) { return "${Seconds}s" }
+    return "$([math]::Floor($Seconds / 60))m $($Seconds % 60)s"
+}
+
+function Format-DownloadLine {
+    param($Downloaded, $Total, [double]$Speed)
+    if ($null -eq $Total -or $Total -le 0) {
+        return "  $(Format-Bytes ([long]$Downloaded)) downloaded @ $(Format-Speed $Speed)"
+    }
+    $pct = [math]::Floor([double]$Downloaded * 100 / $Total)
+    if ($pct -gt 100) { $pct = 100 }
+    if ($pct -lt 0) { $pct = 0 }
+    return "  $(Format-Pair ([long]$Downloaded) ([long]$Total)) (${pct}%) @ $(Format-Speed $Speed)"
+}
+
+# Two-line download: line 1 keeps the label, line 2 shows live progress.
+# Invoke-WebRequest cannot stream progress out of a Job, so this uses
+# HttpClient directly (no auto-decompression: Content-Length == file bytes).
+function Invoke-DownloadWithProgress {
+    param([string]$Url, [string]$Out, [string]$Label, [string]$SuccessLabel = $null)
+    if ($null -eq $SuccessLabel) { $SuccessLabel = $Label }
+    $esc = [char]0x1b
+    $redirected = [Console]::IsOutputRedirected
+    # System.Net.Http is not loaded by default on Windows PowerShell 5.1.
+    Add-Type -AssemblyName System.Net.Http -ErrorAction SilentlyContinue | Out-Null
+    $spinstr = @(
+        [char]0x280b, [char]0x2819, [char]0x2839, [char]0x2838, [char]0x283c,
+        [char]0x2834, [char]0x2826, [char]0x2827, [char]0x2807, [char]0x280f
+    )
+    $client = New-Object System.Net.Http.HttpClient
+    $client.Timeout = [TimeSpan]::FromSeconds(300)
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    if ($redirected) { Write-Host "$Label..." }
+    try {
+        $response = $client.GetAsync($Url, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+        $response.EnsureSuccessStatusCode() | Out-Null
+        $total = $response.Content.Headers.ContentLength
+        $stream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+        $file = [System.IO.File]::OpenWrite($Out)
+        try {
+            $buffer = New-Object byte[] 65536
+            $downloaded = [long]0
+            $winBytes = [long]0
+            $speed = 0.0
+            $winStartMs = 0
+            $lastDrawMs = -1000
+            $frameIdx = 0
+            if (-not $redirected) { Write-Host "$Label" }
+            while (($n = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                $file.Write($buffer, 0, $n)
+                $downloaded += $n
+                $winBytes += $n
+                $ms = $sw.ElapsedMilliseconds
+                if ($ms - $winStartMs -ge 1000) {
+                    $speed = $winBytes * 1000.0 / ($ms - $winStartMs)
+                    $winStartMs = $ms
+                    $winBytes = 0
+                } elseif ($speed -eq 0 -and $ms -gt 0) {
+                    $speed = $downloaded * 1000.0 / $ms
+                }
+                if ((-not $redirected) -and ($ms - $lastDrawMs -ge 200)) {
+                    $frame = $spinstr[$frameIdx % $spinstr.Length]
+                    $frameIdx++
+                    $line2 = Format-DownloadLine $downloaded $total $speed
+                    Write-Host -NoNewline "${esc}[1A`r$frame $Label${esc}[K`n`r$line2${esc}[K"
+                    $lastDrawMs = $ms
+                }
+            }
+        } finally {
+            if ($null -ne $file) { $file.Close() }
+            if ($null -ne $stream) { $stream.Close() }
+            if ($null -ne $response) { $response.Dispose() }
+        }
+        $secs = [long]$sw.Elapsed.TotalSeconds
+        $size = Format-Bytes $downloaded
+        $dur = Format-Duration $secs
+        if (-not $redirected) { Write-Host -NoNewline "`r${esc}[K${esc}[1A`r${esc}[K" }
+    } finally {
+        $sw.Stop()
+        $client.Dispose()
+    }
+    Write-Host -ForegroundColor Green -NoNewline "$([char]0x2713) "
+    Write-Host "$SuccessLabel ($size in $dur)"
+}
+
+function Invoke-DownloadWithRetry {
+    param([string]$Url, [string]$Out, [string]$Label, [string]$SuccessLabel = $null)
+    $attempt = 0
+    $delay = $RetryDelay
+    while ($true) {
+        $thisLabel = $Label
+        if ($attempt -gt 0) { $thisLabel = "$Label (attempt $($attempt + 1)/$MaxRetries)" }
+        try {
+            Invoke-DownloadWithProgress -Url $Url -Out $Out -Label $thisLabel -SuccessLabel $SuccessLabel
+            return
+        } catch {
+            $attempt++
+            if ($attempt -ge $MaxRetries) { throw }
+            Write-Host "  Download failed ($_). Retrying in ${delay}s... ($attempt/$MaxRetries)"
+            Start-Sleep -Seconds $delay
+            $delay *= 2
+            if (Test-Path $Out) { Remove-Item $Out -Force -ErrorAction SilentlyContinue }
+        }
+    }
+}
+
 function Get-VersionBase {
     param([string]$v)
     $idx = $v.IndexOf('-')
@@ -290,14 +424,8 @@ function Main {
         try {
             $TempZip = Join-Path $env:TEMP "taurine-$([guid]::NewGuid()).zip"
 
-            # Download archive with retry
-            $DownloadJob = {
-                param($url, $out)
-                $ErrorActionPreference = "Stop"
-                Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing -TimeoutSec 300
-                return $out
-            }
-            Invoke-WithRetry -ScriptBlock $DownloadJob -ArgumentList @($Url, $TempZip) -Label "Downloading taurine v$Version" -SuccessLabel "Downloaded taurine v$Version" | Out-Null
+            # Download archive with retry and live two-line progress
+            Invoke-DownloadWithRetry -Url $Url -Out $TempZip -Label "Downloading taurine v$Version" -SuccessLabel "Downloaded taurine v$Version"
 
             # Verify checksum if available
             if ($Sha256) {

@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Multi-Button Mouse Automation**: Support parameterized mouse button clicks (including M4, M5, and custom buttons), double-clicking, and parameterized press/release drag actions.
 - **Inline AI Clipboard Context**: Pass copied clipboard text into inline AI prompts via natural paste shortcut (Ctrl+V / Cmd+V) or by typing [clip].
 - **Uninstall Data Prompt**: Ask before deleting configuration and data files during uninstallation; kept by default.
+- **Download Progress**: Show live download progress with transfer speed during installation and updates, including total size and elapsed time on completion.
 
 ### Fixed
 - **Fixed Windows Login Launcher**: Launch the installed binary directly at logon instead of resolving it through a sidecar path file.

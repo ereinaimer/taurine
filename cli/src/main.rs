@@ -89,7 +89,7 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
         Some(Commands::Restart) => commands::service::execute_restart(json)?,
         Some(Commands::Down) => commands::service::execute_down(json)?,
         Some(Commands::Status) => commands::service::execute_status(json)?,
-        Some(Commands::Update) => commands::update::execute()?,
+        Some(Commands::Update) => commands::update::execute(json)?,
         Some(Commands::Add(args)) => commands::add::execute_args(*args, json)?,
         Some(Commands::Delete { triggers, tag, yes }) => {
             commands::delete::execute(triggers, tag, yes, json)?;
