@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Autonomous Self-Healing & Crash Resilience**: Automatically recover background worker threads, isolate native shell launches out-of-process, intercept native exceptions, and auto-restart on system failure via Windows Task Scheduler.
 - **Conversational CLI Diagnostics**: Provide actionable terminal error messages across all CLI commands with fuzzy did-you-mean suggestions and clean copy-paste examples.
 - **URL Sanitation & Calculation Placeholders**: Strip both query parameters and hash anchors in [| url.clean], and support $, _, and x as incoming value placeholders in [| calc(...)].
-- **Unified Transformer Syntax**: Standardize all text transformers to follow consistent action(arguments) and category(action) syntax with zero unparenthesized bare words.
+- **Unified Transformer Syntax**: Standardize all text transformers to follow consistent action(arguments) and category(action) syntax (including canonical `extract(...)` pattern extractors with complete removal of `ext.*` shorthands) with zero unparenthesized bare words.
 - **File Slicing Operations**: Replace ambiguous read_line with dedicated [file.line(path, n)] for single line extraction and [file.lines(path, start, [end])] for multi-line ranges.
 - **Network IP Synonyms**: Add [net.localip] and [net.publicip] synonyms for local and public IP lookups.
 - **Random Range & Default Generators**: Expand bare [random] to a 0..100 integer, support zero-argument [random.int] and single-argument [random.int(max)], and update [random.pass] default length to 20 characters.
@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Uninstall Data Prompt**: Ask before deleting configuration and data files during uninstallation; kept by default.
 
 ### Fixed
+- **Fixed Windows Login Launcher**: Launch the installed binary directly at logon instead of resolving it through a sidecar path file.
 - **Uninstall Binary Removal**: Ensure uninstallers always remove the Taurine binary even when configuration and data files are kept.
 - **Windows Startup Hook Removal**: Remove the logon scheduled task, registry Run entry, and startup launcher during uninstallation even when the Taurine binary is missing or broken.
 - **Windows Purge Path Quoting**: Fix data purge failing for user profiles containing an apostrophe.
@@ -44,6 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Uninstall Progress Display**: Show step-by-step progress logs during Unix uninstallation.
 - **Word Boundary Expansion Accuracy**: Prevent unwanted expansions when triggers appear inside larger words or follow digits by requiring non-alphanumeric boundaries.
 - **App Launch Shortcuts**: Restore hotkey triggers using the .NET Process Start API, the saps alias, and single-path Invoke-Item via the instant native launcher.
+
+### Removed
+- **Redundant Audio Themes**: Remove soft, glass, dreamy, cinematic, and studio pause/resume sounds, leaving seven themes.
 
 ## [1.0.0-alpha.18] - 2026-09-06
 

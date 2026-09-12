@@ -61,8 +61,8 @@ pub async fn connect_to_daemon_with_settings(
             use tokio::net::windows::named_pipe::ClientOptions;
             use tower::service_fn;
 
-            let pipe_path = std::env::var("TAURINE_PIPE_PATH")
-                .unwrap_or_else(|_| r"\\.\pipe\taurine".to_string());
+            let pipe_path = crate::paths::dev_env_var("TAURINE_PIPE_PATH")
+                .unwrap_or_else(|| r"\\.\pipe\taurine".to_string());
 
             tonic::transport::Endpoint::try_from("http://[::]:50051")?
                 .connect_timeout(std::time::Duration::from_millis(500))

@@ -770,9 +770,8 @@ mod tests {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let temp_dir = tempfile::tempdir().unwrap();
-        let db_path = temp_dir.path().join("process_menu_quick_settings.db");
         // SAFETY: Serialized under TEST_LOCK for test database isolation.
-        unsafe { std::env::set_var("TAURINE_DB_PATH", db_path.to_str().unwrap()) };
+        unsafe { std::env::set_var("TAURINE_DATA_DIR", temp_dir.path()) };
 
         struct EnvGuard(&'static str);
         impl Drop for EnvGuard {
@@ -781,7 +780,7 @@ mod tests {
                 unsafe { std::env::remove_var(self.0) };
             }
         }
-        let _guard = EnvGuard("TAURINE_DB_PATH");
+        let _guard = EnvGuard("TAURINE_DATA_DIR");
 
         let paused = Arc::new(AtomicBool::new(false));
         let snooze = SnoozeController::new();

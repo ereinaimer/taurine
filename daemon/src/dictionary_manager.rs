@@ -22,8 +22,9 @@ pub async fn check_and_update_dictionary() {
             "https://raw.githubusercontent.com/ereinaimer/taurine/dict/dictionary_full.db.zst",
         ),
     };
-    let url_override = std::env::var("TAURINE_DICT_URL").ok();
-    let url = url_override.as_deref().unwrap_or(default_url);
+    let url = taurine_core::paths::dev_env_var("TAURINE_DICT_URL")
+        .unwrap_or_else(|| default_url.to_string());
+    let url = url.as_str();
 
     let dict_dir = get_data_dir().join("dict");
 

@@ -24,12 +24,9 @@ const TASK_NAME: &str = "TaurineStartup";
 
 const STARTUP_RUNNER_BYTES: &[u8] = include_bytes!(env!("STARTUP_RUNNER_PATH"));
 
-fn write_startup_launcher(current_exe: &std::path::Path) -> std::io::Result<()> {
+fn write_startup_launcher() -> std::io::Result<()> {
     let exe_path = crate::paths::get_startup_exe_path();
     std::fs::write(&exe_path, STARTUP_RUNNER_BYTES)?;
-
-    let path_file = exe_path.with_extension("path");
-    std::fs::write(&path_file, current_exe.to_string_lossy().as_bytes())?;
 
     Ok(())
 }
@@ -41,17 +38,10 @@ fn delete_startup_launcher() {
     {
         debug!("Failed to delete taurine-startup.exe: {}", e);
     }
-
-    let path_file = exe_path.with_extension("path");
-    if path_file.exists()
-        && let Err(e) = std::fs::remove_file(&path_file)
-    {
-        debug!("Failed to delete taurine-startup.path: {}", e);
-    }
 }
 
-fn set_autorun(current_exe: &std::path::Path) -> std::io::Result<()> {
-    write_startup_launcher(current_exe)?;
+fn set_autorun() -> std::io::Result<()> {
+    write_startup_launcher()?;
     let exe_path = crate::paths::get_startup_exe_path();
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
@@ -217,8 +207,8 @@ fn unregister_task_scheduler() -> windows::core::Result<()> {
     }
 }
 
-fn register_task_scheduler(current_exe: &std::path::Path) -> windows::core::Result<()> {
-    write_startup_launcher(current_exe).map_err(|e| {
+fn register_task_scheduler() -> windows::core::Result<()> {
+    write_startup_launcher().map_err(|e| {
         windows::core::Error::new(windows::core::HRESULT(0x80004005u32 as i32), e.to_string())
     })?;
     let exe_path = crate::paths::get_startup_exe_path();
@@ -292,13 +282,12 @@ fn kill_daemon(sys: &mut System) -> usize {
 }
 
 pub fn sync_boot(enabled: bool) -> crate::error::Result<()> {
-    let current_exe = env::current_exe()?;
     if enabled {
         if is_task_scheduler_registered() || is_autorun_registered() {
             debug!("Startup hook already registered; skipping.");
         } else {
             debug!("Registering Taurine to start on login via Task Scheduler...");
-            match register_task_scheduler(&current_exe) {
+            match register_task_scheduler() {
                 Ok(_) => {
                     info!("Startup hook registered via Task Scheduler.");
                     let _ = remove_autorun();
@@ -308,7 +297,7 @@ pub fn sync_boot(enabled: bool) -> crate::error::Result<()> {
                         "Task Scheduler registration failed ({}); falling back to registry Run key...",
                         e
                     );
-                    set_autorun(&current_exe).map_err(|e| crate::Error::Service(e.to_string()))?;
+                    set_autorun().map_err(|e| crate::Error::Service(e.to_string()))?;
                     info!("Startup hook registered via registry Run key.");
                 }
             }
@@ -517,8 +506,7 @@ mod tests {
 
         let exe_path = crate::paths::get_startup_exe_path();
 
-        let current_exe = std::env::current_exe().unwrap();
-        write_startup_launcher(&current_exe).expect("Failed to write startup launcher");
+        write_startup_launcher().expect("Failed to write startup launcher");
         assert!(exe_path.exists());
 
         let contents = std::fs::read(&exe_path).expect("Failed to read exe");

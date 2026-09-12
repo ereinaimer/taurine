@@ -1,44 +1,11 @@
 ---
 title: Environment Variables Reference
-description: Reference for all environment variables supported by Taurine to customize paths and data storage.
+description: Reference for environment variables referenced by Taurine.
 ---
 
 import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 
-Taurine can be customized using environment variables. These variables allow you to redirect data storage paths and override default system behaviors.
-
-## Taurine Specific Environment Variables
-
-These environment variables are specific to Taurine's client and service processes.
-
-<Accordions>
-<Accordion title="TAURINE_DATA_DIR">
-  Overrides the default user data directory where Taurine stores configurations, logs, and sockets.
-  
-  - **Type**: Absolute Directory Path
-  - **Default**: 
-    - macOS: `~/Library/Application Support/com.ereinaimer.taurine`
-    - Linux: `~/.config/taurine`
-    - Windows: `%APPDATA%\com.ereinaimer.taurine`
-  - **Example**:
-    ```bash
-    export TAURINE_DATA_DIR="/tmp/taurine-data"
-    taurine up
-    ```
-</Accordion>
-
-<Accordion title="TAURINE_DB_PATH">
-  Overrides the path to the SQLite database file containing all snippets, triggers, and settings.
-  
-  - **Type**: Absolute File Path
-  - **Default**: `<TAURINE_DATA_DIR>/taurine.db`
-  - **Example**:
-    ```bash
-    export TAURINE_DB_PATH="/custom/path/to/my_macros.db"
-    taurine up
-    ```
-</Accordion>
-</Accordions>
+Taurine uses fixed install locations and does not support path overrides in release builds.
 
 ## Standard System Environment Variables
 

@@ -495,10 +495,7 @@ mod compatibility_finalize_tests {
         let _guard = crate::testing::TEST_LOCK.lock().unwrap();
         let (_dir, _conn) = crate::testing::open_test_db();
         unsafe {
-            std::env::set_var(
-                "TAURINE_DB_PATH",
-                _dir.path().join("test_taurine.db").to_str().unwrap(),
-            );
+            std::env::set_var("TAURINE_DATA_DIR", _dir.path());
         }
 
         // Test Case 1: testvars

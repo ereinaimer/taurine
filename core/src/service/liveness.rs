@@ -10,8 +10,8 @@ mod platform {
     const SYNCHRONIZE: u32 = 0x00100000;
 
     fn get_mutex_name_wide() -> Vec<u16> {
-        let name = std::env::var("TAURINE_SERVICE_LIVENESS_NAME")
-            .unwrap_or_else(|_| r"Local\TaurineServiceLiveness".to_string());
+        let name = crate::paths::dev_env_var("TAURINE_SERVICE_LIVENESS_NAME")
+            .unwrap_or_else(|| r"Local\TaurineServiceLiveness".to_string());
         name.encode_utf16().chain(std::iter::once(0)).collect()
     }
 
@@ -92,7 +92,7 @@ mod platform {
     use std::path::PathBuf;
 
     fn get_lock_path() -> PathBuf {
-        if let Ok(custom) = std::env::var("TAURINE_SERVICE_LIVENESS_PATH")
+        if let Some(custom) = crate::paths::dev_env_var("TAURINE_SERVICE_LIVENESS_PATH")
             && !custom.trim().is_empty()
         {
             PathBuf::from(custom)

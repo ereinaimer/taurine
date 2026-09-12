@@ -13,9 +13,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
         let runner_dir = PathBuf::from(manifest_dir).join("../startup");
 
+        // Embed a launcher matching our own profile: debug builds get a debug
+        // launcher (DEV env overrides work), release gets release (fixed paths).
+        // NOTE: Cargo sets PROFILE to "debug"/"release" (legacy names), but the
+        // profile flag expects "dev"/"release" — "debug" is reserved.
+        let profile = env::var("PROFILE").unwrap_or_else(|_| "release".to_string());
+        let (cargo_profile, out_profile) = match profile.as_str() {
+            "debug" | "dev" => ("dev", "debug"),
+            _ => (profile.as_str(), profile.as_str()),
+        };
+
         let mut cmd = Command::new(&cargo);
         cmd.arg("build")
-            .arg("--release")
+            .arg("--profile")
+            .arg(cargo_profile)
             .arg("--target-dir")
             .arg(format!("{}/startup-target", out_dir));
 
@@ -33,11 +44,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let exe_path = if target.is_empty() {
-            format!("{}/startup-target/release/taurine-startup.exe", out_dir)
+            format!(
+                "{}/startup-target/{}/taurine-startup.exe",
+                out_dir, out_profile
+            )
         } else {
             format!(
-                "{}/startup-target/{}/release/taurine-startup.exe",
-                out_dir, target
+                "{}/startup-target/{}/{}/taurine-startup.exe",
+                out_dir, target, out_profile
             )
         };
 

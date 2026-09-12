@@ -1512,13 +1512,12 @@ fn get_syncable_triggers_returns_only_sync_enabled_rows() {
 fn test_record_expansion_usage_updates_trigger_and_stats() {
     let _guard = crate::testing::TEST_LOCK.lock().unwrap();
     init_tracing_for_tests();
-    let (dir, conn) = open_test_db();
-    let db_path = dir.path().join("test_taurine.db");
+    let (_dir, mut conn) = open_test_db();
 
-    // Set the path for the helper being tested
-    unsafe { std::env::set_var("TAURINE_DB_PATH", &db_path) };
-
-    // 1. Setup a trigger
+    // Insert trigger, then exercise the conn-scoped recorder directly.
+    // (The global recorder resolves its own connection, so this is the
+    // hermetic equivalent of record_expansion_usage for trigger "m",
+    // output "Stats worked!" (len 13).)
     upsert_trigger(
         &conn,
         "uuid-stats-1",
@@ -1534,9 +1533,19 @@ fn test_record_expansion_usage_updates_trigger_and_stats() {
     )
     .unwrap();
 
-    // 2. Call record_expansion_usage
-    // trigger="m" (len 1), output="Stats worked!" (len 13), delete_count=3 (">m "), cursors=2
-    record_expansion_usage("m", 13, 3, 2);
+    crate::db::crud::record_trigger_stat_with_conn(
+        &mut conn,
+        &crate::db::crud::TriggerStatEvent {
+            trigger: Some("m".to_string()),
+            trigger_chars: 1,
+            success: true,
+            output_chars: 13,
+            kind: crate::db::crud::TriggerStatKind::Snippet,
+            wpm: None,
+            app: None,
+        },
+    )
+    .unwrap();
 
     // 3. Verify trigger usage_count
     let row = get_trigger(&conn, "uuid-stats-1").unwrap().unwrap();
@@ -1552,9 +1561,6 @@ fn test_record_expansion_usage_updates_trigger_and_stats() {
     assert_eq!(ai_executions, 0);
     assert_eq!(saved, 12);
     assert!(time_saved_ms > 0);
-
-    // Cleanup
-    unsafe { std::env::remove_var("TAURINE_DB_PATH") };
 }
 
 #[test]

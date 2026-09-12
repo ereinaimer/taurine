@@ -142,40 +142,39 @@ pub fn execute(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-
     use taurine_core::db::crud::TriggerType;
     use taurine_core::db::crud::upsert_trigger_with_type;
     use taurine_core::logs::init_tracing_for_tests;
 
     struct TestDbEnvGuard {
-        path: PathBuf,
+        _dir: tempfile::TempDir,
     }
 
     impl TestDbEnvGuard {
-        fn new(path: PathBuf) -> Self {
-            let db_path_str = path.to_string_lossy().to_string();
-            unsafe { std::env::set_var("TAURINE_DB_PATH", &db_path_str) };
-            Self { path }
+        fn new() -> Self {
+            let dir = tempfile::tempdir().expect("temp dir");
+            unsafe { std::env::set_var("TAURINE_DATA_DIR", dir.path()) };
+            Self { _dir: dir }
         }
 
         fn db_path(&self) -> String {
-            self.path.to_string_lossy().to_string()
+            self._dir
+                .path()
+                .join("taurine.db")
+                .to_string_lossy()
+                .to_string()
         }
     }
 
     impl Drop for TestDbEnvGuard {
         fn drop(&mut self) {
-            unsafe { std::env::remove_var("TAURINE_DB_PATH") };
-            let _ = std::fs::remove_file(&self.path);
+            unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
         }
     }
 
     fn with_test_db<T>(f: impl FnOnce(&str) -> T) -> T {
         let _guard = crate::commands::TEST_LOCK.lock().unwrap();
-        let db_guard = TestDbEnvGuard::new(
-            std::env::temp_dir().join(format!("taurine-cli-delete-{}.db", uuid::Uuid::new_v4())),
-        );
+        let db_guard = TestDbEnvGuard::new();
         let db_path = db_guard.db_path();
         f(&db_path)
     }
@@ -264,10 +263,7 @@ mod tests {
     fn delete_with_glob_star_only_pattern_deletes_matching() {
         init_tracing_for_tests();
         let _guard = crate::commands::TEST_LOCK.lock().unwrap();
-        let db_guard = TestDbEnvGuard::new(std::env::temp_dir().join(format!(
-            "taurine-cli-delete-glob-{}.db",
-            uuid::Uuid::new_v4()
-        )));
+        let db_guard = TestDbEnvGuard::new();
         let db_path = db_guard.db_path();
 
         let conn = rusqlite::Connection::open(&db_path).unwrap();
@@ -348,10 +344,7 @@ mod tests {
     fn delete_with_exact_trigger_unchanged_by_glob_flag() {
         init_tracing_for_tests();
         let _guard = crate::commands::TEST_LOCK.lock().unwrap();
-        let db_guard = TestDbEnvGuard::new(std::env::temp_dir().join(format!(
-            "taurine-cli-delete-exact-{}.db",
-            uuid::Uuid::new_v4()
-        )));
+        let db_guard = TestDbEnvGuard::new();
         let db_path = db_guard.db_path();
 
         let conn = rusqlite::Connection::open(&db_path).unwrap();
@@ -389,10 +382,7 @@ mod tests {
     fn delete_with_glob_star_only_matches_all() {
         init_tracing_for_tests();
         let _guard = crate::commands::TEST_LOCK.lock().unwrap();
-        let db_guard = TestDbEnvGuard::new(std::env::temp_dir().join(format!(
-            "taurine-cli-delete-star-{}.db",
-            uuid::Uuid::new_v4()
-        )));
+        let db_guard = TestDbEnvGuard::new();
         let db_path = db_guard.db_path();
 
         let conn = rusqlite::Connection::open(&db_path).unwrap();
@@ -452,10 +442,7 @@ mod tests {
     fn delete_with_glob_no_match_warns_cleanly() {
         init_tracing_for_tests();
         let _guard = crate::commands::TEST_LOCK.lock().unwrap();
-        let db_guard = TestDbEnvGuard::new(std::env::temp_dir().join(format!(
-            "taurine-cli-delete-nomatch-{}.db",
-            uuid::Uuid::new_v4()
-        )));
+        let db_guard = TestDbEnvGuard::new();
         let db_path = db_guard.db_path();
 
         let conn = rusqlite::Connection::open(&db_path).unwrap();

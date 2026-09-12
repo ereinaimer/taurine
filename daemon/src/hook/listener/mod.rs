@@ -251,7 +251,7 @@ pub fn process_keyboard_event(
     }
 
     #[cfg(windows)]
-    if std::env::var("TAURINE_TEST_HANG_HOOK").is_ok()
+    if taurine_core::paths::dev_env_var("TAURINE_TEST_HANG_HOOK").is_some()
         && matches!(event.event_type, EventType::KeyPress(Key::Unknown(254)))
     {
         warn!("Test trigger: Hanging listener thread for 6 seconds!");

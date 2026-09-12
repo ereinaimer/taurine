@@ -140,9 +140,11 @@ fn execute_inner(silent: bool) -> Result<()> {
         .build()
         .map_err(|e| Error::Engine(e.to_string()))?;
 
-    let manifest_url = std::env::var("TAURINE_UPDATE_MANIFEST_URL").unwrap_or_else(|_| {
-        "https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json".to_string()
-    });
+    let manifest_url = taurine_core::paths::dev_env_var("TAURINE_UPDATE_MANIFEST_URL")
+        .unwrap_or_else(|| {
+            "https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json"
+                .to_string()
+        });
 
     let manifest: Manifest = client
         .get(&manifest_url)

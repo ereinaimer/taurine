@@ -167,7 +167,7 @@ Global transformers apply with Unix pipe syntax right after any variable, positi
 *   **Text manipulation** (UTF-8 aware): `trim`, `length`, `wordcount`, `truncate(n)`, `replace(old, new)`, `slug`, `substring(s, e)`, `stripall`, `stripemoji`, `onlydigit`, `onlyalphanumeric`, `regexreplace(pattern, replacement)`.
 *   **Formatting**: `quote`, `squote`, `backtick`, `unquote`.
 *   **Data extractors**: `html(selector)` / `xml(selector)` (CSS selector → inner text of first match), `toml(path)`, `yaml(path)`, `regexmatch(pattern, [group])`. Pairs well with `[http.get(…)]` and `[file.read(…)]`.
-*   **Extract all matches**: `ext.url`, `ext.email`, `ext.phone`, `ext.mention`, `ext.hashtag`, `ext.ip`, `ext.mac`, `ext.path` (+ `.filename`/`.dir`), `ext.jwt`, `ext.semver`, `ext.mdcode`, `ext.mdtable`, `ext.mdlist` — returns newline-separated matches.
+*   **Extract all matches**: `extract(url)`, `extract(email)`, `extract(phone)`, `extract(mention)`, `extract(hashtag)`, `extract(ip)`, `extract(mac)`, `extract(path)`, `extract(filename)`, `extract(directory)`, `extract(jwt)`, `extract(semver)`, `extract(mdcode)`, `extract(mdtable)`, `extract(mdlist)` — returns newline-separated matches.
 *   **Snippet composition**: `[use("trigger_name")]` embeds another snippet's contents.
 
 ---
@@ -250,10 +250,8 @@ When HTML is detected in a snippet's output, Taurine writes both styled HTML and
 
 ---
 
-## 10. Environment Variables
+## 10. System Environment
 
-*   `TAURINE_DATA_DIR`: Overrides the default user data directory (configs, logs, sockets).
-*   `TAURINE_DB_PATH`: Overrides the SQLite database path (default `<data dir>/taurine.db`).
 *   Referenced system vars: `HOME` (Linux/macOS), `USERPROFILE` (Windows), `SHELL` (completion installs), `WAYLAND_DISPLAY`/`DISPLAY` (Linux focus tracking).
 
 ---

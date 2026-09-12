@@ -73,7 +73,6 @@ Run-Step "Removing startup hooks" {
     }
     $StartupDir = Join-Path $env:LOCALAPPDATA "Taurine\startup"
     Remove-Item -Path (Join-Path $StartupDir "taurine-startup.exe") -Force -ErrorAction SilentlyContinue
-    Remove-Item -Path (Join-Path $StartupDir "taurine-startup.path") -Force -ErrorAction SilentlyContinue
 }
 
 # Uninstall shell completions

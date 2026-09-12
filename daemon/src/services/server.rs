@@ -442,8 +442,6 @@ mod tests {
         let test_dir = std::env::temp_dir().join("taurine_reload_test");
         // SAFETY: Setting environment variable for database isolation in server test.
         unsafe { std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
-        let test_db = test_dir.join("test_taurine.db");
-        unsafe { std::env::set_var("TAURINE_DB_PATH", test_db.to_str().unwrap()) };
         let _ = std::fs::remove_dir_all(&test_dir);
         std::fs::create_dir_all(&test_dir).unwrap();
 
@@ -547,7 +545,6 @@ mod tests {
         // Cleanup
         let _ = std::fs::remove_dir_all(&test_dir);
         unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
-        unsafe { std::env::remove_var("TAURINE_DB_PATH") };
     }
 
     #[tokio::test]

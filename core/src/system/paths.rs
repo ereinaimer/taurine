@@ -19,14 +19,30 @@ pub fn init_android_path(data_dir: String) {
     let _ = ANDROID_DATA_PATH.set(PathBuf::from(data_dir));
 }
 
+/// Reads a DEV-only environment override. Release builds ignore it, so
+/// production always uses the fixed install locations. Mirrors the helper in
+/// startup/src/main.rs (duplicated: that crate cannot depend on core).
+pub fn dev_env_var(name: &str) -> Option<String> {
+    #[cfg(debug_assertions)]
+    {
+        std::env::var(name).ok().filter(|v| !v.trim().is_empty())
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = name;
+        None
+    }
+}
+
 /// Resolves the base data directory for the app.
 /// - Windows:  %LOCALAPPDATA%\APP_NAME
 /// - macOS:    ~/Library/Application Support/APP_NAME
 /// - Linux:    ~/.local/share/APP_NAME_SLUG
 /// - Android:  Directory provided via `init_android_path()`.
+///
+/// DEV builds honor `TAURINE_DATA_DIR` (tests, `cargo run`); release ignores it.
 pub fn get_data_dir() -> PathBuf {
-    // Allow overriding via environment variable (for headless CI or tests)
-    if let Ok(env_path) = std::env::var("TAURINE_DATA_DIR") {
+    if let Some(env_path) = dev_env_var("TAURINE_DATA_DIR") {
         debug!("TAURINE_DATA_DIR override enabled");
         return PathBuf::from(env_path);
     }
@@ -111,13 +127,8 @@ pub fn ensure_data_dir() -> PathBuf {
 }
 
 /// Resolves the exact file path for the SQLite database.
+/// Always `<data dir>/taurine.db`; DEV isolation goes through `TAURINE_DATA_DIR`.
 pub fn get_db_path() -> PathBuf {
-    // DB path override
-    if let Ok(env_path) = std::env::var("TAURINE_DB_PATH") {
-        debug!("TAURINE_DB_PATH override enabled");
-        return PathBuf::from(env_path);
-    }
-
     #[cfg(target_os = "android")]
     {
         // On Android the data dir is provided directly; append the db file name.
@@ -335,26 +346,6 @@ mod tests {
     use crate::testing::TEST_LOCK;
 
     #[test]
-    fn test_db_env_override() {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        crate::testing::init_tracing_for_tests();
-        // Skip this test via an env var override
-        if env::var("TAURINE_SKIP_DB_ENV_OVERRIDE_TEST").unwrap_or_default() == "true" {
-            return;
-        }
-
-        let test_path = "some/custom/path/taurine.db";
-        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
-        unsafe { env::set_var("TAURINE_DB_PATH", test_path) };
-
-        let path = get_db_path();
-        assert_eq!(path.to_str().unwrap(), test_path);
-
-        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
-        unsafe { env::remove_var("TAURINE_DB_PATH") };
-    }
-
-    #[test]
     fn test_data_dir_env_override() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         crate::testing::init_tracing_for_tests();
@@ -370,13 +361,24 @@ mod tests {
     }
 
     #[test]
+    fn test_db_path_follows_data_dir() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        crate::testing::init_tracing_for_tests();
+        let test_dir = std::env::temp_dir().join("taurine_db_follows_data_test");
+        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
+        unsafe { env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
+
+        assert_eq!(get_db_path(), test_dir.join(DB_FILENAME));
+
+        // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
+        unsafe { env::remove_var("TAURINE_DATA_DIR") };
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
     fn test_default_desktop_path_resolution() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         crate::testing::init_tracing_for_tests();
-        // Skip this test via an env var override
-        if env::var("TAURINE_SKIP_DEFAULT_PATH_RESOLUTION_TEST").unwrap_or_default() == "true" {
-            return;
-        }
 
         #[cfg(not(target_os = "android"))]
         {
@@ -384,10 +386,8 @@ mod tests {
                 return;
             }
 
-            let backup_db = env::var("TAURINE_DB_PATH").ok();
             let backup_data = env::var("TAURINE_DATA_DIR").ok();
             unsafe {
-                env::remove_var("TAURINE_DB_PATH");
                 env::remove_var("TAURINE_DATA_DIR");
             };
 
@@ -404,9 +404,6 @@ mod tests {
             assert!(data_dir.ends_with("taurine"));
 
             unsafe {
-                if let Some(val) = backup_db {
-                    env::set_var("TAURINE_DB_PATH", val);
-                }
                 if let Some(val) = backup_data {
                     env::set_var("TAURINE_DATA_DIR", val);
                 }

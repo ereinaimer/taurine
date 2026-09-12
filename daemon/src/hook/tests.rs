@@ -444,11 +444,9 @@ fn test_dispatch_expansion_skips_ai_stats() {
             .unwrap()
             .as_nanos()
     ));
-    let test_db = test_dir.join("test.db");
     // SAFETY: Setting environment variables for test DB isolation.
     unsafe {
         std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap());
-        std::env::set_var("TAURINE_DB_PATH", test_db.to_str().unwrap());
     }
     let _ = std::fs::remove_dir_all(&test_dir);
     std::fs::create_dir_all(&test_dir).unwrap();
@@ -538,7 +536,6 @@ fn test_dispatch_expansion_skips_ai_stats() {
     let _ = std::fs::remove_dir_all(&test_dir);
     unsafe {
         std::env::remove_var("TAURINE_DATA_DIR");
-        std::env::remove_var("TAURINE_DB_PATH");
     }
 }
 

@@ -198,7 +198,8 @@ These can be appended to **any** variable (system or custom) using Unix pipe syn
 </Accordion>
 
 <Accordion title="Data Extraction">
-  Extract values from structured payloads or web content. Pairs perfectly with `[http.get(...)]` and `[file.read(...)]`.
+  Extract values from structured payloads, web content, or raw text. Pairs perfectly with `[http.get(...)]`, `[file.read(...)]`, and `[clipboard]`.
+  - `extract(target)`: Extracts structured patterns natively (`url`, `email`, `phone`, `mention`, `hashtag`, `ip`, `mac`, `path`, `filename`, `directory`, `jwt`, `semver`, `mdcode`, `mdtable`, `mdlist`).
   - `json(path)`: Extracts a value via dot-notation (e.g., `user.hobbies.1`).
   - `json.pretty`: Indents and formats a JSON payload.
   - `json.minify`: Strips all formatting whitespace from JSON.

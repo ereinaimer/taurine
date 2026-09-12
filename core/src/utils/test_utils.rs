@@ -14,9 +14,10 @@ mod test_db {
     use tempfile::TempDir;
 
     /// Opens an isolated database for a single test.
+    /// Uses `taurine.db` so `TAURINE_DATA_DIR=<dir>` resolves to the same file.
     pub fn open_test_db() -> (TempDir, Connection) {
         let dir = TempDir::new().expect("failed to create temp dir");
-        let db_path = dir.path().join("test_taurine.db");
+        let db_path = dir.path().join("taurine.db");
 
         let conn = Connection::open(&db_path).expect("failed to open test DB");
         conn.execute_batch(

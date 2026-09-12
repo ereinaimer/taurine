@@ -277,10 +277,10 @@ mod tests {
 
     impl Drop for TestDbEnv {
         fn drop(&mut self) {
-            // SAFETY: test-only; access to TAURINE_DB_PATH is serialized by
+            // SAFETY: test-only; access to TAURINE_DATA_DIR is serialized by
             // crate::commands::TEST_LOCK, so no other thread mutates the
             // variable concurrently with this drop.
-            unsafe { std::env::remove_var("TAURINE_DB_PATH") };
+            unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
         }
     }
 
@@ -289,8 +289,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let _env = TestDbEnv;
         // SAFETY: test-only; serialized by crate::commands::TEST_LOCK, so
-        // exactly one thread manipulates TAURINE_DB_PATH at a time.
-        unsafe { std::env::set_var("TAURINE_DB_PATH", dir.path().join("taurine.db")) };
+        // exactly one thread manipulates TAURINE_DATA_DIR at a time.
+        unsafe { std::env::set_var("TAURINE_DATA_DIR", dir.path()) };
         f()
     }
 

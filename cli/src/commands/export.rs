@@ -92,16 +92,14 @@ mod tests {
     #[test]
     fn test_export_non_interactive_missing_password_diagnostic() {
         let _guard = crate::commands::TEST_LOCK.lock().unwrap();
-        let db_path =
-            std::env::temp_dir().join(format!("taurine-cli-export-{}.db", uuid::Uuid::new_v4()));
-        // SAFETY: Test runs under TEST_LOCK and temporary path is cleaned up.
-        unsafe { std::env::set_var("TAURINE_DB_PATH", db_path.to_str().unwrap()) };
+        let dir = tempfile::tempdir().expect("temp dir");
+        // SAFETY: Test runs under TEST_LOCK and temporary dir is cleaned up.
+        unsafe { std::env::set_var("TAURINE_DATA_DIR", dir.path()) };
 
         let result = execute(None, false, true);
 
         // SAFETY: Test runs under TEST_LOCK to restore process environment safely.
-        unsafe { std::env::remove_var("TAURINE_DB_PATH") };
-        let _ = std::fs::remove_file(&db_path);
+        unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
 
         let err = result.unwrap_err().to_string();
         assert!(

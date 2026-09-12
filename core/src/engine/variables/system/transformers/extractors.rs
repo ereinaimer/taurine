@@ -16,22 +16,30 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
         "toml" => apply_toml(args, content),
         "yaml" => apply_yaml(args, content),
         "regex" => apply_regex(args, content),
-        "ext.url" => Some(extract_url(content)),
-        "ext.email" => Some(extract_email(content)),
-        "ext.phone" => Some(extract_phone(content)),
-        "ext.mention" => Some(extract_mention(content)),
-        "ext.hashtag" => Some(extract_hashtag(content)),
-        "ext.ip" => Some(extract_ip(content)),
-        "ext.mac" => Some(extract_mac(content)),
-        "ext.path" => Some(extract_path(content)),
-        "ext.path.filename" => Some(extract_path_filename(content)),
-        "ext.path.dir" => Some(extract_path_dir(content)),
-        "ext.jwt" => Some(extract_jwt(content)),
-        "ext.semver" => Some(extract_semver(content)),
-        "ext.mdcode" => Some(extract_mdcode(content)),
-        "ext.mdtable" => Some(extract_mdtable(content)),
-        "ext.mdlist" => Some(extract_mdlist(content)),
+        "extract" => apply_extract(args, content),
         _ => None,
+    }
+}
+
+fn apply_extract(args: &[&str], content: &str) -> Option<String> {
+    let target = strip_argument_quotes(args.first()?);
+    match target {
+        "url" => Some(extract_url(content)),
+        "email" => Some(extract_email(content)),
+        "phone" => Some(extract_phone(content)),
+        "mention" => Some(extract_mention(content)),
+        "hashtag" => Some(extract_hashtag(content)),
+        "ip" => Some(extract_ip(content)),
+        "mac" => Some(extract_mac(content)),
+        "path" => Some(extract_path(content)),
+        "filename" | "path.filename" => Some(extract_path_filename(content)),
+        "directory" | "dir" | "path.dir" => Some(extract_path_dir(content)),
+        "jwt" => Some(extract_jwt(content)),
+        "semver" => Some(extract_semver(content)),
+        "mdcode" => Some(extract_mdcode(content)),
+        "mdtable" => Some(extract_mdtable(content)),
+        "mdlist" => Some(extract_mdlist(content)),
+        _ => apply_regex(args, content),
     }
 }
 
@@ -493,158 +501,174 @@ services:
     }
 
     #[test]
-    fn test_apply_ext_url() {
+    fn test_apply_extract_url() {
         assert_eq!(
             apply(
-                "ext.url",
-                &[],
+                "extract",
+                &["url"],
                 "visit https://taurine.in and http://localhost:8080/!"
             ),
             Some("https://taurine.in\nhttp://localhost:8080/".to_string())
         );
         // No URLs: should return empty string
-        assert_eq!(apply("ext.url", &[], "no links here"), Some("".to_string()));
+        assert_eq!(
+            apply("extract", &["url"], "no links here"),
+            Some("".to_string())
+        );
     }
 
     #[test]
-    fn test_apply_ext_email() {
+    fn test_apply_extract_email() {
         assert_eq!(
             apply(
-                "ext.email",
-                &[],
+                "extract",
+                &["email"],
                 "contact admin@example.com or user@test.co.uk"
             ),
             Some("admin@example.com\nuser@test.co.uk".to_string())
         );
         // Invalid email (no TLD) should not match
         assert_eq!(
-            apply("ext.email", &[], "not-an-email@"),
+            apply("extract", &["email"], "not-an-email@"),
             Some("".to_string())
         );
     }
 
     #[test]
-    fn test_apply_ext_phone() {
+    fn test_apply_extract_phone() {
         assert_eq!(
-            apply("ext.phone", &[], "Call +1-800-555-0199 or (555) 123-4567"),
+            apply(
+                "extract",
+                &["phone"],
+                "Call +1-800-555-0199 or (555) 123-4567"
+            ),
             Some("+1-800-555-0199\n(555) 123-4567".to_string())
         );
         // Short digit sequence must NOT match due to leading \b
-        assert_eq!(apply("ext.phone", &[], "code 123"), Some("".to_string()));
+        assert_eq!(
+            apply("extract", &["phone"], "code 123"),
+            Some("".to_string())
+        );
         // Digits embedded in a longer run should not produce a spurious match
         assert_eq!(
-            apply("ext.phone", &[], "ID12345678901234"),
+            apply("extract", &["phone"], "ID12345678901234"),
             Some("".to_string())
         );
     }
 
     #[test]
-    fn test_apply_ext_mention() {
+    fn test_apply_extract_mention() {
         assert_eq!(
-            apply("ext.mention", &[], "Hello @alice and @bob-smith!"),
+            apply("extract", &["mention"], "Hello @alice and @bob-smith!"),
             Some("@alice\n@bob-smith".to_string())
         );
         // Lone @ is not a mention
         assert_eq!(
-            apply("ext.mention", &[], "email@ not a mention"),
+            apply("extract", &["mention"], "email@ not a mention"),
             Some("".to_string())
         );
     }
 
     #[test]
-    fn test_apply_ext_hashtag() {
+    fn test_apply_extract_hashtag() {
         assert_eq!(
             apply(
-                "ext.hashtag",
-                &[],
+                "extract",
+                &["hashtag"],
                 "Learning #rust and #text-expansion! Not #123"
             ),
             Some("#rust\n#text-expansion".to_string())
         );
         // Pure-digit hashtag must not match
         assert_eq!(
-            apply("ext.hashtag", &[], "#42 is not a hashtag"),
+            apply("extract", &["hashtag"], "#42 is not a hashtag"),
             Some("".to_string())
         );
     }
 
     #[test]
-    fn test_apply_ext_ip() {
+    fn test_apply_extract_ip() {
         assert_eq!(
             apply(
-                "ext.ip",
-                &[],
+                "extract",
+                &["ip"],
                 "IPv4: 192.168.1.1, IPv6: 2001:0db8:85a3:0000:0000:8a2e:0370:7334"
             ),
             Some("192.168.1.1\n2001:0db8:85a3:0000:0000:8a2e:0370:7334".to_string())
         );
         // Out-of-range octet: 999.999.999.999 must NOT match
         assert_eq!(
-            apply("ext.ip", &[], "999.999.999.999"),
+            apply("extract", &["ip"], "999.999.999.999"),
             Some("".to_string())
         );
         // No IPs at all
-        assert_eq!(apply("ext.ip", &[], "nothing here"), Some("".to_string()));
+        assert_eq!(
+            apply("extract", &["ip"], "nothing here"),
+            Some("".to_string())
+        );
     }
 
     #[test]
-    fn test_apply_ext_mac() {
+    fn test_apply_extract_mac() {
         assert_eq!(
-            apply("ext.mac", &[], "Device MAC: 00:1A:2B:3C:4D:5E"),
+            apply("extract", &["mac"], "Device MAC: 00:1A:2B:3C:4D:5E"),
             Some("00:1A:2B:3C:4D:5E".to_string())
         );
         // Dash-separated MAC
         assert_eq!(
-            apply("ext.mac", &[], "MAC: AA-BB-CC-DD-EE-FF"),
+            apply("extract", &["mac"], "MAC: AA-BB-CC-DD-EE-FF"),
             Some("AA-BB-CC-DD-EE-FF".to_string())
         );
         // Too few groups must NOT match
         assert_eq!(
-            apply("ext.mac", &[], "00:1A:2B:3C:4D"),
+            apply("extract", &["mac"], "00:1A:2B:3C:4D"),
             Some("".to_string())
         );
     }
 
     #[test]
-    fn test_apply_ext_path() {
+    fn test_apply_extract_path() {
         let text = "Logs at /var/log/syslog and C:\\Windows\\System32\\cmd.exe";
         assert_eq!(
-            apply("ext.path", &[], text),
+            apply("extract", &["path"], text),
             Some("/var/log/syslog\nC:\\Windows\\System32\\cmd.exe".to_string())
         );
         // No paths
-        assert_eq!(apply("ext.path", &[], "just words"), Some("".to_string()));
+        assert_eq!(
+            apply("extract", &["path"], "just words"),
+            Some("".to_string())
+        );
     }
 
     #[test]
-    fn test_apply_ext_path_filename() {
+    fn test_apply_extract_path_filename() {
         // Standalone filenames
         assert_eq!(
             apply(
-                "ext.path.filename",
-                &[],
+                "extract",
+                &["filename"],
                 "Check package.json and src/main.rs"
             ),
             Some("main.rs\npackage.json".to_string()).or(Some("package.json\nmain.rs".to_string()))
         );
         // Filename extracted from a full path via PATH_REGEX + std::path::Path
         assert_eq!(
-            apply("ext.path.filename", &[], "/usr/local/bin/taurine.exe"),
+            apply("extract", &["filename"], "/usr/local/bin/taurine.exe"),
             Some("taurine.exe".to_string())
         );
         // Directory-only path should produce no filename (no extension)
         assert_eq!(
-            apply("ext.path.filename", &[], "/usr/local/bin"),
+            apply("extract", &["filename"], "/usr/local/bin"),
             Some("".to_string())
         );
     }
 
     #[test]
-    fn test_apply_ext_path_dir() {
+    fn test_apply_extract_path_dir() {
         assert_eq!(
             apply(
-                "ext.path.dir",
-                &[],
+                "extract",
+                &["directory"],
                 "File /usr/local/bin/taurine.exe and folder /var/log/"
             ),
             Some("/usr/local/bin\n/var/log".to_string())
@@ -652,82 +676,116 @@ services:
     }
 
     #[test]
-    fn test_apply_ext_jwt() {
+    fn test_apply_extract_jwt() {
         assert_eq!(
-            apply("ext.jwt", &[], "Token: eyJhbGci.eyJzdWIi.SflKxwRJS"),
+            apply("extract", &["jwt"], "Token: eyJhbGci.eyJzdWIi.SflKxwRJS"),
             Some("eyJhbGci.eyJzdWIi.SflKxwRJS".to_string())
         );
         // Must not match a non-JWT token that does not start with eyJ
-        assert_eq!(apply("ext.jwt", &[], "abc.def.ghi"), Some("".to_string()));
+        assert_eq!(
+            apply("extract", &["jwt"], "abc.def.ghi"),
+            Some("".to_string())
+        );
     }
 
     #[test]
-    fn test_apply_ext_semver() {
+    fn test_apply_extract_semver() {
         assert_eq!(
-            apply("ext.semver", &[], "v1.2.3 and 0.4.0-alpha.1"),
+            apply("extract", &["semver"], "v1.2.3 and 0.4.0-alpha.1"),
             Some("v1.2.3\n0.4.0-alpha.1".to_string())
         );
         // Partial version (only major.minor) must NOT match
         assert_eq!(
-            apply("ext.semver", &[], "version 1.2 is not semver"),
+            apply("extract", &["semver"], "version 1.2 is not semver"),
             Some("".to_string())
         );
         // Pre-release and build metadata
         assert_eq!(
-            apply("ext.semver", &[], "1.0.0-beta+exp.sha.5114f85"),
+            apply("extract", &["semver"], "1.0.0-beta+exp.sha.5114f85"),
             Some("1.0.0-beta+exp.sha.5114f85".to_string())
         );
     }
 
     #[test]
-    fn test_apply_ext_mdcode() {
+    fn test_apply_extract_mdcode() {
         let text = "Here is code:\n```rust\nfn main() {}\n```\nAnd more:\n```\nlet x = 1;\n```";
         assert_eq!(
-            apply("ext.mdcode", &[], text),
+            apply("extract", &["mdcode"], text),
             Some("fn main() {}\n\nlet x = 1;".to_string())
         );
         // No code blocks
-        assert_eq!(apply("ext.mdcode", &[], "plain text"), Some("".to_string()));
+        assert_eq!(
+            apply("extract", &["mdcode"], "plain text"),
+            Some("".to_string())
+        );
     }
 
     #[test]
-    fn test_apply_ext_mdtable() {
+    fn test_apply_extract_mdtable() {
         // Single table
         let text = "Here is a table:\n| A | B |\n|---|---|\n| 1 | 2 |\nText";
         assert_eq!(
-            apply("ext.mdtable", &[], text),
+            apply("extract", &["mdtable"], text),
             Some("| A | B |\n|---|---|\n| 1 | 2 |".to_string())
         );
         // Multiple tables separated by prose
         let multi = "| X |\n|---|\n| 1 |\n\nProse\n\n| Y |\n|---|\n| 2 |";
         assert_eq!(
-            apply("ext.mdtable", &[], multi),
+            apply("extract", &["mdtable"], multi),
             Some("| X |\n|---|\n| 1 |\n\n| Y |\n|---|\n| 2 |".to_string())
         );
         // Table missing separator must NOT be extracted
         let no_sep = "| A | B |\n| 1 | 2 |";
-        assert_eq!(apply("ext.mdtable", &[], no_sep), Some("".to_string()));
+        assert_eq!(apply("extract", &["mdtable"], no_sep), Some("".to_string()));
     }
 
     #[test]
-    fn test_apply_ext_mdlist() {
+    fn test_apply_extract_mdlist() {
         // Unordered list with nested item
         let text = "List:\n* Item 1\n* Item 2\n  * Subitem\n\nDone.";
         assert_eq!(
-            apply("ext.mdlist", &[], text),
+            apply("extract", &["mdlist"], text),
             Some("* Item 1\n* Item 2\n  * Subitem".to_string())
         );
         // Numbered (ordered) list
         let numbered = "Steps:\n1. First\n2. Second\n\nEnd.";
         assert_eq!(
-            apply("ext.mdlist", &[], numbered),
+            apply("extract", &["mdlist"], numbered),
             Some("1. First\n2. Second".to_string())
         );
         // Mixed bullet markers
         let mixed = "- Alpha\n+ Beta\n\nText";
         assert_eq!(
-            apply("ext.mdlist", &[], mixed),
+            apply("extract", &["mdlist"], mixed),
             Some("- Alpha\n+ Beta".to_string())
+        );
+    }
+
+    #[test]
+    fn test_apply_canonical_extract_transformers() {
+        assert_eq!(
+            apply("extract", &["url"], "visit https://taurine.in"),
+            Some("https://taurine.in".to_string())
+        );
+        assert_eq!(
+            apply("extract", &["email"], "user@example.com"),
+            Some("user@example.com".to_string())
+        );
+        assert_eq!(
+            apply("extract", &["ip"], "192.168.1.1"),
+            Some("192.168.1.1".to_string())
+        );
+        assert_eq!(
+            apply("extract", &["filename"], "/usr/local/bin/taurine.exe"),
+            Some("taurine.exe".to_string())
+        );
+        assert_eq!(
+            apply("extract", &["directory"], "/usr/local/bin/taurine.exe"),
+            Some("/usr/local/bin".to_string())
+        );
+        assert_eq!(
+            apply("extract", &["mdcode"], "```rust\nfn main() {}\n```"),
+            Some("fn main() {}".to_string())
         );
     }
 }

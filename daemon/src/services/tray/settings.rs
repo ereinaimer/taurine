@@ -63,10 +63,9 @@ mod tests {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let temp_dir = tempfile::tempdir().unwrap();
-        let db_path = temp_dir.path().join("toggle_instant_test.db");
         // SAFETY: Serialized under TEST_LOCK for test database isolation.
-        unsafe { std::env::set_var("TAURINE_DB_PATH", db_path.to_str().unwrap()) };
-        let _env_guard = EnvVarGuard("TAURINE_DB_PATH");
+        unsafe { std::env::set_var("TAURINE_DATA_DIR", temp_dir.path()) };
+        let _env_guard = EnvVarGuard("TAURINE_DATA_DIR");
 
         let (initial_instant, _) = TraySettings::load_quick_settings();
         let new_val = TraySettings::toggle_instant_expand().expect("toggle instant expand");
@@ -82,10 +81,9 @@ mod tests {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let temp_dir = tempfile::tempdir().unwrap();
-        let db_path = temp_dir.path().join("toggle_boot_test.db");
         // SAFETY: Serialized under TEST_LOCK for test database isolation.
-        unsafe { std::env::set_var("TAURINE_DB_PATH", db_path.to_str().unwrap()) };
-        let _env_guard = EnvVarGuard("TAURINE_DB_PATH");
+        unsafe { std::env::set_var("TAURINE_DATA_DIR", temp_dir.path()) };
+        let _env_guard = EnvVarGuard("TAURINE_DATA_DIR");
 
         let (_, initial_boot) = TraySettings::load_quick_settings();
         let new_val = TraySettings::toggle_start_on_boot().expect("toggle start on boot");
