@@ -6,7 +6,7 @@ description: Seamlessly move your triggers between machines with secure exchange
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 
-Taurine provides a robust exchange system that allows you to back up your local triggers or sync them across different machines. Files are stored with the `.tau` extension and can be either encrypted or plaintext.
+Taurine provides a robust exchange system that allows you to back up your local triggers or sync them across different machines. Files are stored with the `.tau` extension and are always encrypted.
 
 ## Exporting Data
 
@@ -20,22 +20,19 @@ taurine export
 taurine export backup.tau
 
 # Non-interactive — skips the TUI, uses provided flags directly
-taurine export backup.tau -y --plain
+taurine export backup.tau -y
 ```
 
 ### Interactive vs Headless
 
-By default, `export` opens an interactive TUI overlay where you can configure export options — encryption and file path — before proceeding. All CLI flags are optional and pre-fill the form.
+By default, `export` opens an interactive TUI overlay where you can set the file path and an optional password before proceeding. All CLI flags are optional and pre-fill the form.
 
 Pass `-y` / `--yes` to skip the TUI entirely and run non-interactively. With `--yes`:
 - The file path defaults to `tx-YYMMDD.tau` if not provided.
-- `--plain` is required for unencrypted export; otherwise the command errors because an encryption password can't be prompted for.
+- The export is passwordless but still encrypted.
 
 ### Encryption & Security
-By default, exports are encrypted using **AES-256-GCM**. You will be prompted to enter and confirm an encryption password. 
-
-- **TAU1**: Encrypted binary format.
-- **TAUP**: Plaintext JSON format (use `--plain` / `-p`).
+Exports are always encrypted using **AES-256-GCM** and only open in Taurine. You may set a password (minimum 8 characters) for a second lock — it is required on import and cannot be recovered if forgotten.
 
 ## Importing Data
 
@@ -53,7 +50,7 @@ taurine import backup.tau -y --conflict skip
 
 Like `export`, `import` opens an interactive TUI overlay by default. All CLI flags (`--conflict`) are optional and pre-fill the form.
 
-Pass `-y` / `--yes` to skip the TUI. A file path is always required with `--yes`. If the file is encrypted, the command errors because a decryption password can't be prompted for — use the interactive TUI or import a plaintext file.
+Pass `-y` / `--yes` to skip the TUI. A file path is always required with `--yes`. If the file has a password, the command errors because it can't be prompted for — use the interactive TUI.
 
 ### Conflict Resolution
 When an imported trigger shares the same **Trigger** and **Target OS** as an existing local trigger, Taurine triggers a conflict resolution flow.
@@ -73,7 +70,7 @@ Taurine's exchange engine is designed for reliability and consistency:
 | Feature | Specification |
 | :--- | :--- |
 | **Atomic Imports** | Imports are wrapped in a single database transaction. If one item fails, the **entire** import is rolled back to prevent data corruption. |
-| **Script Handling** | Scripts are decompressed into human-readable text during export (if plaintext) and re-compressed using `zstd` upon import. |
+| **Script Handling** | Scripts are decompressed into human-readable text during export before the bundle is encrypted, and re-compressed using `zstd` upon import. |
 | **Platform Metadata** | `target_os` metadata is preserved, ensuring your Windows-only scripts don't accidentally run on your Mac after an import. |
 
 

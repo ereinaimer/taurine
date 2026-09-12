@@ -53,6 +53,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - **Redundant Audio Themes**: Remove soft, glass, dreamy, cinematic, and studio pause/resume sounds, leaving seven themes.
 
+### Changed
+- **Always-Encrypted Exports**: Remove the `--plain` export option so `.tau` files are always encrypted, with an optional password for a second lock.
+
 ## [1.0.0-alpha.18] - 2026-09-06
 
 ### Added

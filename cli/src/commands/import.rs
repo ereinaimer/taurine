@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use taurine_core::db::init;
 use taurine_core::exchange::{
-    ExchangeFormat, ExchangePayload, ExistingTriggerConflict, ImportConflictAction, TriggerExport,
-    decode_exchange_blob as decode_exchange_blob_core, detect_exchange_format,
+    ExchangePayload, ExistingTriggerConflict, ImportConflictAction, TriggerExport,
+    decode_exchange_blob as decode_exchange_blob_core,
     import_payload_transactionally as import_payload_transactionally_core,
 };
 use zeroize::Zeroize;
@@ -43,26 +43,31 @@ pub fn execute(
     };
 
     let bytes = std::fs::read(&resolved_path)?;
-    let format = detect_exchange_format(&bytes)?;
-    let mut password = match format {
-        ExchangeFormat::Encrypted => Some(match overlay_password {
-            Some(pw) => pw,
-            None => {
-                let diag = taurine_core::diagnostic::Diagnostic::problem(
-                    "Cannot import encrypted file in non-interactive mode without password",
-                )
-                .help("Run import without -y to enter the decryption password interactively:")
-                .example("taurine import ./backup.tau");
-                return Err(taurine_core::error::Error::Config(diag.render()));
+    let mut password = overlay_password;
+    let payload = match decode_exchange_blob(&bytes, password.as_deref()) {
+        Ok(payload) => payload,
+        Err(err) if !yes && err.to_string().contains("password required") => {
+            if let Some(ref mut pw) = password {
+                pw.zeroize();
             }
-        }),
-        ExchangeFormat::Plaintext => overlay_password,
-    };
-    let payload = match format {
-        ExchangeFormat::Plaintext => decode_exchange_blob(&bytes, None)?,
-        ExchangeFormat::Encrypted => {
-            let pw = password.as_deref().unwrap();
-            decode_exchange_blob(&bytes, Some(pw))?
+            return Err(err);
+        }
+        Err(err) if yes && err.to_string().contains("password required") => {
+            if let Some(ref mut pw) = password {
+                pw.zeroize();
+            }
+            let diag = taurine_core::diagnostic::Diagnostic::problem(
+                "Cannot import password-protected file in non-interactive mode",
+            )
+            .help("Run import without -y to enter the decryption password interactively:")
+            .example("taurine import ./backup.tau");
+            return Err(taurine_core::error::Error::Config(diag.render()));
+        }
+        Err(err) => {
+            if let Some(ref mut pw) = password {
+                pw.zeroize();
+            }
+            return Err(err);
         }
     };
     if let Some(ref mut pw) = password {
@@ -176,26 +181,26 @@ mod tests {
     }
 
     #[test]
-    fn decode_exchange_blob_routes_plaintext_without_password() {
-        let blob = taurine_core::exchange::encode_plaintext_payload(&sample_payload()).unwrap();
+    fn decode_exchange_blob_routes_passwordless_without_password() {
+        let blob = taurine_core::exchange::encode_exchange_blob(&sample_payload(), None).unwrap();
         let payload = decode_exchange_blob(&blob, None).unwrap();
 
         assert_eq!(payload, sample_payload());
     }
 
     #[test]
-    fn decode_exchange_blob_requires_password_for_tau1() {
+    fn decode_exchange_blob_requires_password_when_flag_set() {
         let json = serialize_payload(&sample_payload()).unwrap();
-        let blob = crypto::encrypt(&json, "hunter22").unwrap();
+        let blob = crypto::encrypt(&json, Some("hunter22")).unwrap();
 
         let err = decode_exchange_blob(&blob, None).unwrap_err();
         assert!(err.to_string().contains("password required"));
     }
 
     #[test]
-    fn decode_exchange_blob_decrypts_tau1_when_password_is_provided() {
+    fn decode_exchange_blob_decrypts_when_password_is_provided() {
         let json = serialize_payload(&sample_payload()).unwrap();
-        let blob = crypto::encrypt(&json, "hunter22").unwrap();
+        let blob = crypto::encrypt(&json, Some("hunter22")).unwrap();
 
         let payload = decode_exchange_blob(&blob, Some("hunter22")).unwrap();
         assert_eq!(payload, sample_payload());
@@ -212,6 +217,33 @@ mod tests {
         .unwrap();
 
         assert_eq!(action, ImportConflictAction::Skip);
+    }
+
+    #[test]
+    fn test_import_non_interactive_password_protected_diagnostic() {
+        let _guard = crate::commands::TEST_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().expect("temp dir");
+        // SAFETY: Test runs under TEST_LOCK and temporary dir is cleaned up.
+        unsafe { std::env::set_var("TAURINE_DATA_DIR", dir.path()) };
+        let target = dir.path().join("locked.tau");
+        let blob =
+            taurine_core::exchange::encode_exchange_blob(&sample_payload(), Some("hunter22"))
+                .unwrap();
+        std::fs::write(&target, &blob).unwrap();
+
+        let result = execute(Some(target), None, true);
+
+        // SAFETY: Test runs under TEST_LOCK to restore process environment safely.
+        unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("non-interactive mode"), "Error was: {err}");
+        assert!(
+            err.contains("taurine import ./backup.tau"),
+            "Error was: {err}"
+        );
+        assert!(!err.contains('`'), "Must not contain backticks: {err}");
+        assert!(!err.contains('\''), "Must not contain single quotes: {err}");
     }
 
     #[test]

@@ -606,6 +606,50 @@ fn import_modal_defaults_match_current_behavior() {
 }
 
 #[test]
+fn import_modal_detects_passwordless_file_from_header() {
+    let path = std::env::temp_dir().join(format!("taurine-detect-nopw-{}.tau", std::process::id()));
+    let blob = taurine_core::exchange::encode_exchange_blob(
+        &taurine_core::exchange::ExchangePayload::new(vec![]),
+        None,
+    )
+    .unwrap();
+    std::fs::write(&path, &blob).unwrap();
+
+    let state = LibraryImportModalState::with_path(path.to_string_lossy().into_owned());
+
+    std::fs::remove_file(&path).ok();
+    assert_eq!(state.is_encrypted(), Some(false));
+}
+
+#[test]
+fn import_modal_detects_password_protected_file_from_header() {
+    let path = std::env::temp_dir().join(format!("taurine-detect-pw-{}.tau", std::process::id()));
+    let blob = taurine_core::exchange::encode_exchange_blob(
+        &taurine_core::exchange::ExchangePayload::new(vec![]),
+        Some("hunter22"),
+    )
+    .unwrap();
+    std::fs::write(&path, &blob).unwrap();
+
+    let state = LibraryImportModalState::with_path(path.to_string_lossy().into_owned());
+
+    std::fs::remove_file(&path).ok();
+    assert_eq!(state.is_encrypted(), Some(true));
+}
+
+#[test]
+fn import_modal_treats_foreign_file_as_unknown() {
+    let path =
+        std::env::temp_dir().join(format!("taurine-detect-foreign-{}.tau", std::process::id()));
+    std::fs::write(&path, b"definitely not a taurine file").unwrap();
+
+    let state = LibraryImportModalState::with_path(path.to_string_lossy().into_owned());
+
+    std::fs::remove_file(&path).ok();
+    assert_eq!(state.is_encrypted(), None);
+}
+
+#[test]
 fn import_modal_requires_non_empty_path() {
     let mut state = sample_state();
     state.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
@@ -717,24 +761,11 @@ fn import_result_modal_owns_input_and_keeps_search_inactive() {
 }
 
 #[test]
-fn export_result_modal_body_for_triggers_without_encryption_matches_exactly() {
+fn export_result_modal_body_matches_exactly() {
     let mut state = sample_state();
     let path = PathBuf::from("backup.tau");
 
-    state.open_export_result_modal(&path, false);
-
-    let Some(LibraryModal::ExportResult(modal)) = state.modal() else {
-        panic!("expected export result modal");
-    };
-    assert_eq!(modal.body(), "Triggers are exported to: backup.tau");
-}
-
-#[test]
-fn export_result_modal_body_for_triggers_with_encryption_matches_exactly() {
-    let mut state = sample_state();
-    let path = PathBuf::from("backup.tau");
-
-    state.open_export_result_modal(&path, true);
+    state.open_export_result_modal(&path);
 
     let Some(LibraryModal::ExportResult(modal)) = state.modal() else {
         panic!("expected export result modal");
@@ -749,7 +780,7 @@ fn export_result_modal_body_for_triggers_with_encryption_matches_exactly() {
 fn export_result_modal_closes_on_enter() {
     let mut state = sample_state();
     let path = PathBuf::from("backup.tau");
-    state.open_export_result_modal(&path, false);
+    state.open_export_result_modal(&path);
 
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
@@ -760,7 +791,7 @@ fn export_result_modal_closes_on_enter() {
 fn export_result_modal_closes_on_escape() {
     let mut state = sample_state();
     let path = PathBuf::from("backup.tau");
-    state.open_export_result_modal(&path, false);
+    state.open_export_result_modal(&path);
 
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
 
@@ -771,7 +802,7 @@ fn export_result_modal_closes_on_escape() {
 fn export_result_modal_owns_input_and_keeps_search_inactive() {
     let mut state = sample_state();
     let path = PathBuf::from("backup.tau");
-    state.open_export_result_modal(&path, false);
+    state.open_export_result_modal(&path);
 
     state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
 
@@ -788,13 +819,12 @@ fn export_modal_defaults_match_cli_behavior() {
         panic!("expected export modal");
     };
     assert!(modal.path().ends_with(".tau"));
-    assert!(modal.encrypt());
     assert_eq!(modal.password_display_value(), "");
     assert_eq!(state.footer_text(), LIBRARY_EXPORT_MODAL_FOOTER);
 }
 
 #[test]
-fn export_modal_tab_skips_password_when_encryption_is_disabled() {
+fn export_modal_tab_moves_through_all_fields() {
     let mut state = sample_state();
     state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
 
@@ -802,32 +832,52 @@ fn export_modal_tab_skips_password_when_encryption_is_disabled() {
         panic!("expected export modal");
     };
     modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert_eq!(modal.focus(), LibraryExportModalField::Encrypt);
-
-    modal.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-    assert!(!modal.encrypt());
+    assert_eq!(modal.focus(), LibraryExportModalField::Password);
 
     modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert_eq!(modal.focus(), LibraryExportModalField::ActionButton);
 }
 
 #[test]
-fn export_modal_requires_password_when_encryption_is_enabled() {
+fn export_modal_rejects_short_password() {
     let mut state = sample_state();
     state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
 
     let Some(LibraryModal::Export(modal)) = state.modal.as_mut() else {
         panic!("expected export modal");
     };
-    // Tab through all fields to ActionButton: Path -> Encrypt -> Password -> ActionButton
-    for _ in 0..3 {
-        modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    // Tab to Password: Path -> Password -> ActionButton
+    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    for ch in ['s', 'h', 'o', 'r', 't'] {
+        modal.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
     }
+    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     modal.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
     let interaction = modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
     assert!(interaction.pending_export().is_none());
-    assert_eq!(modal.error(), Some("Encryption password is required."));
+    assert_eq!(
+        modal.error(),
+        Some("Encryption password must be at least 8 characters long")
+    );
+}
+
+#[test]
+fn export_modal_without_password_creates_passwordless_export() {
+    let mut state = sample_state();
+    state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+
+    let Some(LibraryModal::Export(modal)) = state.modal.as_mut() else {
+        panic!("expected export modal");
+    };
+    // Tab to ActionButton without typing a password: Path -> Password -> ActionButton
+    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    modal.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    let interaction = modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    let pending = interaction.pending_export().expect("pending export");
+    assert_eq!(pending.password, None);
 }
 
 #[test]
@@ -839,7 +889,6 @@ fn export_modal_password_field_stores_typed_characters() {
         panic!("expected export modal");
     };
     modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     modal.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
     modal.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
     modal.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
@@ -848,7 +897,7 @@ fn export_modal_password_field_stores_typed_characters() {
 }
 
 #[test]
-fn enter_on_confirm_creates_pending_export_when_plaintext() {
+fn enter_on_confirm_creates_pending_export_with_password() {
     let mut state = sample_state();
     state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
 
@@ -856,7 +905,9 @@ fn enter_on_confirm_creates_pending_export_when_plaintext() {
         panic!("expected export modal");
     };
     modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+    for ch in "hunter222".chars() {
+        modal.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
     // Tab to ActionButton
     modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     modal.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
@@ -864,8 +915,7 @@ fn enter_on_confirm_creates_pending_export_when_plaintext() {
     let interaction = modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
     let pending = interaction.pending_export().expect("pending export");
-    assert!(!pending.encrypt);
-    assert_eq!(pending.password, None);
+    assert_eq!(pending.password.as_deref(), Some("hunter222"));
 }
 
 #[test]

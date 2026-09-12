@@ -10,9 +10,8 @@ use super::ButtonSelection;
 
 pub(crate) const LIBRARY_EXPORT_MODAL_FOOTER: &str = "↑/↓ Move   Tab Next";
 pub(crate) const LIBRARY_EXPORT_RESULT_FOOTER: &str = "Enter Close   Esc Close";
-pub(crate) const EXPORT_MODAL_FIELDS: [LibraryExportModalField; 4] = [
+pub(crate) const EXPORT_MODAL_FIELDS: [LibraryExportModalField; 3] = [
     LibraryExportModalField::Path,
-    LibraryExportModalField::Encrypt,
     LibraryExportModalField::Password,
     LibraryExportModalField::ActionButton,
 ];
@@ -20,7 +19,6 @@ pub(crate) const EXPORT_MODAL_FIELDS: [LibraryExportModalField; 4] = [
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LibraryExportModalField {
     Path,
-    Encrypt,
     Password,
     ActionButton,
 }
@@ -35,7 +33,6 @@ impl LibraryExportModalField {
 pub(crate) struct LibraryExportModalState {
     path: String,
     path_cursor: usize,
-    encrypt: bool,
     password: String,
     password_cursor: usize,
     focus: LibraryExportModalField,
@@ -53,7 +50,6 @@ impl LibraryExportModalState {
         Ok(Self {
             path,
             path_cursor,
-            encrypt: true,
             password: String::new(),
             password_cursor: 0,
             focus: LibraryExportModalField::Path,
@@ -68,10 +64,6 @@ impl LibraryExportModalState {
 
     pub(crate) const fn path_cursor(&self) -> usize {
         self.path_cursor
-    }
-
-    pub(crate) const fn encrypt(&self) -> bool {
-        self.encrypt
     }
 
     pub(crate) fn password_masked(&self) -> String {
@@ -124,10 +116,6 @@ impl LibraryExportModalState {
 
     fn visible_fields(&self) -> &'static [LibraryExportModalField] {
         &EXPORT_MODAL_FIELDS
-    }
-
-    fn should_skip_field(&self, field: LibraryExportModalField) -> bool {
-        !self.encrypt && matches!(field, LibraryExportModalField::Password)
     }
 
     pub(crate) fn footer_text(&self) -> &'static str {
@@ -200,21 +188,22 @@ impl LibraryExportModalState {
             ));
         }
 
-        if self.encrypt {
+        let password = if self.password.trim().is_empty() {
+            None
+        } else {
             taurine_core::exchange::validate_export_password(&self.password)?;
-        }
+            Some(self.password.clone())
+        };
 
         Ok(PendingLibraryExport {
             path: self.path.clone(),
-            encrypt: self.encrypt,
-            password: self.encrypt.then(|| self.password.clone()),
+            password,
         })
     }
 
     fn handle_focused_key(&mut self, key: KeyEvent) -> LibraryInteraction {
         match self.focus {
             LibraryExportModalField::Path => self.handle_path_key(key),
-            LibraryExportModalField::Encrypt => self.handle_encrypt_key(key),
             LibraryExportModalField::Password => self.handle_password_key(key),
             LibraryExportModalField::ActionButton => {
                 unreachable!("ActionButton is handled before focused key dispatch")
@@ -252,20 +241,6 @@ impl LibraryExportModalState {
                 if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
                 self.insert_path_char(ch);
-                LibraryInteraction::handled()
-            }
-            _ => LibraryInteraction::handled(),
-        }
-    }
-
-    fn handle_encrypt_key(&mut self, key: KeyEvent) -> LibraryInteraction {
-        match (key.code, key.modifiers) {
-            (KeyCode::Char(' '), KeyModifiers::NONE) => {
-                self.encrypt = !self.encrypt;
-                if !self.encrypt {
-                    self.password.clear();
-                    self.password_cursor = 0;
-                }
                 LibraryInteraction::handled()
             }
             _ => LibraryInteraction::handled(),
@@ -320,20 +295,12 @@ impl LibraryExportModalState {
             if self.focus == LibraryExportModalField::ActionButton {
                 return;
             }
-            let mut next = current_index + 1;
-            while next < fields.len() && self.should_skip_field(fields[next]) {
-                next += 1;
-            }
-            self.focus = fields[next.min(fields.len() - 1)];
+            self.focus = fields[(current_index + 1).min(fields.len() - 1)];
         } else {
             if current_index == 0 {
                 return;
             }
-            let mut prev = current_index - 1;
-            while prev > 0 && self.should_skip_field(fields[prev]) {
-                prev -= 1;
-            }
-            self.focus = fields[prev];
+            self.focus = fields[current_index - 1];
         }
     }
 
@@ -398,15 +365,11 @@ pub(crate) struct LibraryExportResultModalState {
 }
 
 impl LibraryExportResultModalState {
-    pub(crate) fn new(path: &Path, encrypt: bool) -> Self {
-        let body = if encrypt {
-            format!(
-                "Triggers are exported to: {} as an encrypted export.",
-                path.display()
-            )
-        } else {
-            format!("Triggers are exported to: {}", path.display())
-        };
+    pub(crate) fn new(path: &Path) -> Self {
+        let body = format!(
+            "Triggers are exported to: {} as an encrypted export.",
+            path.display()
+        );
 
         Self { body }
     }

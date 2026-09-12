@@ -18,10 +18,8 @@ pub use import::{
     ExistingTriggerConflict, ImportConflictAction, import_payload_transactionally, import_triggers,
 };
 
-pub const PLAINTEXT_MAGIC_HEADER: [u8; 4] = *b"TAUP";
-pub const ENCRYPTED_MAGIC_HEADER: [u8; 4] = *b"TAU1";
+pub const TAU_MAGIC: [u8; 4] = *b"TAU\x00";
 pub const EXCHANGE_SCHEMA_VERSION: u32 = 1;
-const MAGIC_HEADER_LEN: usize = 4;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExchangePayload {
@@ -47,12 +45,6 @@ impl ExchangePayload {
         }
         Ok(())
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExchangeFormat {
-    Plaintext,
-    Encrypted,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -88,59 +80,15 @@ pub struct ScriptExport {
     pub content: String,
 }
 
-pub fn encode_plaintext_payload(payload: &ExchangePayload) -> crate::Result<Vec<u8>> {
-    let json = serialize_payload(payload)?;
-    let mut encoded = Vec::with_capacity(MAGIC_HEADER_LEN + json.len());
-    encoded.extend_from_slice(&PLAINTEXT_MAGIC_HEADER);
-    encoded.extend_from_slice(&json);
-    Ok(encoded)
-}
-
-pub fn decode_plaintext_payload(bytes: &[u8]) -> crate::Result<ExchangePayload> {
-    match detect_exchange_format(bytes)? {
-        ExchangeFormat::Plaintext => deserialize_payload(&bytes[MAGIC_HEADER_LEN..]),
-        ExchangeFormat::Encrypted => Err(crate::Error::Config(
-            "expected plaintext (TAUP) but got encrypted (TAU1)".to_string(),
-        )),
-    }
-}
-
-pub fn detect_exchange_format(bytes: &[u8]) -> crate::Result<ExchangeFormat> {
-    if bytes.len() < MAGIC_HEADER_LEN {
-        return Err(crate::Error::Config(
-            "file too short for valid header".to_string(),
-        ));
-    }
-
-    let header = &bytes[..MAGIC_HEADER_LEN];
-    if header == PLAINTEXT_MAGIC_HEADER {
-        Ok(ExchangeFormat::Plaintext)
-    } else if header == ENCRYPTED_MAGIC_HEADER {
-        Ok(ExchangeFormat::Encrypted)
-    } else {
-        Err(crate::Error::Config(
-            "bad file header, expected TAUP or TAU1".to_string(),
-        ))
-    }
-}
-
 pub fn decode_exchange_blob(
     bytes: &[u8],
     password: Option<&str>,
 ) -> crate::Result<ExchangePayload> {
-    match detect_exchange_format(bytes)? {
-        ExchangeFormat::Plaintext => decode_plaintext_payload(bytes),
-        ExchangeFormat::Encrypted => {
-            let password = password.ok_or_else(|| {
-                crate::Error::Config("password required for encrypted import".to_string())
-            })?;
-            let mut plaintext = crypto::decrypt(bytes, password)?;
-            let payload = deserialize_payload(&plaintext);
-            use zeroize::Zeroize;
-            plaintext.zeroize();
-            payload
-        }
-    }
+    let mut plaintext = crypto::decrypt(bytes, password)?;
+    let payload = deserialize_payload(&plaintext);
+    use zeroize::Zeroize;
+    plaintext.zeroize();
+    payload
 }
 
 pub fn payload_contains_run_variables(payload: &ExchangePayload) -> bool {
@@ -329,7 +277,7 @@ mod tests {
     }
 
     #[test]
-    fn taup_plaintext_codec_round_trips_and_rejects_invalid_headers() {
+    fn tau_blob_round_trips_without_password() {
         let payload = ExchangePayload::new(vec![TriggerExport {
             name: "Greeting".to_string(),
             description: None,
@@ -344,44 +292,28 @@ mod tests {
             assets: Vec::new(),
         }]);
 
-        let encoded = encode_plaintext_payload(&payload).unwrap();
-        assert_eq!(
-            &encoded[..PLAINTEXT_MAGIC_HEADER.len()],
-            &PLAINTEXT_MAGIC_HEADER
-        );
-        assert_eq!(decode_plaintext_payload(&encoded).unwrap(), payload);
+        let encoded = crate::exchange::export::encode_exchange_blob(&payload, None).unwrap();
+        assert_eq!(&encoded[..TAU_MAGIC.len()], &TAU_MAGIC);
+        assert_eq!(decode_exchange_blob(&encoded, None).unwrap(), payload);
 
-        let err = decode_plaintext_payload(b"TAU1not-json").unwrap_err();
-        assert!(err.to_string().contains("TAU1"));
+        let mut bad = vec![0u8; 128];
+        bad[..4].copy_from_slice(b"BADS");
+        let err = decode_exchange_blob(&bad, None).unwrap_err();
+        assert!(err.to_string().contains("TAU"));
     }
 
     #[test]
-    fn detect_exchange_format_routes_taup_and_tau1_headers() {
-        assert_eq!(
-            detect_exchange_format(b"TAUP{}").unwrap(),
-            ExchangeFormat::Plaintext
-        );
-        assert_eq!(
-            detect_exchange_format(b"TAU1opaque").unwrap(),
-            ExchangeFormat::Encrypted
-        );
-
-        let err = detect_exchange_format(b"BADS").unwrap_err();
-        assert!(err.to_string().contains("TAUP or TAU1"));
-    }
-
-    #[test]
-    fn decode_exchange_blob_handles_plaintext_without_password() {
+    fn decode_exchange_blob_round_trips_passwordless() {
         let payload = ExchangePayload::new(vec![]);
-        let encoded = encode_plaintext_payload(&payload).unwrap();
+        let encoded = crate::exchange::export::encode_exchange_blob(&payload, None).unwrap();
 
         assert_eq!(decode_exchange_blob(&encoded, None).unwrap(), payload);
     }
 
     #[test]
-    fn decode_exchange_blob_requires_password_for_tau1() {
+    fn decode_exchange_blob_requires_password_when_flag_set() {
         let serialized = serialize_payload(&ExchangePayload::new(vec![])).unwrap();
-        let blob = crypto::encrypt(&serialized, "hunter22").unwrap();
+        let blob = crypto::encrypt(&serialized, Some("hunter22")).unwrap();
 
         let err = decode_exchange_blob(&blob, None).unwrap_err();
         assert!(err.to_string().contains("password required"));

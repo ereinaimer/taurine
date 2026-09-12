@@ -109,9 +109,6 @@ pub(crate) enum Commands {
     Export {
         /// Destination file path
         path: Option<std::path::PathBuf>,
-        /// Plaintext (no encryption)
-        #[arg(short = 'p', long)]
-        plain: bool,
         /// Skip interactive prompts
         #[arg(short = 'y', long)]
         yes: bool,

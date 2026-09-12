@@ -66,7 +66,6 @@ impl Drop for OverlaySession {
 #[derive(Debug)]
 pub struct ExportFormResult {
     pub path: PathBuf,
-    pub encrypt: bool,
     pub password: Option<String>,
 }
 
@@ -88,7 +87,7 @@ pub fn run_export_overlay() -> CoreResult<Option<ExportFormResult>> {
 
     let result = loop {
         let text_focused = state.focus() == LibraryExportModalField::Path
-            || (state.focus() == LibraryExportModalField::Password && state.encrypt());
+            || state.focus() == LibraryExportModalField::Password;
         if text_focused {
             session
                 .terminal
@@ -172,7 +171,6 @@ pub fn run_export_overlay() -> CoreResult<Option<ExportFormResult>> {
         if let Some(pending) = interaction.pending_export() {
             break Some(ExportFormResult {
                 path: pending.path.clone().into(),
-                encrypt: pending.encrypt,
                 password: pending.password.clone(),
             });
         }
@@ -352,88 +350,6 @@ fn render_overlay_notification(frame: &mut ratatui::Frame, message: &str) {
         ),
         inner,
     );
-}
-
-pub fn prompt_password(label: &str, with_confirmation: bool) -> CoreResult<Option<String>> {
-    let mut session = OverlaySession::new()
-        .map_err(|e| taurine_core::Error::Service(format!("Failed to initialize overlay: {e}")))?;
-    let mut password = String::new();
-    let mut confirm = String::new();
-    let mut focus: usize = 0;
-    let mut error: Option<String> = None;
-
-    let result =
-        loop {
-            let text_focused = focus == 0 || (with_confirmation && focus == 1);
-            if text_focused {
-                session.terminal.show_cursor().map_err(|e| {
-                    taurine_core::Error::Service(format!("Cursor show failed: {e}"))
-                })?;
-            }
-            session.terminal.draw(|f| {
-                crate::overlay::ui::render_password_popup(
-                    f,
-                    label,
-                    with_confirmation,
-                    &password,
-                    &confirm,
-                    focus,
-                    error.as_deref(),
-                );
-            })?;
-            if !text_focused {
-                session.terminal.hide_cursor().map_err(|e| {
-                    taurine_core::Error::Service(format!("Cursor hide failed: {e}"))
-                })?;
-            }
-
-            if let Event::Key(key) = crossterm::event::read().map_err(|e| {
-                taurine_core::Error::Service(format!("Overlay event read failed: {e}"))
-            })? {
-                if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
-                    continue;
-                }
-                match key.code {
-                    KeyCode::Esc => break None,
-                    KeyCode::Enter => {
-                        if focus == 2 || (!with_confirmation && focus == 1) {
-                            if with_confirmation && password != confirm {
-                                error = Some("Passwords do not match.".to_string());
-                            } else if password.is_empty() {
-                                error = Some("Password cannot be empty.".to_string());
-                            } else {
-                                break Some(password.clone());
-                            }
-                        } else {
-                            let max_focus = if with_confirmation { 3 } else { 2 };
-                            focus = (focus + 1).min(max_focus);
-                        }
-                    }
-                    KeyCode::Tab => {
-                        let max_focus = if with_confirmation { 4 } else { 3 };
-                        focus = (focus + 1) % max_focus;
-                    }
-                    KeyCode::Char(c) => {
-                        error = None;
-                        if focus == 0 {
-                            password.push(c);
-                        } else if with_confirmation && focus == 1 {
-                            confirm.push(c);
-                        }
-                    }
-                    KeyCode::Backspace => {
-                        if focus == 0 {
-                            password.pop();
-                        } else if with_confirmation && focus == 1 {
-                            confirm.pop();
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        };
-
-    Ok(result)
 }
 
 pub fn run_conflict_prompt(

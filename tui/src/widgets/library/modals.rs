@@ -13,7 +13,7 @@ use crate::widgets::library::state::{
     LibraryImportModalState, LibraryImportResultModalState, LibraryImportRunVariablesModalState,
     LibraryModal, LibraryModalField, LibrarySelectState,
 };
-use crate::widgets::util::{self, yes_no_label};
+use crate::widgets::util::{self};
 
 const EXPORT_RESULT_MODAL_TITLE: &str = "Export complete";
 const IMPORT_RUN_VARIABLES_WARNING_LINES: [&str; 3] = [
@@ -376,7 +376,6 @@ fn render_library_export_modal(
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
-            Constraint::Length(1),
             Constraint::Min(0),
         ])
         .split(inner);
@@ -398,33 +397,22 @@ fn render_library_export_modal(
         theme,
     );
 
-    let encrypt = state.encrypt();
     let focused = |field| state.focus() == field;
-
-    util::render_modal_key_value_row(
-        frame,
-        sections[2],
-        "Encrypt",
-        yes_no_label(encrypt),
-        focused(LibraryExportModalField::Encrypt),
-        false,
-        theme,
-    );
 
     let password_focused = focused(LibraryExportModalField::Password);
     util::render_modal_password_row(
         frame,
-        sections[3],
-        "Password",
+        sections[2],
+        "Password (optional)",
         &state.password_display_value(),
         state.password_cursor(),
-        password_focused && encrypt,
-        !encrypt,
+        password_focused,
+        false,
         false,
         theme,
     );
 
-    let feedback_area = sections[4];
+    let feedback_area = sections[3];
     let (feedback_text, feedback_style) = if let Some(error) = state.error() {
         (
             error,
@@ -452,7 +440,7 @@ fn render_library_export_modal(
             Constraint::Length(1),
             Constraint::Length(0),
         ])
-        .split(sections[5]);
+        .split(sections[4]);
     util::render_action_buttons(
         frame,
         buttons_area[1],
@@ -470,11 +458,11 @@ fn render_library_export_modal(
                 sections[1].y,
             ));
         }
-        LibraryExportModalField::Password if encrypt => {
-            let label_width = sections[3].width.min(12);
+        LibraryExportModalField::Password => {
+            let label_width = sections[2].width.min(12);
             frame.set_cursor_position((
-                sections[3].x + label_width + state.password_cursor() as u16,
-                sections[3].y,
+                sections[2].x + label_width + state.password_cursor() as u16,
+                sections[2].y,
             ));
         }
         _ => {}

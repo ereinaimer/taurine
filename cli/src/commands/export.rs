@@ -4,45 +4,25 @@ use taurine_core::db::init;
 use taurine_core::exchange::{encode_exchange_blob, export_triggers, resolve_export_path};
 use zeroize::Zeroize;
 
-pub fn execute(path: Option<PathBuf>, plain: bool, yes: bool) -> taurine_core::error::Result<()> {
-    let (path, plain, password) = if !yes {
+pub fn execute(path: Option<PathBuf>, yes: bool) -> taurine_core::error::Result<()> {
+    let (path, password) = if !yes {
         match taurine_tui::run_export_overlay()? {
-            Some(result) => (Some(result.path), !result.encrypt, result.password),
+            Some(result) => (Some(result.path), result.password),
             None => return Ok(()),
         }
     } else {
-        (path, plain, None)
+        (path, None)
     };
 
     let path = resolve_export_path(path)?;
     let conn = init::setup()?;
     let payload = export_triggers(&conn)?;
-    let encoded = if plain {
-        encode_exchange_blob(&payload, false, None)?
-    } else if yes {
-        let diag = taurine_core::diagnostic::Diagnostic::problem(
-            "Encryption password is required for non-interactive export",
-        )
-        .help("Use --plain to export unencrypted triggers, or run without -y for interactive password prompt:")
-        .example("taurine export --plain -y")
-        .example("taurine export ./backup.tau --plain -y");
-        return Err(taurine_core::error::Error::Config(diag.render()));
-    } else {
-        let mut password =
-            match password {
-                Some(pw) => pw,
-                None => taurine_tui::prompt_password("Encryption password:", true)?.ok_or_else(
-                    || taurine_core::error::Error::Config("Export cancelled.".to_string()),
-                )?,
-            };
-        if let Err(err) = taurine_core::exchange::validate_export_password(&password) {
-            password.zeroize();
-            return Err(err);
-        }
-        let result = encode_exchange_blob(&payload, true, Some(password.as_str()));
-        password.zeroize();
-        result?
-    };
+    let mut password = password;
+    let encoded = encode_exchange_blob(&payload, password.as_deref());
+    if let Some(ref mut pw) = password {
+        pw.zeroize();
+    }
+    let encoded = encoded?;
 
     taurine_core::exchange::write_export_file(&path, &encoded)?;
 
@@ -65,49 +45,41 @@ pub fn execute(path: Option<PathBuf>, plain: bool, yes: bool) -> taurine_core::e
 #[cfg(test)]
 mod tests {
     use super::*;
-    use taurine_core::exchange::{ENCRYPTED_MAGIC_HEADER, ExchangePayload, PLAINTEXT_MAGIC_HEADER};
+    use taurine_core::exchange::{ExchangePayload, TAU_MAGIC};
 
     fn sample_payload() -> ExchangePayload {
         ExchangePayload::new(vec![])
     }
 
     #[test]
-    fn encode_exchange_blob_uses_taup_for_plaintext_exports() {
-        let blob = encode_exchange_blob(&sample_payload(), false, None).unwrap();
-        assert_eq!(&blob[..4], &PLAINTEXT_MAGIC_HEADER);
+    fn encode_exchange_blob_is_always_encrypted() {
+        for password in [None, Some("hunter222")] {
+            let blob = encode_exchange_blob(&sample_payload(), password).unwrap();
+            assert_eq!(&blob[..4], &TAU_MAGIC);
+            assert!(
+                !blob
+                    .windows(b"schema_version".len())
+                    .any(|window| window == b"schema_version"),
+                "Export should be an opaque binary blob"
+            );
+        }
     }
 
     #[test]
-    fn encode_exchange_blob_uses_tau1_for_encrypted_exports() {
-        let blob = encode_exchange_blob(&sample_payload(), true, Some("hunter222")).unwrap();
-        assert_eq!(&blob[..4], &ENCRYPTED_MAGIC_HEADER);
-        assert!(
-            !blob
-                .windows(b"schema_version".len())
-                .any(|window| window == b"schema_version"),
-            "Encrypted export should be an opaque binary blob"
-        );
-    }
-
-    #[test]
-    fn test_export_non_interactive_missing_password_diagnostic() {
+    fn test_export_non_interactive_passwordless_succeeds() {
         let _guard = crate::commands::TEST_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().expect("temp dir");
         // SAFETY: Test runs under TEST_LOCK and temporary dir is cleaned up.
         unsafe { std::env::set_var("TAURINE_DATA_DIR", dir.path()) };
+        let target = dir.path().join("backup.tau");
 
-        let result = execute(None, false, true);
+        let result = execute(Some(target.clone()), true);
 
         // SAFETY: Test runs under TEST_LOCK to restore process environment safely.
         unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
 
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("Encryption password is required for non-interactive export"),
-            "Error was: {err}"
-        );
-        assert!(err.contains("--plain"), "Error was: {err}");
-        assert!(!err.contains('`'), "Must not contain backticks: {err}");
-        assert!(!err.contains('\''), "Must not contain single quotes: {err}");
+        result.unwrap();
+        let bytes = std::fs::read(&target).unwrap();
+        assert_eq!(&bytes[..4], &TAU_MAGIC);
     }
 }

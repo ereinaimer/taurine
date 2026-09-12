@@ -8,9 +8,9 @@ use taurine_core::db::crud::{
 };
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter, decompress};
 use taurine_core::exchange::{
-    ExchangeFormat, ExchangePayload, ImportConflictAction, decode_exchange_blob,
-    detect_exchange_format, encode_exchange_blob, export_triggers, import_payload_transactionally,
-    payload_contains_run_variables, resolve_export_path,
+    ExchangePayload, ImportConflictAction, decode_exchange_blob, encode_exchange_blob,
+    export_triggers, import_payload_transactionally, payload_contains_run_variables,
+    resolve_export_path,
 };
 
 use crate::widgets::library::state::{
@@ -172,7 +172,6 @@ impl PendingLibraryDelete {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PendingLibraryExport {
     pub(crate) path: String,
-    pub(crate) encrypt: bool,
     pub(crate) password: Option<String>,
 }
 
@@ -182,17 +181,13 @@ impl PendingLibraryExport {
         let conn = taurine_core::db::init::setup()?;
         let payload = export_triggers(&conn)?;
         let mut pw = self.password.clone();
-        let encoded_res = encode_exchange_blob(&payload, self.encrypt, pw.as_deref());
+        let encoded_res = encode_exchange_blob(&payload, pw.as_deref());
         if let Some(ref mut p) = pw {
             p.zeroize();
         }
         let encoded = encoded_res?;
         taurine_core::exchange::write_export_file(&path, &encoded)?;
         Ok(path)
-    }
-
-    pub(crate) const fn encrypt(&self) -> bool {
-        self.encrypt
     }
 }
 
@@ -240,15 +235,15 @@ impl PendingLibraryImportPrepare {
     pub(crate) fn prepare(&self) -> taurine_core::Result<LibraryImportPreparedResult> {
         let path = self.path.trim();
         let bytes = std::fs::read(path)?;
-        let format = detect_exchange_format(&bytes)?;
-        if format == ExchangeFormat::Encrypted && self.password.as_deref().unwrap_or("").is_empty()
-        {
-            return Err(taurine_core::Error::Config(
-                "A password is required to import TAU1 exchange files.".to_string(),
-            ));
-        }
-
-        let payload = decode_exchange_blob(&bytes, self.password.as_deref())?;
+        let payload = match decode_exchange_blob(&bytes, self.password.as_deref()) {
+            Ok(payload) => payload,
+            Err(err) if err.to_string().contains("password required") => {
+                return Err(taurine_core::Error::Config(
+                    "A password is required to import this file.".to_string(),
+                ));
+            }
+            Err(err) => return Err(err),
+        };
         let prepared = PreparedLibraryImport {
             path: self.path.clone(),
             payload,

@@ -17,7 +17,7 @@ use taurine_core::exchange::{ExistingTriggerConflict, TriggerExport};
 
 use self::actions::{fill_bg, render_action_buttons_overlay};
 use self::rows::{
-    desc_area, padded, render_desc, render_path_row, render_select_list, row_input, row_key_value,
+    desc_area, padded, render_desc, render_path_row, render_select_list, row_key_value,
     row_password,
 };
 pub(crate) fn render_export_popup(frame: &mut Frame, state: &LibraryExportModalState) {
@@ -29,7 +29,6 @@ pub(crate) fn render_export_popup(frame: &mut Frame, state: &LibraryExportModalS
         .constraints([
             Constraint::Length(1),
             Constraint::Length(1),
-            Constraint::Length(2),
             Constraint::Length(2),
             Constraint::Length(2),
             Constraint::Length(1),
@@ -57,38 +56,22 @@ pub(crate) fn render_export_popup(frame: &mut Frame, state: &LibraryExportModalS
     );
     render_desc(frame, path_desc, "file path for the export", path_focused);
 
-    let (enc_area, enc_desc) = desc_area(sections[3]);
-    let encrypt_focused = state.focus() == LibraryExportModalField::Encrypt;
-    let encrypt_label = if state.encrypt() { "yes" } else { "no" };
-    row_key_value(frame, enc_area, " Encrypt", encrypt_label, encrypt_focused);
-    render_desc(
-        frame,
-        enc_desc,
-        "password to encrypt the export",
-        encrypt_focused,
-    );
-
-    let encrypt = state.encrypt();
-    let (pw_area, pw_desc) = desc_area(sections[4]);
+    let (pw_area, pw_desc) = desc_area(sections[3]);
     let password_focused = state.focus() == LibraryExportModalField::Password;
     row_password(
         frame,
         pw_area,
         " Password",
         state.password(),
-        password_focused && encrypt,
-        !encrypt,
+        password_focused,
+        false,
         false,
     );
     render_desc(
         frame,
         pw_desc,
-        if encrypt {
-            "password used for encryption"
-        } else {
-            "encryption disabled"
-        },
-        password_focused && encrypt,
+        "optional password for the export",
+        password_focused,
     );
 
     let feedback_style = if state.error().is_some() {
@@ -103,12 +86,12 @@ pub(crate) fn render_export_popup(frame: &mut Frame, state: &LibraryExportModalS
     let feedback_text = state.error().unwrap_or("");
     frame.render_widget(
         Paragraph::new(feedback_text).style(feedback_style),
-        sections[5],
+        sections[4],
     );
 
     render_action_buttons_overlay(
         frame,
-        sections[6],
+        sections[5],
         "Cancel",
         "Export",
         state.focus() == LibraryExportModalField::ActionButton,
@@ -121,8 +104,8 @@ pub(crate) fn render_export_popup(frame: &mut Frame, state: &LibraryExportModalS
                 frame.set_cursor_position((cx, cy));
             }
         }
-        LibraryExportModalField::Password if state.encrypt() => {
-            let (pw_area, _) = desc_area(sections[4]);
+        LibraryExportModalField::Password => {
+            let (pw_area, _) = desc_area(sections[3]);
             let val_x = pw_area.x
                 + pw_area
                     .width
@@ -195,7 +178,7 @@ pub(crate) fn render_import_popup(frame: &mut Frame, state: &LibraryImportModalS
         frame,
         pw_desc,
         if password_disabled {
-            "file is not encrypted"
+            "no password needed for this file"
         } else {
             "password to decrypt the file"
         },
@@ -261,103 +244,6 @@ pub(crate) fn render_import_popup(frame: &mut Frame, state: &LibraryImportModalS
     }
 }
 
-pub(crate) fn render_password_popup(
-    frame: &mut Frame,
-    label: &str,
-    with_confirmation: bool,
-    password: &str,
-    confirm: &str,
-    focus: usize,
-    error: Option<&str>,
-) {
-    fill_bg(frame);
-    let inner = padded(frame.area());
-
-    let sections = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(0),
-        ])
-        .split(inner);
-
-    let title_style = Style::default()
-        .fg(DARK_THEME.text)
-        .add_modifier(Modifier::BOLD);
-    frame.render_widget(Paragraph::new(label).style(title_style), sections[0]);
-
-    let pw_label_style = Style::default().fg(DARK_THEME.text_muted);
-    frame.render_widget(
-        Paragraph::new(" Password").style(pw_label_style),
-        sections[2],
-    );
-
-    let pw_focused = focus == 0;
-    row_input(
-        frame,
-        sections[3],
-        password,
-        password.chars().count(),
-        pw_focused,
-    );
-
-    if with_confirmation {
-        let confirm_label_style = Style::default().fg(DARK_THEME.text_muted);
-        frame.render_widget(
-            Paragraph::new(" Confirm").style(confirm_label_style),
-            sections[4],
-        );
-
-        let confirm_focused = focus == 1;
-        row_input(
-            frame,
-            sections[5],
-            confirm,
-            confirm.chars().count(),
-            confirm_focused,
-        );
-    }
-
-    let footer_area = if with_confirmation {
-        sections[6]
-    } else {
-        sections[4]
-    };
-    let (text, style) = if let Some(err) = error {
-        (
-            err.to_string(),
-            Style::default()
-                .fg(DARK_THEME.error)
-                .add_modifier(Modifier::BOLD),
-        )
-    } else {
-        (
-            "Enter Next Field   Tab Switch   Ctrl+S Confirm   Esc Cancel".to_string(),
-            Style::default()
-                .fg(DARK_THEME.text_muted)
-                .add_modifier(Modifier::DIM),
-        )
-    };
-    frame.render_widget(Paragraph::new(text).style(style), footer_area);
-
-    if focus == 0 {
-        frame.set_cursor_position((
-            sections[3].x + 1 + password.chars().count() as u16,
-            sections[3].y,
-        ));
-    } else if with_confirmation && focus == 1 {
-        frame.set_cursor_position((
-            sections[5].x + 1 + confirm.chars().count() as u16,
-            sections[5].y,
-        ));
-    }
-}
-
 pub(crate) fn export_field_at(
     col: u16,
     row: u16,
@@ -377,18 +263,16 @@ pub(crate) fn export_field_at(
     let section = match inner_row {
         2..=3 => 2,
         4..=5 => 3,
-        6..=7 => 4,
-        9..=9 => 6,
+        7..=7 => 5,
         _ => return None,
     };
     let field = match section {
         2 => LibraryExportModalField::Path,
-        3 => LibraryExportModalField::Encrypt,
-        4 => LibraryExportModalField::Password,
-        6 => LibraryExportModalField::ActionButton,
+        3 => LibraryExportModalField::Password,
+        5 => LibraryExportModalField::ActionButton,
         _ => return None,
     };
-    let button = if section == 6 {
+    let button = if section == 5 {
         let center = inner_x + inner_w / 2;
         Some(if col < center {
             ButtonSelection::Cancel

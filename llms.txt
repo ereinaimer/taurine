@@ -52,7 +52,7 @@ A fast, secure and easy-to-use text expander built in Rust. Taurine helps you ty
 Validation limits: trigger string ≤200 chars, text output ≤100 KB, script content ≤1 MB, display name ≤200, description ≤1000. Tags are normalized (trimmed, lowercased, deduped; max 20 per trigger, 50 chars each). App filters accept only `exe:`/`class:`/`title:` prefixes. Dead `[use("name")]` references are rejected at save time.
 
 ### 2.3 Import / Export
-*   `taurine export [path] [-y --plain -stx]`: Exports triggers to a backup file `.tau`. Default format `TAU1` is AES-256-GCM encrypted; `--plain` (`-p`) writes human-readable `TAUP` JSON. `-s` includes settings, `-t` includes usage stats, `-x` includes sensitive settings (requires encryption). `-y` skips the TUI. Interactive TUI by default.
+*   `taurine export [path] [-y]`: Exports triggers to a backup file `.tau`. Files are always AES-256-GCM encrypted and only open in Taurine. Setting a password in the TUI adds a second lock (required to import); without one the file still never sits as plaintext. `-s` includes settings, `-t` includes usage stats, `-x` includes sensitive settings. `-y` skips the TUI (no password). Interactive TUI by default.
 *   `taurine import <path> [-y] [--conflict prompt|skip|overwrite] [-s] [-t merge|ignore|overwrite] [-x]`: Imports a backup. Conflicts are keyed on Trigger + Target OS; stats default to `merge`. Imports are atomic — any failure rolls back everything.
 *   Sensitive settings (containing `password`, `secret`, `token`, or `api_key`) are excluded by default.
 

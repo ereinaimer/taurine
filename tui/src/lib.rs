@@ -6,8 +6,8 @@ pub mod terminal;
 mod theme;
 pub use crate::widgets::library::actions::{LibraryImportConflictMode, RememberedConflictChoice};
 pub use overlay::{
-    ExportFormResult, ImportFormResult, prompt_password, run_ai_overlay, run_conflict_prompt,
-    run_export_overlay, run_import_overlay,
+    ExportFormResult, ImportFormResult, run_ai_overlay, run_conflict_prompt, run_export_overlay,
+    run_import_overlay,
 };
 mod widgets;
 
@@ -319,8 +319,7 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
         match pending_export.apply() {
             Ok(path) => {
                 app.library_page_mut().clear_modal();
-                app.library_page_mut()
-                    .open_export_result_modal(&path, pending_export.encrypt());
+                app.library_page_mut().open_export_result_modal(&path);
             }
             Err(error) => app.library_page_mut().set_save_error(error.to_string()),
         }

@@ -79,13 +79,12 @@ impl LibraryImportModalState {
         }
         self.file_is_encrypted = std::fs::File::open(path).ok().and_then(|mut f| {
             use std::io::Read;
-            let mut header = [0u8; 4];
+            let mut header = [0u8; 5];
             f.read_exact(&mut header).ok()?;
-            match &header {
-                b"TAUP" => Some(false),
-                b"TAU1" => Some(true),
-                _ => None,
+            if header[..4] != taurine_core::exchange::TAU_MAGIC {
+                return None;
             }
+            Some(header[4] & 0x01 == 0x01)
         });
         if self.file_is_encrypted == Some(false) && self.focus == LibraryImportModalField::Password
         {

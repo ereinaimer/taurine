@@ -102,8 +102,8 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
         }) => {
             commands::list::execute(sort, asc, desc, json, tag)?;
         }
-        Some(Commands::Export { path, plain, yes }) => {
-            commands::export::execute(path, plain, yes)?;
+        Some(Commands::Export { path, yes }) => {
+            commands::export::execute(path, yes)?;
         }
         Some(Commands::Import {
             path,

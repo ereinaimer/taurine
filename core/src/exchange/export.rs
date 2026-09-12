@@ -1,9 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use super::{
-    ExchangePayload, ScriptExport, TriggerExport, crypto, encode_plaintext_payload,
-    serialize_payload,
-};
+use super::{ExchangePayload, ScriptExport, TriggerExport, crypto, serialize_payload};
 use crate::db::crud::TriggerType;
 use crate::engine::shell::{ScriptBehavior, ScriptInterpreter, decompress};
 use rusqlite::Connection;
@@ -118,20 +115,12 @@ pub fn ensure_tau_extension(mut path: PathBuf) -> PathBuf {
 
 pub fn encode_exchange_blob(
     payload: &ExchangePayload,
-    encrypt: bool,
     password: Option<&str>,
 ) -> crate::Result<Vec<u8>> {
-    if encrypt {
-        let password = password.ok_or_else(|| {
-            crate::Error::Config("password required for encrypted export".to_string())
-        })?;
-        let mut serialized = serialize_payload(payload)?;
-        let result = crypto::encrypt(&serialized, password);
-        serialized.zeroize();
-        result
-    } else {
-        encode_plaintext_payload(payload)
-    }
+    let mut serialized = serialize_payload(payload)?;
+    let result = crypto::encrypt(&serialized, password);
+    serialized.zeroize();
+    result
 }
 
 pub fn write_export_file(path: &Path, data: &[u8]) -> crate::Result<()> {
@@ -262,7 +251,6 @@ fn default_export_path_for_cwd(cwd: &Path, now: OffsetDateTime) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::exchange::ENCRYPTED_MAGIC_HEADER;
     use time::macros::datetime;
 
     #[test]
@@ -291,16 +279,22 @@ mod tests {
     }
 
     #[test]
-    fn encode_exchange_blob_uses_taup_for_plaintext_exports() {
-        let blob = encode_exchange_blob(&ExchangePayload::new(vec![]), false, None).unwrap();
-        assert_eq!(&blob[..4], &super::super::PLAINTEXT_MAGIC_HEADER);
+    fn encode_exchange_blob_is_always_encrypted_tau2() {
+        let blob = encode_exchange_blob(&ExchangePayload::new(vec![]), None).unwrap();
+        assert_eq!(&blob[..4], b"TAU\x00");
+        assert!(
+            !blob
+                .windows(b"schema_version".len())
+                .any(|window| window == b"schema_version"),
+            "Encrypted export should be opaque"
+        );
     }
 
     #[test]
-    fn encode_exchange_blob_uses_tau1_for_encrypted_exports() {
-        let blob =
-            encode_exchange_blob(&ExchangePayload::new(vec![]), true, Some("hunter222")).unwrap();
-        assert_eq!(&blob[..4], &ENCRYPTED_MAGIC_HEADER);
+    fn encode_exchange_blob_with_password_sets_flag() {
+        let blob = encode_exchange_blob(&ExchangePayload::new(vec![]), Some("hunter222")).unwrap();
+        assert_eq!(&blob[..4], b"TAU\x00");
+        assert_eq!(blob[4] & 0x01, 0x01);
         assert!(
             !blob
                 .windows(b"schema_version".len())

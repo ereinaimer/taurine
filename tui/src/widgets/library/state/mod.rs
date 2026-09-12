@@ -190,9 +190,9 @@ impl LibraryPageState {
         self.modal = Some(LibraryModal::Import(LibraryImportModalState::new()));
     }
 
-    pub(crate) fn open_export_result_modal(&mut self, path: &Path, encrypt: bool) {
+    pub(crate) fn open_export_result_modal(&mut self, path: &Path) {
         self.modal = Some(LibraryModal::ExportResult(
-            LibraryExportResultModalState::new(path, encrypt),
+            LibraryExportResultModalState::new(path),
         ));
     }
 

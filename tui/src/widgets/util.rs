@@ -74,10 +74,6 @@ pub(crate) fn input_cursor_line(value: &str, cursor: usize) -> Line<'static> {
     Line::from(spans)
 }
 
-pub(crate) fn yes_no_label(value: bool) -> &'static str {
-    if value { "yes" } else { "no" }
-}
-
 pub(crate) fn visible_range(total: usize, selected: usize, visible_count: usize) -> (usize, usize) {
     if total <= visible_count {
         return (0, total);
