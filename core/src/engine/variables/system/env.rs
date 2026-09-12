@@ -37,7 +37,9 @@ mod tests {
 
     #[test]
     fn test_resolve_env_var() {
-        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        let _guard = crate::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
         unsafe { env::set_var("TAURINE_TEST_VAR", "hello_world") };
         assert_eq!(

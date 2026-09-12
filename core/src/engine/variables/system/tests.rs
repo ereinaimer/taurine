@@ -492,8 +492,22 @@ mod compatibility_finalize_tests {
 
     #[test]
     fn test_template_syntax_spec_compliance_evaluation() {
-        let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+        struct DataDirGuard;
+        impl Drop for DataDirGuard {
+            fn drop(&mut self) {
+                // SAFETY: Serialized via TEST_LOCK; paired with the set_var at entry.
+                // Drop-based so a mid-test panic cannot leak the override.
+                unsafe {
+                    std::env::remove_var("TAURINE_DATA_DIR");
+                }
+            }
+        }
+
+        let _guard = crate::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let (_dir, _conn) = crate::testing::open_test_db();
+        let _env_guard = DataDirGuard;
         unsafe {
             std::env::set_var("TAURINE_DATA_DIR", _dir.path());
         }

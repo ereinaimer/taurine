@@ -819,6 +819,9 @@ fn test_unknown_trigger_does_not_expand() {
 
 #[test]
 fn unknown_trigger_does_not_expand_after_prior_expansion() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let state = Arc::new(EngineState::new());
     state.load_actions(vec![
         (

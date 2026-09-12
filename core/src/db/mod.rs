@@ -349,8 +349,8 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner());
         init_tracing_for_tests();
 
-        let test_dir = std::env::temp_dir().join("taurine_db_perms_test");
-        let _ = std::fs::remove_dir_all(&test_dir);
+        let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
+        let test_dir = tmp.path().to_path_buf();
 
         unsafe { std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
 
@@ -375,8 +375,7 @@ mod tests {
             assert_eq!(db_metadata.permissions().mode() & 0o777, 0o600);
         }
 
-        // Cleanup
-        let _ = std::fs::remove_dir_all(&test_dir);
+        // Cleanup (tmp dir auto-removed on drop)
         unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
     }
 }

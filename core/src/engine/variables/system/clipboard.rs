@@ -228,7 +228,9 @@ mod tests {
 
     #[test]
     fn test_clip_manager_ignores_empty_large_and_duplicate_payloads() {
-        let _guard = crate::utils::test_utils::TEST_LOCK.lock().unwrap();
+        let _guard = crate::utils::test_utils::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         crate::settings::set_cached_clipboard_history_enabled(true);
         crate::settings::set_cached_clipboard_history_retention_secs(300);
 
@@ -245,7 +247,9 @@ mod tests {
 
     #[test]
     fn test_clip_manager_keeps_three_items_in_ring_order() {
-        let _guard = crate::utils::test_utils::TEST_LOCK.lock().unwrap();
+        let _guard = crate::utils::test_utils::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         crate::settings::set_cached_clipboard_history_enabled(true);
         crate::settings::set_cached_clipboard_history_retention_secs(300);
 
@@ -264,7 +268,9 @@ mod tests {
 
     #[test]
     fn test_clip_manager_respects_history_toggle() {
-        let _guard = crate::utils::test_utils::TEST_LOCK.lock().unwrap();
+        let _guard = crate::utils::test_utils::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         crate::settings::set_cached_clipboard_history_retention_secs(300);
 
         let manager = ClipManager::new();
@@ -280,7 +286,9 @@ mod tests {
 
     #[test]
     fn test_clip_manager_clears_history() {
-        let _guard = crate::utils::test_utils::TEST_LOCK.lock().unwrap();
+        let _guard = crate::utils::test_utils::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         crate::settings::set_cached_clipboard_history_enabled(true);
         crate::settings::set_cached_clipboard_history_retention_secs(300);
 
@@ -294,7 +302,9 @@ mod tests {
 
     #[test]
     fn test_clip_manager_prunes_expired_entries() {
-        let _guard = crate::utils::test_utils::TEST_LOCK.lock().unwrap();
+        let _guard = crate::utils::test_utils::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         crate::settings::set_cached_clipboard_history_enabled(true);
 
         let manager = ClipManager::new();

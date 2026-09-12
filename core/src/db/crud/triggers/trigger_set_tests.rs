@@ -8,7 +8,9 @@ use rusqlite::Connection;
 
 #[test]
 fn test_create_trigger_name_exceeds_max_length() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, mut conn) = crate::testing::open_test_db();
 
     let long_name = "a".repeat(201);
@@ -32,7 +34,9 @@ fn test_create_trigger_name_exceeds_max_length() {
 
 #[test]
 fn test_create_trigger_description_exceeds_max_length() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, mut conn) = crate::testing::open_test_db();
 
     let long_desc = "a".repeat(1001);
@@ -94,7 +98,9 @@ fn add_trigger_accepts_valid_regex() {
 
 #[test]
 fn test_create_trigger_short_name_succeeds() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, mut conn) = crate::testing::open_test_db();
 
     let new_trigger = NewTrigger {
@@ -116,7 +122,9 @@ fn test_create_trigger_short_name_succeeds() {
 
 #[test]
 fn test_update_trigger_name_exceeds_max_length() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, mut conn) = crate::testing::open_test_db();
 
     let id = create_trigger(
@@ -163,7 +171,9 @@ fn test_update_trigger_name_exceeds_max_length() {
 
 #[test]
 fn test_update_trigger_description_exceeds_max_length() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, mut conn) = crate::testing::open_test_db();
 
     let id = create_trigger(
@@ -356,7 +366,9 @@ fn test_check_limits_recursive_enforces_ai_count() {
 
 #[test]
 fn test_validate_dead_use_reference() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = crate::testing::open_test_db();
 
     let now = crate::db::now_unix_secs();
@@ -379,7 +391,9 @@ fn test_validate_dead_use_reference() {
 
 #[test]
 fn test_validate_live_reference_passes() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = crate::testing::open_test_db();
 
     let now = crate::db::now_unix_secs();
@@ -396,7 +410,9 @@ fn test_validate_live_reference_passes() {
 
 #[test]
 fn test_validate_self_reference_is_error() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = crate::testing::open_test_db();
 
     // Self-reference is a circular reference — correctly caught by
@@ -413,7 +429,9 @@ fn test_validate_self_reference_is_error() {
 
 #[test]
 fn test_validate_no_references_passes() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = crate::testing::open_test_db();
 
     let result = validate_trigger_limits(&conn, "simple", "just plain text no refs", "text");
@@ -422,7 +440,9 @@ fn test_validate_no_references_passes() {
 
 #[test]
 fn test_update_app_filters_trims_whitespace() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = crate::testing::open_test_db();
 
     let now = crate::db::now_unix_secs();
@@ -445,7 +465,9 @@ fn test_update_app_filters_trims_whitespace() {
 
 #[test]
 fn test_update_app_filters_removes_empty() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = crate::testing::open_test_db();
 
     let now = crate::db::now_unix_secs();
@@ -468,7 +490,9 @@ fn test_update_app_filters_removes_empty() {
 
 #[test]
 fn test_update_app_filters_rejects_unknown_prefix() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = crate::testing::open_test_db();
 
     let result = update_trigger_app_filters(&conn, "fake-id", Some("foo:bar".to_string()), None);
@@ -483,7 +507,9 @@ fn test_update_app_filters_rejects_unknown_prefix() {
 
 #[test]
 fn test_update_app_filters_accepts_valid_prefixes() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = crate::testing::open_test_db();
 
     let now = crate::db::now_unix_secs();
@@ -512,7 +538,9 @@ fn test_update_app_filters_accepts_valid_prefixes() {
 
 #[test]
 fn test_update_app_filters_none_stays_none() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = crate::testing::open_test_db();
 
     let now = crate::db::now_unix_secs();
@@ -577,7 +605,9 @@ fn test_normalize_tags_identity_for_clean() {
 
 #[test]
 fn test_normalize_trigger_nfc() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, mut conn) = crate::testing::open_test_db();
 
     let nfd_e = "e\u{301}";
@@ -613,7 +643,9 @@ fn test_normalize_trigger_nfc() {
 
 #[test]
 fn test_add_trigger_by_type_normalizes_nfc() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = crate::testing::open_test_db();
 
     let nfd_e = "e\u{301}";
@@ -646,7 +678,9 @@ fn test_add_trigger_by_type_normalizes_nfc() {
 
 #[test]
 fn test_add_trigger_by_type_rejects_dead_ref() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = crate::testing::open_test_db();
 
     let result = add_trigger_by_type_with_case(
@@ -668,7 +702,9 @@ fn test_add_trigger_by_type_rejects_dead_ref() {
 
 #[test]
 fn test_add_trigger_with_name_and_description() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = crate::testing::open_test_db();
 
     add_trigger_by_type_with_case(
@@ -699,7 +735,9 @@ fn test_add_trigger_with_name_and_description() {
 
 #[test]
 fn test_update_name_and_description_on_re_add() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = crate::testing::open_test_db();
 
     // First add — no custom name/description
@@ -786,7 +824,9 @@ fn test_update_name_and_description_on_re_add() {
 
 #[test]
 fn test_add_trigger_by_type_with_case_rejects_long_name() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = crate::testing::open_test_db();
 
     let long_name = "a".repeat(201);
@@ -809,7 +849,9 @@ fn test_add_trigger_by_type_with_case_rejects_long_name() {
 
 #[test]
 fn test_add_trigger_by_type_with_case_rejects_long_description() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = crate::testing::open_test_db();
 
     let long_desc = "a".repeat(1001);
@@ -832,7 +874,9 @@ fn test_add_trigger_by_type_with_case_rejects_long_description() {
 
 #[test]
 fn test_re_add_same_output_no_name_returns_already_exists() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = crate::testing::open_test_db();
 
     add_trigger_by_type_with_case(
@@ -869,7 +913,9 @@ fn test_re_add_same_output_no_name_returns_already_exists() {
 
 #[test]
 fn test_duplicate_name_warns() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, mut conn) = crate::testing::open_test_db();
 
     create_trigger(
@@ -914,7 +960,9 @@ fn test_duplicate_name_warns() {
 
 #[test]
 fn test_duplicate_name_warn_update_excludes_self() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, mut conn) = crate::testing::open_test_db();
 
     let id = create_trigger(
@@ -971,7 +1019,9 @@ fn create_test_trigger(conn: &Connection) -> String {
 
 #[test]
 fn app_filter_comma_in_title_value_is_preserved() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = crate::testing::open_test_db();
     let id = create_test_trigger(&conn);
 
@@ -998,7 +1048,9 @@ fn app_filter_comma_in_title_value_is_preserved() {
 
 #[test]
 fn app_filter_trailing_backslash_is_preserved() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = crate::testing::open_test_db();
     let id = create_test_trigger(&conn);
 

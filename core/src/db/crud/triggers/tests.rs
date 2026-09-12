@@ -1510,7 +1510,9 @@ fn get_syncable_triggers_returns_only_sync_enabled_rows() {
 
 #[test]
 fn test_record_expansion_usage_updates_trigger_and_stats() {
-    let _guard = crate::testing::TEST_LOCK.lock().unwrap();
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     init_tracing_for_tests();
     let (_dir, mut conn) = open_test_db();
 

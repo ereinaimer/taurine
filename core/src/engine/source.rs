@@ -70,29 +70,27 @@ impl SnippetSource for DatabaseSource {
     }
 }
 
-/// A source that switches between a database source and a fallback source
-/// based on the presence of the `TAURINE_DATA_DIR` DEV override (tests).
+/// A source that prefers in-memory actions and falls back to the database
+/// when the `TAURINE_DATA_DIR` DEV override is present (tests).
 pub struct AdaptiveSource {
     fallback: Arc<dyn SnippetSource>,
-    is_data_override: bool,
 }
 
 impl AdaptiveSource {
     pub fn new(fallback: Arc<dyn SnippetSource>) -> Self {
-        let is_data_override = crate::paths::dev_env_var("TAURINE_DATA_DIR").is_some();
-        Self {
-            fallback,
-            is_data_override,
-        }
+        Self { fallback }
     }
 }
 
 impl SnippetSource for AdaptiveSource {
     fn get_action(&self, keyword: &str) -> Option<crate::db::crud::TriggerAction> {
-        if self.is_data_override {
+        if let Some(action) = self.fallback.get_action(keyword) {
+            return Some(action);
+        }
+        if crate::paths::dev_env_var("TAURINE_DATA_DIR").is_some() {
             return DatabaseSource.get_action(keyword);
         }
-        self.fallback.get_action(keyword)
+        None
     }
 
     fn load_actions(&self, actions: Vec<(String, crate::db::crud::TriggerAction)>) {
