@@ -370,16 +370,11 @@ fn test_audio_theme_apply_and_defaults() {
 
     let valid_themes = [
         "minimal",
-        "soft",
-        "glass",
         "arcade",
         "mechanical",
         "organic",
-        "dreamy",
         "scifi",
         "rubber",
-        "cinematic",
-        "studio",
         "zen",
     ];
 
@@ -451,8 +446,8 @@ fn test_invalid_audio_theme_diagnostic() {
         "expected problem message, got: {msg}"
     );
     assert!(
-        msg.contains("minimal, soft, glass, arcade, mechanical, organic, dreamy, scifi, rubber, cinematic, studio, zen"),
-        "expected options listing all 12 themes, got: {msg}"
+        msg.contains("minimal, arcade, mechanical, organic, scifi, rubber, zen"),
+        "expected options listing all 7 themes, got: {msg}"
     );
     assert!(
         msg.contains("taurine config set audio_theme"),

@@ -202,16 +202,11 @@ pub use manager::SettingsManager;
 pub enum AudioTheme {
     #[default]
     Minimal,
-    Soft,
-    Glass,
     Arcade,
     Mechanical,
     Organic,
-    Dreamy,
     Scifi,
     Rubber,
-    Cinematic,
-    Studio,
     Zen,
 }
 
@@ -219,16 +214,11 @@ impl AudioTheme {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Minimal => "minimal",
-            Self::Soft => "soft",
-            Self::Glass => "glass",
             Self::Arcade => "arcade",
             Self::Mechanical => "mechanical",
             Self::Organic => "organic",
-            Self::Dreamy => "dreamy",
             Self::Scifi => "scifi",
             Self::Rubber => "rubber",
-            Self::Cinematic => "cinematic",
-            Self::Studio => "studio",
             Self::Zen => "zen",
         }
     }
@@ -236,32 +226,22 @@ impl AudioTheme {
     pub const fn all() -> &'static [Self] {
         &[
             Self::Minimal,
-            Self::Soft,
-            Self::Glass,
             Self::Arcade,
             Self::Mechanical,
             Self::Organic,
-            Self::Dreamy,
             Self::Scifi,
             Self::Rubber,
-            Self::Cinematic,
-            Self::Studio,
             Self::Zen,
         ]
     }
 
-    pub const ALL_NAMES: [&'static str; 12] = [
+    pub const ALL_NAMES: [&'static str; 7] = [
         "minimal",
-        "soft",
-        "glass",
         "arcade",
         "mechanical",
         "organic",
-        "dreamy",
         "scifi",
         "rubber",
-        "cinematic",
-        "studio",
         "zen",
     ];
 }
@@ -272,16 +252,11 @@ impl std::str::FromStr for AudioTheme {
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s.trim().to_ascii_lowercase().as_str() {
             "minimal" | "default" => Ok(Self::Minimal),
-            "soft" => Ok(Self::Soft),
-            "glass" => Ok(Self::Glass),
             "arcade" => Ok(Self::Arcade),
             "mechanical" | "typewriter" => Ok(Self::Mechanical),
             "organic" => Ok(Self::Organic),
-            "dreamy" => Ok(Self::Dreamy),
             "scifi" | "sci-fi" => Ok(Self::Scifi),
             "rubber" => Ok(Self::Rubber),
-            "cinematic" => Ok(Self::Cinematic),
-            "studio" => Ok(Self::Studio),
             "zen" => Ok(Self::Zen),
             _ => Err(format!("Unknown audio theme: {s}")),
         }

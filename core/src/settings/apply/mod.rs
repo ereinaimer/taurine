@@ -368,16 +368,11 @@ pub fn parse_boolean_setting_value_with_key(key: &str, value: &str) -> Result<bo
 pub fn parse_audio_theme(value: &str) -> Result<super::AudioTheme> {
     match value.trim().to_ascii_lowercase().as_str() {
         "minimal" | "default" => Ok(super::AudioTheme::Minimal),
-        "soft" => Ok(super::AudioTheme::Soft),
-        "glass" => Ok(super::AudioTheme::Glass),
         "arcade" => Ok(super::AudioTheme::Arcade),
         "mechanical" | "typewriter" => Ok(super::AudioTheme::Mechanical),
         "organic" => Ok(super::AudioTheme::Organic),
-        "dreamy" => Ok(super::AudioTheme::Dreamy),
         "scifi" | "sci-fi" => Ok(super::AudioTheme::Scifi),
         "rubber" => Ok(super::AudioTheme::Rubber),
-        "cinematic" => Ok(super::AudioTheme::Cinematic),
-        "studio" => Ok(super::AudioTheme::Studio),
         "zen" => Ok(super::AudioTheme::Zen),
         other => {
             let diag = Diagnostic::problem(format!("{other} is not an available audio theme"))

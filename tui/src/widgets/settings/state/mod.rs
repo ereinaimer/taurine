@@ -11,18 +11,13 @@ use taurine_core::{
 };
 
 const SPINNER_STYLE_OPTIONS: [&str; 3] = ["classic", "braille", "arc"];
-const AUDIO_THEME_OPTIONS: [&str; 12] = [
+const AUDIO_THEME_OPTIONS: [&str; 7] = [
     "minimal",
-    "soft",
-    "glass",
     "arcade",
     "mechanical",
     "organic",
-    "dreamy",
     "scifi",
     "rubber",
-    "cinematic",
-    "studio",
     "zen",
 ];
 
@@ -364,7 +359,7 @@ mod tests {
 
         assert!(matches!(state.modal, Some(SettingsModal::Select(_))));
         if let Some(SettingsModal::Select(modal_state)) = state.modal {
-            assert_eq!(modal_state.options().len(), 12);
+            assert_eq!(modal_state.options().len(), 7);
             assert_eq!(
                 modal_state.options()[modal_state.selected_index()],
                 "minimal"

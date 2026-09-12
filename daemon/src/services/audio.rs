@@ -6,10 +6,6 @@ use tracing::{debug, warn};
 
 const MINIMAL_PAUSE: &[u8] = include_bytes!("../../../assets/audio/themes/minimal/pause.wav");
 const MINIMAL_RESUME: &[u8] = include_bytes!("../../../assets/audio/themes/minimal/resume.wav");
-const SOFT_PAUSE: &[u8] = include_bytes!("../../../assets/audio/themes/soft/pause.wav");
-const SOFT_RESUME: &[u8] = include_bytes!("../../../assets/audio/themes/soft/resume.wav");
-const GLASS_PAUSE: &[u8] = include_bytes!("../../../assets/audio/themes/glass/pause.wav");
-const GLASS_RESUME: &[u8] = include_bytes!("../../../assets/audio/themes/glass/resume.wav");
 const ARCADE_PAUSE: &[u8] = include_bytes!("../../../assets/audio/themes/arcade/pause.wav");
 const ARCADE_RESUME: &[u8] = include_bytes!("../../../assets/audio/themes/arcade/resume.wav");
 const MECHANICAL_PAUSE: &[u8] = include_bytes!("../../../assets/audio/themes/mechanical/pause.wav");
@@ -17,16 +13,10 @@ const MECHANICAL_RESUME: &[u8] =
     include_bytes!("../../../assets/audio/themes/mechanical/resume.wav");
 const ORGANIC_PAUSE: &[u8] = include_bytes!("../../../assets/audio/themes/organic/pause.wav");
 const ORGANIC_RESUME: &[u8] = include_bytes!("../../../assets/audio/themes/organic/resume.wav");
-const DREAMY_PAUSE: &[u8] = include_bytes!("../../../assets/audio/themes/dreamy/pause.wav");
-const DREAMY_RESUME: &[u8] = include_bytes!("../../../assets/audio/themes/dreamy/resume.wav");
 const SCIFI_PAUSE: &[u8] = include_bytes!("../../../assets/audio/themes/scifi/pause.wav");
 const SCIFI_RESUME: &[u8] = include_bytes!("../../../assets/audio/themes/scifi/resume.wav");
 const RUBBER_PAUSE: &[u8] = include_bytes!("../../../assets/audio/themes/rubber/pause.wav");
 const RUBBER_RESUME: &[u8] = include_bytes!("../../../assets/audio/themes/rubber/resume.wav");
-const CINEMATIC_PAUSE: &[u8] = include_bytes!("../../../assets/audio/themes/cinematic/pause.wav");
-const CINEMATIC_RESUME: &[u8] = include_bytes!("../../../assets/audio/themes/cinematic/resume.wav");
-const STUDIO_PAUSE: &[u8] = include_bytes!("../../../assets/audio/themes/studio/pause.wav");
-const STUDIO_RESUME: &[u8] = include_bytes!("../../../assets/audio/themes/studio/resume.wav");
 const ZEN_PAUSE: &[u8] = include_bytes!("../../../assets/audio/themes/zen/pause.wav");
 const ZEN_RESUME: &[u8] = include_bytes!("../../../assets/audio/themes/zen/resume.wav");
 
@@ -34,26 +24,16 @@ pub fn get_audio_data(theme: AudioTheme, is_paused: bool) -> &'static [u8] {
     match (theme, is_paused) {
         (AudioTheme::Minimal, true) => MINIMAL_PAUSE,
         (AudioTheme::Minimal, false) => MINIMAL_RESUME,
-        (AudioTheme::Soft, true) => SOFT_PAUSE,
-        (AudioTheme::Soft, false) => SOFT_RESUME,
-        (AudioTheme::Glass, true) => GLASS_PAUSE,
-        (AudioTheme::Glass, false) => GLASS_RESUME,
         (AudioTheme::Arcade, true) => ARCADE_PAUSE,
         (AudioTheme::Arcade, false) => ARCADE_RESUME,
         (AudioTheme::Mechanical, true) => MECHANICAL_PAUSE,
         (AudioTheme::Mechanical, false) => MECHANICAL_RESUME,
         (AudioTheme::Organic, true) => ORGANIC_PAUSE,
         (AudioTheme::Organic, false) => ORGANIC_RESUME,
-        (AudioTheme::Dreamy, true) => DREAMY_PAUSE,
-        (AudioTheme::Dreamy, false) => DREAMY_RESUME,
         (AudioTheme::Scifi, true) => SCIFI_PAUSE,
         (AudioTheme::Scifi, false) => SCIFI_RESUME,
         (AudioTheme::Rubber, true) => RUBBER_PAUSE,
         (AudioTheme::Rubber, false) => RUBBER_RESUME,
-        (AudioTheme::Cinematic, true) => CINEMATIC_PAUSE,
-        (AudioTheme::Cinematic, false) => CINEMATIC_RESUME,
-        (AudioTheme::Studio, true) => STUDIO_PAUSE,
-        (AudioTheme::Studio, false) => STUDIO_RESUME,
         (AudioTheme::Zen, true) => ZEN_PAUSE,
         (AudioTheme::Zen, false) => ZEN_RESUME,
     }
