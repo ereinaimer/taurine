@@ -177,7 +177,7 @@ pub fn decrypt(blob: &[u8], password: Option<&str>) -> crate::Result<Vec<u8>> {
         Err(_) => {
             app.zeroize();
             return Err(crate::Error::Config(
-                "wrong password or corrupted file".to_string(),
+                "file is corrupted and cannot be imported".to_string(),
             ));
         }
     };
@@ -185,7 +185,7 @@ pub fn decrypt(blob: &[u8], password: Option<&str>) -> crate::Result<Vec<u8>> {
     let mut dek_app_vec = dek_app;
     let mut dek_app_arr: [u8; KEY_LEN] = dek_app_vec.as_slice().try_into().map_err(|_| {
         dek_app_vec.zeroize();
-        crate::Error::Config("wrong password or corrupted file".to_string())
+        crate::Error::Config("file is corrupted and cannot be imported".to_string())
     })?;
     dek_app_vec.zeroize();
 
@@ -195,30 +195,28 @@ pub fn decrypt(blob: &[u8], password: Option<&str>) -> crate::Result<Vec<u8>> {
         let mut pw_key = derive_key(pw, salt)?;
         let (nonce_p, wrap_pw_ct) = wrap_pw.ok_or_else(|| {
             dek_app_arr.zeroize();
-            crate::Error::Config("wrong password or corrupted file".to_string())
+            crate::Error::Config("file is corrupted and cannot be imported".to_string())
         })?;
         let dek_pw = match open(&pw_key, &nonce_p, wrap_pw_ct) {
             Ok(dek) => dek,
             Err(_) => {
                 pw_key.zeroize();
                 dek_app_arr.zeroize();
-                return Err(crate::Error::Config(
-                    "wrong password or corrupted file".to_string(),
-                ));
+                return Err(crate::Error::Config("wrong password".to_string()));
             }
         };
         pw_key.zeroize();
         if dek_pw.as_slice().ct_eq(dek_app_arr.as_slice()).unwrap_u8() != 1 {
             dek_app_arr.zeroize();
             return Err(crate::Error::Config(
-                "wrong password or corrupted file".to_string(),
+                "file is corrupted and cannot be imported".to_string(),
             ));
         }
         dek_app_arr.zeroize();
         let mut dek_pw_vec = dek_pw;
         let arr: [u8; KEY_LEN] = dek_pw_vec.as_slice().try_into().map_err(|_| {
             dek_pw_vec.zeroize();
-            crate::Error::Config("wrong password or corrupted file".to_string())
+            crate::Error::Config("file is corrupted and cannot be imported".to_string())
         })?;
         dek_pw_vec.zeroize();
         arr
@@ -226,8 +224,9 @@ pub fn decrypt(blob: &[u8], password: Option<&str>) -> crate::Result<Vec<u8>> {
         dek_app_arr
     };
 
-    let plain = open(&dek, &payload_nonce, payload_ct)
-        .map_err(|_| crate::Error::Config("wrong password or corrupted file".to_string()))?;
+    let plain = open(&dek, &payload_nonce, payload_ct).map_err(|_| {
+        crate::Error::Config("file is corrupted and cannot be imported".to_string())
+    })?;
     dek.zeroize();
     Ok(plain)
 }
@@ -245,7 +244,7 @@ fn open(key: &[u8], nonce: &[u8; NONCE_LEN], ciphertext: &[u8]) -> crate::Result
         .map_err(|_| crate::Error::Service("Invalid AES-256-GCM key length".to_string()))?;
     cipher
         .decrypt(&Nonce::from(*nonce), ciphertext)
-        .map_err(|_| crate::Error::Config("wrong password or corrupted file".to_string()))
+        .map_err(|_| crate::Error::Config("file is corrupted and cannot be imported".to_string()))
 }
 
 #[cfg(test)]
@@ -317,7 +316,7 @@ mod tests {
         let blob = encrypt(b"top secret", Some("hunter22")).unwrap();
         let err = decrypt(&blob, Some("wrong password")).unwrap_err();
 
-        assert!(err.to_string().contains("wrong password or corrupted file"));
+        assert_eq!(err.to_string(), "wrong password");
     }
 
     #[test]
@@ -335,7 +334,10 @@ mod tests {
         blob[last] ^= 0x01;
 
         let err = decrypt(&blob, Some("hunter22")).unwrap_err();
-        assert!(err.to_string().contains("wrong password or corrupted file"));
+        assert!(
+            err.to_string()
+                .contains("file is corrupted and cannot be imported")
+        );
     }
 
     #[test]
@@ -345,7 +347,10 @@ mod tests {
         blob[last] ^= 0x01;
 
         let err = decrypt(&blob, None).unwrap_err();
-        assert!(err.to_string().contains("wrong password or corrupted file"));
+        assert!(
+            err.to_string()
+                .contains("file is corrupted and cannot be imported")
+        );
     }
 
     #[test]

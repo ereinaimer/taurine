@@ -242,6 +242,16 @@ impl PendingLibraryImportPrepare {
                     "A password is required to import this file.".to_string(),
                 ));
             }
+            Err(err) if err.to_string() == "wrong password" => {
+                return Err(taurine_core::Error::Config(
+                    "Wrong password, try again.".to_string(),
+                ));
+            }
+            Err(err) if err.to_string().contains("corrupted") => {
+                return Err(taurine_core::Error::Config(
+                    "File is corrupted and cannot be imported.".to_string(),
+                ));
+            }
             Err(err) => return Err(err),
         };
         let prepared = PreparedLibraryImport {
