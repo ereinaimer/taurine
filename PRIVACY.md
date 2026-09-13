@@ -6,7 +6,8 @@ This document outlines how Taurine handles your data to guarantee your privacy.
 
 ## 1. Local Data Storage
 All of your data is stored locally on your device. Taurine does not have a central server, nor does it sync your data to the cloud.
-- **Triggers & Scripts**: Stored in a local SQLite database (`taurine.db`).
+- **Triggers & Scripts**: Stored in a local SQLite database (`taurine.db`), encrypted at rest so the file cannot be read without this computer.
+- **Database Key**: The encryption key is a random secret created on this computer and kept in your operating system's credential manager (macOS Keychain, Windows Credential Manager, or Linux Secret Service). Copies of the database file do not work on other computers; move your data with encrypted exports instead.
 - **Settings**: Stored locally.
 - **Metrics**: Your usage statistics (how many times a snippet was expanded, time saved) are calculated and stored locally.
 
