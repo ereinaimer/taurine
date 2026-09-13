@@ -322,6 +322,10 @@ mod tests {
         f(&db_path)
     }
 
+    fn open_keyed_db(db_path: &str) -> rusqlite::Connection {
+        taurine_core::db::key::open_keyed_connection(std::path::Path::new(db_path)).unwrap()
+    }
+
     #[test]
     fn normal_add_still_creates_word_trigger_by_default() {
         init_tracing_for_tests();
@@ -337,7 +341,7 @@ mod tests {
             )
             .unwrap();
 
-            let conn = rusqlite::Connection::open(db_path).unwrap();
+            let conn = open_keyed_db(db_path);
             let stored: (String, String) = conn
                 .query_row(
                     "SELECT trigger_type, trigger FROM triggers WHERE is_deleted = 0 LIMIT 1",
@@ -365,7 +369,7 @@ mod tests {
             )
             .unwrap();
 
-            let conn = rusqlite::Connection::open(db_path).unwrap();
+            let conn = open_keyed_db(db_path);
             let stored: (String, String) = conn
                 .query_row(
                     "SELECT trigger_type, trigger FROM triggers WHERE is_deleted = 0 LIMIT 1",
@@ -425,7 +429,7 @@ mod tests {
             )
             .unwrap();
 
-            let conn = rusqlite::Connection::open(db_path).unwrap();
+            let conn = open_keyed_db(db_path);
             let count: i64 = conn
                 .query_row(
                     "SELECT COUNT(*) FROM triggers WHERE trigger_type = 'hotkey' AND trigger = 'ctrl+shift+g' AND is_deleted = 0",
@@ -484,8 +488,7 @@ mod tests {
             )
             .unwrap();
 
-            let count: i64 = rusqlite::Connection::open(db_path)
-                .unwrap()
+            let count: i64 = open_keyed_db(db_path)
                 .query_row(
                     "SELECT COUNT(*) FROM triggers WHERE trigger_type = 'hotkey' AND is_deleted = 0",
                     [],
@@ -522,7 +525,7 @@ mod tests {
             )
             .unwrap();
 
-            let conn = rusqlite::Connection::open(db_path).unwrap();
+            let conn = open_keyed_db(db_path);
             let mut stmt = conn.prepare("SELECT output FROM triggers WHERE trigger_type = 'hotkey' AND trigger = 'ctrl+shift+g' AND is_deleted = 0").unwrap();
             let mut rows = stmt.query([]).unwrap();
 
@@ -560,7 +563,7 @@ mod tests {
             )
             .unwrap();
 
-            let conn = rusqlite::Connection::open(db_path).unwrap();
+            let conn = open_keyed_db(db_path);
             let mut stmt = conn.prepare("SELECT output FROM triggers WHERE trigger_type = 'word' AND trigger = 'gs' AND is_deleted = 0").unwrap();
             let mut rows = stmt.query([]).unwrap();
 
@@ -599,7 +602,7 @@ mod tests {
             )
             .unwrap();
 
-            let conn = rusqlite::Connection::open(db_path).unwrap();
+            let conn = open_keyed_db(db_path);
             let mut stmt = conn.prepare("SELECT output FROM triggers WHERE trigger_type = 'hotkey' AND trigger = 'ctrl+shift+g' AND is_deleted = 0").unwrap();
             let mut rows = stmt.query([]).unwrap();
 
@@ -632,7 +635,7 @@ mod tests {
             )
             .unwrap();
 
-            let conn = rusqlite::Connection::open(db_path).unwrap();
+            let conn = open_keyed_db(db_path);
             let stored: String = conn
                 .query_row(
                     "SELECT trigger FROM triggers WHERE output = 'output'",
@@ -671,7 +674,7 @@ mod tests {
             )
             .unwrap();
 
-            let conn = rusqlite::Connection::open(db_path).unwrap();
+            let conn = open_keyed_db(db_path);
             let count: i64 = conn
                 .query_row(
                     "SELECT COUNT(*) FROM triggers WHERE trigger = 'tab' AND is_deleted = 0",

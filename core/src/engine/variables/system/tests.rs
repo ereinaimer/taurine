@@ -703,7 +703,7 @@ mod compatibility_finalize_tests {
 
         // Test Case 11: testnested
         {
-            let conn = rusqlite::Connection::open(crate::paths::get_db_path()).unwrap();
+            let conn = crate::db::key::open_keyed_connection(&crate::paths::get_db_path()).unwrap();
             conn.execute(
                     "INSERT OR REPLACE INTO triggers (id, trigger, output, action_type, target_os, name, tags, is_deleted, created_at, updated_at)
                      VALUES ('test_inner_id', 'testinner', 'Hello from the inner snippet!', 'text', 'all', 'testinner', '[]', 0, 1719878400, 1719878400)",

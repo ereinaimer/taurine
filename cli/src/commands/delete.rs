@@ -179,12 +179,16 @@ mod tests {
         f(&db_path)
     }
 
+    fn open_keyed_db(db_path: &str) -> rusqlite::Connection {
+        taurine_core::db::key::open_keyed_connection(std::path::Path::new(db_path)).unwrap()
+    }
+
     #[test]
     fn delete_hotkey_with_non_canonical_order_still_matches() {
         init_tracing_for_tests();
 
         with_test_db(|db_path| {
-            let conn = rusqlite::Connection::open(db_path).unwrap();
+            let conn = open_keyed_db(db_path);
             taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
 
             upsert_trigger_with_type(
@@ -207,7 +211,7 @@ mod tests {
 
             execute(vec!["alt+shift+2".to_string()], None, false, false).unwrap();
 
-            let conn = rusqlite::Connection::open(db_path).unwrap();
+            let conn = open_keyed_db(db_path);
             let is_deleted: bool = conn
                 .query_row(
                     "SELECT is_deleted FROM triggers WHERE id = 'test-uuid-1'",
@@ -224,7 +228,7 @@ mod tests {
         init_tracing_for_tests();
 
         with_test_db(|db_path| {
-            let conn = rusqlite::Connection::open(db_path).unwrap();
+            let conn = open_keyed_db(db_path);
             taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
 
             upsert_trigger_with_type(
@@ -247,7 +251,7 @@ mod tests {
 
             execute(vec!["gs".to_string()], None, false, false).unwrap();
 
-            let conn = rusqlite::Connection::open(db_path).unwrap();
+            let conn = open_keyed_db(db_path);
             let is_deleted: bool = conn
                 .query_row(
                     "SELECT is_deleted FROM triggers WHERE id = 'test-uuid-2'",
@@ -266,7 +270,7 @@ mod tests {
         let db_guard = TestDbEnvGuard::new();
         let db_path = db_guard.db_path();
 
-        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let conn = open_keyed_db(&db_path);
         taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
 
         taurine_core::db::crud::upsert_trigger_with_type(
@@ -319,7 +323,7 @@ mod tests {
         // yes=true skips the prompt — only way to test non-interactively
         execute(vec!["test_*".to_string()], None, true, false).unwrap();
 
-        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let conn = open_keyed_db(&db_path);
         assert!(
             taurine_core::db::crud::get_trigger(&conn, "uuid-1")
                 .unwrap()
@@ -347,7 +351,7 @@ mod tests {
         let db_guard = TestDbEnvGuard::new();
         let db_path = db_guard.db_path();
 
-        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let conn = open_keyed_db(&db_path);
         taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
 
         taurine_core::db::crud::upsert_trigger_with_type(
@@ -369,7 +373,7 @@ mod tests {
 
         execute(vec!["gs".to_string()], None, true, false).unwrap();
 
-        let conn = rusqlite::Connection::open(db_path).unwrap();
+        let conn = open_keyed_db(&db_path);
         assert!(
             taurine_core::db::crud::get_trigger(&conn, "uuid-1")
                 .unwrap()
@@ -385,7 +389,7 @@ mod tests {
         let db_guard = TestDbEnvGuard::new();
         let db_path = db_guard.db_path();
 
-        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let conn = open_keyed_db(&db_path);
         taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
 
         taurine_core::db::crud::upsert_trigger_with_type(
@@ -423,7 +427,7 @@ mod tests {
         // yes=true to skip prompt
         execute(vec!["*".to_string()], None, true, false).unwrap();
 
-        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let conn = open_keyed_db(&db_path);
         assert!(
             taurine_core::db::crud::get_trigger(&conn, "uuid-1")
                 .unwrap()
@@ -445,7 +449,7 @@ mod tests {
         let db_guard = TestDbEnvGuard::new();
         let db_path = db_guard.db_path();
 
-        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let conn = open_keyed_db(&db_path);
         taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
         drop(conn);
 

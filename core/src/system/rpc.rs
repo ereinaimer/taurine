@@ -253,16 +253,10 @@ pub fn notify_daemon_reload() {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Once;
-
     use super::*;
 
-    static MOCK_KEYRING: Once = Once::new();
-
     fn use_mock_keyring() {
-        MOCK_KEYRING.call_once(|| {
-            keyring::set_default_credential_builder(keyring::mock::default_credential_builder());
-        });
+        crate::testing::use_shared_test_keyring();
     }
 
     #[test]

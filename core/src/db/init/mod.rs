@@ -261,15 +261,10 @@ fn is_corrupt_str(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Once;
     use tempfile::TempDir;
 
-    static MOCK_KEYRING: Once = Once::new();
-
     fn use_mock_keyring() {
-        MOCK_KEYRING.call_once(|| {
-            keyring::set_default_credential_builder(keyring::mock::default_credential_builder());
-        });
+        crate::testing::use_shared_test_keyring();
     }
 
     fn lock() -> std::sync::MutexGuard<'static, ()> {

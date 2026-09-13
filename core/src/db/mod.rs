@@ -184,14 +184,9 @@ pub fn get_conn() -> Result<DbConnection, crate::error::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Once;
-
-    static MOCK_KEYRING: Once = Once::new();
 
     fn use_mock_keyring() {
-        MOCK_KEYRING.call_once(|| {
-            keyring::set_default_credential_builder(keyring::mock::default_credential_builder());
-        });
+        crate::testing::use_shared_test_keyring();
     }
 
     struct EnvGuard;

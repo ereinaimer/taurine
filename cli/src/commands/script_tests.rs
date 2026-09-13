@@ -39,6 +39,10 @@ fn with_test_db<T>(f: impl FnOnce(&str) -> T) -> T {
     f(&db_path)
 }
 
+fn open_keyed_db(db_path: &str) -> rusqlite::Connection {
+    taurine_core::db::key::open_keyed_connection(std::path::Path::new(db_path)).unwrap()
+}
+
 #[test]
 fn test_inference_by_extension() {
     assert_eq!(
@@ -137,7 +141,7 @@ fn script_auto_case_does_not_lowercase_regex() {
         )
         .unwrap();
 
-        let conn = rusqlite::Connection::open(db_path).unwrap();
+        let conn = open_keyed_db(db_path);
         let stored: String = conn
             .query_row(
                 "SELECT trigger FROM triggers WHERE action_type = 'script'",
@@ -170,7 +174,7 @@ fn script_add_still_creates_word_trigger_by_default() {
         )
         .unwrap();
 
-        let conn = rusqlite::Connection::open(db_path).unwrap();
+        let conn = open_keyed_db(db_path);
         let stored: (String, String) = conn
             .query_row(
                 "SELECT trigger_type, trigger FROM triggers WHERE is_deleted = 0 LIMIT 1",
@@ -201,7 +205,7 @@ fn script_add_hotkey_creates_canonical_hotkey_trigger() {
         )
         .unwrap();
 
-        let conn = rusqlite::Connection::open(db_path).unwrap();
+        let conn = open_keyed_db(db_path);
         let stored: (String, String) = conn
             .query_row(
                 "SELECT trigger_type, trigger FROM triggers WHERE is_deleted = 0 LIMIT 1",
@@ -247,7 +251,7 @@ fn script_word_trigger_duplicate_updates_existing_row() {
         )
         .unwrap();
 
-        let conn = rusqlite::Connection::open(db_path).unwrap();
+        let conn = open_keyed_db(db_path);
 
         // Exactly one active row
         let count: i64 = conn
@@ -304,7 +308,7 @@ fn script_hotkey_trigger_canonicalization_updates_existing_row() {
         )
         .unwrap();
 
-        let conn = rusqlite::Connection::open(db_path).unwrap();
+        let conn = open_keyed_db(db_path);
 
         // Exactly one active row for the canonical hotkey
         let count: i64 = conn
@@ -341,7 +345,7 @@ fn script_to_text_update_clears_stale_script_row() {
         .unwrap();
 
         // Confirm the script row exists
-        let conn = rusqlite::Connection::open(db_path).unwrap();
+        let conn = open_keyed_db(db_path);
         let script_count_before: i64 = conn
                 .query_row(
                     "SELECT COUNT(*) FROM scripts WHERE trigger_id = (SELECT id FROM triggers WHERE trigger = 'gs' AND is_deleted = 0 LIMIT 1)",
@@ -366,7 +370,7 @@ fn script_to_text_update_clears_stale_script_row() {
         )
         .unwrap();
 
-        let conn = rusqlite::Connection::open(db_path).unwrap();
+        let conn = open_keyed_db(db_path);
 
         // Only one active trigger row
         let auto_count: i64 = conn
@@ -423,7 +427,7 @@ fn text_to_script_update_creates_script_attachment() {
         .unwrap();
 
         // Confirm no script row yet
-        let conn = rusqlite::Connection::open(db_path).unwrap();
+        let conn = open_keyed_db(db_path);
         let script_count_before: i64 = conn
                 .query_row(
                     "SELECT COUNT(*) FROM scripts WHERE trigger_id = (SELECT id FROM triggers WHERE trigger = 'gs' AND is_deleted = 0 LIMIT 1)",
@@ -451,7 +455,7 @@ fn text_to_script_update_creates_script_attachment() {
         )
         .unwrap();
 
-        let conn = rusqlite::Connection::open(db_path).unwrap();
+        let conn = open_keyed_db(db_path);
 
         // Only one active trigger row
         let auto_count: i64 = conn
