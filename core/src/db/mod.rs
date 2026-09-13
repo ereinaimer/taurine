@@ -64,6 +64,34 @@ fn is_test_env() -> bool {
             .unwrap_or(false)
 }
 
+/// Builds the shared keyed SQLite pool for `db_path`.
+///
+/// The database key is fetched ONCE per pool creation and moved into the
+/// `with_init` closure, so every pooled connection applies `PRAGMA key` first.
+/// Keystore failure returns `Error::Service` before any pool exists: no unkeyed pool.
+fn build_keyed_pool(
+    db_path: &std::path::Path,
+) -> Result<r2d2::Pool<r2d2_sqlite::SqliteConnectionManager>, crate::error::Error> {
+    let db_key = key::get_or_create_db_key()?;
+    let manager = r2d2_sqlite::SqliteConnectionManager::file(db_path).with_init(move |conn| {
+        let pragma =
+            zeroize::Zeroizing::new(format!("PRAGMA key = \"x'{}'\";", hex::encode(&db_key[..])));
+        conn.execute_batch(pragma.as_str())?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+                     PRAGMA synchronous = NORMAL;
+                     PRAGMA busy_timeout = 5000;",
+        )?;
+        Ok(())
+    });
+    r2d2::Pool::builder()
+        .max_size(5)
+        .build(manager)
+        .map_err(|e| {
+            crate::error::Error::Service(format!("Failed to initialize connection pool: {}", e))
+        })
+}
+
 /// Returns a connection from the global shared SQLite connection pool (or a raw connection in tests).
 ///
 /// Configures WAL mode, synchronous to NORMAL, and sets a busy timeout of 5 seconds
@@ -101,18 +129,9 @@ pub fn get_conn() -> Result<DbConnection, crate::error::Error> {
 
     if is_test_env() {
         let db_path = crate::paths::get_db_path();
-        let conn = rusqlite::Connection::open(db_path).map_err(|e| {
+        let conn = key::open_keyed_connection(&db_path).map_err(|e| {
             crate::error::Error::Service(format!("Failed to open test connection: {}", e))
         })?;
-        conn.busy_timeout(std::time::Duration::from_secs(5))
-            .map_err(|e| {
-                crate::error::Error::Service(format!("Failed to set busy timeout: {}", e))
-            })?;
-        conn.execute_batch(
-            "PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = NORMAL;",
-        )
-        .map_err(|e| crate::error::Error::Service(format!("Failed to set pragmas: {}", e)))?;
         init::migrate::run_migrations(&conn).map_err(|e| {
             crate::error::Error::Service(format!("Failed to run migrations in test conn: {}", e))
         })?;
@@ -142,17 +161,7 @@ pub fn get_conn() -> Result<DbConnection, crate::error::Error> {
     // If not found, acquire write lock and initialize the pool for this path
     let mut write_guard = pools.write();
     if !write_guard.contains_key(&db_path) {
-        let manager = SqliteConnectionManager::file(&db_path).with_init(|conn| {
-            conn.execute_batch(
-                "PRAGMA journal_mode = WAL;
-                     PRAGMA synchronous = NORMAL;
-                     PRAGMA busy_timeout = 5000;",
-            )?;
-            Ok(())
-        });
-        let pool = Pool::builder().max_size(5).build(manager).map_err(|e| {
-            crate::error::Error::Service(format!("Failed to initialize connection pool: {}", e))
-        })?;
+        let pool = build_keyed_pool(&db_path)?;
         write_guard.insert(db_path.clone(), pool);
     }
     let pool = write_guard.get(&db_path).cloned().ok_or_else(|| {
@@ -175,6 +184,25 @@ pub fn get_conn() -> Result<DbConnection, crate::error::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Once;
+
+    static MOCK_KEYRING: Once = Once::new();
+
+    fn use_mock_keyring() {
+        MOCK_KEYRING.call_once(|| {
+            keyring::set_default_credential_builder(keyring::mock::default_credential_builder());
+        });
+    }
+
+    struct EnvGuard;
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            // SAFETY: Serialized via TEST_LOCK; paired with the set_var at entry.
+            unsafe {
+                std::env::remove_var("TAURINE_DATA_DIR");
+            }
+        }
+    }
 
     use crate::testing::{init_tracing_for_tests, open_test_db};
 
@@ -346,10 +374,110 @@ mod tests {
     }
 
     #[test]
+    fn task4_get_conn_test_path_is_encrypted() {
+        let _guard = crate::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        use_mock_keyring();
+        init_tracing_for_tests();
+
+        let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
+        // SAFETY: Serialized via TEST_LOCK for test isolation.
+        unsafe { std::env::set_var("TAURINE_DATA_DIR", tmp.path().to_str().unwrap()) };
+        let _env_guard = EnvGuard;
+
+        let conn = get_conn().expect("get_conn must succeed");
+        conn.execute_batch("CREATE TABLE t4 (id INTEGER); INSERT INTO t4 VALUES (7);")
+            .expect("write must succeed");
+        let value: i64 = conn
+            .query_row("SELECT id FROM t4", [], |row| row.get(0))
+            .expect("read must succeed");
+        assert_eq!(value, 7);
+
+        let db_path = crate::paths::get_db_path();
+        drop(conn);
+        let bytes = std::fs::read(&db_path).expect("db file must exist");
+        assert!(bytes.len() > 16);
+        assert_ne!(
+            &bytes[..16],
+            b"SQLite format 3\0",
+            "get_conn file header must not be plaintext"
+        );
+
+        let plain = rusqlite::Connection::open(&db_path).expect("plain open must succeed");
+        let err = plain
+            .query_row("SELECT 1", [], |_: &rusqlite::Row| Ok(()))
+            .expect_err("plain read of encrypted db must fail");
+        assert!(
+            matches!(
+                err,
+                rusqlite::Error::SqliteFailure(e, _)
+                    if e.code == rusqlite::ErrorCode::NotADatabase || e.extended_code == 26
+            ),
+            "plain read must fail with NotADatabase, got: {err}"
+        );
+    }
+
+    #[test]
+    fn task4_pool_connections_are_encrypted() {
+        let _guard = crate::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        use_mock_keyring();
+        init_tracing_for_tests();
+
+        let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
+        let db_path = tmp.path().join("taurine.db");
+
+        let pool = build_keyed_pool(&db_path).expect("keyed pool build must succeed");
+        {
+            let conn = pool.get().expect("checkout must succeed");
+            conn.execute_batch("CREATE TABLE t4 (id INTEGER); INSERT INTO t4 VALUES (7);")
+                .expect("write must succeed");
+        }
+        {
+            let conn = pool.get().expect("second checkout must succeed");
+            let value: i64 = conn
+                .query_row("SELECT id FROM t4", [], |row| row.get(0))
+                .expect("read must succeed");
+            assert_eq!(value, 7);
+        }
+        drop(pool);
+
+        let bytes = std::fs::read(&db_path).expect("db file must exist");
+        assert!(bytes.len() > 16);
+        assert_ne!(
+            &bytes[..16],
+            b"SQLite format 3\0",
+            "pooled file header must not be plaintext"
+        );
+    }
+
+    #[test]
+    fn task4_open_test_db_is_encrypted_and_seeded() {
+        init_tracing_for_tests();
+        let (dir, conn) = open_test_db();
+
+        let seeded = crate::db::crud::get_setting_value(&conn, "start_on_boot")
+            .expect("seeded read must succeed");
+        assert_eq!(seeded.as_deref(), Some("true"));
+        drop(conn);
+
+        let bytes = std::fs::read(dir.path().join("taurine.db")).expect("db file must exist");
+        assert!(bytes.len() > 16);
+        assert_ne!(
+            &bytes[..16],
+            b"SQLite format 3\0",
+            "open_test_db file header must not be plaintext"
+        );
+    }
+
+    #[test]
     fn test_get_conn_permissions() {
         let _guard = crate::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
+        use_mock_keyring();
         init_tracing_for_tests();
 
         let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
