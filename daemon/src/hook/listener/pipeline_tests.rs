@@ -797,4 +797,16 @@ mod listener_pipeline_tests {
             "Ctrl+V when inline AI is disabled must pass through to OS"
         );
     }
+
+    #[test]
+    fn normalize_key_text_matches_nfc_path() {
+        use crate::hook::listener::normalize_key_text;
+
+        for sample in ["a", "Z", "0", "hello", "gs"] {
+            assert_eq!(normalize_key_text(sample), sample);
+        }
+        assert_eq!(normalize_key_text("é"), "é");
+        // Decomposed e + combining acute must still compose via the NFC path.
+        assert_eq!(normalize_key_text("é"), "é");
+    }
 }

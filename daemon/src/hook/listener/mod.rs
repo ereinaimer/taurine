@@ -222,6 +222,16 @@ pub(super) fn run_listener_once(
 }
 
 #[cfg(not(target_os = "linux"))]
+pub(super) fn normalize_key_text(text: &str) -> String {
+    // ASCII is a fixed point of NFC, so plain keystrokes skip the collect.
+    if text.is_ascii() {
+        text.to_string()
+    } else {
+        text.nfc().collect()
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
 #[allow(clippy::too_many_arguments)]
 pub fn process_keyboard_event(
     event: Event,
@@ -690,7 +700,7 @@ pub fn process_keyboard_event(
                     }
 
                     if let Some(ref text) = event.name {
-                        let normalized: String = text.nfc().collect();
+                        let normalized: String = normalize_key_text(text);
                         if normalized.chars().count() == 1 {
                             normalized.chars().next().map(EngineEvent::Char)
                         } else {

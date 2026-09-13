@@ -102,13 +102,14 @@ impl crate::engine::evaluator::Evaluator {
     }
 
     pub(crate) fn is_word_boundary(&self) -> bool {
-        let buf = self.buffer.buffer_string();
-        let chars: Vec<char> = buf.chars().collect();
-        if chars.len() < 2 {
+        if self.buffer.len < 2 {
             return true;
         }
-        let prev = chars[chars.len() - 2];
-        prev.is_whitespace()
+        // Second-to-last char read straight from the ring: no full-buffer
+        // allocation for a two-char question.
+        let capacity = self.buffer.data.len();
+        let prev_idx = (self.buffer.head + capacity - 2) % capacity;
+        self.buffer.data[prev_idx].is_whitespace()
     }
 
     pub(crate) fn update_completion_after_char(&mut self, c: char) {

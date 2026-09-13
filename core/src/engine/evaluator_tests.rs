@@ -2567,3 +2567,16 @@ fn test_lazy_window_provider_called_only_when_restricted_trigger_matches() {
     );
     assert!(res.is_some());
 }
+
+#[test]
+fn is_word_boundary_checks_second_to_last_char() {
+    let state = Arc::new(EngineState::new());
+    let mut eval = Evaluator::new(state);
+    assert!(eval.is_word_boundary());
+    eval.buffer.push('x');
+    assert!(eval.is_word_boundary());
+    eval.buffer.push(' ');
+    assert!(!eval.is_word_boundary());
+    eval.buffer.push(' ');
+    assert!(eval.is_word_boundary());
+}
