@@ -11,7 +11,8 @@ publish = false
 [dependencies]
 taurine_core = { path = "../core" }
 tracing = { workspace = true }
-tokio = { version = "1.0", features = ["full", "test-util"] }
+# Trimmed from full: audited surface is rt, net, time, signal, sync, io-util, macros, process. No test-util in prod.
+tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "net", "time", "signal", "sync", "io-util", "macros", "process"] }
 tokio-stream = { version = "0.1", features = ["net"] }
 tracing-appender = "0.2.4"
 tonic = "0.14"
