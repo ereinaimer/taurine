@@ -56,6 +56,16 @@ fn init_database(db_path: &Path) -> Result<Connection> {
     migrate::run_migrations(&conn)?;
     seed::ensure_defaults(&conn)?;
 
+    // Skip the rescan only when this exact file already passed it in this
+    // process. Boot always checks because the record starts empty, and any
+    // size or timestamp change rechecks. Failures are never recorded.
+    let fingerprint = file_fingerprint(db_path);
+    if let Some(ref fp) = fingerprint
+        && already_checked(fp)
+    {
+        return Ok(conn);
+    }
+
     // Proactively verify integrity with PRAGMA quick_check(1)
     let check: String = conn
         .query_row("PRAGMA quick_check(1)", [], |row| row.get(0))
@@ -69,7 +79,53 @@ fn init_database(db_path: &Path) -> Result<Connection> {
         ));
     }
 
+    if let Some(fp) = fingerprint {
+        mark_checked(fp);
+    }
+
     Ok(conn)
+}
+
+/// Fingerprint of the last database file that passed the integrity check in
+/// this process: (path, byte length, modification time in nanoseconds).
+static LAST_CHECKED: std::sync::OnceLock<std::sync::Mutex<Option<(String, u64, u128)>>> =
+    std::sync::OnceLock::new();
+
+fn file_fingerprint(db_path: &Path) -> Option<(String, u64, u128)> {
+    let meta = std::fs::metadata(db_path).ok()?;
+    let mtime_nanos = meta
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_nanos();
+    Some((
+        db_path.to_string_lossy().into_owned(),
+        meta.len(),
+        mtime_nanos,
+    ))
+}
+
+fn already_checked(fingerprint: &(String, u64, u128)) -> bool {
+    LAST_CHECKED
+        .get_or_init(|| std::sync::Mutex::new(None))
+        .lock()
+        .ok()
+        .is_some_and(|guard| guard.as_ref() == Some(fingerprint))
+}
+
+fn mark_checked(fingerprint: (String, u64, u128)) {
+    if let Ok(mut guard) = LAST_CHECKED
+        .get_or_init(|| std::sync::Mutex::new(None))
+        .lock()
+    {
+        *guard = Some(fingerprint);
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn has_checked_fingerprint_for_test(db_path: &Path) -> bool {
+    file_fingerprint(db_path).is_some_and(|fp| already_checked(&fp))
 }
 
 fn open_connection_at(db_path: &Path) -> Result<Connection> {
@@ -614,5 +670,26 @@ mod tests {
             Some("near 'SYNTAX': syntax error".to_string()),
         ));
         assert!(!is_corrupt_error(&err_syntax));
+    }
+
+    #[test]
+    fn second_setup_with_unchanged_file_skips_rescan_but_still_succeeds() {
+        let _guard = lock();
+        use_mock_keyring();
+        let temp_dir = TempDir::new().expect("temp dir");
+        let db_path = temp_dir.path().join("taurine.db");
+
+        let conn = setup_at_path(&db_path).expect("first setup must succeed");
+        drop(conn);
+        let conn2 = setup_at_path(&db_path).expect("second setup must succeed");
+        let check: String = conn2
+            .query_row("SELECT 1", [], |r| r.get(0))
+            .map(|v: i32| v.to_string())
+            .expect("query must succeed");
+        assert_eq!(check, "1");
+        assert!(
+            has_checked_fingerprint_for_test(&db_path),
+            "unchanged file must be recorded after a passing check"
+        );
     }
 }
