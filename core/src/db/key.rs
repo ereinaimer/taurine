@@ -66,7 +66,8 @@ pub fn open_keyed_connection(db_path: &Path) -> crate::Result<rusqlite::Connecti
 fn open_with_key(db_path: &Path, key: &[u8; 32]) -> crate::Result<rusqlite::Connection> {
     let conn = rusqlite::Connection::open(db_path)?;
     {
-        let pragma = Zeroizing::new(format!("PRAGMA key = \"x'{}'\";", hex::encode(key)));
+        let hex_key = Zeroizing::new(hex::encode(key));
+        let pragma = Zeroizing::new(format!("PRAGMA key = \"x'{}'\";", hex_key.as_str()));
         conn.execute_batch(pragma.as_str())?;
     }
     conn.busy_timeout(std::time::Duration::from_secs(5))?;
