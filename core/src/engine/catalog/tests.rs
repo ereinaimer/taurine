@@ -598,3 +598,15 @@ fn nl_fallback_matches_fresh_dummy_state_results() {
         assert_eq!(a.map(|e| e.steps), b.map(|e| e.steps), "mismatch for {kw}");
     }
 }
+
+#[test]
+fn plan_cache_returns_identical_results_and_clears_on_reload() {
+    let catalog = ExpansionCatalog::new();
+    catalog.load_actions(vec![("gs".to_string(), TriggerAction::text("git status"))]);
+    let a = catalog.fetch_expansion("gs", false, None);
+    let b = catalog.fetch_expansion("gs", false, None);
+    assert_eq!(a.map(|e| e.steps), b.map(|e| e.steps));
+    catalog.load_actions(vec![("gs".to_string(), TriggerAction::text("changed"))]);
+    let c = catalog.fetch_expansion("gs", false, None);
+    assert!(format!("{:?}", c).contains("changed"));
+}

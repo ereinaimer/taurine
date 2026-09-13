@@ -28,6 +28,37 @@ static SHARED_NL_DUMMY_STATE: std::sync::OnceLock<crate::engine::state::EngineSt
 fn shared_nl_dummy_state() -> &'static crate::engine::state::EngineState {
     SHARED_NL_DUMMY_STATE.get_or_init(crate::engine::state::EngineState::new)
 }
+
+// Compiled plans keyed by template string. `compile` is pure over the
+// template while live data resolves in `evaluate`. Cleared on every reload,
+// so entries never outlive the trigger set, which also bounds the size.
+static PLAN_CACHE: std::sync::OnceLock<
+    std::sync::RwLock<std::collections::HashMap<String, Arc<ExecutionPlan>>>,
+> = std::sync::OnceLock::new();
+
+fn plan_cache() -> &'static std::sync::RwLock<std::collections::HashMap<String, Arc<ExecutionPlan>>>
+{
+    PLAN_CACHE.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()))
+}
+
+fn compiled_plan(template: &str) -> Arc<ExecutionPlan> {
+    if let Ok(guard) = plan_cache().read()
+        && let Some(hit) = guard.get(template)
+    {
+        return Arc::clone(hit);
+    }
+    let plan = Arc::new(ExecutionPlan::compile(template));
+    if let Ok(mut guard) = plan_cache().write() {
+        guard.insert(template.to_string(), Arc::clone(&plan));
+    }
+    plan
+}
+
+fn clear_plan_cache() {
+    if let Ok(mut guard) = plan_cache().write() {
+        guard.clear();
+    }
+}
 impl ExpansionCatalog {
     pub fn new() -> Self {
         let memory = Arc::new(MemorySource::new());
@@ -61,6 +92,7 @@ impl ExpansionCatalog {
         if let Ok(mut guard) = self.triggers.write() {
             *guard = triggers;
         }
+        clear_plan_cache();
     }
 
     pub fn matching_triggers(&self, prefix: &str) -> Vec<String> {
@@ -615,7 +647,7 @@ pub(crate) fn expand_trigger_action_with_args(
         return interpolate_script_action(action, args);
     }
 
-    let plan = ExecutionPlan::compile(&action.output);
+    let plan = compiled_plan(&action.output);
     let mut final_exp = plan.evaluate(args, Some(matched_keyword), ExpansionOrigin::User);
     if action.auto_case {
         for step in &mut final_exp.steps {
