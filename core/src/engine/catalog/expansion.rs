@@ -93,6 +93,7 @@ impl ExpansionCatalog {
             *guard = triggers;
         }
         clear_plan_cache();
+        crate::engine::variables::interpolate::clear_use_cache();
     }
 
     pub fn matching_triggers(&self, prefix: &str) -> Vec<String> {

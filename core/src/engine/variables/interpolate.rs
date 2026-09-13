@@ -259,6 +259,22 @@ fn parse_use_key(key: &str) -> Option<String> {
     Some(unquoted)
 }
 
+// Raw snippet templates by trigger name. Cleared on every catalog reload,
+// so nested-snippet freshness always equals top-level trigger freshness.
+static USE_CACHE: std::sync::OnceLock<
+    parking_lot::RwLock<std::collections::HashMap<String, String>>,
+> = std::sync::OnceLock::new();
+
+fn use_cache() -> &'static parking_lot::RwLock<std::collections::HashMap<String, String>> {
+    USE_CACHE.get_or_init(|| parking_lot::RwLock::new(std::collections::HashMap::new()))
+}
+
+pub(crate) fn clear_use_cache() {
+    if let Some(cache) = USE_CACHE.get() {
+        cache.write().clear();
+    }
+}
+
 fn resolve_use_placeholder(key: &str, args: &ArgMap, depth: usize) -> String {
     if depth >= 5 {
         tracing::warn!(
@@ -275,6 +291,15 @@ fn resolve_use_placeholder(key: &str, args: &ArgMap, depth: usize) -> String {
             return String::new();
         }
     };
+
+    // Only the raw template text is cached: interpolation still runs per
+    // expansion so live args, dates, and clipboard values stay exact.
+    // Freshness follows the trigger catalog because every reload clears this.
+    if let Some(cache) = USE_CACHE.get()
+        && let Some(raw) = cache.read().get(&trigger_name)
+    {
+        return interpolate_with_depth(raw, args, depth + 1);
+    }
 
     let conn = match crate::db::get_conn() {
         Ok(c) => c,
@@ -309,7 +334,9 @@ fn resolve_use_placeholder(key: &str, args: &ArgMap, depth: usize) -> String {
         return String::new();
     }
 
-    interpolate_with_depth(&action.output, args, depth + 1)
+    let raw = action.output.clone();
+    use_cache().write().insert(trigger_name, raw.clone());
+    interpolate_with_depth(&raw, args, depth + 1)
 }
 
 /// Returns true if the interpolated string contains any embedded AI transformer markers.

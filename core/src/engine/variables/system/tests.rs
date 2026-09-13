@@ -922,3 +922,75 @@ fn test_finalize_mouse_directives() {
         ]
     );
 }
+
+#[test]
+fn use_placeholder_cache_matches_db_and_refreshes_after_clear() {
+    struct DataDirGuard;
+    impl Drop for DataDirGuard {
+        fn drop(&mut self) {
+            // SAFETY: Serialized via TEST_LOCK; paired with the set_var at entry.
+            unsafe {
+                std::env::remove_var("TAURINE_DATA_DIR");
+            }
+        }
+    }
+
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, _conn) = crate::testing::open_test_db();
+    let _env_guard = DataDirGuard;
+    unsafe {
+        std::env::set_var("TAURINE_DATA_DIR", _dir.path());
+    }
+    crate::engine::variables::interpolate::clear_use_cache();
+
+    fn eval_use_template(text: &str) -> crate::engine::variables::FinalExpansion {
+        let interpolated = crate::engine::variables::interpolate::interpolate(
+            text,
+            &crate::engine::variables::types::ArgMap::default(),
+        );
+        finalize(&interpolated, None)
+    }
+
+    let conn = crate::db::key::open_keyed_connection(&crate::paths::get_db_path()).unwrap();
+    conn.execute(
+        "INSERT OR REPLACE INTO triggers (id, trigger, output, action_type, target_os, name, tags, is_deleted, created_at, updated_at)
+         VALUES ('ucache_inner_id', 'ucache_inner', 'hello', 'text', 'all', 'ucache_inner', '[]', 0, 1719878400, 1719878400)",
+        [],
+    )
+    .unwrap();
+
+    let first = eval_use_template("Result: [use(ucache_inner)]!");
+    assert_eq!(first.steps.len(), 1);
+    assert_eq!(
+        first.steps[0],
+        ExpansionStep::Text("Result: hello!".to_string())
+    );
+
+    conn.execute(
+        "UPDATE triggers SET output = 'bye', updated_at = 1719878500 WHERE id = 'ucache_inner_id'",
+        [],
+    )
+    .unwrap();
+
+    // Still the cached text: proves the second resolution skipped the database.
+    let second = eval_use_template("Result: [use(ucache_inner)]!");
+    assert_eq!(second.steps.len(), 1);
+    assert_eq!(
+        second.steps[0],
+        ExpansionStep::Text("Result: hello!".to_string())
+    );
+
+    crate::engine::variables::interpolate::clear_use_cache();
+    let third = eval_use_template("Result: [use(ucache_inner)]!");
+    assert_eq!(third.steps.len(), 1);
+    assert_eq!(
+        third.steps[0],
+        ExpansionStep::Text("Result: bye!".to_string())
+    );
+
+    conn.execute("DELETE FROM triggers WHERE id = 'ucache_inner_id'", [])
+        .ok();
+    crate::engine::variables::interpolate::clear_use_cache();
+}
