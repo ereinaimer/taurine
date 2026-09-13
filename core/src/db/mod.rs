@@ -1,5 +1,8 @@
 pub mod crud;
 pub mod init;
+pub mod key;
+
+pub use key::{get_or_create_db_key, open_keyed_connection};
 
 pub use crud::{
     ActionType, AppFilterPrefix, StatRow, TargetOs, TriggerLimits, TriggerRow, TriggerType,
