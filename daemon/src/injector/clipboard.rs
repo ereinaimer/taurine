@@ -152,6 +152,26 @@ where
     Ok(false)
 }
 
+/// Micro-yield check that the clipboard already equals `expected`, without the
+/// progressive sleep tiers. Same semantics as the inline loop it replaces.
+pub(super) fn verify_clipboard_equals(
+    clipboard: &mut impl ClipboardManager,
+    expected: &str,
+) -> bool {
+    for attempt in 0..5 {
+        if attempt > 0 {
+            std::hint::spin_loop();
+            std::thread::yield_now();
+        }
+        if let Ok(ref current) = clipboard.get_text()
+            && current == expected
+        {
+            return true;
+        }
+    }
+    false
+}
+
 /// Reads the user's current clipboard, writes `payload`, waits, then verifies the clipboard
 /// still equals `payload`. Returns the original text for restore after paste.
 ///

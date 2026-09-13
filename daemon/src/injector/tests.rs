@@ -875,3 +875,20 @@ fn test_prepare_clipboard_aborts_immediately_on_generation_advance() {
         "injection aborted during clipboard poll"
     );
 }
+
+#[test]
+fn verify_clipboard_equals_matches_inline_loop_semantics() {
+    let mut matching = MockClipboard::new("payload");
+    assert!(super::clipboard::verify_clipboard_equals(
+        &mut matching,
+        "payload"
+    ));
+    assert_eq!(matching.get_count, 1);
+
+    let mut mismatching = MockClipboard::new("stale");
+    assert!(!super::clipboard::verify_clipboard_equals(
+        &mut mismatching,
+        "payload"
+    ));
+    assert_eq!(mismatching.get_count, 5);
+}

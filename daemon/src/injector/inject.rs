@@ -179,17 +179,7 @@ fn inject_text_segment_with_gen(
         };
 
         // Micro-yield check to ensure clipboard updated before paste
-        for attempt in 0..5 {
-            if attempt > 0 {
-                std::hint::spin_loop();
-                std::thread::yield_now();
-            }
-            if let Ok(ref current) = clipboard.get_text()
-                && current == &expected
-            {
-                break;
-            }
-        }
+        super::clipboard::verify_clipboard_equals(&mut clipboard, &expected);
 
         crate::platform::get_injector().simulate_paste();
         #[cfg(windows)]
