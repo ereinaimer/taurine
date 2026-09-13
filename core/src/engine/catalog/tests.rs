@@ -579,3 +579,22 @@ fn test_regex_catalog_compilation_and_match() {
         panic!("Expected text expansion step");
     }
 }
+
+#[test]
+fn nl_fallback_matches_fresh_dummy_state_results() {
+    let catalog = ExpansionCatalog::new();
+    for kw in [
+        "10 km in miles",
+        "100 usd in eur",
+        "not a conversion at all!!!",
+    ] {
+        let a = catalog.fetch_nl_unit_conversion_fallback_for_test(kw, false);
+        let dummy = crate::engine::state::EngineState::new();
+        let b = crate::engine::conversion::convert_natural(kw, &dummy).map(|t| {
+            let mut e = crate::engine::variables::FinalExpansion::text(t);
+            e.is_calculation = true;
+            e
+        });
+        assert_eq!(a.map(|e| e.steps), b.map(|e| e.steps), "mismatch for {kw}");
+    }
+}

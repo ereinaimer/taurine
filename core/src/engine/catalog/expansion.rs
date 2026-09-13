@@ -18,6 +18,16 @@ pub struct ExpansionCatalog {
     source: Arc<dyn SnippetSource>,
     triggers: RwLock<Vec<PreNormalizedTrigger>>,
 }
+
+// Shared default state for natural-language unit conversion. `convert_natural`
+// only forwards it to `convert`, which ignores it, so one static is exactly
+// equivalent to constructing a fresh state per candidate.
+static SHARED_NL_DUMMY_STATE: std::sync::OnceLock<crate::engine::state::EngineState> =
+    std::sync::OnceLock::new();
+
+fn shared_nl_dummy_state() -> &'static crate::engine::state::EngineState {
+    SHARED_NL_DUMMY_STATE.get_or_init(crate::engine::state::EngineState::new)
+}
 impl ExpansionCatalog {
     pub fn new() -> Self {
         let memory = Arc::new(MemorySource::new());
@@ -235,11 +245,20 @@ impl ExpansionCatalog {
         if instant_expand {
             return None;
         }
-        let dummy_state = crate::engine::state::EngineState::new();
-        let parsed_words = crate::engine::conversion::convert_natural(keyword, &dummy_state)?;
+        let parsed_words =
+            crate::engine::conversion::convert_natural(keyword, shared_nl_dummy_state())?;
         let mut expansion = FinalExpansion::text(parsed_words);
         expansion.is_calculation = true;
         Some(expansion)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fetch_nl_unit_conversion_fallback_for_test(
+        &self,
+        keyword: &str,
+        instant_expand: bool,
+    ) -> Option<FinalExpansion> {
+        self.fetch_nl_unit_conversion_fallback(keyword, instant_expand)
     }
 
     fn fetch_timezone_fallback(
