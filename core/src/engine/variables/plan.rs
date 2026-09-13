@@ -707,31 +707,36 @@ fn resolve_use_snippet(trigger_name: &str, args: &ArgMap, depth: usize) -> Strin
         return String::new();
     }
 
-    let conn = match crate::db::get_conn() {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::warn!(
-                "Database pool error resolving snippet '{}': {}",
-                trigger_name,
-                e
-            );
-            return String::new();
-        }
-    };
+    // The connection is fetched and dropped inside this block: holding a
+    // pooled connection across the recursive `interpolate` call below would
+    // stack one checkout per nesting level and can exhaust the pool.
+    let action = {
+        let conn = match crate::db::get_conn() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(
+                    "Database pool error resolving snippet '{}': {}",
+                    trigger_name,
+                    e
+                );
+                return String::new();
+            }
+        };
 
-    let action = match crate::db::crud::triggers::get_action_by_trigger(&conn, trigger_name) {
-        Ok(Some(act)) => act,
-        Ok(None) => {
-            tracing::warn!("Snippet '{}' does not exist", trigger_name);
-            return String::new();
-        }
-        Err(e) => {
-            tracing::warn!(
-                "Database query error resolving snippet '{}': {}",
-                trigger_name,
-                e
-            );
-            return String::new();
+        match crate::db::crud::triggers::get_action_by_trigger(&conn, trigger_name) {
+            Ok(Some(act)) => act,
+            Ok(None) => {
+                tracing::warn!("Snippet '{}' does not exist", trigger_name);
+                return String::new();
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Database query error resolving snippet '{}': {}",
+                    trigger_name,
+                    e
+                );
+                return String::new();
+            }
         }
     };
 

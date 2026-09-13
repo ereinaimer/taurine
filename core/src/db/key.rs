@@ -58,9 +58,37 @@ fn create_and_store_key(entry: &keyring::Entry) -> crate::Result<Zeroizing<[u8; 
 }
 
 /// Opens `db_path` with the per-install key applied as the FIRST statement.
+///
+/// On a key error the key is re-fetched once and the open retried with the
+/// fresh key. This heals the fresh-install race where two processes mint
+/// different keys and the loser holds a stale one. A genuine mismatch (same
+/// key re-fetched) returns the original error: still fail-closed.
 pub fn open_keyed_connection(db_path: &Path) -> crate::Result<rusqlite::Connection> {
-    let key = get_or_create_db_key()?;
-    open_with_key(db_path, &key)
+    open_keyed_connection_with(db_path, get_or_create_db_key)
+}
+
+fn open_keyed_connection_with<F>(
+    db_path: &Path,
+    mut fetch_key: F,
+) -> crate::Result<rusqlite::Connection>
+where
+    F: FnMut() -> crate::Result<Zeroizing<[u8; 32]>>,
+{
+    let key = fetch_key()?;
+    match open_with_key(db_path, &key) {
+        Ok(conn) => Ok(conn),
+        Err(err) => {
+            let is_key = matches!(&err, crate::error::Error::Database(inner) if crate::db::init::is_key_error(inner));
+            if !is_key {
+                return Err(err);
+            }
+            let fresh = fetch_key()?;
+            if *fresh == *key {
+                return Err(err);
+            }
+            open_with_key(db_path, &fresh)
+        }
+    }
 }
 
 fn open_with_key(db_path: &Path, key: &[u8; 32]) -> crate::Result<rusqlite::Connection> {
@@ -173,6 +201,57 @@ mod tests {
         use_mock_keyring();
         let key = get_or_create_db_key().expect("public get-or-create must succeed");
         assert_eq!(key.len(), 32);
+    }
+
+    #[test]
+    fn open_retries_once_with_fresh_key_after_stale_key_error() {
+        let _guard = lock();
+        use_mock_keyring();
+        let dir = tempfile::TempDir::new().expect("temp dir must be created");
+        let db_path = dir.path().join("taurine.db");
+        let stale = Zeroizing::new(rand::random::<[u8; 32]>());
+        let current = get_or_create_db_key().expect("key must exist");
+        assert_ne!(*stale, *current, "test needs distinct keys");
+
+        // File keyed with the current key; first fetch serves the stale one
+        // (fresh-install race), second fetch serves the current one.
+        open_with_key(&db_path, &current).expect("seed with current key must succeed");
+        let mut fetches = [Some(stale), Some(current)].into_iter();
+        let conn = open_keyed_connection_with(&db_path, || {
+            fetches
+                .next()
+                .flatten()
+                .ok_or_else(|| crate::Error::Service("out of test keys".to_string()))
+        })
+        .expect("retry with fresh key must succeed");
+        let check: String = conn
+            .query_row("PRAGMA quick_check(1)", [], |row| row.get(0))
+            .expect("quick_check must run");
+        assert_eq!(check, "ok");
+    }
+
+    #[test]
+    fn open_with_unchanged_wrong_key_stays_fail_closed() {
+        let _guard = lock();
+        use_mock_keyring();
+        let dir = tempfile::TempDir::new().expect("temp dir must be created");
+        let db_path = dir.path().join("taurine.db");
+        let wrong = Zeroizing::new(rand::random::<[u8; 32]>());
+        open_with_key(&db_path, &wrong).expect("seed with wrong key must succeed");
+
+        // Store holds a different, unchanged key: refetch agrees, original error stands.
+        let stored = get_or_create_db_key().expect("key must exist");
+        assert_ne!(*stored, *wrong, "test needs distinct keys");
+        let err = open_keyed_connection(&db_path).expect_err("foreign key must fail");
+        let quarantined = std::fs::read_dir(dir.path())
+            .expect("dir must list")
+            .filter_map(|entry| entry.ok())
+            .any(|entry| {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                name.starts_with("taurine.db.corrupted.")
+                    || name.starts_with("taurine.db.incompatible.")
+            });
+        assert!(!quarantined, "fail-closed must not quarantine, got: {err}");
     }
 
     #[test]

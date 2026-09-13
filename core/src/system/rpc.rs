@@ -259,8 +259,15 @@ mod tests {
         crate::testing::use_shared_test_keyring();
     }
 
+    fn lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn test_get_rpc_token_returns_non_empty_token() {
+        let _guard = lock();
         use_mock_keyring();
         let token = get_rpc_token();
         assert!(!token.trim().is_empty());
@@ -268,12 +275,14 @@ mod tests {
 
     #[test]
     fn test_delete_rpc_token_runs_without_panic() {
+        let _guard = lock();
         use_mock_keyring();
         delete_rpc_token();
     }
 
     #[test]
     fn test_notify_daemon_reload_skips_when_service_not_running() {
+        let _guard = lock();
         use_mock_keyring();
         // SAFETY: Single-threaded unit test modifying environment variable for isolation.
         unsafe {

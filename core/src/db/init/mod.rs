@@ -39,8 +39,16 @@ pub fn setup_at_path(db_path: &Path) -> Result<Connection> {
                 path = %db_path.display(),
                 "SQLite database corruption detected during setup; auto-quarantining and recreating database"
             );
-            quarantine_corrupted_db(db_path)?;
-            init_database(db_path)
+            let quarantined = quarantine_corrupted_db(db_path)?;
+            init_database(db_path).map_err(|retry_err| {
+                error!(
+                    error = %retry_err,
+                    path = %db_path.display(),
+                    quarantined = ?quarantined,
+                    "Recreated database failed to initialize after quarantine; original preserved at quarantine path"
+                );
+                retry_err
+            })
         }
         // Keystore-unavailable (`Error::Service`) and anything else: fail
         // closed immediately, no quarantine, no retry.
@@ -80,10 +88,12 @@ fn open_connection_at(db_path: &Path) -> Result<Connection> {
         use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
         if !db_path.exists() {
+            // No truncate(): SQLite creates the file itself. Truncating here
+            // would wipe a database created concurrently between the check
+            // and the open.
             let _ = OpenOptions::new()
                 .write(true)
                 .create(true)
-                .truncate(true)
                 .mode(0o600)
                 .open(db_path);
         }
@@ -143,13 +153,21 @@ fn quarantine_with_suffix(
         .unwrap_or("taurine.db");
 
     let mut quarantined_path =
-        db_path.with_file_name(format!("{}.{}.{}", file_name, suffix, timestamp));
-    if quarantined_path.exists() {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        quarantined_path = db_path.with_file_name(format!("{}.{}.{}", file_name, suffix, nanos));
+        db_path.with_file_name(quarantine_file_name(file_name, suffix, timestamp, pid(), 0));
+    let mut n = 0u32;
+    while quarantined_path.exists() {
+        n += 1;
+        if n > 9999 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                format!(
+                    "could not find a free quarantine name for {}",
+                    db_path.display()
+                ),
+            ));
+        }
+        quarantined_path =
+            db_path.with_file_name(quarantine_file_name(file_name, suffix, timestamp, pid(), n));
     }
 
     std::fs::rename(db_path, &quarantined_path)?;
@@ -159,22 +177,65 @@ fn quarantine_with_suffix(
         "{warn_msg}"
     );
 
-    // Also quarantine WAL and SHM journal artifacts if present
-    let wal_path = db_path.with_file_name(format!("{}-wal", file_name));
-    if wal_path.exists() {
-        let quarantined_wal =
-            db_path.with_file_name(format!("{}.{}.{}-wal", file_name, suffix, timestamp));
-        let _ = std::fs::rename(&wal_path, &quarantined_wal);
-    }
-
-    let shm_path = db_path.with_file_name(format!("{}-shm", file_name));
-    if shm_path.exists() {
-        let quarantined_shm =
-            db_path.with_file_name(format!("{}.{}.{}-shm", file_name, suffix, timestamp));
-        let _ = std::fs::rename(&shm_path, &quarantined_shm);
-    }
+    // WAL/SHM targets derive from the FINAL quarantined name, so they can
+    // neither collide independently nor orphan from the main file.
+    let final_name = quarantined_path
+        .file_name()
+        .and_then(|f| f.to_str())
+        .unwrap_or(file_name);
+    move_sidecar(db_path, file_name, "-wal", final_name)?;
+    move_sidecar(db_path, file_name, "-shm", final_name)?;
 
     Ok(Some(quarantined_path))
+}
+
+/// Deterministic quarantine file name; `n == 0` keeps the legacy
+/// `{file}.{suffix}.{millis}` shape, later attempts append pid + counter.
+fn quarantine_file_name(
+    file_name: &str,
+    suffix: &str,
+    timestamp: u128,
+    pid: u32,
+    n: u32,
+) -> String {
+    if n == 0 {
+        format!("{file_name}.{suffix}.{timestamp}")
+    } else {
+        format!("{file_name}.{suffix}.{timestamp}.p{pid}.{n}")
+    }
+}
+
+fn pid() -> u32 {
+    std::process::id()
+}
+
+/// Moves a `-wal`/`-shm` sidecar next to its quarantined main file.
+///
+/// The main file is already safe at this point. If the rename fails (locked
+/// file, permissions), the orphan is removed instead so a stale WAL can never
+/// attach to the fresh database; removal failure fails boot loudly.
+fn move_sidecar(
+    db_path: &Path,
+    file_name: &str,
+    sidecar: &str,
+    final_name: &str,
+) -> std::io::Result<()> {
+    let src = db_path.with_file_name(format!("{file_name}{sidecar}"));
+    if !src.exists() {
+        return Ok(());
+    }
+    let dst = db_path.with_file_name(format!("{final_name}{sidecar}"));
+    match std::fs::rename(&src, &dst) {
+        Ok(()) => Ok(()),
+        Err(rename_err) => {
+            warn!(
+                source = %src.display(),
+                error = %rename_err,
+                "Could not move database sidecar next to quarantine; removing orphan so the fresh database starts clean"
+            );
+            std::fs::remove_file(&src)
+        }
+    }
 }
 
 /// Plaintext SQLite magic header (`SQLite format 3\0`).
@@ -541,6 +602,68 @@ mod tests {
         );
         assert!(!wal_path.exists(), "Original WAL file must no longer exist");
         assert!(!shm_path.exists(), "Original SHM file must no longer exist");
+    }
+
+    #[test]
+    fn test_quarantine_file_name_shapes() {
+        assert_eq!(
+            quarantine_file_name("taurine.db", "corrupted", 123, 456, 0),
+            "taurine.db.corrupted.123"
+        );
+        assert_eq!(
+            quarantine_file_name("taurine.db", "corrupted", 123, 456, 2),
+            "taurine.db.corrupted.123.p456.2"
+        );
+    }
+
+    #[test]
+    fn test_double_quarantine_keeps_both_with_distinct_names() {
+        let _guard = lock();
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let db_path = temp_dir.path().join("taurine.db");
+
+        std::fs::write(&db_path, b"FIRST GARBAGE").unwrap();
+        let first = quarantine_corrupted_db(&db_path)
+            .expect("first quarantine must succeed")
+            .expect("first quarantine must return a path");
+        std::fs::write(&db_path, b"SECOND GARBAGE").unwrap();
+        let second = quarantine_corrupted_db(&db_path)
+            .expect("second quarantine must succeed")
+            .expect("second quarantine must return a path");
+
+        assert_ne!(first, second, "colliding quarantines must not share a name");
+        assert_eq!(std::fs::read(&first).unwrap(), b"FIRST GARBAGE");
+        assert_eq!(std::fs::read(&second).unwrap(), b"SECOND GARBAGE");
+    }
+
+    #[test]
+    fn test_quarantine_sidecars_derive_from_final_main_name() {
+        let _guard = lock();
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let db_path = temp_dir.path().join("taurine.db");
+        std::fs::write(&db_path, b"CORRUPTED DB").unwrap();
+        std::fs::write(temp_dir.path().join("taurine.db-wal"), b"DUMMY WAL").unwrap();
+        std::fs::write(temp_dir.path().join("taurine.db-shm"), b"DUMMY SHM").unwrap();
+
+        let quarantined = quarantine_corrupted_db(&db_path)
+            .expect("quarantine must succeed")
+            .expect("quarantine must return a path");
+        let stem = quarantined
+            .file_name()
+            .and_then(|f| f.to_str())
+            .expect("quarantine must have a file name");
+        assert!(
+            temp_dir.path().join(format!("{stem}-wal")).exists(),
+            "WAL must sit next to the quarantined main file"
+        );
+        assert!(
+            temp_dir.path().join(format!("{stem}-shm")).exists(),
+            "SHM must sit next to the quarantined main file"
+        );
+        assert_eq!(
+            std::fs::read(temp_dir.path().join(format!("{stem}-wal"))).unwrap(),
+            b"DUMMY WAL"
+        );
     }
 
     #[test]

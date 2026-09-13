@@ -572,6 +572,9 @@ mod compatibility_finalize_tests {
 
         // Test Case 4: testenv
         {
+            // Save/restore: these vars leak process-wide into parallel tests.
+            let prior_username = std::env::var("USERNAME").ok();
+            let prior_profile = std::env::var("USERPROFILE").ok();
             unsafe {
                 std::env::set_var("USERNAME", "aimer");
                 std::env::set_var("USERPROFILE", "c:\\users\\aimer");
@@ -587,15 +590,29 @@ mod compatibility_finalize_tests {
                         .to_string()
                 )]
             );
+            match (prior_username, prior_profile) {
+                (Some(u), Some(p)) => unsafe {
+                    std::env::set_var("USERNAME", u);
+                    std::env::set_var("USERPROFILE", p);
+                },
+                _ => unsafe {
+                    std::env::remove_var("USERNAME");
+                    std::env::remove_var("USERPROFILE");
+                },
+            }
         }
 
         // Test Case 5: testfile
         {
+            // Pid-suffixed so parallel test binaries never share this file.
+            let file_name = format!("taurine_test_{}.txt", std::process::id());
             if let Some(home) = directories::UserDirs::new().map(|d| d.home_dir().to_path_buf()) {
-                let path = home.join("taurine_test.txt");
+                let path = home.join(&file_name);
                 std::fs::write(&path, "line one\nline two\nline three").ok();
                 let res = evaluate_template(
-                    "Full Content: [file.read(~/taurine_test.txt) | strip(whitespace)] | Line 2: [file.line(~/taurine_test.txt, 2) | case(upper)] | Lines 1-3: [file.lines(~/taurine_test.txt, 1, 3)]",
+                    &format!(
+                        "Full Content: [file.read(~/{file_name}) | strip(whitespace)] | Line 2: [file.line(~/{file_name}, 2) | case(upper)] | Lines 1-3: [file.lines(~/{file_name}, 1, 3)]"
+                    ),
                     None,
                 );
                 std::fs::remove_file(&path).ok();

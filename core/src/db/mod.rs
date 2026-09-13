@@ -74,8 +74,8 @@ fn build_keyed_pool(
 ) -> Result<r2d2::Pool<r2d2_sqlite::SqliteConnectionManager>, crate::error::Error> {
     let db_key = key::get_or_create_db_key()?;
     let manager = r2d2_sqlite::SqliteConnectionManager::file(db_path).with_init(move |conn| {
-        let pragma =
-            zeroize::Zeroizing::new(format!("PRAGMA key = \"x'{}'\";", hex::encode(&db_key[..])));
+        let hex_key = zeroize::Zeroizing::new(hex::encode(&db_key[..]));
+        let pragma = zeroize::Zeroizing::new(format!("PRAGMA key = \"x'{}'\";", hex_key.as_str()));
         conn.execute_batch(pragma.as_str())?;
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
@@ -86,6 +86,12 @@ fn build_keyed_pool(
     });
     r2d2::Pool::builder()
         .max_size(5)
+        // Fail fast on exhaustion instead of blocking the hot path: expansions
+        // are millisecond-scale, so a 5s wait means the pool is wedged.
+        .connection_timeout(std::time::Duration::from_secs(5))
+        // Recycle connections so WAL checkpoints and fresh keys apply over time.
+        .max_lifetime(Some(std::time::Duration::from_secs(30 * 60)))
+        .idle_timeout(Some(std::time::Duration::from_secs(5 * 60)))
         .build(manager)
         .map_err(|e| {
             crate::error::Error::Service(format!("Failed to initialize connection pool: {}", e))
@@ -110,10 +116,12 @@ pub fn get_conn() -> Result<DbConnection, crate::error::Error> {
         let db_path = crate::paths::get_db_path();
 
         if !db_path.exists() {
+            // No truncate(): SQLite creates the file itself. Truncating here
+            // would wipe a database created concurrently between the check
+            // and the open.
             let _ = OpenOptions::new()
                 .write(true)
                 .create(true)
-                .truncate(true)
                 .mode(0o600)
                 .open(&db_path);
         }
@@ -148,28 +156,30 @@ pub fn get_conn() -> Result<DbConnection, crate::error::Error> {
     let db_path = crate::paths::get_db_path();
     let pools = POOLS.get_or_init(|| RwLock::new(HashMap::new()));
 
-    // Try reading with a read lock first
-    {
-        let read_guard = pools.read();
-        if let Some(pool) = read_guard.get(&db_path) {
-            return pool.get().map(DbConnection::Pooled).map_err(|e| {
-                crate::error::Error::Service(format!("Failed to get connection from pool: {}", e))
-            });
-        }
+    // Try reading with a read lock first. The pool is cloned so the checkout
+    // below runs without holding the global lock.
+    if let Some(pool) = pools.read().get(&db_path).cloned() {
+        return pool.get().map(DbConnection::Pooled).map_err(|e| {
+            crate::error::Error::Service(format!("Failed to get connection from pool: {}", e))
+        });
     }
 
-    // If not found, acquire write lock and initialize the pool for this path
-    let mut write_guard = pools.write();
-    if !write_guard.contains_key(&db_path) {
-        let pool = build_keyed_pool(&db_path)?;
-        write_guard.insert(db_path.clone(), pool);
-    }
-    let pool = write_guard.get(&db_path).cloned().ok_or_else(|| {
-        crate::error::Error::Service(format!(
-            "Failed to initialize connection pool for path: {}",
-            db_path.display()
-        ))
-    })?;
+    // If not found, acquire write lock and initialize the pool for this path.
+    // The checkout happens AFTER the guard is dropped: holding the global
+    // write lock across pool.get() would stall every other path on exhaustion.
+    let pool = {
+        let mut write_guard = pools.write();
+        if !write_guard.contains_key(&db_path) {
+            let pool = build_keyed_pool(&db_path)?;
+            write_guard.insert(db_path.clone(), pool);
+        }
+        write_guard.get(&db_path).cloned().ok_or_else(|| {
+            crate::error::Error::Service(format!(
+                "Failed to initialize connection pool for path: {}",
+                db_path.display()
+            ))
+        })?
+    };
 
     pool.get().map(DbConnection::Pooled).map_err(|e| {
         crate::error::Error::Service(format!("Failed to get connection from pool: {}", e))
