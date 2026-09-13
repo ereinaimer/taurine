@@ -286,6 +286,7 @@ mod tests {
 
     fn with_test_db<R>(f: impl FnOnce() -> R) -> R {
         let _guard = crate::commands::TEST_LOCK.lock().unwrap();
+        crate::commands::test_keyring::use_shared_test_keyring();
         let dir = tempfile::tempdir().expect("temp dir");
         let _env = TestDbEnv;
         // SAFETY: test-only; serialized by crate::commands::TEST_LOCK, so

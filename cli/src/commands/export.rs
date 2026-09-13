@@ -68,6 +68,7 @@ mod tests {
     #[test]
     fn test_export_non_interactive_passwordless_succeeds() {
         let _guard = crate::commands::TEST_LOCK.lock().unwrap();
+        crate::commands::test_keyring::use_shared_test_keyring();
         let dir = tempfile::tempdir().expect("temp dir");
         // SAFETY: Test runs under TEST_LOCK and temporary dir is cleaned up.
         unsafe { std::env::set_var("TAURINE_DATA_DIR", dir.path()) };

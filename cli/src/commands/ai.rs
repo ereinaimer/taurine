@@ -528,6 +528,7 @@ mod tests {
     #[test]
     fn test_ai_missing_key_diagnostic() {
         let _guard = crate::commands::TEST_LOCK.lock().unwrap();
+        crate::commands::test_keyring::use_shared_test_keyring();
         let dir = tempfile::tempdir().expect("temp dir");
         // SAFETY: Test runs under TEST_LOCK and temporary dir is cleaned up.
         unsafe { std::env::set_var("TAURINE_DATA_DIR", dir.path()) };
@@ -562,6 +563,7 @@ mod tests {
     #[test]
     fn test_ai_missing_custom_endpoint_diagnostic() {
         let _guard = crate::commands::TEST_LOCK.lock().unwrap();
+        crate::commands::test_keyring::use_shared_test_keyring();
         let dir = tempfile::tempdir().expect("temp dir");
         // SAFETY: Test runs under TEST_LOCK and temporary dir is cleaned up.
         unsafe { std::env::set_var("TAURINE_DATA_DIR", dir.path()) };

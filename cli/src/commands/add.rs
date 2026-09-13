@@ -317,12 +317,14 @@ mod tests {
 
     fn with_test_db<T>(f: impl FnOnce(&str) -> T) -> T {
         let _guard = crate::commands::TEST_LOCK.lock().unwrap();
+        crate::commands::test_keyring::use_shared_test_keyring();
         let db_guard = TestDbEnvGuard::new();
         let db_path = db_guard.db_path();
         f(&db_path)
     }
 
     fn open_keyed_db(db_path: &str) -> rusqlite::Connection {
+        crate::commands::test_keyring::use_shared_test_keyring();
         taurine_core::db::key::open_keyed_connection(std::path::Path::new(db_path)).unwrap()
     }
 
