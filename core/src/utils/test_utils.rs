@@ -18,6 +18,10 @@ mod test_db {
 
     type TestPasswordMap = HashMap<(String, String), Vec<u8>>;
 
+    /// Fixed pre-seeded test key: hex of 32 `0x42` bytes.
+    const FIXED_TEST_DB_KEY_HEX: &[u8] =
+        b"4242424242424242424242424242424242424242424242424242424242424242";
+
     /// Process-wide password map backing the shared test keystore, keyed by
     /// (service, user). Unlike `keyring::mock` (fresh credential per `Entry`,
     /// so every `get_or_create_db_key` mints a new random key), entries built
@@ -31,7 +35,7 @@ mod test_db {
             let mut map = HashMap::new();
             map.insert(
                 ("taurine".to_string(), "db-key".to_string()),
-                b"4242424242424242424242424242424242424242424242424242424242424242".to_vec(),
+                FIXED_TEST_DB_KEY_HEX.to_vec(),
             );
             Mutex::new(map)
         })
@@ -46,6 +50,10 @@ mod test_db {
     impl SharedTestCredential {
         fn key(&self) -> (String, String) {
             (self.service.clone(), self.user.clone())
+        }
+
+        fn is_fixed_db_key(&self) -> bool {
+            self.service == "taurine" && self.user == "db-key"
         }
     }
 
@@ -68,6 +76,16 @@ mod test_db {
         }
 
         fn delete_credential(&self) -> keyring::Result<()> {
+            // Re-seed the fixed db-key instead of dropping it: deleting the
+            // pre-seed would make later re-creation mint a different random key
+            // and break reopen of earlier temp DBs encrypted with the fixed key.
+            if self.is_fixed_db_key() {
+                shared_passwords()
+                    .lock()
+                    .expect("shared test keystore poisoned")
+                    .insert(self.key(), FIXED_TEST_DB_KEY_HEX.to_vec());
+                return Ok(());
+            }
             let removed = shared_passwords()
                 .lock()
                 .expect("shared test keystore poisoned")
