@@ -22,8 +22,17 @@ pub fn setup() -> Result<Connection> {
 
 /// Initializes a SQLite database at an explicit file path with corruption self-healing.
 pub fn setup_at_path(db_path: &Path) -> Result<Connection> {
+    // Legacy plaintext DBs are quarantined as incompatible before any keyed
+    // open, then a fresh encrypted DB is created below.
+    if is_plaintext_db(db_path) {
+        quarantine_incompatible_db(db_path)?;
+    }
     match init_database(db_path) {
         Ok(conn) => Ok(conn),
+        // Wrong key (or damaged header): actionable error, never quarantine.
+        Err(err) if matches!(&err, crate::error::Error::Database(inner) if is_key_error(inner)) => {
+            Err(key_mismatch_error())
+        }
         Err(err) if is_corrupt_error(&err) => {
             error!(
                 error = %err,
@@ -33,6 +42,8 @@ pub fn setup_at_path(db_path: &Path) -> Result<Connection> {
             quarantine_corrupted_db(db_path)?;
             init_database(db_path)
         }
+        // Keystore-unavailable (`Error::Service`) and anything else: fail
+        // closed immediately, no quarantine, no retry.
         Err(err) => Err(err),
     }
 }
@@ -86,14 +97,7 @@ fn open_connection_at(db_path: &Path) -> Result<Connection> {
         }
     }
 
-    let conn = Connection::open(db_path)?;
-
-    conn.busy_timeout(std::time::Duration::from_secs(5))?;
-
-    conn.execute_batch(
-        "PRAGMA journal_mode = WAL;
-         PRAGMA synchronous = NORMAL;",
-    )?;
+    let conn = crate::db::key::open_keyed_connection(db_path)?;
 
     Ok(conn)
 }
@@ -101,6 +105,29 @@ fn open_connection_at(db_path: &Path) -> Result<Connection> {
 /// Automatically renames a corrupted database file and any associated WAL/SHM files
 /// to `.corrupted.<timestamp>` to allow creating a healthy fresh database.
 pub fn quarantine_corrupted_db(db_path: &Path) -> std::io::Result<Option<PathBuf>> {
+    quarantine_with_suffix(
+        db_path,
+        "corrupted",
+        "Quarantined corrupted SQLite database file",
+    )
+}
+
+/// Renames a legacy plaintext database file and any associated WAL/SHM files
+/// to `.incompatible.<timestamp>` so a fresh encrypted database can be created.
+/// The quarantined file is left intact for manual inspection.
+pub fn quarantine_incompatible_db(db_path: &Path) -> std::io::Result<Option<PathBuf>> {
+    quarantine_with_suffix(
+        db_path,
+        "incompatible",
+        "Quarantined plaintext SQLite database (incompatible with encryption)",
+    )
+}
+
+fn quarantine_with_suffix(
+    db_path: &Path,
+    suffix: &str,
+    warn_msg: &str,
+) -> std::io::Result<Option<PathBuf>> {
     if !db_path.exists() {
         return Ok(None);
     }
@@ -115,39 +142,74 @@ pub fn quarantine_corrupted_db(db_path: &Path) -> std::io::Result<Option<PathBuf
         .and_then(|f| f.to_str())
         .unwrap_or("taurine.db");
 
-    let mut corrupted_path =
-        db_path.with_file_name(format!("{}.corrupted.{}", file_name, timestamp));
-    if corrupted_path.exists() {
+    let mut quarantined_path =
+        db_path.with_file_name(format!("{}.{}.{}", file_name, suffix, timestamp));
+    if quarantined_path.exists() {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        corrupted_path = db_path.with_file_name(format!("{}.corrupted.{}", file_name, nanos));
+        quarantined_path = db_path.with_file_name(format!("{}.{}.{}", file_name, suffix, nanos));
     }
 
-    std::fs::rename(db_path, &corrupted_path)?;
+    std::fs::rename(db_path, &quarantined_path)?;
     warn!(
         source = %db_path.display(),
-        target = %corrupted_path.display(),
-        "Quarantined corrupted SQLite database file"
+        target = %quarantined_path.display(),
+        "{warn_msg}"
     );
 
     // Also quarantine WAL and SHM journal artifacts if present
     let wal_path = db_path.with_file_name(format!("{}-wal", file_name));
     if wal_path.exists() {
-        let corrupted_wal =
-            db_path.with_file_name(format!("{}.corrupted.{}-wal", file_name, timestamp));
-        let _ = std::fs::rename(&wal_path, &corrupted_wal);
+        let quarantined_wal =
+            db_path.with_file_name(format!("{}.{}.{}-wal", file_name, suffix, timestamp));
+        let _ = std::fs::rename(&wal_path, &quarantined_wal);
     }
 
     let shm_path = db_path.with_file_name(format!("{}-shm", file_name));
     if shm_path.exists() {
-        let corrupted_shm =
-            db_path.with_file_name(format!("{}.corrupted.{}-shm", file_name, timestamp));
-        let _ = std::fs::rename(&shm_path, &corrupted_shm);
+        let quarantined_shm =
+            db_path.with_file_name(format!("{}.{}.{}-shm", file_name, suffix, timestamp));
+        let _ = std::fs::rename(&shm_path, &quarantined_shm);
     }
 
-    Ok(Some(corrupted_path))
+    Ok(Some(quarantined_path))
+}
+
+/// Plaintext SQLite magic header (`SQLite format 3\0`).
+const SQLITE_MAGIC: &[u8; 16] = b"SQLite format 3\0";
+
+/// True when the file exists and starts with the plaintext SQLite magic.
+/// Reads only the first 16 bytes; missing or short files return false.
+fn is_plaintext_db(db_path: &Path) -> bool {
+    use std::io::Read;
+    let mut file = match std::fs::File::open(db_path) {
+        Ok(file) => file,
+        Err(_) => return false,
+    };
+    let mut header = [0u8; 16];
+    match file.read_exact(&mut header) {
+        Ok(()) => header == *SQLITE_MAGIC,
+        Err(_) => false,
+    }
+}
+
+/// Actionable error for wrong-key opens: never quarantines the file.
+fn key_mismatch_error() -> crate::error::Error {
+    crate::error::Error::Service(
+        "Database key mismatch: the OS keystore key cannot decrypt the database file. Restore from an encrypted export; Taurine will not quarantine or overwrite it.".to_string(),
+    )
+}
+
+/// True for wrong-key/damaged-header failures: `NotADatabase` or extended code 26.
+pub(crate) fn is_key_error(err: &rusqlite::Error) -> bool {
+    match err {
+        rusqlite::Error::SqliteFailure(ffi_err, _) => {
+            ffi_err.code == rusqlite::ErrorCode::NotADatabase || ffi_err.extended_code == 26
+        }
+        _ => false,
+    }
 }
 
 /// Inspects an error to determine whether it represents SQLite corruption.
@@ -160,7 +222,11 @@ pub fn is_corrupt_error(err: &crate::error::Error) -> bool {
 }
 
 /// Checks if a rusqlite error indicates database file corruption.
+/// Key errors (wrong key / damaged header) are never corruption.
 pub fn is_rusqlite_corrupt(err: &rusqlite::Error) -> bool {
+    if is_key_error(err) {
+        return false;
+    }
     match err {
         rusqlite::Error::SqliteFailure(ffi_err, msg) => {
             if ffi_err.code == rusqlite::ErrorCode::DatabaseCorrupt
@@ -195,48 +261,204 @@ fn is_corrupt_str(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Once;
     use tempfile::TempDir;
 
+    static MOCK_KEYRING: Once = Once::new();
+
+    fn use_mock_keyring() {
+        MOCK_KEYRING.call_once(|| {
+            keyring::set_default_credential_builder(keyring::mock::default_credential_builder());
+        });
+    }
+
+    fn lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
-    fn test_quarantine_corrupted_garbage_database() {
+    fn test_setup_at_path_creates_encrypted_db() {
+        let _guard = lock();
+        use_mock_keyring();
         let temp_dir = TempDir::new().expect("failed to create temp dir");
         let db_path = temp_dir.path().join("taurine.db");
 
-        // Write non-SQLite garbage data to the database path
-        std::fs::write(&db_path, b"THIS IS COMPLETELY CORRUPTED GARBAGE DATA").unwrap();
+        let conn = setup_at_path(&db_path).expect("fresh setup must succeed");
 
-        // Calling setup_at_path should detect corruption, quarantine, and initialize a fresh DB
-        let conn =
-            setup_at_path(&db_path).expect("setup_at_path should recover from corrupted file");
-
-        // Verify the connection is functional and integrity passes
         let check: String = conn
             .query_row("PRAGMA quick_check(1)", [], |r| r.get(0))
             .expect("quick_check must succeed");
         assert_eq!(check, "ok");
 
-        // Verify standard tables exist
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM settings", [], |r| r.get(0))
             .expect("settings table must exist");
         assert!(count > 0);
+        drop(conn);
 
-        // Verify that a quarantined file was created in the directory
-        let entries = std::fs::read_dir(temp_dir.path()).unwrap();
-        let quarantined = entries
-            .filter_map(|e| e.ok())
-            .find(|e| {
-                let name = e.file_name().to_string_lossy().to_string();
-                name.starts_with("taurine.db.corrupted.")
-            })
-            .expect("Quarantined file must exist");
-
-        let content = std::fs::read(quarantined.path()).unwrap();
-        assert_eq!(content, b"THIS IS COMPLETELY CORRUPTED GARBAGE DATA");
+        let bytes = std::fs::read(&db_path).expect("db file must exist");
+        assert!(bytes.len() > 16);
+        assert_ne!(
+            &bytes[..16],
+            b"SQLite format 3\0",
+            "fresh db header must not be plaintext"
+        );
     }
 
     #[test]
-    fn test_quarantine_malformed_sqlite_page() {
+    fn test_setup_at_path_quarantines_plaintext_db() {
+        let _guard = lock();
+        use_mock_keyring();
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let db_path = temp_dir.path().join("taurine.db");
+
+        // Build a REAL plaintext DB: plain open without key.
+        {
+            let plain = rusqlite::Connection::open(&db_path).expect("plain open must succeed");
+            plain
+                .execute_batch("CREATE TABLE t(x); INSERT INTO t VALUES (1);")
+                .expect("plaintext write must succeed");
+        }
+        let header = std::fs::read(&db_path).expect("plaintext db must exist");
+        assert_eq!(&header[..16], b"SQLite format 3\0");
+
+        let conn = setup_at_path(&db_path).expect("plaintext must heal to fresh encrypted db");
+
+        let check: String = conn
+            .query_row("PRAGMA quick_check(1)", [], |r| r.get(0))
+            .expect("quick_check must succeed");
+        assert_eq!(check, "ok");
+        drop(conn);
+
+        let fresh = std::fs::read(&db_path).expect("fresh db must exist");
+        assert_ne!(&fresh[..16], b"SQLite format 3\0");
+
+        let entries: Vec<String> = std::fs::read_dir(temp_dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            entries
+                .iter()
+                .any(|n| n.starts_with("taurine.db.incompatible.")),
+            "incompatible quarantine must exist, found: {:?}",
+            entries
+        );
+    }
+
+    #[test]
+    fn test_quarantine_incompatible_db_moves_wal_and_shm() {
+        let _guard = lock();
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let db_path = temp_dir.path().join("taurine.db");
+        let wal_path = temp_dir.path().join("taurine.db-wal");
+        let shm_path = temp_dir.path().join("taurine.db-shm");
+
+        std::fs::write(&db_path, b"SQLite format 3\0plaintext").unwrap();
+        std::fs::write(&wal_path, b"DUMMY WAL DATA").unwrap();
+        std::fs::write(&shm_path, b"DUMMY SHM DATA").unwrap();
+
+        let quarantined = quarantine_incompatible_db(&db_path).unwrap();
+        assert!(quarantined.is_some());
+
+        let file_names: Vec<String> = std::fs::read_dir(temp_dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            file_names
+                .iter()
+                .any(|n| n.starts_with("taurine.db.incompatible.") && n.ends_with("-wal")),
+            "quarantined WAL must exist, found: {:?}",
+            file_names
+        );
+        assert!(
+            file_names
+                .iter()
+                .any(|n| n.starts_with("taurine.db.incompatible.") && n.ends_with("-shm")),
+            "quarantined SHM must exist, found: {:?}",
+            file_names
+        );
+        assert!(!wal_path.exists());
+        assert!(!shm_path.exists());
+    }
+
+    #[test]
+    fn test_key_error_classifier() {
+        let notadb = rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(26),
+            Some("file is encrypted or is not a database".to_string()),
+        );
+        assert!(is_key_error(&notadb));
+        assert!(
+            !is_corrupt_error(&crate::error::Error::Database(notadb)),
+            "key error must not classify as corruption"
+        );
+
+        let corrupt = rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(11),
+            Some("database disk image is malformed".to_string()),
+        );
+        assert!(!is_key_error(&corrupt));
+        assert!(is_corrupt_error(&crate::error::Error::Database(corrupt)));
+
+        let syntax = rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(1),
+            Some("near 'SYNTAX': syntax error".to_string()),
+        );
+        assert!(!is_key_error(&syntax));
+        assert!(!is_corrupt_error(&crate::error::Error::Database(syntax)));
+
+        // Keystore-unavailable Service errors must never look like corruption.
+        let down = crate::error::Error::Service(
+            "Database key unavailable from the OS keystore (test).".to_string(),
+        );
+        assert!(!is_corrupt_error(&down));
+    }
+
+    #[test]
+    fn test_damaged_header_returns_key_error_without_quarantine() {
+        let _guard = lock();
+        use_mock_keyring();
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let db_path = temp_dir.path().join("taurine.db");
+
+        // Non-SQLite garbage: damaged header, surfaces as a key error by design.
+        std::fs::write(&db_path, b"THIS IS COMPLETELY CORRUPTED GARBAGE DATA").unwrap();
+
+        let err = setup_at_path(&db_path).expect_err("damaged header must fail closed");
+        assert!(
+            matches!(err, crate::error::Error::Service(ref msg) if msg.contains("key mismatch")),
+            "damaged header must be a key-mismatch Service error, got: {err}"
+        );
+
+        // Fail-closed: original file intact, nothing quarantined, no fresh DB.
+        assert_eq!(
+            std::fs::read(&db_path).unwrap(),
+            b"THIS IS COMPLETELY CORRUPTED GARBAGE DATA"
+        );
+        let names: Vec<String> = std::fs::read_dir(temp_dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            names
+                .iter()
+                .all(|n| !n.contains(".corrupted.") && !n.contains(".incompatible.")),
+            "no quarantine must be created, found: {:?}",
+            names
+        );
+    }
+
+    #[test]
+    fn test_damaged_ciphertext_returns_key_error_without_quarantine() {
+        let _guard = lock();
+        use_mock_keyring();
         let temp_dir = TempDir::new().expect("failed to create temp dir");
         let db_path = temp_dir.path().join("taurine.db");
 
@@ -264,27 +486,31 @@ mod tests {
         }
         std::fs::write(&db_path, data).unwrap();
 
-        // setup_at_path must detect corruption, quarantine, and initialize a fresh DB
-        let conn =
-            setup_at_path(&db_path).expect("setup_at_path should recover from malformed page");
+        // Damaged ciphertext is indistinguishable from a wrong key: fail closed,
+        // never quarantine or overwrite.
+        let err = setup_at_path(&db_path).expect_err("damaged ciphertext must fail closed");
+        assert!(
+            matches!(err, crate::error::Error::Service(ref msg) if msg.contains("key mismatch")),
+            "damaged ciphertext must be a key-mismatch Service error, got: {err}"
+        );
 
-        let check: String = conn
-            .query_row("PRAGMA quick_check(1)", [], |r| r.get(0))
-            .expect("quick_check must succeed on regenerated database");
-        assert_eq!(check, "ok");
-
-        // Verify quarantined file exists
-        let entries = std::fs::read_dir(temp_dir.path()).unwrap();
-        let has_quarantined = entries.filter_map(|e| e.ok()).any(|e| {
-            e.file_name()
-                .to_string_lossy()
-                .starts_with("taurine.db.corrupted.")
-        });
-        assert!(has_quarantined, "Quarantined file must exist");
+        let names: Vec<String> = std::fs::read_dir(temp_dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            names
+                .iter()
+                .all(|n| !n.contains(".corrupted.") && !n.contains(".incompatible.")),
+            "no quarantine must be created, found: {:?}",
+            names
+        );
     }
 
     #[test]
     fn test_quarantine_cleans_up_wal_and_shm() {
+        let _guard = lock();
         let temp_dir = TempDir::new().expect("failed to create temp dir");
         let db_path = temp_dir.path().join("taurine.db");
         let wal_path = temp_dir.path().join("taurine.db-wal");
@@ -334,7 +560,12 @@ mod tests {
             rusqlite::ffi::Error::new(26),
             Some("file is not a database".to_string()),
         ));
-        assert!(is_corrupt_error(&err_notadb));
+        // NotADatabase is a key error now, never corruption.
+        assert!(!is_corrupt_error(&err_notadb));
+        assert!(matches!(
+            &err_notadb,
+            crate::error::Error::Database(inner) if is_key_error(inner)
+        ));
 
         let err_syntax = crate::error::Error::Database(rusqlite::Error::SqliteFailure(
             rusqlite::ffi::Error::new(1),
