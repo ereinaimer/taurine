@@ -55,7 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Always-Encrypted Exports**: Remove the `--plain` export option so `.tau` files are always encrypted, with an optional password for a second lock.
-- **Machine-Bound Database Encryption**: Old database files are set aside as incompatible on first start so a fresh encrypted database can be created, and copies of the database file no longer open on other computers; move data between machines with encrypted exports.
+- **Machine-Bound Database Encryption**: The local database is now encrypted with a per-computer key and copies of the database file no longer open on other computers; move data between machines with encrypted exports.
 
 ## [1.0.0-alpha.18] - 2026-09-06
 

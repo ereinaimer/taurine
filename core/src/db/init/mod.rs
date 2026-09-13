@@ -22,11 +22,6 @@ pub fn setup() -> Result<Connection> {
 
 /// Initializes a SQLite database at an explicit file path with corruption self-healing.
 pub fn setup_at_path(db_path: &Path) -> Result<Connection> {
-    // Legacy plaintext DBs are quarantined as incompatible before any keyed
-    // open, then a fresh encrypted DB is created below.
-    if is_plaintext_db(db_path) {
-        quarantine_incompatible_db(db_path)?;
-    }
     match init_database(db_path) {
         Ok(conn) => Ok(conn),
         // Wrong key (or damaged header): actionable error, never quarantine.
@@ -119,17 +114,6 @@ pub fn quarantine_corrupted_db(db_path: &Path) -> std::io::Result<Option<PathBuf
         db_path,
         "corrupted",
         "Quarantined corrupted SQLite database file",
-    )
-}
-
-/// Renames a legacy plaintext database file and any associated WAL/SHM files
-/// to `.incompatible.<timestamp>` so a fresh encrypted database can be created.
-/// The quarantined file is left intact for manual inspection.
-pub fn quarantine_incompatible_db(db_path: &Path) -> std::io::Result<Option<PathBuf>> {
-    quarantine_with_suffix(
-        db_path,
-        "incompatible",
-        "Quarantined plaintext SQLite database (incompatible with encryption)",
     )
 }
 
@@ -235,24 +219,6 @@ fn move_sidecar(
             );
             std::fs::remove_file(&src)
         }
-    }
-}
-
-/// Plaintext SQLite magic header (`SQLite format 3\0`).
-const SQLITE_MAGIC: &[u8; 16] = b"SQLite format 3\0";
-
-/// True when the file exists and starts with the plaintext SQLite magic.
-/// Reads only the first 16 bytes; missing or short files return false.
-fn is_plaintext_db(db_path: &Path) -> bool {
-    use std::io::Read;
-    let mut file = match std::fs::File::open(db_path) {
-        Ok(file) => file,
-        Err(_) => return false,
-    };
-    let mut header = [0u8; 16];
-    match file.read_exact(&mut header) {
-        Ok(()) => header == *SQLITE_MAGIC,
-        Err(_) => false,
     }
 }
 
@@ -364,7 +330,7 @@ mod tests {
     }
 
     #[test]
-    fn test_setup_at_path_quarantines_plaintext_db() {
+    fn test_setup_at_path_leaves_plaintext_db_untouched_with_key_error() {
         let _guard = lock();
         use_mock_keyring();
         let temp_dir = TempDir::new().expect("failed to create temp dir");
@@ -377,70 +343,32 @@ mod tests {
                 .execute_batch("CREATE TABLE t(x); INSERT INTO t VALUES (1);")
                 .expect("plaintext write must succeed");
         }
-        let header = std::fs::read(&db_path).expect("plaintext db must exist");
-        assert_eq!(&header[..16], b"SQLite format 3\0");
+        let before = std::fs::read(&db_path).expect("plaintext db must exist");
+        assert_eq!(&before[..16], b"SQLite format 3\0");
 
-        let conn = setup_at_path(&db_path).expect("plaintext must heal to fresh encrypted db");
-
-        let check: String = conn
-            .query_row("PRAGMA quick_check(1)", [], |r| r.get(0))
-            .expect("quick_check must succeed");
-        assert_eq!(check, "ok");
-        drop(conn);
-
-        let fresh = std::fs::read(&db_path).expect("fresh db must exist");
-        assert_ne!(&fresh[..16], b"SQLite format 3\0");
+        // No backwards compatibility: boot fails closed, file untouched.
+        let err = setup_at_path(&db_path).expect_err("plaintext must fail closed");
+        assert!(
+            matches!(err, crate::error::Error::Service(_)),
+            "plaintext must be a Service key error, got: {err}"
+        );
+        assert_eq!(
+            std::fs::read(&db_path).expect("file must still exist"),
+            before,
+            "plaintext file must be left untouched"
+        );
 
         let entries: Vec<String> = std::fs::read_dir(temp_dir.path())
             .unwrap()
             .filter_map(|e| e.ok())
             .map(|e| e.file_name().to_string_lossy().to_string())
             .collect();
-        assert!(
+        assert_eq!(
+            entries,
+            vec!["taurine.db".to_string()],
+            "no quarantine must be created, found: {:?}",
             entries
-                .iter()
-                .any(|n| n.starts_with("taurine.db.incompatible.")),
-            "incompatible quarantine must exist, found: {:?}",
-            entries
         );
-    }
-
-    #[test]
-    fn test_quarantine_incompatible_db_moves_wal_and_shm() {
-        let _guard = lock();
-        let temp_dir = TempDir::new().expect("failed to create temp dir");
-        let db_path = temp_dir.path().join("taurine.db");
-        let wal_path = temp_dir.path().join("taurine.db-wal");
-        let shm_path = temp_dir.path().join("taurine.db-shm");
-
-        std::fs::write(&db_path, b"SQLite format 3\0plaintext").unwrap();
-        std::fs::write(&wal_path, b"DUMMY WAL DATA").unwrap();
-        std::fs::write(&shm_path, b"DUMMY SHM DATA").unwrap();
-
-        let quarantined = quarantine_incompatible_db(&db_path).unwrap();
-        assert!(quarantined.is_some());
-
-        let file_names: Vec<String> = std::fs::read_dir(temp_dir.path())
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .map(|e| e.file_name().to_string_lossy().to_string())
-            .collect();
-        assert!(
-            file_names
-                .iter()
-                .any(|n| n.starts_with("taurine.db.incompatible.") && n.ends_with("-wal")),
-            "quarantined WAL must exist, found: {:?}",
-            file_names
-        );
-        assert!(
-            file_names
-                .iter()
-                .any(|n| n.starts_with("taurine.db.incompatible.") && n.ends_with("-shm")),
-            "quarantined SHM must exist, found: {:?}",
-            file_names
-        );
-        assert!(!wal_path.exists());
-        assert!(!shm_path.exists());
     }
 
     #[test]
@@ -503,9 +431,7 @@ mod tests {
             .map(|e| e.file_name().to_string_lossy().to_string())
             .collect();
         assert!(
-            names
-                .iter()
-                .all(|n| !n.contains(".corrupted.") && !n.contains(".incompatible.")),
+            names.iter().all(|n| !n.contains(".corrupted.")),
             "no quarantine must be created, found: {:?}",
             names
         );
@@ -556,9 +482,7 @@ mod tests {
             .map(|e| e.file_name().to_string_lossy().to_string())
             .collect();
         assert!(
-            names
-                .iter()
-                .all(|n| !n.contains(".corrupted.") && !n.contains(".incompatible.")),
+            names.iter().all(|n| !n.contains(".corrupted.")),
             "no quarantine must be created, found: {:?}",
             names
         );

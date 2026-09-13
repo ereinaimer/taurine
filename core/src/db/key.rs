@@ -249,7 +249,6 @@ mod tests {
             .any(|entry| {
                 let name = entry.file_name().to_string_lossy().into_owned();
                 name.starts_with("taurine.db.corrupted.")
-                    || name.starts_with("taurine.db.incompatible.")
             });
         assert!(!quarantined, "fail-closed must not quarantine, got: {err}");
     }
