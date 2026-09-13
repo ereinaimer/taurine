@@ -513,7 +513,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                         debug!("RPC settings changed, reloading gRPC server...");
                         break;
                     }
-                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                 }
             };
 

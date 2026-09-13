@@ -119,7 +119,7 @@ pub fn start_windows_supervisor(
             let mut is_session_locked = false;
 
             loop {
-                let event = rx.recv_timeout(Duration::from_millis(100));
+                let event = rx.recv_timeout(Duration::from_millis(500));
 
                 match event {
                     Ok(WindowsSupervisorEvent::HookUnresponsive) => {
