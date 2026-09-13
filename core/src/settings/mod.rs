@@ -35,8 +35,21 @@ static CACHED_AUDIO_THEME: parking_lot::RwLock<AudioTheme> =
     parking_lot::RwLock::new(AudioTheme::Minimal);
 static CACHED_AUDIO_VOLUME: AtomicU32 = AtomicU32::new(50);
 
+// Bumped on every cached-settings write so background loops can poll this
+// single counter instead of re-reading the database while idle.
+static SETTINGS_VERSION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub fn settings_version() -> u64 {
+    SETTINGS_VERSION.load(Ordering::Relaxed)
+}
+
+fn bump_settings_version() {
+    SETTINGS_VERSION.fetch_add(1, Ordering::Relaxed);
+}
+
 pub fn set_cached_audio_theme(theme: AudioTheme) {
     *CACHED_AUDIO_THEME.write() = theme;
+    bump_settings_version();
 }
 
 pub fn get_cached_audio_theme() -> AudioTheme {
@@ -45,6 +58,7 @@ pub fn get_cached_audio_theme() -> AudioTheme {
 
 pub fn set_cached_audio_volume(volume: u32) {
     CACHED_AUDIO_VOLUME.store(Settings::sanitize_audio_volume(volume), Ordering::Relaxed);
+    bump_settings_version();
 }
 
 pub fn get_cached_audio_volume() -> u32 {
@@ -53,10 +67,12 @@ pub fn get_cached_audio_volume() -> u32 {
 
 pub fn set_cached_inline_emoji_enabled(enabled: bool) {
     CACHED_INLINE_EMOJI_ENABLED.store(enabled, Ordering::Relaxed);
+    bump_settings_version();
 }
 
 pub fn set_cached_inline_dictionary_enabled(enabled: bool) {
     CACHED_INLINE_DICTIONARY_ENABLED.store(enabled, Ordering::Relaxed);
+    bump_settings_version();
 }
 
 pub fn get_cached_inline_dictionary_enabled() -> bool {
@@ -65,6 +81,7 @@ pub fn get_cached_inline_dictionary_enabled() -> bool {
 
 pub fn set_cached_inline_dictionary_mode(mode: InlineDictionaryMode) {
     *CACHED_INLINE_DICTIONARY_MODE.write() = mode;
+    bump_settings_version();
 }
 
 pub fn get_cached_inline_dictionary_mode() -> InlineDictionaryMode {
@@ -73,6 +90,7 @@ pub fn get_cached_inline_dictionary_mode() -> InlineDictionaryMode {
 
 pub fn set_cached_inline_emoji_trigger_char(c: char) {
     CACHED_INLINE_EMOJI_TRIGGER_CHAR.store(c as u32, Ordering::Relaxed);
+    bump_settings_version();
 }
 
 pub fn get_cached_inline_emoji_enabled() -> bool {
@@ -86,6 +104,7 @@ pub fn get_cached_inline_emoji_trigger_char() -> char {
 
 pub fn set_cached_scripts_enabled(enabled: bool) {
     CACHED_SCRIPTS_ENABLED.store(enabled, Ordering::Relaxed);
+    bump_settings_version();
 }
 
 pub fn get_cached_scripts_enabled() -> bool {
@@ -94,6 +113,7 @@ pub fn get_cached_scripts_enabled() -> bool {
 
 pub fn set_cached_inline_case_transform_enabled(enabled: bool) {
     CACHED_INLINE_CASE_TRANSFORM_ENABLED.store(enabled, Ordering::Relaxed);
+    bump_settings_version();
 }
 
 pub fn get_cached_inline_case_transform_enabled() -> bool {
@@ -102,22 +122,27 @@ pub fn get_cached_inline_case_transform_enabled() -> bool {
 
 pub fn set_cached_script_timeout(timeout: u32) {
     CACHED_SCRIPT_TIMEOUT.store(timeout, Ordering::Relaxed);
+    bump_settings_version();
 }
 
 pub fn set_cached_clipboard_restore_delay(delay: u32) {
     CACHED_CLIPBOARD_RESTORE_DELAY.store(delay, Ordering::Relaxed);
+    bump_settings_version();
 }
 
 pub fn set_cached_wpm(wpm: u32) {
     CACHED_WPM.store(wpm, Ordering::Relaxed);
+    bump_settings_version();
 }
 
 pub fn set_cached_clipboard_history_enabled(enabled: bool) {
     CACHED_CLIPBOARD_HISTORY_ENABLED.store(enabled, Ordering::Relaxed);
+    bump_settings_version();
 }
 
 pub fn set_cached_clipboard_history_retention_secs(secs: u32) {
     CACHED_CLIPBOARD_HISTORY_RETENTION_SECS.store(secs, Ordering::Relaxed);
+    bump_settings_version();
 }
 
 pub fn get_cached_clipboard_restore_delay() -> u32 {
@@ -138,18 +163,21 @@ pub fn get_cached_clipboard_history_retention_secs() -> u32 {
 
 pub fn set_cached_inline_datetime_enabled(enabled: bool) {
     CACHED_INLINE_DATETIME_ENABLED.store(enabled, Ordering::Relaxed);
+    bump_settings_version();
 }
 pub fn get_cached_inline_datetime_enabled() -> bool {
     CACHED_INLINE_DATETIME_ENABLED.load(Ordering::Relaxed)
 }
 pub fn set_cached_inline_currency_to_words_enabled(enabled: bool) {
     CACHED_INLINE_CURRENCY_TO_WORDS_ENABLED.store(enabled, Ordering::Relaxed);
+    bump_settings_version();
 }
 pub fn get_cached_inline_currency_to_words_enabled() -> bool {
     CACHED_INLINE_CURRENCY_TO_WORDS_ENABLED.load(Ordering::Relaxed)
 }
 pub fn set_cached_inline_datetime_date_format(f: String) {
     *CACHED_INLINE_DATETIME_DATE_FORMAT.write() = Some(f);
+    bump_settings_version();
 }
 pub fn get_cached_inline_datetime_date_format() -> String {
     CACHED_INLINE_DATETIME_DATE_FORMAT
@@ -159,6 +187,7 @@ pub fn get_cached_inline_datetime_date_format() -> String {
 }
 pub fn set_cached_inline_datetime_time_format(f: String) {
     *CACHED_INLINE_DATETIME_TIME_FORMAT.write() = Some(f);
+    bump_settings_version();
 }
 pub fn get_cached_inline_datetime_time_format() -> String {
     CACHED_INLINE_DATETIME_TIME_FORMAT
@@ -168,6 +197,7 @@ pub fn get_cached_inline_datetime_time_format() -> String {
 }
 pub fn set_cached_inline_datetime_datetime_format(f: String) {
     *CACHED_INLINE_DATETIME_DATETIME_FORMAT.write() = Some(f);
+    bump_settings_version();
 }
 pub fn get_cached_inline_datetime_datetime_format() -> String {
     CACHED_INLINE_DATETIME_DATETIME_FORMAT
@@ -177,6 +207,7 @@ pub fn get_cached_inline_datetime_datetime_format() -> String {
 }
 pub fn set_cached_inline_datetime_dialect(d: String) {
     *CACHED_INLINE_DATETIME_DIALECT.write() = Some(d);
+    bump_settings_version();
 }
 pub fn get_cached_inline_datetime_dialect() -> String {
     CACHED_INLINE_DATETIME_DIALECT

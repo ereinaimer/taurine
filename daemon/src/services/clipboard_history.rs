@@ -69,6 +69,22 @@ pub fn resume_listener() {
 #[cfg(target_os = "macos")]
 const INIT_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
+/// Sleeps ~2s in short slices while clipboard capture is idle or suppressed,
+/// waking early if settings change or shutdown is requested.
+#[cfg(not(windows))]
+fn wait_while_capture_idle() {
+    let observed = taurine_core::settings::settings_version();
+    for _ in 0..8 {
+        if CLIPBOARD_SHOULD_SHUTDOWN.load(std::sync::atomic::Ordering::Relaxed) {
+            break;
+        }
+        if taurine_core::settings::settings_version() != observed {
+            break;
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn run_listener_once() {
     const POLL_INTERVAL: Duration = Duration::from_millis(350);
@@ -101,12 +117,12 @@ fn run_listener_once() {
             }
         }
         if !taurine_core::settings::get_cached_clipboard_history_enabled() {
-            thread::sleep(POLL_INTERVAL);
+            wait_while_capture_idle();
             continue;
         }
 
         if IS_INJECTING.load(std::sync::atomic::Ordering::Relaxed) {
-            thread::sleep(POLL_INTERVAL);
+            wait_while_capture_idle();
             continue;
         }
 
@@ -166,12 +182,12 @@ fn run_listener_once() {
             }
         }
         if !taurine_core::settings::get_cached_clipboard_history_enabled() {
-            thread::sleep(POLL_INTERVAL);
+            wait_while_capture_idle();
             continue;
         }
 
         if IS_INJECTING.load(std::sync::atomic::Ordering::Relaxed) {
-            thread::sleep(POLL_INTERVAL);
+            wait_while_capture_idle();
             continue;
         }
 

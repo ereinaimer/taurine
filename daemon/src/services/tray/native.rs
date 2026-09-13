@@ -315,6 +315,7 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
         let mut last_visible = None;
         let mut last_resume_label = "Resume".to_string();
         let mut sync_counter: u32 = 0;
+        let mut last_settings_version: u64 = u64::MAX;
         loop {
             // Update tray visibility based on settings
             let now_visible = system_tray_enabled.load(Ordering::Relaxed);
@@ -420,11 +421,20 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
                 items.resume_item.set_text("Resume");
             }
 
-            // Periodically synchronize checkmarks with database (every 500ms)
+            // Synchronize checkmarks with the database only when settings changed
+            // (plus a 5s heartbeat for edits made outside this process).
             sync_counter += 1;
-            if sync_counter >= 5 {
+            let heartbeat = sync_counter >= 50;
+            let changed = TraySettings::load_quick_settings_if_changed(last_settings_version);
+            if heartbeat || changed.is_some() {
                 sync_counter = 0;
-                let (instant, boot) = TraySettings::load_quick_settings();
+                let (instant, boot) = match changed {
+                    Some((instant, boot, version)) => {
+                        last_settings_version = version;
+                        (instant, boot)
+                    }
+                    None => TraySettings::load_quick_settings(),
+                };
                 if items.instant_expand_item.is_checked() != instant {
                     items.instant_expand_item.set_checked(instant);
                 }
@@ -444,6 +454,7 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
         let mut last_visible = None;
         let mut last_resume_label = "Resume".to_string();
         let mut sync_counter: u32 = 0;
+        let mut last_settings_version: u64 = u64::MAX;
         loop {
             // Update tray visibility based on settings
             let now_visible = system_tray_enabled.load(Ordering::Relaxed);
@@ -504,11 +515,20 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
                 items.resume_item.set_text("Resume");
             }
 
-            // Periodically synchronize checkmarks with database (every 500ms)
+            // Synchronize checkmarks with the database only when settings changed
+            // (plus a 5s heartbeat for edits made outside this process).
             sync_counter += 1;
-            if sync_counter >= 5 {
+            let heartbeat = sync_counter >= 50;
+            let changed = TraySettings::load_quick_settings_if_changed(last_settings_version);
+            if heartbeat || changed.is_some() {
                 sync_counter = 0;
-                let (instant, boot) = TraySettings::load_quick_settings();
+                let (instant, boot) = match changed {
+                    Some((instant, boot, version)) => {
+                        last_settings_version = version;
+                        (instant, boot)
+                    }
+                    None => TraySettings::load_quick_settings(),
+                };
                 if items.instant_expand_item.is_checked() != instant {
                     items.instant_expand_item.set_checked(instant);
                 }

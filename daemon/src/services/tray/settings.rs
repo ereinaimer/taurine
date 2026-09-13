@@ -14,6 +14,17 @@ impl TraySettings {
         }
     }
 
+    /// Reloads only when the settings version moved since `last_seen`.
+    /// Returns the fresh values plus the version to store for the next call.
+    pub fn load_quick_settings_if_changed(last_seen: u64) -> Option<(bool, bool, u64)> {
+        let current = taurine_core::settings::settings_version();
+        if current == last_seen {
+            return None;
+        }
+        let (instant, boot) = Self::load_quick_settings();
+        Some((instant, boot, current))
+    }
+
     pub fn toggle_instant_expand() -> Result<bool> {
         let (current_instant, _) = Self::load_quick_settings();
         let next = !current_instant;
@@ -91,5 +102,30 @@ mod tests {
 
         let restored = TraySettings::toggle_start_on_boot().expect("restore start on boot");
         assert_eq!(restored, initial_boot);
+    }
+
+    #[test]
+    fn test_load_quick_settings_if_changed_skips_read_on_same_version() {
+        let _lock = taurine_core::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let temp_dir = tempfile::tempdir().unwrap();
+        // SAFETY: Serialized under TEST_LOCK for test database isolation.
+        unsafe { std::env::set_var("TAURINE_DATA_DIR", temp_dir.path()) };
+        let _env_guard = EnvVarGuard("TAURINE_DATA_DIR");
+
+        taurine_core::settings::set_cached_wpm(taurine_core::settings::get_cached_wpm());
+        let version = taurine_core::settings::settings_version();
+        assert!(
+            TraySettings::load_quick_settings_if_changed(version).is_none(),
+            "same version must skip the database read"
+        );
+
+        taurine_core::settings::set_cached_wpm(taurine_core::settings::get_cached_wpm());
+        let (instant, boot) = TraySettings::load_quick_settings();
+        let changed = TraySettings::load_quick_settings_if_changed(version)
+            .expect("bumped version must reload");
+        assert_eq!((changed.0, changed.1), (instant, boot));
+        assert!(changed.2 > version);
     }
 }

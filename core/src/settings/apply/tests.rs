@@ -564,3 +564,13 @@ fn test_invalid_inline_datetime_dialect_diagnostic() {
         "expected options listing uk, us, got: {msg}"
     );
 }
+
+#[test]
+fn settings_version_bumps_on_cached_write() {
+    let v0 = crate::settings::settings_version();
+    crate::settings::set_cached_wpm(crate::settings::get_cached_wpm());
+    assert!(
+        crate::settings::settings_version() > v0,
+        "cached write must bump the settings version"
+    );
+}
