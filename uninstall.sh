@@ -134,9 +134,11 @@ remove_credentials() {
     fi
     if command -v secret-tool >/dev/null 2>&1; then
         secret-tool clear service taurine >/dev/null 2>&1 || true
+        secret-tool clear service taurine username db-key >/dev/null 2>&1 || true
     fi
     if [ "$OS" = "Darwin" ]; then
         security delete-generic-password -s taurine >/dev/null 2>&1 || true
+        security delete-generic-password -s taurine -a db-key >/dev/null 2>&1 || true
     fi
 }
 

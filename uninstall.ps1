@@ -170,6 +170,7 @@ if ($PurgeData) {
         try { & $exe ai remove --all --yes --json | Out-Null } catch {}
     }
     try { cmdkey /delete:taurine:rpc_token | Out-Null } catch {}
+    try { cmdkey /delete:taurine:db-key | Out-Null } catch {}
 }
 
 # Always remove the binary, even when configuration and data files are kept
