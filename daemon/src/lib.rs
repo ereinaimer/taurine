@@ -268,6 +268,11 @@ pub fn start() -> taurine_core::error::Result<()> {
                         }
                         if let Ok(active_regex) = get_all_active_regex_triggers(&conn) {
                             state_for_bg.load_regex_actions(active_regex);
+                            let warm_state = state_for_bg.clone();
+                            std::thread::Builder::new()
+                                .name("tau-regex-warm".to_string())
+                                .spawn(move || warm_state.regex_catalog.warm())
+                                .ok();
                         }
                     }
                 }),

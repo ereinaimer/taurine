@@ -56,6 +56,20 @@ impl RegexCatalog {
         }
     }
 
+    /// Pre-compiles every loaded pattern so the first post-load expansion
+    /// skips the compile stall. Same init as the lazy path, only earlier.
+    pub fn warm(&self) {
+        let guard = match self.snapshot.read() {
+            Ok(guard) => guard,
+            Err(_) => return,
+        };
+        for entry in &guard.entries {
+            let _ = entry
+                .regex
+                .get_or_init(|| regex::Regex::new(&entry.pattern).map_err(|_| ()));
+        }
+    }
+
     pub fn match_action_lazy(
         &self,
         buffer_string: &str,
@@ -141,5 +155,18 @@ mod tests {
 
         let guard = catalog.snapshot.read().unwrap();
         assert_eq!(guard.entries.len(), MAX_REGEX_PATTERNS_COUNT);
+    }
+
+    #[test]
+    fn warm_is_idempotent_and_preserves_results() {
+        let catalog = RegexCatalog::new();
+        catalog.load_actions(vec![
+            ("hello \\d+".to_string(), TriggerAction::text("hi")),
+            ("(((invalid".to_string(), TriggerAction::text("bad")),
+        ]);
+        catalog.warm();
+        catalog.warm();
+        assert!(catalog.match_action("say hello 123", None).is_some());
+        assert!(catalog.match_action("say hello", None).is_none());
     }
 }

@@ -250,6 +250,11 @@ impl DaemonControl for DaemonService {
             self.state.load_actions(active);
             self.state.load_hotkey_actions(hotkeys);
             self.state.load_regex_actions(regexes);
+            let warm_state = self.state.clone();
+            std::thread::Builder::new()
+                .name("tau-regex-warm".to_string())
+                .spawn(move || warm_state.regex_catalog.warm())
+                .ok();
 
             // 3. Reload Settings
             use taurine_core::settings::SettingsManager;
