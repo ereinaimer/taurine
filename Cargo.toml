@@ -37,3 +37,10 @@ codegen-units = 1    # Better optimization at the cost of compile time
 panic = "unwind"     # Enable unwinding for thread isolation resilience
 strip = true         # Strip symbols from the binary
 
+# Hot-path crates trade size for speed; CLI/TUI stay on the size profile.
+[profile.release.package.taurine_core]
+opt-level = 3
+
+[profile.release.package.taurine_daemon]
+opt-level = 3
+
