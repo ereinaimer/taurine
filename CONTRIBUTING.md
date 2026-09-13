@@ -41,11 +41,13 @@ sudo apt install build-essential protobuf-compiler libdbus-1-dev pkg-config liba
 `mold` is the linker used for all Linux builds (it's the fastest linker available and dramatically cuts link times). If your distribution's GCC is older than 12.1, install `clang` as well and the build will use it as the linker driver instead.
 
 #### Windows
-If you are compiling Taurine on Windows, you must install Protocol Buffers and `sccache`. You can easily do this using `winget`:
+If you are compiling Taurine on Windows, you must install Protocol Buffers, `sccache`, and Strawberry Perl. You can easily do this using `winget`:
 ```powershell
 winget install protobuf
 winget install Mozilla.sccache
+winget install StrawberryPerl.StrawberryPerl
 ```
+Strawberry Perl is required because the database encryption dependency builds OpenSSL from source, and OpenSSL's build script needs a native Windows Perl (the Perl bundled with Git for Windows does not work). After installing, open a fresh terminal so `perl` is on your `PATH` before running `cargo` commands.
 
 #### macOS
 Install `sccache` via Homebrew:
