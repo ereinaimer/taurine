@@ -187,6 +187,33 @@ fn write_session_banner(file: &mut std::fs::File, component: LogComponent) -> io
 }
 
 pub(crate) fn local_date_string() -> String {
+    // One-second cache: rotation only needs day precision, so skipping the
+    // timezone lookup per log line is exact except within 1s of midnight.
+    // Mirrored in crate::stats for the same reason.
+    static LAST_SECS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    static LAST_STR: std::sync::OnceLock<std::sync::Mutex<String>> = std::sync::OnceLock::new();
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if LAST_SECS.load(std::sync::atomic::Ordering::Relaxed) == now_secs
+        && let Some(cached) = LAST_STR.get().and_then(|m| m.lock().ok())
+        && !cached.is_empty()
+    {
+        return cached.clone();
+    }
+    let fresh = local_date_string_uncached();
+    LAST_SECS.store(now_secs, std::sync::atomic::Ordering::Relaxed);
+    if let Ok(mut guard) = LAST_STR
+        .get_or_init(|| std::sync::Mutex::new(String::new()))
+        .lock()
+    {
+        *guard = fresh.clone();
+    }
+    fresh
+}
+
+fn local_date_string_uncached() -> String {
     let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
     let date = now.date();
     // Keep it stable for lexicographic comparison / parsing.
@@ -222,6 +249,14 @@ mod tests {
         assert!(s.len() == 10);
         assert_eq!(&s[4..5], "-");
         assert_eq!(&s[7..8], "-");
+    }
+
+    #[test]
+    fn date_cache_returns_consistent_value_within_ttl() {
+        let a = local_date_string();
+        let b = local_date_string();
+        assert_eq!(a, b);
+        assert_eq!(a.len(), 10);
     }
 
     #[test]
