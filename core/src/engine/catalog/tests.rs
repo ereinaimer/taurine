@@ -610,3 +610,62 @@ fn plan_cache_returns_identical_results_and_clears_on_reload() {
     let c = catalog.fetch_expansion("gs", false, None);
     assert!(format!("{:?}", c).contains("changed"));
 }
+
+#[test]
+fn keystroke_path_uses_use_cache_until_reload() {
+    struct DataDirGuard;
+    impl Drop for DataDirGuard {
+        fn drop(&mut self) {
+            // SAFETY: Serialized via TEST_LOCK; paired with the set_var at entry.
+            unsafe {
+                std::env::remove_var("TAURINE_DATA_DIR");
+            }
+        }
+    }
+
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, _conn) = crate::testing::open_test_db();
+    let _env_guard = DataDirGuard;
+    unsafe {
+        std::env::set_var("TAURINE_DATA_DIR", _dir.path());
+    }
+    crate::engine::variables::interpolate::clear_use_cache();
+
+    let conn = crate::db::key::open_keyed_connection(&crate::paths::get_db_path()).unwrap();
+    conn.execute(
+        "INSERT OR REPLACE INTO triggers (id, trigger, output, action_type, target_os, name, tags, is_deleted, created_at, updated_at)
+         VALUES ('uuni_inner_id', 'uuni_inner', 'hello', 'text', 'all', 'uuni_inner', '[]', 0, 1719878400, 1719878400)",
+        [],
+    )
+    .unwrap();
+
+    let outer = TriggerAction::text("[use(uuni_inner)]!");
+    let args = ArgMap::default();
+    let first = expand_trigger_action_with_args(outer.clone(), &args, "outer").unwrap();
+    assert_eq!(first.steps, vec![ExpansionStep::Text("hello!".to_string())]);
+
+    conn.execute(
+        "UPDATE triggers SET output = 'bye', updated_at = 1719878500 WHERE id = 'uuni_inner_id'",
+        [],
+    )
+    .unwrap();
+
+    // No reload: the keystroke path must serve the cached text.
+    let second = expand_trigger_action_with_args(outer.clone(), &args, "outer").unwrap();
+    assert_eq!(
+        second.steps,
+        vec![ExpansionStep::Text("hello!".to_string())]
+    );
+
+    // Reload clears the cache: the fresh text is served.
+    let catalog = ExpansionCatalog::new();
+    catalog.load_actions(vec![("outer".to_string(), outer.clone())]);
+    let third = expand_trigger_action_with_args(outer, &args, "outer").unwrap();
+    assert_eq!(third.steps, vec![ExpansionStep::Text("bye!".to_string())]);
+
+    conn.execute("DELETE FROM triggers WHERE id = 'uuni_inner_id'", [])
+        .ok();
+    crate::engine::variables::interpolate::clear_use_cache();
+}

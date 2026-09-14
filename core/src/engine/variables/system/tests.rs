@@ -734,6 +734,9 @@ mod compatibility_finalize_tests {
 
             conn.execute("DELETE FROM triggers WHERE id = 'test_inner_id'", [])
                 .ok();
+            // Do not leak the inner snippet into the process-wide use-cache
+            // for tests running later in this binary.
+            crate::engine::variables::interpolate::clear_use_cache();
 
             assert_eq!(res.steps.len(), 1);
             if let ExpansionStep::Text(ref text) = res.steps[0] {
@@ -991,6 +994,125 @@ fn use_placeholder_cache_matches_db_and_refreshes_after_clear() {
     );
 
     conn.execute("DELETE FROM triggers WHERE id = 'ucache_inner_id'", [])
+        .ok();
+    crate::engine::variables::interpolate::clear_use_cache();
+}
+
+#[test]
+fn use_cache_late_inner_snippet_resolves_after_it_appears() {
+    struct DataDirGuard;
+    impl Drop for DataDirGuard {
+        fn drop(&mut self) {
+            // SAFETY: Serialized via TEST_LOCK; paired with the set_var at entry.
+            unsafe {
+                std::env::remove_var("TAURINE_DATA_DIR");
+            }
+        }
+    }
+
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, _conn) = crate::testing::open_test_db();
+    let _env_guard = DataDirGuard;
+    unsafe {
+        std::env::set_var("TAURINE_DATA_DIR", _dir.path());
+    }
+    crate::engine::variables::interpolate::clear_use_cache();
+
+    fn eval_use_template(text: &str) -> crate::engine::variables::FinalExpansion {
+        let interpolated = crate::engine::variables::interpolate::interpolate(
+            text,
+            &crate::engine::variables::types::ArgMap::default(),
+        );
+        finalize(&interpolated, None)
+    }
+
+    let conn = crate::db::key::open_keyed_connection(&crate::paths::get_db_path()).unwrap();
+    conn.execute(
+        "INSERT OR REPLACE INTO triggers (id, trigger, output, action_type, target_os, name, tags, is_deleted, created_at, updated_at)
+         VALUES ('ucache_outer_id', 'ucache_outer', 'X[use(ucache_late)]Y', 'text', 'all', 'ucache_outer', '[]', 0, 1719878400, 1719878400)",
+        [],
+    )
+    .unwrap();
+
+    // Inner snippet does not exist yet: outer caches, inner stays uncached.
+    let first = eval_use_template("[use(ucache_outer)]");
+    assert_eq!(first.steps.len(), 1);
+    assert_eq!(first.steps[0], ExpansionStep::Text("XY".to_string()));
+
+    conn.execute(
+        "INSERT OR REPLACE INTO triggers (id, trigger, output, action_type, target_os, name, tags, is_deleted, created_at, updated_at)
+         VALUES ('ucache_late_id', 'ucache_late', 'm!', 'text', 'all', 'ucache_late', '[]', 0, 1719878400, 1719878400)",
+        [],
+    )
+    .unwrap();
+
+    // Cached outer plus uncached inner must resolve, not stall.
+    let second = eval_use_template("[use(ucache_outer)]");
+    assert_eq!(second.steps.len(), 1);
+    assert_eq!(second.steps[0], ExpansionStep::Text("Xm!Y".to_string()));
+
+    conn.execute(
+        "DELETE FROM triggers WHERE id IN ('ucache_outer_id', 'ucache_late_id')",
+        [],
+    )
+    .ok();
+    crate::engine::variables::interpolate::clear_use_cache();
+}
+
+#[test]
+fn use_cache_keeps_args_live_on_cache_hits() {
+    struct DataDirGuard;
+    impl Drop for DataDirGuard {
+        fn drop(&mut self) {
+            // SAFETY: Serialized via TEST_LOCK; paired with the set_var at entry.
+            unsafe {
+                std::env::remove_var("TAURINE_DATA_DIR");
+            }
+        }
+    }
+
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, _conn) = crate::testing::open_test_db();
+    let _env_guard = DataDirGuard;
+    unsafe {
+        std::env::set_var("TAURINE_DATA_DIR", _dir.path());
+    }
+    crate::engine::variables::interpolate::clear_use_cache();
+
+    fn eval_with_args(
+        text: &str,
+        args: &crate::engine::variables::types::ArgMap,
+    ) -> crate::engine::variables::FinalExpansion {
+        let interpolated = crate::engine::variables::interpolate::interpolate(text, args);
+        finalize(&interpolated, None)
+    }
+
+    let conn = crate::db::key::open_keyed_connection(&crate::paths::get_db_path()).unwrap();
+    conn.execute(
+        "INSERT OR REPLACE INTO triggers (id, trigger, output, action_type, target_os, name, tags, is_deleted, created_at, updated_at)
+         VALUES ('ucache_args_id', 'ucache_args', 'hi [0]', 'text', 'all', 'ucache_args', '[]', 0, 1719878400, 1719878400)",
+        [],
+    )
+    .unwrap();
+
+    let mut args_a = crate::engine::variables::types::ArgMap::default();
+    args_a.positional.push("A".to_string());
+    let first = eval_with_args("[use(ucache_args)]", &args_a);
+    assert_eq!(first.steps.len(), 1);
+    assert_eq!(first.steps[0], ExpansionStep::Text("hi A".to_string()));
+
+    // Same cached raw template with different args must give different text.
+    let mut args_b = crate::engine::variables::types::ArgMap::default();
+    args_b.positional.push("B".to_string());
+    let second = eval_with_args("[use(ucache_args)]", &args_b);
+    assert_eq!(second.steps.len(), 1);
+    assert_eq!(second.steps[0], ExpansionStep::Text("hi B".to_string()));
+
+    conn.execute("DELETE FROM triggers WHERE id = 'ucache_args_id'", [])
         .ok();
     crate::engine::variables::interpolate::clear_use_cache();
 }
