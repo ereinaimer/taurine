@@ -8,5 +8,8 @@ publish = false
 [build-dependencies]
 winres = "0.1"
 
+[dependencies]
+winreg = "0.56"
+
 [workspace]
 

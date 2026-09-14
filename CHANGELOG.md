@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Download Progress**: Show live download progress with transfer speed during installation and updates, including total size and elapsed time on completion.
 
 ### Fixed
+- **Start on Boot From Any Location**: Remember the exact binary that ran `up` (e.g. from Downloads) and launch it at login, falling back to the installed copy when it no longer exists.
 - **Fixed Windows Login Launcher**: Launch the installed binary directly at logon instead of resolving it through a sidecar path file.
 - **Uninstall Binary Removal**: Ensure uninstallers always remove the Taurine binary even when configuration and data files are kept.
 - **Windows Startup Hook Removal**: Remove the logon scheduled task, registry Run entry, and startup launcher during uninstallation even when the Taurine binary is missing or broken.

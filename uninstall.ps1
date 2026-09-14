@@ -71,6 +71,11 @@ Run-Step "Removing startup hooks" {
         $RunKey.DeleteValue("Taurine", $false)
         $RunKey.Close()
     }
+    $TaurineKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Software\Taurine", $true)
+    if ($null -ne $TaurineKey) {
+        $TaurineKey.DeleteValue("StartupExe", $false)
+        $TaurineKey.Close()
+    }
     $StartupDir = Join-Path $env:LOCALAPPDATA "Taurine\startup"
     Remove-Item -Path (Join-Path $StartupDir "taurine-startup.exe") -Force -ErrorAction SilentlyContinue
 }

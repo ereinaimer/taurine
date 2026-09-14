@@ -21,6 +21,8 @@ use crate::rpc::{ShutdownRequest, StatusRequest};
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 const TASK_NAME: &str = "TaurineStartup";
+const BOOT_REG_KEY: &str = r"Software\Taurine";
+const BOOT_VALUE: &str = "StartupExe";
 
 const STARTUP_RUNNER_BYTES: &[u8] = include_bytes!(env!("STARTUP_RUNNER_PATH"));
 
@@ -72,6 +74,30 @@ fn remove_autorun() -> std::io::Result<()> {
     let key = hkcu.open_subkey_with_flags(path, KEY_WRITE)?;
     let _ = key.delete_value("Taurine");
     Ok(())
+}
+
+/// Records the binary `up` ran from so the logon launcher starts that exact
+/// copy. Last-`up`-wins; never copies or moves any binary.
+fn set_startup_exe(path: &std::path::Path) -> std::io::Result<()> {
+    set_startup_exe_in(BOOT_REG_KEY, path)
+}
+
+fn set_startup_exe_in(key_path: &str, path: &std::path::Path) -> std::io::Result<()> {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let (key, _) = hkcu.create_subkey(key_path)?;
+    let val = path.to_string_lossy().into_owned();
+    key.set_value(BOOT_VALUE, &val)?;
+    Ok(())
+}
+
+fn remove_startup_exe() {
+    remove_startup_exe_in(BOOT_REG_KEY);
+}
+
+fn remove_startup_exe_in(key_path: &str) {
+    if let Ok(key) = RegKey::predef(HKEY_CURRENT_USER).open_subkey_with_flags(key_path, KEY_WRITE) {
+        let _ = key.delete_value(BOOT_VALUE);
+    }
 }
 
 fn cleanup_startup_launcher() {
@@ -315,6 +341,7 @@ pub fn sync_boot(enabled: bool) -> crate::error::Result<()> {
         } else {
             debug!("Startup hook removed.");
         }
+        remove_startup_exe();
         cleanup_startup_launcher();
     }
     Ok(())
@@ -335,6 +362,12 @@ pub fn up(start_on_boot: bool) -> crate::error::Result<()> {
     }
 
     sync_boot(start_on_boot)?;
+
+    if start_on_boot {
+        set_startup_exe(&current_exe).map_err(|e| crate::Error::Service(e.to_string()))?;
+    } else {
+        remove_startup_exe();
+    }
 
     Ok(())
 }
@@ -371,6 +404,7 @@ pub fn down() -> crate::error::Result<()> {
     if let Err(e) = remove_autorun() {
         error!("Could not remove startup hook (was it installed?): {}", e);
     }
+    remove_startup_exe();
     cleanup_startup_launcher();
 
     let mut sys = System::new();
@@ -452,6 +486,12 @@ pub fn restart(start_on_boot: bool) -> crate::error::Result<()> {
 
     sync_boot(start_on_boot)?;
 
+    if start_on_boot {
+        set_startup_exe(&current_exe).map_err(|e| crate::Error::Service(e.to_string()))?;
+    } else {
+        remove_startup_exe();
+    }
+
     Ok(())
 }
 
@@ -517,6 +557,46 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&test_dir);
         unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+    }
+
+    #[test]
+    fn test_startup_exe_pointer_round_trip() {
+        let _guard = crate::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::logs::init_tracing_for_tests();
+        const TEST_KEY: &str = r"Software\TaurineTestStartupExe";
+
+        let target = std::path::Path::new(r"C:\Users\tester\Downloads\taurine.exe");
+        set_startup_exe_in(TEST_KEY, target).expect("write must succeed");
+
+        let stored: String = RegKey::predef(HKEY_CURRENT_USER)
+            .open_subkey(TEST_KEY)
+            .expect("key must exist")
+            .get_value(BOOT_VALUE)
+            .expect("value must exist");
+        assert_eq!(stored, target.to_string_lossy());
+
+        // Last-`up`-wins: overwrite with a new path.
+        let newer = std::path::Path::new(r"C:\Users\tester\Desktop\taurine.exe");
+        set_startup_exe_in(TEST_KEY, newer).expect("overwrite must succeed");
+        let stored: String = RegKey::predef(HKEY_CURRENT_USER)
+            .open_subkey(TEST_KEY)
+            .expect("key must exist")
+            .get_value(BOOT_VALUE)
+            .expect("value must exist");
+        assert_eq!(stored, newer.to_string_lossy());
+
+        remove_startup_exe_in(TEST_KEY);
+        let key = RegKey::predef(HKEY_CURRENT_USER)
+            .open_subkey(TEST_KEY)
+            .expect("key must exist");
+        let missing: Result<String, _> = key.get_value(BOOT_VALUE);
+        assert!(missing.is_err(), "value must be gone after removal");
+
+        // Removing twice must not fail.
+        remove_startup_exe_in(TEST_KEY);
+        let _ = RegKey::predef(HKEY_CURRENT_USER).delete_subkey(TEST_KEY);
     }
 
     #[test]
