@@ -13,12 +13,12 @@ The `| ai(prompt)` transformer sends the interpolated text to the configured AI 
 ### Examples
 Summarize the current clipboard contents:
 ```text
-[clip | ai(Summarize this text in 3 bullet points)]
+[clipboard | ai(Summarize this text in 3 bullet points)]
 ```
 
 Chain AI transformers for sequential processing:
 ```text
-[clip | ai(Translate to French) | ai(Make the tone formal)]
+[clipboard | ai(Translate to French) | ai(Make the tone formal)]
 ```
 
 ### Configuration

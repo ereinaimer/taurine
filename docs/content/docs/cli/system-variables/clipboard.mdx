@@ -3,7 +3,7 @@ title: Clipboard
 description: Inject system clipboard content and history into your snippets.
 ---
 
-The `[clipboard]` variable allows you to take text you've copied and immediately use it inside a template, with full support for [transformers](/docs/cli/dynamic-variables/transformers).
+The `[clipboard]` variable allows you to take text you've copied and immediately use it inside a template, with full support for [transformers](/docs/cli/transformers).
 
 Taurine maintains a secure, in-memory history of your recent copies, enabling you to reference previous items without re-copying them.
 
@@ -28,7 +28,7 @@ The selected text was: "[clipboard]"
 
 Taurine is designed to keep your history clean and your system fast:
 
-- **Size Limit**: Only text payloads under **64KB** are recorded.
+- **Size Limit**: Only text payloads under **1MB** are recorded.
 - **Smart Deduplication**: Duplicate sequential copies are ignored.
 - **Junk Filter**: Items consisting entirely of whitespace, newlines, or tabs are automatically ignored.
 - **Text Only**: Only text data is captured.

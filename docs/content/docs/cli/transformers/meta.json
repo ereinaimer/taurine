@@ -6,7 +6,7 @@
     "calc",
     "casing",
     "text-manipulation",
-    "ext",
+    "extract",
     "data-extractors",
     "json",
     "formatting",

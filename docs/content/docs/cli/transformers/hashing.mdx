@@ -9,15 +9,15 @@ Hashing transformers provide quick access to common cryptographic hash functions
 
 | Modifier | Description | Example (Input: "hello") |
 | :--- | :--- | :--- |
-| `sha256` | 256-bit SHA-2 hash (hex) | `2cf24dba5fb0a30e26e83b2ac5b9e29...` |
-| `sha512` | 512-bit SHA-2 hash (hex) | `9b71d224bd62f3785d96d46ad3ea3d7...` |
+| `hash(sha256)` | 256-bit SHA-2 hash (hex) | `2cf24dba5fb0a30e26e83b2ac5b9e29...` |
+| `hash(sha512)` | 512-bit SHA-2 hash (hex) | `9b71d224bd62f3785d96d46ad3ea3d7...` |
 
 ### Use Cases
 
 Hashing is useful for generating unique identifiers for files, passwords (for non-secure display), or API keys.
 
 <Transformation
-  template="Fingerprint: [0 | sha256]"
+  template="Fingerprint: [0 | hash(sha256)]"
   input="data:'sensitive information'"
   result="Fingerprint: 3e839e... (truncated)"
 />

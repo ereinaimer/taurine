@@ -14,7 +14,7 @@ You can chain methods onto `[time]` to customize the output.
 | Method | Description | Example |
 | :--- | :--- | :--- |
 | `.utc` | Switches the time context to UTC instead of local time. | `[time.utc]` |
-| `.calc(±...<units>)` | Adds or subtracts time. Requires a `+` or `-` sign. | `[time.calc(-30m)]` |
+| `.calc(±...<units>)` | Adds or subtracts time. Requires a `+` or `-` sign. | `[time.calc(-30min)]` |
 | `.format(<pattern>)` | Formats the time using LDML tokens. | `[time.format(hh:mm A)]` |
 
 ### Method Chaining
@@ -64,7 +64,7 @@ Use the `.calc()` method to calculate relative times. You **must** provide a lea
 | Unit | Description |
 | :--- | :--- |
 | `h` / `H` | Hours |
-| `m` | Minutes |
+| `min` | Minutes |
 | `s` / `S` | Seconds |
 | `d` | Days |
 | `w` | Weeks |
@@ -73,5 +73,5 @@ Use the `.calc()` method to calculate relative times. You **must** provide a lea
 
 ### Examples
 
-- `[time.calc(+30m)]` (30 minutes from now)
-- `[time.calc(-1h15m)]` (1 hour and 15 minutes ago)
+- `[time.calc(+30min)]` (30 minutes from now)
+- `[time.calc(-1h15min)]` (1 hour and 15 minutes ago)
