@@ -1,17 +1,22 @@
 use super::strip_argument_quotes;
 
 pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> {
-    match transformer {
-        "firstline" if args.is_empty() => Some(content.lines().next().unwrap_or("").to_string()),
-        "lastline" if args.is_empty() => Some(content.lines().last().unwrap_or("").to_string()),
-        "prefixline" if args.len() == 1 => Some(prefix_lines(content, args[0])),
-        "suffixline" if args.len() == 1 => Some(suffix_lines(content, args[0])),
-        "joinline" if args.len() == 1 => Some(join_lines(content, args[0])),
-        "splitline" if args.len() == 1 => Some(split_lines(content, args[0])),
-        "compactline" if args.is_empty() => Some(remove_empty_lines(content)),
-        "linecount" if args.is_empty() => Some(content.lines().count().to_string()),
-        "uniqline" if args.is_empty() => Some(uniq_lines(content)),
-        "sortline" => sort_lines(content, args),
+    if transformer != "lines" {
+        return None;
+    }
+    let action = strip_argument_quotes(args.first()?.trim()).to_lowercase();
+    let rest = &args[1..];
+    match action.as_str() {
+        "first" if rest.is_empty() => Some(content.lines().next().unwrap_or("").to_string()),
+        "last" if rest.is_empty() => Some(content.lines().last().unwrap_or("").to_string()),
+        "count" if rest.is_empty() => Some(content.lines().count().to_string()),
+        "compact" if rest.is_empty() => Some(remove_empty_lines(content)),
+        "unique" if rest.is_empty() => Some(uniq_lines(content)),
+        "prefix" if rest.len() == 1 => Some(prefix_lines(content, rest[0])),
+        "suffix" if rest.len() == 1 => Some(suffix_lines(content, rest[0])),
+        "join" if rest.len() == 1 => Some(join_lines(content, rest[0])),
+        "split" if rest.len() == 1 => Some(split_lines(content, rest[0])),
+        "sort" => sort_lines(content, rest),
         _ => None,
     }
 }
@@ -76,14 +81,14 @@ fn sort_lines(content: &str, args: &[&str]) -> Option<String> {
 
     for arg in args {
         let clean = strip_argument_quotes(arg).trim().to_lowercase();
-        if clean == "desc" || clean == "reverse" {
+        if clean == "desc" {
             desc = true;
         } else if clean == "insensitive" {
             insensitive = true;
         } else if clean == "numeric" {
             numeric = true;
-        } else if clean == "asc" {
-            desc = false;
+        } else {
+            return None;
         }
     }
 
@@ -120,61 +125,74 @@ mod tests {
     #[test]
     fn test_line_transformers() {
         let content = "alpha\r\nbeta\ngamma";
-        assert_eq!(apply("firstline", &[], content), Some("alpha".to_string()));
-        assert_eq!(apply("lastline", &[], content), Some("gamma".to_string()));
         assert_eq!(
-            apply("prefixline", &["\"> \""], "a\nb"),
+            apply("lines", &["first"], content),
+            Some("alpha".to_string())
+        );
+        assert_eq!(
+            apply("lines", &["last"], content),
+            Some("gamma".to_string())
+        );
+        assert_eq!(
+            apply("lines", &["prefix", "\"> \""], "a\nb"),
             Some("> a\n> b".to_string())
         );
         assert_eq!(
-            apply("suffixline", &["\";\""], "a\nb"),
+            apply("lines", &["suffix", "\";\""], "a\nb"),
             Some("a;\nb;".to_string())
         );
         assert_eq!(
-            apply("joinline", &["\", \""], "a\nb\nc"),
+            apply("lines", &["join", "\", \""], "a\nb\nc"),
             Some("a, b, c".to_string())
         );
         assert_eq!(
-            apply("splitline", &["\", \""], "a, b, c"),
+            apply("lines", &["split", "\", \""], "a, b, c"),
             Some("a\nb\nc".to_string())
         );
         assert_eq!(
-            apply("compactline", &[], "a\n\n \n b"),
+            apply("lines", &["compact"], "a\n\n \n b"),
             Some("a\n b".to_string())
         );
         assert_eq!(
-            apply("compactline", &[], "a\n\nb"),
+            apply("lines", &["compact"], "a\n\nb"),
             Some("a\nb".to_string())
         );
-        assert_eq!(apply("linecount", &[], "a\nb\nc"), Some("3".to_string()));
+        assert_eq!(apply("lines", &["count"], "a\nb\nc"), Some("3".to_string()));
         assert_eq!(
-            apply("linecount", &[], "a\r\nb\r\nc"),
+            apply("lines", &["count"], "a\r\nb\r\nc"),
             Some("3".to_string())
         );
-        assert_eq!(apply("linecount", &[], ""), Some("0".to_string()));
+        assert_eq!(apply("lines", &["count"], ""), Some("0".to_string()));
         assert_eq!(
-            apply("uniqline", &[], "b\na\nb\nc\na"),
+            apply("lines", &["unique"], "b\na\nb\nc\na"),
             Some("b\na\nc".to_string())
         );
         assert_eq!(
-            apply("uniqline", &[], "a\n\nb\n\nc"),
+            apply("lines", &["unique"], "a\n\nb\n\nc"),
             Some("a\n\nb\nc".to_string())
         );
         assert_eq!(
-            apply("sortline", &[], "b\nc\na"),
+            apply("lines", &["sort"], "b\nc\na"),
             Some("a\nb\nc".to_string())
         );
         assert_eq!(
-            apply("sortline", &["\"desc\""], "b\nc\na"),
+            apply("lines", &["sort", "\"desc\""], "b\nc\na"),
             Some("c\nb\na".to_string())
         );
         assert_eq!(
-            apply("sortline", &["\"insensitive\""], "B\nc\na"),
+            apply("lines", &["sort", "\"insensitive\""], "B\nc\na"),
             Some("a\nB\nc".to_string())
         );
         assert_eq!(
-            apply("sortline", &["\"numeric\""], "10\n2\n1.5"),
+            apply("lines", &["sort", "\"numeric\""], "10\n2\n1.5"),
             Some("1.5\n2\n10".to_string())
         );
+        // Rejections: legacy names, missing action, bad arity, unknown flags.
+        assert_eq!(apply("firstline", &[], content), None);
+        assert_eq!(apply("lines", &[], content), None);
+        assert_eq!(apply("lines", &["bogus"], content), None);
+        assert_eq!(apply("lines", &["first", "x"], content), None);
+        assert_eq!(apply("lines", &["prefix"], content), None);
+        assert_eq!(apply("lines", &["sort", "\"reverse\""], content), None);
     }
 }
