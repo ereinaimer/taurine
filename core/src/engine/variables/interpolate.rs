@@ -276,14 +276,6 @@ pub(crate) fn clear_use_cache() {
 }
 
 fn resolve_use_placeholder(key: &str, args: &ArgMap, depth: usize) -> String {
-    if depth >= 5 {
-        tracing::warn!(
-            "Max recursion depth reached resolving snippet key '{}'",
-            key
-        );
-        return String::new();
-    }
-
     let trigger_name = match parse_use_key(key) {
         Some(name) => name,
         None => {
@@ -291,41 +283,65 @@ fn resolve_use_placeholder(key: &str, args: &ArgMap, depth: usize) -> String {
             return String::new();
         }
     };
+    resolve_cached_snippet(&trigger_name, args, depth)
+}
+
+/// Shared nested-snippet resolver for the legacy interpolation loop and the
+/// compiled-plan path: raw template text is cached by trigger name, then
+/// interpolated per expansion so live args, dates, and clipboard values stay
+/// exact. Every catalog reload clears the cache.
+pub(crate) fn resolve_cached_snippet(trigger_name: &str, args: &ArgMap, depth: usize) -> String {
+    if depth >= 5 {
+        tracing::warn!(
+            "Max recursion depth reached resolving snippet '{}'",
+            trigger_name
+        );
+        return String::new();
+    }
 
     // Only the raw template text is cached: interpolation still runs per
     // expansion so live args, dates, and clipboard values stay exact.
     // Freshness follows the trigger catalog because every reload clears this.
-    if let Some(cache) = USE_CACHE.get()
-        && let Some(raw) = cache.read().get(&trigger_name)
-    {
-        return interpolate_with_depth(raw, args, depth + 1);
+    // The hit is cloned under a short read: holding the lock across the
+    // recursive interpolation below would deadlock on a nested cache miss,
+    // which needs the write lock from the same thread.
+    let cached_raw = USE_CACHE
+        .get()
+        .and_then(|cache| cache.read().get(trigger_name).cloned());
+    if let Some(raw) = cached_raw {
+        return interpolate_with_depth(&raw, args, depth + 1);
     }
 
-    let conn = match crate::db::get_conn() {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::warn!(
-                "Database pool error resolving snippet '{}': {}",
-                trigger_name,
-                e
-            );
-            return String::new();
-        }
-    };
+    // The connection is fetched and dropped inside this block: holding a
+    // pooled checkout across the recursive interpolation below would stack
+    // one checkout per nesting level and can exhaust the pool.
+    let action = {
+        let conn = match crate::db::get_conn() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(
+                    "Database pool error resolving snippet '{}': {}",
+                    trigger_name,
+                    e
+                );
+                return String::new();
+            }
+        };
 
-    let action = match crate::db::crud::triggers::get_action_by_trigger(&conn, &trigger_name) {
-        Ok(Some(act)) => act,
-        Ok(None) => {
-            tracing::warn!("Snippet '{}' does not exist", trigger_name);
-            return String::new();
-        }
-        Err(e) => {
-            tracing::warn!(
-                "Database query error resolving snippet '{}': {}",
-                trigger_name,
-                e
-            );
-            return String::new();
+        match crate::db::crud::triggers::get_action_by_trigger(&conn, trigger_name) {
+            Ok(Some(act)) => act,
+            Ok(None) => {
+                tracing::warn!("Snippet '{}' does not exist", trigger_name);
+                return String::new();
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Database query error resolving snippet '{}': {}",
+                    trigger_name,
+                    e
+                );
+                return String::new();
+            }
         }
     };
 
@@ -335,7 +351,9 @@ fn resolve_use_placeholder(key: &str, args: &ArgMap, depth: usize) -> String {
     }
 
     let raw = action.output.clone();
-    use_cache().write().insert(trigger_name, raw.clone());
+    use_cache()
+        .write()
+        .insert(trigger_name.to_string(), raw.clone());
     interpolate_with_depth(&raw, args, depth + 1)
 }
 

@@ -699,53 +699,10 @@ fn parse_use_key(key: &str) -> Option<String> {
 }
 
 fn resolve_use_snippet(trigger_name: &str, args: &ArgMap, depth: usize) -> String {
-    if depth >= 5 {
-        tracing::warn!(
-            "Max recursion depth reached resolving snippet '{}'",
-            trigger_name
-        );
-        return String::new();
-    }
-
-    // The connection is fetched and dropped inside this block: holding a
-    // pooled connection across the recursive `interpolate` call below would
-    // stack one checkout per nesting level and can exhaust the pool.
-    let action = {
-        let conn = match crate::db::get_conn() {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::warn!(
-                    "Database pool error resolving snippet '{}': {}",
-                    trigger_name,
-                    e
-                );
-                return String::new();
-            }
-        };
-
-        match crate::db::crud::triggers::get_action_by_trigger(&conn, trigger_name) {
-            Ok(Some(act)) => act,
-            Ok(None) => {
-                tracing::warn!("Snippet '{}' does not exist", trigger_name);
-                return String::new();
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "Database query error resolving snippet '{}': {}",
-                    trigger_name,
-                    e
-                );
-                return String::new();
-            }
-        }
-    };
-
-    if !action.is_text() {
-        tracing::warn!("Cannot invoke non-text snippet '{}'", trigger_name);
-        return String::new();
-    }
-
-    interpolate(&action.output, args)
+    // Shared cache with the legacy interpolation loop: the raw template is
+    // cached by trigger name and cleared on every catalog reload, while this
+    // caller still applies its own transformers per expansion.
+    super::interpolate::resolve_cached_snippet(trigger_name, args, depth)
 }
 
 fn format_mouse_directive(step: &ExpansionStep) -> String {
