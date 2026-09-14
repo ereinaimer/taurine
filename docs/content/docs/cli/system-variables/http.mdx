@@ -25,8 +25,8 @@ My website is currently returning status code: [http.status(https://mywebsite.co
 ```
 
 ### Advanced Requests
-The `http` namespace is intentionally kept simple for inline variables. If you need to make `POST` requests, pass authentication headers (like Bearer tokens), or handle complex payloads, you should use the `exec` namespace to run a shell script instead:
+The `http` namespace is intentionally kept simple for inline variables. If you need to make `POST` requests, pass authentication headers (like Bearer tokens), or handle complex payloads, you should use the `execute` namespace to run a shell script instead:
 
 ```text
-[exec.bash(curl -X POST -H "Authorization: Bearer my_token" https://api.service.com)]
+[execute.bash(curl -X POST -H "Authorization: Bearer my_token" https://api.service.com)]
 ```

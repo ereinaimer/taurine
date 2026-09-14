@@ -1,6 +1,7 @@
 /**
  * Taurine Variable Engine Simulator
  * This mocks the Rust variable engine logic for the documentation playground.
+ * Supports the canonical `[base | category(action, ...)]` transformer syntax only.
  */
 
 // Basic text transformers
@@ -73,172 +74,322 @@ const rgbToHsl = (r: number, g: number, b: number) => {
   return { h: Math.round(h * 360), s: Math.round(s * 100), l: Math.round(l * 100) };
 };
 
-const transformers: Record<string, (val: string) => string> = {
-  upper: (val) => val.toUpperCase(),
-  uppercase: (val) => val.toUpperCase(),
-  lower: (val) => val.toLowerCase(),
-  lowercase: (val) => val.toLowerCase(),
-  title: (val) =>
-    val.replace(
-      /\w\S*/g,
-      (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase()
-    ),
-  titlecase: (val) =>
-    val.replace(
-      /\w\S*/g,
-      (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase()
-    ),
-  'url.encode': (val) => encodeURIComponent(val),
-  'url.decode': (val) => {
-    try {
-      return decodeURIComponent(val);
-    } catch {
-      return val;
+const splitWords = (val: string): string[] =>
+  val.match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g) || [];
+
+const stripArgQuotes = (arg: string): string => {
+  const t = arg.trim();
+  if (t.length >= 2 && ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'")))) {
+    return t.slice(1, -1);
+  }
+  return t;
+};
+
+/** Split on top-level `|`, ignoring pipes inside quotes or parentheses. Mirrors Rust split_pipeline. */
+function splitPipeline(input: string): string[] {
+  const segments: string[] = [];
+  let depth = 0;
+  let quote: string | null = null;
+  let escaped = false;
+  let start = 0;
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (escaped) { escaped = false; continue; }
+    if (ch === '\\') { escaped = true; continue; }
+    if (quote) {
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === '(' || ch === '[') depth++;
+    else if (ch === ')' || ch === ']') depth = Math.max(0, depth - 1);
+    else if (ch === '|' && depth === 0) {
+      segments.push(input.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  segments.push(input.slice(start).trim());
+  return segments;
+}
+
+/** Split a comma-separated argument list, respecting quotes and nested parens. */
+function splitArgs(args: string): string[] {
+  if (args.trim() === '') return [];
+  const parts: string[] = [];
+  let depth = 0;
+  let quote: string | null = null;
+  let escaped = false;
+  let start = 0;
+  for (let i = 0; i < args.length; i++) {
+    const ch = args[i];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === '(') depth++;
+    else if (ch === ')') {
+      if (depth === 0) return [];
+      depth--;
+    } else if (ch === ',' && depth === 0) {
+      parts.push(args.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  if (depth !== 0 || quote) return [];
+  parts.push(args.slice(start).trim());
+  return parts;
+}
+
+/** Parse `name` or `name(arg, ...)` into a canonical transformer call. */
+function parseTransformerCall(seg: string): { name: string; args: string[] } | undefined {
+  const t = seg.trim();
+  const open = t.indexOf('(');
+  if (open === -1) return { name: t, args: [] };
+  if (!t.endsWith(')')) return undefined;
+  return { name: t.slice(0, open).trim(), args: splitArgs(t.slice(open + 1, -1)) };
+}
+
+type Handler = (val: string, args: string[]) => string | undefined;
+
+const transformers: Record<string, Handler> = {
+  case: (val, args) => {
+    if (args.length !== 1) return undefined;
+    const words = () => splitWords(val);
+    switch (stripArgQuotes(args[0]).toLowerCase()) {
+      case 'upper': return val.toUpperCase();
+      case 'lower': return val.toLowerCase();
+      case 'sentence': return val.charAt(0).toUpperCase() + val.slice(1).toLowerCase();
+      case 'title': return val.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+      case 'snake': return words().map((x) => x.toLowerCase()).join('_') || val;
+      case 'kebab': return words().map((x) => x.toLowerCase()).join('-') || val;
+      case 'pascal': return words().map((x) => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase()).join('') || val;
+      case 'camel': {
+        const p = words().map((x) => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase()).join('') || val;
+        return p ? p.charAt(0).toLowerCase() + p.slice(1) : p;
+      }
+      case 'slug': return val.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || val;
+      default: return undefined;
     }
   },
-  'url.clean': (val) => {
+  count: (val, args) => {
+    if (args.length !== 1) return undefined;
+    switch (stripArgQuotes(args[0]).toLowerCase()) {
+      case 'chars': return String([...val].length);
+      case 'words': return String(val.trim() === '' ? 0 : val.trim().split(/\s+/).length);
+      default: return undefined;
+    }
+  },
+  truncate: (val, args) => {
+    if (args.length !== 1) return undefined;
+    const n = parseInt(stripArgQuotes(args[0]), 10);
+    if (isNaN(n) || n < 0) return undefined;
+    return [...val].slice(0, n).join('');
+  },
+  repeat: (val, args) => {
+    if (args.length !== 1) return undefined;
+    const n = parseInt(stripArgQuotes(args[0]), 10);
+    if (isNaN(n) || n < 0 || n > 100) return undefined;
+    return val.repeat(n);
+  },
+  replace: (val, args) => {
+    if (args.length === 2) {
+      return val.split(stripArgQuotes(args[0])).join(stripArgQuotes(args[1]));
+    }
+    if (args.length === 3 && stripArgQuotes(args[0]).toLowerCase() === 'regex') {
+      try {
+        return val.replace(new RegExp(stripArgQuotes(args[1]), 'g'), stripArgQuotes(args[2]));
+      } catch { return undefined; }
+    }
+    return undefined;
+  },
+  slice: (val, args) => {
+    if (args.length !== 2) return undefined;
+    const chars = [...val];
+    const s = parseInt(stripArgQuotes(args[0]), 10);
+    const e = parseInt(stripArgQuotes(args[1]), 10);
+    if (isNaN(s) || isNaN(e)) return undefined;
+    return chars.slice(s, e).join('');
+  },
+  filter: (val, args) => {
+    if (args.length !== 1) return undefined;
+    switch (stripArgQuotes(args[0]).toLowerCase()) {
+      case 'digits': return val.replace(/[^0-9]/g, '');
+      case 'alphanumeric': return val.replace(/[^a-zA-Z0-9]/g, '');
+      default: return undefined;
+    }
+  },
+  strip: (val, args) => {
+    if (args.length !== 1) return undefined;
+    switch (stripArgQuotes(args[0]).toLowerCase()) {
+      case 'whitespace': return val.trim();
+      case 'emoji':
+        try {
+          return val.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}\u200D\uFE0F]/gu, '');
+        } catch {
+          return val.replace(/[\u2700-\u27BF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|\uD83E[\uDD10-\uDDFF]/g, '');
+        }
+      default: return undefined;
+    }
+  },
+  encode: (val, args) => {
+    if (args.length !== 1) return undefined;
+    switch (stripArgQuotes(args[0]).toLowerCase()) {
+      case 'url': return encodeURIComponent(val);
+      case 'base64': return btoa(val);
+      default: return undefined;
+    }
+  },
+  decode: (val, args) => {
+    if (args.length !== 1) return undefined;
+    try {
+      switch (stripArgQuotes(args[0]).toLowerCase()) {
+        case 'url': return decodeURIComponent(val);
+        case 'base64': return atob(val.trim());
+        default: return undefined;
+      }
+    } catch { return undefined; }
+  },
+  clean: (val, args) => {
+    if (args.length !== 1 || stripArgQuotes(args[0]).toLowerCase() !== 'url') return undefined;
     try {
       const url = new URL(val.trim());
       url.search = '';
+      url.hash = '';
       return url.toString();
     } catch {
-      const qIdx = val.indexOf('?');
-      return qIdx !== -1 ? val.slice(0, qIdx) : val;
+      return val.split('?')[0].split('#')[0];
     }
   },
-  'base64.encode': (val) => btoa(val),
-  'base64.decode': (val) => {
+  wrap: (val, args) => {
+    if (args.length !== 1) return undefined;
+    switch (stripArgQuotes(args[0]).toLowerCase()) {
+      case 'doublequote': return `"${val}"`;
+      case 'singlequote': return `'${val}'`;
+      case 'backtick': return `\`${val}\``;
+      default: return undefined;
+    }
+  },
+  unwrap: (val, args) => {
+    if (args.length !== 1 || stripArgQuotes(args[0]).toLowerCase() !== 'quotes') return undefined;
+    if (val.length >= 2 && ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'")))) {
+      return val.slice(1, -1);
+    }
+    return val;
+  },
+  color: (val, args) => {
+    if (args.length !== 1) return undefined;
+    const c = parseColor(val);
+    if (!c) return undefined;
+    const hex = (x: number) => x.toString(16).toUpperCase().padStart(2, '0');
+    switch (stripArgQuotes(args[0]).toLowerCase()) {
+      case 'hex': {
+        const alpha = c.a < 1 ? hex(Math.round(c.a * 255)) : '';
+        return `#${hex(c.r)}${hex(c.g)}${hex(c.b)}${alpha}`;
+      }
+      case 'rgb': return c.a < 1 ? `rgba(${c.r}, ${c.g}, ${c.b}, ${c.a})` : `rgb(${c.r}, ${c.g}, ${c.b})`;
+      case 'rgba': return `rgba(${c.r}, ${c.g}, ${c.b}, ${c.a})`;
+      case 'hsl': {
+        const hsl = rgbToHsl(c.r, c.g, c.b);
+        return c.a < 1 ? `hsla(${hsl.h}, ${hsl.s}%, ${hsl.l}%, ${c.a})` : `hsl(${hsl.h}, ${hsl.s}%, ${hsl.l}%)`;
+      }
+      case 'hsla': {
+        const hsl = rgbToHsl(c.r, c.g, c.b);
+        return `hsla(${hsl.h}, ${hsl.s}%, ${hsl.l}%, ${c.a})`;
+      }
+      default: return undefined;
+    }
+  },
+  json: (val, args) => {
+    if (args.length !== 1) return undefined;
     try {
-      return atob(val.trim());
-    } catch {
-      return val;
-    }
+      let current = JSON.parse(val.trim());
+      for (const segment of stripArgQuotes(args[0]).split('.')) {
+        if (current === null || current === undefined) return undefined;
+        current = /^\d+$/.test(segment) ? current[parseInt(segment, 10)] : current[segment];
+      }
+      if (current === null || current === undefined) return undefined;
+      return typeof current === 'string' ? current : JSON.stringify(current);
+    } catch { return undefined; }
   },
-  'stripemoji': (val) => {
-    try {
-      return val.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}\u200D\uFE0F]/gu, '');
-    } catch {
-      return val.replace(/[\u2700-\u27BF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|\uD83E[\uDD10-\uDDFF]/g, '');
-    }
-  },
-  'json.pretty': (val) => {
+  'json.pretty': (val, args) => {
+    if (args.length !== 0) return undefined;
     try {
       return JSON.stringify(JSON.parse(val.trim()), null, 2);
-    } catch {
-      return val;
-    }
+    } catch { return undefined; }
   },
-  'json.minify': (val) => {
+  'json.minify': (val, args) => {
+    if (args.length !== 0) return undefined;
     try {
       return JSON.stringify(JSON.parse(val.trim()));
-    } catch {
-      return val;
+    } catch { return undefined; }
+  },
+  lines: (val, args) => {
+    if (args.length < 1) return undefined;
+    const lines = val.split('\n');
+    const action = stripArgQuotes(args[0]).toLowerCase();
+    const rest = args.slice(1);
+    switch (action) {
+      case 'first': return rest.length === 0 ? (lines[0] ?? '') : undefined;
+      case 'last': return rest.length === 0 ? (lines[lines.length - 1] ?? '') : undefined;
+      case 'count': return rest.length === 0 ? String(lines.length) : undefined;
+      case 'compact': return rest.length === 0 ? lines.filter((l) => l.trim() !== '').join('\n') : undefined;
+      case 'unique': return rest.length === 0 ? [...new Set(lines)].join('\n') : undefined;
+      case 'prefix': return rest.length === 1 ? lines.map((l) => stripArgQuotes(rest[0]) + l).join('\n') : undefined;
+      case 'suffix': return rest.length === 1 ? lines.map((l) => l + stripArgQuotes(rest[0])).join('\n') : undefined;
+      case 'join': return rest.length === 1 ? lines.join(stripArgQuotes(rest[0])) : undefined;
+      case 'split': {
+        if (rest.length !== 1) return undefined;
+        const delim = stripArgQuotes(rest[0]);
+        return delim === '' ? val : val.split(delim).join('\n');
+      }
+      case 'sort': {
+        const flags = rest.map((a) => stripArgQuotes(a).toLowerCase());
+        if (flags.some((f) => f !== 'desc' && f !== 'insensitive' && f !== 'numeric')) return undefined;
+        const sorted = [...lines];
+        if (flags.includes('numeric')) {
+          sorted.sort((a, b) => {
+            const x = parseFloat(a.trim()), y = parseFloat(b.trim());
+            if (isNaN(x) && isNaN(y)) return 0;
+            if (isNaN(x)) return 1;
+            if (isNaN(y)) return -1;
+            return x - y;
+          });
+        } else if (flags.includes('insensitive')) {
+          sorted.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+        } else {
+          sorted.sort();
+        }
+        if (flags.includes('desc')) sorted.reverse();
+        return sorted.join('\n');
+      }
+      default: return undefined;
     }
   },
-  snake: (val) =>
-    val
-      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
-      ?.map((x) => x.toLowerCase())
-      .join('_') || val,
-  snakecase: (val) =>
-    val
-      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
-      ?.map((x) => x.toLowerCase())
-      .join('_') || val,
-  kebab: (val) =>
-    val
-      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
-      ?.map((x) => x.toLowerCase())
-      .join('-') || val,
-  kebabcase: (val) =>
-    val
-      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
-      ?.map((x) => x.toLowerCase())
-      .join('-') || val,
-  pascal: (val) =>
-    val
-      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
-      ?.map((x) => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase())
-      .join('') || val,
-  pascalcase: (val) =>
-    val
-      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
-      ?.map((x) => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase())
-      .join('') || val,
-  camel: (val) => {
-    const p =
-      val
-        .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
-        ?.map((x) => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase())
-        .join('') || val;
-    return p ? p.charAt(0).toLowerCase() + p.slice(1) : p;
+  regex: (val, args) => {
+    if (args.length < 1 || args.length > 2) return undefined;
+    try {
+      const group = args.length === 2 ? parseInt(stripArgQuotes(args[1]), 10) : 0;
+      if (isNaN(group)) return undefined;
+      const m = val.match(new RegExp(stripArgQuotes(args[0])));
+      return m?.[group];
+    } catch { return undefined; }
   },
-  camelcase: (val) => {
-    const p =
-      val
-        .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
-        ?.map((x) => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase())
-        .join('') || val;
-    return p ? p.charAt(0).toLowerCase() + p.slice(1) : p;
-  },
-  shoutysnake: (val) =>
-    val
-      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
-      ?.map((x) => x.toUpperCase())
-      .join('_') || val,
-  shoutysnakecase: (val) =>
-    val
-      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
-      ?.map((x) => x.toUpperCase())
-      .join('_') || val,
-  shoutykebab: (val) =>
-    val
-      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
-      ?.map((x) => x.toUpperCase())
-      .join('-') || val,
-  shoutykebabcase: (val) =>
-    val
-      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
-      ?.map((x) => x.toUpperCase())
-      .join('-') || val,
-  train: (val) =>
-    val
-      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
-      ?.map((x) => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase())
-      .join('-') || val,
-  traincase: (val) =>
-    val
-      .match(/[A-Z]{2,}(?=[A-Z][a-z]+[0-9]*|\b)|[A-Z]?[a-z]+[0-9]*|[A-Z]|[0-9]+/g)
-      ?.map((x) => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase())
-      .join('-') || val,
-  'color.hex': (val) => {
-    const c = parseColor(val);
-    if (!c) return val;
-    const hex = (x: number) => x.toString(16).toUpperCase().padStart(2, '0');
-    const alpha = c.a < 1 ? hex(Math.round(c.a * 255)) : '';
-    return `#${hex(c.r)}${hex(c.g)}${hex(c.b)}${alpha}`;
-  },
-  'color.rgb': (val) => {
-    const c = parseColor(val);
-    if (!c) return val;
-    return c.a < 1 ? `rgba(${c.r}, ${c.g}, ${c.b}, ${c.a})` : `rgb(${c.r}, ${c.g}, ${c.b})`;
-  },
-  'color.rgba': (val) => {
-    const c = parseColor(val);
-    if (!c) return val;
-    return `rgba(${c.r}, ${c.g}, ${c.b}, ${c.a})`;
-  },
-  'color.hsl': (val) => {
-    const c = parseColor(val);
-    if (!c) return val;
-    const hsl = rgbToHsl(c.r, c.g, c.b);
-    return c.a < 1 ? `hsla(${hsl.h}, ${hsl.s}%, ${hsl.l}%, ${c.a})` : `hsl(${hsl.h}, ${hsl.s}%, ${hsl.l}%)`;
-  },
-  'color.hsla': (val) => {
-    const c = parseColor(val);
-    if (!c) return val;
-    const hsl = rgbToHsl(c.r, c.g, c.b);
-    return `hsla(${hsl.h}, ${hsl.s}%, ${hsl.l}%, ${c.a})`;
+  extract: (val, args) => {
+    if (args.length !== 1) return undefined;
+    const patterns: Record<string, RegExp> = {
+      url: /https?:\/\/[^\s<>"']+/g,
+      email: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
+      phone: /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g,
+      mention: /\B@[\w.-]+\b/g,
+      hashtag: /\B#[a-zA-Z_][\w-]*\b/g,
+      ip: /\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b/g,
+    };
+    const re = patterns[stripArgQuotes(args[0]).toLowerCase()];
+    if (!re) return undefined;
+    return (val.match(re) ?? []).join('\n');
   },
 };
 
@@ -249,7 +400,7 @@ function parseArguments(input: string, prefix: string): { positional: string[]; 
   // Strip prefix and trailing space
   if (!input.startsWith(prefix)) return { positional, named };
   let argString = input.slice(prefix.length).trimEnd();
-  
+
   if (!argString.startsWith(':')) return { positional, named };
   argString = argString.slice(1); // remove the leading colon
 
@@ -258,7 +409,7 @@ function parseArguments(input: string, prefix: string): { positional: string[]; 
   const regex = /([^:"']+)|"([^"]*)"|'([^']*)'/g;
   const parts: string[] = [];
   let currentPart = '';
-  
+
   // A simple split by ':' won't work for quoted colons, so we parse carefully:
   let i = 0;
   while (i < argString.length) {
@@ -304,7 +455,7 @@ export function resolveTemplate(template: string, input: string, prefix: string)
   const tagRegex = /\[([^\[\]]+)\]/g;
 
   return template.replace(tagRegex, (match, inner) => {
-    const pipeline = inner.split('|').map((s: string) => s.trim());
+    const pipeline = splitPipeline(inner);
     const baseExpr = pipeline[0];
     const transformersList = pipeline.slice(1);
 
@@ -342,16 +493,20 @@ export function resolveTemplate(template: string, input: string, prefix: string)
       resolvedValue = (val === '' || val === undefined) && defaultValue !== undefined ? defaultValue : val;
       if (val !== undefined) positionalIndex++;
     }
-    
+
     if (resolvedValue === undefined) {
       return match; // unresolved
     }
 
-    // Apply modifiers
-    for (const mod of transformersList) {
-      if (transformers[mod]) {
-        resolvedValue = transformers[mod]!(resolvedValue);
-      }
+    // Apply canonical transformers; any unknown or failed transformer
+    // leaves the tag unresolved, mirroring the Rust engine.
+    for (const seg of transformersList) {
+      const call = parseTransformerCall(seg);
+      const handler = call ? transformers[call.name] : undefined;
+      if (!handler) return match;
+      const next = handler(resolvedValue, call.args);
+      if (next === undefined) return match;
+      resolvedValue = next;
     }
 
     return resolvedValue;

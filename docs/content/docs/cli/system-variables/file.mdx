@@ -58,9 +58,9 @@ Lines within the specified range (inclusive) are joined with standard line break
 You can pipe file content directly into transformers to modify it before expansion.
 
 ```text
-[file.read(~/.bashrc) | upper]
-[file.line(~/todo.txt, 1) | trim]
-[file.lines(~/changelog.md, 1, 3) | lower]
+[file.read(~/.bashrc) | case(upper)]
+[file.line(~/todo.txt, 1) | strip(whitespace)]
+[file.lines(~/changelog.md, 1, 3) | case(lower)]
 ```
 
 ---
@@ -70,7 +70,7 @@ You can pipe file content directly into transformers to modify it before expansi
 If you have a file named `quotes.txt` with one quote per line, you can configure a trigger to pull specific lines.
 
 ```text
-[file.lines(C:\notes\quotes.txt, 1, 5) | trim]
+[file.lines(C:\notes\quotes.txt, 1, 5) | strip(whitespace)]
 ```
 ---
 

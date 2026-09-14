@@ -116,4 +116,4 @@ To ensure future compatibility and prevent collisions with built-in features, Ta
 
 - **Reserved Dot-Namespaces**: Any variable name containing a dot (`.`) is reserved for system use. You cannot create a custom variable named `user.name`; instead, use `user_name`.
 - **Case Insensitivity**: System variable roots and modifiers are case-insensitive. `[TIME.UTC]` and `[time.utc]` will produce the same result.
-- **Transformer Chaining**: You can chain [transformers](/docs/cli/reference/system-variable-modifiers) to any system variable using pipe syntax. For example, `[clip | upper]` or `[env(USER) | pascal]`.
+- **Transformer Chaining**: You can chain [transformers](/docs/cli/reference/system-variable-modifiers) to any system variable using pipe syntax. For example, `[clipboard | case(upper)]` or `[env(USER) | case(pascal)]`.

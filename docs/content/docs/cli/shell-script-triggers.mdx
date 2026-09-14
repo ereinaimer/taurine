@@ -97,7 +97,7 @@ The true power of scripting comes from combining it with [Dynamic Variables](/do
 
 ### The "Interpolation First" Rule
 
-Before your script is passed to the system interpreter (like PowerShell or Bash), Taurine runs its expansion engine over the entire script body. This means any dynamic variable like `[var=default]` or system variable like `[sys.user]` is replaced with its actual value **before** the script starts executing.
+Before your script is passed to the system interpreter (like PowerShell or Bash), Taurine runs its expansion engine over the entire script body. This means any dynamic variable like `[var=default]` or system variable like `[env(USER)]` is replaced with its actual value **before** the script starts executing.
 
 This allows you to pass user input or system metadata directly into your script logic without writing complex argument-parsing code.
 
@@ -108,7 +108,7 @@ Variable interpolation is **not** limited to inline scripts. When you add a scri
 **Example: `hi.ps1`**
 ```powershell
 # Content of the file on your disk
-Write-Host "Hello, [var=friend | upper]!"
+Write-Host "Hello, [var=friend | case(upper)]!"
 ```
 
 **Adding it to Taurine:**
@@ -131,16 +131,16 @@ taurine add script hi -f ./hi.ps1 --lang powershell
   </Tab>
   <Tab value="Env Aware">
     **System Metadata**
-    Access metadata like your current user using `[sys.user]`.
+    Access metadata like your current user using `[env(USER)]`.
     ```bash
-    taurine add script whoami "echo 'Hello, [sys.user | title]!'" --lang bash
+    taurine add script whoami "echo 'Hello, [env(USER) | case(title)]!'" --lang bash
     ```
   </Tab>
   <Tab value="Dynamic Logic">
     **Transformation in Script**
     You can even chain transformers within your script body.
     ```bash
-    taurine add script shout "echo '[0= | upper]!!!'" --lang bash
+    taurine add script shout "echo '[0=text | case(upper)]!!!'" --lang bash
     ```
   </Tab>
 </Tabs>

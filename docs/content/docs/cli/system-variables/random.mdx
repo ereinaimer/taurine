@@ -48,8 +48,8 @@ The `random.choice` variant supports nested structures and commas within options
 You can chain any [format modifier](/docs/cli/dynamic-variables/transformers) after the variable.
 
 ```text
-[random.str(8) | upper] -> "KLMNPQRS"
-[random.choice(apple, banana) | kebab]
+[random.str(8) | case(upper)] -> "KLMNPQRS"
+[random.choice(apple, banana) | case(kebab)]
 ```
 
 ---

@@ -156,45 +156,47 @@ Modifiers for generating IDs, filler text, or simulating hardware interaction.
 
 ## Text Transformers
 
-These can be appended to **any** variable (system or custom) using Unix pipe syntax (`| transformer`) to transform the string output (e.g. `[clip | upper]`).
+These can be appended to **any** variable (system or custom) using Unix pipe syntax (`| transformer`) to transform the string output (e.g. `[clipboard | case(upper)]`).
 
 <Accordions>
 <Accordion title="Casing Transformers">
-  - `upper`: `HELLO WORLD`
-  - `lower`: `hello world`
-  - `title`: `Hello World`
-  - `sentence`: `Hello world`
+  - `case(upper)`: `HELLO WORLD`
+  - `case(lower)`: `hello world`
+  - `case(title)`: `Hello World`
+  - `case(sentence)`: `Hello world`
 </Accordion>
 
 <Accordion title="Programming Transformers">
-  - `snake`: `hello_world`
-  - `kebab`: `hello-world`
-  - `pascal`: `HelloWorld`
-  - `camel`: `helloWorld`
+  - `case(snake)`: `hello_world`
+  - `case(kebab)`: `hello-world`
+  - `case(pascal)`: `HelloWorld`
+  - `case(camel)`: `helloWorld`
 </Accordion>
 
 <Accordion title="Web & Utilities">
-  - `url.encode`: Percent-encodes characters for use in URLs.
-  - `url.decode`: Decodes percent-encoded URL components.
-  - `url.clean`: Strips tracking/query parameters and hash/fragment anchors from a URL.
+  - `encode(url)`: Percent-encodes characters for use in URLs.
+  - `decode(url)`: Decodes percent-encoded URL components.
+  - `clean(url)`: Strips tracking/query parameters and hash/fragment anchors from a URL.
+  - `encode(base64)`: Encodes text as Base64.
+  - `decode(base64)`: Decodes Base64 text.
 </Accordion>
 
 <Accordion title="Color Conversion">
   Auto-detects and converts color formats compliant with W3C CSS Color Level 4:
-  - `color.hex`: Formats as uppercase Hex (e.g. `#FF0000` or `#FF00007F`).
-  - `color.rgb`: Formats as `rgb(R, G, B)` or `rgba(R, G, B, A)`.
-  - `color.rgba`: Formats as `rgba(R, G, B, A)`.
-  - `color.hsl`: Formats as `hsl(H, S%, L%)` or `hsla(H, S%, L%, A)`.
-  - `color.hsla`: Formats as `hsla(H, S%, L%, A)`.
+  - `color(hex)`: Formats as uppercase Hex (e.g. `#FF0000` or `#FF00007F`).
+  - `color(rgb)`: Formats as `rgb(R, G, B)` or `rgba(R, G, B, A)`.
+  - `color(rgba)`: Formats as `rgba(R, G, B, A)`.
+  - `color(hsl)`: Formats as `hsl(H, S%, L%)` or `hsla(H, S%, L%, A)`.
+  - `color(hsla)`: Formats as `hsla(H, S%, L%, A)`.
 </Accordion>
 
 <Accordion title="Text & Line Utilities">
-  - `digits`: Filters string to keep only digits `0-9`.
-  - `alnum`: Filters string to keep only alphanumeric characters.
-  - `wordcount`: Returns the number of whitespace-separated words (e.g. `[clip | wordcount]`).
-  - `linecount`: Returns the total number of lines (e.g. `[clip | linecount]`).
-  - `sortline([options])`: Sorts lines alphabetically or numerically (e.g. `[clip | sortline("numeric", "desc")]`).
-  - `uniqline`: Removes duplicate lines globally while maintaining original order.
+  - `filter(digits)`: Filters string to keep only digits `0-9`.
+  - `filter(alphanumeric)`: Filters string to keep only alphanumeric characters.
+  - `count(words)`: Returns the number of whitespace-separated words (e.g. `[clipboard | count(words)]`).
+  - `lines(count)`: Returns the total number of lines (e.g. `[clipboard | lines(count)]`).
+  - `lines(sort[, desc, insensitive, numeric])`: Sorts lines alphabetically or numerically (e.g. `[clipboard | lines(sort, "numeric", "desc")]`).
+  - `lines(unique)`: Removes duplicate lines globally while maintaining original order.
 </Accordion>
 
 <Accordion title="Data Extraction">
