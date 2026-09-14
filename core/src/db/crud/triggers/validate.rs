@@ -95,6 +95,16 @@ pub(crate) fn audit_payload_tags_impl_opt(
         let base_expr = pipeline[0];
         let (key, default_value) = split_key_default(base_expr);
 
+        for segment in &pipeline[1..] {
+            if !crate::engine::variables::system::transformers::is_valid_transformer(segment) {
+                return Err(crate::Error::Config(format!(
+                    "[{}]: unknown transformer '{}'. Transformers use the form category(action), e.g. case(upper).",
+                    inner,
+                    segment.trim()
+                )));
+            }
+        }
+
         let is_nested = key.contains('[') || key.contains(']') || key.starts_with('\x03');
 
         if is_nested && inner.contains('[') {

@@ -375,12 +375,15 @@ fn validates_key_against_explicit_whitelist() {
 fn validates_delay_with_same_shape_as_system_parser() {
     assert_eq!(validate_system_tag("delay", Some("200ms")), Ok(()));
     assert_eq!(validate_system_tag("delay", Some(" 0ms ")), Ok(()));
+    assert_eq!(validate_system_tag("delay", Some("200")), Ok(()));
+    assert_eq!(validate_system_tag("delay", Some("2s")), Ok(()));
+    assert_eq!(validate_system_tag("delay", Some("1.5s")), Ok(()));
     assert_eq!(
-        validate_system_tag("delay", Some("200s")),
+        validate_system_tag("delay", Some("soon")),
         Err(ValidationError::InvalidModifier {
             root: "delay",
-            modifier: "200s".to_string(),
-            allowed: &["<u64>ms"],
+            modifier: "soon".to_string(),
+            allowed: &["<u64>ms", "<f64>s"],
         })
     );
 }

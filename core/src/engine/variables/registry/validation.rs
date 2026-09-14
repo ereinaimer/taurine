@@ -539,7 +539,7 @@ fn validate_delay_modifier(modifier: Option<&str>) -> Result<(), ValidationError
         Err(ValidationError::InvalidModifier {
             root: "delay",
             modifier: modifier.to_string(),
-            allowed: &["<u64>ms"],
+            allowed: &["<u64>ms", "<f64>s"],
         })
     }
 }
@@ -557,6 +557,10 @@ fn parse_delay_ms(s: &str) -> Option<u64> {
     let s = s.trim();
     if let Some(n) = s.strip_suffix("ms") {
         n.parse::<u64>().ok()
+    } else if let Some(n) = s.strip_suffix('s') {
+        n.parse::<f64>()
+            .ok()
+            .map(|seconds| (seconds * 1000.0) as u64)
     } else {
         s.parse::<u64>().ok()
     }

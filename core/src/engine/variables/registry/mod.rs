@@ -159,7 +159,7 @@ pub fn valid_modifier_hint(root: &str) -> String {
             "Valid forms: [key(<token>)]. Tokens: {}. You can combine them with +, and any single character token is also allowed.",
             KEY_MODIFIERS.join(", ")
         ),
-        "delay" => "Valid form: [delay(<ms>)] or [delay(<u64>ms)]".to_string(),
+        "delay" => "Valid form: [delay(<ms>)] or [delay(<u64>ms)] or [delay(<f64>s)]".to_string(),
         "use" => "Valid form: [use(\"trigger_name\")]".to_string(),
         "http" => "Valid forms: [http.get(<url>)], [http.status(<url>)]".to_string(),
         "mouse" => "Valid directives:\n  [mouse.click(btn)]    Click button (default: left)\n  [mouse.dblclick(btn)] Double-click button (default: left)\n  [mouse.hold(btn)]     Press and hold button\n  [mouse.release(btn)]  Release button\n  [mouse.rclick]        Right-click shortcut\n  [mouse.mclick]        Middle-click shortcut\n  [mouse.m4]            Back button shortcut (mouse4)\n  [mouse.m5]            Forward button shortcut (mouse5)\n  [mouse.move(x, y)]    Move cursor to absolute coordinates (x, y)\n  [mouse.scroll(delta)] Scroll wheel vertically (positive: up, negative: down)\n  [mouse.pos]           Insert current cursor position as x, y\n\nSupported buttons:\n  left, right, middle, m4 (back), m5 (forward), m<N>".to_string(),

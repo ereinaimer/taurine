@@ -94,6 +94,20 @@ mod tests {
     }
 
     #[test]
+    fn rejects_unknown_transformer_names() {
+        let error = audit_payload_tags("[name=John | upper]").unwrap_err();
+        assert!(error.to_string().contains("unknown transformer"));
+        assert!(error.to_string().contains("upper"));
+
+        let legacy = audit_payload_tags("[clipboard | firstline]").unwrap_err();
+        assert!(legacy.to_string().contains("unknown transformer"));
+
+        assert!(audit_payload_tags("[name=John | case(upper)]").is_ok());
+        assert!(audit_payload_tags("[clipboard | lines(first)]").is_ok());
+        assert!(audit_payload_tags("[clipboard | lines(sort, \"numeric\")]").is_ok());
+    }
+
+    #[test]
     fn rejects_unknown_net_modifier() {
         let error = audit_payload_tags("[net.unknown]").unwrap_err();
         assert!(error.to_string().contains("net.unknown"));
