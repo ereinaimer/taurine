@@ -103,7 +103,7 @@ impl SettingKeyMeta for SettingKey {
             Self::AiMaxTokens => "The maximum number of tokens to generate in the completion.",
             Self::AiSystemPrompt => "Overrides the default immutable system instructions.",
             Self::ClipboardHistoryEnabled => {
-                "Enable local clipboard history tracking and [clip] variables"
+                "Enable local clipboard history tracking and [clipboard] variables"
             }
             Self::ClipboardHistoryRetentionSecs => {
                 "Delete history items automatically after this time (in seconds)"

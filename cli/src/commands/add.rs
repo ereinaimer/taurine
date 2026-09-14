@@ -119,9 +119,9 @@ pub fn execute_with_trigger_type(
 
     let conn = init::setup()?;
     let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
-    if !settings.clipboard_history_enabled && output.contains("[clip") {
+    if !settings.clipboard_history_enabled && output.contains("[clipboard") {
         tracing::warn!(
-            "Warning: The trigger contains '[clip]' system variables, which won't work because clipboard history is disabled in the settings."
+            "Warning: The trigger contains '[clipboard]' system variables, which won't work because clipboard history is disabled in the settings."
         );
     }
     // Case conflict check

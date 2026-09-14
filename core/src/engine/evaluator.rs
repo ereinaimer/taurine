@@ -338,12 +338,10 @@ impl Evaluator {
             self.captured_ai_clipboard = None;
         }
 
-        if resolved_prompt.contains("[clipboard]") || resolved_prompt.contains("[clip]") {
+        if resolved_prompt.contains("[clipboard]") {
             let clip_content = crate::engine::variables::system::clipboard::resolve("clipboard")
                 .unwrap_or_default();
-            resolved_prompt = resolved_prompt
-                .replace("[clipboard]", &clip_content)
-                .replace("[clip]", &clip_content);
+            resolved_prompt = resolved_prompt.replace("[clipboard]", &clip_content);
         }
 
         let trimmed_prompt = resolved_prompt.trim();

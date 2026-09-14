@@ -1480,14 +1480,14 @@ fn inline_ai_manual_clip_token_substitutes_clipboard() {
     let state = Arc::new(EngineState::new());
     let mut eval = Evaluator::new(state);
 
-    let input = "tau, reformat this: [clip]";
+    let input = "tau, reformat this: [clipboard]";
     for c in input.chars() {
         eval.process(EngineEvent::Char(c));
     }
 
     let result = eval
         .process(EngineEvent::ActionKey)
-        .expect("tau, with [clip] should trigger");
+        .expect("tau, with [clipboard] should trigger");
 
     assert_eq!(result.delete_count, input.chars().count());
     assert_inline_ai_follow_up(&result, "reformat this: const x = 1;", None);
@@ -1525,14 +1525,14 @@ fn inline_ai_empty_clip_token_does_not_trigger() {
     let state = Arc::new(EngineState::new());
     let mut eval = Evaluator::new(state);
 
-    for c in "tau, [clip]".chars() {
+    for c in "tau, [clipboard]".chars() {
         eval.process(EngineEvent::Char(c));
     }
 
     assert_eq!(
         eval.process(EngineEvent::ActionKey),
         None,
-        "tau, [clip] with empty clipboard must not trigger"
+        "tau, [clipboard] with empty clipboard must not trigger"
     );
 
     crate::engine::variables::system::clipboard::set_mock_clip(None);

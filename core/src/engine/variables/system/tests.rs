@@ -49,7 +49,7 @@ fn test_resolve_random_int_interpolation() {
 #[test]
 fn test_resolve_lorem_word_interpolation_count() {
     let resolved = crate::engine::variables::interpolate::interpolate(
-        "[lorem.word(3)]",
+        "[lorem.words(3)]",
         &crate::engine::variables::types::ArgMap::default(),
     );
 
@@ -362,9 +362,9 @@ fn test_validate_output_logic_paths() {
     validate_output("[cursor] [cursor]", Some("multi")).unwrap();
     validate_output("[key(tab)] [cursor]", Some("conflict")).unwrap();
     validate_output("[cursor=invalid]", Some("default")).unwrap();
-    validate_output("[lorem.word([num=5])]", Some("nested")).unwrap();
+    validate_output("[lorem.words([num=5])]", Some("nested")).unwrap();
     validate_output(r#"\[cursor\] [cursor]"#, Some("escaped")).unwrap();
-    validate_output("[clip=invalid]", None).unwrap();
+    validate_output("[clipboard=invalid]", None).unwrap();
 }
 
 #[test]
@@ -389,8 +389,8 @@ fn test_validate_output_rejects_empty() {
 #[test]
 fn test_split_key_default_respects_nested_placeholders() {
     assert_eq!(
-        split_key_default("lorem.word([num=5])"),
-        ("lorem.word([num=5])", None)
+        split_key_default("lorem.words([num=5])"),
+        ("lorem.words([num=5])", None)
     );
     assert_eq!(
         split_key_default("cursor=invalid"),
@@ -704,7 +704,7 @@ mod compatibility_finalize_tests {
         // Test Case 9: testrandom
         {
             let res = evaluate_template(
-                "Int (10-50): [random.int(10, 50)] | Pass (12): [random.pass(12)] | Choice: [random.choice(apple, banana, cherry) | title] | Lorem (Dynamic Count): [lorem.word([random.int(2, 4)]) | kebab]",
+                "Int (10-50): [random.int(10, 50)] | Pass (12): [random.pass(12)] | Choice: [random.choice(apple, banana, cherry) | case(title)] | Lorem (Dynamic Count): [lorem.words([random.int(2, 4)]) | case(kebab)]",
                 None,
             );
             assert_eq!(res.steps.len(), 1);

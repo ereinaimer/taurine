@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Download Progress**: Show live download progress with transfer speed during installation and updates, including total size and elapsed time on completion.
 
 ### Fixed
+- **Single Canonical Name Per Variable**: Remove legacy aliases (`clip`, `exec`, `img`, singular `lorem` forms, and `extract` path shorthands) so each system variable and transformer has exactly one documented name.
 - **Line Transformers Follow Documented Syntax**: Enable the documented [| lines(first|last|count|compact|prefix|suffix|join|split|unique|sort)] family and drop the unreachable legacy names.
 - **Start on Boot From Any Location**: Remember the exact binary that ran `up` (e.g. from Downloads) and launch it at login, falling back to the installed copy when it no longer exists.
 - **Fixed Windows Login Launcher**: Launch the installed binary directly at logon instead of resolving it through a sidecar path file.

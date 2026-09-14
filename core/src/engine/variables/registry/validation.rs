@@ -279,10 +279,10 @@ fn validate_lorem_modifier(modifier: Option<&str>) -> Result<(), ValidationError
             };
 
             let valid = match args {
-                None => matches!(variant, "paragraph" | "word" | "sentence"),
+                None => matches!(variant, "paragraphs" | "words" | "sentences"),
                 Some(args_str) => {
                     let args = split_modifier_args(args_str);
-                    matches!(variant, "paragraph" | "word" | "sentence") && args.len() <= 1
+                    matches!(variant, "paragraphs" | "words" | "sentences") && args.len() <= 1
                 }
             };
 
@@ -451,7 +451,7 @@ fn parse_lorem_modifier(input: &str) -> Option<(&str, Option<&str>)> {
     if input.starts_with('(') {
         let (args, trailing) = scan_exec_parenthesized(input)?;
         if trailing.trim().is_empty() {
-            Some(("paragraph", Some(args)))
+            Some(("paragraphs", Some(args)))
         } else {
             None
         }

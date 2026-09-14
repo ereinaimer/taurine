@@ -248,10 +248,13 @@ fn test_prepare_trigger_with_newlines_rejected() {
 #[test]
 fn test_count_ai_calls_in_template() {
     assert_eq!(count_ai_calls_in_template("Hello world"), 0);
-    assert_eq!(count_ai_calls_in_template("Hello [clip | upper]"), 0);
-    assert_eq!(count_ai_calls_in_template("[clip | ai(summarize)]"), 1);
     assert_eq!(
-        count_ai_calls_in_template("[clip | ai(a) | upper | ai(b)] and [date | ai(c)]"),
+        count_ai_calls_in_template("Hello [clipboard | case(upper)]"),
+        0
+    );
+    assert_eq!(count_ai_calls_in_template("[clipboard | ai(summarize)]"), 1);
+    assert_eq!(
+        count_ai_calls_in_template("[clipboard | ai(a) | case(upper) | ai(b)] and [date | ai(c)]"),
         3
     );
 }

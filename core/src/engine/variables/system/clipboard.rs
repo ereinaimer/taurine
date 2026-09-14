@@ -138,7 +138,7 @@ pub fn is_clip_key(key: &str) -> bool {
     parse_clip_key(key).is_some()
 }
 
-/// Resolves the `[clip]` system variable family from the in-memory history buffer.
+/// Resolves the `[clipboard]` system variable family from the in-memory history buffer.
 pub fn resolve(key: &str) -> Option<String> {
     let index = match parse_clip_key(key)? {
         ClipKey::Valid(index) => index,

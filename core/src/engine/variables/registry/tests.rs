@@ -2,18 +2,21 @@ use super::*;
 
 #[test]
 fn strips_global_transformers_before_system_validation() {
-    assert_eq!(strip_global_transformers("time.now | upper"), "time.now");
-    assert_eq!(strip_global_transformers("name | upper"), "name");
+    assert_eq!(
+        strip_global_transformers("time.now | case(upper)"),
+        "time.now"
+    );
+    assert_eq!(strip_global_transformers("name | case(upper)"), "name");
 }
 
 #[test]
 fn splits_known_system_roots_only() {
     assert_eq!(
-        split_system_tag("time.now | upper"),
+        split_system_tag("time.now | case(upper)"),
         Some(("time", Some("now")))
     );
     assert_eq!(
-        split_system_tag("net.hostname | upper"),
+        split_system_tag("net.hostname | case(upper)"),
         Some(("net", Some("hostname")))
     );
     assert_eq!(split_system_tag("clipboard"), Some(("clipboard", None)));
@@ -22,7 +25,7 @@ fn splits_known_system_roots_only() {
         Some(("clipboard", Some("(1)")))
     );
     assert_eq!(
-        split_system_tag("clipboard(2) | upper"),
+        split_system_tag("clipboard(2) | case(upper)"),
         Some(("clipboard", Some("(2)")))
     );
     assert_eq!(split_system_tag("datetime"), Some(("datetime", None)));
@@ -31,7 +34,7 @@ fn splits_known_system_roots_only() {
         Some(("datetime", Some("utc")))
     );
     assert_eq!(split_system_tag("newline"), Some(("newline", None)));
-    assert_eq!(split_system_tag("query | upper"), None);
+    assert_eq!(split_system_tag("query | case(upper)"), None);
 }
 
 #[test]
@@ -303,21 +306,29 @@ fn validates_lorem_modifier_syntax() {
     assert_eq!(validate_system_tag("lorem", None), Ok(()));
     assert_eq!(validate_system_tag("lorem", Some("(3)")), Ok(()));
     assert_eq!(validate_system_tag("lorem", Some("()")), Ok(()));
-    assert_eq!(validate_system_tag("lorem", Some("word")), Ok(()));
-    assert_eq!(validate_system_tag("lorem", Some("sentence")), Ok(()));
-    assert_eq!(validate_system_tag("lorem", Some("paragraph")), Ok(()));
-    assert_eq!(validate_system_tag("lorem", Some("word(3)")), Ok(()));
-    assert_eq!(validate_system_tag("lorem", Some("word()")), Ok(()));
-    assert_eq!(validate_system_tag("lorem", Some("sentence(2)")), Ok(()));
-    assert_eq!(validate_system_tag("lorem", Some("paragraph(1)")), Ok(()));
-    assert_eq!(validate_system_tag("lorem", Some("word([num=5])")), Ok(()));
+    assert_eq!(validate_system_tag("lorem", Some("words")), Ok(()));
+    assert_eq!(validate_system_tag("lorem", Some("sentences")), Ok(()));
+    assert_eq!(validate_system_tag("lorem", Some("paragraphs")), Ok(()));
+    assert_eq!(validate_system_tag("lorem", Some("words(3)")), Ok(()));
+    assert_eq!(validate_system_tag("lorem", Some("words()")), Ok(()));
+    assert_eq!(validate_system_tag("lorem", Some("sentences(2)")), Ok(()));
+    assert_eq!(validate_system_tag("lorem", Some("paragraphs(1)")), Ok(()));
+    assert_eq!(validate_system_tag("lorem", Some("words([num=5])")), Ok(()));
     assert_eq!(
-        validate_system_tag("lorem", Some("word([random.int(3, 3)])")),
+        validate_system_tag("lorem", Some("words([random.int(3, 3)])")),
         Ok(())
     );
     assert_eq!(
-        validate_system_tag("lorem", Some("paragraph(nope)")),
+        validate_system_tag("lorem", Some("paragraphs(nope)")),
         Ok(())
+    );
+    assert_eq!(
+        validate_system_tag("lorem", Some("word")),
+        Err(ValidationError::InvalidModifier {
+            root: "lorem",
+            modifier: "word".to_string(),
+            allowed: LOREM_MODIFIERS,
+        })
     );
 
     assert_eq!(
@@ -329,10 +340,10 @@ fn validates_lorem_modifier_syntax() {
         })
     );
     assert_eq!(
-        validate_system_tag("lorem", Some("word(1, 2)")),
+        validate_system_tag("lorem", Some("words(1, 2)")),
         Err(ValidationError::InvalidModifier {
             root: "lorem",
-            modifier: "word(1, 2)".to_string(),
+            modifier: "words(1, 2)".to_string(),
             allowed: LOREM_MODIFIERS,
         })
     );

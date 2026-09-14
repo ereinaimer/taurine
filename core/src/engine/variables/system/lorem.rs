@@ -197,15 +197,15 @@ pub(crate) fn parse_invocation(key: &str) -> Result<LoremInvocation, LoremParseE
         let count = parse_count_arg(args)?;
 
         match variant {
-            "word" | "words" => Ok(LoremInvocation {
+            "words" => Ok(LoremInvocation {
                 variant: LoremVariant::Word,
                 count: count.unwrap_or(DEFAULT_WORD_COUNT),
             }),
-            "sentence" | "sentences" => Ok(LoremInvocation {
+            "sentences" => Ok(LoremInvocation {
                 variant: LoremVariant::Sentence,
                 count: count.unwrap_or(DEFAULT_SENTENCE_COUNT),
             }),
-            "paragraph" | "paragraphs" => Ok(LoremInvocation {
+            "paragraphs" => Ok(LoremInvocation {
                 variant: LoremVariant::Paragraph,
                 count: count.unwrap_or(DEFAULT_PARAGRAPH_COUNT),
             }),
@@ -213,15 +213,15 @@ pub(crate) fn parse_invocation(key: &str) -> Result<LoremInvocation, LoremParseE
         }
     } else {
         match modifier {
-            "word" | "words" => Ok(LoremInvocation {
+            "words" => Ok(LoremInvocation {
                 variant: LoremVariant::Word,
                 count: DEFAULT_WORD_COUNT,
             }),
-            "sentence" | "sentences" => Ok(LoremInvocation {
+            "sentences" => Ok(LoremInvocation {
                 variant: LoremVariant::Sentence,
                 count: DEFAULT_SENTENCE_COUNT,
             }),
-            "paragraph" | "paragraphs" => Ok(LoremInvocation {
+            "paragraphs" => Ok(LoremInvocation {
                 variant: LoremVariant::Paragraph,
                 count: DEFAULT_PARAGRAPH_COUNT,
             }),
@@ -317,27 +317,33 @@ mod tests {
     #[test]
     fn resolves_words_with_exact_counts() {
         assert_eq!(
-            resolve("lorem.word").unwrap().split_whitespace().count(),
+            resolve("lorem.words").unwrap().split_whitespace().count(),
             DEFAULT_WORD_COUNT
         );
         assert_eq!(
-            resolve("lorem.word(1)").unwrap().split_whitespace().count(),
+            resolve("lorem.words(1)")
+                .unwrap()
+                .split_whitespace()
+                .count(),
             1
         );
         assert_eq!(
-            resolve("lorem.word(5)").unwrap().split_whitespace().count(),
+            resolve("lorem.words(5)")
+                .unwrap()
+                .split_whitespace()
+                .count(),
             5
         );
         assert_eq!(
-            resolve("lorem.word()").unwrap().split_whitespace().count(),
+            resolve("lorem.words()").unwrap().split_whitespace().count(),
             DEFAULT_WORD_COUNT
         );
     }
 
     #[test]
     fn resolves_sentences_and_paragraphs_output_formatting() {
-        let sentences = resolve("lorem.sentence(2)").unwrap();
-        let paragraphs = resolve("lorem.paragraph(2)").unwrap();
+        let sentences = resolve("lorem.sentences(2)").unwrap();
+        let paragraphs = resolve("lorem.paragraphs(2)").unwrap();
 
         assert_eq!(sentence_count(&sentences), 2);
         assert!(!sentences.contains("\n\n"));
@@ -347,8 +353,9 @@ mod tests {
     #[test]
     fn rejects_invalid_input_for_fallback() {
         assert_eq!(resolve("lorem.unknown"), None);
-        assert_eq!(resolve("lorem.word(nope)"), None);
-        assert_eq!(resolve("lorem.sentence(1, 2)"), None);
-        assert_eq!(resolve("lorem.paragraph(1).upper"), None);
+        assert_eq!(resolve("lorem.word"), None);
+        assert_eq!(resolve("lorem.words(nope)"), None);
+        assert_eq!(resolve("lorem.sentences(1, 2)"), None);
+        assert_eq!(resolve("lorem.paragraphs(1).upper"), None);
     }
 }
