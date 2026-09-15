@@ -10,33 +10,9 @@ mod lines;
 mod text;
 
 pub const TRANSFORMERS: &[&str] = &[
-    "case",
-    "lines",
-    "count",
-    "truncate",
-    "repeat",
-    "replace",
-    "slice",
-    "filter",
-    "strip",
-    "encode",
-    "decode",
-    "clean",
-    "hash",
-    "extract",
-    "wrap",
-    "unwrap",
-    "color",
-    "json",
-    "json.pretty",
-    "json.minify",
-    "html",
-    "xml",
-    "toml",
-    "yaml",
-    "regex",
-    "calc",
-    "ai",
+    "case", "lines", "count", "truncate", "repeat", "replace", "slice", "filter", "strip",
+    "encode", "decode", "clean", "hash", "extract", "wrap", "unwrap", "color", "json", "html",
+    "xml", "toml", "yaml", "regex", "calc", "ai",
 ];
 
 #[derive(Debug)]
@@ -299,14 +275,16 @@ mod tests {
 
     #[test]
     fn test_json_pretty_minify_dispatch() {
-        assert!(is_valid_transformer("json.pretty"));
-        assert!(is_valid_transformer("json.minify"));
+        assert!(is_valid_transformer("json(pretty)"));
+        assert!(is_valid_transformer("json(minify)"));
+        assert!(!is_valid_transformer("json.pretty"));
+        assert!(!is_valid_transformer("json.minify"));
         assert!(!is_valid_transformer("pretty"));
         assert!(!is_valid_transformer("minify"));
-        let pretty = apply("json.pretty", r#"{"a":1}"#).unwrap();
+        let pretty = apply("json(pretty)", r#"{"a":1}"#).unwrap();
         assert!(pretty.contains('\n'));
         assert_eq!(
-            apply("json.minify", &pretty),
+            apply("json(minify)", &pretty),
             Some(r#"{"a":1}"#.to_string())
         );
     }

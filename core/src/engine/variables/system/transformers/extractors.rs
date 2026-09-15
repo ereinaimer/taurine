@@ -10,8 +10,6 @@ use super::strip_argument_quotes;
 pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> {
     match transformer {
         "json" => apply_json(args, content),
-        "json.pretty" if args.is_empty() => apply_json_pretty(content),
-        "json.minify" if args.is_empty() => apply_json_minify(content),
         "html" | "xml" => apply_html_xml(args, content),
         "toml" => apply_toml(args, content),
         "yaml" => apply_yaml(args, content),
@@ -44,7 +42,15 @@ fn apply_extract(args: &[&str], content: &str) -> Option<String> {
 }
 
 fn apply_json(args: &[&str], content: &str) -> Option<String> {
-    let path = strip_argument_quotes(args.first()?);
+    let first = strip_argument_quotes(args.first()?);
+    if args.len() == 1 {
+        match first.to_lowercase().as_str() {
+            "pretty" => return apply_json_pretty(content),
+            "minify" => return apply_json_minify(content),
+            _ => {}
+        }
+    }
+    let path = first;
     let mut current: JsonValue = serde_json::from_str(content).ok()?;
 
     for segment in path.split('.') {
@@ -417,25 +423,25 @@ mod tests {
         );
         assert_eq!(apply("json", &["invalid.path"], json), None);
 
-        // test json.pretty
+        // test json(pretty)
         let minified = r#"{"a":1,"b":[2,3]}"#;
-        let pretty = apply("json.pretty", &[], minified).unwrap();
+        let pretty = apply("json", &["pretty"], minified).unwrap();
         assert!(pretty.contains("\n  \"a\": 1"));
         assert!(pretty.contains("\n  \"b\": [\n    2,\n    3\n  ]"));
 
-        // test json.minify
+        // test json(minify)
         let pretty_input = r#"{
             "a": 1,
             "b": [2, 3]
         }"#;
         assert_eq!(
-            apply("json.minify", &[], pretty_input),
+            apply("json", &["minify"], pretty_input),
             Some(r#"{"a":1,"b":[2,3]}"#.to_string())
         );
 
         // invalid JSON
-        assert_eq!(apply("json.pretty", &[], "{invalid"), None);
-        assert_eq!(apply("json.minify", &[], "{invalid"), None);
+        assert_eq!(apply("json", &["pretty"], "{invalid"), None);
+        assert_eq!(apply("json", &["minify"], "{invalid"), None);
     }
 
     #[test]
