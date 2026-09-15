@@ -1,6 +1,17 @@
 use crate::engine::variables::system;
 
+// honey: allow(dead_code) until Tasks 3+ consume the catalog in non-test
+// code (tests pin it; system_variable_roots stays legacy until migration).
+#[allow(dead_code)]
 const SYSTEM_ROOTS: &[&str] = &[
+    "chrono", "clip", "uuid", "random", "lorem", "file", "ip", "http", "env", "execute", "mouse",
+    "key", "delay", "use", "image", "cursor", "newline",
+];
+
+// honey: legacy dot-chain roots for pre-migration callers (interpolate, plan,
+// triggers validate still use split_system_tag + validate_system_tag); Tasks 3/8
+// delete this with split_system_tag once callers move to parse_system_call.
+const LEGACY_ROOTS: &[&str] = &[
     "cursor",
     "clipboard",
     "time",
@@ -90,6 +101,29 @@ pub fn strip_global_transformers(key: &str) -> &str {
     pipeline[0]
 }
 
+/// Splits a unified `namespace(args)` tag into namespace + raw args.
+/// Bare tags are `()` sugar: `clip` parses as `("clip", "")`.
+/// Purely syntactic: unknown and dotted namespaces are preserved for
+/// `validate_system_call` to reject with a canonical-form hint.
+pub fn parse_system_call(inner: &str) -> Option<(&str, &str)> {
+    let pipeline = system::transformers::split_pipeline(inner);
+    let s = pipeline.first()?.trim();
+    if s.is_empty() {
+        return None;
+    }
+    match s.find('(') {
+        None => Some((s, "")),
+        Some(i) => {
+            let ns = s[..i].trim();
+            if ns.is_empty() || !s.ends_with(')') {
+                return None;
+            }
+            Some((ns, s[i + 1..s.len() - 1].trim()))
+        }
+    }
+}
+
+// honey: migration glue (see LEGACY_ROOTS); Tasks 3/8 own deletion + callers.
 pub fn split_system_tag(key: &str) -> Option<(&str, Option<&str>)> {
     let base = strip_global_transformers(key);
     if base == "newline" {
@@ -140,7 +174,7 @@ pub fn split_system_tag(key: &str) -> Option<(&str, Option<&str>)> {
         None => (base, None),
     };
 
-    SYSTEM_ROOTS.contains(&root).then_some((root, modifier))
+    LEGACY_ROOTS.contains(&root).then_some((root, modifier))
 }
 
 pub fn valid_modifier_hint(root: &str) -> String {
@@ -172,8 +206,11 @@ pub fn valid_modifier_hint(root: &str) -> String {
     }
 }
 
+// honey: returns LEGACY_ROOTS until Tasks 3/8 migrate split_system_tag
+// callers (a triggers test pins the [clipboard] suggestion); flip to
+// SYSTEM_ROOTS with that migration.
 pub fn system_variable_roots() -> &'static [&'static str] {
-    SYSTEM_ROOTS
+    LEGACY_ROOTS
 }
 
 pub fn system_transformers() -> &'static [&'static str] {
@@ -182,7 +219,7 @@ pub fn system_transformers() -> &'static [&'static str] {
 
 pub fn is_valid_system_root(root: &str) -> bool {
     let cleaned = root.trim().to_lowercase();
-    SYSTEM_ROOTS.contains(&cleaned.as_str())
+    LEGACY_ROOTS.contains(&cleaned.as_str())
 }
 
 pub fn is_valid_transformer(name: &str) -> bool {
@@ -195,4 +232,6 @@ pub fn is_valid_transformer(name: &str) -> bool {
 mod tests;
 mod validation;
 
-pub use validation::{ValidationError, validate_system_tag};
+pub use validation::{
+    ValidationError, deleted_root_hint, param_spec, validate_system_call, validate_system_tag,
+};

@@ -259,6 +259,12 @@ pub(crate) fn format_validation_error(
         ))
         .suggest(root, crate::engine::variables::system_variable_roots())
         .render(),
+        // honey glue (Task 2): render retired dotted chains with their canonical form.
+        ValidationError::DotChain { got, hint } => crate::diagnostic::Diagnostic::problem(format!(
+            "[{raw_tag}]: {got} uses retired dotted syntax"
+        ))
+        .help(format!("Use [{hint}] instead"))
+        .render(),
     }
 }
 
