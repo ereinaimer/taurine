@@ -18,6 +18,7 @@ pub mod uuid;
 
 use super::tags::*;
 use crate::engine::variables::types::{ExpansionOrigin, ExpansionStep, FinalExpansion};
+use crate::keys::MouseButton;
 
 const CURSOR_TAG: &str = "[cursor]";
 const ESCAPED_CURSOR_LITERAL: &str = r#"\[cursor\]"#;
@@ -54,10 +55,6 @@ pub fn is_directive(key: &str) -> bool {
 /// Deferred variables are replaced with a special marker during interpolation
 /// so the daemon can evaluate them in a non-blocking thread and show a braille spinner.
 pub fn is_deferred(key: &str) -> bool {
-    // honey: legacy mouse.pos stays until Task 8 owns removal.
-    if key == "mouse.pos" {
-        return true;
-    }
     if key == "ip" {
         return true;
     }
@@ -261,108 +258,94 @@ pub(crate) fn parse_delay_directive(inner: &str) -> Option<u64> {
     parse_delay_ms(strip_argument_quotes(delay_str))
 }
 
-pub(crate) fn parse_mouse_directive(inner: &str) -> Option<ExpansionStep> {
-    use crate::keys::MouseButton;
-
-    let inner = inner.trim();
-    if inner == "mouse.click" {
-        return Some(ExpansionStep::MouseClick(MouseButton::Left));
-    }
-    if inner == "mouse.rclick" {
-        return Some(ExpansionStep::MouseClick(MouseButton::Right));
-    }
-    if inner == "mouse.mclick" {
-        return Some(ExpansionStep::MouseClick(MouseButton::Middle));
-    }
-    if inner == "mouse.m4" {
-        return Some(ExpansionStep::MouseClick(MouseButton::Button4));
-    }
-    if inner == "mouse.m5" {
-        return Some(ExpansionStep::MouseClick(MouseButton::Button5));
-    }
-    if inner == "mouse.dblclick" {
-        return Some(ExpansionStep::MouseDblClick(MouseButton::Left));
-    }
-    if inner == "mouse.hold" || inner == "mouse.down" {
-        return Some(ExpansionStep::MouseDown(MouseButton::Left));
-    }
-    if inner == "mouse.release" || inner == "mouse.up" {
-        return Some(ExpansionStep::MouseUp(MouseButton::Left));
-    }
-
-    if let Some(rest) = inner.strip_prefix("mouse.click(")
-        && let Some(arg) = rest.strip_suffix(')')
-    {
-        let clean = strip_argument_quotes(arg).trim();
-        let btn = if clean.is_empty() {
-            MouseButton::Left
-        } else {
-            MouseButton::from_alias(clean)?
-        };
-        return Some(ExpansionStep::MouseClick(btn));
-    }
-
-    if let Some(rest) = inner.strip_prefix("mouse.dblclick(")
-        && let Some(arg) = rest.strip_suffix(')')
-    {
-        let clean = strip_argument_quotes(arg).trim();
-        let btn = if clean.is_empty() {
-            MouseButton::Left
-        } else {
-            MouseButton::from_alias(clean)?
-        };
-        return Some(ExpansionStep::MouseDblClick(btn));
-    }
-
-    if let Some(rest) = inner
-        .strip_prefix("mouse.down(")
-        .or_else(|| inner.strip_prefix("mouse.hold("))
-        && let Some(arg) = rest.strip_suffix(')')
-    {
-        let clean = strip_argument_quotes(arg).trim();
-        let btn = if clean.is_empty() {
-            MouseButton::Left
-        } else {
-            MouseButton::from_alias(clean)?
-        };
-        return Some(ExpansionStep::MouseDown(btn));
-    }
-
-    if let Some(rest) = inner
-        .strip_prefix("mouse.up(")
-        .or_else(|| inner.strip_prefix("mouse.release("))
-        && let Some(arg) = rest.strip_suffix(')')
-    {
-        let clean = strip_argument_quotes(arg).trim();
-        let btn = if clean.is_empty() {
-            MouseButton::Left
-        } else {
-            MouseButton::from_alias(clean)?
-        };
-        return Some(ExpansionStep::MouseUp(btn));
-    }
-
-    if let Some(rest) = inner.strip_prefix("mouse.move(") {
-        let args = rest.strip_suffix(')')?;
-        let parts: Vec<&str> = args.split(',').collect();
-        if parts.len() == 2 {
-            let x = strip_argument_quotes(parts[0]).parse().ok()?;
-            let y = strip_argument_quotes(parts[1]).parse().ok()?;
-            return Some(ExpansionStep::MouseMove(x, y));
-        }
+/// Strict button parser for the mouse directive: `mN` only (`m1..=u8::MAX`,
+/// `m0` rejected). Word aliases and bare numbers are None (save-time error).
+/// Separate from the shared hotkey `from_alias`, which keeps its aliases.
+pub(crate) fn parse_mouse_button(arg: &str) -> Option<MouseButton> {
+    let n = arg.strip_prefix('m')?.parse::<u8>().ok()?;
+    if n == 0 {
         return None;
     }
-
-    if let Some(rest) = inner.strip_prefix("mouse.scroll(") {
-        let arg = rest.strip_suffix(')')?.trim();
-        let delta = strip_argument_quotes(arg).parse().ok()?;
-        return Some(ExpansionStep::MouseScroll(delta));
-    }
-
-    None
+    Some(match n {
+        1 => MouseButton::Left,
+        2 => MouseButton::Right,
+        3 => MouseButton::Middle,
+        4 => MouseButton::Button4,
+        5 => MouseButton::Button5,
+        n => MouseButton::Other(n),
+    })
 }
 
-/// Checks whether the interpolated string contains any `[key.*]`, `[delay.*]`, or `[mouse.*]` directives.
+pub(crate) fn parse_mouse_directive(inner: &str) -> Option<ExpansionStep> {
+    use crate::engine::variables::parser::bind_call;
+
+    let raw = inner.strip_prefix("mouse(")?.strip_suffix(')')?;
+    let spec = crate::engine::variables::registry::param_spec("mouse")?;
+    let bound = bind_call("mouse", raw, &spec).ok()?;
+    let action = bound.named.get("action").map(String::as_str).unwrap_or("");
+    // honey: binder fills defaults into named, so an explicit count reads as
+    // non-"1"; a bare extra positional only exists when explicitly passed.
+    let count_raw = bound.named.get("count").map(String::as_str).unwrap_or("1");
+    match action {
+        "click" => {
+            if bound.positional.len() > 3 {
+                return None;
+            }
+            let btn = parse_mouse_button(bound.named.get("btn").map(String::as_str).unwrap_or(""))?;
+            let count = count_raw.parse::<u32>().ok()?;
+            Some(ExpansionStep::MouseClick(btn, count))
+        }
+        "hold" | "release" => {
+            if bound.positional.len() > 2 || count_raw != "1" {
+                return None;
+            }
+            let btn = parse_mouse_button(bound.named.get("btn").map(String::as_str).unwrap_or(""))?;
+            Some(if action == "hold" {
+                ExpansionStep::MouseDown(btn)
+            } else {
+                ExpansionStep::MouseUp(btn)
+            })
+        }
+        "move" => {
+            // honey: x/y ride the generic btn/count slots; y has no default so
+            // a 2-positional call (or defaulted count) is an arity error.
+            if bound.positional.len() > 3
+                || (bound.positional.len() == 2 && count_raw == "1")
+                || (bound.positional.is_empty() && count_raw == "1")
+            {
+                return None;
+            }
+            let x = bound
+                .named
+                .get("btn")
+                .map(String::as_str)
+                .unwrap_or("")
+                .parse::<u16>()
+                .ok()?;
+            let y = count_raw.parse::<u16>().ok()?;
+            Some(ExpansionStep::MouseMove(x, y))
+        }
+        "scroll" => {
+            if bound.positional.len() > 2 || count_raw != "1" {
+                return None;
+            }
+            // honey: signed delta, positive scrolls up / negative scrolls down.
+            let delta = bound
+                .named
+                .get("btn")
+                .map(String::as_str)
+                .unwrap_or("")
+                .parse::<i32>()
+                .ok()?;
+            Some(ExpansionStep::MouseScroll(delta))
+        }
+        // honey: pos is deferred content (sys marker), not a step; unknown
+        // actions are save-time errors.
+        _ => None,
+    }
+}
+
+/// Checks whether the interpolated string contains any `[key.*]`, `[delay.*]`, or `[mouse(...)]` directives.
 fn contains_key_or_delay_directives(text: &str) -> bool {
     let mut ptr = 0;
 

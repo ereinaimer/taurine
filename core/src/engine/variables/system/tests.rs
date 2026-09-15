@@ -846,109 +846,166 @@ fn test_finalize_user_origin_preserves_exec_inline_run() {
 }
 
 #[test]
-fn test_parse_mouse_directive_all_buttons() {
+fn test_parse_mouse_directive_unified_actions() {
     use crate::keys::MouseButton;
 
     assert_eq!(
-        parse_mouse_directive("mouse.click"),
-        Some(ExpansionStep::MouseClick(MouseButton::Left))
+        parse_mouse_directive("mouse(click, m1)"),
+        Some(ExpansionStep::MouseClick(MouseButton::Left, 1))
     );
     assert_eq!(
-        parse_mouse_directive("mouse.click(left)"),
-        Some(ExpansionStep::MouseClick(MouseButton::Left))
+        parse_mouse_directive("mouse(click, m2, 2)"),
+        Some(ExpansionStep::MouseClick(MouseButton::Right, 2))
     );
     assert_eq!(
-        parse_mouse_directive("mouse.click(right)"),
-        Some(ExpansionStep::MouseClick(MouseButton::Right))
+        parse_mouse_directive("mouse(click, m3, 3)"),
+        Some(ExpansionStep::MouseClick(MouseButton::Middle, 3))
     );
     assert_eq!(
-        parse_mouse_directive("mouse.click(middle)"),
-        Some(ExpansionStep::MouseClick(MouseButton::Middle))
+        parse_mouse_directive("mouse(click, m4)"),
+        Some(ExpansionStep::MouseClick(MouseButton::Button4, 1))
     );
     assert_eq!(
-        parse_mouse_directive("mouse.click(m4)"),
-        Some(ExpansionStep::MouseClick(MouseButton::Button4))
+        parse_mouse_directive("mouse(click, m5, 0)"),
+        Some(ExpansionStep::MouseClick(MouseButton::Button5, 0))
     );
     assert_eq!(
-        parse_mouse_directive("mouse.click(back)"),
-        Some(ExpansionStep::MouseClick(MouseButton::Button4))
+        parse_mouse_directive("mouse(click, m6)"),
+        Some(ExpansionStep::MouseClick(MouseButton::Other(6), 1))
     );
     assert_eq!(
-        parse_mouse_directive("mouse.click(m5)"),
-        Some(ExpansionStep::MouseClick(MouseButton::Button5))
+        parse_mouse_directive("mouse(click, m255)"),
+        Some(ExpansionStep::MouseClick(MouseButton::Other(255), 1))
     );
     assert_eq!(
-        parse_mouse_directive("mouse.click(forward)"),
-        Some(ExpansionStep::MouseClick(MouseButton::Button5))
-    );
-    assert_eq!(
-        parse_mouse_directive("mouse.click(m6)"),
-        Some(ExpansionStep::MouseClick(MouseButton::Other(6)))
-    );
-    assert_eq!(
-        parse_mouse_directive("mouse.m4"),
-        Some(ExpansionStep::MouseClick(MouseButton::Button4))
-    );
-    assert_eq!(
-        parse_mouse_directive("mouse.m5"),
-        Some(ExpansionStep::MouseClick(MouseButton::Button5))
-    );
-    assert_eq!(
-        parse_mouse_directive("mouse.dblclick"),
-        Some(ExpansionStep::MouseDblClick(MouseButton::Left))
-    );
-    assert_eq!(
-        parse_mouse_directive("mouse.dblclick(m4)"),
-        Some(ExpansionStep::MouseDblClick(MouseButton::Button4))
-    );
-    assert_eq!(
-        parse_mouse_directive("mouse.down"),
+        parse_mouse_directive("mouse(hold, m1)"),
         Some(ExpansionStep::MouseDown(MouseButton::Left))
     );
     assert_eq!(
-        parse_mouse_directive("mouse.down(middle)"),
-        Some(ExpansionStep::MouseDown(MouseButton::Middle))
-    );
-    assert_eq!(
-        parse_mouse_directive("mouse.up"),
-        Some(ExpansionStep::MouseUp(MouseButton::Left))
-    );
-    assert_eq!(
-        parse_mouse_directive("mouse.up(middle)"),
-        Some(ExpansionStep::MouseUp(MouseButton::Middle))
-    );
-    assert_eq!(
-        parse_mouse_directive("mouse.hold(m5)"),
-        Some(ExpansionStep::MouseDown(MouseButton::Button5))
-    );
-    assert_eq!(
-        parse_mouse_directive("mouse.release(m5)"),
+        parse_mouse_directive("mouse(release, m5)"),
         Some(ExpansionStep::MouseUp(MouseButton::Button5))
     );
     assert_eq!(
-        parse_mouse_directive("mouse.move(1920, 1080)"),
+        parse_mouse_directive("mouse(move, 1920, 1080)"),
         Some(ExpansionStep::MouseMove(1920, 1080))
     );
     assert_eq!(
-        parse_mouse_directive("mouse.scroll(-120)"),
+        parse_mouse_directive("mouse(scroll, -120)"),
         Some(ExpansionStep::MouseScroll(-120))
     );
-    assert_eq!(parse_mouse_directive("mouse.click(invalid)"), None);
+    assert_eq!(
+        parse_mouse_directive("mouse(scroll, 5)"),
+        Some(ExpansionStep::MouseScroll(5))
+    );
+    assert_eq!(
+        parse_mouse_directive("mouse(action=click, btn=m1, count=2)"),
+        Some(ExpansionStep::MouseClick(MouseButton::Left, 2))
+    );
+    assert_eq!(
+        parse_mouse_directive("mouse(\"click\", \"m1\")"),
+        Some(ExpansionStep::MouseClick(MouseButton::Left, 1))
+    );
+}
+
+#[test]
+fn test_parse_mouse_directive_rejects_deleted_forms() {
+    // Deleted dot shortcuts and bare/alias buttons parse as None (stay literal
+    // at expand time; save-time errors name the canonical form).
+    for deleted in [
+        "mouse.click",
+        "mouse.click(m1)",
+        "mouse.rclick",
+        "mouse.mclick",
+        "mouse.m4",
+        "mouse.m5",
+        "mouse.dblclick",
+        "mouse.dblclick(m1)",
+        "mouse.down",
+        "mouse.down(m1)",
+        "mouse.up",
+        "mouse.hold",
+        "mouse.release",
+        "mouse.move(1920, 1080)",
+        "mouse.scroll(-120)",
+        "mouse(click)",
+        "mouse(click, left)",
+        "mouse(click, right)",
+        "mouse(click, middle)",
+        "mouse(click, 1)",
+        "mouse(click, m0)",
+        "mouse(click, m256)",
+        "mouse(click, back)",
+        "mouse(click, m1, -1)",
+        "mouse(click, m1, lots)",
+        "mouse(frobnicate, m1)",
+        "mouse(move, 100)",
+        "mouse(move, 100, 200, 300)",
+        "mouse(scroll)",
+        "mouse(scroll, 1, 2)",
+        "mouse(hold, m1, 2)",
+        "mouse(Click, m1)",
+        "mouse(click, M1)",
+    ] {
+        assert_eq!(parse_mouse_directive(deleted), None, "{deleted}");
+    }
+    // pos is deferred content, not a step.
+    assert_eq!(parse_mouse_directive("mouse(pos)"), None);
+}
+
+#[test]
+fn test_mouse_deleted_forms_hint_canonical_save_time() {
+    use crate::engine::variables::registry::{ValidationError, validate_system_call};
+
+    assert!(matches!(
+        validate_system_call("mouse.click", None),
+        Err(ValidationError::DotChain { hint, .. }) if hint == "mouse(click, mN[, n])"
+    ));
+    assert!(matches!(
+        validate_system_call("mouse", Some("click, left")),
+        Err(ValidationError::InvalidModifier { .. })
+    ));
+    assert_eq!(
+        validate_system_call("mouse", Some("click")),
+        Err(ValidationError::MissingModifier { root: "mouse" })
+    );
+}
+
+#[test]
+fn test_mouse_unified_deferred_and_directive() {
+    assert!(is_directive("mouse(click, m1)"));
+    assert!(is_directive("mouse(pos)"));
+    assert!(is_deferred("mouse(pos)"));
+    assert!(!is_deferred("mouse.pos"));
 }
 
 #[test]
 fn test_finalize_mouse_directives() {
     use crate::keys::MouseButton;
 
-    let input = "Action: [mouse.click(m4)][delay(50)][mouse.dblclick(left)]";
+    let input = "Action: [mouse(click, m4)][delay(50)][mouse(click, m1, 2)]";
     let res = finalize(input, None);
     assert_eq!(
         res.steps,
         vec![
             ExpansionStep::Text("Action: ".to_string()),
-            ExpansionStep::MouseClick(MouseButton::Button4),
+            ExpansionStep::MouseClick(MouseButton::Button4, 1),
             ExpansionStep::Delay(50),
-            ExpansionStep::MouseDblClick(MouseButton::Left),
+            ExpansionStep::MouseClick(MouseButton::Left, 2),
+        ]
+    );
+}
+
+#[test]
+fn test_finalize_cursor_suppressed_when_mouse_directives_present() {
+    use crate::keys::MouseButton;
+
+    let res = finalize("name[cursor][mouse(click, m1)]email", None);
+    assert_eq!(
+        res.steps,
+        vec![
+            ExpansionStep::Text("name[cursor]".to_string()),
+            ExpansionStep::MouseClick(MouseButton::Left, 1),
+            ExpansionStep::Text("email".to_string()),
         ]
     );
 }

@@ -1,6 +1,4 @@
 use crate::platform::{Injector, MouseButton};
-use std::thread;
-use std::time::Duration;
 
 fn mouse_button_to_evdev(button: MouseButton) -> evdev::KeyCode {
     match button {
@@ -20,14 +18,7 @@ impl Injector for LinuxInjector {
     fn simulate_mouse_click(&self, button: MouseButton) {
         let evdev_btn = mouse_button_to_evdev(button);
         crate::platform::linux::uinput::simulate_mouse_button(evdev_btn, true);
-        thread::sleep(Duration::from_millis(10));
         crate::platform::linux::uinput::simulate_mouse_button(evdev_btn, false);
-    }
-
-    fn simulate_mouse_dblclick(&self, button: MouseButton) {
-        self.simulate_mouse_click(button);
-        thread::sleep(Duration::from_millis(50));
-        self.simulate_mouse_click(button);
     }
 
     fn simulate_mouse_move(&self, x: u16, y: u16) {

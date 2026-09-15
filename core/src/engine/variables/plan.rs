@@ -1,5 +1,7 @@
 use crate::engine::variables::interpolate::{contains_ai_markers, interpolate};
-use crate::engine::variables::registry::{split_system_tag, validate_system_tag};
+use crate::engine::variables::registry::{
+    parse_system_call, split_system_tag, validate_system_call, validate_system_tag,
+};
 use crate::engine::variables::system::{
     self, image, parse_delay_directive, parse_key_directive, parse_mouse_directive, transformers,
 };
@@ -46,7 +48,7 @@ pub enum PlanOp {
     KeyPress(String),
     /// Delay pause directive in milliseconds `[delay(ms)]`.
     Delay(u64),
-    /// Mouse action directive `[mouse.*]`.
+    /// Mouse action directive `[mouse(...)]`.
     Mouse(ExpansionStep),
     /// Image insertion directive `[image(path)]`.
     Image(ExpansionStep),
@@ -233,6 +235,7 @@ impl ExecutionPlan {
                             && (text.contains("[key(")
                                 || text.contains("[delay(")
                                 || text.contains("[mouse.")
+                                || text.contains("[mouse(")
                                 || text.contains("[execute.")
                                 || text.contains("[image("))
                         {
@@ -424,6 +427,9 @@ fn compile_ops(expr: &str) -> (Vec<PlanOp>, bool, bool) {
                     transformers,
                 });
             } else if system::is_reserved(key_unquoted)
+                // honey: unified call path (Task 8); legacy dot glue stays until Task 9.
+                || parse_system_call(key_unquoted)
+                    .is_some_and(|(ns, raw)| validate_system_call(ns, Some(raw)).is_ok())
                 || split_system_tag(key_unquoted)
                     .is_some_and(|(r, m)| validate_system_tag(r, m).is_ok())
             {
@@ -706,32 +712,38 @@ fn resolve_use_snippet(trigger_name: &str, args: &ArgMap, depth: usize) -> Strin
 }
 
 fn format_mouse_directive(step: &ExpansionStep) -> String {
-    use crate::keys::MouseButton;
-
     match step {
-        ExpansionStep::MouseClick(btn) => match btn {
-            MouseButton::Left => "[mouse.click]".to_string(),
-            MouseButton::Right => "[mouse.rclick]".to_string(),
-            MouseButton::Middle => "[mouse.mclick]".to_string(),
-            MouseButton::Button4 => "[mouse.m4]".to_string(),
-            MouseButton::Button5 => "[mouse.m5]".to_string(),
-            MouseButton::Other(n) => format!("[mouse.click(m{n})]"),
-        },
-        ExpansionStep::MouseDblClick(btn) => match btn {
-            MouseButton::Left => "[mouse.dblclick]".to_string(),
-            btn => format!("[mouse.dblclick({})]", btn.canonical_name()),
-        },
-        ExpansionStep::MouseDown(btn) => match btn {
-            MouseButton::Left => "[mouse.hold]".to_string(),
-            btn => format!("[mouse.down({})]", btn.canonical_name()),
-        },
-        ExpansionStep::MouseUp(btn) => match btn {
-            MouseButton::Left => "[mouse.release]".to_string(),
-            btn => format!("[mouse.up({})]", btn.canonical_name()),
-        },
-        ExpansionStep::MouseMove(x, y) => format!("[mouse.move({x},{y})]"),
-        ExpansionStep::MouseScroll(d) => format!("[mouse.scroll({d})]"),
+        ExpansionStep::MouseClick(btn, count) => {
+            if *count == 1 {
+                format!("[mouse(click, {})]", mouse_button_arg_name(btn))
+            } else {
+                format!("[mouse(click, {}, {count})]", mouse_button_arg_name(btn))
+            }
+        }
+        // honey: dblclick deleted from syntax; legacy steps render as count-2 clicks.
+        ExpansionStep::MouseDblClick(btn) => {
+            format!("[mouse(click, {}, 2)]", mouse_button_arg_name(btn))
+        }
+        ExpansionStep::MouseDown(btn) => {
+            format!("[mouse(hold, {})]", mouse_button_arg_name(btn))
+        }
+        ExpansionStep::MouseUp(btn) => {
+            format!("[mouse(release, {})]", mouse_button_arg_name(btn))
+        }
+        ExpansionStep::MouseMove(x, y) => format!("[mouse(move, {x}, {y})]"),
+        ExpansionStep::MouseScroll(d) => format!("[mouse(scroll, {d})]"),
         _ => String::new(),
+    }
+}
+
+fn mouse_button_arg_name(btn: &crate::keys::MouseButton) -> String {
+    match btn {
+        crate::keys::MouseButton::Left => "m1".to_string(),
+        crate::keys::MouseButton::Right => "m2".to_string(),
+        crate::keys::MouseButton::Middle => "m3".to_string(),
+        crate::keys::MouseButton::Button4 => "m4".to_string(),
+        crate::keys::MouseButton::Button5 => "m5".to_string(),
+        crate::keys::MouseButton::Other(n) => format!("m{n}"),
     }
 }
 
@@ -842,6 +854,41 @@ mod tests {
                 ExpansionStep::Text("echo [cursor]".to_string()),
                 ExpansionStep::KeyPress("enter".to_string()),
             ]
+        );
+    }
+
+    #[test]
+    fn test_compile_and_evaluate_unified_mouse_directives() {
+        let tpl = "go [mouse(click, m1)] mid [mouse(click, m2, 2)] hold [mouse(hold, m3)] end";
+        let plan = ExecutionPlan::compile(tpl);
+        let expansion = plan.evaluate(&ArgMap::default(), None, ExpansionOrigin::User);
+
+        assert_eq!(
+            expansion.steps,
+            vec![
+                ExpansionStep::Text("go ".to_string()),
+                ExpansionStep::MouseClick(crate::keys::MouseButton::Left, 1),
+                ExpansionStep::Text(" mid ".to_string()),
+                ExpansionStep::MouseClick(crate::keys::MouseButton::Right, 2),
+                ExpansionStep::Text(" hold ".to_string()),
+                ExpansionStep::MouseDown(crate::keys::MouseButton::Middle),
+                ExpansionStep::Text(" end".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_plan_mouse_rendering_is_canonical() {
+        let tpl = "[mouse(click, m1)][mouse(click, m2, 2)][mouse(hold, m3)][mouse(release, m4)][mouse(move, 100, 200)][mouse(scroll, -5)]";
+        let plan = ExecutionPlan::compile(tpl);
+        let expansion = plan.evaluate(&ArgMap::default(), None, ExpansionOrigin::Ai);
+        assert_eq!(expansion.steps.len(), 1);
+        let ExpansionStep::Text(rendered) = &expansion.steps[0] else {
+            panic!("expected Text step");
+        };
+        assert_eq!(
+            rendered,
+            "[mouse(click, m1)][mouse(click, m2, 2)][mouse(hold, m3)][mouse(release, m4)][mouse(move, 100, 200)][mouse(scroll, -5)]"
         );
     }
 

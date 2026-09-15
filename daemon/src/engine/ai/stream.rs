@@ -109,7 +109,7 @@ async fn evaluate_marker_tree(
                             );
                         let base_key = pipeline[0];
 
-                        let mut val = if base_key == "mouse.pos" {
+                        let mut val = if base_key == "mouse(pos)" {
                             crate::platform::get_mouse_pos()
                                 .map(|(x, y)| format!("{},{}", x, y))
                                 .unwrap_or_else(|| "0,0".to_string())

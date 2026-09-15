@@ -28,7 +28,6 @@ pub trait ClipboardManager {
 
 pub trait Injector {
     fn simulate_mouse_click(&self, button: MouseButton);
-    fn simulate_mouse_dblclick(&self, button: MouseButton);
     fn simulate_mouse_move(&self, x: u16, y: u16);
     fn simulate_mouse_scroll(&self, delta: i32);
     fn simulate_mouse_hold(&self, button: MouseButton, hold: bool);

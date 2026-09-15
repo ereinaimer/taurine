@@ -7,6 +7,7 @@ use tracing::{debug, error, trace};
 
 use taurine_core::engine::shell::ScriptBehavior;
 use taurine_core::engine::variables::ExpansionStep;
+use taurine_core::keys::MouseButton;
 
 use super::clipboard::{
     prepare_clipboard_for_expansion, restore_clipboard, restore_clipboard_guarded,
@@ -293,6 +294,36 @@ fn erase_trigger(delete_count: usize) {
     crate::platform::get_injector().inject_atomic_backspaces(delete_count);
 }
 
+/// Clicks `button` `count` times with no sleeps (max CPS, platform-varies).
+/// `is_aborted(captured_gen)` is checked per iteration: the per-step check in
+/// `inject_expansion` is insufficient for `count == 0`, which clicks
+/// indefinitely. Own simulated clicks never self-abort: the listener's
+/// simulated-event filter consumes them before the physical-press abort path.
+/// `0` must be the last step — anything after never runs, and `inject_mutex`
+/// is held until a physical key/button press aborts. Press-only abort:
+/// releases, moves, and wheel events never abort.
+fn inject_mouse_click_loop(
+    button: MouseButton,
+    count: u32,
+    captured_gen: u64,
+    report: &mut InjectionReport,
+) {
+    if count == 0 {
+        while !is_aborted(captured_gen) {
+            crate::platform::get_injector().simulate_mouse_click(button);
+        }
+        report.completed = false;
+        return;
+    }
+    for _ in 0..count {
+        if is_aborted(captured_gen) {
+            report.completed = false;
+            break;
+        }
+        crate::platform::get_injector().simulate_mouse_click(button);
+    }
+}
+
 pub struct StreamingTextSession {
     guard: Option<std::sync::MutexGuard<'static, ()>>,
     state_guard: Option<InjectionFlagGuard>,
@@ -372,7 +403,7 @@ pub(super) fn expansion_requires_keystrokes(steps: &[ExpansionStep], delete_coun
         ExpansionStep::Text(text) => !text.is_empty(),
         ExpansionStep::Image(_, _)
         | ExpansionStep::KeyPress(_)
-        | ExpansionStep::MouseClick(_)
+        | ExpansionStep::MouseClick(..)
         | ExpansionStep::MouseDblClick(_)
         | ExpansionStep::MouseDown(_)
         | ExpansionStep::MouseUp(_)
@@ -520,11 +551,13 @@ pub fn inject_expansion(
                     debug!("Unknown key alias '{}', skipping", alias);
                 }
             }
-            ExpansionStep::MouseClick(button) => {
-                crate::platform::get_injector().simulate_mouse_click(*button);
+            ExpansionStep::MouseClick(button, count) => {
+                inject_mouse_click_loop(*button, *count, captured_gen, &mut report);
             }
             ExpansionStep::MouseDblClick(button) => {
-                crate::platform::get_injector().simulate_mouse_dblclick(*button);
+                // honey: dblclick deleted from syntax (spell count-2 click);
+                // legacy steps still in flight run as two unslept clicks.
+                inject_mouse_click_loop(*button, 2, captured_gen, &mut report);
             }
             ExpansionStep::MouseMove(x, y) => {
                 crate::platform::get_injector().simulate_mouse_move(*x, *y);
