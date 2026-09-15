@@ -327,7 +327,7 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
     }
 
     if let Some(pending_save) = interaction.pending_save() {
-        let contains_clip = pending_save.content.contains("[clipboard");
+        let contains_clip = pending_save.content.contains("[clip");
         match pending_save.apply() {
             Ok(trigger_id) => {
                 refresh_library_page(app);
@@ -337,7 +337,7 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
                     let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
                     if !settings.clipboard_history_enabled {
                         app.library_page_mut().set_status_message(
-                            "Warning: '[clipboard]' system variable won't work because clipboard history is disabled.".to_string()
+                            "Warning: '[clip]' system variable won't work because clipboard history is disabled.".to_string()
                         );
                     }
                 }

@@ -3,38 +3,26 @@ title: Introduction
 description: Overview of System Variables in Taurine
 ---
 
-import { Clock, Calendar, Clipboard, Folder, Fingerprint, MousePointer2, Keyboard, Terminal, Dices, Type, Database, Network, FileText, Image, CornerDownLeft } from 'lucide-react';
+import { Clock, Clipboard, Folder, Fingerprint, MousePointer2, Keyboard, Terminal, Dices, Type, Network, FileText, Image, CornerDownLeft } from 'lucide-react';
 
 Taurine provides a comprehensive suite of **System Variables** that allow you to inject dynamic data, execute shell commands, and control your machine directly from any trigger template.
 
-These variables are divided into two categories: **Content Variables** (which inject text like the date, clipboard, or command output) and **Directives** (which perform actions like pressing keys or moving the cursor).
+Every system variable uses a unified `namespace(args)` call syntax with hybrid positional and named arguments.
 
 ### Available Categories
 
 <Cards>
   <Card 
-    title="Time" 
+    title="Chrono" 
     icon={<Clock />}
-    href="/docs/cli/system-variables/time" 
-    description="Current time, greetings, and epoch timestamps." 
-  />
-  <Card 
-    title="Date" 
-    icon={<Calendar />}
-    href="/docs/cli/system-variables/date" 
-    description="ISO, short, long, and specific date parts." 
-  />
-  <Card 
-    title="Datetime" 
-    icon={<Calendar />}
-    href="/docs/cli/system-variables/datetime" 
-    description="Combined date and time with calculations and formatting." 
+    href="/docs/cli/system-variables/chrono" 
+    description="ISO date, time, datetime with offsets, formatting, and timezones." 
   />
   <Card 
     title="Clipboard" 
     icon={<Clipboard />}
-    href="/docs/cli/system-variables/clipboard" 
-    description="Inject content directly from your system clipboard." 
+    href="/docs/cli/system-variables/clip" 
+    description="Inject content directly from your system clipboard history ring." 
   />
   <Card 
     title="Environment" 
@@ -61,10 +49,10 @@ These variables are divided into two categories: **Content Variables** (which in
     description="Generate unique v4 and v7 identifiers." 
   />
   <Card 
-    title="Network" 
+    title="IP Address" 
     icon={<Network />}
-    href="/docs/cli/system-variables/net" 
-    description="Access machine hostname, local IP, and MAC address." 
+    href="/docs/cli/system-variables/ip" 
+    description="Access public WAN IP or local LAN network addresses." 
   />
   <Card 
     title="Cursor" 
@@ -106,8 +94,9 @@ These variables are divided into two categories: **Content Variables** (which in
 
 ## Syntax Rules
 
-To ensure future compatibility and prevent collisions with built-in features, Taurine enforces the following naming rules for variables:
+To ensure consistency and prevent collisions, Taurine enforces the following rules for system variables:
 
-- **Reserved Dot-Namespaces**: Any variable name containing a dot (`.`) is reserved for system use. You cannot create a custom variable named `user.name`; instead, use `user_name`.
-- **Case Insensitivity**: System variable roots and modifiers are case-insensitive. `[TIME.UTC]` and `[time.utc]` will produce the same result.
-- **Transformer Chaining**: You can chain [transformers](/docs/cli/reference/system-variable-modifiers) to any system variable using pipe syntax. For example, `[clipboard | case(upper)]` or `[env(USER) | case(pascal)]`.
+- **Unified Call Syntax**: All system variables use `[namespace(args)]` syntax (or bare `[namespace]` as `()` sugar). Dotted namespaces (e.g. `date.utc`) are save-time errors that suggest canonical syntax.
+- **Hybrid Arguments**: Positionals are listed first, followed by `name=value` keyword parameters (e.g. `[execute(python, /s.py, file=true)]`). Positional arguments after named arguments are rejected.
+- **Case Insensitivity**: Root namespaces and boolean keyword values (`true`/`false`) are case-insensitive.
+- **Transformer Chaining**: You can chain [transformers](/docs/cli/reference/system-variable-modifiers) using pipe syntax. For example, `[clip | case(upper)]` or `[env(USER) | case(pascal)]`.

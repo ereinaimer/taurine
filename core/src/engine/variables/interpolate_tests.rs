@@ -131,13 +131,13 @@ fn test_interpolate_system_variables() {
 
     system::clipboard::set_mock_clip(Some("clip_content".to_string()));
 
-    let tpl = "[msg=] [cursor] [chrono(time)] [clipboard]";
+    let tpl = "[msg=] [cursor] [chrono(time)] [clip]";
     let res = interpolate(tpl, &args);
 
     assert!(res.contains("hello [cursor] "));
     assert!(res.contains("clip_content"));
     assert!(!res.contains("[chrono(time)]"));
-    assert!(!res.contains("[clipboard]"));
+    assert!(!res.contains("[clip]"));
 
     system::clipboard::set_mock_clip(None);
 }
@@ -353,9 +353,9 @@ fn test_interpolate_parameterized_transformers_for_system_values() {
     let args = ArgMap::default();
     system::clipboard::set_mock_clip(Some("alpha,beta".to_string()));
 
-    assert_eq!(interpolate("[clipboard | truncate(5)]", &args), "alpha");
+    assert_eq!(interpolate("[clip | truncate(5)]", &args), "alpha");
     assert_eq!(
-        interpolate("[clipboard | replace(\",\", \";\")]", &args),
+        interpolate("[clip | replace(\",\", \";\")]", &args),
         "alpha;beta"
     );
 
@@ -367,14 +367,10 @@ fn test_interpolate_clipboard_history_function_syntax() {
     let args = ArgMap::default();
     system::clipboard::set_mock_clip_history(vec!["current".to_string(), "previous".to_string()]);
 
-    assert_eq!(interpolate("[clipboard]", &args), "current");
     assert_eq!(interpolate("[clip]", &args), "current");
-    assert_eq!(interpolate("[clipboard(0)]", &args), "[clipboard(0)]");
-    assert_eq!(
-        interpolate("[clipboard(1) | case(upper)]", &args),
-        "PREVIOUS"
-    );
-    assert_eq!(interpolate("[clipboard(2)]", &args), "");
+    assert_eq!(interpolate("[clip(0)]", &args), "current");
+    assert_eq!(interpolate("[clip(1) | case(upper)]", &args), "PREVIOUS");
+    assert_eq!(interpolate("[clip(2)]", &args), "");
 
     system::clipboard::set_mock_clip(None);
 }
@@ -605,7 +601,7 @@ mod compatibility_interpolation_tests {
     #[test]
     fn test_aisummary_manual_case() {
         let args = ArgMap::default();
-        let tpl = "### SUMMARY OF COPIED TEXT ([chrono(date)]):[key(enter)][clipboard | ai(summarize this in 3 concise bullet points) | strip(whitespace)]";
+        let tpl = "### SUMMARY OF COPIED TEXT ([chrono(date)]):[key(enter)][clip | ai(summarize this in 3 concise bullet points) | strip(whitespace)]";
         system::clipboard::set_mock_clip(Some("Long article text".to_string()));
         let result = interpolate(tpl, &args);
         // date.short will be the actual date, so we just check the AI marker structure

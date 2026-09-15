@@ -1,83 +1,35 @@
 ---
-title: Mouse Triggers
-description: "Simulate mouse clicks, movements, and coordinate lookups natively"
+title: Mouse Directives
+description: Control mouse clicks, cursor movement, scrolling, and position queries.
 ---
 
-Taurine provides a built-in `mouse` namespace to simulate hardware mouse actions and query current pointer coordinates. This allows you to construct UI-driven macros directly within your text expansions.
+The `mouse` system variable provides hardware mouse automation directives and position queries.
 
-### Mouse Directives (Actions)
-Directives are executed in sequence as post-processing steps when a snippet is expanded.
-
-| Directive | Arguments | Description | Default |
-| :--- | :--- | :--- | :--- |
-| `[mouse.click]` | `[button]` | Simulates a mouse button click (press + 10ms + release). | `left` |
-| `[mouse.dblclick]` | `[button]` | Simulates a rapid double-click sequence. | `left` |
-| `[mouse.down]` / `[mouse.hold]` | `[button]` | Presses and holds a mouse button down. | `left` |
-| `[mouse.up]` / `[mouse.release]` | `[button]` | Releases a held mouse button. | `left` |
-| `[mouse.rclick]` | None | Shorthand for `[mouse.click(right)]`. | Secondary click |
-| `[mouse.mclick]` | None | Shorthand for `[mouse.click(middle)]`. | Middle / wheel click |
-| `[mouse.m4]` | None | Shorthand for `[mouse.click(m4)]`. | Browser Back |
-| `[mouse.m5]` | None | Shorthand for `[mouse.click(m5)]`. | Browser Forward |
-| `[mouse.move(x, y)]` | `x, y` | Warps the pointer to absolute screen coordinates `(x, y)`. | N/A |
-| `[mouse.scroll(delta)]` | `delta` | Scrolls the mouse wheel vertically (positive up, negative down). | N/A |
-
-### Supported Button Specifiers
-
-Any click or hold directive accepts button names, aliases, or button index numbers:
-
-| Button | Recognized Specifiers | Common Function |
-| :--- | :--- | :--- |
-| **Left** | `left`, `1`, `l`, `mouseleft`, `lclick`, `leftclick`, `primary` | Select, activate |
-| **Right** | `right`, `2`, `r`, `mouseright`, `rclick`, `rightclick`, `secondary` | Context menu |
-| **Middle** | `middle`, `3`, `m`, `mousemiddle`, `mclick`, `wheelclick`, `wheel` | Open in background tab / pan |
-| **Button 4** | `m4`, `4`, `back`, `thumb1`, `xbutton1`, `x1` | Browser / Explorer Back |
-| **Button 5** | `m5`, `5`, `forward`, `thumb2`, `xbutton2`, `x2` | Browser / Explorer Forward |
-| **Button $N$** | `m6`, `m7`, `mouse<N>` | Dedicated macro or gaming mouse buttons |
-
-#### Navigation & Automation Examples
-
-**Browser Navigation:**
-```text
-# Click the browser Back button:
-[mouse.click(m4)]
-# or with alias:
-[mouse.click(back)]
-
-# Click the browser Forward button:
-[mouse.click(m5)]
-```
-
-**Double-Clicking Items:**
-```text
-# Double-click at current position:
-[mouse.dblclick]
-
-# Move and double-click:
-[mouse.move(450, 300)][mouse.dblclick]
-```
-
-**Drag and Drop with Any Button:**
-Combine mouse movement, press, and release to automate drag-and-drop workflows:
+### Syntax & Actions
 
 ```text
-# Left-click drag:
-[mouse.move(100, 200)][mouse.down][delay(200)][mouse.move(800, 600)][delay(100)][mouse.up]
-
-# Middle-click drag (e.g., pan canvas in CAD or Figma):
-[mouse.down(middle)][mouse.move(800, 600)][mouse.up(middle)]
+[mouse(action, ...)]
 ```
 
-<Callout type="warning" title="Linux Wayland Compatibility">
-Absolute pointer warping (`[mouse.move(x, y)]`) requires querying the X11 server on Linux. Under Wayland, system security policies prevent arbitrary absolute warping. If run under Wayland, absolute movements will fail silently, though relative clicking and scrolling via `uinput` remains fully functional.
-</Callout>
+- **`click`**: `[mouse(click, btn, [count=1])]` — Click specified button `mN` (`m1` = left, `m2` = right, `m3` = middle, `m4`, `m5`). `count=0` clicks infinitely until a physical key or mouse button is pressed.
+- **`hold`**: `[mouse(hold, btn)]` — Press and hold mouse button `mN`.
+- **`release`**: `[mouse(release, btn)]` — Release mouse button `mN`.
+- **`move`**: `[mouse(move, x, y)]` — Move cursor to screen coordinates `x, y`.
+- **`scroll`**: `[mouse(scroll, delta)]` — Scroll wheel (`+` up, `-` down).
+- **`pos`**: `[mouse(pos)]` — Query current mouse cursor coordinates `x,y`.
 
----
+> [!IMPORTANT]
+> Button names must strictly use `mN` notation (`m1`..`mN`). Legacy aliases like `left`, `right`, `middle`, `dblclick`, `down`, `up` are rejected at save time with diagnostic hints. `btn` is always required for `click`/`hold`/`release`.
 
-### Mouse Position Variable `[mouse.pos]`
-Resolves dynamically to the current pointer coordinates in the format `x,y` (e.g. `1024,768`).
+### Examples
 
-This is extremely helpful for locating coordinates when writing macros:
-1. Create a snippet like: `My cursor is at: [mouse.pos]`
-2. Hover over the button or target area.
-3. Trigger the snippet using its hotkey to output the exact screen coordinates.
-4. Copy those coordinates directly into your `[mouse.move(x, y)]` macro!
+| Expression | Description |
+|---|---|
+| `[mouse(click, m1)]` | Left click once (default `count=1`) |
+| `[mouse(click, m2, 2)]` | Right double-click |
+| `[mouse(click, m1, 0)]` | Infinite left clicks until a physical key or button is pressed |
+| `[mouse(hold, m1)]` | Press and hold left button |
+| `[mouse(release, m1)]` | Release left button |
+| `[mouse(move, 100, 200)]` | Move mouse pointer to (100, 200) |
+| `[mouse(scroll, -100)]` | Scroll down by 100 units |
+| `[mouse(pos)]` | Query current mouse pointer position |

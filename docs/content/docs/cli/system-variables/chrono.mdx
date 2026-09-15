@@ -1,0 +1,40 @@
+---
+title: Chrono (Date & Time)
+description: Unified temporal system variable supporting date, time, and datetime formatting, offsets, and timezones.
+---
+
+The `chrono` system variable provides flexible formatting, calculations (offsets), and timezone support for dates and times.
+
+### Syntax & Parameters
+
+```text
+[chrono(type=datetime, offset=none, format=per-kind, tz=local)]
+```
+
+- **`type`**: The temporal target. Accepted values: `datetime` (default), `date`, `time`.
+- **`offset`**: Time calculation offset (e.g., `+1d`, `-30m`, `+1w2d`, `-1h`). Must start with `+` or `-`.
+- **`format`**: Custom LDML date/time format string (e.g. `YYYY-MM-DD`, `HH:mm:ss`, `dddd, MMMM D, YYYY`). Defaults:
+  - `date`: `YYYY-MM-DD`
+  - `time`: `HH:mm`
+  - `datetime`: `YYYY-MM-DDTHH:mm:ss`
+- **`tz`**: Timezone context. Accepted values: `local` (default), `utc`.
+
+### Single-Argument Auto-Detection
+
+When passing a single positional argument to `[chrono(...)]`, Taurine automatically detects the parameter:
+- Starts with `+` or `-` $\rightarrow$ **`offset`** (e.g. `[chrono(+1d)]`)
+- Matches `utc` or `local` (case-insensitive) $\rightarrow$ **`tz`** (e.g. `[chrono(utc)]`)
+- Matches `date`, `time`, or `datetime` (case-insensitive) $\rightarrow$ **`type`** (e.g. `[chrono(date)]`)
+- Otherwise $\rightarrow$ **`format`** (e.g. `[chrono(YYYY-MM-DD)]`)
+
+### Examples
+
+| Expression | Output Example | Description |
+|---|---|---|
+| `[chrono]` | `2026-09-16T01:30:00` | Full datetime (default) |
+| `[chrono(date)]` | `2026-09-16` | Current date |
+| `[chrono(time)]` | `01:30` | Current time |
+| `[chrono(+1d)]` | `2026-09-17T01:30:00` | Offset by +1 day |
+| `[chrono(utc)]` | `2026-09-15T20:00:00` | UTC timezone |
+| `[chrono(date, +1d, YYYY-MM-DD, utc)]` | `2026-09-16` | Hybrid positionals |
+| `[chrono(type=time, tz=utc)]` | `20:00` | Named parameters |

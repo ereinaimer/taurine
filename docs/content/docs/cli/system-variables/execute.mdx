@@ -3,31 +3,25 @@ title: Shell Execution
 description: Execute bash, PowerShell, Python, Node, and CMD scripts inside your snippet expansions.
 ---
 
-The `[execute.*]` system variable family allows you to execute shell scripts inline or silently during snippet expansion.
+The `execute` system variable allows you to execute shell scripts inline or silently in the background during snippet expansion.
 
-## Supported Interpreters
-
-| Variable | Interpreter |
-| :--- | :--- |
-| `[execute.bash("cmd")]` | Bash (`bash -c`) |
-| `[execute.powershell("cmd")]` | PowerShell (`powershell -Command`) |
-| `[execute.python("script")]` | Python (`python -c`) |
-| `[execute.node("script")]` | Node.js (`node -e`) |
-| `[execute.cmd("cmd")]` | Windows Command Prompt (`cmd /C`) |
-
-## Direct Execution vs Script Files
-
-Execute commands inline or execute standalone script files:
+### Syntax & Parameters
 
 ```text
-[execute.bash("echo hello from bash")]
-[execute.powershell.file(C:\scripts\build.ps1).args("arg1", "arg2")]
+[execute(lang, subject, *args, file=false, silent=false)]
 ```
 
-## Silent Background Tasks
+- **`lang`** (required): Interpreter language (`bash`, `powershell`, `python`, `node`, `cmd`).
+- **`subject`** (required): Command string or file path (if `file=true`).
+- **`*args`**: Optional positional arguments passed to the script.
+- **`file`**: Boolean flag (`true`/`false`). If `true`, `subject` is treated as a script file path. Keyword-only.
+- **`silent`**: Boolean flag (`true`/`false`). If `true`, executes asynchronously in the background. Keyword-only.
 
-Use `.silent` to launch tasks asynchronously without waiting for output:
+### Examples
 
-```text
-[execute.silent.powershell("Start-Process notepad")]
-```
+| Expression | Description |
+|---|---|
+| `[execute(bash, "echo hi")]` | Positional lang and inline command |
+| `[execute(python, /s.py, a, b, file=true)]` | Script file execution with arguments |
+| `[execute(bash, "sleep 5", silent=true)]` | Asynchronous silent background execution |
+| `[execute(powershell, "Get-Date", silent=false)]` | Named keyword flag parameter |

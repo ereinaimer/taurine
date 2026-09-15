@@ -503,7 +503,7 @@ export function resolveTemplate(template: string, input: string, prefix: string)
     for (const seg of transformersList) {
       const call = parseTransformerCall(seg);
       const handler = call ? transformers[call.name] : undefined;
-      if (!handler) return match;
+      if (!handler || !call) return match;
       const next = handler(resolvedValue, call.args);
       if (next === undefined) return match;
       resolvedValue = next;

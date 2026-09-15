@@ -130,25 +130,25 @@ Flexible snippets use `[variable_name=default]` placeholders. The `=` is mandato
 *   **Escaping**: `\[` `\]` escape brackets; `\n`, `\t`, `\r` are escaped literals.
 
 ### 4.1 System Variables
-System variables inject machine data or generate values using `[namespace.variable]` or function-call syntax:
+System variables inject machine data or generate values using unified `namespace(args)` call syntax with hybrid positional and named arguments:
 
-*   **Date/Time**: `[date]` (ISO `YYYY-MM-DD`), `[date.utc]`, `[date.calc(+1d)]`, `[date.format(YYYY-MM-DD)]` (LDML tokens, no time tokens); `[time]` (`HH:mm`), `[time.utc]`, `[time.calc(-30m)]`, `[time.format(hh:mm A)]`; methods chain left-to-right (`[date.utc.calc(+1w2d).format(dddd)]`). Calc units: `d/w/m/y` (date), `h/m/s` (time).
-*   **Clipboard**: `[clipboard]` (≡ `[clipboard(0)]`); history ring `[clipboard(1)]`/`[clipboard(2)]` (last 3, in-memory only, wiped on restart, deduped, ignores transient-data flags from 1Password/Bitwarden).
-*   **Environment**: `[env(USER)]`, `[env("HOME")]` — case-sensitive; may expose sensitive values.
-*   **Files**: `[file.read(path)]` (≤5 MB, UTF-8, `~` expands home), `[file.line(path, n)]`, `[file.lines(path, start, end)]`.
-*   **Command Execution**: `[execute.bash(cmd)]` / `[execute.powershell(cmd)]` / `[execute.python(cmd)]` / `[execute.node(cmd)]` / `[execute.cmd(cmd)]` run shell commands and inject output at the cursor; `[execute.silent.…]` runs async in the background; `[execute.<lang>.file(path)]` compiles a script file into the DB; `.args(--a, b)` passes arguments; 20s timeout.
-*   **Network**: `[http.get(url)]` (raw body, 5s timeout, `https://` assumed if omitted), `[http.status(url)]` (status code), `[net.publicip]` (public WAN IP), `[net.localip]` (local IP), `[net.online]` (internet check → `true`/`false`).
-*   **Images**: `[image(path)]` — injects local images (PNG/JPEG, ≤16 MB) via clipboard paste; compiled into the DB at save time.
-*   **Lorem ipsum**: `[lorem.words(n)]` (default 15), `[lorem.sentences(n)]`, `[lorem.paragraphs(n)]`.
-*   **Random**: `[random.int(min, max)]` (default `0..100`), `[random.str(len)]` (alnum, 16), `[random.pass(len)]` (secure w/ symbols, 20), `[random.choice(a, b, …)]`.
-*   **UUID**: `[uuid]` (≡ `[uuid.v4]`), `[uuid.v7]` (time-ordered).
-*   **Newline**: `[newline]` resolves to a literal newline (raw `\n` is never unescaped, protecting Windows paths).
-*   **Mouse**: `[mouse.pos]` (current `x,y`), `[mouse.click([btn])]`, `[mouse.dblclick([btn])]`, `[mouse.rclick]`, `[mouse.mclick]`, `[mouse.m4]`/`[mouse.m5]`, `[mouse.move(x, y)]`, `[mouse.scroll(delta)]`, `[mouse.down([btn])]`/`[mouse.up([btn])]` (drag operations; `hold`/`release` supported). Buttons: `left`, `right`, `middle`, `m4`/`back`, `m5`/`forward`, `m<N>`. Wayland absolute moving fails silently.
+*   **Temporal (`chrono`)**: `[chrono]` (≡ `[chrono(datetime)]`), `[chrono(date)]`, `[chrono(+1d)]`, `[chrono(date, +1d, YYYY-MM-DD, utc)]`, `[chrono(type=time, tz=utc)]`. Params: `(type=datetime, offset=none, format=per-kind, tz=local)`; type ∈ {date, time, datetime}.
+*   **Clipboard (`clip`)**: `[clip]` (≡ `[clip(0)]`), `[clip(1)]`, `[clip(2)]`. Params: `(index=0)` ∈ {0, 1, 2}. Last 3 entries in memory.
+*   **Environment (`env`)**: `[env(HOME)]`, `[env(X, fallback)]`. Params: `(name, [default])`.
+*   **Files (`file`)**: `[file(read, ~/n.txt)]`, `[file(line, path, n)]`, `[file(lines, path, 1, 5)]`. Params: `(op, ...)`; read, line, lines.
+*   **Command Execution (`execute`)**: `[execute(bash, "echo hi")]`, `[execute(python, /s.py, a, b, file=true)]`, `[execute(bash, "sleep 5", silent=true)]`. Params: `(lang, subject, *args, file=false, silent=false)`. Flags are keyword-only.
+*   **Network (`ip`, `http`)**: `[ip]` (≡ `[ip(public)]`), `[ip(local)]`, `[http(get, example.com)]`, `[http(status, example.com)]`.
+*   **Images (`image`)**: `[image(path)]` — injects local images (PNG/JPEG, ≤16 MB) via clipboard paste.
+*   **Lorem ipsum (`lorem`)**: `[lorem]`, `[lorem(3)]`, `[lorem(words, 5)]`, `[lorem(type=sentences, count=2)]`. Params: `(type=paragraphs, count)`.
+*   **Random (`random`)**: `[random]`, `[random(6)]`, `[random(int, 1, 10)]`, `[random(choice, a, b)]`, `[random(str, 16)]`. Params: `(type=int, ...)`.
+*   **UUID (`uuid`)**: `[uuid]` (≡ `[uuid(v4)]`), `[uuid(v7)]`. Params: `(version=v4)` ∈ {v4, v7}.
+*   **Newline (`newline`)**: `[newline]` resolves to a literal newline.
+*   **Mouse (`mouse`)**: `[mouse(click, m1)]`, `[mouse(click, m2, 2)]`, `[mouse(click, m1, 0)]`, `[mouse(hold, m1)]`, `[mouse(release, m1)]`, `[mouse(move, 100, 200)]`, `[mouse(scroll, -100)]`, `[mouse(pos)]`. Params: `(action, ...)` ∈ {click, hold, release, move, scroll, pos}. Buttons strictly `m1..mN`.
 
 ### 4.2 Expansion Directives
-*   **Keystroke**: `[key(tab)]`, `[key(enter)]`, `[key(ctrl+shift+t)]`, `[key(mod+a)]` (cross-platform modifier). Modifiers come first with `+`.
+*   **Keystroke**: `[key(tab)]`, `[key(enter)]`, `[key(ctrl+shift+t)]`, `[key(mod+a)]`. Modifiers come first with `+`.
 *   **Delay**: `[delay(200ms)]`, `[delay(1.5s)]`; a bare number (`[delay(200)]`) is milliseconds.
-*   **Cursor**: `[cursor]` places the caret at the final position after expansion. It is ignored (treated as literal) if any `[key(…)]`, `[delay(…)]`, or `[mouse.*]` directive is present.
+*   **Cursor**: `[cursor]` places the caret at the final position after expansion. It is ignored (treated as literal) if any `[key(…)]`, `[delay(…)]`, or `[mouse(…)]` directive is present.
 
 ---
 
@@ -166,7 +166,7 @@ Global transformers apply with Unix pipe syntax right after any variable, positi
 *   **JSON**: `json("path")` (dot-notation, numbers index arrays), `json.pretty`, `json.minify`.
 *   **Lines** (handles `\n`/`\r\n`): `lines(first|last|count|compact|unique|prefix|suffix|join|split|sort)`; sort flags `"desc"`, `"insensitive"`, `"numeric"`.
 *   **Formatting**: `wrap(doublequote|singlequote|backtick)`, `unwrap(quotes)`.
-*   **Data extractors**: `html(selector)` / `xml(selector)` (CSS selector → inner text of first match), `toml(path)`, `yaml(path)`, `regex(pattern, [group])`. Pairs well with `[http.get(…)]` and `[file.read(…)]`.
+*   **Data extractors**: `html(selector)` / `xml(selector)` (CSS selector → inner text of first match), `toml(path)`, `yaml(path)`, `regex(pattern, [group])`. Pairs well with `[http(get, …)]` and `[file(read, …)]`.
 *   **Extract all matches**: `extract(url)`, `extract(email)`, `extract(phone)`, `extract(mention)`, `extract(hashtag)`, `extract(ip)`, `extract(mac)`, `extract(path)`, `extract(filename)`, `extract(directory)`, `extract(jwt)`, `extract(semver)`, `extract(mdcode)`, `extract(mdtable)`, `extract(mdlist)` — returns newline-separated matches.
 *   **Snippet composition**: `[use("trigger_name")]` embeds another snippet's contents.
 
@@ -198,7 +198,7 @@ Stream LLM responses directly into the active text field.
 1.  Configure a provider: `taurine ai add --provider gemini` (and optionally `taurine config set ai_provider gemini`).
 2.  Type `tau, <prompt>` anywhere on a line and press **Enter** (e.g. `tau, summarize this paragraph`). The trigger and prompt are replaced by the streamed AI response.
 3.  The trailing comma is strictly required (`tau,`) to prevent collision with the `tau` CLI alias. Case-insensitive variants (`tau,`, `Tau,`, `TAu,`, `TAU,`) are supported; `tau <prompt>` and `tau: <prompt>` are rejected. Empty prompts (`tau,` followed by Enter) pass through without triggering. Custom endpoints (`taurine config set ai_custom_endpoint http://localhost:11434/v1` for Ollama/LM Studio) and disabling via `taurine config set inline_ai_enabled false` are supported.
-4.  Clipboard context: Pass copied text or code as context to your prompt by typing `[clipboard]` (e.g. `tau, reformat this: [clipboard]`) or pressing `Ctrl + V` / `Cmd + V` after `tau,` (automatically inserts `[clipboard: N lines]` or `[clipboard: N words]` and binds the clipboard payload without dumping raw text into the field). Substitutes the raw clipboard text directly into the prompt on Enter.
+4.  Clipboard context: Pass copied text or code as context to your prompt by typing `[clip]` (e.g. `tau, reformat this: [clip]`) or pressing `Ctrl + V` / `Cmd + V` after `tau,` (automatically inserts `[clip: N lines]` or `[clip: N words]` and binds the clipboard payload without dumping raw text into the field). Substitutes the raw clipboard text directly into the prompt on Enter.
 
 ### 7.3 Inline Trigger Assist
 Headless assist for word triggers (no popups):

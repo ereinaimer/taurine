@@ -1,60 +1,32 @@
 ---
-title: Random & Generation
-description: Generate dynamic data and random values in your trigger templates.
+title: Random Generator
+description: Generate random integers, strings, passwords, or choose from a list of values.
 ---
 
-import { Callout } from 'fumadocs-ui/components/callout';
+The `random` system variable generates random numbers, strings, passwords, or picks choices.
 
-The `[random]` namespace allows you to inject randomized data directly into your snippets. This is ideal for generating test data, passwords, unique tokens, or making probabilistic choices within a template.
-
-Bare `[random]` defaults to a random integer between 0 and 100 (`[random.int]`).
-
-All `random` sub-variables support optional arguments passed inside `(...)`.
-
-## Available Variants
-
-### Numbers & Logic
-
-| Variable | Description | Default | Example |
-| :--- | :--- | :--- | :--- |
-| `[random]` | Random integer between 0 and 100. | `0..100` | `42` |
-| `[random.int]` | Random integer between 0 and 100. | `0..100` | `42` |
-| `[random.int(max)]` | Random integer between 1 and max. | — | `7` |
-| `[random.int(min, max)]` | Random integer between min and max (inclusive). | — | `15` |
-
-### Strings & Identifiers
-
-| Variable | Description | Default | Example |
-| :--- | :--- | :--- | :--- |
-| `[random.str]` or `[random.str(len)]` | Alphanumeric string (A-Z, a-z, 0-9). | `16` | `aB3k9Lp2Qx8vM1nQ` |
-| `[random.pass]` or `[random.pass(len)]` | Secure string with uppercase, lowercase, numbers, and special symbols. | `20` | `kL9!pQ#zR2*j$m8W-9aB` |
-
-### Choices
-
-| Variable | Description | Example Output |
-| :--- | :--- | :--- |
-| `[random.choice(a, b, ...)]` | Pick one item from a comma-separated list. | `one` |
-
-## Usage Details
-
-### Nested Choices
-The `random.choice` variant supports nested structures and commas within options if they are enclosed in parentheses.
+### Syntax & Parameters
 
 ```text
-[random.choice(env(USER), guest)]
+[random(type=int, ...)]
 ```
 
-### Transformer Chaining
-You can chain any [format modifier](/docs/cli/transformers) after the variable.
+- **`int`**: `[random(int, min, max)]` (defaults: `min=0, max=100`). Single-arg number $\rightarrow$ `(1, max)` (e.g. `[random(6)]` $\rightarrow$ `1..6`).
+- **`str`**: `[random(str, len)]` (default length 16).
+- **`pass`**: `[random(pass, len)]` (default length 20, includes symbols).
+- **`choice`**: `[random(choice, item1, item2, ...)]` (picks randomly from $\ge 1$ choices).
 
-```text
-[random.str(8) | case(upper)] -> "KLMNPQRS"
-[random.choice(apple, banana) | case(kebab)]
-```
+### Single-Argument Auto-Detection
 
----
+A bare number automatically binds as `type=int, max=N` (e.g., `[random(6)]` generates an integer from 1 to 6).
 
-## Technical Constraints
+### Examples
 
-- **Length Limit**: Any generated string is capped at **4096 characters** to prevent memory exhaustion.
-- **Synchronous Resolution**: `random` variables resolve instantly in memory without network latency.
+| Expression | Description |
+|---|---|
+| `[random]` | Random integer between 0 and 100 |
+| `[random(6)]` | Bare number $\rightarrow$ random integer between 1 and 6 |
+| `[random(int, 1, 10)]` | Explicit range 1 to 10 |
+| `[random(str, 16)]` | Random alphanumeric string of length 16 |
+| `[random(pass, 20)]` | Secure password of length 20 |
+| `[random(choice, heads, tails)]` | Random choice from list |

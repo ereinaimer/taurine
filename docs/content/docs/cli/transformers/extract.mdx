@@ -31,24 +31,25 @@ Unlike standard text replacements, these extractors find all matches within the 
 
 #### Extracting URLs
 Easily scrape a webpage or clipboard text for all links:
+
 <Transformation
-  template="[clipboard | extract(url)]"
-  input="clipboard:'Check https://taurine.in and https://github.com'"
+  template='[clip | extract(url)]'
+  input="clip:'Check https://taurine.in and https://github.com'"
   result="https://taurine.in\nhttps://github.com"
 />
 
-#### Extracting Directories
-If you have a log file or a system prompt, you can extract the directory paths directly:
+Extract directory paths from logs or pasted shell output:
+
 <Transformation
-  template="[clipboard | extract(directory)]"
-  input="clipboard:'The config is at /etc/nginx/nginx.conf'"
+  template='[clip | extract(directory)]'
+  input="clip:'The config is at /etc/nginx/nginx.conf'"
   result="/etc/nginx"
 />
 
-#### Extracting Code Blocks
-When piping outputs from AI or Markdown documents, you can extract the raw code:
+Extract code blocks from Markdown notes or chat history:
+
 <Transformation
-  template="[clipboard | extract(mdcode)]"
-  input="clipboard:'Here is the code:\n```rust\nfn main() {}\n```'"
+  template='[clip | extract(mdcode)]'
+  input="clip:'Here is the code:\n```rust\nfn main() {}\n```'"
   result="fn main() {}"
 />

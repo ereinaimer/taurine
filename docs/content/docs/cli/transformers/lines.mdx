@@ -27,40 +27,37 @@ All line operations are grouped under the `lines(...)` transformer namespace.
 These are useful for quickly formatting lists, such as adding bullet points or semicolon line-endings.
 
 <Transformation
-  template='[clipboard | lines(prefix, "> ")]'
-  input="clipboard:'Line 1\nLine 2'"
+  template='[clip | lines(prefix, "> ")]'
+  input="clip:'Line 1\nLine 2'"
   result="> Line 1\n> Line 2"
 />
 
-### Deduplication (`lines(unique)`)
+### Unique & Deduplication
 
-Removes all duplicate lines while strictly preserving their original order of appearance.
+Remove duplicate lines globally while maintaining original order:
 
 <Transformation
-  template='[clipboard | lines(unique)]'
-  input="clipboard:'orange\napple\norange\nbanana'"
+  template='[clip | lines(unique)]'
+  input="clip:'orange\napple\norange\nbanana'"
   result="orange\napple\nbanana"
 />
 
-### Line Count (`lines(count)`)
+### Line Count
 
-Counts the total number of lines in the input text.
+Count total number of lines:
 
 <Transformation
-  template='[clipboard | lines(count)]'
-  input="clipboard:'Line 1\nLine 2\nLine 3'"
+  template='[clip | lines(count)]'
+  input="clip:'Line 1\nLine 2\nLine 3'"
   result="3"
 />
 
-### Sorting (`lines(sort)`)
+### Sorting
 
-Sorts lines alphabetically by default. Supports options:
-- `"desc"`: Descending sort.
-- `"insensitive"`: Case-insensitive sorting.
-- `"numeric"`: Numerical sorting (correctly sorting `10` after `2`).
+Sort lines alphabetically or numerically (`desc`, `insensitive`, `numeric`):
 
 <Transformation
-  template='[clipboard | lines(sort, "numeric")]'
-  input="clipboard:'10\n2\n1.5'"
+  template='[clip | lines(sort, "numeric")]'
+  input="clip:'10\n2\n1.5'"
   result="1.5\n2\n10"
 />

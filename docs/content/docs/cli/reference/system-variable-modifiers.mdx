@@ -1,162 +1,70 @@
 ---
-title: System Variable Modifiers
-description: Exact reserved roots, modifiers, and text transformers supported by Taurine.
+title: System Variable Reference & Syntax Rules
+description: Complete catalog, call grammar, argument binder rules, and rejection diagnostics for system variables.
 ---
 
 import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 
-System variables in Taurine use the format `[root.modifier]`. This reference covers all available reserved roots and their associated modifiers.
+System variables in Taurine use a unified `namespace(args)` call syntax (with bare `[namespace]` as `()` sugar). This reference covers the binder rules, complete catalog, and diagnostic hints.
 
-## Variable Roots
+## Argument Binder Rules
 
-The following roots are reserved by the Taurine engine and cannot be used as custom variable names.
+Taurine parses variable call parameters with a single shared binder:
 
-| Root | Description |
-| :--- | :--- |
-| `datetime` | Current system datetime in ISO 8601 or custom formats. |
-| `time` | Current system time in various formats. |
-| `date` | Current system date in various formats. |
-| `clipboard` | Content of the system clipboard. |
-| `cursor` | Directs the final cursor position (placeholder). |
-| `uuid` | Unique identifier generation (defaults to v4). |
-| `lorem` | Dummy text generation (words, sentences, paragraphs). |
-| `random` | Random number, string, choice, and password generation. |
-| `net` | Network status and public/local IP lookup. |
-| `env` | System environment variables. |
-| `file` | Read local file contents. |
-| `key` | Keyboard triggers (simulating key presses). |
-| `delay` | Timing delays in execution sequences. |
-| `mouse` | Mouse clicks, movement, drag-and-drop, and coordinates. |
+1. **Hybrid Arguments**: Positionals are bound first in parameter order, followed by `name=value` keyword arguments. Positional parameters after named parameters are rejected.
+2. **Single-Argument Shape Auto-Detection**: Where documented, a single positional argument automatically infers its parameter name based on value shape (e.g. `[chrono(+1d)]` infers `offset`, `[random(6)]` infers `max`).
+3. **Save-Time Diagnostics**: Any system tag containing a dot (`.`), unknown key, missing required parameter, duplicate argument, or obsolete alias is rejected at save time with a helpful hint showing canonical `namespace(...)` syntax.
 
 ---
 
-## Time, Date & Datetime
+## Reserved System Roots
 
-Method-based API for inserting, calculating, and formatting timestamps, dates, and combined date-times. Universal calculation units (`y`, `m`, `w`, `d`, `h`, `min`, `s`) and LDML formatting tokens are supported across all three roots.
-
-<Accordions>
-<Accordion title="datetime">
-  - `[datetime]`: Bare root default formatted as ISO 8601 (`YYYY-MM-DDTHH:mm:ss`).
-  - `utc`: Switches the context to UTC.
-  - `calc(±...<units>)`: Performs temporal calculations using `y` (years), `m` (months), `w` (weeks), `d` (days), `h` (hours), `min`/`i` (minutes), or `s` (seconds). Compound strings like `+1d12h` are supported.
-  - `format(<pattern>)`: Formats the output using standard LDML tokens.
-</Accordion>
-
-<Accordion title="time">
-  - `[time]`: Bare root default formatted as `HH:mm`.
-  - `utc`: Switches the time context to UTC.
-  - `calc(±...<units>)`: Performs temporal calculations using universal units (`y`, `m`, `w`, `d`, `h`, `min`, `s`).
-  - `format(<pattern>)`: Formats the output using standard LDML tokens (date and time tokens are fully supported).
-</Accordion>
-
-<Accordion title="date">
-  - `[date]`: Bare root default formatted as `YYYY-MM-DD`.
-  - `utc`: Switches the date context to UTC.
-  - `calc(±...<units>)`: Performs temporal calculations using universal units (`y`, `m`, `w`, `d`, `h`, `min`, `s`).
-  - `format(<pattern>)`: Formats the output using standard LDML tokens (date and time tokens are fully supported).
-</Accordion>
-</Accordions>
+| Root | Parameters (Defaults) | Single-Arg Detection | Description |
+| :--- | :--- | :--- | :--- |
+| `chrono` | `(type=datetime, offset=none, format=per-kind, tz=local)` | `^[+-]` $\rightarrow$ offset; `utc\|local` $\rightarrow$ tz; `date\|time\|datetime` $\rightarrow$ type; else $\rightarrow$ format | Dates, times, calculations, formats, timezones. |
+| `clip` | `(index=0)` $\in$ \{0, 1, 2\} | None | Local clipboard history ring. |
+| `env` | `(name, [default])` | None | System environment variables. |
+| `file` | `(op, ...)` required | None | Read local file contents (`read`, `line`, `lines`). |
+| `image` | `(path)` | None | Local PNG/JPEG image injection. |
+| `ip` | `(type=public)` $\in$ \{public, local\} | None | Public WAN IP or local LAN IP address. |
+| `uuid` | `(version=v4)` $\in$ \{v4, v7\} | None | UUID v4 (random) or v7 (time-ordered). |
+| `execute` | `(lang, subject, *args, file=false, silent=false)` | None | Shell script execution (bash, powershell, python, node, cmd). |
+| `random` | `(type=int, ...)` | bare number $\rightarrow$ `(int, max)` | Random numbers, strings, passwords, or choice picks. |
+| `lorem` | `(type=paragraphs, count)` | bare number $\rightarrow$ count | Placeholder text (paragraphs, sentences, words). |
+| `http` | `(op, url)` op $\in$ \{get, status\} | None | HTTP GET body or status code lookup. |
+| `mouse` | `(action, ...)` $\in$ \{click, hold, release, move, scroll, pos\} | None | Hardware mouse clicks (`mN`), drag, scroll, position. |
+| `key` | `(combo)` | None | Keyboard key press simulation. |
+| `delay` | `(duration)` | None | Execution delay in milliseconds/seconds. |
+| `cursor` | zero-arg | None | Target caret position after expansion. |
+| `newline` | zero-arg | None | Literal line break. |
 
 ---
 
-## Environment & Clipboard
+## Rejection Diagnostics & Obsolete Forms
 
-Interact with your local system state and shell environment.
+Taurine rejects old dot-chained or deprecated forms at save time, providing explicit mapping hints:
 
-<Accordions>
-<Accordion title="clipboard">
-  - `[clipboard]`: The most recent clipboard item (same as index 0).
-  - `[clipboard(0)]`: Most recent clipboard entry.
-  - `[clipboard(1)]`, `[clipboard(2)]`: Historical clipboard entries (up to 3 items).
-</Accordion>
-
-<Accordion title="env">
-  Access any environment variable reachable by the Taurine service.
-  - `[env(USER)]` / `[env(USERNAME)]`
-  - `[env(PATH)]`
-  - `[env(HOME)]` / `[env(USERPROFILE)]`
-</Accordion>
-
-<Accordion title="file">
-  Read and inject local file contents natively.
-  - `[file.read(path)]`: Reads the entire contents of a file (up to 5MB).
-  - `[file.line(path, n)]`: Extracts a single 1-indexed line `n`.
-  - `[file.lines(path, start, [end])]`: Extracts a line range from `start` to `end` (or to end-of-file if `end` is omitted).
-</Accordion>
-
-<Accordion title="net">
-  Network status and IP address discovery.
-  - `[net.publicip]`: Public WAN IP address (resolved via Cloudflare / ipify).
-  - `[net.localip]`: Local network LAN IP address.
-  - `[net.online]`: Returns `true` or `false` based on network connectivity.
-</Accordion>
-</Accordions>
-
----
-
-## Triggers & Identity
-
-Modifiers for generating IDs, filler text, or simulating hardware interaction.
-
-<Accordions>
-<Accordion title="uuid">
-  - `[uuid]`: Generates a UUID v4 by default.
-  - `[uuid.v4]`: Explicit version 4 UUID.
-  - `[uuid.v7]`: Time-sorted version 7 UUID.
-</Accordion>
-
-<Accordion title="random">
-  - `[random]`: Generates a random integer between 0 and 100 inclusive.
-  - `[random.int]`: Random integer between 0 and 100.
-  - `[random.int(max)]`: Random integer between 1 and `max`.
-  - `[random.int(min, max)]`: Random integer between `min` and `max`.
-  - `[random.choice(a, b, ...)]`: Randomly picks one item from comma-separated choices.
-  - `[random.str]` / `[random.str(len)]`: Alphanumeric string (defaults to 16 characters).
-  - `[random.pass]` / `[random.pass(len)]`: Secure password string with symbols (defaults to 20 characters).
-</Accordion>
-
-<Accordion title="lorem">
-  - `[lorem]` / `[lorem(n)]`: Generates lorem ipsum placeholder paragraphs (default 1 paragraph).
-  - `[lorem.words]`: Generates default 15 words.
-  - `[lorem.words(n)]`: Generates `n` words.
-  - `[lorem.sentences]`: Generates default 1 sentence.
-  - `[lorem.sentences(n)]`: Generates `n` sentences.
-  - `[lorem.paragraphs]`: Generates default 1 paragraph.
-  - `[lorem.paragraphs(n)]`: Generates `n` paragraphs separated by double newlines.
-</Accordion>
-
-<Accordion title="key">
-  Simulate non-printing keys or keyboard combinations.
-  - `[key(enter)]`, `[key(tab)]`, `[key(esc)]`, `[key(space)]`
-  - `[key(up)]`, `[key(down)]`, `[key(left)]`, `[key(right)]`
-  - `[key(ctrl+v)]`, `[key(alt+tab)]`, `[key(shift+p)]`
-  - **See [Keyboard Triggers](/docs/cli/system-variables/keyboard-triggers) for a full list of aliases.**
-</Accordion>
-
-<Accordion title="delay">
-  Pause execution for a specific duration (milliseconds).
-  - `[delay(100ms)]` or `[delay(100)]`
-</Accordion>
-
-<Accordion title="mouse">
-  Simulate mouse clicks, double clicks, movement, and drag actions.
-  - `[mouse.click([button])]`: Click mouse button (defaults to `left`).
-  - `[mouse.dblclick([button])]`: Double-click mouse button (defaults to `left`).
-  - `[mouse.rclick]`, `[mouse.mclick]`, `[mouse.m4]`, `[mouse.m5]`: Direct button click shorthands.
-  - `[mouse.down([button])]` / `[mouse.hold([button])]`: Press and hold button.
-  - `[mouse.up([button])]` / `[mouse.release([button])]`: Release held button.
-  - `[mouse.move(x, y)]`: Warps pointer to screen coordinates.
-  - `[mouse.scroll(delta)]`: Vertical scroll wheel.
-  - `[mouse.pos]`: Resolves current pointer coordinates (`x,y`).
-  - **Supported Buttons:** `left`, `right`, `middle`, `m4` / `back`, `m5` / `forward`, `m<N>`.
-</Accordion>
-</Accordions>
+```text
+[date.utc]              -> Error: use canonical chrono(date, tz=utc)
+[date.calc(+1d)]        -> Error: use canonical chrono(date, +1d)
+[time.now]              -> Error: use canonical chrono(time)
+[clipboard]             -> Deprecated: use canonical clip (or clip(index))
+[uuid(7)]               -> Error: version must be v4 or v7 (e.g. uuid(v7))
+[net.publicip]          -> Error: use canonical ip or ip(public)
+[net.localip]           -> Error: use canonical ip(local)
+[mouse.click]           -> Error: use canonical mouse(click, m1)
+[mouse.rclick]          -> Error: use canonical mouse(click, m2)
+[mouse.dblclick]        -> Error: use canonical mouse(click, m1, 2)
+[mouse.down]            -> Error: use canonical mouse(hold, m1)
+[mouse.up]              -> Error: use canonical mouse(release, m1)
+[env(HOME=default)]     -> Error: use canonical env(HOME, default)
+```
 
 ---
 
 ## Text Transformers
 
-These can be appended to **any** variable (system or custom) using Unix pipe syntax (`| transformer`) to transform the string output (e.g. `[clipboard | case(upper)]`).
+Append Unix pipe syntax (`| transformer`) to any system or custom variable tag to modify string output (e.g., `[clip | case(upper)]`).
 
 <Accordions>
 <Accordion title="Casing Transformers">
@@ -193,14 +101,14 @@ These can be appended to **any** variable (system or custom) using Unix pipe syn
 <Accordion title="Text & Line Utilities">
   - `filter(digits)`: Filters string to keep only digits `0-9`.
   - `filter(alphanumeric)`: Filters string to keep only alphanumeric characters.
-  - `count(words)`: Returns the number of whitespace-separated words (e.g. `[clipboard | count(words)]`).
-  - `lines(count)`: Returns the total number of lines (e.g. `[clipboard | lines(count)]`).
-  - `lines(sort[, desc, insensitive, numeric])`: Sorts lines alphabetically or numerically (e.g. `[clipboard | lines(sort, "numeric", "desc")]`).
+  - `count(words)`: Returns the number of whitespace-separated words (e.g. `[clip | count(words)]`).
+  - `lines(count)`: Returns the total number of lines (e.g. `[clip | lines(count)]`).
+  - `lines(sort[, desc, insensitive, numeric])`: Sorts lines (e.g. `[clip | lines(sort, desc, numeric)]`).
   - `lines(unique)`: Removes duplicate lines globally while maintaining original order.
 </Accordion>
 
 <Accordion title="Data Extraction">
-  Extract values from structured payloads, web content, or raw text. Pairs perfectly with `[http.get(...)]`, `[file.read(...)]`, and `[clipboard]`.
+  Extract values from structured payloads or web content. Pairs with `[http(get, ...)]`, `[file(read, ...)]`, and `[clip]`.
   - `extract(target)`: Extracts structured patterns natively (`url`, `email`, `phone`, `mention`, `hashtag`, `ip`, `mac`, `path`, `filename`, `directory`, `jwt`, `semver`, `mdcode`, `mdtable`, `mdlist`).
   - `json(path)`: Extracts a value via dot-notation (e.g., `user.hobbies.1`).
   - `json.pretty`: Indents and formats a JSON payload.
@@ -209,6 +117,6 @@ These can be appended to **any** variable (system or custom) using Unix pipe syn
   - `xml(selector)`: Scrapes XML text using CSS selectors.
   - `yaml(path)`: Extracts a value from YAML via dot-notation.
   - `toml(path)`: Extracts a value from TOML via dot-notation.
-  - `regex("pattern", [group])`: Extracts a specific regex capturing group (defaults to group 0, the full match).
+  - `regex("pattern", [group])`: Extracts a specific regex capturing group (defaults to group 0).
 </Accordion>
 </Accordions>

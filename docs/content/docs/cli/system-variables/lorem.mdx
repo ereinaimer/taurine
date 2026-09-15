@@ -1,23 +1,28 @@
 ---
-title: Lorem Placeholder Generators
-description: Generate placeholder text in words, sentences, or paragraphs.
+title: Lorem Ipsum
+description: Generate placeholder text and mock paragraphs.
 ---
 
-The `[lorem.*]` system variable suite generates lorem ipsum placeholder text.
+The `lorem` system variable generates placeholder text.
 
-## Available Variables
-
-| Variable | Description | Default Count |
-| :--- | :--- | :--- |
-| `[lorem]` | Generates lorem ipsum text (paragraph mode). | 1 paragraph |
-| `[lorem.words(n)]` | Generates `n` lorem ipsum words. | 15 words |
-| `[lorem.sentences(n)]` | Generates `n` lorem ipsum sentences. | 1 sentence |
-| `[lorem.paragraphs(n)]` | Generates `n` lorem ipsum paragraphs. | 1 paragraph |
-
-## Examples
+### Syntax & Parameters
 
 ```text
-[lorem.words(5)]
-[lorem.sentences(3)]
-[lorem.paragraphs(2)]
+[lorem(type=paragraphs, count=1)]
 ```
+
+- **`type`**: Target text unit (`paragraphs`, `sentences`, `words`). Default is `paragraphs`.
+- **`count`**: Number of units to generate. Default defaults: 15 for `words`, 1 for `sentences`, 1 for `paragraphs`.
+
+### Single-Argument Auto-Detection
+
+Passing a single bare number auto-detects as `count` (e.g., `[lorem(3)]` generates 3 paragraphs).
+
+### Examples
+
+| Expression | Description |
+|---|---|
+| `[lorem]` | Default 1 paragraph of placeholder text |
+| `[lorem(3)]` | Single-arg numeric count $\rightarrow$ 3 paragraphs |
+| `[lorem(words, 5)]` | 5 words of placeholder text |
+| `[lorem(type=sentences, count=2)]` | Named parameter syntax |

@@ -8,17 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Unified System Variable Syntax**: Standardize all system variable roots to explicit canonical names (`execute`, `image`, `clipboard`, `net.publicip`, `net.localip`, `lorem.words`, `lorem.sentences`, `lorem.paragraphs`).
+- **Unified Namespace Syntax**: Every system variable is now a `namespace(args)` call with hybrid positional/named arguments (e.g. chrono(date, +1d), file(read, path), execute(bash, "cmd")); dotted chains are rejected with the canonical form suggested.
+- **Simplified Variable Roots**: Date, time, and datetime merge into chrono(type, offset, format, tz); clipboard becomes clip(index); uuid takes v4/v7 with bare meaning v4; network addresses become ip with bare meaning public and ip(local) for LAN; mouse is a strict click/hold/release/move/scroll/pos set with mN-only buttons and a click count (0 clicks until you press a key or button).
 - **Autonomous Self-Healing & Crash Resilience**: Automatically recover background worker threads, isolate native shell launches out-of-process, intercept native exceptions, and auto-restart on system failure via Windows Task Scheduler.
 - **Conversational CLI Diagnostics**: Provide actionable terminal error messages across all CLI commands with fuzzy did-you-mean suggestions and clean copy-paste examples.
 - **URL Sanitation & Calculation Placeholders**: Strip both query parameters and hash anchors in [| url.clean], and support $, _, and x as incoming value placeholders in [| calc(...)].
-- **Unified Transformer Syntax**: Standardize all text transformers to follow consistent action(arguments) and category(action) syntax (including canonical `extract(...)` pattern extractors with complete removal of `ext.*` shorthands) with zero unparenthesized bare words.
-- **File Slicing Operations**: Replace ambiguous read_line with dedicated [file.line(path, n)] for single line extraction and [file.lines(path, start, [end])] for multi-line ranges.
-- **Network IP Synonyms**: Add [net.localip] and [net.publicip] synonyms for local and public IP lookups.
-- **Random Range & Default Generators**: Expand bare [random] to a 0..100 integer, support zero-argument [random.int] and single-argument [random.int(max)], and update [random.pass] default length to 20 characters.
-- **Unified Datetime System Variable**: Insert and calculate timestamps via new [datetime] root with universal calculation units and complete token formatting support across date and time.
-- **Bare Root Defaults**: Expand bare [uuid] to v4, bare [lorem] to one paragraph, and bare [lorem.word]/[lorem.sentence]/[lorem.paragraph] with zero arguments.
-- **Clipboard Variable Synonym**: Support [clipboard] and [clipboard(index)] as first-class synonyms for [clip].
 - **Multi-Button Mouse Automation**: Support parameterized mouse button clicks (including M4, M5, and custom buttons), double-clicking, and parameterized press/release drag actions.
 - **Inline AI Clipboard Context**: Pass copied clipboard text into inline AI prompts via natural paste shortcut (Ctrl+V / Cmd+V) or by typing [clip].
 - **Uninstall Data Prompt**: Ask before deleting configuration and data files during uninstallation; kept by default.
@@ -26,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Save-Time Transformer Validation**: Reject unknown transformer names when a snippet is saved instead of leaving the tag unresolved at expansion time.
-- **Single Canonical Name Per Variable**: Remove legacy aliases (`clip`, `exec`, `img`, singular `lorem` forms, and `extract` path shorthands) so each system variable and transformer has exactly one documented name.
+- **Single Canonical Name Per Variable**: Remove legacy aliases (`exec`, `img`, `clipboard`, singular `lorem` forms, and `extract` path shorthands) so each system variable and transformer has exactly one documented name.
 - **Line Transformers Follow Documented Syntax**: Enable the documented [| lines(first|last|count|compact|prefix|suffix|join|split|unique|sort)] family and drop the unreachable legacy names.
 - **Start on Boot From Any Location**: Remember the exact binary that ran `up` (e.g. from Downloads) and launch it at login, falling back to the installed copy when it no longer exists.
 - **Fixed Windows Login Launcher**: Launch the installed binary directly at logon instead of resolving it through a sidecar path file.
@@ -54,12 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - **Redundant Audio Themes**: Remove soft, glass, dreamy, cinematic, and studio pause/resume sounds, leaving seven themes.
 
-### Removed
-- **Redundant Audio Themes**: Remove soft, glass, dreamy, cinematic, and studio pause/resume sounds, leaving seven themes.
-
 ### Changed
-- **Clipboard History Access**: Use bare [clip] or [clipboard] for the current entry and [clip(1)] or [clip(2)] for older entries; explicit (0) is rejected.
-- **JSON Transformers Use Function Syntax**: Format JSON via [| json(pretty)] and [| json(minify)] instead of the removed dot forms.
 - **Always-Encrypted Exports**: Remove the `--plain` export option so `.tau` files are always encrypted, with an optional password for a second lock.
 - **Machine-Bound Database Encryption**: The local database is now encrypted with a per-computer key and copies of the database file no longer open on other computers; move data between machines with encrypted exports.
 

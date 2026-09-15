@@ -1,0 +1,23 @@
+---
+title: IP Address
+description: Fetch public WAN or local LAN IP addresses.
+---
+
+The `ip` system variable retrieves network IP addresses for the current machine.
+
+### Syntax & Parameters
+
+```text
+[ip(type=public)]
+```
+
+- **`type`**: IP target scope. Accepted values: `public` (default WAN IP), `local` (local LAN IP address).
+
+### Examples
+
+| Expression | Description |
+|---|---|
+| `[ip]` | Public WAN IP address (default) |
+| `[ip(public)]` | Explicit public WAN IP address |
+| `[ip(local)]` | Local LAN IP address |
+| `[ip(type=local)]` | Named parameter for local IP |

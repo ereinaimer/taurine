@@ -776,7 +776,7 @@ mod listener_pipeline_tests {
 
         let buf = h.buf();
         assert!(
-            buf.starts_with("tau, reformat this: [clipboard:"),
+            buf.starts_with("tau, reformat this: [clip:"),
             "Buffer must contain the clipboard placeholder, got: {buf}"
         );
     }

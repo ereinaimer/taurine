@@ -17,12 +17,12 @@ Taurine is designed to give you maximum power and flexibility over your trigger 
 * **Positional vs. Named**: Positional arguments must use zero-based integers (e.g., `[0=default]`, `[1=default]`). Named arguments map key-value pairs (e.g., `[repo=taurine]`).
 
 ### Nested Templates & Pipelines
-* **Nested Tags**: You can nest variables inside other tags (e.g., `[http.get([url]) | json('slideshow.title') | case(upper)]`). Inner tags are always evaluated first.
-* **Pipeline Formatting**: Pipeline transformers (like `| case(upper)` or `| json(...)`) must be enclosed within the tag's outer square brackets. Placing pipes outside (e.g., `[http.get(...)] | case(upper)`) will output the pipe and transformer literally.
+* **Nested Tags**: You can nest variables inside other tags (e.g., `[http(get, [url]) | json('slideshow.title') | case(upper)]`). Inner tags are always evaluated first.
+* **Pipeline Formatting**: Pipeline transformers (like `| case(upper)` or `| json(...)`) must be enclosed within the tag's outer square brackets. Placing pipes outside (e.g., `[http(get, ...)] | case(upper)`) will output the pipe and transformer literally.
 
 ### System Variables & Directives
 * **No Default Assignments**: System variables cannot have default assignments. Trying to assign a default to a system variable (e.g., `[cursor=here]`) triggers a validation error.
-* **Reserved Dot-Namespaces**: User-defined variable names containing dots (`.`) are prohibited; dot-namespaces are reserved strictly for system variables (e.g., `[date.utc]`).
+* **Reserved Namespaces**: Variable names containing dots (`.`) inside tags are save-time errors pointing to canonical `namespace(args)` forms (e.g. `[chrono(date, tz=utc)]`).
 
 ### Escaping Literals
 * **Brackets**: If literal square brackets are needed in the output, they must be escaped: `\[` and `\]`.
@@ -53,8 +53,8 @@ The `| ai(...)` transformer makes live requests to external LLMs.
 * **Violation**: Prevents saving with a `Multiple [cursor] tags found` error.
 
 ### Directives Conflict
-* **Rule**: The `[cursor]` directive cannot coexist with key trigger (`[key.*]`), delay (`[delay.*]`), or mouse (`[mouse.*]`) directives.
-* **Violation**: Prevents saving with a `The [cursor] directive cannot be used alongside [key.*], [delay.*], or [mouse.*] directives` error.
+* **Rule**: The `[cursor]` directive cannot coexist with key trigger (`[key(...)]`), delay (`[delay(...)]`), or mouse (`[mouse(...)]`) directives.
+* **Violation**: Prevents saving with a `The [cursor] directive cannot be used alongside [key(...)], [delay(...)], or [mouse(...)] directives` error.
 
 ---
 
@@ -68,15 +68,15 @@ These boundaries are enforced during template expansion at runtime.
 
 ### File Read Size Limit
 * **Max Size**: 5MB.
-* **Behavior**: Natively reading files via `[file.read(path)]` or `[file.line(...)]` is capped at 5MB to prevent service memory exhaustion.
+* **Behavior**: Natively reading files via `[file(read, path)]` or `[file(line, ...)]` is capped at 5MB to prevent service memory exhaustion.
 
 ### Exec Command Timeout
 * **Default**: 15 seconds (configurable via the `script_timeout` setting).
-* **Behavior**: Shell process executions via `[execute.*]` are terminated once they exceed the configured timeout. Setting `script_timeout` to `0` disables the timeout entirely.
+* **Behavior**: Shell process executions via `[execute(...)]` are terminated once they exceed the configured timeout. Setting `script_timeout` to `0` disables the timeout entirely.
 
 ### HTTP Request Timeout
 * **Max Timeout**: 5 seconds.
-* **Behavior**: Web requests via `[http.*]` timeout after 5 seconds.
+* **Behavior**: Web requests via `[http(...)]` timeout after 5 seconds.
 
 ### Interpolation Boundaries
 * **Interpolation Depth**: Enforces a max depth of 32 levels (`MAX_INTERPOLATION_DEPTH`) during recursive placeholder resolution.

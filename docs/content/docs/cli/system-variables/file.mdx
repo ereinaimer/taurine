@@ -1,105 +1,28 @@
 ---
-title: File
-description: Read and inject local file contents directly into your trigger templates.
+title: File System
+description: Read local file contents directly inside system templates.
 ---
 
-import { Callout } from 'fumadocs-ui/components/callout';
+The `file` system variable reads local UTF-8 file contents into expanding trigger templates.
 
-The `[file.*]` namespace allows you to natively read and inject content from files located on your local disk.
-
-## Methods
-
-### `[file.read(path)]`
-
-Reads the entire contents of a file and injects it into your snippet output.
+### Syntax & Parameters
 
 ```text
-License terms:
-[file.read(C:\Users\aimer\LICENSE.txt)]
+[file(op, path, ...)]
 ```
 
-- **File Path**: Must be an absolute path (or start with `~` for the home directory).
-- **Size Limit**: Files larger than **5MB** are rejected to protect performance, failing safely without injecting text into the document.
-- **UTF-8 Support**: Reads standard UTF-8 text files. Binary files will return an error or produce unreadable sequences.
+- **`read`**: Read full file contents: `[file(read, path)]`
+- **`line`**: Read a single 1-indexed line: `[file(line, path, n)]`
+- **`lines`**: Read a range of 1-indexed lines: `[file(lines, path, start, [end])]`
 
----
+> [!NOTE]
+> File paths containing commas must be wrapped in quotes (e.g., `[file(read, "path,with,commas.txt")]`). Path `~` expands to the user home directory. File size cap is 5 MB.
 
-### `[file.line(path, n)]`
+### Examples
 
-Reads a single, 1-indexed line from a target file.
-
-```text
-Today's quote:
-[file.line(C:\notes\quotes.txt, 1)]
-```
-
-If the requested line number exceeds the file's total lines, Taurine returns an out-of-bounds error.
-
----
-
-### `[file.lines(path, start, [end])]`
-
-Extracts a contiguous range of lines from a target file. If `end` is omitted, it reads from `start` through to the end of the file.
-
-```text
-Header section:
-[file.lines(C:\notes\changelog.md, 1, 10)]
-
-From line 5 to EOF:
-[file.lines(C:\notes\changelog.md, 5)]
-```
-
-Lines within the specified range (inclusive) are joined with standard line breaks.
-
----
-
-## Combining with Transformers
-
-You can pipe file content directly into transformers to modify it before expansion.
-
-```text
-[file.read(~/.bashrc) | case(upper)]
-[file.line(~/todo.txt, 1) | strip(whitespace)]
-[file.lines(~/changelog.md, 1, 3) | case(lower)]
-```
-
----
-
-## Example Usage: Line Selection
-
-If you have a file named `quotes.txt` with one quote per line, you can configure a trigger to pull specific lines.
-
-```text
-[file.lines(C:\notes\quotes.txt, 1, 5) | strip(whitespace)]
-```
----
-
-## Technical Constraints
-
-<Callout type="warn" title="5MB Size Limit">
-To prevent memory exhaustion on the service thread and ensure zero-latency execution, **all file reads are strictly limited to 5MB.** 
-</Callout>
-
-Taurine is designed for stability and clean document editing. If a file cannot be found, permissions are denied, or the file size exceeds the 5MB limit, the engine **will not crash or inject in-band error messages into your active document**. Instead, it safely intercepts the failure, logs a warning to the service logger, and erases the trigger keyword without expanding.
-
----
-
-## Examples
-
-### Injecting a Signature
-You can store your email signature in a `.txt` file and inject it effortlessly.
-
-<Transformation
-  trigger=";sig"
-  template="Best regards,\n\n[file.read(~/Documents/signature.txt)]"
-  output="Best regards,\n\nJohn Doe\nSenior Engineer | Taurine Inc.\njohn@taurine.app"
-/>
-
-### Pulling a Quote Line
-If you have a file named `quotes.txt` with one quote per line, you can configure a trigger to pull a single line.
-
-<Transformation
-  trigger=";quote"
-  template="Here is your quote for the day:\n[file.line(~/Documents/quotes.txt, 1)]"
-  output="Here is your quote for the day:\nThe only way to do great work is to love what you do."
-/>
+| Expression | Description |
+|---|---|
+| `[file(read, ~/notes.txt)]` | Read full file content |
+| `[file(line, ~/log.txt, 10)]` | Read line 10 of file |
+| `[file(lines, ~/data.txt, 1, 5)]` | Read lines 1 through 5 |
+| `[file(read, "~/my,file.txt")]` | Quoted path containing commas |

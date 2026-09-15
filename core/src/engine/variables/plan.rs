@@ -897,7 +897,7 @@ mod tests {
         crate::engine::variables::system::clipboard::set_mock_clip(Some(
             "Article text".to_string(),
         ));
-        let tpl = "Summary: [clipboard | ai(summarize this in 3 bullets) | strip(whitespace)]";
+        let tpl = "Summary: [clip | ai(summarize this in 3 bullets) | strip(whitespace)]";
         let plan = ExecutionPlan::compile(tpl);
         let expansion = plan.evaluate(&ArgMap::default(), None, ExpansionOrigin::User);
 

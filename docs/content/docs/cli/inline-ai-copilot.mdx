@@ -95,12 +95,11 @@ Taurine precisely backspaces only the `tau, summarize key risks` portion, leavin
 You can provide copied text or code as context to your inline AI prompt in two seamless ways:
 
 1. **Paste Shortcut (`Ctrl + V` / `Cmd + V`)**: When typing after a `tau,` prefix, pressing your paste shortcut automatically intercepts the paste, preventing large code or multi-line text from flooding your editor. Instead, Taurine types a compact placeholder token:
-   - For multi-line text: `[clipboard: 34 lines]`
-   - For single-line text: `[clipboard: 18 words]` (or `[clipboard: 1 word]`)
-2. **Explicit Token (`[clipboard]`)**: You can also manually type `[clipboard]` anywhere inside your prompt:
-   ```text
-   tau, reformat this in json: [clipboard][Enter]
-   ```
+   - For multi-line text: `[clip: 34 lines]`
+   - For single-line text: `[clip: 18 words]` (or `[clip: 1 word]`)
+2. **Explicit Token (`[clip]`)**: You can also manually type `[clip]` anywhere inside your prompt:
+   - `tau, summarize this text: [clip]`
+   - `tau, rewrite in python: [clip | ai(add unit tests)]`
 
 When you hit **Enter**, Taurine deletes only the concise single line on screen, substitutes the raw clipboard content directly into the prompt as-is, and streams the AI response directly into your active window.
 
