@@ -26,9 +26,138 @@ pub enum ExecuteParseError {
 }
 
 pub fn parse_invocation(key: &str) -> Result<ExecuteInvocation, ExecuteParseError> {
-    let mut rest = key
-        .strip_prefix("execute.")
+    // honey: unified `execute(lang, subject, ...)` arrives as the raw arg list;
+    // the legacy `execute.` dot chain stays until Tasks 8/9 migrate its
+    // remaining callers (finalize, plan, assets, validation) off it.
+    match key.strip_prefix("execute.") {
+        Some(rest) => parse_legacy_invocation(rest),
+        None => parse_unified_invocation(key),
+    }
+}
+
+fn parse_unified_invocation(raw: &str) -> Result<ExecuteInvocation, ExecuteParseError> {
+    use crate::engine::variables::parser::BindError;
+
+    let spec = crate::engine::variables::registry::param_spec("execute")
         .ok_or(ExecuteParseError::InvalidLanguage)?;
+    // honey: variadic argv overflows into the flag slots, so a trailing
+    // `file=`/`silent=` collides (Duplicate). Peel trailing flags, bind the
+    // positional skeleton, then apply the flags.
+    let mut head = raw.to_string();
+    let mut file_flag: Option<String> = None;
+    let mut silent_flag: Option<String> = None;
+    let bound = loop {
+        match crate::engine::variables::parser::bind_call("execute", &head, &spec) {
+            Ok(bound) => break bound,
+            Err(BindError::Duplicate { param, .. }) if param == "file" || param == "silent" => {
+                let (rest, key, value) = peel_trailing_flag(&head)?;
+                let slot = if key == "file" {
+                    &mut file_flag
+                } else {
+                    &mut silent_flag
+                };
+                if slot.is_some() {
+                    return Err(ExecuteParseError::InvalidTrailingSyntax);
+                }
+                *slot = Some(value);
+                head = rest;
+            }
+            Err(BindError::MissingRequired { param, .. }) => {
+                return Err(if param == "lang" {
+                    ExecuteParseError::InvalidLanguage
+                } else if param == "subject" {
+                    ExecuteParseError::MissingSubject
+                } else {
+                    ExecuteParseError::InvalidTrailingSyntax
+                });
+            }
+            Err(_) => return Err(ExecuteParseError::InvalidTrailingSyntax),
+        }
+    };
+
+    let lang = bound
+        .positional
+        .first()
+        .ok_or(ExecuteParseError::InvalidLanguage)?;
+    let interpreter = match lang.as_str() {
+        "bash" => ScriptInterpreter::Bash,
+        "powershell" => ScriptInterpreter::PowerShell,
+        "python" => ScriptInterpreter::Python,
+        "node" => ScriptInterpreter::Node,
+        "cmd" => ScriptInterpreter::Cmd,
+        _ => return Err(ExecuteParseError::InvalidLanguage),
+    };
+    let subject = bound
+        .positional
+        .get(1)
+        .cloned()
+        .ok_or(ExecuteParseError::MissingSubject)?;
+    let has_named = crate::engine::variables::parser::has_named_args(&bound, &spec);
+    let file = flag_value(file_flag, 2, "file", &bound, &spec, has_named)?;
+    let silent = flag_value(silent_flag, 3, "silent", &bound, &spec, has_named)?;
+    Ok(ExecuteInvocation {
+        silent,
+        interpreter,
+        file,
+        subject,
+        args: bound.positional.iter().skip(2).cloned().collect(),
+    })
+}
+
+fn peel_trailing_flag(head: &str) -> Result<(String, String, String), ExecuteParseError> {
+    let mut parts = crate::engine::variables::parser::tokenize(head, ',');
+    let last = parts
+        .pop()
+        .ok_or(ExecuteParseError::InvalidTrailingSyntax)?;
+    let (raw_key, raw_value) = last
+        .split_once('=')
+        .ok_or(ExecuteParseError::InvalidTrailingSyntax)?;
+    let key = crate::engine::variables::system::strip_argument_quotes(raw_key.trim());
+    if key != "file" && key != "silent" {
+        return Err(ExecuteParseError::InvalidTrailingSyntax);
+    }
+    let value =
+        crate::engine::variables::system::strip_argument_quotes(raw_value.trim()).to_string();
+    Ok((parts.join(","), key.to_string(), value))
+}
+
+fn flag_value(
+    peeled: Option<String>,
+    index: usize,
+    key: &str,
+    bound: &crate::engine::variables::parser::BoundArgs,
+    spec: &crate::engine::variables::parser::ParamSpec<'_>,
+    has_named: bool,
+) -> Result<bool, ExecuteParseError> {
+    if let Some(value) = peeled {
+        let default = spec.params.get(index).map(|p| p.default).unwrap_or("false");
+        let named_in_head =
+            bound.positional.len() <= index && bound.named.get(key).is_some_and(|s| s != default);
+        if named_in_head {
+            return Err(ExecuteParseError::InvalidTrailingSyntax);
+        }
+        return parse_bool_flag(&value);
+    }
+    if !has_named || bound.positional.len() > index {
+        // honey: pure positional call, or argv overflow occupies the slot: not a flag.
+        return Ok(false);
+    }
+    parse_bool_flag(bound.named.get(key).map(String::as_str).unwrap_or("false"))
+}
+
+fn parse_bool_flag(value: &str) -> Result<bool, ExecuteParseError> {
+    match crate::engine::variables::system::strip_argument_quotes(value.trim())
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(ExecuteParseError::InvalidTrailingSyntax),
+    }
+}
+
+fn parse_legacy_invocation(key: &str) -> Result<ExecuteInvocation, ExecuteParseError> {
+    let mut rest = key;
 
     let mut silent = false;
     let mut interpreter = None;
@@ -574,6 +703,36 @@ mod tests {
     }
 
     #[test]
+    fn parses_unified_execute() {
+        let p = parse_invocation("bash, \"echo 42\"").unwrap();
+        assert_eq!(p.subject, "echo 42");
+        assert!(
+            parse_invocation("python, /s.py, a, b, file=true")
+                .unwrap()
+                .file
+        );
+        assert!(parse_invocation("ruby, \"puts 1\"").is_err());
+        assert!(parse_invocation("bash").is_err());
+    }
+
+    #[test]
+    fn parses_unified_execute_flags_and_argv() {
+        let p = parse_invocation("python, /s.py, a, b, silent=TRUE").unwrap();
+        assert_eq!(p.interpreter, ScriptInterpreter::Python);
+        assert_eq!(p.subject, "/s.py");
+        assert_eq!(p.args, vec!["a", "b"]);
+        assert!(!p.file);
+        assert!(p.silent);
+        let p = parse_invocation("bash, s, a, b, file=true, silent=false").unwrap();
+        assert!(p.file);
+        assert!(!p.silent);
+        assert!(parse_invocation("bash, s, file=yes").is_err());
+        assert!(parse_invocation("bash, s, bogus=1").is_err());
+        assert!(parse_invocation("lang=bash, subject=hi").is_err());
+        assert!(parse_invocation("bash, s, file=true, file=true").is_err());
+    }
+
+    #[test]
     fn rejects_invalid_execute_syntax() {
         assert_eq!(
             parse_invocation("execute.ruby(puts 1)"),
@@ -621,6 +780,40 @@ mod tests {
         let key = format!("execute.bash.file({})", path.display());
 
         assert_eq!(resolve(&key), None);
+    }
+
+    #[test]
+    fn converts_unified_execute_to_script_metadata() {
+        let metadata = to_script_metadata("bash, \"echo 42\"").unwrap();
+        assert_eq!(metadata.interpreter, ScriptInterpreter::Bash);
+        assert_eq!(metadata.behavior, ScriptBehavior::Inline);
+        assert_eq!(
+            crate::engine::shell::decompress(&metadata.compressed_content).unwrap(),
+            "echo 42"
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.sh");
+        std::fs::write(&path, "echo file:$1\n").unwrap();
+        let metadata = to_script_metadata(&format!(
+            "bash, {}, ok, file=true, silent=true",
+            path.display()
+        ))
+        .unwrap();
+        let content = crate::engine::shell::decompress(&metadata.compressed_content).unwrap();
+        assert_eq!(metadata.behavior, ScriptBehavior::Silent);
+        assert!(content.contains("test.sh"));
+        assert!(content.contains("'ok'"));
+    }
+
+    #[test]
+    fn execute_unified_bash_resolves_stdout() {
+        if !bash_available() {
+            eprintln!("skipping bash execution test because bash is unavailable");
+            return;
+        }
+
+        assert_eq!(resolve("bash, \"echo 42\"").unwrap(), "42");
     }
 
     #[test]
