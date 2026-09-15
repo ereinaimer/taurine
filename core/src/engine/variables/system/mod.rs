@@ -66,7 +66,8 @@ pub fn is_deferred(key: &str) -> bool {
         if let Some(spec) = crate::engine::variables::registry::param_spec("ip")
             && let Ok(bound) = crate::engine::variables::parser::bind_call("ip", inner, &spec)
         {
-            return bound.named.get("type").map(String::as_str) == Some("public");
+            return bound.positional.len() <= 1
+                && bound.named.get("type").map(String::as_str) == Some("public");
         }
         return false;
     }

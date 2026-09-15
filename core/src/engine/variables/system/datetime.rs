@@ -265,7 +265,9 @@ pub fn resolve(raw: &str) -> Option<String> {
     if bound.positional.len() > spec.params.len() {
         return None;
     }
-    let (kind, offset, format, tz) = if bound.positional.len() == 1 && !raw.contains('=') {
+    let (kind, offset, format, tz) = if bound.positional.len() == 1
+        && !crate::engine::variables::parser::has_named_args(&bound, &spec)
+    {
         classify_single(&bound.positional[0])?
     } else {
         (
@@ -339,6 +341,7 @@ mod tests {
         assert!(resolve("date, +1d, YYYY-MM-DD, utc").is_some());
         assert_eq!(resolve("1d"), None); // offset needs +/-
         assert!(resolve("type=time, tz=utc").is_some());
+        assert_eq!(resolve("'=b'").unwrap(), "=b"); // quoted = stays format
     }
 
     #[test]

@@ -46,6 +46,7 @@ fn test_is_deferred_ip_forms() {
     assert!(is_deferred("ip(\"public\")"));
     assert!(!is_deferred("ip(local)"));
     assert!(!is_deferred("ip(type=local)"));
+    assert!(!is_deferred("ip(public, extra)")); // arity-failing calls never defer
 }
 
 #[test]

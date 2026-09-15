@@ -367,7 +367,8 @@ fn validate_lorem_modifier(modifier: Option<&str>) -> Result<(), ValidationError
                     matches!(variant, "paragraphs" | "words" | "sentences")
                         && args.len() <= 1
                         && args.iter().all(|a| {
-                            a.parse::<usize>().is_ok() || (a.contains('[') && a.contains(']'))
+                            a.parse::<usize>().is_ok()
+                                || matches!((a.find('['), a.find(']')), (Some(o), Some(c)) if o < c)
                         })
                 }
             };
