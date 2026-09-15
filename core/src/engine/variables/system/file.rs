@@ -6,83 +6,6 @@ use std::path::{Path, PathBuf};
 
 const MAX_FILE_SIZE: u64 = 5 * 1024 * 1024; // 5MB limit
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct FileInvocation {
-    pub variant: String,
-    pub raw_args: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FileParseError {
-    MissingVariant,
-    MissingParentheses,
-    UnbalancedParentheses,
-    InvalidTrailingSyntax,
-}
-
-pub(crate) fn parse_invocation(key: &str) -> Result<FileInvocation, FileParseError> {
-    let rest = key
-        .strip_prefix("file.")
-        .ok_or(FileParseError::MissingVariant)?;
-
-    let variant_end = rest.find('(').unwrap_or(rest.len());
-    let variant = rest[..variant_end].trim();
-    if variant.is_empty() {
-        return Err(FileParseError::MissingVariant);
-    }
-
-    let (raw_args, trailing) = if variant_end == rest.len() {
-        if rest.contains(')') {
-            return Err(FileParseError::UnbalancedParentheses);
-        }
-        (String::new(), "")
-    } else {
-        scan_parenthesized(&rest[variant_end..])?
-    };
-
-    if !trailing.trim().is_empty() {
-        return Err(FileParseError::InvalidTrailingSyntax);
-    }
-
-    Ok(FileInvocation {
-        variant: variant.to_string(),
-        raw_args,
-    })
-}
-
-fn scan_parenthesized(input: &str) -> Result<(String, &str), FileParseError> {
-    if !input.starts_with('(') {
-        return Err(FileParseError::MissingParentheses);
-    }
-
-    let mut depth = 0usize;
-    let mut start = None;
-
-    for (idx, ch) in input.char_indices() {
-        match ch {
-            '(' => {
-                if depth == 0 {
-                    start = Some(idx + ch.len_utf8());
-                }
-                depth += 1;
-            }
-            ')' => {
-                if depth == 0 {
-                    return Err(FileParseError::UnbalancedParentheses);
-                }
-                depth -= 1;
-                if depth == 0 {
-                    let start = start.ok_or(FileParseError::MissingParentheses)?;
-                    return Ok((input[start..idx].trim().to_string(), &input[idx + 1..]));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    Err(FileParseError::UnbalancedParentheses)
-}
-
 pub(crate) fn expand_path(path_str: &str) -> Option<PathBuf> {
     if let Some(rest) = path_str.strip_prefix("~/") {
         UserDirs::new()
@@ -186,91 +109,84 @@ fn read_lines(path_str: &str, start: usize, end: usize) -> Option<String> {
     Some(result.join("\n"))
 }
 
-pub fn resolve(key: &str) -> Option<String> {
-    let invocation = parse_invocation(key).ok()?;
-    let variant = invocation.variant.as_str();
+/// Resolves the unified `file(...)` system variable.
+///
+/// `raw` is the argument list inside `file(...)`, bound as
+/// `(op, path, start, end)` with a quote-aware split; an unquoted
+/// comma inside the path shifts arity and fails.
+pub fn resolve(raw: &str) -> Option<String> {
+    let spec = crate::engine::variables::registry::param_spec("file")?;
+    let bound = crate::engine::variables::parser::bind_call("file", raw, &spec).ok()?;
+    let has_named = raw.contains('=');
+    let (op, path_str, start_str, end_str) = if has_named {
+        (
+            bound.named.get("op").cloned().unwrap_or_default(),
+            bound.named.get("path").cloned().unwrap_or_default(),
+            bound.named.get("start").cloned().unwrap_or_default(),
+            bound.named.get("end").cloned().unwrap_or_default(),
+        )
+    } else {
+        if bound.positional.len() > spec.params.len() {
+            return None;
+        }
+        let op = bound.positional.first().cloned().unwrap_or_default();
+        let rest: Vec<String> = bound.positional.iter().skip(1).cloned().collect();
+        let (path, start, end) = match (op.as_str(), rest.len()) {
+            ("read", 1) => (rest[0].clone(), String::new(), String::new()),
+            ("line", 2) => (rest[0].clone(), rest[1].clone(), String::new()),
+            ("lines", 2) => (rest[0].clone(), rest[1].clone(), String::new()),
+            ("lines", 3) => (rest[0].clone(), rest[1].clone(), rest[2].clone()),
+            _ => return None,
+        };
+        (op, path, start, end)
+    };
 
-    match variant {
+    match op.as_str() {
         "read" => {
-            if invocation.raw_args.is_empty() {
+            if path_str.trim().is_empty() || !start_str.is_empty() || !end_str.is_empty() {
                 tracing::warn!("file.read called with missing path");
                 return None;
             }
-            read_file(&invocation.raw_args)
+            read_file(path_str.trim())
         }
         "line" => {
-            if invocation.raw_args.is_empty() {
-                tracing::warn!("file.line called with missing path");
-                return None;
-            }
-
-            // Format: path, n
-            let parts: Vec<&str> = invocation.raw_args.rsplitn(2, ',').collect();
-            if parts.len() < 2 {
+            if path_str.trim().is_empty() || start_str.trim().is_empty() || !end_str.is_empty() {
                 tracing::warn!("file.line needs path and line number");
                 return None;
             }
-
-            let path_str = parts[1].trim();
-            let n_str = parts[0].trim();
-
-            let line_num = match n_str.parse::<usize>() {
+            let line_num = match start_str.trim().parse::<usize>() {
                 Ok(n) if n > 0 => n,
                 _ => {
-                    tracing::warn!("file.line invalid line number: '{}'", n_str);
+                    tracing::warn!("file.line invalid line number: '{}'", start_str);
                     return None;
                 }
             };
-
-            read_lines(path_str, line_num, line_num)
+            read_lines(path_str.trim(), line_num, line_num)
         }
         "lines" => {
-            if invocation.raw_args.is_empty() {
-                tracing::warn!("file.lines called with missing path");
-                return None;
-            }
-
-            // Format: path, start, [end]
-            let parts: Vec<&str> = invocation.raw_args.rsplitn(3, ',').collect();
-            if parts.len() < 2 {
+            if path_str.trim().is_empty() || start_str.trim().is_empty() {
                 tracing::warn!("file.lines needs path and start line");
                 return None;
             }
-
-            let path_str: &str;
-            let start_str: &str;
-            let mut end_str: Option<&str> = None;
-
-            if parts.len() == 3 {
-                end_str = Some(parts[0].trim());
-                start_str = parts[1].trim();
-                path_str = parts[2].trim();
-            } else {
-                start_str = parts[0].trim();
-                path_str = parts[1].trim();
-            }
-
-            let start = match start_str.parse::<usize>() {
+            let start = match start_str.trim().parse::<usize>() {
                 Ok(n) if n > 0 => n,
                 _ => {
                     tracing::warn!("file.lines invalid start line: '{}'", start_str);
                     return None;
                 }
             };
-
-            let end = if let Some(e) = end_str {
-                match e.parse::<usize>() {
+            let end = if end_str.trim().is_empty() {
+                usize::MAX
+            } else {
+                match end_str.trim().parse::<usize>() {
                     Ok(n) if n >= start => n,
                     _ => {
-                        tracing::warn!("file.lines invalid end line: '{}'", e);
+                        tracing::warn!("file.lines invalid end line: '{}'", end_str);
                         return None;
                     }
                 }
-            } else {
-                usize::MAX
             };
-
-            read_lines(path_str, start, end)
+            read_lines(path_str.trim(), start, end)
         }
         _ => None,
     }
@@ -279,45 +195,46 @@ pub fn resolve(key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
-    use tempfile::NamedTempFile;
 
-    fn create_temp_file(content: &str) -> NamedTempFile {
-        let mut file = NamedTempFile::new().unwrap();
-        write!(file, "{}", content).unwrap();
-        file
+    fn write_temp(content: &str) -> (tempfile::TempDir, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("data.txt");
+        std::fs::write(&path, content).unwrap();
+        let s = path.to_str().unwrap().to_string();
+        (dir, s)
     }
 
     #[test]
-    fn parses_invocations() {
+    fn file_unified() {
+        let (_dir, path) = write_temp("one\ntwo\nthree\nfour");
         assert_eq!(
-            parse_invocation("file.read(/path/to/file.txt)").unwrap(),
-            FileInvocation {
-                variant: "read".to_string(),
-                raw_args: "/path/to/file.txt".to_string(),
-            }
+            resolve(&format!("read, {path}")).unwrap(),
+            "one\ntwo\nthree\nfour"
         );
         assert_eq!(
-            parse_invocation("file.line(/path/with, comma.txt, 2)").unwrap(),
-            FileInvocation {
-                variant: "line".to_string(),
-                raw_args: "/path/with, comma.txt, 2".to_string(),
-            }
+            resolve(&format!("op=read, path={path}")).unwrap(),
+            "one\ntwo\nthree\nfour"
         );
+        assert_eq!(resolve(&format!("line, {path}, 2")).unwrap(), "two");
         assert_eq!(
-            parse_invocation("file.lines(/path/with, comma.txt, 1, 5)").unwrap(),
-            FileInvocation {
-                variant: "lines".to_string(),
-                raw_args: "/path/with, comma.txt, 1, 5".to_string(),
-            }
+            resolve(&format!("lines, {path}, 1, 2")).unwrap(),
+            "one\ntwo"
         );
+        assert_eq!(resolve("bogus, /tmp/x"), None);
+        assert_eq!(resolve(&format!("read, {path}, extra, args, oops")), None);
     }
 
     #[test]
-    fn read_file_success() {
-        let file = create_temp_file("hello world");
-        let path = file.path().to_str().unwrap();
-        assert_eq!(read_file(path), Some("hello world".to_string()));
+    fn file_comma_path_quoted_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a,b.txt");
+        std::fs::write(&path, "comma-ok").unwrap();
+        let raw_path = path.to_str().unwrap();
+        assert_eq!(
+            resolve(&format!("read, \"{raw_path}\"")).unwrap(),
+            "comma-ok"
+        );
+        assert_eq!(resolve(&format!("read, {raw_path}")), None); // unquoted comma → arity error
     }
 
     #[test]
@@ -328,43 +245,25 @@ mod tests {
 
     #[test]
     fn read_line_single() {
-        let file = create_temp_file("one\ntwo\nthree\nfour");
-        let path = file.path().to_str().unwrap();
-        assert_eq!(read_lines(path, 2, 2), Some("two".to_string()));
+        let (_dir, path) = write_temp("one\ntwo\nthree\nfour");
+        assert_eq!(read_lines(&path, 2, 2), Some("two".to_string()));
     }
 
     #[test]
     fn read_line_range() {
-        let file = create_temp_file("one\ntwo\nthree\nfour");
-        let path = file.path().to_str().unwrap();
-        assert_eq!(read_lines(path, 2, 3), Some("two\nthree".to_string()));
+        let (_dir, path) = write_temp("one\ntwo\nthree\nfour");
+        assert_eq!(read_lines(&path, 2, 3), Some("two\nthree".to_string()));
     }
 
     #[test]
     fn read_line_out_of_bounds() {
-        let file = create_temp_file("one\ntwo");
-        let path = file.path().to_str().unwrap();
-        assert_eq!(read_lines(path, 5, 6), None);
-    }
-
-    #[test]
-    fn resolve_line_and_lines_args() {
-        let file = create_temp_file("one\ntwo\nthree\nfour");
-        let path = file.path().to_str().unwrap();
-
-        let key_single = format!("file.line({}, 2)", path);
-        assert_eq!(resolve(&key_single).unwrap(), "two");
-
-        let key_range = format!("file.lines({}, 1, 2)", path);
-        assert_eq!(resolve(&key_range).unwrap(), "one\ntwo");
-
-        let key_to_end = format!("file.lines({}, 3)", path);
-        assert_eq!(resolve(&key_to_end).unwrap(), "three\nfour");
+        let (_dir, path) = write_temp("one\ntwo");
+        assert_eq!(read_lines(&path, 5, 6), None);
     }
 
     #[test]
     fn file_size_limit() {
-        let file = NamedTempFile::new().unwrap();
+        let file = tempfile::NamedTempFile::new().unwrap();
         file.as_file().set_len(MAX_FILE_SIZE + 1).unwrap();
         let path = file.path().to_str().unwrap();
         let result = read_file(path);

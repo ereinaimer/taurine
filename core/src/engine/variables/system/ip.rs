@@ -1,20 +1,20 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::Duration;
 
-pub fn resolve(key: &str) -> Option<String> {
-    if !key.starts_with("net.") {
+/// Resolves the unified `ip(...)` system variable.
+///
+/// `raw` is the argument list inside `ip(...)` (`""` when bare),
+/// bound as `(type=public)` with `type` in `{public, local}`.
+pub fn resolve(raw: &str) -> Option<String> {
+    let spec = crate::engine::variables::registry::param_spec("ip")?;
+    let bound = crate::engine::variables::parser::bind_call("ip", raw, &spec).ok()?;
+    if bound.positional.len() > spec.params.len() {
         return None;
     }
-
-    let modifier = &key[4..];
-    if modifier == "publicip" {
-        resolve_public_ip()
-    } else if modifier == "localip" {
-        resolve_local_ip()
-    } else if modifier == "online" {
-        Some(resolve_online())
-    } else {
-        None
+    match bound.named.get("type").map(String::as_str) {
+        Some("public") => resolve_public_ip(),
+        Some("local") => resolve_local_ip(),
+        _ => None,
     }
 }
 
@@ -36,16 +36,6 @@ fn routed_local_ipv4() -> Option<IpAddr> {
         None
     } else {
         Some(ip)
-    }
-}
-
-fn resolve_online() -> String {
-    let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(1, 1, 1, 1), 53));
-    let timeout = Duration::from_millis(500);
-    if TcpStream::connect_timeout(&addr, timeout).is_ok() {
-        "true".to_string()
-    } else {
-        "false".to_string()
     }
 }
 
@@ -123,19 +113,14 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_routing() {
-        assert!(resolve("net.publicip").is_some());
-        assert!(resolve("net.localip").is_some());
-        let online = resolve("net.online").unwrap();
-        assert!(online == "true" || online == "false");
-    }
-
-    #[test]
-    fn test_resolve_unknown_modifier() {
-        assert_eq!(resolve("net"), None);
-        assert_eq!(resolve("net."), None);
-        assert_eq!(resolve("net.mac"), None);
-        assert_eq!(resolve("net.hostname"), None);
-        assert_eq!(resolve("not_net.ip"), None);
+    fn ip_unified() {
+        assert!(resolve("").is_some()); // bare = public
+        assert!(resolve("public").is_some());
+        assert!(resolve("type=public").is_some());
+        assert!(resolve("local").is_some());
+        assert!(resolve("type=local").is_some());
+        assert_eq!(resolve("online"), None);
+        assert_eq!(resolve("private"), None);
+        assert_eq!(resolve("publicip"), None);
     }
 }

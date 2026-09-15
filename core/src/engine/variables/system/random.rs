@@ -5,142 +5,120 @@ const PASSWORD: &[u8] =
     b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+[]{}|;:,.<>?";
 const MAX_RANDOM_STRING_LEN: usize = 4096;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RandomInvocation {
-    pub variant: String,
-    pub args: Vec<String>,
-}
+const KNOWN_TYPES: &[&str] = &["int", "choice", "str", "pass"];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RandomParseError {
-    MissingVariant,
-    MissingParentheses,
-    UnbalancedParentheses,
-    InvalidTrailingSyntax,
-}
-
-pub(crate) fn parse_invocation(key: &str) -> Result<RandomInvocation, RandomParseError> {
-    let rest = key
-        .strip_prefix("random.")
-        .ok_or(RandomParseError::MissingVariant)?;
-
-    let variant_end = rest.find('(').unwrap_or(rest.len());
-    let variant = rest[..variant_end].trim();
-    if variant.is_empty() {
-        return Err(RandomParseError::MissingVariant);
-    }
-
-    let (args, trailing) = if variant_end == rest.len() {
-        if rest.contains(')') {
-            return Err(RandomParseError::UnbalancedParentheses);
-        }
-        (Vec::new(), "")
+/// Resolves the unified `random(...)` system variable.
+///
+/// `raw` is the argument list inside `random(...)` (`""` when bare),
+/// bound as `(type=int, min=0, max=100)` with a variadic positional tail.
+/// Single numeric arg detects `int` with that max (`random(6)` → 1..6).
+pub fn resolve(raw: &str) -> Option<String> {
+    let spec = crate::engine::variables::registry::param_spec("random")?;
+    let bound = crate::engine::variables::parser::bind_call("random", raw, &spec).ok()?;
+    let has_named = raw.contains('=');
+    let kind = if bound.positional.is_empty() {
+        bound
+            .named
+            .get("type")
+            .map(String::as_str)
+            .unwrap_or("int")
+            .to_string()
+    } else if KNOWN_TYPES.contains(&bound.positional[0].as_str()) {
+        bound.positional[0].clone()
+    } else if bound.positional[0].parse::<i64>().is_ok() {
+        "int".to_string()
+    } else if has_named
+        && let Some(t) = bound.named.get("type")
+        && KNOWN_TYPES.contains(&t.as_str())
+    {
+        t.clone()
     } else {
-        let (args, trailing) = scan_parenthesized(&rest[variant_end..])?;
-        (split_args(&args), trailing)
+        return None;
     };
-
-    if !trailing.trim().is_empty() {
-        return Err(RandomParseError::InvalidTrailingSyntax);
-    }
-
-    Ok(RandomInvocation {
-        variant: variant.to_string(),
-        args,
-    })
-}
-
-pub fn resolve(key: &str) -> Option<String> {
-    if key == "random" {
-        let mut rng = rand::rng();
-        return Some(rng.random_range(0..=100).to_string());
-    }
-
-    let invocation = parse_invocation(key).ok()?;
     let mut rng = rand::rng();
 
-    match invocation.variant.as_str() {
+    match kind.as_str() {
         "int" => {
-            let (min, max) = parse_int_range(&invocation.args, 0, 100)?;
-            Some(rng.random_range(min..=max).to_string())
+            if has_named {
+                let min = bound.named.get("min")?.parse::<i64>().ok()?;
+                let max = bound.named.get("max")?.parse::<i64>().ok()?;
+                (min <= max).then(|| rng.random_range(min..=max).to_string())
+            } else {
+                let nums: Vec<String> =
+                    if bound.positional.len() == 1 && bound.positional[0].parse::<i64>().is_ok() {
+                        bound.positional.clone()
+                    } else {
+                        bound.positional.iter().skip(1).cloned().collect()
+                    };
+                let (min, max) = parse_int_range(&nums, 0, 100)?;
+                Some(rng.random_range(min..=max).to_string())
+            }
         }
         "choice" => {
-            if invocation.args.is_empty() {
+            let opts: Vec<String> =
+                if bound.positional.first().map(String::as_str) == Some("choice") {
+                    bound.positional.iter().skip(1).cloned().collect()
+                } else {
+                    bound.positional.clone()
+                };
+            if opts.is_empty() {
                 return None;
             }
-            let index = rng.random_range(0..invocation.args.len());
-            Some(invocation.args[index].clone())
+            if has_named {
+                let min = bound.named.get("min").map(String::as_str).unwrap_or("0");
+                let max = bound.named.get("max").map(String::as_str).unwrap_or("100");
+                if min != "0" || max != "100" {
+                    return None;
+                }
+            }
+            let index = rng.random_range(0..opts.len());
+            Some(opts[index].clone())
         }
-        "str" => {
-            let len = parse_len(&invocation.args, 16)?;
-            Some(random_chars(&mut rng, ALPHANUMERIC, len))
-        }
-        "pass" => {
-            let len = parse_len(&invocation.args, 20)?;
-            Some(random_chars(&mut rng, PASSWORD, len))
+        "str" | "pass" => {
+            let default = if kind == "str" { 16 } else { 20 };
+            let tail: Vec<String> =
+                if bound.positional.first().map(String::as_str) == Some(kind.as_str()) {
+                    bound.positional.iter().skip(1).cloned().collect()
+                } else {
+                    bound.positional.clone()
+                };
+            if tail.len() > 1 {
+                return None;
+            }
+            if let Some(len_str) = tail.first() {
+                if has_named {
+                    return None;
+                }
+                let len = parse_len(std::slice::from_ref(len_str), default)?;
+                Some(random_chars(&mut rng, charset(&kind), len))
+            } else if has_named {
+                let min = bound.named.get("min").map(String::as_str).unwrap_or("0");
+                let max = bound.named.get("max").map(String::as_str).unwrap_or("100");
+                match (min, max) {
+                    ("0", "100") => Some(random_chars(&mut rng, charset(&kind), default)),
+                    (m, "100") if m != "0" => {
+                        let len = parse_len(&[m.to_string()], default)?;
+                        Some(random_chars(&mut rng, charset(&kind), len))
+                    }
+                    ("0", m) if m != "100" => {
+                        let len = parse_len(&[m.to_string()], default)?;
+                        Some(random_chars(&mut rng, charset(&kind), len))
+                    }
+                    _ => None,
+                }
+            } else {
+                Some(random_chars(&mut rng, charset(&kind), default))
+            }
         }
         _ => None,
     }
 }
 
-fn scan_parenthesized(input: &str) -> Result<(String, &str), RandomParseError> {
-    if !input.starts_with('(') {
-        return Err(RandomParseError::MissingParentheses);
-    }
-
-    let mut depth = 0usize;
-    let mut start = None;
-
-    for (idx, ch) in input.char_indices() {
-        match ch {
-            '(' => {
-                if depth == 0 {
-                    start = Some(idx + ch.len_utf8());
-                }
-                depth += 1;
-            }
-            ')' => {
-                if depth == 0 {
-                    return Err(RandomParseError::UnbalancedParentheses);
-                }
-                depth -= 1;
-                if depth == 0 {
-                    let start = start.ok_or(RandomParseError::MissingParentheses)?;
-                    return Ok((input[start..idx].trim().to_string(), &input[idx + 1..]));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    Err(RandomParseError::UnbalancedParentheses)
-}
-
-fn split_args(input: &str) -> Vec<String> {
-    let mut args = Vec::new();
-    let mut start = 0usize;
-    let mut depth = 0usize;
-
-    for (idx, ch) in input.char_indices() {
-        match ch {
-            '(' => depth += 1,
-            ')' if depth > 0 => depth -= 1,
-            ',' if depth == 0 => {
-                push_arg(&mut args, &input[start..idx]);
-                start = idx + ch.len_utf8();
-            }
-            _ => {}
-        }
-    }
-
-    push_arg(&mut args, &input[start..]);
-    args
-}
-
-fn push_arg(args: &mut Vec<String>, raw: &str) {
-    let trimmed = crate::engine::variables::system::strip_argument_quotes(raw);
-    if !trimmed.is_empty() {
-        args.push(trimmed.to_string());
+fn charset(kind: &str) -> &'static [u8] {
+    if kind == "pass" {
+        PASSWORD
+    } else {
+        ALPHANUMERIC
     }
 }
 
@@ -183,84 +161,32 @@ mod tests {
     }
 
     #[test]
-    fn parses_missing_and_parenthesized_args() {
-        assert_eq!(
-            parse_invocation("random.int").unwrap(),
-            RandomInvocation {
-                variant: "int".to_string(),
-                args: Vec::new(),
-            }
-        );
-        assert_eq!(
-            parse_invocation("random.int(1, 2)").unwrap(),
-            RandomInvocation {
-                variant: "int".to_string(),
-                args: vec!["1".to_string(), "2".to_string()],
-            }
-        );
-    }
-
-    #[test]
-    fn parses_quoted_arguments() {
-        assert_eq!(
-            parse_invocation("random.int(\"1\", '2')").unwrap(),
-            RandomInvocation {
-                variant: "int".to_string(),
-                args: vec!["1".to_string(), "2".to_string()],
-            }
-        );
-    }
-
-    #[test]
-    fn parses_choice_commas_outside_nested_parentheses() {
-        assert_eq!(
-            parse_invocation("random.choice(alpha(one, two), beta)")
-                .unwrap()
-                .args,
-            vec!["alpha(one, two)".to_string(), "beta".to_string()]
-        );
-    }
-
-    #[test]
-    fn resolves_int_ranges_and_rejects_invalid_ranges() {
-        assert_eq!(resolve("random.int(5, 5)"), Some("5".to_string()));
+    fn random_unified() {
         assert!(matches!(
-            resolve("random"),
+            resolve(""),
             Some(value) if (0..=100).contains(&value.parse::<i64>().unwrap())
-        ));
+        )); // bare = int 0..100
+        assert_eq!(resolve("int, 5, 5"), Some("5".to_string()));
         assert!(matches!(
-            resolve("random.int"),
-            Some(value) if (0..=100).contains(&value.parse::<i64>().unwrap())
-        ));
+            resolve("6"),
+            Some(value) if (1..=6).contains(&value.parse::<i64>().unwrap())
+        )); // numeric single-arg → int max=6
         assert!(matches!(
-            resolve("random.int(6)"),
+            resolve("type=int, min=1, max=6"),
             Some(value) if (1..=6).contains(&value.parse::<i64>().unwrap())
         ));
-        assert_eq!(resolve("random.int(10, 5)"), None);
-    }
-
-    #[test]
-    fn resolves_choice_from_trimmed_options() {
-        assert_eq!(resolve("random.choice(only)"), Some("only".to_string()));
+        assert_eq!(resolve("choice, only"), Some("only".to_string()));
         assert!(matches!(
-            resolve("random.choice(alpha, beta)").as_deref(),
+            resolve("choice, alpha, beta").as_deref(),
             Some("alpha") | Some("beta")
         ));
-        assert_eq!(resolve("random.choice()"), None);
-    }
-
-    #[test]
-    fn resolves_random_strings_and_aliases() {
-        let str_val = resolve("random.str").unwrap();
+        let str_val = resolve("str").unwrap();
         assert_eq!(str_val.len(), 16);
         assert_charset(&str_val, ALPHANUMERIC);
-
-        assert_eq!(resolve("random.string"), None);
-
-        let pass_val = resolve("random.pass(20)").unwrap();
-        assert_eq!(pass_val.len(), 20);
-        assert_charset(&pass_val, PASSWORD);
-
-        assert_eq!(resolve("random.password"), None);
+        assert_eq!(resolve("str, 8").unwrap().len(), 8);
+        assert_eq!(resolve("pass").unwrap().len(), 20);
+        assert_eq!(resolve("bogus"), None);
+        assert_eq!(resolve("int, 10, 5"), None);
+        assert_eq!(resolve("choice"), None);
     }
 }

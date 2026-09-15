@@ -135,159 +135,53 @@ fn pick_paragraphs(count: usize) -> Vec<String> {
         .collect()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct LoremInvocation {
-    pub variant: LoremVariant,
-    pub count: usize,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LoremVariant {
-    Word,
-    Sentence,
-    Paragraph,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LoremParseError {
-    InvalidRoot,
-    InvalidVariant,
-    MissingParentheses,
-    UnbalancedParentheses,
-    InvalidCount,
-    InvalidTrailingSyntax,
-}
-
-pub(crate) fn parse_invocation(key: &str) -> Result<LoremInvocation, LoremParseError> {
-    let rest = key
-        .strip_prefix("lorem")
-        .ok_or(LoremParseError::InvalidRoot)?;
-
-    if rest.is_empty() {
-        return Ok(LoremInvocation {
-            variant: LoremVariant::Paragraph,
-            count: DEFAULT_PARAGRAPH_COUNT,
-        });
+/// Resolves the unified `lorem(...)` system variable.
+///
+/// `raw` is the argument list inside `lorem(...)` (`""` when bare),
+/// bound as `(type=paragraphs, count)`; a numeric single arg detects count.
+pub fn resolve(raw: &str) -> Option<String> {
+    let spec = crate::engine::variables::registry::param_spec("lorem")?;
+    let bound = crate::engine::variables::parser::bind_call("lorem", raw, &spec).ok()?;
+    if bound.positional.len() > spec.params.len() {
+        return None;
     }
-
-    if rest.starts_with('(') {
-        let (args, trailing) = scan_parenthesized(rest)?;
-        if !trailing.trim().is_empty() {
-            return Err(LoremParseError::InvalidTrailingSyntax);
-        }
-        let count = parse_count_arg(args)?;
-        return Ok(LoremInvocation {
-            variant: LoremVariant::Paragraph,
-            count: count.unwrap_or(DEFAULT_PARAGRAPH_COUNT),
-        });
-    }
-
-    let modifier = rest
-        .strip_prefix('.')
-        .ok_or(LoremParseError::InvalidRoot)?
-        .trim();
-
-    if let Some(paren_idx) = modifier.find('(') {
-        let variant = modifier[..paren_idx].trim();
-        let (args, trailing) = scan_parenthesized(&modifier[paren_idx..])?;
-        if !trailing.trim().is_empty() {
-            return Err(LoremParseError::InvalidTrailingSyntax);
-        }
-
-        let count = parse_count_arg(args)?;
-
-        match variant {
-            "words" => Ok(LoremInvocation {
-                variant: LoremVariant::Word,
-                count: count.unwrap_or(DEFAULT_WORD_COUNT),
-            }),
-            "sentences" => Ok(LoremInvocation {
-                variant: LoremVariant::Sentence,
-                count: count.unwrap_or(DEFAULT_SENTENCE_COUNT),
-            }),
-            "paragraphs" => Ok(LoremInvocation {
-                variant: LoremVariant::Paragraph,
-                count: count.unwrap_or(DEFAULT_PARAGRAPH_COUNT),
-            }),
-            _ => Err(LoremParseError::InvalidVariant),
-        }
+    let has_named = raw.contains('=');
+    let (kind, count_str) = if has_named {
+        let kind = bound
+            .named
+            .get("type")
+            .map(String::as_str)
+            .unwrap_or("paragraphs");
+        let count = bound.named.get("count").map(String::as_str).unwrap_or("");
+        (kind.to_string(), count.to_string())
+    } else if bound.positional.is_empty() {
+        ("paragraphs".to_string(), String::new())
+    } else if bound.positional.len() == 1 && bound.positional[0].parse::<usize>().is_ok() {
+        ("paragraphs".to_string(), bound.positional[0].clone())
+    } else if bound.positional.len() == 1 {
+        (bound.positional[0].clone(), String::new())
     } else {
-        match modifier {
-            "words" => Ok(LoremInvocation {
-                variant: LoremVariant::Word,
-                count: DEFAULT_WORD_COUNT,
-            }),
-            "sentences" => Ok(LoremInvocation {
-                variant: LoremVariant::Sentence,
-                count: DEFAULT_SENTENCE_COUNT,
-            }),
-            "paragraphs" => Ok(LoremInvocation {
-                variant: LoremVariant::Paragraph,
-                count: DEFAULT_PARAGRAPH_COUNT,
-            }),
-            _ => Err(LoremParseError::InvalidVariant),
-        }
+        (bound.positional[0].clone(), bound.positional[1].clone())
+    };
+    let default = match kind.as_str() {
+        "words" => DEFAULT_WORD_COUNT,
+        "sentences" => DEFAULT_SENTENCE_COUNT,
+        "paragraphs" => DEFAULT_PARAGRAPH_COUNT,
+        _ => return None,
+    };
+    let count = if count_str.trim().is_empty() {
+        default
+    } else {
+        count_str.trim().parse::<usize>().ok()?
+    };
+    let count = count.max(1);
+
+    match kind.as_str() {
+        "words" => Some(pick_words(count).join(" ")),
+        "sentences" => Some(pick_sentences(count).join(" ")),
+        "paragraphs" => Some(pick_paragraphs(count).join("\n\n")),
+        _ => None,
     }
-}
-
-pub fn resolve(key: &str) -> Option<String> {
-    let invocation = parse_invocation(key).ok()?;
-    let count = invocation.count.max(1);
-
-    match invocation.variant {
-        LoremVariant::Word => Some(pick_words(count).join(" ")),
-        LoremVariant::Sentence => Some(pick_sentences(count).join(" ")),
-        LoremVariant::Paragraph => Some(pick_paragraphs(count).join("\n\n")),
-    }
-}
-
-fn scan_parenthesized(input: &str) -> Result<(&str, &str), LoremParseError> {
-    if !input.starts_with('(') {
-        return Err(LoremParseError::MissingParentheses);
-    }
-
-    let mut depth = 0usize;
-    let mut start = None;
-
-    for (idx, ch) in input.char_indices() {
-        match ch {
-            '(' => {
-                if depth == 0 {
-                    start = Some(idx + ch.len_utf8());
-                }
-                depth += 1;
-            }
-            ')' => {
-                if depth == 0 {
-                    return Err(LoremParseError::UnbalancedParentheses);
-                }
-                depth -= 1;
-                if depth == 0 {
-                    let start = start.ok_or(LoremParseError::MissingParentheses)?;
-                    return Ok((input[start..idx].trim(), &input[idx + 1..]));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    Err(LoremParseError::UnbalancedParentheses)
-}
-
-fn parse_count_arg(args: &str) -> Result<Option<usize>, LoremParseError> {
-    let trimmed = crate::engine::variables::system::strip_argument_quotes(args);
-    if trimmed.is_empty() {
-        return Ok(None);
-    }
-
-    if trimmed.contains(',') {
-        return Err(LoremParseError::InvalidCount);
-    }
-
-    trimmed
-        .parse::<usize>()
-        .map(Some)
-        .map_err(|_| LoremParseError::InvalidCount)
 }
 
 #[cfg(test)]
@@ -301,61 +195,20 @@ mod tests {
     }
 
     #[test]
-    fn resolves_bare_lorem_tag() {
-        let res = resolve("lorem").unwrap();
-        assert!(!res.is_empty());
-    }
-
-    #[test]
-    fn resolves_lorem_with_count_arg() {
-        let paragraphs = resolve("lorem(3)").unwrap();
-        assert_eq!(paragraphs.split("\n\n").count(), 3);
-        let default_paragraphs = resolve("lorem()").unwrap();
-        assert_eq!(default_paragraphs.split("\n\n").count(), 1);
-    }
-
-    #[test]
-    fn resolves_words_with_exact_counts() {
+    fn lorem_unified() {
+        assert!(!resolve("").unwrap().is_empty()); // bare = paragraphs
+        assert_eq!(resolve("3").unwrap().split("\n\n").count(), 3); // numeric → count
+        assert_eq!(resolve("words, 5").unwrap().split_whitespace().count(), 5);
         assert_eq!(
-            resolve("lorem.words").unwrap().split_whitespace().count(),
-            DEFAULT_WORD_COUNT
-        );
-        assert_eq!(
-            resolve("lorem.words(1)")
-                .unwrap()
-                .split_whitespace()
-                .count(),
-            1
-        );
-        assert_eq!(
-            resolve("lorem.words(5)")
+            resolve("type=words, count=5")
                 .unwrap()
                 .split_whitespace()
                 .count(),
             5
         );
-        assert_eq!(
-            resolve("lorem.words()").unwrap().split_whitespace().count(),
-            DEFAULT_WORD_COUNT
-        );
-    }
-
-    #[test]
-    fn resolves_sentences_and_paragraphs_output_formatting() {
-        let sentences = resolve("lorem.sentences(2)").unwrap();
-        let paragraphs = resolve("lorem.paragraphs(2)").unwrap();
-
+        let sentences = resolve("sentences, 2").unwrap();
         assert_eq!(sentence_count(&sentences), 2);
-        assert!(!sentences.contains("\n\n"));
-        assert_eq!(paragraphs.split("\n\n").count(), 2);
-    }
-
-    #[test]
-    fn rejects_invalid_input_for_fallback() {
-        assert_eq!(resolve("lorem.unknown"), None);
-        assert_eq!(resolve("lorem.word"), None);
-        assert_eq!(resolve("lorem.words(nope)"), None);
-        assert_eq!(resolve("lorem.sentences(1, 2)"), None);
-        assert_eq!(resolve("lorem.paragraphs(1).upper"), None);
+        assert_eq!(resolve("nope"), None);
+        assert_eq!(resolve("words, nope"), None);
     }
 }

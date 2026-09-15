@@ -1,14 +1,20 @@
 use uuid::Uuid;
 
-/// Resolves `uuid` and `uuid.*` system variables.
-pub fn resolve(key: &str) -> Option<String> {
-    if key == "uuid" || key == "uuid.v4" {
-        return Some(Uuid::new_v4().to_string());
+/// Resolves the unified `uuid(...)` system variable.
+///
+/// `raw` is the argument list inside `uuid(...)` (`""` when bare),
+/// bound as `(version=v4)` with `version` in `{v4, v7}`.
+pub fn resolve(raw: &str) -> Option<String> {
+    let spec = crate::engine::variables::registry::param_spec("uuid")?;
+    let bound = crate::engine::variables::parser::bind_call("uuid", raw, &spec).ok()?;
+    if bound.positional.len() > spec.params.len() {
+        return None;
     }
-    if key == "uuid.v7" {
-        return Some(Uuid::now_v7().to_string());
+    match bound.named.get("version").map(String::as_str) {
+        Some("v4") => Some(Uuid::new_v4().to_string()),
+        Some("v7") => Some(Uuid::now_v7().to_string()),
+        _ => None,
     }
-    None
 }
 
 #[cfg(test)]
@@ -16,23 +22,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_resolve_uuid_bare_returns_v4() {
-        let res = resolve("uuid").unwrap();
-        assert_eq!(res.len(), 36);
-        assert!(res.contains('-'));
-    }
-
-    #[test]
-    fn test_resolve_uuid_v4_explicit() {
-        let res = resolve("uuid.v4").unwrap();
-        assert_eq!(res.len(), 36);
-        assert!(res.contains('-'));
-    }
-
-    #[test]
-    fn test_resolve_uuid_v7() {
-        let res = resolve("uuid.v7").unwrap();
-        assert_eq!(res.len(), 36);
-        assert!(res.contains('-'));
+    fn uuid_versions() {
+        assert_eq!(resolve("").unwrap().len(), 36); // bare = v4
+        assert_eq!(resolve("v4").unwrap().len(), 36);
+        assert_eq!(resolve("v7").unwrap().len(), 36);
+        assert_eq!(resolve("version=v4").unwrap().len(), 36);
+        assert_eq!(resolve("version=v7").unwrap().len(), 36);
+        assert_eq!(resolve("4"), None); // bare numbers rejected
+        assert_eq!(resolve("7"), None);
+        assert_eq!(resolve("v1"), None);
     }
 }

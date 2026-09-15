@@ -594,8 +594,8 @@ mod compatibility_interpolation_tests {
         // Mock the env var and uuid in system resolve via a mock or just test the structure
         // Since we can't easily mock UUID without a lock, we can use a known value.
         // Wait, UUID changes. We'll skip [uuid] and [date.iso] for exact match and just test env
-        // actually we can test the interpolation of `[env(TAURINE_TEST_USER=admin)]`.
-        let tpl = r#"{"user": "[env(TAURINE_TEST_USER=admin) | case(lower)]", "action": "[0=login | case(upper)]"}"#;
+        // actually we can test the interpolation of `[env(TAURINE_TEST_USER, admin)]`.
+        let tpl = r#"{"user": "[env(TAURINE_TEST_USER, admin) | case(lower)]", "action": "[0=login | case(upper)]"}"#;
         assert_eq!(
             interpolate(tpl, &args),
             r#"{"user": "admin", "action": "PASSWORD_RESET"}"#
@@ -634,11 +634,11 @@ mod compatibility_interpolation_tests {
         let mut args = ArgMap::default();
         args.named
             .insert("url".to_string(), "httpbin.org/json".to_string());
-        let tpl = "[http.get([url]) | json('slideshow.title') | case(upper)]";
+        let tpl = "[http(get, [url]) | json('slideshow.title') | case(upper)]";
         let result = interpolate(tpl, &args);
         assert_eq!(
             result,
-            "\x03\x1Fsys:http.get(httpbin.org/json) | json('slideshow.title') | case(upper)\x04"
+            "\x03\x1Fsys:http(get, httpbin.org/json) | json('slideshow.title') | case(upper)\x04"
         );
     }
 

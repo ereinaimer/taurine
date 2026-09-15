@@ -7,8 +7,10 @@ fn test_is_reserved() {
     assert!(is_reserved("uuid"));
     assert!(is_reserved("clip"));
     assert!(is_reserved("uuid.v4"));
-    assert!(is_reserved("net.localip"));
-    assert!(is_reserved("net.publicip"));
+    assert!(!is_reserved("net.localip"));
+    assert!(!is_reserved("net.publicip"));
+    assert!(is_reserved("ip"));
+    assert!(is_reserved("ip(public)"));
     assert!(is_reserved("execute.bash(echo hi)"));
     assert!(is_reserved("random.int(1, 9)"));
     assert!(is_reserved("lorem"));
@@ -51,7 +53,7 @@ fn test_is_directive() {
 fn test_resolve_random_int_interpolation() {
     assert_eq!(
         crate::engine::variables::interpolate::interpolate(
-            "[random.int(5, 5)]",
+            "[random(int, 5, 5)]",
             &crate::engine::variables::types::ArgMap::default()
         ),
         "5"
@@ -61,7 +63,7 @@ fn test_resolve_random_int_interpolation() {
 #[test]
 fn test_resolve_lorem_word_interpolation_count() {
     let resolved = crate::engine::variables::interpolate::interpolate(
-        "[lorem.words(3)]",
+        "[lorem(words, 3)]",
         &crate::engine::variables::types::ArgMap::default(),
     );
 
@@ -623,7 +625,7 @@ mod compatibility_finalize_tests {
                 std::fs::write(&path, "line one\nline two\nline three").ok();
                 let res = evaluate_template(
                     &format!(
-                        "Full Content: [file.read(~/{file_name}) | strip(whitespace)] | Line 2: [file.line(~/{file_name}, 2) | case(upper)] | Lines 1-3: [file.lines(~/{file_name}, 1, 3)]"
+                        "Full Content: [file(read, ~/{file_name}) | strip(whitespace)] | Line 2: [file(line, ~/{file_name}, 2) | case(upper)] | Lines 1-3: [file(lines, ~/{file_name}, 1, 3)]"
                     ),
                     None,
                 );
@@ -700,14 +702,14 @@ mod compatibility_finalize_tests {
         // Test Case 8: testhttp
         {
             let res = evaluate_template(
-                "Status: [http.status(https://httpbin.org/status/200)] | UA: [http.get(https://httpbin.org/headers) | json('headers.User-Agent') | truncate(15)]",
+                "Status: [http(status, https://httpbin.org/status/200)] | UA: [http(get, https://httpbin.org/headers) | json('headers.User-Agent') | truncate(15)]",
                 None,
             );
             assert_eq!(res.steps.len(), 1);
             if let ExpansionStep::Text(ref text) = res.steps[0] {
                 assert_eq!(
                     text,
-                    "Status: \x03\x1Fsys:http.status(https://httpbin.org/status/200)\x04 | UA: \x03\x1Fsys:http.get(https://httpbin.org/headers) | json('headers.User-Agent') | truncate(15)\x04"
+                    "Status: \x03\x1Fsys:http(status, https://httpbin.org/status/200)\x04 | UA: \x03\x1Fsys:http(get, https://httpbin.org/headers) | json('headers.User-Agent') | truncate(15)\x04"
                 );
             } else {
                 panic!("Expected Text step");
@@ -717,7 +719,7 @@ mod compatibility_finalize_tests {
         // Test Case 9: testrandom
         {
             let res = evaluate_template(
-                "Int (10-50): [random.int(10, 50)] | Pass (12): [random.pass(12)] | Choice: [random.choice(apple, banana, cherry) | case(title)] | Lorem (Dynamic Count): [lorem.words([random.int(2, 4)]) | case(kebab)]",
+                "Int (10-50): [random(int, 10, 50)] | Pass (12): [random(pass, 12)] | Choice: [random(choice, apple, banana, cherry) | case(title)] | Lorem (Dynamic Count): [lorem(words, [random(int, 2, 4)]) | case(kebab)]",
                 None,
             );
             assert_eq!(res.steps.len(), 1);
@@ -763,13 +765,13 @@ mod compatibility_finalize_tests {
         // Test Case 12: testcombo
         {
             let res = evaluate_template(
-                "User [name='Developer'] checked [url='httpbin.org/json'] at [chrono(time, none, HH:mm, utc)] UTC. Title of JSON: [http.get([url]) | json('slideshow.title') | case(upper)]",
+                "User [name='Developer'] checked [url='httpbin.org/json'] at [chrono(time, none, HH:mm, utc)] UTC. Title of JSON: [http(get, [url]) | json('slideshow.title') | case(upper)]",
                 None,
             );
             assert_eq!(res.steps.len(), 1);
             if let ExpansionStep::Text(ref text) = res.steps[0] {
                 assert!(text.contains("User Developer checked httpbin.org/json at "));
-                assert!(text.contains(" UTC. Title of JSON: \x03\x1Fsys:http.get(httpbin.org/json) | json('slideshow.title') | case(upper)\x04"));
+                assert!(text.contains(" UTC. Title of JSON: \x03\x1Fsys:http(get, httpbin.org/json) | json('slideshow.title') | case(upper)\x04"));
             } else {
                 panic!("Expected Text step");
             }

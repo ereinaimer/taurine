@@ -327,7 +327,11 @@ fn validates_lorem_modifier_syntax() {
     );
     assert_eq!(
         validate_system_tag("lorem", Some("paragraphs(nope)")),
-        Ok(())
+        Err(ValidationError::InvalidModifier {
+            root: "lorem",
+            modifier: "paragraphs(nope)".to_string(),
+            allowed: LOREM_MODIFIERS,
+        })
     );
     assert_eq!(
         validate_system_tag("lorem", Some("word")),

@@ -10,8 +10,8 @@ pub mod execute;
 pub mod file;
 pub mod http;
 pub mod image;
+pub mod ip;
 pub mod lorem;
-pub mod net;
 pub mod random;
 pub mod transformers;
 pub mod uuid;
@@ -28,14 +28,12 @@ pub fn is_reserved(key: &str) -> bool {
     let Some((ns, _)) = crate::engine::variables::registry::parse_system_call(key) else {
         return false;
     };
-    // honey: root up to '.' keeps legacy dot chains for surviving roots until
-    // Tasks 4-8 own removal; deleted clipboard/date/time/datetime + catch-all gone.
+    // honey: unified roots only; dot prefix keeps chains for surviving roots.
     let root = ns.split('.').next().unwrap_or(ns).trim();
     if crate::engine::variables::registry::SYSTEM_ROOTS.contains(&root) {
         return true;
     }
-    // honey: legacy net.* until Task 6 renames to ip.
-    root == "net" && ns.starts_with("net.")
+    false
 }
 
 /// Checks if a keyword is a post-processing directive.
@@ -56,8 +54,8 @@ pub fn is_directive(key: &str) -> bool {
 /// Deferred variables are replaced with a special marker during interpolation
 /// so the daemon can evaluate them in a non-blocking thread and show a braille spinner.
 pub fn is_deferred(key: &str) -> bool {
-    // honey: legacy dot forms stay until Tasks 6/8 own removal.
-    if key == "net.publicip" || key.starts_with("http.") || key == "mouse.pos" {
+    // honey: legacy mouse.pos stays until Task 8 owns removal.
+    if key == "mouse.pos" {
         return true;
     }
     if key == "ip" {
@@ -91,26 +89,50 @@ pub fn resolve(key: &str) -> Option<String> {
     {
         return datetime::resolve(inner);
     }
-    if key.starts_with("env(") {
-        return env::resolve(key);
+    if key == "env" {
+        return env::resolve("");
     }
-    if key.starts_with("file.") {
-        return file::resolve(key);
+    if let Some(inner) = key.strip_prefix("env(").and_then(|s| s.strip_suffix(')')) {
+        return env::resolve(inner);
     }
-    if key.starts_with("net.") {
-        return net::resolve(key);
+    if key == "file" {
+        return file::resolve("");
     }
-    if key.starts_with("http.") {
-        return http::resolve(key);
+    if let Some(inner) = key.strip_prefix("file(").and_then(|s| s.strip_suffix(')')) {
+        return file::resolve(inner);
     }
-    if key == "random" || key.starts_with("random.") {
-        return random::resolve(key);
+    if key == "ip" {
+        return ip::resolve("");
     }
-    if key == "lorem" || key.starts_with("lorem.") || key.starts_with("lorem(") {
-        return lorem::resolve(key);
+    if let Some(inner) = key.strip_prefix("ip(").and_then(|s| s.strip_suffix(')')) {
+        return ip::resolve(inner);
     }
-    if key == "uuid" || key.starts_with("uuid.") {
-        return uuid::resolve(key);
+    if key == "http" {
+        return http::resolve("");
+    }
+    if let Some(inner) = key.strip_prefix("http(").and_then(|s| s.strip_suffix(')')) {
+        return http::resolve(inner);
+    }
+    if key == "random" {
+        return random::resolve("");
+    }
+    if let Some(inner) = key
+        .strip_prefix("random(")
+        .and_then(|s| s.strip_suffix(')'))
+    {
+        return random::resolve(inner);
+    }
+    if key == "lorem" {
+        return lorem::resolve("");
+    }
+    if let Some(inner) = key.strip_prefix("lorem(").and_then(|s| s.strip_suffix(')')) {
+        return lorem::resolve(inner);
+    }
+    if key == "uuid" {
+        return uuid::resolve("");
+    }
+    if let Some(inner) = key.strip_prefix("uuid(").and_then(|s| s.strip_suffix(')')) {
+        return uuid::resolve(inner);
     }
     // honey: Task 5 owns clip-only collapse; stop routing legacy clipboard
     // forms here so resolve("clipboard") is None (hard break).

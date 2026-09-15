@@ -5,20 +5,22 @@ use super::transformers::strip_argument_quotes;
 
 pub const MAX_HTTP_RESPONSE_BYTES: usize = 10 * 1024 * 1024; // 10 MiB safety cap
 
-pub fn resolve(key: &str) -> Option<String> {
-    if !key.starts_with("http.") {
+/// Resolves the unified `http(...)` system variable.
+///
+/// `raw` is the argument list inside `http(...)`, bound as `(op, url)`
+/// with `op` in `{get, status}`.
+pub fn resolve(raw: &str) -> Option<String> {
+    let spec = crate::engine::variables::registry::param_spec("http")?;
+    let bound = crate::engine::variables::parser::bind_call("http", raw, &spec).ok()?;
+    if bound.positional.len() > spec.params.len() {
         return None;
     }
-
-    let modifier = &key[5..];
-    if let Some(rest) = modifier.strip_prefix("get(") {
-        let url_str = rest.strip_suffix(')')?;
-        resolve_get(url_str)
-    } else if let Some(rest) = modifier.strip_prefix("status(") {
-        let url_str = rest.strip_suffix(')')?;
-        resolve_status(url_str)
-    } else {
-        None
+    let op = bound.named.get("op").map(String::as_str).unwrap_or("");
+    let url = bound.named.get("url").map(String::as_str).unwrap_or("");
+    match op {
+        "get" => resolve_get(url),
+        "status" => resolve_status(url),
+        _ => None,
     }
 }
 
@@ -105,17 +107,37 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_empty_url() {
-        assert_eq!(resolve("http.get()"), None);
-        assert_eq!(resolve("http.get(\"\")"), None);
-        assert_eq!(resolve("http.status()"), None);
-        assert_eq!(resolve("http.status(\"\")"), None);
-    }
+    fn http_unified() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::thread;
 
-    #[test]
-    fn test_resolve_invalid_modifier() {
-        assert_eq!(resolve("http.post(example.com)"), None);
-        assert_eq!(resolve("http.invalid(example.com)"), None);
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        thread::spawn(move || {
+            for _ in 0..2 {
+                if let Ok((mut stream, _)) = listener.accept() {
+                    let mut buf = [0; 512];
+                    let _ = stream.read(&mut buf);
+                    let response = "HTTP/1.1 200 OK\r\nContent-Length: 12\r\n\r\nHello World!";
+                    let _ = stream.write_all(response.as_bytes());
+                    let _ = stream.flush();
+                }
+            }
+        });
+
+        let url = format!("http://127.0.0.1:{port}");
+        assert_eq!(
+            resolve(&format!("get, {url}")),
+            Some("Hello World!".to_string())
+        );
+        assert_eq!(
+            resolve(&format!("op=get, url={url}")),
+            Some("Hello World!".to_string())
+        );
+        assert_eq!(resolve(""), None);
+        assert_eq!(resolve("post, http://example.com"), None);
+        assert_eq!(resolve("get, "), None);
     }
 
     #[test]

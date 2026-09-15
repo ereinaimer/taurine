@@ -363,7 +363,12 @@ fn validate_lorem_modifier(modifier: Option<&str>) -> Result<(), ValidationError
                 None => matches!(variant, "paragraphs" | "words" | "sentences"),
                 Some(args_str) => {
                     let args = split_modifier_args(args_str);
-                    matches!(variant, "paragraphs" | "words" | "sentences") && args.len() <= 1
+                    // honey: counts are numeric or dynamic ([...]); resolver drops the rest.
+                    matches!(variant, "paragraphs" | "words" | "sentences")
+                        && args.len() <= 1
+                        && args
+                            .iter()
+                            .all(|a| a.parse::<usize>().is_ok() || a.contains('['))
                 }
             };
 
