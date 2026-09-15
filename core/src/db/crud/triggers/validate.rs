@@ -3,7 +3,7 @@ use super::trigger_set::*;
 use crate::Result;
 use crate::engine::variables::tags::*;
 use crate::engine::variables::{
-    ValidationError, split_system_tag, valid_modifier_hint, validate_system_tag,
+    ValidationError, parse_system_call, valid_modifier_hint, validate_system_call,
 };
 use rusqlite::Connection;
 
@@ -51,7 +51,7 @@ pub(crate) fn collect_defined_variables(payload: &str) -> std::collections::Hash
             let pipeline = crate::engine::variables::system::transformers::split_pipeline(inner);
             let base_expr = pipeline[0];
             let (key, default_value) = split_key_default(base_expr);
-            if default_value.is_some() && split_system_tag(key).is_none() {
+            if default_value.is_some() && parse_system_call(key).is_none() {
                 let key_unquoted =
                     crate::engine::variables::system::strip_quotes(key).unwrap_or(key);
                 defined.insert(key_unquoted.to_string());
@@ -110,8 +110,8 @@ pub(crate) fn audit_payload_tags_impl_opt(
         if is_nested && inner.contains('[') {
             audit_payload_tags_impl_opt(inner, defined_vars, trigger_type, is_script)?;
         } else if !is_nested {
-            if let Some((root, modifier)) = split_system_tag(key) {
-                if root == "cursor" {
+            if let Some((ns, raw)) = parse_system_call(key) {
+                if ns == "cursor" {
                     cursor_count += 1;
                     if cursor_count > 1 {
                         return Err(crate::Error::Config(
@@ -120,7 +120,7 @@ pub(crate) fn audit_payload_tags_impl_opt(
                     }
                 }
 
-                if matches!(root, "key" | "delay" | "mouse") {
+                if matches!(ns, "key" | "delay" | "mouse") {
                     has_key_or_delay = true;
                 }
 
@@ -128,13 +128,16 @@ pub(crate) fn audit_payload_tags_impl_opt(
                     return Err(crate::Error::Config(format!(
                         "[{}]: system tags cannot have defaults. {}",
                         inner,
-                        valid_modifier_hint(root)
+                        valid_modifier_hint(ns)
                     )));
                 }
 
-                if let Err(error) = validate_system_tag(root, modifier) {
+                if let Err(error) = validate_system_call(ns, Some(raw)) {
                     return Err(crate::Error::Config(format_validation_error(
-                        inner, root, modifier, &error,
+                        inner,
+                        ns,
+                        Some(raw),
+                        &error,
                     )));
                 }
             } else {

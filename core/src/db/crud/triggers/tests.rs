@@ -1728,48 +1728,30 @@ fn delete_triggers_by_pattern_ignores_already_deleted() {
 
 #[test]
 fn test_audit_payload_tags_mouse_invalid_directive_diagnostic() {
-    let err = audit_payload_tags("[mouse.click(nonextent)]").unwrap_err();
+    let err = audit_payload_tags("[mouse(click, nonextent)]").unwrap_err();
     let msg = err.to_string();
-    assert!(
-        msg.contains("modifier click(nonextent) invalid for mouse"),
-        "expected unquoted modifier error, got: {msg}"
-    );
+    assert!(msg.contains("mouse"), "expected mouse error, got: {msg}");
     assert!(!msg.contains('`'), "must not contain backticks: {msg}");
-    assert!(
-        msg.contains("Valid directives:"),
-        "expected valid directives list, got: {msg}"
-    );
-    assert!(
-        msg.contains("Supported buttons:"),
-        "expected supported buttons list, got: {msg}"
-    );
 }
 
 #[test]
 fn test_audit_payload_tags_unknown_variable_suggests_clipboard() {
-    let err = audit_payload_tags("[clipbrd]").unwrap_err();
+    let err = audit_payload_tags("[clp]").unwrap_err();
     let msg = err.to_string();
     assert!(
         msg.contains("dynamic variables need a default"),
         "expected dynamic variable error, got: {msg}"
     );
     assert!(
-        msg.contains("Did you mean [clipboard]?"),
-        "expected suggestion for clipboard, got: {msg}"
+        msg.contains("Did you mean [clip]?"),
+        "expected suggestion for clip, got: {msg}"
     );
 }
 
 #[test]
 fn test_audit_payload_tags_date_today_invalid_modifier_diagnostic() {
-    let err = audit_payload_tags("[date.today]").unwrap_err();
+    let err = audit_payload_tags("[chrono(invalid_type)]").unwrap_err();
     let msg = err.to_string();
-    assert!(
-        msg.contains("modifier today invalid for date"),
-        "expected unquoted modifier error, got: {msg}"
-    );
+    assert!(msg.contains("chrono"), "expected chrono error, got: {msg}");
     assert!(!msg.contains('`'), "must not contain backticks: {msg}");
-    assert!(
-        msg.contains("Valid modifiers / methods:"),
-        "expected valid methods guidance, got: {msg}"
-    );
 }

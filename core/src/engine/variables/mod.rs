@@ -15,9 +15,8 @@ pub use interpolate::{
 pub use parser::{parse_tokens, tokenize};
 pub use plan::{ExecutionPlan, PlanOp};
 pub use registry::{
-    ValidationError, is_valid_system_root, is_valid_transformer, split_system_tag,
-    strip_global_transformers, system_transformers, system_variable_roots, valid_modifier_hint,
-    validate_system_tag,
+    ValidationError, is_valid_transformer, parse_system_call, strip_global_transformers,
+    system_transformers, system_variable_roots, valid_modifier_hint, validate_system_call,
 };
 pub use system::{finalize, finalize_with_origin};
 pub use types::{ArgMap, ExpansionOrigin, ExpansionStep, FinalExpansion};

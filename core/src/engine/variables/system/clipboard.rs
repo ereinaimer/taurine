@@ -154,18 +154,6 @@ fn parse_clip_index_arg(arg: &str) -> Option<ClipKey> {
     }
 }
 
-pub fn is_clip_key(key: &str) -> bool {
-    if parse_clip_key(key).is_some() {
-        return true;
-    }
-    // honey: legacy clipboard detection glue for split_system_tag; Task 9 owns removal. Resolve stays clip-only.
-    key == "clipboard"
-        || key
-            .strip_prefix("clipboard(")
-            .and_then(|s| s.strip_suffix(')'))
-            .is_some()
-}
-
 /// Resolves the `[clip]` system variable family from the in-memory history buffer.
 ///
 /// Accepts the full `clip` / `clip(N)` key or a bare index argument (`""`, `"0"`, ...).

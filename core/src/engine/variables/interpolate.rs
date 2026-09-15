@@ -1,4 +1,4 @@
-use super::registry::{parse_system_call, split_system_tag};
+use super::registry::parse_system_call;
 use super::system;
 use super::types::ArgMap;
 
@@ -62,14 +62,8 @@ pub(crate) fn extract_placeholders<'a>(template: &'a str) -> IndexMap<&'a str, P
 fn is_valid_user_reference(key: &str, default_value: Option<&str>, args: &ArgMap) -> bool {
     let key_unquoted = system::strip_quotes(key).unwrap_or(key);
 
-    // honey: unified call path (Task 3); legacy dot glue stays until Task 9.
     if let Some((ns, raw)) = parse_system_call(key_unquoted)
         && super::registry::validate_system_call(ns, Some(raw)).is_ok()
-    {
-        return false;
-    }
-    if let Some((root, modifier)) = split_system_tag(key_unquoted)
-        && super::registry::validate_system_tag(root, modifier).is_ok()
     {
         return false;
     }

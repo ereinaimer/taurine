@@ -1,7 +1,5 @@
 use crate::engine::variables::interpolate::{contains_ai_markers, interpolate};
-use crate::engine::variables::registry::{
-    parse_system_call, split_system_tag, validate_system_call, validate_system_tag,
-};
+use crate::engine::variables::registry::{parse_system_call, validate_system_call};
 use crate::engine::variables::system::{
     self, image, parse_delay_directive, parse_key_directive, parse_mouse_directive, transformers,
 };
@@ -427,11 +425,8 @@ fn compile_ops(expr: &str) -> (Vec<PlanOp>, bool, bool) {
                     transformers,
                 });
             } else if system::is_reserved(key_unquoted)
-                // honey: unified call path (Task 8); legacy dot glue stays until Task 9.
                 || parse_system_call(key_unquoted)
                     .is_some_and(|(ns, raw)| validate_system_call(ns, Some(raw)).is_ok())
-                || split_system_tag(key_unquoted)
-                    .is_some_and(|(r, m)| validate_system_tag(r, m).is_ok())
             {
                 ops.push(PlanOp::SystemVar {
                     key: key_unquoted.to_string(),
