@@ -408,6 +408,8 @@ mod tests {
             };
             let b = bind_call("random", "choice", &spec).unwrap();
             assert_eq!(b.positional, vec!["choice".to_string()]);
+            assert_eq!(b.named.get("type").unwrap(), "choice");
+            assert_eq!(b.named.get("min").unwrap(), "0");
         }
 
         #[test]
@@ -488,13 +490,12 @@ mod tests {
 
         #[test]
         fn bind_arity_hint() {
-            let spec = two_param_spec();
             let err = BindError::Arity {
                 namespace: "f".to_string(),
                 hint: "f(a, [b=2])".to_string(),
             };
+            assert!(matches!(err, BindError::Arity { .. }));
             assert!(err.to_string().contains("expected: f(a, [b=2])"));
-            let _ = spec;
         }
 
         #[test]
