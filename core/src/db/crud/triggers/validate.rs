@@ -254,11 +254,16 @@ pub(crate) fn format_validation_error(
             .help(hint)
             .render()
         }
-        ValidationError::UnknownRoot(root) => crate::diagnostic::Diagnostic::problem(format!(
-            "[{raw_tag}]: unknown directive or variable {root}"
-        ))
-        .suggest(root, crate::engine::variables::system_variable_roots())
-        .render(),
+        ValidationError::UnknownRoot(root) => {
+            let mut diag = crate::diagnostic::Diagnostic::problem(format!(
+                "[{raw_tag}]: unknown directive or variable {root}"
+            ))
+            .suggest(root, crate::engine::variables::system_variable_roots());
+            if let Some(hint) = crate::engine::variables::registry::deleted_root_hint(root) {
+                diag = diag.did_you_mean(format!("[{hint}]"));
+            }
+            diag.render()
+        }
         // honey glue (Task 2): render retired dotted chains with their canonical form.
         ValidationError::DotChain { got, hint } => crate::diagnostic::Diagnostic::problem(format!(
             "[{raw_tag}]: {got} uses retired dotted syntax"

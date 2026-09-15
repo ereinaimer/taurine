@@ -607,6 +607,7 @@ fn rejects_unknown_and_deleted_roots() {
     );
     assert_eq!(deleted_root_hint("clipboard"), Some("clip"));
     assert_eq!(deleted_root_hint("datetime"), Some("chrono(...)"));
+    assert_eq!(deleted_root_hint("net"), Some("ip"));
     assert_eq!(deleted_root_hint("clip"), None);
 }
 

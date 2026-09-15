@@ -857,6 +857,7 @@ pub fn deleted_root_hint(ns: &str) -> Option<&'static str> {
     match ns.trim().to_ascii_lowercase().as_str() {
         "clipboard" => Some("clip"),
         "date" | "time" | "datetime" => Some("chrono(...)"),
+        "net" => Some("ip"),
         _ => None,
     }
 }
