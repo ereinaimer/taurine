@@ -774,7 +774,7 @@ fn clipboard_payload_at_history_ceiling_skips_blind_undo_registration() {
     let state = Arc::new(EngineState::new());
     state.load_actions(vec![(
         "clip".to_string(),
-        crate::db::crud::TriggerAction::text("[clipboard]"),
+        crate::db::crud::TriggerAction::text("[clip]"),
     )]);
     let mut eval = Evaluator::new(state);
 
@@ -1454,23 +1454,17 @@ fn inline_ai_has_prefix_detection() {
 fn inline_ai_placeholder_formatting_matches_spec() {
     use crate::engine::evaluator::format_clipboard_placeholder;
 
-    assert_eq!(format_clipboard_placeholder(""), "[clipboard: 0 words]");
-    assert_eq!(format_clipboard_placeholder("   "), "[clipboard: 0 words]");
-    assert_eq!(
-        format_clipboard_placeholder("single"),
-        "[clipboard: 1 word]"
-    );
+    assert_eq!(format_clipboard_placeholder(""), "[clip: 0 words]");
+    assert_eq!(format_clipboard_placeholder("   "), "[clip: 0 words]");
+    assert_eq!(format_clipboard_placeholder("single"), "[clip: 1 word]");
     assert_eq!(
         format_clipboard_placeholder("hello world from taurine inline ai copilot test suite"),
-        "[clipboard: 9 words]"
+        "[clip: 9 words]"
     );
-    assert_eq!(
-        format_clipboard_placeholder("one\ntwo"),
-        "[clipboard: 2 lines]"
-    );
+    assert_eq!(format_clipboard_placeholder("one\ntwo"), "[clip: 2 lines]");
     assert_eq!(
         format_clipboard_placeholder("a\nb\nc\nd\ne"),
-        "[clipboard: 5 lines]"
+        "[clip: 5 lines]"
     );
 }
 
@@ -1480,14 +1474,14 @@ fn inline_ai_manual_clip_token_substitutes_clipboard() {
     let state = Arc::new(EngineState::new());
     let mut eval = Evaluator::new(state);
 
-    let input = "tau, reformat this: [clipboard]";
+    let input = "tau, reformat this: [clip]";
     for c in input.chars() {
         eval.process(EngineEvent::Char(c));
     }
 
     let result = eval
         .process(EngineEvent::ActionKey)
-        .expect("tau, with [clipboard] should trigger");
+        .expect("tau, with [clip] should trigger");
 
     assert_eq!(result.delete_count, input.chars().count());
     assert_inline_ai_follow_up(&result, "reformat this: const x = 1;", None);
@@ -1506,15 +1500,15 @@ fn inline_ai_captured_clipboard_placeholder_substitutes_payload() {
 
     let payload = "fn main() {\n    println!(\"$100 and $VAR\");\n}";
     eval.set_captured_ai_clipboard(payload.to_string());
-    eval.append_to_buffer("[clipboard: 3 lines]");
+    eval.append_to_buffer("[clip: 3 lines]");
 
     let result = eval
         .process(EngineEvent::ActionKey)
-        .expect("tau, with clipboard placeholder should trigger");
+        .expect("tau, with clip placeholder should trigger");
 
     assert_eq!(
         result.delete_count,
-        "tau, reformat this: [clipboard: 3 lines]".chars().count()
+        "tau, reformat this: [clip: 3 lines]".chars().count()
     );
     assert_inline_ai_follow_up(&result, &format!("reformat this: {payload}"), None);
 }
@@ -1525,14 +1519,14 @@ fn inline_ai_empty_clip_token_does_not_trigger() {
     let state = Arc::new(EngineState::new());
     let mut eval = Evaluator::new(state);
 
-    for c in "tau, [clipboard]".chars() {
+    for c in "tau, [clip]".chars() {
         eval.process(EngineEvent::Char(c));
     }
 
     assert_eq!(
         eval.process(EngineEvent::ActionKey),
         None,
-        "tau, [clipboard] with empty clipboard must not trigger"
+        "tau, [clip] with empty clipboard must not trigger"
     );
 
     crate::engine::variables::system::clipboard::set_mock_clip(None);

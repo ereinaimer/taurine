@@ -329,7 +329,7 @@ impl Evaluator {
             let clip_content = self
                 .captured_ai_clipboard
                 .take()
-                .or_else(|| crate::engine::variables::system::clipboard::resolve("clipboard"))
+                .or_else(|| crate::engine::variables::system::clipboard::resolve("clip"))
                 .unwrap_or_default();
             resolved_prompt = AI_CLIPBOARD_PLACEHOLDER_REGEX
                 .replace_all(&resolved_prompt, regex::NoExpand(&clip_content))
@@ -338,10 +338,10 @@ impl Evaluator {
             self.captured_ai_clipboard = None;
         }
 
-        if resolved_prompt.contains("[clipboard]") {
-            let clip_content = crate::engine::variables::system::clipboard::resolve("clipboard")
-                .unwrap_or_default();
-            resolved_prompt = resolved_prompt.replace("[clipboard]", &clip_content);
+        if resolved_prompt.contains("[clip]") {
+            let clip_content =
+                crate::engine::variables::system::clipboard::resolve("clip").unwrap_or_default();
+            resolved_prompt = resolved_prompt.replace("[clip]", &clip_content);
         }
 
         let trimmed_prompt = resolved_prompt.trim();
@@ -368,13 +368,13 @@ impl Evaluator {
 pub fn format_clipboard_placeholder(clip_text: &str) -> String {
     let line_count = clip_text.lines().count();
     if line_count > 1 {
-        format!("[clipboard: {} lines]", line_count)
+        format!("[clip: {} lines]", line_count)
     } else {
         let word_count = clip_text.split_whitespace().count();
         if word_count == 1 {
-            "[clipboard: 1 word]".to_string()
+            "[clip: 1 word]".to_string()
         } else {
-            format!("[clipboard: {} words]", word_count)
+            format!("[clip: {} words]", word_count)
         }
     }
 }
@@ -385,8 +385,7 @@ static TAU_PREFIX_REGEX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock
 
 static AI_CLIPBOARD_PLACEHOLDER_REGEX: std::sync::LazyLock<regex::Regex> =
     std::sync::LazyLock::new(|| {
-        regex::Regex::new(r"\[clipboard:\s*\d+\s*(?:lines?|words?)\]")
-            .expect("Valid placeholder regex")
+        regex::Regex::new(r"\[clip:\s*\d+\s*(?:lines?|words?)\]").expect("Valid placeholder regex")
     });
 
 static TAU_AI_REGEX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {

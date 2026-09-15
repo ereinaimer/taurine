@@ -117,35 +117,60 @@ enum ClipKey {
 }
 
 fn parse_clip_key(key: &str) -> Option<ClipKey> {
-    if matches!(key, "clipboard" | "clip") {
+    if key == "clip" {
         return Some(ClipKey::Valid(0));
     }
 
     let inner = key
-        .strip_prefix("clipboard(")
-        .or_else(|| key.strip_prefix("clip("))?
-        .strip_suffix(')')?;
+        .strip_prefix("clip(")
+        .and_then(|s| s.strip_suffix(')'))?;
 
     let inner = crate::engine::variables::system::strip_argument_quotes(inner);
 
     // Malformed arguments stay literal at the interpolation layer instead of panicking or
     // accidentally flowing into transformer fallback paths.
     match inner.parse::<usize>() {
-        // Explicit (0) removed: bare [clip]/[clipboard] is index 0.
-        Ok(0) => Some(ClipKey::Malformed),
         Ok(index) if index < HISTORY_CAPACITY => Some(ClipKey::Valid(index)),
         Ok(_) => Some(ClipKey::OutOfBounds),
         Err(_) => Some(ClipKey::Malformed),
     }
 }
 
-pub fn is_clip_key(key: &str) -> bool {
-    parse_clip_key(key).is_some()
+/// Parses a bare `clip` index argument (`""`, `"0"`, `"1"`, ...).
+/// Full keys stay with `parse_clip_key` so positional `[0]` tags never
+/// misroute through `is_clip_key` into the clipboard family.
+fn parse_clip_index_arg(arg: &str) -> Option<ClipKey> {
+    let arg = crate::engine::variables::system::strip_argument_quotes(arg);
+    if arg.is_empty() {
+        return Some(ClipKey::Valid(0));
+    }
+    if !arg.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    match arg.parse::<usize>() {
+        Ok(index) if index < HISTORY_CAPACITY => Some(ClipKey::Valid(index)),
+        Ok(_) => Some(ClipKey::OutOfBounds),
+        Err(_) => None,
+    }
 }
 
-/// Resolves the `[clipboard]` system variable family from the in-memory history buffer.
+pub fn is_clip_key(key: &str) -> bool {
+    if parse_clip_key(key).is_some() {
+        return true;
+    }
+    // honey: legacy clipboard detection glue for split_system_tag; Task 9 owns removal. Resolve stays clip-only.
+    key == "clipboard"
+        || key
+            .strip_prefix("clipboard(")
+            .and_then(|s| s.strip_suffix(')'))
+            .is_some()
+}
+
+/// Resolves the `[clip]` system variable family from the in-memory history buffer.
+///
+/// Accepts the full `clip` / `clip(N)` key or a bare index argument (`""`, `"0"`, ...).
 pub fn resolve(key: &str) -> Option<String> {
-    let index = match parse_clip_key(key)? {
+    let index = match parse_clip_key(key).or_else(|| parse_clip_index_arg(key))? {
         ClipKey::Valid(index) => index,
         ClipKey::OutOfBounds => return Some(String::new()),
         ClipKey::Malformed => return None,
@@ -192,11 +217,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn clip_indexes() {
+        set_mock_clip_history(vec!["a".into(), "b".into(), "c".into()]);
+        assert_eq!(resolve(""), Some("a".to_string()));
+        assert_eq!(resolve("0"), Some("a".to_string()));
+        assert_eq!(resolve("1"), Some("b".to_string()));
+        assert_eq!(resolve("abc"), None);
+        set_mock_clip(None);
+    }
+
+    #[test]
     fn test_resolve_clip_mocked() {
         set_mock_clip(Some("mocked content".to_string()));
-        assert_eq!(resolve("clipboard"), Some("mocked content".to_string()));
         assert_eq!(resolve("clip"), Some("mocked content".to_string()));
-        assert_eq!(resolve("clipboard"), Some("mocked content".to_string()));
+        assert_eq!(resolve(""), Some("mocked content".to_string()));
+        assert_eq!(resolve("clipboard"), None);
         set_mock_clip(None);
     }
 
@@ -213,17 +248,16 @@ mod tests {
             "oldest".to_string(),
         ]);
 
-        assert_eq!(resolve("clipboard"), Some("current".to_string()));
         assert_eq!(resolve("clip"), Some("current".to_string()));
-        assert_eq!(resolve("clipboard(1)"), Some("previous".to_string()));
+        assert_eq!(resolve(""), Some("current".to_string()));
+        assert_eq!(resolve("clip(0)"), Some("current".to_string()));
         assert_eq!(resolve("clip(1)"), Some("previous".to_string()));
-        assert_eq!(resolve("clipboard(2)"), Some("oldest".to_string()));
         assert_eq!(resolve("clip(2)"), Some("oldest".to_string()));
-        assert_eq!(resolve("clipboard(0)"), None);
-        assert_eq!(resolve("clip(0)"), None);
-        assert_eq!(resolve("clipboard(9)"), Some(String::new()));
-        assert_eq!(resolve("clipboard(abc)"), None);
-        assert_eq!(resolve("clipboard(-1)"), None);
+        assert_eq!(resolve("clipboard"), None);
+        assert_eq!(resolve("clipboard(1)"), None);
+        assert_eq!(resolve("clip(9)"), Some(String::new()));
+        assert_eq!(resolve("clip(abc)"), None);
+        assert_eq!(resolve("clip(-1)"), None);
 
         set_mock_clip(None);
     }
@@ -231,7 +265,7 @@ mod tests {
     #[test]
     fn test_resolve_clip_history_missing_slot_is_empty_string() {
         set_mock_clip_history(vec!["current".to_string()]);
-        assert_eq!(resolve("clipboard(2)"), Some(String::new()));
+        assert_eq!(resolve("clip(2)"), Some(String::new()));
         set_mock_clip(None);
     }
 
