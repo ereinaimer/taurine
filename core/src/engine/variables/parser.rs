@@ -489,13 +489,15 @@ mod tests {
         }
 
         #[test]
-        fn bind_arity_hint() {
+        fn bind_arity_hint_rendering() {
             let err = BindError::Arity {
                 namespace: "f".to_string(),
                 hint: "f(a, [b=2])".to_string(),
             };
-            assert!(matches!(err, BindError::Arity { .. }));
-            assert!(err.to_string().contains("expected: f(a, [b=2])"));
+            assert_eq!(
+                err.to_string(),
+                "wrong number of arguments for 'f' (expected: f(a, [b=2]))"
+            );
         }
 
         #[test]
