@@ -125,7 +125,11 @@ pub fn bind_call(namespace: &str, raw: &str, spec: &ParamSpec) -> Result<BoundAr
         if let Some((raw_key, raw_value)) = split_named(piece) {
             let key = strip_quotes(raw_key.trim()).to_string();
             let value = strip_quotes(raw_value.trim()).to_string();
-            let Some(index) = spec.params.iter().position(|p| p.name == key) else {
+            let Some(index) = spec
+                .params
+                .iter()
+                .position(|p| p.name.eq_ignore_ascii_case(&key))
+            else {
                 return Err(BindError::UnknownKey {
                     key,
                     namespace: namespace.to_string(),
@@ -471,6 +475,21 @@ mod tests {
             );
             assert_eq!(b.named.get("a").unwrap(), "0");
             assert_eq!(b.named.get("b").unwrap(), "1");
+        }
+
+        #[test]
+        fn bind_keys_case_insensitive_values_verbatim() {
+            let spec = ParamSpec {
+                params: &[Param {
+                    name: "file",
+                    required: true,
+                    default: "",
+                }],
+            };
+            let b = bind_call("f", "FILE=True", &spec).unwrap();
+            assert_eq!(b.named.get("file").unwrap(), "True");
+            let err = bind_call("f", "file=a, FILE=b", &spec).unwrap_err();
+            assert!(matches!(err, BindError::Duplicate { .. }));
         }
 
         #[test]
