@@ -1,4 +1,180 @@
 use super::types::ArgMap;
+use indexmap::IndexMap;
+
+pub struct Param<'a> {
+    pub name: &'a str,
+    pub required: bool,
+    pub default: &'a str,
+}
+
+pub struct ParamSpec<'a> {
+    pub params: &'a [Param<'a>],
+}
+
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct BoundArgs {
+    pub positional: Vec<String>,
+    pub named: IndexMap<String, String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum BindError {
+    #[error("unknown parameter '{key}' for '{namespace}' (expected: {hint})")]
+    UnknownKey {
+        key: String,
+        namespace: String,
+        hint: String,
+    },
+    #[error("duplicate value for parameter '{param}' in '{namespace}' (expected: {hint})")]
+    Duplicate {
+        param: String,
+        namespace: String,
+        hint: String,
+    },
+    #[error("missing required parameter '{param}' for '{namespace}' (expected: {hint})")]
+    MissingRequired {
+        param: String,
+        namespace: String,
+        hint: String,
+    },
+    #[error("positional value after named parameter in '{namespace}' (expected: {hint})")]
+    PositionalAfterNamed { namespace: String, hint: String },
+    #[error("wrong number of arguments for '{namespace}' (expected: {hint})")]
+    Arity { namespace: String, hint: String },
+}
+
+fn usage_hint(namespace: &str, spec: &ParamSpec) -> String {
+    let parts: Vec<String> = spec
+        .params
+        .iter()
+        .map(|p| {
+            if p.required {
+                p.name.to_string()
+            } else {
+                format!("[{}={}]", p.name, p.default)
+            }
+        })
+        .collect();
+    format!("{}({})", namespace, parts.join(", "))
+}
+
+fn split_call_args(raw: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+    let mut paren: usize = 0;
+    let mut bracket: usize = 0;
+    for c in raw.chars() {
+        if let Some(q) = quote {
+            current.push(c);
+            if c == q {
+                quote = None;
+            }
+        } else if c == '"' || c == '\'' {
+            quote = Some(c);
+            current.push(c);
+        } else if c == '(' {
+            paren += 1;
+            current.push(c);
+        } else if c == ')' {
+            paren = paren.saturating_sub(1);
+            current.push(c);
+        } else if c == '[' {
+            bracket += 1;
+            current.push(c);
+        } else if c == ']' {
+            bracket = bracket.saturating_sub(1);
+            current.push(c);
+        } else if c == ',' && paren == 0 && bracket == 0 {
+            parts.push(std::mem::take(&mut current));
+        } else {
+            current.push(c);
+        }
+    }
+    parts.push(current);
+    parts
+}
+
+fn split_named(token: &str) -> Option<(&str, &str)> {
+    let mut quote: Option<char> = None;
+    for (i, c) in token.char_indices() {
+        if let Some(q) = quote {
+            if c == q {
+                quote = None;
+            }
+        } else if c == '"' || c == '\'' {
+            quote = Some(c);
+        } else if c == '=' {
+            return Some((&token[..i], &token[i + 1..]));
+        }
+    }
+    None
+}
+
+pub fn bind_call(namespace: &str, raw: &str, spec: &ParamSpec) -> Result<BoundArgs, BindError> {
+    let hint = usage_hint(namespace, spec);
+    let mut values: Vec<Option<String>> = vec![None; spec.params.len()];
+    let mut bound = BoundArgs::default();
+    let mut seen_named = false;
+    for part in split_call_args(raw) {
+        let token = strip_quotes(part.trim());
+        if token.is_empty() {
+            continue;
+        }
+        if let Some((raw_key, raw_value)) = split_named(token) {
+            let key = strip_quotes(raw_key.trim()).to_string();
+            let value = strip_quotes(raw_value.trim()).to_string();
+            let Some(index) = spec.params.iter().position(|p| p.name == key) else {
+                return Err(BindError::UnknownKey {
+                    key,
+                    namespace: namespace.to_string(),
+                    hint,
+                });
+            };
+            if values[index].is_some() {
+                return Err(BindError::Duplicate {
+                    param: key,
+                    namespace: namespace.to_string(),
+                    hint,
+                });
+            }
+            values[index] = Some(value);
+            seen_named = true;
+        } else {
+            if seen_named {
+                return Err(BindError::PositionalAfterNamed {
+                    namespace: namespace.to_string(),
+                    hint,
+                });
+            }
+            let value = token.to_string();
+            bound.positional.push(value.clone());
+            if let Some(index) = values.iter().position(Option::is_none) {
+                values[index] = Some(value);
+            }
+        }
+    }
+    for (param, slot) in spec.params.iter().zip(values.iter()) {
+        match slot {
+            Some(value) => {
+                bound.named.insert(param.name.to_string(), value.clone());
+            }
+            None if param.required => {
+                return Err(BindError::MissingRequired {
+                    param: param.name.to_string(),
+                    namespace: namespace.to_string(),
+                    hint,
+                });
+            }
+            None => {
+                bound
+                    .named
+                    .insert(param.name.to_string(), param.default.to_string());
+            }
+        }
+    }
+    Ok(bound)
+}
 
 fn strip_quotes(s: &str) -> &str {
     let s = s.trim();
@@ -191,6 +367,149 @@ mod tests {
             let map = parse_tokens(&tokens);
             assert_eq!(map.positional[0], "bye ");
             assert_eq!(map.positional[1], "4");
+        }
+    }
+
+    mod bind_call_tests {
+        use super::*;
+
+        fn two_param_spec() -> ParamSpec<'static> {
+            ParamSpec {
+                params: &[
+                    Param {
+                        name: "a",
+                        required: true,
+                        default: "",
+                    },
+                    Param {
+                        name: "b",
+                        required: false,
+                        default: "2",
+                    },
+                ],
+            }
+        }
+
+        #[test]
+        fn bind_positional_and_named() {
+            let spec = ParamSpec {
+                params: &[
+                    Param {
+                        name: "type",
+                        required: false,
+                        default: "int",
+                    },
+                    Param {
+                        name: "min",
+                        required: false,
+                        default: "0",
+                    },
+                ],
+            };
+            let b = bind_call("random", "choice", &spec).unwrap();
+            assert_eq!(b.positional, vec!["choice".to_string()]);
+        }
+
+        #[test]
+        fn bind_empty_args_use_defaults() {
+            let spec = ParamSpec {
+                params: &[Param {
+                    name: "b",
+                    required: false,
+                    default: "2",
+                }],
+            };
+            let b = bind_call("f", "", &spec).unwrap();
+            assert!(b.positional.is_empty());
+            assert_eq!(b.named.get("b").unwrap(), "2");
+        }
+
+        #[test]
+        fn bind_positional_fill() {
+            let spec = two_param_spec();
+            let b = bind_call("f", "0, 1", &spec).unwrap();
+            assert_eq!(b.positional, vec!["0".to_string(), "1".to_string()]);
+            assert_eq!(b.named.get("a").unwrap(), "0");
+            assert_eq!(b.named.get("b").unwrap(), "1");
+        }
+
+        #[test]
+        fn bind_named_skip() {
+            let spec = two_param_spec();
+            let b = bind_call("f", "0, b=5", &spec).unwrap();
+            assert_eq!(b.positional, vec!["0".to_string()]);
+            assert_eq!(b.named.get("a").unwrap(), "0");
+            assert_eq!(b.named.get("b").unwrap(), "5");
+        }
+
+        #[test]
+        fn bind_variadic_tail_stays_positional() {
+            let spec = two_param_spec();
+            let b = bind_call("f", "0, 1, extra", &spec).unwrap();
+            assert_eq!(
+                b.positional,
+                vec!["0".to_string(), "1".to_string(), "extra".to_string()]
+            );
+            assert_eq!(b.named.get("a").unwrap(), "0");
+            assert_eq!(b.named.get("b").unwrap(), "1");
+        }
+
+        #[test]
+        fn bind_unknown_key() {
+            let spec = two_param_spec();
+            let err = bind_call("f", "0, c=1", &spec).unwrap_err();
+            assert!(matches!(err, BindError::UnknownKey { .. }));
+            assert!(err.to_string().contains("expected: f(a, [b=2])"));
+        }
+
+        #[test]
+        fn bind_duplicate() {
+            let spec = two_param_spec();
+            let err = bind_call("f", "0, a=1", &spec).unwrap_err();
+            assert!(matches!(err, BindError::Duplicate { .. }));
+            assert!(err.to_string().contains("expected: f(a, [b=2])"));
+        }
+
+        #[test]
+        fn bind_missing_required() {
+            let spec = two_param_spec();
+            let err = bind_call("f", "b=5", &spec).unwrap_err();
+            assert!(matches!(err, BindError::MissingRequired { .. }));
+            assert!(err.to_string().contains("expected: f(a, [b=2])"));
+        }
+
+        #[test]
+        fn bind_positional_after_named() {
+            let spec = two_param_spec();
+            let err = bind_call("f", "a=0, 1", &spec).unwrap_err();
+            assert!(matches!(err, BindError::PositionalAfterNamed { .. }));
+            assert!(err.to_string().contains("expected: f(a, [b=2])"));
+        }
+
+        #[test]
+        fn bind_arity_hint() {
+            let spec = two_param_spec();
+            let err = BindError::Arity {
+                namespace: "f".to_string(),
+                hint: "f(a, [b=2])".to_string(),
+            };
+            assert!(err.to_string().contains("expected: f(a, [b=2])"));
+            let _ = spec;
+        }
+
+        #[test]
+        fn bind_quoted_comma_and_paren_values() {
+            let spec = two_param_spec();
+            let b = bind_call("f", "\"x,y\", b=2", &spec).unwrap();
+            assert_eq!(b.positional, vec!["x,y".to_string()]);
+            assert_eq!(b.named.get("a").unwrap(), "x,y");
+            let b = bind_call("f", "sum(1,2), [a,b]", &spec).unwrap();
+            assert_eq!(
+                b.positional,
+                vec!["sum(1,2)".to_string(), "[a,b]".to_string()]
+            );
+            assert_eq!(b.named.get("a").unwrap(), "sum(1,2)");
+            assert_eq!(b.named.get("b").unwrap(), "[a,b]");
         }
     }
 }
