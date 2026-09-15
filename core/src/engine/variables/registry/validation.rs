@@ -26,6 +26,81 @@ pub enum ValidationError {
     },
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum Method<'a> {
+    Utc,
+    Calc(&'a str),
+    Format(&'a str),
+}
+
+fn parse_methods(mut key: &str) -> Result<Vec<Method<'_>>, String> {
+    let mut methods = Vec::new();
+    while !key.is_empty() {
+        if key.starts_with("now") {
+            key = &key[3..];
+        } else if key.starts_with("utc") {
+            methods.push(Method::Utc);
+            key = &key[3..];
+        } else if key.starts_with("calc(") {
+            let mut end = 0;
+            let mut depth = 1;
+            let bytes = key.as_bytes();
+            for (i, &b) in bytes.iter().enumerate().skip(5) {
+                if b == b'(' {
+                    depth += 1;
+                } else if b == b')' {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = i;
+                        break;
+                    }
+                }
+            }
+            if end == 0 {
+                return Err("unclosed paren in calc".to_string());
+            }
+            methods.push(Method::Calc(&key[5..end]));
+            key = &key[end + 1..];
+        } else if key.starts_with("format(") {
+            let mut end = 0;
+            let mut depth = 1;
+            let mut in_quote = false;
+            let bytes = key.as_bytes();
+            for (i, &b) in bytes.iter().enumerate().skip(7) {
+                match b {
+                    b'\'' => in_quote = !in_quote,
+                    b'(' if !in_quote => depth += 1,
+                    b')' if !in_quote => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = i;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if end == 0 {
+                return Err("unclosed paren in format".to_string());
+            }
+            methods.push(Method::Format(&key[7..end]));
+            key = &key[end + 1..];
+        } else {
+            return Err(format!("unknown method '{}'", key));
+        }
+
+        if !key.is_empty() {
+            if !key.starts_with('.') {
+                return Err(format!("expected '.' before method, got '{}'", key));
+            }
+            key = &key[1..];
+        }
+    }
+    Ok(methods)
+}
+
+// honey: legacy dot-chain validation glue (Task 9 owns the sweep); the
+// resolver moved to chrono(...) and no longer parses dot chains.
 pub fn validate_system_tag(root: &str, modifier: Option<&str>) -> Result<(), ValidationError> {
     match root {
         "newline" => validate_no_modifier("newline", modifier),
@@ -102,7 +177,7 @@ fn validate_time_modifier(modifier: Option<&str>) -> Result<(), ValidationError>
     match modifier.and_then(normalize_modifier) {
         None => Ok(()),
         Some(m) => {
-            if system::datetime::parse_methods(m).is_ok() {
+            if parse_methods(m).is_ok() {
                 Ok(())
             } else {
                 Err(ValidationError::InvalidModifier {
@@ -119,7 +194,7 @@ fn validate_date_modifier(modifier: Option<&str>) -> Result<(), ValidationError>
     match modifier.and_then(normalize_modifier) {
         None => Ok(()),
         Some(m) => {
-            if system::datetime::parse_methods(m).is_ok() {
+            if parse_methods(m).is_ok() {
                 Ok(())
             } else {
                 Err(ValidationError::InvalidModifier {
@@ -136,7 +211,7 @@ fn validate_datetime_modifier(modifier: Option<&str>) -> Result<(), ValidationEr
     match modifier.and_then(normalize_modifier) {
         None => Ok(()),
         Some(m) => {
-            if system::datetime::parse_methods(m).is_ok() {
+            if parse_methods(m).is_ok() {
                 Ok(())
             } else {
                 Err(ValidationError::InvalidModifier {

@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn test_interpolate_quoted_system_arguments() {
     let args = ArgMap::default();
-    let tpl = "Raw: [time.calc(+2h)] | Double: [time.calc(\"+2h\")] | Single: [time.calc('+2h')]";
+    let tpl = "Raw: [chrono(time, +2h)] | Double: [chrono(time, \"+2h\")] | Single: [chrono(time, '+2h')]";
     let res = interpolate(tpl, &args);
     assert!(!res.contains("[Error"));
     assert!(res.contains("Raw: "));
@@ -31,12 +31,12 @@ fn test_extract_placeholders_deduplicate() {
 
 #[test]
 fn test_extract_placeholders_ignore_system() {
-    let text = "Hello [cursor] at [time.now]. My name is [name=John]";
+    let text = "Hello [cursor] at [chrono(time)]. My name is [name=John]";
     let p = extract_placeholders(text);
     assert_eq!(p.len(), 1);
     assert!(p.contains_key("name"));
     assert!(!p.contains_key("cursor"));
-    assert!(!p.contains_key("time.now"));
+    assert!(!p.contains_key("chrono(time)"));
 }
 
 #[test]
@@ -131,12 +131,12 @@ fn test_interpolate_system_variables() {
 
     system::clipboard::set_mock_clip(Some("clip_content".to_string()));
 
-    let tpl = "[msg=] [cursor] [time.now] [clipboard]";
+    let tpl = "[msg=] [cursor] [chrono(time)] [clipboard]";
     let res = interpolate(tpl, &args);
 
     assert!(res.contains("hello [cursor] "));
     assert!(res.contains("clip_content"));
-    assert!(!res.contains("[time.now]"));
+    assert!(!res.contains("[chrono(time)]"));
     assert!(!res.contains("[clipboard]"));
 
     system::clipboard::set_mock_clip(None);
@@ -260,11 +260,11 @@ fn test_interpolate_balanced_with_escapes() {
 #[test]
 fn test_interpolate_flattened_system() {
     let args = ArgMap::default();
-    // time.now | case(upper) should resolve to the current time in uppercase
-    let res = interpolate("[time.now | case(upper)]", &args);
+    // chrono(time) | case(upper) should resolve to the current time in uppercase
+    let res = interpolate("[chrono(time) | case(upper)]", &args);
     // We check if it resolved to SOMETHING that isn't the literal string or empty
     assert!(!res.is_empty());
-    assert!(!res.contains("time.now"));
+    assert!(!res.contains("chrono"));
     // Check if it's uppercase
     assert_eq!(res, res.to_uppercase());
 }
@@ -605,7 +605,7 @@ mod compatibility_interpolation_tests {
     #[test]
     fn test_aisummary_manual_case() {
         let args = ArgMap::default();
-        let tpl = "### SUMMARY OF COPIED TEXT ([date]):[key(enter)][clipboard | ai(summarize this in 3 concise bullet points) | strip(whitespace)]";
+        let tpl = "### SUMMARY OF COPIED TEXT ([chrono(date)]):[key(enter)][clipboard | ai(summarize this in 3 concise bullet points) | strip(whitespace)]";
         system::clipboard::set_mock_clip(Some("Long article text".to_string()));
         let result = interpolate(tpl, &args);
         // date.short will be the actual date, so we just check the AI marker structure

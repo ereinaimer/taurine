@@ -4,7 +4,6 @@
 //! and future variables like `[time]`.
 
 pub mod clipboard;
-pub mod date;
 pub mod datetime;
 pub mod env;
 pub mod execute;
@@ -14,7 +13,6 @@ pub mod image;
 pub mod lorem;
 pub mod net;
 pub mod random;
-pub mod time;
 pub mod transformers;
 pub mod uuid;
 
@@ -84,14 +82,14 @@ pub fn resolve(key: &str) -> Option<String> {
     if key == "newline" {
         return Some("\n".to_string());
     }
-    if key == "time" || key.starts_with("time.") {
-        return time::resolve(key);
+    if key == "chrono" {
+        return datetime::resolve("");
     }
-    if key == "date" || key.starts_with("date.") {
-        return date::resolve(key);
-    }
-    if key == "datetime" || key.starts_with("datetime.") {
-        return datetime::resolve(key);
+    if let Some(inner) = key
+        .strip_prefix("chrono(")
+        .and_then(|s| s.strip_suffix(')'))
+    {
+        return datetime::resolve(inner);
     }
     if key.starts_with("env(") {
         return env::resolve(key);

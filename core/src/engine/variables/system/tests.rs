@@ -568,7 +568,7 @@ mod compatibility_finalize_tests {
         // Test Case 3: testdatetime
         {
             let res = evaluate_template(
-                "Local: [date] [time] | UTC +1w: [date.utc.calc(+1w).format('Today is' dddd, MMMM D, YYYY)] | UTC Time -2h: [time.utc.calc(-2h).format(hh:mm A)] | Cased AM/PM: [time.format(A) | case(lower)]",
+                "Local: [chrono(date)] [chrono(time)] | UTC +1w: [chrono(date, +1w, \"'Today is' dddd, MMMM D, YYYY\", utc)] | UTC Time -2h: [chrono(time, -2h, hh:mm A, utc)] | Cased AM/PM: [chrono(time, none, A) | case(lower)]",
                 None,
             );
             assert_eq!(res.steps.len(), 1);
@@ -741,7 +741,7 @@ mod compatibility_finalize_tests {
                 ).unwrap();
 
             let res = evaluate_template(
-                "Output: [use('testinner') | case(upper)] | Date: [date]",
+                "Output: [use('testinner') | case(upper)] | Date: [chrono(date)]",
                 None,
             );
 
@@ -763,7 +763,7 @@ mod compatibility_finalize_tests {
         // Test Case 12: testcombo
         {
             let res = evaluate_template(
-                "User [name='Developer'] checked [url='httpbin.org/json'] at [time.utc.format(HH:mm)] UTC. Title of JSON: [http.get([url]) | json('slideshow.title') | case(upper)]",
+                "User [name='Developer'] checked [url='httpbin.org/json'] at [chrono(time, none, HH:mm, utc)] UTC. Title of JSON: [http.get([url]) | json('slideshow.title') | case(upper)]",
                 None,
             );
             assert_eq!(res.steps.len(), 1);

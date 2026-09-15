@@ -1,78 +1,5 @@
 use time::{Date, Duration, Month, OffsetDateTime, UtcOffset, util};
 
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Method<'a> {
-    Utc,
-    Calc(&'a str),
-    Format(&'a str),
-}
-
-pub(crate) fn parse_methods(mut key: &str) -> Result<Vec<Method<'_>>, String> {
-    let mut methods = Vec::new();
-    while !key.is_empty() {
-        if key.starts_with("now") {
-            key = &key[3..];
-        } else if key.starts_with("utc") {
-            methods.push(Method::Utc);
-            key = &key[3..];
-        } else if key.starts_with("calc(") {
-            let mut end = 0;
-            let mut depth = 1;
-            let bytes = key.as_bytes();
-            for (i, &b) in bytes.iter().enumerate().skip(5) {
-                if b == b'(' {
-                    depth += 1;
-                } else if b == b')' {
-                    depth -= 1;
-                    if depth == 0 {
-                        end = i;
-                        break;
-                    }
-                }
-            }
-            if end == 0 {
-                return Err("unclosed paren in calc".to_string());
-            }
-            methods.push(Method::Calc(&key[5..end]));
-            key = &key[end + 1..];
-        } else if key.starts_with("format(") {
-            let mut end = 0;
-            let mut depth = 1;
-            let mut in_quote = false;
-            let bytes = key.as_bytes();
-            for (i, &b) in bytes.iter().enumerate().skip(7) {
-                match b {
-                    b'\'' => in_quote = !in_quote,
-                    b'(' if !in_quote => depth += 1,
-                    b')' if !in_quote => {
-                        depth -= 1;
-                        if depth == 0 {
-                            end = i;
-                            break;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            if end == 0 {
-                return Err("unclosed paren in format".to_string());
-            }
-            methods.push(Method::Format(&key[7..end]));
-            key = &key[end + 1..];
-        } else {
-            return Err(format!("unknown method '{}'", key));
-        }
-
-        if !key.is_empty() {
-            if !key.starts_with('.') {
-                return Err(format!("expected '.' before method, got '{}'", key));
-            }
-            key = &key[1..];
-        }
-    }
-    Ok(methods)
-}
-
 pub(crate) fn add_months_clamped(dt: OffsetDateTime, months: i32) -> OffsetDateTime {
     let date = dt.date();
     let month_index = date.year() * 12 + i32::from(u8::from(date.month())) - 1 + months;
@@ -286,52 +213,117 @@ pub(crate) fn format_temporal(dt: OffsetDateTime, format_str: &str) -> Result<St
     Ok(out)
 }
 
-/// Resolves `datetime` and `datetime.*` system variables.
-pub fn resolve(key: &str) -> Option<String> {
-    if key != "datetime" && !key.starts_with("datetime.") {
+const DEFAULT_TYPE: &str = "datetime";
+const NO_OFFSET: &str = "none";
+const DEFAULT_TZ: &str = "local";
+
+// honey: single bare token is ambiguous; shape decides the slot it fills.
+fn classify_single(token: &str) -> Option<(String, String, String, String)> {
+    let token = token.trim();
+    let lower = token.to_ascii_lowercase();
+    if token.starts_with('+') || token.starts_with('-') {
+        Some((
+            DEFAULT_TYPE.to_string(),
+            token.to_string(),
+            String::new(),
+            DEFAULT_TZ.to_string(),
+        ))
+    } else if lower == "utc" || lower == "local" {
+        Some((
+            DEFAULT_TYPE.to_string(),
+            NO_OFFSET.to_string(),
+            String::new(),
+            token.to_string(),
+        ))
+    } else if lower == "date" || lower == "time" || lower == "datetime" {
+        Some((
+            token.to_string(),
+            NO_OFFSET.to_string(),
+            String::new(),
+            DEFAULT_TZ.to_string(),
+        ))
+    } else if token.as_bytes().first().is_some_and(u8::is_ascii_digit) {
+        // honey: digit-leading bare token is an offset missing its sign.
+        None
+    } else {
+        Some((
+            DEFAULT_TYPE.to_string(),
+            NO_OFFSET.to_string(),
+            token.to_string(),
+            DEFAULT_TZ.to_string(),
+        ))
+    }
+}
+
+/// Resolves the unified `chrono(...)` system variable.
+///
+/// `raw` is the argument list inside `chrono(...)` (`""` when bare),
+/// bound positionally or by name as `(type, offset, format, tz)`.
+pub fn resolve(raw: &str) -> Option<String> {
+    let spec = crate::engine::variables::registry::param_spec("chrono")?;
+    let bound = crate::engine::variables::parser::bind_call("chrono", raw, &spec).ok()?;
+    if bound.positional.len() > spec.params.len() {
         return None;
     }
+    let (kind, offset, format, tz) = if bound.positional.len() == 1 && !raw.contains('=') {
+        classify_single(&bound.positional[0])?
+    } else {
+        (
+            bound
+                .named
+                .get("type")
+                .map(String::as_str)
+                .unwrap_or(DEFAULT_TYPE)
+                .to_string(),
+            bound
+                .named
+                .get("offset")
+                .map(String::as_str)
+                .unwrap_or(NO_OFFSET)
+                .to_string(),
+            bound
+                .named
+                .get("format")
+                .map(String::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            bound
+                .named
+                .get("tz")
+                .map(String::as_str)
+                .unwrap_or(DEFAULT_TZ)
+                .to_string(),
+        )
+    };
 
-    let method_str = if key == "datetime" { "" } else { &key[9..] };
-    let methods = match parse_methods(method_str) {
-        Ok(m) => m,
-        Err(e) => {
-            tracing::warn!("Failed to parse datetime methods from '{}': {}", key, e);
-            return None;
-        }
+    let default_format = match kind.trim().to_ascii_lowercase().as_str() {
+        "date" => "YYYY-MM-DD",
+        "time" => "HH:mm",
+        "datetime" => "YYYY-MM-DDTHH:mm:ss",
+        _ => return None,
+    };
+    let use_utc = match tz.trim().to_ascii_lowercase().as_str() {
+        "utc" => true,
+        "local" => false,
+        _ => return None,
     };
 
     let mut dt = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
-    let mut format_str = "YYYY-MM-DDTHH:mm:ss";
-
-    for method in methods {
-        match method {
-            Method::Utc => {
-                dt = dt.to_offset(UtcOffset::UTC);
-            }
-            Method::Calc(args) => {
-                dt = match apply_temporal_calc(dt, args) {
-                    Ok(new_dt) => new_dt,
-                    Err(e) => {
-                        tracing::warn!("Failed to calculate datetime offset '{}': {}", args, e);
-                        return None;
-                    }
-                };
-            }
-            Method::Format(args) => {
-                format_str = crate::engine::variables::system::strip_quotes(args.trim())
-                    .unwrap_or(args.trim());
-            }
-        }
+    if use_utc {
+        dt = dt.to_offset(UtcOffset::UTC);
     }
-
-    match format_temporal(dt, format_str) {
-        Ok(formatted) => Some(formatted),
-        Err(e) => {
-            tracing::warn!("Failed to format datetime '{}': {}", format_str, e);
-            None
-        }
+    let offset = offset.trim();
+    if !offset.eq_ignore_ascii_case(NO_OFFSET) {
+        dt = apply_temporal_calc(dt, offset).ok()?;
     }
+    let format = format.trim();
+    let format = if format.is_empty() {
+        default_format
+    } else {
+        super::strip_quotes(format).unwrap_or(format)
+    };
+
+    format_temporal(dt, format).ok()
 }
 
 #[cfg(test)]
@@ -339,28 +331,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_datetime_default_format() {
-        let res = resolve("datetime").unwrap();
-        assert!(res.contains('T'));
-        assert_eq!(res.len(), 19); // YYYY-MM-DDTHH:mm:ss
+    fn chrono_kinds_offsets_formats() {
+        assert!(resolve("").is_some()); // bare = full stamp
+        assert!(resolve("date").is_some());
+        assert!(resolve("+1d").is_some()); // single-arg detect → offset
+        assert!(resolve("utc").is_some()); // single-arg detect → tz
+        assert!(resolve("date, +1d, YYYY-MM-DD, utc").is_some());
+        assert_eq!(resolve("1d"), None); // offset needs +/-
+        assert!(resolve("type=time, tz=utc").is_some());
     }
 
     #[test]
-    fn test_datetime_utc() {
-        let res = resolve("datetime.utc").unwrap();
-        assert!(res.contains('T'));
+    fn chrono_per_type_default_formats() {
+        assert_eq!(resolve("date").unwrap().len(), 10); // YYYY-MM-DD
+        assert_eq!(resolve("time").unwrap().len(), 5); // HH:mm
+        assert_eq!(resolve("").unwrap().len(), 19); // YYYY-MM-DDTHH:mm:ss
+        assert!(resolve("DATE").is_some());
+        assert!(resolve("type=DATE, tz=UTC").is_some());
     }
 
     #[test]
-    fn test_datetime_calc_and_format() {
-        let res = resolve("datetime.calc(+1d2h).format('Date:' YYYY-MM-DD 'Time:' HH:mm)").unwrap();
-        assert!(res.starts_with("Date: "));
-        assert!(res.contains("Time: "));
+    fn chrono_offset_and_tz_validation() {
+        assert!(resolve("datetime, +1d").is_some());
+        assert!(resolve("offset=+1h").is_some());
+        assert_eq!(resolve("offset=1h"), None); // offset needs +/-
+        assert_eq!(resolve("tz=est"), None);
+        assert_eq!(resolve("type=week"), None);
+        assert_eq!(resolve("a, b, c, d, e"), None);
+        assert_eq!(resolve("bogus=1"), None);
     }
 
     #[test]
-    fn test_datetime_all_calc_units() {
-        let res = resolve("datetime.calc(+1y1m1w1d1h1min1s)").unwrap();
-        assert!(!res.contains("[Error"));
+    fn chrono_calc_units_and_literals_kept() {
+        let res = resolve("datetime, +1y1m1w1d1h1min1s, YYYY-MM-DDTHH:mm:ss, utc").unwrap();
+        assert_eq!(res.len(), 19);
+        let lit = resolve("date, none, 'Today is' dddd, local").unwrap();
+        assert!(lit.starts_with("Today is "));
     }
 }
