@@ -637,7 +637,7 @@ mod compatibility_finalize_tests {
                 "banana".to_string(),
             ]);
             let res = evaluate_template(
-                "Latest (Slugified): [clipboard | case(slug)] | Second: [clipboard(0) | strip(whitespace)] | Third (Upper): [clipboard(1) | case(upper)] | Empty index: [clipboard(2) | wrap(singlequote)]",
+                "Latest (Slugified): [clipboard | case(slug)] | Second: [clip | strip(whitespace)] | Third (Upper): [clipboard(1) | case(upper)] | Empty index: [clipboard(2) | wrap(singlequote)]",
                 None,
             );
             super::clipboard::set_mock_clip(None);

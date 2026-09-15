@@ -127,21 +127,28 @@ fn validates_roots_with_no_modifiers() {
 #[test]
 fn validates_clip_syntax() {
     assert_eq!(validate_system_tag("clipboard", None), Ok(()));
-    assert_eq!(validate_system_tag("clipboard", Some("(0)")), Ok(()));
     assert_eq!(validate_system_tag("clipboard", Some("(1)")), Ok(()));
     assert_eq!(validate_system_tag("clipboard", Some("(2)")), Ok(()));
+
+    assert_eq!(
+        validate_system_tag("clipboard", Some("(0)")),
+        Err(ValidationError::InvalidModifier {
+            root: "clipboard",
+            modifier: "(0)".to_string(),
+            allowed: &["(1)", "(2)"],
+        })
+    );
 
     assert_eq!(
         validate_system_tag("clipboard", Some("unknown")),
         Err(ValidationError::InvalidModifier {
             root: "clipboard",
             modifier: "unknown".to_string(),
-            allowed: &["(0)", "(1)", "(2)"],
+            allowed: &["(1)", "(2)"],
         })
     );
 
     assert_eq!(validate_system_tag("clipboard", None), Ok(()));
-    assert_eq!(validate_system_tag("clipboard", Some("(0)")), Ok(()));
     assert_eq!(validate_system_tag("clipboard", Some("(1)")), Ok(()));
     assert_eq!(validate_system_tag("clipboard", Some("(2)")), Ok(()));
     assert_eq!(
@@ -149,7 +156,7 @@ fn validates_clip_syntax() {
         Err(ValidationError::InvalidModifier {
             root: "clipboard",
             modifier: "unknown".to_string(),
-            allowed: &["(0)", "(1)", "(2)"],
+            allowed: &["(1)", "(2)"],
         })
     );
 }

@@ -63,7 +63,7 @@ fn validate_no_modifier(root: &'static str, modifier: Option<&str>) -> Result<()
     }
 }
 
-const CLIP_INDEX_MODIFIERS: &[&str] = &["(0)", "(1)", "(2)"];
+const CLIP_INDEX_MODIFIERS: &[&str] = &["(1)", "(2)"];
 
 fn validate_clip_modifier(
     root: &'static str,

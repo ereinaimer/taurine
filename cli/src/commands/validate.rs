@@ -285,7 +285,7 @@ mod tests {
         assert!(audit_payload_tags("Local: [date] [time] | UTC +1w: [date.utc.calc(+1w).format('Today is' dddd, MMMM D, YYYY)] | UTC Time -2h: [time.utc.calc(-2h).format(hh:mm A)] | Cased AM/PM: [time.format(A) | case(lower)]").is_ok());
         assert!(audit_payload_tags("User (Title Case): [env(USERNAME) | case(title)] | Home Path (Lowercase): [env(USERPROFILE) | case(lower)]").is_ok());
         assert!(audit_payload_tags("Full Content: [file.read(~/taurine_test.txt) | strip(whitespace)] | Line 2: [file.line(~/taurine_test.txt, 2) | case(upper)] | Lines 1-3: [file.lines(~/taurine_test.txt, 1, 3)]").is_ok());
-        assert!(audit_payload_tags("Latest (Slugified): [clipboard | case(slug)] | Second: [clipboard(0) | strip(whitespace)] | Third (Upper): [clipboard(1) | case(upper)] | Empty index: [clipboard(2) | wrap(singlequote)]").is_ok());
+        assert!(audit_payload_tags("Latest (Slugified): [clipboard | case(slug)] | Second: [clip | strip(whitespace)] | Third (Upper): [clipboard(1) | case(upper)] | Empty index: [clipboard(2) | wrap(singlequote)]").is_ok());
         assert!(audit_payload_tags("Cwd Path: [execute.powershell((Get-Location).Path) | strip(whitespace)] | Cmd Command: [execute.cmd(echo hello from cmd) | case(upper)] | Silent Task: [execute.silent.powershell(echo 'background task')]").is_ok());
         assert!(audit_payload_tags("Status: [http.status(https://httpbin.org/status/200)] | UA: [http.get(https://httpbin.org/headers) | json('headers.User-Agent') | truncate(15)]").is_ok());
         assert!(audit_payload_tags("Status: [http.status(https://httpbin.org/status/200)] | UA: [[http.get(https://httpbin.org/headers)] | json('headers.User-Agent') | truncate(15)]").is_ok());

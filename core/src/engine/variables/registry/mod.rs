@@ -96,7 +96,10 @@ pub fn split_system_tag(key: &str) -> Option<(&str, Option<&str>)> {
         return Some(("newline", None));
     }
     if system::clipboard::is_clip_key(base) {
-        let rest = base.strip_prefix("clipboard").unwrap_or("");
+        let rest = base
+            .strip_prefix("clipboard")
+            .or_else(|| base.strip_prefix("clip"))
+            .unwrap_or("");
         let modifier = if rest.is_empty() { None } else { Some(rest) };
         return Some(("clipboard", modifier));
     }
@@ -143,7 +146,7 @@ pub fn split_system_tag(key: &str) -> Option<(&str, Option<&str>)> {
 pub fn valid_modifier_hint(root: &str) -> String {
     match root {
         "cursor" => "Valid form: [cursor]".to_string(),
-        "clipboard" => "Valid forms: [clipboard], [clipboard(0)], [clipboard(1)], [clipboard(2)]"
+        "clipboard" => "Valid forms: [clip], [clipboard], [clip(1)], [clip(2)]"
             .to_string(),
         "time" => format!("Valid modifiers / methods: {}", TIME_METHODS.join(", ")),
         "date" => format!("Valid modifiers / methods: {}", DATE_METHODS.join(", ")),

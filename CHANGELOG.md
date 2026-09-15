@@ -58,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Redundant Audio Themes**: Remove soft, glass, dreamy, cinematic, and studio pause/resume sounds, leaving seven themes.
 
 ### Changed
+- **Clipboard History Access**: Use bare [clip] or [clipboard] for the current entry and [clip(1)] or [clip(2)] for older entries; explicit (0) is rejected.
 - **JSON Transformers Use Function Syntax**: Format JSON via [| json(pretty)] and [| json(minify)] instead of the removed dot forms.
 - **Always-Encrypted Exports**: Remove the `--plain` export option so `.tau` files are always encrypted, with an optional password for a second lock.
 - **Machine-Bound Database Encryption**: The local database is now encrypted with a per-computer key and copies of the database file no longer open on other computers; move data between machines with encrypted exports.

@@ -368,7 +368,8 @@ fn test_interpolate_clipboard_history_function_syntax() {
     system::clipboard::set_mock_clip_history(vec!["current".to_string(), "previous".to_string()]);
 
     assert_eq!(interpolate("[clipboard]", &args), "current");
-    assert_eq!(interpolate("[clipboard(0)]", &args), "current");
+    assert_eq!(interpolate("[clip]", &args), "current");
+    assert_eq!(interpolate("[clipboard(0)]", &args), "[clipboard(0)]");
     assert_eq!(
         interpolate("[clipboard(1) | case(upper)]", &args),
         "PREVIOUS"

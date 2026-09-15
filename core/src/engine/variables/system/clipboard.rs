@@ -117,17 +117,22 @@ enum ClipKey {
 }
 
 fn parse_clip_key(key: &str) -> Option<ClipKey> {
-    if matches!(key, "clipboard" | "clipboard(0)") {
+    if matches!(key, "clipboard" | "clip") {
         return Some(ClipKey::Valid(0));
     }
 
-    let inner = key.strip_prefix("clipboard(")?.strip_suffix(')')?;
+    let inner = key
+        .strip_prefix("clipboard(")
+        .or_else(|| key.strip_prefix("clip("))?
+        .strip_suffix(')')?;
 
     let inner = crate::engine::variables::system::strip_argument_quotes(inner);
 
     // Malformed arguments stay literal at the interpolation layer instead of panicking or
     // accidentally flowing into transformer fallback paths.
     match inner.parse::<usize>() {
+        // Explicit (0) removed: bare [clip]/[clipboard] is index 0.
+        Ok(0) => Some(ClipKey::Malformed),
         Ok(index) if index < HISTORY_CAPACITY => Some(ClipKey::Valid(index)),
         Ok(_) => Some(ClipKey::OutOfBounds),
         Err(_) => Some(ClipKey::Malformed),
@@ -190,8 +195,8 @@ mod tests {
     fn test_resolve_clip_mocked() {
         set_mock_clip(Some("mocked content".to_string()));
         assert_eq!(resolve("clipboard"), Some("mocked content".to_string()));
+        assert_eq!(resolve("clip"), Some("mocked content".to_string()));
         assert_eq!(resolve("clipboard"), Some("mocked content".to_string()));
-        assert_eq!(resolve("clipboard(0)"), Some("mocked content".to_string()));
         set_mock_clip(None);
     }
 
@@ -209,9 +214,13 @@ mod tests {
         ]);
 
         assert_eq!(resolve("clipboard"), Some("current".to_string()));
-        assert_eq!(resolve("clipboard(0)"), Some("current".to_string()));
+        assert_eq!(resolve("clip"), Some("current".to_string()));
         assert_eq!(resolve("clipboard(1)"), Some("previous".to_string()));
+        assert_eq!(resolve("clip(1)"), Some("previous".to_string()));
         assert_eq!(resolve("clipboard(2)"), Some("oldest".to_string()));
+        assert_eq!(resolve("clip(2)"), Some("oldest".to_string()));
+        assert_eq!(resolve("clipboard(0)"), None);
+        assert_eq!(resolve("clip(0)"), None);
         assert_eq!(resolve("clipboard(9)"), Some(String::new()));
         assert_eq!(resolve("clipboard(abc)"), None);
         assert_eq!(resolve("clipboard(-1)"), None);
