@@ -1,9 +1,8 @@
 use crate::engine::variables::system;
 
-// honey: allow(dead_code) until Tasks 3+ consume the catalog in non-test
-// code (tests pin it; system_variable_roots stays legacy until migration).
-#[allow(dead_code)]
-const SYSTEM_ROOTS: &[&str] = &[
+// honey: unified roots consumed by system::is_reserved (Task 3); legacy
+// LEGACY_ROOTS glue stays until Task 9.
+pub(crate) const SYSTEM_ROOTS: &[&str] = &[
     "chrono", "clip", "uuid", "random", "lorem", "file", "ip", "http", "env", "execute", "mouse",
     "key", "delay", "use", "image", "cursor", "newline",
 ];

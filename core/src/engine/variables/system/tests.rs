@@ -5,22 +5,34 @@ use crate::engine::variables::types::ExpansionStep;
 fn test_is_reserved() {
     assert!(is_reserved("cursor"));
     assert!(is_reserved("uuid"));
-    assert!(is_reserved("clipboard"));
-    assert!(is_reserved("clipboard(1)"));
-    assert!(is_reserved("clipboard.truncate(5)"));
-    assert!(is_reserved("clipboard(2).upper"));
+    assert!(is_reserved("clip"));
     assert!(is_reserved("uuid.v4"));
-    assert!(is_reserved("time"));
-    assert!(is_reserved("time.utc"));
     assert!(is_reserved("net.localip"));
     assert!(is_reserved("net.publicip"));
     assert!(is_reserved("execute.bash(echo hi)"));
     assert!(is_reserved("random.int(1, 9)"));
     assert!(is_reserved("lorem"));
     assert!(is_reserved("lorem.words(3)"));
+    assert!(is_reserved("chrono(date)"));
+    // honey: Task 3 hard break — deleted roots no longer reserved (Task 9 owns full sweep).
+    assert!(!is_reserved("clipboard"));
+    assert!(!is_reserved("clipboard(1)"));
+    assert!(!is_reserved("clipboard.truncate(5)"));
+    assert!(!is_reserved("clipboard(2).upper"));
+    assert!(!is_reserved("time"));
+    assert!(!is_reserved("time.utc"));
+    assert!(!is_reserved("date.utc"));
 
     // These are valid user variables and should not be reserved
     assert!(!is_reserved("username"));
+}
+
+#[test]
+fn reserves_unified_roots_only() {
+    assert!(is_reserved("chrono(date)"));
+    assert!(is_reserved("clip"));
+    assert!(!is_reserved("date.utc"));
+    assert_eq!(resolve("clipboard"), None);
 }
 
 #[test]
@@ -637,7 +649,8 @@ mod compatibility_finalize_tests {
                 "banana".to_string(),
             ]);
             let res = evaluate_template(
-                "Latest (Slugified): [clipboard | case(slug)] | Second: [clip | strip(whitespace)] | Third (Upper): [clipboard(1) | case(upper)] | Empty index: [clipboard(2) | wrap(singlequote)]",
+                // honey: Task 3 hard break clip-only (Task 9 owns full sweep).
+                "Latest (Slugified): [clip | case(slug)] | Second: [clip | strip(whitespace)] | Third (Upper): [clip(1) | case(upper)] | Empty index: [clip(2) | wrap(singlequote)]",
                 None,
             );
             super::clipboard::set_mock_clip(None);

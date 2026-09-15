@@ -27,36 +27,17 @@ const MAX_OUTPUT_LENGTH: usize = 100_000;
 
 /// Checks if a keyword is reserved by the system.
 pub fn is_reserved(key: &str) -> bool {
-    key == "cursor"
-        || key == "newline"
-        || key == "uuid"
-        || clipboard::is_clip_key(key)
-        || key == "lorem"
-        || key == "random"
-        || key.starts_with("uuid.")
-        || key == "time"
-        || key.starts_with("time.")
-        || key == "date"
-        || key.starts_with("date.")
-        || key == "datetime"
-        || key.starts_with("datetime.")
-        || key.starts_with("use(")
-        || key.starts_with("env(")
-        || key.starts_with("file.")
-        || key.starts_with("net.")
-        || key.starts_with("http.")
-        || key.starts_with("execute.")
-        || key.starts_with("image(")
-        || key.starts_with("random.")
-        || key.starts_with("lorem.")
-        || key.starts_with("lorem(")
-        || key == "mouse"
-        || key.starts_with("mouse.")
-        || key == "key"
-        || key.starts_with("key(")
-        || key == "delay"
-        || key.starts_with("delay(")
-        || key.contains('.') // Reserve all other dot-namespaces
+    let Some((ns, _)) = crate::engine::variables::registry::parse_system_call(key) else {
+        return false;
+    };
+    // honey: root up to '.' keeps legacy dot chains for surviving roots until
+    // Tasks 4-8 own removal; deleted clipboard/date/time/datetime + catch-all gone.
+    let root = ns.split('.').next().unwrap_or(ns).trim();
+    if crate::engine::variables::registry::SYSTEM_ROOTS.contains(&root) {
+        return true;
+    }
+    // honey: legacy net.* until Task 6 renames to ip.
+    root == "net" && ns.starts_with("net.")
 }
 
 /// Checks if a keyword is a post-processing directive.
@@ -68,6 +49,8 @@ pub fn is_directive(key: &str) -> bool {
         || parse_key_directive(key).is_some()
         || parse_delay_directive(key).is_some()
         || parse_mouse_directive(key).is_some()
+        // honey: unified mouse(...) form (Task 8 owns full parsing).
+        || (key.starts_with("mouse(") && key.ends_with(')'))
 }
 
 /// Checks if a system keyword triggers deferred (async) evaluation.
@@ -75,7 +58,25 @@ pub fn is_directive(key: &str) -> bool {
 /// Deferred variables are replaced with a special marker during interpolation
 /// so the daemon can evaluate them in a non-blocking thread and show a braille spinner.
 pub fn is_deferred(key: &str) -> bool {
-    key == "net.publicip" || key.starts_with("http.") || key == "mouse.pos"
+    // honey: legacy dot forms stay until Tasks 6/8 own removal.
+    if key == "net.publicip" || key.starts_with("http.") || key == "mouse.pos" {
+        return true;
+    }
+    if key == "ip" {
+        return true;
+    }
+    if let Some(inner) = key.strip_prefix("ip(").and_then(|s| s.strip_suffix(')')) {
+        let v = strip_argument_quotes(inner.trim());
+        // honey: bare ip() sugar + public fetch async; local UDP trick sync.
+        return v.is_empty() || v == "public";
+    }
+    if key.starts_with("http(") && key.ends_with(')') {
+        return true;
+    }
+    if let Some(inner) = key.strip_prefix("mouse(").and_then(|s| s.strip_suffix(')')) {
+        return strip_argument_quotes(inner.trim()) == "pos";
+    }
+    false
 }
 
 /// Resolves a content-producing system variable.
@@ -113,7 +114,9 @@ pub fn resolve(key: &str) -> Option<String> {
     if key == "uuid" || key.starts_with("uuid.") {
         return uuid::resolve(key);
     }
-    if clipboard::is_clip_key(key) {
+    // honey: Task 5 owns clip-only collapse; stop routing legacy clipboard
+    // forms here so resolve("clipboard") is None (hard break).
+    if key == "clip" || key.starts_with("clip(") {
         return clipboard::resolve(key);
     }
 
