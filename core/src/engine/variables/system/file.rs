@@ -117,7 +117,7 @@ fn read_lines(path_str: &str, start: usize, end: usize) -> Option<String> {
 pub fn resolve(raw: &str) -> Option<String> {
     let spec = crate::engine::variables::registry::param_spec("file")?;
     let bound = crate::engine::variables::parser::bind_call("file", raw, &spec).ok()?;
-    let has_named = raw.contains('=');
+    let has_named = crate::engine::variables::parser::has_named_args(&bound, &spec);
     let (op, path_str, start_str, end_str) = if has_named {
         (
             bound.named.get("op").cloned().unwrap_or_default(),
@@ -235,6 +235,19 @@ mod tests {
             "comma-ok"
         );
         assert_eq!(resolve(&format!("read, {raw_path}")), None); // unquoted comma → arity error
+    }
+
+    #[test]
+    fn file_equals_path_quoted_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a=b.txt");
+        std::fs::write(&path, "equals-ok").unwrap();
+        let raw_path = path.to_str().unwrap();
+        assert_eq!(
+            resolve(&format!("read, \"{raw_path}\"")).unwrap(),
+            "equals-ok"
+        );
+        assert_eq!(resolve(&format!("read, {raw_path}")), None); // unquoted = never positional
     }
 
     #[test]

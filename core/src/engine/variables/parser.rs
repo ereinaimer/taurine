@@ -117,11 +117,12 @@ pub fn bind_call(namespace: &str, raw: &str, spec: &ParamSpec) -> Result<BoundAr
     let mut bound = BoundArgs::default();
     let mut seen_named = false;
     for part in split_call_args(raw) {
-        let token = strip_quotes(part.trim());
-        if token.is_empty() {
+        let piece = part.trim();
+        if strip_quotes(piece).is_empty() {
             continue;
         }
-        if let Some((raw_key, raw_value)) = split_named(token) {
+        // honey: split before unquoting so a quoted `=` stays a positional value.
+        if let Some((raw_key, raw_value)) = split_named(piece) {
             let key = strip_quotes(raw_key.trim()).to_string();
             let value = strip_quotes(raw_value.trim()).to_string();
             let Some(index) = spec.params.iter().position(|p| p.name == key) else {
@@ -147,7 +148,7 @@ pub fn bind_call(namespace: &str, raw: &str, spec: &ParamSpec) -> Result<BoundAr
                     hint,
                 });
             }
-            let value = token.to_string();
+            let value = strip_quotes(piece).to_string();
             bound.positional.push(value.clone());
             if let Some(index) = values.iter().position(Option::is_none) {
                 values[index] = Some(value);
@@ -174,6 +175,22 @@ pub fn bind_call(namespace: &str, raw: &str, spec: &ParamSpec) -> Result<BoundAr
         }
     }
     Ok(bound)
+}
+
+/// True when any parameter beyond the positional prefix carries a non-default
+/// value, i.e. it was supplied as `key=value` rather than positionally.
+/// A default passed explicitly as `key=default` is indistinguishable from an
+/// absent one — and resolves identically — so it does not count.
+pub fn has_named_args(bound: &BoundArgs, spec: &ParamSpec) -> bool {
+    let prefix = bound.positional.len().min(spec.params.len());
+    spec.params.iter().skip(prefix).any(|p| {
+        bound
+            .named
+            .get(p.name)
+            .map(String::as_str)
+            .unwrap_or(p.default)
+            != p.default
+    })
 }
 
 fn strip_quotes(s: &str) -> &str {
@@ -513,6 +530,19 @@ mod tests {
             );
             assert_eq!(b.named.get("a").unwrap(), "sum(1,2)");
             assert_eq!(b.named.get("b").unwrap(), "[a,b]");
+        }
+
+        #[test]
+        fn bind_quoted_equals_stays_positional() {
+            use crate::engine::variables::parser::has_named_args;
+            let spec = two_param_spec();
+            let b = bind_call("f", "\"a=b\", 1", &spec).unwrap();
+            assert_eq!(b.positional, vec!["a=b".to_string(), "1".to_string()]);
+            assert_eq!(b.named.get("a").unwrap(), "a=b");
+            assert!(!has_named_args(&b, &spec));
+            let b = bind_call("f", "0, b=\"x=y\"", &spec).unwrap();
+            assert_eq!(b.named.get("b").unwrap(), "x=y");
+            assert!(has_named_args(&b, &spec));
         }
     }
 }

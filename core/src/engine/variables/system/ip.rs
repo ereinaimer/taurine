@@ -60,21 +60,24 @@ fn parse_plain_ip_response(body: &str) -> Option<String> {
     }
 }
 
-fn resolve_public_ip() -> Option<String> {
-    let timeout = Duration::from_millis(2000);
-
-    if let Ok(res) = ureq::get("https://1.1.1.1/cdn-cgi/trace")
+fn fetch_url(url: &str, timeout: Duration) -> Option<String> {
+    ureq::get(url)
         .timeout(timeout)
         .call()
-        && let Ok(body) = res.into_string()
+        .ok()?
+        .into_string()
+        .ok()
+}
+
+fn resolve_public_ip_with(fetch: &dyn Fn(&str) -> Option<String>) -> Option<String> {
+    if let Some(body) = fetch("https://1.1.1.1/cdn-cgi/trace")
         && let Some(ip) = parse_trace_response(&body)
     {
         return Some(ip);
     }
 
     for url in ["https://api.ipify.org", "https://checkip.amazonaws.com"] {
-        if let Ok(res) = ureq::get(url).timeout(timeout).call()
-            && let Ok(body) = res.into_string()
+        if let Some(body) = fetch(url)
             && let Some(ip) = parse_plain_ip_response(&body)
         {
             return Some(ip);
@@ -83,6 +86,11 @@ fn resolve_public_ip() -> Option<String> {
 
     tracing::warn!("Failed to resolve public IP address");
     None
+}
+
+fn resolve_public_ip() -> Option<String> {
+    let timeout = Duration::from_millis(2000);
+    resolve_public_ip_with(&|url| fetch_url(url, timeout))
 }
 
 #[cfg(test)]
@@ -114,11 +122,24 @@ mod tests {
 
     #[test]
     fn ip_unified() {
-        assert!(resolve("").is_some()); // bare = public
-        assert!(resolve("public").is_some());
-        assert!(resolve("type=public").is_some());
         assert!(resolve("local").is_some());
         assert!(resolve("type=local").is_some());
+        // honey: public WAN fetch is deferred + network-dependent; stub the transport.
+        assert_eq!(
+            resolve_public_ip_with(&|_| Some("fl=1\nip=198.51.100.42\n".to_string())),
+            Some("198.51.100.42".to_string())
+        );
+        assert_eq!(
+            resolve_public_ip_with(&|url| {
+                if url.contains("trace") {
+                    Some("<html>busy</html>".to_string())
+                } else {
+                    Some("203.0.113.19\n".to_string())
+                }
+            }),
+            Some("203.0.113.19".to_string())
+        );
+        assert_eq!(resolve_public_ip_with(&|_| None), None);
         assert_eq!(resolve("online"), None);
         assert_eq!(resolve("private"), None);
         assert_eq!(resolve("publicip"), None);

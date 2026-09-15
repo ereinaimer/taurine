@@ -38,6 +38,17 @@ fn reserves_unified_roots_only() {
 }
 
 #[test]
+fn test_is_deferred_ip_forms() {
+    assert!(is_deferred("ip"));
+    assert!(is_deferred("ip()"));
+    assert!(is_deferred("ip(public)"));
+    assert!(is_deferred("ip(type=public)"));
+    assert!(is_deferred("ip(\"public\")"));
+    assert!(!is_deferred("ip(local)"));
+    assert!(!is_deferred("ip(type=local)"));
+}
+
+#[test]
 fn test_is_directive() {
     assert!(is_directive("cursor"));
     assert!(is_directive("key(tab)"));

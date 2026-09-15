@@ -62,9 +62,13 @@ pub fn is_deferred(key: &str) -> bool {
         return true;
     }
     if let Some(inner) = key.strip_prefix("ip(").and_then(|s| s.strip_suffix(')')) {
-        let v = strip_argument_quotes(inner.trim());
-        // honey: bare ip() sugar + public fetch async; local UDP trick sync.
-        return v.is_empty() || v == "public";
+        // honey: any spelling binding type=public defers (WAN fetch async); local UDP trick sync.
+        if let Some(spec) = crate::engine::variables::registry::param_spec("ip")
+            && let Ok(bound) = crate::engine::variables::parser::bind_call("ip", inner, &spec)
+        {
+            return bound.named.get("type").map(String::as_str) == Some("public");
+        }
+        return false;
     }
     if key.starts_with("http(") && key.ends_with(')') {
         return true;

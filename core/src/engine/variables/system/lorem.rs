@@ -145,7 +145,7 @@ pub fn resolve(raw: &str) -> Option<String> {
     if bound.positional.len() > spec.params.len() {
         return None;
     }
-    let has_named = raw.contains('=');
+    let has_named = crate::engine::variables::parser::has_named_args(&bound, &spec);
     let (kind, count_str) = if has_named {
         let kind = bound
             .named

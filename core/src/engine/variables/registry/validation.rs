@@ -366,9 +366,9 @@ fn validate_lorem_modifier(modifier: Option<&str>) -> Result<(), ValidationError
                     // honey: counts are numeric or dynamic ([...]); resolver drops the rest.
                     matches!(variant, "paragraphs" | "words" | "sentences")
                         && args.len() <= 1
-                        && args
-                            .iter()
-                            .all(|a| a.parse::<usize>().is_ok() || a.contains('['))
+                        && args.iter().all(|a| {
+                            a.parse::<usize>().is_ok() || (a.contains('[') && a.contains(']'))
+                        })
                 }
             };
 

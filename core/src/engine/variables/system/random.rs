@@ -15,7 +15,7 @@ const KNOWN_TYPES: &[&str] = &["int", "choice", "str", "pass"];
 pub fn resolve(raw: &str) -> Option<String> {
     let spec = crate::engine::variables::registry::param_spec("random")?;
     let bound = crate::engine::variables::parser::bind_call("random", raw, &spec).ok()?;
-    let has_named = raw.contains('=');
+    let has_named = crate::engine::variables::parser::has_named_args(&bound, &spec);
     let kind = if bound.positional.is_empty() {
         bound
             .named
@@ -27,11 +27,6 @@ pub fn resolve(raw: &str) -> Option<String> {
         bound.positional[0].clone()
     } else if bound.positional[0].parse::<i64>().is_ok() {
         "int".to_string()
-    } else if has_named
-        && let Some(t) = bound.named.get("type")
-        && KNOWN_TYPES.contains(&t.as_str())
-    {
-        t.clone()
     } else {
         return None;
     };
@@ -44,11 +39,12 @@ pub fn resolve(raw: &str) -> Option<String> {
                 let max = bound.named.get("max")?.parse::<i64>().ok()?;
                 (min <= max).then(|| rng.random_range(min..=max).to_string())
             } else {
+                // honey: a leading kind word owns position 0; bare numerics are the range.
                 let nums: Vec<String> =
-                    if bound.positional.len() == 1 && bound.positional[0].parse::<i64>().is_ok() {
-                        bound.positional.clone()
-                    } else {
+                    if bound.positional.first().map(String::as_str) == Some("int") {
                         bound.positional.iter().skip(1).cloned().collect()
+                    } else {
+                        bound.positional.clone()
                     };
                 let (min, max) = parse_int_range(&nums, 0, 100)?;
                 Some(rng.random_range(min..=max).to_string())
@@ -185,6 +181,14 @@ mod tests {
         assert_charset(&str_val, ALPHANUMERIC);
         assert_eq!(resolve("str, 8").unwrap().len(), 8);
         assert_eq!(resolve("pass").unwrap().len(), 20);
+        assert!(matches!(
+            resolve("0, 100"),
+            Some(value) if (0..=100).contains(&value.parse::<i64>().unwrap())
+        )); // bare pair = full range
+        assert!(matches!(
+            resolve("choice, \"a=b\", c").as_deref(),
+            Some("a=b") | Some("c")
+        )); // quoted = stays positional
         assert_eq!(resolve("bogus"), None);
         assert_eq!(resolve("int, 10, 5"), None);
         assert_eq!(resolve("choice"), None);

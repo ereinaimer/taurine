@@ -46,6 +46,10 @@ mod tests {
             Some("fallback".to_string())
         );
         assert_eq!(resolve("NON_EXISTENT_VAR_12345"), None);
+        assert_eq!(
+            resolve("NON_EXISTENT_VAR_12345, \"a=b\""),
+            Some("a=b".to_string())
+        ); // quoted = stays positional
         assert_eq!(resolve(""), None);
         assert_eq!(resolve("X=y"), None);
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
