@@ -276,11 +276,15 @@ async fn run_tray(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>)
                     let _ = handle.update(|_| {}).await;
                 }
                 TrayEvent::ToggleInstantExpand => {
-                    let _ = TraySettings::toggle_instant_expand();
+                    if let Err(error) = TraySettings::toggle_instant_expand() {
+                        warn!(%error, "tray instant-expand toggle failed");
+                    }
                     let _ = handle.update(|_| {}).await;
                 }
                 TrayEvent::ToggleStartOnBoot => {
-                    let _ = TraySettings::toggle_start_on_boot();
+                    if let Err(error) = TraySettings::toggle_start_on_boot() {
+                        warn!(%error, "tray start-on-boot toggle failed");
+                    }
                     let _ = handle.update(|_| {}).await;
                 }
                 TrayEvent::Quit => {
@@ -337,20 +341,34 @@ async fn spawn_tray(
 fn handle_pause() {
     if let Some(rt) = crate::TOKIO_HANDLE.get() {
         rt.spawn(async move {
-            if let Ok(mut client) = taurine_core::rpc::get_client().await {
-                let _ = client.pause(taurine_core::rpc::PauseRequest {}).await;
+            match taurine_core::rpc::get_client().await {
+                Ok(mut client) => {
+                    if let Err(error) = client.pause(taurine_core::rpc::PauseRequest {}).await {
+                        warn!(%error, "tray pause request failed");
+                    }
+                }
+                Err(error) => warn!(%error, "tray pause dropped: daemon unreachable"),
             }
         });
+    } else {
+        warn!("tray pause dropped: tokio handle not initialized");
     }
 }
 
 fn handle_resume() {
     if let Some(rt) = crate::TOKIO_HANDLE.get() {
         rt.spawn(async move {
-            if let Ok(mut client) = taurine_core::rpc::get_client().await {
-                let _ = client.resume(taurine_core::rpc::ResumeRequest {}).await;
+            match taurine_core::rpc::get_client().await {
+                Ok(mut client) => {
+                    if let Err(error) = client.resume(taurine_core::rpc::ResumeRequest {}).await {
+                        warn!(%error, "tray resume request failed");
+                    }
+                }
+                Err(error) => warn!(%error, "tray resume dropped: daemon unreachable"),
             }
         });
+    } else {
+        warn!("tray resume dropped: tokio handle not initialized");
     }
 }
 
@@ -362,10 +380,18 @@ fn handle_shutdown() {
     taurine_core::service::request_systemd_stop();
     if let Some(rt) = crate::TOKIO_HANDLE.get() {
         rt.spawn(async move {
-            if let Ok(mut client) = taurine_core::rpc::get_client().await {
-                let _ = client.shutdown(taurine_core::rpc::ShutdownRequest {}).await;
+            match taurine_core::rpc::get_client().await {
+                Ok(mut client) => {
+                    if let Err(error) = client.shutdown(taurine_core::rpc::ShutdownRequest {}).await
+                    {
+                        warn!(%error, "tray shutdown request failed");
+                    }
+                }
+                Err(error) => warn!(%error, "tray shutdown dropped: daemon unreachable"),
             }
         });
+    } else {
+        warn!("tray shutdown dropped: tokio handle not initialized");
     }
     // Watcher: dies with the process on a successful shutdown. If we are
     // still alive past the stop timeout, the quit did not stick — say so.
