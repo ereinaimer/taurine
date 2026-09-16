@@ -165,7 +165,7 @@ Global transformers apply with Unix pipe syntax right after any variable, positi
 *   **AI**: `| ai(prompt)` — sends the interpolated text to your configured AI provider and replaces it with the response (e.g., `[clip | ai(Summarize this in 3 bullets)]`). Prompt is required. Chainable; markdown code fences auto-stripped.
 *   **JSON**: `json("path")` (dot-notation, numbers index arrays), `json(pretty)`, `json(minify)`.
 *   **Lines** (handles `\n`/`\r\n`): `lines(first|last|count|compact|unique|prefix|suffix|join|split|sort)`; sort flags `"desc"`, `"insensitive"`, `"numeric"`.
-*   **Formatting**: `wrap(doublequote|singlequote|backtick)`, `unwrap(quotes)`.
+*   **Formatting**: `wrap(doublequote|singlequote|backtick)`, `unwrap(doublequote|singlequote|backtick)` (wrong kind is a no-op).
 *   **Data extractors**: `html(selector)` / `xml(selector)` (CSS selector → inner text of first match), `toml(path)`, `yaml(path)`, `regex(pattern, [group])`. Pairs well with `[http(get, …)]` and `[file(read, …)]`.
 *   **Extract all matches**: `extract(url)`, `extract(email)`, `extract(phone)`, `extract(mention)`, `extract(hashtag)`, `extract(ip)`, `extract(mac)`, `extract(path)`, `extract(filename)`, `extract(directory)`, `extract(jwt)`, `extract(semver)`, `extract(mdcode)`, `extract(mdtable)`, `extract(mdlist)` — returns newline-separated matches.
 *   **Snippet composition**: `[use("trigger_name")]` embeds another snippet's contents.

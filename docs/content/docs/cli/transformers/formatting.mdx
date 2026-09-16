@@ -14,7 +14,9 @@ These transformers ensure user input is correctly escaped or quoted when inserte
 | `wrap(doublequote)` | Wraps text in double quotes `"` | `hi` → `"hi"` |
 | `wrap(singlequote)` | Wraps text in single quotes `'` | `hi` → `'hi'` |
 | `wrap(backtick)` | Wraps text in backticks ``` ` ``` | `hi` → `` `hi` `` |
-| `unwrap(quotes)` | Removes surrounding quotes | `"hi"` → `hi` |
+| `unwrap(doublequote)` | Removes surrounding double quotes (no-op otherwise) | `"hi"` → `hi` |
+| `unwrap(singlequote)` | Removes surrounding single quotes (no-op otherwise) | `'hi'` → `hi` |
+| `unwrap(backtick)` | Removes surrounding backticks (no-op otherwise) | `` `hi` `` → `hi` |
 
 ### Examples
 
@@ -37,10 +39,10 @@ Wrap dynamic strings in backticks for markdown or documentation snippets.
 />
 
 #### Safely Unquoting
-If you are passing a variable that might already be quoted, use `unwrap(quotes)` to normalize it before processing.
+If you are passing a variable that might already be quoted, use `unwrap(doublequote)` (or the matching kind) to normalize it before processing.
 
 <Transformation
-  template='[clip | unwrap(quotes) | case(upper)]'
+  template='[clip | unwrap(doublequote) | case(upper)]'
   input='clip:"taurine"'
   result="TAURINE"
 />

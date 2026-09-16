@@ -300,7 +300,15 @@ mod tests {
             Some("'hello'".to_string())
         );
         assert_eq!(
-            apply("unwrap(quotes)", "\"hello\""),
+            apply("unwrap(doublequote)", "\"hello\""),
+            Some("hello".to_string())
+        );
+        assert_eq!(
+            apply("unwrap(singlequote)", "'hello'"),
+            Some("hello".to_string())
+        );
+        assert_eq!(
+            apply("unwrap(backtick)", "`hello`"),
             Some("hello".to_string())
         );
     }
