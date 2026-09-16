@@ -23,6 +23,7 @@ genai = "0.6.5"
 futures = "0.3"
 zeroize = "1.8"
 crossbeam-channel = "0.5"
+libc = "0.2"
 zstd = "0.14"
 rusqlite = { version = "0.39", features = ["bundled-sqlcipher-vendored-openssl"] }
 
@@ -75,7 +76,6 @@ x11rb = "0.14"
 wayland-client = "0.31"
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 zbus = "5"
-libc = "0.2"
 uuid = { version = "1.23.0", features = ["v4"] }
 
 [dev-dependencies]

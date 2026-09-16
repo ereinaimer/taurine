@@ -60,7 +60,7 @@ Validation limits: trigger string ≤200 chars, text output ≤100 KB, script co
 *   `taurine config set <key> <value>`: Updates a specific setting.
 *   `taurine config list` (or `ls`): Lists all current settings.
 *   `taurine config reset <key>`: Resets a setting to factory defaults (`--all` resets everything).
-*   Key aliases: `hotkey`→`pause_hotkey`, `boot`→`start_on_boot`, `tray`→`system_tray_enabled`, `spinner`→`spinner_style`, `notifications`→`pause_notifications_enabled`, `inline_ai`→`inline_ai_enabled`, `ai`→`inline_ai_enabled`, `inline_tab_completion`→`inline_tab_completion_enabled`, `instant`→`instant_expand`, and `mode`/`host`/`port`/`token` for the RPC settings.
+*   Key aliases: `hotkey`→`pause_hotkey`, `boot`→`start_on_boot`, `tray`→`system_tray_enabled`, `spinner`→`spinner_style`, `notifications`→`pause_notifications_enabled`, `inline_ai`→`inline_ai_enabled`, `ai`→`inline_ai_enabled`, `inline_tab_completion`→`inline_tab_completion_enabled` and `instant`→`instant_expand`.
 
 | Category | Keys (default) |
 |----------|----------------|
@@ -68,7 +68,6 @@ Validation limits: trigger string ≤200 chars, text output ≤100 KB, script co
 | UI | `spinner_style` (`braille`; `arc`/`classic`), `pause_notifications_enabled` (`false`), `ignore_fullscreen` (`true`), `system_tray_enabled` (`true`) |
 | AI | `ai_provider`, `ai_model`, `ai_custom_endpoint`, `inline_ai_enabled` (`true`) |
 | Inline Assist | `inline_tab_completion_enabled` (`true`), `inline_emoji_enabled` (`true`), `inline_emoji_trigger_char` (`:`), `inline_datetime_enabled` (`true`), `inline_currency_to_words_enabled` (`false`) |
-| Service RPC | `rpc_mode` (`socket`; `tcp`), `rpc_host` (`127.0.0.1`), `rpc_port` (`50051`) |
 
 ### 2.5 AI Copilot
 *   `taurine ai` (or `tau ai`): Launches the interactive Ratatui overlay configuration wizard. Hotkeys: `j`/`k` (navigate), `n` (add new provider), `Enter` (select active & edit model), `d` (remove provider from keyring), `q`/`Esc` (exit).

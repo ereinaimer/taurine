@@ -8,14 +8,13 @@
 use std::io;
 
 use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
-use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_ALL, LocalFree};
+use windows_sys::Win32::Foundation::{CloseHandle, LocalFree};
 use windows_sys::Win32::Security::Authorization::{
-    BuildSecurityDescriptorW, BuildTrusteeWithSidW, EXPLICIT_ACCESS_W, GRANT_ACCESS, TRUSTEE_W,
+    ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
 };
 use windows_sys::Win32::Security::{
-    CreateWellKnownSid, GetLengthSid, GetTokenInformation, NO_INHERITANCE, PSECURITY_DESCRIPTOR,
-    PSID, SECURITY_ATTRIBUTES, SECURITY_MAX_SID_SIZE, TOKEN_QUERY, TOKEN_USER, TokenUser,
-    WinBuiltinAdministratorsSid, WinLocalSystemSid,
+    GetLengthSid, GetTokenInformation, PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES,
+    TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
@@ -31,8 +30,8 @@ unsafe impl Sync for PipeSecurity {}
 
 impl Drop for PipeSecurity {
     fn drop(&mut self) {
-        // SAFETY: sd came from BuildSecurityDescriptorW (LocalAlloc) and is
-        // freed exactly once here.
+        // SAFETY: sd came from ConvertStringSecurityDescriptor (LocalAlloc)
+        // and is freed exactly once here.
         unsafe {
             LocalFree(self.sd as _);
         }
@@ -74,67 +73,42 @@ fn current_user_sid() -> io::Result<Vec<u8>> {
     }
 }
 
-fn well_known_sid(kind: i32) -> io::Result<[u8; SECURITY_MAX_SID_SIZE as usize]> {
-    let mut buf = [0u8; SECURITY_MAX_SID_SIZE as usize];
-    let mut len = buf.len() as u32;
-    // SAFETY: buf is a stack allocation of SECURITY_MAX_SID_SIZE bytes, which
-    // fits any well-known SID; len is updated by the call.
-    let ok = unsafe {
-        CreateWellKnownSid(
-            kind,
-            std::ptr::null_mut(),
-            buf.as_mut_ptr() as PSID,
-            &mut len,
-        )
-    };
-    if ok == 0 {
-        return Err(win32_err("CreateWellKnownSid failed"));
-    }
-    Ok(buf)
-}
-
 impl PipeSecurity {
-    /// Build the allow-list descriptor for whoever runs this process.
+    /// Build the allow-list descriptor for whoever runs this process: the
+    /// current user, SYSTEM and Administrators, read/write only.
     pub fn current_user_only() -> io::Result<Self> {
         let user_sid = current_user_sid()?;
-        let system_sid = well_known_sid(WinLocalSystemSid)?;
-        let admin_sid = well_known_sid(WinBuiltinAdministratorsSid)?;
 
-        // SAFETY: BuildTrusteeWithSidW only reads the SID for the duration of
-        // the call; all three buffers outlive it. BuildSecurityDescriptorW
-        // copies the entries into the new self-relative descriptor.
+        // SAFETY: every pointer below borrows a live buffer for the duration
+        // of its call; the converter copies the descriptor before returning.
+        // SDDL over the programmatic builder: the builder output validated yet
+        // pipe creation rejected it (ERROR_PRIVILEGE_NOT_HELD).
         let sd = unsafe {
-            let mut trustees = [
-                TRUSTEE_W::default(),
-                TRUSTEE_W::default(),
-                TRUSTEE_W::default(),
-            ];
-            BuildTrusteeWithSidW(&mut trustees[0], user_sid.as_ptr() as PSID);
-            BuildTrusteeWithSidW(&mut trustees[1], system_sid.as_ptr() as PSID);
-            BuildTrusteeWithSidW(&mut trustees[2], admin_sid.as_ptr() as PSID);
+            let mut sid_str: *mut u16 = std::ptr::null_mut();
+            if ConvertSidToStringSidW(user_sid.as_ptr() as PSID, &mut sid_str) == 0 {
+                return Err(win32_err("ConvertSidToStringSidW failed"));
+            }
+            let sid_string = {
+                let mut len = 0;
+                while *sid_str.add(len) != 0 {
+                    len += 1;
+                }
+                String::from_utf16_lossy(std::slice::from_raw_parts(sid_str, len))
+            };
+            LocalFree(sid_str as _);
 
-            let entries = trustees.map(|trustee| EXPLICIT_ACCESS_W {
-                grfAccessPermissions: GENERIC_ALL,
-                grfAccessMode: GRANT_ACCESS,
-                grfInheritance: NO_INHERITANCE,
-                Trustee: trustee,
-            });
-
+            let sddl = format!("D:(A;;GRGW;;;SY)(A;;GRGW;;;BA)(A;;GRGW;;;{sid_string})");
+            let sddl_utf16: Vec<u16> = sddl.encode_utf16().chain(std::iter::once(0)).collect();
             let mut sd: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
             let mut sd_size = 0u32;
-            let status = BuildSecurityDescriptorW(
-                &trustees[0],
-                std::ptr::null(),
-                entries.len() as u32,
-                entries.as_ptr(),
-                0,
-                std::ptr::null(),
-                std::ptr::null_mut(),
-                &mut sd_size,
+            let ok = ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                sddl_utf16.as_ptr(),
+                1,
                 &mut sd,
+                &mut sd_size,
             );
-            if status != 0 {
-                return Err(io::Error::from_raw_os_error(status as i32));
+            if ok == 0 {
+                return Err(win32_err("ConvertStringSecurityDescriptor failed"));
             }
             sd
         };
@@ -165,5 +139,31 @@ impl PipeSecurity {
                 &mut attrs as *mut _ as *mut std::ffi::c_void,
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn descriptor_builds_for_current_user() {
+        PipeSecurity::current_user_only().expect("DACL must build");
+    }
+
+    #[tokio::test]
+    async fn same_user_client_connects() {
+        let pipe_path = format!(r"\\.\pipe\taurine-test-{}", std::process::id());
+        let security = PipeSecurity::current_user_only().expect("DACL must build");
+        let server = security
+            .create_server(&pipe_path, true)
+            .expect("pipe instance");
+        let client_task = tokio::spawn(async move {
+            tokio::net::windows::named_pipe::ClientOptions::new()
+                .open(&pipe_path)
+                .expect("same-user client must open the pipe");
+        });
+        server.connect().await.expect("server accepts client");
+        client_task.await.expect("client task joins");
     }
 }

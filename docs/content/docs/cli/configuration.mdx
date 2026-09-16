@@ -43,9 +43,6 @@ taurine config reset --all
 | `ai_custom_endpoint` | - | Custom OpenAI-compatible URL for the `custom` provider. |
 | `inline_ai_enabled` | `true` | Enables or disables natural inline AI copilot completions. |
 | `inline_tab_completion_enabled` | `true` | Enables or disables inline `Tab` / `Shift+Tab` completion. |
-| `rpc_mode` | `socket` | RPC transport mode (`socket` using Unix domain sockets / Windows named pipes, or `tcp`). |
-| `rpc_host` | `127.0.0.1` | Network interface address the service binds to. |
-| `rpc_port` | `50051` | Port the service listens on for RPC. |
 
 ## Helpful Aliases
 
@@ -64,9 +61,6 @@ You can use these shorter aliases when running `taurine config set`:
 | `endpoint` | `ai_custom_endpoint` |
 | `custom_endpoint` | `ai_custom_endpoint` |
 | `inline_tab_completion` | `inline_tab_completion_enabled` |
-| `mode` | `rpc_mode` |
-| `host` | `rpc_host` |
-| `port` | `rpc_port` |
 
 <Callout title="Startup setting" type="info">
   Changing `start_on_boot` also tries to update the OS startup hook right away, so the setting and

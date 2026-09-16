@@ -168,13 +168,12 @@ Run-Step "Removing registry entry" {
     }
 }
 
-# Remove all configured API keys and RPC token from OS keyring
+# Remove all configured API keys and the database key from OS keyring
 if ($PurgeData) {
     $exe = Join-Path $env:LOCALAPPDATA "Taurine\bin\taurine.exe"
     if (Test-Path $exe) {
         try { & $exe ai remove --all --yes --json | Out-Null } catch {}
     }
-    try { cmdkey /delete:taurine:rpc_token | Out-Null } catch {}
     try { cmdkey /delete:taurine:db-key | Out-Null } catch {}
 }
 

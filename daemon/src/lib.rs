@@ -26,6 +26,44 @@ static FILE_LOG_GUARD: std::sync::OnceLock<Option<tracing_appender::non_blocking
 pub(crate) static TOKIO_HANDLE: std::sync::OnceLock<tokio::runtime::Handle> =
     std::sync::OnceLock::new();
 
+/// Lock a freshly bound Unix socket to owner-only access. Socket permissions
+/// are the access boundary for unauthenticated control RPCs.
+#[cfg(all(unix, not(target_os = "android")))]
+fn restrict_socket_permissions(listener: &tokio::net::UnixListener) -> std::io::Result<()> {
+    // SAFETY: fd comes from a live listener owned by the caller; fchmod on a
+    // fd cannot race path replacement the way a path chmod can.
+    let rc = unsafe { libc::fchmod(std::os::unix::io::AsRawFd::as_raw_fd(listener), 0o600) };
+    if rc != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(all(test, unix, not(target_os = "android")))]
+mod uds_perm_tests {
+    #[test]
+    fn fresh_socket_restricts_to_owner() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("test.sock");
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime");
+        rt.block_on(async {
+            let listener = tokio::net::UnixListener::bind(&path).expect("bind test socket");
+            super::restrict_socket_permissions(&listener).expect("restrict permissions");
+            let mode = std::fs::metadata(&path)
+                .expect("socket metadata")
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o600, "IPC socket must be owner-only");
+        });
+    }
+}
+
 pub fn start() -> taurine_core::error::Result<()> {
     let _liveness_guard = match taurine_core::service::acquire_service_liveness() {
         Some(guard) => guard,
@@ -502,15 +540,9 @@ pub fn start() -> taurine_core::error::Result<()> {
 
                     match UnixListener::bind(&socket_path) {
                         Ok(uds) => {
-                            // Socket permissions are the access boundary: lock the
-                            // listener fd itself before any client can connect.
-                            // SAFETY: fd comes from the just-bound listener; fchmod
-                            // on a live fd cannot race path replacement.
-                            unsafe {
-                                libc::fchmod(
-                                    std::os::unix::io::AsRawFd::as_raw_fd(&uds),
-                                    0o600,
-                                );
+                            if let Err(error) = restrict_socket_permissions(&uds) {
+                                error!(%error, "Failed to lock down IPC socket permissions, refusing to serve unauthenticated control");
+                                return Err(taurine_core::error::Error::Io(error));
                             }
 
                             let stream = UnixListenerStream::new(uds);
