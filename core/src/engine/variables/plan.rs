@@ -232,7 +232,6 @@ impl ExecutionPlan {
                         if text.contains('[')
                             && (text.contains("[key(")
                                 || text.contains("[delay(")
-                                || text.contains("[mouse.")
                                 || text.contains("[mouse(")
                                 || text.contains("[execute(")
                                 || text.contains("[image("))

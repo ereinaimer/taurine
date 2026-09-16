@@ -321,19 +321,35 @@ const MOUSE_ACTIONS: &[&str] = &["click", "hold", "release", "move", "scroll", "
 fn dot_hint(ns: &str) -> String {
     let (root, rest) = ns.split_once('.').unwrap_or((ns, ""));
     let sub = rest.split('.').next().unwrap_or("");
+    let sub_base = sub.split('(').next().unwrap_or(sub);
     match root {
-        "mouse" => match sub {
-            "down" | "hold" => "mouse(hold, mN)",
-            "up" | "release" => "mouse(release, mN)",
+        "mouse" => match sub_base {
+            "rclick" => "mouse(click, m2)",
+            "mclick" => "mouse(click, m3)",
+            "m4" => "mouse(click, m4)",
+            "m5" => "mouse(click, m5)",
+            "dblclick" => "mouse(click, m1, 2)",
+            "down" | "hold" => "mouse(hold, m1)",
+            "up" | "release" => "mouse(release, m1)",
             "move" => "mouse(move, x, y)",
             "scroll" => "mouse(scroll, delta)",
             "pos" => "mouse(pos)",
+            "click" => "mouse(click, m1)",
             _ => "mouse(click, mN[, n])",
         }
         .to_string(),
-        "date" | "time" | "datetime" => "chrono(...)".to_string(),
+        "date" | "time" | "datetime" => match sub_base {
+            "utc" | "local" => format!("chrono({root}, tz={sub_base})"),
+            _ => format!("chrono({root})"),
+        },
         "clipboard" => "clip".to_string(),
-        "net" => "ip".to_string(),
+        "net" => match sub_base {
+            "publicip" => "ip(public)",
+            "localip" => "ip(local)",
+            "online" => "http(status, url)",
+            _ => "ip",
+        }
+        .to_string(),
         _ => format!("{root}(...)"),
     }
 }

@@ -116,24 +116,28 @@ fn rejects_dotted_namespaces_with_canonical_hint() {
         validate_system_call("mouse.click", None),
         Err(ValidationError::DotChain {
             got: "mouse.click".to_string(),
-            hint: "mouse(click, mN[, n])".to_string(),
+            hint: "mouse(click, m1)".to_string(),
         })
     );
     assert!(matches!(
         validate_system_call("mouse.rclick", None),
-        Err(ValidationError::DotChain { hint, .. }) if hint == "mouse(click, mN[, n])"
+        Err(ValidationError::DotChain { hint, .. }) if hint == "mouse(click, m2)"
     ));
     assert!(matches!(
         validate_system_call("mouse.dblclick", None),
-        Err(ValidationError::DotChain { hint, .. }) if hint == "mouse(click, mN[, n])"
+        Err(ValidationError::DotChain { hint, .. }) if hint == "mouse(click, m1, 2)"
     ));
     assert!(matches!(
         validate_system_call("mouse.down", None),
-        Err(ValidationError::DotChain { hint, .. }) if hint == "mouse(hold, mN)"
+        Err(ValidationError::DotChain { hint, .. }) if hint == "mouse(hold, m1)"
     ));
     assert!(matches!(
         validate_system_call("mouse.release", None),
-        Err(ValidationError::DotChain { hint, .. }) if hint == "mouse(release, mN)"
+        Err(ValidationError::DotChain { hint, .. }) if hint == "mouse(release, m1)"
+    ));
+    assert!(matches!(
+        validate_system_call("mouse.frobnicate", None),
+        Err(ValidationError::DotChain { hint, .. }) if hint == "mouse(click, mN[, n])"
     ));
     assert_eq!(
         validate_system_call("random.int", Some("1, 2")),

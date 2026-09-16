@@ -379,12 +379,12 @@ mod tests {
     #[test]
     fn test_split_pipeline_supports_parameterized_transformers() {
         assert_eq!(
-            split_pipeline("clipboard | truncate(5)"),
-            vec!["clipboard", "truncate(5)"]
+            split_pipeline("clip | truncate(5)"),
+            vec!["clip", "truncate(5)"]
         );
         assert_eq!(
-            split_pipeline("clipboard | replace(\",\", \";\") | case(upper)"),
-            vec!["clipboard", "replace(\",\", \";\")", "case(upper)"]
+            split_pipeline("clip | replace(\",\", \";\") | case(upper)"),
+            vec!["clip", "replace(\",\", \";\")", "case(upper)"]
         );
         assert_eq!(
             split_pipeline("'a|b' | replace(\"|\", \"-\")"),

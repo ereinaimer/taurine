@@ -322,10 +322,7 @@ pub(crate) fn count_directives_in_template(payload: &str) -> (usize, bool) {
         let (key, _) = split_key_default(inner);
         if key == "cursor" {
             cursor_count += 1;
-        } else if key.starts_with("key(")
-            || key.starts_with("delay(")
-            || key.starts_with("mouse.")
-            || key.starts_with("mouse(")
+        } else if key.starts_with("key(") || key.starts_with("delay(") || key.starts_with("mouse(")
         {
             has_key_or_delay = true;
         }

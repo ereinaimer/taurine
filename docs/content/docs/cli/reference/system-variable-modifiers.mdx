@@ -46,7 +46,7 @@ Taurine rejects old dot-chained or deprecated forms at save time, providing expl
 
 ```text
 [date.utc]              -> Error: use canonical chrono(date, tz=utc)
-[date.calc(+1d)]        -> Error: use canonical chrono(date, +1d)
+[date.calc(+1d)]        -> Error: use canonical chrono(date)
 [time.now]              -> Error: use canonical chrono(time)
 [clipboard]             -> Deprecated: use canonical clip (or clip(index))
 [uuid(7)]               -> Error: version must be v4 or v7 (e.g. uuid(v7))
@@ -111,8 +111,8 @@ Append Unix pipe syntax (`| transformer`) to any system or custom variable tag t
   Extract values from structured payloads or web content. Pairs with `[http(get, ...)]`, `[file(read, ...)]`, and `[clip]`.
   - `extract(target)`: Extracts structured patterns natively (`url`, `email`, `phone`, `mention`, `hashtag`, `ip`, `mac`, `path`, `filename`, `directory`, `jwt`, `semver`, `mdcode`, `mdtable`, `mdlist`).
   - `json(path)`: Extracts a value via dot-notation (e.g., `user.hobbies.1`).
-  - `json.pretty`: Indents and formats a JSON payload.
-  - `json.minify`: Strips all formatting whitespace from JSON.
+  - `json(pretty)`: Indents and formats a JSON payload.
+  - `json(minify)`: Strips all formatting whitespace from JSON.
   - `html(selector)`: Scrapes HTML inner text using a standard CSS selector (e.g., `.price > span`).
   - `xml(selector)`: Scrapes XML text using CSS selectors.
   - `yaml(path)`: Extracts a value from YAML via dot-notation.

@@ -963,7 +963,7 @@ fn test_mouse_deleted_forms_hint_canonical_save_time() {
 
     assert!(matches!(
         validate_system_call("mouse.click", None),
-        Err(ValidationError::DotChain { hint, .. }) if hint == "mouse(click, mN[, n])"
+        Err(ValidationError::DotChain { hint, .. }) if hint == "mouse(click, m1)"
     ));
     assert!(matches!(
         validate_system_call("mouse", Some("click, left")),

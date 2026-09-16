@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Lossless Transformer Pipes**: A transformer that cannot apply now passes your text through unchanged instead of wiping it or typing raw tag syntax.
+- **Complete Save-Time Validation**: Every system variable value and transformer argument is checked when you save, with the valid form named; retired dotted chains now suggest their exact replacement.
 - **Required AI Prompts**: The ai transformer now rejects empty prompts at save time instead of sending blank instructions to your provider.
 - **Stricter Transformer Validation**: Transformer argument counts are checked at save time with the valid form named, and unwrap mirrors wrap with doublequote, singlequote, and backtick pairs.
 - **Unified Namespace Syntax**: Every system variable is now a `namespace(args)` call with hybrid positional/named arguments (e.g. chrono(date, +1d), file(read, path), execute(bash, "cmd")); dotted chains are rejected with the canonical form suggested.

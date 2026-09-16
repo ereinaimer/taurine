@@ -1,7 +1,6 @@
 //! System variables module.
 //!
-//! Centralizes logic for reserved keywords and system-wide markers like `[cursor]`,
-//! and future variables like `[time]`.
+//! Centralizes logic for reserved keywords and system-wide markers like `[cursor]`.
 
 pub mod clipboard;
 pub mod datetime;
@@ -163,11 +162,11 @@ pub fn strip_argument_quotes(arg: &str) -> &str {
 
 /// Performs final post-processing on the interpolated string.
 ///
-/// All directives (`[key.*]`, `[delay.*]`, `[cursor]`) are resolved into
+/// All directives (`[key(...)]`, `[delay(...)]`, `[mouse(...)]`, `[cursor]`) are resolved into
 /// a unified `Vec<ExpansionStep>` sequence.
 ///
-/// **Conflict rule**: `[cursor]` and `[key.*]` directives cannot coexist.
-/// If any `[key.*]` directive is present, `[cursor]` is treated as literal text.
+/// **Conflict rule**: `[cursor]` and key, delay, or mouse directives cannot coexist.
+/// If any such directive is present, `[cursor]` is treated as literal text.
 pub fn finalize(interpolated: &str, trigger: Option<&str>) -> FinalExpansion {
     finalize_with_origin(interpolated, trigger, ExpansionOrigin::User)
 }
@@ -418,11 +417,11 @@ pub fn validate_output(output: &str, trigger: Option<&str>) -> crate::error::Res
         );
     }
 
-    // 2. Conflict check: [cursor] vs [key.*]/[delay.*]
+    // 2. Conflict check: [cursor] vs key/delay/mouse directives
     if has_key_or_delay && cursor_count > 0 {
         tracing::warn!(
-            "[cursor] directive will be ignored because [key.*] or [delay.*] directives are present{}. \
-             Use [key.left] for precise navigation in multi-action snippets.",
+            "[cursor] directive will be ignored because [key(...)], [delay(...)] or [mouse(...)] directives are present{}. \
+             Use [key(left)] for precise navigation in multi-action snippets.",
             trigger_ctx
         );
     }
@@ -432,7 +431,7 @@ pub fn validate_output(output: &str, trigger: Option<&str>) -> crate::error::Res
 
 /// Splits an interpolated string into a sequence of [`ExpansionStep`] actions.
 ///
-/// Handles `[key.*]`, `[delay.*]` directives and escape sequences (`\[`, `\]`).
+/// Handles `[key(...)]`, `[delay(...)]`, `[mouse(...)]` directives and escape sequences (`\[`, `\]`).
 /// Text between directives becomes `ExpansionStep::Text`.
 /// `[cursor]` is preserved as-is for the `apply_cursor_positioning` post-pass.
 /// Escaped `\[cursor\]` is stored with a sentinel to avoid false matches.
