@@ -1750,7 +1750,10 @@ fn test_audit_payload_tags_unknown_variable_suggests_clipboard() {
 
 #[test]
 fn test_audit_payload_tags_date_today_invalid_modifier_diagnostic() {
-    let err = audit_payload_tags("[chrono(invalid_type)]").unwrap_err();
+    // Bare formats are accepted (engine renders them); digit-leading tokens
+    // are offsets missing their sign and must error.
+    assert!(audit_payload_tags("[chrono(YYYY-MM-DD)]").is_ok());
+    let err = audit_payload_tags("[chrono(1d)]").unwrap_err();
     let msg = err.to_string();
     assert!(msg.contains("chrono"), "expected chrono error, got: {msg}");
     assert!(!msg.contains('`'), "must not contain backticks: {msg}");

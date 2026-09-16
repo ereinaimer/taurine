@@ -79,7 +79,8 @@ mod tests {
         assert!(
             audit_payload_tags("[chrono(time, tz=utc) | case(upper)] [env(USERPROFILE)]").is_ok()
         );
-        assert!(audit_payload_tags("[ip(public)] [ip(local)] [ip(online)]").is_ok());
+        assert!(audit_payload_tags("[ip(public)] [ip(local)]").is_ok());
+        assert!(audit_payload_tags("[ip(online)]").is_err());
         assert!(audit_payload_tags("json = \\[1, 2, 3\\]").is_ok());
         assert!(audit_payload_tags("[name=John | case(upper)]").is_ok());
         assert!(audit_payload_tags("[clip | ai(\"summarize\")]").is_ok());
@@ -390,9 +391,9 @@ mod tests {
         assert!(super::audit_payload_tags("User: [my.custom.var=there]").is_err());
 
         // System variables and defined variables in scripts should still be checked
-        assert!(
-            audit_script_payload_tags("[chrono(invalid_modifier)]", TriggerType::Word).is_err()
-        );
+        // (bare chrono formats are accepted; digit-leading tokens are not offsets)
+        assert!(audit_script_payload_tags("[chrono(YYYY-MM-DD)]", TriggerType::Word).is_ok());
+        assert!(audit_script_payload_tags("[chrono(1d)]", TriggerType::Word).is_err());
         assert!(audit_script_payload_tags("[my_var]", TriggerType::Word).is_ok()); // undefined var is allowed as literal text in scripts
     }
 }

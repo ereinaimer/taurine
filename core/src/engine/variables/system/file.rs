@@ -28,6 +28,40 @@ pub(crate) fn expand_path(path_str: &str) -> Option<PathBuf> {
     }
 }
 
+/// Pure shape check for save-time validation: op arity, required fields, and
+/// line-number rules. No filesystem access. Mirrors the guards in `resolve`
+/// below (kept separate so resolve's runtime warns stay untouched); the
+/// agreement test in registry/tests.rs pins them together.
+pub(crate) fn check_args(op: &str, path: &str, start: &str, end: &str) -> bool {
+    match op {
+        "read" => !path.trim().is_empty() && start.is_empty() && end.is_empty(),
+        "line" => {
+            !path.trim().is_empty()
+                && !start.trim().is_empty()
+                && end.is_empty()
+                && start.trim().parse::<usize>().is_ok_and(|n| n > 0)
+        }
+        "lines" => {
+            if path.trim().is_empty() || start.trim().is_empty() {
+                return false;
+            }
+            let Ok(start_num) = start.trim().parse::<usize>() else {
+                return false;
+            };
+            if start_num == 0 {
+                return false;
+            }
+            if end.trim().is_empty() {
+                return true;
+            }
+            end.trim()
+                .parse::<usize>()
+                .is_ok_and(|end_num| end_num >= start_num)
+        }
+        _ => false,
+    }
+}
+
 fn check_file(path: &Path) -> Option<File> {
     let file = match File::open(path) {
         Ok(f) => f,

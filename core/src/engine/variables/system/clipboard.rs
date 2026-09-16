@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::sync::{Arc, OnceLock, RwLock};
 
-const HISTORY_CAPACITY: usize = 3;
+pub(crate) const HISTORY_CAPACITY: usize = 3;
 pub const MAX_PAYLOAD_BYTES: usize = 1_048_576; // 1MB
 
 thread_local! {

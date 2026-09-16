@@ -213,3 +213,98 @@ fn validates_call_binding_structurally() {
         })
     );
 }
+
+#[test]
+fn rejects_out_of_range_scalar_values() {
+    for (ns, raw) in [
+        ("clip", "9"),
+        ("clip", "abc"),
+        ("clip", "-1"),
+        ("uuid", "7"),
+        ("uuid", "v1"),
+        ("uuid", "V4"),
+        ("ip", "online"),
+        ("ip", "PUBLIC"),
+        ("ip", "bogus"),
+        ("chrono", "1d"),
+        ("http", "post, example.com"),
+        ("http", "get, "),
+        ("lorem", "bogus"),
+        ("lorem", "words, nope"),
+        ("lorem", "words, 0"),
+        ("file", "bogus, p"),
+        ("file", "read, p, extra"),
+        ("file", "line, p"),
+        ("file", "lines, p, 5, 2"),
+        ("file", "line, p, 0"),
+        ("random", "bogus"),
+        ("random", "int, 10, 5"),
+        ("random", "choice"),
+        ("random", "str, 0"),
+        ("random", "str, 5000"),
+        ("random", "6, 7, 8"),
+        ("execute", "ruby, x"),
+        ("execute", "bash, s, file=yes"),
+        ("execute", "bash, s, bogus=1"),
+        ("mouse", "move, 10"),
+        ("mouse", "scroll, abc"),
+        ("mouse", "pos, m1"),
+        ("mouse", "click, m1, abc"),
+        ("mouse", "hold, m1, 2"),
+        ("mouse", "click, left"),
+        ("delay", "abc"),
+        ("delay", "1.5x"),
+        ("key", "boguskey"),
+        ("key", "m4"),
+        ("key", "ctrl++s"),
+    ] {
+        assert!(
+            validate_system_call(ns, Some(raw)).is_err(),
+            "expected error for {ns}({raw})"
+        );
+    }
+    for (ns, raw) in [
+        ("clip", ""),
+        ("clip", "1"),
+        ("uuid", ""),
+        ("uuid", "v7"),
+        ("ip", ""),
+        ("ip", "local"),
+        ("ip", "type=local"),
+        ("chrono", "YYYY-MM-DD"),
+        ("chrono", "date, +1d, YYYY-MM-DD, utc"),
+        ("chrono", "offset=+1h"),
+        ("http", "get, example.com"),
+        ("http", "status, example.com"),
+        ("lorem", "words, 5"),
+        ("lorem", "3"),
+        ("file", "read, p"),
+        ("file", "line, p, 2"),
+        ("file", "lines, p, 1, 5"),
+        ("random", ""),
+        ("random", "6"),
+        ("random", "int, 1, 6"),
+        ("random", "choice, a, b"),
+        ("random", "str, 8"),
+        ("execute", "bash, echo hi"),
+        ("execute", "python, /s.py, a, b, file=true"),
+        ("mouse", "click, m1"),
+        ("mouse", "click, m2, 2"),
+        ("mouse", "click, m1, 0"),
+        ("mouse", "hold, m1"),
+        ("mouse", "move, 1, 2"),
+        ("mouse", "scroll, -3"),
+        ("mouse", "pos"),
+        ("delay", "200ms"),
+        ("delay", "1.5s"),
+        ("delay", "100"),
+        ("key", "enter"),
+        ("key", "ctrl+s"),
+        ("key", "f5"),
+    ] {
+        assert!(
+            validate_system_call(ns, Some(raw)).is_ok(),
+            "expected ok for {ns}({raw})"
+        );
+    }
+}

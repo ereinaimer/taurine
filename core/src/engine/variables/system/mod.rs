@@ -557,7 +557,7 @@ fn flush_text(steps: &mut Vec<ExpansionStep>, buf: &mut String) {
 }
 
 /// Parses a delay string like `200ms` or `200` into a `u64` millisecond value.
-fn parse_delay_ms(s: &str) -> Option<u64> {
+pub(crate) fn parse_delay_ms(s: &str) -> Option<u64> {
     let s = s.trim();
     if let Some(n) = s.strip_suffix("ms") {
         n.parse::<u64>().ok()

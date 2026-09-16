@@ -3,7 +3,7 @@ use rand::{Rng, RngExt};
 const ALPHANUMERIC: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const PASSWORD: &[u8] =
     b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+[]{}|;:,.<>?";
-const MAX_RANDOM_STRING_LEN: usize = 4096;
+pub(crate) const MAX_RANDOM_STRING_LEN: usize = 4096;
 
 const KNOWN_TYPES: &[&str] = &["int", "choice", "str", "pass"];
 
