@@ -31,9 +31,6 @@ impl SettingKeyMeta for SettingKey {
             Self::ClipboardRestoreDelayMs => "Clipboard Restore Delay (ms)",
             Self::InstantExpand => "Instant Expand",
             Self::IgnoreFullscreen => "Ignore Fullscreen on Windows",
-            Self::RpcMode => "Service RPC Mode",
-            Self::RpcHost => "Service RPC Host",
-            Self::RpcPort => "Service RPC Port",
             Self::ScriptsEnabled => "Scripts Enabled",
             Self::ScriptTimeout => "Script Execution Timeout",
             Self::AiTemperature => "AI Temperature",
@@ -92,9 +89,6 @@ impl SettingKeyMeta for SettingKey {
             Self::IgnoreFullscreen => {
                 "Pause macro evaluation when running a full-screen application (e.g. games)"
             }
-            Self::RpcMode => "The transport protocol used for service RPC (socket or tcp)",
-            Self::RpcHost => "The network interface IP address the service binds to",
-            Self::RpcPort => "The network port the gRPC RPC server listens on (1024-65535)",
             Self::ScriptsEnabled => "Allow execution of shell scripts in triggers",
             Self::ScriptTimeout => {
                 "Maximum script execution time before termination (0 for infinite)"
@@ -159,7 +153,6 @@ impl SettingKeyMeta for SettingKey {
             Self::Wpm
             | Self::AudioVolume
             | Self::ClipboardRestoreDelayMs
-            | Self::RpcPort
             | Self::ScriptTimeout
             | Self::AiMaxTokens
             | Self::ClipboardHistoryRetentionSecs => EditorKind::NumberInput,
@@ -170,11 +163,9 @@ impl SettingKeyMeta for SettingKey {
                 EditorKind::OptionalTextInput
             }
             Self::InlineDictionaryMode => EditorKind::InlineDictionaryModeSelect,
-            Self::RpcMode => EditorKind::RpcModeSelect,
             Self::InlineEmojiTriggerChar => EditorKind::SingleCharInput,
             Self::PauseHotkey
             | Self::AiModel
-            | Self::RpcHost
             | Self::InlineDatetimeDateFormat
             | Self::InlineDatetimeTimeFormat
             | Self::InlineDatetimeDatetimeFormat
@@ -204,7 +195,6 @@ impl SettingKeyMeta for SettingKey {
             Self::ClipboardRestoreDelayMs => settings.clipboard_restore_delay_ms.to_string(),
             Self::InstantExpand => settings.instant_expand.to_string(),
             Self::IgnoreFullscreen => settings.ignore_fullscreen.to_string(),
-            Self::RpcPort => settings.rpc_port.to_string(),
             Self::ScriptTimeout => settings.script_timeout.to_string(),
             Self::AiTemperature => {
                 optional_value_label(settings.ai_temperature.map(|v| v.to_string()).as_deref())
@@ -219,11 +209,6 @@ impl SettingKeyMeta for SettingKey {
                 .as_deref()
                 .unwrap_or(taurine_core::settings::DEFAULT_AI_SYSTEM_PROMPT)
                 .to_string(),
-            Self::RpcMode => match settings.rpc_mode {
-                taurine_core::settings::RpcMode::Socket => "socket".to_string(),
-                taurine_core::settings::RpcMode::Tcp => "tcp".to_string(),
-            },
-            Self::RpcHost => settings.rpc_host.clone(),
             Self::ScriptsEnabled => settings.scripts_enabled.to_string(),
             Self::ClipboardHistoryEnabled => settings.clipboard_history_enabled.to_string(),
             Self::ClipboardHistoryRetentionSecs => {
@@ -260,7 +245,6 @@ impl SettingKeyMeta for SettingKey {
             Self::AiProvider => settings.ai_provider.clone().unwrap_or_default(),
             Self::AiModel => settings.ai_model.clone().unwrap_or_default(),
             Self::AiCustomEndpoint => settings.ai_custom_endpoint.clone().unwrap_or_default(),
-            Self::RpcHost => settings.rpc_host.clone(),
             Self::PauseNotificationsEnabled
             | Self::PauseAudioEnabled
             | Self::AudioTheme
@@ -273,10 +257,8 @@ impl SettingKeyMeta for SettingKey {
             | Self::IgnoreFullscreen
             | Self::SpinnerStyle
             | Self::InlineAiEnabled
-            | Self::RpcMode
             | Self::ScriptsEnabled
             | Self::ClipboardRestoreDelayMs
-            | Self::RpcPort
             | Self::ScriptTimeout
             | Self::ClipboardHistoryEnabled
             | Self::ClipboardHistoryRetentionSecs
@@ -316,7 +298,6 @@ pub(crate) enum EditorKind {
     AudioThemeSelect,
     AiProviderSelect,
     InlineDictionaryModeSelect,
-    RpcModeSelect,
 }
 
 pub(crate) const fn spinner_style_label(style: SpinnerStyle) -> &'static str {

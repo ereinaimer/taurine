@@ -1,6 +1,7 @@
 // Licensed under the Aimer Software License (ASL)
 // See LICENSE for details.
 
+#[cfg(not(any(all(unix, not(target_os = "android")), target_os = "windows")))]
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use taurine_core::db::init;
@@ -352,7 +353,6 @@ pub fn start() -> taurine_core::error::Result<()> {
         tokio::spawn(crate::dictionary_manager::check_and_update_dictionary());
 
         let shutdown_requested = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let rpc_reload_requested = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         let evaluator_for_coordinator = evaluator.clone();
         #[cfg(any(windows, target_os = "linux"))]
@@ -401,23 +401,12 @@ pub fn start() -> taurine_core::error::Result<()> {
         });
 
         let (mut shutdown_tx, mut shutdown_rx) = mpsc::channel(1);
-        let (mut rpc_reload_tx, mut rpc_reload_rx) = mpsc::channel(1);
-
-        let active_rpc_settings = std::sync::Arc::new(std::sync::RwLock::new(
-            services::server::RpcServerSettings {
-                rpc_mode: settings.rpc_mode,
-                rpc_host: settings.rpc_host.clone(),
-                rpc_port: settings.rpc_port,
-            },
-        ));
 
         loop {
             let shutdown_requested_clone = shutdown_requested.clone();
-            let rpc_reload_requested_clone = rpc_reload_requested.clone();
 
             let watcher_task = {
                 let shutdown_requested_clone = shutdown_requested_clone.clone();
-                let rpc_reload_requested_clone = rpc_reload_requested_clone.clone();
                 tokio::spawn(async move {
                     #[cfg(unix)]
                     let mut sigterm = match tokio::signal::unix::signal(
@@ -434,9 +423,6 @@ pub fn start() -> taurine_core::error::Result<()> {
                     tokio::select! {
                         _ = shutdown_rx.recv() => {
                             shutdown_requested_clone.store(true, Ordering::Relaxed);
-                        }
-                        _ = rpc_reload_rx.recv() => {
-                            rpc_reload_requested_clone.store(true, Ordering::Relaxed);
                         }
                         _ = tokio::signal::ctrl_c() => {
                             info!("System Ctrl+C received, initiating shutdown...");
@@ -459,9 +445,6 @@ pub fn start() -> taurine_core::error::Result<()> {
                         _ = shutdown_rx.recv() => {
                             shutdown_requested_clone.store(true, Ordering::Relaxed);
                         }
-                        _ = rpc_reload_rx.recv() => {
-                            rpc_reload_requested_clone.store(true, Ordering::Relaxed);
-                        }
                         _ = tokio::signal::ctrl_c() => {
                             info!("System Ctrl+C received, initiating shutdown...");
                             shutdown_requested_clone.store(true, Ordering::Relaxed);
@@ -481,107 +464,22 @@ pub fn start() -> taurine_core::error::Result<()> {
                 .pause_audio_enabled(pause_audio_enabled.clone())
                 .system_tray_enabled(system_tray_enabled.clone())
                 .hook_health(hook_health.clone())
-                .active_rpc_settings(active_rpc_settings.clone())
-                .rpc_reload_sender(rpc_reload_tx.clone())
                 .pause_transition_tx(pause_transition_tx.clone())
                 .build()
                 .map_err(taurine_core::error::Error::Config)?;
 
-            let current_rpc = {
-                let lock = match active_rpc_settings.read() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => {
-                        tracing::warn!("active_rpc_settings lock poisoned; recovering");
-                        poisoned.into_inner()
-                    }
-                };
-                lock.clone()
-            };
-
-            let token = taurine_core::rpc::get_rpc_token();
-            let use_tcp = current_rpc.rpc_mode == taurine_core::settings::RpcMode::Tcp;
-
             let shutdown_requested_for_signal = shutdown_requested.clone();
-            let rpc_reload_requested_for_signal = rpc_reload_requested.clone();
             let shutdown_signal = async move {
                 loop {
                     if shutdown_requested_for_signal.load(Ordering::Relaxed) {
                         debug!("Shutdown signal received, initiating gRPC server shutdown...");
                         break;
                     }
-                    if rpc_reload_requested_for_signal.load(Ordering::Relaxed) {
-                        debug!("RPC settings changed, reloading gRPC server...");
-                        break;
-                    }
                     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                 }
             };
 
-            let rate_limiter = AuthRateLimiter::new();
-            let auth_token = token.clone();
-            let auth_interceptor =
-                move |req: tonic::Request<()>| -> Result<tonic::Request<()>, tonic::Status> {
-                    let remote_ip: std::net::IpAddr = req
-                        .remote_addr()
-                        .map(|a| a.ip())
-                        .unwrap_or_else(|| [127, 0, 0, 1].into());
-
-                    if let Err(remaining) = rate_limiter.check_allowed(remote_ip) {
-                        return Err(tonic::Status::unauthenticated(format!(
-                            "Too many failed authentication attempts. Locked out for {}s",
-                            remaining.as_secs()
-                        )));
-                    }
-
-                    let expected_bytes = auth_token.as_bytes();
-                    if expected_bytes.is_empty() {
-                        rate_limiter.record_failure(remote_ip);
-                        return Err(tonic::Status::unauthenticated(
-                            "Invalid or missing RPC token",
-                        ));
-                    }
-
-                    if let Some(auth_val) = req.metadata().get("authorization")
-                        && let Ok(auth_str) = auth_val.to_str()
-                        && let Some(token_part) = auth_str.strip_prefix("Bearer ")
-                    {
-                        use subtle::ConstantTimeEq;
-                        let provided = token_part.as_bytes();
-                        if !provided.is_empty()
-                            && provided.len() == expected_bytes.len()
-                            && provided.ct_eq(expected_bytes).into()
-                        {
-                            rate_limiter.record_success(remote_ip);
-                            return Ok(req);
-                        }
-                    }
-
-                    rate_limiter.record_failure(remote_ip);
-                    Err(tonic::Status::unauthenticated(
-                        "Invalid or missing RPC token",
-                    ))
-                };
-
-            if use_tcp {
-                let addr_parsed = current_rpc
-                    .rpc_host
-                    .parse::<std::net::IpAddr>()
-                    .unwrap_or_else(|_| [127, 0, 0, 1].into());
-                let addr = SocketAddr::new(addr_parsed, current_rpc.rpc_port);
-
-                info!("Starting authenticated gRPC server on {}", addr);
-                let server_future = Server::builder()
-                    .add_service(DaemonControlServer::with_interceptor(
-                        daemon_service,
-                        auth_interceptor,
-                    ))
-                    .serve_with_shutdown(addr, shutdown_signal);
-
-                if let Err(e) = server_future.await {
-                    error!("gRPC server failed: {}", e);
-                    return Err(taurine_core::error::Error::Transport(Box::new(e)));
-                }
-            } else {
+            {
                 #[cfg(all(unix, not(target_os = "android")))]
                 {
                     use tokio::net::UnixListener;
@@ -604,11 +502,15 @@ pub fn start() -> taurine_core::error::Result<()> {
 
                     match UnixListener::bind(&socket_path) {
                         Ok(uds) => {
-                            use std::os::unix::fs::PermissionsExt;
-                            if let Ok(metadata) = std::fs::metadata(&socket_path) {
-                                let mut perms = metadata.permissions();
-                                perms.set_mode(0o600);
-                                let _ = std::fs::set_permissions(&socket_path, perms);
+                            // Socket permissions are the access boundary: lock the
+                            // listener fd itself before any client can connect.
+                            // SAFETY: fd comes from the just-bound listener; fchmod
+                            // on a live fd cannot race path replacement.
+                            unsafe {
+                                libc::fchmod(
+                                    std::os::unix::io::AsRawFd::as_raw_fd(&uds),
+                                    0o600,
+                                );
                             }
 
                             let stream = UnixListenerStream::new(uds);
@@ -617,10 +519,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                                 socket_path.display()
                             );
                             let server_future = Server::builder()
-                                .add_service(DaemonControlServer::with_interceptor(
-                                    daemon_service,
-                                    auth_interceptor.clone(),
-                                ))
+                                .add_service(DaemonControlServer::new(daemon_service))
                                 .serve_with_incoming_shutdown(stream, shutdown_signal);
 
                             if let Err(e) = server_future.await {
@@ -639,17 +538,20 @@ pub fn start() -> taurine_core::error::Result<()> {
 
                 #[cfg(target_os = "windows")]
                 {
-                    use tokio::net::windows::named_pipe::ServerOptions;
-
                     let pipe_path_raw = taurine_core::paths::dev_env_var("TAURINE_PIPE_PATH")
                         .unwrap_or_else(|| r"\\.\pipe\taurine".to_string());
                     let pipe_path = &pipe_path_raw;
 
-                    let first_server = match ServerOptions::new()
-                        .first_pipe_instance(true)
-                        .reject_remote_clients(true)
-                        .create(pipe_path)
+                    let pipe_security = match crate::platform::windows::pipe_security::PipeSecurity::current_user_only()
                     {
+                        Ok(security) => security,
+                        Err(e) => {
+                            error!("Failed to build IPC pipe security descriptor: {}", e);
+                            return Err(taurine_core::error::Error::Io(e));
+                        }
+                    };
+
+                    let first_server = match pipe_security.create_server(pipe_path, true) {
                         Ok(s) => s,
                         Err(e) => {
                             error!("Failed to create first named pipe instance: {}", e);
@@ -672,10 +574,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                             loop {
                                 let server_instance = match next_server.take() {
                                     Some(s) => s,
-                                    None => match ServerOptions::new()
-                                        .first_pipe_instance(false)
-                                        .reject_remote_clients(true)
-                                        .create(&pipe_path)
+                                    None => match pipe_security.create_server(&pipe_path, false)
                                     {
                                         Ok(s) => s,
                                         Err(e) => {
@@ -704,10 +603,7 @@ pub fn start() -> taurine_core::error::Result<()> {
 
                     let stream = tokio_stream::wrappers::ReceiverStream::new(connection_rx);
                     let server_future = Server::builder()
-                        .add_service(DaemonControlServer::with_interceptor(
-                            daemon_service,
-                            auth_interceptor.clone(),
-                        ))
+                        .add_service(DaemonControlServer::new(daemon_service))
                         .serve_with_incoming_shutdown(stream, shutdown_signal);
 
                     if let Err(e) = server_future.await {
@@ -720,13 +616,11 @@ pub fn start() -> taurine_core::error::Result<()> {
 
                 #[cfg(not(any(all(unix, not(target_os = "android")), target_os = "windows")))]
                 {
-                    let addr = SocketAddr::from(([127, 0, 0, 1], current_rpc.rpc_port));
+                    // No Unix socket or named pipe here; loopback only.
+                    let addr = SocketAddr::from(([127, 0, 0, 1], 50051));
                     info!("Starting fallback gRPC server on {}", addr);
                     let server_future = Server::builder()
-                        .add_service(DaemonControlServer::with_interceptor(
-                            daemon_service,
-                            auth_interceptor.clone(),
-                        ))
+                        .add_service(DaemonControlServer::new(daemon_service))
                         .serve_with_shutdown(addr, shutdown_signal);
                     if let Err(e) = server_future.await {
                         error!("gRPC server failed: {}", e);
@@ -741,28 +635,10 @@ pub fn start() -> taurine_core::error::Result<()> {
                 break;
             }
 
-            // Reset reload request flag
-            rpc_reload_requested.store(false, Ordering::Relaxed);
-
-            // Re-create channels for next iteration
+            // Re-create shutdown channel for next iteration
             let (new_shutdown_tx, new_shutdown_rx) = mpsc::channel(1);
-            let (new_rpc_reload_tx, new_rpc_reload_rx) = mpsc::channel(1);
             shutdown_tx = new_shutdown_tx;
             shutdown_rx = new_shutdown_rx;
-            rpc_reload_tx = new_rpc_reload_tx;
-            rpc_reload_rx = new_rpc_reload_rx;
-
-            // Load the new settings from the database and update Arc<RwLock<RpcServerSettings>>
-            if let Ok(conn) = taurine_core::db::init::setup() {
-                let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
-                if let Ok(mut lock) = active_rpc_settings.write() {
-                    *lock = services::server::RpcServerSettings {
-                        rpc_mode: settings.rpc_mode,
-                        rpc_host: settings.rpc_host.clone(),
-                        rpc_port: settings.rpc_port,
-                    };
-                }
-            }
         }
         Ok(())
     });
@@ -877,115 +753,13 @@ impl tonic::transport::server::Connected for NamedPipeConn {
     fn connect_info(&self) -> Self::ConnectInfo {}
 }
 
-#[derive(Debug, Clone)]
-struct IpRateLimitRecord {
-    fail_count: u32,
-    window_start: std::time::Instant,
-    lockout_until: Option<std::time::Instant>,
-}
-
-#[derive(Debug, Clone)]
-pub struct AuthRateLimiter {
-    state: std::sync::Arc<
-        std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, IpRateLimitRecord>>,
-    >,
-}
-
-impl Default for AuthRateLimiter {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl AuthRateLimiter {
-    pub fn new() -> Self {
-        Self {
-            state: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-        }
-    }
-
-    pub fn check_allowed(&self, ip: std::net::IpAddr) -> Result<(), std::time::Duration> {
-        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
-        let now = std::time::Instant::now();
-        if let Some(record) = state.get_mut(&ip) {
-            if let Some(until) = record.lockout_until {
-                if now < until {
-                    return Err(until.duration_since(now));
-                }
-                record.lockout_until = None;
-                record.window_start = now;
-            } else if now.duration_since(record.window_start) > std::time::Duration::from_secs(60) {
-                record.window_start = now;
-            }
-        }
-        Ok(())
-    }
-
-    pub fn record_failure(&self, ip: std::net::IpAddr) {
-        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
-        let now = std::time::Instant::now();
-        let entry = state.entry(ip).or_insert_with(|| IpRateLimitRecord {
-            fail_count: 0,
-            window_start: now,
-            lockout_until: None,
-        });
-        if now.duration_since(entry.window_start) > std::time::Duration::from_secs(60)
-            && entry.lockout_until.is_none()
-        {
-            entry.fail_count = 0;
-            entry.window_start = now;
-        }
-        entry.fail_count += 1;
-
-        if entry.fail_count >= 10 {
-            let excess = entry.fail_count - 10;
-            let multiplier = 2u64.saturating_pow(excess);
-            let backoff_secs = (30 * multiplier).min(900);
-            entry.lockout_until = Some(now + std::time::Duration::from_secs(backoff_secs));
-            tracing::warn!(
-                "RPC authentication rate limit exceeded for IP {}. Locking out for {}s.",
-                ip,
-                backoff_secs
-            );
-        }
-    }
-
-    pub fn record_success(&self, ip: std::net::IpAddr) {
-        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
-        state.remove(&ip);
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_tray_module_exists() {
         let paused = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let enabled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
 
         crate::services::tray::spawn(paused, enabled);
-    }
-
-    #[test]
-    fn test_auth_rate_limiter_lockout_and_reset() {
-        let limiter = AuthRateLimiter::new();
-        let ip: std::net::IpAddr = "127.0.0.1".parse().unwrap();
-
-        for _ in 0..9 {
-            assert!(limiter.check_allowed(ip).is_ok());
-            limiter.record_failure(ip);
-        }
-
-        assert!(limiter.check_allowed(ip).is_ok());
-        // 10th failure triggers lockout
-        limiter.record_failure(ip);
-
-        assert!(limiter.check_allowed(ip).is_err());
-
-        // Successful auth resets rate limit
-        limiter.record_success(ip);
-        assert!(limiter.check_allowed(ip).is_ok());
     }
 }

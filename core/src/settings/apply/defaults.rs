@@ -1,4 +1,4 @@
-use super::super::{InlineDictionaryMode, RpcMode, Settings, SpinnerStyle};
+use super::super::{InlineDictionaryMode, Settings, SpinnerStyle};
 use crate::error::{Error, Result};
 
 pub fn default_setting_input(key: &str) -> Result<Option<String>> {
@@ -31,12 +31,6 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "clipboard_restore_delay_ms" => Ok(Some(defaults.clipboard_restore_delay_ms.to_string())),
         "instant_expand" => Ok(Some(defaults.instant_expand.to_string())),
         "ignore_fullscreen" => Ok(Some(defaults.ignore_fullscreen.to_string())),
-        "rpc_port" => Ok(Some(defaults.rpc_port.to_string())),
-        "rpc_mode" => Ok(Some(match defaults.rpc_mode {
-            RpcMode::Socket => "socket".to_string(),
-            RpcMode::Tcp => "tcp".to_string(),
-        })),
-        "rpc_host" => Ok(Some(defaults.rpc_host)),
         "script_timeout" => Ok(Some(defaults.script_timeout.to_string())),
         "ai_temperature" => Ok(defaults.ai_temperature.map(|v| v.to_string())),
         "ai_max_tokens" => Ok(defaults.ai_max_tokens.map(|v| v.to_string())),

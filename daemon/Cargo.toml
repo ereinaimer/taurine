@@ -22,7 +22,6 @@ notify-rust = "4"
 genai = "0.6.5"
 futures = "0.3"
 zeroize = "1.8"
-subtle = "2.6"
 crossbeam-channel = "0.5"
 zstd = "0.14"
 rusqlite = { version = "0.39", features = ["bundled-sqlcipher-vendored-openssl"] }

@@ -11,13 +11,6 @@ use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
 use tracing::debug;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RpcServerSettings {
-    pub rpc_mode: taurine_core::settings::RpcMode,
-    pub rpc_host: String,
-    pub rpc_port: u16,
-}
-
 pub struct DaemonService {
     shutdown_sender: mpsc::Sender<()>,
     state: Arc<EngineState>,
@@ -29,8 +22,6 @@ pub struct DaemonService {
     pause_audio_enabled: Arc<AtomicBool>,
     system_tray_enabled: Arc<AtomicBool>,
     hook_health: crate::input::hook_health::HookHealth,
-    active_rpc_settings: Arc<RwLock<RpcServerSettings>>,
-    rpc_reload_sender: mpsc::Sender<()>,
     pause_transition_tx: mpsc::Sender<bool>,
 }
 
@@ -51,8 +42,6 @@ pub struct DaemonServiceBuilder {
     pause_audio_enabled: Option<Arc<AtomicBool>>,
     system_tray_enabled: Option<Arc<AtomicBool>>,
     hook_health: Option<crate::input::hook_health::HookHealth>,
-    active_rpc_settings: Option<Arc<RwLock<RpcServerSettings>>>,
-    rpc_reload_sender: Option<mpsc::Sender<()>>,
     pause_transition_tx: Option<mpsc::Sender<bool>>,
 }
 
@@ -75,8 +64,6 @@ impl DaemonServiceBuilder {
             pause_audio_enabled: None,
             system_tray_enabled: None,
             hook_health: None,
-            active_rpc_settings: None,
-            rpc_reload_sender: None,
             pause_transition_tx: None,
         }
     }
@@ -137,16 +124,6 @@ impl DaemonServiceBuilder {
         self
     }
 
-    pub fn active_rpc_settings(mut self, settings: Arc<RwLock<RpcServerSettings>>) -> Self {
-        self.active_rpc_settings = Some(settings);
-        self
-    }
-
-    pub fn rpc_reload_sender(mut self, sender: mpsc::Sender<()>) -> Self {
-        self.rpc_reload_sender = Some(sender);
-        self
-    }
-
     pub fn pause_transition_tx(mut self, tx: mpsc::Sender<bool>) -> Self {
         self.pause_transition_tx = Some(tx);
         self
@@ -174,12 +151,6 @@ impl DaemonServiceBuilder {
                 .system_tray_enabled
                 .ok_or("system_tray_enabled is required")?,
             hook_health: self.hook_health.ok_or("hook_health is required")?,
-            active_rpc_settings: self
-                .active_rpc_settings
-                .ok_or("active_rpc_settings is required")?,
-            rpc_reload_sender: self
-                .rpc_reload_sender
-                .ok_or("rpc_reload_sender is required")?,
             pause_transition_tx: self
                 .pause_transition_tx
                 .ok_or("pause_transition_tx is required")?,
@@ -377,22 +348,6 @@ impl DaemonControl for DaemonService {
             settings
         };
 
-        let rpc_settings_changed = if let Ok(active_rpc) = self.active_rpc_settings.read() {
-            let db_rpc = RpcServerSettings {
-                rpc_mode: settings.rpc_mode,
-                rpc_host: settings.rpc_host.clone(),
-                rpc_port: settings.rpc_port,
-            };
-            *active_rpc != db_rpc
-        } else {
-            false
-        };
-
-        if rpc_settings_changed {
-            debug!("RPC settings changed in DB. Triggering gRPC server reload...");
-            let _ = self.rpc_reload_sender.try_send(());
-        }
-
         debug!("Successfully reloaded snippets and settings into service.");
         taurine_core::settings::set_cached_audio_theme(settings.audio_theme);
         taurine_core::settings::set_cached_audio_volume(settings.audio_volume);
@@ -458,13 +413,6 @@ mod tests {
         let pause_hotkey_spec = Arc::new(std::sync::RwLock::new(
             crate::input::hotkey::parse_pause_hotkey_setting(&pause_hotkey).unwrap(),
         ));
-        let (reload_tx, _reload_rx) = mpsc::channel(1);
-        let active_rpc_settings = Arc::new(std::sync::RwLock::new(RpcServerSettings {
-            rpc_mode: taurine_core::settings::RpcMode::Tcp,
-            rpc_host: String::new(),
-            rpc_port: 0,
-        }));
-
         let (pause_tx, _pause_rx) = mpsc::channel(1);
         let service = DaemonService::builder()
             .shutdown_sender(tx)
@@ -479,8 +427,6 @@ mod tests {
             .pause_audio_enabled(Arc::new(AtomicBool::new(true)))
             .system_tray_enabled(Arc::new(AtomicBool::new(true)))
             .hook_health(crate::input::hook_health::HookHealth::new())
-            .active_rpc_settings(active_rpc_settings)
-            .rpc_reload_sender(reload_tx)
             .pause_transition_tx(pause_tx)
             .build()
             .expect("builder call site is fully populated");
@@ -560,13 +506,6 @@ mod tests {
         let pause_hotkey_spec = Arc::new(std::sync::RwLock::new(
             crate::input::hotkey::parse_pause_hotkey_setting(&pause_hotkey).unwrap(),
         ));
-        let (reload_tx, _reload_rx) = mpsc::channel(1);
-        let active_rpc_settings = Arc::new(std::sync::RwLock::new(RpcServerSettings {
-            rpc_mode: taurine_core::settings::RpcMode::Tcp,
-            rpc_host: String::new(),
-            rpc_port: 0,
-        }));
-
         let paused = Arc::new(AtomicBool::new(false));
         let (pause_tx, mut pause_rx) = mpsc::channel(8);
         let service = DaemonService::builder()
@@ -582,8 +521,6 @@ mod tests {
             .pause_audio_enabled(Arc::new(AtomicBool::new(true)))
             .system_tray_enabled(Arc::new(AtomicBool::new(true)))
             .hook_health(crate::input::hook_health::HookHealth::new())
-            .active_rpc_settings(active_rpc_settings)
-            .rpc_reload_sender(reload_tx)
             .pause_transition_tx(pause_tx)
             .build()
             .expect("builder call site is fully populated");

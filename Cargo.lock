@@ -5171,7 +5171,6 @@ dependencies = [
  "rodio",
  "rusqlite",
  "serde_json",
- "subtle",
  "taurine_core",
  "tempfile",
  "tokio",

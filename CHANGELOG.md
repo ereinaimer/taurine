@@ -20,7 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Uninstall Data Prompt**: Ask before deleting configuration and data files during uninstallation; kept by default.
 - **Download Progress**: Show live download progress with transfer speed during installation and updates, including total size and elapsed time on completion.
 
+### Removed
+- **Local-Only Daemon Control**: Removed the TCP transport settings (`rpc_mode`, `rpc_host`, `rpc_port`) and the RPC auth token. The daemon is now controlled over the local socket (Unix) or a same-user named pipe (Windows) only.
+
 ### Fixed
+- **Tray Dead After Auto-Login**: Fixed tray pause, resume, and setting toggles silently failing after auto-login until the service was restarted.
 - **Save-Time Transformer Validation**: Reject unknown transformer names when a snippet is saved instead of leaving the tag unresolved at expansion time.
 - **Single Canonical Name Per Variable**: Remove legacy aliases (`exec`, `img`, `clipboard`, singular `lorem` forms, and `extract` path shorthands) so each system variable and transformer has exactly one documented name.
 - **Line Transformers Follow Documented Syntax**: Enable the documented [| lines(first|last|count|compact|prefix|suffix|join|split|unique|sort)] family and drop the unreachable legacy names.

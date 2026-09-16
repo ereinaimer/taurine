@@ -584,6 +584,32 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
     }
 }
 
+type DaemonClient = taurine_core::system::rpc::daemon_control_client::DaemonControlClient<
+    tonic::transport::Channel,
+>;
+
+/// Fire a daemon RPC off the tray thread, logging failures instead of dropping
+/// them silently. Returns false when no runtime exists to run on.
+fn spawn_daemon_call<Fut>(
+    label: &'static str,
+    call: impl FnOnce(DaemonClient) -> Fut + Send + 'static,
+) -> bool
+where
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    let Some(rt) = crate::TOKIO_HANDLE.get() else {
+        tracing::warn!("tray {label} dropped: tokio handle not initialized");
+        return false;
+    };
+    rt.spawn(async move {
+        match taurine_core::rpc::get_client().await {
+            Ok(client) => call(client).await,
+            Err(error) => tracing::warn!(%error, "tray {label} dropped: daemon unreachable"),
+        }
+    });
+    true
+}
+
 pub fn process_menu_event(
     event: &MenuEvent,
     items: &TrayMenuItems,
@@ -606,23 +632,19 @@ pub fn process_menu_event(
         let paused_clone = paused.clone();
         snooze.start_snooze(duration, move || {
             paused_clone.store(false, Ordering::Relaxed);
-            if let Some(rt) = crate::TOKIO_HANDLE.get() {
-                rt.spawn(async move {
-                    if let Ok(mut client) = taurine_core::rpc::get_client().await {
-                        let _ = client.resume(taurine_core::rpc::ResumeRequest {}).await;
-                    }
-                });
-            }
+            spawn_daemon_call("resume", |mut client| async move {
+                if let Err(error) = client.resume(taurine_core::rpc::ResumeRequest {}).await {
+                    tracing::warn!(%error, "tray resume request failed");
+                }
+            });
         });
         items.resume_item.set_text(snooze.resume_label());
 
-        if let Some(rt) = crate::TOKIO_HANDLE.get() {
-            rt.spawn(async move {
-                if let Ok(mut client) = taurine_core::rpc::get_client().await {
-                    let _ = client.pause(taurine_core::rpc::PauseRequest {}).await;
-                }
-            });
-        } else {
+        if !spawn_daemon_call("pause", |mut client| async move {
+            if let Err(error) = client.pause(taurine_core::rpc::PauseRequest {}).await {
+                tracing::warn!(%error, "tray pause request failed");
+            }
+        }) {
             paused.store(true, Ordering::Relaxed);
         }
 
@@ -630,47 +652,43 @@ pub fn process_menu_event(
     } else if event_id == items.pause_until_resumed.id() {
         snooze.cancel();
         items.resume_item.set_text("Resume");
-        if let Some(rt) = crate::TOKIO_HANDLE.get() {
-            rt.spawn(async move {
-                if let Ok(mut client) = taurine_core::rpc::get_client().await {
-                    let _ = client.pause(taurine_core::rpc::PauseRequest {}).await;
-                }
-            });
-        } else {
+        if !spawn_daemon_call("pause", |mut client| async move {
+            if let Err(error) = client.pause(taurine_core::rpc::PauseRequest {}).await {
+                tracing::warn!(%error, "tray pause request failed");
+            }
+        }) {
             paused.store(true, Ordering::Relaxed);
         }
         true
     } else if event_id == items.resume_item.id() {
         snooze.cancel();
         items.resume_item.set_text("Resume");
-        if let Some(rt) = crate::TOKIO_HANDLE.get() {
-            rt.spawn(async move {
-                if let Ok(mut client) = taurine_core::rpc::get_client().await {
-                    let _ = client.resume(taurine_core::rpc::ResumeRequest {}).await;
-                }
-            });
-        } else {
+        if !spawn_daemon_call("resume", |mut client| async move {
+            if let Err(error) = client.resume(taurine_core::rpc::ResumeRequest {}).await {
+                tracing::warn!(%error, "tray resume request failed");
+            }
+        }) {
             paused.store(false, Ordering::Relaxed);
         }
         true
     } else if event_id == items.instant_expand_item.id() {
-        if let Ok(new_val) = TraySettings::toggle_instant_expand() {
-            items.instant_expand_item.set_checked(new_val);
+        match TraySettings::toggle_instant_expand() {
+            Ok(new_val) => items.instant_expand_item.set_checked(new_val),
+            Err(error) => tracing::warn!(%error, "tray instant-expand toggle failed"),
         }
         true
     } else if event_id == items.start_on_boot_item.id() {
-        if let Ok(new_val) = TraySettings::toggle_start_on_boot() {
-            items.start_on_boot_item.set_checked(new_val);
+        match TraySettings::toggle_start_on_boot() {
+            Ok(new_val) => items.start_on_boot_item.set_checked(new_val),
+            Err(error) => tracing::warn!(%error, "tray start-on-boot toggle failed"),
         }
         true
     } else if event_id == items.quit_item.id() {
-        if let Some(rt) = crate::TOKIO_HANDLE.get() {
-            rt.spawn(async move {
-                if let Ok(mut client) = taurine_core::rpc::get_client().await {
-                    let _ = client.shutdown(taurine_core::rpc::ShutdownRequest {}).await;
-                }
-            });
-        }
+        spawn_daemon_call("shutdown", |mut client| async move {
+            if let Err(error) = client.shutdown(taurine_core::rpc::ShutdownRequest {}).await {
+                tracing::warn!(%error, "tray shutdown request failed");
+            }
+        });
         false
     } else {
         true

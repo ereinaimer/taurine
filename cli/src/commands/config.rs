@@ -128,13 +128,7 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
             "inline_dictionary_mode",
             format!("{:?}", settings.inline_dictionary_mode).to_lowercase(),
         ),
-        (
-            "rpc_mode",
-            format!("{:?}", settings.rpc_mode).to_lowercase(),
-        ),
     ];
-
-    let show_tcp_settings = settings.rpc_mode == taurine_core::settings::RpcMode::Tcp;
 
     // Calculate key column width
     let max_key_len = pairs.iter().map(|(k, _)| k.len()).max().unwrap_or(10);
@@ -146,25 +140,6 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
             key,
             "",
             value,
-            kw = max_key_len,
-            pad = pad
-        );
-    }
-
-    if show_tcp_settings {
-        println!(
-            "{:<kw$}{:pad$}{}",
-            "rpc_host",
-            "",
-            settings.rpc_host,
-            kw = max_key_len,
-            pad = pad
-        );
-        println!(
-            "{:<kw$}{:pad$}{}",
-            "rpc_port",
-            "",
-            settings.rpc_port,
             kw = max_key_len,
             pad = pad
         );
@@ -396,12 +371,11 @@ mod tests {
         assert!(map.contains_key("pause_hotkey"));
         assert!(map.contains_key("wpm"));
         assert!(map.contains_key("spinner_style"));
-        assert!(map.contains_key("rpc_mode"));
         assert!(map.contains_key("script_timeout"));
         assert!(map.contains_key("system_tray_enabled"));
+        assert!(!map.contains_key("rpc_mode"));
 
         assert_eq!(map["wpm"], 60);
-        assert_eq!(map["rpc_mode"], "socket");
         assert_eq!(map["system_tray_enabled"], true);
     }
 
@@ -446,14 +420,12 @@ mod tests {
     fn test_settings_all_enum_variants_serialize() {
         let settings = Settings {
             spinner_style: taurine_core::settings::SpinnerStyle::Arc,
-            rpc_mode: taurine_core::settings::RpcMode::Tcp,
             ..Settings::default()
         };
         let json = serde_json::to_string(&settings).unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
 
         assert_eq!(value["spinner_style"], "arc");
-        assert_eq!(value["rpc_mode"], "tcp");
     }
 
     #[test]

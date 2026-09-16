@@ -120,12 +120,6 @@ impl<'a> SettingsManager<'a> {
             settings.ignore_fullscreen = v;
         }
 
-        if let Some(val) = map.get("rpc_port")
-            && let Ok(v) = serde_json::from_str::<u16>(val)
-        {
-            settings.rpc_port = Settings::sanitize_rpc_port(v);
-        }
-
         if let Some(val) = map.get("script_timeout")
             && let Ok(v) = serde_json::from_str::<u32>(val)
         {
@@ -167,18 +161,6 @@ impl<'a> SettingsManager<'a> {
         {
             settings.clipboard_history_retention_secs =
                 Settings::sanitize_clipboard_history_retention_secs(v);
-        }
-
-        if let Some(val) = map.get("rpc_mode")
-            && let Ok(v) = serde_json::from_str::<super::RpcMode>(val)
-        {
-            settings.rpc_mode = v;
-        }
-
-        if let Some(val) = map.get("rpc_host")
-            && let Ok(v) = serde_json::from_str::<String>(val)
-        {
-            settings.rpc_host = v;
         }
 
         if let Some(val) = map.get("inline_emoji_enabled")

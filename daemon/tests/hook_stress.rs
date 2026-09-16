@@ -245,10 +245,7 @@ async fn trigger_lock_unlock() {
 }
 
 type InterceptedClient = taurine_core::system::rpc::daemon_control_client::DaemonControlClient<
-    tonic::service::interceptor::InterceptedService<
-        tonic::transport::Channel,
-        taurine_core::system::rpc::ClientAuthInterceptor,
-    >,
+    tonic::transport::Channel,
 >;
 
 async fn assert_health_healthy(client: &mut InterceptedClient) {

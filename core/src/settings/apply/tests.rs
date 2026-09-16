@@ -1,6 +1,6 @@
 use super::*;
 use crate::settings::{
-    AudioTheme, InlineDictionaryMode, RpcMode, SettingKey, Settings, SettingsManager, SpinnerStyle,
+    AudioTheme, InlineDictionaryMode, SettingKey, Settings, SettingsManager, SpinnerStyle,
 };
 use crate::testing::open_test_db;
 use std::collections::HashSet;
@@ -219,8 +219,8 @@ fn test_inline_dictionary_mode_settings() {
 }
 
 #[test]
-fn setting_key_all_has_40_unique_storage_keys() {
-    assert_eq!(SettingKey::ALL.len(), 40);
+fn setting_key_all_has_37_unique_storage_keys() {
+    assert_eq!(SettingKey::ALL.len(), 37);
 
     let mut seen = HashSet::new();
     for key in SettingKey::ALL {
@@ -269,9 +269,6 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         ("clipboard_restore_delay_ms", "1000"),
         ("instant_expand", "true"),
         ("ignore_fullscreen", "false"),
-        ("rpc_mode", "tcp"),
-        ("rpc_host", "10.0.0.1"),
-        ("rpc_port", "6000"),
         ("scripts_enabled", "false"),
         ("script_timeout", "30"),
         ("ai_temperature", "0.5"),
@@ -315,9 +312,6 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         inline_ai_enabled: false,
         clipboard_restore_delay_ms: 1000,
         instant_expand: true,
-        rpc_mode: RpcMode::Tcp,
-        rpc_host: "10.0.0.1".to_string(),
-        rpc_port: 6000,
         ignore_fullscreen: false,
         script_timeout: 30,
         ai_temperature: Some(0.5),
@@ -474,17 +468,18 @@ fn test_invalid_boolean_diagnostic() {
 }
 
 #[test]
-fn test_out_of_range_rpc_port_diagnostic() {
+fn test_removed_rpc_keys_rejected_as_unknown() {
     let (_dir, conn) = open_test_db();
     let manager = SettingsManager::new(&conn);
 
-    let err = apply_setting_input_with_manager(&manager, "rpc_port", Some("80")).unwrap_err();
-    let msg = err.to_string();
-
-    assert!(
-        msg.contains("Port 80 is outside the allowed range (1024-65535)"),
-        "expected problem message, got: {msg}"
-    );
+    for key in ["rpc_mode", "rpc_host", "rpc_port"] {
+        let err = apply_setting_input_with_manager(&manager, key, Some("x")).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("is not a valid configuration setting"),
+            "expected unknown-setting diagnostic for {key}, got: {msg}"
+        );
+    }
 }
 
 #[test]
@@ -506,24 +501,6 @@ fn test_invalid_spinner_style_diagnostic() {
     assert!(
         msg.contains("taurine config set spinner_style"),
         "expected example command, got: {msg}"
-    );
-}
-
-#[test]
-fn test_invalid_rpc_mode_diagnostic() {
-    let (_dir, conn) = open_test_db();
-    let manager = SettingsManager::new(&conn);
-
-    let err = apply_setting_input_with_manager(&manager, "rpc_mode", Some("grpc")).unwrap_err();
-    let msg = err.to_string();
-
-    assert!(
-        msg.contains("grpc is not an available RPC mode"),
-        "expected problem message, got: {msg}"
-    );
-    assert!(
-        msg.contains("socket, tcp"),
-        "expected options listing socket, tcp, got: {msg}"
     );
 }
 

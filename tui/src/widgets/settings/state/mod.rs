@@ -42,10 +42,6 @@ impl SettingsPageState {
     pub(crate) fn visible_keys(&self) -> Vec<SettingKey> {
         let mut keys = SettingKey::ALL.to_vec();
 
-        if self.settings.rpc_mode == taurine_core::settings::RpcMode::Socket {
-            keys.retain(|k| *k != SettingKey::RpcHost && *k != SettingKey::RpcPort);
-        }
-
         if !self.settings.inline_datetime_enabled {
             keys.retain(|k| {
                 *k != SettingKey::InlineDatetimeDateFormat
@@ -221,11 +217,6 @@ impl SettingsPageState {
                     key.display_value(&self.settings),
                 )))
             }
-            EditorKind::RpcModeSelect => Some(SettingsModal::Select(SelectModalState::new(
-                key,
-                vec!["socket".to_string(), "tcp".to_string()],
-                key.display_value(&self.settings),
-            ))),
             EditorKind::SingleCharInput
             | EditorKind::TextInput
             | EditorKind::OptionalTextInput

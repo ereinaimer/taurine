@@ -317,14 +317,6 @@ pub enum InlineDictionaryMode {
     Full,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum RpcMode {
-    #[default]
-    Socket,
-    Tcp,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingKey {
     PauseHotkey,
@@ -345,9 +337,6 @@ pub enum SettingKey {
     ClipboardRestoreDelayMs,
     InstantExpand,
     IgnoreFullscreen,
-    RpcMode,
-    RpcHost,
-    RpcPort,
     ScriptsEnabled,
     ScriptTimeout,
     AiTemperature,
@@ -370,7 +359,7 @@ pub enum SettingKey {
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 40] = [
+    pub const ALL: [Self; 37] = [
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
         Self::PauseAudioEnabled,
@@ -389,9 +378,6 @@ impl SettingKey {
         Self::ClipboardRestoreDelayMs,
         Self::InstantExpand,
         Self::IgnoreFullscreen,
-        Self::RpcMode,
-        Self::RpcHost,
-        Self::RpcPort,
         Self::ScriptsEnabled,
         Self::ScriptTimeout,
         Self::AiTemperature,
@@ -433,9 +419,6 @@ impl SettingKey {
             Self::ClipboardRestoreDelayMs => "clipboard_restore_delay_ms",
             Self::InstantExpand => "instant_expand",
             Self::IgnoreFullscreen => "ignore_fullscreen",
-            Self::RpcMode => "rpc_mode",
-            Self::RpcHost => "rpc_host",
-            Self::RpcPort => "rpc_port",
             Self::ScriptsEnabled => "scripts_enabled",
             Self::ScriptTimeout => "script_timeout",
             Self::AiTemperature => "ai_temperature",
@@ -477,9 +460,6 @@ pub struct Settings {
     pub inline_ai_enabled: bool,
     pub clipboard_restore_delay_ms: u32,
     pub instant_expand: bool,
-    pub rpc_mode: RpcMode,
-    pub rpc_host: String,
-    pub rpc_port: u16,
     pub ignore_fullscreen: bool,
     pub script_timeout: u32,
     pub ai_temperature: Option<f32>,
@@ -534,9 +514,6 @@ impl std::fmt::Debug for Settings {
                 &self.clipboard_restore_delay_ms,
             )
             .field("instant_expand", &self.instant_expand)
-            .field("rpc_mode", &self.rpc_mode)
-            .field("rpc_host", &self.rpc_host)
-            .field("rpc_port", &self.rpc_port)
             .field("ignore_fullscreen", &self.ignore_fullscreen)
             .field("script_timeout", &self.script_timeout)
             .field("ai_temperature", &self.ai_temperature)
@@ -578,7 +555,7 @@ impl std::fmt::Debug for Settings {
 }
 
 impl Settings {
-    pub const ALL_KEYS: [&'static str; 40] = [
+    pub const ALL_KEYS: [&'static str; 37] = [
         "pause_hotkey",
         "pause_notifications_enabled",
         "pause_audio_enabled",
@@ -597,9 +574,6 @@ impl Settings {
         "clipboard_restore_delay_ms",
         "instant_expand",
         "ignore_fullscreen",
-        "rpc_mode",
-        "rpc_host",
-        "rpc_port",
         "scripts_enabled",
         "script_timeout",
         "ai_temperature",
@@ -650,9 +624,6 @@ impl Settings {
             "instant_expand" => "instant_expand",
             "instant" => "instant_expand",
             "ignore_fullscreen" => "ignore_fullscreen",
-            "rpc_mode" | "mode" => "rpc_mode",
-            "rpc_host" | "host" => "rpc_host",
-            "rpc_port" | "port" => "rpc_port",
             "script_timeout" => "script_timeout",
             "ai_temperature" | "temperature" => "ai_temperature",
             "ai_max_tokens" | "max_tokens" => "ai_max_tokens",
@@ -700,14 +671,6 @@ impl Settings {
         } else {
             wpm
         }
-    }
-
-    pub const fn default_rpc_port() -> u16 {
-        50051
-    }
-
-    pub const fn sanitize_rpc_port(port: u16) -> u16 {
-        if port < 1024 { 1024 } else { port }
     }
 
     pub fn get_script_timeout() -> Option<std::time::Duration> {
@@ -781,9 +744,6 @@ impl Default for Settings {
             inline_ai_enabled: true,
             clipboard_restore_delay_ms: Self::default_clipboard_restore_delay_ms(),
             instant_expand: false,
-            rpc_mode: RpcMode::default(),
-            rpc_host: "127.0.0.1".to_string(),
-            rpc_port: Self::default_rpc_port(),
             ignore_fullscreen: true,
             script_timeout: 15,
             ai_temperature: None,

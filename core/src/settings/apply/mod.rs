@@ -260,28 +260,6 @@ pub fn apply_setting_input_with_manager(
             manager.update_setting(actual_key, c)?;
             ApplySettingOutcome::default()
         }
-        "rpc_port" => {
-            let raw_value = require_non_empty(value, actual_key)?;
-            let parsed = raw_value.parse::<u16>().map_err(|_| {
-                Error::Config(
-                    Diagnostic::problem(format!("{raw_value} is not a valid port number"))
-                        .help("Expected an integer between 1024 and 65535")
-                        .example("taurine config set rpc_port 50051")
-                        .render(),
-                )
-            })?;
-            if parsed < 1024 {
-                let diag = Diagnostic::problem(format!(
-                    "Port {raw_value} is outside the allowed range (1024-65535)"
-                ))
-                .help("Choose an unprivileged user port between 1024 and 65535")
-                .example("taurine config set rpc_port 50051")
-                .render();
-                return Err(Error::Config(diag));
-            }
-            manager.update_setting(actual_key, parsed)?;
-            ApplySettingOutcome::default()
-        }
         "script_timeout" => {
             let raw_value = require_non_empty(value, actual_key)?;
             let parsed = raw_value
@@ -320,16 +298,6 @@ pub fn apply_setting_input_with_manager(
                 _ => None,
             };
             manager.update_setting(actual_key, parsed)?;
-            ApplySettingOutcome::default()
-        }
-        "rpc_mode" => {
-            let mode = parse_rpc_mode(require_non_empty(value, actual_key)?)?;
-            manager.update_setting(actual_key, mode)?;
-            ApplySettingOutcome::default()
-        }
-        "rpc_host" => {
-            let host = require_non_empty(value, actual_key)?;
-            manager.update_setting(actual_key, host.to_string())?;
             ApplySettingOutcome::default()
         }
         _ => {
@@ -410,21 +378,6 @@ pub fn parse_inline_dictionary_mode(value: &str) -> Result<super::InlineDictiona
                 .suggest(other, &["lite", "full"])
                 .options("Available modes", &["lite", "full"])
                 .example("taurine config set inline_dictionary_mode lite")
-                .render();
-            Err(Error::Config(diag))
-        }
-    }
-}
-
-pub fn parse_rpc_mode(value: &str) -> Result<super::RpcMode> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "socket" => Ok(super::RpcMode::Socket),
-        "tcp" => Ok(super::RpcMode::Tcp),
-        other => {
-            let diag = Diagnostic::problem(format!("{other} is not an available RPC mode"))
-                .suggest(other, &["socket", "tcp"])
-                .options("Available modes", &["socket", "tcp"])
-                .example("taurine config set rpc_mode socket")
                 .render();
             Err(Error::Config(diag))
         }
