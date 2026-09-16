@@ -103,6 +103,16 @@ pub(crate) fn audit_payload_tags_impl_opt(
                     segment.trim()
                 )));
             }
+            if crate::engine::variables::system::transformers::is_ai_transformer(segment)
+                && crate::engine::variables::system::transformers::extract_ai_prompt(segment)
+                    .trim()
+                    .is_empty()
+            {
+                return Err(crate::Error::Config(format!(
+                    "[{}]: ai transformer requires a prompt, e.g. ai(summarize in 3 bullets).",
+                    inner
+                )));
+            }
         }
 
         let is_nested = key.contains('[') || key.contains(']') || key.starts_with('\x03');

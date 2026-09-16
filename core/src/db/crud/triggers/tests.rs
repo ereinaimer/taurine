@@ -1755,3 +1755,19 @@ fn test_audit_payload_tags_date_today_invalid_modifier_diagnostic() {
     assert!(msg.contains("chrono"), "expected chrono error, got: {msg}");
     assert!(!msg.contains('`'), "must not contain backticks: {msg}");
 }
+
+#[test]
+fn test_audit_payload_tags_ai_requires_prompt() {
+    for bare in [
+        "[clip | ai]",
+        "[clip | ai()]",
+        "[clip | ai(\"\")]",
+        "[clip | ai( )]",
+    ] {
+        let err = audit_payload_tags(bare).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("prompt"), "expected prompt error, got: {msg}");
+        assert!(!msg.contains('`'), "must not contain backticks: {msg}");
+    }
+    assert!(audit_payload_tags("[clip | ai(summarize in 3 bullets)]").is_ok());
+}

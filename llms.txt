@@ -162,8 +162,8 @@ Global transformers apply with Unix pipe syntax right after any variable, positi
 *   **Hashing**: `hash(sha256|sha512)`.
 *   **Color**: W3C CSS Color Module Level 4 auto-detect/convert — `color(hex|rgb|rgba|hsl|hsla)` (e.g., `red | color(hex)` → `#FF0000`).
 *   **Math**: `| calc(expression)` — operator chaining (`[amount=100 | calc("* 1.15")]`), variable references (`[val=10 | calc("x * 2 + 5")]`), or parameterless (`["10 + 20" | calc]`). Functions: `sqrt`, `abs`, `floor`, `ceil`, `round`; constants `pi`, `e`.
-*   **AI**: `| ai(prompt)` — sends the interpolated text to your configured AI provider and replaces it with the response (e.g., `[clipboard | ai(Summarize this in 3 bullets)]`). Chainable; markdown code fences auto-stripped.
-*   **JSON**: `json("path")` (dot-notation, numbers index arrays), `json.pretty`, `json.minify`.
+*   **AI**: `| ai(prompt)` — sends the interpolated text to your configured AI provider and replaces it with the response (e.g., `[clip | ai(Summarize this in 3 bullets)]`). Prompt is required. Chainable; markdown code fences auto-stripped.
+*   **JSON**: `json("path")` (dot-notation, numbers index arrays), `json(pretty)`, `json(minify)`.
 *   **Lines** (handles `\n`/`\r\n`): `lines(first|last|count|compact|unique|prefix|suffix|join|split|sort)`; sort flags `"desc"`, `"insensitive"`, `"numeric"`.
 *   **Formatting**: `wrap(doublequote|singlequote|backtick)`, `unwrap(quotes)`.
 *   **Data extractors**: `html(selector)` / `xml(selector)` (CSS selector → inner text of first match), `toml(path)`, `yaml(path)`, `regex(pattern, [group])`. Pairs well with `[http(get, …)]` and `[file(read, …)]`.
