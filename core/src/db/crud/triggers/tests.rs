@@ -1771,3 +1771,43 @@ fn test_audit_payload_tags_ai_requires_prompt() {
     }
     assert!(audit_payload_tags("[clip | ai(summarize in 3 bullets)]").is_ok());
 }
+
+#[test]
+fn test_audit_payload_tags_transformer_arity() {
+    for bad in [
+        "[clip | clean]",
+        "[clip | case]",
+        "[clip | truncate]",
+        "[clip | replace(\"a\")]",
+        "[clip | replace(\"a\", \"b\", \"c\", \"d\")]",
+        "[clip | lines]",
+        "[clip | json]",
+        "[clip | calc(\"* 1\", \"- 2\")]",
+    ] {
+        let err = audit_payload_tags(bad).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("transformer"),
+            "expected arity error, got: {msg}"
+        );
+        assert!(!msg.contains('`'), "must not contain backticks: {msg}");
+    }
+    for good in [
+        "[clip | ai(summarize)]",
+        "[clip | clean(url)]",
+        "[clip | case(upper)]",
+        "[clip | replace(\"a\", \"b\")]",
+        "[clip | lines(first)]",
+        "[clip | lines(sort, \"desc\")]",
+        "[clip | json(pretty)]",
+        "[clip | calc]",
+        "[clip | calc(\"* 2\")]",
+        "[clip | regex(\"a+\", 1)]",
+        "[clip | extract(url)]",
+    ] {
+        assert!(
+            audit_payload_tags(good).is_ok(),
+            "valid form rejected: {good}"
+        );
+    }
+}

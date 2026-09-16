@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Required AI Prompts**: The ai transformer now rejects empty prompts at save time instead of sending blank instructions to your provider.
+- **Stricter Transformer Validation**: Transformer argument counts are checked at save time with the valid form named, and unwrap mirrors wrap with doublequote, singlequote, and backtick pairs.
 - **Unified Namespace Syntax**: Every system variable is now a `namespace(args)` call with hybrid positional/named arguments (e.g. chrono(date, +1d), file(read, path), execute(bash, "cmd")); dotted chains are rejected with the canonical form suggested.
 - **Simplified Variable Roots**: Date, time, and datetime merge into chrono(type, offset, format, tz); clipboard becomes clip(index); uuid takes v4/v7 with bare meaning v4; network addresses become ip with bare meaning public and ip(local) for LAN; mouse is a strict click/hold/release/move/scroll/pos set with mN-only buttons and a click count (0 clicks until you press a key or button).
 - **Autonomous Self-Healing & Crash Resilience**: Automatically recover background worker threads, isolate native shell launches out-of-process, intercept native exceptions, and auto-restart on system failure via Windows Task Scheduler.

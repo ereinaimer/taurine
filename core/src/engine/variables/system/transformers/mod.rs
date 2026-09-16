@@ -15,6 +15,30 @@ pub const TRANSFORMERS: &[&str] = &[
     "xml", "toml", "yaml", "regex", "calc", "ai",
 ];
 
+/// Accepted argument counts per transformer as (min, max), mirroring each
+/// family's dispatch guards. New families must add their row here or
+/// save-time validation fails closed.
+pub fn transformer_arity(name: &str) -> Option<(usize, usize)> {
+    let arity = match name {
+        "case" | "count" | "truncate" | "repeat" | "filter" | "strip" | "encode" | "decode"
+        | "clean" | "hash" | "wrap" | "unwrap" | "color" | "json" | "html" | "xml" | "toml"
+        | "yaml" | "extract" | "ai" => (1, 1),
+        "slice" => (2, 2),
+        "replace" | "regex" => (2, 3),
+        "lines" => (1, usize::MAX),
+        "calc" => (0, 1),
+        _ => return None,
+    };
+    Some(arity)
+}
+
+/// Splits a pipeline segment into transformer name + argument count.
+/// Returns None when the segment is not a well-formed known transformer call.
+pub fn transformer_call_parts(segment: &str) -> Option<(&str, usize)> {
+    let parsed = parse_transformer(segment.trim())?;
+    Some((parsed.name, parsed.args.len()))
+}
+
 #[derive(Debug)]
 struct ParsedTransformer<'a> {
     name: &'a str,

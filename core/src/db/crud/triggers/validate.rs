@@ -113,6 +113,24 @@ pub(crate) fn audit_payload_tags_impl_opt(
                     inner
                 )));
             }
+            if let Some((name, count)) =
+                crate::engine::variables::system::transformers::transformer_call_parts(segment)
+                && let Some((min, max)) =
+                    crate::engine::variables::system::transformers::transformer_arity(name)
+                && (count < min || count > max)
+            {
+                let expected = if min == max {
+                    format!("{min} argument{}", if min == 1 { "" } else { "s" })
+                } else if max == usize::MAX {
+                    format!("{min} or more arguments")
+                } else {
+                    format!("{min} to {max} arguments")
+                };
+                return Err(crate::Error::Config(format!(
+                    "[{}]: transformer '{}' takes {}, got {}.",
+                    inner, name, expected, count
+                )));
+            }
         }
 
         let is_nested = key.contains('[') || key.contains(']') || key.starts_with('\x03');
