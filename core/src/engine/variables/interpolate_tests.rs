@@ -334,6 +334,13 @@ fn test_interpolate_unknown_transformed_tag_remains_literal() {
 }
 
 #[test]
+fn test_interpolate_quoted_bracket_inside_tag_expands() {
+    let mut args = ArgMap::default();
+    args.named.insert("v".to_string(), "a[b".to_string());
+    assert_eq!(interpolate("[v | replace(\"[\", \"-\")]", &args), "a-b");
+}
+
+#[test]
 fn test_interpolate_parameterized_transformers_for_user_values() {
     let mut args = ArgMap::default();
     args.named.insert("name".to_string(), "john".to_string());

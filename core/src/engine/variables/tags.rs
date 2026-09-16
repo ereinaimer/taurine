@@ -97,9 +97,19 @@ pub fn find_next_tag(text: &str, from: usize) -> Option<TagBounds> {
     let mut ptr = from;
     let mut start = None;
     let mut depth = 0usize;
+    let mut quote = None;
 
     while ptr < bytes.len() {
+        if let Some(active_quote) = quote {
+            if bytes[ptr] == active_quote && !is_escaped(bytes, ptr) {
+                quote = None;
+            }
+            ptr += 1;
+            continue;
+        }
+
         match bytes[ptr] {
+            b'\'' | b'"' if depth > 0 && !is_escaped(bytes, ptr) => quote = Some(bytes[ptr]),
             TAG_OPEN if !is_escaped(bytes, ptr) => {
                 if depth == 0 {
                     start = Some(ptr);
@@ -125,4 +135,42 @@ pub fn find_next_tag(text: &str, from: usize) -> Option<TagBounds> {
 
 pub fn tag_inner(text: &str, tag: TagBounds) -> &str {
     trim_slice(&text[tag.start + 1..tag.end])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quoted_brackets_do_not_break_tag_scan() {
+        let text = "prefix [clip | regex(\"[a-z]+\")] suffix";
+        let tag = find_next_tag(text, 0).expect("tag must be found");
+        assert_eq!(tag_inner(text, tag), "clip | regex(\"[a-z]+\")");
+    }
+
+    #[test]
+    fn quotes_outside_tags_do_not_start_quote_mode() {
+        let text = "don't [clip] worry";
+        let tag = find_next_tag(text, 0).expect("tag must be found");
+        assert_eq!(tag_inner(text, tag), "clip");
+    }
+
+    #[test]
+    fn escaped_brackets_are_not_tags() {
+        assert!(find_next_tag("not a tag \\[clip]", 0).is_none());
+    }
+
+    #[test]
+    fn nested_tags_return_outer_span() {
+        let text = "[outer [inner]]";
+        let tag = find_next_tag(text, 0).expect("tag must be found");
+        assert_eq!((tag.start, tag.end), (0, text.len() - 1));
+    }
+
+    #[test]
+    fn quoted_open_bracket_forms_tag() {
+        let text = "[clip | replace(\"[\", \"-\")]";
+        let tag = find_next_tag(text, 0).expect("tag must be found");
+        assert_eq!(tag_inner(text, tag), "clip | replace(\"[\", \"-\")");
+    }
 }
