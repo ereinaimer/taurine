@@ -41,8 +41,6 @@ pub enum ExpansionStep {
     /// (max CPS, platform-varies). `0` clicks indefinitely until a physical
     /// key/button press aborts, so it must be the last step.
     MouseClick(MouseButton, u32),
-    /// Simulates a mouse button double-click.
-    MouseDblClick(MouseButton),
     /// Moves mouse to absolute coordinates (x, y).
     MouseMove(u16, u16),
     /// Scrolls mouse wheel vertically by delta.

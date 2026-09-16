@@ -124,7 +124,7 @@ pub fn deserialize_payload(bytes: &[u8]) -> crate::Result<ExchangePayload> {
 }
 
 fn contains_run_variable(content: &str) -> bool {
-    content.to_ascii_lowercase().contains("[execute.")
+    content.to_ascii_lowercase().contains("[execute(")
 }
 
 #[cfg(test)]
@@ -326,7 +326,7 @@ mod tests {
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "gm".to_string(),
-            output: "before [EXECUTE.bash(echo hi)] after".to_string(),
+            output: "before [EXECUTE(bash, echo hi)] after".to_string(),
             action_type: "text".to_string(),
             is_enabled: true,
             target_os: "all".to_string(),
@@ -340,7 +340,7 @@ mod tests {
         payload.triggers[0].script = Some(ScriptExport {
             interpreter: ScriptInterpreter::Bash,
             behavior: ScriptBehavior::Inline,
-            content: "echo [execute.bash(date)]".to_string(),
+            content: "echo [execute(bash, date)]".to_string(),
         });
         assert!(payload_contains_run_variables(&payload));
     }
@@ -518,7 +518,7 @@ mod tests {
 
         let trigger = "asset_test";
         let output = format!(
-            "Img: [image({})] Script: [execute.bash.file({})]",
+            "Img: [image({})] Script: [execute(bash, {}, file=true)]",
             img_path.to_string_lossy(),
             script_path.to_string_lossy()
         );
@@ -552,7 +552,7 @@ mod tests {
             )
             .unwrap();
         assert!(rewritten_output.contains("[image(asset("));
-        assert!(rewritten_output.contains("file(asset("));
+        assert!(rewritten_output.contains("[execute(bash, asset("));
 
         let payload = export_triggers(&conn).unwrap();
         assert_eq!(payload.triggers.len(), 1);
@@ -576,6 +576,6 @@ mod tests {
             .query_row("SELECT output FROM triggers", [], |row| row.get(0))
             .unwrap();
         assert!(restored_output.contains("[image(asset("));
-        assert!(restored_output.contains("file(asset("));
+        assert!(restored_output.contains("[execute(bash, asset("));
     }
 }

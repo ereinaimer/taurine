@@ -21,18 +21,32 @@ pub struct ExecuteInvocation {
 pub enum ExecuteParseError {
     MissingSubject,
     InvalidLanguage,
-    UnbalancedParentheses,
     InvalidTrailingSyntax,
 }
 
-pub fn parse_invocation(key: &str) -> Result<ExecuteInvocation, ExecuteParseError> {
-    // honey: unified `execute(lang, subject, ...)` arrives as the raw arg list;
-    // the legacy `execute.` dot chain stays until Tasks 8/9 migrate its
-    // remaining callers (finalize, plan, assets, validation) off it.
-    match key.strip_prefix("execute.") {
-        Some(rest) => parse_legacy_invocation(rest),
-        None => parse_unified_invocation(key),
+/// Parses a unified `lang, subject, *args` argument list (no `execute(...)` wrapper).
+pub fn parse_invocation(raw: &str) -> Result<ExecuteInvocation, ExecuteParseError> {
+    parse_unified_invocation(raw)
+}
+
+/// Strips the `execute(...)` wrapper from a tag inner, returning the raw arg
+/// list. Matching is paren-balanced so nested parens in the subject survive.
+pub(crate) fn strip_execute_args(key: &str) -> Option<&str> {
+    let rest = key.strip_prefix("execute(")?;
+    let mut depth = 0u32;
+    for (idx, ch) in rest.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                if depth == 0 {
+                    return rest[idx + 1..].trim().is_empty().then(|| &rest[..idx]);
+                }
+                depth -= 1;
+            }
+            _ => {}
+        }
     }
+    None
 }
 
 fn parse_unified_invocation(raw: &str) -> Result<ExecuteInvocation, ExecuteParseError> {
@@ -156,72 +170,9 @@ fn parse_bool_flag(value: &str) -> Result<bool, ExecuteParseError> {
     }
 }
 
-fn parse_legacy_invocation(key: &str) -> Result<ExecuteInvocation, ExecuteParseError> {
-    let mut rest = key;
-
-    let mut silent = false;
-    let mut interpreter = None;
-    let mut file = false;
-    let mut subject = None;
-    let mut args = Vec::new();
-
-    while !rest.is_empty() {
-        if let Some(suffix) = rest.strip_prefix("silent") {
-            silent = true;
-            rest = suffix;
-        } else if let Some(suffix) = rest.strip_prefix("args") {
-            let (args_str, trailing) = scan_parenthesized(suffix)?;
-            args = split_args(&args_str);
-            rest = trailing;
-        } else if let Some(suffix) = rest.strip_prefix("file") {
-            let (file_subj, trailing) = scan_parenthesized(suffix)?;
-            if subject.is_some() {
-                return Err(ExecuteParseError::InvalidTrailingSyntax);
-            }
-            subject = Some(
-                crate::engine::variables::system::strip_argument_quotes(&file_subj).to_string(),
-            );
-            file = true;
-            rest = trailing;
-        } else if let Some((lang, suffix)) = parse_language_only(rest) {
-            interpreter = Some(lang);
-            rest = suffix;
-            if rest.starts_with('(') {
-                let (inline_subj, trailing) = scan_parenthesized(rest)?;
-                if subject.is_some() {
-                    return Err(ExecuteParseError::InvalidTrailingSyntax);
-                }
-                subject = Some(
-                    crate::engine::variables::system::strip_argument_quotes(&inline_subj)
-                        .to_string(),
-                );
-                file = false;
-                rest = trailing;
-            }
-        } else {
-            return Err(ExecuteParseError::InvalidTrailingSyntax);
-        }
-
-        if !rest.is_empty() {
-            if let Some(suffix) = rest.strip_prefix('.') {
-                rest = suffix;
-            } else {
-                return Err(ExecuteParseError::InvalidTrailingSyntax);
-            }
-        }
-    }
-
-    Ok(ExecuteInvocation {
-        silent,
-        interpreter: interpreter.ok_or(ExecuteParseError::InvalidLanguage)?,
-        file,
-        subject: subject.ok_or(ExecuteParseError::MissingSubject)?,
-        args,
-    })
-}
-
 pub fn resolve(key: &str) -> Option<String> {
-    let invocation = parse_invocation(key).ok()?;
+    let raw = strip_execute_args(key).unwrap_or(key);
+    let invocation = parse_invocation(raw).ok()?;
 
     if invocation.file && !Path::new(invocation.subject.trim()).exists() {
         tracing::warn!("Script file not found: '{}'", invocation.subject.trim());
@@ -248,7 +199,8 @@ pub fn resolve(key: &str) -> Option<String> {
 }
 
 pub(crate) fn to_script_metadata(key: &str) -> Result<ScriptMetadata, String> {
-    let mut invocation = parse_invocation(key).map_err(|_| "invalid exec syntax".to_string())?;
+    let raw = strip_execute_args(key).unwrap_or(key);
+    let mut invocation = parse_invocation(raw).map_err(|_| "invalid exec syntax".to_string())?;
 
     if invocation.file {
         let subject = invocation.subject.trim();
@@ -297,85 +249,6 @@ pub(crate) fn to_script_metadata(key: &str) -> Result<ScriptMetadata, String> {
         },
         compressed_content,
     })
-}
-
-fn parse_language_only(input: &str) -> Option<(ScriptInterpreter, &str)> {
-    const LANGUAGES: &[(&str, ScriptInterpreter)] = &[
-        ("powershell", ScriptInterpreter::PowerShell),
-        ("python", ScriptInterpreter::Python),
-        ("bash", ScriptInterpreter::Bash),
-        ("node", ScriptInterpreter::Node),
-        ("cmd", ScriptInterpreter::Cmd),
-    ];
-
-    for (name, interpreter) in LANGUAGES {
-        if let Some(rest) = input.strip_prefix(name) {
-            return Some((*interpreter, rest));
-        }
-    }
-
-    None
-}
-
-fn scan_parenthesized(input: &str) -> Result<(String, &str), ExecuteParseError> {
-    if !input.starts_with('(') {
-        return Err(ExecuteParseError::MissingSubject);
-    }
-
-    let mut depth = 0usize;
-    let mut start = None;
-
-    for (idx, ch) in input.char_indices() {
-        match ch {
-            '(' => {
-                if depth == 0 {
-                    start = Some(idx + ch.len_utf8());
-                }
-                depth += 1;
-            }
-            ')' => {
-                if depth == 0 {
-                    return Err(ExecuteParseError::UnbalancedParentheses);
-                }
-                depth -= 1;
-                if depth == 0 {
-                    let start = start.ok_or(ExecuteParseError::MissingSubject)?;
-                    return Ok((input[start..idx].trim().to_string(), &input[idx + 1..]));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    Err(ExecuteParseError::UnbalancedParentheses)
-}
-
-fn split_args(input: &str) -> Vec<String> {
-    let mut args = Vec::new();
-    let mut start = 0usize;
-    let mut depth = 0usize;
-
-    for (idx, ch) in input.char_indices() {
-        match ch {
-            '(' => depth += 1,
-            ')' if depth > 0 => depth -= 1,
-            ',' if depth == 0 => {
-                push_arg(&mut args, &input[start..idx]);
-                start = idx + ch.len_utf8();
-            }
-            _ => {}
-        }
-    }
-
-    push_arg(&mut args, &input[start..]);
-    args
-}
-
-fn push_arg(args: &mut Vec<String>, raw: &str) {
-    let trimmed = crate::engine::variables::system::strip_argument_quotes(raw);
-    if !trimmed.is_empty() {
-        args.push(trimmed.to_string());
-    }
 }
 
 fn invocation_script_content(invocation: &ExecuteInvocation) -> String {
@@ -674,7 +547,7 @@ mod tests {
 
     #[test]
     fn parses_inline_command() {
-        let parsed = parse_invocation("execute.bash(curl -s wttr.in/?format=3)").unwrap();
+        let parsed = parse_invocation("bash, \"curl -s wttr.in/?format=3\"").unwrap();
         assert!(!parsed.silent);
         assert_eq!(parsed.interpreter, ScriptInterpreter::Bash);
         assert!(!parsed.file);
@@ -685,8 +558,7 @@ mod tests {
     #[test]
     fn parses_silent_file_with_args() {
         let parsed =
-            parse_invocation("execute.silent.python.file(/tmp/script.py).args(arg1, arg2)")
-                .unwrap();
+            parse_invocation("python, /tmp/script.py, arg1, arg2, file=true, silent=true").unwrap();
         assert!(parsed.silent);
         assert_eq!(parsed.interpreter, ScriptInterpreter::Python);
         assert!(parsed.file);
@@ -696,7 +568,7 @@ mod tests {
 
     #[test]
     fn parses_nested_parentheses_in_subject_and_args() {
-        let parsed = parse_invocation("execute.node(console.log((1 + 2))).args(a(b), c)").unwrap();
+        let parsed = parse_invocation("node, \"console.log((1 + 2))\", a(b), c").unwrap();
         assert_eq!(parsed.interpreter, ScriptInterpreter::Node);
         assert_eq!(parsed.subject, "console.log((1 + 2))");
         assert_eq!(parsed.args, vec!["a(b)", "c"]);
@@ -735,16 +607,16 @@ mod tests {
     #[test]
     fn rejects_invalid_execute_syntax() {
         assert_eq!(
-            parse_invocation("execute.ruby(puts 1)"),
-            Err(ExecuteParseError::InvalidTrailingSyntax)
+            parse_invocation("ruby, puts 1"),
+            Err(ExecuteParseError::InvalidLanguage)
         );
         assert_eq!(
-            parse_invocation("execute.bash(echo 1"),
-            Err(ExecuteParseError::UnbalancedParentheses)
-        );
-        assert_eq!(
-            parse_invocation("execute.bash"),
+            parse_invocation("bash"),
             Err(ExecuteParseError::MissingSubject)
+        );
+        assert_eq!(
+            parse_invocation("bash, s, file=yes"),
+            Err(ExecuteParseError::InvalidTrailingSyntax)
         );
     }
 
@@ -755,7 +627,7 @@ mod tests {
             return;
         }
 
-        assert_eq!(resolve("execute.bash(echo 42)").unwrap(), "42");
+        assert_eq!(resolve("execute(bash, echo 42)").unwrap(), "42");
     }
 
     #[test]
@@ -769,7 +641,7 @@ mod tests {
         let path = dir.path().join("test.sh");
         std::fs::write(&path, "echo file:$1\n").unwrap();
 
-        let key = format!("execute.bash.file({}).args(ok)", path.display());
+        let key = format!("execute(bash, {}, ok, file=true)", path.display());
         assert_eq!(resolve(&key).unwrap(), "file:ok");
     }
 
@@ -777,14 +649,14 @@ mod tests {
     fn missing_file_returns_plan_error() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("missing.sh");
-        let key = format!("execute.bash.file({})", path.display());
+        let key = format!("execute(bash, {}, file=true)", path.display());
 
         assert_eq!(resolve(&key), None);
     }
 
     #[test]
     fn converts_unified_execute_to_script_metadata() {
-        let metadata = to_script_metadata("bash, \"echo 42\"").unwrap();
+        let metadata = to_script_metadata("execute(bash, \"echo 42\")").unwrap();
         assert_eq!(metadata.interpreter, ScriptInterpreter::Bash);
         assert_eq!(metadata.behavior, ScriptBehavior::Inline);
         assert_eq!(
@@ -796,7 +668,7 @@ mod tests {
         let path = dir.path().join("test.sh");
         std::fs::write(&path, "echo file:$1\n").unwrap();
         let metadata = to_script_metadata(&format!(
-            "bash, {}, ok, file=true, silent=true",
+            "execute(bash, {}, ok, file=true, silent=true)",
             path.display()
         ))
         .unwrap();
@@ -813,12 +685,12 @@ mod tests {
             return;
         }
 
-        assert_eq!(resolve("bash, \"echo 42\"").unwrap(), "42");
+        assert_eq!(resolve("execute(bash, \"echo 42\")").unwrap(), "42");
     }
 
     #[test]
     fn converts_inline_execute_to_script_metadata() {
-        let metadata = to_script_metadata("execute.bash(echo 42)").unwrap();
+        let metadata = to_script_metadata("execute(bash, echo 42)").unwrap();
         assert_eq!(metadata.interpreter, ScriptInterpreter::Bash);
         assert_eq!(metadata.behavior, ScriptBehavior::Inline);
         assert_eq!(
@@ -834,7 +706,7 @@ mod tests {
         std::fs::write(&path, "echo file:$1\n").unwrap();
 
         let metadata = to_script_metadata(&format!(
-            "execute.silent.bash.file({}).args(ok)",
+            "execute(bash, {}, ok, file=true, silent=true)",
             path.display()
         ))
         .unwrap();
@@ -853,7 +725,7 @@ mod tests {
         }
 
         let start = Instant::now();
-        let output = resolve("execute.silent.bash(sleep 5)").unwrap();
+        let output = resolve("execute(bash, sleep 5, silent=true)").unwrap();
 
         assert_eq!(output, "");
         assert!(start.elapsed() < std::time::Duration::from_secs(2));
@@ -863,10 +735,10 @@ mod tests {
     fn interpolation_keeps_execute_tags_for_finalization() {
         assert_eq!(
             crate::engine::variables::interpolate::interpolate(
-                "[execute.bash(echo hi)]",
+                "[execute(bash, echo hi)]",
                 &crate::engine::variables::types::ArgMap::default()
             ),
-            "[execute.bash(echo hi)]"
+            "[execute(bash, echo hi)]"
         );
     }
 }

@@ -404,7 +404,6 @@ pub(super) fn expansion_requires_keystrokes(steps: &[ExpansionStep], delete_coun
         ExpansionStep::Image(_, _)
         | ExpansionStep::KeyPress(_)
         | ExpansionStep::MouseClick(..)
-        | ExpansionStep::MouseDblClick(_)
         | ExpansionStep::MouseDown(_)
         | ExpansionStep::MouseUp(_)
         | ExpansionStep::MouseMove(_, _)
@@ -553,11 +552,6 @@ pub fn inject_expansion(
             }
             ExpansionStep::MouseClick(button, count) => {
                 inject_mouse_click_loop(*button, *count, captured_gen, &mut report);
-            }
-            ExpansionStep::MouseDblClick(button) => {
-                // honey: dblclick deleted from syntax (spell count-2 click);
-                // legacy steps still in flight run as two unslept clicks.
-                inject_mouse_click_loop(*button, 2, captured_gen, &mut report);
             }
             ExpansionStep::MouseMove(x, y) => {
                 crate::platform::get_injector().simulate_mouse_move(*x, *y);

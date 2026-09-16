@@ -267,7 +267,6 @@ pub(crate) fn format_validation_error(
             }
             diag.render()
         }
-        // honey glue (Task 2): render retired dotted chains with their canonical form.
         ValidationError::DotChain { got, hint } => crate::diagnostic::Diagnostic::problem(format!(
             "[{raw_tag}]: {got} uses retired dotted syntax"
         ))

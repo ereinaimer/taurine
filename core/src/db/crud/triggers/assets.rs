@@ -76,10 +76,9 @@ pub(crate) fn compile_and_save_assets(
                 active_hashes.insert(hash.clone());
                 rewritten_tag = Some(format!("[image(asset({}))]", hash));
             }
-        } else if inner.starts_with("execute.")
-            && inner.contains(".file(")
-            && let Ok(invocation) =
-                crate::engine::variables::system::execute::parse_invocation(inner)
+        } else if let Some(raw) =
+            crate::engine::variables::system::execute::strip_execute_args(inner)
+            && let Ok(invocation) = crate::engine::variables::system::execute::parse_invocation(raw)
             && invocation.file
         {
             let path = invocation.subject.trim();
@@ -123,9 +122,15 @@ pub(crate) fn compile_and_save_assets(
                 )?;
 
                 active_hashes.insert(hash.clone());
-                let file_pattern = format!("file({})", invocation.subject);
-                let replacement = format!("file(asset({}))", hash);
-                let new_inner = inner.replace(&file_pattern, &replacement);
+                let subject = invocation.subject.as_str();
+                let replacement = format!("asset({})", hash);
+                // Subject may be quoted in the tag; replace the quoted span when present
+                // so the asset reference never inherits stray quotes.
+                let new_inner = [format!("\"{subject}\""), format!("'{subject}'")]
+                    .into_iter()
+                    .find(|quoted| inner.contains(quoted.as_str()))
+                    .map(|quoted| inner.replacen(quoted.as_str(), &replacement, 1))
+                    .unwrap_or_else(|| inner.replacen(subject, &replacement, 1));
                 rewritten_tag = Some(format!("[{}]", new_inner));
             }
         }

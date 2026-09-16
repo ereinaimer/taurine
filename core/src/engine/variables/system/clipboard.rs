@@ -138,7 +138,7 @@ fn parse_clip_key(key: &str) -> Option<ClipKey> {
 
 /// Parses a bare `clip` index argument (`""`, `"0"`, `"1"`, ...).
 /// Full keys stay with `parse_clip_key` so positional `[0]` tags never
-/// misroute through `is_clip_key` into the clipboard family.
+/// misroute into the clipboard family.
 fn parse_clip_index_arg(arg: &str) -> Option<ClipKey> {
     let arg = crate::engine::variables::system::strip_argument_quotes(arg);
     if arg.is_empty() {

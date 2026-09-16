@@ -29,8 +29,8 @@ struct NsSpec {
 }
 
 // Per-namespace binder specs for the unified `namespace(args)` syntax.
-// Defaults from the catalog; value semantics belong to each resolver
-// (Tasks 4-8), this table only shapes positional/named binding.
+// Defaults from the catalog; value semantics belong to each resolver,
+// this table only shapes positional/named binding.
 const NS_SPECS: &[NsSpec] = &[
     NsSpec {
         name: "chrono",

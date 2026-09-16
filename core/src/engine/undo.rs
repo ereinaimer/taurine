@@ -15,7 +15,6 @@ impl crate::engine::evaluator::Evaluator {
                 ExpansionStep::KeyPress(_)
                 | ExpansionStep::Delay(_)
                 | ExpansionStep::MouseClick(..)
-                | ExpansionStep::MouseDblClick(_)
                 | ExpansionStep::MouseDown(_)
                 | ExpansionStep::MouseUp(_)
                 | ExpansionStep::MouseMove(_, _)

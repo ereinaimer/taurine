@@ -29,9 +29,10 @@ pub fn is_reserved(key: &str) -> bool {
     let Some((ns, _)) = crate::engine::variables::registry::parse_system_call(key) else {
         return false;
     };
-    // honey: unified roots only; dot prefix keeps chains for surviving roots.
-    let root = ns.split('.').next().unwrap_or(ns).trim();
-    if crate::engine::variables::registry::SYSTEM_ROOTS.contains(&root) {
+    let root = ns.trim().to_ascii_lowercase();
+    if !root.contains('.')
+        && crate::engine::variables::registry::SYSTEM_ROOTS.contains(&root.as_str())
+    {
         return true;
     }
     false
@@ -46,7 +47,6 @@ pub fn is_directive(key: &str) -> bool {
         || parse_key_directive(key).is_some()
         || parse_delay_directive(key).is_some()
         || parse_mouse_directive(key).is_some()
-        // honey: unified mouse(...) form (Task 8 owns full parsing).
         || (key.starts_with("mouse(") && key.ends_with(')'))
 }
 
@@ -136,8 +136,7 @@ pub fn resolve(key: &str) -> Option<String> {
     if let Some(inner) = key.strip_prefix("uuid(").and_then(|s| s.strip_suffix(')')) {
         return uuid::resolve(inner);
     }
-    // honey: Task 5 owns clip-only collapse; stop routing legacy clipboard
-    // forms here so resolve("clipboard") is None (hard break).
+    // Legacy clipboard forms are not routed here, so resolve("clipboard") is None.
     if key == "clip" || key.starts_with("clip(") {
         return clipboard::resolve(key);
     }
@@ -455,7 +454,7 @@ fn split_into_steps_with_origin(text: &str, origin: ExpansionOrigin) -> Vec<Expa
             let base_expr = pipeline[0];
             let transformers: Vec<String> = pipeline[1..].iter().map(|s| s.to_string()).collect();
 
-            if base_expr.starts_with("execute.") {
+            if execute::strip_execute_args(base_expr).is_some() {
                 flush_text(&mut steps, &mut current_text);
                 if !crate::settings::get_cached_scripts_enabled() {
                     tracing::warn!(

@@ -234,7 +234,7 @@ impl ExecutionPlan {
                                 || text.contains("[delay(")
                                 || text.contains("[mouse.")
                                 || text.contains("[mouse(")
-                                || text.contains("[execute.")
+                                || text.contains("[execute(")
                                 || text.contains("[image("))
                         {
                             let sub_steps = system::finalize(&text, None).steps;
@@ -389,7 +389,7 @@ fn compile_ops(expr: &str) -> (Vec<PlanOp>, bool, bool) {
         } else if let Some(step) = image::parse_img_directive(inner) {
             has_directive_steps = true;
             ops.push(PlanOp::Image(step));
-        } else if inner.starts_with("execute.") {
+        } else if inner.starts_with("execute(") {
             has_directive_steps = true;
             let pipeline = transformers::split_pipeline(inner);
             let base = pipeline[0];
@@ -714,10 +714,6 @@ fn format_mouse_directive(step: &ExpansionStep) -> String {
             } else {
                 format!("[mouse(click, {}, {count})]", mouse_button_arg_name(btn))
             }
-        }
-        // honey: dblclick deleted from syntax; legacy steps render as count-2 clicks.
-        ExpansionStep::MouseDblClick(btn) => {
-            format!("[mouse(click, {}, 2)]", mouse_button_arg_name(btn))
         }
         ExpansionStep::MouseDown(btn) => {
             format!("[mouse(hold, {})]", mouse_button_arg_name(btn))

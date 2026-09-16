@@ -747,7 +747,7 @@ fn inline_run_templates_skip_blind_undo_registration() {
     let state = Arc::new(EngineState::new());
     state.load_actions(vec![(
         "runme".to_string(),
-        crate::db::crud::TriggerAction::text("before [execute.bash(echo hi)] after"),
+        crate::db::crud::TriggerAction::text("before [execute(bash, echo hi)] after"),
     )]);
     let mut eval = Evaluator::new(state);
 
