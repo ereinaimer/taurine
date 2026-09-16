@@ -21,23 +21,49 @@ pub fn apply(transformer: &str, args: &[&str], content: &str) -> Option<String> 
 
 fn apply_extract(args: &[&str], content: &str) -> Option<String> {
     let target = strip_argument_quotes(args.first()?);
-    match target {
-        "url" => Some(extract_url(content)),
-        "email" => Some(extract_email(content)),
-        "phone" => Some(extract_phone(content)),
-        "mention" => Some(extract_mention(content)),
-        "hashtag" => Some(extract_hashtag(content)),
-        "ip" => Some(extract_ip(content)),
-        "mac" => Some(extract_mac(content)),
-        "path" => Some(extract_path(content)),
-        "filename" => Some(extract_path_filename(content)),
-        "directory" => Some(extract_path_dir(content)),
-        "jwt" => Some(extract_jwt(content)),
-        "semver" => Some(extract_semver(content)),
-        "mdcode" => Some(extract_mdcode(content)),
-        "mdtable" => Some(extract_mdtable(content)),
-        "mdlist" => Some(extract_mdlist(content)),
-        _ => apply_regex(args, content),
+    if matches!(
+        target,
+        "url"
+            | "email"
+            | "phone"
+            | "mention"
+            | "hashtag"
+            | "ip"
+            | "mac"
+            | "path"
+            | "filename"
+            | "directory"
+            | "jwt"
+            | "semver"
+            | "mdcode"
+            | "mdtable"
+            | "mdlist"
+    ) {
+        let result = match target {
+            "url" => extract_url(content),
+            "email" => extract_email(content),
+            "phone" => extract_phone(content),
+            "mention" => extract_mention(content),
+            "hashtag" => extract_hashtag(content),
+            "ip" => extract_ip(content),
+            "mac" => extract_mac(content),
+            "path" => extract_path(content),
+            "filename" => extract_path_filename(content),
+            "directory" => extract_path_dir(content),
+            "jwt" => extract_jwt(content),
+            "semver" => extract_semver(content),
+            "mdcode" => extract_mdcode(content),
+            "mdtable" => extract_mdtable(content),
+            _ => extract_mdlist(content),
+        };
+        // No match keeps the input: a typing tool must never wipe content.
+        Some(if result.is_empty() {
+            content.to_string()
+        } else {
+            result
+        })
+    } else {
+        apply_regex(args, content)
     }
 }
 
@@ -516,10 +542,10 @@ services:
             ),
             Some("https://taurine.in\nhttp://localhost:8080/".to_string())
         );
-        // No URLs: should return empty string
+        // No URLs: input passes through unchanged
         assert_eq!(
             apply("extract", &["url"], "no links here"),
-            Some("".to_string())
+            Some("no links here".to_string())
         );
     }
 
@@ -533,10 +559,10 @@ services:
             ),
             Some("admin@example.com\nuser@test.co.uk".to_string())
         );
-        // Invalid email (no TLD) should not match
+        // Invalid email (no TLD) does not match: input passes through
         assert_eq!(
             apply("extract", &["email"], "not-an-email@"),
-            Some("".to_string())
+            Some("not-an-email@".to_string())
         );
     }
 
@@ -553,12 +579,12 @@ services:
         // Short digit sequence must NOT match due to leading \b
         assert_eq!(
             apply("extract", &["phone"], "code 123"),
-            Some("".to_string())
+            Some("code 123".to_string())
         );
         // Digits embedded in a longer run should not produce a spurious match
         assert_eq!(
             apply("extract", &["phone"], "ID12345678901234"),
-            Some("".to_string())
+            Some("ID12345678901234".to_string())
         );
     }
 
@@ -571,7 +597,7 @@ services:
         // Lone @ is not a mention
         assert_eq!(
             apply("extract", &["mention"], "email@ not a mention"),
-            Some("".to_string())
+            Some("email@ not a mention".to_string())
         );
     }
 
@@ -588,7 +614,7 @@ services:
         // Pure-digit hashtag must not match
         assert_eq!(
             apply("extract", &["hashtag"], "#42 is not a hashtag"),
-            Some("".to_string())
+            Some("#42 is not a hashtag".to_string())
         );
     }
 
@@ -605,12 +631,12 @@ services:
         // Out-of-range octet: 999.999.999.999 must NOT match
         assert_eq!(
             apply("extract", &["ip"], "999.999.999.999"),
-            Some("".to_string())
+            Some("999.999.999.999".to_string())
         );
         // No IPs at all
         assert_eq!(
             apply("extract", &["ip"], "nothing here"),
-            Some("".to_string())
+            Some("nothing here".to_string())
         );
     }
 
@@ -628,7 +654,7 @@ services:
         // Too few groups must NOT match
         assert_eq!(
             apply("extract", &["mac"], "00:1A:2B:3C:4D"),
-            Some("".to_string())
+            Some("00:1A:2B:3C:4D".to_string())
         );
     }
 
@@ -642,7 +668,7 @@ services:
         // No paths
         assert_eq!(
             apply("extract", &["path"], "just words"),
-            Some("".to_string())
+            Some("just words".to_string())
         );
     }
 
@@ -665,7 +691,7 @@ services:
         // Directory-only path should produce no filename (no extension)
         assert_eq!(
             apply("extract", &["filename"], "/usr/local/bin"),
-            Some("".to_string())
+            Some("/usr/local/bin".to_string())
         );
     }
 
@@ -690,7 +716,7 @@ services:
         // Must not match a non-JWT token that does not start with eyJ
         assert_eq!(
             apply("extract", &["jwt"], "abc.def.ghi"),
-            Some("".to_string())
+            Some("abc.def.ghi".to_string())
         );
     }
 
@@ -703,7 +729,7 @@ services:
         // Partial version (only major.minor) must NOT match
         assert_eq!(
             apply("extract", &["semver"], "version 1.2 is not semver"),
-            Some("".to_string())
+            Some("version 1.2 is not semver".to_string())
         );
         // Pre-release and build metadata
         assert_eq!(
@@ -722,7 +748,7 @@ services:
         // No code blocks
         assert_eq!(
             apply("extract", &["mdcode"], "plain text"),
-            Some("".to_string())
+            Some("plain text".to_string())
         );
     }
 
@@ -742,7 +768,10 @@ services:
         );
         // Table missing separator must NOT be extracted
         let no_sep = "| A | B |\n| 1 | 2 |";
-        assert_eq!(apply("extract", &["mdtable"], no_sep), Some("".to_string()));
+        assert_eq!(
+            apply("extract", &["mdtable"], no_sep),
+            Some(no_sep.to_string())
+        );
     }
 
     #[test]
@@ -792,6 +821,22 @@ services:
         assert_eq!(
             apply("extract", &["mdcode"], "```rust\nfn main() {}\n```"),
             Some("fn main() {}".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_no_match_keeps_content() {
+        assert_eq!(
+            apply("extract", &["email"], "no email here"),
+            Some("no email here".to_string())
+        );
+        assert_eq!(
+            apply("extract", &["url"], "just words"),
+            Some("just words".to_string())
+        );
+        assert_eq!(
+            apply("extract", &["ip"], "nothing here"),
+            Some("nothing here".to_string())
         );
     }
 }

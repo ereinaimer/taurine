@@ -530,12 +530,8 @@ fn evaluate_text_op(op: &PlanOp, args: &ArgMap) -> String {
             } else {
                 return format_raw_positional_tag(*index, default_value.as_deref(), trs);
             };
-            let (transformed, valid) = apply_transformers(raw_val, trs);
-            if valid {
-                transformed
-            } else {
-                format_raw_positional_tag(*index, default_value.as_deref(), trs)
-            }
+            let (transformed, _) = apply_transformers(raw_val, trs);
+            transformed
         }
         PlanOp::NamedArg {
             name,
@@ -559,12 +555,8 @@ fn evaluate_text_op(op: &PlanOp, args: &ArgMap) -> String {
             };
 
             if let Some(val) = raw_val {
-                let (transformed, valid) = apply_transformers(val, trs);
-                if valid {
-                    transformed
-                } else {
-                    format_raw_named_tag(name, default_value.as_deref(), trs)
-                }
+                let (transformed, _) = apply_transformers(val, trs);
+                transformed
             } else {
                 format_raw_named_tag(name, default_value.as_deref(), trs)
             }
@@ -580,12 +572,8 @@ fn evaluate_text_op(op: &PlanOp, args: &ArgMap) -> String {
             };
 
             if let Some(val) = resolved {
-                let (transformed, valid) = apply_transformers(val, trs);
-                if valid {
-                    transformed
-                } else {
-                    format_raw_system_tag(key, trs)
-                }
+                let (transformed, _) = apply_transformers(val, trs);
+                transformed
             } else {
                 format_raw_system_tag(key, trs)
             }
@@ -636,7 +624,11 @@ fn apply_transformers(mut text: String, transformers: &[String]) -> (String, boo
         } else if let Some(transformed) = transformers::apply(tr, &text) {
             text = transformed;
         } else {
-            return (text, false);
+            // A transformer that cannot apply keeps the content: expansion
+            // must never wipe text or type raw tag syntax at the user.
+            tracing::warn!(
+                "transformer '{tr}' produced no result; passing content through unchanged"
+            );
         }
     }
     (text, true)
@@ -881,6 +873,24 @@ mod tests {
             rendered,
             "[mouse(click, m1)][mouse(click, m2, 2)][mouse(hold, m3)][mouse(release, m4)][mouse(move, 100, 200)][mouse(scroll, -5)]"
         );
+    }
+
+    #[test]
+    fn test_failing_transformer_keeps_content_and_continues() {
+        crate::engine::variables::system::clipboard::set_mock_clip(Some("hello world".to_string()));
+        let plan = ExecutionPlan::compile("[clip | case(bogus)]");
+        let expansion = plan.evaluate(&ArgMap::default(), None, ExpansionOrigin::User);
+        assert_eq!(
+            expansion.steps,
+            vec![ExpansionStep::Text("hello world".to_string())]
+        );
+        let plan = ExecutionPlan::compile("[clip | case(bogus) | case(upper)]");
+        let expansion = plan.evaluate(&ArgMap::default(), None, ExpansionOrigin::User);
+        assert_eq!(
+            expansion.steps,
+            vec![ExpansionStep::Text("HELLO WORLD".to_string())]
+        );
+        crate::engine::variables::system::clipboard::set_mock_clip(None);
     }
 
     #[test]

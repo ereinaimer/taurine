@@ -143,6 +143,10 @@ pub fn interpolate(template: &str, args: &ArgMap) -> String {
                     base_result = format!("\x03{}\x1F{}\x04", base_result, prompt);
                 } else if let Some(transformed) = system::transformers::apply(tr, &base_result) {
                     base_result = transformed;
+                } else {
+                    tracing::warn!(
+                        "transformer '{tr}' produced no result; passing content through unchanged"
+                    );
                 }
             }
             return base_result.replace("\\|", "|");
