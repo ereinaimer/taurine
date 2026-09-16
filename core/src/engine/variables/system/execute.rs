@@ -1,10 +1,6 @@
-use std::io::Read;
 use std::path::Path;
-use std::process::{Command, Stdio};
-use std::thread;
 
 use crate::engine::shell::{ScriptBehavior, ScriptInterpreter, ScriptMetadata, compress};
-use wait_timeout::ChildExt;
 
 const SCRIPT_NOT_FOUND: &str = "path to script not found";
 
@@ -170,34 +166,6 @@ fn parse_bool_flag(value: &str) -> Result<bool, ExecuteParseError> {
     }
 }
 
-pub fn resolve(key: &str) -> Option<String> {
-    let raw = strip_execute_args(key).unwrap_or(key);
-    let invocation = parse_invocation(raw).ok()?;
-
-    if invocation.file && !Path::new(invocation.subject.trim()).exists() {
-        tracing::warn!("Script file not found: '{}'", invocation.subject.trim());
-        return None;
-    }
-
-    if invocation.silent {
-        return match spawn_silent(&invocation) {
-            Ok(output) => Some(output),
-            Err(e) => {
-                tracing::warn!("Failed to spawn silent script: {}", e);
-                None
-            }
-        };
-    }
-
-    match execute_inline(&invocation) {
-        Ok(output) => Some(output),
-        Err(e) => {
-            tracing::warn!("Inline script execution failed: {}", e);
-            None
-        }
-    }
-}
-
 pub(crate) fn to_script_metadata(key: &str) -> Result<ScriptMetadata, String> {
     let raw = strip_execute_args(key).unwrap_or(key);
     let mut invocation = parse_invocation(raw).map_err(|_| "invalid exec syntax".to_string())?;
@@ -341,160 +309,6 @@ fn js_array(args: &[String]) -> String {
     )
 }
 
-fn execute_inline(invocation: &ExecuteInvocation) -> Result<String, String> {
-    let mut command = build_command(invocation);
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    let mut child = command
-        .spawn()
-        .map_err(|e| format!("Failed to spawn interpreter: {e}"))?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "Failed to capture stdout".to_string())?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| "Failed to capture stderr".to_string())?;
-
-    let stdout_reader = thread::Builder::new()
-        .name("tau-stdout-rd".to_string())
-        .spawn(move || read_pipe(stdout))
-        .map_err(|e| format!("Failed to spawn stdout reader thread: {e}"))?;
-    let stderr_reader = thread::Builder::new()
-        .name("tau-stderr-rd".to_string())
-        .spawn(move || read_pipe(stderr))
-        .map_err(|e| format!("Failed to spawn stderr reader thread: {e}"))?;
-
-    let timeout_opt = crate::settings::Settings::get_script_timeout();
-    let timeout_secs = timeout_opt.map(|t| t.as_secs());
-
-    let wait_result = match timeout_opt {
-        Some(timeout) => child
-            .wait_timeout(timeout)
-            .map_err(|e| format!("Failed to wait for script: {e}")),
-        None => child
-            .wait()
-            .map(Some)
-            .map_err(|e| format!("Failed to wait for script: {e}")),
-    };
-
-    match wait_result? {
-        Some(status) => {
-            let stdout = join_reader(stdout_reader)?;
-            let stderr = join_reader(stderr_reader)?;
-
-            if status.success() {
-                Ok(String::from_utf8_lossy(&stdout).trim().to_string())
-            } else {
-                let stderr = String::from_utf8_lossy(&stderr).trim().to_string();
-                if stderr.is_empty() {
-                    Err(format!("Script failed with exit code {status}"))
-                } else {
-                    Err(stderr)
-                }
-            }
-        }
-        None => {
-            let _ = child.kill();
-            let _ = child.wait();
-            let _ = join_reader(stdout_reader);
-            let _ = join_reader(stderr_reader);
-            Err(format!(
-                "Script timed out after {}s",
-                timeout_secs.unwrap_or(0)
-            ))
-        }
-    }
-}
-
-fn spawn_silent(invocation: &ExecuteInvocation) -> Result<String, String> {
-    let mut command = build_command(invocation);
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    configure_detached(&mut command);
-    command
-        .spawn()
-        .map_err(|e| format!("Failed to spawn interpreter: {e}"))?;
-    Ok(String::new())
-}
-
-fn build_command(invocation: &ExecuteInvocation) -> Command {
-    match invocation.interpreter {
-        ScriptInterpreter::Bash => {
-            let mut command = Command::new("bash");
-            if invocation.file {
-                command.arg(bash_file_path_arg(invocation.subject.trim()));
-            } else {
-                command.arg("-c").arg(&invocation.subject);
-            }
-            command.args(&invocation.args);
-            command
-        }
-        ScriptInterpreter::Python => {
-            let mut command = Command::new("python");
-            if invocation.file {
-                command.arg(invocation.subject.trim());
-            } else {
-                command.arg("-c").arg(&invocation.subject);
-            }
-            command.args(&invocation.args);
-            command
-        }
-        ScriptInterpreter::Node => {
-            let mut command = Command::new("node");
-            if invocation.file {
-                command.arg(invocation.subject.trim());
-            } else {
-                command.arg("-e").arg(&invocation.subject);
-            }
-            command.args(&invocation.args);
-            command
-        }
-        ScriptInterpreter::PowerShell => {
-            let mut command = Command::new("powershell");
-            command
-                .arg("-NoProfile")
-                .arg("-ExecutionPolicy")
-                .arg("Bypass");
-            if invocation.file {
-                command.arg("-File").arg(invocation.subject.trim());
-            } else {
-                command.arg("-Command").arg(&invocation.subject);
-            }
-            command.args(&invocation.args);
-            command
-        }
-        ScriptInterpreter::Cmd => {
-            let mut command = Command::new("cmd");
-            if invocation.file {
-                command.arg("/C").arg(invocation.subject.trim());
-            } else {
-                command.arg("/C").arg(&invocation.subject);
-            }
-            command.args(&invocation.args);
-            command
-        }
-    }
-}
-
-#[cfg(windows)]
-fn configure_detached(command: &mut Command) {
-    use std::os::windows::process::CommandExt;
-
-    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-    const DETACHED_PROCESS: u32 = 0x0000_0008;
-    command.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS);
-}
-
-#[cfg(not(windows))]
-fn configure_detached(_command: &mut Command) {}
-
 #[cfg(windows)]
 fn bash_file_path_arg(path: &str) -> String {
     let bytes = path.as_bytes();
@@ -512,38 +326,9 @@ fn bash_file_path_arg(path: &str) -> &str {
     path
 }
 
-pub const MAX_SCRIPT_OUTPUT_BYTES: usize = 4 * 1024 * 1024; // 4 MiB stream drain cap
-
-fn read_pipe(pipe: impl Read) -> Result<Vec<u8>, String> {
-    let mut bytes = Vec::new();
-    pipe.take(MAX_SCRIPT_OUTPUT_BYTES as u64)
-        .read_to_end(&mut bytes)
-        .map_err(|e| format!("Failed to read script output: {e}"))?;
-    Ok(bytes)
-}
-
-fn join_reader(handle: thread::JoinHandle<Result<Vec<u8>, String>>) -> Result<Vec<u8>, String> {
-    handle
-        .join()
-        .map_err(|_| "Failed to join script output reader".to_string())?
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Instant;
-
-    fn bash_available() -> bool {
-        Command::new("bash")
-            .arg("-lc")
-            .arg("true")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|status| status.success())
-            .unwrap_or(false)
-    }
 
     #[test]
     fn parses_inline_command() {
@@ -621,37 +406,12 @@ mod tests {
     }
 
     #[test]
-    fn execute_bash_echo_resolves_stdout() {
-        if !bash_available() {
-            eprintln!("skipping bash execution test because bash is unavailable");
-            return;
-        }
-
-        assert_eq!(resolve("execute(bash, echo 42)").unwrap(), "42");
-    }
-
-    #[test]
-    fn execute_bash_file_executes_script() {
-        if !bash_available() {
-            eprintln!("skipping bash file test because bash is unavailable");
-            return;
-        }
-
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("test.sh");
-        std::fs::write(&path, "echo file:$1\n").unwrap();
-
-        let key = format!("execute(bash, {}, ok, file=true)", path.display());
-        assert_eq!(resolve(&key).unwrap(), "file:ok");
-    }
-
-    #[test]
     fn missing_file_returns_plan_error() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("missing.sh");
         let key = format!("execute(bash, {}, file=true)", path.display());
 
-        assert_eq!(resolve(&key), None);
+        assert!(to_script_metadata(&key).is_err());
     }
 
     #[test]
@@ -676,16 +436,6 @@ mod tests {
         assert_eq!(metadata.behavior, ScriptBehavior::Silent);
         assert!(content.contains("test.sh"));
         assert!(content.contains("'ok'"));
-    }
-
-    #[test]
-    fn execute_unified_bash_resolves_stdout() {
-        if !bash_available() {
-            eprintln!("skipping bash execution test because bash is unavailable");
-            return;
-        }
-
-        assert_eq!(resolve("execute(bash, \"echo 42\")").unwrap(), "42");
     }
 
     #[test]
@@ -715,20 +465,6 @@ mod tests {
         assert_eq!(metadata.behavior, ScriptBehavior::Silent);
         assert!(content.contains("test.sh"));
         assert!(content.contains("'ok'"));
-    }
-
-    #[test]
-    fn execute_silent_bash_returns_immediately() {
-        if !bash_available() {
-            eprintln!("skipping silent bash test because bash is unavailable");
-            return;
-        }
-
-        let start = Instant::now();
-        let output = resolve("execute(bash, sleep 5, silent=true)").unwrap();
-
-        assert_eq!(output, "");
-        assert!(start.elapsed() < std::time::Duration::from_secs(2));
     }
 
     #[test]
