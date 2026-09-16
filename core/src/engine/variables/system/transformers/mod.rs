@@ -22,9 +22,10 @@ pub fn transformer_arity(name: &str) -> Option<(usize, usize)> {
     let arity = match name {
         "case" | "count" | "truncate" | "repeat" | "filter" | "strip" | "encode" | "decode"
         | "clean" | "hash" | "wrap" | "unwrap" | "color" | "json" | "html" | "xml" | "toml"
-        | "yaml" | "extract" | "ai" => (1, 1),
+        | "yaml" | "ai" => (1, 1),
         "slice" => (2, 2),
-        "replace" | "regex" => (2, 3),
+        "replace" => (2, 3),
+        "regex" | "extract" => (1, 2),
         "lines" => (1, usize::MAX),
         "calc" => (0, 1),
         _ => return None,
@@ -37,6 +38,161 @@ pub fn transformer_arity(name: &str) -> Option<(usize, usize)> {
 pub fn transformer_call_parts(segment: &str) -> Option<(&str, usize)> {
     let parsed = parse_transformer(segment.trim())?;
     Some((parsed.name, parsed.args.len()))
+}
+
+const EXTRACT_TARGETS: &[&str] = &[
+    "url",
+    "email",
+    "phone",
+    "mention",
+    "hashtag",
+    "ip",
+    "mac",
+    "path",
+    "filename",
+    "directory",
+    "jwt",
+    "semver",
+    "mdcode",
+    "mdtable",
+    "mdlist",
+];
+
+/// Checks a transformer's argument *values* against its dispatch guards.
+/// Returns None when the call is fine, or an expected-form example when it
+/// would fail at runtime. Arity itself is `transformer_arity`'s job; `ai`
+/// prompts belong to the prompt rule; content-dependent shapes (json paths,
+/// toml/yaml paths, calc expressions) always pass here.
+///
+/// A known name with unparseable arguments (unbalanced quotes or parens)
+/// also reports: every other check treats an unparseable segment as "skip",
+/// so this is the only place that catches it.
+pub fn transformer_value_error(segment: &str) -> Option<String> {
+    let Some(parsed) = parse_transformer(segment.trim()) else {
+        return transformer_name_only(segment).map(canonical_example);
+    };
+    // Total on missing args (the arity check runs first in the audit loop,
+    // so a missing arg surfaces as an arity error, never here).
+    let arg = |i: usize| {
+        parsed
+            .args
+            .get(i)
+            .map(|a| strip_argument_quotes(a))
+            .unwrap_or("")
+    };
+    match parsed.name {
+        "case" => match arg(0).to_ascii_lowercase().as_str() {
+            "upper" | "lower" | "snake" | "kebab" | "pascal" | "camel" | "title" | "sentence"
+            | "slug" => None,
+            _ => Some("case(upper)".to_string()),
+        },
+        "count" => match arg(0) {
+            "chars" | "words" => None,
+            _ => Some("count(words)".to_string()),
+        },
+        "truncate" | "repeat" => match arg(0).parse::<usize>() {
+            Ok(_) => None,
+            _ => Some(format!("{}(4)", parsed.name)),
+        },
+        "slice" => match (arg(0).parse::<usize>(), arg(1).parse::<usize>()) {
+            (Ok(_), Ok(_)) => None,
+            _ => Some("slice(1, 3)".to_string()),
+        },
+        "replace" if parsed.args.len() == 3 && arg(0) != "regex" => {
+            Some("replace(regex, \"a+\", \"b\")".to_string())
+        }
+        "filter" => match arg(0) {
+            "digits" | "alphanumeric" => None,
+            _ => Some("filter(digits)".to_string()),
+        },
+        "strip" => match arg(0) {
+            "whitespace" | "emoji" => None,
+            _ => Some("strip(whitespace)".to_string()),
+        },
+        "encode" | "decode" => match arg(0) {
+            "url" | "base64" => None,
+            _ => Some(format!("{}(url)", parsed.name)),
+        },
+        "clean" => match arg(0) {
+            "url" => None,
+            _ => Some("clean(url)".to_string()),
+        },
+        "hash" => match arg(0) {
+            "sha256" | "sha512" => None,
+            _ => Some("hash(sha256)".to_string()),
+        },
+        "wrap" | "unwrap" => match arg(0) {
+            "doublequote" | "singlequote" | "backtick" => None,
+            _ => Some(format!("{}(doublequote)", parsed.name)),
+        },
+        "color" => match arg(0) {
+            "hex" | "rgb" | "rgba" | "hsl" | "hsla" => None,
+            _ => Some("color(hex)".to_string()),
+        },
+        "lines" => {
+            let action = arg(0).to_ascii_lowercase();
+            let rest_ok = match action.as_str() {
+                "first" | "last" | "count" | "compact" | "unique" => parsed.args.len() == 1,
+                "prefix" | "suffix" | "join" | "split" => parsed.args.len() == 2,
+                "sort" => parsed.args.iter().skip(1).all(|a| {
+                    matches!(
+                        strip_argument_quotes(a).to_ascii_lowercase().as_str(),
+                        "desc" | "insensitive" | "numeric"
+                    )
+                }),
+                _ => false,
+            };
+            if rest_ok {
+                None
+            } else {
+                Some("lines(first)".to_string())
+            }
+        }
+        "extract" => {
+            if EXTRACT_TARGETS.contains(&arg(0)) || extractors::is_compilable_pattern(arg(0)) {
+                None
+            } else {
+                Some("extract(email)".to_string())
+            }
+        }
+        "html" | "xml" => {
+            if extractors::is_valid_selector(arg(0)) {
+                None
+            } else {
+                Some("html(div.content)".to_string())
+            }
+        }
+        "regex" => {
+            if extractors::is_compilable_pattern(arg(0)) {
+                None
+            } else {
+                Some("regex(\"a+\")".to_string())
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Bare transformer name from a segment, even when its arguments do not
+/// parse (unbalanced quotes or parens). None for unknown names.
+fn transformer_name_only(segment: &str) -> Option<&str> {
+    let segment = segment.trim();
+    let end = segment.find('(').unwrap_or(segment.len());
+    let name = segment[..end].trim();
+    TRANSFORMERS.contains(&name).then_some(name)
+}
+
+/// Canonical example form for a known transformer name.
+fn canonical_example(name: &str) -> String {
+    match name {
+        "case" => "case(upper)",
+        "lines" => "lines(first)",
+        "replace" => "replace(\"a\", \"b\")",
+        "regex" | "extract" => "regex(\"a+\")",
+        "calc" => "calc(\"* 2\")",
+        _ => return format!("{name}(...)"),
+    }
+    .to_string()
 }
 
 #[derive(Debug)]

@@ -67,6 +67,17 @@ fn apply_extract(args: &[&str], content: &str) -> Option<String> {
     }
 }
 
+/// True when `pattern` compiles as a regex. Used by save-time validation so
+/// invalid patterns error before expansion instead of passing content through.
+pub(crate) fn is_compilable_pattern(pattern: &str) -> bool {
+    Regex::new(pattern).is_ok()
+}
+
+/// True when `selector` parses as a CSS selector for html/xml extraction.
+pub(crate) fn is_valid_selector(selector: &str) -> bool {
+    Selector::parse(selector).is_ok()
+}
+
 fn apply_json(args: &[&str], content: &str) -> Option<String> {
     let first = strip_argument_quotes(args.first()?);
     if args.len() == 1 {

@@ -131,6 +131,16 @@ pub(crate) fn audit_payload_tags_impl_opt(
                     inner, name, expected, count
                 )));
             }
+            if let Some(expected) =
+                crate::engine::variables::system::transformers::transformer_value_error(segment)
+            {
+                return Err(crate::Error::Config(format!(
+                    "[{}]: transformer '{}' has an invalid value. Try e.g. {}.",
+                    inner,
+                    segment.trim(),
+                    expected
+                )));
+            }
         }
 
         let is_nested = key.contains('[') || key.contains(']') || key.starts_with('\x03');

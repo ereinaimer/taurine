@@ -1814,3 +1814,75 @@ fn test_audit_payload_tags_transformer_arity() {
         );
     }
 }
+
+#[test]
+fn test_audit_payload_tags_transformer_values() {
+    for bad in [
+        "[clip | case(bogus)]",
+        "[clip | count(bogus)]",
+        "[clip | truncate(abc)]",
+        "[clip | repeat(abc)]",
+        "[clip | slice(a, b)]",
+        "[clip | replace(a, b, c)]",
+        "[clip | filter(bogus)]",
+        "[clip | strip(bogus)]",
+        "[clip | encode(bogus)]",
+        "[clip | decode(URL)]",
+        "[clip | clean(base64)]",
+        "[clip | hash(md5)]",
+        "[clip | wrap(bogus)]",
+        "[clip | unwrap(quotes)]",
+        "[clip | color(bogus)]",
+        "[clip | lines(bogus)]",
+        "[clip | lines(first, extra)]",
+        "[clip | lines(prefix)]",
+        "[clip | lines(sort, reverse)]",
+        "[clip | html(!!!)]",
+        "[clip | regex(\"a{2,1}\")]",
+        "[clip | extract(email, extra, overflow)]",
+    ] {
+        let err = match audit_payload_tags(bad) {
+            Ok(()) => panic!("expected value error for {bad}, got Ok"),
+            Err(err) => err,
+        };
+        let msg = err.to_string();
+        assert!(
+            msg.contains("transformer"),
+            "expected value error, got: {msg}"
+        );
+        assert!(!msg.contains('`'), "must not contain backticks: {msg}");
+    }
+    for good in [
+        "[clip | case(UPPER)]",
+        "[clip | count(words)]",
+        "[clip | truncate(4)]",
+        "[clip | repeat(3)]",
+        "[clip | slice(1, 3)]",
+        "[clip | replace(\"a\", \"b\")]",
+        "[clip | replace(regex, \"a+\", \"b\")]",
+        "[clip | filter(digits)]",
+        "[clip | strip(whitespace)]",
+        "[clip | encode(url)]",
+        "[clip | clean(url)]",
+        "[clip | hash(sha256)]",
+        "[clip | wrap(backtick)]",
+        "[clip | unwrap(singlequote)]",
+        "[clip | color(hex)]",
+        "[clip | lines(unique)]",
+        "[clip | lines(prefix, \"> \")]",
+        "[clip | lines(sort)]",
+        "[clip | lines(sort, \"desc\", \"insensitive\")]",
+        "[clip | html(div.content)]",
+        "[clip | regex(\"a+\")]",
+        "[clip | extract(hashtag)]",
+        "[clip | extract([a-z]+)]",
+        "[clip | json(user.name)]",
+        "[clip | toml(server.host)]",
+        "[clip | calc]",
+    ] {
+        assert!(
+            audit_payload_tags(good).is_ok(),
+            "valid form rejected: {good}"
+        );
+    }
+}
