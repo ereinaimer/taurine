@@ -4,6 +4,10 @@ const DEFAULT_WORD_COUNT: usize = 15;
 const DEFAULT_SENTENCE_COUNT: usize = 1;
 const DEFAULT_PARAGRAPH_COUNT: usize = 1;
 pub(crate) const MAX_LOREM_COUNT: usize = 100_000;
+/// Total generated output cap: 100k long paragraphs would otherwise run to
+/// tens of megabytes. Checked while building so the full string is never
+/// allocated; over-budget requests fail instead of degrading.
+pub(crate) const MAX_LOREM_BYTES: usize = 1_048_576; // 1MB limit
 
 const LOREM_WORDS: &[&str] = &[
     "lorem",
@@ -76,6 +80,42 @@ const LOREM_WORDS: &[&str] = &[
     "est",
     "laborum",
 ];
+
+fn push_capped(buf: &mut String, sep: &str, unit: &str) -> bool {
+    let sep = if buf.is_empty() { "" } else { sep };
+    let fits = buf
+        .len()
+        .checked_add(sep.len())
+        .and_then(|n| n.checked_add(unit.len()))
+        .is_some_and(|n| n <= MAX_LOREM_BYTES);
+    if fits {
+        buf.push_str(sep);
+        buf.push_str(unit);
+    }
+    fits
+}
+
+/// Joins `count` units from a batch generator without ever holding more than
+/// one small chunk plus the capped output in memory.
+fn build_capped(
+    count: usize,
+    sep: &str,
+    mut chunk: impl FnMut(usize) -> Vec<String>,
+) -> Option<String> {
+    const CHUNK_UNITS: usize = 256;
+    let mut buf = String::new();
+    let mut remaining = count;
+    while remaining > 0 {
+        let n = remaining.min(CHUNK_UNITS);
+        for unit in chunk(n) {
+            if !push_capped(&mut buf, sep, &unit) {
+                return None;
+            }
+        }
+        remaining -= n;
+    }
+    Some(buf)
+}
 
 fn pick_words(count: usize) -> Vec<String> {
     let mut rng = rand::rng();
@@ -181,9 +221,9 @@ pub fn resolve(raw: &str) -> Option<String> {
     }
 
     match kind.as_str() {
-        "words" => Some(pick_words(count).join(" ")),
-        "sentences" => Some(pick_sentences(count).join(" ")),
-        "paragraphs" => Some(pick_paragraphs(count).join("\n\n")),
+        "words" => build_capped(count, " ", pick_words),
+        "sentences" => build_capped(count, " ", pick_sentences),
+        "paragraphs" => build_capped(count, "\n\n", pick_paragraphs),
         _ => None,
     }
 }
@@ -221,5 +261,13 @@ mod tests {
         assert!(resolve("words, 100000").is_some());
         assert_eq!(resolve("words, 100001"), None);
         assert_eq!(resolve("paragraphs, 100001"), None);
+    }
+
+    #[test]
+    fn lorem_total_bytes_capped() {
+        // 100k words is ~650KB: allowed. 100k paragraphs is tens of MB: refused.
+        assert!(resolve("words, 100000").is_some());
+        assert_eq!(resolve("paragraphs, 20000"), None);
+        assert_eq!(resolve("sentences, 100000"), None);
     }
 }
