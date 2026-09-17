@@ -21,7 +21,7 @@ use crate::keys::MouseButton;
 
 const CURSOR_TAG: &str = "[cursor]";
 const ESCAPED_CURSOR_LITERAL: &str = r#"\[cursor\]"#;
-const MAX_OUTPUT_LENGTH: usize = 100_000;
+pub(crate) const MAX_OUTPUT_LENGTH: usize = 100_000;
 
 /// Checks if a keyword is reserved by the system.
 pub fn is_reserved(key: &str) -> bool {
@@ -533,9 +533,17 @@ fn apply_cursor_positioning(steps: &mut Vec<ExpansionStep>) {
             steps.insert(0, ExpansionStep::Text(final_text));
         }
 
-        // Append cursor positioning steps.
-        for _ in 0..left_arrow_count {
-            steps.push(ExpansionStep::KeyPress("left".to_string()));
+        // Append cursor positioning steps, unless the run would be absurd:
+        // past the output cap the caret stays at the end instead of building
+        // one keypress step per character.
+        if left_arrow_count > MAX_OUTPUT_LENGTH {
+            tracing::warn!(
+                "cursor navigation skipped: {left_arrow_count} steps exceeds maximum output length"
+            );
+        } else {
+            for _ in 0..left_arrow_count {
+                steps.push(ExpansionStep::KeyPress("left".to_string()));
+            }
         }
     } else {
         // No [cursor] directive â€” just restore any escaped cursor sentinels.

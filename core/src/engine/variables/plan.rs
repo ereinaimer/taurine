@@ -330,8 +330,14 @@ impl ExecutionPlan {
             if !clean_text.is_empty() {
                 steps.push(ExpansionStep::Text(clean_text));
             }
-            for _ in 0..left_arrow_count {
-                steps.push(ExpansionStep::KeyPress("left".to_string()));
+            if left_arrow_count > crate::engine::variables::system::MAX_OUTPUT_LENGTH {
+                tracing::warn!(
+                    "cursor navigation skipped: {left_arrow_count} steps exceeds maximum output length"
+                );
+            } else {
+                for _ in 0..left_arrow_count {
+                    steps.push(ExpansionStep::KeyPress("left".to_string()));
+                }
             }
             FinalExpansion {
                 steps,

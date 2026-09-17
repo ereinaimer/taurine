@@ -158,4 +158,13 @@ mod tests {
         assert_eq!(apply("calc", &["\"+ 1\"", "\"- 2\""], "10"), None);
         assert_eq!(apply("math", &["\"+ 1\""], "5"), None);
     }
+
+    #[test]
+    fn test_calc_runaway_nesting_rejected() {
+        let nested = format!("{}1{}", "(".repeat(500), ")".repeat(500));
+        assert_eq!(apply("calc", &[nested.as_str()], "0"), None);
+        let chain = format!("2{}", "^2".repeat(500));
+        assert_eq!(apply("calc", &[chain.as_str()], "0"), None);
+        assert_eq!(apply("calc", &["2 + 2"], "0"), Some("4".to_string()));
+    }
 }

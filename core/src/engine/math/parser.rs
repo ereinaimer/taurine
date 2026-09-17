@@ -129,7 +129,16 @@ pub fn tokenize(expr: &str) -> Option<Vec<(Token, bool)>> {
     Some(tokens)
 }
 
+/// Token budget for one expression. Every recursion shape in the parser
+/// (paren nesting, caret chains, sign runs, nested calls) consumes at least
+/// one token per level, so this caps depth far below stack limits. Real
+/// expressions are dozens of tokens at most.
+pub const MAX_EXPRESSION_TOKENS: usize = 512;
+
 pub fn parse_expression(tokens: &[(Token, bool)]) -> Option<f64> {
+    if tokens.len() > MAX_EXPRESSION_TOKENS {
+        return None;
+    }
     let mut pos = 0;
     let res = parse_add_sub(tokens, &mut pos)?;
 

@@ -111,6 +111,19 @@ fn test_finalize_text_only() {
 }
 
 #[test]
+fn test_finalize_cursor_skipped_past_navigation_cap() {
+    // Past the cap the caret stays at the end: no million-step arrow run.
+    let big = "a".repeat(150_000);
+    let res = finalize(&format!("{big}[cursor]"), None);
+    assert_eq!(res.steps, vec![ExpansionStep::Text(big.clone())]);
+    let res = finalize(&format!("[cursor]{big}"), None);
+    assert!(
+        res.steps.len() < 1000,
+        "navigation must not scale with output size"
+    );
+}
+
+#[test]
 fn test_finalize_key_directive_splits_into_steps() {
     let res = finalize("name[key(tab)]email", None);
     assert_eq!(
