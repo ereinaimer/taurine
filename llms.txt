@@ -137,8 +137,8 @@ System variables inject machine data or generate values using unified `namespace
 *   **Files (`file`)**: `[file(read, ~/n.txt)]`, `[file(line, path, n)]`, `[file(lines, path, 1, 5)]`. Params: `(op, ...)`; read, line, lines.
 *   **Command Execution (`execute`)**: `[execute(bash, "echo hi")]`, `[execute(python, /s.py, a, b, file=true)]`, `[execute(bash, "sleep 5", silent=true)]`. Params: `(lang, subject, *args, file=false, silent=false)`. Flags are keyword-only.
 *   **Network (`ip`, `http`)**: `[ip]` (≡ `[ip(public)]`), `[ip(local)]`, `[http(get, example.com)]`, `[http(status, example.com)]`.
-*   **Images (`image`)**: `[image(path)]` — injects local images (PNG/JPEG, ≤16 MB) via clipboard paste.
-*   **Lorem ipsum (`lorem`)**: `[lorem]`, `[lorem(3)]`, `[lorem(words, 5)]`, `[lorem(type=sentences, count=2)]`. Params: `(type=paragraphs, count)`.
+*   **Images (`image`)**: `[image(path)]` — injects local images (PNG/JPEG, ≤10 MB, passed through untouched) via clipboard paste.
+*   **Lorem ipsum (`lorem`)**: `[lorem]`, `[lorem(3)]`, `[lorem(words, 5)]`, `[lorem(type=sentences, count=2)]`. Params: `(type=paragraphs, count)`; count ≤100,000, total output ≤1 MB.
 *   **Random (`random`)**: `[random]`, `[random(6)]`, `[random(int, 1, 10)]`, `[random(choice, a, b)]`, `[random(str, 16)]`. Params: `(type=int, ...)`.
 *   **UUID (`uuid`)**: `[uuid]` (≡ `[uuid(v4)]`), `[uuid(v7)]`. Params: `(version=v4)` ∈ {v4, v7}.
 *   **Newline (`newline`)**: `[newline]` resolves to a literal newline.

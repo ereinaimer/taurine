@@ -12,7 +12,10 @@ Provide the file path to an image as the argument:
 ```text
 [image(C:\images\logo.png)]
 [image(~/pictures/screenshot.png)]
+[image("~/my photos/shot.png")]
 ```
+
+Paths may be quoted. Files over 10 MB are refused with an error — images are always passed through byte-identical, never resized or recompressed.
 
 ### Supported Formats
 - PNG (`image/png`)
