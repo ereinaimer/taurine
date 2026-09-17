@@ -287,6 +287,15 @@ fn test_parse_delay_ms() {
 }
 
 #[test]
+fn oversize_output_expands_with_warning_instead_of_blocking() {
+    // Large sources (file reads up to 5MB) legitimately exceed the cap;
+    // the advisory limit is logged, never a block.
+    let big = "a".repeat(100_001);
+    let res = finalize(&big, None);
+    assert_eq!(res.steps, vec![ExpansionStep::Text(big)]);
+}
+
+#[test]
 fn test_append_unescaped_segment_control_chars() {
     let mut out = String::new();
     append_unescaped_segment("hello\\nworld\\tgoodbye\\r!", &mut out);

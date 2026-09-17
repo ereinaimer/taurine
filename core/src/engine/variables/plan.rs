@@ -183,7 +183,9 @@ impl ExecutionPlan {
         }
 
         if self.has_directive_steps {
-            let _ = system::validate_output(&self.raw_template, trigger);
+            if let Err(error) = system::validate_output(&self.raw_template, trigger) {
+                tracing::warn!("expansion output issue: {error}");
+            }
             let mut steps: Vec<ExpansionStep> = Vec::new();
             let mut current_text = String::new();
 
@@ -308,7 +310,9 @@ impl ExecutionPlan {
             }
         }
 
-        let _ = system::validate_output(&full_text, trigger);
+        if let Err(error) = system::validate_output(&full_text, trigger) {
+            tracing::warn!("expansion output issue: {error}");
+        }
 
         if contains_ai_markers(&full_text) {
             return FinalExpansion {

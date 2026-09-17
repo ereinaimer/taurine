@@ -177,7 +177,11 @@ pub fn finalize_with_origin(
     trigger: Option<&str>,
     origin: ExpansionOrigin,
 ) -> FinalExpansion {
-    let _ = validate_output(interpolated, trigger);
+    // Oversize output is logged, not blocked: large sources like file reads
+    // (up to 5MB) legitimately exceed the advisory cap.
+    if let Err(error) = validate_output(interpolated, trigger) {
+        tracing::warn!("expansion output issue: {error}");
+    }
 
     // Fast path: if there are no tags '[' and no escapes '\', return single text step immediately.
     if !interpolated.contains('[') && !interpolated.contains('\\') {
@@ -362,6 +366,8 @@ fn contains_key_or_delay_directives(text: &str) -> bool {
 }
 
 /// Validates an expansion output for common mistakes like empty output, multiple cursors, or conflicts.
+/// Findings are advisory: callers log them and expand anyway, since large
+/// sources (file reads up to 5MB) legitimately exceed the length cap.
 pub fn validate_output(output: &str, trigger: Option<&str>) -> crate::error::Result<()> {
     let trigger_ctx = trigger
         .map(|t| format!(" for trigger '{}'", t))
