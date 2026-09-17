@@ -209,7 +209,6 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
             };
 
             let resolved = if let Some(mut text) = base_resolved {
-                let mut valid_pipeline = true;
                 for tr in transformers {
                     if system::transformers::is_ai_transformer(tr) {
                         let prompt = system::transformers::extract_ai_prompt(tr).to_string();
@@ -222,15 +221,12 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
                     } else if let Some(transformed) = system::transformers::apply(tr, &text) {
                         text = transformed;
                     } else {
-                        valid_pipeline = false;
-                        break;
+                        tracing::warn!(
+                            "transformer '{tr}' produced no result; passing content through unchanged"
+                        );
                     }
                 }
-                if valid_pipeline {
-                    text
-                } else {
-                    format!("{SENTINEL_OPEN}{inner}{SENTINEL_CLOSE}")
-                }
+                text
             } else if system::is_directive(key_unquoted) && transformers.is_empty() {
                 format!("{SENTINEL_OPEN}{key_unquoted}{SENTINEL_CLOSE}")
             } else {

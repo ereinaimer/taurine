@@ -341,6 +341,20 @@ fn test_interpolate_quoted_bracket_inside_tag_expands() {
 }
 
 #[test]
+fn test_interpolate_failing_transformer_keeps_content_in_tag_loop() {
+    let mut args = ArgMap::default();
+    args.named.insert("v".to_string(), "hello".to_string());
+    assert_eq!(
+        interpolate("hi [v | case(bogus)] bye", &args),
+        "hi hello bye"
+    );
+    assert_eq!(
+        interpolate("[v | case(bogus) | case(upper)]", &args),
+        "HELLO"
+    );
+}
+
+#[test]
 fn test_interpolate_parameterized_transformers_for_user_values() {
     let mut args = ArgMap::default();
     args.named.insert("name".to_string(), "john".to_string());
