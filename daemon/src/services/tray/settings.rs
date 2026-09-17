@@ -16,6 +16,8 @@ impl TraySettings {
 
     /// Reloads only when the settings version moved since `last_seen`.
     /// Returns the fresh values plus the version to store for the next call.
+    /// Only the native (Windows/macOS) tray polls for external edits.
+    #[cfg(any(windows, target_os = "macos"))]
     pub fn load_quick_settings_if_changed(last_seen: u64) -> Option<(bool, bool, u64)> {
         let current = taurine_core::settings::settings_version();
         if current == last_seen {
@@ -104,6 +106,7 @@ mod tests {
         assert_eq!(restored, initial_boot);
     }
 
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn test_load_quick_settings_if_changed_skips_read_on_same_version() {
         let _lock = taurine_core::testing::TEST_LOCK

@@ -139,12 +139,13 @@ fn open_connection_at(db_path: &Path) -> Result<Connection> {
         use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
         if !db_path.exists() {
-            // No truncate(): SQLite creates the file itself. Truncating here
+            // truncate(false): SQLite creates the file itself. Truncating here
             // would wipe a database created concurrently between the check
             // and the open.
             let _ = OpenOptions::new()
                 .write(true)
                 .create(true)
+                .truncate(false)
                 .mode(0o600)
                 .open(db_path);
         }
