@@ -231,6 +231,7 @@ fn rejects_out_of_range_scalar_values() {
         ("ip", "PUBLIC"),
         ("ip", "bogus"),
         ("chrono", "1d"),
+        ("chrono", "datetime, +9999999999y"),
         ("http", "post, example.com"),
         ("http", "get, "),
         ("lorem", "bogus"),

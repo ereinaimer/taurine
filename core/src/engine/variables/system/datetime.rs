@@ -59,6 +59,11 @@ pub(crate) fn apply_temporal_calc(
                 .parse::<i64>()
                 .map_err(|_| "Invalid number in calc".to_string())?;
             let val = if is_positive { val } else { -val };
+            // No calendar use needs more than a million of any unit; larger
+            // magnitudes would overflow month scaling and duration math below.
+            if val.unsigned_abs() > 1_000_000 {
+                return Err("calc magnitude out of range".to_string());
+            }
 
             // Check if multi-char unit like "min"
             let rem: String = chars[i..]
@@ -362,6 +367,15 @@ mod tests {
         assert_eq!(resolve("type=week"), None);
         assert_eq!(resolve("a, b, c, d, e"), None);
         assert_eq!(resolve("bogus=1"), None);
+    }
+
+    #[test]
+    fn chrono_absurd_magnitude_offsets_rejected() {
+        assert_eq!(resolve("datetime, +9999999999y"), None);
+        assert_eq!(resolve("datetime, +9999999999d"), None);
+        assert_eq!(resolve("datetime, -9999999999h"), None);
+        assert_eq!(resolve("datetime, +1000001d"), None);
+        assert!(resolve("datetime, +1000000d").is_some());
     }
 
     #[test]
