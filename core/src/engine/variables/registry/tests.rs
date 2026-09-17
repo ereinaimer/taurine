@@ -260,6 +260,7 @@ fn rejects_out_of_range_scalar_values() {
         ("mouse", "click, left"),
         ("delay", "abc"),
         ("delay", "1.5x"),
+        ("delay", "-5s"),
         ("key", "boguskey"),
         ("key", "m4"),
         ("key", "ctrl++s"),

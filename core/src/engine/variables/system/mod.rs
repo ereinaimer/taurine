@@ -556,14 +556,17 @@ fn flush_text(steps: &mut Vec<ExpansionStep>, buf: &mut String) {
 }
 
 /// Parses a delay string like `200ms` or `200` into a `u64` millisecond value.
+/// Negative and non-finite durations are rejected rather than saturated.
 pub(crate) fn parse_delay_ms(s: &str) -> Option<u64> {
     let s = s.trim();
     if let Some(n) = s.strip_suffix("ms") {
         n.parse::<u64>().ok()
     } else if let Some(n) = s.strip_suffix('s') {
-        n.parse::<f64>()
-            .ok()
-            .map(|seconds| (seconds * 1000.0) as u64)
+        let seconds: f64 = n.parse().ok()?;
+        if !seconds.is_finite() || seconds < 0.0 || seconds * 1000.0 > u64::MAX as f64 {
+            return None;
+        }
+        Some((seconds * 1000.0) as u64)
     } else {
         s.parse::<u64>().ok()
     }

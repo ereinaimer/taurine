@@ -279,6 +279,11 @@ fn test_parse_delay_ms() {
     assert_eq!(parse_delay_ms("0.5s"), Some(500));
     assert_eq!(parse_delay_ms("0s"), Some(0));
     assert_eq!(parse_delay_ms("60s"), Some(60000));
+    // Negative and non-finite durations are rejected, never saturated.
+    assert_eq!(parse_delay_ms("-5s"), None);
+    assert_eq!(parse_delay_ms("-1ms"), None);
+    assert_eq!(parse_delay_ms("NaNs"), None);
+    assert_eq!(parse_delay_ms("infs"), None);
 }
 
 #[test]
