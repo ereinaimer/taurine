@@ -3,6 +3,7 @@ use rand::RngExt;
 const DEFAULT_WORD_COUNT: usize = 15;
 const DEFAULT_SENTENCE_COUNT: usize = 1;
 const DEFAULT_PARAGRAPH_COUNT: usize = 1;
+pub(crate) const MAX_LOREM_COUNT: usize = 100_000;
 
 const LOREM_WORDS: &[&str] = &[
     "lorem",
@@ -175,6 +176,9 @@ pub fn resolve(raw: &str) -> Option<String> {
         count_str.trim().parse::<usize>().ok()?
     };
     let count = count.max(1);
+    if count > MAX_LOREM_COUNT {
+        return None;
+    }
 
     match kind.as_str() {
         "words" => Some(pick_words(count).join(" ")),
@@ -210,5 +214,12 @@ mod tests {
         assert_eq!(sentence_count(&sentences), 2);
         assert_eq!(resolve("nope"), None);
         assert_eq!(resolve("words, nope"), None);
+    }
+
+    #[test]
+    fn lorem_count_cap() {
+        assert!(resolve("words, 100000").is_some());
+        assert_eq!(resolve("words, 100001"), None);
+        assert_eq!(resolve("paragraphs, 100001"), None);
     }
 }

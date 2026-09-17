@@ -493,7 +493,10 @@ fn validate_value_args(
             if !LOREM_KINDS.contains(&kind.as_str()) {
                 return Err(invalid("lorem", kind, LOREM_KINDS));
             }
-            if count.is_empty() || parse_usize_at_least(count.trim(), 1).is_some() {
+            if count.is_empty()
+                || parse_usize_at_least(count.trim(), 1)
+                    .is_some_and(|n| n <= crate::engine::variables::system::lorem::MAX_LOREM_COUNT)
+            {
                 Ok(())
             } else {
                 Err(invalid("lorem", count, &["lorem(words, 5)"]))
