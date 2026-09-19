@@ -22,9 +22,24 @@ pub fn execute(path: Option<PathBuf>, yes: bool) -> taurine_core::error::Result<
     if let Some(ref mut pw) = password {
         pw.zeroize();
     }
-    let encoded = encoded?;
+    let encoded = encoded.map_err(|err| {
+        let diag = taurine_core::diagnostic::Diagnostic::problem(format!(
+            "Cannot prepare export data: {err}"
+        ))
+        .help("Try exporting again:")
+        .example("taurine export ./backup.tau -y");
+        taurine_core::error::Error::Config(diag.render())
+    })?;
 
-    taurine_core::exchange::write_export_file(&path, &encoded)?;
+    taurine_core::exchange::write_export_file(&path, &encoded).map_err(|err| {
+        let diag = taurine_core::diagnostic::Diagnostic::problem(format!(
+            "Cannot write export file to {}: {err}",
+            path.display()
+        ))
+        .help("Check the directory exists and is writable, then try again:")
+        .example("taurine export ./backup.tau -y");
+        taurine_core::error::Error::Config(diag.render())
+    })?;
 
     let trigger_word = if payload.triggers.len() == 1 {
         "trigger"
@@ -82,5 +97,29 @@ mod tests {
         result.unwrap();
         let bytes = std::fs::read(&target).unwrap();
         assert_eq!(&bytes[..4], &TAU_MAGIC);
+    }
+
+    #[test]
+    fn test_export_write_failure_diagnostic() {
+        let _guard = crate::commands::TEST_LOCK.lock().unwrap();
+        crate::commands::test_keyring::use_shared_test_keyring();
+        let dir = tempfile::tempdir().expect("temp dir");
+        // SAFETY: Test runs under TEST_LOCK and temporary dir is cleaned up.
+        unsafe { std::env::set_var("TAURINE_DATA_DIR", dir.path()) };
+        let target = dir.path().join("no-such-dir").join("backup.tau");
+
+        let result = execute(Some(target), true);
+
+        // SAFETY: Test runs under TEST_LOCK to restore process environment safely.
+        unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Cannot write export file"), "Error was: {err}");
+        assert!(
+            err.contains("taurine export ./backup.tau -y"),
+            "Error was: {err}"
+        );
+        assert!(!err.contains('`'), "Must not contain backticks: {err}");
+        assert!(!err.contains('\''), "Must not contain single quotes: {err}");
     }
 }
