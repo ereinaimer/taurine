@@ -37,7 +37,7 @@ reqwest = "0.13.4"
 rdev = { version = "0.5.3", features = ["unstable_grab"] }
 
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]
-tray-icon = { version = "0.24", default-features = false }
+tray-icon = { version = "0.25", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
