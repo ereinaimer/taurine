@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Parameterized Voice Triggers**: Define voice shortcuts with dynamic slot placeholders (e.g. `--voice 'send [msg] to [person]'`) that automatically extract spoken words and populate output variables.
 - **Reliable Voice After Login**: Voice dictation hotkeys now recover automatically when Windows audio or background startup is still warming up.
 - **Instant Tray At Startup**: The tray icon now appears immediately at launch while voice, hooks, and audio finish warming up in the background.
 - **Voice Dictation Accuracy**: Custom dictionary entries dynamically correct acoustic sound-alikes and split syllables without corrupting real English words via offline lexicon immunity.
@@ -94,6 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **App Launch Shortcuts**: Restore hotkey triggers using the .NET Process Start API, the saps alias, and single-path Invoke-Item via the instant native launcher.
 - **Voice Trigger Scripts and Variables**: Voice triggers now execute scripts in the correct language and expand system and dynamic variables instead of typing them literally.
 - **Instant Long Expansions and Voice Dictation**: Longer snippets and all voice dictation now paste in one step instead of typing out character by character.
+- **Reliable Microphone Switching**: Unplugging the microphone in use falls back to System Default so voice dictation keeps working, the tray microphone list stays current, and your saved microphone is used at startup when still connected.
 
 ### Removed
 - **Redundant Audio Themes**: Remove soft, glass, dreamy, cinematic, and studio pause/resume sounds, leaving seven themes.

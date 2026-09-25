@@ -468,6 +468,35 @@ fn audit_type_for_entry(invocations: &[(InvocationType, String, bool)]) -> Trigg
     }
 }
 
+/// Rejects parameterized voice invocations whose `[slot]` names have no
+/// matching `[slot=default]` variable in a text output template. Scripts skip
+/// the check: bare `[slot]` refs without defaults are idiomatic there and
+/// still interpolate at runtime.
+fn validate_voice_slot_parity(
+    content_nfc: &str,
+    invocations: &[(InvocationType, String, bool)],
+) -> Result<()> {
+    let defined = collect_defined_variables(content_nfc);
+    for (invocation_type, invocation, _) in invocations {
+        if *invocation_type != InvocationType::Voice {
+            continue;
+        }
+        // Shape errors surface later in `add_alias`; only parity-check here.
+        let Ok(pattern) = crate::voice::pattern::VoicePattern::parse(invocation) else {
+            continue;
+        };
+        for slot in pattern.slot_names() {
+            if !defined.iter().any(|d| d.eq_ignore_ascii_case(&slot)) {
+                return Err(crate::Error::Config(format!(
+                    "Voice slot '[{slot}]' has no matching variable in the output template \
+                     (voice trigger '{invocation}'). Add '[{slot}=default]' to the output."
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Validates entry content/tags/name/description; returns
 /// `(content_nfc, normalized_tags)`. Limit validation runs once per word
 /// invocation (word-catalog keys); entries without one still get a single
@@ -624,6 +653,9 @@ fn create_entry_inner(
         entry.description.as_deref(),
         &entry.tags_json,
     )?;
+    if is_text {
+        validate_voice_slot_parity(&content_nfc, &invocations)?;
+    }
     warn_on_duplicate_name(conn, &entry.name, None);
     // Overlap pre-check (catches hotkey overlaps that share no UNIQUE row).
     for (invocation_type, invocation, _) in &invocations {
@@ -801,6 +833,9 @@ fn update_entry_inner(
         entry.description.as_deref(),
         &entry.tags_json,
     )?;
+    if is_text {
+        validate_voice_slot_parity(&content_nfc, requested)?;
+    }
     warn_on_duplicate_name(conn, &entry.name, Some(parent_id));
 
     let current = load_parent_snapshot(conn, parent_id)?;

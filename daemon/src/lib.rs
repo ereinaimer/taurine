@@ -173,6 +173,13 @@ pub fn start() -> taurine_core::error::Result<()> {
     );
     taurine_core::settings::set_cached_voice_dictionary(settings.voice_dictionary.clone());
     taurine_core::settings::set_cached_voice_input_device(settings.voice_input_device.clone());
+    // Reconcile saved mic against actually-present devices: stale pick -> System
+    // Default (persisted), saved pick present -> kept, nothing enumerated -> keep
+    // and let the runtime monitor retry once audio is ready.
+    {
+        let available = crate::voice::AudioCapture::list_input_devices();
+        crate::voice::device_monitor::reconcile_at_startup(&available);
+    }
 
     // Activate daemon file logging early so voice and hook initialization logs are captured
     let guard = taurine_core::logs::activate_file_logging();

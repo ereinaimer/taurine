@@ -462,3 +462,47 @@ fn test_phonetic_dictionary_pipeline() {
         "Taurine is the best text expander in the world"
     );
 }
+
+fn test_voice_invocation(phrase: &str, output: &str) -> taurine_core::db::crud::ResolvedInvocation {
+    taurine_core::db::crud::ResolvedInvocation {
+        trigger_id: format!("id-{phrase}"),
+        invocation: phrase.to_string(),
+        invocation_type: taurine_core::db::crud::InvocationType::Voice,
+        action: taurine_core::db::crud::TriggerAction::text(output),
+        require_confirmation: false,
+        strict_threshold: 0.75,
+    }
+}
+
+#[test]
+fn test_exact_static_trigger_takes_precedence_over_parameterized() {
+    use taurine_core::voice::rank_voice_invocations;
+
+    let static_trig = test_voice_invocation("say hi", "Hello there!");
+    let param_trig = test_voice_invocation("say hi to [person]", "Hello, [person]!");
+    let triggers = vec![static_trig.clone(), param_trig.clone()];
+
+    // Saying "say hi" perfectly matches static trigger
+    let m = rank_voice_invocations("say hi", &triggers).unwrap();
+    assert_eq!(m.trigger.invocation, "say hi");
+    assert!(m.args.named.is_empty());
+
+    // Saying "say hi to Bob" matches parameterized trigger
+    let m2 = rank_voice_invocations("say hi to Bob", &triggers).unwrap();
+    assert_eq!(m2.trigger.invocation, "say hi to [person]");
+    assert_eq!(m2.args.named.get("person").unwrap(), "Bob");
+}
+
+#[test]
+fn test_static_fuzzy_fallback_when_no_parameterized_match() {
+    use taurine_core::voice::rank_voice_invocations;
+
+    let static_trig = test_voice_invocation("movies folder", "opened");
+    let param_trig = test_voice_invocation("send [msg] to [person]", "To: [person]!");
+    let triggers = vec![static_trig.clone(), param_trig.clone()];
+
+    // Near-miss keeps legacy static behavior
+    let m = rank_voice_invocations("movies follower", &triggers).unwrap();
+    assert_eq!(m.trigger.invocation, "movies folder");
+    assert!(m.args.named.is_empty());
+}

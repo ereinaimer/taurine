@@ -1,5 +1,6 @@
 pub mod capture;
 pub mod daemon;
+pub mod device_monitor;
 pub mod factory;
 pub mod modes;
 pub mod parakeet;
@@ -17,4 +18,4 @@ pub use factory::create_transcriber;
 pub use modes::VoiceMode;
 pub use parakeet::ParakeetTranscriber;
 pub use session::VoiceSessionManager;
-pub use trigger_dispatch::fire_voice_trigger;
+pub use trigger_dispatch::{fire_voice_trigger, fire_voice_trigger_with_args};

@@ -1163,7 +1163,7 @@ impl VoiceSessionManager {
                 .collect();
 
             if let Some(matched) =
-                taurine_core::voice::rank_voice_triggers(&normalized_spoken, &in_scope)
+                taurine_core::voice::rank_voice_invocations(&normalized_spoken, &in_scope)
             {
                 let inv = matched.trigger;
                 info!(
@@ -1171,13 +1171,16 @@ impl VoiceSessionManager {
                     inv.invocation, matched.score
                 );
 
-                let output = inv.action.output.clone();
-                crate::voice::fire_voice_trigger(
+                let fallback = inv.action.output.clone();
+                let output = crate::voice::fire_voice_trigger_with_args(
                     inv,
+                    &matched.args,
+                    &normalized_spoken,
                     &conn,
                     active_app.clone(),
                     taurine_core::settings::SpinnerStyle::default(),
-                );
+                )
+                .unwrap_or(fallback);
                 return Ok(Some(output));
             }
         }
@@ -2008,6 +2011,43 @@ mod tests {
     fn test_inject_transcript_empty_returns_none() {
         let (session, _) = create_test_session();
         assert_eq!(session.inject_transcript("   ").unwrap(), None);
+    }
+
+    #[test]
+    fn test_parameterized_voice_trigger_injects_args() {
+        // Hermetic: temp DB + mock keystore + recording injector, serialized
+        // on the global lock like test_inject_transcript_formats_and_returns_text.
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let conn = taurine_core::db::get_conn().expect("temp db conn");
+        taurine_core::db::crud::create_entry(
+            &conn,
+            taurine_core::db::crud::NewEntry {
+                name: String::new(),
+                description: None,
+                content: "Hello, [person=there]!".to_string(),
+                action_type: "text".to_string(),
+                target_os: "all".to_string(),
+                only_apps: None,
+                except_apps: None,
+                tags_json: "[]".to_string(),
+                auto_case: false,
+                interpreter: None,
+                behavior: None,
+                invocations: vec![(
+                    taurine_core::db::crud::InvocationType::Voice,
+                    "say hi to [person]".to_string(),
+                    false,
+                )],
+            },
+        )
+        .expect("seed parameterized voice trigger");
+        let (session, _) = create_test_session();
+        let res = session.inject_transcript("say hi to Bob").unwrap();
+        assert_eq!(res, Some("Hello, bob!".to_string()));
     }
 
     #[test]

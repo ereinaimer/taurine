@@ -50,11 +50,19 @@ const TRAY_SUBCLASS_ID: usize = 0x544155; // "TAU"
 #[cfg(target_os = "windows")]
 const SNOOZE_TIMER_ID: usize = 0x534E5A; // "SNZ"
 
+// SAFETY: WM_DEVICECHANGE (0x0219) arrives on the tray GUI thread when devices
+// come or go; DBT_DEVICEARRIVAL (0x8000) / DBT_DEVICEREMOVECOMPLETE (0x8004).
+// We only fast-path the submenu repaint here; selection changes go through the
+// debounced poll loop so transient events never wipe a saved pick.
+#[cfg(target_os = "windows")]
+const WM_DEVICECHANGE: u32 = 0x0219;
+
 #[cfg(target_os = "windows")]
 struct TrayLiveState {
     paused: Arc<AtomicBool>,
     snooze: SnoozeController,
     resume_item: MenuItem,
+    device_dirty: Arc<AtomicBool>,
 }
 
 #[cfg(target_os = "windows")]
@@ -144,6 +152,11 @@ unsafe extern "system" fn tray_menu_subclass_proc(
                 KillTimer(hwnd, SNOOZE_TIMER_ID);
             }
         }
+        WM_DEVICECHANGE => {
+            // SAFETY: ref_data points to live_state valid for the duration of the tau-tray thread.
+            let state = unsafe { &*(ref_data as *const TrayLiveState) };
+            state.device_dirty.store(true, Ordering::Relaxed);
+        }
         _ => {}
     }
 
@@ -223,6 +236,15 @@ pub fn populate_voice_device_submenu(
     }
 
     device_items
+}
+
+fn refresh_voice_submenu(items: &TrayMenuItems) {
+    let current_dev = TraySettings::get_voice_input_device();
+    let updated = populate_voice_device_submenu(&items.voice_input_submenu, current_dev.as_deref());
+    *items
+        .voice_input_items
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = updated;
 }
 
 pub struct TrayMenuItems {
@@ -349,10 +371,12 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
             DispatchMessageW, PM_REMOVE, PeekMessageW, TranslateMessage,
         };
 
+        let device_dirty = Arc::new(AtomicBool::new(false));
         let live_state = TrayLiveState {
             paused: paused.clone(),
             snooze: snooze.clone(),
             resume_item: items.resume_item.clone(),
+            device_dirty: device_dirty.clone(),
         };
 
         let mut tray_hwnd = find_current_thread_window();
@@ -377,6 +401,9 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
         let mut last_resume_label = "Resume".to_string();
         let mut sync_counter: u32 = 0;
         let mut last_settings_version: u64 = u64::MAX;
+        let mut last_device_sig: Option<String> = None;
+        let mut missing_ticks: u32 = 0;
+        let mut poll_ticks: u32 = 0;
         loop {
             // Update tray visibility based on settings
             let now_visible = system_tray_enabled.load(Ordering::Relaxed);
@@ -414,15 +441,7 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
                                 last_resume_label = label;
                             }
                         }
-                        let current_dev = TraySettings::get_voice_input_device();
-                        let updated_items = populate_voice_device_submenu(
-                            &items.voice_input_submenu,
-                            current_dev.as_deref(),
-                        );
-                        *items
-                            .voice_input_items
-                            .lock()
-                            .unwrap_or_else(|p| p.into_inner()) = updated_items;
+                        refresh_voice_submenu(&items);
                     }
 
                     TranslateMessage(&msg);
@@ -533,15 +552,42 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
                     items.start_on_boot_item.set_checked(boot);
                 }
                 if changed.is_some() {
-                    let current_dev = TraySettings::get_voice_input_device();
-                    let updated_items = populate_voice_device_submenu(
-                        &items.voice_input_submenu,
-                        current_dev.as_deref(),
-                    );
-                    *items
-                        .voice_input_items
-                        .lock()
-                        .unwrap_or_else(|p| p.into_inner()) = updated_items;
+                    refresh_voice_submenu(&items);
+                }
+            }
+
+            if device_dirty.swap(false, Ordering::Relaxed) {
+                refresh_voice_submenu(&items);
+                poll_ticks = 0;
+            }
+            // ~1s device poll: instant tray accuracy without touching selection on arrival.
+            // Removal of the in-use mic persists System Default after 2 consecutive misses
+            // (debounce against transient enumeration glitches); arrival never selects.
+            poll_ticks += 1;
+            if poll_ticks >= 10 {
+                poll_ticks = 0;
+                let devices = crate::voice::AudioCapture::list_input_devices();
+                let sig = crate::voice::device_monitor::device_list_signature(&devices);
+                if last_device_sig.as_deref() != Some(sig.as_str()) {
+                    last_device_sig = Some(sig);
+                    refresh_voice_submenu(&items);
+                }
+                if crate::voice::device_monitor::fallback_value_if_missing(
+                    TraySettings::get_voice_input_device().as_deref(),
+                    &devices,
+                ) == Some(None)
+                {
+                    missing_ticks += 1;
+                    if missing_ticks >= 2 {
+                        missing_ticks = 0;
+                        if crate::voice::device_monitor::persist_fallback_to_system_default(
+                            &devices,
+                        ) {
+                            refresh_voice_submenu(&items);
+                        }
+                    }
+                } else {
+                    missing_ticks = 0;
                 }
             }
 
@@ -574,6 +620,9 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
         let mut last_resume_label = "Resume".to_string();
         let mut sync_counter: u32 = 0;
         let mut last_settings_version: u64 = u64::MAX;
+        let mut last_device_sig: Option<String> = None;
+        let mut missing_ticks: u32 = 0;
+        let mut poll_ticks: u32 = 0;
         loop {
             // Update tray visibility based on settings
             let now_visible = system_tray_enabled.load(Ordering::Relaxed);
@@ -673,15 +722,38 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
                     items.start_on_boot_item.set_checked(boot);
                 }
                 if changed.is_some() {
-                    let current_dev = TraySettings::get_voice_input_device();
-                    let updated_items = populate_voice_device_submenu(
-                        &items.voice_input_submenu,
-                        current_dev.as_deref(),
-                    );
-                    *items
-                        .voice_input_items
-                        .lock()
-                        .unwrap_or_else(|p| p.into_inner()) = updated_items;
+                    refresh_voice_submenu(&items);
+                }
+            }
+
+            // ~1s device poll: instant tray accuracy without touching selection on arrival.
+            // Removal of the in-use mic persists System Default after 2 consecutive misses
+            // (debounce against transient enumeration glitches); arrival never selects.
+            poll_ticks += 1;
+            if poll_ticks >= 10 {
+                poll_ticks = 0;
+                let devices = crate::voice::AudioCapture::list_input_devices();
+                let sig = crate::voice::device_monitor::device_list_signature(&devices);
+                if last_device_sig.as_deref() != Some(sig.as_str()) {
+                    last_device_sig = Some(sig);
+                    refresh_voice_submenu(&items);
+                }
+                if crate::voice::device_monitor::fallback_value_if_missing(
+                    TraySettings::get_voice_input_device().as_deref(),
+                    &devices,
+                ) == Some(None)
+                {
+                    missing_ticks += 1;
+                    if missing_ticks >= 2 {
+                        missing_ticks = 0;
+                        if crate::voice::device_monitor::persist_fallback_to_system_default(
+                            &devices,
+                        ) {
+                            refresh_voice_submenu(&items);
+                        }
+                    }
+                } else {
+                    missing_ticks = 0;
                 }
             }
 
@@ -1117,6 +1189,20 @@ mod tests {
         let should_continue = process_menu_event(&event, &items, &paused, &snooze);
         assert!(should_continue);
         assert_eq!(TraySettings::get_voice_input_device(), None);
+    }
+
+    #[test]
+    fn voice_submenu_signature_detects_plug_unplug() {
+        let a = crate::voice::device_monitor::device_list_signature(&["A".to_string()]);
+        let b = crate::voice::device_monitor::device_list_signature(&[
+            "A".to_string(),
+            "B".to_string(),
+        ]);
+        assert_ne!(a, b);
+        assert_eq!(
+            a,
+            crate::voice::device_monitor::device_list_signature(&["A".to_string()])
+        );
     }
 
     #[test]

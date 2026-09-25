@@ -925,6 +925,25 @@ impl AudioCapture {
         false
     }
 
+    /// Yank recovery: if the cached pick is gone from the OS list, persist System
+    /// Default so the pending open resolves to a live device. Idle-safe; returns
+    /// true when a fallback was persisted. Enumeration runs at most once per call
+    /// and only on this path (never on the hot PTT path when the pick is healthy).
+    pub fn persist_fallback_if_configured_missing(&self) -> bool {
+        if self.is_running() {
+            return false;
+        }
+        let cached = taurine_core::settings::get_cached_voice_input_device();
+        let Some(name) = cached.as_deref() else {
+            return false;
+        };
+        if name.trim().is_empty() {
+            return false;
+        }
+        let available = Self::list_input_devices();
+        crate::voice::device_monitor::persist_fallback_to_system_default(&available)
+    }
+
     /// Close the held stream once its silence deadline passes. Cheap and
     /// recording-safe; suitable for every housekeeping tick.
     pub fn reclaim_expired_held(&self) {
@@ -984,6 +1003,9 @@ impl AudioCapture {
             warn!(
                 "Configured voice input device '{configured_name}' not found; falling back to default device"
             );
+            // honey: per-open fallback only; persisting System Default to the DB is left to
+            // the callers (start() disconnect path, tray poll loop, boot reconcile) so this
+            // hot path never pays for an extra enumeration or DB write.
         }
 
         // On Windows, if no explicit device is configured, try querying the system default
@@ -1034,6 +1056,8 @@ impl AudioCapture {
         }
         if self.is_device_disconnected() {
             self.force_close();
+            // honey: one extra enumeration only on the disconnect path; healthy presses skip it.
+            let _ = self.persist_fallback_if_configured_missing();
         } else if self.try_reuse_held_stream() {
             return Ok(());
         }
@@ -1649,6 +1673,17 @@ mod tests {
             Some(10),
             "silence past the rung must reset to base"
         );
+        taurine_core::settings::set_cached_voice_input_device(prev);
+    }
+
+    #[test]
+    fn capture_exposes_missing_device_persist_entry() {
+        let (_lock, prev) = lock_pinned_input_for_test();
+        let cap = mic_test_capture();
+        // Cached device pinned to None: early-return path only, no
+        // enumeration, no persist. Entry exists, callable while idle,
+        // returns bool, never panics.
+        assert!(!cap.persist_fallback_if_configured_missing());
         taurine_core::settings::set_cached_voice_input_device(prev);
     }
 

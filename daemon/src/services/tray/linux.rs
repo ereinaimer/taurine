@@ -47,6 +47,7 @@ enum TrayEvent {
     Resume,
     ToggleInstantExpand,
     ToggleStartOnBoot,
+    SelectVoiceDevice(Option<String>),
     Quit,
 }
 
@@ -203,6 +204,45 @@ fn build_menu(
         .into(),
     );
 
+    let current = TraySettings::get_voice_input_device();
+    let mut mic_children: Vec<MenuItem<KsniTray>> = Vec::new();
+    let events_default = events.clone();
+    mic_children.push(
+        CheckmarkItem {
+            label: "System Default".into(),
+            checked: current.is_none(),
+            activate: Box::new(move |_tray: &mut KsniTray| {
+                let _ = events_default.send(TrayEvent::SelectVoiceDevice(None));
+            }),
+            ..Default::default()
+        }
+        .into(),
+    );
+    for name in crate::voice::AudioCapture::list_input_devices() {
+        let events_dev = events.clone();
+        let checked = current.as_deref() == Some(name.as_str());
+        let owned = name.clone();
+        mic_children.push(
+            CheckmarkItem {
+                label: name,
+                checked,
+                activate: Box::new(move |_tray: &mut KsniTray| {
+                    let _ = events_dev.send(TrayEvent::SelectVoiceDevice(Some(owned.clone())));
+                }),
+                ..Default::default()
+            }
+            .into(),
+        );
+    }
+    menu_items.push(
+        SubMenu {
+            label: "Microphone".into(),
+            submenu: mic_children,
+            ..Default::default()
+        }
+        .into(),
+    );
+
     menu_items.push(MenuItem::Separator);
 
     let events_quit = events.clone();
@@ -230,6 +270,9 @@ async fn run_tray(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>)
     let mut last_visible = None;
     let mut last_icon_preview: Option<bool> = None;
     let mut live_counter: u32 = 0;
+    let mut last_device_sig: Option<String> = None;
+    let mut missing_ticks: u32 = 0;
+    let mut poll_ticks: u32 = 0;
     loop {
         if handle.is_closed() {
             warn!("system tray connection lost, restarting");
@@ -303,6 +346,12 @@ async fn run_tray(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>)
                     }
                     let _ = handle.update(|_| {}).await;
                 }
+                TrayEvent::SelectVoiceDevice(dev) => {
+                    if let Err(error) = TraySettings::set_voice_input_device(dev.as_deref()) {
+                        warn!(%error, "tray voice device select failed");
+                    }
+                    let _ = handle.update(|_| {}).await;
+                }
                 TrayEvent::Quit => {
                     handle_shutdown();
                     handle.shutdown().await;
@@ -320,6 +369,36 @@ async fn run_tray(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>)
             }
         } else {
             live_counter = 0;
+        }
+
+        // ~1s device poll: ksni rebuilds `menu()` on demand, so a signature
+        // change just needs an update push; removal of the in-use mic
+        // persists System Default after 2 consecutive misses (debounce
+        // against transient enumeration glitches); arrival never selects.
+        poll_ticks += 1;
+        if poll_ticks >= 10 {
+            poll_ticks = 0;
+            let devices = crate::voice::AudioCapture::list_input_devices();
+            let sig = crate::voice::device_monitor::device_list_signature(&devices);
+            if last_device_sig.as_deref() != Some(sig.as_str()) {
+                last_device_sig = Some(sig);
+                let _ = handle.update(|_| {}).await;
+            }
+            if crate::voice::device_monitor::fallback_value_if_missing(
+                TraySettings::get_voice_input_device().as_deref(),
+                &devices,
+            ) == Some(None)
+            {
+                missing_ticks += 1;
+                if missing_ticks >= 2 {
+                    missing_ticks = 0;
+                    if crate::voice::device_monitor::persist_fallback_to_system_default(&devices) {
+                        let _ = handle.update(|_| {}).await;
+                    }
+                }
+            } else {
+                missing_ticks = 0;
+            }
         }
 
         // Daemon shutdown: remove the icon and exit instead of being
@@ -438,8 +517,8 @@ mod tests {
         let snooze = SnoozeController::new();
         let items = build_menu(false, &snooze, &tx);
 
-        // Expect: SubMenu(Pause), Separator, Checkmark(Instant), Checkmark(Boot), Separator, Standard(Quit)
-        assert_eq!(items.len(), 6);
+        // Expect: SubMenu(Pause), Separator, Checkmark(Instant), Checkmark(Boot), SubMenu(Microphone), Separator, Standard(Quit)
+        assert_eq!(items.len(), 7);
 
         match &items[0] {
             MenuItem::SubMenu(submenu) => {
@@ -547,9 +626,14 @@ mod tests {
             _ => panic!("Expected CheckmarkItem for Start on Boot"),
         }
 
-        assert!(matches!(&items[4], MenuItem::Separator));
+        assert!(matches!(&items[4], MenuItem::SubMenu(_)));
+        if let MenuItem::SubMenu(submenu) = &items[4] {
+            assert_eq!(submenu.label, "Microphone");
+        }
 
-        match &items[5] {
+        assert!(matches!(&items[5], MenuItem::Separator));
+
+        match &items[6] {
             MenuItem::Standard(item) => {
                 assert_eq!(item.label, "Quit");
                 let mut mock_tray = KsniTray {
@@ -571,8 +655,8 @@ mod tests {
         let snooze = SnoozeController::new();
         let items = build_menu(true, &snooze, &tx);
 
-        // Expect: Standard(Resume), Separator, Checkmark(Instant), Checkmark(Boot), Separator, Standard(Quit)
-        assert_eq!(items.len(), 6);
+        // Expect: Standard(Resume), Separator, Checkmark(Instant), Checkmark(Boot), SubMenu(Microphone), Separator, Standard(Quit)
+        assert_eq!(items.len(), 7);
 
         match &items[0] {
             MenuItem::Standard(item) => {
@@ -592,8 +676,12 @@ mod tests {
         assert!(matches!(&items[1], MenuItem::Separator));
         assert!(matches!(&items[2], MenuItem::Checkmark(_)));
         assert!(matches!(&items[3], MenuItem::Checkmark(_)));
-        assert!(matches!(&items[4], MenuItem::Separator));
-        assert!(matches!(&items[5], MenuItem::Standard(_)));
+        match &items[4] {
+            MenuItem::SubMenu(submenu) => assert_eq!(submenu.label, "Microphone"),
+            _ => panic!("Expected SubMenu for Microphone"),
+        }
+        assert!(matches!(&items[5], MenuItem::Separator));
+        assert!(matches!(&items[6], MenuItem::Standard(_)));
     }
 
     #[test]
@@ -603,7 +691,7 @@ mod tests {
         snooze.start_snooze(Duration::from_secs(15 * 60), || {});
         let items = build_menu(true, &snooze, &tx);
 
-        assert_eq!(items.len(), 6);
+        assert_eq!(items.len(), 7);
 
         match &items[0] {
             MenuItem::Standard(item) => {
@@ -623,5 +711,26 @@ mod tests {
             }
             _ => panic!("Expected StandardItem for Resume"),
         }
+    }
+
+    #[test]
+    fn test_menu_contains_microphone_submenu() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let snooze = SnoozeController::new();
+        let items = build_menu(false, &snooze, &tx);
+        // Pause submenu, Separator, Instant, Boot, Microphone submenu, Separator, Quit
+        let labels: Vec<String> = items
+            .iter()
+            .map(|item| match item {
+                MenuItem::SubMenu(s) => s.label.clone(),
+                MenuItem::Standard(s) => s.label.clone(),
+                MenuItem::Checkmark(c) => c.label.clone(),
+                MenuItem::Separator => "---".to_string(),
+            })
+            .collect();
+        assert!(
+            labels.iter().any(|l| l == "Microphone"),
+            "menu labels: {labels:?}"
+        );
     }
 }

@@ -2,7 +2,10 @@ use std::cmp::Ordering;
 
 use crate::db::crud::normalize_voice_phrase;
 use crate::db::crud::{ResolvedInvocation, threshold_for_phrase};
+use crate::engine::variables::ArgMap;
 
+use super::pattern::{VoicePattern, VoicePatternPart};
+use super::pattern_matcher::match_voice_pattern;
 use super::phonetic::double_metaphone;
 
 /// Outcome of the 3-witness verification gate.
@@ -94,12 +97,12 @@ pub struct TriggerMatch {
 const RUNNER_UP_MARGIN: f32 = 0.10;
 
 /// Word-pair lexical similarity: best of edit and prefix-weighted measures.
-fn word_sim(a: &str, b: &str) -> f64 {
+pub(crate) fn word_sim(a: &str, b: &str) -> f64 {
     strsim::normalized_damerau_levenshtein(a, b).max(strsim::jaro_winkler(a, b))
 }
 
 /// Phonetic key-pair similarity over primary/alternate key combinations.
-fn keys_sim(a: &(String, String), b: &(String, String)) -> f64 {
+pub(crate) fn keys_sim(a: &(String, String), b: &(String, String)) -> f64 {
     let pairs = [(&a.0, &b.0), (&a.0, &b.1), (&a.1, &b.0), (&a.1, &b.1)];
     pairs
         .iter()
@@ -189,6 +192,92 @@ pub fn rank_voice_triggers(
     Some(TriggerMatch {
         trigger: (*top).clone(),
         score: *top_score as f32,
+    })
+}
+
+/// A voice match carrying extracted slot arguments (`ArgMap::default()` for
+/// static triggers).
+#[derive(Debug, Clone)]
+pub struct RankedVoiceMatch {
+    pub trigger: ResolvedInvocation,
+    pub score: f32,
+    pub args: ArgMap,
+}
+
+/// Anchor words of a pattern joined for scoring.
+fn anchor_text(pattern: &VoicePattern) -> String {
+    pattern
+        .parts
+        .iter()
+        .filter_map(|part| match part {
+            VoicePatternPart::Anchor(text) => Some(text.as_str()),
+            VoicePatternPart::Slot(_) => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Rank a transcript against static and parameterized voice triggers.
+///
+/// Static triggers keep the legacy fuzzy ranking: an exact static hit
+/// (score >= 0.90 with matching word count) wins outright. Otherwise
+/// parameterized patterns are tried and the best anchor-scoring one wins;
+/// when none match, the static fuzzy result stands.
+pub fn rank_voice_invocations(
+    transcript: &str,
+    triggers: &[ResolvedInvocation],
+) -> Option<RankedVoiceMatch> {
+    // honey: O(T*W^2) string sims per utterance; trigger lists are small
+    // (<1k rows). Index keys if the list grows past that.
+    let mut statik = Vec::new();
+    let mut parameterized = Vec::new();
+    for trigger in triggers {
+        match VoicePattern::parse(&trigger.invocation) {
+            Ok(pattern) if pattern.is_parameterized() => parameterized.push((trigger, pattern)),
+            _ => statik.push(trigger.clone()),
+        }
+    }
+    let static_rank = rank_voice_triggers(transcript, &statik);
+    if let Some(ranked) = &static_rank {
+        let spoken_words = normalize_voice_phrase(transcript)
+            .split_whitespace()
+            .count();
+        let trigger_words = normalize_voice_phrase(&ranked.trigger.invocation)
+            .split_whitespace()
+            .count();
+        if ranked.score >= 0.90 && spoken_words == trigger_words {
+            return Some(RankedVoiceMatch {
+                trigger: ranked.trigger.clone(),
+                score: ranked.score,
+                args: ArgMap::default(),
+            });
+        }
+    }
+    let mut best: Option<RankedVoiceMatch> = None;
+    for (trigger, pattern) in &parameterized {
+        let Some(args) = match_voice_pattern(transcript, pattern) else {
+            continue;
+        };
+        let anchors = anchor_text(pattern);
+        let score = score_trigger(transcript, &anchors);
+        if score < threshold_for_phrase(&normalize_voice_phrase(&anchors)) {
+            continue;
+        }
+        if best.as_ref().is_none_or(|top| score > top.score) {
+            best = Some(RankedVoiceMatch {
+                trigger: (*trigger).clone(),
+                score,
+                args,
+            });
+        }
+    }
+    if let Some(winner) = best {
+        return Some(winner);
+    }
+    static_rank.map(|ranked| RankedVoiceMatch {
+        trigger: ranked.trigger,
+        score: ranked.score,
+        args: ArgMap::default(),
     })
 }
 
