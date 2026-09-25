@@ -25,7 +25,7 @@ impl LogComponent {
         match self {
             LogComponent::Cli => "cli",
             LogComponent::Daemon => "service",
-            LogComponent::VoiceDaemon => "voice-daemon",
+            LogComponent::VoiceDaemon => "voice",
         }
     }
 }
