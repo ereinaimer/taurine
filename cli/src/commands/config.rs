@@ -128,6 +128,18 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
             "inline_dictionary_mode",
             format!("{:?}", settings.inline_dictionary_mode).to_lowercase(),
         ),
+        ("voice_model", settings.voice_model.clone()),
+        ("voice_always_on", settings.voice_always_on.to_string()),
+        ("voice_ptt_hotkey", settings.voice_ptt_hotkey.clone()),
+        (
+            "voice_handsfree_hotkey",
+            settings.voice_handsfree_hotkey.clone(),
+        ),
+        (
+            "voice_dictation_starters",
+            settings.voice_dictation_starters.clone(),
+        ),
+        ("voice_dictionary", settings.voice_dictionary.clone()),
     ];
 
     // Calculate key column width
@@ -182,6 +194,18 @@ pub fn execute_set(
     };
     let actual_key = Settings::resolve_key(&key);
     apply_setting_input(actual_key, Some(&value))?;
+
+    if actual_key == "voice_model" && !json {
+        let canonical = taurine_core::voice::resolve_model_alias(&value);
+        if !taurine_core::voice::is_model_downloaded(canonical, None)
+            && let Some(entry) = taurine_core::voice::get_model_entry(canonical)
+        {
+            println!(
+                "Note: Model '{}' ({}) is not cached locally.",
+                entry.name, entry.size_display
+            );
+        }
+    }
 
     if json {
         println!(

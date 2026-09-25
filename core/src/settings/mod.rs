@@ -34,6 +34,17 @@ static CACHED_INLINE_CURRENCY_TO_WORDS_ENABLED: std::sync::atomic::AtomicBool =
 static CACHED_AUDIO_THEME: parking_lot::RwLock<AudioTheme> =
     parking_lot::RwLock::new(AudioTheme::Minimal);
 static CACHED_AUDIO_VOLUME: AtomicU32 = AtomicU32::new(50);
+static CACHED_VOICE_ALWAYS_ON: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static CACHED_VOICE_MODEL: parking_lot::RwLock<Option<String>> = parking_lot::RwLock::new(None);
+static CACHED_VOICE_PTT_HOTKEY: parking_lot::RwLock<Option<String>> =
+    parking_lot::RwLock::new(None);
+static CACHED_VOICE_HANDSFREE_HOTKEY: parking_lot::RwLock<Option<String>> =
+    parking_lot::RwLock::new(None);
+static CACHED_VOICE_DICTATION_STARTERS: parking_lot::RwLock<Option<String>> =
+    parking_lot::RwLock::new(None);
+static CACHED_VOICE_DICTIONARY: parking_lot::RwLock<Option<String>> =
+    parking_lot::RwLock::new(None);
 
 // Bumped on every cached-settings write so background loops can poll this
 // single counter instead of re-reading the database while idle.
@@ -216,6 +227,72 @@ pub fn get_cached_inline_datetime_dialect() -> String {
         .unwrap_or_else(|| "uk".to_string())
 }
 
+pub fn set_cached_voice_always_on(enabled: bool) {
+    CACHED_VOICE_ALWAYS_ON.store(enabled, Ordering::Relaxed);
+    bump_settings_version();
+}
+
+pub fn get_cached_voice_always_on() -> bool {
+    CACHED_VOICE_ALWAYS_ON.load(Ordering::Relaxed)
+}
+
+pub fn set_cached_voice_model(model: String) {
+    *CACHED_VOICE_MODEL.write() = Some(model);
+    bump_settings_version();
+}
+
+pub fn get_cached_voice_model() -> String {
+    CACHED_VOICE_MODEL
+        .read()
+        .clone()
+        .unwrap_or_else(|| "auto".to_string())
+}
+
+pub fn set_cached_voice_ptt_hotkey(hotkey: String) {
+    *CACHED_VOICE_PTT_HOTKEY.write() = Some(hotkey);
+    bump_settings_version();
+}
+
+pub fn get_cached_voice_ptt_hotkey() -> String {
+    CACHED_VOICE_PTT_HOTKEY
+        .read()
+        .clone()
+        .unwrap_or_else(|| "win+lctrl".to_string())
+}
+
+pub fn set_cached_voice_handsfree_hotkey(hotkey: String) {
+    *CACHED_VOICE_HANDSFREE_HOTKEY.write() = Some(hotkey);
+    bump_settings_version();
+}
+
+pub fn get_cached_voice_handsfree_hotkey() -> String {
+    CACHED_VOICE_HANDSFREE_HOTKEY
+        .read()
+        .clone()
+        .unwrap_or_else(|| "win+lctrl+lalt".to_string())
+}
+
+pub fn set_cached_voice_dictation_starters(starters: String) {
+    *CACHED_VOICE_DICTATION_STARTERS.write() = Some(starters);
+    bump_settings_version();
+}
+
+pub fn get_cached_voice_dictation_starters() -> String {
+    CACHED_VOICE_DICTATION_STARTERS
+        .read()
+        .clone()
+        .unwrap_or_else(|| "type this, write this".to_string())
+}
+
+pub fn set_cached_voice_dictionary(dict: String) {
+    *CACHED_VOICE_DICTIONARY.write() = Some(dict);
+    bump_settings_version();
+}
+
+pub fn get_cached_voice_dictionary() -> String {
+    CACHED_VOICE_DICTIONARY.read().clone().unwrap_or_default()
+}
+
 pub const DEFAULT_AI_SYSTEM_PROMPT: &str = "You are Tau, an inline text expander. Provide complete but highly concise answers. Plain text only. No markdown, lists, code fences, or newlines. No filler, greetings, explanations, or extra context. Output your entire response as one continuous string.";
 
 mod apply;
@@ -356,10 +433,16 @@ pub enum SettingKey {
     InlineDictionaryEnabled,
     InlineDictionaryMode,
     NotifyOnUpdate,
+    VoiceModel,
+    VoiceAlwaysOn,
+    VoicePttHotkey,
+    VoiceHandsfreeHotkey,
+    VoiceDictationStarters,
+    VoiceDictionary,
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 37] = [
+    pub const ALL: [Self; 43] = [
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
         Self::PauseAudioEnabled,
@@ -397,6 +480,12 @@ impl SettingKey {
         Self::InlineDictionaryEnabled,
         Self::InlineDictionaryMode,
         Self::NotifyOnUpdate,
+        Self::VoiceModel,
+        Self::VoiceAlwaysOn,
+        Self::VoicePttHotkey,
+        Self::VoiceHandsfreeHotkey,
+        Self::VoiceDictationStarters,
+        Self::VoiceDictionary,
     ];
 
     pub const fn storage_key(self) -> &'static str {
@@ -438,6 +527,12 @@ impl SettingKey {
             Self::InlineDictionaryEnabled => "inline_dictionary_enabled",
             Self::InlineDictionaryMode => "inline_dictionary_mode",
             Self::NotifyOnUpdate => "notify_on_update",
+            Self::VoiceModel => "voice_model",
+            Self::VoiceAlwaysOn => "voice_always_on",
+            Self::VoicePttHotkey => "voice_ptt_hotkey",
+            Self::VoiceHandsfreeHotkey => "voice_handsfree_hotkey",
+            Self::VoiceDictationStarters => "voice_dictation_starters",
+            Self::VoiceDictionary => "voice_dictionary",
         }
     }
 }
@@ -481,6 +576,12 @@ pub struct Settings {
     pub inline_dictionary_enabled: bool,
     pub inline_dictionary_mode: InlineDictionaryMode,
     pub notify_on_update: bool,
+    pub voice_model: String,
+    pub voice_always_on: bool,
+    pub voice_ptt_hotkey: String,
+    pub voice_handsfree_hotkey: String,
+    pub voice_dictation_starters: String,
+    pub voice_dictionary: String,
 }
 
 impl std::fmt::Debug for Settings {
@@ -550,12 +651,18 @@ impl std::fmt::Debug for Settings {
             .field("inline_dictionary_enabled", &self.inline_dictionary_enabled)
             .field("inline_dictionary_mode", &self.inline_dictionary_mode)
             .field("notify_on_update", &self.notify_on_update)
+            .field("voice_model", &self.voice_model)
+            .field("voice_always_on", &self.voice_always_on)
+            .field("voice_ptt_hotkey", &self.voice_ptt_hotkey)
+            .field("voice_handsfree_hotkey", &self.voice_handsfree_hotkey)
+            .field("voice_dictation_starters", &self.voice_dictation_starters)
+            .field("voice_dictionary", &self.voice_dictionary)
             .finish()
     }
 }
 
 impl Settings {
-    pub const ALL_KEYS: [&'static str; 37] = [
+    pub const ALL_KEYS: [&'static str; 43] = [
         "pause_hotkey",
         "pause_notifications_enabled",
         "pause_audio_enabled",
@@ -593,6 +700,12 @@ impl Settings {
         "inline_dictionary_enabled",
         "inline_dictionary_mode",
         "notify_on_update",
+        "voice_model",
+        "voice_always_on",
+        "voice_ptt_hotkey",
+        "voice_handsfree_hotkey",
+        "voice_dictation_starters",
+        "voice_dictionary",
     ];
 
     pub fn resolve_key(key: &str) -> &str {
@@ -655,6 +768,16 @@ impl Settings {
             "scripts_enabled" => "scripts_enabled",
             "system_tray" | "system_tray_enabled" | "tray" => "system_tray_enabled",
             "notify_on_update" | "notify_update" | "update_notify" => "notify_on_update",
+            "voice_model" | "voice_engine" => "voice_model",
+            "voice_always_on" | "always_on" | "voice_listen" | "voice_wake" => "voice_always_on",
+            "voice_ptt_hotkey" | "voice_ptt" | "ptt_hotkey" | "ptt" => "voice_ptt_hotkey",
+            "voice_handsfree_hotkey" | "voice_handsfree" | "handsfree_hotkey" | "handsfree" => {
+                "voice_handsfree_hotkey"
+            }
+            "voice_dictation_starters" | "voice_starters" | "dictation_starters" | "starters" => {
+                "voice_dictation_starters"
+            }
+            "voice_dictionary" | "voice_vocab" | "voice_words" => "voice_dictionary",
             other => other,
         }
     }
@@ -765,6 +888,12 @@ impl Default for Settings {
             inline_dictionary_enabled: true,
             inline_dictionary_mode: InlineDictionaryMode::default(),
             notify_on_update: false,
+            voice_model: "auto".to_string(),
+            voice_always_on: false,
+            voice_ptt_hotkey: "win+lctrl".to_string(),
+            voice_handsfree_hotkey: "win+lctrl+lalt".to_string(),
+            voice_dictation_starters: "type this, write this".to_string(),
+            voice_dictionary: String::new(),
         }
     }
 }
@@ -851,5 +980,49 @@ mod tests {
             Settings::resolve_key("dictionary_mode"),
             "inline_dictionary_mode"
         );
+    }
+
+    #[test]
+    fn test_voice_settings_defaults() {
+        let defaults = Settings::default();
+        assert_eq!(defaults.voice_model, "auto");
+        assert!(!defaults.voice_always_on);
+        assert_eq!(defaults.voice_ptt_hotkey, "win+lctrl");
+        assert_eq!(defaults.voice_handsfree_hotkey, "win+lctrl+lalt");
+        assert_eq!(defaults.voice_dictation_starters, "type this, write this");
+        assert!(defaults.voice_dictionary.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_key_voice_settings() {
+        assert_eq!(Settings::resolve_key("voice_model"), "voice_model");
+        assert_eq!(Settings::resolve_key("voice_engine"), "voice_model");
+        assert_eq!(Settings::resolve_key("voice_always_on"), "voice_always_on");
+        assert_eq!(Settings::resolve_key("always_on"), "voice_always_on");
+        assert_eq!(Settings::resolve_key("voice_listen"), "voice_always_on");
+        assert_eq!(Settings::resolve_key("voice_wake"), "voice_always_on");
+        assert_eq!(
+            Settings::resolve_key("voice_ptt_hotkey"),
+            "voice_ptt_hotkey"
+        );
+        assert_eq!(Settings::resolve_key("ptt"), "voice_ptt_hotkey");
+        assert_eq!(
+            Settings::resolve_key("voice_handsfree_hotkey"),
+            "voice_handsfree_hotkey"
+        );
+        assert_eq!(Settings::resolve_key("handsfree"), "voice_handsfree_hotkey");
+        assert_eq!(
+            Settings::resolve_key("voice_dictation_starters"),
+            "voice_dictation_starters"
+        );
+        assert_eq!(
+            Settings::resolve_key("starters"),
+            "voice_dictation_starters"
+        );
+        assert_eq!(
+            Settings::resolve_key("voice_dictionary"),
+            "voice_dictionary"
+        );
+        assert_eq!(Settings::resolve_key("voice_vocab"), "voice_dictionary");
     }
 }

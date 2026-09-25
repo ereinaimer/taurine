@@ -8,10 +8,84 @@ pub fn execute(
     desc: bool,
     json: bool,
     tag: Option<String>,
+    voice: bool,
 ) -> taurine_core::error::Result<()> {
     use taurine_core::db::crud::get_triggers_list;
 
     let conn = init::setup()?;
+
+    if voice {
+        let mut voice_triggers =
+            taurine_core::db::crud::voice_triggers::list_active_voice_triggers(&conn)?;
+
+        if json {
+            println!("{}", serde_json::to_string(&voice_triggers).unwrap());
+            return Ok(());
+        }
+
+        if voice_triggers.is_empty() {
+            println!("No active voice triggers found.");
+            return Ok(());
+        }
+
+        let effective_sort = sort.clone().unwrap_or(SortBy::Alpha);
+        let is_desc = if desc {
+            true
+        } else if asc {
+            false
+        } else {
+            match effective_sort {
+                SortBy::Alpha => false,
+                SortBy::Usage | SortBy::Created | SortBy::Recent => true,
+            }
+        };
+
+        voice_triggers.sort_by(|a, b| {
+            let cmp = match effective_sort {
+                SortBy::Alpha => a.spoken_phrase.cmp(&b.spoken_phrase),
+                SortBy::Usage => a.usage_count.cmp(&b.usage_count),
+                SortBy::Created | SortBy::Recent => a.created_at.cmp(&b.created_at),
+            };
+            if is_desc { cmp.reverse() } else { cmp }
+        });
+
+        let mut pw = 13; // "SPOKEN PHRASE"
+        let mut ow = 6; // "OUTPUT"
+        let mut aw = 6; // "ACTION"
+        let cw = 7; // "CONFIRM"
+        let mut uw = 5; // "USAGE"
+
+        for v in &voice_triggers {
+            pw = pw.max(v.spoken_phrase.len());
+            ow = ow.max(v.output.len().min(40));
+            aw = aw.max(v.action_type.len());
+            uw = uw.max(v.usage_count.to_string().len());
+        }
+
+        println!(
+            "{:<pw$}  {:<ow$}  {:<aw$}  {:<cw$}  {:>uw$}",
+            "SPOKEN PHRASE", "OUTPUT", "ACTION", "CONFIRM", "USAGE"
+        );
+        println!(
+            "{:<pw$}  {:<ow$}  {:<aw$}  {:<cw$}  {:>uw$}",
+            "-".repeat(pw),
+            "-".repeat(ow),
+            "-".repeat(aw),
+            "-".repeat(cw),
+            "-".repeat(uw)
+        );
+
+        for v in &voice_triggers {
+            let confirm_str = if v.require_confirmation { "yes" } else { "no" };
+            let display_out = truncate(&v.output.replace(['\r', '\n'], " "), 40);
+            println!(
+                "{:<pw$}  {:<ow$}  {:<aw$}  {:<cw$}  {:>uw$}",
+                v.spoken_phrase, display_out, v.action_type, confirm_str, v.usage_count
+            );
+        }
+
+        return Ok(());
+    }
     let mut triggers = get_triggers_list(&conn)?;
 
     if let Some(ref t) = tag {

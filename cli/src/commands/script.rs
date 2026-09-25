@@ -14,6 +14,8 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
         trigger,
         hotkey,
         regex,
+        voice,
+        yes,
         content,
         file,
         lang,
@@ -28,6 +30,83 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
     } = args
         .sub
         .expect("add dispatch routes to script only when subcommand is present");
+
+    if voice {
+        let phrase = match trigger {
+            Some(t) => t,
+            None => {
+                let diag = taurine_core::diagnostic::Diagnostic::problem(
+                    "Missing voice trigger phrase for script",
+                )
+                .help("Specify a spoken phrase to trigger the script:")
+                .example("taurine add script --voice \"build project\" \"cargo build\"")
+                .example("taurine add script --voice -y \"deploy\" \"./deploy.sh\"");
+                return Err(taurine_core::error::Error::Config(diag.render()));
+            }
+        };
+
+        let script_payload = match (content, file) {
+            (Some(c), _) => c,
+            (None, Some(path)) => {
+                if !path.exists() {
+                    let diag = taurine_core::diagnostic::Diagnostic::problem(format!(
+                        "Script file does not exist: {}",
+                        path.display()
+                    ))
+                    .help("Check the file path and try again.");
+                    return Err(taurine_core::error::Error::Config(diag.render()));
+                }
+                fs::read_to_string(&path).map_err(|e| {
+                    taurine_core::error::Error::Config(format!(
+                        "Failed to read script file {}: {e}",
+                        path.display()
+                    ))
+                })?
+            }
+            (None, None) => {
+                let diag =
+                    taurine_core::diagnostic::Diagnostic::problem("Missing script command or file")
+                        .help("Specify inline script command or provide a script file:")
+                        .example("taurine add script --voice \"build project\" \"cargo build\"")
+                        .example("taurine add script --voice \"run tests\" -f ./test.sh");
+                return Err(taurine_core::error::Error::Config(diag.render()));
+            }
+        };
+
+        let conn = init::setup()?;
+        let os_str = os
+            .to_db_str()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| taurine_core::db::get_current_os_db_string().to_string());
+
+        let require_confirmation = !yes;
+
+        let row = taurine_core::db::crud::voice_triggers::add_voice_trigger_full(
+            &conn,
+            &phrase,
+            &script_payload,
+            "script",
+            &os_str,
+            include_apps.as_deref(),
+            exclude_apps.as_deref(),
+            require_confirmation,
+        )?;
+
+        if json {
+            println!("{}", serde_json::to_string(&row).unwrap());
+        } else if require_confirmation {
+            println!(
+                "Added voice script trigger '{}' (requires confirmation before execution)",
+                row.spoken_phrase
+            );
+        } else {
+            println!(
+                "Added voice script trigger '{}' (executes without confirmation)",
+                row.spoken_phrase
+            );
+        }
+        return Ok(());
+    }
 
     let trigger = match trigger {
         Some(t) => t,

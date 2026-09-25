@@ -685,6 +685,7 @@ fn record_inline_ai_completion(output_chars: usize) {
         kind: taurine_core::db::crud::TriggerStatKind::InlineAi,
         wpm: None,
         app,
+        words_count: None,
     });
 }
 

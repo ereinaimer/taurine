@@ -42,6 +42,7 @@ thiserror = "2.0.18"
 heck = "0.5"
 base64 = "0.23"
 strsim = "0.11"
+deunicode = "1.6"
 
 sha2 = "0.11"
 regex = "1.12"

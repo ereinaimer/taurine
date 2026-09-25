@@ -104,6 +104,10 @@ pub(crate) enum Commands {
         /// Filter by tag
         #[arg(long)]
         tag: Option<String>,
+
+        /// Show voice triggers only
+        #[arg(long)]
+        voice: bool,
     },
     /// Export triggers to a file
     Export {
@@ -274,6 +278,10 @@ pub struct AddArgs {
     #[arg(long, conflicts_with = "hotkey")]
     pub regex: bool,
 
+    /// Voice trigger
+    #[arg(long, conflicts_with_all = ["hotkey", "regex"])]
+    pub voice: bool,
+
     /// Allowed apps
     #[arg(long)]
     pub include_apps: Option<String>,
@@ -319,6 +327,12 @@ pub enum AddSubcommand {
         /// Regex trigger
         #[arg(long, conflicts_with = "hotkey")]
         regex: bool,
+        /// Voice trigger
+        #[arg(long, conflicts_with_all = ["hotkey", "regex"])]
+        voice: bool,
+        /// Skip confirmation prompt for voice script trigger
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
         /// Script content
         content: Option<String>,
         /// Script file

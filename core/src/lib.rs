@@ -18,6 +18,7 @@ pub mod engine;
 pub mod exchange;
 pub mod keys;
 pub mod stats;
+pub mod voice;
 
 pub use error::{Error, Result};
 

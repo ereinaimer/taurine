@@ -8,6 +8,58 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
         return crate::commands::script::execute_args(args, json);
     }
 
+    if args.voice {
+        let (phrase, output) = match (args.trigger, args.output) {
+            (Some(p), Some(o)) => (p, o),
+            (Some(p), None) => {
+                let diag = taurine_core::diagnostic::Diagnostic::problem(format!(
+                    "Missing replacement output for voice trigger {p}"
+                ))
+                .help("Specify both the spoken phrase and its replacement output:")
+                .example(format!("taurine add --voice \"{p}\" <OUTPUT>"))
+                .example("taurine add --voice \"my email\" \"user@example.com\"");
+                return Err(taurine_core::Error::Config(diag.render()));
+            }
+            _ => {
+                let diag = taurine_core::diagnostic::Diagnostic::problem(
+                    "Missing voice phrase and replacement output",
+                )
+                .help("Specify both the spoken phrase and the replacement text:")
+                .example("taurine add --voice \"my email\" \"user@example.com\"");
+                return Err(taurine_core::Error::Config(diag.render()));
+            }
+        };
+
+        let conn = init::setup()?;
+        let os = args
+            .os
+            .to_db_str()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| taurine_core::db::get_current_os_db_string().to_string());
+
+        let row = taurine_core::db::crud::voice_triggers::add_voice_trigger_full(
+            &conn,
+            &phrase,
+            &output,
+            "text",
+            &os,
+            args.include_apps.as_deref(),
+            args.exclude_apps.as_deref(),
+            false,
+        )?;
+
+        if json {
+            println!("{}", serde_json::to_string(&row).unwrap());
+        } else {
+            info!(
+                "Added voice trigger '{}' -> '{}'",
+                row.spoken_phrase, row.output
+            );
+            println!("Added voice trigger '{}'", row.spoken_phrase);
+        }
+        return Ok(());
+    }
+
     let (trigger, output) = match (args.trigger, args.output) {
         (Some(t), Some(o)) => (t, o),
         (Some(t), None) => {
@@ -694,6 +746,7 @@ mod tests {
             sub: None,
             hotkey: false,
             regex: false,
+            voice: false,
             include_apps: None,
             exclude_apps: None,
             trigger: Some(":brb".to_string()),
@@ -729,6 +782,7 @@ mod tests {
             sub: None,
             hotkey: false,
             regex: false,
+            voice: false,
             include_apps: None,
             exclude_apps: None,
             trigger: None,
@@ -746,11 +800,34 @@ mod tests {
             err.contains("Missing trigger and replacement output"),
             "Error was: {err}"
         );
+        assert!(!err.contains('`'), "Must not contain backticks: {err}");
+        assert!(!err.contains('\''), "Must not contain single quotes: {err}");
+    }
+
+    #[test]
+    fn test_add_voice_missing_output_diagnostic() {
+        let args = AddArgs {
+            sub: None,
+            hotkey: false,
+            regex: false,
+            voice: true,
+            include_apps: None,
+            exclude_apps: None,
+            trigger: Some("my email".to_string()),
+            output: None,
+            os: crate::args::TargetOsCli::All,
+            tag: None,
+            name: None,
+            description: None,
+            auto_case: false,
+        };
+
+        let result = execute_args(args, false);
+        let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("taurine add :brb Be right back!"),
+            err.contains("Missing replacement output for voice trigger my email"),
             "Error was: {err}"
         );
         assert!(!err.contains('`'), "Must not contain backticks: {err}");
-        assert!(!err.contains('\''), "Must not contain single quotes: {err}");
     }
 }

@@ -194,6 +194,7 @@ pub(super) fn dispatch_expansion_with<I, L>(
             },
             wpm: None,
             app,
+            words_count: None,
         });
     }
 }

@@ -55,7 +55,11 @@ pub fn execute(
             .iter()
             .map(|t| normalize_hotkey(t).unwrap_or_else(|_| t.clone()))
             .collect();
-        delete_triggers_by_values(&conn, &canonical)?
+        let typed_count = delete_triggers_by_values(&conn, &canonical)?;
+        let voice_count = taurine_core::db::crud::voice_triggers::delete_voice_triggers_by_values(
+            &conn, &triggers,
+        )?;
+        typed_count + voice_count
     };
 
     if removed_count == 0 {
@@ -80,10 +84,15 @@ pub fn execute(
             }
         } else if !is_glob {
             let mut stmt = conn.prepare("SELECT trigger FROM triggers WHERE is_deleted = 0")?;
-            let active_triggers: Vec<String> = stmt
+            let mut active_triggers: Vec<String> = stmt
                 .query_map([], |row| row.get(0))?
                 .filter_map(|r| r.ok())
                 .collect();
+            if let Ok(voice_trigs) =
+                taurine_core::db::crud::voice_triggers::list_active_voice_triggers(&conn)
+            {
+                active_triggers.extend(voice_trigs.into_iter().map(|v| v.spoken_phrase));
+            }
             let active_refs: Vec<&str> = active_triggers.iter().map(|s| s.as_str()).collect();
 
             for trig in &triggers {

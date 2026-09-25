@@ -1545,6 +1545,7 @@ fn test_record_expansion_usage_updates_trigger_and_stats() {
             kind: crate::db::crud::TriggerStatKind::Snippet,
             wpm: None,
             app: None,
+            words_count: None,
         },
     )
     .unwrap();

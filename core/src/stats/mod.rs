@@ -10,6 +10,8 @@ pub enum TriggerStatKind {
     Script,
     Calculation,
     InlineAi,
+    VoiceTrigger,
+    VoiceDictation,
 }
 
 /// Returns the current date in YYYY-MM-DD format (Local time).

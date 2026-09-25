@@ -2,6 +2,13 @@ pub mod settings;
 pub mod stats;
 pub mod target_os;
 pub mod triggers;
+pub mod voice_triggers;
+
+pub use voice_triggers::{
+    VoiceTriggerRow, add_voice_trigger, add_voice_trigger_full, delete_voice_trigger_by_phrase,
+    delete_voice_triggers_by_values, get_voice_trigger_by_phrase, increment_voice_trigger_usage,
+    list_active_voice_triggers, threshold_for_phrase, validate_voice_phrase,
+};
 
 pub use target_os::TargetOs;
 pub use triggers::{
@@ -25,10 +32,10 @@ pub use settings::{
     SettingRow, delete_setting, get_all_settings, get_setting, get_setting_value, upsert_setting,
 };
 pub use stats::{
-    AppStatRow, AppStatsSortBy, StatRow, TopAppStat, TriggerStatEvent, delete_stat,
+    AppStatRow, AppStatsSortBy, StatDeltas, StatRow, TopAppStat, TriggerStatEvent, delete_stat,
     format_app_display_name, get_stat, get_stat_counters, get_top_app_stats_with_conn,
     increment_stat, record_calculation_usage, record_trigger_stat, record_trigger_stat_with_conn,
-    upsert_app_stat_with_conn,
+    record_voice_dictation_usage, record_voice_trigger_usage, upsert_app_stat_with_conn,
 };
 
 pub const SUPPORTED_TARGET_OS_VALUES: [&str; 6] = ["all", "win", "linux", "mac", "android", "ios"];

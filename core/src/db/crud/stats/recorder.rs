@@ -4,7 +4,7 @@ use crate::db::crud::triggers::increment_usage_count_by_trigger;
 use crate::settings::Settings;
 use crate::stats::{TriggerStatKind, calculate_expansion_stats, get_current_date_string};
 
-use super::increment_stat;
+use super::{StatDeltas, increment_stat};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TriggerStatEvent {
@@ -15,6 +15,7 @@ pub struct TriggerStatEvent {
     pub kind: TriggerStatKind,
     pub wpm: Option<u32>,
     pub app: Option<String>,
+    pub words_count: Option<usize>,
 }
 
 impl TriggerStatEvent {
@@ -87,47 +88,82 @@ pub fn record_trigger_stat_with_conn(
     let date = get_current_date_string();
     let tx = conn.transaction()?;
 
-    let (executions, ai_executions, keystrokes_saved, time_saved_ms) = match event.kind {
-        TriggerStatKind::InlineAi => (0, 1, 0, 0),
+    let deltas = match event.kind {
+        TriggerStatKind::InlineAi => StatDeltas {
+            ai_executions: 1,
+            ..Default::default()
+        },
+        TriggerStatKind::VoiceTrigger => {
+            let stats = calculate_expansion_stats(
+                event.output_chars,
+                event.trigger_chars,
+                effective_wpm(&tx, event.wpm),
+            );
+            StatDeltas {
+                voice_executions: 1,
+                keystrokes_saved: stats.keystrokes_saved,
+                time_saved_ms: stats.time_saved_ms,
+                ..Default::default()
+            }
+        }
+        TriggerStatKind::VoiceDictation => {
+            let words = event.words_count.unwrap_or(0);
+            let stats =
+                calculate_expansion_stats(event.output_chars, 0, effective_wpm(&tx, event.wpm));
+            StatDeltas {
+                voice_executions: 1,
+                words_dictated: words as i64,
+                keystrokes_saved: stats.keystrokes_saved,
+                time_saved_ms: stats.time_saved_ms,
+                ..Default::default()
+            }
+        }
         TriggerStatKind::Snippet | TriggerStatKind::Calculation => {
             let stats = calculate_expansion_stats(
                 event.output_chars,
                 event.trigger_chars,
                 effective_wpm(&tx, event.wpm),
             );
-            (1, 0, stats.keystrokes_saved, stats.time_saved_ms)
+            StatDeltas {
+                executions: 1,
+                keystrokes_saved: stats.keystrokes_saved,
+                time_saved_ms: stats.time_saved_ms,
+                ..Default::default()
+            }
         }
-        TriggerStatKind::Hotkey | TriggerStatKind::Script => (1, 0, 0, 0),
+        TriggerStatKind::Hotkey | TriggerStatKind::Script => StatDeltas {
+            executions: 1,
+            ..Default::default()
+        },
     };
 
     if let Some(trigger) = event.trigger.as_deref() {
-        increment_usage_count_by_trigger(&tx, trigger)?;
+        if event.kind == TriggerStatKind::VoiceTrigger {
+            let _ = crate::db::crud::voice_triggers::increment_voice_trigger_usage(&tx, trigger);
+        } else {
+            increment_usage_count_by_trigger(&tx, trigger)?;
+        }
     }
 
-    increment_stat(
-        &tx,
-        &date,
-        executions,
-        ai_executions,
-        keystrokes_saved,
-        time_saved_ms,
-    )?;
+    increment_stat(&tx, &date, &deltas)?;
 
     if let Some(app_key) = event.app.as_deref().map(str::trim)
         && !app_key.is_empty()
     {
-        let app_executions = if event.kind == TriggerStatKind::InlineAi {
-            1
-        } else {
-            executions.max(0) as u64
+        let app_executions = match event.kind {
+            TriggerStatKind::InlineAi => 1,
+            TriggerStatKind::VoiceTrigger | TriggerStatKind::VoiceDictation => {
+                deltas.voice_executions.max(0) as u64
+            }
+            _ => deltas.executions.max(0) as u64,
         };
         super::upsert_app_stat_with_conn(
             &tx,
             app_key,
             &date,
             app_executions,
-            keystrokes_saved.max(0) as u64,
-            time_saved_ms.max(0) as u64,
+            deltas.keystrokes_saved.max(0) as u64,
+            deltas.time_saved_ms.max(0) as u64,
         )?;
     }
 
@@ -139,4 +175,32 @@ fn effective_wpm(_conn: &Connection, event_wpm: Option<u32>) -> u32 {
     event_wpm
         .map(Settings::sanitize_wpm)
         .unwrap_or_else(|| Settings::sanitize_wpm(crate::settings::get_cached_wpm()))
+}
+
+/// Records stats for a completed voice dictation session.
+pub fn record_voice_dictation_usage(words_count: usize, chars_count: usize, app: Option<String>) {
+    record_trigger_stat(TriggerStatEvent {
+        trigger: None,
+        trigger_chars: 0,
+        success: true,
+        output_chars: chars_count,
+        kind: TriggerStatKind::VoiceDictation,
+        wpm: None,
+        app,
+        words_count: Some(words_count),
+    });
+}
+
+/// Records stats for a successfully triggered voice phrase expansion.
+pub fn record_voice_trigger_usage(phrase: &str, output_chars: usize, app: Option<String>) {
+    record_trigger_stat(TriggerStatEvent {
+        trigger: Some(phrase.to_string()),
+        trigger_chars: phrase.chars().count(),
+        success: true,
+        output_chars,
+        kind: TriggerStatKind::VoiceTrigger,
+        wpm: None,
+        app,
+        words_count: None,
+    });
 }

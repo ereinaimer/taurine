@@ -94,6 +94,8 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     date             TEXT    PRIMARY KEY,
                     executions       INTEGER DEFAULT 0,
                     ai_executions    INTEGER DEFAULT 0,
+                    voice_executions INTEGER DEFAULT 0,
+                    words_dictated   INTEGER DEFAULT 0,
                     keystrokes_saved INTEGER DEFAULT 0,
                     time_saved_ms    INTEGER DEFAULT 0,
                     version          INTEGER DEFAULT 1,
@@ -157,6 +159,31 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_active_trigger_uniqueness
                     ON triggers(trigger_type, trigger, target_os, COALESCE(only_apps, ''), COALESCE(except_apps, ''))
                  WHERE is_deleted = 0;
+
+                CREATE TABLE IF NOT EXISTS voice_triggers (
+                    id                   TEXT PRIMARY KEY,
+                    spoken_phrase        TEXT NOT NULL UNIQUE,
+                    output               TEXT NOT NULL,
+                    action_type          TEXT NOT NULL DEFAULT 'text',
+                    target_os            TEXT NOT NULL DEFAULT 'all',
+                    only_apps            TEXT,
+                    except_apps          TEXT,
+                    require_confirmation INTEGER NOT NULL DEFAULT 0,
+                    strict_threshold     REAL NOT NULL,
+                    usage_count          INTEGER NOT NULL DEFAULT 0,
+                    is_enabled           INTEGER NOT NULL DEFAULT 1,
+                    is_deleted           INTEGER NOT NULL DEFAULT 0,
+                    version              INTEGER NOT NULL DEFAULT 1,
+                    created_at           INTEGER NOT NULL DEFAULT (unixepoch()),
+                    updated_at           INTEGER NOT NULL DEFAULT (unixepoch())
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_active_voice_triggers
+                    ON voice_triggers(spoken_phrase)
+                 WHERE is_deleted = 0 AND is_enabled = 1;
+
+                CREATE INDEX IF NOT EXISTS idx_voice_triggers_usage
+                    ON voice_triggers(usage_count DESC);
 
                 PRAGMA user_version = 1;",
                     )

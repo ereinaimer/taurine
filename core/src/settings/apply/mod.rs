@@ -3,7 +3,7 @@ use crate::{
     ai::AiProvider,
     diagnostic::Diagnostic,
     error::{Error, Result},
-    keys::parse_hotkey,
+    keys::{Modifier, ModifierInsertError, Modifiers, parse_hotkey},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -300,6 +300,93 @@ pub fn apply_setting_input_with_manager(
             manager.update_setting(actual_key, parsed)?;
             ApplySettingOutcome::default()
         }
+        "voice_model" => {
+            let val = require_non_empty(value, actual_key)?;
+            let canonical = match canonicalize_voice_model(val) {
+                Some(model) => model.to_string(),
+                None => {
+                    let diag =
+                        Diagnostic::problem(format!("'{val}' is not a recognized voice model"))
+                            .suggest(val, KNOWN_VOICE_MODEL_ALIASES)
+                            .options("Available voice models", KNOWN_VOICE_MODELS)
+                            .example("taurine config set voice_model auto")
+                            .render();
+                    return Err(Error::Config(diag));
+                }
+            };
+            crate::settings::set_cached_voice_model(canonical.clone());
+            manager.update_setting(actual_key, canonical)?;
+            ApplySettingOutcome::default()
+        }
+        "voice_always_on" => {
+            let enabled = parse_boolean_setting_value_with_key(
+                actual_key,
+                require_non_empty(value, actual_key)?,
+            )?;
+            crate::settings::set_cached_voice_always_on(enabled);
+            manager.update_setting(actual_key, enabled)?;
+            ApplySettingOutcome::default()
+        }
+        "voice_ptt_hotkey" => {
+            let hotkey = require_non_empty(value, actual_key)?;
+            let canonical = validate_voice_hotkey(hotkey).map_err(|error| {
+                let diag =
+                    Diagnostic::problem(format!("invalid voice_ptt_hotkey '{hotkey}': {error}"))
+                        .help("Specify a valid hotkey (e.g. 'ctrl+space') or modifier chord (e.g. 'win+lctrl')")
+                        .example("taurine config set voice_ptt_hotkey win+lctrl")
+                        .render();
+                Error::Config(diag)
+            })?;
+            crate::settings::set_cached_voice_ptt_hotkey(canonical.clone());
+            manager.update_setting(actual_key, canonical)?;
+            ApplySettingOutcome::default()
+        }
+        "voice_handsfree_hotkey" => {
+            let hotkey = require_non_empty(value, actual_key)?;
+            let canonical = validate_voice_hotkey(hotkey).map_err(|error| {
+                let diag = Diagnostic::problem(format!(
+                    "invalid voice_handsfree_hotkey '{hotkey}': {error}"
+                ))
+                .help("Specify a valid hotkey (e.g. 'ctrl+shift+v') or modifier chord (e.g. 'win+lctrl+lalt')")
+                .example("taurine config set voice_handsfree_hotkey win+lctrl+lalt")
+                .render();
+                Error::Config(diag)
+            })?;
+            crate::settings::set_cached_voice_handsfree_hotkey(canonical.clone());
+            manager.update_setting(actual_key, canonical)?;
+            ApplySettingOutcome::default()
+        }
+        "voice_dictation_starters" => {
+            let raw = require_non_empty(value, actual_key)?;
+            let phrases: Vec<&str> = raw
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .collect();
+            if phrases.is_empty() {
+                let diag = Diagnostic::problem("voice_dictation_starters cannot be empty")
+                    .help("Provide one or more comma-separated wake phrases (e.g. 'type this, write this')")
+                    .example("taurine config set voice_dictation_starters \"type this, write this\"")
+                    .render();
+                return Err(Error::Config(diag));
+            }
+            let normalized = phrases.join(", ");
+            crate::settings::set_cached_voice_dictation_starters(normalized.clone());
+            manager.update_setting(actual_key, normalized)?;
+            ApplySettingOutcome::default()
+        }
+        "voice_dictionary" => {
+            let val = value.unwrap_or_default().trim();
+            let words: Vec<&str> = val
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .collect();
+            let normalized = words.join(", ");
+            crate::settings::set_cached_voice_dictionary(normalized.clone());
+            manager.update_setting(actual_key, normalized)?;
+            ApplySettingOutcome::default()
+        }
         _ => {
             let diag =
                 Diagnostic::problem(format!("{actual_key} is not a valid configuration setting"))
@@ -394,6 +481,103 @@ fn require_non_empty<'a>(value: Option<&'a str>, key: &str) -> Result<&'a str> {
     value
         .filter(|value| !value.is_empty())
         .ok_or_else(|| Error::Config(format!("{key} must not be empty")))
+}
+
+pub const KNOWN_VOICE_MODELS: &[&str] = &[
+    "auto",
+    "parakeet-tdt-0.6b-v3",
+    "whisper-large-v3-turbo",
+    "distil-whisper-large-v3",
+    "whisper-small-en",
+    "whisper-base-en",
+    "moonshine-base-en",
+    "whisper-medium-en",
+    "whisper-large-v3",
+];
+
+pub const KNOWN_VOICE_MODEL_ALIASES: &[&str] = &[
+    "auto",
+    "parakeet",
+    "turbo",
+    "distil",
+    "distil-whisper",
+    "small",
+    "base",
+    "moonshine",
+    "medium",
+    "large",
+    "parakeet-tdt-0.6b-v3",
+    "whisper-large-v3-turbo",
+    "distil-whisper-large-v3",
+    "whisper-small-en",
+    "whisper-base-en",
+    "moonshine-base-en",
+    "whisper-medium-en",
+    "whisper-large-v3",
+];
+
+pub fn canonicalize_voice_model(input: &str) -> Option<&'static str> {
+    match input.trim().to_ascii_lowercase().as_str() {
+        "auto" => Some("auto"),
+        "parakeet" | "parakeet-tdt" | "parakeet-tdt-0.6b-v3" => Some("parakeet-tdt-0.6b-v3"),
+        "turbo" | "whisper-turbo" | "whisper-large-v3-turbo" => Some("whisper-large-v3-turbo"),
+        "distil" | "distil-whisper" | "distil-whisper-large-v3" => Some("distil-whisper-large-v3"),
+        "small" | "whisper-small" | "whisper-small-en" => Some("whisper-small-en"),
+        "base" | "whisper-base" | "whisper-base-en" => Some("whisper-base-en"),
+        "moonshine" | "moonshine-base" | "moonshine-base-en" => Some("moonshine-base-en"),
+        "medium" | "whisper-medium" | "whisper-medium-en" => Some("whisper-medium-en"),
+        "large" | "whisper-large" | "whisper-large-v3" => Some("whisper-large-v3"),
+        _ => None,
+    }
+}
+
+pub fn validate_voice_hotkey(input: &str) -> std::result::Result<String, String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err("hotkey cannot be empty".to_string());
+    }
+
+    if let Ok(hk) = parse_hotkey(trimmed) {
+        return Ok(hk.canonical_string());
+    }
+
+    let parts: Vec<&str> = trimmed.split('+').map(str::trim).collect();
+    if parts.is_empty() {
+        return Err("hotkey cannot be empty".to_string());
+    }
+
+    let mut canonical_parts = Vec::new();
+    let mut bitset = Modifiers::new();
+
+    for part in parts {
+        let token = part.to_ascii_lowercase();
+        if token.is_empty() {
+            return Err("hotkey contains empty segments between '+'".to_string());
+        }
+        if let Some(modifier) = Modifier::from_alias(&token) {
+            bitset.insert(modifier).map_err(|e| match e {
+                ModifierInsertError::Duplicate(m) => {
+                    format!("duplicate modifier '{}'", m.canonical_name())
+                }
+                ModifierInsertError::Conflict { existing, incoming } => {
+                    format!(
+                        "conflicting modifiers '{}' and '{}'",
+                        existing.canonical_name(),
+                        incoming.canonical_name()
+                    )
+                }
+            })?;
+            canonical_parts.push(token);
+        } else {
+            return Err(format!("unknown or invalid modifier '{part}'"));
+        }
+    }
+
+    if canonical_parts.is_empty() {
+        return Err("hotkey must contain at least one key or modifier".to_string());
+    }
+
+    Ok(canonical_parts.join("+"))
 }
 
 mod defaults;

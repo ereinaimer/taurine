@@ -176,6 +176,7 @@ impl SettingsPageState {
             SettingKey::InlineDictionaryEnabled => {
                 (!self.settings.inline_dictionary_enabled).to_string()
             }
+            SettingKey::VoiceAlwaysOn => (!self.settings.voice_always_on).to_string(),
             _ => return SettingsInteraction::handled(),
         };
 

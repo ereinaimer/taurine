@@ -60,6 +60,13 @@ static LAST_PAUSE_TOGGLE_INSTANT: std::sync::OnceLock<std::sync::Mutex<std::time
 #[cfg(not(target_os = "linux"))]
 static PAUSE_KEY_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+#[cfg(not(target_os = "linux"))]
+static PTT_KEY_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(not(target_os = "linux"))]
+static HANDSFREE_KEY_DOWN: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 #[cfg(target_os = "linux")]
 #[allow(clippy::too_many_arguments)]
 pub fn start_listener(
@@ -493,6 +500,61 @@ pub fn process_keyboard_event(
                 return Some(event);
             }
 
+            // Voice routing — check voice hotkeys and Escape before the text-expansion pipeline.
+            // All voice work is dispatched off the hook thread to avoid blocking the message pump.
+            if let Some(session) = crate::VOICE_SESSION.get() {
+                // Escape terminates any live PTT or HandsFree session.
+                if key == Key::Escape && session.is_active() {
+                    let session = session.clone();
+                    std::thread::spawn(move || {
+                        if let Err(e) = session.on_escape_pressed() {
+                            warn!("Voice Escape handler error: {e}");
+                        }
+                    });
+                    // Swallow Escape so it doesn't close an application dialog while dictating.
+                    return None;
+                }
+
+                // PTT press — start recording if the PTT hotkey matches.
+                let ptt_str = taurine_core::settings::get_cached_voice_ptt_hotkey();
+                if !ptt_str.is_empty()
+                    && let Ok(spec) = taurine_core::keys::parse_hotkey(&ptt_str)
+                    && crate::input::hotkey::is_pause_chord(
+                        &event,
+                        modifiers,
+                        &crate::input::hotkey::HotkeySpec { hotkey: spec },
+                    )
+                {
+                    if !PTT_KEY_DOWN.swap(true, Ordering::Relaxed)
+                        && let Err(e) = session.start_ptt()
+                    {
+                        warn!("Voice PTT start error: {e}");
+                    }
+                    return None;
+                }
+
+                // HandsFree toggle press.
+                let hf_str = taurine_core::settings::get_cached_voice_handsfree_hotkey();
+                if !hf_str.is_empty()
+                    && let Ok(spec) = taurine_core::keys::parse_hotkey(&hf_str)
+                    && crate::input::hotkey::is_pause_chord(
+                        &event,
+                        modifiers,
+                        &crate::input::hotkey::HotkeySpec { hotkey: spec },
+                    )
+                {
+                    if !HANDSFREE_KEY_DOWN.swap(true, Ordering::Relaxed) {
+                        let session = session.clone();
+                        std::thread::spawn(move || {
+                            if let Err(e) = session.toggle_handsfree() {
+                                warn!("Voice HandsFree toggle error: {e}");
+                            }
+                        });
+                    }
+                    return None;
+                }
+            }
+
             let assist_active = trigger_assist_is_active(evaluator, state.as_ref());
 
             if assist_active {
@@ -742,6 +804,36 @@ pub fn process_keyboard_event(
             }
         }
         EventType::KeyRelease(key) => {
+            // PTT release — if the PTT hotkey key is released and PTT was active, stop recording.
+            if let Some(session) = crate::VOICE_SESSION.get() {
+                let ptt_str = taurine_core::settings::get_cached_voice_ptt_hotkey();
+                if !ptt_str.is_empty()
+                    && let Ok(spec) = taurine_core::keys::parse_hotkey(&ptt_str)
+                    && let Some(logical_key) = logical_key_from_rdev(key)
+                    && logical_key == spec.key
+                {
+                    let was_down = PTT_KEY_DOWN.swap(false, Ordering::Relaxed);
+                    if was_down || session.current_mode() == crate::voice::VoiceMode::PushToTalk {
+                        let session = session.clone();
+                        std::thread::spawn(move || {
+                            if let Err(e) = session.stop_ptt() {
+                                warn!("Voice PTT stop error: {e}");
+                            }
+                        });
+                        return None;
+                    }
+                }
+
+                let hf_str = taurine_core::settings::get_cached_voice_handsfree_hotkey();
+                if !hf_str.is_empty()
+                    && let Ok(spec) = taurine_core::keys::parse_hotkey(&hf_str)
+                    && let Some(logical_key) = logical_key_from_rdev(key)
+                    && logical_key == spec.key
+                {
+                    HANDSFREE_KEY_DOWN.store(false, Ordering::Relaxed);
+                }
+            }
+
             if trigger_assist_is_active(evaluator, state.as_ref())
                 && should_swallow_trigger_assist_key_release(
                     state.as_ref(),
@@ -763,6 +855,7 @@ pub fn process_keyboard_event(
                 return None;
             }
         }
+
         EventType::ButtonRelease(button) => {
             if let Some(logical_key) = logical_key_from_rdev_button(button)
                 && let Ok(mut lock) = hotkey_evaluator.lock()

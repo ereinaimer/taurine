@@ -10,5 +10,6 @@ pub use hotkey::{
     parse_hotkey, parse_keypress_alias, taurine_pause_hotkey,
 };
 pub use key::{
-    LogicalKey, Modifier, ModifierFamily, ModifierSide, ModifierState, Modifiers, MouseButton,
+    LogicalKey, Modifier, ModifierFamily, ModifierInsertError, ModifierSide, ModifierState,
+    Modifiers, MouseButton,
 };

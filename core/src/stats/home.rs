@@ -110,7 +110,8 @@ fn fetch_most_used(
 mod tests {
     use super::*;
     use crate::db::crud::{
-        TriggerType, delete_trigger, increment_stat, upsert_trigger, upsert_trigger_with_type,
+        StatDeltas, TriggerType, delete_trigger, increment_stat, upsert_trigger,
+        upsert_trigger_with_type,
     };
     use crate::testing::{init_tracing_for_tests, open_test_db};
 
@@ -133,8 +134,29 @@ mod tests {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        increment_stat(&conn, "2026-04-01", 4, 0, 120, 180_000).unwrap();
-        increment_stat(&conn, "2026-04-02", 2, 1, 30, 60_000).unwrap();
+        increment_stat(
+            &conn,
+            "2026-04-01",
+            &StatDeltas {
+                executions: 4,
+                keystrokes_saved: 120,
+                time_saved_ms: 180_000,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        increment_stat(
+            &conn,
+            "2026-04-02",
+            &StatDeltas {
+                executions: 2,
+                ai_executions: 1,
+                keystrokes_saved: 30,
+                time_saved_ms: 60_000,
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         upsert_trigger(
             &conn,

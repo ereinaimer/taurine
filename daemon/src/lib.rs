@@ -17,6 +17,7 @@ mod injector;
 mod input;
 pub mod platform;
 mod services;
+pub mod voice;
 
 pub use services::server::DaemonService;
 
@@ -25,6 +26,16 @@ static FILE_LOG_GUARD: std::sync::OnceLock<Option<tracing_appender::non_blocking
 
 pub(crate) static TOKIO_HANDLE: std::sync::OnceLock<tokio::runtime::Handle> =
     std::sync::OnceLock::new();
+
+/// Global voice session manager — set once at daemon startup, read from the hook callback.
+pub(crate) static VOICE_SESSION: std::sync::OnceLock<
+    std::sync::Arc<crate::voice::VoiceSessionManager>,
+> = std::sync::OnceLock::new();
+
+/// Global always-on listener — stored to allow stop() during daemon shutdown.
+pub(crate) static ALWAYS_ON_LISTENER: std::sync::OnceLock<
+    std::sync::Arc<crate::voice::AlwaysOnVoiceListener>,
+> = std::sync::OnceLock::new();
 
 /// Lock a freshly bound Unix socket to owner-only access. Socket permissions
 /// are the access boundary for unauthenticated control RPCs.
@@ -147,6 +158,18 @@ pub fn start() -> taurine_core::error::Result<()> {
     taurine_core::settings::set_cached_audio_theme(settings.audio_theme);
     taurine_core::settings::set_cached_audio_volume(settings.audio_volume);
 
+    // Cache voice settings
+    taurine_core::settings::set_cached_voice_always_on(settings.voice_always_on);
+    taurine_core::settings::set_cached_voice_model(settings.voice_model.clone());
+    taurine_core::settings::set_cached_voice_ptt_hotkey(settings.voice_ptt_hotkey.clone());
+    taurine_core::settings::set_cached_voice_handsfree_hotkey(
+        settings.voice_handsfree_hotkey.clone(),
+    );
+    taurine_core::settings::set_cached_voice_dictation_starters(
+        settings.voice_dictation_starters.clone(),
+    );
+    taurine_core::settings::set_cached_voice_dictionary(settings.voice_dictionary.clone());
+
     let state = Arc::new(EngineState::new());
     state
         .inline_tab_completion_enabled
@@ -206,6 +229,44 @@ pub fn start() -> taurine_core::error::Result<()> {
         settings.system_tray_enabled,
     ));
     let hook_health = input::hook_health::HookHealth::new();
+
+    // Initialize voice subsystem — must be after `paused` is created
+    {
+        use taurine_core::voice::VoiceDictionary;
+
+        let buffer = Arc::new(crate::voice::AudioFrameBuffer::new());
+        let capture = Arc::new(crate::voice::AudioCapture::new(buffer));
+
+        let dict = VoiceDictionary::from_csv(&settings.voice_dictionary);
+        let session = Arc::new(
+            crate::voice::VoiceSessionManager::new(capture.clone(), paused.clone())
+                .with_model_name(settings.voice_model.clone())
+                .with_dictionary(dict),
+        );
+
+        let always_on_listener = Arc::new(crate::voice::AlwaysOnVoiceListener::new(
+            capture,
+            session.clone(),
+            paused.clone(),
+        ));
+
+        if !settings.voice_dictation_starters.is_empty() {
+            always_on_listener.set_starters(&settings.voice_dictation_starters);
+        }
+
+        if settings.voice_always_on {
+            session.set_always_on(true);
+            if let Err(e) = always_on_listener.start() {
+                error!("Failed to start always-on voice listener: {e}");
+            } else {
+                info!("Always-on voice listener started");
+            }
+        }
+
+        // Store in globals — safe to ignore errors (only fails if already set)
+        let _ = VOICE_SESSION.set(session);
+        let _ = ALWAYS_ON_LISTENER.set(always_on_listener);
+    }
 
     let (audio_tx, audio_rx) = services::audio::create_channel();
     let (pause_transition_tx, mut pause_transition_rx) = tokio::sync::mpsc::channel::<bool>(8);
@@ -734,6 +795,12 @@ pub fn start() -> taurine_core::error::Result<()> {
     #[cfg(target_os = "linux")]
     {
         crate::platform::linux::toplevel::stop_listener();
+    }
+
+    // 5. Stop the always-on voice listener
+    if let Some(listener) = ALWAYS_ON_LISTENER.get() {
+        listener.stop();
+        debug!("Always-on voice listener stopped");
     }
 
     info!("Service stopped cleanly. Exiting.");

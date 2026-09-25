@@ -27,5 +27,6 @@ pub fn record_expansion_usage(
         kind: crate::db::crud::TriggerStatKind::Snippet,
         wpm: None,
         app: None,
+        words_count: None,
     });
 }

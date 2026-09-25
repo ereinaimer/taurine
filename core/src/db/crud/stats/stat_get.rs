@@ -5,7 +5,7 @@ use super::StatRow;
 /// Returns the full row for `date`, or `None` if it does not exist.
 pub fn get_stat(conn: &Connection, date: &str) -> Result<Option<StatRow>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT date, executions, ai_executions, keystrokes_saved, time_saved_ms, version, updated_at
+        "SELECT date, executions, ai_executions, voice_executions, words_dictated, keystrokes_saved, time_saved_ms, version, updated_at
          FROM   stats
          WHERE  date = ?1",
     )?;
@@ -15,10 +15,12 @@ pub fn get_stat(conn: &Connection, date: &str) -> Result<Option<StatRow>> {
             date: row.get(0)?,
             executions: row.get(1)?,
             ai_executions: row.get(2)?,
-            keystrokes_saved: row.get(3)?,
-            time_saved_ms: row.get(4)?,
-            version: row.get(5)?,
-            updated_at: row.get(6)?,
+            voice_executions: row.get(3)?,
+            words_dictated: row.get(4)?,
+            keystrokes_saved: row.get(5)?,
+            time_saved_ms: row.get(6)?,
+            version: row.get(7)?,
+            updated_at: row.get(8)?,
         })
     });
 
