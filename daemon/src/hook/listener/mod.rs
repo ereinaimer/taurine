@@ -56,6 +56,7 @@ pub(super) static LISTENER_EPOCH: std::sync::atomic::AtomicU64 =
 #[cfg(not(target_os = "linux"))]
 static PAUSE_KEY_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+#[cfg(not(target_os = "linux"))]
 use crate::input::hotkey::{
     HANDSFREE_KEY_DOWN, PTT_KEY_DOWN, cached_voice_handsfree_spec, cached_voice_ptt_spec,
 };

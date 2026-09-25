@@ -156,6 +156,9 @@ pub fn set_pause_transition_sender(tx: tokio::sync::mpsc::Sender<bool>) {
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(tx);
 }
 
+// Reader for the tray fallback path in tray::native, which only builds on
+// Windows and macOS; Linux tray never reads the sender.
+#[cfg(any(windows, target_os = "macos"))]
 pub fn pause_transition_sender() -> Option<tokio::sync::mpsc::Sender<bool>> {
     PAUSE_TRANSITION_TX
         .lock()
