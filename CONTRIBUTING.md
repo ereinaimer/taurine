@@ -77,8 +77,16 @@ Before submitting your changes, please make sure everything builds correctly and
 
 ```bash
 cargo check
-cargo test
+cargo nextest run --workspace --all-features
 ```
+
+The default suite is hermetic: it never types keys, touches the clipboard, opens windows, spawns processes, plays audio, opens the mic, or writes outside temp dirs, so it is safe to run while gaming. Host-affecting tests (real `SendInput`, process spawns) are `#[ignore]`-gated and need an explicit opt-in on a throwaway machine with nothing focused:
+
+```bash
+TAURINE_ALLOW_HOST_INPUT=1 cargo test -- --ignored
+```
+
+See `AGENTS.md` (Test Isolation rule) before adding any test that touches the host.
 
 ### 7. Optional Local Speedups
 - **Windows: Dev Drive** — if you have Windows 11 22H2+, move the project and your Cargo registry (`~/.cargo`) to a Dev Drive. It bypasses Defender's real-time scan of the thousands of tiny files involved in a Rust build, which is often the single biggest local speedup on Windows.

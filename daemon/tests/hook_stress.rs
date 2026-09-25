@@ -24,8 +24,14 @@ impl Drop for ChildGuard {
 }
 
 #[tokio::test]
-#[ignore] // Run manually: cargo test --test hook_stress -- --ignored --nocapture
+#[ignore] // Run manually: TAURINE_ALLOW_HOST_INPUT=1 cargo test --test hook_stress -- --ignored --nocapture
 async fn hook_stress_24h_compressed() {
+    // Host-affecting by design (spawns daemon, simulates global keys incl.
+    // Alt+Tab): requires explicit opt-in, never runs by default or in CI.
+    if std::env::var("TAURINE_ALLOW_HOST_INPUT").as_deref() != Ok("1") {
+        println!("Skipping: set TAURINE_ALLOW_HOST_INPUT=1 to run host-input stress test.");
+        return;
+    }
     // Skip if running in CI environment to avoid slow runs or missing GUI context.
     if std::env::var("CI").is_ok() || std::env::var("GITHUB_ACTIONS").is_ok() {
         println!("Running in CI environment - skipping stress test.");

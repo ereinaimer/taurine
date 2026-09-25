@@ -45,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Zero Idle Voice Memory**: Voice models now unload completely ~10 seconds after dictation ends, returning idle memory to baseline.
 - **Voice Recognition Accuracy**: Eliminate microphone aliasing, word-ending cutoffs, and audio distortion using anti-aliasing resampling, voice activity hysteresis, and communications mode echo cancellation.
 - **Voice Trigger Reliability**: Always-listening voice triggers now fire on near-miss dictation and quiet speech, with longer pauses tolerated between words.
+- **No Console Flash on Script Expansion**: Background script snippets evaluate without opening a terminal window or stealing focus.
 - **Always-On Voice Listening**: Voice triggers now detect reliably without missed starts, keeping background listening ready and unloading models from memory when paused.
 - **Voice Stop Cue Timing**: Play the dictation stop sound immediately when stopping dictation instead of after the text is pasted.
 - **Voice Trigger Expansion During Dictation**: Expand spoken trigger phrases into their configured replacement text instead of typing the trigger words literally.

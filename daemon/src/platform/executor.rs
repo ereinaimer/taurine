@@ -691,6 +691,16 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
         }
     };
 
+    // Windowless interpreter spawn: without CREATE_NO_WINDOW, Windows flashes
+    // a conhost window on every script expansion and can steal focus (e.g.
+    // mid-game). Production shell-open keeps CREATE_NEW_CONSOLE intentionally;
+    // background script evaluation must never open a window.
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
     cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::null())
@@ -1006,22 +1016,37 @@ mod tests {
         );
     }
 
+    // Live process-spawn tests: they open real consoles / Terminal / browser and
+    // steal focus, so they never run by default. Opt in on a throwaway machine
+    // with `TAURINE_ALLOW_HOST_INPUT=1 cargo test -- --ignored`.
     #[test]
+    #[ignore]
     #[cfg(windows)]
     fn test_native_shell_open_safe_execution() {
+        if !crate::platform::host_tests_allowed() {
+            return;
+        }
         let res = native_shell_open("cmd.exe", Some("/c exit 0"));
         assert!(res.is_ok());
     }
 
     #[test]
+    #[ignore]
     #[cfg(windows)]
     fn test_native_shell_open_wt_does_not_panic() {
+        if !crate::platform::host_tests_allowed() {
+            return;
+        }
         let _ = native_shell_open("wt", None);
     }
 
     #[test]
+    #[ignore]
     #[cfg(windows)]
     fn test_native_shell_open_url_out_of_process() {
+        if !crate::platform::host_tests_allowed() {
+            return;
+        }
         let res = native_shell_open("https://127.0.0.1:65535", None);
         assert!(res.is_ok());
     }

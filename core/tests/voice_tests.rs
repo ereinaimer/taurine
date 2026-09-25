@@ -21,6 +21,139 @@ fn setup_test_db() -> Connection {
     conn
 }
 
+/// Process-local mock OS keystore so global-DB handles never touch the real
+/// keystore (reads or first-run key creation). Mirrors the unit-test shared
+/// credential: entries from the same pair share one password.
+mod mock_keystore {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, Once, OnceLock};
+
+    type PasswordMap = HashMap<(String, String), Vec<u8>>;
+
+    const FIXED_TEST_DB_KEY_HEX: &[u8] =
+        b"4343434343434343434343434343434343434343434343434343434343434343";
+
+    static PASSWORDS: OnceLock<Mutex<PasswordMap>> = OnceLock::new();
+    static INSTALL: Once = Once::new();
+
+    fn passwords() -> &'static Mutex<PasswordMap> {
+        PASSWORDS.get_or_init(|| {
+            let mut map = HashMap::new();
+            map.insert(
+                ("taurine".to_string(), "db-key".to_string()),
+                FIXED_TEST_DB_KEY_HEX.to_vec(),
+            );
+            Mutex::new(map)
+        })
+    }
+
+    #[derive(Debug)]
+    struct TestCredential {
+        service: String,
+        user: String,
+    }
+
+    impl keyring::credential::CredentialApi for TestCredential {
+        fn set_secret(&self, secret: &[u8]) -> keyring::Result<()> {
+            passwords()
+                .lock()
+                .expect("test keystore poisoned")
+                .insert((self.service.clone(), self.user.clone()), secret.to_vec());
+            Ok(())
+        }
+
+        fn get_secret(&self) -> keyring::Result<Vec<u8>> {
+            passwords()
+                .lock()
+                .expect("test keystore poisoned")
+                .get(&(self.service.clone(), self.user.clone()))
+                .cloned()
+                .ok_or(keyring::Error::NoEntry)
+        }
+
+        fn delete_credential(&self) -> keyring::Result<()> {
+            passwords()
+                .lock()
+                .expect("test keystore poisoned")
+                .remove(&(self.service.clone(), self.user.clone()))
+                .map(|_| ())
+                .ok_or(keyring::Error::NoEntry)
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+
+        fn debug_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            std::fmt::Debug::fmt(self, f)
+        }
+    }
+
+    #[derive(Debug)]
+    struct TestCredentialBuilder;
+
+    impl keyring::credential::CredentialBuilderApi for TestCredentialBuilder {
+        fn build(
+            &self,
+            _target: Option<&str>,
+            service: &str,
+            user: &str,
+        ) -> keyring::Result<Box<keyring::credential::Credential>> {
+            Ok(Box::new(TestCredential {
+                service: service.to_string(),
+                user: user.to_string(),
+            }))
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+
+        fn persistence(&self) -> keyring::credential::CredentialPersistence {
+            keyring::credential::CredentialPersistence::ProcessOnly
+        }
+    }
+
+    /// Install once per test binary; entries never reach the OS store.
+    pub(super) fn use_mock_keystore() {
+        INSTALL.call_once(|| {
+            keyring::set_default_credential_builder(Box::new(TestCredentialBuilder));
+        });
+    }
+}
+
+/// Points TAURINE_DATA_DIR at a temp dir for the test body, restoring the
+/// previous value on drop, so global-DB stats writes never reach the real DB.
+/// Serialized via TEST_LOCK by callers: the env var is process-global.
+struct TempDataDir {
+    _dir: tempfile::TempDir,
+    prev: Option<String>,
+}
+
+impl TempDataDir {
+    /// Callers must hold `taurine_core::testing::TEST_LOCK` for the whole
+    /// isolated section; the env var is process-global.
+    fn isolated() -> Self {
+        // SAFETY: callers hold TEST_LOCK across the isolated section.
+        let dir = tempfile::tempdir().expect("temp data dir");
+        let prev = std::env::var("TAURINE_DATA_DIR").ok();
+        unsafe { std::env::set_var("TAURINE_DATA_DIR", dir.path()) };
+        Self { _dir: dir, prev }
+    }
+}
+
+impl Drop for TempDataDir {
+    fn drop(&mut self) {
+        // SAFETY: callers hold TEST_LOCK across the isolated section.
+        unsafe {
+            match &self.prev {
+                Some(prev) => std::env::set_var("TAURINE_DATA_DIR", prev),
+                None => std::env::remove_var("TAURINE_DATA_DIR"),
+            }
+        }
+    }
+}
+
 fn voice_entry(
     content: &str,
     action_type: &str,
@@ -227,6 +360,14 @@ fn test_voice_gate_three_witnesses_decisions() {
 
 #[test]
 fn test_voice_trigger_database_crud_lifecycle() {
+    // Hermetic: usage-log writes below go through the global DB handle, so
+    // isolate TAURINE_DATA_DIR. The env var is process-global: hold the lock
+    // for the whole test.
+    let _lock = taurine_core::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _data = TempDataDir::isolated();
+    mock_keystore::use_mock_keystore();
     let conn = setup_test_db();
 
     // 1. Validate phrase rules

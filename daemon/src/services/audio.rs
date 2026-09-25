@@ -114,6 +114,11 @@ fn play_cue(is_paused: bool) -> Result<(), String> {
 /// The stop cue fires when the user releases the PTT hotkey or toggles
 /// hands-free off, before transcription/paste completes.
 pub fn play_voice_cue(start: bool) {
+    // Hermetic tests never play sound on the host speakers.
+    if cfg!(test) {
+        let _ = start;
+        return;
+    }
     let volume = get_cached_audio_volume();
     if volume == 0 {
         return;

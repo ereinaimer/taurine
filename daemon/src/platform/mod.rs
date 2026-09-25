@@ -19,6 +19,16 @@ pub mod rdev_injector;
 
 pub use taurine_core::keys::MouseButton;
 
+/// True only when the user explicitly opts into host-affecting tests.
+/// Default test runs must never touch keyboard, clipboard, windows,
+/// audio, mic, or spawned processes.
+pub fn host_tests_allowed() -> bool {
+    matches!(
+        std::env::var("TAURINE_ALLOW_HOST_INPUT").as_deref(),
+        Ok("1") | Ok("true")
+    )
+}
+
 pub trait ClipboardManager {
     fn get_text(&mut self) -> Result<String, String>;
     fn set_text(&mut self, text: &str) -> Result<(), String>;
@@ -54,32 +64,225 @@ pub trait Injector {
     fn inject_atomic_undo(&self, backspaces: usize, text: &str) -> bool;
 }
 
+/// In-memory clipboard used only in tests so the default suite never
+/// reads or overwrites the host clipboard.
+#[cfg(test)]
+#[derive(Debug, Default)]
+pub struct FakeClipboard {
+    text: std::sync::Mutex<String>,
+    ops: std::sync::Mutex<Vec<&'static str>>,
+}
+
+#[cfg(test)]
+impl FakeClipboard {
+    fn record_op(&self, op: &'static str) {
+        if let Ok(mut ops) = self.ops.lock() {
+            ops.push(op);
+        }
+    }
+
+    /// Snapshot of recorded ops for assertions.
+    #[allow(dead_code)]
+    pub fn ops_snapshot(&self) -> Vec<&'static str> {
+        self.ops.lock().map(|ops| ops.clone()).unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+impl ClipboardManager for FakeClipboard {
+    fn get_text(&mut self) -> Result<String, String> {
+        self.record_op("get_text");
+        Ok(self.text.lock().map(|t| t.clone()).unwrap_or_default())
+    }
+
+    fn set_text(&mut self, text: &str) -> Result<(), String> {
+        self.record_op("set_text");
+        if let Ok(mut guard) = self.text.lock() {
+            *guard = text.to_string();
+        }
+        Ok(())
+    }
+
+    fn set_image_file(&mut self, _path: &std::path::Path) -> Result<(), String> {
+        self.record_op("set_image");
+        Ok(())
+    }
+
+    fn set_html(&mut self, _html: &str, plaintext: &str) -> Result<(), String> {
+        self.record_op("set_html");
+        if let Ok(mut guard) = self.text.lock() {
+            *guard = plaintext.to_string();
+        }
+        Ok(())
+    }
+}
+
+/// Recording injector used only in tests so the default suite never calls
+/// `SendInput` / `rdev::simulate` / `uinput` on the host.
+#[cfg(test)]
+#[derive(Debug)]
+pub struct RecordingInjector {
+    calls: std::sync::Mutex<Vec<String>>,
+}
+
+#[cfg(test)]
+impl Default for RecordingInjector {
+    fn default() -> Self {
+        Self {
+            calls: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[cfg(test)]
+impl RecordingInjector {
+    fn record(&self, call: String) {
+        if let Ok(mut calls) = self.calls.lock() {
+            calls.push(call);
+        }
+    }
+
+    /// Snapshot of recorded calls for assertions.
+    #[allow(dead_code)]
+    pub fn recorded(&self) -> Vec<String> {
+        self.calls.lock().map(|c| c.clone()).unwrap_or_default()
+    }
+
+    /// Clear recorded calls between assertions.
+    #[allow(dead_code)]
+    pub fn clear(&self) {
+        if let Ok(mut calls) = self.calls.lock() {
+            calls.clear();
+        }
+    }
+}
+
+#[cfg(test)]
+impl Injector for RecordingInjector {
+    fn simulate_mouse_click(&self, button: MouseButton) {
+        self.record(format!("mouse_click:{button:?}"));
+    }
+
+    fn simulate_mouse_move(&self, x: u16, y: u16) {
+        self.record(format!("mouse_move:{x},{y}"));
+    }
+
+    fn simulate_mouse_scroll(&self, delta: i32) {
+        self.record(format!("mouse_scroll:{delta}"));
+    }
+
+    fn simulate_mouse_hold(&self, button: MouseButton, hold: bool) {
+        self.record(format!("mouse_hold:{button:?},{hold}"));
+    }
+
+    fn simulate_key_alias(&self, alias: &str) -> bool {
+        self.record(format!("key_alias:{alias}"));
+        true
+    }
+
+    fn simulate_left(&self, count: usize) {
+        self.record(format!("left:{count}"));
+    }
+
+    fn simulate_right(&self, count: usize) {
+        self.record(format!("right:{count}"));
+    }
+
+    fn simulate_backspace(&self, count: usize) {
+        self.record(format!("backspace:{count}"));
+    }
+
+    fn simulate_paste(&self) {
+        self.record("paste".to_string());
+    }
+
+    fn pre_release_modifiers(&self) {
+        self.record("pre_release_modifiers".to_string());
+    }
+
+    fn try_inject_frame_raw(&self, frame: &str) -> bool {
+        self.record(format!("frame:{frame}"));
+        false
+    }
+
+    fn inject_atomic_text_expansion_with_nav(
+        &self,
+        delete_count: usize,
+        text: &str,
+        left_nav: usize,
+        right_nav: usize,
+    ) -> bool {
+        self.record(format!(
+            "expand:{delete_count}:{text}:{left_nav}:{right_nav}"
+        ));
+        true
+    }
+
+    fn inject_atomic_backspaces(&self, count: usize) {
+        self.record(format!("backspaces:{count}"));
+    }
+
+    fn inject_unicode_text_direct(&self, text: &str) -> bool {
+        self.record(format!("unicode:{text}"));
+        true
+    }
+
+    fn inject_atomic_undo(&self, backspaces: usize, text: &str) -> bool {
+        self.record(format!("undo:{backspaces}:{text}"));
+        true
+    }
+}
+
+#[cfg(test)]
+static FAKE_INJECTOR: RecordingInjector = RecordingInjector {
+    calls: std::sync::Mutex::new(Vec::new()),
+};
+
+/// Test accessor for assertions on recorded injection calls.
+#[cfg(test)]
+pub fn test_injector() -> &'static RecordingInjector {
+    &FAKE_INJECTOR
+}
+
 #[allow(clippy::needless_return)]
 pub fn get_clipboard_manager() -> Result<impl ClipboardManager, String> {
-    #[cfg(windows)]
+    #[cfg(test)]
+    {
+        return Ok(FakeClipboard::default());
+    }
+    #[cfg(all(not(test), windows))]
     {
         return Ok(windows::WindowsClipboard);
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(all(not(test), target_os = "linux"))]
     {
         return Ok(linux::LinuxClipboard);
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(all(not(test), target_os = "macos"))]
     {
         return Ok(macos::clipboard::MacosClipboard);
     }
-    #[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
+    #[cfg(all(
+        not(test),
+        not(windows),
+        not(target_os = "linux"),
+        not(target_os = "macos")
+    ))]
     {
         return arboard::Clipboard::new().map_err(|e| e.to_string());
     }
 }
 
 pub fn get_injector() -> &'static dyn Injector {
-    #[cfg(target_os = "linux")]
+    #[cfg(test)]
+    {
+        &FAKE_INJECTOR
+    }
+    #[cfg(all(not(test), target_os = "linux"))]
     {
         &linux::injector::LinuxInjector
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(all(not(test), not(target_os = "linux")))]
     {
         &rdev_injector::RdevInjector
     }
@@ -239,10 +442,17 @@ mod tests {
 
     #[test]
     fn test_read_clipboard_text_returns_string() {
-        let _lock = crate::hook::tests::TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        // Hermetic: cfg(test) clipboard is FakeClipboard, never the host clipboard.
+        let mut clip = get_clipboard_manager().expect("fake clipboard");
+        clip.set_text("hermetic payload").expect("set");
+        assert_eq!(clip.get_text().expect("get"), "hermetic payload");
         let _ = read_clipboard_text();
+    }
+
+    #[test]
+    fn test_host_gate_defaults_to_closed() {
+        // Guard against accidental opt-in: host tests run only with explicit env.
+        assert!(!host_tests_allowed() || std::env::var("TAURINE_ALLOW_HOST_INPUT").is_ok());
     }
 
     #[test]

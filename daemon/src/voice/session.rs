@@ -115,6 +115,13 @@ impl VoiceSessionManager {
         self
     }
 
+    /// Builder method to inject a worker client (tests only, no spawn).
+    #[cfg(test)]
+    pub(crate) fn with_worker(mut self, worker: WorkerClient) -> Self {
+        self.worker = worker;
+        self
+    }
+
     /// Get current operating mode.
     pub fn current_mode(&self) -> VoiceMode {
         *self.mode.lock().unwrap_or_else(|p| p.into_inner())
@@ -729,11 +736,156 @@ mod tests {
         assert_eq!(session.current_mode(), VoiceMode::Idle);
     }
 
+    /// Points TAURINE_DATA_DIR at a temp dir for the test body, restoring the
+    /// previous value on drop. Serialized via TEST_LOCK by callers.
+    struct TempDataDir {
+        _dir: tempfile::TempDir,
+        prev: Option<String>,
+    }
+
+    impl TempDataDir {
+        fn new() -> Self {
+            let dir = tempfile::tempdir().expect("temp data dir");
+            let prev = std::env::var("TAURINE_DATA_DIR").ok();
+            // SAFETY: Serialized via TEST_LOCK; restored in Drop.
+            unsafe { std::env::set_var("TAURINE_DATA_DIR", dir.path()) };
+            Self { _dir: dir, prev }
+        }
+    }
+
+    impl Drop for TempDataDir {
+        fn drop(&mut self) {
+            // SAFETY: Serialized via TEST_LOCK; paired with the set_var at entry.
+            unsafe {
+                match &self.prev {
+                    Some(prev) => std::env::set_var("TAURINE_DATA_DIR", prev),
+                    None => std::env::remove_var("TAURINE_DATA_DIR"),
+                }
+            }
+        }
+    }
+
+    /// Process-local mock OS keystore so the temp-DB open below never touches
+    /// the real keystore (reads or first-run key creation). Installed once.
+    mod mock_keystore {
+        use std::collections::HashMap;
+        use std::sync::{Mutex, Once, OnceLock};
+
+        type PasswordMap = HashMap<(String, String), Vec<u8>>;
+
+        const FIXED_TEST_DB_KEY_HEX: &[u8] =
+            b"4343434343434343434343434343434343434343434343434343434343434343";
+
+        static PASSWORDS: OnceLock<Mutex<PasswordMap>> = OnceLock::new();
+        static INSTALL: Once = Once::new();
+
+        fn passwords() -> &'static Mutex<PasswordMap> {
+            PASSWORDS.get_or_init(|| {
+                let mut map = HashMap::new();
+                map.insert(
+                    ("taurine".to_string(), "db-key".to_string()),
+                    FIXED_TEST_DB_KEY_HEX.to_vec(),
+                );
+                Mutex::new(map)
+            })
+        }
+
+        #[derive(Debug)]
+        struct TestCredential {
+            service: String,
+            user: String,
+        }
+
+        impl keyring::credential::CredentialApi for TestCredential {
+            fn set_secret(&self, secret: &[u8]) -> keyring::Result<()> {
+                passwords()
+                    .lock()
+                    .expect("test keystore poisoned")
+                    .insert((self.service.clone(), self.user.clone()), secret.to_vec());
+                Ok(())
+            }
+
+            fn get_secret(&self) -> keyring::Result<Vec<u8>> {
+                passwords()
+                    .lock()
+                    .expect("test keystore poisoned")
+                    .get(&(self.service.clone(), self.user.clone()))
+                    .cloned()
+                    .ok_or(keyring::Error::NoEntry)
+            }
+
+            fn delete_credential(&self) -> keyring::Result<()> {
+                passwords()
+                    .lock()
+                    .expect("test keystore poisoned")
+                    .remove(&(self.service.clone(), self.user.clone()))
+                    .map(|_| ())
+                    .ok_or(keyring::Error::NoEntry)
+            }
+
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
+            }
+
+            fn debug_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                std::fmt::Debug::fmt(self, f)
+            }
+        }
+
+        #[derive(Debug)]
+        struct TestCredentialBuilder;
+
+        impl keyring::credential::CredentialBuilderApi for TestCredentialBuilder {
+            fn build(
+                &self,
+                _target: Option<&str>,
+                service: &str,
+                user: &str,
+            ) -> keyring::Result<Box<keyring::credential::Credential>> {
+                Ok(Box::new(TestCredential {
+                    service: service.to_string(),
+                    user: user.to_string(),
+                }))
+            }
+
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
+            }
+
+            fn persistence(&self) -> keyring::credential::CredentialPersistence {
+                keyring::credential::CredentialPersistence::ProcessOnly
+            }
+        }
+
+        pub(super) fn use_mock_keystore() {
+            INSTALL.call_once(|| {
+                keyring::set_default_credential_builder(Box::new(TestCredentialBuilder));
+            });
+        }
+    }
+
     #[test]
     fn test_inject_transcript_formats_and_returns_text() {
+        // Hermetic: injection records to the fake injector, never the host;
+        // stats land in a temp DB, never the real one; keystore is mocked.
+        // Serialized: all three are process-global.
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
         let (session, _) = create_test_session();
+        crate::platform::test_injector().clear();
         let res = session.inject_transcript("hello world").unwrap();
         assert_eq!(res, Some("Hello world".to_string()));
+        assert!(
+            crate::platform::test_injector()
+                .recorded()
+                .iter()
+                .any(|c| c.contains("Hello world")),
+            "dictation must route through injection, got {:?}",
+            crate::platform::test_injector().recorded()
+        );
     }
 
     #[test]
@@ -804,9 +956,19 @@ mod tests {
 
     #[test]
     fn test_ensure_worker_ready_errors_without_worker() {
-        let (session, _) = create_test_session();
-        // No worker process exists in tests; the error must surface
-        // instead of hanging the caller.
+        // Hermetic: failing spawner, so no child process spawns. The error
+        // must surface instead of hanging the caller.
+        let buffer = Arc::new(super::super::capture::AudioFrameBuffer::new());
+        let capture = Arc::new(AudioCapture::new(buffer));
+        let paused = Arc::new(AtomicBool::new(false));
+        let spawner: super::super::worker_client::SpawnFn =
+            Arc::new(|_, _| Err(std::io::Error::other("no worker in tests")));
+        let connector: super::super::worker_client::ConnectFn = Arc::new(|_, _, _, _| {
+            Box::pin(async { Err("no worker in tests".to_string()) })
+                as std::pin::Pin<Box<dyn std::future::Future<Output = Result<_, String>> + Send>>
+        });
+        let worker = WorkerClient::with_hooks(spawner, connector).expect("test client");
+        let session = VoiceSessionManager::new(capture, paused).with_worker(worker);
         assert!(session.ensure_worker_ready().is_err());
     }
 }

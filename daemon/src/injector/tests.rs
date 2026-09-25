@@ -1,6 +1,6 @@
 use super::clipboard::prepare_clipboard_for_expansion;
 use super::gate::{InjectionGate, inject_mutex};
-use crate::platform::ClipboardManager;
+use crate::platform::{ClipboardManager, Injector};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Barrier};
 use std::thread;
@@ -659,8 +659,15 @@ fn test_atomic_unicode_expansion_batches_backspaces_and_chars() {
     let _lock = crate::hook::tests::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
+    // Hermetic: cfg(test) injector records instead of SendInput to the host.
+    let fake = crate::platform::test_injector();
+    fake.clear();
     let injector = crate::platform::get_injector();
-    let _ = injector.inject_atomic_text_expansion(3, "Hello World! 🚀");
+    assert!(injector.inject_atomic_text_expansion(3, "Hello World! 🚀"));
+    assert_eq!(
+        fake.recorded(),
+        vec!["expand:3:Hello World! 🚀:0:0".to_string()]
+    );
 }
 
 #[test]
@@ -668,8 +675,11 @@ fn test_atomic_backspaces_batch() {
     let _lock = crate::hook::tests::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
+    let fake = crate::platform::test_injector();
+    fake.clear();
     let injector = crate::platform::get_injector();
     injector.inject_atomic_backspaces(10);
+    assert_eq!(fake.recorded(), vec!["backspaces:10".to_string()]);
 }
 
 #[test]
@@ -677,8 +687,50 @@ fn test_inject_unicode_text_direct() {
     let _lock = crate::hook::tests::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
+    let fake = crate::platform::test_injector();
+    fake.clear();
     let injector = crate::platform::get_injector();
+    assert!(injector.inject_unicode_text_direct("Unicode: é, ñ, 🚀, 中文"));
+    assert_eq!(
+        fake.recorded(),
+        vec!["unicode:Unicode: é, ñ, 🚀, 中文".to_string()]
+    );
+}
+
+// Opt-in live validation against the real OS injector. Never runs by default:
+// requires `-- --ignored` plus `TAURINE_ALLOW_HOST_INPUT=1` on a throwaway
+// machine with no game or editor focused.
+#[test]
+#[ignore]
+#[cfg(not(target_os = "linux"))]
+fn live_atomic_expansion_types_to_host() {
+    if !crate::platform::host_tests_allowed() {
+        return;
+    }
+    let injector = crate::platform::rdev_injector::RdevInjector;
+    let _ = injector.inject_atomic_text_expansion(3, "Hello World! 🚀");
+}
+
+#[test]
+#[ignore]
+#[cfg(not(target_os = "linux"))]
+fn live_unicode_text_direct_types_to_host() {
+    if !crate::platform::host_tests_allowed() {
+        return;
+    }
+    let injector = crate::platform::rdev_injector::RdevInjector;
     let _ = injector.inject_unicode_text_direct("Unicode: é, ñ, 🚀, 中文");
+}
+
+#[test]
+#[ignore]
+#[cfg(not(target_os = "linux"))]
+fn live_atomic_backspaces_type_to_host() {
+    if !crate::platform::host_tests_allowed() {
+        return;
+    }
+    let injector = crate::platform::rdev_injector::RdevInjector;
+    injector.inject_atomic_backspaces(10);
 }
 
 #[test]
@@ -686,12 +738,21 @@ fn test_dual_path_routes_plain_text_to_fast_path() {
     let _lock = crate::hook::tests::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
+    let fake = crate::platform::test_injector();
+    fake.clear();
     let steps = vec![taurine_core::engine::variables::ExpansionStep::Text(
         "instant text".to_string(),
     )];
     let report =
         super::inject::inject_expansion(steps, 2, taurine_core::settings::SpinnerStyle::Braille);
     assert_eq!(report.successful_chars, 12);
+    assert!(
+        fake.recorded()
+            .iter()
+            .any(|c| c == "expand:2:instant text:0:0"),
+        "fast path must record atomic expansion, got {:?}",
+        fake.recorded()
+    );
 }
 
 #[test]
@@ -699,7 +760,17 @@ fn test_inject_undo_fast_path() {
     let _lock = crate::hook::tests::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
+    let fake = crate::platform::test_injector();
+    fake.clear();
     super::inject::inject_undo("trigger".to_string(), 15);
+    assert_eq!(
+        fake.recorded(),
+        vec![
+            "pre_release_modifiers".to_string(),
+            "undo:15:trigger".to_string(),
+            "pre_release_modifiers".to_string(),
+        ]
+    );
 }
 
 #[test]
@@ -707,12 +778,12 @@ fn test_inject_atomic_undo_batch() {
     let _lock = crate::hook::tests::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
+    let fake = crate::platform::test_injector();
+    fake.clear();
     let injector = crate::platform::get_injector();
     let res = injector.inject_atomic_undo(4, "test_undo");
-    #[cfg(windows)]
     assert!(res);
-    #[cfg(not(windows))]
-    let _ = res;
+    assert_eq!(fake.recorded(), vec!["undo:4:test_undo".to_string()]);
 }
 
 #[test]
@@ -765,12 +836,15 @@ fn test_atomic_expansion_with_nav() {
     let _lock = crate::hook::tests::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
+    let fake = crate::platform::test_injector();
+    fake.clear();
     let injector = crate::platform::get_injector();
     let res = injector.inject_atomic_text_expansion_with_nav(2, "fn test()\t{ }", 2, 0);
-    #[cfg(windows)]
     assert!(res);
-    #[cfg(not(windows))]
-    let _ = res;
+    assert_eq!(
+        fake.recorded(),
+        vec!["expand:2:fn test()\t{ }:2:0".to_string()]
+    );
 }
 
 #[test]
@@ -778,6 +852,8 @@ fn test_dual_path_routes_tabbed_text_to_fast_path() {
     let _lock = crate::hook::tests::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
+    let fake = crate::platform::test_injector();
+    fake.clear();
     let steps = vec![taurine_core::engine::variables::ExpansionStep::Text(
         "col1\tcol2".to_string(),
     )];
@@ -785,6 +861,13 @@ fn test_dual_path_routes_tabbed_text_to_fast_path() {
         super::inject::inject_expansion(steps, 0, taurine_core::settings::SpinnerStyle::Braille);
     assert!(report.completed);
     assert_eq!(report.successful_chars, 9);
+    assert!(
+        fake.recorded()
+            .iter()
+            .any(|c| c.starts_with("expand:0:col1")),
+        "tabbed text must take the fast path, got {:?}",
+        fake.recorded()
+    );
 }
 
 #[test]
@@ -792,6 +875,8 @@ fn test_dual_path_routes_text_with_cursor_nav_to_fast_path() {
     let _lock = crate::hook::tests::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
+    let fake = crate::platform::test_injector();
+    fake.clear();
     // Snippet with [cursor] e.g. "console.log([cursor])" produces Text("console.log()") + KeyPress("left")
     let steps = vec![
         ExpansionStep::Text("console.log()".to_string()),
@@ -801,6 +886,11 @@ fn test_dual_path_routes_text_with_cursor_nav_to_fast_path() {
         super::inject::inject_expansion(steps, 4, taurine_core::settings::SpinnerStyle::Braille);
     assert!(report.completed);
     assert_eq!(report.successful_chars, 13);
+    assert!(
+        fake.recorded().iter().any(|c| c.contains("console.log()")),
+        "cursor-nav text must take the fast path, got {:?}",
+        fake.recorded()
+    );
 }
 
 #[test]
@@ -808,6 +898,8 @@ fn test_dual_path_routes_multiline_text_to_clipboard_path() {
     let _lock = crate::hook::tests::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
+    let fake = crate::platform::test_injector();
+    fake.clear();
     // Multiline expansions (e.g. git commit messages with bullet points) must not be typed directly
     // via SendInput to avoid triggering shell execution or line re-ordering races.
     let steps = vec![taurine_core::engine::variables::ExpansionStep::Text(
@@ -817,6 +909,11 @@ fn test_dual_path_routes_multiline_text_to_clipboard_path() {
         super::inject::inject_expansion(steps, 2, taurine_core::settings::SpinnerStyle::Braille);
     assert!(report.completed);
     assert_eq!(report.successful_chars, 48);
+    assert!(
+        fake.recorded().iter().any(|c| c == "paste"),
+        "multiline text must take the clipboard path, got {:?}",
+        fake.recorded()
+    );
 }
 
 #[test]
@@ -824,6 +921,8 @@ fn test_dual_path_routes_html_to_clipboard_path() {
     let _lock = crate::hook::tests::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
+    let fake = crate::platform::test_injector();
+    fake.clear();
     let steps = vec![taurine_core::engine::variables::ExpansionStep::Text(
         "<b>bold snippet</b>".to_string(),
     )];
@@ -831,6 +930,11 @@ fn test_dual_path_routes_html_to_clipboard_path() {
         super::inject::inject_expansion(steps, 0, taurine_core::settings::SpinnerStyle::Braille);
     assert!(report.completed);
     assert_eq!(report.successful_chars, 19);
+    assert!(
+        fake.recorded().iter().any(|c| c == "paste"),
+        "html must take the clipboard path, got {:?}",
+        fake.recorded()
+    );
 }
 
 #[test]

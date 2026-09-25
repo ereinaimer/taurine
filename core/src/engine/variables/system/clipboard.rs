@@ -171,11 +171,20 @@ pub fn resolve(key: &str) -> Option<String> {
     if let Some(val) = clip_manager().get(index) {
         Some(val)
     } else if index == 0 {
-        let text_opt = arboard::Clipboard::new()
-            .ok()
-            .and_then(|mut clip| clip.get_text().ok())
-            .filter(|text| text.len() <= MAX_PAYLOAD_BYTES);
-        Some(text_opt.unwrap_or_default())
+        // Hermetic tests never touch the host clipboard: without a mock or
+        // recorded history, resolve to empty. Prod keeps the arboard fallback.
+        #[cfg(test)]
+        {
+            Some(String::new())
+        }
+        #[cfg(not(test))]
+        {
+            let text_opt = arboard::Clipboard::new()
+                .ok()
+                .and_then(|mut clip| clip.get_text().ok())
+                .filter(|text| text.len() <= MAX_PAYLOAD_BYTES);
+            Some(text_opt.unwrap_or_default())
+        }
     } else {
         Some(String::new())
     }

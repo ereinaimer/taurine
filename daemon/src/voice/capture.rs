@@ -747,6 +747,11 @@ impl AudioCapture {
 
     /// Start capturing audio from the configured or default input device.
     pub fn start(&self) -> Result<(), String> {
+        // Hermetic tests never open the host microphone.
+        if cfg!(test) {
+            self.is_running.store(true, Ordering::SeqCst);
+            return Ok(());
+        }
         use cpal::traits::{DeviceTrait, StreamTrait};
 
         let mut stream_guard = self._stream.lock().unwrap_or_else(|p| p.into_inner());

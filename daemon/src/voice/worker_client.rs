@@ -495,10 +495,17 @@ mod tests {
             spawns.fetch_add(1, Ordering::SeqCst);
             // Never actually spawned in tests; the duplex peer above speaks.
             // Return a real short-lived child so kill/wait paths stay honest.
+            // Windowless on Windows: hermetic tests must never flash conhost.
             #[cfg(all(unix, not(target_os = "android")))]
             let child = Command::new("true").spawn()?;
             #[cfg(target_os = "windows")]
-            let child = Command::new("cmd").arg("/C").arg("exit").arg("0").spawn()?;
+            let child = {
+                use std::os::windows::process::CommandExt;
+                let mut cmd = Command::new("cmd");
+                cmd.arg("/C").arg("exit").arg("0");
+                cmd.creation_flags(0x0800_0000);
+                cmd.spawn()?
+            };
             #[cfg(target_os = "android")]
             let child = Command::new("true").spawn()?;
             Ok(child)
