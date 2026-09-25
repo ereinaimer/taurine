@@ -477,6 +477,9 @@ fn process_frame(
             if pause_audio_enabled.load(Ordering::Relaxed) {
                 crate::services::audio::play_pause_cue(!paused.load(Ordering::Relaxed));
             }
+            // Optimistic icon: flip synchronously so the tray reacts
+            // instantly (icon only); the counter owns the deferred toggle.
+            crate::input::hotkey::push_pause_icon_preview();
             clear_undo_state(state);
             hotkey_evaluator.clear();
             crate::input::hotkey::push_pause_press();

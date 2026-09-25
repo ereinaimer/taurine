@@ -231,6 +231,7 @@ mod listener_pipeline_tests {
             crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
             crate::input::hotkey::HANDSFREE_KEY_DOWN.store(false, Ordering::Relaxed);
             crate::input::hotkey::clear_pause_press_sender();
+            crate::input::hotkey::sync_pause_icon_preview(false);
 
             Self {
                 _mutex_guard: mutex_guard,
@@ -246,6 +247,7 @@ mod listener_pipeline_tests {
             crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
             crate::input::hotkey::HANDSFREE_KEY_DOWN.store(false, Ordering::Relaxed);
             crate::input::hotkey::clear_pause_press_sender();
+            crate::input::hotkey::sync_pause_icon_preview(false);
         }
     }
 
@@ -962,6 +964,101 @@ mod listener_pipeline_tests {
         assert!(
             !h.paused.load(Ordering::Relaxed),
             "Rapid pause pair must leave paused unchanged"
+        );
+        assert!(
+            h.pause_rx.lock().unwrap().try_recv().is_err(),
+            "Even burst must not notify"
+        );
+
+        crate::input::hotkey::clear_pause_press_sender();
+        counter.join().expect("counter exits once senders drop");
+    }
+
+    /// The icon hint flips synchronously on the press — before the quiet
+    /// window settles — while the committed toggle still defers.
+    #[test]
+    fn pause_press_flips_icon_preview_instantly_before_quiet_window() {
+        let _guard = TestGuard::acquire();
+        let h = Harness::new();
+        let (press_tx, press_rx) = std::sync::mpsc::channel::<()>();
+        crate::input::hotkey::set_pause_press_sender(press_tx);
+        let counter = crate::input::hotkey::spawn_pause_counter(
+            press_rx,
+            h.paused.clone(),
+            h.pause_tx.clone(),
+        )
+        .expect("pause counter thread must spawn");
+
+        h.send(bare_event(EventType::KeyPress(Key::Alt)));
+        assert!(
+            h.send(bare_event(EventType::KeyPress(Key::BackQuote)))
+                .is_none(),
+            "Pause chord press must be swallowed"
+        );
+        assert!(
+            crate::input::hotkey::pause_icon_preview(),
+            "Icon hint must flip on the press, not after the quiet window"
+        );
+        assert!(
+            !h.paused.load(Ordering::Relaxed),
+            "Committed toggle must still defer until the burst settles"
+        );
+
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        assert!(
+            h.paused.load(Ordering::Relaxed),
+            "Single pause press must toggle paused after the quiet window"
+        );
+        assert!(
+            crate::input::hotkey::pause_icon_preview(),
+            "Settled toggle must confirm the hint"
+        );
+
+        crate::input::hotkey::clear_pause_press_sender();
+        counter.join().expect("counter exits once senders drop");
+    }
+
+    /// A rapid pair swings the hint back by itself and never toggles.
+    #[test]
+    fn rapid_pause_pair_swings_preview_back_without_toggling() {
+        let _guard = TestGuard::acquire();
+        let h = Harness::new();
+        let (press_tx, press_rx) = std::sync::mpsc::channel::<()>();
+        crate::input::hotkey::set_pause_press_sender(press_tx);
+        let counter = crate::input::hotkey::spawn_pause_counter(
+            press_rx,
+            h.paused.clone(),
+            h.pause_tx.clone(),
+        )
+        .expect("pause counter thread must spawn");
+
+        h.send(bare_event(EventType::KeyPress(Key::Alt)));
+        assert!(
+            h.send(bare_event(EventType::KeyPress(Key::BackQuote)))
+                .is_none()
+        );
+        assert!(
+            crate::input::hotkey::pause_icon_preview(),
+            "First press must flip the hint instantly"
+        );
+        h.send(bare_event(EventType::KeyRelease(Key::BackQuote)));
+        assert!(
+            h.send(bare_event(EventType::KeyPress(Key::BackQuote)))
+                .is_none()
+        );
+        assert!(
+            !crate::input::hotkey::pause_icon_preview(),
+            "Second press must swing the hint back before settling"
+        );
+        h.send(bare_event(EventType::KeyRelease(Key::BackQuote)));
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        assert!(
+            !h.paused.load(Ordering::Relaxed),
+            "Rapid pause pair must leave paused unchanged"
+        );
+        assert!(
+            !crate::input::hotkey::pause_icon_preview(),
+            "Even burst must settle with the hint off"
         );
         assert!(
             h.pause_rx.lock().unwrap().try_recv().is_err(),

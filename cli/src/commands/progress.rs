@@ -295,6 +295,9 @@ pub(crate) fn download_progress_line(
 pub fn ensure_voice_model_downloaded(model_id: &str, json: bool) -> Result<()> {
     let canonical = resolve_configured_model(model_id);
     if is_model_downloaded(canonical, None) {
+        if canonical == "parakeet-unified-en-0.6b" {
+            taurine_core::voice::ensure_unified_hotwords_asset(None);
+        }
         return Ok(());
     }
 
@@ -303,6 +306,9 @@ pub fn ensure_voice_model_downloaded(model_id: &str, json: bool) -> Result<()> {
 
     if json {
         download_model(canonical, None, None)?;
+        if canonical == "parakeet-unified-en-0.6b" {
+            taurine_core::voice::ensure_unified_hotwords_asset(None);
+        }
         return Ok(());
     }
 
@@ -329,6 +335,9 @@ pub fn ensure_voice_model_downloaded(model_id: &str, json: bool) -> Result<()> {
     let mut stepper = stepper.into_inner();
     match res {
         Ok(_) => {
+            if canonical == "parakeet-unified-en-0.6b" {
+                taurine_core::voice::ensure_unified_hotwords_asset(None);
+            }
             stepper.finish_with_label(&format!(
                 "Successfully downloaded and installed '{}'",
                 entry.id

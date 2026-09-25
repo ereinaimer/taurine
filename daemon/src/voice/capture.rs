@@ -195,7 +195,7 @@ pub fn soft_knee_limit(sample: f32) -> f32 {
     }
 }
 
-/// Normalize a speech snippet to -20 dBFS RMS with a +15 dB maximum gain cap
+/// Normalize a speech snippet to -20 dBFS RMS with a +24 dB maximum gain cap
 /// and soft-knee peak limiting below 0.98.
 ///
 /// Near-silence (RMS below 1e-6) is returned unchanged so idle noise is never
@@ -205,7 +205,7 @@ pub fn normalize_snippet_rms(samples: &[f32]) -> Vec<f32> {
         return Vec::new();
     }
     const TARGET_DBFS: f32 = -20.0;
-    const MAX_GAIN_DB: f32 = 15.0;
+    const MAX_GAIN_DB: f32 = 24.0;
     const SILENCE_FLOOR: f32 = 1e-6;
     let sum_sq: f32 = samples.iter().map(|s| s * s).sum();
     let rms = (sum_sq / samples.len() as f32).sqrt();
@@ -665,8 +665,8 @@ pub fn query_default_communications_device_name() -> Option<String> {
 }
 
 /// Grace rungs for the held microphone, mirroring the model hold ladder
-/// (same 15/30/60/120s values — one ladder, not two).
-const MIC_HOLD_RUNGS_SECS: [u64; 4] = [15, 30, 60, 120];
+/// (same 10/20/30/60s values — one ladder, not two).
+const MIC_HOLD_RUNGS_SECS: [u64; 4] = [10, 20, 30, 60];
 
 fn mic_base_hold() -> Duration {
     Duration::from_secs(MIC_HOLD_RUNGS_SECS[0])
@@ -1632,21 +1632,21 @@ mod tests {
         let cap = mic_test_capture();
         cap.start().expect("open");
         cap.stop();
-        assert_eq!(cap.held_secs_for_test(), Some(15));
+        assert_eq!(cap.held_secs_for_test(), Some(10));
+        cap.start().expect("reuse");
+        cap.stop();
+        assert_eq!(cap.held_secs_for_test(), Some(20));
         cap.start().expect("reuse");
         cap.stop();
         assert_eq!(cap.held_secs_for_test(), Some(30));
-        cap.start().expect("reuse");
-        cap.stop();
-        assert_eq!(cap.held_secs_for_test(), Some(60));
-        cap.backdate_held_deadline_for_test(Duration::from_secs(61));
+        cap.backdate_held_deadline_for_test(Duration::from_secs(31));
         cap.reclaim_expired_held();
         assert_eq!(cap.held_secs_for_test(), None);
         cap.start().expect("reopen");
         cap.stop();
         assert_eq!(
             cap.held_secs_for_test(),
-            Some(15),
+            Some(10),
             "silence past the rung must reset to base"
         );
         taurine_core::settings::set_cached_voice_input_device(prev);

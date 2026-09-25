@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use super::worker_protocol as proto;
 use super::worker_protocol::Header;
@@ -294,7 +294,7 @@ impl WorkerClient {
                 inner.token = token;
                 debug!("voice worker warmed without model");
             }
-            Err(e) => debug!("voice worker warm-up failed, lazy fallback: {e}"),
+            Err(e) => warn!("voice worker warm-up failed, lazy fallback: {e}"),
         }
     }
 
@@ -411,7 +411,12 @@ impl WorkerClient {
     }
 
     /// Finish the session keyed by `req_id` and decode everything buffered.
-    pub fn transcribe(&self, req_id: &str, timeout: Duration) -> Result<WorkerTranscript, String> {
+    pub fn transcribe(
+        &self,
+        req_id: &str,
+        timeout: Duration,
+        hotwords: Option<&str>,
+    ) -> Result<WorkerTranscript, String> {
         let mut inner = lock_client(&self.inner);
         let stream = inner
             .stream
@@ -419,6 +424,7 @@ impl WorkerClient {
             .ok_or("voice worker is not running".to_string())?;
         let mut header = Header::op(proto::OP_TRANSCRIBE);
         header.req_id = Some(req_id.to_string());
+        header.hotwords = hotwords.map(str::to_string);
         match block_on_client(&self.rt, transact(stream, header, &[], timeout)) {
             Ok((resp, _)) => Ok(WorkerTranscript {
                 text: resp.text.unwrap_or_default(),
@@ -473,7 +479,16 @@ impl WorkerClient {
         inner.model.clear();
         inner.token.clear();
         if let Some(mut child) = inner.child.take() {
-            let _ = child.kill();
+            match child.try_wait() {
+                Ok(Some(status)) => warn!("voice worker exited: {status}"),
+                Ok(None) => {
+                    let _ = child.kill();
+                }
+                Err(e) => {
+                    warn!("voice worker wait failed: {e}");
+                    let _ = child.kill();
+                }
+            }
         }
     }
 }
@@ -512,7 +527,11 @@ mod tests {
                     }
                     proto::OP_TRANSCRIBE => {
                         resp = Header::op(proto::OP_RESULT);
-                        resp.text = Some(text.clone());
+                        if let Some(ref hw) = header.hotwords {
+                            resp.text = Some(format!("{text} [{hw}]"));
+                        } else {
+                            resp.text = Some(text.clone());
+                        }
                         resp.confidence = Some(0.9);
                         resp.duration_secs = Some(1.0);
                     }
@@ -580,9 +599,23 @@ mod tests {
             .expect("ensure");
         client.append("r1", 0, &[0.1; 1600]).expect("append");
         let t = client
-            .transcribe("r1", Duration::from_secs(5))
+            .transcribe("r1", Duration::from_secs(5), None)
             .expect("transcribe");
         assert_eq!(t.text, "hello stub");
+        assert_eq!(t.confidence, 0.9);
+    }
+
+    #[test]
+    fn test_client_transcribe_with_hotwords() {
+        let client = stub_client(Arc::new(AtomicUsize::new(0)), "hello");
+        client
+            .ensure_worker("parakeet-tdt-ctc-110m")
+            .expect("ensure");
+        client.append("r1", 0, &[0.1; 1600]).expect("append");
+        let t = client
+            .transcribe("r1", Duration::from_secs(5), Some("movies folder/Taurine"))
+            .expect("transcribe");
+        assert_eq!(t.text, "hello [movies folder/Taurine]");
         assert_eq!(t.confidence, 0.9);
     }
 
@@ -860,7 +893,11 @@ mod tests {
         });
         let client = WorkerClient::with_hooks(spawner, dead).expect("test client");
         assert!(client.ensure_worker("parakeet-tdt-ctc-110m").is_err());
-        assert!(client.transcribe("r1", Duration::from_secs(2)).is_err());
+        assert!(
+            client
+                .transcribe("r1", Duration::from_secs(2), None)
+                .is_err()
+        );
         assert_eq!(spawns.load(Ordering::SeqCst), 1);
         // The next press respawns instead of reusing the corpse.
         assert!(client.ensure_worker("parakeet-tdt-ctc-110m").is_err());

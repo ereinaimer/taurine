@@ -431,6 +431,11 @@ pub fn process_keyboard_event(
             crate::services::audio::play_pause_cue(!paused.load(Ordering::Relaxed));
         }
 
+        // Optimistic icon: flip synchronously so the tray reacts instantly
+        // (icon only); the tau-pause-count thread still owns the deferred
+        // toggle. Unconditional — the icon must move even with audio off.
+        crate::input::hotkey::push_pause_icon_preview();
+
         // No time-debounce: every distinct press queues one token; the
         // tau-pause-count thread settles the burst and owns the toggle.
         clear_undo_state(state.as_ref());

@@ -306,13 +306,18 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
     initialize_windows_ui();
 
     let initial_paused = paused.load(Ordering::Relaxed);
+    // Fresh loop (startup or post-crash restart): reconcile the optimistic
+    // hint with committed state and render the hint. A restart drops any
+    // in-flight <300ms flash — the counter re-asserts on settle.
+    crate::input::hotkey::sync_pause_icon_preview(initial_paused);
+    let initial_preview = initial_paused;
     let (items, menu) = TrayMenuItems::new(initial_paused);
     let snooze = SnoozeController::new();
 
     let running_icon = super::icons::running_icon();
     let paused_icon = super::icons::paused_icon();
 
-    let initial_icon = if initial_paused {
+    let initial_icon = if initial_preview {
         paused_icon.clone()
     } else {
         running_icon.clone()
@@ -366,6 +371,7 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
 
         let mut msg = unsafe { std::mem::zeroed() };
         let mut last_paused = Some(initial_paused);
+        let mut last_icon_shown = initial_preview;
         let mut menu_displayed_paused = initial_paused;
         let mut last_visible = None;
         let mut last_resume_label = "Resume".to_string();
@@ -467,11 +473,28 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
                     let _ = menu.insert(&items.pause_submenu, 0);
                     menu_displayed_paused = false;
                 }
+                // Committed change wins over any preview: reconcile first so
+                // the icon below renders the authoritative state.
+                crate::input::hotkey::sync_pause_icon_preview(now_paused);
+                last_icon_shown = now_paused;
                 let _ = _tray.set_icon(Some(if now_paused {
                     paused_icon.clone()
                 } else {
                     running_icon.clone()
                 }));
+            } else {
+                // Optimistic preview: icon only, never menu/snooze. Fires
+                // within one poll of the hotkey press; the committed block
+                // above confirms or corrects it after the burst settles.
+                let preview = crate::input::hotkey::pause_icon_preview();
+                if last_icon_shown != preview {
+                    last_icon_shown = preview;
+                    let _ = _tray.set_icon(Some(if preview {
+                        paused_icon.clone()
+                    } else {
+                        running_icon.clone()
+                    }));
+                }
             }
 
             // Update dynamic countdown label if snoozed
@@ -523,12 +546,29 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
             }
 
             std::thread::sleep(std::time::Duration::from_millis(100));
+
+            // Daemon shutdown: unhook and return so the icon is removed
+            // cleanly instead of orphaning a ghost on every restart.
+            if super::shutdown_requested() {
+                if !tray_hwnd.is_null() {
+                    // SAFETY: RemoveWindowSubclass unhooks the subclass before the thread terminates.
+                    unsafe {
+                        RemoveWindowSubclass(
+                            tray_hwnd,
+                            Some(tray_menu_subclass_proc),
+                            TRAY_SUBCLASS_ID,
+                        );
+                    }
+                }
+                return true;
+            }
         }
     }
 
     #[cfg(target_os = "macos")]
     {
         let mut last_paused = Some(initial_paused);
+        let mut last_icon_shown = initial_preview;
         let mut menu_displayed_paused = initial_paused;
         let mut last_visible = None;
         let mut last_resume_label = "Resume".to_string();
@@ -575,11 +615,26 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
                     let _ = menu.insert(&items.pause_submenu, 0);
                     menu_displayed_paused = false;
                 }
+                // Committed change wins over any preview: reconcile first so
+                // the icon below renders the authoritative state.
+                crate::input::hotkey::sync_pause_icon_preview(now_paused);
+                last_icon_shown = now_paused;
                 let _ = _tray.set_icon(Some(if now_paused {
                     paused_icon.clone()
                 } else {
                     running_icon.clone()
                 }));
+            } else {
+                // Optimistic preview: icon only, never menu/snooze.
+                let preview = crate::input::hotkey::pause_icon_preview();
+                if last_icon_shown != preview {
+                    last_icon_shown = preview;
+                    let _ = _tray.set_icon(Some(if preview {
+                        paused_icon.clone()
+                    } else {
+                        running_icon.clone()
+                    }));
+                }
             }
 
             // Update dynamic countdown label if snoozed
@@ -631,6 +686,12 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
             }
 
             std::thread::sleep(std::time::Duration::from_millis(100));
+
+            // Daemon shutdown: return so the icon is removed cleanly
+            // instead of orphaning a ghost on every restart.
+            if super::shutdown_requested() {
+                return true;
+            }
         }
     }
     #[allow(unreachable_code)]

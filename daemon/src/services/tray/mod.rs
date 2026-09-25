@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 
 pub mod icons;
@@ -35,4 +35,18 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
             .spawn(|| {})
             .expect("tray thread spawn")
     }
+}
+
+/// Set by daemon shutdown so the tray thread removes its icon and exits
+/// instead of being killed mid-loop (which orphans a ghost icon every
+/// restart). Checked once per loop iteration (~100ms).
+static TRAY_SHUTDOWN: AtomicBool = AtomicBool::new(false);
+
+/// Signal the tray thread to remove its icon and exit cleanly.
+pub fn request_shutdown() {
+    TRAY_SHUTDOWN.store(true, Ordering::Relaxed);
+}
+
+pub(crate) fn shutdown_requested() -> bool {
+    TRAY_SHUTDOWN.load(Ordering::Relaxed)
 }

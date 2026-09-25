@@ -8,7 +8,7 @@ use taurine_core::db::init;
 use taurine_core::rpc::daemon_control_server::DaemonControlServer;
 use tokio::sync::mpsc;
 use tonic::transport::Server;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 pub mod dictionary_manager;
 mod engine;
@@ -78,6 +78,14 @@ pub fn start() -> taurine_core::error::Result<()> {
             return Ok(());
         }
     };
+
+    // Tray first: icon shows instantly with defaults while DB, voice, and
+    // hooks init in the background. Real settings are stored into the same
+    // Arcs after load so the running loop picks them up live.
+    // honey: spawn cost is one thread; no hook/audio/voice work runs before it.
+    let paused = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let system_tray_enabled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let tray_handle = crate::services::tray::spawn(paused.clone(), system_tray_enabled.clone());
 
     // Wipe stale temp files from previous sessions or crashes
     taurine_core::system::paths::wipe_temp_dir();
@@ -218,57 +226,20 @@ pub fn start() -> taurine_core::error::Result<()> {
 
     let evaluator = Arc::new(Mutex::new(Evaluator::new(state.clone())));
 
-    let paused = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    paused.store(false, Ordering::Relaxed);
     let pause_notifications_enabled = Arc::new(std::sync::atomic::AtomicBool::new(
         pause_notifications_enabled,
     ));
     let pause_audio_enabled = Arc::new(std::sync::atomic::AtomicBool::new(
         settings.pause_audio_enabled,
     ));
-    let system_tray_enabled = Arc::new(std::sync::atomic::AtomicBool::new(
-        settings.system_tray_enabled,
-    ));
+    system_tray_enabled.store(settings.system_tray_enabled, Ordering::Relaxed);
     let hook_health = input::hook_health::HookHealth::new();
 
-    // Initialize voice subsystem — must be after `paused` is created
-    {
-        use taurine_core::voice::VoiceDictionary;
-
-        let buffer = Arc::new(crate::voice::AudioFrameBuffer::new());
-        let capture = Arc::new(crate::voice::AudioCapture::new(buffer));
-
-        let dict = VoiceDictionary::from_csv(&settings.voice_dictionary);
-        let session = Arc::new(
-            crate::voice::VoiceSessionManager::new(capture.clone(), paused.clone())
-                .with_model_name(settings.voice_model.clone())
-                .with_dictionary(dict),
-        );
-        session.set_self_ref();
-
-        // On-demand voice engine: the microphone stream stays closed and no
-        // model is loaded until the user starts a Push-to-Talk or Hands-Free
-        // session. The single configured model follows the burst hold ladder
-        // after speech ends (15s base, up to 120s across repeat bursts), then
-        // unloads. The model-free worker process itself is pre-spawned below
-        // and lives for the daemon lifetime.
-        let warm = Arc::clone(&session);
-        let _ = VOICE_SESSION.set(session);
-        std::thread::Builder::new()
-            .name("tau-voice-warm".to_string())
-            .spawn(move || {
-                let _ = crate::platform::panic::catch_worker_panic(
-                    "tau-voice-warm",
-                    std::panic::AssertUnwindSafe(move || {
-                        warm.warm_worker();
-                        // Park the cue output sink too, so the first press of
-                        // the process plays warm. Silent when no device exists.
-                        crate::services::audio::prewarm_voice_sink();
-                    }),
-                );
-            })
-            .ok();
-    }
-
+    // User-facing first: tray is already running since process start.
+    // Keyboard hooks next, audio right after — spawned back-to-back with no
+    // blocking work between so both initialize in parallel. Heavier work
+    // (voice, snippets, clipboard, fullscreen, updater) follows below.
     let (audio_tx, audio_rx) = services::audio::create_channel();
     let (pause_transition_tx, mut pause_transition_rx) = tokio::sync::mpsc::channel::<bool>(8);
 
@@ -284,7 +255,8 @@ pub fn start() -> taurine_core::error::Result<()> {
         pause_transition_tx.clone(),
     )?;
 
-    // Fire up listener in OS thread
+    // 3. Keyboard hooks next, on their own OS thread (runs parallel with
+    // the audio worker spawned right below)
     let eval_clone = evaluator.clone();
     let state_clone = state.clone();
     let paused_clone = paused.clone();
@@ -362,9 +334,74 @@ pub fn start() -> taurine_core::error::Result<()> {
             }
         })?;
 
-    // Start deferred heavy initializations
+    // 4. Start audio worker (parallel with hooks above; both run on their
+    // own threads from here on)
+    services::audio::start_worker(audio_rx);
 
-    // 1. Load snippets efficiently in background
+    // 5. Voice subsystem in the background — worker pre-spawned plus model
+    // preloaded so the first press transcribes instantly. Idle expiry still
+    // unloads the model after the hold ladder, then on-demand use reloads it.
+    {
+        use taurine_core::voice::VoiceDictionary;
+
+        let buffer = Arc::new(crate::voice::AudioFrameBuffer::new());
+        let capture = Arc::new(crate::voice::AudioCapture::new(buffer));
+
+        let dict = VoiceDictionary::from_csv(&settings.voice_dictionary);
+        let session = Arc::new(
+            crate::voice::VoiceSessionManager::new(capture.clone(), paused.clone())
+                .with_model_name(settings.voice_model.clone())
+                .with_dictionary(dict),
+        );
+        session.set_self_ref();
+
+        let warm = Arc::clone(&session);
+        let _ = VOICE_SESSION.set(session);
+        std::thread::Builder::new()
+            .name("tau-voice-warm".to_string())
+            .spawn(move || {
+                let _ = crate::platform::panic::catch_worker_panic(
+                    "tau-voice-warm",
+                    std::panic::AssertUnwindSafe(move || {
+                        warm.warm_worker();
+                        // Park the cue output sink too, so the first press of
+                        // the process plays warm. Silent when no device exists.
+                        crate::services::audio::prewarm_voice_sink();
+                        // honey: preload in the same background thread so hook
+                        // startup never waits; missing model files fall back
+                        // to lazy first-press load.
+                        if let Err(e) = warm.ensure_worker_ready() {
+                            tracing::debug!("voice model preload deferred: {e}");
+                        }
+                    }),
+                );
+            })
+            .ok();
+        // honey: one-shot warm loses the logon race (audio/pipe not ready in
+        // ~1s); two delayed idempotent retries cover it, then lazy first-press
+        // path owns recovery if still cold.
+        if let Some(session) = VOICE_SESSION.get().cloned() {
+            std::thread::Builder::new()
+                .name("tau-voice-rewarm".to_string())
+                .spawn(move || {
+                    let _ = crate::platform::panic::catch_worker_panic(
+                        "tau-voice-rewarm",
+                        std::panic::AssertUnwindSafe(move || {
+                            for delay in [15, 45] {
+                                std::thread::sleep(std::time::Duration::from_secs(delay));
+                                session.warm_worker();
+                                crate::services::audio::prewarm_voice_sink();
+                            }
+                        }),
+                    );
+                })
+                .ok();
+        }
+    }
+
+    // 6. Deferred heavy initializations, all background and parallel
+
+    // 6a. Load snippets efficiently in background
     let state_for_bg = state.clone();
     std::thread::Builder::new()
         .name("tau-db-load".to_string())
@@ -392,7 +429,7 @@ pub fn start() -> taurine_core::error::Result<()> {
             );
         })?;
 
-    // 2. Start clipboard history listener
+    // 6b. Start clipboard history listener
     let clipboard_thread = std::thread::Builder::new()
         .name("tau-clip".to_string())
         .spawn(|| {
@@ -402,7 +439,7 @@ pub fn start() -> taurine_core::error::Result<()> {
             });
         })?;
 
-    // 3. Start fullscreen listeners
+    // 6c. Start fullscreen listeners
     #[cfg(windows)]
     crate::platform::windows::fullscreen::start_listener(state.clone());
     #[cfg(target_os = "linux")]
@@ -410,13 +447,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     #[cfg(target_os = "macos")]
     crate::platform::macos::fullscreen::start_listener(state.clone());
 
-    // 4. Start audio worker
-    services::audio::start_worker(audio_rx);
-
-    // 5. Start system tray icon
-    crate::services::tray::spawn(paused.clone(), system_tray_enabled.clone());
-
-    // 6. Background Auto-Updater (interval checks every 6 hours)
+    // 7. Background Auto-Updater (interval checks every 6 hours)
     std::thread::Builder::new()
         .name("tau-updater".to_string())
         .spawn(move || {
@@ -769,6 +800,24 @@ pub fn start() -> taurine_core::error::Result<()> {
     });
 
     debug!("Initiating clean shutdown of all background threads...");
+
+    // 0. Remove the tray icon first so no ghost is left behind for the
+    // next instance. The tray loop polls the flag every ~100ms.
+    crate::services::tray::request_shutdown();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        if tray_handle.is_finished() {
+            if let Err(e) = tray_handle.join() {
+                error!("Error joining tray thread: {:?}", e);
+            }
+            break;
+        }
+        if std::time::Instant::now() >= deadline {
+            warn!("Tray thread did not exit within 2s; detaching thread");
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
 
     // 1. Signal shutdown to all hook listeners/supervisors
     #[cfg(windows)]

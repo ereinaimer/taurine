@@ -19,7 +19,8 @@ pub use simulate::{clear_simulated_events_for_test, enqueue_simulated_event_for_
 pub use clipboard::restore_clipboard_text;
 
 pub use inject::{
-    InjectionReport, StreamingTextSession, inject_expansion, inject_text_segment, inject_undo,
+    InjectionReport, StreamingTextSession, inject_expansion, inject_expansion_for_voice,
+    inject_text_segment, inject_undo,
 };
 
 #[cfg(test)]

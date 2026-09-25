@@ -442,3 +442,23 @@ fn test_voice_trigger_database_crud_lifecycle() {
     let active_after_delete = list_active_voice_invocations(&conn).unwrap();
     assert!(active_after_delete.is_empty());
 }
+
+#[test]
+fn test_phonetic_dictionary_pipeline() {
+    let dict = VoiceDictionary::from_csv("Taurine");
+    // Distinct English words like "torrent" or "thirty" are preserved
+    assert_eq!(dict.apply("run torrent now"), "run torrent now");
+    assert_eq!(dict.apply("thirty two"), "thirty two");
+
+    // Exact casing is applied
+    assert_eq!(dict.apply("run taurine now"), "run Taurine now");
+
+    // Close typos are corrected
+    assert_eq!(dict.apply("run taurin now"), "run Taurine now");
+
+    // Exact zero-distance phonetic sound-alike matches are corrected
+    assert_eq!(
+        dict.apply("Dorin is the best text expander in the world"),
+        "Taurine is the best text expander in the world"
+    );
+}

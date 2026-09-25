@@ -32,8 +32,64 @@ pub fn download_model(
 pub(crate) fn target_subfolder_for_model(canonical: &str) -> &str {
     match canonical {
         "parakeet-unified-en-0.6b" => "parakeet-unified",
+        "parakeet-tdt-0.6b-v2" => "parakeet-0.6b-v2",
         "parakeet-tdt-ctc-110m" => "parakeet-110m",
         _ => canonical,
+    }
+}
+
+/// Ensure the unified model has a valid `bpe.vocab` asset for hotwords modified beam search.
+///
+/// If `parakeet-unified/bpe.vocab` exists and is non-empty, returns its path.
+/// If missing, checks for `parakeet-unified/tokens.txt` and derives `bpe.vocab`
+/// by writing each token as `<token>\t-0.0\n` (standard SentencePiece format).
+/// Returns `None` if neither asset can be found or created.
+pub fn ensure_unified_hotwords_asset(base_dir: Option<&Path>) -> Option<PathBuf> {
+    let default_dir = models_dir();
+    let dir = base_dir.unwrap_or(&default_dir);
+    let u_dir = dir.join("parakeet-unified");
+    if !u_dir.is_dir() {
+        return None;
+    }
+
+    let vocab_path = u_dir.join("bpe.vocab");
+    if vocab_path.is_file()
+        && std::fs::metadata(&vocab_path)
+            .map(|m| m.len() > 0)
+            .unwrap_or(false)
+    {
+        return Some(vocab_path);
+    }
+
+    let tokens_path = u_dir.join("tokens.txt");
+    if !tokens_path.is_file() {
+        return None;
+    }
+
+    let tokens_content = std::fs::read_to_string(&tokens_path).ok()?;
+    let mut vocab_content = String::new();
+    for line in tokens_content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let token = if let Some((tok, _)) = line.rsplit_once(' ') {
+            tok
+        } else {
+            line
+        };
+        vocab_content.push_str(token);
+        vocab_content.push_str("\t-0.0\n");
+    }
+
+    if vocab_content.is_empty() {
+        return None;
+    }
+
+    if std::fs::write(&vocab_path, vocab_content).is_ok() {
+        Some(vocab_path)
+    } else {
+        None
     }
 }
 
@@ -432,5 +488,36 @@ mod tests {
 
         let err = download_plan("non-existent-model").unwrap_err();
         assert!(err.to_string().contains("non-existent-model"));
+    }
+
+    #[test]
+    fn test_ensure_unified_hotwords_asset_derivation_and_reuse() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let u_dir = temp_dir.path().join("parakeet-unified");
+        fs::create_dir_all(&u_dir).unwrap();
+
+        // 1. Neither bpe.vocab nor tokens.txt exists -> None
+        assert_eq!(ensure_unified_hotwords_asset(Some(temp_dir.path())), None);
+
+        // 2. Create tokens.txt with sample tokens
+        let sample_tokens = "<unk> 0\n▁t 1\n▁the 2\n<blk> 3\n";
+        fs::write(u_dir.join("tokens.txt"), sample_tokens).unwrap();
+
+        // Derives bpe.vocab from tokens.txt
+        let vocab_path = ensure_unified_hotwords_asset(Some(temp_dir.path()))
+            .expect("must derive bpe.vocab from tokens.txt");
+        assert_eq!(vocab_path, u_dir.join("bpe.vocab"));
+        assert!(vocab_path.exists());
+
+        let contents = fs::read_to_string(&vocab_path).unwrap();
+        assert_eq!(contents, "<unk>\t-0.0\n▁t\t-0.0\n▁the\t-0.0\n<blk>\t-0.0\n");
+
+        // 3. Existing bpe.vocab is reused without overwriting
+        fs::write(&vocab_path, "custom_vocab\t-1.0\n").unwrap();
+        let reused_path = ensure_unified_hotwords_asset(Some(temp_dir.path()))
+            .expect("must reuse existing bpe.vocab");
+        assert_eq!(reused_path, vocab_path);
+        let reused_contents = fs::read_to_string(&reused_path).unwrap();
+        assert_eq!(reused_contents, "custom_vocab\t-1.0\n");
     }
 }

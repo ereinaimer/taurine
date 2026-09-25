@@ -58,7 +58,7 @@ fn encode(letters: &[char], alternate: bool) -> String {
         }
     }
     // Leading vowel or H/W kept verbatim as the word-initial sound.
-    if i == 0 {
+    if i == 0 && matches!(letters[0], 'A' | 'E' | 'I' | 'O' | 'U' | 'Y' | 'H' | 'W') {
         push(letters[0], &mut last_pushed, &mut key);
         i = 1;
     }
@@ -67,9 +67,12 @@ fn encode(letters: &[char], alternate: bool) -> String {
         let c = letters[i];
         let next = letters.get(i + 1).copied();
         match c {
-            'A' | 'E' | 'I' | 'O' | 'U' | 'Y' | 'H' | 'W' => {}
+            'A' | 'E' | 'I' | 'O' | 'U' | 'Y' => {
+                last_pushed = None;
+            }
+            'H' | 'W' => {}
             'B' => {
-                if !(letters[i - 1] == 'M' && next.is_none()) {
+                if !(i > 0 && letters[i - 1] == 'M' && next.is_none()) {
                     push('P', &mut last_pushed, &mut key);
                 }
             }
@@ -90,7 +93,17 @@ fn encode(letters: &[char], alternate: bool) -> String {
             'D' => push('T', &mut last_pushed, &mut key),
             'F' | 'J' | 'L' | 'M' | 'N' | 'R' => push(c, &mut last_pushed, &mut key),
             'G' => {
-                if next.is_some_and(is_front_vowel) {
+                let prev = if i > 0 {
+                    letters.get(i - 1).copied()
+                } else {
+                    None
+                };
+                // Terminal or pre-consonantal NG represents the velar nasal /ŋ/ (folds to N), not /K/
+                if prev == Some('N')
+                    && (next.is_none() || !matches!(next, Some('A' | 'E' | 'I' | 'O' | 'U' | 'Y')))
+                {
+                    // Already pushed N, skip pushing plosive K
+                } else if next.is_some_and(is_front_vowel) {
                     push(
                         if alternate { 'K' } else { 'J' },
                         &mut last_pushed,
@@ -146,5 +159,20 @@ mod tests {
         assert_eq!(double_metaphone("follower").0, "FLR");
         assert_eq!(double_metaphone("movies").0, "MFS");
         assert!(!double_metaphone("folder").1.is_empty());
+
+        // Voiced/unvoiced plosive initial consonant folding
+        assert_eq!(double_metaphone("Dorren").0, "TRN");
+        assert_eq!(double_metaphone("Taurine").0, "TRN");
+
+        // Vowel duplicate reset (non-consecutive consonants preserved)
+        assert_eq!(double_metaphone("Tether").0, "TTR");
+        assert_eq!(double_metaphone("this").0, "TS");
+        assert_eq!(double_metaphone("that").0, "TT");
+
+        // Terminal/pre-consonantal NG velar nasal folding
+        assert_eq!(double_metaphone("Toring").0, "TRN");
+        assert_eq!(double_metaphone("Theoring").0, "TRN");
+        assert_eq!(double_metaphone("Darin").0, "TRN");
+        assert_eq!(double_metaphone("drawin").0, "TRN");
     }
 }

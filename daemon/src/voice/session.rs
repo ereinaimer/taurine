@@ -4,7 +4,9 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
 
-use taurine_core::voice::{VoiceDictionary, format_transcript};
+use taurine_core::voice::{
+    VoiceDictionary, format_mb, format_transcript, model_disk_size_mb, process_rss_mb,
+};
 
 use super::capture::AudioCapture;
 use super::modes::VoiceMode;
@@ -28,10 +30,10 @@ pub(crate) const PREROLL_MS: u64 = 400;
 /// Pre-roll samples at 16 kHz mono.
 pub(crate) const PREROLL_SAMPLES: usize = PREROLL_MS as usize * 16;
 
-/// Hold ladder rungs mirroring the worker sweep: a fresh load holds 15s;
-/// genuine use inside the window steps one rung up to the 120s cap, so at
-/// most 120s of residency follows last use, then zero. Both tables must agree.
-const HOLD_RUNGS_SECS: [u64; 4] = [15, 30, 60, 120];
+/// Hold ladder rungs mirroring the worker sweep: a fresh load holds 10s;
+/// genuine use inside the window steps one rung up to the 60s cap, so at
+/// most 60s of residency follows last use, then zero. Both tables must agree.
+const HOLD_RUNGS_SECS: [u64; 4] = [10, 20, 30, 60];
 
 fn base_hold() -> Duration {
     Duration::from_secs(HOLD_RUNGS_SECS[0])
@@ -115,7 +117,7 @@ type CaptureHook = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
 /// The single configured model lives in the isolated `--voice-daemon`
 /// worker: it loads on demand when a Push-to-Talk or Hands-Free session
 /// starts, stays pinned for the whole recording, and is fully evicted once
-/// its hold rung (15s base, up to 120s with use) expires after last use.
+/// its hold rung (10s base, up to 60s with use) expires after last use.
 /// The microphone stream is parked for a short grace after each session,
 /// then closed on silence.
 pub struct VoiceSessionManager {
@@ -372,11 +374,15 @@ impl VoiceSessionManager {
             && meta.last_used.elapsed() > meta.hold
         {
             let hold_secs = meta.hold.as_secs();
+            let rss_before = process_rss_mb();
             *guard = None;
             self.worker.unload_model();
             self.capture.close_held_now();
-            debug!(
-                "VoiceSessionManager: unloading idle voice model from RAM ({hold_secs}s hold expired)"
+            let rss_after = process_rss_mb();
+            info!(
+                "VoiceSessionManager: model evicted ({hold_secs}s hold expired, RSS {} -> {} MB)",
+                format_mb(rss_before),
+                format_mb(rss_after),
             );
         }
     }
@@ -421,7 +427,17 @@ impl VoiceSessionManager {
                 }
                 next
             }
-            _ => base_hold(),
+            _ => {
+                let rss = process_rss_mb();
+                let file_mb = model_disk_size_mb(&target, None);
+                info!(
+                    "VoiceSessionManager: model '{target}' resident ({} MB on disk, RSS {} -> {} MB)",
+                    format_mb(file_mb),
+                    format_mb(rss),
+                    format_mb(rss),
+                );
+                base_hold()
+            }
         };
         *meta = Some(EngineMeta {
             model_id: target,
@@ -528,20 +544,25 @@ impl VoiceSessionManager {
     /// Immediately unloads the speech recognition model from RAM.
     pub fn unload_model(&self) {
         let mut meta = self.meta.lock().unwrap_or_else(|p| p.into_inner());
+        let hold_secs = meta.as_ref().map(|m| m.hold.as_secs()).unwrap_or(0);
+        let rss_before = process_rss_mb();
         *meta = None;
         self.worker.unload_model();
-        debug!("VoiceSessionManager: voice engine unloaded from RAM");
+        let rss_after = process_rss_mb();
+        info!(
+            "VoiceSessionManager: model evicted ({hold_secs}s hold expired, RSS {} -> {} MB)",
+            format_mb(rss_before),
+            format_mb(rss_after),
+        );
     }
 
-    /// Ensure the worker serves the single configured model.
-    ///
-    /// Only the resolved `voice_model` is ever loaded. A fresh model whose
-    /// `last_used` is inside its hold rung is reused; the client singleton keeps
-    /// concurrent triggers on one worker. A miss loads at the base rung.
-    pub fn ensure_worker_ready(&self) -> Result<(), String> {
-        let target = self.target_model().to_string();
+    fn ensure_model_loaded(
+        worker: &WorkerClient,
+        meta: &Arc<Mutex<Option<EngineMeta>>>,
+        target: &str,
+    ) -> Result<(), String> {
         let fresh = {
-            let guard = self.meta.lock().unwrap_or_else(|p| p.into_inner());
+            let guard = meta.lock().unwrap_or_else(|p| p.into_inner());
             match &*guard {
                 Some(meta) => meta.model_id == target && meta.last_used.elapsed() <= meta.hold,
                 None => false,
@@ -551,14 +572,50 @@ impl VoiceSessionManager {
             return Ok(());
         }
         debug!("taurine-voice-loader: loading voice model '{target}'");
-        self.worker.ensure_worker(&target)?;
-        let mut guard = self.meta.lock().unwrap_or_else(|p| p.into_inner());
+        let rss_before = process_rss_mb();
+        worker.ensure_worker(target)?;
+        let rss_after = process_rss_mb();
+        let file_mb = model_disk_size_mb(target, None);
+        info!(
+            "VoiceSessionManager: model '{target}' resident ({} MB on disk, RSS {} -> {} MB)",
+            format_mb(file_mb),
+            format_mb(rss_before),
+            format_mb(rss_after),
+        );
+        let mut guard = meta.lock().unwrap_or_else(|p| p.into_inner());
         *guard = Some(EngineMeta {
-            model_id: target,
+            model_id: target.to_string(),
             last_used: Instant::now(),
             hold: base_hold(),
         });
         Ok(())
+    }
+
+    /// Ensure the worker serves the single configured model.
+    ///
+    /// Only the resolved `voice_model` is ever loaded. A fresh model whose
+    /// `last_used` is inside its hold rung is reused; the client singleton keeps
+    /// concurrent triggers on one worker. A miss loads at the base rung.
+    pub fn ensure_worker_ready(&self) -> Result<(), String> {
+        Self::ensure_model_loaded(&self.worker, &self.meta, self.target_model())
+    }
+
+    /// Preload the model in the background on a dedicated thread at genuine engine start.
+    ///
+    /// Fire-and-forget: press and capture never wait for the load. If the worker is already
+    /// warm this is a millisecond ping; if cold, background load overlaps speech capture.
+    fn kick_preload(&self) {
+        let worker = self.worker.clone();
+        let meta = Arc::clone(&self.meta);
+        let target = self.target_model().to_string();
+        let builder = std::thread::Builder::new().name("tau-voice-preload".to_string());
+        if let Err(e) = builder.spawn(move || {
+            if let Err(e) = Self::ensure_model_loaded(&worker, &meta, &target) {
+                debug!("VoiceSessionManager: preload ensure_worker failed: {e}");
+            }
+        }) {
+            debug!("VoiceSessionManager: failed to spawn preload thread: {e}");
+        }
     }
 
     /// Stream newly captured audio to the worker while the request is alive.
@@ -698,6 +755,7 @@ impl VoiceSessionManager {
             *mode = VoiceMode::PushToTalk;
         }
         self.touch_loaded_slot();
+        self.kick_preload();
         info!("VoiceSessionManager: Push-To-Talk recording started");
         self.begin_request(PttTiming {
             press_at,
@@ -783,9 +841,41 @@ impl VoiceSessionManager {
                 let seq = entry.progress.seq.load(Ordering::Relaxed);
                 self.worker.append(&req_id, seq, &drained[sent..])?;
             }
+            let hotwords = {
+                let dict = self.dictionary.lock().unwrap_or_else(|p| p.into_inner());
+                let active_app =
+                    crate::platform::get_active_window_info().and_then(|info| info.exec_name);
+                let triggers = if let Ok(conn) = taurine_core::db::get_conn()
+                    && let Ok(invocations) =
+                        taurine_core::db::crud::list_active_voice_invocations(&conn)
+                {
+                    invocations
+                        .into_iter()
+                        .filter(|inv| {
+                            (match (&inv.action.only_apps, &active_app) {
+                                (Some(only), Some(app)) => {
+                                    only.split(',').any(|a| a.trim().eq_ignore_ascii_case(app))
+                                }
+                                _ => true,
+                            }) && match (&inv.action.except_apps, &active_app) {
+                                (Some(except), Some(app)) => !except
+                                    .split(',')
+                                    .any(|a| a.trim().eq_ignore_ascii_case(app)),
+                                _ => true,
+                            }
+                        })
+                        .map(|inv| inv.invocation)
+                        .collect::<Vec<_>>()
+                } else {
+                    Vec::new()
+                };
+                taurine_core::voice::build_hotwords_payload(&dict, &triggers)
+            };
             // Long hands-free audio needs headroom past old load budgets;
             // the worker already popped the buffer, so a timeout loses audio.
-            let transcript = self.worker.transcribe(&req_id, Duration::from_secs(60))?;
+            let transcript =
+                self.worker
+                    .transcribe(&req_id, Duration::from_secs(60), hotwords.as_deref())?;
             let transcript_at = Instant::now();
             debug!(
                 "VoiceSessionManager: voice latency press_to_cue_ms={:.2} press_to_recording_ms={:.2} press_to_transcript_ms={:.2}",
@@ -875,6 +965,7 @@ impl VoiceSessionManager {
             *mode = VoiceMode::HandsFree;
         }
         self.touch_loaded_slot();
+        self.kick_preload();
         info!("VoiceSessionManager: Hands-Free dictation activated");
         self.begin_request(PttTiming {
             press_at,
@@ -1017,7 +1108,7 @@ impl VoiceSessionManager {
             std::thread::Builder::new()
                 .name("taurine-voice-discard".to_string())
                 .spawn(move || {
-                    let _ = worker.transcribe(&req_id, Duration::from_secs(5));
+                    let _ = worker.transcribe(&req_id, Duration::from_secs(5), None);
                 })
                 .ok();
         }
@@ -1103,11 +1194,10 @@ impl VoiceSessionManager {
         taurine_core::db::crud::record_voice_dictation_usage(words_count, chars_count, active_app);
 
         // Inject text segment using canonical expansion pipeline with IS_INJECTING guard
-        crate::injector::inject_expansion(
+        crate::injector::inject_expansion_for_voice(
             vec![taurine_core::engine::variables::ExpansionStep::Text(
                 final_text.to_string(),
             )],
-            0,
             taurine_core::settings::SpinnerStyle::default(),
         );
 
@@ -1908,8 +1998,8 @@ mod tests {
             crate::platform::test_injector()
                 .recorded()
                 .iter()
-                .any(|c| c.contains("Hello world")),
-            "dictation must route through injection, got {:?}",
+                .any(|c| c == "paste"),
+            "dictation must route through injection via paste, got {:?}",
             crate::platform::test_injector().recorded()
         );
     }
@@ -1945,26 +2035,26 @@ mod tests {
     }
 
     #[test]
-    fn test_base_rung_holds_10s_evicts_20s() {
+    fn test_base_rung_holds_5s_evicts_15s() {
         let (session, _) = create_test_session();
         session.set_test_meta(
             "parakeet-tdt-ctc-110m",
-            Instant::now() - Duration::from_secs(10),
+            Instant::now() - Duration::from_secs(5),
         );
         session.clean_expired_transcriber();
         assert!(
             session.meta.lock().unwrap().is_some(),
-            "10s past activity is warm on the base rung"
+            "5s past activity is warm on the base rung"
         );
 
         session.set_test_meta(
             "parakeet-tdt-ctc-110m",
-            Instant::now() - Duration::from_secs(20),
+            Instant::now() - Duration::from_secs(15),
         );
         session.clean_expired_transcriber();
         assert!(
             session.meta.lock().unwrap().is_none(),
-            "20s past activity passes the base rung"
+            "15s past activity passes the base rung"
         );
     }
 
@@ -1973,7 +2063,7 @@ mod tests {
         let (session, _) = create_test_session();
         session.set_test_meta(
             "parakeet-tdt-ctc-110m",
-            Instant::now() - Duration::from_secs(16),
+            Instant::now() - Duration::from_secs(11),
         );
 
         // Recording pins the model: stale metadata survives while active.
@@ -2166,9 +2256,9 @@ mod tests {
     fn test_ladder_escalates_and_caps() {
         let (session, _) = create_test_session();
         let target = session.target_model().to_string();
-        session.set_test_meta(&target, Instant::now() - Duration::from_secs(10));
-        assert_eq!(hold_secs(&session), Some(15), "fresh load starts at base");
-        for expected in [30u64, 60, 120, 120] {
+        session.set_test_meta(&target, Instant::now() - Duration::from_secs(5));
+        assert_eq!(hold_secs(&session), Some(10), "fresh load starts at base");
+        for expected in [20u64, 30, 60, 60] {
             session.record_use(target.clone());
             assert_eq!(hold_secs(&session), Some(expected));
         }
@@ -2179,12 +2269,12 @@ mod tests {
         let (session, _) = create_test_session();
         session.set_test_meta(
             "parakeet-tdt-ctc-110m",
-            Instant::now() - Duration::from_secs(10),
+            Instant::now() - Duration::from_secs(5),
         );
         session.touch_loaded_slot();
         assert_eq!(
             hold_secs(&session),
-            Some(15),
+            Some(10),
             "session start pins without stepping"
         );
         let elapsed = session
@@ -2206,10 +2296,10 @@ mod tests {
         let (session, _) = create_test_session();
         session.set_test_meta(
             "parakeet-tdt-ctc-110m",
-            Instant::now() - Duration::from_secs(16),
+            Instant::now() - Duration::from_secs(11),
         );
         session.touch_loaded_slot();
-        assert_eq!(hold_secs(&session), Some(15));
+        assert_eq!(hold_secs(&session), Some(10));
         session.clean_expired_transcriber();
         assert_eq!(hold_secs(&session), None);
     }
@@ -2221,12 +2311,12 @@ mod tests {
         session.set_test_meta(&target, Instant::now());
         session.record_use(target.clone());
         session.record_use(target.clone());
-        assert_eq!(hold_secs(&session), Some(60));
-        backdate_meta(&session, Duration::from_secs(61));
+        assert_eq!(hold_secs(&session), Some(30));
+        backdate_meta(&session, Duration::from_secs(31));
         session.clean_expired_transcriber();
         assert_eq!(hold_secs(&session), None, "silence past deadline evicts");
         session.set_test_meta(&target, Instant::now());
-        assert_eq!(hold_secs(&session), Some(15), "next load restarts at base");
+        assert_eq!(hold_secs(&session), Some(10), "next load restarts at base");
     }
 
     #[test]
@@ -2235,7 +2325,7 @@ mod tests {
         let target = session.target_model().to_string();
         session.set_test_meta(&target, Instant::now());
         session.record_use(target.clone());
-        assert_eq!(hold_secs(&session), Some(30));
+        assert_eq!(hold_secs(&session), Some(20));
         session.set_model_name("other-model");
         assert_eq!(hold_secs(&session), None);
     }
@@ -2251,11 +2341,11 @@ mod tests {
         crate::platform::test_injector().clear();
         let target = session.target_model().to_string();
         session.set_test_meta(&target, Instant::now());
-        assert_eq!(hold_secs(&session), Some(15));
+        assert_eq!(hold_secs(&session), Some(10));
         session.start_ptt().expect("ptt start");
         assert_eq!(
             hold_secs(&session),
-            Some(15),
+            Some(10),
             "session start must pin without stepping"
         );
         session.capture().buffer().push_samples(&[0.5; 3200]);
@@ -2263,7 +2353,7 @@ mod tests {
         assert!(res.is_some(), "stub worker must return a transcript");
         assert_eq!(
             hold_secs(&session),
-            Some(30),
+            Some(20),
             "one dictation steps exactly one rung"
         );
     }
@@ -2280,8 +2370,8 @@ mod tests {
         let target = session.target_model().to_string();
         session.set_test_meta(&target, Instant::now());
         session.start_ptt().expect("ptt start");
-        // 20s of recording elapses past the 15s base rung...
-        backdate_meta(&session, Duration::from_secs(20));
+        // 15s of recording elapses past the 10s base rung...
+        backdate_meta(&session, Duration::from_secs(15));
         // ...but streaming audio pins last_used, as the forwarder does.
         VoiceSessionManager::pin_stream_meta(&session.meta, &target);
         session.capture().buffer().push_samples(&[0.5; 3200]);
@@ -2289,7 +2379,7 @@ mod tests {
         assert!(res.is_some(), "stub worker must return a transcript");
         assert_eq!(
             hold_secs(&session),
-            Some(30),
+            Some(20),
             "streaming pin must prevent reset-while-warm"
         );
     }
@@ -2350,5 +2440,127 @@ mod tests {
         );
         assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
         session.cancel();
+    }
+
+    fn create_preload_test_session() -> (VoiceSessionManager, Arc<AtomicUsize>) {
+        let buffer = Arc::new(super::super::capture::AudioFrameBuffer::new());
+        let capture = Arc::new(AudioCapture::new(buffer));
+        let paused = Arc::new(AtomicBool::new(false));
+        let hellos = Arc::new(AtomicUsize::new(0));
+        let hellos_connector = Arc::clone(&hellos);
+        let spawner: SpawnFn = Arc::new(move |_, _| {
+            #[cfg(all(unix, not(target_os = "android")))]
+            let child = Command::new("true")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()?;
+            #[cfg(target_os = "windows")]
+            let child = {
+                use std::os::windows::process::CommandExt;
+                Command::new("cmd")
+                    .arg("/C")
+                    .arg("exit")
+                    .arg("0")
+                    .creation_flags(0x0800_0000)
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()?
+            };
+            #[cfg(target_os = "android")]
+            let child = Command::new("true").spawn()?;
+            Ok(child)
+        });
+        let connector: ConnectFn = Arc::new(move |_, model, version, _| {
+            let hellos = Arc::clone(&hellos_connector);
+            Box::pin(async move {
+                hellos.fetch_add(1, Ordering::SeqCst);
+                let (client, peer) = tokio::io::duplex(256 * 1024);
+                tokio::spawn(latency_stub_peer(peer, "hello stub".to_string()));
+                let mut ready = proto::Header::op(proto::OP_HELLO);
+                ready.version = Some(version);
+                ready.model = Some(model);
+                let mut client: DynStream = Box::new(client);
+                let (resp, _) = transact(&mut client, ready, &[], Duration::from_secs(5)).await?;
+                if resp.op != proto::OP_READY {
+                    return Err("stub handshake failed".to_string());
+                }
+                Ok(client)
+            }) as Pin<Box<dyn Future<Output = Result<DynStream, String>> + Send>>
+        });
+        let worker = WorkerClient::with_hooks(spawner, connector).expect("test client");
+        let session = VoiceSessionManager::new(capture, paused).with_worker(worker);
+        (session, hellos)
+    }
+
+    #[test]
+    fn test_preload_kicks_at_keypress_without_blocking_press() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let (session, hellos) = create_preload_test_session();
+        let session = session.into_test_arc();
+        crate::platform::test_injector().clear();
+
+        assert_eq!(hellos.load(Ordering::SeqCst), 0);
+        assert_eq!(hold_secs(&session), None);
+
+        let press_start = Instant::now();
+        session.start_ptt().expect("ptt start");
+        let press_duration = press_start.elapsed();
+
+        assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
+        assert!(
+            press_duration < Duration::from_millis(500),
+            "press must return immediately without waiting for preload"
+        );
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while hold_secs(&session).is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        assert_eq!(
+            hold_secs(&session),
+            Some(10),
+            "preload thread must have initialized model slot to base hold"
+        );
+        assert!(
+            hellos.load(Ordering::SeqCst) >= 1,
+            "preload hello must reach peer while recording"
+        );
+
+        session.cancel();
+    }
+
+    #[test]
+    fn test_preload_not_kicked_on_mash_bounce() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let (session, hellos) = create_preload_test_session();
+        let session = session.into_test_arc();
+        crate::platform::test_injector().clear();
+
+        *session.last_stop.lock().unwrap() = Some(Instant::now());
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+
+        session.start_ptt().expect("start ptt inside mash window");
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+
+        std::thread::sleep(Duration::from_millis(super::RESCUE_WAIT_MS + 50));
+
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+        assert_eq!(
+            hellos.load(Ordering::SeqCst),
+            0,
+            "preload must never fire for bounces"
+        );
+        assert_eq!(hold_secs(&session), None);
     }
 }

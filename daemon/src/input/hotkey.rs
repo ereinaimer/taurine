@@ -120,6 +120,32 @@ pub fn push_pause_press() {
     }
 }
 
+/// Optimistic tray-icon preview: flipped synchronously on every distinct
+/// pause-chord press (same arm as the audio cue), so the icon reacts
+/// instantly while the burst counter still owns the deferred toggle.
+/// Best-effort hint only — the committed `paused` flag stays authoritative
+/// for menus, notifications, and subsystem suspend/resume.
+static PAUSE_ICON_PREVIEW: AtomicBool = AtomicBool::new(false);
+
+/// Current icon hint. Tray loops render this; everything else reads `paused`.
+pub fn pause_icon_preview() -> bool {
+    PAUSE_ICON_PREVIEW.load(Ordering::Relaxed)
+}
+
+/// Flip the hint on each distinct press. Odd flips predict the toggle; even
+/// flips swing back by themselves, so settled-even bursts need no revert.
+pub fn push_pause_icon_preview() {
+    PAUSE_ICON_PREVIEW.fetch_xor(true, Ordering::Relaxed);
+}
+
+/// Reconcile the hint with committed state. Called by the burst counter
+/// after settling (authoritative) and by tray loops when they observe a
+/// committed change from any other path (menu, RPC, snooze expiry).
+/// Tests also use this to reset the global under TEST_LOCK.
+pub fn sync_pause_icon_preview(committed_paused: bool) {
+    PAUSE_ICON_PREVIEW.store(committed_paused, Ordering::Relaxed);
+}
+
 /// Process-global transition sender for paths that never had the channel
 /// threaded to them (tray/snooze fallbacks). Set once at daemon startup.
 static PAUSE_TRANSITION_TX: Mutex<Option<tokio::sync::mpsc::Sender<bool>>> = Mutex::new(None);
@@ -166,7 +192,16 @@ pub fn spawn_pause_counter(
                     // Atomic flip: concurrent tray fallbacks compose instead
                     // of losing an update to a load/store race.
                     let was_paused = paused.fetch_xor(true, Ordering::SeqCst);
-                    notify_pause_transition(&pause_transition_tx, !was_paused);
+                    let now_paused = !was_paused;
+                    // Authoritative reconcile: the preview already flipped odd
+                    // times to this value; store again to heal drift from
+                    // external paths that moved `paused` mid-burst.
+                    sync_pause_icon_preview(now_paused);
+                    notify_pause_transition(&pause_transition_tx, now_paused);
+                } else {
+                    // Even bursts swing the preview back by themselves (one
+                    // flip per press); re-sync to heal concurrent drift.
+                    sync_pause_icon_preview(paused.load(Ordering::SeqCst));
                 }
             }
         })
@@ -729,5 +764,47 @@ mod linux_tests {
         taurine_core::settings::set_cached_voice_ptt_hotkey("win+lctrl".to_string());
         taurine_core::settings::set_cached_voice_handsfree_hotkey("win+lctrl+lalt".to_string());
         refresh_cached_voice_specs("win+lctrl", "win+lctrl+lalt");
+    }
+}
+
+#[cfg(test)]
+mod icon_preview_tests {
+    use super::*;
+
+    /// Each distinct press flips the hint; a pair swings back by itself, so
+    /// even bursts never need a revert from the counter.
+    #[test]
+    fn preview_flips_per_press_and_pair_swings_back() {
+        let _lock = taurine_core::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        sync_pause_icon_preview(false);
+
+        push_pause_icon_preview();
+        assert!(
+            pause_icon_preview(),
+            "first press must show paused instantly"
+        );
+        push_pause_icon_preview();
+        assert!(
+            !pause_icon_preview(),
+            "second press must swing the hint back before the burst settles"
+        );
+
+        sync_pause_icon_preview(false);
+    }
+
+    /// External commits (menu, RPC, snooze) reconcile the hint.
+    #[test]
+    fn preview_sync_follows_committed_state() {
+        let _lock = taurine_core::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        sync_pause_icon_preview(false);
+
+        sync_pause_icon_preview(true);
+        assert!(pause_icon_preview());
+        sync_pause_icon_preview(false);
+        assert!(!pause_icon_preview());
     }
 }

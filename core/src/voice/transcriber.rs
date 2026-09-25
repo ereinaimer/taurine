@@ -32,6 +32,9 @@ pub trait Transcriber: Send + Sync {
     /// Identifier name for the transcriber engine.
     fn name(&self) -> &str;
 
+    /// Set optional hotwords payload to bias the upcoming transcription.
+    fn set_hotwords(&mut self, _hotwords: Option<String>) {}
+
     /// Transcribe 16kHz mono audio samples into text.
     fn transcribe(&mut self, audio: &[f32], sample_rate: u32) -> Result<Transcription>;
 }
@@ -40,15 +43,26 @@ pub trait Transcriber: Send + Sync {
 mod tests {
     use super::*;
 
-    struct MockTranscriber;
+    struct MockTranscriber {
+        hotwords: Option<String>,
+    }
 
     impl Transcriber for MockTranscriber {
         fn name(&self) -> &str {
             "mock"
         }
 
+        fn set_hotwords(&mut self, hotwords: Option<String>) {
+            self.hotwords = hotwords;
+        }
+
         fn transcribe(&mut self, _audio: &[f32], _sample_rate: u32) -> Result<Transcription> {
-            Ok(Transcription::new("hello world", 0.95, 1.2))
+            let text = if let Some(ref hw) = self.hotwords {
+                format!("hello {hw}")
+            } else {
+                "hello world".to_string()
+            };
+            Ok(Transcription::new(text, 0.95, 1.2))
         }
     }
 
@@ -66,10 +80,16 @@ mod tests {
 
     #[test]
     fn test_mock_transcriber() {
-        let mut mock = MockTranscriber;
+        let mut mock = MockTranscriber { hotwords: None };
         assert_eq!(mock.name(), "mock");
         let result = mock.transcribe(&[0.0; 1600], 16000).expect("transcription");
         assert_eq!(result.text, "hello world");
         assert_eq!(result.confidence, 0.95);
+
+        mock.set_hotwords(Some("taurine".to_string()));
+        let res_hw = mock
+            .transcribe(&[0.0; 1600], 16000)
+            .expect("transcription with hw");
+        assert_eq!(res_hw.text, "hello taurine");
     }
 }

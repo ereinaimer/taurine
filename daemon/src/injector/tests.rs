@@ -981,6 +981,73 @@ fn test_prepare_clipboard_aborts_immediately_on_generation_advance() {
 }
 
 #[test]
+fn test_fast_path_boundary_32_chars_uses_typing() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let fake = crate::platform::test_injector();
+    fake.clear();
+    let text = "a".repeat(32);
+    let steps = vec![taurine_core::engine::variables::ExpansionStep::Text(
+        text.clone(),
+    )];
+    let report =
+        super::inject::inject_expansion(steps, 0, taurine_core::settings::SpinnerStyle::Braille);
+    assert_eq!(report.successful_chars, 32);
+    assert!(
+        fake.recorded()
+            .iter()
+            .any(|c| c == &format!("expand:0:{text}:0:0")),
+        "32-char text must take the fast path, got {:?}",
+        fake.recorded()
+    );
+}
+
+#[test]
+fn test_fast_path_boundary_33_chars_uses_paste() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let fake = crate::platform::test_injector();
+    fake.clear();
+    let steps = vec![taurine_core::engine::variables::ExpansionStep::Text(
+        "a".repeat(33),
+    )];
+    let report =
+        super::inject::inject_expansion(steps, 0, taurine_core::settings::SpinnerStyle::Braille);
+    assert!(report.completed);
+    assert_eq!(report.successful_chars, 33);
+    assert!(
+        fake.recorded().iter().any(|c| c == "paste"),
+        "33-char text must take the clipboard path, got {:?}",
+        fake.recorded()
+    );
+}
+
+#[test]
+fn test_voice_short_text_always_pastes() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let fake = crate::platform::test_injector();
+    fake.clear();
+    let steps = vec![taurine_core::engine::variables::ExpansionStep::Text(
+        "hello".to_string(),
+    )];
+    let report = super::inject::inject_expansion_for_voice(
+        steps,
+        taurine_core::settings::SpinnerStyle::Braille,
+    );
+    assert!(report.completed);
+    assert_eq!(report.successful_chars, 5);
+    assert!(
+        fake.recorded().iter().any(|c| c == "paste"),
+        "voice short text must take the clipboard path, got {:?}",
+        fake.recorded()
+    );
+}
+
+#[test]
 fn verify_clipboard_equals_matches_inline_loop_semantics() {
     let mut matching = MockClipboard::new("payload");
     assert!(super::clipboard::verify_clipboard_equals(

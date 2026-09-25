@@ -428,10 +428,28 @@ fn extract_nav_steps(steps: &[ExpansionStep]) -> Option<(usize, usize)> {
     Some((left_nav, right_nav))
 }
 
+const SMALL_TYPE_LIMIT: usize = 32;
+
 pub fn inject_expansion(
     steps: Vec<ExpansionStep>,
     delete_count: usize,
     spinner_style: taurine_core::settings::SpinnerStyle,
+) -> InjectionReport {
+    inject_expansion_inner(steps, delete_count, spinner_style, false)
+}
+
+pub fn inject_expansion_for_voice(
+    steps: Vec<ExpansionStep>,
+    spinner_style: taurine_core::settings::SpinnerStyle,
+) -> InjectionReport {
+    inject_expansion_inner(steps, 0, spinner_style, true)
+}
+
+fn inject_expansion_inner(
+    steps: Vec<ExpansionStep>,
+    delete_count: usize,
+    spinner_style: taurine_core::settings::SpinnerStyle,
+    force_paste: bool,
 ) -> InjectionReport {
     let requires_keys = expansion_requires_keystrokes(&steps, delete_count);
     let _state_guard = if requires_keys {
@@ -453,9 +471,10 @@ pub fn inject_expansion(
         crate::platform::get_injector().pre_release_modifiers();
     }
 
-    // Fast-Path: Single-segment plain text <= 1000 characters without newlines (supporting \t and cursor navigation) bypassing clipboard
-    if let Some(ExpansionStep::Text(text)) = steps.first()
-        && text.chars().count() <= 1000
+    // Fast-Path: Single-segment plain text <= SMALL_TYPE_LIMIT characters without newlines (supporting \t and cursor navigation) bypassing clipboard
+    if !force_paste
+        && let Some(ExpansionStep::Text(text)) = steps.first()
+        && text.chars().count() <= SMALL_TYPE_LIMIT
         && !text.contains('\n')
         && !text.contains('\r')
         && !taurine_core::utils::html::has_html_tags(text)

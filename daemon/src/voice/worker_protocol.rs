@@ -70,6 +70,9 @@ pub struct Header {
     /// Human-readable error for `error`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// Optional per-utterance hotwords for `transcribe`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hotwords: Option<String>,
 }
 
 impl Header {
@@ -86,6 +89,7 @@ impl Header {
             confidence: None,
             duration_secs: None,
             message: None,
+            hotwords: None,
         }
     }
 }
@@ -246,5 +250,22 @@ mod tests {
         assert!(check_hello(&foreign, "9.9.9", "tok").is_err());
 
         assert!(check_hello(&Header::op(OP_PING), "9.9.9", "tok").is_err());
+    }
+
+    #[test]
+    fn test_transcribe_header_with_hotwords_round_trip() {
+        let mut header = Header::op(OP_TRANSCRIBE);
+        header.req_id = Some("req-hw".to_string());
+        header.hotwords = Some("movies folder/Taurine/Kubernetes".to_string());
+
+        let bytes = encode_frame(&header, &[]).expect("encode");
+        let mut buf = bytes;
+        let (got_header, got_body) = decode_frame(&mut buf).expect("decode").expect("full frame");
+        assert_eq!(got_header, header);
+        assert_eq!(
+            got_header.hotwords.as_deref(),
+            Some("movies folder/Taurine/Kubernetes")
+        );
+        assert!(got_body.is_empty());
     }
 }

@@ -61,6 +61,20 @@ pub static MODEL_CATALOG: &[ModelCatalogEntry] = &[
         is_archive: true,
         description: "NVIDIA hybrid TDT-CTC; fast English dictation for constrained machines",
     },
+    ModelCatalogEntry {
+        id: "parakeet-tdt-0.6b-v2",
+        name: "Parakeet Balanced English",
+        size_display: "460 MB",
+        size_bytes: 461_373_440,
+        url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2",
+        fallback_url: Some(
+            "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8/resolve/main/",
+        ),
+        remote_files: None,
+        sha256: None,
+        is_archive: true,
+        description: "NVIDIA FastConformer TDT; balanced English dictation with duration-skipping",
+    },
 ];
 
 /// Returns the models directory inside the app data directory.
@@ -70,7 +84,7 @@ pub fn models_dir() -> PathBuf {
 
 /// Retrieve a catalog entry by its strict canonical ID or `auto`.
 ///
-/// Only `auto`, `parakeet-tdt-ctc-110m`, and `parakeet-unified-en-0.6b`
+/// Only `auto`, `parakeet-tdt-ctc-110m`, `parakeet-tdt-0.6b-v2`, and `parakeet-unified-en-0.6b`
 /// resolve. All shorthand aliases (`110m`, `unified`,
 /// `best`, `quality`, `fast`, `light`, `tdt-ctc`, etc.) are rejected.
 pub fn get_model_entry(identifier: &str) -> Option<&'static ModelCatalogEntry> {
@@ -78,6 +92,7 @@ pub fn get_model_entry(identifier: &str) -> Option<&'static ModelCatalogEntry> {
     let canonical = match trimmed.as_str() {
         "auto" => resolve_auto_model(),
         "parakeet-unified-en-0.6b" => "parakeet-unified-en-0.6b",
+        "parakeet-tdt-0.6b-v2" => "parakeet-tdt-0.6b-v2",
         "parakeet-tdt-ctc-110m" => "parakeet-tdt-ctc-110m",
         _ => return None,
     };
@@ -120,6 +135,7 @@ pub fn resolve_configured_model(configured: &str) -> &'static str {
     match trimmed.as_str() {
         "auto" => resolve_auto_model(),
         "parakeet-unified-en-0.6b" => "parakeet-unified-en-0.6b",
+        "parakeet-tdt-0.6b-v2" => "parakeet-tdt-0.6b-v2",
         "parakeet-tdt-ctc-110m" => "parakeet-tdt-ctc-110m",
         _ => {
             for entry in MODEL_CATALOG {
@@ -141,7 +157,7 @@ pub fn get_system_ram_gb() -> u64 {
 
 /// Resolves a strict canonical model ID to its catalog ID.
 ///
-/// Only `auto`, `parakeet-tdt-ctc-110m`, and `parakeet-unified-en-0.6b`
+/// Only `auto`, `parakeet-tdt-ctc-110m`, `parakeet-tdt-0.6b-v2`, and `parakeet-unified-en-0.6b`
 /// are recognized. Shorthand aliases are rejected:
 /// unknown input falls back to `auto` resolution (the validation layer in
 /// `canonicalize_voice_model` rejects such input on save).
@@ -184,6 +200,18 @@ pub fn is_model_downloaded(model_id: &str, base_dir: Option<&Path>) -> bool {
     match canonical {
         "parakeet-unified-en-0.6b" => {
             let model_path = dir.join("parakeet-unified");
+            model_path.is_dir()
+                && (is_non_empty_file(&model_path.join("encoder.int8.onnx"))
+                    || has_matching_file(&model_path, "encoder", ".onnx"))
+                && (is_non_empty_file(&model_path.join("decoder.int8.onnx"))
+                    || has_matching_file(&model_path, "decoder", ".onnx"))
+                && (is_non_empty_file(&model_path.join("joiner.int8.onnx"))
+                    || has_matching_file(&model_path, "joiner", ".onnx"))
+                && (is_non_empty_file(&model_path.join("tokens.txt"))
+                    || has_matching_file(&model_path, "tokens", ".txt"))
+        }
+        "parakeet-tdt-0.6b-v2" => {
+            let model_path = dir.join("parakeet-0.6b-v2");
             model_path.is_dir()
                 && (is_non_empty_file(&model_path.join("encoder.int8.onnx"))
                     || has_matching_file(&model_path, "encoder", ".onnx"))
@@ -251,6 +279,10 @@ mod tests {
             resolve_model_alias("parakeet-tdt-ctc-110m"),
             "parakeet-tdt-ctc-110m"
         );
+        assert_eq!(
+            resolve_model_alias("parakeet-tdt-0.6b-v2"),
+            "parakeet-tdt-0.6b-v2"
+        );
         assert_eq!(get_model_entry("silero_vad_v6"), None);
     }
 
@@ -261,6 +293,11 @@ mod tests {
         assert_eq!(entry.id, "parakeet-unified-en-0.6b");
         assert!(entry.size_bytes > 400_000_000);
         assert!(!entry.is_archive);
+
+        let balanced =
+            get_model_entry("parakeet-tdt-0.6b-v2").expect("balanced must exist in catalog");
+        assert_eq!(balanced.id, "parakeet-tdt-0.6b-v2");
+        assert!(balanced.is_archive);
 
         let light = get_model_entry("parakeet-tdt-ctc-110m").expect("light must exist in catalog");
         assert_eq!(light.id, "parakeet-tdt-ctc-110m");
@@ -379,6 +416,29 @@ mod tests {
 
         assert!(!is_model_downloaded(
             "parakeet-tdt-ctc-110m",
+            Some(temp_dir.path())
+        ));
+    }
+
+    #[test]
+    fn test_is_model_downloaded_balanced_tier() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let p_dir = temp_dir.path().join("parakeet-0.6b-v2");
+        std::fs::create_dir_all(&p_dir).unwrap();
+
+        assert!(!is_model_downloaded(
+            "parakeet-tdt-0.6b-v2",
+            Some(temp_dir.path())
+        ));
+
+        // Create balanced model files (transducer set)
+        std::fs::write(p_dir.join("encoder.int8.onnx"), b"encoder data").unwrap();
+        std::fs::write(p_dir.join("decoder.int8.onnx"), b"decoder data").unwrap();
+        std::fs::write(p_dir.join("joiner.int8.onnx"), b"joiner data").unwrap();
+        std::fs::write(p_dir.join("tokens.txt"), b"tokens data").unwrap();
+
+        assert!(is_model_downloaded(
+            "parakeet-tdt-0.6b-v2",
             Some(temp_dir.path())
         ));
     }

@@ -64,7 +64,9 @@ impl ksni::Tray for KsniTray {
     }
 
     fn icon_name(&self) -> String {
-        if self.paused.load(Ordering::Relaxed) {
+        // Optimistic preview: the icon renders the per-press hint so it flips
+        // instantly, while the menu below keeps reading committed `paused`.
+        if crate::input::hotkey::pause_icon_preview() {
             "pause".into()
         } else {
             "resume".into()
@@ -72,7 +74,7 @@ impl ksni::Tray for KsniTray {
     }
 
     fn icon_pixmap(&self) -> Vec<ksni::Icon> {
-        if self.paused.load(Ordering::Relaxed) {
+        if crate::input::hotkey::pause_icon_preview() {
             super::icons::paused_pixmap().to_vec()
         } else {
             super::icons::running_pixmap().to_vec()
@@ -226,6 +228,7 @@ async fn run_tray(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>)
 
     let mut last_paused = None;
     let mut last_visible = None;
+    let mut last_icon_preview: Option<bool> = None;
     let mut live_counter: u32 = 0;
     loop {
         if handle.is_closed() {
@@ -233,6 +236,7 @@ async fn run_tray(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>)
             handle = spawn_tray(&paused, &system_tray_enabled, &snooze, &events_tx, false).await;
             last_paused = None;
             last_visible = None;
+            last_icon_preview = None;
         }
 
         let now_visible = system_tray_enabled.load(Ordering::Relaxed);
@@ -250,7 +254,19 @@ async fn run_tray(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>)
                 snooze.cancel();
             }
 
+            // Committed change wins: reconcile the hint, then push. The menu
+            // keeps reading committed `paused`; the icon reads the hint.
+            crate::input::hotkey::sync_pause_icon_preview(now_paused);
+            last_icon_preview = Some(now_paused);
             let _ = handle.update(|_state| {}).await;
+        } else {
+            // Optimistic preview: icon only. Pushes within one poll of the
+            // hotkey press; the committed block above confirms afterwards.
+            let preview = crate::input::hotkey::pause_icon_preview();
+            if last_icon_preview != Some(preview) {
+                last_icon_preview = Some(preview);
+                let _ = handle.update(|_state| {}).await;
+            }
         }
 
         while let Ok(event) = events_rx.try_recv() {
@@ -304,6 +320,13 @@ async fn run_tray(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>)
             }
         } else {
             live_counter = 0;
+        }
+
+        // Daemon shutdown: remove the icon and exit instead of being
+        // killed mid-loop on every restart.
+        if super::shutdown_requested() {
+            handle.shutdown().await;
+            return;
         }
 
         tokio::time::sleep(Duration::from_millis(100)).await;

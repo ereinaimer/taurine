@@ -36,6 +36,7 @@ reqwest = "0.13.4"
 cpal = "0.15"
 rubato = "0.16"
 sherpa-onnx = "1.13.8"
+shenava-ctc-beam = "0.1.0"
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 rdev = { version = "0.5.3", features = ["unstable_grab"] }

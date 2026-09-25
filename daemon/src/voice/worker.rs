@@ -14,7 +14,9 @@ use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
 
 use taurine_core::error::{Error, Result};
-use taurine_core::voice::{Transcriber, is_model_downloaded};
+use taurine_core::voice::{
+    Transcriber, format_mb, is_model_downloaded, model_disk_size_mb, process_rss_mb,
+};
 
 use super::capture::{
     MAX_BUFFER_SAMPLES, leading_silence_frames, normalize_snippet_rms,
@@ -25,10 +27,10 @@ use super::session::{MIN_SAMPLES_COUNT, MIN_SPEECH_RMS_ENERGY};
 use super::worker_protocol as proto;
 use super::worker_protocol::Header;
 
-/// Hold ladder rungs: a fresh load holds 15s; genuine use inside the
-/// window steps one rung up to the 120s cap. The daemon metadata mirror
+/// Hold ladder rungs: a fresh load holds 10s; genuine use inside the
+/// window steps one rung up to the 60s cap. The daemon metadata mirror
 /// in session.rs carries the same table; both must agree.
-const HOLD_RUNGS_SECS: [u64; 4] = [15, 30, 60, 120];
+const HOLD_RUNGS_SECS: [u64; 4] = [10, 20, 30, 60];
 
 fn base_hold() -> Duration {
     Duration::from_secs(HOLD_RUNGS_SECS[0])
@@ -117,6 +119,7 @@ impl WorkerState {
         if self.slot_fresh() {
             return;
         }
+        let rss_before = process_rss_mb();
         if let Some((model, handle)) = self.loading.take()
             && let Ok(transcriber) = handle.await
             && model == self.model
@@ -127,6 +130,15 @@ impl WorkerState {
                 last_used: Instant::now(),
                 hold: base_hold(),
             });
+            let rss_after = process_rss_mb();
+            let file_mb = model_disk_size_mb(&self.model, Some(&self.model_dir));
+            info!(
+                "voice-daemon: model '{}' resident ({} MB on disk, RSS {} -> {} MB)",
+                self.model,
+                format_mb(file_mb),
+                format_mb(rss_before),
+                format_mb(rss_after),
+            );
             return;
         }
         // Last resort when no background load ran (e.g. direct transcribe
@@ -141,6 +153,15 @@ impl WorkerState {
             last_used: Instant::now(),
             hold: base_hold(),
         });
+        let rss_after = process_rss_mb();
+        let file_mb = model_disk_size_mb(&self.model, Some(&self.model_dir));
+        info!(
+            "voice-daemon: model '{}' resident ({} MB on disk, RSS {} -> {} MB)",
+            self.model,
+            format_mb(file_mb),
+            format_mb(rss_before),
+            format_mb(rss_after),
+        );
     }
 
     fn sweep(&mut self) {
@@ -148,8 +169,14 @@ impl WorkerState {
             && slot.last_used.elapsed() > slot.hold
         {
             let hold_secs = slot.hold.as_secs();
+            let rss_before = process_rss_mb();
             self.slot = None;
-            debug!("voice-daemon: unloading idle voice model from RAM ({hold_secs}s hold expired)");
+            let rss_after = process_rss_mb();
+            info!(
+                "voice-daemon: model evicted ({hold_secs}s hold expired, RSS {} -> {} MB)",
+                format_mb(rss_before),
+                format_mb(rss_after),
+            );
         }
     }
 }
@@ -224,6 +251,7 @@ async fn handle_frame(
         proto::OP_TRANSCRIBE => {
             let id = req_id.clone().unwrap_or_default();
             let samples = state.buffers.remove(&id).unwrap_or_default();
+            let hotwords = header.hotwords.clone();
             // Cold-model wait accounting: when the stop event outruns the
             // overlapped load, the user feels it as dictation lag. Log it so
             // the hold policy can be tuned from evidence, not feel.
@@ -236,14 +264,26 @@ async fn handle_frame(
                     slot_wait_ms
                 );
             }
-            vec![respond(transcribe_buffer(state, &samples))]
+            vec![respond(transcribe_buffer(state, &samples, hotwords))]
         }
         proto::OP_PING => vec![respond(Header::op(proto::OP_PONG))],
         proto::OP_UNLOAD => {
             if let Some((_, handle)) = state.loading.take() {
                 handle.abort();
             }
-            state.slot = None;
+            if let Some(ref slot) = state.slot {
+                let hold_secs = slot.hold.as_secs();
+                let rss_before = process_rss_mb();
+                state.slot = None;
+                let rss_after = process_rss_mb();
+                info!(
+                    "voice-daemon: model evicted ({hold_secs}s hold expired, RSS {} -> {} MB)",
+                    format_mb(rss_before),
+                    format_mb(rss_after),
+                );
+            } else {
+                state.slot = None;
+            }
             vec![respond(Header::op(proto::OP_ACK))]
         }
         _ => {
@@ -258,7 +298,7 @@ async fn handle_frame(
 ///
 /// The slot must be warm before calling: the transcribe arm awaits
 /// `ensure_slot`, so this stays synchronous and never blocks the loop.
-fn transcribe_buffer(state: &mut WorkerState, samples: &[f32]) -> Header {
+fn transcribe_buffer(state: &mut WorkerState, samples: &[f32], hotwords: Option<String>) -> Header {
     let mut out = Header::op(proto::OP_RESULT);
     let leading_frames = leading_silence_frames(samples);
     let front_trimmed = slice_utterance_with_preroll(samples, leading_frames);
@@ -285,7 +325,10 @@ fn transcribe_buffer(state: &mut WorkerState, samples: &[f32]) -> Header {
     let Some(ref mut slot) = state.slot else {
         return out;
     };
-    match slot.transcriber.transcribe(&normed, 16000) {
+    slot.transcriber.set_hotwords(hotwords);
+    let res = slot.transcriber.transcribe(&normed, 16000);
+    slot.transcriber.set_hotwords(None);
+    match res {
         Ok(t) => {
             slot.note_use();
             out.text = Some(t.text);
@@ -497,6 +540,34 @@ mod tests {
         }
     }
 
+    struct HotwordsRecorderTranscriber {
+        seen_hotwords: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    }
+    impl taurine_core::voice::Transcriber for HotwordsRecorderTranscriber {
+        fn name(&self) -> &str {
+            "hw-recorder"
+        }
+        fn set_hotwords(&mut self, hotwords: Option<String>) {
+            *self.seen_hotwords.lock().unwrap_or_else(|p| p.into_inner()) = hotwords;
+        }
+        fn transcribe(
+            &mut self,
+            _audio: &[f32],
+            _sample_rate: u32,
+        ) -> taurine_core::error::Result<taurine_core::voice::Transcription> {
+            let hw = self
+                .seen_hotwords
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone();
+            Ok(taurine_core::voice::Transcription::new(
+                hw.unwrap_or_default(),
+                0.95,
+                1.0,
+            ))
+        }
+    }
+
     fn recorded_state() -> (WorkerState, std::sync::Arc<std::sync::Mutex<usize>>) {
         // Stub model files so the downloaded-model gate passes hermetically.
         let dir = std::env::temp_dir().join("taurine-worker-trim-models");
@@ -525,7 +596,7 @@ mod tests {
         // exactly 8 frames (4096 samples) of pre-roll cushion.
         let mut samples = vec![0.0f32; 12 * 512];
         samples.extend(vec![0.5f32; 5120]);
-        let out = transcribe_buffer(&mut state, &samples);
+        let out = transcribe_buffer(&mut state, &samples, None);
         assert!(out.text.is_some());
         assert_eq!(
             *seen.lock().unwrap_or_else(|p| p.into_inner()),
@@ -537,7 +608,7 @@ mod tests {
     #[test]
     fn test_transcribe_all_silence_hits_gate_without_model() {
         let mut state = test_state();
-        let out = transcribe_buffer(&mut state, &vec![0.0f32; 16000]);
+        let out = transcribe_buffer(&mut state, &vec![0.0f32; 16000], None);
         assert_eq!(out.op, proto::OP_RESULT);
         assert!(out.text.is_none());
         assert!(state.slot.is_none(), "silence must not load the model");
@@ -546,7 +617,7 @@ mod tests {
     #[test]
     fn test_transcribe_rejects_silence_without_model() {
         let mut state = test_state();
-        let out = transcribe_buffer(&mut state, &vec![0.0f32; 16000]);
+        let out = transcribe_buffer(&mut state, &vec![0.0f32; 16000], None);
         assert_eq!(out.op, proto::OP_RESULT);
         assert!(out.text.is_none());
         assert!(state.slot.is_none(), "silence must not load the model");
@@ -555,9 +626,40 @@ mod tests {
     #[test]
     fn test_transcribe_rejects_short_audio_without_model() {
         let mut state = test_state();
-        let out = transcribe_buffer(&mut state, &vec![0.5f32; 500]);
+        let out = transcribe_buffer(&mut state, &vec![0.5f32; 500], None);
         assert!(out.text.is_none());
         assert!(state.slot.is_none(), "short audio must not load the model");
+    }
+
+    #[test]
+    fn test_transcribe_buffer_forwards_and_resets_hotwords() {
+        let dir = std::env::temp_dir().join("taurine-worker-hw-models");
+        let sub = dir.join("parakeet-110m");
+        let _ = std::fs::create_dir_all(&sub);
+        let _ = std::fs::write(sub.join("model.int8.onnx"), b"not a model");
+        let _ = std::fs::write(sub.join("tokens.txt"), b"a b");
+        let seen_hw = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let mut state = test_state();
+        state.model_dir = dir;
+        state.slot = Some(Slot {
+            transcriber: Box::new(HotwordsRecorderTranscriber {
+                seen_hotwords: seen_hw.clone(),
+            }),
+            model_id: state.model.clone(),
+            last_used: Instant::now(),
+            hold: Duration::from_secs(15),
+        });
+
+        let samples = vec![0.5f32; 5120];
+        let out = transcribe_buffer(
+            &mut state,
+            &samples,
+            Some("movies folder/Taurine".to_string()),
+        );
+        assert_eq!(out.text.as_deref(), Some("movies folder/Taurine"));
+        // Hotwords should be reset to None after transcription
+        assert!(seen_hw.lock().unwrap().is_none());
+        let _ = std::fs::remove_dir_all(&state.model_dir);
     }
 
     fn hello_header(model: &str) -> Header {
@@ -685,7 +787,7 @@ mod tests {
             transcriber: Box::new(DummyTranscriber),
             model_id: state.model.clone(),
             last_used: Instant::now(),
-            hold: Duration::from_secs(15),
+            hold: Duration::from_secs(10),
         });
         state
     }
@@ -703,44 +805,44 @@ mod tests {
 
     #[test]
     fn test_ladder_escalates_one_rung_per_use() {
-        let mut state = runged_state(15, Duration::from_secs(10));
-        for expected in [30u64, 60, 120] {
+        let mut state = runged_state(10, Duration::from_secs(5));
+        for expected in [20u64, 30, 60] {
             state.slot.as_mut().expect("slot").note_use();
             assert_eq!(
                 state.slot.as_ref().expect("slot").hold,
                 Duration::from_secs(expected)
             );
-            state.slot.as_mut().expect("slot").last_used = Instant::now() - Duration::from_secs(10);
+            state.slot.as_mut().expect("slot").last_used = Instant::now() - Duration::from_secs(5);
         }
     }
 
     #[test]
-    fn test_ladder_caps_at_120s() {
-        let mut state = runged_state(120, Duration::from_secs(10));
+    fn test_ladder_caps_at_60s() {
+        let mut state = runged_state(60, Duration::from_secs(5));
         for _ in 0..3 {
             state.slot.as_mut().expect("slot").note_use();
-            state.slot.as_mut().expect("slot").last_used = Instant::now() - Duration::from_secs(10);
+            state.slot.as_mut().expect("slot").last_used = Instant::now() - Duration::from_secs(5);
         }
         assert_eq!(
             state.slot.as_ref().expect("slot").hold,
-            Duration::from_secs(120),
+            Duration::from_secs(60),
             "repeated use never exceeds the cap"
         );
-        state.slot.as_mut().expect("slot").last_used = Instant::now() - Duration::from_secs(100);
+        state.slot.as_mut().expect("slot").last_used = Instant::now() - Duration::from_secs(50);
         state.sweep();
-        assert!(state.slot.is_some(), "100s fits the 120s cap rung");
-        state.slot.as_mut().expect("slot").last_used = Instant::now() - Duration::from_secs(121);
+        assert!(state.slot.is_some(), "50s fits the 60s cap rung");
+        state.slot.as_mut().expect("slot").last_used = Instant::now() - Duration::from_secs(61);
         state.sweep();
         assert!(state.slot.is_none(), "silence past the cap evicts");
     }
 
     #[test]
     fn test_ladder_stale_use_restarts_at_base() {
-        let mut state = runged_state(60, Duration::from_secs(61));
+        let mut state = runged_state(30, Duration::from_secs(31));
         state.slot.as_mut().expect("slot").note_use();
         assert_eq!(
             state.slot.as_ref().expect("slot").hold,
-            Duration::from_secs(15)
+            Duration::from_secs(10)
         );
     }
 
@@ -749,18 +851,18 @@ mod tests {
         // Worker mirror of the daemon long-recording case: streaming appends
         // pin last_used without stepping, so the transcribe success steps one
         // rung up instead of resetting to base.
-        let mut state = runged_state(15, Duration::from_secs(20));
+        let mut state = runged_state(10, Duration::from_secs(15));
         state.slot.as_mut().expect("slot").last_used = Instant::now();
         state.slot.as_mut().expect("slot").note_use();
         assert_eq!(
             state.slot.as_ref().expect("slot").hold,
-            Duration::from_secs(30)
+            Duration::from_secs(20)
         );
     }
 
     #[tokio::test]
     async fn test_ladder_restarts_at_base_after_eviction() {
-        let mut state = runged_state(60, Duration::from_secs(61));
+        let mut state = runged_state(30, Duration::from_secs(31));
         state.sweep();
         assert!(
             state.slot.is_none(),
@@ -774,14 +876,14 @@ mod tests {
         state.ensure_slot().await;
         assert_eq!(
             state.slot.as_ref().expect("slot").hold,
-            Duration::from_secs(15),
+            Duration::from_secs(10),
             "next load restarts at base"
         );
     }
 
     #[tokio::test]
     async fn test_ladder_resets_on_model_switch() {
-        let mut state = runged_state(120, Duration::from_secs(5));
+        let mut state = runged_state(60, Duration::from_secs(5));
         state.model = "other-model".to_string();
         state.loading = Some((
             state.model.clone(),
@@ -790,7 +892,7 @@ mod tests {
         state.ensure_slot().await;
         let slot = state.slot.as_ref().expect("slot");
         assert_eq!(slot.model_id, "other-model");
-        assert_eq!(slot.hold, Duration::from_secs(15));
+        assert_eq!(slot.hold, Duration::from_secs(10));
     }
 
     #[tokio::test]
@@ -798,10 +900,10 @@ mod tests {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let (mut client_stream, mut server_stream) = tokio::io::duplex(256 * 1024);
         let mut state = slotted_state();
-        // 10s past activity is warm on the 15s base rung: sweep retains.
-        state.slot.as_mut().expect("slot").last_used = Instant::now() - Duration::from_secs(10);
+        // 5s past activity is warm on the 10s base rung: sweep retains.
+        state.slot.as_mut().expect("slot").last_used = Instant::now() - Duration::from_secs(5);
         state.sweep();
-        assert!(state.slot.is_some(), "10s past activity is warm");
+        assert!(state.slot.is_some(), "5s past activity is warm");
         // Backdate past the TTL, then stream: activity must refresh.
         state.slot.as_mut().expect("slot").last_used = Instant::now() - Duration::from_secs(90);
         let mut append = hello_header("parakeet-tdt-ctc-110m");

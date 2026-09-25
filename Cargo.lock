@@ -5159,6 +5159,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "shenava-ctc-beam"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d29653fe96536690827e11fcc7587e7fc980155d9727226767653ab6c653f932"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "sherpa-onnx"
 version = "1.13.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5665,6 +5675,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "shenava-ctc-beam",
  "sherpa-onnx",
  "taurine_core",
  "tempfile",

@@ -30,7 +30,7 @@ pub fn fire_voice_trigger(
     let output_chars = inv.action.output.chars().count();
     let phrase = inv.invocation.clone();
     crate::injector::spawn_guarded_injection_thread("tau-voice-disp", move || {
-        crate::injector::inject_expansion(steps, 0, spinner_style);
+        crate::injector::inject_expansion_for_voice(steps, spinner_style);
     });
     taurine_core::db::crud::record_voice_trigger_usage(&phrase, output_chars, active_app);
     let _ = increment_usage_count_by_id(conn, &inv.trigger_id);
