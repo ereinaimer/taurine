@@ -1,7 +1,6 @@
 use super::*;
 use crate::engine::shell::{ScriptBehavior, ScriptInterpreter, compress, decompress};
 use crate::testing::{init_tracing_for_tests, open_test_db};
-use rusqlite::ErrorCode;
 
 fn insert_raw_trigger(
     conn: &rusqlite::Connection,
@@ -10,21 +9,29 @@ fn insert_raw_trigger(
     trigger: &str,
     target_os: &str,
 ) -> rusqlite::Result<usize> {
+    let invocation_type = InvocationType::parse_str(trigger_type).expect("test trigger_type");
     conn.execute(
         "INSERT INTO triggers
-                (id, name, trigger_type, trigger, output, target_os, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                (id, name, output, target_os, created_at, updated_at)
+              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         (
             id,
             format!("Trigger {id}"),
-            trigger_type,
-            trigger,
             format!("payload-{id}"),
             target_os,
             1_700_000_000_i64,
             1_700_000_000_i64,
         ),
-    )
+    )?;
+    add_alias(conn, id, invocation_type, trigger, false).map_err(|err| match err {
+        crate::Error::Database(inner) => inner,
+        other => rusqlite::Error::FromSqlConversionFailure(
+            0,
+            rusqlite::types::Type::Text,
+            Box::new(other),
+        ),
+    })?;
+    Ok(1)
 }
 
 #[test]
@@ -60,8 +67,10 @@ fn upsert_trigger_inserts_new_row_with_version_1() {
     assert_eq!(row.id, "uuid-1");
     assert_eq!(row.name, "Good Morning");
     assert_eq!(row.description, None);
-    assert_eq!(row.trigger_type, TriggerType::Word);
-    assert_eq!(row.trigger, "gm");
+    assert_eq!(row.invocations.len(), 1);
+    assert_eq!(row.invocations[0].invocation_type, InvocationType::Word);
+    assert_eq!(row.invocations[0].invocation, "gm");
+    assert_eq!(row.display, "Good Morning");
     assert_eq!(row.output, "Good morning!");
     assert_eq!(row.action_type, "text");
     assert_eq!(row.target_os, "all");
@@ -113,7 +122,7 @@ fn upsert_trigger_increments_version_on_update() {
     let row = get_trigger(&conn, "uuid-1").unwrap().unwrap();
     assert_eq!(row.version, 2);
     assert_eq!(row.description.as_deref(), Some("description"));
-    assert_eq!(row.trigger_type, TriggerType::Word);
+    assert_eq!(row.invocations[0].invocation_type, InvocationType::Word);
     assert_eq!(row.output, "Good morning!!");
     assert_eq!(row.tags, r#"["morning","bright"]"#);
     assert_eq!(row.usage_count, 7);
@@ -430,8 +439,10 @@ fn upsert_trigger_with_type_round_trips_hotkey() {
     .unwrap();
 
     let row = get_trigger(&conn, "uuid-hotkey-1").unwrap().unwrap();
-    assert_eq!(row.trigger_type, TriggerType::Hotkey);
-    assert_eq!(row.trigger, "ctrl+shift+p");
+    assert_eq!(row.invocations.len(), 1);
+    assert_eq!(row.invocations[0].invocation_type, InvocationType::Hotkey);
+    assert_eq!(row.invocations[0].invocation, "ctrl+shift+p");
+    assert_eq!(row.display, "Command Palette");
     assert_eq!(row.target_os, "win");
 }
 
@@ -441,15 +452,14 @@ fn active_unique_index_enforces_trigger_type_trigger_and_target_os() {
     let (_dir, conn) = open_test_db();
 
     insert_raw_trigger(&conn, "uuid-1", "word", "gm", "all").unwrap();
-    let err = insert_raw_trigger(&conn, "uuid-2", "word", "gm", "all").unwrap_err();
+    insert_raw_trigger(&conn, "uuid-2", "word", "other", "all").unwrap();
+    let err = add_alias(&conn, "uuid-2", InvocationType::Word, "gm", false).unwrap_err();
+    assert!(
+        err.to_string().contains("conflicts"),
+        "duplicate alias should conflict, got: {err}"
+    );
 
-    assert!(matches!(
-        err,
-        rusqlite::Error::SqliteFailure(ref failure, _)
-            if failure.code == ErrorCode::ConstraintViolation
-    ));
-
-    insert_raw_trigger(&conn, "uuid-3", "hotkey", "gm", "all")
+    insert_raw_trigger(&conn, "uuid-3", "hotkey", "ctrl+g", "all")
         .expect("different trigger_type should not hit the unique index");
 }
 
@@ -516,57 +526,10 @@ fn different_trigger_types_do_not_conflict_for_same_trigger_and_target_os() {
     .unwrap();
 
     let hotkey_row = get_trigger(&conn, "uuid-hotkey").unwrap().unwrap();
-    assert_eq!(hotkey_row.trigger_type, TriggerType::Hotkey);
-}
-
-#[test]
-fn same_trigger_type_allows_distinct_desktop_os_variants() {
-    init_tracing_for_tests();
-    let (_dir, conn) = open_test_db();
-
-    upsert_trigger_with_type(
-        &conn,
-        "uuid-win",
-        "Windows Hotkey",
-        None,
-        TriggerType::Hotkey,
-        "ctrl+shift+g",
-        "git win",
-        "text",
-        "win",
-        "[]",
-        0,
-        None,
-    )
-    .unwrap();
-
-    upsert_trigger_with_type(
-        &conn,
-        "uuid-linux",
-        "Linux Hotkey",
-        None,
-        TriggerType::Hotkey,
-        "ctrl+shift+g",
-        "git linux",
-        "text",
-        "linux",
-        "[]",
-        0,
-        None,
-    )
-    .unwrap();
-
-    let mut stmt = conn
-        .prepare(
-            "SELECT COUNT(*)
-                 FROM triggers
-                 WHERE trigger_type = 'hotkey'
-                   AND trigger = 'ctrl+shift+g'
-                   AND is_deleted = 0",
-        )
-        .unwrap();
-    let count: i64 = stmt.query_row([], |row| row.get(0)).unwrap();
-    assert_eq!(count, 2);
+    assert_eq!(
+        hotkey_row.invocations[0].invocation_type,
+        InvocationType::Hotkey
+    );
 }
 
 #[test]
@@ -703,41 +666,6 @@ fn hotkey_overlap_validation_preserves_target_os_overlap_rules() {
 }
 
 #[test]
-fn add_trigger_allows_same_hotkey_with_distinct_app_filters() {
-    init_tracing_for_tests();
-    let (_dir, conn) = open_test_db();
-    conn.execute("DELETE FROM triggers", []).unwrap();
-
-    // First: ctrl+alt+p restricted to notepad
-    let outcome = add_trigger_by_type(
-        &conn,
-        TriggerType::Hotkey,
-        "ctrl+alt+p",
-        "Action for Notepad",
-        "all",
-        Some("exe:notepad"),
-        None,
-        None,
-    )
-    .expect("first add should succeed");
-    assert_eq!(outcome, AddOutcome::Created);
-
-    // Second: same hotkey restricted to code — should NOT conflict
-    let outcome2 = add_trigger_by_type(
-        &conn,
-        TriggerType::Hotkey,
-        "ctrl+alt+p",
-        "Action for VS Code",
-        "all",
-        Some("exe:code"),
-        None,
-        None,
-    )
-    .expect("second add with distinct app filter should succeed");
-    assert_eq!(outcome2, AddOutcome::Created);
-}
-
-#[test]
 fn creates_and_validates_mouse_button_hotkey_triggers() {
     init_tracing_for_tests();
     let (_dir, mut conn) = open_test_db();
@@ -775,8 +703,9 @@ fn creates_and_validates_mouse_button_hotkey_triggers() {
     .unwrap();
 
     let row1 = get_trigger(&conn, &id1).unwrap().unwrap();
-    assert_eq!(row1.trigger_type, TriggerType::Hotkey);
-    assert_eq!(row1.trigger, "ralt+mouse4");
+    assert_eq!(row1.invocations[0].invocation_type, InvocationType::Hotkey);
+    assert_eq!(row1.invocations[0].invocation, "ralt+mouse4");
+    assert_eq!(row1.display, "Right Alt Mouse 4");
     assert_eq!(row1.output, "Action 1");
 
     // 3. add_trigger_by_type with mouse button hotkeys
@@ -893,7 +822,10 @@ fn mouse_hotkey_overlap_detection() {
     // ralt+mouse4 does not overlap with ralt+mouse5 (different mouse buttons)
     assert!(!crate::keys::hotkey_strings_overlap("ralt+mouse4", "ralt+mouse5").unwrap());
 
-    // 2. Database conflict validation for mouse hotkeys
+    // 2. Database conflict validation for mouse hotkeys.
+    // Holder lives on win (not all) so the linux setup write below is a
+    // disjoint-scope sibling rather than an overlapping pair, which the
+    // scope-aware alias check now rejects.
     upsert_trigger_with_type(
         &conn,
         "uuid-alt-mouse4",
@@ -903,7 +835,7 @@ fn mouse_hotkey_overlap_detection() {
         "alt+mouse4",
         "payload alt mouse4",
         "text",
-        "all",
+        "win",
         "[]",
         0,
         None,
@@ -1158,7 +1090,9 @@ fn update_existing_trigger_updates_same_row_by_id() {
     .unwrap();
 
     let row = get_trigger(&conn, "uuid-edit-1").unwrap().unwrap();
-    assert_eq!(row.trigger, "gm2");
+    assert_eq!(row.display, "GM");
+    assert_eq!(row.invocations.len(), 1);
+    assert_eq!(row.invocations[0].invocation, "gm2");
     assert_eq!(row.output, "hello again");
 
     let count: i64 = conn
@@ -1371,7 +1305,7 @@ fn create_trigger_creates_new_text_row() {
     .unwrap();
 
     let row = get_trigger(&conn, &id).unwrap().unwrap();
-    assert_eq!(row.trigger, "gm");
+    assert_eq!(row.display, "gm");
     assert_eq!(row.output, "Good Morning");
     assert_eq!(row.action_type, "text");
     assert_eq!(row.description, None);
@@ -1598,10 +1532,18 @@ fn test_add_and_delete_with_tags() {
     assert_eq!(outcome2, AddOutcome::Created);
 
     // Retrieve and check tags
+    let pid_t1: String = conn
+        .query_row(
+            "SELECT trigger_id FROM trigger_aliases
+              WHERE invocation_type = 'word' AND invocation = 't1'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     let tags: String = conn
         .query_row(
-            "SELECT tags FROM triggers WHERE trigger = 't1' AND is_deleted = 0",
-            [],
+            "SELECT tags FROM triggers WHERE id = ?1 AND is_deleted = 0",
+            [&pid_t1],
             |r| r.get(0),
         )
         .unwrap();
@@ -1611,15 +1553,16 @@ fn test_add_and_delete_with_tags() {
     let deleted = delete_triggers_by_tag(&conn, "shared-tag").unwrap();
     assert_eq!(deleted, 2);
 
-    // Retrieve and verify tombstoned
+    // Retrieve and verify tombstoned (tombstoning also clears aliases per §0.6)
     let is_deleted: bool = conn
         .query_row(
-            "SELECT is_deleted FROM triggers WHERE trigger = 't1'",
-            [],
+            "SELECT is_deleted FROM triggers WHERE id = ?1",
+            [&pid_t1],
             |r| r.get(0),
         )
         .unwrap();
     assert!(is_deleted);
+    assert_eq!(count_aliases(&conn, &pid_t1).unwrap(), 0);
 }
 
 #[test]
@@ -1651,7 +1594,8 @@ fn test_add_and_retrieve_with_auto_case() {
     // Retrieve row and check auto_case
     let row_id: String = conn
         .query_row(
-            "SELECT id FROM triggers WHERE trigger = 'btw' AND is_deleted = 0",
+            "SELECT trigger_id FROM trigger_aliases
+              WHERE invocation_type = 'word' AND invocation = 'btw'",
             [],
             |r| r.get(0),
         )
@@ -1816,6 +1760,120 @@ fn test_audit_payload_tags_transformer_arity() {
     }
 }
 
+fn fresh_db() -> rusqlite::Connection {
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    crate::db::init::migrate::run_migrations(&conn).unwrap();
+    conn
+}
+
+fn seed_entry(conn: &rusqlite::Connection, output: &str, action_type: &str) -> String {
+    seed_entry_named(conn, "", output, action_type)
+}
+
+fn seed_entry_named(
+    conn: &rusqlite::Connection,
+    name: &str,
+    output: &str,
+    action_type: &str,
+) -> String {
+    let id = uuid::Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO triggers (id, name, output, action_type, target_os, tags, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, 'all', '[]', unixepoch(), unixepoch())",
+        rusqlite::params![id, name, output, action_type],
+    )
+    .unwrap();
+    id
+}
+
+#[test]
+fn alias_loader_fans_out_by_type() {
+    let conn = fresh_db();
+    let pid = seed_entry(&conn, "Hello!", "text");
+    add_alias(&conn, &pid, InvocationType::Word, "hi", false).unwrap();
+    add_alias(&conn, &pid, InvocationType::Hotkey, "ctrl+h", false).unwrap();
+    add_alias(&conn, &pid, InvocationType::Regex, r"\d+", false).unwrap();
+    assert_eq!(get_all_active_triggers(&conn).unwrap().len(), 1);
+    assert_eq!(get_all_active_hotkey_triggers(&conn).unwrap().len(), 1);
+    assert_eq!(get_all_active_regex_triggers(&conn).unwrap().len(), 1);
+    let word = &get_all_active_triggers(&conn).unwrap()[0];
+    assert_eq!(word.0, "hi");
+    assert_eq!(word.1.parent_id, pid);
+}
+
+#[test]
+fn usage_through_alias_hits_parent() {
+    let conn = fresh_db();
+    let pid = seed_entry(&conn, "Hello!", "text");
+    add_alias(&conn, &pid, InvocationType::Word, "hi", false).unwrap();
+    increment_usage_count_by_trigger(&conn, "hi").unwrap();
+    let row = get_trigger(&conn, &pid).unwrap().unwrap();
+    assert_eq!(row.usage_count, 1);
+    assert_eq!(row.invocations.len(), 1);
+    assert_eq!(row.display, "hi");
+}
+
+#[test]
+fn voice_loader_returns_resolved_invocations() {
+    let conn = fresh_db();
+    let pid = seed_entry(&conn, "Hello!", "text");
+    add_alias(&conn, &pid, InvocationType::Voice, "say hi", true).unwrap();
+    let invs = list_active_voice_invocations(&conn).unwrap();
+    assert_eq!(invs.len(), 1);
+    assert_eq!(invs[0].invocation, "say hi");
+    assert!(invs[0].require_confirmation);
+    assert!(invs[0].strict_threshold > 0.0);
+    assert_eq!(invs[0].action.parent_id, pid);
+}
+
+#[test]
+fn voice_loader_filters_by_target_os() {
+    let conn = fresh_db();
+    let current_os = crate::db::crud::get_current_os_db_string();
+    let pid_all = seed_entry(&conn, "Hello!", "text");
+    add_alias(
+        &conn,
+        &pid_all,
+        InvocationType::Voice,
+        "voice all here",
+        false,
+    )
+    .unwrap();
+    for (target_os, phrase) in [
+        (current_os, "voice current here"),
+        ("fake_test_os", "voice fake here"),
+    ] {
+        let pid = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO triggers (id, name, output, action_type, target_os, tags, created_at, updated_at)
+             VALUES (?1, '', 'Hello!', 'text', ?2, '[]', unixepoch(), unixepoch())",
+            rusqlite::params![pid, target_os],
+        )
+        .unwrap();
+        add_alias(&conn, &pid, InvocationType::Voice, phrase, false).unwrap();
+    }
+
+    let invs = list_active_voice_invocations(&conn).unwrap();
+    let phrases: Vec<&str> = invs.iter().map(|inv| inv.invocation.as_str()).collect();
+    assert!(phrases.contains(&"voice all here"));
+    assert!(phrases.contains(&"voice current here"));
+    assert!(!phrases.contains(&"voice fake here"));
+}
+
+#[test]
+fn display_prefers_name_over_invocations() {
+    let conn = fresh_db();
+    let pid = seed_entry_named(&conn, "Greeting", "Hello!", "text");
+    add_alias(&conn, &pid, InvocationType::Word, "hi", false).unwrap();
+    let row = get_trigger(&conn, &pid).unwrap().unwrap();
+    assert_eq!(row.display, "Greeting");
+
+    let pid2 = seed_entry(&conn, "Hello!", "text");
+    add_alias(&conn, &pid2, InvocationType::Word, "hi2", false).unwrap();
+    let row2 = get_trigger(&conn, &pid2).unwrap().unwrap();
+    assert_eq!(row2.display, "hi2");
+}
+
 #[test]
 fn test_audit_payload_tags_transformer_values() {
     for bad in [
@@ -1886,4 +1944,56 @@ fn test_audit_payload_tags_transformer_values() {
             "valid form rejected: {good}"
         );
     }
+}
+
+#[test]
+fn alias_vs_alias_conflicts() {
+    let conn = fresh_db();
+    let pid = seed_entry(&conn, "one", "text");
+    add_alias(&conn, &pid, InvocationType::Word, "hi", false).unwrap();
+    let found =
+        find_trigger_overlap_conflict(&conn, TriggerType::Word, "hi", "all", None, None, None)
+            .unwrap();
+    assert!(found.is_some());
+    assert_eq!(found.unwrap().trigger, "hi");
+}
+
+#[test]
+fn hotkey_alias_overlap_detected() {
+    let conn = fresh_db();
+    let pid = seed_entry(&conn, "one", "text");
+    add_alias(&conn, &pid, InvocationType::Hotkey, "ctrl+shift+g", false).unwrap();
+    let found = find_trigger_overlap_conflict(
+        &conn,
+        TriggerType::Hotkey,
+        "ctrl+shift+g",
+        "all",
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    assert!(found.is_some());
+}
+
+#[test]
+fn no_conflict_for_distinct_invocation() {
+    let conn = fresh_db();
+    let pid = seed_entry(&conn, "one", "text");
+    add_alias(&conn, &pid, InvocationType::Word, "hi", false).unwrap();
+    assert!(
+        find_trigger_overlap_conflict(&conn, TriggerType::Word, "hello", "all", None, None, None)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn voice_alias_overlap_detected() {
+    let conn = fresh_db();
+    let pid = seed_entry(&conn, "one", "text");
+    add_alias(&conn, &pid, InvocationType::Voice, "say hi", false).unwrap();
+    let found = find_voice_overlap_conflict(&conn, "say hi", "all", None, None, None).unwrap();
+    assert!(found.is_some());
+    assert_eq!(found.unwrap().trigger_type, InvocationType::Voice);
 }

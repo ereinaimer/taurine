@@ -47,7 +47,7 @@ To configure your filters accurately, look up the target application label in th
 Create a hotkey that only works when editing code in VS Code or browsing in Google Chrome:
 
 ```bash
-taurine add --hotkey "ctrl+shift+e" --include-apps "exe:code,exe:chrome" "Insert current date"
+taurine add "Insert current date" --hotkey "ctrl+shift+e" --include-apps "exe:code,exe:chrome"
 ```
 
 ### Restricting based on website / window title
@@ -69,10 +69,10 @@ Because filters prevent overlap, you can bind the same hotkey to different actio
 
 ```bash
 # In VS Code, trigger quick open file
-taurine add --hotkey "ctrl+p" --include-apps "exe:code" "workbench.action.quickOpen"
+taurine add "workbench.action.quickOpen" --hotkey "ctrl+p" --include-apps "exe:code"
 
 # In Google Chrome, print the page
-taurine add --hotkey "ctrl+p" --include-apps "exe:chrome" "window.print()"
+taurine add "window.print()" --hotkey "ctrl+p" --include-apps "exe:chrome"
 ```
 
 <Callout title="Trigger Conflicts" type="warning">

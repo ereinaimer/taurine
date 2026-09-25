@@ -28,7 +28,9 @@ fn main() -> std::process::ExitCode {
     );
     let quiet = cli.quiet || (is_interactive_command && cli.verbose == 0);
 
-    let component = if cli.daemon {
+    let component = if cli.voice_daemon {
+        taurine_core::logs::LogComponent::VoiceDaemon
+    } else if cli.daemon {
         taurine_core::logs::LogComponent::Daemon
     } else {
         taurine_core::logs::LogComponent::Cli
@@ -47,19 +49,42 @@ fn main() -> std::process::ExitCode {
     // Install a panic hook that:
     // 1) writes structured diagnostics into tracing + daily log file
     // 2) prints the human-friendly color-eyre report.
+    // Broken-pipe panics (closed stdout, e.g. `| head`) exit quietly: no
+    // log noise, no error report, success exit code.
     let (panic_hook, _eyre_hook) = color_eyre::config::HookBuilder::new().into_hooks();
     let color_eyre_panic = panic_hook.into_panic_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
+        let broken_pipe = panic_info
+            .payload()
+            .downcast_ref::<&str>()
+            .is_some_and(|s| taurine_core::logs::panic_payload_is_broken_pipe(s))
+            || panic_info
+                .payload()
+                .downcast_ref::<String>()
+                .is_some_and(|s| taurine_core::logs::panic_payload_is_broken_pipe(s));
+        if broken_pipe {
+            std::process::exit(0);
+        }
         taurine_core::logs::handle_panic_info(panic_info);
         color_eyre_panic(panic_info);
     }));
 
     if let Err(e) = run(cli, launch_target) {
+        if is_broken_pipe(&e) {
+            return std::process::ExitCode::SUCCESS;
+        }
         error!("{}", e);
         return std::process::ExitCode::from(1);
     }
 
     std::process::ExitCode::SUCCESS
+}
+
+fn is_broken_pipe(e: &taurine_core::error::Error) -> bool {
+    match e {
+        taurine_core::error::Error::Io(io) => taurine_core::logs::io_error_is_broken_pipe(io),
+        _ => false,
+    }
 }
 
 fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()> {
@@ -72,6 +97,9 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
             taurine_daemon::start()?;
             info!("Taurine service has been stopped cleanly.");
             return Ok(());
+        }
+        LaunchTarget::VoiceDaemon => {
+            return taurine_daemon::voice::daemon::run(cli.voice_pipe, cli.voice_version_token);
         }
         LaunchTarget::AutoUpdate => {
             let _ = commands::update::run_auto_update();
@@ -157,7 +185,9 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
 }
 
 fn launch_target(cli: &Cli) -> LaunchTarget {
-    if cli.daemon {
+    if cli.voice_daemon {
+        LaunchTarget::VoiceDaemon
+    } else if cli.daemon {
         LaunchTarget::Daemon
     } else if cli.auto_update {
         LaunchTarget::AutoUpdate

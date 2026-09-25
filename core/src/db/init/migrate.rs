@@ -71,8 +71,6 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     id           TEXT    PRIMARY KEY,
                     name         TEXT    NOT NULL,
                     description  TEXT,
-                    trigger_type TEXT    NOT NULL DEFAULT 'word',
-                    trigger      TEXT    NOT NULL,
                     output       TEXT    NOT NULL,
                     action_type  TEXT    DEFAULT 'text',
                     is_enabled   BOOLEAN DEFAULT 1,
@@ -121,10 +119,23 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     FOREIGN KEY(trigger_id) REFERENCES triggers(id) ON DELETE CASCADE
                 );
 
-                -- Partial index: hot-path word-trigger lookup, tombstoned rows excluded.
-                CREATE INDEX IF NOT EXISTS idx_active_triggers
-                    ON triggers(trigger_type, trigger)
-                 WHERE is_deleted = 0 AND is_enabled = 1;
+                CREATE TABLE IF NOT EXISTS trigger_aliases (
+                    id                   TEXT PRIMARY KEY,
+                    trigger_id           TEXT NOT NULL REFERENCES triggers(id) ON DELETE CASCADE,
+                    invocation           TEXT NOT NULL,
+                    invocation_type      TEXT NOT NULL DEFAULT 'word',
+                    require_confirmation INTEGER NOT NULL DEFAULT 0,
+                    strict_threshold     REAL,
+                    created_at           INTEGER NOT NULL DEFAULT (unixepoch())
+                );
+
+                DROP INDEX IF EXISTS idx_alias_uniqueness;
+
+                CREATE INDEX IF NOT EXISTS idx_alias_lookup
+                    ON trigger_aliases(invocation_type, invocation);
+
+                CREATE INDEX IF NOT EXISTS idx_alias_by_trigger
+                    ON trigger_aliases(trigger_id);
 
                 -- Sync index: version is the LWW arbiter; updated_at breaks clock-drift ties.
                 CREATE INDEX IF NOT EXISTS idx_sync_queue
@@ -153,37 +164,6 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     updated_at       INTEGER NOT NULL DEFAULT (unixepoch()),
                     PRIMARY KEY (app_key, date)
                 );
-
-                DROP INDEX IF EXISTS idx_active_trigger_uniqueness;
-
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_active_trigger_uniqueness
-                    ON triggers(trigger_type, trigger, target_os, COALESCE(only_apps, ''), COALESCE(except_apps, ''))
-                 WHERE is_deleted = 0;
-
-                CREATE TABLE IF NOT EXISTS voice_triggers (
-                    id                   TEXT PRIMARY KEY,
-                    spoken_phrase        TEXT NOT NULL UNIQUE,
-                    output               TEXT NOT NULL,
-                    action_type          TEXT NOT NULL DEFAULT 'text',
-                    target_os            TEXT NOT NULL DEFAULT 'all',
-                    only_apps            TEXT,
-                    except_apps          TEXT,
-                    require_confirmation INTEGER NOT NULL DEFAULT 0,
-                    strict_threshold     REAL NOT NULL,
-                    usage_count          INTEGER NOT NULL DEFAULT 0,
-                    is_enabled           INTEGER NOT NULL DEFAULT 1,
-                    is_deleted           INTEGER NOT NULL DEFAULT 0,
-                    version              INTEGER NOT NULL DEFAULT 1,
-                    created_at           INTEGER NOT NULL DEFAULT (unixepoch()),
-                    updated_at           INTEGER NOT NULL DEFAULT (unixepoch())
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_active_voice_triggers
-                    ON voice_triggers(spoken_phrase)
-                 WHERE is_deleted = 0 AND is_enabled = 1;
-
-                CREATE INDEX IF NOT EXISTS idx_voice_triggers_usage
-                    ON voice_triggers(usage_count DESC);
 
                 PRAGMA user_version = 1;",
                     )
@@ -231,5 +211,36 @@ mod tests {
             table_exists,
             "app_stats table should be created by run_migrations"
         );
+    }
+
+    #[test]
+    fn test_alias_schema_shape() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        let has: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='trigger_aliases')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(has, "trigger_aliases table should exist");
+        let gone: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='voice_triggers')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!gone, "voice_triggers table should be gone");
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(triggers)")
+            .unwrap()
+            .query_map([], |row| row.get(1))
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(!cols.contains(&"trigger".to_string()));
+        assert!(!cols.contains(&"trigger_type".to_string()));
     }
 }

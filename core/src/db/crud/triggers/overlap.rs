@@ -1,5 +1,6 @@
 use crate::db::crud::triggers::validate::validate_trigger_type;
 
+use super::aliases::{InvocationType, validate_voice_phrase};
 use super::trigger_set::*;
 use super::{TriggerConflict, TriggerType};
 use crate::Result;
@@ -49,24 +50,72 @@ pub fn find_trigger_overlap_conflict(
     except_apps: Option<&str>,
     exclude_id: Option<&str>,
 ) -> Result<Option<TriggerConflict>> {
-    if matches!(trigger_type, TriggerType::Hotkey) {
-        crate::keys::parse_hotkey(trigger).map_err(|error| {
-            crate::Error::Config(format!(
-                "Invalid hotkey '{}' during overlap validation: {}",
-                trigger, error
-            ))
-        })?;
-    }
+    let normalized = if matches!(trigger_type, TriggerType::Hotkey) {
+        crate::keys::parse_hotkey(trigger)
+            .map_err(|error| {
+                crate::Error::Config(format!(
+                    "Invalid hotkey '{}' during overlap validation: {}",
+                    trigger, error
+                ))
+            })?
+            .canonical_string()
+    } else {
+        trigger.to_string()
+    };
 
+    find_overlap_conflict(
+        conn,
+        trigger_type.as_db_str(),
+        &normalized,
+        matches!(trigger_type, TriggerType::Hotkey),
+        target_os,
+        only_apps,
+        except_apps,
+        exclude_id,
+    )
+}
+
+pub fn find_voice_overlap_conflict(
+    conn: &Connection,
+    trigger: &str,
+    target_os: &str,
+    only_apps: Option<&str>,
+    except_apps: Option<&str>,
+    exclude_id: Option<&str>,
+) -> Result<Option<TriggerConflict>> {
+    let normalized = validate_voice_phrase(trigger)?;
+    find_overlap_conflict(
+        conn,
+        InvocationType::Voice.as_db_str(),
+        &normalized,
+        false,
+        target_os,
+        only_apps,
+        except_apps,
+        exclude_id,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn find_overlap_conflict(
+    conn: &Connection,
+    invocation_type: &str,
+    trigger: &str,
+    is_hotkey: bool,
+    target_os: &str,
+    only_apps: Option<&str>,
+    except_apps: Option<&str>,
+    exclude_id: Option<&str>,
+) -> Result<Option<TriggerConflict>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT id, trigger_type, trigger, target_os, only_apps, except_apps
-         FROM triggers
-         WHERE trigger_type = ?1
-           AND is_deleted = 0
-         ORDER BY updated_at DESC",
+        "SELECT t.id, al.invocation_type, al.invocation, t.target_os, t.only_apps, t.except_apps
+         FROM trigger_aliases al JOIN triggers t ON t.id = al.trigger_id
+         WHERE al.invocation_type = ?1
+           AND t.is_deleted = 0
+         ORDER BY t.updated_at DESC",
     )?;
 
-    let rows = stmt.query_map([trigger_type.as_db_str()], |row| {
+    let rows = stmt.query_map([invocation_type], |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
@@ -90,7 +139,7 @@ pub fn find_trigger_overlap_conflict(
             continue;
         }
 
-        let overlaps = if matches!(trigger_type, TriggerType::Hotkey) {
+        let overlaps = if is_hotkey {
             hotkey_strings_overlap(trigger, &existing_trigger).map_err(|error| {
                 crate::Error::Config(format!(
                     "Invalid stored hotkey '{}' during overlap validation: {}",
@@ -112,7 +161,7 @@ pub fn find_trigger_overlap_conflict(
         {
             return Ok(Some(TriggerConflict {
                 id,
-                trigger_type: TriggerType::parse_db(&trigger_type_raw)?,
+                trigger_type: InvocationType::parse_db(&trigger_type_raw)?,
                 trigger: existing_trigger,
                 target_os: existing_target_os,
             }));
@@ -144,7 +193,7 @@ pub fn validate_trigger_target_os_conflict(
     )? {
         return Err(crate::Error::Config(format!(
             "{} '{}' conflicts with existing trigger on target_os '{}' (app filters overlap)",
-            trigger_type.as_db_str(),
+            conflict.trigger_type.as_db_str(),
             trigger,
             conflict.target_os
         )));

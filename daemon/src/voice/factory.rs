@@ -37,6 +37,9 @@ mod tests {
     fn test_factory_creates_expected_transcribers() {
         let t1 = create_transcriber("auto", None);
         assert!(t1.name() == "parakeet-unified-en-0.6b" || t1.name() == "parakeet-tdt-ctc-110m");
+        // Case-insensitive auto resolves through the same single path.
+        let t2 = create_transcriber("AUTO", None);
+        assert_eq!(t1.name(), t2.name());
         let t3 = create_transcriber("parakeet-unified-en-0.6b", None);
         assert_eq!(t3.name(), "parakeet-unified-en-0.6b");
         let t4 = create_transcriber("parakeet-tdt-ctc-110m", None);

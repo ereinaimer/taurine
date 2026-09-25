@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
 use crate::db::crud::normalize_voice_phrase;
-use crate::db::crud::voice_triggers::{VoiceTriggerRow, threshold_for_phrase};
+use crate::db::crud::{ResolvedInvocation, threshold_for_phrase};
 
 use super::phonetic::double_metaphone;
 
@@ -9,9 +9,9 @@ use super::phonetic::double_metaphone;
 #[derive(Debug, Clone, PartialEq)]
 pub enum GateDecision {
     /// All three witnesses agree: execute immediately.
-    Fire(VoiceTriggerRow),
+    Fire(ResolvedInvocation),
     /// All three witnesses agree, but confirmation is requested by user/script.
-    AskConfirm(VoiceTriggerRow),
+    AskConfirm(ResolvedInvocation),
     /// Verification failed; drop the event with a descriptive reason.
     Drop { reason: String },
 }
@@ -31,7 +31,7 @@ pub struct GateWitnesses<'a> {
 /// 1. VAD: Speech presence confidence >= 0.50
 /// 2. KWS: Keyword Spotter confidence >= trigger.strict_threshold
 /// 3. Verifier: Secondary recognizer (Moonshine) fuzzy match >= 0.80
-pub fn evaluate_gate(witnesses: &GateWitnesses<'_>, trigger: &VoiceTriggerRow) -> GateDecision {
+pub fn evaluate_gate(witnesses: &GateWitnesses<'_>, trigger: &ResolvedInvocation) -> GateDecision {
     // Witness 1: VAD presence
     if witnesses.vad_confidence < 0.5 {
         return GateDecision::Drop {
@@ -53,7 +53,7 @@ pub fn evaluate_gate(witnesses: &GateWitnesses<'_>, trigger: &VoiceTriggerRow) -
     }
 
     // Witness 3: Verifier transcript similarity
-    let norm_phrase = trigger.spoken_phrase.trim().to_lowercase();
+    let norm_phrase = trigger.invocation.trim().to_lowercase();
     let norm_verif = witnesses.verifier_transcript.trim().to_lowercase();
 
     let similarity = if norm_phrase == norm_verif || norm_verif.contains(&norm_phrase) {
@@ -71,10 +71,7 @@ pub fn evaluate_gate(witnesses: &GateWitnesses<'_>, trigger: &VoiceTriggerRow) -
         return GateDecision::Drop {
             reason: format!(
                 "Verifier similarity {:.2} ('{}') below required {:.2} for trigger '{}'",
-                similarity,
-                witnesses.verifier_transcript,
-                required_threshold,
-                trigger.spoken_phrase
+                similarity, witnesses.verifier_transcript, required_threshold, trigger.invocation
             ),
         };
     }
@@ -89,7 +86,7 @@ pub fn evaluate_gate(witnesses: &GateWitnesses<'_>, trigger: &VoiceTriggerRow) -
 /// Best-matching voice trigger for a transcript, if any.
 #[derive(Debug, Clone)]
 pub struct TriggerMatch {
-    pub trigger: VoiceTriggerRow,
+    pub trigger: ResolvedInvocation,
     pub score: f32,
 }
 
@@ -167,16 +164,19 @@ pub fn score_trigger(transcript: &str, phrase: &str) -> f32 {
 ///
 /// Enforces the dynamic per-phrase threshold (`threshold_for_phrase`) and a
 /// runner-up margin of 0.10 so ambiguous speech never fires.
-pub fn rank_voice_triggers(transcript: &str, triggers: &[VoiceTriggerRow]) -> Option<TriggerMatch> {
+pub fn rank_voice_triggers(
+    transcript: &str,
+    triggers: &[ResolvedInvocation],
+) -> Option<TriggerMatch> {
     // honey: O(T*W^2) string sims per utterance; trigger lists are small
     // (<1k rows). Index keys if the list grows past that.
-    let mut scored: Vec<(f64, &VoiceTriggerRow)> = triggers
+    let mut scored: Vec<(f64, &ResolvedInvocation)> = triggers
         .iter()
-        .map(|t| (f64::from(score_trigger(transcript, &t.spoken_phrase)), t))
+        .map(|t| (f64::from(score_trigger(transcript, &t.invocation)), t))
         .collect();
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(Ordering::Equal));
     let (top_score, top) = scored.first()?;
-    let norm = normalize_voice_phrase(&top.spoken_phrase);
+    let norm = normalize_voice_phrase(&top.invocation);
     if *top_score < f64::from(threshold_for_phrase(&norm)) {
         return None;
     }
@@ -195,24 +195,16 @@ pub fn rank_voice_triggers(transcript: &str, triggers: &[VoiceTriggerRow]) -> Op
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::crud::{InvocationType, TriggerAction};
 
-    fn test_trigger(phrase: &str, require_confirm: bool) -> VoiceTriggerRow {
-        VoiceTriggerRow {
-            id: "test-id".to_string(),
-            spoken_phrase: phrase.to_string(),
-            output: "echo hello".to_string(),
-            action_type: "text".to_string(),
-            target_os: "any".to_string(),
-            only_apps: None,
-            except_apps: None,
+    fn test_trigger(phrase: &str, require_confirm: bool) -> ResolvedInvocation {
+        ResolvedInvocation {
+            trigger_id: "test-id".to_string(),
+            invocation: phrase.to_string(),
+            invocation_type: InvocationType::Voice,
+            action: TriggerAction::text("echo hello"),
             require_confirmation: require_confirm,
             strict_threshold: 0.75,
-            usage_count: 0,
-            is_enabled: true,
-            is_deleted: false,
-            version: 1,
-            created_at: 0,
-            updated_at: 0,
         }
     }
 
@@ -307,7 +299,7 @@ mod tests {
             test_trigger("open browser", false),
         ];
         let matched = rank_voice_triggers("movies follower", &triggers).expect("must match");
-        assert_eq!(matched.trigger.spoken_phrase, "movies folder");
+        assert_eq!(matched.trigger.invocation, "movies folder");
         assert!(matched.score >= 0.80, "score was {}", matched.score);
     }
 
@@ -334,5 +326,27 @@ mod tests {
 
         let decision = evaluate_gate(&witnesses, &trigger);
         assert_eq!(decision, GateDecision::Fire(trigger));
+    }
+
+    #[test]
+    fn gate_fires_through_alias_with_confirmation() {
+        let inv = ResolvedInvocation {
+            trigger_id: "id".into(),
+            invocation: "say hi".into(),
+            invocation_type: InvocationType::Voice,
+            action: TriggerAction::text("Hello!"),
+            require_confirmation: true,
+            strict_threshold: 0.85,
+        };
+        let decision = evaluate_gate(
+            &GateWitnesses {
+                vad_confidence: 0.9,
+                kws_phrase: "say hi",
+                kws_confidence: 0.9,
+                verifier_transcript: "say hi",
+            },
+            &inv,
+        );
+        assert!(matches!(decision, GateDecision::AskConfirm(_)));
     }
 }

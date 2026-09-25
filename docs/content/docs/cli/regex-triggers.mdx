@@ -5,7 +5,7 @@ description: Learn how to activate triggers using regular expression patterns an
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Taurine supports three trigger types: **Word Triggers**, **Hotkey Triggers**, and **Regex Triggers**.
+Taurine entries fire from four invocation kinds: **Word**, **Hotkey**, **Regex**, and **Voice** — one entry can mix them (see [Managing Triggers](/docs/cli/trigger-management)).
 
 While Word Triggers are static words (e.g., `gs`), **Regex Triggers** allow you to match complex text patterns (e.g., `issue-(\d+)` or `[^@]+@[^@]+\.[^@]+`) and dynamically interpolate captured groups into your trigger output.
 
@@ -15,14 +15,14 @@ While Word Triggers are static words (e.g., `gs`), **Regex Triggers** allow you 
 
 ## Creating Regex Triggers
 
-To create a regex trigger, use the `--regex` flag with the `add` command.
+To create a regex trigger, pass the pattern to the `--regex` flag with the `add` command (repeatable — one pattern per occurrence, since patterns may contain commas).
 
 ### Standard Text Expansion with Capture Groups
 Capture groups in your regular expression are mapped directly to positional parameters (`[0]`, `[1]`, etc.) in the expansion output.
 
 ```bash
 # Add a regex expansion for issue tracking links
-taurine add --regex "issue-(\d+)" "https://github.com/issues/[0]"
+taurine add "https://github.com/issues/[0]" --regex "issue-(\d+)"
 ```
 
 When you type `issue-42`, it will instantly expand to `https://github.com/issues/42`.
@@ -32,7 +32,7 @@ Pass capture groups directly into shell script triggers.
 
 ```bash
 # Trigger a shell script to fetch user details
-taurine add script --regex "user:([a-zA-Z0-9]+)" user-details -l powershell "Get-UserDetail -Username [0]"
+taurine add script user-details -l powershell "Get-UserDetail -Username [0]" --regex "user:([a-zA-Z0-9]+)"
 ```
 
 ## How Capture Groups Work
@@ -52,7 +52,7 @@ Taurine maps standard regular expression capture groups to positional placeholde
 
 ```bash
 # Bind regex trigger matching: key=value
-taurine add --regex "bind:(\w+)=(\w+)" "Mapping [0] to [1]"
+taurine add "Mapping [0] to [1]" --regex "bind:(\w+)=(\w+)"
 ```
 
 If you type `bind:foo=bar`, it will expand to `Mapping foo to bar`.

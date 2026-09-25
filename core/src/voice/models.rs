@@ -139,21 +139,6 @@ pub fn get_system_ram_gb() -> u64 {
     gb.round() as u64
 }
 
-/// Minimum free system memory required to load the quality engine alongside the light engine.
-pub const UNIFIED_MIN_FREE_BYTES: u64 = 1_073_741_824;
-
-/// Free (available, not total) system memory in bytes. 0 on error (fail-closed: light engine only).
-pub fn available_memory_bytes() -> u64 {
-    let mut sys = sysinfo::System::new();
-    sys.refresh_memory();
-    sys.free_memory()
-}
-
-/// True when the quality engine may be loaded in parallel with the light engine.
-pub fn quality_engine_allowed() -> bool {
-    available_memory_bytes() >= UNIFIED_MIN_FREE_BYTES
-}
-
 /// Resolves a strict canonical model ID to its catalog ID.
 ///
 /// Only `auto`, `parakeet-tdt-ctc-110m`, and `parakeet-unified-en-0.6b`
@@ -333,15 +318,32 @@ mod tests {
     }
 
     #[test]
-    fn test_available_memory_sane() {
-        let free = available_memory_bytes();
-        assert!(free > 0, "must report some free memory on any dev machine");
+    fn test_auto_threshold_pins_sixteen_gib() {
+        assert_eq!(AUTO_UNIFIED_MIN_BYTES, 16 * 1024 * 1024 * 1024);
+        let auto = resolve_auto_model();
         assert!(
-            free < 4 * 1024 * 1024 * 1024 * 1024,
-            "sanity upper bound 4 TiB"
+            auto == "parakeet-unified-en-0.6b" || auto == "parakeet-tdt-ctc-110m",
+            "auto must resolve to exactly one catalog model, got: {auto}"
         );
-        // Gate agrees with itself:
-        assert_eq!(quality_engine_allowed(), free >= UNIFIED_MIN_FREE_BYTES);
+    }
+
+    #[test]
+    fn test_resolve_configured_model_variants() {
+        let auto = resolve_auto_model();
+        assert_eq!(resolve_configured_model("auto"), auto);
+        assert_eq!(resolve_configured_model("Auto"), auto);
+        assert_eq!(resolve_configured_model("  auto  "), auto);
+        assert_eq!(
+            resolve_configured_model("parakeet-unified-en-0.6b"),
+            "parakeet-unified-en-0.6b"
+        );
+        assert_eq!(
+            resolve_configured_model("parakeet-tdt-ctc-110m"),
+            "parakeet-tdt-ctc-110m"
+        );
+        // Unknown input falls back to auto (settings validation rejects it).
+        assert_eq!(resolve_configured_model("whisper-nope"), auto);
+        assert_eq!(resolve_configured_model(""), auto);
     }
 
     #[test]

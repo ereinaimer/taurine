@@ -42,6 +42,18 @@ pub struct Cli {
     #[arg(long, hide = true)]
     pub(crate) auto_update: bool,
 
+    /// Internal flag used to spawn the isolated voice dictation process (DO NOT RUN MANUALLY)
+    #[arg(long, hide = true)]
+    pub(crate) voice_daemon: bool,
+
+    /// Internal voice pipe name, only meaningful with --voice-daemon (DO NOT RUN MANUALLY)
+    #[arg(long, hide = true)]
+    pub(crate) voice_pipe: Option<String>,
+
+    /// Internal voice version token, only meaningful with --voice-daemon (DO NOT RUN MANUALLY)
+    #[arg(long, hide = true)]
+    pub(crate) voice_version_token: Option<String>,
+
     /// Output in JSON format
     #[arg(long, global = true)]
     pub(crate) json: bool,
@@ -270,17 +282,20 @@ pub struct AddArgs {
     #[command(subcommand)]
     pub sub: Option<AddSubcommand>,
 
-    /// Hotkey trigger
-    #[arg(long)]
-    pub hotkey: bool,
+    /// Word triggers plus output: all-but-last are word triggers, last is the output
+    pub positional: Vec<String>,
 
-    /// Regex trigger
-    #[arg(long, conflicts_with = "hotkey")]
-    pub regex: bool,
+    /// Hotkey trigger (repeatable, one per occurrence)
+    #[arg(long, action = clap::ArgAction::Append)]
+    pub hotkey: Vec<String>,
 
-    /// Voice trigger
-    #[arg(long, conflicts_with_all = ["hotkey", "regex"])]
-    pub voice: bool,
+    /// Regex trigger (repeatable, one per occurrence)
+    #[arg(long, action = clap::ArgAction::Append)]
+    pub regex: Vec<String>,
+
+    /// Voice trigger phrase (repeatable, one per occurrence)
+    #[arg(long, action = clap::ArgAction::Append)]
+    pub voice: Vec<String>,
 
     /// Allowed apps
     #[arg(long)]
@@ -289,11 +304,6 @@ pub struct AddArgs {
     /// Excluded apps
     #[arg(long)]
     pub exclude_apps: Option<String>,
-
-    /// Trigger
-    pub trigger: Option<String>,
-    /// Output
-    pub output: Option<String>,
     /// Target OS
     #[arg(long, value_enum, default_value = "all")]
     pub os: TargetOsCli,
@@ -319,22 +329,22 @@ pub struct AddArgs {
 pub enum AddSubcommand {
     /// Add script trigger
     Script {
-        /// Trigger
-        trigger: Option<String>,
-        /// Hotkey trigger
-        #[arg(long)]
-        hotkey: bool,
-        /// Regex trigger
-        #[arg(long, conflicts_with = "hotkey")]
-        regex: bool,
-        /// Voice trigger
-        #[arg(long, conflicts_with_all = ["hotkey", "regex"])]
-        voice: bool,
+        /// Word triggers plus content: all-but-last are word triggers, last is
+        /// the content (with --file, all are word triggers and content comes
+        /// from the file)
+        positional: Vec<String>,
+        /// Hotkey trigger (repeatable, one per occurrence)
+        #[arg(long, action = clap::ArgAction::Append)]
+        hotkey: Vec<String>,
+        /// Regex trigger (repeatable, one per occurrence)
+        #[arg(long, action = clap::ArgAction::Append)]
+        regex: Vec<String>,
+        /// Voice trigger phrase (repeatable, one per occurrence)
+        #[arg(long, action = clap::ArgAction::Append)]
+        voice: Vec<String>,
         /// Skip confirmation prompt for voice script trigger
         #[arg(short = 'y', long = "yes")]
         yes: bool,
-        /// Script content
-        content: Option<String>,
         /// Script file
         #[arg(short, long)]
         file: Option<std::path::PathBuf>,
@@ -456,6 +466,7 @@ pub enum ImportConflictCli {
 pub enum LaunchTarget {
     Daemon,
     AutoUpdate,
+    VoiceDaemon,
     Tui,
     Command,
 }

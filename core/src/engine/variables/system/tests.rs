@@ -781,8 +781,13 @@ mod compatibility_finalize_tests {
         {
             let conn = crate::db::key::open_keyed_connection(&crate::paths::get_db_path()).unwrap();
             conn.execute(
-                    "INSERT OR REPLACE INTO triggers (id, trigger, output, action_type, target_os, name, tags, is_deleted, created_at, updated_at)
-                     VALUES ('test_inner_id', 'testinner', 'Hello from the inner snippet!', 'text', 'all', 'testinner', '[]', 0, 1719878400, 1719878400)",
+                    "INSERT OR REPLACE INTO triggers (id, output, action_type, target_os, name, tags, is_deleted, created_at, updated_at)
+                     VALUES ('test_inner_id', 'Hello from the inner snippet!', 'text', 'all', 'testinner', '[]', 0, 1719878400, 1719878400)",
+                    []
+                ).unwrap();
+            conn.execute(
+                    "INSERT OR REPLACE INTO trigger_aliases (id, trigger_id, invocation, invocation_type, require_confirmation)
+                     VALUES ('test_inner_alias', 'test_inner_id', 'testinner', 'word', 0)",
                     []
                 ).unwrap();
 
@@ -791,6 +796,11 @@ mod compatibility_finalize_tests {
                 None,
             );
 
+            conn.execute(
+                "DELETE FROM trigger_aliases WHERE trigger_id = 'test_inner_id'",
+                [],
+            )
+            .ok();
             conn.execute("DELETE FROM triggers WHERE id = 'test_inner_id'", [])
                 .ok();
             // Do not leak the inner snippet into the process-wide use-cache
@@ -1074,8 +1084,14 @@ fn use_placeholder_cache_matches_db_and_refreshes_after_clear() {
 
     let conn = crate::db::key::open_keyed_connection(&crate::paths::get_db_path()).unwrap();
     conn.execute(
-        "INSERT OR REPLACE INTO triggers (id, trigger, output, action_type, target_os, name, tags, is_deleted, created_at, updated_at)
-         VALUES ('ucache_inner_id', 'ucache_inner', 'hello', 'text', 'all', 'ucache_inner', '[]', 0, 1719878400, 1719878400)",
+        "INSERT OR REPLACE INTO triggers (id, output, action_type, target_os, name, tags, is_deleted, created_at, updated_at)
+         VALUES ('ucache_inner_id', 'hello', 'text', 'all', 'ucache_inner', '[]', 0, 1719878400, 1719878400)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT OR REPLACE INTO trigger_aliases (id, trigger_id, invocation, invocation_type, require_confirmation)
+         VALUES ('ucache_inner_alias', 'ucache_inner_id', 'ucache_inner', 'word', 0)",
         [],
     )
     .unwrap();
@@ -1109,6 +1125,11 @@ fn use_placeholder_cache_matches_db_and_refreshes_after_clear() {
         ExpansionStep::Text("Result: bye!".to_string())
     );
 
+    conn.execute(
+        "DELETE FROM trigger_aliases WHERE trigger_id = 'ucache_inner_id'",
+        [],
+    )
+    .ok();
     conn.execute("DELETE FROM triggers WHERE id = 'ucache_inner_id'", [])
         .ok();
     crate::engine::variables::interpolate::clear_use_cache();
@@ -1146,8 +1167,14 @@ fn use_cache_late_inner_snippet_resolves_after_it_appears() {
 
     let conn = crate::db::key::open_keyed_connection(&crate::paths::get_db_path()).unwrap();
     conn.execute(
-        "INSERT OR REPLACE INTO triggers (id, trigger, output, action_type, target_os, name, tags, is_deleted, created_at, updated_at)
-         VALUES ('ucache_outer_id', 'ucache_outer', 'X[use(ucache_late)]Y', 'text', 'all', 'ucache_outer', '[]', 0, 1719878400, 1719878400)",
+        "INSERT OR REPLACE INTO triggers (id, output, action_type, target_os, name, tags, is_deleted, created_at, updated_at)
+         VALUES ('ucache_outer_id', 'X[use(ucache_late)]Y', 'text', 'all', 'ucache_outer', '[]', 0, 1719878400, 1719878400)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT OR REPLACE INTO trigger_aliases (id, trigger_id, invocation, invocation_type, require_confirmation)
+         VALUES ('ucache_outer_alias', 'ucache_outer_id', 'ucache_outer', 'word', 0)",
         [],
     )
     .unwrap();
@@ -1158,8 +1185,14 @@ fn use_cache_late_inner_snippet_resolves_after_it_appears() {
     assert_eq!(first.steps[0], ExpansionStep::Text("XY".to_string()));
 
     conn.execute(
-        "INSERT OR REPLACE INTO triggers (id, trigger, output, action_type, target_os, name, tags, is_deleted, created_at, updated_at)
-         VALUES ('ucache_late_id', 'ucache_late', 'm!', 'text', 'all', 'ucache_late', '[]', 0, 1719878400, 1719878400)",
+        "INSERT OR REPLACE INTO triggers (id, output, action_type, target_os, name, tags, is_deleted, created_at, updated_at)
+         VALUES ('ucache_late_id', 'm!', 'text', 'all', 'ucache_late', '[]', 0, 1719878400, 1719878400)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT OR REPLACE INTO trigger_aliases (id, trigger_id, invocation, invocation_type, require_confirmation)
+         VALUES ('ucache_late_alias', 'ucache_late_id', 'ucache_late', 'word', 0)",
         [],
     )
     .unwrap();
@@ -1169,6 +1202,11 @@ fn use_cache_late_inner_snippet_resolves_after_it_appears() {
     assert_eq!(second.steps.len(), 1);
     assert_eq!(second.steps[0], ExpansionStep::Text("Xm!Y".to_string()));
 
+    conn.execute(
+        "DELETE FROM trigger_aliases WHERE trigger_id IN ('ucache_outer_id', 'ucache_late_id')",
+        [],
+    )
+    .ok();
     conn.execute(
         "DELETE FROM triggers WHERE id IN ('ucache_outer_id', 'ucache_late_id')",
         [],
@@ -1209,8 +1247,14 @@ fn use_cache_keeps_args_live_on_cache_hits() {
 
     let conn = crate::db::key::open_keyed_connection(&crate::paths::get_db_path()).unwrap();
     conn.execute(
-        "INSERT OR REPLACE INTO triggers (id, trigger, output, action_type, target_os, name, tags, is_deleted, created_at, updated_at)
-         VALUES ('ucache_args_id', 'ucache_args', 'hi [0]', 'text', 'all', 'ucache_args', '[]', 0, 1719878400, 1719878400)",
+        "INSERT OR REPLACE INTO triggers (id, output, action_type, target_os, name, tags, is_deleted, created_at, updated_at)
+         VALUES ('ucache_args_id', 'hi [0]', 'text', 'all', 'ucache_args', '[]', 0, 1719878400, 1719878400)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT OR REPLACE INTO trigger_aliases (id, trigger_id, invocation, invocation_type, require_confirmation)
+         VALUES ('ucache_args_alias', 'ucache_args_id', 'ucache_args', 'word', 0)",
         [],
     )
     .unwrap();
@@ -1228,6 +1272,11 @@ fn use_cache_keeps_args_live_on_cache_hits() {
     assert_eq!(second.steps.len(), 1);
     assert_eq!(second.steps[0], ExpansionStep::Text("hi B".to_string()));
 
+    conn.execute(
+        "DELETE FROM trigger_aliases WHERE trigger_id = 'ucache_args_id'",
+        [],
+    )
+    .ok();
     conn.execute("DELETE FROM triggers WHERE id = 'ucache_args_id'", [])
         .ok();
     crate::engine::variables::interpolate::clear_use_cache();

@@ -2,6 +2,7 @@ pub(crate) mod actions;
 pub(crate) mod rows;
 
 use crate::theme::builtin::DARK_THEME;
+use crate::widgets::library::actions::alias_line;
 use crate::widgets::library::{
     ButtonSelection, LibraryExportModalField, LibraryExportModalState, LibraryImportModalField,
     LibraryImportModalState,
@@ -328,6 +329,41 @@ pub(crate) fn import_field_at(
     Some((field, button))
 }
 
+fn incoming_alias_lines(incoming: &TriggerExport) -> Vec<String> {
+    if incoming.aliases.is_empty() {
+        return vec![alias_line(
+            incoming.trigger_type.as_db_str(),
+            &incoming.trigger,
+            false,
+        )];
+    }
+    incoming
+        .aliases
+        .iter()
+        .map(|alias| {
+            alias_line(
+                alias.invocation_type.as_db_str(),
+                &alias.invocation,
+                alias.require_confirmation,
+            )
+        })
+        .collect()
+}
+
+fn existing_alias_lines(existing: &ExistingTriggerConflict) -> Vec<String> {
+    existing
+        .invocations
+        .iter()
+        .map(|alias| {
+            alias_line(
+                alias.invocation_type.as_db_str(),
+                &alias.invocation,
+                alias.require_confirmation,
+            )
+        })
+        .collect()
+}
+
 pub(crate) fn render_conflict_popup(
     frame: &mut Frame,
     incoming: &TriggerExport,
@@ -367,29 +403,39 @@ pub(crate) fn render_conflict_popup(
     let val_style = Style::default().fg(DARK_THEME.text_muted);
 
     let incoming_start = inner.y + 3;
-    let incoming_lines = vec![
+    let mut incoming_lines = vec![
         Line::from(vec![Span::styled("Incoming:", header_style)]),
         Line::from(vec![
             Span::styled("  Trigger: ", Style::default().fg(DARK_THEME.text)),
             Span::styled(&incoming.trigger, val_style),
         ]),
-        Line::from(vec![
-            Span::styled("  Output: ", Style::default().fg(DARK_THEME.text)),
-            Span::styled(&incoming.output, val_style),
-        ]),
     ];
+    incoming_lines.extend(
+        incoming_alias_lines(incoming)
+            .iter()
+            .map(|line| Line::from(vec![Span::styled(format!("  {line}"), val_style)])),
+    );
+    incoming_lines.push(Line::from(vec![
+        Span::styled("  Output: ", Style::default().fg(DARK_THEME.text)),
+        Span::styled(&incoming.output, val_style),
+    ]));
 
-    let existing_lines = vec![
+    let mut existing_lines = vec![
         Line::from(vec![Span::styled("Existing:", header_style)]),
         Line::from(vec![
             Span::styled("  Trigger: ", Style::default().fg(DARK_THEME.text)),
-            Span::styled(&existing.trigger, val_style),
-        ]),
-        Line::from(vec![
-            Span::styled("  Output: ", Style::default().fg(DARK_THEME.text)),
-            Span::styled(&existing.output, val_style),
+            Span::styled(&existing.display, val_style),
         ]),
     ];
+    existing_lines.extend(
+        existing_alias_lines(existing)
+            .iter()
+            .map(|line| Line::from(vec![Span::styled(format!("  {line}"), val_style)])),
+    );
+    existing_lines.push(Line::from(vec![
+        Span::styled("  Output: ", Style::default().fg(DARK_THEME.text)),
+        Span::styled(&existing.output, val_style),
+    ]));
 
     let max_height = inner.height as usize;
     let all_lines: Vec<Line> = incoming_lines.into_iter().chain(existing_lines).collect();
@@ -425,6 +471,105 @@ pub(crate) fn render_conflict_popup(
                 width: inner.width,
                 height: 1,
             },
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use taurine_core::db::crud::{InvocationType, TriggerAliasRow, TriggerType};
+    use taurine_core::exchange::{AliasExport, ExistingTriggerConflict, TriggerExport};
+
+    fn alias_row(invocation: &str, invocation_type: InvocationType) -> TriggerAliasRow {
+        TriggerAliasRow {
+            id: format!("alias-{invocation}"),
+            trigger_id: "existing-1".to_string(),
+            invocation: invocation.to_string(),
+            invocation_type,
+            require_confirmation: false,
+            strict_threshold: None,
+            created_at: 0,
+        }
+    }
+
+    fn incoming_fixture() -> TriggerExport {
+        TriggerExport {
+            name: String::new(),
+            description: None,
+            trigger_type: TriggerType::Word,
+            trigger: "hi".to_string(),
+            output: "Hello!".to_string(),
+            action_type: "text".to_string(),
+            is_enabled: true,
+            target_os: "all".to_string(),
+            tags: vec![],
+            script: None,
+            assets: vec![],
+            aliases: vec![
+                AliasExport {
+                    invocation_type: InvocationType::Word,
+                    invocation: "hi".to_string(),
+                    require_confirmation: false,
+                },
+                AliasExport {
+                    invocation_type: InvocationType::Hotkey,
+                    invocation: "ctrl+h".to_string(),
+                    require_confirmation: false,
+                },
+            ],
+        }
+    }
+
+    fn existing_fixture() -> ExistingTriggerConflict {
+        ExistingTriggerConflict {
+            id: "existing-1".to_string(),
+            name: String::new(),
+            description: None,
+            invocations: vec![
+                alias_row("hi", InvocationType::Word),
+                TriggerAliasRow {
+                    require_confirmation: true,
+                    ..alias_row("say hi", InvocationType::Voice)
+                },
+            ],
+            display: "hi".to_string(),
+            output: "Hello!".to_string(),
+            action_type: "text".to_string(),
+            target_os: "all".to_string(),
+            is_enabled: true,
+            usage_count: 0,
+            last_used_at: None,
+        }
+    }
+
+    #[test]
+    fn conflict_lists_each_incoming_alias() {
+        assert_eq!(
+            incoming_alias_lines(&incoming_fixture()),
+            vec!["word: hi".to_string(), "hotkey: ctrl+h".to_string()]
+        );
+    }
+
+    #[test]
+    fn conflict_lists_each_existing_invocation_with_confirm_suffix() {
+        assert_eq!(
+            existing_alias_lines(&existing_fixture()),
+            vec![
+                "word: hi".to_string(),
+                "voice: say hi (confirm)".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn legacy_incoming_without_aliases_falls_back_to_single_trigger() {
+        let mut incoming = incoming_fixture();
+        incoming.aliases.clear();
+
+        assert_eq!(
+            incoming_alias_lines(&incoming),
+            vec!["word: hi".to_string()]
         );
     }
 }

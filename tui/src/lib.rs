@@ -613,7 +613,7 @@ mod tests {
 
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use taurine_core::{
-        db::crud::{TriggerListItem, TriggerRow, TriggerType},
+        db::crud::{InvocationType, TriggerAliasRow, TriggerListItem, TriggerRow},
         engine::shell::{ScriptBehavior, ScriptInterpreter, compress},
     };
 
@@ -650,13 +650,25 @@ mod tests {
         KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)
     }
 
+    fn hotkey_alias(id: &str, invocation: &str) -> TriggerAliasRow {
+        TriggerAliasRow {
+            id: format!("alias-{invocation}"),
+            trigger_id: id.to_string(),
+            invocation: invocation.to_string(),
+            invocation_type: InvocationType::Hotkey,
+            require_confirmation: false,
+            strict_threshold: None,
+            created_at: 0,
+        }
+    }
+
     fn sample_library_modal() -> library::LibraryTriggerDetail {
         library::LibraryTriggerDetail::from_row(TriggerRow {
             id: "library-modal".to_string(),
             name: "Library Modal".to_string(),
             description: Some("Open Reddit".to_string()),
-            trigger_type: TriggerType::Hotkey,
-            trigger: "alt+r".to_string(),
+            invocations: vec![hotkey_alias("library-modal", "alt+r")],
+            display: "alt+r".to_string(),
             output: "[Script: powershell]".to_string(),
             action_type: "script".to_string(),
             target_os: "win".to_string(),
@@ -858,8 +870,8 @@ mod tests {
                 id: "test".to_string(),
                 name: "Test".to_string(),
                 description: None,
-                trigger_type: TriggerType::Hotkey,
-                trigger: "alt+t".to_string(),
+                invocations: vec![hotkey_alias("test", "alt+t")],
+                display: "alt+t".to_string(),
                 output: "test".to_string(),
                 action_type: "text".to_string(),
                 target_os: "win".to_string(),
@@ -891,8 +903,8 @@ mod tests {
                 id: "test".to_string(),
                 name: "Test".to_string(),
                 description: None,
-                trigger_type: TriggerType::Hotkey,
-                trigger: "alt+t".to_string(),
+                invocations: vec![hotkey_alias("test", "alt+t")],
+                display: "alt+t".to_string(),
                 output: "test".to_string(),
                 action_type: "text".to_string(),
                 target_os: "win".to_string(),

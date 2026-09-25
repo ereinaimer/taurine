@@ -2,11 +2,13 @@
 // See LICENSE for details.
 
 use rusqlite::Connection;
-use taurine_core::db::crud::voice_triggers::{
-    add_voice_trigger_full, delete_voice_trigger_by_phrase, get_voice_trigger_by_phrase,
-    increment_voice_trigger_usage, list_active_voice_triggers, validate_voice_phrase,
+use taurine_core::db::crud::{
+    InvocationType, NewEntry, create_entry, delete_alias, find_parent_by_invocation, get_trigger,
+    increment_usage_count_by_id, list_active_voice_invocations, threshold_for_phrase,
+    validate_voice_phrase,
 };
 use taurine_core::db::crud::{record_voice_dictation_usage, record_voice_trigger_usage};
+use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use taurine_core::voice::{
     GateDecision, GateWitnesses, VoiceDictionary, evaluate_gate, format_transcript,
     get_model_entry, get_system_ram_gb, resolve_model_alias,
@@ -17,6 +19,48 @@ fn setup_test_db() -> Connection {
     taurine_core::db::init::migrate::run_migrations(&conn).expect("run_migrations failed");
     taurine_core::db::init::seed::ensure_defaults(&conn).expect("ensure_defaults failed");
     conn
+}
+
+fn voice_entry(
+    content: &str,
+    action_type: &str,
+    phrase: &str,
+    require_confirmation: bool,
+) -> NewEntry {
+    let (interpreter, behavior) = if action_type == "script" {
+        (Some(ScriptInterpreter::Bash), Some(ScriptBehavior::Silent))
+    } else {
+        (None, None)
+    };
+    NewEntry {
+        name: String::new(),
+        description: None,
+        content: content.to_string(),
+        action_type: action_type.to_string(),
+        target_os: "all".to_string(),
+        only_apps: None,
+        except_apps: None,
+        tags_json: "[]".to_string(),
+        auto_case: false,
+        interpreter,
+        behavior,
+        invocations: vec![(
+            InvocationType::Voice,
+            phrase.to_string(),
+            require_confirmation,
+        )],
+    }
+}
+
+fn active_voice_invocation(
+    conn: &Connection,
+    phrase: &str,
+) -> taurine_core::db::crud::ResolvedInvocation {
+    list_active_voice_invocations(conn)
+        .unwrap()
+        .into_iter()
+        .find(|inv| inv.invocation == phrase)
+        .unwrap_or_else(|| panic!("voice invocation '{phrase}' should be active"))
 }
 
 #[test]
@@ -105,17 +149,17 @@ fn test_voice_formatting_pipeline() {
 #[test]
 fn test_voice_gate_three_witnesses_decisions() {
     let conn = setup_test_db();
-    let row = add_voice_trigger_full(
+    create_entry(
         &conn,
-        "deploy production",
-        "kubectl apply -f prod.yaml",
-        "script",
-        "any",
-        None,
-        None,
-        true, // requires confirmation
+        voice_entry(
+            "kubectl apply -f prod.yaml",
+            "script",
+            "deploy production",
+            true, // requires confirmation
+        ),
     )
     .unwrap();
+    let row = active_voice_invocation(&conn, "deploy production");
 
     // 1. All witnesses agree, but requires confirmation -> AskConfirm
     let witnesses_agree = GateWitnesses {
@@ -128,17 +172,12 @@ fn test_voice_gate_three_witnesses_decisions() {
     assert_eq!(decision, GateDecision::AskConfirm(row.clone()));
 
     // 2. Immediate fire trigger when confirmation is disabled
-    let row_no_confirm = add_voice_trigger_full(
+    create_entry(
         &conn,
-        "paste signature",
-        "Best regards,\nAlice",
-        "text",
-        "any",
-        None,
-        None,
-        false,
+        voice_entry("Best regards,\nAlice", "text", "paste signature", false),
     )
     .unwrap();
+    let row_no_confirm = active_voice_invocation(&conn, "paste signature");
 
     let sig_witnesses = GateWitnesses {
         vad_confidence: 0.92,
@@ -199,43 +238,46 @@ fn test_voice_trigger_database_crud_lifecycle() {
         "hello world"
     );
 
-    // 2. Add voice trigger
-    let added = add_voice_trigger_full(
-        &conn,
-        "take screenshot",
-        "grim screenshot.png",
-        "script",
-        "linux",
-        Some("foot,alacritty"),
-        None,
-        false,
-    )
-    .unwrap();
+    // Threshold tiers by phrase length (helper names kept).
+    assert_eq!(threshold_for_phrase("my email"), 0.85);
+    assert_eq!(threshold_for_phrase("deploy production"), 0.75);
+    assert_eq!(
+        threshold_for_phrase("this is a much longer voice trigger phrase"),
+        0.65
+    );
 
-    assert_eq!(added.spoken_phrase, "take screenshot");
-    assert_eq!(added.output, "grim screenshot.png");
+    // 2. Add voice entry with a voice invocation
+    let mut script_entry = voice_entry("grim screenshot.png", "script", "take screenshot", false);
+    script_entry.target_os = "all".to_string();
+    script_entry.only_apps = Some("foot,alacritty".to_string());
+    let (parent_id, aliases) = create_entry(&conn, script_entry).unwrap();
+    assert_eq!(aliases.len(), 1);
+    assert_eq!(aliases[0].invocation, "take screenshot");
+    assert_eq!(aliases[0].invocation_type, InvocationType::Voice);
+
+    let added = get_trigger(&conn, &parent_id)
+        .unwrap()
+        .expect("parent entry should exist");
     assert_eq!(added.action_type, "script");
-    assert_eq!(added.target_os, "linux");
+    assert_eq!(added.target_os, "all");
     assert_eq!(added.only_apps.as_deref(), Some("foot,alacritty"));
     assert_eq!(added.usage_count, 0);
     assert!(added.is_enabled);
 
-    // 3. Lookup by phrase
-    let fetched = get_voice_trigger_by_phrase(&conn, "Take Screenshot")
+    // 3. Lookup parent by phrase (case-insensitive via normalization)
+    let fetched_id = find_parent_by_invocation(&conn, InvocationType::Voice, "Take Screenshot")
         .unwrap()
-        .expect("trigger should be found case-insensitively");
-    assert_eq!(fetched.id, added.id);
+        .expect("entry should be found case-insensitively");
+    assert_eq!(fetched_id, parent_id);
 
-    // 4. List active triggers
-    let active = list_active_voice_triggers(&conn).unwrap();
+    // 4. List active voice invocations
+    let active = list_active_voice_invocations(&conn).unwrap();
     assert_eq!(active.len(), 1);
-    assert_eq!(active[0].id, added.id);
+    assert_eq!(active[0].trigger_id, parent_id);
 
     // 5. Increment usage count
-    increment_voice_trigger_usage(&conn, &added.id).unwrap();
-    let updated = get_voice_trigger_by_phrase(&conn, "take screenshot")
-        .unwrap()
-        .unwrap();
+    increment_usage_count_by_id(&conn, &parent_id).unwrap();
+    let updated = get_trigger(&conn, &parent_id).unwrap().unwrap();
     assert_eq!(updated.usage_count, 1);
 
     // 6. Record trigger usage log
@@ -244,13 +286,18 @@ fn test_voice_trigger_database_crud_lifecycle() {
     // 7. Record voice dictation log
     record_voice_dictation_usage(42, 210, Some("code".to_string()));
 
-    // 8. Soft delete trigger by phrase
-    let deleted = delete_voice_trigger_by_phrase(&conn, "take screenshot").unwrap();
+    // 8. Delete the last alias tombstones the parent entry
+    let deleted =
+        delete_alias(&conn, &parent_id, InvocationType::Voice, "take screenshot").unwrap();
     assert!(deleted);
 
-    let after_delete = get_voice_trigger_by_phrase(&conn, "take screenshot").unwrap();
+    let after_delete =
+        find_parent_by_invocation(&conn, InvocationType::Voice, "take screenshot").unwrap();
     assert!(after_delete.is_none());
 
-    let active_after_delete = list_active_voice_triggers(&conn).unwrap();
+    let tombstoned = get_trigger(&conn, &parent_id).unwrap().unwrap();
+    assert!(tombstoned.is_deleted);
+
+    let active_after_delete = list_active_voice_invocations(&conn).unwrap();
     assert!(active_after_delete.is_empty());
 }

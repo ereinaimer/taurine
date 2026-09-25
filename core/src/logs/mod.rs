@@ -5,7 +5,7 @@ mod init_log;
 
 pub use init_log::{
     activate_file_logging, handle_panic_info, init_tracing_for_app, init_tracing_for_tests,
-    install_tracing_panic_hook,
+    install_tracing_panic_hook, io_error_is_broken_pipe, panic_payload_is_broken_pipe,
 };
 
 /// Identifies which part of the application is logging.
@@ -16,6 +16,7 @@ pub use init_log::{
 pub enum LogComponent {
     Cli,
     Daemon,
+    VoiceDaemon,
 }
 
 impl LogComponent {
@@ -24,6 +25,7 @@ impl LogComponent {
         match self {
             LogComponent::Cli => "cli",
             LogComponent::Daemon => "service",
+            LogComponent::VoiceDaemon => "voice-daemon",
         }
     }
 }

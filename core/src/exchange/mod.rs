@@ -5,7 +5,7 @@ mod import;
 #[cfg(test)]
 mod import_tests;
 
-use crate::db::crud::TriggerType;
+use crate::db::crud::{InvocationType, TriggerType};
 use crate::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use serde::{Deserialize, Serialize};
 
@@ -64,6 +64,16 @@ pub struct TriggerExport {
     pub script: Option<ScriptExport>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub assets: Vec<AssetExport>,
+    #[serde(default)]
+    pub aliases: Vec<AliasExport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AliasExport {
+    pub invocation_type: InvocationType,
+    pub invocation: String,
+    #[serde(default)]
+    pub require_confirmation: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -290,6 +300,7 @@ mod tests {
             tags: vec!["daily".to_string()],
             script: None,
             assets: Vec::new(),
+            aliases: vec![],
         }]);
 
         let encoded = crate::exchange::export::encode_exchange_blob(&payload, None).unwrap();
@@ -333,6 +344,7 @@ mod tests {
             tags: vec![],
             script: None,
             assets: Vec::new(),
+            aliases: vec![],
         }]);
         assert!(payload_contains_run_variables(&payload));
 
@@ -370,9 +382,10 @@ mod tests {
 
         let imported_text = conn
             .query_row(
-                "SELECT id, usage_count, last_used_at, version, is_deleted, is_synced, is_enabled
-                 FROM triggers
-                 WHERE trigger = ?1",
+                "SELECT t.id, t.usage_count, t.last_used_at, t.version, t.is_deleted, t.is_synced, t.is_enabled
+                 FROM triggers t
+                 JOIN trigger_aliases al ON al.trigger_id = t.id
+                 WHERE al.invocation_type = 'word' AND al.invocation = ?1",
                 ["gm"],
                 |row| {
                     Ok((
@@ -400,7 +413,8 @@ mod tests {
                 "SELECT a.id, a.is_enabled, s.compressed_content
                  FROM triggers a
                  INNER JOIN scripts s ON s.trigger_id = a.id
-                 WHERE a.trigger = ?1",
+                 INNER JOIN trigger_aliases al ON al.trigger_id = a.id
+                 WHERE al.invocation_type = 'word' AND al.invocation = ?1",
                 ["repo"],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
@@ -411,9 +425,10 @@ mod tests {
 
         let (hotkey_trigger_type, hotkey_target_os): (String, String) = conn
             .query_row(
-                "SELECT trigger_type, target_os
-                 FROM triggers
-                 WHERE trigger = ?1",
+                "SELECT al.invocation_type, t.target_os
+                 FROM triggers t
+                 JOIN trigger_aliases al ON al.trigger_id = t.id
+                 WHERE al.invocation = ?1",
                 ["ctrl+shift+g"],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )

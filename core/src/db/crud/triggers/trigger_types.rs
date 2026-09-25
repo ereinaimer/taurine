@@ -1,3 +1,4 @@
+use super::aliases::{InvocationType, TriggerAliasRow};
 use crate::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use serde::{Deserialize, Serialize};
 
@@ -62,8 +63,8 @@ pub struct TriggerRow {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
-    pub trigger_type: TriggerType,
-    pub trigger: String,
+    pub invocations: Vec<TriggerAliasRow>,
+    pub display: String,
     pub output: String,
     pub action_type: String,
     pub target_os: String,
@@ -94,6 +95,7 @@ pub struct TriggerAction {
     pub only_apps: Option<String>,
     pub except_apps: Option<String>,
     pub auto_case: bool,
+    pub parent_id: String,
 
     pub interpreter: Option<ScriptInterpreter>,
     pub behavior: Option<ScriptBehavior>,
@@ -143,6 +145,7 @@ impl TriggerAction {
             only_apps: None,
             except_apps: None,
             auto_case: false,
+            parent_id: String::new(),
             interpreter: None,
             behavior: None,
             script_binary: None,
@@ -214,8 +217,8 @@ pub struct TriggerSummary {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
-    pub trigger_type: TriggerType,
-    pub trigger: String,
+    pub invocations: Vec<TriggerAliasRow>,
+    pub display: String,
     pub usage_count: i64,
 }
 
@@ -225,8 +228,8 @@ pub struct TriggerListItem {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
-    pub trigger_type: TriggerType,
-    pub trigger: String,
+    pub invocations: Vec<TriggerAliasRow>,
+    pub display: String,
     pub output: String,
     pub action_type: String,
     pub target_os: String,
@@ -245,14 +248,47 @@ pub struct TriggerListItem {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TriggerConflict {
     pub id: String,
-    pub trigger_type: TriggerType,
+    pub trigger_type: InvocationType,
     pub trigger: String,
     pub target_os: String,
+}
+
+/// Display alias per §0.11 (adapted): first word invocation in insertion
+/// order, else first invocation of any type.
+pub fn display_alias(aliases: &[TriggerAliasRow]) -> Option<&TriggerAliasRow> {
+    aliases
+        .iter()
+        .find(|a| a.invocation_type == InvocationType::Word)
+        .or_else(|| aliases.first())
+}
+
+/// Entry display string (binding): `name` if non-empty, else first word
+/// invocation in insertion order, else first invocation of any type,
+/// else empty string.
+pub fn display_for_aliases(name: &str, aliases: &[TriggerAliasRow]) -> String {
+    if !name.is_empty() {
+        return name.to_string();
+    }
+    display_alias(aliases)
+        .map(|a| a.invocation.clone())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn alias_row(invocation: &str, invocation_type: InvocationType) -> TriggerAliasRow {
+        TriggerAliasRow {
+            id: "alias-1".to_string(),
+            trigger_id: "entry-1".to_string(),
+            invocation: invocation.to_string(),
+            invocation_type,
+            require_confirmation: false,
+            strict_threshold: None,
+            created_at: 0,
+        }
+    }
 
     #[test]
     fn test_regex_trigger_type_serialization() {
@@ -267,8 +303,8 @@ mod tests {
             id: "abc-123".to_string(),
             name: "my trigger".to_string(),
             description: Some("does a thing".to_string()),
-            trigger_type: TriggerType::Hotkey,
-            trigger: "ctrl+shift+g".to_string(),
+            invocations: vec![alias_row("ctrl+shift+g", InvocationType::Hotkey)],
+            display: "ctrl+shift+g".to_string(),
             output: "git status".to_string(),
             action_type: "text".to_string(),
             target_os: "all".to_string(),
@@ -284,13 +320,14 @@ mod tests {
         };
         let json = serde_json::to_string(&item).unwrap();
         assert!(json.contains("\"id\":\"abc-123\""));
-        assert!(json.contains("\"trigger\":\"ctrl+shift+g\""));
+        assert!(json.contains("\"display\":\"ctrl+shift+g\""));
+        assert!(json.contains("\"invocation\":\"ctrl+shift+g\""));
         assert!(json.contains("\"output\":\"git status\""));
         assert!(json.contains("\"action_type\":\"text\""));
         assert!(json.contains("\"usage_count\":42"));
         assert!(json.contains("\"target_os\":\"all\""));
         assert!(json.contains("\"only_apps\":\"terminal\""));
-        assert!(json.contains("\"trigger_type\":\"hotkey\""));
+        assert!(json.contains("\"invocation_type\":\"hotkey\""));
         assert!(json.contains("\"script_content\":null"));
         assert!(json.contains("\"interpreter\":null"));
     }
@@ -301,8 +338,8 @@ mod tests {
             id: "script-1".to_string(),
             name: "".to_string(),
             description: None,
-            trigger_type: TriggerType::Word,
-            trigger: "deploy".to_string(),
+            invocations: vec![alias_row("deploy", InvocationType::Word)],
+            display: "deploy".to_string(),
             output: "Inline Bash".to_string(),
             action_type: "script".to_string(),
             target_os: "linux".to_string(),
@@ -330,8 +367,8 @@ mod tests {
             id: "empty-tags".to_string(),
             name: "".to_string(),
             description: None,
-            trigger_type: TriggerType::Word,
-            trigger: "x".to_string(),
+            invocations: vec![alias_row("x", InvocationType::Word)],
+            display: "x".to_string(),
             output: "y".to_string(),
             action_type: "text".to_string(),
             target_os: "all".to_string(),
@@ -356,8 +393,8 @@ mod tests {
             id: "r1".to_string(),
             name: "".to_string(),
             description: None,
-            trigger_type: TriggerType::Regex,
-            trigger: "issue-(\\d+)".to_string(),
+            invocations: vec![alias_row("issue-(\\d+)", InvocationType::Regex)],
+            display: "issue-(\\d+)".to_string(),
             output: "https://bugs.example.com/[0]".to_string(),
             action_type: "text".to_string(),
             target_os: "all".to_string(),
@@ -372,8 +409,8 @@ mod tests {
             behavior: None,
         };
         let json = serde_json::to_string(&item).unwrap();
-        assert!(json.contains("\"trigger_type\":\"regex\""));
-        assert!(json.contains("\"trigger\":\"issue-(\\\\d+)\""));
+        assert!(json.contains("\"invocation_type\":\"regex\""));
+        assert!(json.contains("\"invocation\":\"issue-(\\\\d+)\""));
         assert!(json.contains("\"last_used_at\":1730000000"));
     }
 

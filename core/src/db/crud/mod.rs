@@ -2,30 +2,27 @@ pub mod settings;
 pub mod stats;
 pub mod target_os;
 pub mod triggers;
-pub mod voice_triggers;
-
-pub use voice_triggers::{
-    VoiceTriggerRow, add_voice_trigger, add_voice_trigger_full, delete_voice_trigger_by_phrase,
-    delete_voice_triggers_by_values, get_voice_trigger_by_phrase, increment_voice_trigger_usage,
-    list_active_voice_triggers, normalize_voice_phrase, threshold_for_phrase,
-    validate_voice_phrase,
-};
 
 pub use target_os::TargetOs;
 pub use triggers::{
-    ActionType, AddOutcome, AppFilterPrefix, ExistingTriggerUpdate, NewTrigger, PreparedTrigger,
-    TriggerAction, TriggerConflict, TriggerLimits, TriggerListItem, TriggerRow, TriggerSummary,
-    TriggerType, add_trigger, add_trigger_by_type, add_trigger_by_type_with_case,
-    add_trigger_with_case, audit_payload_tags, audit_payload_tags_with_trigger_type,
-    audit_script_payload_tags, count_triggers_by_pattern, create_trigger, delete_trigger,
+    ActionType, AddOutcome, AppFilterPrefix, ExistingTriggerUpdate, InvocationType, NewEntry,
+    NewTrigger, PreparedTrigger, ResolvedInvocation, TriggerAction, TriggerAliasRow,
+    TriggerConflict, TriggerLimits, TriggerListItem, TriggerRow, TriggerSummary, TriggerType,
+    add_alias, add_trigger, add_trigger_by_type, add_trigger_by_type_with_case,
+    add_trigger_with_case, app_filters_overlap, audit_payload_tags,
+    audit_payload_tags_with_trigger_type, audit_script_payload_tags, count_aliases,
+    count_triggers_by_pattern, create_entry, create_trigger, delete_alias, delete_trigger,
     delete_trigger_by_value, delete_triggers_by_pattern, delete_triggers_by_tag,
-    delete_triggers_by_values, find_trigger_overlap_conflict, get_action_by_trigger,
-    get_all_active_hotkey_triggers, get_all_active_regex_triggers, get_all_active_triggers,
-    get_syncable_triggers, get_trigger, get_triggers_list, increment_usage_count_by_trigger,
-    normalize_tags, prepare_trigger, prepare_trigger_with_type, record_expansion_usage,
-    search_triggers, target_os_values_overlap, update_existing_trigger, update_trigger_app_filters,
-    upsert_script, upsert_trigger, upsert_trigger_with_type, upsert_trigger_with_type_and_case,
-    validate_trigger_target_os_conflict,
+    delete_triggers_by_values, display_alias, display_for_aliases, find_parent_by_invocation,
+    find_trigger_overlap_conflict, get_action_by_trigger, get_all_active_hotkey_triggers,
+    get_all_active_regex_triggers, get_all_active_triggers, get_syncable_triggers, get_trigger,
+    get_triggers_list, increment_usage_count_by_id, increment_usage_count_by_trigger,
+    list_active_voice_invocations, list_aliases, normalize_tags, normalize_voice_phrase,
+    prepare_trigger, prepare_trigger_with_type, record_expansion_usage, search_triggers,
+    target_os_values_overlap, threshold_for_phrase, tombstone_entry, update_existing_trigger,
+    update_trigger_app_filters, upsert_entry_full, upsert_script, upsert_trigger,
+    upsert_trigger_with_type, upsert_trigger_with_type_and_case,
+    validate_trigger_target_os_conflict, validate_voice_phrase,
 };
 
 pub use crate::stats::TriggerStatKind;

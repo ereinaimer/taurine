@@ -15,9 +15,8 @@ pub use gate::{
     GateDecision, GateWitnesses, TriggerMatch, evaluate_gate, rank_voice_triggers, score_trigger,
 };
 pub use models::{
-    AUTO_UNIFIED_MIN_BYTES, MODEL_CATALOG, ModelCatalogEntry, UNIFIED_MIN_FREE_BYTES,
-    available_memory_bytes, compute_file_sha256, get_model_entry, get_system_ram_gb,
-    is_model_downloaded, list_models, models_dir, quality_engine_allowed, resolve_auto_model,
+    AUTO_UNIFIED_MIN_BYTES, MODEL_CATALOG, ModelCatalogEntry, compute_file_sha256, get_model_entry,
+    get_system_ram_gb, is_model_downloaded, list_models, models_dir, resolve_auto_model,
     resolve_configured_model, resolve_model_alias, system_total_memory_bytes, verify_file_sha256,
 };
 pub use phonetic::{double_metaphone, primary_key};

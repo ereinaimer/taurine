@@ -1,66 +1,98 @@
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
 
-use taurine_core::voice::{Transcriber, VoiceDictionary, format_transcript};
+use taurine_core::voice::{VoiceDictionary, format_transcript};
 
 use super::capture::AudioCapture;
-use super::capture::{
-    normalize_snippet_rms, slice_utterance_with_postroll, trailing_silence_frames,
-};
-use super::factory::create_transcriber;
 use super::modes::VoiceMode;
+use super::worker_client::WorkerClient;
 
 /// Minimal energy threshold to consider audio frames as containing speech.
-const MIN_SPEECH_RMS_ENERGY: f32 = 1e-7;
+pub(crate) const MIN_SPEECH_RMS_ENERGY: f32 = 1e-7;
 
 /// Minimum audio samples required for transcription (100ms at 16kHz = 1600 samples).
-const MIN_SAMPLES_COUNT: usize = 1600;
+pub(crate) const MIN_SAMPLES_COUNT: usize = 1600;
 
 /// Default inactivity timeout before the voice model is dropped from RAM.
 const DEFAULT_INACTIVITY_TTL: Duration = Duration::from_secs(10);
 
-struct EngineSlot {
-    transcriber: Box<dyn Transcriber>,
+/// Chunk cadence for live streaming while recording.
+const STREAM_POLL_INTERVAL: Duration = Duration::from_millis(150);
+
+/// TTL bookkeeping for the worker-side model. The audio and the recognizer
+/// live in the `--voice-daemon` worker; this stays lean by design.
+struct EngineMeta {
     model_id: String,
     last_used: Instant,
 }
 
+/// Lock-free progress shared with one chunk-forwarder thread.
+struct StreamProgress {
+    /// Samples already handed to the worker.
+    sent: AtomicUsize,
+    /// Next chunk sequence number.
+    seq: AtomicU64,
+    alive: AtomicBool,
+}
+
+impl StreamProgress {
+    fn new() -> Self {
+        Self {
+            sent: AtomicUsize::new(0),
+            seq: AtomicU64::new(0),
+            alive: AtomicBool::new(true),
+        }
+    }
+}
+
+/// One live streaming request: shared progress plus a joinable thread.
+///
+/// `target` is snapshotted at request start so a settings change mid-record
+/// can neither respawn the worker nor wipe its buffers under a live session.
+struct StreamEntry {
+    progress: Arc<StreamProgress>,
+    handle: Option<std::thread::JoinHandle<()>>,
+    target: String,
+}
+
 /// Manages the lifecycle of voice recording, dictation sessions, and text injection.
 ///
-/// Holds at most one speech recognition model in RAM (the single configured
-/// model), loaded on demand when a Push-to-Talk or Hands-Free session starts
-/// and fully evicted after 10 seconds of inactivity for 0 MB idle voice RAM.
-/// The microphone stream is closed whenever no session is active.
+/// The single configured model lives in the isolated `--voice-daemon`
+/// worker: it loads on demand when a Push-to-Talk or Hands-Free session
+/// starts, stays pinned for the whole recording, and is fully evicted after
+/// 10 seconds of inactivity. The microphone stream is closed whenever no
+/// session is active.
 pub struct VoiceSessionManager {
     mode: Mutex<VoiceMode>,
     capture: Arc<AudioCapture>,
     paused: Arc<AtomicBool>,
     model_name: Mutex<String>,
-    models_dir: Option<PathBuf>,
     dictionary: Mutex<VoiceDictionary>,
-    engine: Arc<Mutex<Option<EngineSlot>>>,
-    generation: Arc<AtomicU64>,
-    loading: Arc<Mutex<Option<(u64, String)>>>,
+    worker: WorkerClient,
+    meta: Mutex<Option<EngineMeta>>,
+    active_req: Mutex<Option<String>>,
+    streams: Arc<Mutex<HashMap<String, StreamEntry>>>,
+    req_counter: AtomicU64,
     ttl: Duration,
 }
 
 impl VoiceSessionManager {
     /// Create a new session manager with an audio capture interface and pause flag.
     pub fn new(capture: Arc<AudioCapture>, paused: Arc<AtomicBool>) -> Self {
-        let models_dir = Some(taurine_core::system::paths::ensure_data_dir().join("models"));
         Self {
             mode: Mutex::new(VoiceMode::Idle),
             capture,
             paused,
             model_name: Mutex::new("auto".to_string()),
-            models_dir,
             dictionary: Mutex::new(VoiceDictionary::default()),
-            engine: Arc::new(Mutex::new(None)),
-            generation: Arc::new(AtomicU64::new(0)),
-            loading: Arc::new(Mutex::new(None)),
+            worker: WorkerClient::new().expect("voice worker runtime must build"),
+            meta: Mutex::new(None),
+            active_req: Mutex::new(None),
+            streams: Arc::new(Mutex::new(HashMap::new())),
+            req_counter: AtomicU64::new(0),
             ttl: DEFAULT_INACTIVITY_TTL,
         }
     }
@@ -68,12 +100,6 @@ impl VoiceSessionManager {
     /// Builder method to specify the voice model name.
     pub fn with_model_name(self, name: impl Into<String>) -> Self {
         *self.model_name.lock().unwrap_or_else(|p| p.into_inner()) = name.into();
-        self
-    }
-
-    /// Builder method to override the models directory.
-    pub fn with_models_dir(mut self, dir: PathBuf) -> Self {
-        self.models_dir = Some(dir);
         self
     }
 
@@ -117,21 +143,16 @@ impl VoiceSessionManager {
         taurine_core::voice::resolve_configured_model(&configured)
     }
 
-    /// Update the STT model name. If the model changed, clears the warm cache.
+    /// Update the STT model name. If the model changed, the worker is shut
+    /// down so the next session handshakes fresh on the new model.
     pub fn set_model_name(&self, name: impl Into<String>) {
         let new_name = name.into();
         let mut model = self.model_name.lock().unwrap_or_else(|p| p.into_inner());
         if *model != new_name {
             *model = new_name;
-            let new_gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
-            let mut engine = self.engine.lock().unwrap_or_else(|p| p.into_inner());
-            *engine = None;
-            // Invalidate only loads older than this switch; a trigger that
-            // raced past the bump owns its flag and its generation gate.
-            let mut loading = self.loading.lock().unwrap_or_else(|p| p.into_inner());
-            if matches!(&*loading, Some((g, _)) if *g < new_gen) {
-                *loading = None;
-            }
+            self.worker.shutdown();
+            let mut meta = self.meta.lock().unwrap_or_else(|p| p.into_inner());
+            *meta = None;
         }
     }
 
@@ -149,122 +170,123 @@ impl VoiceSessionManager {
         if self.is_active() {
             return;
         }
-        let mut guard = self.engine.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some(ref slot) = *guard
-            && slot.last_used.elapsed() > self.ttl
+        let mut guard = self.meta.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(ref meta) = *guard
+            && meta.last_used.elapsed() > self.ttl
         {
             *guard = None;
+            self.worker.unload_model();
             debug!("VoiceSessionManager: unloading idle voice model from RAM (10s TTL expired)");
         }
     }
 
-    /// Refresh the loaded slot so a session starting on a stale-but-fresh
-    /// model does not expire mid-recording.
+    /// Refresh a fresh model timestamp so a session starting on a stale-but
+    /// resident model does not expire mid-recording.
     fn touch_loaded_slot(&self) {
-        let mut guard = self.engine.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some(ref mut slot) = *guard
-            && slot.last_used.elapsed() <= self.ttl
+        let mut guard = self.meta.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(ref mut meta) = *guard
+            && meta.last_used.elapsed() <= self.ttl
         {
-            slot.last_used = Instant::now();
+            meta.last_used = Instant::now();
         }
     }
 
-    /// Immediately unloads the speech recognition model from RAM and invalidates any in-flight background loaders.
+    /// Shut the worker process down entirely (daemon shutdown path).
+    pub fn shutdown_worker(&self) {
+        self.worker.shutdown();
+        let mut meta = self.meta.lock().unwrap_or_else(|p| p.into_inner());
+        *meta = None;
+        debug!("VoiceSessionManager: voice worker shut down");
+    }
+
+    /// Immediately unloads the speech recognition model from RAM.
     pub fn unload_model(&self) {
-        let new_gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        let mut engine = self.engine.lock().unwrap_or_else(|p| p.into_inner());
-        *engine = None;
-        let mut loading = self.loading.lock().unwrap_or_else(|p| p.into_inner());
-        if matches!(&*loading, Some((g, _)) if *g < new_gen) {
-            *loading = None;
-        }
+        let mut meta = self.meta.lock().unwrap_or_else(|p| p.into_inner());
+        *meta = None;
+        self.worker.unload_model();
         debug!("VoiceSessionManager: voice engine unloaded from RAM");
     }
 
-    /// Trigger loading of the single configured STT engine in the background.
+    /// Ensure the worker serves the single configured model.
     ///
-    /// Only the resolved `voice_model` is loaded. A fresh slot whose
-    /// `last_used` is within the TTL is reused; older generation loaders
-    /// are invalidated on model configuration switch.
-    pub fn trigger_load_engines(&self) {
+    /// Only the resolved `voice_model` is ever loaded. A fresh model whose
+    /// `last_used` is within the TTL is reused; the client singleton keeps
+    /// concurrent triggers on one worker.
+    pub fn ensure_worker_ready(&self) -> Result<(), String> {
         let target = self.target_model().to_string();
         let fresh = {
-            let guard = self.engine.lock().unwrap_or_else(|p| p.into_inner());
+            let guard = self.meta.lock().unwrap_or_else(|p| p.into_inner());
             match &*guard {
-                Some(slot) => slot.model_id == target && slot.last_used.elapsed() <= self.ttl,
+                Some(meta) => meta.model_id == target && meta.last_used.elapsed() <= self.ttl,
                 None => false,
             }
         };
         if fresh {
-            return;
+            return Ok(());
         }
+        debug!("taurine-voice-loader: loading voice model '{target}'");
+        self.worker.ensure_worker(&target)?;
+        let mut guard = self.meta.lock().unwrap_or_else(|p| p.into_inner());
+        *guard = Some(EngineMeta {
+            model_id: target,
+            last_used: Instant::now(),
+        });
+        Ok(())
+    }
 
-        // Single-flight: a second trigger while this target is already
-        // loading waits on the in-flight load instead of spawning another.
-        let cur_gen = {
-            let mut loading = self.loading.lock().unwrap_or_else(|p| p.into_inner());
-            match &*loading {
-                Some((_, in_flight)) if *in_flight == target => return,
-                _ => {
-                    let next = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
-                    *loading = Some((next, target.clone()));
-                    next
-                }
-            }
-        };
-        let models_dir = self.models_dir.clone();
-        let engine = Arc::clone(&self.engine);
-        let generation = Arc::clone(&self.generation);
-        let loading = Arc::clone(&self.loading);
-        let ttl = self.ttl;
-
-        let builder = std::thread::Builder::new().name("taurine-voice-loader".to_string());
-        let failed_target = target.clone();
+    /// Stream newly captured audio to the worker while the request is alive.
+    ///
+    /// Runs on its own thread; the stop path stops it, joins it, sends the
+    /// tail, and transcribes. Joining before reading progress guarantees the
+    /// tail is sent exactly once (never duplicated, never dropped).
+    fn spawn_chunk_forwarder(&self, req_id: String, target: String) {
+        let progress = Arc::new(StreamProgress::new());
+        let buffer = self.capture.buffer().clone();
+        let worker = self.worker.clone();
+        let thread_progress = Arc::clone(&progress);
+        let thread_req = req_id.clone();
+        let entry_target = target.clone();
+        let builder = std::thread::Builder::new().name("taurine-voice-stream".to_string());
         let spawn_res = builder.spawn(move || {
-            let need_load = {
-                let guard = engine.lock().unwrap_or_else(|p| p.into_inner());
-                match &*guard {
-                    Some(slot) => slot.last_used.elapsed() > ttl || slot.model_id != target,
-                    None => true,
-                }
-            };
-            let release = |insert: Option<Box<dyn Transcriber>>| {
-                if generation.load(Ordering::SeqCst) != cur_gen {
-                    return;
-                }
-                let mut guard = engine.lock().unwrap_or_else(|p| p.into_inner());
-                if generation.load(Ordering::SeqCst) != cur_gen {
-                    return;
-                }
-                let mut in_flight = loading.lock().unwrap_or_else(|p| p.into_inner());
-                // Only the loader that owns this (generation, target) pair
-                // may clear it; a newer trigger for any target wins.
-                if *in_flight != Some((cur_gen, target.clone())) {
-                    return;
-                }
-                *in_flight = None;
-                if let Some(transcriber) = insert {
-                    *guard = Some(EngineSlot {
-                        transcriber,
-                        model_id: target.clone(),
-                        last_used: Instant::now(),
-                    });
-                }
-            };
-            if !need_load {
-                release(None);
+            if let Err(e) = worker.ensure_worker(&target) {
+                debug!("VoiceSessionManager: worker unavailable for '{target}': {e}");
                 return;
             }
-            debug!("taurine-voice-loader: loading voice model '{target}'");
-            let transcriber = create_transcriber(&target, models_dir.as_deref());
-            release(Some(transcriber));
-        });
-        if let Err(e) = spawn_res {
-            warn!("VoiceSessionManager: failed to spawn loader thread: {e}");
-            let mut in_flight = self.loading.lock().unwrap_or_else(|p| p.into_inner());
-            if *in_flight == Some((cur_gen, failed_target)) {
-                *in_flight = None;
+            loop {
+                if !thread_progress.alive.load(Ordering::Relaxed) {
+                    break;
+                }
+                let len = buffer.len();
+                let sent = thread_progress.sent.load(Ordering::Relaxed);
+                if len > sent {
+                    let seq = thread_progress.seq.load(Ordering::Relaxed);
+                    if worker
+                        .append(&thread_req, seq, &buffer.peek_tail(len - sent))
+                        .is_err()
+                    {
+                        break;
+                    }
+                    thread_progress.sent.store(len, Ordering::Relaxed);
+                    thread_progress.seq.store(seq + 1, Ordering::Relaxed);
+                }
+                std::thread::sleep(STREAM_POLL_INTERVAL);
             }
+        });
+        match spawn_res {
+            Ok(handle) => {
+                self.streams
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .insert(
+                        req_id,
+                        StreamEntry {
+                            progress,
+                            handle: Some(handle),
+                            target: entry_target,
+                        },
+                    );
+            }
+            Err(e) => warn!("VoiceSessionManager: failed to spawn stream thread: {e}"),
         }
     }
 
@@ -298,8 +320,88 @@ impl VoiceSessionManager {
         self.touch_loaded_slot();
         info!("VoiceSessionManager: Push-To-Talk recording started");
         crate::services::audio::play_voice_start_cue();
-        self.trigger_load_engines();
+        self.begin_request();
         Ok(())
+    }
+
+    /// Register a new streaming request and start its chunk forwarder.
+    fn begin_request(&self) {
+        let req_id = format!("r{}", self.req_counter.fetch_add(1, Ordering::Relaxed));
+        *self.active_req.lock().unwrap_or_else(|p| p.into_inner()) = Some(req_id.clone());
+        self.spawn_chunk_forwarder(req_id, self.target_model().to_string());
+    }
+
+    /// Stop the forwarder, send the unsent tail, decode, and inject.
+    fn finalize_request(&self) -> Result<Option<String>, String> {
+        let req_id = self
+            .active_req
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take();
+        let Some(req_id) = req_id else {
+            return Ok(None);
+        };
+        if let Some(mut entry) = self
+            .streams
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&req_id)
+        {
+            // Accidental taps skip the join: the forwarder may be blocked in
+            // worker startup for seconds to transcribe nothing. Flagging off
+            // makes it self-exit; nothing is joined, nothing is sent.
+            if self.capture.buffer().len() < MIN_SAMPLES_COUNT {
+                entry.progress.alive.store(false, Ordering::Relaxed);
+                self.capture.buffer().drain();
+                debug!("VoiceSessionManager: tap too short; skipping worker entirely");
+                return Ok(None);
+            }
+            entry.progress.alive.store(false, Ordering::Relaxed);
+            if let Some(handle) = entry.handle.take() {
+                let _ = handle.join();
+            }
+            let drained = self.capture.buffer().drain();
+            let sent = entry
+                .progress
+                .sent
+                .load(Ordering::Relaxed)
+                .min(drained.len());
+            if drained.len() < MIN_SAMPLES_COUNT {
+                debug!(
+                    "VoiceSessionManager: audio buffer too short ({} samples); skipping STT",
+                    drained.len()
+                );
+                return Ok(None);
+            }
+            let energy: f32 = drained.iter().map(|s| s * s).sum::<f32>() / drained.len() as f32;
+            if energy < MIN_SPEECH_RMS_ENERGY {
+                debug!(
+                    "VoiceSessionManager: audio below RMS energy threshold ({:.6}); skipping STT",
+                    energy
+                );
+                return Ok(None);
+            }
+            // The request snapshot wins over live settings: switching models
+            // mid-record must not wipe the buffers under a live session.
+            let target = entry.target.clone();
+            self.worker.ensure_worker(&target)?;
+            if sent < drained.len() {
+                let seq = entry.progress.seq.load(Ordering::Relaxed);
+                self.worker.append(&req_id, seq, &drained[sent..])?;
+            }
+            // Long hands-free audio needs headroom past old load budgets;
+            // the worker already popped the buffer, so a timeout loses audio.
+            let transcript = self.worker.transcribe(&req_id, Duration::from_secs(60))?;
+            let mut meta = self.meta.lock().unwrap_or_else(|p| p.into_inner());
+            *meta = Some(EngineMeta {
+                model_id: target,
+                last_used: Instant::now(),
+            });
+            drop(meta);
+            self.inject_transcript(&transcript.text)
+        } else {
+            Ok(None)
+        }
     }
 
     /// Stop Push-To-Talk recording, transcribe captured speech, inject text, and return to `Idle`.
@@ -319,7 +421,7 @@ impl VoiceSessionManager {
         self.capture.stop();
         crate::services::audio::play_voice_stop_cue();
         info!("VoiceSessionManager: Push-To-Talk recording stopped; processing audio");
-        let result = self.process_audio_and_inject();
+        let result = self.finalize_request();
         {
             let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
             *mode = VoiceMode::Idle;
@@ -346,7 +448,7 @@ impl VoiceSessionManager {
                 self.capture.stop();
                 crate::services::audio::play_voice_stop_cue();
                 info!("VoiceSessionManager: Hands-Free dictation toggled off; processing audio");
-                let result = self.process_audio_and_inject()?;
+                let result = self.finalize_request()?;
                 {
                     let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
                     *mode = VoiceMode::Idle;
@@ -364,7 +466,7 @@ impl VoiceSessionManager {
                 self.touch_loaded_slot();
                 info!("VoiceSessionManager: Hands-Free dictation activated");
                 crate::services::audio::play_voice_start_cue();
-                self.trigger_load_engines();
+                self.begin_request();
                 Ok((VoiceMode::HandsFree, None))
             }
             _ => Ok((*mode, None)),
@@ -394,7 +496,7 @@ impl VoiceSessionManager {
         self.capture.stop();
         crate::services::audio::play_voice_stop_cue();
         info!("VoiceSessionManager: Escape pressed; terminating voice session and transcribing");
-        let result = self.process_audio_and_inject();
+        let result = self.finalize_request();
         {
             let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
             *mode = VoiceMode::Idle;
@@ -403,102 +505,56 @@ impl VoiceSessionManager {
     }
 
     /// Cancel current voice recording immediately without transcribing or injecting text.
+    ///
+    /// Frees the worker-side buffer in the background so a cancelled
+    /// recording never leaks audio state into the next session.
     pub fn cancel(&self) {
         let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
         *mode = VoiceMode::Idle;
         drop(mode);
         self.capture.stop();
         self.capture.buffer().clear();
+        if let Some(req_id) = self
+            .active_req
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take()
+            && let Some(entry) = self
+                .streams
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .remove(&req_id)
+        {
+            entry.progress.alive.store(false, Ordering::Relaxed);
+            if let Some(handle) = entry.handle {
+                let _ = handle.join();
+            }
+            let worker = self.worker.clone();
+            std::thread::Builder::new()
+                .name("taurine-voice-discard".to_string())
+                .spawn(move || {
+                    let _ = worker.transcribe(&req_id, Duration::from_secs(5));
+                })
+                .ok();
+        }
         crate::services::audio::play_voice_stop_cue();
         debug!("VoiceSessionManager: Dictation cancelled");
     }
 
-    /// Drain captured audio samples and execute full on-the-fly STT, formatting, and injection.
-    pub fn process_audio_and_inject(&self) -> Result<Option<String>, String> {
-        let samples = self.capture.buffer().drain();
-        self.process_audio_samples(&samples)
-    }
-
-    /// Process a slice of 16kHz mono audio samples:
-    /// 1. Trims excess trailing silence while preserving the 250 ms post-roll decay cushion.
-    /// 2. Verifies minimum length and energy threshold.
-    /// 3. Loads the single configured STT model on-the-fly.
-    /// 4. Transcribes speech (model evicted after 10s idle via [`Self::clean_expired_transcriber`]).
-    /// 5. Applies personal dictionary corrections and spoken punctuation formatting.
-    /// 6. Matches voice triggers (trigger action) or injects dictation text.
-    /// 7. Records usage statistics and injects text into the active window.
-    pub fn process_audio_samples(&self, samples: &[f32]) -> Result<Option<String>, String> {
-        // Preserve trailing consonant decay: trim dead silence beyond the 8-frame cushion.
-        let silence_frames = trailing_silence_frames(samples);
-        let trimmed = slice_utterance_with_postroll(samples, silence_frames);
-        let samples = trimmed.as_slice();
-
-        if samples.len() < MIN_SAMPLES_COUNT {
-            debug!(
-                "VoiceSessionManager: audio buffer too short ({} samples); skipping STT",
-                samples.len()
-            );
-            return Ok(None);
-        }
-
-        // Calculate RMS energy to reject pure silence or microphone noise
-        let energy: f32 = samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32;
-        if energy < MIN_SPEECH_RMS_ENERGY {
-            debug!(
-                "VoiceSessionManager: audio below RMS energy threshold ({:.6}); skipping STT",
-                energy
-            );
-            return Ok(None);
-        }
-
-        // Standardize speech level before recognition (raw energy above decided speech).
-        let normed = normalize_snippet_rms(samples);
-        let samples = normed.as_slice();
-
-        let need_trigger = self
-            .engine
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .is_none();
-        if need_trigger {
-            self.trigger_load_engines();
-        }
-
-        // Wait for the single engine up to 8s, polling every 50ms.
-        let wait_start = Instant::now();
-        let wait_timeout = Duration::from_secs(8);
-        let poll_interval = Duration::from_millis(50);
-        while wait_start.elapsed() < wait_timeout {
-            if self
-                .engine
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .is_some()
-            {
-                break;
-            }
-            std::thread::sleep(poll_interval);
-        }
-
-        let mut engine_guard = self.engine.lock().unwrap_or_else(|p| p.into_inner());
-        let Some(ref mut slot) = *engine_guard else {
-            return Err("Voice engine failed to load; try again".to_string());
-        };
-        let transcription = slot
-            .transcriber
-            .transcribe(samples, 16000)
-            .map_err(|e| format!("Voice transcription error: {e}"))?;
-        slot.last_used = Instant::now();
-        drop(engine_guard);
-
-        if transcription.is_empty() {
+    /// Apply dictionary corrections, spoken formatting, trigger matching,
+    /// usage stats, and injection to worker-returned transcript text.
+    ///
+    /// Audio-side gating and recognition run in the `--voice-daemon`
+    /// worker; this is the unchanged text-side pipeline.
+    pub fn inject_transcript(&self, text: &str) -> Result<Option<String>, String> {
+        if text.trim().is_empty() {
             debug!("VoiceSessionManager: transcription returned empty text");
             return Ok(None);
         }
 
         // Apply personal dictionary
         let dict = self.dictionary.lock().unwrap_or_else(|p| p.into_inner());
-        let corrected = dict.apply(&transcription.text);
+        let corrected = dict.apply(text);
         drop(dict);
 
         // Apply spoken rules and formatting
@@ -513,40 +569,37 @@ impl VoiceSessionManager {
         // Check if transcribed text matches any active voice trigger
         let normalized_spoken = taurine_core::db::crud::normalize_voice_phrase(trimmed);
         if let Ok(conn) = taurine_core::db::get_conn()
-            && let Ok(triggers) = taurine_core::db::crud::list_active_voice_triggers(&conn)
+            && let Ok(invocations) = taurine_core::db::crud::list_active_voice_invocations(&conn)
         {
-            let current_os = taurine_core::db::get_current_os_db_string();
-            let in_scope: Vec<taurine_core::db::crud::VoiceTriggerRow> = triggers
+            let in_scope: Vec<taurine_core::db::crud::ResolvedInvocation> = invocations
                 .into_iter()
-                .filter(|t| {
-                    (t.target_os == "all" || t.target_os == current_os)
-                        && match (&t.only_apps, &active_app) {
-                            (Some(only), Some(app)) => {
-                                only.split(',').any(|a| a.trim().eq_ignore_ascii_case(app))
-                            }
-                            _ => true,
+                .filter(|inv| {
+                    (match (&inv.action.only_apps, &active_app) {
+                        (Some(only), Some(app)) => {
+                            only.split(',').any(|a| a.trim().eq_ignore_ascii_case(app))
                         }
-                        && match (&t.except_apps, &active_app) {
-                            (Some(except), Some(app)) => !except
-                                .split(',')
-                                .any(|a| a.trim().eq_ignore_ascii_case(app)),
-                            _ => true,
-                        }
+                        _ => true,
+                    }) && match (&inv.action.except_apps, &active_app) {
+                        (Some(except), Some(app)) => !except
+                            .split(',')
+                            .any(|a| a.trim().eq_ignore_ascii_case(app)),
+                        _ => true,
+                    }
                 })
                 .collect();
 
             if let Some(matched) =
                 taurine_core::voice::rank_voice_triggers(&normalized_spoken, &in_scope)
             {
-                let trigger = matched.trigger;
+                let inv = matched.trigger;
                 info!(
                     "VoiceSessionManager: matched voice trigger '{}' (score {:.2}); expanding output",
-                    trigger.spoken_phrase, matched.score
+                    inv.invocation, matched.score
                 );
 
-                let output = trigger.output.clone();
+                let output = inv.action.output.clone();
                 crate::voice::fire_voice_trigger(
-                    trigger,
+                    inv,
                     &conn,
                     active_app.clone(),
                     taurine_core::settings::SpinnerStyle::default(),
@@ -583,35 +636,10 @@ impl VoiceSessionManager {
     }
 
     #[cfg(test)]
-    pub(crate) fn inject_test_slot(&self, text: &str) {
-        struct TestDummyTranscriber {
-            name: String,
-            text: String,
-        }
-        impl Transcriber for TestDummyTranscriber {
-            fn name(&self) -> &str {
-                &self.name
-            }
-            fn transcribe(
-                &mut self,
-                _audio: &[f32],
-                _sample_rate: u32,
-            ) -> taurine_core::error::Result<taurine_core::voice::Transcription> {
-                Ok(taurine_core::voice::Transcription::new(
-                    &self.text, 1.0, 0.1,
-                ))
-            }
-        }
-
-        let target = self.target_model().to_string();
-        let mut guard = self.engine.lock().unwrap();
-        *guard = Some(EngineSlot {
-            transcriber: Box::new(TestDummyTranscriber {
-                name: target.clone(),
-                text: text.to_string(),
-            }),
-            model_id: target,
-            last_used: Instant::now(),
+    pub(crate) fn set_test_meta(&self, model_id: &str, last_used: Instant) {
+        *self.meta.lock().unwrap() = Some(EngineMeta {
+            model_id: model_id.to_string(),
+            last_used,
         });
     }
 }
@@ -694,25 +722,6 @@ mod tests {
     }
 
     #[test]
-    fn test_session_process_audio_silence_rejection() {
-        let (session, _) = create_test_session();
-        // Array of zeroes
-        let silent_samples = vec![0.0f32; 16000];
-        let res = session.process_audio_samples(&silent_samples);
-        assert!(res.is_ok());
-        assert_eq!(res.unwrap(), None);
-    }
-
-    #[test]
-    fn test_session_process_audio_short_rejection() {
-        let (session, _) = create_test_session();
-        let short_samples = vec![0.5f32; 500]; // less than 1600
-        let res = session.process_audio_samples(&short_samples);
-        assert!(res.is_ok());
-        assert_eq!(res.unwrap(), None);
-    }
-
-    #[test]
     fn test_session_with_dictionary_builder() {
         let (session, _) = create_test_session();
         let dict = VoiceDictionary::from_csv("Taurine, FastConformer");
@@ -721,131 +730,83 @@ mod tests {
     }
 
     #[test]
-    fn test_single_engine_transcribes_and_stays_resident() {
+    fn test_inject_transcript_formats_and_returns_text() {
         let (session, _) = create_test_session();
-        session.inject_test_slot("hello world");
-        let loud_samples = vec![0.5f32; 16000];
-        let res = session.process_audio_samples(&loud_samples).unwrap();
+        let res = session.inject_transcript("hello world").unwrap();
         assert_eq!(res, Some("Hello world".to_string()));
-        assert!(session.engine.lock().unwrap().is_some());
     }
 
     #[test]
-    fn test_single_engine_empty_transcription_returns_none() {
+    fn test_inject_transcript_empty_returns_none() {
         let (session, _) = create_test_session();
-        session.inject_test_slot("");
-        let loud_samples = vec![0.5f32; 16000];
-        let res = session.process_audio_samples(&loud_samples).unwrap();
-        assert_eq!(res, None);
+        assert_eq!(session.inject_transcript("   ").unwrap(), None);
     }
 
     #[test]
-    fn test_single_engine_inactivity_eviction() {
+    fn test_meta_inactivity_eviction() {
         let (session, _) = create_test_session();
         let session = session.with_ttl(Duration::from_millis(10));
-        session.inject_test_slot("ok");
-        assert!(session.engine.lock().unwrap().is_some());
-
         let past = Instant::now() - Duration::from_millis(50);
-        session.engine.lock().unwrap().as_mut().unwrap().last_used = past;
+        session.set_test_meta("parakeet-tdt-ctc-110m", past);
+        assert!(session.meta.lock().unwrap().is_some());
 
         // Inactivity TTL unloads the single voice model for 0 MB idle RAM.
         session.clean_expired_transcriber();
-        assert!(session.engine.lock().unwrap().is_none());
+        assert!(session.meta.lock().unwrap().is_none());
 
-        // Fresh slots within the TTL are retained.
-        session.inject_test_slot("ok");
+        // Fresh models within the TTL are retained.
+        session.set_test_meta("parakeet-tdt-ctc-110m", Instant::now());
         session.clean_expired_transcriber();
-        assert!(session.engine.lock().unwrap().is_some());
+        assert!(session.meta.lock().unwrap().is_some());
 
-        // Explicit unload drops the engine immediately.
+        // Explicit unload drops the model immediately.
         session.unload_model();
-        assert!(session.engine.lock().unwrap().is_none());
-    }
-
-    #[test]
-    fn test_pinned_mode_loads_single_slot() {
-        let (session, _) = create_test_session();
-        session.set_model_name("parakeet-tdt-ctc-110m");
-        session.trigger_load_engines();
-
-        let start = Instant::now();
-        while start.elapsed() < Duration::from_secs(3) {
-            if session.engine.lock().unwrap().is_some() {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
-
-        let guard = session.engine.lock().unwrap();
-        let slot = guard.as_ref().expect("single engine slot must load");
-        assert_eq!(slot.model_id, "parakeet-tdt-ctc-110m");
-        assert_eq!(slot.transcriber.name(), "parakeet-tdt-ctc-110m");
-    }
-
-    #[test]
-    fn test_spam_press_loads_once() {
-        let (session, _) = create_test_session();
-        session.set_model_name("parakeet-tdt-ctc-110m");
-        for _ in 0..10 {
-            session.trigger_load_engines();
-        }
-        // One spawn only: the model switch above bumped the generation
-        // to 1, and the burst after the first trigger sees the in-flight
-        // load and returns without bumping it again.
-        assert_eq!(session.generation.load(Ordering::SeqCst), 2);
-
-        let start = Instant::now();
-        while start.elapsed() < Duration::from_secs(3) {
-            if session.engine.lock().unwrap().is_some() {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
-
-        let guard = session.engine.lock().unwrap();
-        let slot = guard.as_ref().expect("single engine slot must load");
-        assert_eq!(slot.model_id, "parakeet-tdt-ctc-110m");
-        assert_eq!(slot.transcriber.name(), "parakeet-tdt-ctc-110m");
+        assert!(session.meta.lock().unwrap().is_none());
     }
 
     #[test]
     fn test_active_session_never_evicts() {
         let (session, _) = create_test_session();
         let session = session.with_ttl(Duration::from_millis(10));
-        session.inject_test_slot("ok");
-
         let past = Instant::now() - Duration::from_millis(50);
-        session.engine.lock().unwrap().as_mut().unwrap().last_used = past;
+        session.set_test_meta("parakeet-tdt-ctc-110m", past);
 
-        // Recording pins the model: a stale slot survives while active.
+        // Recording pins the model: stale metadata survives while active.
         *session.mode.lock().unwrap() = VoiceMode::HandsFree;
         session.clean_expired_transcriber();
-        assert!(session.engine.lock().unwrap().is_some());
+        assert!(session.meta.lock().unwrap().is_some());
 
         // Idle with the same stale timestamp evicts.
         *session.mode.lock().unwrap() = VoiceMode::Idle;
         session.clean_expired_transcriber();
-        assert!(session.engine.lock().unwrap().is_none());
+        assert!(session.meta.lock().unwrap().is_none());
     }
 
     #[test]
-    fn test_set_model_name_invalidates_cache() {
+    fn test_set_model_name_clears_meta() {
         let (session, _) = create_test_session();
-        session.inject_test_slot("ok");
-        assert!(session.engine.lock().unwrap().is_some());
+        session.set_test_meta("parakeet-tdt-ctc-110m", Instant::now());
+        assert!(session.meta.lock().unwrap().is_some());
 
         session.set_model_name("parakeet-tdt-ctc-110m");
-        assert!(session.engine.lock().unwrap().is_none());
+        assert!(session.meta.lock().unwrap().is_none());
     }
 
     #[test]
-    fn test_unload_model_clears_cache() {
+    fn test_unload_model_clears_meta() {
         let (session, _) = create_test_session();
-        session.inject_test_slot("ok");
-        assert!(session.engine.lock().unwrap().is_some());
+        session.set_test_meta("parakeet-tdt-ctc-110m", Instant::now());
+        assert!(session.meta.lock().unwrap().is_some());
 
         session.unload_model();
-        assert!(session.engine.lock().unwrap().is_none());
+        assert!(session.meta.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn test_ensure_worker_ready_errors_without_worker() {
+        let (session, _) = create_test_session();
+        // No worker process exists in tests; the error must surface
+        // instead of hanging the caller.
+        assert!(session.ensure_worker_ready().is_err());
     }
 }

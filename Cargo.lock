@@ -5662,6 +5662,7 @@ dependencies = [
  "rodio",
  "rubato",
  "rusqlite",
+ "serde",
  "serde_json",
  "sherpa-onnx",
  "taurine_core",

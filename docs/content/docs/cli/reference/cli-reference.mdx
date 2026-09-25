@@ -67,17 +67,19 @@ Commands for creating, viewing, and deleting your snippets and scripts.
   
   **Standard Text:**
   ```bash
-  taurine add <trigger> <output> [--hotkey] [--os <target>]
+  taurine add <trigger>... <output> [--hotkey <combo>] [--regex <pattern>] [--voice <phrase>] [--os <target>]
   ```
   
   **Shell Script:**
   ```bash
-  taurine add script <trigger> <body> [--hotkey] [-l <lang>] [-m <mode>]
-  taurine add script <trigger> -f <path> [--hotkey]
+  taurine add script <trigger>... <body> [--hotkey <combo>] [--regex <pattern>] [--voice <phrase>] [-l <lang>] [-m <mode>]
+  taurine add script <trigger>... -f <path> [--hotkey <combo>] [--regex <pattern>] [--voice <phrase>]
   ```
   
   **Optional Flags:**
-  - `--hotkey`: Interpret the trigger as a global keyboard shortcut instead of a word.
+  - `--hotkey <combo>`: Add a global keyboard shortcut invocation to the entry (repeatable).
+  - `--regex <pattern>`: Add a regex pattern invocation to the entry (repeatable).
+  - `--voice <phrase>`: Add a voice phrase invocation to the entry (repeatable).
   - `-f, --file <path>`: Load script content from a file.
   - `-l, --lang <bash|powershell|python|node|cmd>`: Specify the interpreter.
   - `-m, --mode <inline|silent>`: Choose execution mode.
@@ -92,7 +94,7 @@ Commands for creating, viewing, and deleting your snippets and scripts.
 </Accordion>
 
 <Accordion title="delete / rm / remove">
-  Removes one or more triggers by their trigger.
+  Removes one or more invocations by their trigger. Removing an entry's last invocation deletes the whole entry.
   ```bash
   taurine delete <trigger>...
   ```

@@ -161,6 +161,7 @@ mod tests {
             tags: vec![],
             script: None,
             assets: Vec::new(),
+            aliases: vec![],
         }
     }
 
@@ -169,8 +170,16 @@ mod tests {
             id: "local-id".to_string(),
             name: "Local".to_string(),
             description: None,
-            trigger_type: TriggerType::Word,
-            trigger: "gm".to_string(),
+            invocations: vec![taurine_core::db::crud::TriggerAliasRow {
+                id: "alias-1".to_string(),
+                trigger_id: "local-id".to_string(),
+                invocation: "gm".to_string(),
+                invocation_type: taurine_core::db::crud::InvocationType::Word,
+                require_confirmation: false,
+                strict_threshold: None,
+                created_at: 0,
+            }],
+            display: "gm".to_string(),
             output: "Local output".to_string(),
             action_type: "text".to_string(),
             target_os: "all".to_string(),

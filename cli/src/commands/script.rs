@@ -1,22 +1,25 @@
 use crate::args::{AddArgs, AddSubcommand};
+use crate::commands::add::{existing_entry_defaults, resolve_display};
 use crate::commands::validate::format_trigger_log;
 use std::fs;
 use std::path::PathBuf;
 use taurine_core::db::crud::{
-    TriggerType, audit_script_payload_tags, prepare_trigger_with_type, upsert_script,
+    AddOutcome, InvocationType, NewEntry, TriggerAliasRow, TriggerType, audit_script_payload_tags,
+    upsert_entry_full,
 };
 use taurine_core::db::init;
-use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter, compress};
-use unicode_normalization::UnicodeNormalization;
+use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
+
+/// Maximum invocations (word + typed) per add command (§0.14).
+const MAX_INVOCATIONS: usize = 20;
 
 pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()> {
     let AddSubcommand::Script {
-        trigger,
+        positional,
         hotkey,
         regex,
         voice,
         yes,
-        content,
         file,
         lang,
         mode,
@@ -31,118 +34,134 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
         .sub
         .expect("add dispatch routes to script only when subcommand is present");
 
-    if voice {
-        let phrase = match trigger {
-            Some(t) => t,
-            None => {
-                let diag = taurine_core::diagnostic::Diagnostic::problem(
-                    "Missing voice trigger phrase for script",
-                )
-                .help("Specify a spoken phrase to trigger the script:")
-                .example("taurine add script --voice \"build project\" \"cargo build\"")
-                .example("taurine add script --voice -y \"deploy\" \"./deploy.sh\"");
-                return Err(taurine_core::error::Error::Config(diag.render()));
-            }
-        };
-
-        let script_payload = match (content, file) {
-            (Some(c), _) => c,
-            (None, Some(path)) => {
-                if !path.exists() {
-                    let diag = taurine_core::diagnostic::Diagnostic::problem(format!(
-                        "Script file does not exist: {}",
-                        path.display()
-                    ))
-                    .help("Check the file path and try again.");
-                    return Err(taurine_core::error::Error::Config(diag.render()));
-                }
-                fs::read_to_string(&path).map_err(|e| {
-                    taurine_core::error::Error::Config(format!(
-                        "Failed to read script file {}: {e}",
-                        path.display()
-                    ))
-                })?
-            }
-            (None, None) => {
-                let diag =
-                    taurine_core::diagnostic::Diagnostic::problem("Missing script command or file")
-                        .help("Specify inline script command or provide a script file:")
-                        .example("taurine add script --voice \"build project\" \"cargo build\"")
-                        .example("taurine add script --voice \"run tests\" -f ./test.sh");
-                return Err(taurine_core::error::Error::Config(diag.render()));
-            }
-        };
-
-        let conn = init::setup()?;
-        let os_str = os
-            .to_db_str()
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| taurine_core::db::get_current_os_db_string().to_string());
-
-        let require_confirmation = !yes;
-
-        let row = taurine_core::db::crud::voice_triggers::add_voice_trigger_full(
-            &conn,
-            &phrase,
-            &script_payload,
-            "script",
-            &os_str,
-            include_apps.as_deref(),
-            exclude_apps.as_deref(),
-            require_confirmation,
-        )?;
-
-        if json {
-            println!("{}", serde_json::to_string(&row).unwrap());
-        } else if require_confirmation {
-            println!(
-                "Added voice script trigger '{}' (requires confirmation before execution)",
-                row.spoken_phrase
-            );
-        } else {
-            println!(
-                "Added voice script trigger '{}' (executes without confirmation)",
-                row.spoken_phrase
-            );
-        }
-        return Ok(());
-    }
-
-    let trigger = match trigger {
-        Some(t) => t,
-        None => {
+    let typed_total = hotkey.len() + regex.len() + voice.len();
+    let (words, content) = if let Some(ref path) = file {
+        if positional.is_empty() && typed_total == 0 {
             let diag = taurine_core::diagnostic::Diagnostic::problem("Missing trigger for script")
                 .help("Specify a trigger word or hotkey for the script:")
                 .example("taurine add script :run -f ./myscript.sh")
                 .example("taurine add script :greet \"echo hello\"");
             return Err(taurine_core::error::Error::Config(diag.render()));
         }
+        // With --file every positional is a word trigger; content comes from the file.
+        (positional, read_script_file(path)?)
+    } else {
+        match positional.len() {
+            0 => {
+                let diag =
+                    taurine_core::diagnostic::Diagnostic::problem("Missing trigger for script")
+                        .help("Specify a trigger word or hotkey for the script:")
+                        .example("taurine add script :run -f ./myscript.sh")
+                        .example("taurine add script :greet \"echo hello\"");
+                return Err(taurine_core::error::Error::Config(diag.render()));
+            }
+            1 if typed_total == 0 => {
+                let diag = taurine_core::diagnostic::Diagnostic::problem("no trigger specified")
+                    .help("Specify at least one trigger plus the script content:")
+                    .example("taurine add script :greet \"echo hello\"");
+                return Err(taurine_core::error::Error::Config(diag.render()));
+            }
+            n => (positional[..n - 1].to_vec(), positional[n - 1].clone()),
+        }
     };
 
-    let trigger_type = TriggerType::from_cli_flags(hotkey, regex);
+    let words: Vec<String> = if auto_case {
+        words.into_iter().map(|w| w.to_lowercase()).collect()
+    } else {
+        words
+    };
+    let mut invocations: Vec<(InvocationType, String, bool)> = Vec::new();
+    invocations.extend(words.into_iter().map(|w| (InvocationType::Word, w, false)));
+    invocations.extend(
+        hotkey
+            .into_iter()
+            .map(|h| (InvocationType::Hotkey, h, false)),
+    );
+    invocations.extend(regex.into_iter().map(|r| (InvocationType::Regex, r, false)));
+    // Voice aliases on a script entry confirm before execution unless -y/--yes.
+    invocations.extend(voice.into_iter().map(|v| (InvocationType::Voice, v, !yes)));
+    if invocations.len() > MAX_INVOCATIONS {
+        return Err(taurine_core::Error::Config(format!(
+            "Too many invocations ({}); maximum is {} per add",
+            invocations.len(),
+            MAX_INVOCATIONS
+        )));
+    }
+
+    let conn = init::setup()?;
     let os = os
         .to_db_str()
         .map(|s| s.to_string())
         .unwrap_or_else(|| taurine_core::db::get_current_os_db_string().to_string());
 
-    execute_with_trigger_type(
-        trigger,
-        trigger_type,
-        content,
-        file,
-        lang.map(Into::into),
-        mode.into(),
-        os,
-        include_apps,
-        exclude_apps,
-        tag,
-        name,
-        description,
-        auto_case,
-        json,
-    )
-}
+    let interpreter = resolve_interpreter(lang.map(Into::into), file.as_deref(), &content)?;
+    let behavior: ScriptBehavior = mode.into();
 
+    let audit_type = if invocations
+        .iter()
+        .any(|(t, _, _)| *t == InvocationType::Regex)
+    {
+        TriggerType::Regex
+    } else {
+        TriggerType::Word
+    };
+    audit_script_payload_tags(&content, audit_type)?;
+
+    // R2: reuse the existing entry's name/description/tags for absent flags.
+    let (reuse_name, reuse_description, reuse_tags) = existing_entry_defaults(
+        &conn,
+        &invocations,
+        &os,
+        include_apps.as_deref(),
+        exclude_apps.as_deref(),
+    )?;
+    let name = name.unwrap_or(reuse_name);
+    let description = description.or(reuse_description);
+    let tags_json = match tag {
+        Some(tags) => {
+            serde_json::to_string(&tags).map_err(|e| taurine_core::Error::Config(e.to_string()))?
+        }
+        None => reuse_tags,
+    };
+
+    let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
+    if !settings.scripts_enabled {
+        tracing::warn!(
+            "Warning: Global script execution is currently disabled. This script trigger will not trigger until `scripts_enabled` is set to true."
+        );
+    }
+
+    let outcome = upsert_entry_full(
+        &conn,
+        NewEntry {
+            name: name.clone(),
+            description,
+            content,
+            action_type: "script".to_string(),
+            target_os: os.clone(),
+            only_apps: include_apps.clone(),
+            except_apps: exclude_apps.clone(),
+            tags_json,
+            auto_case,
+            interpreter: Some(interpreter),
+            behavior: Some(behavior),
+            invocations: invocations.clone(),
+        },
+    )?;
+
+    let (display, aliases) = resolve_display(&conn, &name, &invocations);
+    report_outcome(
+        outcome,
+        &display,
+        &aliases,
+        (behavior, interpreter),
+        &os,
+        include_apps.as_deref(),
+        exclude_apps.as_deref(),
+        json,
+    );
+    Ok(())
+}
 #[allow(clippy::too_many_arguments)]
 pub fn execute(
     trigger: String,
@@ -155,29 +174,84 @@ pub fn execute(
     include_apps: Option<String>,
     exclude_apps: Option<String>,
 ) -> taurine_core::error::Result<()> {
-    let trigger_type = if use_hotkey {
-        TriggerType::Hotkey
+    let (words, content) = if let Some(ref path) = file_path {
+        (vec![trigger], read_script_file(path)?)
+    } else if let Some(text) = content {
+        (vec![trigger], text)
     } else {
-        TriggerType::Word
+        let diag = taurine_core::diagnostic::Diagnostic::problem(
+            "Neither script content nor script file provided",
+        )
+        .help("Provide inline script content or specify a script file using -f / --file:")
+        .example("taurine add script :run -f ./myscript.sh");
+        return Err(taurine_core::error::Error::Service(diag.render()));
     };
-    execute_with_trigger_type(
-        trigger,
-        trigger_type,
-        content,
-        file_path,
-        lang,
-        mode,
-        os,
-        include_apps,
-        exclude_apps,
-        None,
-        None,
-        None,
+
+    let invocation_type = if use_hotkey {
+        InvocationType::Hotkey
+    } else {
+        InvocationType::Word
+    };
+    let conn = init::setup()?;
+    let invocations = vec![(invocation_type, words.into_iter().next().unwrap(), false)];
+    let interpreter = resolve_interpreter(lang, file_path.as_deref(), &content)?;
+    audit_script_payload_tags(
+        &content,
+        if use_hotkey {
+            TriggerType::Hotkey
+        } else {
+            TriggerType::Word
+        },
+    )?;
+    let (name, description, tags_json) = existing_entry_defaults(
+        &conn,
+        &invocations,
+        &os,
+        include_apps.as_deref(),
+        exclude_apps.as_deref(),
+    )?;
+
+    let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
+    if !settings.scripts_enabled {
+        tracing::warn!(
+            "Warning: Global script execution is currently disabled. This script trigger will not trigger until `scripts_enabled` is set to true."
+        );
+    }
+
+    let outcome = upsert_entry_full(
+        &conn,
+        NewEntry {
+            name: name.clone(),
+            description,
+            content,
+            action_type: "script".to_string(),
+            target_os: os.clone(),
+            only_apps: include_apps.clone(),
+            except_apps: exclude_apps.clone(),
+            tags_json,
+            auto_case: false,
+            interpreter: Some(interpreter),
+            behavior: Some(mode),
+            invocations: invocations.clone(),
+        },
+    )?;
+
+    let (display, aliases) = resolve_display(&conn, &name, &invocations);
+    report_outcome(
+        outcome,
+        &display,
+        &aliases,
+        (mode, interpreter),
+        &os,
+        include_apps.as_deref(),
+        exclude_apps.as_deref(),
         false,
-        false,
-    )
+    );
+    Ok(())
 }
 
+/// Compatibility for the pre-alias call shape (single trigger + explicit
+/// type); forwards to `execute`. Kept so existing callers keep compiling.
 #[allow(clippy::too_many_arguments)]
 pub fn execute_with_trigger_type(
     trigger: String,
@@ -189,75 +263,53 @@ pub fn execute_with_trigger_type(
     os: String,
     include_apps: Option<String>,
     exclude_apps: Option<String>,
-    tags: Option<Vec<String>>,
-    name: Option<String>,
-    description: Option<String>,
+    _tags: Option<Vec<String>>,
+    _name: Option<String>,
+    _description: Option<String>,
     auto_case: bool,
-    json: bool,
+    _json: bool,
 ) -> taurine_core::error::Result<()> {
-    // 1. Resolve content and source description
-    let (content, source_desc) = if let Some(ref path) = file_path {
-        if !path.exists() {
-            let diag = taurine_core::diagnostic::Diagnostic::problem(format!(
-                "Script file does not exist: {}",
-                path.display()
-            ))
-            .help("Verify that the file path is correct and accessible.")
-            .example("taurine add script -f ./scripts/deploy.sh :deploy");
-            return Err(taurine_core::error::Error::NotFound(diag.render()));
-        }
-        let text = fs::read_to_string(path).map_err(|e| {
-            taurine_core::error::Error::Service(format!("Failed to read script file: {}", e))
-        })?;
-        (text, format!("File: {}", path.display()))
-    } else if let Some(text) = content {
-        (text, "CLI argument".to_string())
-    } else {
-        // unreachable due to clap constraints (required_unless_present)
-        let diag = taurine_core::diagnostic::Diagnostic::problem(
-            "Neither script content nor script file provided",
-        )
-        .help("Provide inline script content or specify a script file using -f / --file:")
-        .example("taurine add script :run -f ./myscript.sh");
-        return Err(taurine_core::error::Error::Service(diag.render()));
-    };
-
     let trigger = if auto_case && !matches!(trigger_type, TriggerType::Regex) {
         trigger.to_lowercase()
     } else {
         trigger
     };
+    execute(
+        trigger,
+        matches!(trigger_type, TriggerType::Hotkey),
+        content,
+        file_path,
+        lang,
+        mode,
+        os,
+        include_apps,
+        exclude_apps,
+    )
+}
 
-    audit_script_payload_tags(&content, trigger_type)?;
-
-    if matches!(trigger_type, TriggerType::Regex) {
-        regex::Regex::new(&trigger)
-            .map_err(|e| taurine_core::Error::Config(format!("Invalid regular expression: {e}")))?;
+fn read_script_file(path: &PathBuf) -> taurine_core::error::Result<String> {
+    if !path.exists() {
+        let diag = taurine_core::diagnostic::Diagnostic::problem(format!(
+            "Script file does not exist: {}",
+            path.display()
+        ))
+        .help("Verify that the file path is correct and accessible.")
+        .example("taurine add script -f ./scripts/deploy.sh :deploy");
+        return Err(taurine_core::error::Error::NotFound(diag.render()));
     }
+    fs::read_to_string(path).map_err(|e| {
+        taurine_core::error::Error::Service(format!("Failed to read script file: {}", e))
+    })
+}
 
-    let prepared = prepare_trigger_with_type(&trigger, trigger_type, &os)?;
-    let stored_trigger = prepared.stored_trigger.nfc().collect::<String>();
-    let trigger_name: String = name.unwrap_or_else(|| stored_trigger.clone());
-    let description: Option<String> =
-        description.or_else(|| Some(format!("Shell script ({})", source_desc)));
-
-    if trigger_name.len() > 200 {
-        return Err(taurine_core::error::Error::Config(
-            "Name exceeds maximum length of 200 characters".into(),
-        ));
-    }
-    if description.as_deref().is_some_and(|d| d.len() > 1000) {
-        return Err(taurine_core::error::Error::Config(
-            "Description exceeds maximum length of 1000 characters".into(),
-        ));
-    }
-
-    let description = description.as_deref();
-
-    // 2. Infer interpreter if not provided
-    let lang = match lang {
-        Some(i) => i,
-        None => infer_interpreter(file_path.as_deref(), &content).ok_or_else(|| {
+fn resolve_interpreter(
+    lang: Option<ScriptInterpreter>,
+    path: Option<&std::path::Path>,
+    content: &str,
+) -> taurine_core::error::Result<ScriptInterpreter> {
+    match lang {
+        Some(i) => Ok(i),
+        None => infer_interpreter(path, content).ok_or_else(|| {
             let diag = taurine_core::diagnostic::Diagnostic::problem(
                 "Could not infer script language from content or file extension",
             )
@@ -268,220 +320,51 @@ pub fn execute_with_trigger_type(
             )
             .example("taurine add script :py \"print(1)\" --lang python");
             taurine_core::error::Error::Service(diag.render())
-        })?,
-    };
-
-    let conn = init::setup()?;
-    let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
-    if !settings.scripts_enabled {
-        tracing::warn!(
-            "Warning: Global script execution is currently disabled. This script trigger will not trigger until `scripts_enabled` is set to true."
-        );
+        }),
     }
+}
 
-    // Check for an existing active trigger with the same trigger tuple and app filters.
-    let existing_record: Option<(String, i64, Option<i64>)> = conn
-        .query_row(
-            "SELECT id, usage_count, last_used_at
-          FROM triggers
-          WHERE trigger_type = ?1
-            AND trigger = ?2
-            AND target_os = ?3
-            AND COALESCE(only_apps, '') = ?4
-            AND COALESCE(except_apps, '') = ?5
-            AND is_deleted = 0
-          ORDER BY updated_at DESC
-          LIMIT 1",
-            rusqlite::params![
-                prepared.trigger_type.as_db_str(),
-                stored_trigger.as_str(),
-                os.as_str(),
-                include_apps.as_deref().unwrap_or(""),
-                exclude_apps.as_deref().unwrap_or(""),
-            ],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .ok();
-
-    let (id, usage_count, last_used_at, is_update) = match existing_record {
-        Some((existing_id, existing_usage, existing_last_used)) => {
-            (existing_id, existing_usage, existing_last_used, true)
-        }
-        None => {
-            taurine_core::db::crud::validate_trigger_target_os_conflict(
-                &conn,
-                prepared.trigger_type,
-                &stored_trigger,
-                &os,
-                include_apps.as_deref(),
-                exclude_apps.as_deref(),
-                None,
-            )?;
-            (uuid::Uuid::new_v4().to_string(), 0, None, false)
-        }
+/// R2 preload + display lookup live in add.rs (shared, single copy).
+#[allow(clippy::too_many_arguments)]
+fn report_outcome(
+    outcome: AddOutcome,
+    display: &str,
+    aliases: &[TriggerAliasRow],
+    script_info: (ScriptBehavior, ScriptInterpreter),
+    os: &str,
+    include_apps: Option<&str>,
+    exclude_apps: Option<&str>,
+    json: bool,
+) {
+    let invocations: Vec<serde_json::Value> = aliases
+        .iter()
+        .map(|a| {
+            serde_json::json!({"type": a.invocation_type.as_db_str(), "invocation": a.invocation})
+        })
+        .collect();
+    let (action, status) = match outcome {
+        AddOutcome::Created => ("Added", "created"),
+        AddOutcome::AlreadyExists => ("Trigger already exists for", "exists"),
+        AddOutcome::Updated => ("Updated", "updated"),
     };
-
-    let action = if is_update { "Updated" } else { "Added" };
     let log_msg = format_trigger_log(
         action,
-        &stored_trigger,
-        Some((mode, lang)),
-        &os,
-        include_apps.as_deref(),
-        exclude_apps.as_deref(),
+        display,
+        Some(script_info),
+        os,
+        include_apps,
+        exclude_apps,
     );
     tracing::info!("{}", log_msg);
+    if matches!(outcome, AddOutcome::Created | AddOutcome::Updated) {
+        taurine_core::rpc::notify_daemon_reload();
+    }
     if json {
-        let status = if is_update { "updated" } else { "created" };
         println!(
             "{}",
-            serde_json::json!({"status": status, "trigger": stored_trigger, "action_type": "script"})
+            serde_json::json!({"status": status, "trigger": display, "action_type": "script", "invocations": invocations})
         );
     }
-
-    // 3. Compress the script
-    let compressed = compress(&content)?;
-
-    let tags_str = if let Some(ref t) = tags {
-        let raw_json =
-            serde_json::to_string(t).map_err(|e| taurine_core::Error::Config(e.to_string()))?;
-        taurine_core::db::crud::normalize_tags(&raw_json)?
-    } else if is_update {
-        conn.query_row("SELECT tags FROM triggers WHERE id = ?1", [&id], |r| {
-            r.get(0)
-        })
-        .unwrap_or_else(|_| "[]".to_string())
-    } else {
-        "[]".to_string()
-    };
-
-    // Case conflict check
-    if auto_case {
-        let conflict_exists: bool = conn
-            .query_row(
-                "SELECT EXISTS(
-                    SELECT 1 FROM triggers
-                    WHERE trigger_type = ?1
-                      AND LOWER(trigger) = LOWER(?2)
-                      AND target_os = ?3
-                      AND COALESCE(only_apps, '') = ?4
-                      AND COALESCE(except_apps, '') = ?5
-                      AND is_deleted = 0
-                      AND id != ?6
-                 )",
-                [
-                    prepared.trigger_type.as_db_str(),
-                    &stored_trigger,
-                    &os,
-                    include_apps.as_deref().unwrap_or(""),
-                    exclude_apps.as_deref().unwrap_or(""),
-                    &id,
-                ],
-                |r| r.get(0),
-            )
-            .unwrap_or(false);
-        if conflict_exists {
-            return Err(taurine_core::Error::Config(format!(
-                "Conflict: '{}' already exists (case-insensitive match)",
-                stored_trigger
-            )));
-        }
-    } else {
-        let conflict_exists: bool = conn
-            .query_row(
-                "SELECT EXISTS(
-                    SELECT 1 FROM triggers
-                    WHERE trigger_type = ?1
-                      AND LOWER(trigger) = LOWER(?2)
-                      AND target_os = ?3
-                      AND COALESCE(only_apps, '') = ?4
-                      AND COALESCE(except_apps, '') = ?5
-                      AND auto_case = 1
-                      AND is_deleted = 0
-                      AND id != ?6
-                 )",
-                [
-                    prepared.trigger_type.as_db_str(),
-                    &stored_trigger,
-                    &os,
-                    include_apps.as_deref().unwrap_or(""),
-                    exclude_apps.as_deref().unwrap_or(""),
-                    &id,
-                ],
-                |r| r.get(0),
-            )
-            .unwrap_or(false);
-        if conflict_exists {
-            return Err(taurine_core::Error::Config(format!(
-                "Conflict: '{}' already exists (case-propagating, case-insensitive)",
-                stored_trigger
-            )));
-        }
-    }
-
-    // 4. Upsert trigger row (type = "script")
-    match prepared.trigger_type {
-        TriggerType::Word => {
-            taurine_core::db::crud::upsert_trigger_with_type_and_case(
-                &conn,
-                &id,
-                &trigger_name,
-                description,
-                TriggerType::Word,
-                &stored_trigger,
-                &format!("[Script: {}]", lang_to_str(lang)),
-                "script",
-                &os,
-                &tags_str,
-                usage_count,
-                last_used_at,
-                auto_case,
-            )?;
-        }
-        TriggerType::Hotkey => {
-            taurine_core::db::crud::upsert_trigger_with_type_and_case(
-                &conn,
-                &id,
-                &trigger_name,
-                description,
-                TriggerType::Hotkey,
-                &stored_trigger,
-                &format!("[Script: {}]", lang_to_str(lang)),
-                "script",
-                &os,
-                &tags_str,
-                usage_count,
-                last_used_at,
-                auto_case,
-            )?;
-        }
-        TriggerType::Regex => {
-            taurine_core::db::crud::upsert_trigger_with_type_and_case(
-                &conn,
-                &id,
-                &trigger_name,
-                description,
-                TriggerType::Regex,
-                &stored_trigger,
-                &format!("[Script: {}]", lang_to_str(lang)),
-                "script",
-                &os,
-                &tags_str,
-                usage_count,
-                last_used_at,
-                auto_case,
-            )?;
-        }
-    }
-
-    // 5. Upsert script attachment
-    upsert_script(&conn, &id, lang, mode, &compressed)?;
-
-    taurine_core::db::crud::update_trigger_app_filters(&conn, &id, include_apps, exclude_apps)?;
-
-    taurine_core::rpc::notify_daemon_reload();
-
-    Ok(())
 }
 
 pub(crate) fn infer_interpreter(
@@ -489,14 +372,4 @@ pub(crate) fn infer_interpreter(
     content: &str,
 ) -> Option<ScriptInterpreter> {
     taurine_core::engine::shell::infer_interpreter(path, content)
-}
-
-fn lang_to_str(i: ScriptInterpreter) -> &'static str {
-    match i {
-        ScriptInterpreter::Bash => "bash",
-        ScriptInterpreter::PowerShell => "powershell",
-        ScriptInterpreter::Python => "python",
-        ScriptInterpreter::Node => "node",
-        ScriptInterpreter::Cmd => "cmd",
-    }
 }

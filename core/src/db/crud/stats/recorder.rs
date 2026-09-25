@@ -139,7 +139,13 @@ pub fn record_trigger_stat_with_conn(
 
     if let Some(trigger) = event.trigger.as_deref() {
         if event.kind == TriggerStatKind::VoiceTrigger {
-            let _ = crate::db::crud::voice_triggers::increment_voice_trigger_usage(&tx, trigger);
+            if let Ok(Some(parent_id)) = crate::db::crud::find_parent_by_invocation(
+                &tx,
+                crate::db::crud::InvocationType::Voice,
+                trigger,
+            ) {
+                let _ = crate::db::crud::increment_usage_count_by_id(&tx, &parent_id);
+            }
         } else {
             increment_usage_count_by_trigger(&tx, trigger)?;
         }

@@ -1,10 +1,10 @@
 use std::io::Write;
 use taurine_core::db::crud::{
-    count_triggers_by_pattern, delete_triggers_by_pattern, delete_triggers_by_tag,
-    delete_triggers_by_values,
+    InvocationType, count_aliases, count_triggers_by_pattern, delete_triggers_by_pattern,
+    delete_triggers_by_tag, delete_triggers_by_values, find_parent_by_invocation, get_trigger,
+    list_active_voice_invocations,
 };
 use taurine_core::db::init;
-use taurine_core::keys::normalize_hotkey;
 use tracing::{info, warn};
 
 pub fn execute(
@@ -24,6 +24,26 @@ pub fn execute(
 
     let conn = init::setup()?;
     let is_glob = tag.is_none() && triggers.iter().any(|t| t.contains('*'));
+
+    // Parent ids holding a requested value before deletion, for the
+    // remaining-alias report below.
+    let mut affected: Vec<String> = Vec::new();
+    if !is_glob && tag.is_none() {
+        for value in &triggers {
+            for invocation_type in [
+                InvocationType::Word,
+                InvocationType::Hotkey,
+                InvocationType::Regex,
+                InvocationType::Voice,
+            ] {
+                if let Some(pid) = find_parent_by_invocation(&conn, invocation_type, value)?
+                    && !affected.contains(&pid)
+                {
+                    affected.push(pid);
+                }
+            }
+        }
+    }
 
     let removed_count = if let Some(ref t) = tag {
         delete_triggers_by_tag(&conn, t)?
@@ -51,20 +71,28 @@ pub fn execute(
         }
         total
     } else {
-        let canonical: Vec<String> = triggers
-            .iter()
-            .map(|t| normalize_hotkey(t).unwrap_or_else(|_| t.clone()))
-            .collect();
-        let typed_count = delete_triggers_by_values(&conn, &canonical)?;
-        let voice_count = taurine_core::db::crud::voice_triggers::delete_voice_triggers_by_values(
-            &conn, &triggers,
-        )?;
-        typed_count + voice_count
+        // One alias row per value; a parent whose last alias goes is
+        // tombstoned inside the delete path.
+        delete_triggers_by_values(&conn, &triggers)?
     };
+
+    // Aliases still live on affected entries after a value delete.
+    let mut remaining = 0;
+    if !is_glob && tag.is_none() {
+        for pid in &affected {
+            if let Some(row) = get_trigger(&conn, pid)?
+                && !row.is_deleted
+            {
+                remaining += count_aliases(&conn, pid)?;
+            }
+        }
+    }
 
     if removed_count == 0 {
         if let Some(ref t) = tag {
-            let mut stmt = conn.prepare("SELECT DISTINCT tag FROM trigger_tags")?;
+            let mut stmt = conn.prepare(
+                "SELECT DISTINCT json_each.value FROM triggers, json_each(triggers.tags) WHERE triggers.is_deleted = 0",
+            )?;
             let existing_tags: Vec<String> = stmt
                 .query_map([], |row| row.get(0))?
                 .filter_map(|r| r.ok())
@@ -83,15 +111,20 @@ pub fn execute(
                 println!("{}", serde_json::json!({"status": "not_found", "tag": t}));
             }
         } else if !is_glob {
-            let mut stmt = conn.prepare("SELECT trigger FROM triggers WHERE is_deleted = 0")?;
+            let mut stmt = conn.prepare(
+                "SELECT DISTINCT al.invocation FROM trigger_aliases al
+                  JOIN triggers t ON t.id = al.trigger_id WHERE t.is_deleted = 0",
+            )?;
             let mut active_triggers: Vec<String> = stmt
                 .query_map([], |row| row.get(0))?
                 .filter_map(|r| r.ok())
                 .collect();
-            if let Ok(voice_trigs) =
-                taurine_core::db::crud::voice_triggers::list_active_voice_triggers(&conn)
-            {
-                active_triggers.extend(voice_trigs.into_iter().map(|v| v.spoken_phrase));
+            if let Ok(voice_invs) = list_active_voice_invocations(&conn) {
+                for inv in voice_invs {
+                    if !active_triggers.contains(&inv.invocation) {
+                        active_triggers.push(inv.invocation);
+                    }
+                }
             }
             let active_refs: Vec<&str> = active_triggers.iter().map(|s| s.as_str()).collect();
 
@@ -127,13 +160,13 @@ pub fn execute(
         } else if !is_glob {
             let triggers_str = triggers.join(", ");
             info!(
-                "Removed {} triggers for triggers: {}",
-                removed_count, triggers_str
+                "Removed {} triggers for triggers: {} ({} aliases remaining)",
+                removed_count, triggers_str, remaining
             );
             if json {
                 println!(
                     "{}",
-                    serde_json::json!({"status": "deleted", "count": removed_count, "triggers": triggers_str})
+                    serde_json::json!({"status": "deleted", "count": removed_count, "triggers": triggers_str, "remaining": remaining})
                 );
             }
         } else if json {
@@ -194,6 +227,48 @@ mod tests {
         taurine_core::db::key::open_keyed_connection(std::path::Path::new(db_path)).unwrap()
     }
 
+    fn seed_word_entry(conn: &rusqlite::Connection, invocation: &str, output: &str) {
+        seed_word_entry_with_tags(conn, invocation, output, "[]");
+    }
+
+    fn seed_word_entry_with_tags(
+        conn: &rusqlite::Connection,
+        invocation: &str,
+        output: &str,
+        tags_json: &str,
+    ) {
+        taurine_core::db::crud::create_entry(
+            conn,
+            taurine_core::db::crud::NewEntry {
+                name: String::new(),
+                description: None,
+                content: output.to_string(),
+                action_type: "text".to_string(),
+                target_os: "all".to_string(),
+                only_apps: None,
+                except_apps: None,
+                tags_json: tags_json.to_string(),
+                auto_case: false,
+                interpreter: None,
+                behavior: None,
+                invocations: vec![(InvocationType::Word, invocation.to_string(), false)],
+            },
+        )
+        .unwrap();
+    }
+    fn assert_live(conn: &rusqlite::Connection, invocation: &str, live: bool) {
+        let pid = find_parent_by_invocation(conn, InvocationType::Word, invocation).unwrap();
+        match (pid, live) {
+            (Some(id), true) => assert!(
+                !get_trigger(conn, &id).unwrap().unwrap().is_deleted,
+                "{invocation} should stay live"
+            ),
+            (None, false) => {}
+            (Some(id), false) => panic!("{invocation} should be gone (parent {id})"),
+            (None, true) => panic!("{invocation} should stay live"),
+        }
+    }
+
     #[test]
     fn delete_hotkey_with_non_canonical_order_still_matches() {
         init_tracing_for_tests();
@@ -223,14 +298,19 @@ mod tests {
             execute(vec!["alt+shift+2".to_string()], None, false, false).unwrap();
 
             let conn = open_keyed_db(db_path);
-            let is_deleted: bool = conn
+            let pid =
+                find_parent_by_invocation(&conn, InvocationType::Hotkey, "alt+shift+2").unwrap();
+            // The removed alias resolves nowhere; confirm via the sibling
+            // canonical form that no live holder remains.
+            assert!(pid.is_none(), "removed alias should resolve nowhere");
+            let tombstoned: bool = conn
                 .query_row(
-                    "SELECT is_deleted FROM triggers WHERE id = 'test-uuid-1'",
+                    "SELECT COUNT(*) = 0 FROM triggers WHERE is_deleted = 0",
                     [],
                     |row| row.get(0),
                 )
                 .unwrap();
-            assert!(is_deleted, "trigger should be tombstoned");
+            assert!(tombstoned, "trigger should be tombstoned");
         });
     }
 
@@ -263,14 +343,67 @@ mod tests {
             execute(vec!["gs".to_string()], None, false, false).unwrap();
 
             let conn = open_keyed_db(db_path);
-            let is_deleted: bool = conn
+            assert!(
+                find_parent_by_invocation(&conn, InvocationType::Word, "gs")
+                    .unwrap()
+                    .is_none(),
+                "removed alias should resolve nowhere"
+            );
+            let tombstoned: bool = conn
                 .query_row(
-                    "SELECT is_deleted FROM triggers WHERE id = 'test-uuid-2'",
+                    "SELECT COUNT(*) = 0 FROM triggers WHERE is_deleted = 0",
                     [],
                     |row| row.get(0),
                 )
                 .unwrap();
-            assert!(is_deleted, "text trigger should still be deleted");
+            assert!(tombstoned, "text trigger should still be deleted");
+        });
+    }
+
+    #[test]
+    fn delete_one_alias_keeps_parent_with_remaining_count() {
+        init_tracing_for_tests();
+
+        with_test_db(|db_path| {
+            let conn = open_keyed_db(db_path);
+            taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
+            taurine_core::db::crud::create_entry(
+                &conn,
+                taurine_core::db::crud::NewEntry {
+                    name: String::new(),
+                    description: None,
+                    content: "Hello!".to_string(),
+                    action_type: "text".to_string(),
+                    target_os: "all".to_string(),
+                    only_apps: None,
+                    except_apps: None,
+                    tags_json: "[]".to_string(),
+                    auto_case: false,
+                    interpreter: None,
+                    behavior: None,
+                    invocations: vec![
+                        (InvocationType::Word, "hi".to_string(), false),
+                        (InvocationType::Word, "hello".to_string(), false),
+                    ],
+                },
+            )
+            .unwrap();
+            drop(conn);
+
+            execute(vec!["hi".to_string()], None, false, false).unwrap();
+
+            let conn = open_keyed_db(db_path);
+            let pid = find_parent_by_invocation(&conn, InvocationType::Word, "hello")
+                .unwrap()
+                .expect("sibling alias keeps the parent alive");
+            let row = get_trigger(&conn, &pid).unwrap().unwrap();
+            assert!(!row.is_deleted);
+            assert_eq!(count_aliases(&conn, &pid).unwrap(), 1);
+            assert!(
+                find_parent_by_invocation(&conn, InvocationType::Word, "hi")
+                    .unwrap()
+                    .is_none()
+            );
         });
     }
 
@@ -284,75 +417,18 @@ mod tests {
         let conn = open_keyed_db(&db_path);
         taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
 
-        taurine_core::db::crud::upsert_trigger_with_type(
-            &conn,
-            "uuid-1",
-            "test",
-            None,
-            taurine_core::db::crud::TriggerType::Word,
-            "test_foo",
-            "echo 1",
-            "text",
-            "all",
-            "[]",
-            0,
-            None,
-        )
-        .unwrap();
-        taurine_core::db::crud::upsert_trigger_with_type(
-            &conn,
-            "uuid-2",
-            "test",
-            None,
-            taurine_core::db::crud::TriggerType::Word,
-            "test_bar",
-            "echo 2",
-            "text",
-            "all",
-            "[]",
-            0,
-            None,
-        )
-        .unwrap();
-        taurine_core::db::crud::upsert_trigger_with_type(
-            &conn,
-            "uuid-3",
-            "other",
-            None,
-            taurine_core::db::crud::TriggerType::Word,
-            "other",
-            "echo 3",
-            "text",
-            "all",
-            "[]",
-            0,
-            None,
-        )
-        .unwrap();
+        seed_word_entry(&conn, "test_foo", "echo 1");
+        seed_word_entry(&conn, "test_bar", "echo 2");
+        seed_word_entry(&conn, "other", "echo 3");
         drop(conn);
 
         // yes=true skips the prompt — only way to test non-interactively
         execute(vec!["test_*".to_string()], None, true, false).unwrap();
 
         let conn = open_keyed_db(&db_path);
-        assert!(
-            taurine_core::db::crud::get_trigger(&conn, "uuid-1")
-                .unwrap()
-                .unwrap()
-                .is_deleted
-        );
-        assert!(
-            taurine_core::db::crud::get_trigger(&conn, "uuid-2")
-                .unwrap()
-                .unwrap()
-                .is_deleted
-        );
-        assert!(
-            !taurine_core::db::crud::get_trigger(&conn, "uuid-3")
-                .unwrap()
-                .unwrap()
-                .is_deleted
-        );
+        assert_live(&conn, "test_foo", false);
+        assert_live(&conn, "test_bar", false);
+        assert_live(&conn, "other", true);
     }
 
     #[test]
@@ -365,32 +441,13 @@ mod tests {
         let conn = open_keyed_db(&db_path);
         taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
 
-        taurine_core::db::crud::upsert_trigger_with_type(
-            &conn,
-            "uuid-1",
-            "test",
-            None,
-            taurine_core::db::crud::TriggerType::Word,
-            "gs",
-            "echo 1",
-            "text",
-            "all",
-            "[]",
-            0,
-            None,
-        )
-        .unwrap();
+        seed_word_entry(&conn, "gs", "echo 1");
         drop(conn);
 
         execute(vec!["gs".to_string()], None, true, false).unwrap();
 
         let conn = open_keyed_db(&db_path);
-        assert!(
-            taurine_core::db::crud::get_trigger(&conn, "uuid-1")
-                .unwrap()
-                .unwrap()
-                .is_deleted
-        );
+        assert_live(&conn, "gs", false);
     }
 
     #[test]
@@ -403,54 +460,16 @@ mod tests {
         let conn = open_keyed_db(&db_path);
         taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
 
-        taurine_core::db::crud::upsert_trigger_with_type(
-            &conn,
-            "uuid-1",
-            "A",
-            None,
-            taurine_core::db::crud::TriggerType::Word,
-            "a",
-            "out",
-            "text",
-            "all",
-            "[]",
-            0,
-            None,
-        )
-        .unwrap();
-        taurine_core::db::crud::upsert_trigger_with_type(
-            &conn,
-            "uuid-2",
-            "B",
-            None,
-            taurine_core::db::crud::TriggerType::Word,
-            "b",
-            "out",
-            "text",
-            "all",
-            "[]",
-            0,
-            None,
-        )
-        .unwrap();
+        seed_word_entry(&conn, "a", "out");
+        seed_word_entry(&conn, "b", "out");
         drop(conn);
 
         // yes=true to skip prompt
         execute(vec!["*".to_string()], None, true, false).unwrap();
 
         let conn = open_keyed_db(&db_path);
-        assert!(
-            taurine_core::db::crud::get_trigger(&conn, "uuid-1")
-                .unwrap()
-                .unwrap()
-                .is_deleted
-        );
-        assert!(
-            taurine_core::db::crud::get_trigger(&conn, "uuid-2")
-                .unwrap()
-                .unwrap()
-                .is_deleted
-        );
+        assert_live(&conn, "a", false);
+        assert_live(&conn, "b", false);
     }
 
     #[test]
@@ -466,6 +485,46 @@ mod tests {
 
         // Should not error, just warn
         execute(vec!["nomatch_*".to_string()], None, true, false).unwrap();
+    }
+
+    #[test]
+    fn delete_by_tag_removes_tagged_entries_only() {
+        init_tracing_for_tests();
+
+        with_test_db(|db_path| {
+            let conn = open_keyed_db(db_path);
+            taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
+
+            seed_word_entry_with_tags(&conn, "tagged_one", "echo 1", r#"["work"]"#);
+            seed_word_entry_with_tags(&conn, "tagged_two", "echo 2", r#"["work"]"#);
+            seed_word_entry(&conn, "untagged", "echo 3");
+            drop(conn);
+
+            execute(vec![], Some("work".to_string()), true, false).unwrap();
+
+            let conn = open_keyed_db(db_path);
+            assert_live(&conn, "tagged_one", false);
+            assert_live(&conn, "tagged_two", false);
+            assert_live(&conn, "untagged", true);
+        });
+    }
+
+    #[test]
+    fn delete_by_missing_tag_warns_cleanly() {
+        init_tracing_for_tests();
+
+        with_test_db(|db_path| {
+            let conn = open_keyed_db(db_path);
+            taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
+            seed_word_entry_with_tags(&conn, "tagged", "echo 1", r#"["work"]"#);
+            drop(conn);
+
+            // Should not error, just warn (suggestion lookup must not hit a missing table)
+            execute(vec![], Some("nonexistent".to_string()), true, false).unwrap();
+
+            let conn = open_keyed_db(db_path);
+            assert_live(&conn, "tagged", true);
+        });
     }
 
     #[test]

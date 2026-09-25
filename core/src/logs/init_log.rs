@@ -375,6 +375,10 @@ pub fn install_tracing_panic_hook() {
 /// synchronous, best-effort panic report to the current daily log file.
 ///
 /// This is safe to call from a panic hook.
+///
+/// Broken-pipe panics (`println!` to a closed stdout, e.g. `| head` on
+/// Windows with os error 232) are not logged: the consumer going away is
+/// expected, not a bug.
 pub fn handle_panic_info(panic_info: &PanicHookInfo<'_>) {
     let quiet_console = QUIET_CONSOLE.get().copied().unwrap_or(false);
     let no_log_file = NO_LOG_FILE.get().copied().unwrap_or(false);
@@ -396,6 +400,10 @@ pub fn handle_panic_info(panic_info: &PanicHookInfo<'_>) {
         "<non-string panic payload>".to_string()
     };
 
+    if panic_payload_is_broken_pipe(&payload) {
+        return;
+    }
+
     // Capture backtrace early; it might be empty depending on build flags.
     let backtrace = Backtrace::capture();
 
@@ -412,6 +420,31 @@ pub fn handle_panic_info(panic_info: &PanicHookInfo<'_>) {
     if !no_log_file {
         let _ = write_panic_to_log_file(&payload, &location, &backtrace);
     }
+}
+
+/// True when an I/O error means the stdout/stderr consumer went away.
+/// Covers `ErrorKind::BrokenPipe` plus Windows raw codes that don't always
+/// map to it (`ERROR_BROKEN_PIPE` 109, `ERROR_NO_DATA` 232).
+pub fn io_error_is_broken_pipe(e: &io::Error) -> bool {
+    if e.kind() == io::ErrorKind::BrokenPipe {
+        return true;
+    }
+    if matches!(e.raw_os_error(), Some(109) | Some(232)) {
+        return true;
+    }
+    let msg = e.to_string();
+    msg.contains("pipe is being closed") || msg.contains("EPIPE")
+}
+
+/// True for the `println!` panic payload produced when stdout is closed.
+pub fn panic_payload_is_broken_pipe(payload: &str) -> bool {
+    payload.contains("BrokenPipe")
+        || payload.contains("failed printing to stdout")
+        || payload.contains("failed printing to stderr")
+        || payload.contains("pipe is being closed")
+        || payload.contains("os error 232")
+        || payload.contains("os error 109")
+        || payload.contains("EPIPE")
 }
 
 fn write_panic_to_log_file(payload: &str, location: &str, backtrace: &Backtrace) -> io::Result<()> {
@@ -471,6 +504,25 @@ mod tests {
         let plan = logging_plan(false, false, false);
         assert!(plan.console_enabled);
         assert!(plan.file_enabled);
+    }
+
+    #[test]
+    fn broken_pipe_payload_detected() {
+        assert!(panic_payload_is_broken_pipe(
+            "failed printing to stdout: The pipe is being closed. (os error 232)"
+        ));
+        assert!(panic_payload_is_broken_pipe("BrokenPipe"));
+        assert!(!panic_payload_is_broken_pipe("index out of bounds"));
+    }
+
+    #[test]
+    fn broken_pipe_io_error_detected() {
+        let e = io::Error::from(io::ErrorKind::BrokenPipe);
+        assert!(io_error_is_broken_pipe(&e));
+        let e = io::Error::from_raw_os_error(232);
+        assert!(io_error_is_broken_pipe(&e));
+        let e = io::Error::other("boom");
+        assert!(!io_error_is_broken_pipe(&e));
     }
 
     #[test]

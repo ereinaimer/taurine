@@ -4,6 +4,7 @@ use crate::commands::completions::{
     generate_powershell_with_alias, generate_with_alias, generate_zsh_with_alias,
 };
 use clap::CommandFactory;
+use clap::Parser;
 use clap_complete::shells::{Bash, Elvish, Fish};
 
 #[test]
@@ -85,9 +86,8 @@ fn parses_add_hotkey_flag_as_boolean_mode() {
 
     match cli.command {
         Some(Commands::Add(args)) => {
-            assert!(args.hotkey);
-            assert_eq!(args.trigger.as_deref(), Some("Ctrl+Shift+G"));
-            assert_eq!(args.output.as_deref(), Some("git status"));
+            assert_eq!(args.hotkey, vec!["Ctrl+Shift+G"]);
+            assert_eq!(args.positional, vec!["git status"]);
         }
         other => panic!("unexpected command parse: {other:?}"),
     }
@@ -110,15 +110,11 @@ fn parses_add_script_hotkey_flag() {
     match cli.command {
         Some(Commands::Add(args)) => {
             if let Some(AddSubcommand::Script {
-                trigger,
-                hotkey,
-                content,
-                ..
+                positional, hotkey, ..
             }) = &args.sub
             {
-                assert!(hotkey);
-                assert_eq!(trigger.as_deref(), Some("ctrl+shift+w"));
-                assert_eq!(content.as_deref(), Some("winget install [0]"));
+                assert_eq!(hotkey, &vec!["ctrl+shift+w".to_string()]);
+                assert_eq!(positional, &vec!["winget install [0]".to_string()]);
             } else {
                 panic!("expected script subcommand");
             }
@@ -143,6 +139,41 @@ fn subcommands_continue_to_route_to_cli_handlers() {
 fn daemon_flag_keeps_daemon_launch_path() {
     let cli = Cli::try_parse_from(["taurine", "--daemon"]).expect("--daemon should parse");
     assert_eq!(launch_target(&cli), LaunchTarget::Daemon);
+}
+
+#[test]
+fn voice_daemon_flag_stays_hidden_and_routes() {
+    let cli = Cli::try_parse_from([
+        "taurine",
+        "--voice-daemon",
+        "--voice-pipe",
+        "taurine-voice-1-abc",
+        "--voice-version-token",
+        "v1",
+    ])
+    .expect("--voice-daemon should parse");
+    assert!(cli.voice_daemon);
+    assert_eq!(
+        cli.voice_pipe.as_deref(),
+        Some("taurine-voice-1-abc"),
+        "pipe name must round-trip"
+    );
+    assert_eq!(
+        cli.voice_version_token.as_deref(),
+        Some("v1"),
+        "version token must round-trip"
+    );
+    assert_eq!(launch_target(&cli), LaunchTarget::VoiceDaemon);
+
+    let mut help = Vec::new();
+    Cli::command()
+        .write_long_help(&mut help)
+        .expect("help must render");
+    let help = String::from_utf8(help).expect("help must be UTF-8");
+    assert!(
+        !help.contains("voice-daemon"),
+        "internal worker role must stay out of help"
+    );
 }
 
 #[test]
@@ -452,9 +483,8 @@ fn cli_add_regex_flag_parses() {
         .expect("add --regex should parse");
     match cli.command {
         Some(Commands::Add(args)) => {
-            assert!(args.regex);
-            assert_eq!(args.trigger.as_deref(), Some("issue-(\\d+)"));
-            assert_eq!(args.output.as_deref(), Some("link/[0]"));
+            assert_eq!(args.regex, vec!["issue-(\\d+)"]);
+            assert_eq!(args.positional, vec!["link/[0]"]);
         }
         other => panic!("unexpected parse output: {other:?}"),
     }
@@ -550,13 +580,42 @@ fn completions_without_args_parses_successfully() {
 }
 
 #[test]
+fn add_parses_multi_positional_and_repeatable_flags() {
+    // NOTE (variance vs brief): the brief calls AddArgs::try_parse_from with
+    // ["taurine", "add", ...], but clap consumes only the first element as the
+    // binary name, leaving "add" inside positional. Parsing through Cli keeps
+    // the vector verbatim and matches real routing (Cli strips the subcommand
+    // word before delegating to AddArgs).
+    let cli = Cli::try_parse_from([
+        "taurine", "add", "hi", "hello", "Hello!", "--hotkey", "ctrl+h", "--hotkey", "ctrl+j",
+        "--voice", "say hi",
+    ])
+    .unwrap();
+    let Some(Commands::Add(args)) = cli.command else {
+        panic!("expected add command");
+    };
+    assert_eq!(args.positional, vec!["hi", "hello", "Hello!"]);
+    assert_eq!(args.hotkey, vec!["ctrl+h", "ctrl+j"]);
+    assert_eq!(args.voice, vec!["say hi"]);
+}
+
+#[test]
+fn add_hotkey_only_with_single_positional() {
+    let cli = Cli::try_parse_from(["taurine", "add", "--hotkey", "ctrl+h", "Do it"]).unwrap();
+    let Some(Commands::Add(args)) = cli.command else {
+        panic!("expected add command");
+    };
+    assert_eq!(args.positional, vec!["Do it"]);
+}
+
+#[test]
 fn add_script_without_args_parses_successfully() {
     let cli = Cli::try_parse_from(["taurine", "add", "script"])
         .expect("add script without args should parse");
     match cli.command {
         Some(Commands::Add(args)) => match args.sub {
-            Some(AddSubcommand::Script { trigger, .. }) => {
-                assert!(trigger.is_none());
+            Some(AddSubcommand::Script { positional, .. }) => {
+                assert!(positional.is_empty());
             }
             other => panic!("unexpected sub parse: {other:?}"),
         },

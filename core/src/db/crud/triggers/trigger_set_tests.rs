@@ -377,10 +377,11 @@ fn test_validate_dead_use_reference() {
     let now = crate::db::now_unix_secs();
     let id = uuid::Uuid::new_v4().to_string();
     conn.execute(
-            "INSERT INTO triggers (id, name, trigger_type, trigger, output, action_type, target_os, is_deleted, created_at, updated_at)
-             VALUES (?1, 'existing', 'word', 'existing', 'hello', 'text', 'all', 0, ?2, ?2)",
+            "INSERT INTO triggers (id, name, output, action_type, target_os, is_deleted, created_at, updated_at)
+              VALUES (?1, 'existing', 'hello', 'text', 'all', 0, ?2, ?2)",
             rusqlite::params![id, now],
         ).unwrap();
+    add_alias(&conn, &id, InvocationType::Word, "existing", false).unwrap();
 
     let result = validate_trigger_limits(
         &conn,
@@ -402,10 +403,11 @@ fn test_validate_live_reference_passes() {
     let now = crate::db::now_unix_secs();
     let id = uuid::Uuid::new_v4().to_string();
     conn.execute(
-            "INSERT INTO triggers (id, name, trigger_type, trigger, output, action_type, target_os, is_deleted, created_at, updated_at)
-             VALUES (?1, 'other', 'word', 'other', 'world', 'text', 'all', 0, ?2, ?2)",
+            "INSERT INTO triggers (id, name, output, action_type, target_os, is_deleted, created_at, updated_at)
+              VALUES (?1, 'other', 'world', 'text', 'all', 0, ?2, ?2)",
             rusqlite::params![id, now],
         ).unwrap();
+    add_alias(&conn, &id, InvocationType::Word, "other", false).unwrap();
 
     let result = validate_trigger_limits(&conn, "greeting", "hello [use(\"other\")]", "text");
     assert!(result.is_ok());
@@ -451,8 +453,8 @@ fn test_update_app_filters_trims_whitespace() {
     let now = crate::db::now_unix_secs();
     let id = uuid::Uuid::new_v4().to_string();
     conn.execute(
-            "INSERT INTO triggers (id, name, trigger_type, trigger, output, action_type, target_os, is_deleted, created_at, updated_at)
-             VALUES (?1, 'test', 'word', 'test', 'out', 'text', 'all', 0, ?2, ?2)",
+            "INSERT INTO triggers (id, name, output, action_type, target_os, is_deleted, created_at, updated_at)
+              VALUES (?1, 'test', 'out', 'text', 'all', 0, ?2, ?2)",
             rusqlite::params![id, now],
         ).unwrap();
 
@@ -476,8 +478,8 @@ fn test_update_app_filters_removes_empty() {
     let now = crate::db::now_unix_secs();
     let id = uuid::Uuid::new_v4().to_string();
     conn.execute(
-            "INSERT INTO triggers (id, name, trigger_type, trigger, output, action_type, target_os, is_deleted, created_at, updated_at)
-             VALUES (?1, 'test', 'word', 'test', 'out', 'text', 'all', 0, ?2, ?2)",
+            "INSERT INTO triggers (id, name, output, action_type, target_os, is_deleted, created_at, updated_at)
+              VALUES (?1, 'test', 'out', 'text', 'all', 0, ?2, ?2)",
             rusqlite::params![id, now],
         ).unwrap();
 
@@ -518,8 +520,8 @@ fn test_update_app_filters_accepts_valid_prefixes() {
     let now = crate::db::now_unix_secs();
     let id = uuid::Uuid::new_v4().to_string();
     conn.execute(
-            "INSERT INTO triggers (id, name, trigger_type, trigger, output, action_type, target_os, is_deleted, created_at, updated_at)
-             VALUES (?1, 'test', 'word', 'test', 'out', 'text', 'all', 0, ?2, ?2)",
+            "INSERT INTO triggers (id, name, output, action_type, target_os, is_deleted, created_at, updated_at)
+              VALUES (?1, 'test', 'out', 'text', 'all', 0, ?2, ?2)",
             rusqlite::params![id, now],
         ).unwrap();
 
@@ -549,8 +551,8 @@ fn test_update_app_filters_none_stays_none() {
     let now = crate::db::now_unix_secs();
     let id = uuid::Uuid::new_v4().to_string();
     conn.execute(
-            "INSERT INTO triggers (id, name, trigger_type, trigger, output, action_type, target_os, is_deleted, created_at, updated_at)
-             VALUES (?1, 'test', 'word', 'test', 'out', 'text', 'all', 0, ?2, ?2)",
+            "INSERT INTO triggers (id, name, output, action_type, target_os, is_deleted, created_at, updated_at)
+              VALUES (?1, 'test', 'out', 'text', 'all', 0, ?2, ?2)",
             rusqlite::params![id, now],
         ).unwrap();
 
@@ -635,7 +637,9 @@ fn test_normalize_trigger_nfc() {
 
     let (stored_trigger, stored_output): (String, String) = conn
         .query_row(
-            "SELECT trigger, output FROM triggers WHERE id = ?1",
+            "SELECT al.invocation, t.output FROM trigger_aliases al
+              JOIN triggers t ON t.id = al.trigger_id
+              WHERE t.id = ?1 AND al.invocation_type = 'word'",
             [&id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
@@ -670,7 +674,9 @@ fn test_add_trigger_by_type_normalizes_nfc() {
 
     let (stored_trigger, stored_output): (String, String) = conn
         .query_row(
-            "SELECT trigger, output FROM triggers WHERE trigger = ?1",
+            "SELECT al.invocation, t.output FROM trigger_aliases al
+              JOIN triggers t ON t.id = al.trigger_id
+              WHERE al.invocation_type = 'word' AND al.invocation = ?1",
             [nfc_e],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
@@ -727,7 +733,9 @@ fn test_add_trigger_with_name_and_description() {
 
     let (stored_name, stored_desc): (String, Option<String>) = conn
         .query_row(
-            "SELECT name, description FROM triggers WHERE trigger = 'greeting'",
+            "SELECT t.name, t.description FROM triggers t
+              WHERE t.id = (SELECT trigger_id FROM trigger_aliases
+                             WHERE invocation_type = 'word' AND invocation = 'greeting')",
             [],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
@@ -759,15 +767,22 @@ fn test_update_name_and_description_on_re_add() {
     )
     .unwrap();
 
-    let (name1, desc1): (String, Option<String>) = conn
-        .query_row(
-            "SELECT name, description FROM triggers WHERE trigger = 'greeting2'",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+    let parent_of = |conn: &Connection, invocation: &str| -> String {
+        conn.query_row(
+            "SELECT trigger_id FROM trigger_aliases
+              WHERE invocation_type = 'word' AND invocation = ?1",
+            [invocation],
+            |r| r.get(0),
         )
+        .unwrap()
+    };
+
+    let row1 = get_trigger(&conn, &parent_of(&conn, "greeting2"))
+        .unwrap()
         .unwrap();
-    assert_eq!(name1, "greeting2"); // Defaults to trigger
-    assert_eq!(desc1, None);
+    assert_eq!(row1.name, ""); // Stored exactly; display falls back to the invocation
+    assert_eq!(row1.description, None);
+    assert_eq!(row1.display, "greeting2");
 
     // Re-add with same output but custom name/description
     let outcome = add_trigger_by_type_with_case(
@@ -788,8 +803,8 @@ fn test_update_name_and_description_on_re_add() {
 
     let (name2, desc2): (String, Option<String>) = conn
         .query_row(
-            "SELECT name, description FROM triggers WHERE trigger = 'greeting2'",
-            [],
+            "SELECT name, description FROM triggers WHERE id = ?1",
+            [parent_of(&conn, "greeting2")],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .unwrap();
@@ -815,13 +830,15 @@ fn test_update_name_and_description_on_re_add() {
 
     let (name3, desc3, output3): (String, Option<String>, String) = conn
         .query_row(
-            "SELECT name, description, output FROM triggers WHERE trigger = 'greeting2'",
-            [],
+            "SELECT name, description, output FROM triggers WHERE id = ?1",
+            [parent_of(&conn, "greeting2")],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .unwrap();
     assert_eq!(name3, "French Greeting");
-    assert_eq!(desc3.as_deref(), Some("Now has a description")); // Preserved from before
+    // Entry upsert writes every column: absent description clears (same as the
+    // old id-addressed update path), unlike the old add-path COALESCE.
+    assert_eq!(desc3, None);
     assert_eq!(output3, "bonjour");
 }
 
@@ -1013,10 +1030,11 @@ fn create_test_trigger(conn: &Connection) -> String {
     let id = uuid::Uuid::new_v4().to_string();
     let now = crate::db::now_unix_secs();
     conn.execute(
-            "INSERT INTO triggers (id, name, trigger, output, action_type, trigger_type, target_os, is_deleted, created_at, updated_at)
-             VALUES (?1, 'test', 't', 'o', 'text', 'word', 'all', 0, ?2, ?2)",
+            "INSERT INTO triggers (id, name, output, action_type, target_os, is_deleted, created_at, updated_at)
+              VALUES (?1, 'test', 'o', 'text', 'all', 0, ?2, ?2)",
             rusqlite::params![id, now],
         ).unwrap();
+    add_alias(conn, &id, InvocationType::Word, "t", false).unwrap();
     id
 }
 
@@ -1143,4 +1161,302 @@ fn test_prepare_trigger_taurine_pause_conflict_diagnostic() {
         msg.contains("pause_hotkey"),
         "expected config guidance, got: {msg}"
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task 4: entry create/upsert + delete semantics (new model)
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn fresh_db() -> Connection {
+    let conn = Connection::open_in_memory().unwrap();
+    crate::db::init::migrate::run_migrations(&conn).unwrap();
+    conn
+}
+
+fn entry_fixture(invocations: Vec<(InvocationType, &str)>) -> NewEntry {
+    entry_fixture_with_output("Hello!", invocations)
+}
+
+fn entry_fixture_with_output(output: &str, invocations: Vec<(InvocationType, &str)>) -> NewEntry {
+    NewEntry {
+        name: String::new(),
+        description: None,
+        content: output.to_string(),
+        action_type: "text".to_string(),
+        target_os: "all".to_string(),
+        only_apps: None,
+        except_apps: None,
+        tags_json: "[]".to_string(),
+        auto_case: false,
+        interpreter: None,
+        behavior: None,
+        invocations: invocations
+            .into_iter()
+            .map(|(t, s)| (t, s.to_string(), false))
+            .collect(),
+    }
+}
+
+#[test]
+fn create_entry_with_mixed_invocations() {
+    let conn = fresh_db();
+    let (id, aliases) = create_entry(
+        &conn,
+        entry_fixture(vec![
+            (InvocationType::Word, "hi"),
+            (InvocationType::Hotkey, "ctrl+h"),
+            (InvocationType::Voice, "say hi"),
+        ]),
+    )
+    .unwrap();
+    assert_eq!(aliases.len(), 3);
+    assert_eq!(count_aliases(&conn, &id).unwrap(), 3);
+}
+
+#[test]
+fn upsert_by_existing_invocation_updates_parent() {
+    let conn = fresh_db();
+    let (id, _) = create_entry(&conn, entry_fixture(vec![(InvocationType::Word, "hi")])).unwrap();
+    let outcome = upsert_entry_full(
+        &conn,
+        entry_fixture_with_output("Updated!", vec![(InvocationType::Word, "hi")]),
+    )
+    .unwrap();
+    assert_eq!(outcome, AddOutcome::Updated);
+    assert_eq!(get_trigger(&conn, &id).unwrap().unwrap().output, "Updated!");
+}
+
+#[test]
+fn upsert_spanning_two_entries_errors() {
+    let conn = fresh_db();
+    create_entry(&conn, entry_fixture(vec![(InvocationType::Word, "hi")])).unwrap();
+    create_entry(&conn, entry_fixture(vec![(InvocationType::Word, "hello")])).unwrap();
+    let err = upsert_entry_full(
+        &conn,
+        entry_fixture(vec![
+            (InvocationType::Word, "hi"),
+            (InvocationType::Word, "hello"),
+        ]),
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("two different entries"));
+}
+
+#[test]
+fn delete_last_alias_tombstones_parent() {
+    let conn = fresh_db();
+    let (id, _) = create_entry(&conn, entry_fixture(vec![(InvocationType::Word, "hi")])).unwrap();
+    assert!(delete_alias(&conn, &id, InvocationType::Word, "hi").unwrap());
+    let gone: bool = conn
+        .query_row(
+            "SELECT is_deleted FROM triggers WHERE id = ?1",
+            [&id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(gone);
+}
+
+fn holders_of(conn: &Connection, invocation_type: InvocationType, invocation: &str) -> Vec<String> {
+    conn.prepare(
+        "SELECT trigger_id FROM trigger_aliases
+          WHERE invocation_type = ?1 AND invocation = ?2",
+    )
+    .unwrap()
+    .query_map(
+        rusqlite::params![invocation_type.as_db_str(), invocation],
+        |row| row.get(0),
+    )
+    .unwrap()
+    .collect::<std::result::Result<Vec<String>, _>>()
+    .unwrap()
+}
+
+#[test]
+fn disjoint_os_same_hotkey_creates_separate_parents() {
+    let conn = fresh_db();
+    let outcome = add_trigger_by_type_with_case(
+        &conn,
+        TriggerType::Hotkey,
+        "ctrl+shift+g",
+        "git win",
+        "win",
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(outcome, AddOutcome::Created);
+    let outcome = add_trigger_by_type_with_case(
+        &conn,
+        TriggerType::Hotkey,
+        "ctrl+shift+g",
+        "git linux",
+        "linux",
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(outcome, AddOutcome::Created);
+
+    let ids = holders_of(&conn, InvocationType::Hotkey, "ctrl+shift+g");
+    assert_eq!(ids.len(), 2);
+    let mut scopes: Vec<String> = ids
+        .iter()
+        .map(|pid| {
+            let row = get_trigger(&conn, pid).unwrap().unwrap();
+            assert_eq!(row.invocations.len(), 1);
+            assert_eq!(row.invocations[0].invocation, "ctrl+shift+g");
+            row.target_os
+        })
+        .collect();
+    scopes.sort();
+    assert_eq!(scopes, vec!["linux".to_string(), "win".to_string()]);
+}
+
+#[test]
+fn disjoint_app_filters_same_word_creates_separate_parents() {
+    let conn = fresh_db();
+    let outcome = add_trigger_by_type_with_case(
+        &conn,
+        TriggerType::Word,
+        "deploy",
+        "Action for Notepad",
+        "all",
+        Some("exe:notepad"),
+        None,
+        None,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(outcome, AddOutcome::Created);
+    let outcome = add_trigger_by_type_with_case(
+        &conn,
+        TriggerType::Word,
+        "deploy",
+        "Action for VS Code",
+        "all",
+        Some("exe:code"),
+        None,
+        None,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(outcome, AddOutcome::Created);
+
+    let ids = holders_of(&conn, InvocationType::Word, "deploy");
+    assert_eq!(ids.len(), 2);
+    let mut scopes: Vec<Option<String>> = ids
+        .iter()
+        .map(|pid| {
+            let row = get_trigger(&conn, pid).unwrap().unwrap();
+            assert_eq!(row.invocations.len(), 1);
+            row.only_apps
+        })
+        .collect();
+    scopes.sort();
+    assert_eq!(
+        scopes,
+        vec![
+            Some("exe:code".to_string()),
+            Some("exe:notepad".to_string())
+        ]
+    );
+}
+
+#[test]
+fn overlapping_scope_same_invocation_conflicts() {
+    let conn = fresh_db();
+    add_trigger_by_type_with_case(
+        &conn,
+        TriggerType::Word,
+        "hi",
+        "one",
+        "all",
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    add_trigger_by_type_with_case(
+        &conn,
+        TriggerType::Word,
+        "other",
+        "two",
+        "all",
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+    )
+    .unwrap();
+    let pid_hi = holders_of(&conn, InvocationType::Word, "hi");
+    let pid_other = holders_of(&conn, InvocationType::Word, "other");
+    assert_eq!(pid_hi.len(), 1);
+    assert_eq!(pid_other.len(), 1);
+
+    // Cross-parent duplicate with overlapping scope → conflicts.
+    let err = add_alias(&conn, &pid_other[0], InvocationType::Word, "hi", false).unwrap_err();
+    assert!(err.to_string().contains("conflicts"));
+    // Same-parent duplicate always conflicts, regardless of scope.
+    let err = add_alias(&conn, &pid_hi[0], InvocationType::Word, "hi", false).unwrap_err();
+    assert!(err.to_string().contains("conflicts"));
+    assert_eq!(count_aliases(&conn, &pid_other[0]).unwrap(), 1);
+}
+
+#[test]
+fn delete_by_value_removes_all_holders() {
+    let conn = fresh_db();
+    for (output, app) in [
+        ("Action for Notepad", "exe:notepad"),
+        ("Action for VS Code", "exe:code"),
+    ] {
+        let outcome = add_trigger_by_type_with_case(
+            &conn,
+            TriggerType::Word,
+            "hi",
+            output,
+            "all",
+            Some(app),
+            None,
+            None,
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+        assert_eq!(outcome, AddOutcome::Created);
+    }
+    let ids = holders_of(&conn, InvocationType::Word, "hi");
+    assert_eq!(ids.len(), 2);
+
+    let removed = delete_triggers_by_values(&conn, &["hi".to_string()]).unwrap();
+    assert_eq!(removed, 2);
+    for pid in &ids {
+        let tombstoned: bool = conn
+            .query_row(
+                "SELECT is_deleted FROM triggers WHERE id = ?1",
+                [pid],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(tombstoned);
+        assert_eq!(count_aliases(&conn, pid).unwrap(), 0);
+    }
 }

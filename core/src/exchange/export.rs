@@ -1,10 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use super::{ExchangePayload, ScriptExport, TriggerExport, crypto, serialize_payload};
-use crate::db::crud::TriggerType;
+use super::{AliasExport, ExchangePayload, ScriptExport, TriggerExport, crypto, serialize_payload};
+use crate::db::crud::{InvocationType, TriggerType, display_alias, list_aliases};
 use crate::engine::shell::{ScriptBehavior, ScriptInterpreter, decompress};
 use rusqlite::Connection;
-use rusqlite::types::Type;
 use time::OffsetDateTime;
 use zeroize::Zeroize;
 
@@ -12,8 +11,6 @@ struct RawTriggerExport {
     id: String,
     name: String,
     description: Option<String>,
-    trigger_type: TriggerType,
-    trigger: String,
     output: String,
     action_type: String,
     is_enabled: bool,
@@ -30,8 +27,6 @@ pub fn export_triggers(conn: &Connection) -> crate::Result<ExchangePayload> {
             a.id,
             a.name,
             a.description,
-            a.trigger_type,
-            a.trigger,
             a.output,
             a.action_type,
             a.is_enabled,
@@ -43,7 +38,7 @@ pub fn export_triggers(conn: &Connection) -> crate::Result<ExchangePayload> {
          FROM triggers a
          LEFT JOIN scripts s ON s.trigger_id = a.id
          WHERE a.is_deleted = 0
-         ORDER BY a.trigger ASC, a.target_os ASC, a.name ASC",
+         ORDER BY a.name ASC, a.target_os ASC, a.id ASC",
     )?;
 
     let rows = stmt.query_map([], |row| {
@@ -51,18 +46,14 @@ pub fn export_triggers(conn: &Connection) -> crate::Result<ExchangePayload> {
             id: row.get(0)?,
             name: row.get(1)?,
             description: row.get(2)?,
-            trigger_type: TriggerType::parse_db(&row.get::<_, String>(3)?).map_err(|err| {
-                rusqlite::Error::FromSqlConversionFailure(3, Type::Text, Box::new(err))
-            })?,
-            trigger: row.get(4)?,
-            output: row.get(5)?,
-            action_type: row.get(6)?,
-            is_enabled: row.get(7)?,
-            target_os: row.get(8)?,
-            tags: row.get(9)?,
-            interpreter: row.get(10)?,
-            behavior: row.get(11)?,
-            script_binary: row.get(12)?,
+            output: row.get(3)?,
+            action_type: row.get(4)?,
+            is_enabled: row.get(5)?,
+            target_os: row.get(6)?,
+            tags: row.get(7)?,
+            interpreter: row.get(8)?,
+            behavior: row.get(9)?,
+            script_binary: row.get(10)?,
         })
     })?;
 
@@ -147,25 +138,47 @@ pub fn write_export_file(path: &Path, data: &[u8]) -> crate::Result<()> {
 
 fn to_trigger_export(conn: &Connection, row: RawTriggerExport) -> crate::Result<TriggerExport> {
     let tags = serde_json::from_str::<Vec<String>>(&row.tags)?;
+
+    let alias_rows = list_aliases(conn, &row.id).map_err(|err| {
+        crate::Error::Service(format!(
+            "failed to load aliases for trigger '{}': {err}",
+            row.name
+        ))
+    })?;
+    let aliases = alias_rows
+        .iter()
+        .map(|alias| AliasExport {
+            invocation_type: alias.invocation_type,
+            invocation: alias.invocation.clone(),
+            require_confirmation: alias.require_confirmation,
+        })
+        .collect::<Vec<_>>();
+    let (trigger_type, trigger) = match display_alias(&alias_rows) {
+        Some(display) => match display.invocation_type {
+            InvocationType::Word => (TriggerType::Word, display.invocation.clone()),
+            InvocationType::Hotkey => (TriggerType::Hotkey, display.invocation.clone()),
+            InvocationType::Regex => (TriggerType::Regex, display.invocation.clone()),
+            // Legacy schema has no voice variant; degrade to word (new-binary
+            // import restores voice from `aliases`, so no data loss there).
+            InvocationType::Voice => (TriggerType::Word, display.invocation.clone()),
+        },
+        None => (TriggerType::Word, String::new()),
+    };
+
     let script = if row.action_type == "script" {
         let interpreter = parse_json_variant::<ScriptInterpreter>(row.interpreter.as_deref())?
             .ok_or_else(|| {
                 crate::Error::Service(format!(
-                    "Script trigger '{}' is missing an interpreter",
-                    row.trigger
+                    "Script trigger '{trigger}' is missing an interpreter",
                 ))
             })?;
         let behavior =
             parse_json_variant::<ScriptBehavior>(row.behavior.as_deref())?.ok_or_else(|| {
-                crate::Error::Service(format!(
-                    "Script trigger '{}' is missing a behavior",
-                    row.trigger
-                ))
+                crate::Error::Service(format!("Script trigger '{trigger}' is missing a behavior",))
             })?;
         let script_binary = row.script_binary.ok_or_else(|| {
             crate::Error::Service(format!(
-                "Script trigger '{}' is missing script content",
-                row.trigger
+                "Script trigger '{trigger}' is missing script content",
             ))
         })?;
 
@@ -200,8 +213,8 @@ fn to_trigger_export(conn: &Connection, row: RawTriggerExport) -> crate::Result<
     Ok(TriggerExport {
         name: row.name,
         description: row.description,
-        trigger_type: row.trigger_type,
-        trigger: row.trigger,
+        trigger_type,
+        trigger,
         output: row.output,
         action_type: row.action_type,
         is_enabled: row.is_enabled,
@@ -209,6 +222,7 @@ fn to_trigger_export(conn: &Connection, row: RawTriggerExport) -> crate::Result<
         tags,
         script,
         assets,
+        aliases,
     })
 }
 

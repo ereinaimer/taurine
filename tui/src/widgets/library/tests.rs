@@ -1,8 +1,30 @@
 use super::*;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::PathBuf;
-use taurine_core::db::crud::{TriggerListItem, TriggerRow, TriggerType};
+use taurine_core::db::crud::{
+    InvocationType, TriggerAliasRow, TriggerListItem, TriggerRow, TriggerType,
+};
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
+
+fn invocation_for(trigger_type: TriggerType) -> InvocationType {
+    match trigger_type {
+        TriggerType::Word => InvocationType::Word,
+        TriggerType::Hotkey => InvocationType::Hotkey,
+        TriggerType::Regex => InvocationType::Regex,
+    }
+}
+
+fn alias_row(trigger_id: &str, trigger_type: TriggerType, trigger: &str) -> TriggerAliasRow {
+    TriggerAliasRow {
+        id: format!("alias-{trigger}"),
+        trigger_id: trigger_id.to_string(),
+        invocation: trigger.to_string(),
+        invocation_type: invocation_for(trigger_type),
+        require_confirmation: false,
+        strict_threshold: None,
+        created_at: 0,
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
 fn list_item(
@@ -18,10 +40,10 @@ fn list_item(
 ) -> TriggerListItem {
     TriggerListItem {
         id: id.to_string(),
-        name: trigger.to_string(),
+        name: String::new(),
         description: description.map(str::to_string),
-        trigger_type,
-        trigger: trigger.to_string(),
+        invocations: vec![alias_row(id, trigger_type, trigger)],
+        display: trigger.to_string(),
         output: output.to_string(),
         action_type: action_type.to_string(),
         target_os: target_os.to_string(),
@@ -50,8 +72,12 @@ fn trigger_row(
         id: format!("trigger-{trigger}"),
         name: format!("Trigger {trigger}"),
         description: Some("Open Reddit".to_string()),
-        trigger_type,
-        trigger: trigger.to_string(),
+        invocations: vec![alias_row(
+            &format!("trigger-{trigger}"),
+            trigger_type,
+            trigger,
+        )],
+        display: trigger.to_string(),
         output: output.to_string(),
         action_type: action_type.to_string(),
         target_os: target_os.to_string(),
@@ -308,6 +334,28 @@ fn search_matches_trigger() {
 
     assert_eq!(state.filtered_len(), 1);
     assert_eq!(state.item_at_filtered(0).unwrap().trigger(), "gm");
+
+    let mut item = list_item(
+        "id-gm",
+        None,
+        TriggerType::Word,
+        "gm",
+        "Good Morning",
+        "text",
+        "all",
+        9,
+        None,
+    );
+    item.invocations
+        .push(alias_row("id-gm", TriggerType::Word, "goodmorning"));
+    let mut state = LibraryPageState::default();
+    state.replace_items(vec![LibraryTrigger::from(item)]);
+    state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+    for ch in "goodmorning".chars() {
+        state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    assert_eq!(state.filtered_len(), 1);
+    assert_eq!(state.item_at_filtered(0).unwrap().trigger(), "gm (+1)");
 }
 
 #[test]
@@ -341,8 +389,8 @@ fn search_matches_name_when_it_differs_from_trigger() {
         id: "id-alt+r".to_string(),
         name: "Reddit opener".to_string(),
         description: Some("Open Reddit".to_string()),
-        trigger_type: TriggerType::Hotkey,
-        trigger: "alt+r".to_string(),
+        invocations: vec![alias_row("id-alt+r", TriggerType::Hotkey, "alt+r")],
+        display: "alt+r".to_string(),
         output: "[Script: powershell]".to_string(),
         action_type: "script".to_string(),
         target_os: "win".to_string(),
@@ -362,7 +410,7 @@ fn search_matches_name_when_it_differs_from_trigger() {
     }
 
     assert_eq!(state.filtered_len(), 1);
-    assert_eq!(state.item_at_filtered(0).unwrap().trigger(), "alt+r");
+    assert_eq!(state.item_at_filtered(0).unwrap().trigger(), "alt+r (+1)");
 }
 
 #[test]
@@ -1777,4 +1825,113 @@ fn modal_keeps_library_selection_stable_after_close() {
 
     assert_eq!(state.selected_index(), selected_before);
     assert_eq!(state.search_query(), "");
+}
+
+fn alias_fixture(
+    trigger_id: &str,
+    invocation: &str,
+    invocation_type: InvocationType,
+    require_confirmation: bool,
+) -> TriggerAliasRow {
+    TriggerAliasRow {
+        id: format!("alias-{invocation}"),
+        trigger_id: trigger_id.to_string(),
+        invocation: invocation.to_string(),
+        invocation_type,
+        require_confirmation,
+        strict_threshold: None,
+        created_at: 0,
+    }
+}
+
+fn multi_alias_list_item() -> TriggerListItem {
+    TriggerListItem {
+        id: "id-multi".to_string(),
+        name: String::new(),
+        description: None,
+        invocations: vec![
+            alias_fixture("id-multi", "gs", InvocationType::Word, false),
+            alias_fixture("id-multi", "gst", InvocationType::Word, false),
+            alias_fixture("id-multi", "ctrl+g", InvocationType::Hotkey, false),
+        ],
+        display: "gs".to_string(),
+        output: "git status".to_string(),
+        action_type: "text".to_string(),
+        target_os: "all".to_string(),
+        only_apps: None,
+        except_apps: None,
+        usage_count: 3,
+        last_used_at: None,
+        created_at: 0,
+        tags: "[]".to_string(),
+        script_content: None,
+        interpreter: None,
+        behavior: None,
+    }
+}
+
+fn multi_alias_trigger_row() -> TriggerRow {
+    TriggerRow {
+        id: "trigger-multi".to_string(),
+        name: String::new(),
+        description: None,
+        invocations: vec![
+            alias_fixture("trigger-multi", "hi", InvocationType::Word, false),
+            alias_fixture("trigger-multi", "say hi", InvocationType::Voice, true),
+        ],
+        display: "hi".to_string(),
+        output: "Hello!".to_string(),
+        action_type: "text".to_string(),
+        target_os: "all".to_string(),
+        only_apps: None,
+        except_apps: None,
+        tags: "[]".to_string(),
+        usage_count: 3,
+        last_used_at: Some(1),
+        created_at: 1,
+        updated_at: 1,
+        version: 1,
+        is_deleted: false,
+        is_synced: true,
+        is_enabled: true,
+        auto_case: false,
+        interpreter: None,
+        behavior: None,
+        script_binary: None,
+    }
+}
+
+#[test]
+fn grouped_row_appends_remaining_alias_count() {
+    assert_eq!(
+        LibraryTrigger::from(multi_alias_list_item()).trigger(),
+        "gs (+2)"
+    );
+}
+
+#[test]
+fn named_row_counts_all_invocations() {
+    let mut item = multi_alias_list_item();
+    item.name = "Git status".to_string();
+    item.display = "Git status".to_string();
+
+    assert_eq!(LibraryTrigger::from(item).trigger(), "Git status (+3)");
+}
+
+#[test]
+fn detail_lists_each_invocation_as_type_colon_invocation() {
+    let modal = LibraryEditorModalState::new_edit(
+        LibraryTriggerDetail::from_row(multi_alias_trigger_row()).unwrap(),
+    );
+    let aliases: Vec<(&str, &str)> = modal
+        .metadata_rows()
+        .iter()
+        .filter(|row| row.label() == "Alias")
+        .map(|row| (row.label(), row.value()))
+        .collect();
+
+    assert_eq!(
+        aliases,
+        vec![("Alias", "word: hi"), ("Alias", "voice: say hi (confirm)")]
+    );
 }

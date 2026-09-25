@@ -78,6 +78,7 @@ fn script_interpolation_with_positional_args_matches_current_behavior() {
         only_apps: None,
         except_apps: None,
         auto_case: false,
+        parent_id: String::new(),
         interpreter: Some(ScriptInterpreter::PowerShell),
         behavior: Some(ScriptBehavior::Inline),
         script_binary: Some(compressed),
@@ -110,6 +111,7 @@ fn script_interpolation_with_named_args_matches_current_behavior() {
         only_apps: None,
         except_apps: None,
         auto_case: false,
+        parent_id: String::new(),
         interpreter: Some(ScriptInterpreter::Bash),
         behavior: Some(ScriptBehavior::Silent),
         script_binary: Some(compressed),
@@ -635,8 +637,14 @@ fn keystroke_path_uses_use_cache_until_reload() {
 
     let conn = crate::db::key::open_keyed_connection(&crate::paths::get_db_path()).unwrap();
     conn.execute(
-        "INSERT OR REPLACE INTO triggers (id, trigger, output, action_type, target_os, name, tags, is_deleted, created_at, updated_at)
-         VALUES ('uuni_inner_id', 'uuni_inner', 'hello', 'text', 'all', 'uuni_inner', '[]', 0, 1719878400, 1719878400)",
+        "INSERT OR REPLACE INTO triggers (id, output, action_type, target_os, name, tags, is_deleted, created_at, updated_at)
+         VALUES ('uuni_inner_id', 'hello', 'text', 'all', 'uuni_inner', '[]', 0, 1719878400, 1719878400)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT OR REPLACE INTO trigger_aliases (id, trigger_id, invocation, invocation_type, require_confirmation)
+         VALUES ('uuni_inner_alias', 'uuni_inner_id', 'uuni_inner', 'word', 0)",
         [],
     )
     .unwrap();
@@ -665,6 +673,11 @@ fn keystroke_path_uses_use_cache_until_reload() {
     let third = expand_trigger_action_with_args(outer, &args, "outer").unwrap();
     assert_eq!(third.steps, vec![ExpansionStep::Text("bye!".to_string())]);
 
+    conn.execute(
+        "DELETE FROM trigger_aliases WHERE trigger_id = 'uuni_inner_id'",
+        [],
+    )
+    .ok();
     conn.execute("DELETE FROM triggers WHERE id = 'uuni_inner_id'", [])
         .ok();
     crate::engine::variables::interpolate::clear_use_cache();

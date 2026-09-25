@@ -1,4 +1,4 @@
-use rusqlite::{Connection, types::Type};
+use rusqlite::Connection;
 
 use crate::db::crud::{TriggerType, get_current_os_db_string};
 
@@ -16,9 +16,10 @@ pub struct HomeStats {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MostUsedTrigger {
-    pub trigger: String,
+    pub display: String,
     pub trigger_type: TriggerType,
     pub uses: u64,
+    pub alias_count: u64,
 }
 
 pub fn load_home_stats(conn: &Connection) -> crate::Result<HomeStats> {
@@ -69,38 +70,67 @@ fn fetch_most_used(
 ) -> crate::Result<Vec<MostUsedTrigger>> {
     let mut stmt = conn.prepare_cached(
         "SELECT
-            a.trigger,
-            a.trigger_type,
-            a.usage_count
-         FROM triggers a
-         WHERE a.is_deleted = 0
-           AND a.is_enabled = 1
-           AND a.usage_count > 0
-           AND a.trigger_type = ?1
-           AND (a.target_os = 'all' OR a.target_os = ?2)
-         ORDER BY a.usage_count DESC,
-                  (a.target_os != 'all') DESC,
-                  a.updated_at DESC,
-                  LOWER(a.trigger) ASC,
-                  a.trigger ASC
+            t.name,
+            t.usage_count,
+            (SELECT COUNT(*) FROM trigger_aliases al
+              WHERE al.trigger_id = t.id),
+            (SELECT w.invocation FROM trigger_aliases w
+              WHERE w.trigger_id = t.id AND w.invocation_type = 'word'
+              ORDER BY w.rowid LIMIT 1),
+            (SELECT f.invocation FROM trigger_aliases f
+              WHERE f.trigger_id = t.id
+              ORDER BY f.rowid LIMIT 1)
+         FROM triggers t
+         WHERE t.is_deleted = 0
+           AND t.is_enabled = 1
+           AND t.usage_count > 0
+           AND (t.target_os = 'all' OR t.target_os = ?2)
+           AND EXISTS (SELECT 1 FROM trigger_aliases al
+                       WHERE al.trigger_id = t.id AND al.invocation_type = ?1)
+         ORDER BY t.usage_count DESC,
+                  (t.target_os != 'all') DESC,
+                  t.updated_at DESC
          LIMIT ?3",
     )?;
 
     let rows = stmt.query_map((trigger_type.as_db_str(), os_str, limit as i64), |row| {
-        let trigger_type = TriggerType::parse_db(&row.get::<_, String>(1)?).map_err(|err| {
-            rusqlite::Error::FromSqlConversionFailure(1, Type::Text, Box::new(err))
-        })?;
-
-        Ok(MostUsedTrigger {
-            trigger: row.get(0)?,
-            trigger_type,
-            uses: row.get::<_, i64>(2)?.max(0) as u64,
-        })
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, i64>(1)?.max(0) as u64,
+            row.get::<_, i64>(2)?.max(0) as u64,
+            row.get::<_, Option<String>>(3)?,
+            row.get::<_, Option<String>>(4)?,
+        ))
     })?;
 
     let mut result = Vec::new();
     for row in rows {
-        result.push(row?);
+        let (name, uses, alias_count, first_word, first_any) = row?;
+        let named = !name.is_empty();
+        // Display rule mirrored from CLI list.rs entry_display: the base is
+        // the name when explicit, else the first word invocation, else the
+        // first invocation; (+N) counts aliases beyond the display string.
+        let base = if named {
+            name
+        } else {
+            first_word.or(first_any).unwrap_or_default()
+        };
+        let extra = if named {
+            alias_count
+        } else {
+            alias_count.saturating_sub(1)
+        };
+        let display = if extra == 0 {
+            base
+        } else {
+            format!("{base} (+{extra})")
+        };
+        result.push(MostUsedTrigger {
+            display,
+            trigger_type,
+            uses,
+            alias_count,
+        });
     }
 
     Ok(result)
@@ -110,10 +140,34 @@ fn fetch_most_used(
 mod tests {
     use super::*;
     use crate::db::crud::{
-        StatDeltas, TriggerType, delete_trigger, increment_stat, upsert_trigger,
-        upsert_trigger_with_type,
+        InvocationType, NewEntry, StatDeltas, add_alias, create_entry, delete_alias, increment_stat,
     };
     use crate::testing::{init_tracing_for_tests, open_test_db};
+
+    fn text_entry(name: &str, content: &str, invocation: (InvocationType, &str)) -> NewEntry {
+        NewEntry {
+            name: name.to_string(),
+            description: None,
+            content: content.to_string(),
+            action_type: "text".to_string(),
+            target_os: "all".to_string(),
+            only_apps: None,
+            except_apps: None,
+            tags_json: "[]".to_string(),
+            auto_case: false,
+            interpreter: None,
+            behavior: None,
+            invocations: vec![(invocation.0, invocation.1.to_string(), false)],
+        }
+    }
+
+    fn set_usage(conn: &Connection, id: &str, usage: i64) {
+        conn.execute(
+            "UPDATE triggers SET usage_count = ?1 WHERE id = ?2",
+            rusqlite::params![usage, id],
+        )
+        .unwrap();
+    }
 
     #[test]
     fn empty_home_stats_returns_zero_totals_and_no_triggers() {
@@ -158,50 +212,29 @@ mod tests {
         )
         .unwrap();
 
-        upsert_trigger(
+        let (word_id, _) = create_entry(
             &conn,
-            "uuid-word",
-            "Git Status",
-            Some("git status"),
-            "gs",
-            "git status",
-            "text",
-            "all",
-            "[]",
-            12,
-            None,
+            text_entry("", "git status", (InvocationType::Word, "gs")),
         )
         .unwrap();
-        upsert_trigger_with_type(
+        set_usage(&conn, &word_id, 12);
+        let (hotkey_id, _) = create_entry(
             &conn,
-            "uuid-hotkey",
-            "Email Signature",
-            Some("personal email signature"),
-            TriggerType::Hotkey,
-            "ralt+m",
-            "[Script: powershell]",
-            "script",
-            "all",
-            "[]",
-            20,
-            None,
+            text_entry(
+                "",
+                "personal email signature",
+                (InvocationType::Hotkey, "ralt+m"),
+            ),
         )
         .unwrap();
-        upsert_trigger(
+        set_usage(&conn, &hotkey_id, 20);
+        let (deleted_id, _) = create_entry(
             &conn,
-            "uuid-deleted",
-            "Old Trigger",
-            None,
-            "old",
-            "old output",
-            "text",
-            "all",
-            "[]",
-            99,
-            None,
+            text_entry("", "old output", (InvocationType::Word, "old")),
         )
         .unwrap();
-        delete_trigger(&conn, "uuid-deleted").unwrap();
+        set_usage(&conn, &deleted_id, 99);
+        delete_alias(&conn, &deleted_id, InvocationType::Word, "old").unwrap();
 
         let stats = load_home_stats(&conn).unwrap();
 
@@ -209,11 +242,13 @@ mod tests {
         assert_eq!(stats.keystrokes_saved, 150);
         assert_eq!(stats.time_saved_ms, 240_000);
         assert_eq!(stats.most_used_words.len(), 1);
-        assert_eq!(stats.most_used_words[0].trigger, "gs");
+        assert_eq!(stats.most_used_words[0].display, "gs");
         assert_eq!(stats.most_used_words[0].uses, 12);
+        assert_eq!(stats.most_used_words[0].alias_count, 1);
         assert_eq!(stats.most_used_hotkeys.len(), 1);
-        assert_eq!(stats.most_used_hotkeys[0].trigger, "ralt+m");
+        assert_eq!(stats.most_used_hotkeys[0].display, "ralt+m");
         assert_eq!(stats.most_used_hotkeys[0].uses, 20);
+        assert_eq!(stats.most_used_hotkeys[0].alias_count, 1);
     }
 
     #[test]
@@ -222,22 +257,17 @@ mod tests {
         let (_dir, conn) = open_test_db();
 
         for index in 0..6 {
-            let id = format!("uuid-{index}");
             let trigger = format!("t{index}");
-            upsert_trigger(
+            let (id, _) = create_entry(
                 &conn,
-                &id,
-                &format!("Trigger {index}"),
-                None,
-                &trigger,
-                &format!("Output {index}"),
-                "text",
-                "all",
-                "[]",
-                (10 - index) as i64,
-                None,
+                text_entry(
+                    "",
+                    &format!("Output {index}"),
+                    (InvocationType::Word, &trigger),
+                ),
             )
             .unwrap();
+            set_usage(&conn, &id, (10 - index) as i64);
         }
 
         let stats = load_home_stats_with_limit(&conn, 5).unwrap();
@@ -245,5 +275,37 @@ mod tests {
         assert_eq!(stats.most_used_words.len(), 5);
         assert_eq!(stats.most_used_words[0].uses, 10);
         assert_eq!(stats.most_used_words[4].uses, 6);
+    }
+
+    #[test]
+    fn home_most_used_renders_grouped_display_with_alias_count() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+
+        let (auto_id, _) = create_entry(
+            &conn,
+            text_entry("", "git status", (InvocationType::Word, "gs")),
+        )
+        .unwrap();
+        add_alias(&conn, &auto_id, InvocationType::Word, "gstatus", false).unwrap();
+        set_usage(&conn, &auto_id, 5);
+
+        let (named_id, _) = create_entry(
+            &conn,
+            text_entry("Deploy", "deploy!", (InvocationType::Word, "dpl")),
+        )
+        .unwrap();
+        add_alias(&conn, &named_id, InvocationType::Word, "dply", false).unwrap();
+        set_usage(&conn, &named_id, 3);
+
+        let stats = load_home_stats(&conn).unwrap();
+
+        assert_eq!(stats.most_used_words.len(), 2);
+        assert_eq!(stats.most_used_words[0].display, "gs (+1)");
+        assert_eq!(stats.most_used_words[0].uses, 5);
+        assert_eq!(stats.most_used_words[0].alias_count, 2);
+        assert_eq!(stats.most_used_words[1].display, "Deploy (+2)");
+        assert_eq!(stats.most_used_words[1].uses, 3);
+        assert_eq!(stats.most_used_words[1].alias_count, 2);
     }
 }

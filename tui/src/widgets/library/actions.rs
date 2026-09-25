@@ -537,6 +537,36 @@ pub(crate) fn preview_from_item(item: &TriggerListItem) -> String {
     "No preview available.".to_string()
 }
 
+/// Entry display per CLI `list.rs` §0.11: `display (+N)` where N counts
+/// aliases beyond the display string (all aliases when display is a --name,
+/// else len - 1).
+pub(crate) fn entry_display(item: &TriggerListItem) -> String {
+    let extra = if item.name.is_empty() {
+        item.invocations.len().saturating_sub(1)
+    } else {
+        item.invocations.len()
+    };
+    if extra == 0 {
+        item.display.clone()
+    } else {
+        format!("{} (+{extra})", item.display)
+    }
+}
+
+/// Alias detail line per CLI `list.rs`: `type: invocation` with a
+/// ` (confirm)` suffix on confirming aliases.
+pub(crate) fn alias_line(
+    invocation_type: &str,
+    invocation: &str,
+    require_confirmation: bool,
+) -> String {
+    let mut line = format!("{invocation_type}: {invocation}");
+    if require_confirmation {
+        line.push_str(" (confirm)");
+    }
+    line
+}
+
 pub(crate) fn modal_content_from_row(
     row: &TriggerRow,
     kind: LibraryKind,
@@ -579,6 +609,17 @@ pub(crate) fn build_metadata_rows(row: &TriggerRow) -> Vec<LibraryMetadataRow> {
         rows.push(LibraryMetadataRow::new("Updated", updated_at));
     }
 
+    for alias in &row.invocations {
+        rows.push(LibraryMetadataRow::new(
+            "Alias",
+            alias_line(
+                alias.invocation_type.as_db_str(),
+                &alias.invocation,
+                alias.require_confirmation,
+            ),
+        ));
+    }
+
     rows
 }
 
@@ -597,7 +638,7 @@ pub(crate) fn build_search_text(
 ) -> String {
     let mut parts = vec![
         item.name.as_str(),
-        item.trigger.as_str(),
+        item.display.as_str(),
         item.output.as_str(),
         kind_label,
         display_target_os,
@@ -610,6 +651,10 @@ pub(crate) fn build_search_text(
 
     if let Some(script_content) = item.script_content.as_deref() {
         parts.push(script_content);
+    }
+
+    for alias in &item.invocations {
+        parts.push(alias.invocation.as_str());
     }
 
     parts

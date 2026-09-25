@@ -5,7 +5,7 @@ description: Learn how to activate triggers using global keyboard shortcuts inst
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Taurine supports two distinct trigger types: **Word Triggers** and **Hotkey Triggers**. 
+Taurine entries fire from four invocation kinds: **Word**, **Hotkey**, **Regex**, and **Voice** — one entry can mix them (see [Managing Triggers](/docs/cli/trigger-management)).
 
 While Word Triggers are activated by typing a word directly (e.g., `gs `) and pressing Enter, **Hotkey Triggers** are global keyboard shortcuts that execute a trigger immediately when pressed, regardless of your current text state.
 
@@ -31,20 +31,27 @@ Taurine prevents ambiguous triggers by checking for overlaps:
 
 ## Creating Hotkey Triggers
 
-To create a hotkey trigger, use the `--hotkey` flag with the `add` command.
+To create a hotkey trigger, pass the combo to the `--hotkey` flag with the `add` command (repeatable — one combo per occurrence).
 
 ### Standard Text Expansion
 Map a keyboard shortcut to a text snippet.
 
 ```bash
-taurine add --hotkey "ctrl+shift+g" "git status[key.enter]"
+taurine add "git status[key(enter)]" --hotkey "ctrl+shift+g"
+```
+
+### Combined with Word Triggers
+Attach a hotkey to an existing word entry so either one fires it:
+
+```bash
+taurine add gs "git status[key(enter)]" --hotkey "ctrl+shift+g"
 ```
 
 ### Script Triggers
 Trigger a shell script with a hotkey.
 
 ```bash
-taurine add script --hotkey "ctrl+shift+w" winget-install -l powershell "winget install [0]"
+taurine add script winget-install -l powershell "winget install [0]" --hotkey "ctrl+shift+w" --hotkey "ctrl+alt+w"
 ```
 
 ### Side-Specific Examples
@@ -52,10 +59,10 @@ Bind different productivity tools to the same base key using different sides:
 
 ```bash
 # Bind Right Alt + M to open a typing test
-taurine add script --hotkey "ralt+m" "Start-Process https://monkeytype.com" -l powershell -m silent
+taurine add script "Start-Process https://monkeytype.com" --hotkey "ralt+m" -l powershell -m silent
 
 # Bind Left Alt + M to open Gmail
-taurine add script --hotkey "lalt+m" "Start-Process https://mail.google.com" -l powershell -m silent
+taurine add script "Start-Process https://mail.google.com" --hotkey "lalt+m" -l powershell -m silent
 ```
 
 ## Hotkey Syntax & Canonicalization
@@ -141,6 +148,6 @@ Positional variables like `[0]` will use their default values (if defined) or re
 Hotkey triggers are **desktop-only**. They are not supported for `android` or `ios` target operating systems. You can, however, bind the same hotkey to different actions on different desktop platforms:
 
 ```bash
-taurine add --hotkey "ctrl+shift+p" "Windows Project" --os windows
-taurine add --hotkey "ctrl+shift+p" "Linux Project" --os linux
+taurine add "Windows Project" --hotkey "ctrl+shift+p" --os windows
+taurine add "Linux Project" --hotkey "ctrl+shift+p" --os linux
 ```

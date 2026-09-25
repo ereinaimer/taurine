@@ -2,6 +2,7 @@ use super::script::*;
 use std::path::Path;
 use std::path::PathBuf;
 use taurine_core::db::crud::TriggerType;
+use taurine_core::db::crud::{InvocationType, find_parent_by_invocation};
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
 use taurine_core::logs::init_tracing_for_tests;
@@ -145,11 +146,9 @@ fn script_auto_case_does_not_lowercase_regex() {
 
         let conn = open_keyed_db(db_path);
         let stored: String = conn
-            .query_row(
-                "SELECT trigger FROM triggers WHERE action_type = 'script'",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT invocation FROM trigger_aliases LIMIT 1", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(
             stored, "['A-Z']",
@@ -179,13 +178,18 @@ fn script_add_still_creates_word_trigger_by_default() {
         let conn = open_keyed_db(db_path);
         let stored: (String, String) = conn
             .query_row(
-                "SELECT trigger_type, trigger FROM triggers WHERE is_deleted = 0 LIMIT 1",
+                "SELECT invocation_type, invocation FROM trigger_aliases LIMIT 1",
                 [],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .unwrap();
         assert_eq!(stored.0, "word");
         assert_eq!(stored.1, "deploy");
+        assert!(
+            find_parent_by_invocation(&conn, InvocationType::Word, "deploy")
+                .unwrap()
+                .is_some()
+        );
     });
 }
 
@@ -210,13 +214,18 @@ fn script_add_hotkey_creates_canonical_hotkey_trigger() {
         let conn = open_keyed_db(db_path);
         let stored: (String, String) = conn
             .query_row(
-                "SELECT trigger_type, trigger FROM triggers WHERE is_deleted = 0 LIMIT 1",
+                "SELECT invocation_type, invocation FROM trigger_aliases LIMIT 1",
                 [],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .unwrap();
         assert_eq!(stored.0, "hotkey");
         assert_eq!(stored.1, "ctrl+shift+w");
+        assert!(
+            find_parent_by_invocation(&conn, InvocationType::Hotkey, "ctrl+shift+w")
+                .unwrap()
+                .is_some()
+        );
     });
 }
 
@@ -254,11 +263,14 @@ fn script_word_trigger_duplicate_updates_existing_row() {
         .unwrap();
 
         let conn = open_keyed_db(db_path);
+        let parent_id = find_parent_by_invocation(&conn, InvocationType::Word, "deploy")
+            .unwrap()
+            .expect("deploy entry should exist");
 
-        // Exactly one active row
+        // Exactly one active entry holding the word alias
         let count: i64 = conn
                 .query_row(
-                    "SELECT COUNT(*) FROM triggers WHERE trigger_type = 'word' AND trigger = 'deploy' AND is_deleted = 0",
+                    "SELECT COUNT(*) FROM triggers t WHERE t.is_deleted = 0 AND EXISTS (SELECT 1 FROM trigger_aliases al WHERE al.trigger_id = t.id AND al.invocation_type = 'word' AND al.invocation = 'deploy')",
                     [],
                     |row| row.get(0),
                 )
@@ -267,12 +279,12 @@ fn script_word_trigger_duplicate_updates_existing_row() {
 
         // The script attachment also has exactly one row
         let script_count: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM scripts WHERE trigger_id = (SELECT id FROM triggers WHERE trigger = 'deploy' AND is_deleted = 0 LIMIT 1)",
-                    [],
-                    |row| row.get(0),
-                )
-                .unwrap();
+            .query_row(
+                "SELECT COUNT(*) FROM scripts WHERE trigger_id = ?1",
+                [&parent_id],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(script_count, 1, "Should have exactly one script row");
     });
 }
@@ -312,10 +324,10 @@ fn script_hotkey_trigger_canonicalization_updates_existing_row() {
 
         let conn = open_keyed_db(db_path);
 
-        // Exactly one active row for the canonical hotkey
+        // Exactly one active entry for the canonical hotkey
         let count: i64 = conn
                 .query_row(
-                    "SELECT COUNT(*) FROM triggers WHERE trigger_type = 'hotkey' AND trigger = 'ctrl+shift+g' AND is_deleted = 0",
+                    "SELECT COUNT(*) FROM triggers t WHERE t.is_deleted = 0 AND EXISTS (SELECT 1 FROM trigger_aliases al WHERE al.trigger_id = t.id AND al.invocation_type = 'hotkey' AND al.invocation = 'ctrl+shift+g')",
                     [],
                     |row| row.get(0),
                 )
@@ -348,13 +360,16 @@ fn script_to_text_update_clears_stale_script_row() {
 
         // Confirm the script row exists
         let conn = open_keyed_db(db_path);
+        let parent_id = find_parent_by_invocation(&conn, InvocationType::Word, "gs")
+            .unwrap()
+            .expect("gs entry should exist");
         let script_count_before: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM scripts WHERE trigger_id = (SELECT id FROM triggers WHERE trigger = 'gs' AND is_deleted = 0 LIMIT 1)",
-                    [],
-                    |row| row.get(0),
-                )
-                .unwrap();
+            .query_row(
+                "SELECT COUNT(*) FROM scripts WHERE trigger_id = ?1",
+                [&parent_id],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(
             script_count_before, 1,
             "Script row should exist after script add"
@@ -374,10 +389,10 @@ fn script_to_text_update_clears_stale_script_row() {
 
         let conn = open_keyed_db(db_path);
 
-        // Only one active trigger row
+        // Only one active entry holding the word alias
         let auto_count: i64 = conn
                 .query_row(
-                    "SELECT COUNT(*) FROM triggers WHERE trigger_type = 'word' AND trigger = 'gs' AND is_deleted = 0",
+                    "SELECT COUNT(*) FROM triggers t WHERE t.is_deleted = 0 AND EXISTS (SELECT 1 FROM trigger_aliases al WHERE al.trigger_id = t.id AND al.invocation_type = 'word' AND al.invocation = 'gs')",
                     [],
                     |row| row.get(0),
                 )
@@ -387,8 +402,8 @@ fn script_to_text_update_clears_stale_script_row() {
         // action_type must now be 'text'
         let action_type: String = conn
             .query_row(
-                "SELECT action_type FROM triggers WHERE trigger = 'gs' AND is_deleted = 0 LIMIT 1",
-                [],
+                "SELECT action_type FROM triggers WHERE id = ?1",
+                [&parent_id],
                 |row| row.get(0),
             )
             .unwrap();
@@ -399,12 +414,12 @@ fn script_to_text_update_clears_stale_script_row() {
 
         // Stale script row must be gone
         let script_count_after: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM scripts WHERE trigger_id = (SELECT id FROM triggers WHERE trigger = 'gs' AND is_deleted = 0 LIMIT 1)",
-                    [],
-                    |row| row.get(0),
-                )
-                .unwrap();
+            .query_row(
+                "SELECT COUNT(*) FROM scripts WHERE trigger_id = ?1",
+                [&parent_id],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(
             script_count_after, 0,
             "Stale script row should be deleted after text update"
@@ -430,13 +445,16 @@ fn text_to_script_update_creates_script_attachment() {
 
         // Confirm no script row yet
         let conn = open_keyed_db(db_path);
+        let parent_id = find_parent_by_invocation(&conn, InvocationType::Word, "gs")
+            .unwrap()
+            .expect("gs entry should exist");
         let script_count_before: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM scripts WHERE trigger_id = (SELECT id FROM triggers WHERE trigger = 'gs' AND is_deleted = 0 LIMIT 1)",
-                    [],
-                    |row| row.get(0),
-                )
-                .unwrap();
+            .query_row(
+                "SELECT COUNT(*) FROM scripts WHERE trigger_id = ?1",
+                [&parent_id],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(
             script_count_before, 0,
             "No script row should exist for a text trigger"
@@ -459,10 +477,10 @@ fn text_to_script_update_creates_script_attachment() {
 
         let conn = open_keyed_db(db_path);
 
-        // Only one active trigger row
+        // Only one active entry holding the word alias
         let auto_count: i64 = conn
                 .query_row(
-                    "SELECT COUNT(*) FROM triggers WHERE trigger_type = 'word' AND trigger = 'gs' AND is_deleted = 0",
+                    "SELECT COUNT(*) FROM triggers t WHERE t.is_deleted = 0 AND EXISTS (SELECT 1 FROM trigger_aliases al WHERE al.trigger_id = t.id AND al.invocation_type = 'word' AND al.invocation = 'gs')",
                     [],
                     |row| row.get(0),
                 )
@@ -472,8 +490,8 @@ fn text_to_script_update_creates_script_attachment() {
         // action_type must now be 'script'
         let action_type: String = conn
             .query_row(
-                "SELECT action_type FROM triggers WHERE trigger = 'gs' AND is_deleted = 0 LIMIT 1",
-                [],
+                "SELECT action_type FROM triggers WHERE id = ?1",
+                [&parent_id],
                 |row| row.get(0),
             )
             .unwrap();
@@ -484,12 +502,12 @@ fn text_to_script_update_creates_script_attachment() {
 
         // Script attachment must exist
         let script_count_after: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM scripts WHERE trigger_id = (SELECT id FROM triggers WHERE trigger = 'gs' AND is_deleted = 0 LIMIT 1)",
-                    [],
-                    |row| row.get(0),
-                )
-                .unwrap();
+            .query_row(
+                "SELECT COUNT(*) FROM scripts WHERE trigger_id = ?1",
+                [&parent_id],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(
             script_count_after, 1,
             "Script row should be created after script update"
@@ -499,60 +517,68 @@ fn text_to_script_update_creates_script_attachment() {
 
 #[test]
 fn test_script_inference_failure_diagnostic() {
-    let result = execute(
-        "test".to_string(),
-        false,
-        Some("plain text without shebang".to_string()),
-        None,
-        None,
-        ScriptBehavior::Inline,
-        "all".to_string(),
-        None,
-        None,
-    );
+    init_tracing_for_tests();
 
-    let err = result.unwrap_err().to_string();
-    assert!(
-        err.contains("Could not infer script language from content or file extension"),
-        "Error was: {err}"
-    );
-    assert!(
-        err.contains("Specify the interpreter explicitly using --lang:"),
-        "Error was: {err}"
-    );
-    assert!(
-        err.contains("Supported languages: bash, powershell, python, node, cmd"),
-        "Error was: {err}"
-    );
-    assert!(err.contains("taurine add script"), "Error was: {err}");
-    assert!(!err.contains('`'), "Must not contain backticks: {err}");
-    assert!(!err.contains('\''), "Must not contain single quotes: {err}");
+    with_test_db(|_| {
+        let result = execute(
+            "test".to_string(),
+            false,
+            Some("plain text without shebang".to_string()),
+            None,
+            None,
+            ScriptBehavior::Inline,
+            "all".to_string(),
+            None,
+            None,
+        );
+
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Could not infer script language from content or file extension"),
+            "Error was: {err}"
+        );
+        assert!(
+            err.contains("Specify the interpreter explicitly using --lang:"),
+            "Error was: {err}"
+        );
+        assert!(
+            err.contains("Supported languages: bash, powershell, python, node, cmd"),
+            "Error was: {err}"
+        );
+        assert!(err.contains("taurine add script"), "Error was: {err}");
+        assert!(!err.contains('`'), "Must not contain backticks: {err}");
+        assert!(!err.contains('\''), "Must not contain single quotes: {err}");
+    });
 }
 
 #[test]
 fn test_script_file_not_found_diagnostic() {
-    let result = execute(
-        "test".to_string(),
-        false,
-        None,
-        Some(PathBuf::from("nonexistent_script_file.sh")),
-        None,
-        ScriptBehavior::Inline,
-        "all".to_string(),
-        None,
-        None,
-    );
+    init_tracing_for_tests();
 
-    let err = result.unwrap_err().to_string();
-    assert!(
-        err.contains("Script file does not exist: nonexistent_script_file.sh"),
-        "Error was: {err}"
-    );
-    assert!(
-        err.contains("Verify that the file path is correct and accessible."),
-        "Error was: {err}"
-    );
-    assert!(err.contains("taurine add script -f"), "Error was: {err}");
-    assert!(!err.contains('`'), "Must not contain backticks: {err}");
-    assert!(!err.contains('\''), "Must not contain single quotes: {err}");
+    with_test_db(|_| {
+        let result = execute(
+            "test".to_string(),
+            false,
+            None,
+            Some(PathBuf::from("nonexistent_script_file.sh")),
+            None,
+            ScriptBehavior::Inline,
+            "all".to_string(),
+            None,
+            None,
+        );
+
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Script file does not exist: nonexistent_script_file.sh"),
+            "Error was: {err}"
+        );
+        assert!(
+            err.contains("Verify that the file path is correct and accessible."),
+            "Error was: {err}"
+        );
+        assert!(err.contains("taurine add script -f"), "Error was: {err}");
+        assert!(!err.contains('`'), "Must not contain backticks: {err}");
+        assert!(!err.contains('\''), "Must not contain single quotes: {err}");
+    });
 }

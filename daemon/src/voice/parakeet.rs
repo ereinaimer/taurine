@@ -138,5 +138,12 @@ mod tests {
 
         let transcriber_110m = ParakeetTranscriber::new("parakeet-tdt-ctc-110m", None);
         assert_eq!(transcriber_110m.name(), "parakeet-tdt-ctc-110m");
+
+        // Aliases resolve to the canonical loaded model, never the raw input.
+        let transcriber_auto = ParakeetTranscriber::new("auto", None);
+        assert_eq!(
+            transcriber_auto.name(),
+            taurine_core::voice::resolve_auto_model()
+        );
     }
 }

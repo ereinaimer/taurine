@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **English-Only Local Dictation**: Everyday dictation now uses an automatic two-tier English engine (best quality on capable machines, light and fast on constrained ones) with no model picker needed.
 - **Faster First Response, Lower Idle Memory**: Voice models load the moment you press the key and unload ~10 seconds after you stop, keeping idle usage a fraction of before.
+- **Isolated Voice Engine**: Speech recognition now runs in a separate background process that stays loaded while you dictate and unloads afterwards, so voice issues can never interrupt text expansion.
 - **Voice Audio Feedback**: Play the copy sound when voice dictation starts and the paste sound the moment you stop dictation via hotkey, per audio theme.
 - **Warm Voice Model Caching**: Keep speech recognition models warm in memory with an automatic inactivity timeout for near-instant dictation responses.
 - **Voice Input Device & Tray Controls**: Configure the speech dictation microphone via settings or live system tray submenu, with real-time toggle for always-on ambient listening.
@@ -30,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Inline AI Clipboard Context**: Pass copied clipboard text into inline AI prompts via natural paste shortcut (Ctrl+V / Cmd+V) or by typing [clip].
 - **Uninstall Data Prompt**: Ask before deleting configuration and data files during uninstallation; kept by default.
 - **Download Progress**: Show live download progress with transfer speed during installation and updates, including total size and elapsed time on completion.
+- **Multiple triggers per entry**: fire the same text or script from several word triggers, hotkeys, regex patterns, or voice phrases, managed as one grouped entry.
 
 ### Removed
 - **Always-On Ambient Listening**: Removed background microphone listening in favor of private on-demand voice hotkeys; voice triggers now run during Push-to-Talk and Hands-Free sessions with the mic closed when idle.
@@ -39,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Local-Only Daemon Control**: Removed the TCP transport settings (`rpc_mode`, `rpc_host`, `rpc_port`) and the RPC auth token. The daemon is now controlled over the local socket (Unix) or a same-user named pipe (Windows) only.
 
 ### Fixed
+- **Piped Output Crash**: Piping CLI output to a command that exits early no longer crashes or logs a panic.
 - **Zero Idle Voice Memory**: Voice models now unload completely ~10 seconds after dictation ends, returning idle memory to baseline.
 - **Voice Recognition Accuracy**: Eliminate microphone aliasing, word-ending cutoffs, and audio distortion using anti-aliasing resampling, voice activity hysteresis, and communications mode echo cancellation.
 - **Voice Trigger Reliability**: Always-listening voice triggers now fire on near-miss dictation and quiet speech, with longer pauses tolerated between words.

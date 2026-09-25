@@ -133,7 +133,7 @@ fn render_most_used_list(
 
     let table_rows = rows.iter().take(8).map(|trigger| {
         Row::new([
-            Cell::from(format!(" {}", trigger.trigger)).style(Style::default().fg(theme.text)),
+            Cell::from(format!(" {}", trigger.display)).style(Style::default().fg(theme.text)),
             Cell::from(format!("{} ", util::format_number(trigger.uses)))
                 .style(Style::default().fg(theme.text_muted)),
         ])

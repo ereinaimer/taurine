@@ -17,8 +17,8 @@ A fast, secure and easy-to-use text expander built in Rust. Taurine helps you ty
 | **up** | Start the service | `taurine up` |
 | **add** | Create a new text expansion | `taurine add "trigger" "output"` |
 | **add script** | Create a script trigger | `taurine add script "trigger" -f script.ps1` |
-| **add --regex** | Create a regex trigger | `taurine add --regex "issue-(\d+)" "https://github.com/issues/[0]"` |
-| **add --hotkey** | Create a global hotkey | `taurine add --hotkey "ctrl+shift+g" "git status[key(enter)]"` |
+| **add --regex** | Create a regex trigger | `taurine add "https://github.com/issues/[0]" --regex "issue-(\d+)"` |
+| **add --hotkey** | Create a global hotkey | `taurine add "git status[key(enter)]" --hotkey "ctrl+shift+g"` |
 | **add --include-apps** | App-specific trigger | `taurine add pr "git pull" --include-apps "title:GitHub"` |
 | **ls** | List expansions | `taurine ls --sort usage --desc` |
 | **export/import** | Back up / restore triggers | `taurine export backup.tau` |
@@ -41,10 +41,11 @@ A fast, secure and easy-to-use text expander built in Rust. Taurine helps you ty
 *   Global flags: `-v/--verbose`, `-q/--quiet`, `--no-log-file`, `--no-color`, `--json`.
 
 ### 2.2 Managing Triggers
-*   `taurine add <trigger> <output> [--hotkey] [--os <target>] [--tag <tags>]`: Add or auto-update a word or hotkey snippet. Use `--os` (`windows`, `linux`, `macos`, `all`, `current`) for per-platform variants and `--tag` (repeatable or comma-separated) for labels.
+*   `taurine add <trigger>... <output> [--hotkey <combo>] [--regex <pattern>] [--voice <phrase>] [--os <target>] [--tag <tags>]`: Add or auto-update an entry grouping word, hotkey, regex, and voice invocations. Use `--os` (`windows`, `linux`, `macos`, `all`, `current`) for per-platform variants and `--tag` (repeatable or comma-separated) for labels.
 *   `taurine add --regex <pattern> <output>`: Add a regex trigger (see 3.3).
 *   `taurine add --hotkey <combo> <output>`: Treat the trigger as a global keyboard shortcut (e.g., `alt+y`).
-*   `taurine add script <trigger> <body> [-f file] [-l lang] [-m mode] [--hotkey] [--regex]`: Adds a shell script trigger (see section 5).
+*   `taurine add script <trigger>... <body> [-f file] [-l lang] [-m mode] [--hotkey <combo>] [--regex <pattern>] [--voice <phrase>]`: Adds a shell script trigger (see section 5).
+*   One entry can group word, hotkey, regex, and voice invocations: `taurine add hi hello 'Hello!' --hotkey ctrl+h --voice 'say hi'` (repeatable flags, one invocation each). Shown as `hi (+3)`; deleting an entry's last invocation deletes the entry.
 *   `taurine add --include-apps <list> | --exclude-apps <list>`: Restrict a trigger to specific applications (see 3.5).
 *   `taurine list` (or `ls`): Displays a formatted table of all active triggers. Supports `--sort` (`alpha`, `usage`, `created`, `recent`), `--asc`/`--desc`, `--tag`, and `--json`.
 *   `taurine delete` (or `rm`/`remove`) `<trigger>...`: Removes one or more triggers. 

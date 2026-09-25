@@ -1,30 +1,36 @@
 use super::*;
-use crate::db::crud::{TriggerType, get_trigger, upsert_trigger, upsert_trigger_with_type};
+use crate::db::crud::{
+    InvocationType, NewEntry, TriggerType, create_entry, get_trigger, get_triggers_list,
+    upsert_trigger, upsert_trigger_with_type,
+};
 use crate::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use crate::exchange::AssetExport;
+use crate::exchange::export::export_triggers;
 use crate::testing::{init_tracing_for_tests, open_test_db};
 
-fn insert_raw_word_trigger(
+fn insert_entry_word(
     conn: &rusqlite::Connection,
-    id: &str,
     name: &str,
     trigger: &str,
     output: &str,
     target_os: &str,
-    version: i64,
 ) {
-    let now = crate::db::now_unix_secs();
-    conn.execute(
-        "INSERT INTO triggers (
-                id, name, description, trigger_type, trigger, output, action_type,
-                is_enabled, target_os, tags, usage_count, last_used_at,
-                created_at, updated_at, version, is_deleted, is_synced
-             ) VALUES (
-                ?1, ?2, NULL, 'word', ?3, ?4, 'text',
-                1, ?5, '[]', 0, NULL,
-                ?6, ?6, ?7, 0, 1
-             )",
-        rusqlite::params![id, name, trigger, output, target_os, now, version],
+    create_entry(
+        conn,
+        NewEntry {
+            name: name.to_string(),
+            description: None,
+            content: output.to_string(),
+            action_type: "text".to_string(),
+            target_os: target_os.to_string(),
+            only_apps: None,
+            except_apps: None,
+            tags_json: "[]".to_string(),
+            auto_case: false,
+            interpreter: None,
+            behavior: None,
+            invocations: vec![(InvocationType::Word, trigger.to_string(), false)],
+        },
     )
     .unwrap();
 }
@@ -47,7 +53,79 @@ fn text_export(
         tags: vec!["imported".to_string()],
         script: None,
         assets: Vec::new(),
+        aliases: vec![],
     }
+}
+
+fn entry_fixture(invocations: Vec<(InvocationType, &str)>) -> NewEntry {
+    NewEntry {
+        name: String::new(),
+        description: None,
+        content: "Hello!".to_string(),
+        action_type: "text".to_string(),
+        target_os: "all".to_string(),
+        only_apps: None,
+        except_apps: None,
+        tags_json: "[]".to_string(),
+        auto_case: false,
+        interpreter: None,
+        behavior: None,
+        invocations: invocations
+            .into_iter()
+            .map(|(t, s)| (t, s.to_string(), false))
+            .collect(),
+    }
+}
+
+#[test]
+fn export_import_roundtrip_preserves_aliases() {
+    init_tracing_for_tests();
+    let (_dir, conn) = open_test_db();
+    let (_, _) = create_entry(
+        &conn,
+        entry_fixture(vec![
+            (InvocationType::Word, "hi"),
+            (InvocationType::Hotkey, "ctrl+h"),
+            (InvocationType::Voice, "say hi"),
+        ]),
+    )
+    .unwrap();
+    let payload = export_triggers(&conn).unwrap();
+    assert_eq!(payload.triggers.len(), 1);
+    assert_eq!(payload.triggers[0].aliases.len(), 3);
+    let (_dir2, mut conn2) = open_test_db();
+    import_payload_transactionally(&mut conn2, &payload, |_, _| {
+        Ok(ImportConflictAction::Overwrite)
+    })
+    .unwrap();
+    let list = get_triggers_list(&conn2).unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].invocations.len(), 3);
+}
+
+#[test]
+fn legacy_single_trigger_payload_still_imports() {
+    init_tracing_for_tests();
+    let payload = ExchangePayload::new(vec![TriggerExport {
+        name: String::new(),
+        description: None,
+        trigger_type: TriggerType::Word,
+        trigger: "hi".into(),
+        output: "Hello!".into(),
+        action_type: "text".into(),
+        is_enabled: true,
+        target_os: "all".into(),
+        tags: vec![],
+        script: None,
+        assets: vec![],
+        aliases: vec![],
+    }]);
+    let (_dir, mut conn) = open_test_db();
+    import_payload_transactionally(&mut conn, &payload, |_, _| {
+        Ok(ImportConflictAction::Overwrite)
+    })
+    .unwrap();
+    assert_eq!(get_triggers_list(&conn).unwrap()[0].invocations.len(), 1);
 }
 
 #[test]
@@ -132,9 +210,11 @@ fn overwrite_conflict_replaces_existing_row_with_fresh_import() {
         String,
     ) = conn
         .query_row(
-            "SELECT id, usage_count, last_used_at, is_deleted, output
-                 FROM triggers
-                 WHERE trigger = ?1 AND target_os = ?2 AND is_deleted = 0",
+            "SELECT t.id, t.usage_count, t.last_used_at, t.is_deleted, t.output
+                 FROM triggers t
+                 JOIN trigger_aliases al ON al.trigger_id = t.id
+                 WHERE al.invocation_type = 'word' AND al.invocation = ?1
+                   AND t.target_os = ?2 AND t.is_deleted = 0",
             ["gm", "all"],
             |row| {
                 Ok((
@@ -175,9 +255,10 @@ fn import_restores_hotkey_trigger_type() {
 
     let row = conn
         .query_row(
-            "SELECT trigger_type, trigger
-                 FROM triggers
-                 WHERE is_deleted = 0",
+            "SELECT al.invocation_type, al.invocation
+                 FROM trigger_aliases al
+                 JOIN triggers t ON t.id = al.trigger_id
+                 WHERE t.is_deleted = 0",
             [],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
@@ -206,7 +287,10 @@ fn import_canonicalizes_hotkey_trigger_order() {
 
     let stored_trigger: String = conn
         .query_row(
-            "SELECT trigger FROM triggers WHERE is_deleted = 0",
+            "SELECT al.invocation
+                 FROM trigger_aliases al
+                 JOIN triggers t ON t.id = al.trigger_id
+                 WHERE al.invocation_type = 'hotkey' AND t.is_deleted = 0",
             [],
             |row| row.get(0),
         )
@@ -255,7 +339,11 @@ fn import_non_canonical_hotkey_detects_conflict_with_canonical_stored() {
 
     let (new_id, new_trigger): (String, String) = conn
         .query_row(
-            "SELECT id, trigger FROM triggers WHERE trigger = 'shift+alt+2' AND is_deleted = 0",
+            "SELECT t.id, al.invocation
+                 FROM triggers t
+                 JOIN trigger_aliases al ON al.trigger_id = t.id
+                 WHERE al.invocation_type = 'hotkey'
+                   AND al.invocation = 'shift+alt+2' AND t.is_deleted = 0",
             [],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
@@ -299,7 +387,10 @@ fn import_conflict_identity_keeps_word_and_hotkey_triggers_independent() {
 
     let count: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM triggers WHERE trigger = 'tab' AND is_deleted = 0",
+            "SELECT COUNT(DISTINCT al.trigger_id)
+                 FROM trigger_aliases al
+                 JOIN triggers t ON t.id = al.trigger_id
+                 WHERE al.invocation = 'tab' AND t.is_deleted = 0",
             [],
             |row| row.get(0),
         )
@@ -328,6 +419,7 @@ fn failed_import_can_be_rolled_back_atomically() {
             content: "echo ok".to_string(),
         }),
         assets: Vec::new(),
+        aliases: vec![],
     };
     let invalid_script = TriggerExport {
         name: "Broken Script".to_string(),
@@ -341,6 +433,7 @@ fn failed_import_can_be_rolled_back_atomically() {
         tags: vec![],
         script: None,
         assets: Vec::new(),
+        aliases: vec![],
     };
 
     let payload = ExchangePayload::new(vec![valid_script, invalid_script]);
@@ -366,16 +459,25 @@ fn overwrite_conflict_respects_target_os_overlap_for_same_trigger_type() {
     init_tracing_for_tests();
     let (_dir, mut conn) = open_test_db();
 
-    insert_raw_word_trigger(&conn, "local-all", "All OS", "gm", "all output", "all", 1);
-    insert_raw_word_trigger(
+    insert_entry_word(&conn, "Windows only", "gm", "win output", "win");
+    let (linux_id, _) = create_entry(
         &conn,
-        "local-linux",
-        "Linux only",
-        "gm",
-        "linux output",
-        "linux",
-        2,
-    );
+        NewEntry {
+            name: "Linux only".to_string(),
+            description: None,
+            content: "linux output".to_string(),
+            action_type: "text".to_string(),
+            target_os: "linux".to_string(),
+            only_apps: None,
+            except_apps: None,
+            tags_json: "[]".to_string(),
+            auto_case: false,
+            interpreter: None,
+            behavior: None,
+            invocations: vec![(InvocationType::Word, "gm".to_string(), false)],
+        },
+    )
+    .unwrap();
 
     let payload = ExchangePayload::new(vec![text_export(
         TriggerType::Word,
@@ -390,10 +492,16 @@ fn overwrite_conflict_respects_target_os_overlap_for_same_trigger_type() {
     tx.commit().unwrap();
     assert_eq!(imported, 1);
 
-    let local_all = get_trigger(&conn, "local-all").unwrap().unwrap();
-    assert!(local_all.is_deleted);
+    let win_active: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM triggers WHERE target_os = 'win' AND is_deleted = 0",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(win_active, 1);
 
-    let local_linux = get_trigger(&conn, "local-linux").unwrap().unwrap();
+    let local_linux = get_trigger(&conn, &linux_id).unwrap().unwrap();
     assert!(local_linux.is_deleted);
 }
 
@@ -433,10 +541,12 @@ fn non_overlapping_target_os_values_do_not_conflict_for_same_trigger_type() {
 
     let count: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM triggers
-                 WHERE trigger_type = 'hotkey'
-                   AND trigger = 'ctrl+shift+g'
-                   AND is_deleted = 0",
+            "SELECT COUNT(DISTINCT al.trigger_id)
+                 FROM trigger_aliases al
+                 JOIN triggers t ON t.id = al.trigger_id
+                 WHERE al.invocation_type = 'hotkey'
+                   AND al.invocation = 'ctrl+shift+g'
+                   AND t.is_deleted = 0",
             [],
             |row| row.get(0),
         )
@@ -457,7 +567,7 @@ fn test_import_rewrites_asset_uuids() {
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "test_asset".to_string(),
-            output: format!("Asset here: [asset:{}]", old_asset_id),
+            output: format!("Asset here: [image(asset({}))]", old_asset_id),
             action_type: "text".to_string(),
             is_enabled: true,
             target_os: "all".to_string(),
@@ -468,6 +578,7 @@ fn test_import_rewrites_asset_uuids() {
                 mime_type: "image/png".to_string(),
                 compressed_content_hex: "89504e470d0a1a0a".to_string(),
             }],
+            aliases: vec![],
         }],
     };
 
@@ -481,10 +592,9 @@ fn test_import_rewrites_asset_uuids() {
     import_triggers(&tx2, &payload, |_, _| Ok(ImportConflictAction::Overwrite)).unwrap();
     tx2.commit().unwrap();
 
-    // Retrieve both triggers and assets
-    let mut stmt = conn
-        .prepare("SELECT id, output FROM triggers WHERE trigger = 'test_asset'")
-        .unwrap();
+    // Retrieve both triggers and assets (the overwritten first import is
+    // tombstoned and keeps no aliases, so scope by table, not invocation).
+    let mut stmt = conn.prepare("SELECT id, output FROM triggers").unwrap();
     let autos: Vec<(String, String)> = stmt
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
         .unwrap()

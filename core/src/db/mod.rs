@@ -248,45 +248,52 @@ mod tests {
 
         let now = 1_700_000_000_i64;
         conn.execute(
-            "INSERT INTO triggers (id, name, trigger, output, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            ("uuid-1", "Good Morning", "gm", "Good morning!", now, now),
+            "INSERT INTO triggers (id, name, output, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            ("uuid-1", "Good Morning", "Good morning!", now, now),
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO trigger_aliases (id, trigger_id, invocation, invocation_type, require_confirmation)
+             VALUES ('uuid-1-alias', 'uuid-1', 'gm', 'word', 0)",
+            [],
         )
         .unwrap();
 
         let mut stmt = conn
             .prepare(
-                "SELECT name, trigger_type, action_type, is_deleted, is_synced, version
+                "SELECT name, action_type, is_deleted, is_synced, version
                  FROM triggers WHERE id = ?1",
             )
             .unwrap();
 
-        let (name, trigger_type, action_type, is_deleted, is_synced, version): (
-            String,
-            String,
-            String,
-            bool,
-            bool,
-            i64,
-        ) = stmt
-            .query_row(["uuid-1"], |row| {
+        let (name, action_type, is_deleted, is_synced, version): (String, String, bool, bool, i64) =
+            stmt.query_row(["uuid-1"], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
+                    row.get::<_, bool>(2)?,
                     row.get::<_, bool>(3)?,
-                    row.get::<_, bool>(4)?,
-                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(4)?,
                 ))
             })
             .unwrap();
 
         assert_eq!(name, "Good Morning");
-        assert_eq!(trigger_type, "word");
         assert_eq!(action_type, "text");
         assert!(!is_deleted);
         assert!(is_synced);
         assert_eq!(version, 1);
+
+        let (invocation, invocation_type): (String, String) = conn
+            .query_row(
+                "SELECT invocation, invocation_type FROM trigger_aliases WHERE trigger_id = ?1",
+                ["uuid-1"],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(invocation, "gm");
+        assert_eq!(invocation_type, "word");
     }
 
     #[test]
@@ -342,11 +349,12 @@ mod tests {
     }
 
     #[test]
-    fn test_triggers_table_includes_trigger_type_column() {
+    fn test_trigger_aliases_table_shape() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db();
 
-        let mut stmt = conn.prepare("PRAGMA table_info(triggers)").unwrap();
+        // Per-invocation rows live in trigger_aliases, keyed by type+invocation.
+        let mut stmt = conn.prepare("PRAGMA table_info(trigger_aliases)").unwrap();
         let rows = stmt
             .query_map([], |row| {
                 Ok((
@@ -360,14 +368,24 @@ mod tests {
 
         let columns: Vec<(String, String, bool, Option<String>)> =
             rows.map(|row| row.unwrap()).collect();
-        let trigger_type = columns
+        let invocation_type = columns
             .iter()
-            .find(|(name, _, _, _)| name == "trigger_type")
-            .expect("trigger_type column should exist");
+            .find(|(name, _, _, _)| name == "invocation_type")
+            .expect("invocation_type column should exist");
 
-        assert_eq!(trigger_type.1, "TEXT");
-        assert!(trigger_type.2);
-        assert_eq!(trigger_type.3.as_deref(), Some("'word'"));
+        assert_eq!(invocation_type.1, "TEXT");
+        assert!(invocation_type.2);
+        assert_eq!(invocation_type.3.as_deref(), Some("'word'"));
+
+        // The old per-row trigger columns are gone from the parent table.
+        let mut parent = conn.prepare("PRAGMA table_info(triggers)").unwrap();
+        let parent_names: Vec<String> = parent
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .map(|row| row.unwrap())
+            .collect();
+        assert!(!parent_names.iter().any(|n| n == "trigger"));
+        assert!(!parent_names.iter().any(|n| n == "trigger_type"));
     }
 
     #[test]

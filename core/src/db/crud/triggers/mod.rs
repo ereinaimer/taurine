@@ -1,3 +1,4 @@
+mod aliases;
 mod app_filter;
 mod assets;
 mod overlap;
@@ -9,6 +10,11 @@ mod trigger_types;
 mod usage;
 mod validate;
 
+pub use aliases::{
+    InvocationType, ResolvedInvocation, TriggerAliasRow, add_alias, count_aliases, delete_alias,
+    find_parent_by_invocation, increment_usage_count_by_id, list_aliases, normalize_voice_phrase,
+    threshold_for_phrase, tombstone_entry, validate_voice_phrase,
+};
 pub use app_filter::AppFilterPrefix;
 
 pub use trigger_delete::{
@@ -18,7 +24,8 @@ pub use trigger_delete::{
 
 pub use trigger_get::{
     get_action_by_trigger, get_all_active_hotkey_triggers, get_all_active_regex_triggers,
-    get_all_active_triggers, get_trigger, get_triggers_list, search_triggers,
+    get_all_active_triggers, get_trigger, get_triggers_list, list_active_voice_invocations,
+    search_triggers,
 };
 pub use validate::{
     audit_payload_tags, audit_payload_tags_with_trigger_type, audit_script_payload_tags,
@@ -26,22 +33,23 @@ pub use validate::{
 };
 
 pub use overlap::{
-    find_trigger_overlap_conflict, target_os_values_overlap, validate_trigger_target_os_conflict,
+    app_filters_overlap, find_trigger_overlap_conflict, find_voice_overlap_conflict,
+    target_os_values_overlap, validate_trigger_target_os_conflict,
 };
 
 pub use usage::{increment_usage_count_by_trigger, record_expansion_usage};
 
 pub use trigger_set::{
-    AddOutcome, ExistingTriggerUpdate, NewTrigger, PreparedTrigger, add_trigger,
-    add_trigger_by_type, add_trigger_by_type_with_case, add_trigger_with_case, create_trigger,
-    prepare_trigger, prepare_trigger_with_type, update_existing_trigger,
-    update_trigger_app_filters, upsert_script, upsert_trigger, upsert_trigger_with_type,
-    upsert_trigger_with_type_and_case,
+    AddOutcome, ExistingTriggerUpdate, NewEntry, NewTrigger, PreparedTrigger, add_trigger,
+    add_trigger_by_type, add_trigger_by_type_with_case, add_trigger_with_case, create_entry,
+    create_trigger, prepare_trigger, prepare_trigger_with_type, update_existing_trigger,
+    update_trigger_app_filters, upsert_entry_full, upsert_script, upsert_trigger,
+    upsert_trigger_with_type, upsert_trigger_with_type_and_case,
 };
 pub use trigger_sync::get_syncable_triggers;
 pub use trigger_types::{
     ActionType, TriggerAction, TriggerConflict, TriggerLimits, TriggerListItem, TriggerRow,
-    TriggerSummary, TriggerType,
+    TriggerSummary, TriggerType, display_alias, display_for_aliases,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1,9 +1,11 @@
-use taurine_core::db::crud::{ActionType, TriggerListItem, TriggerRow, TriggerType};
+use taurine_core::db::crud::{
+    ActionType, InvocationType, TriggerAliasRow, TriggerListItem, TriggerRow, TriggerType,
+};
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
 use crate::widgets::library::actions::{
-    build_metadata_rows, build_search_text, display_target_os, modal_content_from_row,
-    preview_from_item,
+    build_metadata_rows, build_search_text, display_target_os, entry_display,
+    modal_content_from_row, preview_from_item,
 };
 
 use super::LibraryMetadataRow;
@@ -23,6 +25,22 @@ impl LibraryKind {
         Self::HotkeySnippet,
         Self::HotkeyScript,
     ];
+
+    /// Display-alias type mapped back onto [`TriggerType`] for the grouped
+    /// entry (Task 8 owns the full multi-alias redesign; voice displays as word).
+    pub(crate) fn from_invocations(invocations: &[TriggerAliasRow], action_type: &str) -> Self {
+        let trigger_type = invocations
+            .iter()
+            .find(|a| a.invocation_type == InvocationType::Word)
+            .or_else(|| invocations.first())
+            .map(|a| match a.invocation_type {
+                InvocationType::Hotkey => TriggerType::Hotkey,
+                InvocationType::Regex => TriggerType::Regex,
+                InvocationType::Word | InvocationType::Voice => TriggerType::Word,
+            })
+            .unwrap_or(TriggerType::Word);
+        Self::from_parts(trigger_type, action_type)
+    }
 
     pub(crate) fn from_parts(trigger_type: TriggerType, action_type: &str) -> Self {
         let is_script = ActionType::parse_str(action_type) == Some(ActionType::Script);
@@ -118,15 +136,16 @@ impl LibraryTrigger {
 
 impl From<TriggerListItem> for LibraryTrigger {
     fn from(item: TriggerListItem) -> Self {
-        let kind = LibraryKind::from_parts(item.trigger_type, item.action_type.as_str());
+        let kind = LibraryKind::from_invocations(&item.invocations, item.action_type.as_str());
         let preview = preview_from_item(&item);
         let target_os = display_target_os(&item.target_os).to_string();
         let search_text = build_search_text(&item, kind.label(), &target_os);
+        let trigger = entry_display(&item);
 
         Self {
             id: item.id,
             name: item.name,
-            trigger: item.trigger,
+            trigger,
             preview,
             kind,
             target_os,
@@ -168,7 +187,7 @@ pub(crate) struct LibraryTriggerDetail {
 
 impl LibraryTriggerDetail {
     pub(crate) fn from_row(row: TriggerRow) -> taurine_core::Result<Self> {
-        let kind = LibraryKind::from_parts(row.trigger_type, row.action_type.as_str());
+        let kind = LibraryKind::from_invocations(&row.invocations, row.action_type.as_str());
         let content = modal_content_from_row(&row, kind)?;
         let metadata_rows = build_metadata_rows(&row);
 
@@ -179,7 +198,7 @@ impl LibraryTriggerDetail {
             tags_json: row.tags,
             usage_count: row.usage_count,
             last_used_at: row.last_used_at,
-            trigger: row.trigger,
+            trigger: row.display,
             kind,
             content,
             target_os_raw: row.target_os,

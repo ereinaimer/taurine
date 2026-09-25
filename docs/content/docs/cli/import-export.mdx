@@ -53,7 +53,7 @@ Like `export`, `import` opens an interactive TUI overlay by default. All CLI fla
 Pass `-y` / `--yes` to skip the TUI. A file path is always required with `--yes`. If the file has a password, the command errors because it can't be prompted for — use the interactive TUI.
 
 ### Conflict Resolution
-When an imported trigger shares the same **Trigger** and **Target OS** as an existing local trigger, Taurine triggers a conflict resolution flow.
+When an imported invocation shares the same **invocation and type** with overlapping scope as an existing local invocation, Taurine triggers a conflict resolution flow.
 
 - **`prompt` (Default)**: Opens an interactive menu for each conflict.
 - **`overwrite`**: Automatically replaces local triggers with the imported versions.

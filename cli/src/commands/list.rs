@@ -1,4 +1,5 @@
 use crate::args::SortBy;
+use taurine_core::db::crud::{TriggerListItem, get_triggers_list};
 use taurine_core::db::init;
 use time::OffsetDateTime;
 
@@ -10,82 +11,7 @@ pub fn execute(
     tag: Option<String>,
     voice: bool,
 ) -> taurine_core::error::Result<()> {
-    use taurine_core::db::crud::get_triggers_list;
-
     let conn = init::setup()?;
-
-    if voice {
-        let mut voice_triggers =
-            taurine_core::db::crud::voice_triggers::list_active_voice_triggers(&conn)?;
-
-        if json {
-            println!("{}", serde_json::to_string(&voice_triggers).unwrap());
-            return Ok(());
-        }
-
-        if voice_triggers.is_empty() {
-            println!("No active voice triggers found.");
-            return Ok(());
-        }
-
-        let effective_sort = sort.clone().unwrap_or(SortBy::Alpha);
-        let is_desc = if desc {
-            true
-        } else if asc {
-            false
-        } else {
-            match effective_sort {
-                SortBy::Alpha => false,
-                SortBy::Usage | SortBy::Created | SortBy::Recent => true,
-            }
-        };
-
-        voice_triggers.sort_by(|a, b| {
-            let cmp = match effective_sort {
-                SortBy::Alpha => a.spoken_phrase.cmp(&b.spoken_phrase),
-                SortBy::Usage => a.usage_count.cmp(&b.usage_count),
-                SortBy::Created | SortBy::Recent => a.created_at.cmp(&b.created_at),
-            };
-            if is_desc { cmp.reverse() } else { cmp }
-        });
-
-        let mut pw = 13; // "SPOKEN PHRASE"
-        let mut ow = 6; // "OUTPUT"
-        let mut aw = 6; // "ACTION"
-        let cw = 7; // "CONFIRM"
-        let mut uw = 5; // "USAGE"
-
-        for v in &voice_triggers {
-            pw = pw.max(v.spoken_phrase.len());
-            ow = ow.max(v.output.len().min(40));
-            aw = aw.max(v.action_type.len());
-            uw = uw.max(v.usage_count.to_string().len());
-        }
-
-        println!(
-            "{:<pw$}  {:<ow$}  {:<aw$}  {:<cw$}  {:>uw$}",
-            "SPOKEN PHRASE", "OUTPUT", "ACTION", "CONFIRM", "USAGE"
-        );
-        println!(
-            "{:<pw$}  {:<ow$}  {:<aw$}  {:<cw$}  {:>uw$}",
-            "-".repeat(pw),
-            "-".repeat(ow),
-            "-".repeat(aw),
-            "-".repeat(cw),
-            "-".repeat(uw)
-        );
-
-        for v in &voice_triggers {
-            let confirm_str = if v.require_confirmation { "yes" } else { "no" };
-            let display_out = truncate(&v.output.replace(['\r', '\n'], " "), 40);
-            println!(
-                "{:<pw$}  {:<ow$}  {:<aw$}  {:<cw$}  {:>uw$}",
-                v.spoken_phrase, display_out, v.action_type, confirm_str, v.usage_count
-            );
-        }
-
-        return Ok(());
-    }
     let mut triggers = get_triggers_list(&conn)?;
 
     if let Some(ref t) = tag {
@@ -93,6 +19,22 @@ pub fn execute(
             let tags: Vec<String> = serde_json::from_str(&item.tags).unwrap_or_default();
             tags.contains(t)
         });
+    }
+
+    if voice {
+        triggers.retain(|item| {
+            item.invocations
+                .iter()
+                .any(|a| a.invocation_type == taurine_core::db::crud::InvocationType::Voice)
+        });
+        if triggers.is_empty() {
+            if json {
+                println!("[]");
+            } else {
+                println!("No active voice triggers found.");
+            }
+            return Ok(());
+        }
     }
 
     // Determine default direction based on sort type
@@ -111,7 +53,7 @@ pub fn execute(
     // Sort the list
     triggers.sort_by(|a, b| {
         let cmp = match effective_sort {
-            SortBy::Alpha => a.trigger.cmp(&b.trigger),
+            SortBy::Alpha => a.display.cmp(&b.display),
             SortBy::Usage => a.usage_count.cmp(&b.usage_count),
             SortBy::Created => a.created_at.cmp(&b.created_at),
             SortBy::Recent => {
@@ -135,6 +77,7 @@ pub fn execute(
         output: String,
         sort_col: Option<String>,
         tags: String,
+        aliases: Vec<String>,
     }
 
     let rows: Vec<Row> = triggers
@@ -158,10 +101,22 @@ pub fn execute(
             };
 
             Row {
-                trigger: item.trigger.clone(),
+                trigger: entry_display(item),
                 output: truncate(&display_output, 60),
                 sort_col,
                 tags: tags_str,
+                aliases: item
+                    .invocations
+                    .iter()
+                    .map(|a| {
+                        let mut line =
+                            format!("{}: {}", a.invocation_type.as_db_str(), a.invocation);
+                        if a.require_confirmation {
+                            line.push_str(" (confirm)");
+                        }
+                        line
+                    })
+                    .collect(),
             }
         })
         .collect();
@@ -252,9 +207,27 @@ pub fn execute(
                 ow = ow,
             );
         }
+        for alias in &r.aliases {
+            println!("  {alias}");
+        }
     }
 
     Ok(())
+}
+
+/// Entry display per §0.11: `display (+N)` where N counts aliases beyond the
+/// display string (all aliases when display is a --name, else len - 1).
+fn entry_display(item: &TriggerListItem) -> String {
+    let extra = if item.name.is_empty() {
+        item.invocations.len().saturating_sub(1)
+    } else {
+        item.invocations.len()
+    };
+    if extra == 0 {
+        item.display.clone()
+    } else {
+        format!("{} (+{extra})", item.display)
+    }
 }
 
 fn truncate(s: &str, max: usize) -> String {
@@ -299,9 +272,21 @@ fn format_relative_time(timestamp: i64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use taurine_core::db::crud::TriggerType;
     use taurine_core::db::crud::triggers::TriggerListItem;
+    use taurine_core::db::crud::{InvocationType, TriggerAliasRow};
     use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
+
+    fn alias_row(invocation: &str, invocation_type: InvocationType) -> TriggerAliasRow {
+        TriggerAliasRow {
+            id: format!("alias-{invocation}"),
+            trigger_id: "entry-1".to_string(),
+            invocation: invocation.to_string(),
+            invocation_type,
+            require_confirmation: false,
+            strict_threshold: None,
+            created_at: 0,
+        }
+    }
 
     #[test]
     fn test_json_output_with_all_fields() {
@@ -309,8 +294,8 @@ mod tests {
             id: "1".to_string(),
             name: "".to_string(),
             description: None,
-            trigger_type: TriggerType::Word,
-            trigger: "gs".to_string(),
+            invocations: vec![alias_row("gs", InvocationType::Word)],
+            display: "gs".to_string(),
             output: "git status".to_string(),
             action_type: "text".to_string(),
             target_os: "all".to_string(),
@@ -326,7 +311,7 @@ mod tests {
         }];
 
         let json = serde_json::to_string(&items).unwrap();
-        assert!(json.contains("\"trigger\":\"gs\""));
+        assert!(json.contains("\"display\":\"gs\""));
         assert!(json.contains("\"output\":\"git status\""));
         assert!(json.contains("\"usage_count\":42"));
         assert!(json.contains("\"only_apps\":\"terminal\""));
@@ -339,8 +324,8 @@ mod tests {
             id: "s1".to_string(),
             name: "".to_string(),
             description: Some("deploy script".to_string()),
-            trigger_type: TriggerType::Hotkey,
-            trigger: "ctrl+shift+d".to_string(),
+            invocations: vec![alias_row("ctrl+shift+d", InvocationType::Hotkey)],
+            display: "ctrl+shift+d".to_string(),
             output: "Inline Bash".to_string(),
             action_type: "script".to_string(),
             target_os: "linux".to_string(),
@@ -359,7 +344,7 @@ mod tests {
         assert!(json.contains("\"action_type\":\"script\""));
         assert!(json.contains("\"script_content\":\"echo deployed\""));
         assert!(json.contains("\"interpreter\":\"bash\""));
-        assert!(json.contains("\"trigger_type\":\"hotkey\""));
+        assert!(json.contains("\"invocation_type\":\"hotkey\""));
     }
 
     #[test]
@@ -375,8 +360,8 @@ mod tests {
             id: "n1".to_string(),
             name: "".to_string(),
             description: None,
-            trigger_type: TriggerType::Regex,
-            trigger: "foo".to_string(),
+            invocations: vec![alias_row("foo", InvocationType::Regex)],
+            display: "foo".to_string(),
             output: "bar".to_string(),
             action_type: "text".to_string(),
             target_os: "win".to_string(),
@@ -450,8 +435,8 @@ mod tests {
             id: "s1".to_string(),
             name: "".to_string(),
             description: Some("script".to_string()),
-            trigger_type: TriggerType::Hotkey,
-            trigger: "test".to_string(),
+            invocations: vec![alias_row("test", InvocationType::Hotkey)],
+            display: "test".to_string(),
             output: "Bash Inline".to_string(),
             action_type: "script".to_string(),
             target_os: "all".to_string(),
@@ -482,8 +467,8 @@ mod tests {
             id: "s2".to_string(),
             name: "".to_string(),
             description: None,
-            trigger_type: TriggerType::Word,
-            trigger: "long".to_string(),
+            invocations: vec![alias_row("long", InvocationType::Word)],
+            display: "long".to_string(),
             output: "label".to_string(),
             action_type: "script".to_string(),
             target_os: "all".to_string(),
@@ -515,8 +500,8 @@ mod tests {
                 id: "a".to_string(),
                 name: "".to_string(),
                 description: None,
-                trigger_type: TriggerType::Word,
-                trigger: "b".to_string(),
+                invocations: vec![alias_row("b", InvocationType::Word)],
+                display: "b".to_string(),
                 output: "two".to_string(),
                 action_type: "text".to_string(),
                 target_os: "all".to_string(),
@@ -534,8 +519,8 @@ mod tests {
                 id: "b".to_string(),
                 name: "".to_string(),
                 description: None,
-                trigger_type: TriggerType::Word,
-                trigger: "a".to_string(),
+                invocations: vec![alias_row("a", InvocationType::Word)],
+                display: "a".to_string(),
                 output: "one".to_string(),
                 action_type: "text".to_string(),
                 target_os: "all".to_string(),
@@ -553,7 +538,7 @@ mod tests {
 
         // Alpha sort: 'a' should appear before 'b'
         let mut sorted = items.clone();
-        sorted.sort_by(|a, b| a.trigger.cmp(&b.trigger));
+        sorted.sort_by(|a, b| a.display.cmp(&b.display));
         let json = serde_json::to_string(&sorted).unwrap();
         let pos_a = json.find("\"a\"").unwrap();
         let pos_b = json.rfind("\"b\"").unwrap();

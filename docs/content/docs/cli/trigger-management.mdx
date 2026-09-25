@@ -3,12 +3,14 @@ title: Managing Triggers
 description: How to add, list, and remove your Taurine triggers
 ---
 
-## Trigger Types
+## Invocation Types
 
-Taurine supports two ways to activate a trigger:
+Taurine entries fire from four kinds of invocations:
 
-1. **Word Triggers**: Typed words expanded directly with Enter (e.g., `brb`).
-2. **Hotkey Triggers**: Global keyboard shortcuts (e.g., `ctrl+shift+g`).
+1. **Word**: Typed words expanded directly with Enter (e.g., `brb`).
+2. **Hotkey**: Global keyboard shortcuts (e.g., `ctrl+shift+g`).
+3. **Regex**: Patterns matched against typed text (e.g., `issue-(\d+)`).
+4. **Voice**: Spoken phrases matched during voice sessions (e.g., `say hi`).
 
 ## Adding Triggers
 
@@ -22,12 +24,27 @@ taurine add brb "Be right back"
 
 If you add a trigger that already exists, Taurine will automatically update it with the new content.
 
-### Hotkey Triggers
+### Multiple Invocations per Entry
 
-To create a trigger configured as a keyboard shortcut, use the `--hotkey` flag:
+One entry can fire from many invocations of any kind. List extra word triggers as
+additional positionals, and attach hotkey, regex, and voice invocations with repeatable flags:
 
 ```bash
-taurine add --hotkey "ctrl+shift+g" "git status[key.enter]"
+taurine add hi hello "Hello!" --hotkey ctrl+h --hotkey ctrl+j --voice "say hi" --regex "h+i+"
+```
+
+Typing `hi` or `hello`, pressing `ctrl+h` or `ctrl+j`, saying "say hi", or typing text
+matching `h+i+` all produce `Hello!`. The list shows the entry once as `hi (+4)` with every
+invocation grouped underneath, and usage counts unify on the entry regardless of which
+invocation fired.
+
+### Hotkey Triggers
+
+To create a trigger configured as a keyboard shortcut, pass the combo to the `--hotkey` flag
+(repeatable — one combo per occurrence):
+
+```bash
+taurine add "git status[key(enter)]" --hotkey "ctrl+shift+g"
 ```
 
 For more details on hotkey syntax and validation, see the [Hotkey Triggers](/docs/cli/hotkey-triggers) page.
@@ -141,12 +158,15 @@ taurine list --tag work
 
 ## Deleting Triggers
 
-Remove one or more triggers using the `rm` command (aliases: `remove`, `delete`):
+Remove one or more invocations using the `rm` command (aliases: `remove`, `delete`):
 
 ```bash
 taurine rm brb gm sig
 taurine delete obsolete_trigger
 ```
+
+Deleting removes that single invocation. When an entry's last invocation is removed, the whole
+entry (including any attached script) is deleted with it.
 
 ### Deleting by Tag
 You can remove all triggers that have a specific tag by using the `--tag` flag:
