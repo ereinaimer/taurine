@@ -8,24 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Parameterized Voice Triggers**: Define voice shortcuts with dynamic slot placeholders (e.g. `--voice 'send [msg] to [person]'`) that automatically extract spoken words and populate output variables.
-- **Reliable Voice After Login**: Voice dictation hotkeys now recover automatically when Windows audio or background startup is still warming up.
-- **Instant Tray At Startup**: The tray icon now appears immediately at launch while voice, hooks, and audio finish warming up in the background.
-- **Voice Dictation Accuracy**: Custom dictionary entries dynamically correct acoustic sound-alikes and split syllables without corrupting real English words via offline lexicon immunity.
-- **Faster Voice Start**: Dictation after a break begins instantly with background model loading.
-- **Lower Idle Voice Memory**: The voice model unloads within a minute of silence.
-- **Instant Pause Sound**: The pause hotkey now plays its sound the instant you press it, on every press, instead of after the action completes.
-- **Mash-Proof Pause Toggle**: Rapid pause presses settle to the intended on/off state instead of leaving the app stuck half-paused.
-- **Reliable Voice Hotkey**: The voice key acknowledges every press and release instantly, no longer ignores presses after rapid tapping, and keeps the first fraction of a second of audio so the opening word is never clipped.
-- **English-Only Local Dictation**: Everyday dictation now uses an automatic three-tier English engine (fast, balanced, and best quality) with no model picker needed.
-- **Faster First Response, Lower Idle Memory**: Voice models load the moment you press the key and release memory when idle, keeping idle usage a fraction of before. The mic-open cue now plays instantly without waiting on audio device detection, and repeat dictation within a burst skips microphone and model warm-up entirely. The mic-close cue answers the key release itself, never waiting on transcription. Presses landing mid-decode park and auto-start while the key stays held, every key edge sounds even with no session to start or stop, and a fresh cue cuts the previous one instead of blending.
-- **Isolated Voice Engine**: Speech recognition now runs in a separate background process that stays loaded while you dictate and unloads afterwards, so voice issues can never interrupt text expansion.
-- **Voice Audio Feedback**: Play the copy sound when voice dictation starts and the paste sound the moment you stop dictation via hotkey, per audio theme.
-- **Warm Voice Model Caching**: Keep speech recognition models warm in memory with an automatic inactivity timeout for near-instant dictation responses.
-- **Voice Input Device & Tray Controls**: Configure the speech dictation microphone via settings or live system tray submenu, with real-time toggle for always-on ambient listening.
-- **Voice Dictation**: Local push-to-talk and hands-free voice dictation with automatic text formatting and smart dictionary corrections.
-- **Voice Triggers**: Ambient trigger phrase spotting with multi-model confidence gating and optional execution confirmation.
-- **Automatic Voice Model Setup**: Automatically download missing voice dictation and ambient trigger models with live progress during service startup or configuration.
+- **Voice Dictation**: Local push-to-talk and hands-free dictation with automatic formatting, lexicon-guarded dictionary corrections, stutter cleanup, instant start that stays warm across bursts with no clipped words or missed presses, single-step paste, and start/stop audio cues.
+- **Voice Triggers**: Spoken phrases that expand text, run scripts in the correct language, and expand system variables, working during dictation.
+- **Parameterized Voice Triggers**: Define voice shortcuts with slot placeholders (e.g. `--voice 'send [msg] to [person]'`) that extract spoken words into output variables.
+- **Automatic Voice Model Setup**: Voice models download on demand with live progress, stay warm while dictating in an isolated background process, and unload when idle; English engine tiers are automatic with no picker needed.
+- **Voice Input Device & Tray Controls**: Pick the dictation microphone via settings or tray submenu with automatic fallback when devices are unplugged and the saved device restored at startup.
 - **Lossless Transformer Pipes**: A transformer that cannot apply now passes your text through unchanged instead of wiping it or typing raw tag syntax.
 - **Expansion Size Guardrails**: Placeholder text is capped at 1 MB of output and images at 10 MB per file, refusing oversized requests with a clear error instead of exhausting memory; caret positioning steps aside on very large outputs.
 - **Complete Save-Time Validation**: Every system variable value and transformer argument is checked when you save, with the valid form named; retired dotted chains now suggest their exact replacement.
@@ -42,31 +29,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Download Progress**: Show live download progress with transfer speed during installation and updates, including total size and elapsed time on completion.
 - **Multiple triggers per entry**: fire the same text or script from several word triggers, hotkeys, regex patterns, or voice phrases, managed as one grouped entry.
 
+### Changed
+- **Always-Encrypted Exports**: Remove the `--plain` export option so `.tau` files are always encrypted, with an optional password for a second lock.
+- **Machine-Bound Database Encryption**: The local database is now encrypted with a per-computer key and copies of the database file no longer open on other computers; move data between machines with encrypted exports.
+
 ### Removed
-- **Always-On Ambient Listening**: Removed background microphone listening in favor of private on-demand voice hotkeys; voice triggers now run during Push-to-Talk and Hands-Free sessions with the mic closed when idle.
-- **Voice Model Aliases**: `voice_model` now accepts only `auto`, `parakeet-tdt-ctc-110m`, `parakeet-tdt-0.6b-v2`, and `parakeet-unified-en-0.6b`; shorthand names are rejected with the valid options named.
-- **Ambient Voice Dictation Starters**: Removed ambient wake phrases in favor of dedicated voice triggers; dictation is now initiated exclusively via hotkeys.
-- **Removed Retired Voice Models**: Old multilingual, Whisper, and keyword spotter downloads are cleaned up automatically; voice model choice falls back to automatic mode.
 - **Local-Only Daemon Control**: Removed the TCP transport settings (`rpc_mode`, `rpc_host`, `rpc_port`) and the RPC auth token. The daemon is now controlled over the local socket (Unix) or a same-user named pipe (Windows) only.
+- **Redundant Audio Themes**: Remove soft, glass, dreamy, cinematic, and studio pause/resume sounds, leaving seven themes.
 
 ### Fixed
-- **Duplicate Tray Icons**: Restarting no longer leaves a second tray icon behind.
-- **Instant Tray Icon on Pause**: The tray icon now flips the moment you press the pause hotkey instead of lagging behind the action.
-- **Start on Boot Self-Heal**: Login start now repairs itself when the startup launcher or app pin goes missing.
-- **Instant Voice Dictation**: Push-to-talk answers instantly, repeat dictation stays warm across bursts, and the microphone and start cue respond without reopen delays.
+- **Responsive Pause Toggle**: The pause hotkey plays its sound instantly on every press and settles rapid presses to the intended on/off state.
+- **Instant, Accurate Tray Icon**: The tray appears immediately at launch, flips the moment pause is pressed, and never leaves duplicates behind.
+- **Instant Long Expansions**: Longer snippets now paste in one step instead of typing out character by character.
 - **Piped Output Crash**: Piping CLI output to a command that exits early no longer crashes or logs a panic.
-- **Zero Idle Voice Memory**: Voice models now stay warm across repeat dictation and unload completely when idle, returning idle memory to baseline.
-- **Voice Recognition Accuracy**: Eliminate microphone aliasing, word-ending cutoffs, and audio distortion using anti-aliasing resampling, voice activity hysteresis, and communications mode echo cancellation.
-- **Voice Trigger Reliability**: Always-listening voice triggers now fire on near-miss dictation and quiet speech, with longer pauses tolerated between words.
 - **No Console Flash on Script Expansion**: Background script snippets evaluate without opening a terminal window or stealing focus.
-- **Always-On Voice Listening**: Voice triggers now detect reliably without missed starts, keeping background listening ready and unloading models from memory when paused.
-- **Voice Stop Cue Timing**: Play the dictation stop sound immediately when stopping dictation instead of after the text is pasted.
-- **Voice Trigger Expansion During Dictation**: Expand spoken trigger phrases into their configured replacement text instead of typing the trigger words literally.
-- **Voice Trigger CLI Logging**: Remove redundant duplicate output lines and arrow symbols when adding voice triggers via the CLI.
-- **Voice Dictation Cleanup**: Dictation now removes stuttered repeats and false starts automatically while keeping intentional emphasis such as very very or no no.
-- **Voice Push-to-Talk Stability**: Eliminate service crashes during push-to-talk key release chords and prevent simulated paste keystrokes from re-triggering voice dictation.
-- **Voice Download & Modifier Stability**: Fix modifier key lockup during push-to-talk chords, eliminate spinner artifacts and tick symbols from progress displays, prevent cursor blinking, and clarify service startup status.
-- **Voice Model Provisioning**: Accurately detect 16 GB hardware tiers during model selection and allow Taurine to start up gracefully without voice capabilities if model downloads fail.
+- **Start on Boot Self-Heal**: Login start now repairs itself when the startup launcher or app pin goes missing.
 - **Tray Dead After Auto-Login**: Fixed tray pause, resume, and setting toggles silently failing after auto-login until the service was restarted.
 - **Save-Time Transformer Validation**: Reject unknown transformer names when a snippet is saved instead of leaving the tag unresolved at expansion time.
 - **Single Canonical Name Per Variable**: Remove legacy aliases (`exec`, `img`, `clipboard`, singular `lorem` forms, and `extract` path shorthands) so each system variable and transformer has exactly one documented name.
@@ -93,16 +70,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Uninstall Progress Display**: Show step-by-step progress logs during Unix uninstallation.
 - **Word Boundary Expansion Accuracy**: Prevent unwanted expansions when triggers appear inside larger words or follow digits by requiring non-alphanumeric boundaries.
 - **App Launch Shortcuts**: Restore hotkey triggers using the .NET Process Start API, the saps alias, and single-path Invoke-Item via the instant native launcher.
-- **Voice Trigger Scripts and Variables**: Voice triggers now execute scripts in the correct language and expand system and dynamic variables instead of typing them literally.
-- **Instant Long Expansions and Voice Dictation**: Longer snippets and all voice dictation now paste in one step instead of typing out character by character.
-- **Reliable Microphone Switching**: Unplugging the microphone in use falls back to System Default so voice dictation keeps working, the tray microphone list stays current, and your saved microphone is used at startup when still connected.
-
-### Removed
-- **Redundant Audio Themes**: Remove soft, glass, dreamy, cinematic, and studio pause/resume sounds, leaving seven themes.
-
-### Changed
-- **Always-Encrypted Exports**: Remove the `--plain` export option so `.tau` files are always encrypted, with an optional password for a second lock.
-- **Machine-Bound Database Encryption**: The local database is now encrypted with a per-computer key and copies of the database file no longer open on other computers; move data between machines with encrypted exports.
 
 ## [1.0.0-alpha.18] - 2026-09-06
 
