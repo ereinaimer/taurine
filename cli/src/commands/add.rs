@@ -51,11 +51,7 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
         if json {
             println!("{}", serde_json::to_string(&row).unwrap());
         } else {
-            info!(
-                "Added voice trigger '{}' -> '{}'",
-                row.spoken_phrase, row.output
-            );
-            println!("Added voice trigger '{}'", row.spoken_phrase);
+            info!("Added voice trigger for '{}'", row.spoken_phrase);
         }
         return Ok(());
     }

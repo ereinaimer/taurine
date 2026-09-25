@@ -6,10 +6,6 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use taurine_core::error::{Error, Result};
 use taurine_core::paths::{get_install_bin_dir, get_install_exe_path};
-use taurine_core::settings::SpinnerStyle;
-use taurine_core::utils::spinner::{
-    BRAILLE_FRAMES, SpinnerRenderer, ThreadSpinnerHandle, spawn_threaded,
-};
 use tracing::{error, info};
 
 fn platform_key() -> &'static str {
@@ -70,204 +66,9 @@ struct Artifact {
     sha256: Option<String>,
 }
 
-struct StdoutStepRenderer {
-    label: String,
-}
-
-impl SpinnerRenderer for StdoutStepRenderer {
-    fn inject_frame(&mut self, frame: &str) {
-        print!("\r{frame} {}", self.label);
-        let _ = std::io::Write::flush(&mut std::io::stdout());
-    }
-    fn backspace(&mut self, _: usize) {}
-    fn move_left(&mut self, _: usize) {}
-    fn move_right(&mut self, _: usize) {}
-    fn finish(&mut self) {
-        print!("\r");
-        let _ = std::io::Write::flush(&mut std::io::stdout());
-    }
-}
-
-struct Stepper {
-    label: String,
-    handle: Option<ThreadSpinnerHandle>,
-    visual: bool,
-    progress_open: bool,
-    frame_idx: usize,
-}
-
-impl Stepper {
-    fn start_visual(label: &str, visual: bool) -> Self {
-        let handle = visual.then(|| {
-            let renderer = StdoutStepRenderer {
-                label: label.to_string(),
-            };
-            spawn_threaded(SpinnerStyle::Braille, renderer)
-        });
-        Self {
-            label: label.to_string(),
-            handle,
-            visual,
-            progress_open: false,
-            frame_idx: 0,
-        }
-    }
-    fn stop_thread(&mut self) {
-        if let Some(h) = self.handle.take() {
-            h.stop();
-        }
-    }
-    fn step(&mut self, next_label: &str) {
-        let done = std::mem::replace(&mut self.label, next_label.to_string());
-        self.stop_thread();
-        self.clear_progress();
-        info!("✓ {done}");
-        if self.visual {
-            let renderer = StdoutStepRenderer {
-                label: next_label.to_string(),
-            };
-            self.handle = Some(spawn_threaded(SpinnerStyle::Braille, renderer));
-        }
-    }
-    /// Same as step, but logs a custom done line (used to report download
-    /// totals instead of echoing the in-progress label).
-    fn step_with_done(&mut self, next_label: &str, done_label: &str) {
-        self.stop_thread();
-        self.clear_progress();
-        info!("✓ {done_label}");
-        self.label = next_label.to_string();
-        if self.visual {
-            let renderer = StdoutStepRenderer {
-                label: next_label.to_string(),
-            };
-            self.handle = Some(spawn_threaded(SpinnerStyle::Braille, renderer));
-        }
-    }
-    /// Freeze the spinner and open the two-line download block: line 1 keeps
-    /// the static label, line 2 carries the live `downloaded/total (%) @ speed`.
-    /// The cursor is left on line 2 until clear_progress runs.
-    fn start_attempt(&mut self, label: &str) {
-        self.stop_thread();
-        self.label = label.to_string();
-        if !self.visual {
-            info!("{label}...");
-            return;
-        }
-        self.clear_progress();
-        print!("\r{label}\x1b[K\n");
-        let _ = std::io::stdout().flush();
-        self.progress_open = true;
-        self.frame_idx = 0;
-    }
-    /// Single-writer redraw of both download lines (spinner thread is stopped
-    /// while the block is open, so no output races). Call throttled ~5Hz.
-    fn draw_download(&mut self, downloaded: u64, total: Option<u64>, speed_bps: f64) {
-        if !self.visual || !self.progress_open {
-            return;
-        }
-        let frame = BRAILLE_FRAMES[self.frame_idx % BRAILLE_FRAMES.len()];
-        self.frame_idx += 1;
-        let line2 = download_progress_line(downloaded, total, speed_bps);
-        print!("\x1b[1A\r{frame} {}\x1b[K\n\r{line2}\x1b[K", self.label);
-        let _ = std::io::stdout().flush();
-    }
-    /// Clear the open download block (line 2, then back up to line 1).
-    /// No-op unless a block is open.
-    fn clear_progress(&mut self) {
-        if !self.visual || !self.progress_open {
-            return;
-        }
-        print!("\r\x1b[K\x1b[1A\r\x1b[K");
-        let _ = std::io::stdout().flush();
-        self.progress_open = false;
-    }
-    /// Clear a half-finished block without logging (error paths log via Err).
-    fn abort_progress(&mut self) {
-        self.stop_thread();
-        self.clear_progress();
-    }
-    fn finish(mut self) {
-        self.stop_thread();
-        self.clear_progress();
-        info!("✓ {}", self.label);
-    }
-}
-
-const SIZE_UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-
-fn size_unit(bytes: u64) -> usize {
-    let mut unit = 0;
-    let mut scaled = bytes;
-    while scaled >= 1024 && unit < SIZE_UNITS.len() - 1 {
-        scaled /= 1024;
-        unit += 1;
-    }
-    unit
-}
-
-fn fmt_scaled(bytes: u64, unit: usize) -> String {
-    if unit == 0 {
-        format!("{bytes}")
-    } else {
-        format!("{:.1}", bytes as f64 / 1024f64.powi(unit as i32))
-    }
-}
-
-pub(crate) fn format_bytes(bytes: u64) -> String {
-    let unit = size_unit(bytes);
-    format!("{} {}", fmt_scaled(bytes, unit), SIZE_UNITS[unit])
-}
-
-/// `downloaded/total` sharing one unit: `12.4/28.1 MB`.
-pub(crate) fn format_pair(downloaded: u64, total: u64) -> String {
-    let unit = size_unit(downloaded.max(total));
-    format!(
-        "{}/{} {}",
-        fmt_scaled(downloaded, unit),
-        fmt_scaled(total, unit),
-        SIZE_UNITS[unit]
-    )
-}
-
-pub(crate) fn format_speed(bytes_per_sec: f64) -> String {
-    if !bytes_per_sec.is_finite() || bytes_per_sec <= 0.0 {
-        return "0 B/s".to_string();
-    }
-    format!("{}/s", format_bytes(bytes_per_sec as u64))
-}
-
-pub(crate) fn format_duration(total_secs: u64) -> String {
-    if total_secs < 60 {
-        format!("{total_secs}s")
-    } else {
-        format!("{}m {}s", total_secs / 60, total_secs % 60)
-    }
-}
-
-/// Line-2 content for the open download block.
-pub(crate) fn download_progress_line(
-    downloaded: u64,
-    total: Option<u64>,
-    speed_bps: f64,
-) -> String {
-    match total {
-        Some(t) if t > 0 => {
-            let pct = ((downloaded as f64 / t as f64) * 100.0)
-                .floor()
-                .clamp(0.0, 100.0) as u64;
-            format!(
-                "  {} ({pct}%) @ {}",
-                format_pair(downloaded, t),
-                format_speed(speed_bps)
-            )
-        }
-        _ => format!(
-            "  {} downloaded @ {}",
-            format_bytes(downloaded),
-            format_speed(speed_bps)
-        ),
-    }
-}
+pub(crate) use super::progress::{Stepper, format_bytes, format_duration};
+#[cfg(test)]
+pub(crate) use super::progress::{download_progress_line, format_pair, format_speed};
 
 struct DownloadStats {
     bytes: u64,
@@ -848,16 +649,16 @@ mod tests {
     #[test]
     fn test_download_progress_line_known_total() {
         let line = download_progress_line(13_002_342, Some(29_464_986), 3.2 * 1024.0 * 1024.0);
-        assert_eq!(line, "  12.4/28.1 MB (44%) @ 3.2 MB/s");
+        assert_eq!(line, "12.4/28.1 MB (44%) @ 3.2 MB/s");
     }
 
     #[test]
     fn test_download_progress_line_unknown_total() {
         let line = download_progress_line(13_002_342, None, 3.1 * 1024.0 * 1024.0);
-        assert_eq!(line, "  12.4 MB downloaded @ 3.1 MB/s");
+        assert_eq!(line, "12.4 MB downloaded @ 3.1 MB/s");
         // Zero total falls back the same way (missing Content-Length).
         let line = download_progress_line(512, Some(0), 1024.0);
-        assert_eq!(line, "  512 B downloaded @ 1.0 KB/s");
+        assert_eq!(line, "512 B downloaded @ 1.0 KB/s");
     }
 
     #[test]

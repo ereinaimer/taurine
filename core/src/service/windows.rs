@@ -352,13 +352,16 @@ pub fn up(start_on_boot: bool) -> crate::error::Result<()> {
     let current_exe = env::current_exe()?;
 
     if is_daemon_running(&mut sys) {
-        info!("Taurine is already running.");
+        info!("Taurine service is already running.");
     } else {
         Command::new(&current_exe)
             .arg("--daemon")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
             .creation_flags(CREATE_NO_WINDOW)
             .spawn()?;
-        info!("Taurine started successfully.");
+        info!("Taurine service started successfully.");
     }
 
     sync_boot(start_on_boot)?;
@@ -412,7 +415,7 @@ pub fn down() -> crate::error::Result<()> {
     if grpc_success {
         for _ in 0..10 {
             if !is_daemon_running(&mut sys) {
-                info!("Taurine has been stopped.");
+                info!("Taurine service has been stopped.");
                 return Ok(());
             }
             std::thread::sleep(std::time::Duration::from_millis(500));
@@ -420,7 +423,7 @@ pub fn down() -> crate::error::Result<()> {
     }
 
     if !is_daemon_running(&mut sys) {
-        info!("Taurine is already stopped.");
+        info!("Taurine service is already stopped.");
         return Ok(());
     }
 
@@ -474,6 +477,9 @@ pub fn restart(start_on_boot: bool) -> crate::error::Result<()> {
 
     match Command::new(&current_exe)
         .arg("--daemon")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
     {

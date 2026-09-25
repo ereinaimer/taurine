@@ -169,6 +169,7 @@ pub fn start() -> taurine_core::error::Result<()> {
         settings.voice_dictation_starters.clone(),
     );
     taurine_core::settings::set_cached_voice_dictionary(settings.voice_dictionary.clone());
+    taurine_core::settings::set_cached_voice_input_device(settings.voice_input_device.clone());
 
     let state = Arc::new(EngineState::new());
     state

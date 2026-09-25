@@ -48,15 +48,59 @@ impl AlwaysOnVoiceListener {
 
         let default_starters = vec!["type this".to_string(), "write this".to_string()];
 
+        let mut all_keywords = default_starters.clone();
+        if let Ok(conn) = taurine_core::db::get_conn()
+            && let Ok(triggers) = taurine_core::db::crud::list_active_voice_triggers(&conn)
+        {
+            for trig in triggers {
+                let p = trig.spoken_phrase.trim().to_lowercase();
+                if !all_keywords.contains(&p) {
+                    all_keywords.push(p);
+                }
+            }
+        }
+        let keywords_buf = all_keywords.join("\n");
+
         Self {
             capture,
             session_manager,
             paused,
             running: Arc::new(AtomicBool::new(false)),
             vad: Mutex::new(VadGate::new(Some(&vad_path))),
-            spotter: Mutex::new(Spotter::new(Some(&kws_path), None)),
+            spotter: Mutex::new(Spotter::new(Some(&kws_path), Some(&keywords_buf))),
             starters: Mutex::new(default_starters),
         }
+    }
+
+    /// Reloads the spotter with updated keywords (starters + active triggers) and re-evaluates models.
+    pub fn reload_keywords(&self) {
+        let models_dir = taurine_core::voice::models_dir();
+        let vad_path = models_dir.join("silero_vad.onnx");
+        let kws_path = models_dir.join("kws");
+
+        let starters = self
+            .starters
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        let mut all_keywords = starters;
+        if let Ok(conn) = taurine_core::db::get_conn()
+            && let Ok(triggers) = taurine_core::db::crud::list_active_voice_triggers(&conn)
+        {
+            for trig in triggers {
+                let p = trig.spoken_phrase.trim().to_lowercase();
+                if !all_keywords.contains(&p) {
+                    all_keywords.push(p);
+                }
+            }
+        }
+        let keywords_buf = all_keywords.join("\n");
+
+        let mut spotter = self.spotter.lock().unwrap_or_else(|p| p.into_inner());
+        *spotter = Spotter::new(Some(&kws_path), Some(&keywords_buf));
+
+        let mut vad = self.vad.lock().unwrap_or_else(|p| p.into_inner());
+        *vad = VadGate::new(Some(&vad_path));
     }
 
     /// Builder method to customize ambient dictation starters from CSV.
@@ -84,9 +128,10 @@ impl AlwaysOnVoiceListener {
         self.running.load(Ordering::Relaxed)
     }
 
-    /// Stop the background listening loop.
+    /// Stop the background listening loop and release microphone capture.
     pub fn stop(&self) {
         self.running.store(false, Ordering::Relaxed);
+        self.capture.stop();
     }
 
     /// Process a single audio frame (typically 512 samples = 32ms at 16kHz).
@@ -109,7 +154,7 @@ impl AlwaysOnVoiceListener {
         drop(vad);
 
         // Step 2: KWS keyword detection
-        let spotter = self.spotter.lock().unwrap_or_else(|p| p.into_inner());
+        let mut spotter = self.spotter.lock().unwrap_or_else(|p| p.into_inner());
         let detected = spotter.detect(frame, 16000);
         drop(spotter);
 
@@ -142,9 +187,33 @@ impl AlwaysOnVoiceListener {
             && let Ok(triggers) =
                 taurine_core::db::crud::voice_triggers::list_active_voice_triggers(&conn)
         {
+            let current_os = taurine_core::db::get_current_os_db_string();
+            let active_app = crate::platform::get_active_window_info().and_then(|i| i.exec_name);
+
             for trigger in triggers {
-                let norm_phrase = trigger.spoken_phrase.to_lowercase();
-                if norm_phrase == detected_phrase || detected_phrase.contains(&norm_phrase) {
+                let norm_phrase =
+                    taurine_core::db::crud::normalize_voice_phrase(&trigger.spoken_phrase);
+                let norm_detected =
+                    taurine_core::db::crud::normalize_voice_phrase(&detected_phrase);
+                if norm_phrase == norm_detected || norm_detected.contains(&norm_phrase) {
+                    if trigger.target_os != "all" && trigger.target_os != current_os {
+                        continue;
+                    }
+                    if let Some(ref only) = trigger.only_apps
+                        && let Some(ref app) = active_app
+                        && !only.split(',').any(|a| a.trim().eq_ignore_ascii_case(app))
+                    {
+                        continue;
+                    }
+                    if let Some(ref except) = trigger.except_apps
+                        && let Some(ref app) = active_app
+                        && except
+                            .split(',')
+                            .any(|a| a.trim().eq_ignore_ascii_case(app))
+                    {
+                        continue;
+                    }
+
                     let witnesses = GateWitnesses {
                         vad_confidence: 0.95,
                         kws_phrase: &detected_phrase,
@@ -160,10 +229,13 @@ impl AlwaysOnVoiceListener {
                                 trig.spoken_phrase
                             );
                             if trig.action_type == "text" {
-                                let inj = crate::injector::inject_text_segment(&trig.output, &None);
-                                if let Some(ref orig) = inj.original_clipboard {
-                                    crate::injector::restore_clipboard_text(orig);
-                                }
+                                crate::injector::inject_expansion(
+                                    vec![taurine_core::engine::variables::ExpansionStep::Text(
+                                        trig.output.clone(),
+                                    )],
+                                    0,
+                                    taurine_core::settings::SpinnerStyle::default(),
+                                );
                             }
                             let active_app =
                                 crate::platform::get_active_window_info().and_then(|i| i.exec_name);
@@ -204,6 +276,30 @@ impl AlwaysOnVoiceListener {
             return Ok(());
         }
 
+        // Auto-download missing VAD or KWS models if needed
+        let models_dir = taurine_core::voice::models_dir();
+        if !taurine_core::voice::is_model_downloaded("silero_vad_v6", Some(&models_dir)) {
+            info!("AlwaysOn: downloading silero_vad_v6 model...");
+            if let Err(e) =
+                taurine_core::voice::download_model("silero_vad_v6", Some(&models_dir), None)
+            {
+                warn!("AlwaysOn: failed to download silero_vad_v6: {e}");
+            }
+        }
+        if !taurine_core::voice::is_model_downloaded("kws-zipformer-zh-en-3M", Some(&models_dir)) {
+            info!("AlwaysOn: downloading kws-zipformer-zh-en-3M model...");
+            if let Err(e) = taurine_core::voice::download_model(
+                "kws-zipformer-zh-en-3M",
+                Some(&models_dir),
+                None,
+            ) {
+                warn!("AlwaysOn: failed to download kws-zipformer-zh-en-3M: {e}");
+            }
+        }
+
+        // Reload spotter and vad with downloaded models and keywords
+        self.reload_keywords();
+
         if let Err(e) = self.capture.start() {
             self.running.store(false, Ordering::SeqCst);
             warn!("AlwaysOn: failed to start audio capture: {e}");
@@ -225,6 +321,9 @@ impl AlwaysOnVoiceListener {
                     if listener.paused.load(Ordering::Relaxed)
                         || listener.session_manager.is_active()
                     {
+                        if listener.paused.load(Ordering::Relaxed) {
+                            listener.capture.buffer().clear();
+                        }
                         thread::sleep(Duration::from_millis(50));
                         continue;
                     }

@@ -595,7 +595,7 @@ public static extern IntPtr SendMessageTimeout(
         if ($IsFreshInstall) {
             try {
                 if (Test-Path $ExePath) {
-                    Start-Process -FilePath $ExePath -ArgumentList "up" -WindowStyle Hidden -ErrorAction Stop
+                    & $ExePath up
                 }
             } catch {
                 Write-Host "Warning: Failed to start Taurine service automatically."

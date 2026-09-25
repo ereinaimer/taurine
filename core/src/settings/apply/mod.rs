@@ -387,6 +387,15 @@ pub fn apply_setting_input_with_manager(
             manager.update_setting(actual_key, normalized)?;
             ApplySettingOutcome::default()
         }
+        "voice_input_device" => {
+            let parsed = match value {
+                Some(v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+                _ => None,
+            };
+            crate::settings::set_cached_voice_input_device(parsed.clone());
+            manager.update_setting(actual_key, parsed)?;
+            ApplySettingOutcome::default()
+        }
         _ => {
             let diag =
                 Diagnostic::problem(format!("{actual_key} is not a valid configuration setting"))
@@ -483,50 +492,33 @@ fn require_non_empty<'a>(value: Option<&'a str>, key: &str) -> Result<&'a str> {
         .ok_or_else(|| Error::Config(format!("{key} must not be empty")))
 }
 
-pub const KNOWN_VOICE_MODELS: &[&str] = &[
-    "auto",
-    "parakeet-tdt-0.6b-v3",
-    "whisper-large-v3-turbo",
-    "distil-whisper-large-v3",
-    "whisper-small-en",
-    "whisper-base-en",
-    "moonshine-base-en",
-    "whisper-medium-en",
-    "whisper-large-v3",
-];
+pub const KNOWN_VOICE_MODELS: &[&str] =
+    &["auto", "parakeet-unified-en-0.6b", "parakeet-tdt-ctc-110m"];
 
 pub const KNOWN_VOICE_MODEL_ALIASES: &[&str] = &[
     "auto",
-    "parakeet",
-    "turbo",
-    "distil",
-    "distil-whisper",
-    "small",
-    "base",
-    "moonshine",
-    "medium",
-    "large",
-    "parakeet-tdt-0.6b-v3",
-    "whisper-large-v3-turbo",
-    "distil-whisper-large-v3",
-    "whisper-small-en",
-    "whisper-base-en",
-    "moonshine-base-en",
-    "whisper-medium-en",
-    "whisper-large-v3",
+    "unified",
+    "parakeet-unified",
+    "best",
+    "quality",
+    "110m",
+    "parakeet-110m",
+    "light",
+    "fast",
+    "tdt-ctc",
+    "parakeet-unified-en-0.6b",
+    "parakeet-tdt-ctc-110m",
 ];
 
 pub fn canonicalize_voice_model(input: &str) -> Option<&'static str> {
     match input.trim().to_ascii_lowercase().as_str() {
         "auto" => Some("auto"),
-        "parakeet" | "parakeet-tdt" | "parakeet-tdt-0.6b-v3" => Some("parakeet-tdt-0.6b-v3"),
-        "turbo" | "whisper-turbo" | "whisper-large-v3-turbo" => Some("whisper-large-v3-turbo"),
-        "distil" | "distil-whisper" | "distil-whisper-large-v3" => Some("distil-whisper-large-v3"),
-        "small" | "whisper-small" | "whisper-small-en" => Some("whisper-small-en"),
-        "base" | "whisper-base" | "whisper-base-en" => Some("whisper-base-en"),
-        "moonshine" | "moonshine-base" | "moonshine-base-en" => Some("moonshine-base-en"),
-        "medium" | "whisper-medium" | "whisper-medium-en" => Some("whisper-medium-en"),
-        "large" | "whisper-large" | "whisper-large-v3" => Some("whisper-large-v3"),
+        "unified" | "parakeet-unified" | "best" | "quality" | "parakeet-unified-en-0.6b" => {
+            Some("parakeet-unified-en-0.6b")
+        }
+        "110m" | "parakeet-110m" | "light" | "fast" | "tdt-ctc" | "parakeet-tdt-ctc-110m" => {
+            Some("parakeet-tdt-ctc-110m")
+        }
         _ => None,
     }
 }

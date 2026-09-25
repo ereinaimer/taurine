@@ -571,7 +571,7 @@ pub fn up(start_on_boot: bool) -> crate::error::Result<()> {
         label: label.clone(),
     }) {
         Ok(ServiceStatus::Running) => {
-            info!("Taurine is already running.");
+            info!("Taurine service is already running.");
         }
         Ok(ServiceStatus::Stopped(_)) => {
             debug!("Taurine service found but stopped. Starting...");
@@ -582,7 +582,7 @@ pub fn up(start_on_boot: bool) -> crate::error::Result<()> {
                     label: label.clone(),
                 })
                 .map_err(|e| crate::Error::Service(e.to_string()))?;
-            info!("Taurine started successfully.");
+            info!("Taurine service started successfully.");
         }
         Ok(ServiceStatus::NotInstalled) | Err(_) => {
             debug!("Taurine service not found. Installing...");
@@ -615,7 +615,7 @@ pub fn up(start_on_boot: bool) -> crate::error::Result<()> {
                     label: label.clone(),
                 })
                 .map_err(|e| crate::Error::Service(e.to_string()))?;
-            info!("Taurine started successfully.");
+            info!("Taurine service started successfully.");
         }
     }
 
@@ -703,7 +703,7 @@ pub fn down() -> crate::error::Result<()> {
                     }
                     #[cfg(not(target_os = "linux"))]
                     {
-                        info!("Taurine has been stopped.");
+                        info!("Taurine service has been stopped.");
                         return Ok(());
                     }
                 }
@@ -720,12 +720,12 @@ pub fn down() -> crate::error::Result<()> {
         Ok(ServiceStatus::Stopped(_)) | Ok(ServiceStatus::NotInstalled) | Err(_)
             if confirm_stays_stopped(&*manager, &label, needs_settle) =>
         {
-            info!("Taurine is already stopped.");
+            info!("Taurine service is already stopped.");
             return Ok(());
         }
         #[cfg(not(target_os = "linux"))]
         Ok(ServiceStatus::Stopped(_)) | Ok(ServiceStatus::NotInstalled) | Err(_) => {
-            info!("Taurine is already stopped.");
+            info!("Taurine service is already stopped.");
             return Ok(());
         }
         _ => {}
@@ -745,7 +745,7 @@ pub fn down() -> crate::error::Result<()> {
                 if wait_for_manager_stop(&*manager, &label, 10)
                     && confirm_stays_stopped(&*manager, &label, needs_settle)
                 {
-                    info!("Taurine has been stopped (fallback).");
+                    info!("Taurine service has been stopped (fallback).");
                     return Ok(());
                 }
                 error!("Service was stopped but did not stay stopped.");
@@ -755,7 +755,7 @@ pub fn down() -> crate::error::Result<()> {
             }
             #[cfg(not(target_os = "linux"))]
             {
-                info!("Taurine has been stopped (fallback).");
+                info!("Taurine service has been stopped (fallback).");
                 Ok(())
             }
         }

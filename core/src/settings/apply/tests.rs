@@ -219,8 +219,8 @@ fn test_inline_dictionary_mode_settings() {
 }
 
 #[test]
-fn setting_key_all_has_37_unique_storage_keys() {
-    assert_eq!(SettingKey::ALL.len(), 43);
+fn setting_key_all_has_unique_storage_keys() {
+    assert_eq!(SettingKey::ALL.len(), 44);
 
     let mut seen = HashSet::new();
     for key in SettingKey::ALL {
@@ -288,12 +288,13 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         ("inline_dictionary_enabled", "false"),
         ("inline_dictionary_mode", "full"),
         ("notify_on_update", "false"),
-        ("voice_model", "whisper-small-en"),
+        ("voice_model", "parakeet-unified-en-0.6b"),
         ("voice_always_on", "true"),
         ("voice_ptt_hotkey", "ctrl+space"),
         ("voice_handsfree_hotkey", "ctrl+alt+space"),
         ("voice_dictation_starters", "dictate, take note"),
         ("voice_dictionary", "Rust, Taurine"),
+        ("voice_input_device", "External Mic"),
     ];
 
     for (key, value) in sweep {
@@ -339,12 +340,13 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         inline_dictionary_enabled: false,
         inline_dictionary_mode: InlineDictionaryMode::Full,
         notify_on_update: false,
-        voice_model: "whisper-small-en".to_string(),
+        voice_model: "parakeet-unified-en-0.6b".to_string(),
         voice_always_on: true,
         voice_ptt_hotkey: "ctrl+space".to_string(),
         voice_handsfree_hotkey: "ctrl+alt+space".to_string(),
         voice_dictation_starters: "dictate, take note".to_string(),
         voice_dictionary: "Rust, Taurine".to_string(),
+        voice_input_device: Some("External Mic".to_string()),
     };
     assert_eq!(manager.load_all(), expected);
 
@@ -592,14 +594,17 @@ fn test_valid_voice_model_aliases() {
     let (_dir, conn) = open_test_db();
     let manager = SettingsManager::new(&conn);
 
-    apply_setting_input_with_manager(&manager, "voice_model", Some("turbo")).unwrap();
-    assert_eq!(manager.load_all().voice_model, "whisper-large-v3-turbo");
+    apply_setting_input_with_manager(&manager, "voice_model", Some("unified")).unwrap();
+    assert_eq!(manager.load_all().voice_model, "parakeet-unified-en-0.6b");
 
-    apply_setting_input_with_manager(&manager, "voice_model", Some("parakeet")).unwrap();
-    assert_eq!(manager.load_all().voice_model, "parakeet-tdt-0.6b-v3");
+    apply_setting_input_with_manager(&manager, "voice_model", Some("110m")).unwrap();
+    assert_eq!(manager.load_all().voice_model, "parakeet-tdt-ctc-110m");
 
-    apply_setting_input_with_manager(&manager, "voice_model", Some("moonshine")).unwrap();
-    assert_eq!(manager.load_all().voice_model, "moonshine-base-en");
+    assert!(apply_setting_input_with_manager(&manager, "voice_model", Some("tiny")).is_err());
+    assert!(
+        apply_setting_input_with_manager(&manager, "voice_model", Some("whisper-small-en"))
+            .is_err()
+    );
 }
 
 #[test]

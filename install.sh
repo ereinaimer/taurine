@@ -563,9 +563,9 @@ if [ "$IS_INSTALLED" = false ]; then
 
     printf "\x1b[32m✓\x1b[0m taurine v%s installed\n" "$VERSION"
 
-    # Start the service after installation (detached)
+    # Start the service after installation
     if [ -x "$INSTALL_DIR/taurine" ]; then
-        "$INSTALL_DIR/taurine" up > /dev/null 2>&1 &
+        "$INSTALL_DIR/taurine" up || true
     fi
 fi
 

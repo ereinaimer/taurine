@@ -8,8 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **English-Only Local Dictation**: Everyday dictation now uses an automatic two-tier English engine (best quality on capable machines, light and fast on constrained ones) with no model picker needed.
+- **Faster First Response, Lower Idle Memory**: Voice models load the moment you press the key and unload ~20 seconds after you stop, keeping idle usage a fraction of before.
+- **Voice Audio Feedback**: Play the copy sound when voice dictation starts and the paste sound the moment you stop dictation via hotkey, per audio theme.
+- **Warm Voice Model Caching**: Keep speech recognition models warm in memory with an automatic inactivity timeout for near-instant dictation responses.
+- **Voice Input Device & Tray Controls**: Configure the speech dictation microphone via settings or live system tray submenu, with real-time toggle for always-on ambient listening.
 - **Voice Dictation**: Local push-to-talk and hands-free voice dictation with automatic text formatting and smart dictionary corrections.
 - **Voice Triggers**: Ambient trigger phrase spotting with multi-model confidence gating and optional execution confirmation.
+- **Automatic Voice Model Setup**: Automatically download missing voice dictation and ambient trigger models with live progress during service startup or configuration.
 - **Lossless Transformer Pipes**: A transformer that cannot apply now passes your text through unchanged instead of wiping it or typing raw tag syntax.
 - **Expansion Size Guardrails**: Placeholder text is capped at 1 MB of output and images at 10 MB per file, refusing oversized requests with a clear error instead of exhausting memory; caret positioning steps aside on very large outputs.
 - **Complete Save-Time Validation**: Every system variable value and transformer argument is checked when you save, with the valid form named; retired dotted chains now suggest their exact replacement.
@@ -26,9 +32,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Download Progress**: Show live download progress with transfer speed during installation and updates, including total size and elapsed time on completion.
 
 ### Removed
+- **Removed Retired Voice Models**: Old multilingual and Whisper-based downloads are cleaned up automatically; any previous voice model choice falls back to the new automatic mode.
 - **Local-Only Daemon Control**: Removed the TCP transport settings (`rpc_mode`, `rpc_host`, `rpc_port`) and the RPC auth token. The daemon is now controlled over the local socket (Unix) or a same-user named pipe (Windows) only.
 
 ### Fixed
+- **Voice Stop Cue Timing**: Play the dictation stop sound immediately when stopping dictation instead of after the text is pasted.
+- **Voice Trigger Expansion During Dictation**: Expand spoken trigger phrases into their configured replacement text instead of typing the trigger words literally.
+- **Always-On Voice Trigger Spotting**: Restore keyword spotter audio stream continuity across recognition chunks so ambient voice triggers activate reliably.
+- **Voice Trigger CLI Logging**: Remove redundant duplicate output lines and arrow symbols when adding voice triggers via the CLI.
+- **Voice Push-to-Talk Stability**: Eliminate service crashes during push-to-talk key release chords and prevent simulated paste keystrokes from re-triggering voice dictation.
+- **Voice Download & Modifier Stability**: Fix modifier key lockup during push-to-talk chords, eliminate spinner artifacts and tick symbols from progress displays, prevent cursor blinking, and clarify service startup status.
+- **Voice Model Provisioning**: Accurately detect 16 GB hardware tiers during model selection and allow Taurine to start up gracefully without voice capabilities if model downloads fail.
 - **Tray Dead After Auto-Login**: Fixed tray pause, resume, and setting toggles silently failing after auto-login until the service was restarted.
 - **Save-Time Transformer Validation**: Reject unknown transformer names when a snippet is saved instead of leaving the tag unresolved at expansion time.
 - **Single Canonical Name Per Variable**: Remove legacy aliases (`exec`, `img`, `clipboard`, singular `lorem` forms, and `extract` path shorthands) so each system variable and transformer has exactly one documented name.

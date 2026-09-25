@@ -181,6 +181,49 @@ fn find_current_thread_window() -> windows_sys::Win32::Foundation::HWND {
     hwnd
 }
 
+#[derive(Clone)]
+pub struct VoiceDeviceItem {
+    pub id: tray_icon::menu::MenuId,
+    pub name: Option<String>,
+    pub item: CheckMenuItem,
+}
+
+pub fn populate_voice_device_submenu(
+    submenu: &Submenu,
+    current_device: Option<&str>,
+) -> Vec<VoiceDeviceItem> {
+    for _ in 0..submenu.items().len() {
+        let _ = submenu.remove_at(0);
+    }
+
+    let mut device_items = Vec::new();
+
+    let is_default = current_device.is_none() || current_device == Some("");
+    let default_item = CheckMenuItem::new("System Default", true, is_default, None);
+    let _ = submenu.append(&default_item);
+    device_items.push(VoiceDeviceItem {
+        id: default_item.id().clone(),
+        name: None,
+        item: default_item,
+    });
+
+    let _ = submenu.append(&PredefinedMenuItem::separator());
+
+    let available_devices = crate::voice::AudioCapture::list_input_devices();
+    for dev_name in available_devices {
+        let is_checked = current_device == Some(dev_name.as_str());
+        let item = CheckMenuItem::new(&dev_name, true, is_checked, None);
+        let _ = submenu.append(&item);
+        device_items.push(VoiceDeviceItem {
+            id: item.id().clone(),
+            name: Some(dev_name),
+            item,
+        });
+    }
+
+    device_items
+}
+
 pub struct TrayMenuItems {
     pub pause_submenu: Submenu,
     pub snooze_15m: MenuItem,
@@ -190,6 +233,9 @@ pub struct TrayMenuItems {
     pub resume_item: MenuItem,
     pub instant_expand_item: CheckMenuItem,
     pub start_on_boot_item: CheckMenuItem,
+    pub voice_always_on_item: CheckMenuItem,
+    pub voice_input_submenu: Submenu,
+    pub voice_input_items: std::sync::Mutex<Vec<VoiceDeviceItem>>,
     pub quit_item: MenuItem,
 }
 
@@ -209,12 +255,21 @@ impl TrayMenuItems {
 
         let resume_item = MenuItem::new("Resume", true, None);
 
-        let (instant_expand_init, start_on_boot_init) = TraySettings::load_quick_settings();
+        let (instant_expand_init, start_on_boot_init, voice_always_on_init) =
+            TraySettings::load_quick_settings();
 
         let instant_expand_item =
             CheckMenuItem::new("Instant Expansion", true, instant_expand_init, None);
         let start_on_boot_item =
             CheckMenuItem::new("Start on Boot", true, start_on_boot_init, None);
+        let voice_always_on_item =
+            CheckMenuItem::new("Always-On Voice", true, voice_always_on_init, None);
+
+        let voice_input_submenu = Submenu::new("Microphone", true);
+        let current_device = TraySettings::get_voice_input_device();
+        let voice_items =
+            populate_voice_device_submenu(&voice_input_submenu, current_device.as_deref());
+        let voice_input_items = std::sync::Mutex::new(voice_items);
 
         let quit_item = MenuItem::new("Quit", true, None);
 
@@ -227,6 +282,8 @@ impl TrayMenuItems {
         let _ = menu.append(&PredefinedMenuItem::separator());
         let _ = menu.append(&instant_expand_item);
         let _ = menu.append(&start_on_boot_item);
+        let _ = menu.append(&voice_always_on_item);
+        let _ = menu.append(&voice_input_submenu);
         let _ = menu.append(&PredefinedMenuItem::separator());
         let _ = menu.append(&quit_item);
 
@@ -239,6 +296,9 @@ impl TrayMenuItems {
             resume_item,
             instant_expand_item,
             start_on_boot_item,
+            voice_always_on_item,
+            voice_input_submenu,
+            voice_input_items,
             quit_item,
         };
 
@@ -339,19 +399,29 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
                         );
                     }
 
-                    // Update dynamic countdown label immediately before displaying the popup menu
-                    if paused.load(Ordering::Relaxed)
-                        && msg.message == 0x0401
+                    // Update dynamic countdown label and voice device submenu immediately before displaying the popup menu
+                    if msg.message == 0x0401
                         && matches!(
                             msg.lParam as u32,
                             0x0201 | 0x0202 | 0x0204 | 0x0205 | 0x007B
                         )
                     {
-                        let label = snooze.resume_label();
-                        if label != last_resume_label {
-                            items.resume_item.set_text(&label);
-                            last_resume_label = label;
+                        if paused.load(Ordering::Relaxed) {
+                            let label = snooze.resume_label();
+                            if label != last_resume_label {
+                                items.resume_item.set_text(&label);
+                                last_resume_label = label;
+                            }
                         }
+                        let current_dev = TraySettings::get_voice_input_device();
+                        let updated_items = populate_voice_device_submenu(
+                            &items.voice_input_submenu,
+                            current_dev.as_deref(),
+                        );
+                        *items
+                            .voice_input_items
+                            .lock()
+                            .unwrap_or_else(|p| p.into_inner()) = updated_items;
                     }
 
                     TranslateMessage(&msg);
@@ -428,10 +498,13 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
             let changed = TraySettings::load_quick_settings_if_changed(last_settings_version);
             if heartbeat || changed.is_some() {
                 sync_counter = 0;
-                let (instant, boot) = match changed {
-                    Some((instant, boot, version)) => {
+                if let Some(session) = crate::VOICE_SESSION.get() {
+                    session.clean_expired_transcriber();
+                }
+                let (instant, boot, always_on) = match changed {
+                    Some((instant, boot, always_on, version)) => {
                         last_settings_version = version;
-                        (instant, boot)
+                        (instant, boot, always_on)
                     }
                     None => TraySettings::load_quick_settings(),
                 };
@@ -440,6 +513,20 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
                 }
                 if items.start_on_boot_item.is_checked() != boot {
                     items.start_on_boot_item.set_checked(boot);
+                }
+                if items.voice_always_on_item.is_checked() != always_on {
+                    items.voice_always_on_item.set_checked(always_on);
+                }
+                if changed.is_some() {
+                    let current_dev = TraySettings::get_voice_input_device();
+                    let updated_items = populate_voice_device_submenu(
+                        &items.voice_input_submenu,
+                        current_dev.as_deref(),
+                    );
+                    *items
+                        .voice_input_items
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner()) = updated_items;
                 }
             }
 
@@ -522,10 +609,13 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
             let changed = TraySettings::load_quick_settings_if_changed(last_settings_version);
             if heartbeat || changed.is_some() {
                 sync_counter = 0;
-                let (instant, boot) = match changed {
-                    Some((instant, boot, version)) => {
+                if let Some(session) = crate::VOICE_SESSION.get() {
+                    session.clean_expired_transcriber();
+                }
+                let (instant, boot, always_on) = match changed {
+                    Some((instant, boot, always_on, version)) => {
                         last_settings_version = version;
-                        (instant, boot)
+                        (instant, boot, always_on)
                     }
                     None => TraySettings::load_quick_settings(),
                 };
@@ -534,6 +624,20 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
                 }
                 if items.start_on_boot_item.is_checked() != boot {
                     items.start_on_boot_item.set_checked(boot);
+                }
+                if items.voice_always_on_item.is_checked() != always_on {
+                    items.voice_always_on_item.set_checked(always_on);
+                }
+                if changed.is_some() {
+                    let current_dev = TraySettings::get_voice_input_device();
+                    let updated_items = populate_voice_device_submenu(
+                        &items.voice_input_submenu,
+                        current_dev.as_deref(),
+                    );
+                    *items
+                        .voice_input_items
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner()) = updated_items;
                 }
             }
 
@@ -683,6 +787,19 @@ pub fn process_menu_event(
             Err(error) => tracing::warn!(%error, "tray start-on-boot toggle failed"),
         }
         true
+    } else if event_id == items.voice_always_on_item.id() {
+        match TraySettings::toggle_voice_always_on() {
+            Ok(new_val) => {
+                items.voice_always_on_item.set_checked(new_val);
+                spawn_daemon_call("reload", |mut client| async move {
+                    if let Err(error) = client.reload(taurine_core::rpc::ReloadRequest {}).await {
+                        tracing::warn!(%error, "tray reload request failed");
+                    }
+                });
+            }
+            Err(error) => tracing::warn!(%error, "tray voice-always-on toggle failed"),
+        }
+        true
     } else if event_id == items.quit_item.id() {
         spawn_daemon_call("shutdown", |mut client| async move {
             if let Err(error) = client.shutdown(taurine_core::rpc::ShutdownRequest {}).await {
@@ -691,6 +808,30 @@ pub fn process_menu_event(
         });
         false
     } else {
+        let voice_items = items
+            .voice_input_items
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        for vi in &voice_items {
+            if vi.id == *event_id {
+                let dev_name = vi.name.as_deref();
+                if let Err(e) = TraySettings::set_voice_input_device(dev_name) {
+                    tracing::warn!(error = %e, "Failed to set voice input device from tray");
+                } else {
+                    spawn_daemon_call("reload", |mut client| async move {
+                        if let Err(error) = client.reload(taurine_core::rpc::ReloadRequest {}).await
+                        {
+                            tracing::warn!(%error, "tray reload request failed");
+                        }
+                    });
+                }
+                for item in &voice_items {
+                    item.item.set_checked(item.id == *event_id);
+                }
+                return true;
+            }
+        }
         true
     }
 }
@@ -824,19 +965,20 @@ mod tests {
         let snooze = SnoozeController::new();
         let (items, _) = TrayMenuItems::new(false);
 
-        let (initial_instant, initial_boot) = TraySettings::load_quick_settings();
+        let (initial_instant, initial_boot, initial_always_on) =
+            TraySettings::load_quick_settings();
 
         let event_instant = MenuEvent {
             id: items.instant_expand_item.id().clone(),
         };
         let should_continue = process_menu_event(&event_instant, &items, &paused, &snooze);
         assert!(should_continue);
-        let (toggled_instant, _) = TraySettings::load_quick_settings();
+        let (toggled_instant, _, _) = TraySettings::load_quick_settings();
         assert_eq!(toggled_instant, !initial_instant);
 
         // Restore instant expand
         let _ = process_menu_event(&event_instant, &items, &paused, &snooze);
-        let (restored_instant, _) = TraySettings::load_quick_settings();
+        let (restored_instant, _, _) = TraySettings::load_quick_settings();
         assert_eq!(restored_instant, initial_instant);
 
         let event_boot = MenuEvent {
@@ -844,13 +986,67 @@ mod tests {
         };
         let should_continue_boot = process_menu_event(&event_boot, &items, &paused, &snooze);
         assert!(should_continue_boot);
-        let (_, toggled_boot) = TraySettings::load_quick_settings();
+        let (_, toggled_boot, _) = TraySettings::load_quick_settings();
         assert_eq!(toggled_boot, !initial_boot);
 
         // Restore start on boot
         let _ = process_menu_event(&event_boot, &items, &paused, &snooze);
-        let (_, restored_boot) = TraySettings::load_quick_settings();
+        let (_, restored_boot, _) = TraySettings::load_quick_settings();
         assert_eq!(restored_boot, initial_boot);
+
+        let event_always_on = MenuEvent {
+            id: items.voice_always_on_item.id().clone(),
+        };
+        let should_continue_always_on =
+            process_menu_event(&event_always_on, &items, &paused, &snooze);
+        assert!(should_continue_always_on);
+        let (_, _, toggled_always_on) = TraySettings::load_quick_settings();
+        assert_eq!(toggled_always_on, !initial_always_on);
+
+        // Restore voice always on
+        let _ = process_menu_event(&event_always_on, &items, &paused, &snooze);
+        let (_, _, restored_always_on) = TraySettings::load_quick_settings();
+        assert_eq!(restored_always_on, initial_always_on);
+    }
+
+    #[test]
+    fn test_process_menu_event_voice_device_selection() {
+        let _lock = taurine_core::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let temp_dir = tempfile::tempdir().unwrap();
+        // SAFETY: Serialized under TEST_LOCK for test database isolation.
+        unsafe { std::env::set_var("TAURINE_DATA_DIR", temp_dir.path()) };
+
+        struct EnvGuard(&'static str);
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                // SAFETY: Serialized under TEST_LOCK for test database isolation.
+                unsafe { std::env::remove_var(self.0) };
+            }
+        }
+        let _guard = EnvGuard("TAURINE_DATA_DIR");
+
+        let paused = Arc::new(AtomicBool::new(false));
+        let snooze = SnoozeController::new();
+        let (items, _) = TrayMenuItems::new(false);
+
+        let voice_items = items
+            .voice_input_items
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        assert!(!voice_items.is_empty());
+        let default_item = &voice_items[0];
+        assert_eq!(default_item.name, None);
+        assert!(default_item.item.is_checked());
+
+        let event = MenuEvent {
+            id: default_item.id.clone(),
+        };
+        let should_continue = process_menu_event(&event, &items, &paused, &snooze);
+        assert!(should_continue);
+        assert_eq!(TraySettings::get_voice_input_device(), None);
     }
 
     #[test]

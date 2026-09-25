@@ -60,12 +60,7 @@ static LAST_PAUSE_TOGGLE_INSTANT: std::sync::OnceLock<std::sync::Mutex<std::time
 #[cfg(not(target_os = "linux"))]
 static PAUSE_KEY_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-#[cfg(not(target_os = "linux"))]
-static PTT_KEY_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-#[cfg(not(target_os = "linux"))]
-static HANDSFREE_KEY_DOWN: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+use crate::input::hotkey::{HANDSFREE_KEY_DOWN, PTT_KEY_DOWN, VoiceHotkeySpec};
 
 #[cfg(target_os = "linux")]
 #[allow(clippy::too_many_arguments)]
@@ -518,17 +513,16 @@ pub fn process_keyboard_event(
                 // PTT press — start recording if the PTT hotkey matches.
                 let ptt_str = taurine_core::settings::get_cached_voice_ptt_hotkey();
                 if !ptt_str.is_empty()
-                    && let Ok(spec) = taurine_core::keys::parse_hotkey(&ptt_str)
-                    && crate::input::hotkey::is_pause_chord(
-                        &event,
-                        modifiers,
-                        &crate::input::hotkey::HotkeySpec { hotkey: spec },
-                    )
+                    && let Some(spec) = VoiceHotkeySpec::parse(&ptt_str)
+                    && spec.matches_press(&event, modifiers)
                 {
                     if !PTT_KEY_DOWN.swap(true, Ordering::Relaxed)
                         && let Err(e) = session.start_ptt()
                     {
                         warn!("Voice PTT start error: {e}");
+                    }
+                    if is_modifier_key(key) {
+                        return Some(event);
                     }
                     return None;
                 }
@@ -536,12 +530,8 @@ pub fn process_keyboard_event(
                 // HandsFree toggle press.
                 let hf_str = taurine_core::settings::get_cached_voice_handsfree_hotkey();
                 if !hf_str.is_empty()
-                    && let Ok(spec) = taurine_core::keys::parse_hotkey(&hf_str)
-                    && crate::input::hotkey::is_pause_chord(
-                        &event,
-                        modifiers,
-                        &crate::input::hotkey::HotkeySpec { hotkey: spec },
-                    )
+                    && let Some(spec) = VoiceHotkeySpec::parse(&hf_str)
+                    && spec.matches_press(&event, modifiers)
                 {
                     if !HANDSFREE_KEY_DOWN.swap(true, Ordering::Relaxed) {
                         let session = session.clone();
@@ -550,6 +540,9 @@ pub fn process_keyboard_event(
                                 warn!("Voice HandsFree toggle error: {e}");
                             }
                         });
+                    }
+                    if is_modifier_key(key) {
+                        return Some(event);
                     }
                     return None;
                 }
@@ -808,27 +801,28 @@ pub fn process_keyboard_event(
             if let Some(session) = crate::VOICE_SESSION.get() {
                 let ptt_str = taurine_core::settings::get_cached_voice_ptt_hotkey();
                 if !ptt_str.is_empty()
-                    && let Ok(spec) = taurine_core::keys::parse_hotkey(&ptt_str)
-                    && let Some(logical_key) = logical_key_from_rdev(key)
-                    && logical_key == spec.key
+                    && let Some(spec) = VoiceHotkeySpec::parse(&ptt_str)
+                    && spec.matches_release(&event)
                 {
                     let was_down = PTT_KEY_DOWN.swap(false, Ordering::Relaxed);
-                    if was_down || session.current_mode() == crate::voice::VoiceMode::PushToTalk {
+                    if was_down {
                         let session = session.clone();
                         std::thread::spawn(move || {
                             if let Err(e) = session.stop_ptt() {
                                 warn!("Voice PTT stop error: {e}");
                             }
                         });
+                        if is_modifier_key(key) {
+                            return Some(event);
+                        }
                         return None;
                     }
                 }
 
                 let hf_str = taurine_core::settings::get_cached_voice_handsfree_hotkey();
                 if !hf_str.is_empty()
-                    && let Ok(spec) = taurine_core::keys::parse_hotkey(&hf_str)
-                    && let Some(logical_key) = logical_key_from_rdev(key)
-                    && logical_key == spec.key
+                    && let Some(spec) = VoiceHotkeySpec::parse(&hf_str)
+                    && spec.matches_release(&event)
                 {
                     HANDSFREE_KEY_DOWN.store(false, Ordering::Relaxed);
                 }

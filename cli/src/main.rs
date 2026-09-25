@@ -41,7 +41,7 @@ fn main() -> std::process::ExitCode {
         cli.no_color,
         cli.show_log_prefixes,
         component,
-        launch_target == LaunchTarget::Tui || cli.json,
+        launch_target == LaunchTarget::Tui || launch_target == LaunchTarget::Daemon || cli.json,
     );
 
     // Install a panic hook that:
@@ -71,6 +71,7 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
             // Execute the startup sequence (database init, seed, etc.)
             taurine_daemon::start()?;
             info!("Taurine service has been stopped cleanly.");
+            return Ok(());
         }
         LaunchTarget::AutoUpdate => {
             let _ = commands::update::run_auto_update();

@@ -24,6 +24,20 @@ pub(crate) struct DeviceExit {
 
 static LAST_PAUSE_TOGGLE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+fn is_modifier_evdev(key: KeyCode) -> bool {
+    matches!(
+        key,
+        KeyCode::KEY_LEFTCTRL
+            | KeyCode::KEY_RIGHTCTRL
+            | KeyCode::KEY_LEFTMETA
+            | KeyCode::KEY_RIGHTMETA
+            | KeyCode::KEY_LEFTALT
+            | KeyCode::KEY_RIGHTALT
+            | KeyCode::KEY_LEFTSHIFT
+            | KeyCode::KEY_RIGHTSHIFT
+    )
+}
+
 #[derive(Clone)]
 pub(crate) struct ListenerContext {
     evaluator: Arc<Mutex<Evaluator>>,
@@ -451,6 +465,55 @@ fn process_frame(
         }
 
         if is_press {
+            // Voice routing — check Escape and voice hotkeys
+            if let Some(session) = crate::VOICE_SESSION.get() {
+                if key == KeyCode::KEY_ESC && session.is_active() {
+                    let session = session.clone();
+                    std::thread::spawn(move || {
+                        if let Err(e) = session.on_escape_pressed() {
+                            warn!("Voice Escape handler error: {e}");
+                        }
+                    });
+                    swallow_frame = true;
+                    continue;
+                }
+
+                let ptt_str = taurine_core::settings::get_cached_voice_ptt_hotkey();
+                if !ptt_str.is_empty()
+                    && let Some(spec) = crate::input::hotkey::VoiceHotkeySpec::parse(&ptt_str)
+                    && spec.matches_press_evdev(key, is_press, modifiers)
+                {
+                    if !crate::input::hotkey::PTT_KEY_DOWN.swap(true, Ordering::Relaxed)
+                        && let Err(e) = session.start_ptt()
+                    {
+                        warn!("Voice PTT start error: {e}");
+                    }
+                    if !is_modifier_evdev(key) {
+                        swallow_frame = true;
+                    }
+                    continue;
+                }
+
+                let hf_str = taurine_core::settings::get_cached_voice_handsfree_hotkey();
+                if !hf_str.is_empty()
+                    && let Some(spec) = crate::input::hotkey::VoiceHotkeySpec::parse(&hf_str)
+                    && spec.matches_press_evdev(key, is_press, modifiers)
+                {
+                    if !crate::input::hotkey::HANDSFREE_KEY_DOWN.swap(true, Ordering::Relaxed) {
+                        let session = session.clone();
+                        std::thread::spawn(move || {
+                            if let Err(e) = session.toggle_handsfree() {
+                                warn!("Voice HandsFree toggle error: {e}");
+                            }
+                        });
+                    }
+                    if !is_modifier_evdev(key) {
+                        swallow_frame = true;
+                    }
+                    continue;
+                }
+            }
+
             let shift_active = modifier_sides.shift_active();
             let ctrl_active = modifier_sides.ctrl_active();
             let alt_active = modifier_sides.alt_active();
@@ -650,6 +713,37 @@ fn process_frame(
                 continue;
             }
         } else {
+            if is_release && let Some(session) = crate::VOICE_SESSION.get() {
+                let ptt_str = taurine_core::settings::get_cached_voice_ptt_hotkey();
+                if !ptt_str.is_empty()
+                    && let Some(spec) = crate::input::hotkey::VoiceHotkeySpec::parse(&ptt_str)
+                    && spec.matches_release_evdev(key, is_release)
+                {
+                    let was_down =
+                        crate::input::hotkey::PTT_KEY_DOWN.swap(false, Ordering::Relaxed);
+                    if was_down {
+                        let session = session.clone();
+                        std::thread::spawn(move || {
+                            if let Err(e) = session.stop_ptt() {
+                                warn!("Voice PTT stop error: {e}");
+                            }
+                        });
+                        if !is_modifier_evdev(key) {
+                            swallow_frame = true;
+                        }
+                        continue;
+                    }
+                }
+
+                let hf_str = taurine_core::settings::get_cached_voice_handsfree_hotkey();
+                if !hf_str.is_empty()
+                    && let Some(spec) = crate::input::hotkey::VoiceHotkeySpec::parse(&hf_str)
+                    && spec.matches_release_evdev(key, is_release)
+                {
+                    crate::input::hotkey::HANDSFREE_KEY_DOWN.store(false, Ordering::Relaxed);
+                }
+            }
+
             if grab_enabled
                 && trigger_assist_active
                 && crate::hook::should_swallow_trigger_assist_key_release(

@@ -71,6 +71,7 @@ chrono-tz = "0.10"
 phf = { version = "0.14", features = ["macros"] }
 num2words = "1.2"
 genai = "0.6.5"
+sysinfo = "0.39.0"
 
 [build-dependencies]
 tonic-prost-build = "0.14"
@@ -82,7 +83,6 @@ tempfile = "3.10"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
 
 [target."cfg(windows)".dependencies]
-sysinfo = "0.39.0"
 winreg = "0.56.0"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",

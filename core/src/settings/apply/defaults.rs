@@ -66,6 +66,7 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "voice_handsfree_hotkey" => Ok(Some(defaults.voice_handsfree_hotkey)),
         "voice_dictation_starters" => Ok(Some(defaults.voice_dictation_starters)),
         "voice_dictionary" => Ok(Some(defaults.voice_dictionary)),
+        "voice_input_device" => Ok(defaults.voice_input_device),
         _ => {
             let diag = crate::diagnostic::Diagnostic::problem(format!(
                 "{actual_key} is not a valid configuration setting"

@@ -6,6 +6,7 @@ pub mod delete;
 pub mod export;
 pub mod import;
 pub mod list;
+pub mod progress;
 pub mod script;
 pub mod service;
 pub mod update;

@@ -7,7 +7,8 @@ pub mod voice_triggers;
 pub use voice_triggers::{
     VoiceTriggerRow, add_voice_trigger, add_voice_trigger_full, delete_voice_trigger_by_phrase,
     delete_voice_triggers_by_values, get_voice_trigger_by_phrase, increment_voice_trigger_usage,
-    list_active_voice_triggers, threshold_for_phrase, validate_voice_phrase,
+    list_active_voice_triggers, normalize_voice_phrase, threshold_for_phrase,
+    validate_voice_phrase,
 };
 
 pub use target_os::TargetOs;

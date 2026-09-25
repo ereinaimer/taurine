@@ -1,4 +1,53 @@
 use regex::Regex;
+use std::sync::LazyLock;
+
+static SPOKEN_PUNCT: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
+    vec![
+        (Regex::new(r"(?i)\bnew paragraph\b").unwrap(), "\n\n"),
+        (Regex::new(r"(?i)\bnew line\b").unwrap(), "\n"),
+        (Regex::new(r"(?i)\bnewline\b").unwrap(), "\n"),
+        (Regex::new(r"(?i)\bperiod\b").unwrap(), "."),
+        (Regex::new(r"(?i)\bfull stop\b").unwrap(), "."),
+        (Regex::new(r"(?i)\bcomma\b").unwrap(), ","),
+        (Regex::new(r"(?i)\bquestion mark\b").unwrap(), "?"),
+        (Regex::new(r"(?i)\bexclamation point\b").unwrap(), "!"),
+        (Regex::new(r"(?i)\bexclamation mark\b").unwrap(), "!"),
+        (Regex::new(r"(?i)\bcolon\b").unwrap(), ":"),
+        (Regex::new(r"(?i)\bsemicolon\b").unwrap(), ";"),
+        (Regex::new(r"(?i)\bopen quote\b").unwrap(), "\""),
+        (Regex::new(r"(?i)\bclose quote\b").unwrap(), "\""),
+    ]
+});
+
+static FILLERS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+    vec![
+        Regex::new(r"(?i)\bum\b").unwrap(),
+        Regex::new(r"(?i)\buh\b").unwrap(),
+        Regex::new(r"(?i)\bah\b").unwrap(),
+    ]
+});
+
+static PUNCT_SPACE_FIXES: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
+    vec![
+        (Regex::new(r"\s+([,\.\?!;:])").unwrap(), "$1"),
+        (
+            Regex::new(r"([,\.\?!;:])([^\s\d\n,\.\?!;:])").unwrap(),
+            "$1 $2",
+        ),
+        (Regex::new(r"[ \t]*\n[ \t]*").unwrap(), "\n"),
+        (Regex::new(r"[ \t]{2,}").unwrap(), " "),
+    ]
+});
+
+static I_FIXES: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
+    vec![
+        (Regex::new(r"\bi\b").unwrap(), "I"),
+        (Regex::new(r"\bi'm\b").unwrap(), "I'm"),
+        (Regex::new(r"\bi've\b").unwrap(), "I've"),
+        (Regex::new(r"\bi'll\b").unwrap(), "I'll"),
+        (Regex::new(r"\bi'd\b").unwrap(), "I'd"),
+    ]
+});
 
 /// Formats a raw speech recognition transcript into clean, human-readable text:
 /// - Replaces spoken punctuation commands ("period", "comma", "question mark", etc.)
@@ -14,47 +63,18 @@ pub fn format_transcript(raw: &str) -> String {
     let mut text = trimmed.to_string();
 
     // 1. Spoken punctuation replacements
-    let spoken_punct = [
-        (r"(?i)\bnew paragraph\b", "\n\n"),
-        (r"(?i)\bnew line\b", "\n"),
-        (r"(?i)\bnewline\b", "\n"),
-        (r"(?i)\bperiod\b", "."),
-        (r"(?i)\bfull stop\b", "."),
-        (r"(?i)\bcomma\b", ","),
-        (r"(?i)\bquestion mark\b", "?"),
-        (r"(?i)\bexclamation point\b", "!"),
-        (r"(?i)\bexclamation mark\b", "!"),
-        (r"(?i)\bcolon\b", ":"),
-        (r"(?i)\bsemicolon\b", ";"),
-        (r"(?i)\bopen quote\b", "\""),
-        (r"(?i)\bclose quote\b", "\""),
-    ];
-
-    for (pattern, replacement) in spoken_punct {
-        if let Ok(re) = Regex::new(pattern) {
-            text = re.replace_all(&text, replacement).to_string();
-        }
+    for (re, replacement) in SPOKEN_PUNCT.iter() {
+        text = re.replace_all(&text, *replacement).to_string();
     }
 
     // 2. Remove filler words
-    let fillers = [r"(?i)\bum\b", r"(?i)\buh\b", r"(?i)\bah\b"];
-    for pattern in fillers {
-        if let Ok(re) = Regex::new(pattern) {
-            text = re.replace_all(&text, "").to_string();
-        }
+    for re in FILLERS.iter() {
+        text = re.replace_all(&text, "").to_string();
     }
 
     // 3. Fix spacing before and after punctuation
-    let punct_space_fixes = [
-        (r"\s+([,\.\?!;:])", "$1"),
-        (r"([,\.\?!;:])([^\s\d\n,\.\?!;:])", "$1 $2"),
-        (r"[ \t]*\n[ \t]*", "\n"),
-        (r"[ \t]{2,}", " "),
-    ];
-    for (pattern, replacement) in punct_space_fixes {
-        if let Ok(re) = Regex::new(pattern) {
-            text = re.replace_all(&text, replacement).to_string();
-        }
+    for (re, replacement) in PUNCT_SPACE_FIXES.iter() {
+        text = re.replace_all(&text, *replacement).to_string();
     }
 
     // 4. Capitalize start of sentences
@@ -75,17 +95,8 @@ pub fn format_transcript(raw: &str) -> String {
     let mut result: String = chars.into_iter().collect();
 
     // 5. Capitalize personal pronoun "I" and contractions
-    let i_fixes = [
-        (r"\bi\b", "I"),
-        (r"\bi'm\b", "I'm"),
-        (r"\bi've\b", "I've"),
-        (r"\bi'll\b", "I'll"),
-        (r"\bi'd\b", "I'd"),
-    ];
-    for (pattern, replacement) in i_fixes {
-        if let Ok(re) = Regex::new(pattern) {
-            result = re.replace_all(&result, replacement).to_string();
-        }
+    for (re, replacement) in I_FIXES.iter() {
+        result = re.replace_all(&result, *replacement).to_string();
     }
 
     result.trim().to_string()

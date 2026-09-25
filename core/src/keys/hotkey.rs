@@ -193,7 +193,7 @@ fn insert_modifier(modifiers: &mut Modifiers, modifier: Modifier) -> Result<(), 
     }
 }
 
-fn split_tokens(input: &str) -> Result<Vec<String>, KeyParseError> {
+pub fn split_tokens(input: &str) -> Result<Vec<String>, KeyParseError> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return Err(KeyParseError::EmptyInput);

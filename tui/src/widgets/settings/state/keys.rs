@@ -56,6 +56,7 @@ impl SettingKeyMeta for SettingKey {
             Self::VoiceHandsfreeHotkey => "Voice Hands-free Hotkey",
             Self::VoiceDictationStarters => "Voice Dictation Starters",
             Self::VoiceDictionary => "Voice Personal Dictionary",
+            Self::VoiceInputDevice => "Voice Input Device",
         }
     }
 
@@ -150,6 +151,9 @@ impl SettingKeyMeta for SettingKey {
             Self::VoiceDictionary => {
                 "Comma-separated custom vocabulary words for phonetic and fuzzy correction"
             }
+            Self::VoiceInputDevice => {
+                "Microphone device name for voice dictation (leave empty for system default)"
+            }
         }
     }
 
@@ -182,9 +186,10 @@ impl SettingKeyMeta for SettingKey {
             Self::SpinnerStyle => EditorKind::SpinnerSelect,
             Self::AudioTheme => EditorKind::AudioThemeSelect,
             Self::AiProvider => EditorKind::AiProviderSelect,
-            Self::AiCustomEndpoint | Self::AiTemperature | Self::AiSystemPrompt => {
-                EditorKind::OptionalTextInput
-            }
+            Self::AiCustomEndpoint
+            | Self::AiTemperature
+            | Self::AiSystemPrompt
+            | Self::VoiceInputDevice => EditorKind::OptionalTextInput,
             Self::InlineDictionaryMode => EditorKind::InlineDictionaryModeSelect,
             Self::InlineEmojiTriggerChar => EditorKind::SingleCharInput,
             Self::PauseHotkey
@@ -271,6 +276,9 @@ impl SettingKeyMeta for SettingKey {
                     settings.voice_dictionary.clone()
                 }
             }
+            Self::VoiceInputDevice => {
+                optional_value_label(settings.voice_input_device.as_deref()).to_string()
+            }
         }
     }
 
@@ -290,6 +298,7 @@ impl SettingKeyMeta for SettingKey {
             Self::VoiceHandsfreeHotkey => settings.voice_handsfree_hotkey.clone(),
             Self::VoiceDictationStarters => settings.voice_dictation_starters.clone(),
             Self::VoiceDictionary => settings.voice_dictionary.clone(),
+            Self::VoiceInputDevice => settings.voice_input_device.clone().unwrap_or_default(),
             Self::PauseNotificationsEnabled
             | Self::PauseAudioEnabled
             | Self::AudioTheme

@@ -116,6 +116,7 @@ fn inject_text_segment_with_gen(
     };
 
     if original_clipboard.is_none() {
+        crate::platform::get_injector().pre_release_modifiers();
         match prepare_clipboard_for_expansion(&mut clipboard, text, captured_gen) {
             Ok(orig) => {
                 crate::platform::get_injector().simulate_paste();

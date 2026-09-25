@@ -69,6 +69,26 @@ pub fn validate_voice_phrase(phrase: &str) -> Result<String> {
     Ok(normalized)
 }
 
+/// Normalizes a spoken phrase or transcript for robust voice trigger matching:
+/// - Strips leading/trailing punctuation and whitespace
+/// - Replaces ASCII punctuation (periods, commas, exclamation marks, question marks, quotes, hyphens) with space
+/// - Normalizes Unicode to NFC and converts to lowercase
+/// - Collapses multiple spaces into a single space
+pub fn normalize_voice_phrase(raw: &str) -> String {
+    let without_punct: String = raw
+        .chars()
+        .map(|c| if c.is_ascii_punctuation() { ' ' } else { c })
+        .collect();
+
+    without_punct
+        .nfc()
+        .collect::<String>()
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<&str>>()
+        .join(" ")
+}
+
 /// Adds or updates an active voice trigger.
 pub fn add_voice_trigger(
     conn: &Connection,
@@ -346,5 +366,15 @@ mod tests {
         )
         .unwrap();
         assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_normalize_voice_phrase() {
+        assert_eq!(normalize_voice_phrase("My email."), "my email");
+        assert_eq!(normalize_voice_phrase("My Email!"), "my email");
+        assert_eq!(normalize_voice_phrase("  my   email?  "), "my email");
+        assert_eq!(normalize_voice_phrase("my-email"), "my email");
+        assert_eq!(normalize_voice_phrase("\"My Email,\""), "my email");
+        assert_eq!(normalize_voice_phrase("HELLO WORLD"), "hello world");
     }
 }

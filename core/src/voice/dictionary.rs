@@ -44,13 +44,14 @@ impl VoiceDictionary {
                 .rev()
                 .collect();
 
-            let core_end = word.len() - trailing_punct.len();
-            if leading_punct.len() >= core_end {
+            let start = leading_punct.len();
+            let end = word.len() - trailing_punct.len();
+            if start >= end || !word.is_char_boundary(start) || !word.is_char_boundary(end) {
                 corrected_words.push(word.to_string());
                 continue;
             }
 
-            let core = &word[leading_punct.len()..core_end];
+            let core = &word[start..end];
             let core_lower = core.to_lowercase();
 
             let mut best_match: Option<&str> = None;
@@ -104,5 +105,17 @@ mod tests {
         // Non-matching words untouched
         let res_untouched = dict.apply("hello world");
         assert_eq!(res_untouched, "hello world");
+    }
+
+    #[test]
+    fn test_dictionary_unicode_punctuation() {
+        let dict = VoiceDictionary::from_csv("Taurine");
+        // Em-dash is 3 UTF-8 bytes: —
+        let res = dict.apply("—taurine—");
+        assert_eq!(res, "—Taurine—");
+
+        // Smart quotes: “taurine”
+        let res_quotes = dict.apply("“taurine”");
+        assert_eq!(res_quotes, "“Taurine”");
     }
 }

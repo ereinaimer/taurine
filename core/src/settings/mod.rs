@@ -45,6 +45,8 @@ static CACHED_VOICE_DICTATION_STARTERS: parking_lot::RwLock<Option<String>> =
     parking_lot::RwLock::new(None);
 static CACHED_VOICE_DICTIONARY: parking_lot::RwLock<Option<String>> =
     parking_lot::RwLock::new(None);
+static CACHED_VOICE_INPUT_DEVICE: parking_lot::RwLock<Option<String>> =
+    parking_lot::RwLock::new(None);
 
 // Bumped on every cached-settings write so background loops can poll this
 // single counter instead of re-reading the database while idle.
@@ -293,6 +295,15 @@ pub fn get_cached_voice_dictionary() -> String {
     CACHED_VOICE_DICTIONARY.read().clone().unwrap_or_default()
 }
 
+pub fn set_cached_voice_input_device(device: Option<String>) {
+    *CACHED_VOICE_INPUT_DEVICE.write() = device;
+    bump_settings_version();
+}
+
+pub fn get_cached_voice_input_device() -> Option<String> {
+    CACHED_VOICE_INPUT_DEVICE.read().clone()
+}
+
 pub const DEFAULT_AI_SYSTEM_PROMPT: &str = "You are Tau, an inline text expander. Provide complete but highly concise answers. Plain text only. No markdown, lists, code fences, or newlines. No filler, greetings, explanations, or extra context. Output your entire response as one continuous string.";
 
 mod apply;
@@ -439,10 +450,11 @@ pub enum SettingKey {
     VoiceHandsfreeHotkey,
     VoiceDictationStarters,
     VoiceDictionary,
+    VoiceInputDevice,
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 43] = [
+    pub const ALL: [Self; 44] = [
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
         Self::PauseAudioEnabled,
@@ -486,6 +498,7 @@ impl SettingKey {
         Self::VoiceHandsfreeHotkey,
         Self::VoiceDictationStarters,
         Self::VoiceDictionary,
+        Self::VoiceInputDevice,
     ];
 
     pub const fn storage_key(self) -> &'static str {
@@ -533,6 +546,7 @@ impl SettingKey {
             Self::VoiceHandsfreeHotkey => "voice_handsfree_hotkey",
             Self::VoiceDictationStarters => "voice_dictation_starters",
             Self::VoiceDictionary => "voice_dictionary",
+            Self::VoiceInputDevice => "voice_input_device",
         }
     }
 }
@@ -582,6 +596,7 @@ pub struct Settings {
     pub voice_handsfree_hotkey: String,
     pub voice_dictation_starters: String,
     pub voice_dictionary: String,
+    pub voice_input_device: Option<String>,
 }
 
 impl std::fmt::Debug for Settings {
@@ -657,12 +672,13 @@ impl std::fmt::Debug for Settings {
             .field("voice_handsfree_hotkey", &self.voice_handsfree_hotkey)
             .field("voice_dictation_starters", &self.voice_dictation_starters)
             .field("voice_dictionary", &self.voice_dictionary)
+            .field("voice_input_device", &self.voice_input_device)
             .finish()
     }
 }
 
 impl Settings {
-    pub const ALL_KEYS: [&'static str; 43] = [
+    pub const ALL_KEYS: [&'static str; 44] = [
         "pause_hotkey",
         "pause_notifications_enabled",
         "pause_audio_enabled",
@@ -706,6 +722,7 @@ impl Settings {
         "voice_handsfree_hotkey",
         "voice_dictation_starters",
         "voice_dictionary",
+        "voice_input_device",
     ];
 
     pub fn resolve_key(key: &str) -> &str {
@@ -778,6 +795,8 @@ impl Settings {
                 "voice_dictation_starters"
             }
             "voice_dictionary" | "voice_vocab" | "voice_words" => "voice_dictionary",
+            "voice_input_device" | "voice_device" | "voice_mic" | "input_device" | "mic"
+            | "microphone" => "voice_input_device",
             other => other,
         }
     }
@@ -894,6 +913,7 @@ impl Default for Settings {
             voice_handsfree_hotkey: "win+lctrl+lalt".to_string(),
             voice_dictation_starters: "type this, write this".to_string(),
             voice_dictionary: String::new(),
+            voice_input_device: None,
         }
     }
 }
@@ -991,6 +1011,7 @@ mod tests {
         assert_eq!(defaults.voice_handsfree_hotkey, "win+lctrl+lalt");
         assert_eq!(defaults.voice_dictation_starters, "type this, write this");
         assert!(defaults.voice_dictionary.is_empty());
+        assert_eq!(defaults.voice_input_device, None);
     }
 
     #[test]
@@ -1024,5 +1045,12 @@ mod tests {
             "voice_dictionary"
         );
         assert_eq!(Settings::resolve_key("voice_vocab"), "voice_dictionary");
+        assert_eq!(
+            Settings::resolve_key("voice_input_device"),
+            "voice_input_device"
+        );
+        assert_eq!(Settings::resolve_key("voice_device"), "voice_input_device");
+        assert_eq!(Settings::resolve_key("mic"), "voice_input_device");
+        assert_eq!(Settings::resolve_key("microphone"), "voice_input_device");
     }
 }

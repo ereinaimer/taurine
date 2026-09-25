@@ -130,6 +130,10 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
         ),
         ("voice_model", settings.voice_model.clone()),
         ("voice_always_on", settings.voice_always_on.to_string()),
+        (
+            "voice_input_device",
+            render_optional_setting(settings.voice_input_device.as_deref()).to_string(),
+        ),
         ("voice_ptt_hotkey", settings.voice_ptt_hotkey.clone()),
         (
             "voice_handsfree_hotkey",
@@ -195,15 +199,25 @@ pub fn execute_set(
     let actual_key = Settings::resolve_key(&key);
     apply_setting_input(actual_key, Some(&value))?;
 
-    if actual_key == "voice_model" && !json {
+    if actual_key == "voice_model" {
         let canonical = taurine_core::voice::resolve_model_alias(&value);
-        if !taurine_core::voice::is_model_downloaded(canonical, None)
-            && let Some(entry) = taurine_core::voice::get_model_entry(canonical)
+        if let Err(e) = super::progress::ensure_voice_model_downloaded(canonical, json) {
+            tracing::warn!(error = %e, "Voice model '{}' download failed", canonical);
+            if !json {
+                eprintln!(
+                    "Warning: Voice model '{}' could not be downloaded right now. Setting saved.",
+                    canonical
+                );
+            }
+        }
+    } else if actual_key == "voice_always_on" && value.trim().eq_ignore_ascii_case("true") {
+        if let Err(e) = super::progress::ensure_voice_model_downloaded("silero_vad_v6", json) {
+            tracing::warn!(error = %e, "Silero VAD model download failed");
+        }
+        if let Err(e) =
+            super::progress::ensure_voice_model_downloaded("kws-zipformer-zh-en-3M", json)
         {
-            println!(
-                "Note: Model '{}' ({}) is not cached locally.",
-                entry.name, entry.size_display
-            );
+            tracing::warn!(error = %e, "Zipformer KWS model download failed");
         }
     }
 
@@ -348,6 +362,33 @@ mod tests {
             Ok(settings.inline_ai_enabled)
         });
         assert!(!persisted.unwrap());
+    }
+
+    #[test]
+    fn set_and_reset_voice_input_device_persists() {
+        let (persisted, reset_val) = with_test_db(
+            || -> taurine_core::error::Result<(Option<String>, Option<String>)> {
+                execute_set(
+                    Some("voice_input_device".to_string()),
+                    Some("External Microphone".to_string()),
+                    false,
+                )?;
+                let conn = init::setup()?;
+                let manager = SettingsManager::new(&conn);
+                let set_val = manager.load_all().voice_input_device;
+
+                execute_reset("voice_input_device".to_string(), false)?;
+                let conn = init::setup()?;
+                let manager = SettingsManager::new(&conn);
+                let reset_val = manager.load_all().voice_input_device;
+
+                Ok((set_val, reset_val))
+            },
+        )
+        .unwrap();
+
+        assert_eq!(persisted.as_deref(), Some("External Microphone"));
+        assert_eq!(reset_val, None);
     }
 
     #[test]

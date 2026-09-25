@@ -7,6 +7,8 @@ pub enum VoiceMode {
     PushToTalk,
     /// Hands-free: records continuously until Escape or hotkey toggle.
     HandsFree,
+    /// Processing audio and transcribing / injecting.
+    Processing,
 }
 
 impl VoiceMode {

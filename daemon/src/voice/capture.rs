@@ -3,6 +3,9 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::{debug, error, info, warn};
 
+/// Maximum buffered samples (5 minutes of 16kHz mono audio = 4,800,000 samples).
+pub const MAX_BUFFER_SAMPLES: usize = 16_000 * 60 * 5;
+
 /// Thread-safe audio frame buffer storing 16kHz mono f32 samples.
 #[derive(Debug, Default)]
 pub struct AudioFrameBuffer {
@@ -17,9 +20,15 @@ impl AudioFrameBuffer {
         }
     }
 
-    /// Append 16kHz mono samples into the buffer.
+    /// Append 16kHz mono samples into the buffer, discarding oldest samples if capacity exceeds `MAX_BUFFER_SAMPLES`.
     pub fn push_samples(&self, incoming: &[f32]) {
         let mut lock = self.samples.lock().unwrap_or_else(|p| p.into_inner());
+        let total = lock.len() + incoming.len();
+        if total > MAX_BUFFER_SAMPLES {
+            let overflow = total - MAX_BUFFER_SAMPLES;
+            let drain_count = overflow.min(lock.len());
+            lock.drain(..drain_count);
+        }
         lock.extend_from_slice(incoming);
     }
 
@@ -169,18 +178,74 @@ impl AudioCapture {
         self.device_disconnected.load(Ordering::Relaxed)
     }
 
-    /// Start capturing audio from the default input device.
-    pub fn start(&self) -> Result<(), String> {
-        use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+    /// Enumerate all unique audio input device names currently available on the system.
+    pub fn list_input_devices() -> Vec<String> {
+        use cpal::traits::{DeviceTrait, HostTrait};
+        let host = cpal::default_host();
+        let mut names = Vec::new();
+        if let Ok(devices) = host.input_devices() {
+            for device in devices {
+                if let Ok(name) = device.name()
+                    && !names.contains(&name)
+                {
+                    names.push(name);
+                }
+            }
+        }
+        names
+    }
 
-        if self.is_running() {
+    /// Resolve the appropriate audio input device: checks configured `voice_input_device`
+    /// against available input devices (case-insensitive substring match).
+    /// Falls back to system default input device if unset or not found.
+    pub fn resolve_input_device(host: &cpal::Host) -> Result<cpal::Device, String> {
+        use cpal::traits::{DeviceTrait, HostTrait};
+
+        if let Some(configured_name) = taurine_core::settings::get_cached_voice_input_device()
+            && !configured_name.trim().is_empty()
+        {
+            let configured_lower = configured_name.trim().to_lowercase();
+            if let Ok(devices) = host.input_devices() {
+                for d in devices {
+                    if let Ok(name) = d.name() {
+                        let name_lower = name.to_lowercase();
+                        if name_lower == configured_lower || name_lower.contains(&configured_lower)
+                        {
+                            return Ok(d);
+                        }
+                    }
+                }
+            }
+            warn!(
+                "Configured voice input device '{configured_name}' not found; falling back to default device"
+            );
+        }
+
+        host.default_input_device()
+            .ok_or_else(|| "No audio input device found on the system".to_string())
+    }
+
+    /// Restart the audio stream if it is currently running (e.g. after changing input device).
+    pub fn restart(&self) -> Result<(), String> {
+        let was_running = self.is_running();
+        self.stop();
+        if was_running {
+            self.start()?;
+        }
+        Ok(())
+    }
+
+    /// Start capturing audio from the configured or default input device.
+    pub fn start(&self) -> Result<(), String> {
+        use cpal::traits::{DeviceTrait, StreamTrait};
+
+        let mut stream_guard = self._stream.lock().unwrap_or_else(|p| p.into_inner());
+        if stream_guard.is_some() || self.is_running() {
             return Ok(());
         }
 
         let host = cpal::default_host();
-        let device = host
-            .default_input_device()
-            .ok_or_else(|| "No audio input device found on the system".to_string())?;
+        let device = Self::resolve_input_device(&host)?;
 
         let device_name = device.name().unwrap_or_else(|_| "Default Device".into());
         debug!("Initializing voice capture device: {device_name}");
@@ -261,7 +326,7 @@ impl AudioCapture {
             .play()
             .map_err(|e| format!("Failed to start audio input stream: {e}"))?;
 
-        *self._stream.lock().unwrap_or_else(|p| p.into_inner()) = Some(stream);
+        *stream_guard = Some(stream);
         self.is_running.store(true, Ordering::SeqCst);
         self.device_disconnected.store(false, Ordering::SeqCst);
         info!("Audio capture started at {sample_rate}Hz ({channels} ch) -> 16kHz mono");
@@ -333,6 +398,22 @@ mod tests {
         let remaining = buffer.drain();
         assert_eq!(remaining.len(), 512);
         assert!(buffer.is_empty());
+    }
+
+    #[test]
+    fn test_audio_frame_buffer_overflow_cap() {
+        let buffer = AudioFrameBuffer::new();
+        // Push MAX_BUFFER_SAMPLES
+        let chunk = vec![0.5f32; 100_000];
+        for _ in 0..48 {
+            buffer.push_samples(&chunk);
+        }
+        assert_eq!(buffer.len(), 4_800_000);
+
+        // Push another 10,000 samples — total length must still be capped at MAX_BUFFER_SAMPLES
+        let extra = vec![1.0f32; 10_000];
+        buffer.push_samples(&extra);
+        assert_eq!(buffer.len(), MAX_BUFFER_SAMPLES);
     }
 
     #[test]

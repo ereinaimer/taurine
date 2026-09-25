@@ -257,6 +257,11 @@ impl<'a> SettingsManager<'a> {
         {
             settings.voice_dictionary = v;
         }
+        if let Some(val) = map.get("voice_input_device")
+            && let Ok(v) = serde_json::from_str::<Option<String>>(val)
+        {
+            settings.voice_input_device = v;
+        }
 
         settings
     }
