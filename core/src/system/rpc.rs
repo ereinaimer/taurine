@@ -113,18 +113,40 @@ mod tests {
     fn test_notify_daemon_reload_skips_when_service_not_running() {
         let _guard = lock();
         // SAFETY: Single-threaded unit test modifying environment variable for isolation.
+        #[cfg(target_os = "windows")]
         unsafe {
             std::env::set_var(
                 "TAURINE_SERVICE_LIVENESS_NAME",
                 "Local\\TaurineTestNonExistent",
             );
         }
+        // Non-Windows liveness ignores TAURINE_SERVICE_LIVENESS_NAME and
+        // probes a lock file instead, so point it at a fresh temp path.
+        // Otherwise the test depends on real filesystem state.
+        #[cfg(not(target_os = "windows"))]
+        let temp_dir = tempfile::tempdir().unwrap();
+        #[cfg(not(target_os = "windows"))]
+        unsafe {
+            std::env::set_var(
+                "TAURINE_SERVICE_LIVENESS_PATH",
+                temp_dir
+                    .path()
+                    .join("taurine_test_nonexistent.lock")
+                    .to_string_lossy()
+                    .to_string(),
+            );
+        }
         let start = std::time::Instant::now();
         notify_daemon_reload();
         let elapsed = start.elapsed();
         // SAFETY: Single-threaded unit test cleaning up environment variable.
+        #[cfg(target_os = "windows")]
         unsafe {
             std::env::remove_var("TAURINE_SERVICE_LIVENESS_NAME");
+        }
+        #[cfg(not(target_os = "windows"))]
+        unsafe {
+            std::env::remove_var("TAURINE_SERVICE_LIVENESS_PATH");
         }
         assert!(
             elapsed.as_millis() < 50,
