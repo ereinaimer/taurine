@@ -34,13 +34,34 @@ pub(crate) static VOICE_SESSION: std::sync::OnceLock<
 
 /// Lock a freshly bound Unix socket to owner-only access. Socket permissions
 /// are the access boundary for unauthenticated control RPCs.
+///
+/// `fchmod` on the listener fd only touches the socketfs inode behind the fd,
+/// not the bound filesystem path, so the fd call alone leaves the path at its
+/// bind-time mode (0777 masked by umask). The path chmod below is the
+/// effective control. The rename race between bind and chmod is closed because
+/// the parent data dir is owner-only (0700); the final stat verifies the
+/// result and fails closed on any mismatch.
 #[cfg(all(unix, not(target_os = "android")))]
-fn restrict_socket_permissions(listener: &tokio::net::UnixListener) -> std::io::Result<()> {
-    // SAFETY: fd comes from a live listener owned by the caller; fchmod on a
-    // fd cannot race path replacement the way a path chmod can.
+fn restrict_socket_permissions(
+    listener: &tokio::net::UnixListener,
+    path: &std::path::Path,
+) -> std::io::Result<()> {
+    // SAFETY: fd comes from a live listener owned by the caller.
     let rc = unsafe { libc::fchmod(std::os::unix::io::AsRawFd::as_raw_fd(listener), 0o600) };
     if rc != 0 {
         return Err(std::io::Error::last_os_error());
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let mut perms = std::fs::metadata(path)?.permissions();
+    if perms.mode() & 0o777 != 0o600 {
+        perms.set_mode(0o600);
+        std::fs::set_permissions(path, perms)?;
+    }
+    let mode = std::fs::metadata(path)?.permissions().mode() & 0o777;
+    if mode != 0o600 {
+        return Err(std::io::Error::other(
+            "IPC socket path is not owner-only after chmod",
+        ));
     }
     Ok(())
 }
@@ -59,7 +80,7 @@ mod uds_perm_tests {
             .expect("test runtime");
         rt.block_on(async {
             let listener = tokio::net::UnixListener::bind(&path).expect("bind test socket");
-            super::restrict_socket_permissions(&listener).expect("restrict permissions");
+            super::restrict_socket_permissions(&listener, &path).expect("restrict permissions");
             let mode = std::fs::metadata(&path)
                 .expect("socket metadata")
                 .permissions()
@@ -496,13 +517,13 @@ pub fn start() -> taurine_core::error::Result<()> {
     let _ = TOKIO_HANDLE.set(rt.handle().clone());
 
     let run_result = rt.block_on(async move {
-        tokio::spawn(crate::dictionary_manager::check_and_update_dictionary());
+        let dict_handle = tokio::spawn(crate::dictionary_manager::check_and_update_dictionary());
 
         let shutdown_requested = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         // Periodic maintenance task for voice model hold-ladder expiry (swept every 5s)
         let shutdown_for_voice = shutdown_requested.clone();
-        tokio::spawn(async move {
+        let voice_sweep_handle = tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
             while !shutdown_for_voice.load(Ordering::Relaxed) {
                 interval.tick().await;
@@ -519,7 +540,7 @@ pub fn start() -> taurine_core::error::Result<()> {
         #[cfg(any(windows, target_os = "linux"))]
         let state_for_coordinator = state.clone();
         let pause_notifications_enabled_for_coordinator = pause_notifications_enabled.clone();
-        tokio::spawn(async move {
+        let pause_coordinator_handle = tokio::spawn(async move {
             while let Some(first) = pause_transition_rx.recv().await {
                 let mut latest = first;
                 while let Ok(next) = pause_transition_rx.try_recv() {
@@ -671,7 +692,7 @@ pub fn start() -> taurine_core::error::Result<()> {
 
                     match UnixListener::bind(&socket_path) {
                         Ok(uds) => {
-                            if let Err(error) = restrict_socket_permissions(&uds) {
+                            if let Err(error) = restrict_socket_permissions(&uds, &socket_path) {
                                 error!(%error, "Failed to lock down IPC socket permissions, refusing to serve unauthenticated control");
                                 return Err(taurine_core::error::Error::Io(error));
                             }
@@ -803,6 +824,12 @@ pub fn start() -> taurine_core::error::Result<()> {
             shutdown_tx = new_shutdown_tx;
             shutdown_rx = new_shutdown_rx;
         }
+        // Stop background Tokio tasks before the runtime drops: a timer
+        // registration (interval tick, timeout) during shutdown panics with
+        // "a Tokio context is being shutdown".
+        dict_handle.abort();
+        voice_sweep_handle.abort();
+        pause_coordinator_handle.abort();
         Ok(())
     });
 
