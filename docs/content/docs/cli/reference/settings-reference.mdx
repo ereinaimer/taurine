@@ -169,4 +169,14 @@ Control the behavior of the headless assist features and inline conversion featu
   - **Default**: `false`
   - **Values**: `true`, `false`
 </Accordion>
+
+<Accordion title="voice_model">
+  Speech-to-text model used for voice dictation.
+  
+  - **Key**: `voice_model`
+  - **Default**: `auto`
+  - **Values**: `auto`, `best`, `balanced`, `fast`, `parakeet-unified-en-0.6b`, `parakeet-tdt-0.6b-v2`, `parakeet-tdt-ctc-110m`
+  - **Aliases**: `best` → `parakeet-unified-en-0.6b`, `balanced` → `parakeet-tdt-0.6b-v2`, `fast` → `parakeet-tdt-ctc-110m`
+  - **Example**: `taurine config set voice_model balanced`
+</Accordion>
 </Accordions>

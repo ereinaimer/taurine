@@ -13,12 +13,16 @@ pub fn create_transcriber(model_name: &str, models_dir: Option<&Path>) -> Box<dy
             let path = models_dir.map(|d| d.join("parakeet-unified"));
             Box::new(ParakeetTranscriber::new(canonical, path.as_deref()))
         }
+        "parakeet-tdt-0.6b-v2" => {
+            let path = models_dir.map(|d| d.join("parakeet-0.6b-v2"));
+            Box::new(ParakeetTranscriber::new(canonical, path.as_deref()))
+        }
         "parakeet-tdt-ctc-110m" => {
             let path = models_dir.map(|d| d.join("parakeet-110m"));
             Box::new(ParakeetTranscriber::new(canonical, path.as_deref()))
         }
         _ => {
-            // `resolve_configured_model` only returns the two canonical IDs;
+            // `resolve_configured_model` only returns canonical catalog IDs;
             // fail closed to the light model rather than loading both.
             let path = models_dir.map(|d| d.join("parakeet-110m"));
             Box::new(ParakeetTranscriber::new(
@@ -44,5 +48,20 @@ mod tests {
         assert_eq!(t3.name(), "parakeet-unified-en-0.6b");
         let t4 = create_transcriber("parakeet-tdt-ctc-110m", None);
         assert_eq!(t4.name(), "parakeet-tdt-ctc-110m");
+        // Tier aliases resolve to their canonical models.
+        assert_eq!(
+            create_transcriber("best", None).name(),
+            "parakeet-unified-en-0.6b"
+        );
+        assert_eq!(
+            create_transcriber("balanced", None).name(),
+            "parakeet-tdt-0.6b-v2"
+        );
+        assert_eq!(
+            create_transcriber("fast", None).name(),
+            "parakeet-tdt-ctc-110m"
+        );
+        let t5 = create_transcriber("parakeet-tdt-0.6b-v2", None);
+        assert_eq!(t5.name(), "parakeet-tdt-0.6b-v2");
     }
 }

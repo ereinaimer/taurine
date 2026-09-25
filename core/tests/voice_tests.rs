@@ -211,19 +211,29 @@ fn test_voice_models_catalog_and_ram_tier() {
     assert_eq!(get_model_entry("parakeet-tdt-0.6b-v3"), None);
     assert_eq!(get_model_entry("moonshine-base-en"), None);
     assert_eq!(get_model_entry("moonshine-tiny-en"), None);
-    // Strict canonical names: shorthand aliases are rejected.
+    // Tier aliases resolve; other shorthand stays rejected.
+    assert_eq!(
+        get_model_entry("best").unwrap().id,
+        "parakeet-unified-en-0.6b"
+    );
+    assert_eq!(
+        get_model_entry("balanced").unwrap().id,
+        "parakeet-tdt-0.6b-v2"
+    );
+    assert_eq!(get_model_entry("fast").unwrap().id, "parakeet-tdt-ctc-110m");
     assert_eq!(get_model_entry("110m"), None);
     assert_eq!(get_model_entry("unified"), None);
-    assert_eq!(get_model_entry("best"), None);
-    assert_eq!(get_model_entry("fast"), None);
     assert_eq!(
         resolve_model_alias("parakeet-unified-en-0.6b"),
         "parakeet-unified-en-0.6b"
     );
+    assert_eq!(resolve_model_alias("best"), "parakeet-unified-en-0.6b");
     assert_eq!(
         resolve_model_alias("parakeet-tdt-ctc-110m"),
         "parakeet-tdt-ctc-110m"
     );
+    assert_eq!(resolve_model_alias("fast"), "parakeet-tdt-ctc-110m");
+    assert_eq!(resolve_model_alias("balanced"), "parakeet-tdt-0.6b-v2");
     assert!(get_system_ram_gb() >= 4);
 }
 

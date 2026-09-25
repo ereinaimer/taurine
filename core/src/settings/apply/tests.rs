@@ -602,11 +602,23 @@ fn test_valid_voice_model_aliases() {
         .unwrap();
     assert_eq!(manager.load_all().voice_model, "parakeet-tdt-ctc-110m");
 
-    // Strict canonical names: shorthand aliases are rejected.
+    apply_setting_input_with_manager(&manager, "voice_model", Some("parakeet-tdt-0.6b-v2"))
+        .unwrap();
+    assert_eq!(manager.load_all().voice_model, "parakeet-tdt-0.6b-v2");
+
+    // Tier aliases canonicalize to their full model IDs.
+    apply_setting_input_with_manager(&manager, "voice_model", Some("best")).unwrap();
+    assert_eq!(manager.load_all().voice_model, "parakeet-unified-en-0.6b");
+
+    apply_setting_input_with_manager(&manager, "voice_model", Some("balanced")).unwrap();
+    assert_eq!(manager.load_all().voice_model, "parakeet-tdt-0.6b-v2");
+
+    apply_setting_input_with_manager(&manager, "voice_model", Some("fast")).unwrap();
+    assert_eq!(manager.load_all().voice_model, "parakeet-tdt-ctc-110m");
+
+    // Other shorthand remains rejected.
     assert!(apply_setting_input_with_manager(&manager, "voice_model", Some("unified")).is_err());
     assert!(apply_setting_input_with_manager(&manager, "voice_model", Some("110m")).is_err());
-    assert!(apply_setting_input_with_manager(&manager, "voice_model", Some("best")).is_err());
-    assert!(apply_setting_input_with_manager(&manager, "voice_model", Some("fast")).is_err());
     assert!(apply_setting_input_with_manager(&manager, "voice_model", Some("tiny")).is_err());
     assert!(
         apply_setting_input_with_manager(&manager, "voice_model", Some("whisper-small-en"))

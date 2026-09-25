@@ -470,14 +470,22 @@ fn require_non_empty<'a>(value: Option<&'a str>, key: &str) -> Result<&'a str> {
         .ok_or_else(|| Error::Config(format!("{key} must not be empty")))
 }
 
-pub const KNOWN_VOICE_MODELS: &[&str] =
-    &["auto", "parakeet-unified-en-0.6b", "parakeet-tdt-ctc-110m"];
+pub const KNOWN_VOICE_MODELS: &[&str] = &[
+    "auto",
+    "best",
+    "balanced",
+    "fast",
+    "parakeet-unified-en-0.6b",
+    "parakeet-tdt-0.6b-v2",
+    "parakeet-tdt-ctc-110m",
+];
 
 pub fn canonicalize_voice_model(input: &str) -> Option<&'static str> {
     match input.trim().to_ascii_lowercase().as_str() {
         "auto" => Some("auto"),
-        "parakeet-unified-en-0.6b" => Some("parakeet-unified-en-0.6b"),
-        "parakeet-tdt-ctc-110m" => Some("parakeet-tdt-ctc-110m"),
+        "best" | "parakeet-unified-en-0.6b" => Some("parakeet-unified-en-0.6b"),
+        "balanced" | "parakeet-tdt-0.6b-v2" => Some("parakeet-tdt-0.6b-v2"),
+        "fast" | "parakeet-tdt-ctc-110m" => Some("parakeet-tdt-ctc-110m"),
         _ => None,
     }
 }

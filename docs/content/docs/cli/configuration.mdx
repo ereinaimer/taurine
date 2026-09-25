@@ -17,6 +17,19 @@ taurine config set start_on_boot true
 taurine config set inline_ai_enabled false
 ```
 
+## Voice Dictation Model
+
+```bash
+taurine config set voice_model auto
+taurine config set voice_model best
+taurine config set voice_model balanced
+taurine config set voice_model fast
+```
+
+`auto` (default) picks `best` on 16 GiB+ RAM, otherwise `fast`. Aliases
+canonicalize on save: `best` → `parakeet-unified-en-0.6b`,
+`balanced` → `parakeet-tdt-0.6b-v2`, `fast` → `parakeet-tdt-ctc-110m`.
+
 ## Reset A Value
 
 ```bash

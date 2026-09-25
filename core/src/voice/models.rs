@@ -82,18 +82,18 @@ pub fn models_dir() -> PathBuf {
     crate::system::paths::ensure_data_dir().join("models")
 }
 
-/// Retrieve a catalog entry by its strict canonical ID or `auto`.
+/// Retrieve a catalog entry by canonical ID, `auto`, or tier alias.
 ///
-/// Only `auto`, `parakeet-tdt-ctc-110m`, `parakeet-tdt-0.6b-v2`, and `parakeet-unified-en-0.6b`
-/// resolve. All shorthand aliases (`110m`, `unified`,
-/// `best`, `quality`, `fast`, `light`, `tdt-ctc`, etc.) are rejected.
+/// `auto` resolves via RAM tier; `best`/`balanced`/`fast` resolve to the
+/// unified / 0.6b-v2 / 110m entries. All other shorthand (`110m`, `unified`,
+/// `quality`, `light`, `tdt-ctc`, etc.) is rejected.
 pub fn get_model_entry(identifier: &str) -> Option<&'static ModelCatalogEntry> {
     let trimmed = identifier.trim().to_ascii_lowercase();
     let canonical = match trimmed.as_str() {
         "auto" => resolve_auto_model(),
-        "parakeet-unified-en-0.6b" => "parakeet-unified-en-0.6b",
-        "parakeet-tdt-0.6b-v2" => "parakeet-tdt-0.6b-v2",
-        "parakeet-tdt-ctc-110m" => "parakeet-tdt-ctc-110m",
+        "best" | "parakeet-unified-en-0.6b" => "parakeet-unified-en-0.6b",
+        "balanced" | "parakeet-tdt-0.6b-v2" => "parakeet-tdt-0.6b-v2",
+        "fast" | "parakeet-tdt-ctc-110m" => "parakeet-tdt-ctc-110m",
         _ => return None,
     };
     MODEL_CATALOG.iter().find(|entry| entry.id == canonical)
@@ -127,16 +127,17 @@ pub fn resolve_auto_model() -> &'static str {
 
 /// Resolve the stored `voice_model` setting to the single model ID to load.
 ///
-/// Respects the user configuration: a pinned canonical name loads exactly
-/// that model, `auto` loads unified on >= 16 GiB total RAM and 110m below.
+/// A pinned canonical name or tier alias loads exactly that model
+/// (`best` = unified, `balanced` = 0.6b-v2, `fast` = 110m);
+/// `auto` loads unified on >= 16 GiB total RAM and 110m below.
 /// Unrecognized input falls back to `auto` (settings validation rejects it).
 pub fn resolve_configured_model(configured: &str) -> &'static str {
     let trimmed = configured.trim().to_ascii_lowercase();
     match trimmed.as_str() {
         "auto" => resolve_auto_model(),
-        "parakeet-unified-en-0.6b" => "parakeet-unified-en-0.6b",
-        "parakeet-tdt-0.6b-v2" => "parakeet-tdt-0.6b-v2",
-        "parakeet-tdt-ctc-110m" => "parakeet-tdt-ctc-110m",
+        "best" | "parakeet-unified-en-0.6b" => "parakeet-unified-en-0.6b",
+        "balanced" | "parakeet-tdt-0.6b-v2" => "parakeet-tdt-0.6b-v2",
+        "fast" | "parakeet-tdt-ctc-110m" => "parakeet-tdt-ctc-110m",
         _ => {
             for entry in MODEL_CATALOG {
                 if entry.id.eq_ignore_ascii_case(&trimmed) {
@@ -155,12 +156,11 @@ pub fn get_system_ram_gb() -> u64 {
     gb.round() as u64
 }
 
-/// Resolves a strict canonical model ID to its catalog ID.
+/// Resolves a canonical model ID, `auto`, or tier alias to its catalog ID.
 ///
-/// Only `auto`, `parakeet-tdt-ctc-110m`, `parakeet-tdt-0.6b-v2`, and `parakeet-unified-en-0.6b`
-/// are recognized. Shorthand aliases are rejected:
-/// unknown input falls back to `auto` resolution (the validation layer in
-/// `canonicalize_voice_model` rejects such input on save).
+/// Recognized: `auto`, `best`, `balanced`, `fast`, plus the three canonical
+/// Parakeet IDs. Unknown input falls back to `auto` resolution (the
+/// validation layer in `canonicalize_voice_model` rejects such input on save).
 pub fn resolve_model_alias(alias: &str) -> &'static str {
     resolve_configured_model(alias)
 }
@@ -275,14 +275,17 @@ mod tests {
             resolve_model_alias("parakeet-unified-en-0.6b"),
             "parakeet-unified-en-0.6b"
         );
+        assert_eq!(resolve_model_alias("best"), "parakeet-unified-en-0.6b");
         assert_eq!(
             resolve_model_alias("parakeet-tdt-ctc-110m"),
             "parakeet-tdt-ctc-110m"
         );
+        assert_eq!(resolve_model_alias("fast"), "parakeet-tdt-ctc-110m");
         assert_eq!(
             resolve_model_alias("parakeet-tdt-0.6b-v2"),
             "parakeet-tdt-0.6b-v2"
         );
+        assert_eq!(resolve_model_alias("balanced"), "parakeet-tdt-0.6b-v2");
         assert_eq!(get_model_entry("silero_vad_v6"), None);
     }
 
@@ -303,11 +306,19 @@ mod tests {
         assert_eq!(light.id, "parakeet-tdt-ctc-110m");
         assert!(light.is_archive);
 
-        // Strict canonical names: shorthand aliases are rejected.
+        // Tier aliases resolve to their canonical entries.
+        assert_eq!(
+            get_model_entry("best").unwrap().id,
+            "parakeet-unified-en-0.6b"
+        );
+        assert_eq!(
+            get_model_entry("balanced").unwrap().id,
+            "parakeet-tdt-0.6b-v2"
+        );
+        assert_eq!(get_model_entry("fast").unwrap().id, "parakeet-tdt-ctc-110m");
+        // Other shorthand remains rejected.
         assert_eq!(get_model_entry("110m"), None);
         assert_eq!(get_model_entry("unified"), None);
-        assert_eq!(get_model_entry("best"), None);
-        assert_eq!(get_model_entry("fast"), None);
         assert_eq!(get_model_entry("moonshine-tiny-en"), None);
     }
 
