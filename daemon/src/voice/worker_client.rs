@@ -194,7 +194,16 @@ where
             match proto::decode_frame(&mut buf)? {
                 Some((resp, resp_body)) => {
                     if resp.req_id.as_deref() != Some(id.as_str()) {
-                        return Err("voice worker answered the wrong request".to_string());
+                        // Stale reply from an earlier timed-out call (e.g. a
+                        // pause-time unload racing a long decode): skip it and
+                        // keep waiting for our own response within budget, so
+                        // one timeout cannot cascade into the next call.
+                        debug!(
+                            expected = id.as_str(),
+                            got = resp.req_id.as_deref().unwrap_or("<none>"),
+                            "voice worker answered a stale request; waiting for ours"
+                        );
+                        continue;
                     }
                     if resp.op == proto::OP_ERROR {
                         let detail = resp
@@ -452,8 +461,16 @@ impl WorkerClient {
                 ),
             )
         {
-            // The connection stays: a slow worker is busy, not dead.
-            debug!("voice worker unload unanswered: {e}");
+            if e.contains("wrong request") {
+                // True pipe desync beyond a skippable stale reply: drop so
+                // the next call respawns clean instead of tripping over it.
+                debug!("voice worker unload hit desync ({e}); dropping worker");
+                self.drop_locked(&mut inner);
+            } else {
+                // The connection stays: a slow worker is busy, not dead, and
+                // transact now skips its late ACK on the next call.
+                debug!("voice worker unload unanswered: {e}");
+            }
         }
     }
 
@@ -603,6 +620,51 @@ mod tests {
             .expect("transcribe");
         assert_eq!(t.text, "hello stub");
         assert_eq!(t.confidence, 0.9);
+    }
+
+    #[test]
+    fn test_transact_skips_stale_reply_and_reads_own() {
+        // A previous timed-out call's late reply must not poison the next
+        // call: transact skips frames with a foreign req_id within budget.
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime");
+        rt.block_on(async {
+            let (mut client, mut peer) = tokio::io::duplex(64 * 1024);
+            tokio::spawn(async move {
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 4096];
+                let req_id = loop {
+                    let n = peer.read(&mut chunk).await.expect("read request");
+                    buf.extend_from_slice(&chunk[..n]);
+                    if let Some((header, _)) =
+                        proto::decode_frame(&mut buf).expect("decode request")
+                    {
+                        break header.req_id.clone().expect("request carries req_id");
+                    }
+                };
+                let mut stale = Header::op(proto::OP_ACK);
+                stale.req_id = Some("qSTALE".to_string());
+                let bytes = proto::encode_frame(&stale, &[]).expect("encode stale");
+                peer.write_all(&bytes).await.expect("send stale");
+                let mut own = Header::op(proto::OP_ACK);
+                own.req_id = Some(req_id);
+                let bytes = proto::encode_frame(&own, &[]).expect("encode own");
+                peer.write_all(&bytes).await.expect("send own");
+            });
+            let (resp, _) = transact(
+                &mut client,
+                Header::op(proto::OP_PING),
+                &[],
+                Duration::from_secs(5),
+            )
+            .await
+            .expect("transact survives stale reply");
+            assert_eq!(resp.op, proto::OP_ACK);
+            assert_ne!(resp.req_id.as_deref(), Some("qSTALE"));
+        });
     }
 
     #[test]
