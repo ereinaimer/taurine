@@ -725,6 +725,11 @@ mod tests {
                 MenuItem::SubMenu(s) => s.label.clone(),
                 MenuItem::Standard(s) => s.label.clone(),
                 MenuItem::Checkmark(c) => c.label.clone(),
+                MenuItem::RadioGroup(g) => g
+                    .options
+                    .get(g.selected)
+                    .map(|o| o.label.clone())
+                    .unwrap_or_default(),
                 MenuItem::Separator => "---".to_string(),
             })
             .collect();

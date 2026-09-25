@@ -1102,7 +1102,7 @@ mod tests {
         let spinner_style = Arc::new(RwLock::new(taurine_core::settings::SpinnerStyle::default()));
         let pause_audio = Arc::new(AtomicBool::new(false));
         let (audio_tx, _) = tokio::sync::mpsc::channel(1);
-        let (pause_transition_tx, pause_rx) = tokio::sync::mpsc::channel(8);
+        let (pause_transition_tx, mut pause_rx) = tokio::sync::mpsc::channel(8);
         let (press_tx, press_rx) = std::sync::mpsc::channel::<()>();
         crate::input::hotkey::set_pause_press_sender(press_tx);
 
