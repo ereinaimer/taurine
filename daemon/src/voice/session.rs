@@ -1006,14 +1006,18 @@ impl VoiceSessionManager {
                 drop(mode);
                 self.stop_capture();
                 info!("VoiceSessionManager: Hands-Free dictation toggled off; processing audio");
-                let result = self.finalize_request()?;
+                // Never strand the session in Processing: a worker failure
+                // must degrade to one lost dictation, never to a voice path
+                // that stays silent until restart while expansions (a
+                // separate pipeline) keep working and hide the outage.
+                let result = self.finalize_request();
                 {
                     let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
                     *mode = VoiceMode::Idle;
                 }
                 self.note_session_end();
                 self.maybe_autostart();
-                Ok((VoiceMode::Idle, result))
+                result.map(|text| (VoiceMode::Idle, text))
             }
             VoiceMode::Idle => {
                 drop(mode);
@@ -1035,6 +1039,20 @@ impl VoiceSessionManager {
     /// processes the captured audio, injects the formatted transcript, and resets mode to `Idle`.
     /// Plays the mic-close cue immediately on Escape, before transcription runs.
     pub fn on_escape_pressed(&self) -> Result<Option<String>, String> {
+        // Escape is the universal unsticker: a past toggle-off failure
+        // could strand the session in Processing with no owner thread, and
+        // is_active() keeps swallowing Escape presses while bricked. Reset
+        // to Idle via cancel() instead of swallowing forever. When a live
+        // decode owns Processing, cancel() is nearly a no-op (buffer
+        // already drained, request already taken) and the decode still
+        // injects on completion.
+        if self.current_mode() == VoiceMode::Processing {
+            warn!(
+                "VoiceSessionManager: Escape pressed while in Processing; resetting voice to Idle"
+            );
+            self.cancel();
+            return Ok(None);
+        }
         let was_recording = {
             let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
             if *mode == VoiceMode::PushToTalk || *mode == VoiceMode::HandsFree {
@@ -1351,6 +1369,62 @@ mod tests {
         let (mode, text) = session.toggle_handsfree().unwrap();
         assert_eq!(mode, VoiceMode::Idle);
         assert!(text.is_none());
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+    }
+
+    #[test]
+    fn test_handsfree_toggle_off_failure_resets_to_idle() {
+        // Regression: toggle-off used `?` on finalize, stranding the
+        // session in Processing with no owner thread. Every later press
+        // then parked silently while expansions kept working.
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let (session, _) =
+            create_ordering_session(Some(Arc::new(|| {})), None, Some(Arc::new(|| {})));
+        let (mode, _) = session.toggle_handsfree().expect("toggle on");
+        assert_eq!(mode, VoiceMode::HandsFree);
+
+        // Wait for the chunk forwarder to register so finalize takes the
+        // worker path (which always fails: no worker in tests).
+        let req = session.active_request().expect("active request");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !session
+            .streams
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains_key(&req)
+        {
+            assert!(Instant::now() < deadline, "forwarder never registered");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        session.capture.buffer().push_samples(&[0.5; 3200]);
+
+        let err = session
+            .toggle_handsfree()
+            .expect_err("toggle off must surface the worker error");
+        assert!(err.contains("no worker"), "unexpected error surface: {err}");
+        assert_eq!(
+            session.current_mode(),
+            VoiceMode::Idle,
+            "failed toggle-off must not strand Processing"
+        );
+
+        // The voice path is usable again without a restart.
+        session.clear_last_stop_for_test();
+        let (mode, _) = session.toggle_handsfree().expect("toggle on again");
+        assert_eq!(mode, VoiceMode::HandsFree);
+        session.cancel();
+    }
+
+    #[test]
+    fn test_escape_recovers_stranded_processing() {
+        let (session, _) = create_test_session();
+        *session.mode.lock().unwrap() = VoiceMode::Processing;
+        let res = session.on_escape_pressed().expect("escape");
+        assert!(res.is_none());
         assert_eq!(session.current_mode(), VoiceMode::Idle);
     }
 
