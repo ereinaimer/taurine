@@ -25,8 +25,9 @@
       - **App-Specific Triggers**: Restrict word/hotkey expansions to specific applications, window classes, or window titles via new CLI flags.
 
 # Test Isolation
-- **Hermetic Default:** The default suite (`cargo test` / `cargo nextest run`) must never affect the host machine: no typed keys, no clipboard reads/writes, no windows, no spawned processes, no audio playback, no mic access, no network, no model downloads, no real DB or keystore writes. Temp dirs, in-memory DBs, and dummy transcribers only.
-- **Live Tests:** Any test needing the host must carry BOTH `#[ignore]` AND an early return unless `host_tests_allowed()` (opt-in via `TAURINE_ALLOW_HOST_INPUT=1`). Run only via `TAURINE_ALLOW_HOST_INPUT=1 cargo test -- --ignored` on a throwaway machine.
+- **Test Runner:** Always use `cargo nextest run` instead of `cargo test` to run tests.
+- **Hermetic Default:** The default suite (`cargo nextest run`) must never affect the host machine: no typed keys, no clipboard reads/writes, no windows, no spawned processes, no audio playback, no mic access, no network, no model downloads, no real DB or keystore writes. Temp dirs, in-memory DBs, and dummy transcribers only.
+- **Live Tests:** Any test needing the host must carry BOTH `#[ignore]` AND an early return unless `host_tests_allowed()` (opt-in via `TAURINE_ALLOW_HOST_INPUT=1`). Run only via `TAURINE_ALLOW_HOST_INPUT=1 cargo nextest run --run-ignored only` on a throwaway machine.
 - **Reuse Seams:** RecordingInjector / test_injector, FakeClipboard, set_mock_clip helpers, mock keystores, `TAURINE_DATA_DIR` temp dirs under TEST_LOCK. Do not invent new host-touching test paths.
 - **Forbidden Ungated:** Real injector calls, inject_expansion, inject_transcript with text, fire_voice_trigger, rdev simulation, SendInput, real clipboard, native_shell_open, Command spawns, updater self-spawn, voice cues, capture start, model downloads, global-DB stats writes.
 - **Review:** Reject any test addition touching the above without both gates, with a pointer to this rule.

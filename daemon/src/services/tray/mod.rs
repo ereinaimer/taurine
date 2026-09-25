@@ -9,6 +9,12 @@ mod linux;
 mod native;
 pub mod settings;
 pub mod snooze;
+#[cfg(any(windows, target_os = "macos"))]
+pub(crate) use native::set_tray_pause_audio;
+/// Linux tray has no local pause-fallback cues; the setter is a no-op there
+/// so startup stays platform-uniform.
+#[cfg(not(any(windows, target_os = "macos")))]
+pub(crate) fn set_tray_pause_audio(_enabled: Arc<AtomicBool>) {}
 
 pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> JoinHandle<()> {
     #[cfg(target_os = "linux")]

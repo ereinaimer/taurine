@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -702,6 +703,39 @@ where
     true
 }
 
+/// Tray fallback path: the tokio runtime is down, so the flag was flipped
+/// locally and the daemon RPC never ran. Forward the transition through the
+/// helper so the coordinator does not diverge. Total failure (no sender at
+/// all) logs an error naming the path.
+fn notify_tray_transition(path: &'static str, now_paused: bool) {
+    match crate::input::hotkey::pause_transition_sender() {
+        Some(tx) => crate::input::hotkey::notify_pause_transition(&tx, now_paused),
+        None => tracing::error!(
+            "{path}: pause-transition sender unavailable; coordinator will diverge until next toggle"
+        ),
+    }
+}
+
+/// Process-global pause-audio flag for the tray fallback cues. The tray menu
+/// never had the setting threaded to it; set once at daemon startup next to
+/// the transition sender. Unset (tests) fails open so existing tests keep
+/// their cue expectations.
+static TRAY_PAUSE_AUDIO: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
+
+pub fn set_tray_pause_audio(enabled: Arc<AtomicBool>) {
+    *TRAY_PAUSE_AUDIO
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(enabled);
+}
+
+fn tray_pause_audio_enabled() -> bool {
+    TRAY_PAUSE_AUDIO
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .as_ref()
+        .is_none_or(|flag| flag.load(Ordering::Relaxed))
+}
+
 pub fn process_menu_event(
     event: &MenuEvent,
     items: &TrayMenuItems,
@@ -724,6 +758,9 @@ pub fn process_menu_event(
         let paused_clone = paused.clone();
         snooze.start_snooze(duration, move || {
             paused_clone.store(false, Ordering::Relaxed);
+            // The resume RPC below no-ops once the flag is already false, so
+            // notify directly or the coordinator never learns about the expiry.
+            notify_tray_transition("tray snooze expiry", false);
             spawn_daemon_call("resume", |mut client| async move {
                 if let Err(error) = client.resume(taurine_core::rpc::ResumeRequest {}).await {
                     tracing::warn!(%error, "tray resume request failed");
@@ -738,6 +775,10 @@ pub fn process_menu_event(
             }
         }) {
             paused.store(true, Ordering::Relaxed);
+            if tray_pause_audio_enabled() {
+                crate::services::audio::play_pause_cue(true);
+            }
+            notify_tray_transition("tray snooze fallback", true);
         }
 
         true
@@ -750,6 +791,10 @@ pub fn process_menu_event(
             }
         }) {
             paused.store(true, Ordering::Relaxed);
+            if tray_pause_audio_enabled() {
+                crate::services::audio::play_pause_cue(true);
+            }
+            notify_tray_transition("tray pause fallback", true);
         }
         true
     } else if event_id == items.resume_item.id() {
@@ -761,6 +806,10 @@ pub fn process_menu_event(
             }
         }) {
             paused.store(false, Ordering::Relaxed);
+            if tray_pause_audio_enabled() {
+                crate::services::audio::play_pause_cue(false);
+            }
+            notify_tray_transition("tray resume fallback", false);
         }
         true
     } else if event_id == items.instant_expand_item.id() {
@@ -1038,5 +1087,22 @@ mod tests {
         let paused = Arc::new(AtomicBool::new(true));
         let enabled = Arc::new(AtomicBool::new(false));
         spawn(paused, enabled);
+    }
+
+    #[test]
+    fn test_tray_pause_audio_gate_respects_setting() {
+        let _lock = taurine_core::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        set_tray_pause_audio(Arc::new(AtomicBool::new(false)));
+        assert!(
+            !tray_pause_audio_enabled(),
+            "disabled setting must close the fallback cue gate"
+        );
+        set_tray_pause_audio(Arc::new(AtomicBool::new(true)));
+        assert!(
+            tray_pause_audio_enabled(),
+            "enabled setting must open the fallback cue gate"
+        );
     }
 }

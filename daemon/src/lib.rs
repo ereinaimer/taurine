@@ -243,6 +243,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                 .with_model_name(settings.voice_model.clone())
                 .with_dictionary(dict),
         );
+        session.set_self_ref();
 
         // On-demand voice engine: the microphone stream stays closed and no
         // model is loaded until the user starts a Push-to-Talk or Hands-Free
@@ -257,7 +258,12 @@ pub fn start() -> taurine_core::error::Result<()> {
             .spawn(move || {
                 let _ = crate::platform::panic::catch_worker_panic(
                     "tau-voice-warm",
-                    std::panic::AssertUnwindSafe(move || warm.warm_worker()),
+                    std::panic::AssertUnwindSafe(move || {
+                        warm.warm_worker();
+                        // Park the cue output sink too, so the first press of
+                        // the process plays warm. Silent when no device exists.
+                        crate::services::audio::prewarm_voice_sink();
+                    }),
                 );
             })
             .ok();
@@ -265,6 +271,18 @@ pub fn start() -> taurine_core::error::Result<()> {
 
     let (audio_tx, audio_rx) = services::audio::create_channel();
     let (pause_transition_tx, mut pause_transition_rx) = tokio::sync::mpsc::channel::<bool>(8);
+
+    // Count-then-actuate pause worker: hook paths queue one token per
+    // distinct chord press; the counter settles bursts and owns the toggle.
+    let (pause_press_tx, pause_press_rx) = std::sync::mpsc::channel::<()>();
+    crate::input::hotkey::set_pause_press_sender(pause_press_tx);
+    crate::input::hotkey::set_pause_transition_sender(pause_transition_tx.clone());
+    crate::services::tray::set_tray_pause_audio(pause_audio_enabled.clone());
+    crate::input::hotkey::spawn_pause_counter(
+        pause_press_rx,
+        paused.clone(),
+        pause_transition_tx.clone(),
+    )?;
 
     // Fire up listener in OS thread
     let eval_clone = evaluator.clone();
@@ -451,7 +469,10 @@ pub fn start() -> taurine_core::error::Result<()> {
             while !shutdown_for_voice.load(Ordering::Relaxed) {
                 interval.tick().await;
                 if let Some(session) = crate::VOICE_SESSION.get() {
-                    session.clean_expired_transcriber();
+                    let session = session.clone();
+                    let _ =
+                        tokio::task::spawn_blocking(move || session.clean_expired_transcriber())
+                            .await;
                 }
             }
         });
@@ -460,10 +481,13 @@ pub fn start() -> taurine_core::error::Result<()> {
         #[cfg(any(windows, target_os = "linux"))]
         let state_for_coordinator = state.clone();
         let pause_notifications_enabled_for_coordinator = pause_notifications_enabled.clone();
-        let pause_audio_enabled_for_coordinator = pause_audio_enabled.clone();
-        let audio_tx_for_coordinator = audio_tx.clone();
         tokio::spawn(async move {
-            while let Some(is_paused) = pause_transition_rx.recv().await {
+            while let Some(first) = pause_transition_rx.recv().await {
+                let mut latest = first;
+                while let Ok(next) = pause_transition_rx.try_recv() {
+                    latest = next;
+                }
+                let is_paused = latest;
                 if is_paused {
                     info!("Taurine paused: entering deep idle state...");
                     // 1. Stop fullscreen detection
@@ -482,7 +506,8 @@ pub fn start() -> taurine_core::error::Result<()> {
 
                     // 4. Unload all speech recognition models from memory
                     if let Some(session) = crate::VOICE_SESSION.get() {
-                        session.unload_model();
+                        let session = session.clone();
+                        let _ = tokio::task::spawn_blocking(move || session.unload_model()).await;
                     }
                 } else {
                     info!("Taurine resumed: restoring subsystems...");
@@ -502,9 +527,6 @@ pub fn start() -> taurine_core::error::Result<()> {
 
                 if pause_notifications_enabled_for_coordinator.load(Ordering::Relaxed) {
                     services::notify::notify_pause_toggled(is_paused);
-                }
-                if pause_audio_enabled_for_coordinator.load(Ordering::Relaxed) {
-                    let _ = audio_tx_for_coordinator.try_send(is_paused);
                 }
             }
         });

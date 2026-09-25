@@ -84,7 +84,13 @@ pub fn create_channel() -> (mpsc::Sender<bool>, mpsc::Receiver<bool>) {
 /// hardware unless a real backend is used.
 trait VoiceSink: Send {
     fn is_live(&self) -> bool;
+    /// Cut any previous sound, then start the new cue. Returns instantly;
+    /// playback lifetime belongs to the sink (persistent) or the caller
+    /// (one-shot, see wait_until_end). Never blocks.
     fn play(&mut self, data: &'static [u8], volume: u32) -> Result<(), String>;
+    /// Block until the current sound ends. No-op for persistent sinks whose
+    /// player outlives the call; one-shot sinks need it before drop cuts audio.
+    fn wait_until_end(&self) {}
 }
 
 trait VoiceBackend {
@@ -98,10 +104,12 @@ trait VoiceBackend {
     fn open_sink(&self) -> Option<Box<dyn VoiceSink + Send>>;
 }
 
-/// Identity of the default output: device name plus its index in the current
-/// output enumeration. Any topology change (unplug, reorder, swap between two
-/// identical-named devices) changes the identity and forces a reopen, failing
-/// safe toward reopen and never toward stale reuse.
+/// Identity of the default output: device name plus its position among
+/// same-named devices in the current output enumeration (0 for the common
+/// unique-name case). Unrelated reorderings leave the identity unchanged so
+/// the cache survives them; duplicate names are ambiguous and never cached.
+/// Any real change (unplug, default switch) mismatches and forces a reopen,
+/// failing safe toward reopen and never toward stale reuse.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct VoiceDeviceId {
     name: String,
@@ -128,7 +136,14 @@ fn play_through_sink(
 }
 
 struct RodioVoiceSink {
+    // Never read, never remove: dropping the device sink releases the OS
+    // audio stream and silences the player. It lives exactly as long as us.
+    #[allow(dead_code)]
     stream: rodio::MixerDeviceSink,
+    /// Persistent player: every cue stops the previous blip before starting
+    /// the new one, so rapid taps interrupt instead of blending. The player
+    /// outlives each cue call, so playback needs no blocking sleep.
+    player: rodio::Player,
 }
 
 impl VoiceSink for RodioVoiceSink {
@@ -139,7 +154,17 @@ impl VoiceSink for RodioVoiceSink {
     }
 
     fn play(&mut self, data: &'static [u8], volume: u32) -> Result<(), String> {
-        play_through_sink(self.stream.mixer(), data, volume)
+        // Cut any still-playing blip first: cues interrupt, never blend.
+        self.player.stop();
+        let cursor = Cursor::new(data);
+        let decoder = Decoder::new(cursor).map_err(|e| format!("failed to decode audio: {e}"))?;
+        self.player.set_volume(volume as f32 / 100.0);
+        self.player.append(decoder);
+        Ok(())
+    }
+
+    fn wait_until_end(&self) {
+        self.player.sleep_until_end();
     }
 }
 
@@ -150,25 +175,32 @@ impl VoiceBackend for RodioVoiceBackend {
         use cpal::traits::{DeviceTrait, HostTrait};
         let host = cpal::default_host();
         let name = host.default_output_device()?.name().ok()?;
-        let mut seen: Option<usize> = None;
-        for (index, device) in host.output_devices().ok()?.enumerate() {
+        // Position among same-named devices. Unique names always yield 0
+        // regardless of where unrelated endpoints sort around them, so
+        // reorderings never invalidate the cache.
+        let mut found = false;
+        for device in host.output_devices().ok()? {
             if device.name().ok().as_deref() != Some(name.as_str()) {
                 continue;
             }
-            if seen.is_some() {
-                // Duplicate names are ambiguous: the default could be either
-                // device, so the identity is unknowable and every cue reopens.
+            if found {
+                // Duplicate names are ambiguous: the default could be any of
+                // them, so the identity is unknowable and every cue reopens.
                 return None;
             }
-            seen = Some(index);
+            found = true;
         }
-        Some(VoiceDeviceId { name, index: seen? })
+        if !found {
+            return None;
+        }
+        Some(VoiceDeviceId { name, index: 0 })
     }
 
     fn open_sink(&self) -> Option<Box<dyn VoiceSink + Send>> {
         let mut stream = DeviceSinkBuilder::open_default_sink().ok()?;
         stream.log_on_drop(false);
-        Some(Box::new(RodioVoiceSink { stream }))
+        let player = rodio::Player::connect_new(stream.mixer());
+        Some(Box::new(RodioVoiceSink { stream, player }))
     }
 }
 
@@ -184,42 +216,136 @@ fn lock_voice_cache(
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// Warm-path cue playback. Reuses the cached sink while the default device is
-/// unchanged and the sink is live; otherwise drops the cache and reopens the
-/// current default exactly as the cold path. Silent on every failure: a missed
-/// blip at worst, never routed to a superseded device.
+/// Warm-path cue playback. The cached entry stays cached: the cue plays
+/// through it FIRST with no device query in front of it (stop, decode and
+/// append run under a microsecond lock, never open, sleep or query), then
+/// the default identity is revalidated beside playback. Match keeps the
+/// entry; mismatch drops only the entry this cue played with, so a newer
+/// concurrent store always survives. Nothing audible ever waits on OS
+/// enumeration. A device change mid-flight costs at most one blip through
+/// the stale sink (or a silent miss when unplugged), self-healing next cue.
+/// Silent on every failure: a missed blip at worst.
 fn play_cached_voice_cue(
     backend: &dyn VoiceBackend,
     cache: &std::sync::Mutex<Option<CachedVoiceSink>>,
     data: &'static [u8],
     volume: u32,
 ) {
-    // Cheap identity query first, outside the lock: no stream opened.
+    use std::time::Instant;
+    // Play through the cached entry first: stop, decode and append run under
+    // a microsecond lock, never open, sleep or query. The entry stays cached
+    // throughout, so overlapping cues share one sink and interrupt each
+    // other instead of opening duplicates that blend.
+    let warm_attempt = {
+        let mut guard = lock_voice_cache(cache);
+        match guard.as_mut() {
+            Some(entry) if entry.sink.is_live() => {
+                let play_at = Instant::now();
+                let played = entry.sink.play(data, volume).is_ok();
+                let play_ms = play_at.elapsed().as_secs_f64() * 1000.0;
+                Some((played, entry.device_id.clone(), play_ms))
+            }
+            _ => {
+                // No entry, or a dead one: drop it here so the fresh path
+                // below starts clean instead of tripping on it every cue.
+                *guard = None;
+                drop(guard);
+                debug!("voice cue no live sink, opening fresh");
+                None
+            }
+        }
+    };
+    if let Some((played, played_id, play_ms)) = warm_attempt {
+        // Revalidate beside playback, lock-free: match keeps the entry,
+        // mismatch drops only the entry this cue played with so a newer
+        // concurrent store always survives. A sounded cue always returns
+        // here: replaying through a fresh sink would double-blip, and the
+        // next cue reopens lazily.
+        let query_at = Instant::now();
+        let current = backend.default_device_id();
+        let query_ms = query_at.elapsed().as_secs_f64() * 1000.0;
+        if played && current.as_ref().is_some_and(|id| id == &played_id) {
+            debug!(
+                "voice cue warm play_ms={:.2} revalidate_ms={:.2}",
+                play_ms, query_ms
+            );
+            return;
+        }
+        let mut guard = lock_voice_cache(cache);
+        if guard.as_ref().is_some_and(|e| e.device_id == played_id) {
+            *guard = None;
+        }
+        drop(guard);
+        debug!(
+            "voice cue stale play_ms={:.2} revalidate_ms={:.2}",
+            play_ms, query_ms
+        );
+        if played {
+            return;
+        }
+        // Failed playback falls through to a fresh open below.
+    }
+    let query_at = Instant::now();
     let current = backend.default_device_id();
-    // Take (not borrow) under a short lock. The lock is never held across
-    // device open, decode, play, or sleep, so overlapping cues never
-    // serialize on it.
-    // honey: concurrent cues may double-reopen; last store wins and both
-    // entries are valid, so add a generation check only if cues overlap often.
-    let cached = lock_voice_cache(cache).take();
-    // Mismatch, dead sink, or playback error drops the entry and reopens below.
-    if let Some(mut entry) = cached
-        && current.as_ref().is_some_and(|id| id == &entry.device_id)
-        && entry.sink.is_live()
-        && entry.sink.play(data, volume).is_ok()
-    {
-        *lock_voice_cache(cache) = Some(entry);
+    let query_ms = query_at.elapsed().as_secs_f64() * 1000.0;
+    let open_at = Instant::now();
+    let opened = backend.open_sink();
+    let open_ms = open_at.elapsed().as_secs_f64() * 1000.0;
+    let Some(mut sink) = opened else {
+        debug!(
+            "voice cue missed open_ms={:.2} query_ms={:.2}",
+            open_ms, query_ms
+        );
+        return;
+    };
+    if sink.play(data, volume).is_err() {
+        debug!(
+            "voice cue missed open_ms={:.2} query_ms={:.2}",
+            open_ms, query_ms
+        );
         return;
     }
-    if let Some(mut sink) = backend.open_sink()
-        && sink.play(data, volume).is_ok()
+    // Cache only when the identity is unambiguous. Ambiguous (None) still
+    // sounded through the fresh sink exactly as the cold path; it is never
+    // cached, and the one-shot sink blocks to completion so drop cannot cut
+    // the blip. Persistent cached sinks never wait: their player outlives
+    // the call.
+    if let Some(device_id) = current {
+        *lock_voice_cache(cache) = Some(CachedVoiceSink { device_id, sink });
+        debug!(
+            "voice cue cold open_ms={:.2} query_ms={:.2} cached=true",
+            open_ms, query_ms
+        );
+    } else {
+        sink.wait_until_end();
+        debug!(
+            "voice cue cold open_ms={:.2} query_ms={:.2} cached=false",
+            open_ms, query_ms
+        );
+    }
+}
+
+/// Open the default output sink once and park it in the cue cache so even
+/// the first press of the process plays warm. No playback, no sound.
+/// Best-effort and silent: a failure just leaves the first cue cold.
+pub fn prewarm_voice_sink() {
+    prewarm_voice_sink_with(&RodioVoiceBackend, &VOICE_SINK_CACHE);
+}
+
+fn prewarm_voice_sink_with(
+    backend: &dyn VoiceBackend,
+    cache: &std::sync::Mutex<Option<CachedVoiceSink>>,
+) {
+    if lock_voice_cache(cache).is_some() {
+        return;
+    }
+    let current = backend.default_device_id();
+    if let Some(sink) = backend.open_sink()
+        && let Some(device_id) = current
+        && sink.is_live()
     {
-        // Cache only when the identity is unambiguous. Ambiguous (None) still
-        // played through the fresh sink exactly as the pre-task cold path, but
-        // stays uncached so the next cue reopens fresh too.
-        if let Some(device_id) = current {
-            *lock_voice_cache(cache) = Some(CachedVoiceSink { device_id, sink });
-        }
+        *lock_voice_cache(cache) = Some(CachedVoiceSink { device_id, sink });
+        debug!("voice cue sink pre-warmed");
     }
 }
 
@@ -268,6 +394,31 @@ pub fn play_voice_cue(start: bool) {
         .name("tau-voice-cue".to_string())
         .spawn(move || {
             play_cached_voice_cue(&RodioVoiceBackend, &VOICE_SINK_CACHE, data, volume);
+        })
+        .ok();
+}
+
+/// Plays a non-blocking pause/resume cue for the global pause toggle.
+///
+/// Audio-first: called synchronously at the top of the chord arm, before the
+/// toggle and before any channel send. Each press spawns its own `tau-pause-cue`
+/// thread running the existing blocking `play_cue`, so rapid presses overlap
+/// (each tap plays fully) instead of cutting each other.
+pub fn play_pause_cue(is_paused: bool) {
+    // Hermetic tests never play sound on the host speakers.
+    if cfg!(test) {
+        let _ = is_paused;
+        return;
+    }
+    let volume = get_cached_audio_volume();
+    if volume == 0 {
+        return;
+    }
+
+    std::thread::Builder::new()
+        .name("tau-pause-cue".to_string())
+        .spawn(move || {
+            let _ = play_cue(is_paused);
         })
         .ok();
 }
@@ -352,6 +503,9 @@ mod tests {
         default: Option<usize>,
         opens: usize,
         plays: usize,
+        /// Previous blips cut short by a newer cue (interrupt semantics).
+        cuts: usize,
+        sounding: bool,
         dead: bool,
         failing: bool,
     }
@@ -372,6 +526,12 @@ mod tests {
                 if state.failing {
                     return Err("fake playback failure".to_string());
                 }
+                // A persistent sink cuts its previous blip when a new cue
+                // arrives; the fake mirrors that contract.
+                if state.sounding {
+                    state.cuts += 1;
+                }
+                state.sounding = true;
                 state.plays += 1;
             }
             if let Some(hooks) = &self.play_hooks {
@@ -392,11 +552,25 @@ mod tests {
             let state = self.state.lock().unwrap();
             let index = state.default?;
             let name = state.outputs.get(index)?.clone();
-            // Mirror production: duplicate names are ambiguous, identity unknowable.
-            if state.outputs.iter().filter(|n| *n == &name).count() > 1 {
+            // Mirror production: duplicate names are ambiguous, identity
+            // unknowable. Otherwise the identity is the name plus its
+            // position among same-named devices (0 for unique names), so
+            // unrelated reorderings never invalidate the cache.
+            let same: Vec<usize> = state
+                .outputs
+                .iter()
+                .enumerate()
+                .filter(|(_, n)| *n == &name)
+                .map(|(i, _)| i)
+                .collect();
+            if same.len() > 1 {
                 return None;
             }
-            Some(VoiceDeviceId { name, index })
+            let position = same.iter().position(|&i| i == index)?;
+            Some(VoiceDeviceId {
+                name,
+                index: position,
+            })
         }
 
         fn open_sink(&self) -> Option<Box<dyn VoiceSink + Send>> {
@@ -451,6 +625,57 @@ mod tests {
     }
 
     #[test]
+    fn voice_prewarm_parks_sink_so_first_cue_needs_no_open() {
+        let (backend, cache, state) = fake_setup("dev-a");
+        prewarm_voice_sink_with(&backend, &cache);
+        assert!(cache.lock().unwrap().is_some(), "prewarm must park a sink");
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        let state = state.lock().unwrap();
+        assert_eq!(state.opens, 1, "first cue must reuse the prewarmed sink");
+        assert_eq!(state.plays, 1, "cue must play");
+    }
+
+    #[test]
+    fn voice_second_cue_cuts_first_instead_of_blending() {
+        let (backend, cache, state) = fake_setup("dev-a");
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        let state = state.lock().unwrap();
+        assert_eq!(state.opens, 1, "second cue must reuse the warm sink");
+        assert_eq!(state.plays, 2, "both cues must play");
+        assert_eq!(state.cuts, 1, "second cue must cut the first, not blend");
+    }
+
+    #[test]
+    fn voice_mismatch_drop_preserves_newer_concurrent_entry() {
+        let (backend, cache, state) = fake_setup("dev-a");
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        // A concurrent cue stores a newer entry for dev-b while this cue's
+        // stale drop runs: the drop must only remove the entry it played.
+        let (b_backend, _, b_state) = fake_setup_with(&["dev-a", "dev-b"], 1);
+        let b_sink = b_backend.open_sink().expect("concurrent open must succeed");
+        let newer = CachedVoiceSink {
+            device_id: VoiceDeviceId {
+                name: "dev-b".to_string(),
+                index: 0,
+            },
+            sink: b_sink,
+        };
+        *cache.lock().unwrap() = Some(newer);
+        // Default still dev-a: the cue plays through dev-b (stale for it),
+        // revalidates dev-a, drops exactly the entry it played, and returns
+        // without reopening mid-cue; the next cue reopens lazily.
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        assert!(
+            cache.lock().unwrap().is_none(),
+            "stale drop must remove exactly the played entry"
+        );
+        assert_eq!(state.lock().unwrap().opens, 1, "stale cue must not reopen");
+        assert_eq!(state.lock().unwrap().plays, 1, "first cue stands");
+        assert_eq!(b_state.lock().unwrap().plays, 1, "stale cue still sounds");
+    }
+
+    #[test]
     fn voice_second_cue_with_unchanged_default_reuses_cached_sink() {
         let (backend, cache, state) = fake_setup("dev-a");
         play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
@@ -461,7 +686,7 @@ mod tests {
     }
 
     #[test]
-    fn voice_changed_default_identity_forces_reopen() {
+    fn voice_changed_default_identity_reopens_lazily_after_one_stale_play() {
         let (backend, cache, state) = fake_setup("dev-a");
         play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
         {
@@ -469,19 +694,54 @@ mod tests {
             state.outputs = vec!["dev-a".to_string(), "dev-b".to_string()];
             state.default = Some(1);
         }
+        // Play-first: the changed cue still sounds instantly through the
+        // stale sink while the mismatch drops the cache; no reopen yet.
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        {
+            let state = state.lock().unwrap();
+            assert_eq!(state.opens, 1, "stale play must not reopen mid-cue");
+            assert_eq!(state.plays, 2, "both cues must play");
+        }
+        assert!(
+            cache.lock().unwrap().is_none(),
+            "mismatch must drop the cache"
+        );
+        // Next cue reopens lazily against the new default and re-caches.
         play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
         let state = state.lock().unwrap();
-        assert_eq!(state.opens, 2, "device change must reopen");
-        assert_eq!(state.plays, 2, "both cues must play");
+        assert_eq!(state.opens, 2, "next cue must reopen on the new device");
+        assert_eq!(state.plays, 3, "all cues must play");
         drop(state);
         assert_eq!(
             cache.lock().unwrap().as_ref().map(|e| e.device_id.clone()),
             Some(VoiceDeviceId {
                 name: "dev-b".to_string(),
-                index: 1,
+                index: 0,
             }),
             "cache must track the new device"
         );
+    }
+
+    #[test]
+    fn voice_unrelated_reorder_never_invalidates_cache() {
+        let (backend, cache, state) = fake_setup_with(&["dev-a", "dev-b", "dev-c"], 0);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        {
+            // Unrelated endpoints reorder around a unique default: the
+            // identity (name plus same-name position) is unchanged.
+            let mut state = state.lock().unwrap();
+            state.outputs = vec![
+                "dev-c".to_string(),
+                "dev-b".to_string(),
+                "dev-a".to_string(),
+            ];
+            state.default = Some(2);
+        }
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        let state = state.lock().unwrap();
+        assert_eq!(state.opens, 1, "reorder must not reopen");
+        assert_eq!(state.plays, 3, "all cues must play");
     }
 
     #[test]
@@ -572,50 +832,36 @@ mod tests {
     }
 
     #[test]
-    fn voice_cache_lock_not_held_during_open_or_playback() {
+    fn voice_cache_lock_free_during_device_open() {
         let (mut backend, cache, state) = fake_setup("dev-a");
         let (open_entered, open_entered_rx) = crossbeam_channel::bounded::<()>(1);
         let (open_release_tx, open_release) = crossbeam_channel::bounded::<()>(1);
-        let (play_entered, play_entered_rx) = crossbeam_channel::bounded::<()>(1);
-        let (play_release_tx, play_release) = crossbeam_channel::bounded::<()>(1);
         backend.open_hooks = Some(Arc::new(CueHooks {
             entered: open_entered,
             release: open_release,
         }));
-        backend.play_hooks = Some(Arc::new(CueHooks {
-            entered: play_entered,
-            release: play_release,
-        }));
 
-        let probe = |rx: &crossbeam_channel::Receiver<()>, what: &str| {
-            rx.recv_timeout(std::time::Duration::from_secs(5))
-                .expect(what);
-            cache.try_lock().is_ok()
-        };
-        let mut unlocked = Vec::new();
         std::thread::scope(|s| {
-            // Cold cue: device open rendezvous, then playback rendezvous.
+            // Cold cue blocks inside device open: the cache lock must stay
+            // free so overlapping cues never serialize on a slow open.
             let handle = s.spawn(|| play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80));
-            unlocked.push(probe(&open_entered_rx, "cue must reach device open"));
+            open_entered_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("cue must reach device open");
+            assert!(
+                cache.try_lock().is_ok(),
+                "cache lock must stay free across device open"
+            );
             open_release_tx.send(()).ok();
-            unlocked.push(probe(&play_entered_rx, "cue must reach playback"));
-            play_release_tx.send(()).ok();
-            handle.join().expect("cue thread must finish");
-
-            // Warm cue: cached sink replays, so only a playback rendezvous.
-            let handle = s.spawn(|| play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80));
-            unlocked.push(probe(&play_entered_rx, "warm cue must reach playback"));
-            play_release_tx.send(()).ok();
             handle.join().expect("cue thread must finish");
         });
-        assert_eq!(
-            unlocked,
-            vec![true, true, true],
-            "cache lock must never be held across device open or playback"
-        );
+        // Warm cue replays through the shared entry: one open total, the
+        // second play cutting (not blending with) the first.
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
         let state = state.lock().unwrap();
         assert_eq!(state.opens, 1, "warm cue must not reopen");
         assert_eq!(state.plays, 2, "both cues must play");
+        assert_eq!(state.cuts, 1, "warm cue must cut, not blend");
     }
 
     #[test]

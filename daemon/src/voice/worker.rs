@@ -224,7 +224,18 @@ async fn handle_frame(
         proto::OP_TRANSCRIBE => {
             let id = req_id.clone().unwrap_or_default();
             let samples = state.buffers.remove(&id).unwrap_or_default();
+            // Cold-model wait accounting: when the stop event outruns the
+            // overlapped load, the user feels it as dictation lag. Log it so
+            // the hold policy can be tuned from evidence, not feel.
+            let slot_at = Instant::now();
             state.ensure_slot().await;
+            let slot_wait_ms = slot_at.elapsed().as_secs_f64() * 1000.0;
+            if slot_wait_ms > 250.0 {
+                debug!(
+                    "voice-daemon: model slot wait {:.2}ms before decode (cold load at stop)",
+                    slot_wait_ms
+                );
+            }
             vec![respond(transcribe_buffer(state, &samples))]
         }
         proto::OP_PING => vec![respond(Header::op(proto::OP_PONG))],

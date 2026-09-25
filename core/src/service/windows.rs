@@ -78,8 +78,16 @@ fn remove_autorun() -> std::io::Result<()> {
 
 /// Records the binary `up` ran from so the logon launcher starts that exact
 /// copy. Last-`up`-wins; never copies or moves any binary.
-fn set_startup_exe(path: &std::path::Path) -> std::io::Result<()> {
-    set_startup_exe_in(BOOT_REG_KEY, path)
+fn record_boot_pin_in(key_path: &str) -> std::io::Result<()> {
+    set_startup_exe_in(key_path, &env::current_exe()?)
+}
+
+fn ensure_startup_launcher() -> std::io::Result<()> {
+    if crate::paths::get_startup_exe_path().exists() {
+        Ok(())
+    } else {
+        write_startup_launcher()
+    }
 }
 
 fn set_startup_exe_in(key_path: &str, path: &std::path::Path) -> std::io::Result<()> {
@@ -328,6 +336,10 @@ pub fn sync_boot(enabled: bool) -> crate::error::Result<()> {
                 }
             }
         }
+        if let Err(e) = ensure_startup_launcher() {
+            warn!("Failed to repair startup launcher: {}", e);
+        }
+        record_boot_pin_in(BOOT_REG_KEY).map_err(|e| crate::Error::Service(e.to_string()))?;
     } else {
         debug!("Removing startup hooks if present...");
         if let Err(e) = unregister_task_scheduler() {
@@ -365,12 +377,6 @@ pub fn up(start_on_boot: bool) -> crate::error::Result<()> {
     }
 
     sync_boot(start_on_boot)?;
-
-    if start_on_boot {
-        set_startup_exe(&current_exe).map_err(|e| crate::Error::Service(e.to_string()))?;
-    } else {
-        remove_startup_exe();
-    }
 
     Ok(())
 }
@@ -491,12 +497,6 @@ pub fn restart(start_on_boot: bool) -> crate::error::Result<()> {
     }
 
     sync_boot(start_on_boot)?;
-
-    if start_on_boot {
-        set_startup_exe(&current_exe).map_err(|e| crate::Error::Service(e.to_string()))?;
-    } else {
-        remove_startup_exe();
-    }
 
     Ok(())
 }
@@ -621,5 +621,77 @@ mod tests {
         assert!(xml.contains("<Interval>PT1M</Interval>"));
         assert!(xml.contains("<Count>999</Count>"));
         assert!(xml.contains(r"<Command>C:\Program Files\Taurine\taurine-startup.exe</Command>"));
+    }
+
+    #[test]
+    fn launcher_rewritten_when_missing() {
+        let _guard = crate::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::logs::init_tracing_for_tests();
+        let temp = tempfile::tempdir().expect("tempdir must be created");
+        let prev = std::env::var("TAURINE_DATA_DIR").ok();
+        // SAFETY: Serialized via TEST_LOCK for test isolation.
+        unsafe { std::env::set_var("TAURINE_DATA_DIR", temp.path()) };
+
+        struct EnvGuard(Option<String>);
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                // SAFETY: Serialized via TEST_LOCK for test isolation.
+                unsafe {
+                    match &self.0 {
+                        Some(v) => std::env::set_var("TAURINE_DATA_DIR", v),
+                        None => std::env::remove_var("TAURINE_DATA_DIR"),
+                    }
+                }
+            }
+        }
+        let _env_guard = EnvGuard(prev);
+
+        let exe_path = crate::paths::get_startup_exe_path();
+        assert!(!exe_path.exists(), "launcher exe must start absent");
+
+        ensure_startup_launcher().expect("launcher rewrite must succeed");
+        assert!(exe_path.exists(), "launcher exe must exist after heal");
+        let contents = std::fs::read(&exe_path).expect("launcher must be readable");
+        assert!(!contents.is_empty(), "launcher exe must be non-empty");
+    }
+
+    #[test]
+    fn boot_pin_records_current_exe() {
+        let _guard = crate::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::logs::init_tracing_for_tests();
+        const TEST_KEY: &str = r"Software\TaurineTestBootPin";
+
+        record_boot_pin_in(TEST_KEY).expect("pin write must succeed");
+
+        let stored: String = RegKey::predef(HKEY_CURRENT_USER)
+            .open_subkey(TEST_KEY)
+            .expect("key must exist")
+            .get_value(BOOT_VALUE)
+            .expect("value must exist");
+        let expected = std::env::current_exe()
+            .expect("current exe must resolve")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(stored, expected);
+
+        // Twice-delete must not fail: each delete succeeds or finds the key
+        // already gone; anything else is a real cleanup failure.
+        for _ in 0..2 {
+            match RegKey::predef(HKEY_CURRENT_USER).delete_subkey(TEST_KEY) {
+                Ok(()) => (),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+                Err(e) => panic!("test key delete must succeed or be not-found: {e}"),
+            }
+        }
+        assert!(
+            RegKey::predef(HKEY_CURRENT_USER)
+                .open_subkey(TEST_KEY)
+                .is_err(),
+            "test key must be gone after cleanup"
+        );
     }
 }

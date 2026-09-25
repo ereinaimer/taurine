@@ -8,8 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Instant Pause Sound**: The pause hotkey now plays its sound the instant you press it, on every press, instead of after the action completes.
+- **Mash-Proof Pause Toggle**: Rapid pause presses settle to the intended on/off state instead of leaving the app stuck half-paused.
+- **Reliable Voice Hotkey**: The voice key acknowledges every press and release instantly, no longer ignores presses after rapid tapping, and keeps the first fraction of a second of audio so the opening word is never clipped.
 - **English-Only Local Dictation**: Everyday dictation now uses an automatic two-tier English engine (best quality on capable machines, light and fast on constrained ones) with no model picker needed.
-- **Faster First Response, Lower Idle Memory**: Voice models load the moment you press the key and release memory when idle, keeping idle usage a fraction of before.
+- **Faster First Response, Lower Idle Memory**: Voice models load the moment you press the key and release memory when idle, keeping idle usage a fraction of before. The mic-open cue now plays instantly without waiting on audio device detection, and repeat dictation within a burst skips microphone and model warm-up entirely. The mic-close cue answers the key release itself, never waiting on transcription. Presses landing mid-decode park and auto-start while the key stays held, every key edge sounds even with no session to start or stop, and a fresh cue cuts the previous one instead of blending.
 - **Isolated Voice Engine**: Speech recognition now runs in a separate background process that stays loaded while you dictate and unloads afterwards, so voice issues can never interrupt text expansion.
 - **Voice Audio Feedback**: Play the copy sound when voice dictation starts and the paste sound the moment you stop dictation via hotkey, per audio theme.
 - **Warm Voice Model Caching**: Keep speech recognition models warm in memory with an automatic inactivity timeout for near-instant dictation responses.
@@ -41,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Local-Only Daemon Control**: Removed the TCP transport settings (`rpc_mode`, `rpc_host`, `rpc_port`) and the RPC auth token. The daemon is now controlled over the local socket (Unix) or a same-user named pipe (Windows) only.
 
 ### Fixed
+- **Start on Boot Self-Heal**: Login start now repairs itself when the startup launcher or app pin goes missing.
 - **Instant Voice Dictation**: Push-to-talk answers instantly, repeat dictation stays warm across bursts, and the microphone and start cue respond without reopen delays.
 - **Piped Output Crash**: Piping CLI output to a command that exits early no longer crashes or logs a panic.
 - **Zero Idle Voice Memory**: Voice models now stay warm across repeat dictation and unload completely when idle, returning idle memory to baseline.

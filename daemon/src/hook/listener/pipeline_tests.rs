@@ -48,7 +48,9 @@ mod listener_pipeline_tests {
         paused: Arc<AtomicBool>,
         pause_hotkey: Arc<std::sync::RwLock<crate::input::hotkey::HotkeySpec>>,
         spinner_style: Arc<std::sync::RwLock<taurine_core::settings::SpinnerStyle>>,
+        pause_audio_enabled: Arc<AtomicBool>,
         pause_tx: tokio::sync::mpsc::Sender<bool>,
+        pause_rx: std::sync::Mutex<tokio::sync::mpsc::Receiver<bool>>,
         l_alt: AtomicBool,
         r_alt: AtomicBool,
         l_ctrl: AtomicBool,
@@ -64,7 +66,7 @@ mod listener_pipeline_tests {
     impl Harness {
         fn new() -> Self {
             let state = Arc::new(EngineState::new());
-            let (tx, _rx) = tokio::sync::mpsc::channel(8);
+            let (tx, rx) = tokio::sync::mpsc::channel(8);
             // Use a well-known hotkey string that will always parse correctly.
             let pause_hotkey_spec = crate::input::hotkey::parse_pause_hotkey_setting("alt+`")
                 .expect("default pause hotkey must parse");
@@ -74,7 +76,9 @@ mod listener_pipeline_tests {
                 paused: Arc::new(AtomicBool::new(false)),
                 pause_hotkey: Arc::new(std::sync::RwLock::new(pause_hotkey_spec)),
                 spinner_style: Arc::new(std::sync::RwLock::new(Default::default())),
+                pause_audio_enabled: Arc::new(AtomicBool::new(false)),
                 pause_tx: tx,
+                pause_rx: std::sync::Mutex::new(rx),
                 l_alt: AtomicBool::new(false),
                 r_alt: AtomicBool::new(false),
                 l_ctrl: AtomicBool::new(false),
@@ -113,6 +117,7 @@ mod listener_pipeline_tests {
                 &self.paused,
                 &self.pause_hotkey,
                 &self.spinner_style,
+                &self.pause_audio_enabled,
                 &self.pause_tx,
                 &self.l_alt,
                 &self.r_alt,
@@ -222,10 +227,25 @@ mod listener_pipeline_tests {
             }
 
             crate::injector::clear_simulated_events_for_test();
+            crate::hook::listener::PAUSE_KEY_DOWN.store(false, Ordering::Relaxed);
+            crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+            crate::input::hotkey::HANDSFREE_KEY_DOWN.store(false, Ordering::Relaxed);
+            crate::input::hotkey::clear_pause_press_sender();
 
             Self {
                 _mutex_guard: mutex_guard,
             }
+        }
+    }
+
+    impl Drop for TestGuard {
+        fn drop(&mut self) {
+            crate::injector::IS_INJECTING.store(false, std::sync::atomic::Ordering::SeqCst);
+            crate::injector::clear_simulated_events_for_test();
+            crate::hook::listener::PAUSE_KEY_DOWN.store(false, Ordering::Relaxed);
+            crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+            crate::input::hotkey::HANDSFREE_KEY_DOWN.store(false, Ordering::Relaxed);
+            crate::input::hotkey::clear_pause_press_sender();
         }
     }
 
@@ -808,5 +828,147 @@ mod listener_pipeline_tests {
         assert_eq!(normalize_key_text("é"), "é");
         // Decomposed e + combining acute must still compose via the NFC path.
         assert_eq!(normalize_key_text("é"), "é");
+    }
+
+    /// A physical pause release landing mid-injection must still clear
+    /// `PAUSE_KEY_DOWN`; otherwise the flag sticks and the next press is eaten.
+    #[test]
+    fn pause_release_during_injection_clears_flag() {
+        let _guard = TestGuard::acquire();
+        let h = Harness::new();
+        // Hold Alt so the BackQuote press matches the "alt+`" pause chord.
+        h.l_alt.store(true, Ordering::Relaxed);
+        assert!(
+            h.send(bare_event(EventType::KeyPress(Key::BackQuote)))
+                .is_none(),
+            "Pause chord press must be swallowed"
+        );
+        assert!(
+            crate::hook::listener::PAUSE_KEY_DOWN.load(Ordering::Relaxed),
+            "Pause chord press must arm PAUSE_KEY_DOWN"
+        );
+        // Release lands while an expansion is injecting.
+        crate::injector::IS_INJECTING.store(true, std::sync::atomic::Ordering::SeqCst);
+        h.send(bare_event(EventType::KeyRelease(Key::BackQuote)));
+        crate::injector::IS_INJECTING.store(false, std::sync::atomic::Ordering::SeqCst);
+        h.l_alt.store(false, Ordering::Relaxed);
+        assert!(
+            !crate::hook::listener::PAUSE_KEY_DOWN.load(Ordering::Relaxed),
+            "Pause release during injection must clear PAUSE_KEY_DOWN"
+        );
+    }
+
+    /// Same guarantee for the PTT edge flag. The flag is armed directly: the
+    /// live press path needs `VOICE_SESSION`, which never exists in hermetic
+    /// tests, so a real press cannot arm it here.
+    #[test]
+    fn ptt_release_during_injection_clears_flag() {
+        let _guard = TestGuard::acquire();
+        crate::input::hotkey::refresh_cached_voice_specs("win+lctrl", "win+lctrl+lalt");
+        let h = Harness::new();
+        crate::input::hotkey::PTT_KEY_DOWN.store(true, Ordering::Relaxed);
+        crate::injector::IS_INJECTING.store(true, std::sync::atomic::Ordering::SeqCst);
+        h.send(bare_event(EventType::KeyRelease(Key::ControlLeft)));
+        crate::injector::IS_INJECTING.store(false, std::sync::atomic::Ordering::SeqCst);
+        assert!(
+            !crate::input::hotkey::PTT_KEY_DOWN.load(Ordering::Relaxed),
+            "PTT member release during injection must clear PTT_KEY_DOWN"
+        );
+        crate::input::hotkey::refresh_cached_voice_specs("", "");
+    }
+
+    /// Same guarantee for the hands-free edge flag. AltGr is a member of the
+    /// hands-free chord only, not the PTT chord, isolating this test to one flag.
+    #[test]
+    fn handsfree_release_during_injection_clears_flag() {
+        let _guard = TestGuard::acquire();
+        crate::input::hotkey::refresh_cached_voice_specs("win+lctrl", "win+lctrl+lalt");
+        let h = Harness::new();
+        crate::input::hotkey::HANDSFREE_KEY_DOWN.store(true, Ordering::Relaxed);
+        crate::injector::IS_INJECTING.store(true, std::sync::atomic::Ordering::SeqCst);
+        h.send(bare_event(EventType::KeyRelease(Key::AltGr)));
+        crate::injector::IS_INJECTING.store(false, std::sync::atomic::Ordering::SeqCst);
+        assert!(
+            !crate::input::hotkey::HANDSFREE_KEY_DOWN.load(Ordering::Relaxed),
+            "Hands-free member release during injection must clear HANDSFREE_KEY_DOWN"
+        );
+        crate::input::hotkey::refresh_cached_voice_specs("", "");
+    }
+
+    /// One distinct chord press toggles `paused` after the quiet window, with
+    /// exactly one transition notification. The harness receiver stays alive
+    /// so the counter's notify is observable.
+    #[test]
+    fn single_pause_press_toggles_after_quiet_window() {
+        let _guard = TestGuard::acquire();
+        let h = Harness::new();
+        let (press_tx, press_rx) = std::sync::mpsc::channel::<()>();
+        crate::input::hotkey::set_pause_press_sender(press_tx);
+        let counter = crate::input::hotkey::spawn_pause_counter(
+            press_rx,
+            h.paused.clone(),
+            h.pause_tx.clone(),
+        )
+        .expect("pause counter thread must spawn");
+
+        h.send(bare_event(EventType::KeyPress(Key::Alt)));
+        assert!(
+            h.send(bare_event(EventType::KeyPress(Key::BackQuote)))
+                .is_none(),
+            "Pause chord press must be swallowed"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        assert!(
+            h.paused.load(Ordering::Relaxed),
+            "Single pause press must toggle paused after the quiet window"
+        );
+        assert_eq!(h.pause_rx.lock().unwrap().try_recv(), Ok(true));
+        assert!(
+            h.pause_rx.lock().unwrap().try_recv().is_err(),
+            "Exactly one transition per burst"
+        );
+
+        crate::input::hotkey::clear_pause_press_sender();
+        counter.join().expect("counter exits once senders drop");
+    }
+
+    /// Two rapid chord presses settle even: `paused` is unchanged and nothing
+    /// is sent on the transition channel.
+    #[test]
+    fn rapid_pause_pair_settles_even_without_toggling() {
+        let _guard = TestGuard::acquire();
+        let h = Harness::new();
+        let (press_tx, press_rx) = std::sync::mpsc::channel::<()>();
+        crate::input::hotkey::set_pause_press_sender(press_tx);
+        let counter = crate::input::hotkey::spawn_pause_counter(
+            press_rx,
+            h.paused.clone(),
+            h.pause_tx.clone(),
+        )
+        .expect("pause counter thread must spawn");
+
+        h.send(bare_event(EventType::KeyPress(Key::Alt)));
+        assert!(
+            h.send(bare_event(EventType::KeyPress(Key::BackQuote)))
+                .is_none()
+        );
+        h.send(bare_event(EventType::KeyRelease(Key::BackQuote)));
+        assert!(
+            h.send(bare_event(EventType::KeyPress(Key::BackQuote)))
+                .is_none()
+        );
+        h.send(bare_event(EventType::KeyRelease(Key::BackQuote)));
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        assert!(
+            !h.paused.load(Ordering::Relaxed),
+            "Rapid pause pair must leave paused unchanged"
+        );
+        assert!(
+            h.pause_rx.lock().unwrap().try_recv().is_err(),
+            "Even burst must not notify"
+        );
+
+        crate::input::hotkey::clear_pause_press_sender();
+        counter.join().expect("counter exits once senders drop");
     }
 }

@@ -3,7 +3,8 @@ use evdev::KeyCode;
 #[cfg(not(target_os = "linux"))]
 use rdev::{Event, EventType};
 use std::sync::RwLock;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use taurine_core::keys::{
     Hotkey, KeyPress, LogicalKey, Modifier, ModifierState, Modifiers, hotkey_matches, parse_hotkey,
 };
@@ -49,6 +50,126 @@ pub fn parse_pause_hotkey_setting(setting: &str) -> Option<HotkeySpec> {
     parse_hotkey(setting)
         .ok()
         .map(|hotkey| HotkeySpec { hotkey })
+}
+
+/// Quiet window for pause-press bursts: presses landing within this gap of
+/// each other belong to one burst (key smash guard). No time-debounce on
+/// individual presses - every distinct chord press queues exactly one token.
+pub const QUIET_WINDOW_MS: u64 = 300;
+
+/// Odd bursts toggle the pause flag; even bursts settle back to the
+/// pre-burst state (a double-tap smashes back to where it started).
+pub fn burst_should_toggle(count: u64) -> bool {
+    count % 2 == 1
+}
+
+pub fn notify_pause_transition(tx: &tokio::sync::mpsc::Sender<bool>, now_paused: bool) {
+    if let Err(e) = tx.try_send(now_paused) {
+        tracing::warn!(
+            now_paused,
+            error = %e,
+            "Pause transition notification dropped; coordinator may diverge until next toggle"
+        );
+    }
+}
+
+/// Process-global press sender. The hook paths (Windows/macOS supervisor
+/// chain, Linux evdev chain) never owned a channel for this: threading one
+/// more param through both supervisor chains is a far bigger diff than a
+/// single global following the existing VOICE_SESSION precedent. Set once at
+/// daemon startup; tests swap it under TEST_LOCK.
+static PAUSE_PRESS_TX: Mutex<Option<std::sync::mpsc::Sender<()>>> = Mutex::new(None);
+
+/// Lifetime press counter for the per-press debug line. The hook thread
+/// cannot know burst boundaries (that is the counter's job); this is the
+/// running total, not the current burst size.
+static PAUSE_PRESS_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub fn set_pause_press_sender(tx: std::sync::mpsc::Sender<()>) {
+    *PAUSE_PRESS_TX
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(tx);
+}
+
+#[cfg(test)]
+pub fn clear_pause_press_sender() {
+    *PAUSE_PRESS_TX
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+}
+
+/// Queue one press token for the burst counter. Never blocks (unbounded
+/// std channel); a missing or dead counter only logs - the press-side cue
+/// already played, and the next press re-syncs.
+pub fn push_pause_press() {
+    let press = PAUSE_PRESS_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+    let guard = PAUSE_PRESS_TX
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    match guard.as_ref() {
+        Some(tx) => {
+            if tx.send(()).is_err() {
+                tracing::debug!(press, "Pause press dropped; counter thread is gone");
+            } else {
+                tracing::debug!(press, "Pause press queued for burst counter");
+            }
+        }
+        None => {
+            tracing::debug!(press, "Pause press with no counter; ignoring");
+        }
+    }
+}
+
+/// Process-global transition sender for paths that never had the channel
+/// threaded to them (tray/snooze fallbacks). Set once at daemon startup.
+static PAUSE_TRANSITION_TX: Mutex<Option<tokio::sync::mpsc::Sender<bool>>> = Mutex::new(None);
+
+pub fn set_pause_transition_sender(tx: tokio::sync::mpsc::Sender<bool>) {
+    *PAUSE_TRANSITION_TX
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(tx);
+}
+
+pub fn pause_transition_sender() -> Option<tokio::sync::mpsc::Sender<bool>> {
+    PAUSE_TRANSITION_TX
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+}
+
+/// Count-then-actuate worker: blocks for the first press of a burst, then
+/// drains within the quiet window. Odd bursts flip the shared flag and
+/// notify; even bursts only log. All senders dropped (shutdown) exits
+/// without applying a partial count.
+pub fn spawn_pause_counter(
+    press_rx: std::sync::mpsc::Receiver<()>,
+    paused: Arc<AtomicBool>,
+    pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
+) -> std::io::Result<std::thread::JoinHandle<()>> {
+    std::thread::Builder::new()
+        .name("tau-pause-count".to_string())
+        .spawn(move || {
+            loop {
+                if press_rx.recv().is_err() {
+                    break;
+                }
+                let mut count: u64 = 1;
+                loop {
+                    match press_rx.recv_timeout(std::time::Duration::from_millis(QUIET_WINDOW_MS)) {
+                        Ok(()) => count += 1,
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                    }
+                }
+                tracing::debug!(count, "Pause burst settled");
+                if burst_should_toggle(count) {
+                    // Atomic flip: concurrent tray fallbacks compose instead
+                    // of losing an update to a load/store race.
+                    let was_paused = paused.fetch_xor(true, Ordering::SeqCst);
+                    notify_pause_transition(&pause_transition_tx, !was_paused);
+                }
+            }
+        })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -414,6 +535,58 @@ mod tests {
 
         let release_a = ev(EventType::KeyRelease(Key::KeyA));
         assert!(!spec.matches_release(&release_a));
+    }
+
+    #[test]
+    fn burst_should_toggle_only_on_odd_counts() {
+        assert!(!super::burst_should_toggle(0));
+        assert!(super::burst_should_toggle(1));
+        assert!(!super::burst_should_toggle(2));
+        assert!(super::burst_should_toggle(3));
+        assert!(super::burst_should_toggle(5));
+    }
+
+    #[test]
+    fn pause_counter_applies_odd_bursts_and_drops_even_ones() {
+        use std::sync::atomic::Ordering;
+        use std::time::Duration;
+
+        let _lock = taurine_core::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        super::clear_pause_press_sender();
+        let paused = Arc::new(AtomicBool::new(false));
+        let (transition_tx, mut transition_rx) = tokio::sync::mpsc::channel::<bool>(8);
+        let (press_tx, press_rx) = std::sync::mpsc::channel::<()>();
+        let counter =
+            super::spawn_pause_counter(press_rx, paused.clone(), transition_tx).expect("counter");
+        super::set_pause_press_sender(press_tx);
+
+        // Single press: toggles once the quiet window elapses.
+        super::push_pause_press();
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(paused.load(Ordering::Relaxed), "odd burst must toggle");
+        assert_eq!(transition_rx.try_recv(), Ok(true));
+        assert!(
+            transition_rx.try_recv().is_err(),
+            "exactly one transition per burst"
+        );
+
+        // Rapid pair: settles even, no toggle, no notification.
+        super::push_pause_press();
+        super::push_pause_press();
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(
+            paused.load(Ordering::Relaxed),
+            "even burst must not toggle back"
+        );
+        assert!(
+            transition_rx.try_recv().is_err(),
+            "even burst must not notify"
+        );
+
+        super::clear_pause_press_sender();
+        counter.join().expect("counter exits once senders drop");
     }
 }
 

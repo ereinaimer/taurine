@@ -54,10 +54,6 @@ pub(super) static LISTENER_EPOCH: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 
 #[cfg(not(target_os = "linux"))]
-static LAST_PAUSE_TOGGLE_INSTANT: std::sync::OnceLock<std::sync::Mutex<std::time::Instant>> =
-    std::sync::OnceLock::new();
-
-#[cfg(not(target_os = "linux"))]
 static PAUSE_KEY_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 use crate::input::hotkey::{
@@ -139,7 +135,7 @@ pub(super) fn run_listener_once(
     _pause_notifications_enabled: Arc<std::sync::atomic::AtomicBool>,
     pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
-    _pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
+    pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
     _audio_tx: tokio::sync::mpsc::Sender<bool>,
     pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
     hook_health: Option<HookHealth>,
@@ -162,6 +158,7 @@ pub(super) fn run_listener_once(
     let paused_clone = paused.clone();
     let pause_hotkey_clone = pause_hotkey.clone();
     let spinner_style_clone = spinner_style.clone();
+    let pause_audio_enabled_clone = pause_audio_enabled.clone();
     let pause_transition_tx_clone = pause_transition_tx.clone();
     let left_alt_down_clone = left_alt_down.clone();
     let right_alt_down_clone = right_alt_down.clone();
@@ -192,6 +189,7 @@ pub(super) fn run_listener_once(
             &paused_clone,
             &pause_hotkey_clone,
             &spinner_style_clone,
+            &pause_audio_enabled_clone,
             &pause_transition_tx_clone,
             &left_alt_down_clone,
             &right_alt_down_clone,
@@ -244,7 +242,8 @@ pub fn process_keyboard_event(
     paused: &Arc<std::sync::atomic::AtomicBool>,
     pause_hotkey: &Arc<RwLock<hotkey::HotkeySpec>>,
     spinner_style: &Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
-    pause_transition_tx: &tokio::sync::mpsc::Sender<bool>,
+    pause_audio_enabled: &Arc<std::sync::atomic::AtomicBool>,
+    _pause_transition_tx: &tokio::sync::mpsc::Sender<bool>,
     left_alt_down: &std::sync::atomic::AtomicBool,
     right_alt_down: &std::sync::atomic::AtomicBool,
     left_ctrl_down: &std::sync::atomic::AtomicBool,
@@ -347,6 +346,42 @@ pub fn process_keyboard_event(
         right_meta_active,
     );
 
+    // Edge-flag reset before the injection check: a physical release landing
+    // mid-injection must still clear its flag, or the next press is eaten with
+    // no log. Placed after modifier side-tracking so the early returns below
+    // never leave a side flag stale. (The KeyRelease arm further down keeps
+    // hotkey-evaluator handling only.)
+    if let EventType::KeyRelease(key) = event.event_type {
+        if let Ok(spec) = pause_hotkey.read()
+            && let Some(logical_key) = logical_key_from_rdev(key)
+            && logical_key == spec.hotkey.key
+        {
+            PAUSE_KEY_DOWN.store(false, Ordering::Relaxed);
+        }
+        if let Some(spec) = cached_voice_ptt_spec()
+            && spec.matches_release(&event)
+        {
+            let was_down = PTT_KEY_DOWN.swap(false, Ordering::Relaxed);
+            if was_down && let Some(session) = crate::VOICE_SESSION.get() {
+                let session = session.clone();
+                std::thread::spawn(move || {
+                    if let Err(e) = session.stop_ptt() {
+                        warn!("Voice PTT stop error: {e}");
+                    }
+                });
+                if is_modifier_key(key) {
+                    return Some(event);
+                }
+                return None;
+            }
+        }
+        if let Some(spec) = cached_voice_handsfree_spec()
+            && spec.matches_release(&event)
+        {
+            HANDSFREE_KEY_DOWN.store(false, Ordering::Relaxed);
+        }
+    }
+
     if IS_INJECTING.load(Ordering::SeqCst) {
         match event.event_type {
             EventType::KeyRelease(key) => {
@@ -383,50 +418,23 @@ pub fn process_keyboard_event(
         false
     };
 
-    let is_release_chord = if let Ok(spec) = pause_hotkey.read() {
-        if let EventType::KeyRelease(rdev_key) = event.event_type
-            && let Some(logical_key) = logical_key_from_rdev(rdev_key)
-        {
-            logical_key == spec.hotkey.key
-        } else {
-            false
-        }
-    } else {
-        false
-    };
-
-    if is_release_chord {
-        PAUSE_KEY_DOWN.store(false, Ordering::Relaxed);
-    }
-
     if is_chord {
         let was_down = PAUSE_KEY_DOWN.swap(true, Ordering::Relaxed);
         if was_down {
             return None; // Ignore repeating keys
         }
 
-        let now = std::time::Instant::now();
-        let mut last_toggle_lock = LAST_PAUSE_TOGGLE_INSTANT
-            .get_or_init(|| {
-                std::sync::Mutex::new(
-                    now.checked_sub(std::time::Duration::from_millis(300))
-                        .unwrap_or(now),
-                )
-            })
-            .lock()
-            .unwrap();
-
-        if now.duration_since(*last_toggle_lock).as_millis() >= 300 {
-            *last_toggle_lock = now;
-            drop(last_toggle_lock);
-
-            clear_undo_state(state.as_ref());
-            let now_paused = !paused.load(Ordering::Relaxed);
-            paused.store(now_paused, Ordering::Relaxed);
-
-            // Notify coordinator
-            let _ = pause_transition_tx.try_send(now_paused);
+        // Audio-first: sound on every distinct press, before any counter
+        // involvement. Predicts the entering state; a settled-even burst may
+        // sound without toggling, by design (press acknowledgment).
+        if pause_audio_enabled.load(Ordering::Relaxed) {
+            crate::services::audio::play_pause_cue(!paused.load(Ordering::Relaxed));
         }
+
+        // No time-debounce: every distinct press queues one token; the
+        // tau-pause-count thread settles the burst and owns the toggle.
+        clear_undo_state(state.as_ref());
+        crate::input::hotkey::push_pause_press();
         return None;
     }
 
@@ -803,33 +811,6 @@ pub fn process_keyboard_event(
             }
         }
         EventType::KeyRelease(key) => {
-            // PTT release — if the PTT hotkey key is released and PTT was active, stop recording.
-            if let Some(session) = crate::VOICE_SESSION.get() {
-                if let Some(spec) = cached_voice_ptt_spec()
-                    && spec.matches_release(&event)
-                {
-                    let was_down = PTT_KEY_DOWN.swap(false, Ordering::Relaxed);
-                    if was_down {
-                        let session = session.clone();
-                        std::thread::spawn(move || {
-                            if let Err(e) = session.stop_ptt() {
-                                warn!("Voice PTT stop error: {e}");
-                            }
-                        });
-                        if is_modifier_key(key) {
-                            return Some(event);
-                        }
-                        return None;
-                    }
-                }
-
-                if let Some(spec) = cached_voice_handsfree_spec()
-                    && spec.matches_release(&event)
-                {
-                    HANDSFREE_KEY_DOWN.store(false, Ordering::Relaxed);
-                }
-            }
-
             if trigger_assist_is_active(evaluator, state.as_ref())
                 && should_swallow_trigger_assist_key_release(
                     state.as_ref(),

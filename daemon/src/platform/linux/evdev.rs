@@ -22,8 +22,6 @@ pub(crate) struct DeviceExit {
     pub worker_id: u64,
 }
 
-static LAST_PAUSE_TOGGLE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
 fn is_modifier_evdev(key: KeyCode) -> bool {
     matches!(
         key,
@@ -348,9 +346,9 @@ fn process_frame(
     _pause_notifications_enabled: &Arc<AtomicBool>,
     pause_hotkey: &Arc<RwLock<HotkeySpec>>,
     spinner_style: &Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
-    _pause_audio_enabled: &Arc<AtomicBool>,
+    pause_audio_enabled: &Arc<AtomicBool>,
     _audio_tx: &tokio::sync::mpsc::Sender<bool>,
-    pause_transition_tx: &tokio::sync::mpsc::Sender<bool>,
+    _pause_transition_tx: &tokio::sync::mpsc::Sender<bool>,
     xkb: &mut XkbMapper,
     modifier_sides: &mut ModifierSides,
     hotkey_evaluator: &mut HotkeyEvaluator,
@@ -376,6 +374,36 @@ fn process_frame(
         }
 
         modifier_sides.update(key, is_press, is_release);
+
+        // Edge-flag reset before the injection check: a physical release landing
+        // mid-injection must still clear its flag, or the next press is eaten with
+        // no log. Placed after modifier side-tracking so the early continues below
+        // never leave a side flag stale. (Linux has no PAUSE_KEY_DOWN — only the
+        // PTT/hands-free edge flags move here; press-side behaviour is untouched.)
+        if is_release {
+            if let Some(spec) = crate::input::hotkey::cached_voice_ptt_spec()
+                && spec.matches_release_evdev(key, is_release)
+            {
+                let was_down = crate::input::hotkey::PTT_KEY_DOWN.swap(false, Ordering::Relaxed);
+                if was_down && let Some(session) = crate::VOICE_SESSION.get() {
+                    let session = session.clone();
+                    std::thread::spawn(move || {
+                        if let Err(e) = session.stop_ptt() {
+                            warn!("Voice PTT stop error: {e}");
+                        }
+                    });
+                    if !is_modifier_evdev(key) {
+                        swallow_frame = true;
+                    }
+                    continue;
+                }
+            }
+            if let Some(spec) = crate::input::hotkey::cached_voice_handsfree_spec()
+                && spec.matches_release_evdev(key, is_release)
+            {
+                crate::input::hotkey::HANDSFREE_KEY_DOWN.store(false, Ordering::Relaxed);
+            }
+        }
 
         if *swallow_next_backspace_release && is_release && key == KeyCode::KEY_BACKSPACE {
             swallow_frame = true;
@@ -441,22 +469,17 @@ fn process_frame(
             .is_some_and(|spec| is_pause_chord_evdev(key, is_press, modifiers, &spec));
 
         if is_pause_chord {
-            let now_ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64;
-            let last_ms = LAST_PAUSE_TOGGLE_MS.load(Ordering::Relaxed);
-            if now_ms.saturating_sub(last_ms) >= 300 {
-                LAST_PAUSE_TOGGLE_MS.store(now_ms, Ordering::Relaxed);
-
-                clear_undo_state(state);
-                hotkey_evaluator.clear();
-                let now_paused = !paused.load(Ordering::Relaxed);
-                paused.store(now_paused, Ordering::Relaxed);
-
-                // Notify coordinator
-                let _ = pause_transition_tx.try_send(now_paused);
+            // Audio-first: sound on every distinct press, before any counter
+            // involvement. Predicts the entering state; a settled-even burst
+            // may sound without toggling, by design (press acknowledgment).
+            // Repeats (value == 2) never reach here; each press queues one
+            // token and the tau-pause-count thread owns the toggle.
+            if pause_audio_enabled.load(Ordering::Relaxed) {
+                crate::services::audio::play_pause_cue(!paused.load(Ordering::Relaxed));
             }
+            clear_undo_state(state);
+            hotkey_evaluator.clear();
+            crate::input::hotkey::push_pause_press();
             continue;
         }
 
@@ -717,33 +740,6 @@ fn process_frame(
                 continue;
             }
         } else {
-            if is_release && let Some(session) = crate::VOICE_SESSION.get() {
-                if let Some(spec) = crate::input::hotkey::cached_voice_ptt_spec()
-                    && spec.matches_release_evdev(key, is_release)
-                {
-                    let was_down =
-                        crate::input::hotkey::PTT_KEY_DOWN.swap(false, Ordering::Relaxed);
-                    if was_down {
-                        let session = session.clone();
-                        std::thread::spawn(move || {
-                            if let Err(e) = session.stop_ptt() {
-                                warn!("Voice PTT stop error: {e}");
-                            }
-                        });
-                        if !is_modifier_evdev(key) {
-                            swallow_frame = true;
-                        }
-                        continue;
-                    }
-                }
-
-                if let Some(spec) = crate::input::hotkey::cached_voice_handsfree_spec()
-                    && spec.matches_release_evdev(key, is_release)
-                {
-                    crate::input::hotkey::HANDSFREE_KEY_DOWN.store(false, Ordering::Relaxed);
-                }
-            }
-
             if grab_enabled
                 && trigger_assist_active
                 && crate::hook::should_swallow_trigger_assist_key_release(
@@ -978,5 +974,217 @@ mod tests {
             crate::injector::capture_generation() > 0,
             "Physical key press during injection must bump injection generation"
         );
+    }
+
+    fn process_release_frame_during_injection(key: KeyCode) {
+        let state = Arc::new(EngineState::new());
+        let evaluator = Arc::new(Mutex::new(Evaluator::new(state.clone())));
+        let paused = Arc::new(AtomicBool::new(false));
+        let pause_notifications = Arc::new(AtomicBool::new(false));
+        let pause_hotkey = Arc::new(RwLock::new(
+            crate::input::hotkey::parse_pause_hotkey_setting("Alt + `").unwrap(),
+        ));
+        let spinner_style = Arc::new(RwLock::new(taurine_core::settings::SpinnerStyle::default()));
+        let pause_audio = Arc::new(AtomicBool::new(false));
+        let (audio_tx, _) = tokio::sync::mpsc::channel(1);
+        let (pause_transition_tx, _) = tokio::sync::mpsc::channel(1);
+
+        let mut xkb = crate::platform::linux::xkb::XkbMapper::default();
+        let mut modifier_sides = ModifierSides::default();
+        let mut hotkey_evaluator = HotkeyEvaluator::new();
+        let mut swallow = false;
+        let mut swallow_left = false;
+        let mut swallow_right = false;
+        let mut swallow_v = false;
+
+        let frame = vec![InputEvent::new(EventType::KEY.0, key.code(), 0)];
+
+        crate::injector::IS_INJECTING.store(true, Ordering::SeqCst);
+        process_frame(
+            &frame,
+            true, // grab_enabled
+            &evaluator,
+            &state,
+            &paused,
+            &pause_notifications,
+            &pause_hotkey,
+            &spinner_style,
+            &pause_audio,
+            &audio_tx,
+            &pause_transition_tx,
+            &mut xkb,
+            &mut modifier_sides,
+            &mut hotkey_evaluator,
+            &mut swallow,
+            &mut swallow_left,
+            &mut swallow_right,
+            &mut swallow_v,
+        );
+        crate::injector::IS_INJECTING.store(false, Ordering::SeqCst);
+    }
+
+    /// A physical PTT member release landing mid-injection must still clear
+    /// `PTT_KEY_DOWN`; otherwise the flag sticks and the next press is eaten.
+    /// The flag is armed directly: the live press path needs `VOICE_SESSION`,
+    /// which never exists in hermetic tests, so a real press cannot arm it here.
+    #[test]
+    fn ptt_release_during_injection_clears_flag() {
+        let _lock = taurine_core::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::injector::IS_INJECTING.store(false, Ordering::SeqCst);
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+        crate::input::hotkey::HANDSFREE_KEY_DOWN.store(false, Ordering::Relaxed);
+        crate::input::hotkey::refresh_cached_voice_specs("win+lctrl", "win+lctrl+lalt");
+
+        crate::input::hotkey::PTT_KEY_DOWN.store(true, Ordering::Relaxed);
+        process_release_frame_during_injection(KeyCode::KEY_LEFTCTRL);
+
+        assert!(
+            !crate::input::hotkey::PTT_KEY_DOWN.load(Ordering::Relaxed),
+            "PTT member release during injection must clear PTT_KEY_DOWN"
+        );
+
+        crate::injector::IS_INJECTING.store(false, Ordering::SeqCst);
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+        crate::input::hotkey::HANDSFREE_KEY_DOWN.store(false, Ordering::Relaxed);
+        crate::input::hotkey::refresh_cached_voice_specs("", "");
+    }
+
+    /// Same guarantee for the hands-free edge flag. RightAlt is a member of the
+    /// hands-free chord only, not the PTT chord, isolating this test to one flag.
+    #[test]
+    fn handsfree_release_during_injection_clears_flag() {
+        let _lock = taurine_core::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::injector::IS_INJECTING.store(false, Ordering::SeqCst);
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+        crate::input::hotkey::HANDSFREE_KEY_DOWN.store(false, Ordering::Relaxed);
+        crate::input::hotkey::refresh_cached_voice_specs("win+lctrl", "win+lctrl+lalt");
+
+        crate::input::hotkey::HANDSFREE_KEY_DOWN.store(true, Ordering::Relaxed);
+        process_release_frame_during_injection(KeyCode::KEY_RIGHTALT);
+
+        assert!(
+            !crate::input::hotkey::HANDSFREE_KEY_DOWN.load(Ordering::Relaxed),
+            "Hands-free member release during injection must clear HANDSFREE_KEY_DOWN"
+        );
+
+        crate::injector::IS_INJECTING.store(false, Ordering::SeqCst);
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+        crate::input::hotkey::HANDSFREE_KEY_DOWN.store(false, Ordering::Relaxed);
+        crate::input::hotkey::refresh_cached_voice_specs("", "");
+    }
+
+    /// A pause chord press queues one press token and leaves the toggle to
+    /// the burst counter; a rapid second press queues a second token, still
+    /// with no direct toggle or transition from the hook path.
+    #[test]
+    fn pause_chord_feeds_press_channel_without_toggling() {
+        let _lock = taurine_core::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::injector::IS_INJECTING.store(false, Ordering::SeqCst);
+        crate::input::hotkey::refresh_cached_voice_specs("", "");
+        crate::input::hotkey::clear_pause_press_sender();
+
+        let state = Arc::new(EngineState::new());
+        let evaluator = Arc::new(Mutex::new(Evaluator::new(state.clone())));
+        let paused = Arc::new(AtomicBool::new(false));
+        let pause_notifications = Arc::new(AtomicBool::new(false));
+        let pause_hotkey = Arc::new(RwLock::new(
+            crate::input::hotkey::parse_pause_hotkey_setting("Alt + `").unwrap(),
+        ));
+        let spinner_style = Arc::new(RwLock::new(taurine_core::settings::SpinnerStyle::default()));
+        let pause_audio = Arc::new(AtomicBool::new(false));
+        let (audio_tx, _) = tokio::sync::mpsc::channel(1);
+        let (pause_transition_tx, pause_rx) = tokio::sync::mpsc::channel(8);
+        let (press_tx, press_rx) = std::sync::mpsc::channel::<()>();
+        crate::input::hotkey::set_pause_press_sender(press_tx);
+
+        let mut xkb = crate::platform::linux::xkb::XkbMapper::default();
+        let mut modifier_sides = ModifierSides::default();
+        let mut hotkey_evaluator = HotkeyEvaluator::new();
+        let mut swallow = false;
+        let mut swallow_left = false;
+        let mut swallow_right = false;
+        let mut swallow_v = false;
+
+        // Alt press arms the modifier side; grave press completes the chord.
+        let chord = vec![
+            InputEvent::new(EventType::KEY.0, KeyCode::KEY_LEFTALT.code(), 1),
+            InputEvent::new(EventType::KEY.0, KeyCode::KEY_GRAVE.code(), 1),
+        ];
+        process_frame(
+            &chord,
+            true,
+            &evaluator,
+            &state,
+            &paused,
+            &pause_notifications,
+            &pause_hotkey,
+            &spinner_style,
+            &pause_audio,
+            &audio_tx,
+            &pause_transition_tx,
+            &mut xkb,
+            &mut modifier_sides,
+            &mut hotkey_evaluator,
+            &mut swallow,
+            &mut swallow_left,
+            &mut swallow_right,
+            &mut swallow_v,
+        );
+        assert_eq!(
+            press_rx.try_recv(),
+            Ok(()),
+            "chord press must queue one token"
+        );
+        assert!(
+            !paused.load(Ordering::Relaxed),
+            "toggle belongs to the burst counter"
+        );
+        assert!(
+            pause_rx.try_recv().is_err(),
+            "no direct transition from the hook path"
+        );
+
+        // A rapid second chord press queues a second token, still no toggle.
+        let second = vec![InputEvent::new(
+            EventType::KEY.0,
+            KeyCode::KEY_GRAVE.code(),
+            1,
+        )];
+        process_frame(
+            &second,
+            true,
+            &evaluator,
+            &state,
+            &paused,
+            &pause_notifications,
+            &pause_hotkey,
+            &spinner_style,
+            &pause_audio,
+            &audio_tx,
+            &pause_transition_tx,
+            &mut xkb,
+            &mut modifier_sides,
+            &mut hotkey_evaluator,
+            &mut swallow,
+            &mut swallow_left,
+            &mut swallow_right,
+            &mut swallow_v,
+        );
+        assert_eq!(
+            press_rx.try_recv(),
+            Ok(()),
+            "second press must queue a second token"
+        );
+        assert!(press_rx.try_recv().is_err());
+        assert!(!paused.load(Ordering::Relaxed));
+
+        crate::input::hotkey::clear_pause_press_sender();
+        crate::input::hotkey::refresh_cached_voice_specs("win+lctrl", "win+lctrl+lalt");
     }
 }

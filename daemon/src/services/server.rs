@@ -392,7 +392,10 @@ impl DaemonControl for DaemonService {
         debug!("Received gRPC pause request.");
         let was_paused = self.paused.swap(true, Ordering::Relaxed);
         if !was_paused {
-            let _ = self.pause_transition_tx.try_send(true);
+            if self.pause_audio_enabled.load(Ordering::Relaxed) {
+                crate::services::audio::play_pause_cue(true);
+            }
+            crate::input::hotkey::notify_pause_transition(&self.pause_transition_tx, true);
         }
         Ok(Response::new(PauseResponse { success: true }))
     }
@@ -404,7 +407,10 @@ impl DaemonControl for DaemonService {
         debug!("Received gRPC resume request.");
         let was_paused = self.paused.swap(false, Ordering::Relaxed);
         if was_paused {
-            let _ = self.pause_transition_tx.try_send(false);
+            if self.pause_audio_enabled.load(Ordering::Relaxed) {
+                crate::services::audio::play_pause_cue(false);
+            }
+            crate::input::hotkey::notify_pause_transition(&self.pause_transition_tx, false);
         }
         Ok(Response::new(ResumeResponse { success: true }))
     }
@@ -588,5 +594,49 @@ mod tests {
             .expect("duplicate resume request");
         assert!(res.into_inner().success);
         assert!(pause_rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_grpc_pause_surfaces_full_channel_instead_of_silently_dropping() {
+        let state = Arc::new(EngineState::new());
+        let (tx, _rx) = mpsc::channel(1);
+        let pause_hotkey = "Alt + `".to_string();
+        let pause_hotkey_spec = Arc::new(std::sync::RwLock::new(
+            crate::input::hotkey::parse_pause_hotkey_setting(&pause_hotkey).unwrap(),
+        ));
+        let paused = Arc::new(AtomicBool::new(false));
+        // Capacity-1 channel, pre-filled: the transition notify cannot enqueue.
+        let (pause_tx, mut pause_rx) = mpsc::channel(1);
+        pause_tx.try_send(false).expect("pre-fill test channel");
+        let service = DaemonService::builder()
+            .shutdown_sender(tx)
+            .state(state)
+            .paused(paused.clone())
+            .pause_notifications_enabled(Arc::new(AtomicBool::new(false)))
+            .pause_hotkey_spec(pause_hotkey_spec)
+            .pause_hotkey_display(Arc::new(std::sync::RwLock::new(pause_hotkey)))
+            .spinner_style(Arc::new(std::sync::RwLock::new(
+                taurine_core::settings::SpinnerStyle::default(),
+            )))
+            .pause_audio_enabled(Arc::new(AtomicBool::new(true)))
+            .system_tray_enabled(Arc::new(AtomicBool::new(true)))
+            .hook_health(crate::input::hook_health::HookHealth::new())
+            .pause_transition_tx(pause_tx)
+            .build()
+            .expect("builder call site is fully populated");
+
+        let res = service
+            .pause(Request::new(taurine_core::rpc::PauseRequest {}))
+            .await
+            .expect("pause request");
+        assert!(res.into_inner().success);
+        // Synchronous flip still applies; the helper surfaces the full
+        // channel via a warn instead of blocking or silently dropping.
+        assert!(paused.load(Ordering::Relaxed));
+        assert_eq!(
+            pause_rx.try_recv(),
+            Ok(false),
+            "full channel keeps its value; the new transition goes to the warn path"
+        );
     }
 }

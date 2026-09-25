@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
 
@@ -15,6 +15,18 @@ pub(crate) const MIN_SPEECH_RMS_ENERGY: f32 = 1e-7;
 
 /// Minimum audio samples required for transcription (100ms at 16kHz = 1600 samples).
 pub(crate) const MIN_SAMPLES_COUNT: usize = 1600;
+
+/// Mash window after a session end: presses inside it cue instantly but defer
+/// engine work to a still-held rescue instead of churning the worker and mic.
+pub(crate) const MASH_WINDOW_MS: u64 = 300;
+/// Still-held rescue delay: a gated press starts only if the key is still
+/// down after this wait; a released key was a bounce and records nothing.
+pub(crate) const RESCUE_WAIT_MS: u64 = 200;
+/// Pre-roll cushion (ms): prior mic audio restored at the front of each
+/// recording so the first syllable is never clipped.
+pub(crate) const PREROLL_MS: u64 = 400;
+/// Pre-roll samples at 16 kHz mono.
+pub(crate) const PREROLL_SAMPLES: usize = PREROLL_MS as usize * 16;
 
 /// Hold ladder rungs mirroring the worker sweep: a fresh load holds 15s;
 /// genuine use inside the window steps one rung up to the 120s cap, so at
@@ -117,12 +129,30 @@ pub struct VoiceSessionManager {
     active_req: Mutex<Option<String>>,
     streams: Arc<Mutex<HashMap<String, StreamEntry>>>,
     req_counter: AtomicU64,
+    /// Press remembered while busy: a press landing during decode cannot
+    /// start, so it is parked here and honored the moment the session
+    /// returns to Idle with the key still held. Never auto-records from a
+    /// released key; Escape and cancel always clear it.
+    pending_press: AtomicBool,
+    /// Weak self-handle for the mash-gate rescue waiter. Set once the
+    /// manager lives in an `Arc` (production `start()`, tests via
+    /// `into_test_arc`); the waiter upgrades it after its delay and
+    /// no-ops if the manager is already gone, so it never extends a lifetime.
+    self_ref: OnceLock<Weak<VoiceSessionManager>>,
+    /// End of the last dictation session, for the mash gate. Stamped by every
+    /// path that terminates a session; presses inside `MASH_WINDOW_MS` cue
+    /// instantly but defer engine work to the still-held rescue waiter.
+    last_stop: Mutex<Option<Instant>>,
     #[cfg(test)]
     last_latency: Mutex<Option<RequestLatency>>,
+    #[cfg(test)]
+    last_drained: Mutex<Option<Vec<f32>>>,
     #[cfg(test)]
     cue_hook: Mutex<Option<CueHook>>,
     #[cfg(test)]
     capture_hook: Mutex<Option<CaptureHook>>,
+    #[cfg(test)]
+    stop_hook: Mutex<Option<CueHook>>,
 }
 
 impl VoiceSessionManager {
@@ -139,12 +169,19 @@ impl VoiceSessionManager {
             active_req: Mutex::new(None),
             streams: Arc::new(Mutex::new(HashMap::new())),
             req_counter: AtomicU64::new(0),
+            pending_press: AtomicBool::new(false),
+            self_ref: OnceLock::new(),
+            last_stop: Mutex::new(None),
             #[cfg(test)]
             last_latency: Mutex::new(None),
+            #[cfg(test)]
+            last_drained: Mutex::new(None),
             #[cfg(test)]
             cue_hook: Mutex::new(None),
             #[cfg(test)]
             capture_hook: Mutex::new(None),
+            #[cfg(test)]
+            stop_hook: Mutex::new(None),
         }
     }
 
@@ -179,6 +216,54 @@ impl VoiceSessionManager {
     pub(crate) fn with_capture_hook(self, hook: CaptureHook) -> Self {
         *self.capture_hook.lock().unwrap_or_else(|p| p.into_inner()) = Some(hook);
         self
+    }
+
+    /// Builder method to stub capture stop (tests only, records order).
+    #[cfg(test)]
+    pub(crate) fn with_stop_hook(self, hook: CueHook) -> Self {
+        *self.stop_hook.lock().unwrap_or_else(|p| p.into_inner()) = Some(hook);
+        self
+    }
+
+    /// Fire the mic-close cue (stubbed in tests to observe ordering).
+    #[cfg(test)]
+    fn fire_stop_cue(&self) {
+        if let Some(hook) = self
+            .cue_hook
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+        {
+            hook();
+        } else {
+            crate::services::audio::play_voice_stop_cue();
+        }
+    }
+
+    /// Fire the mic-close cue.
+    #[cfg(not(test))]
+    fn fire_stop_cue(&self) {
+        crate::services::audio::play_voice_stop_cue();
+    }
+
+    /// Close the microphone (stubbed in tests to observe ordering).
+    #[cfg(test)]
+    fn stop_capture(&self) {
+        if let Some(hook) = self
+            .stop_hook
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+        {
+            hook();
+        }
+        self.capture.stop();
+    }
+
+    /// Close the microphone.
+    #[cfg(not(test))]
+    fn stop_capture(&self) {
+        self.capture.stop();
     }
 
     /// Fire the mic-open cue (stubbed in tests to observe ordering).
@@ -345,6 +430,86 @@ impl VoiceSessionManager {
         });
     }
 
+    /// Stamp the end of a dictation session for the mash gate.
+    fn note_session_end(&self) {
+        *self.last_stop.lock().unwrap_or_else(|p| p.into_inner()) = Some(Instant::now());
+    }
+
+    /// True when a session ended less than `MASH_WINDOW_MS` ago.
+    fn in_mash_window(&self) -> bool {
+        self.last_stop
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .is_some_and(|t| t.elapsed() < Duration::from_millis(MASH_WINDOW_MS))
+    }
+
+    /// Publish the weak self-handle for the mash-gate rescue waiter.
+    /// Call once after wrapping the manager in an `Arc`.
+    pub fn set_self_ref(self: &Arc<Self>) {
+        let _ = self.self_ref.set(Arc::downgrade(self));
+    }
+
+    /// Wrap a test-built manager for mash-gate tests (which need the rescue
+    /// waiter to reach back into the session after its delay).
+    #[cfg(test)]
+    fn into_test_arc(self) -> Arc<Self> {
+        let arc = Arc::new(self);
+        arc.set_self_ref();
+        arc
+    }
+
+    /// Deferred engine start for a mash-gated press. Returns immediately;
+    /// after `RESCUE_WAIT_MS`, a still-held key with an Idle manager starts
+    /// the recording it deferred. A released key records nothing. Upgrading
+    /// the weak handle keeps a dropped manager dropped — the waiter never
+    /// extends a lifetime, so it cannot outlive its session.
+    fn spawn_mash_rescue(&self, handsfree: bool) {
+        let Some(me) = self.self_ref.get().and_then(Weak::upgrade) else {
+            return;
+        };
+        std::thread::Builder::new()
+            .name("tau-ptt-rescue".to_string())
+            .spawn(move || {
+                std::thread::sleep(Duration::from_millis(RESCUE_WAIT_MS));
+                let held = if handsfree {
+                    crate::input::hotkey::HANDSFREE_KEY_DOWN.load(Ordering::Relaxed)
+                } else {
+                    crate::input::hotkey::PTT_KEY_DOWN.load(Ordering::Relaxed)
+                };
+                if !held || me.is_paused() || me.current_mode() != VoiceMode::Idle {
+                    return;
+                }
+                if handsfree {
+                    if let Err(e) = me.start_handsfree_now() {
+                        warn!("VoiceSessionManager: mash rescue hands-free start failed: {e}");
+                    }
+                } else if let Err(e) = me.start_ptt_now(Instant::now(), Instant::now()) {
+                    warn!("VoiceSessionManager: mash rescue PTT start failed: {e}");
+                }
+            })
+            .ok();
+    }
+
+    /// Honor a press parked while busy: when the previous session reaches
+    /// Idle with the PTT key still physically held, begin the next recording
+    /// immediately instead of forcing the user to re-press. A released key
+    /// drops the pending press; silence means the user moved on.
+    fn maybe_autostart(&self) {
+        if !self.pending_press.swap(false, Ordering::Relaxed) {
+            return;
+        }
+        if !crate::input::hotkey::PTT_KEY_DOWN.load(Ordering::Relaxed) {
+            return;
+        }
+        if self.is_paused() {
+            return;
+        }
+        // Explicit hold-continuation, not a new press: bypass the mash gate.
+        if let Err(e) = self.start_ptt_now(Instant::now(), Instant::now()) {
+            warn!("VoiceSessionManager: pending press auto-start failed: {e}");
+        }
+    }
+
     /// Shut the worker process down entirely (daemon shutdown path).
     pub fn shutdown_worker(&self) {
         self.worker.shutdown();
@@ -462,7 +627,10 @@ impl VoiceSessionManager {
 
     /// Start a Push-To-Talk recording session.
     ///
-    /// Clears any previous buffer, starts microphone capture, and transitions to `PushToTalk`.
+    /// The cue fires on entry for every genuine press, before locks and
+    /// state checks: it acknowledges the hotkey, never the recording.
+    /// Silent only when paused. Clears any previous buffer, starts
+    /// microphone capture, and transitions to `PushToTalk`.
     pub fn start_ptt(&self) -> Result<(), String> {
         let press_at = Instant::now();
         if self.is_paused() {
@@ -470,13 +638,45 @@ impl VoiceSessionManager {
             return Ok(());
         }
 
-        let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
-        if *mode != VoiceMode::Idle {
-            return Ok(());
-        }
-
         self.fire_start_cue();
         let cue_at = Instant::now();
+
+        {
+            let mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
+            if *mode != VoiceMode::Idle {
+                // Busy (recording or decoding): park the press instead of
+                // dropping it. The stop path honors it when the key is held.
+                self.pending_press.store(true, Ordering::Relaxed);
+                return Ok(());
+            }
+        }
+        if self.in_mash_window() {
+            // Bounce: acknowledged by the cue above, engine work deferred to
+            // the rescue waiter so flutter never churns the worker and mic.
+            self.spawn_mash_rescue(false);
+            return Ok(());
+        }
+        self.start_ptt_now(press_at, cue_at)
+    }
+
+    /// Immediate engine start: snapshot the mic pre-roll, open or reuse the
+    /// device, and begin recording. Callers must have passed the mash gate
+    /// (or hold an explicit continuation like the pending-press autostart).
+    fn start_ptt_now(&self, press_at: Instant, cue_at: Instant) -> Result<(), String> {
+        {
+            let mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
+            if *mode != VoiceMode::Idle {
+                // Lost a race with another starter: park instead of doubling.
+                self.pending_press.store(true, Ordering::Relaxed);
+                return Ok(());
+            }
+        }
+        self.pending_press.store(false, Ordering::Relaxed);
+        // Snapshot the live pre-roll BEFORE clearing: a parked mic keeps
+        // pushing while held, so the tail is the audio just before the press.
+        // A cold mic has nothing (the last stop drained it) and the prepend
+        // below is a no-op.
+        let preroll = self.capture.buffer().peek_tail(PREROLL_SAMPLES);
         self.capture.buffer().clear();
         if !self.capture.try_reuse_held_stream()
             && let Err(e) = self.start_capture()
@@ -484,10 +684,19 @@ impl VoiceSessionManager {
             warn!("Failed to start audio capture stream for PTT: {e}");
             return Err(e);
         }
+        if !preroll.is_empty() {
+            self.capture.buffer().prepend_samples(&preroll);
+        }
         let recording_at = Instant::now();
 
-        *mode = VoiceMode::PushToTalk;
-        drop(mode);
+        {
+            let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
+            if *mode != VoiceMode::Idle {
+                self.pending_press.store(true, Ordering::Relaxed);
+                return Ok(());
+            }
+            *mode = VoiceMode::PushToTalk;
+        }
         self.touch_loaded_slot();
         info!("VoiceSessionManager: Push-To-Talk recording started");
         self.begin_request(PttTiming {
@@ -526,7 +735,12 @@ impl VoiceSessionManager {
             // makes it self-exit; nothing is joined, nothing is sent.
             if self.capture.buffer().len() < MIN_SAMPLES_COUNT {
                 entry.progress.alive.store(false, Ordering::Relaxed);
-                self.capture.buffer().drain();
+                let _tapped = self.capture.buffer().drain();
+                #[cfg(test)]
+                {
+                    *self.last_drained.lock().unwrap_or_else(|p| p.into_inner()) =
+                        Some(_tapped.clone());
+                }
                 debug!("VoiceSessionManager: tap too short; skipping worker entirely");
                 return Ok(None);
             }
@@ -535,6 +749,11 @@ impl VoiceSessionManager {
                 let _ = handle.join();
             }
             let drained = self.capture.buffer().drain();
+            #[cfg(test)]
+            {
+                *self.last_drained.lock().unwrap_or_else(|p| p.into_inner()) =
+                    Some(drained.clone());
+            }
             let sent = entry
                 .progress
                 .sent
@@ -597,10 +816,12 @@ impl VoiceSessionManager {
 
     /// Stop Push-To-Talk recording, transcribe captured speech, inject text, and return to `Idle`.
     ///
-    /// Plays the mic-close (paste) cue immediately on PTT release, before
-    /// transcription/paste runs, so feedback lines up with the hotkey.
-    /// The microphone stays parked for the grace window.
+    /// Fires the mic-close cue first to acknowledge the key release itself,
+    /// before locks and state checks, then stops the mic and transcribes:
+    /// feedback lines up with the hotkey, never with paste. The microphone
+    /// stays parked for the grace window.
     pub fn stop_ptt(&self) -> Result<Option<String>, String> {
+        self.fire_stop_cue();
         {
             let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
             if *mode != VoiceMode::PushToTalk {
@@ -609,19 +830,65 @@ impl VoiceSessionManager {
             *mode = VoiceMode::Processing;
         }
 
-        self.capture.stop();
-        crate::services::audio::play_voice_stop_cue();
+        self.stop_capture();
         info!("VoiceSessionManager: Push-To-Talk recording stopped; processing audio");
         let result = self.finalize_request();
         {
             let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
             *mode = VoiceMode::Idle;
         }
+        self.note_session_end();
+        self.maybe_autostart();
         result
+    }
+
+    /// Immediate hands-free start: snapshot the mic pre-roll, open the
+    /// device, and transition to `HandsFree`. Mash-blind like `start_ptt_now`;
+    /// the gated `toggle_handsfree` entry decides when to call it.
+    fn start_handsfree_now(&self) -> Result<(VoiceMode, Option<String>), String> {
+        let press_at = Instant::now();
+        {
+            let mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
+            if *mode != VoiceMode::Idle {
+                self.pending_press.store(true, Ordering::Relaxed);
+                return Ok((*mode, None));
+            }
+        }
+        let preroll = self.capture.buffer().peek_tail(PREROLL_SAMPLES);
+        self.capture.buffer().clear();
+        // Already cued at entry; timestamp it here for the telemetry.
+        let cue_at = Instant::now();
+        if let Err(e) = self.start_capture() {
+            warn!("Failed to start audio capture stream for Hands-Free: {e}");
+            return Err(e);
+        }
+        if !preroll.is_empty() {
+            self.capture.buffer().prepend_samples(&preroll);
+        }
+        let recording_at = Instant::now();
+        {
+            let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
+            if *mode != VoiceMode::Idle {
+                self.pending_press.store(true, Ordering::Relaxed);
+                return Ok((*mode, None));
+            }
+            *mode = VoiceMode::HandsFree;
+        }
+        self.touch_loaded_slot();
+        info!("VoiceSessionManager: Hands-Free dictation activated");
+        self.begin_request(PttTiming {
+            press_at,
+            cue_at,
+            recording_at,
+        });
+        Ok((VoiceMode::HandsFree, None))
     }
 
     /// Toggle Hands-Free continuous dictation mode.
     ///
+    /// The cue fires on entry by direction, before locks and state checks:
+    /// it acknowledges the toggle, never the transcription. Silent when
+    /// paused, and silent when there is nothing to toggle.
     /// If `Idle`, starts capture and transitions to `HandsFree`.
     /// If `HandsFree`, stops capture, processes audio, injects text, and transitions to `Idle`.
     /// The microphone stays parked for the grace window while Hands-Free is off.
@@ -631,41 +898,41 @@ impl VoiceSessionManager {
             return Ok((VoiceMode::Idle, None));
         }
 
+        // Direction cue first, so feedback never waits on locks or devices.
+        {
+            let mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
+            match *mode {
+                VoiceMode::Idle => self.fire_start_cue(),
+                VoiceMode::HandsFree => self.fire_stop_cue(),
+                _ => {}
+            }
+        }
+
         let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
         match *mode {
             VoiceMode::HandsFree => {
                 *mode = VoiceMode::Processing;
                 drop(mode);
-                self.capture.stop();
-                crate::services::audio::play_voice_stop_cue();
+                self.stop_capture();
                 info!("VoiceSessionManager: Hands-Free dictation toggled off; processing audio");
                 let result = self.finalize_request()?;
                 {
                     let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
                     *mode = VoiceMode::Idle;
                 }
+                self.note_session_end();
+                self.maybe_autostart();
                 Ok((VoiceMode::Idle, result))
             }
             VoiceMode::Idle => {
-                let press_at = Instant::now();
-                self.capture.buffer().clear();
-                if let Err(e) = self.capture.start() {
-                    warn!("Failed to start audio capture stream for Hands-Free: {e}");
-                    return Err(e);
-                }
-                let recording_at = Instant::now();
-                *mode = VoiceMode::HandsFree;
                 drop(mode);
-                self.touch_loaded_slot();
-                info!("VoiceSessionManager: Hands-Free dictation activated");
-                crate::services::audio::play_voice_start_cue();
-                let cue_at = Instant::now();
-                self.begin_request(PttTiming {
-                    press_at,
-                    cue_at,
-                    recording_at,
-                });
-                Ok((VoiceMode::HandsFree, None))
+                if self.in_mash_window() {
+                    // Bounce: acknowledged by the entry cue, engine work
+                    // deferred to the rescue waiter.
+                    self.spawn_mash_rescue(true);
+                    return Ok((VoiceMode::Idle, None));
+                }
+                self.start_handsfree_now()
             }
             _ => Ok((*mode, None)),
         }
@@ -691,14 +958,17 @@ impl VoiceSessionManager {
             return Ok(None);
         }
 
-        self.capture.stop();
-        crate::services::audio::play_voice_stop_cue();
+        // Escape aborts everything: a parked press dies with the session.
+        self.pending_press.store(false, Ordering::Relaxed);
+        self.fire_stop_cue();
+        self.stop_capture();
         info!("VoiceSessionManager: Escape pressed; terminating voice session and transcribing");
         let result = self.finalize_request();
         {
             let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
             *mode = VoiceMode::Idle;
         }
+        self.note_session_end();
         result
     }
 
@@ -707,10 +977,26 @@ impl VoiceSessionManager {
     /// Frees the worker-side buffer in the background so a cancelled
     /// recording never leaks audio state into the next session.
     pub fn cancel(&self) {
+        // Acknowledge the cancel first: the forwarder join below can block,
+        // and feedback belongs to the keypress, never to teardown.
+        // A cancel voids any parked press along with the live session.
+        self.pending_press.store(false, Ordering::Relaxed);
+        self.fire_stop_cue();
         let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
+        // Only a live session arms the mash gate; cancelling idle noise must
+        // not defer the user's next genuine press.
+        let was_live = *mode != VoiceMode::Idle
+            || self
+                .active_req
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .is_some();
         *mode = VoiceMode::Idle;
         drop(mode);
-        self.capture.stop();
+        if was_live {
+            self.note_session_end();
+        }
+        self.stop_capture();
         self.capture.buffer().clear();
         if let Some(req_id) = self
             .active_req
@@ -735,7 +1021,6 @@ impl VoiceSessionManager {
                 })
                 .ok();
         }
-        crate::services::audio::play_voice_stop_cue();
         debug!("VoiceSessionManager: Dictation cancelled");
     }
 
@@ -847,6 +1132,19 @@ impl VoiceSessionManager {
     }
 
     #[cfg(test)]
+    pub(crate) fn last_drained(&self) -> Option<Vec<f32>> {
+        self.last_drained
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn clear_last_stop_for_test(&self) {
+        *self.last_stop.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    }
+
+    #[cfg(test)]
     pub(crate) fn set_test_meta(&self, model_id: &str, last_used: Instant) {
         *self.meta.lock().unwrap() = Some(EngineMeta {
             model_id: model_id.to_string(),
@@ -869,12 +1167,13 @@ mod tests {
     use taurine_core::voice::VoiceDictionary;
 
     fn create_test_session() -> (VoiceSessionManager, Arc<AtomicBool>) {
-        create_ordering_session(None, None)
+        create_ordering_session(None, None, None)
     }
 
     fn create_ordering_session(
         cue_hook: Option<CueHook>,
         capture_hook: Option<CaptureHook>,
+        stop_hook: Option<CueHook>,
     ) -> (VoiceSessionManager, Arc<AtomicBool>) {
         let buffer = Arc::new(super::super::capture::AudioFrameBuffer::new());
         let capture = Arc::new(AudioCapture::new(buffer));
@@ -892,6 +1191,9 @@ mod tests {
         }
         if let Some(hook) = capture_hook {
             session = session.with_capture_hook(hook);
+        }
+        if let Some(hook) = stop_hook {
+            session = session.with_stop_hook(hook);
         }
         (session, paused)
     }
@@ -983,6 +1285,7 @@ mod tests {
                     .push("capture");
                 Err("no device in tests".to_string())
             })),
+            None,
         );
         let res = session.start_ptt();
         assert!(res.is_err());
@@ -1018,6 +1321,7 @@ mod tests {
                     .push("capture");
                 Ok(())
             })),
+            None,
         );
         let res = session.start_ptt();
         assert!(res.is_ok());
@@ -1028,6 +1332,426 @@ mod tests {
         assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
         assert!(session.active_request().is_some());
         session.cancel();
+    }
+
+    /// Build an ordering session whose stop cue pushes "stop-cue" and whose
+    /// capture stop pushes "stop" into one shared order log.
+    fn create_stop_ordering_session() -> (VoiceSessionManager, Arc<Mutex<Vec<&'static str>>>) {
+        let order = Arc::new(Mutex::new(Vec::<&'static str>::new()));
+        let cue_order = Arc::clone(&order);
+        let stop_order = Arc::clone(&order);
+        let (session, _) = create_ordering_session(
+            Some(Arc::new(move || {
+                cue_order
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .push("stop-cue");
+            })),
+            None,
+            Some(Arc::new(move || {
+                stop_order
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .push("stop");
+            })),
+        );
+        (session, order)
+    }
+
+    fn stop_order_of(order: &Arc<Mutex<Vec<&'static str>>>) -> Vec<&'static str> {
+        order.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+
+    #[test]
+    fn test_stop_ptt_fires_stop_cue_before_capture_stop() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let (session, order) = create_stop_ordering_session();
+        *session.mode.lock().unwrap() = VoiceMode::PushToTalk;
+        let res = session.stop_ptt();
+        assert!(res.is_ok());
+        assert_eq!(stop_order_of(&order), vec!["stop-cue", "stop"]);
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+    }
+
+    #[test]
+    fn test_handsfree_off_fires_stop_cue_before_capture_stop() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let (session, order) = create_stop_ordering_session();
+        *session.mode.lock().unwrap() = VoiceMode::HandsFree;
+        let (mode, _) = session.toggle_handsfree().expect("toggle off");
+        assert_eq!(mode, VoiceMode::Idle);
+        assert_eq!(stop_order_of(&order), vec!["stop-cue", "stop"]);
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+    }
+
+    #[test]
+    fn test_escape_fires_stop_cue_before_capture_stop() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let (session, order) = create_stop_ordering_session();
+        *session.mode.lock().unwrap() = VoiceMode::PushToTalk;
+        let res = session.on_escape_pressed();
+        assert!(res.is_ok());
+        assert_eq!(stop_order_of(&order), vec!["stop-cue", "stop"]);
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+    }
+
+    #[test]
+    fn test_cancel_fires_stop_cue_before_capture_stop() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let (session, order) = create_stop_ordering_session();
+        *session.mode.lock().unwrap() = VoiceMode::PushToTalk;
+        session.cancel();
+        assert_eq!(stop_order_of(&order), vec!["stop-cue", "stop"]);
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+    }
+
+    #[test]
+    fn test_handsfree_start_fires_cue_before_capture() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let order = Arc::new(Mutex::new(Vec::<&'static str>::new()));
+        let cue_order = Arc::clone(&order);
+        let cap_order = Arc::clone(&order);
+        let stop_order = Arc::clone(&order);
+        let (session, _) = create_ordering_session(
+            Some(Arc::new(move || {
+                cue_order
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .push("cue");
+            })),
+            Some(Arc::new(move || {
+                cap_order
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .push("capture");
+                Ok(())
+            })),
+            Some(Arc::new(move || {
+                stop_order
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .push("stop");
+            })),
+        );
+        let (mode, _) = session.toggle_handsfree().expect("toggle on");
+        assert_eq!(mode, VoiceMode::HandsFree);
+        assert_eq!(stop_order_of(&order), vec!["cue", "capture"]);
+        // Cancel reuses the same cue hook, so its stop cue logs "cue" too;
+        // the assertion that matters is cue-before-stop on the cancel path.
+        session.cancel();
+        assert_eq!(stop_order_of(&order), vec!["cue", "capture", "cue", "stop"]);
+    }
+
+    #[test]
+    fn test_busy_press_records_pending_without_starting() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let order = Arc::new(Mutex::new(Vec::<&'static str>::new()));
+        let cue_order = Arc::clone(&order);
+        let (session, _) = create_ordering_session(
+            Some(Arc::new(move || {
+                cue_order
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .push("cue");
+            })),
+            None,
+            None,
+        );
+        *session.mode.lock().unwrap() = VoiceMode::Processing;
+        let res = session.start_ptt();
+        assert!(res.is_ok());
+        // The press is acknowledged even though no session can start.
+        assert_eq!(stop_order_of(&order), vec!["cue"]);
+        assert_eq!(session.current_mode(), VoiceMode::Processing);
+        assert!(session.active_request().is_none());
+    }
+
+    #[test]
+    fn test_stop_ptt_idle_still_cues_release() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let (session, order) = create_stop_ordering_session();
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+        let res = session.stop_ptt();
+        assert!(res.is_ok());
+        // Nothing to stop, but the release itself is acknowledged.
+        assert_eq!(stop_order_of(&order), vec!["stop-cue"]);
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+    }
+
+    #[test]
+    fn test_stop_autostarts_when_key_still_held() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let opens = Arc::new(AtomicUsize::new(0));
+        let count = Arc::clone(&opens);
+        let (session, _) = create_ordering_session(
+            None,
+            Some(Arc::new(move || {
+                count.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            })),
+            None,
+        );
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+        // Swallowed press while busy records a pending start.
+        *session.mode.lock().unwrap() = VoiceMode::Processing;
+        session.start_ptt().expect("busy press is silent");
+        // Previous session stops with the key still physically held.
+        *session.mode.lock().unwrap() = VoiceMode::PushToTalk;
+        crate::input::hotkey::PTT_KEY_DOWN.store(true, Ordering::Relaxed);
+        session.stop_ptt().expect("stop");
+        assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
+        assert!(session.active_request().is_some());
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+        session.cancel();
+    }
+
+    #[test]
+    fn test_stop_drops_pending_when_key_released() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let (session, _) = create_ordering_session(None, Some(Arc::new(move || Ok(()))), None);
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+        *session.mode.lock().unwrap() = VoiceMode::Processing;
+        session.start_ptt().expect("busy press is silent");
+        *session.mode.lock().unwrap() = VoiceMode::PushToTalk;
+        session.stop_ptt().expect("stop");
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+        assert!(session.active_request().is_none());
+        // No stuck pending: a fresh press starts normally afterwards.
+        session.clear_last_stop_for_test();
+        session.start_ptt().expect("fresh press");
+        assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
+        session.cancel();
+    }
+
+    #[test]
+    fn test_mash_press_gated_but_cue_fires() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+        let cues = Arc::new(AtomicUsize::new(0));
+        let count = Arc::clone(&cues);
+        let (session, _) = create_ordering_session(
+            Some(Arc::new(move || {
+                count.fetch_add(1, Ordering::SeqCst);
+            })),
+            Some(Arc::new(move || Ok(()))),
+            None,
+        );
+        let session = session.into_test_arc();
+        session.start_ptt().expect("first press");
+        assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
+        session.stop_ptt().expect("stop");
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+        let cued = cues.load(Ordering::SeqCst);
+        // Immediate repress is a bounce: the press is acknowledged, but no
+        // engine work starts.
+        session.start_ptt().expect("mash press cues");
+        assert_eq!(
+            cues.load(Ordering::SeqCst),
+            cued + 1,
+            "mash press must still fire the start cue"
+        );
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+        assert!(session.active_request().is_none());
+        // Key released: the rescue waiter must record nothing. Sleep past the
+        // rescue wait so the detached waiter never outlives this session.
+        std::thread::sleep(Duration::from_millis(RESCUE_WAIT_MS + 100));
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn test_mash_rescue_starts_when_key_held_with_preroll() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let session = create_latency_session().into_test_arc();
+        crate::platform::test_injector().clear();
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+        session.start_ptt().expect("first press");
+        session.stop_ptt().expect("stop");
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+        // Mash repress, key held: engine work defers to the rescue waiter.
+        crate::input::hotkey::PTT_KEY_DOWN.store(true, Ordering::Relaxed);
+        session.start_ptt().expect("mash press");
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+        assert!(session.active_request().is_none());
+        // The parked mic keeps pushing while held: pre-press audio arrives
+        // before the rescue wait elapses.
+        const MARKER: f32 = 0.7;
+        session
+            .capture()
+            .buffer()
+            .push_samples(&[MARKER; PREROLL_SAMPLES]);
+        std::thread::sleep(Duration::from_millis(RESCUE_WAIT_MS + 100));
+        assert_eq!(
+            session.current_mode(),
+            VoiceMode::PushToTalk,
+            "held key must rescue the gated press"
+        );
+        session.capture().buffer().push_samples(&[0.5; 3200]);
+        let res = session.stop_ptt().expect("stop rescued");
+        assert!(res.is_some(), "rescued recording must transcribe");
+        let drained = session.last_drained().expect("drained audio recorded");
+        assert!(drained.len() >= PREROLL_SAMPLES + 3200);
+        assert!(
+            drained[..PREROLL_SAMPLES].iter().all(|s| *s == MARKER),
+            "drained audio must begin with the pre-roll tail"
+        );
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn test_press_after_mash_window_starts_instantly() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+        let (session, _) = create_ordering_session(None, Some(Arc::new(move || Ok(()))), None);
+        session.start_ptt().expect("first press");
+        session.stop_ptt().expect("stop");
+        std::thread::sleep(Duration::from_millis(MASH_WINDOW_MS + 50));
+        session.start_ptt().expect("fresh press");
+        assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
+        assert!(session.active_request().is_some());
+        // Cold mic: the buffer was drained at the last stop, so the snapshot
+        // is empty and only newly pushed speech is buffered.
+        session.capture().buffer().push_samples(&[0.5; 3200]);
+        assert_eq!(session.capture().buffer().len(), 3200);
+        session.cancel();
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn test_room_tone_plus_speech_passes_energy_gate() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let session = create_latency_session();
+        crate::platform::test_injector().clear();
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+        session.start_ptt().expect("start");
+        session
+            .capture()
+            .buffer()
+            .push_samples(&[0.002; PREROLL_SAMPLES]);
+        session.capture().buffer().push_samples(&[0.5; 3200]);
+        let res = session.stop_ptt().expect("stop");
+        assert!(
+            res.is_some(),
+            "400 ms of room tone plus speech must transcribe"
+        );
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn test_pure_silence_skips_transcription() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let (session, _) = create_ordering_session(None, Some(Arc::new(move || Ok(()))), None);
+        session.start_ptt().expect("start");
+        session
+            .capture()
+            .buffer()
+            .push_samples(&[0.0; PREROLL_SAMPLES + 3200]);
+        let res = session.stop_ptt().expect("stop");
+        assert!(res.is_none(), "pure silence must skip STT");
+    }
+
+    #[test]
+    fn test_handsfree_mash_gate_and_rescue() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+        crate::input::hotkey::HANDSFREE_KEY_DOWN.store(false, Ordering::Relaxed);
+        let (session, _) = create_ordering_session(None, Some(Arc::new(move || Ok(()))), None);
+        let session = session.into_test_arc();
+        let (mode, _) = session.toggle_handsfree().expect("toggle on");
+        assert_eq!(mode, VoiceMode::HandsFree);
+        let (mode, _) = session.toggle_handsfree().expect("toggle off");
+        assert_eq!(mode, VoiceMode::Idle);
+        // Immediate re-toggle is a bounce: cue fired at entry, engine gated.
+        crate::input::hotkey::HANDSFREE_KEY_DOWN.store(true, Ordering::Relaxed);
+        let (mode, _) = session.toggle_handsfree().expect("mash toggle");
+        assert_eq!(mode, VoiceMode::Idle);
+        std::thread::sleep(Duration::from_millis(RESCUE_WAIT_MS + 100));
+        assert_eq!(
+            session.current_mode(),
+            VoiceMode::HandsFree,
+            "held key must rescue the gated hands-free press"
+        );
+        crate::input::hotkey::HANDSFREE_KEY_DOWN.store(false, Ordering::Relaxed);
+        let (mode, _) = session.toggle_handsfree().expect("toggle off");
+        assert_eq!(mode, VoiceMode::Idle);
+    }
+
+    #[test]
+    fn test_escape_clears_pending_without_autostart() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let (session, _) = create_test_session();
+        crate::input::hotkey::PTT_KEY_DOWN.store(true, Ordering::Relaxed);
+        *session.mode.lock().unwrap() = VoiceMode::Processing;
+        session.start_ptt().expect("busy press is silent");
+        *session.mode.lock().unwrap() = VoiceMode::PushToTalk;
+        session.on_escape_pressed().expect("escape");
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+        assert!(session.active_request().is_none());
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
     }
 
     #[test]
@@ -1583,6 +2307,7 @@ mod tests {
                 count.fetch_add(1, Ordering::SeqCst);
                 Ok(())
             })),
+            None,
         );
         // A prior burst leaves the mic parked in grace on the real capture.
         session.capture().start().expect("prior open");
@@ -1610,6 +2335,7 @@ mod tests {
                 count.fetch_add(1, Ordering::SeqCst);
                 Ok(())
             })),
+            None,
         );
         session.capture().start().expect("prior open");
         session.capture().stop();
