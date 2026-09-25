@@ -1,6 +1,8 @@
 use super::clipboard::prepare_clipboard_for_expansion;
 use super::gate::{InjectionGate, inject_mutex};
-use crate::platform::{ClipboardManager, Injector};
+use crate::platform::ClipboardManager;
+#[cfg(not(target_os = "linux"))]
+use crate::platform::Injector;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Barrier};
 use std::thread;
@@ -953,16 +955,17 @@ fn test_clipboard_sequence_number_retrieval() {
 #[test]
 fn test_prepare_clipboard_micro_polling_fast_turnaround() {
     let mut mock = MockClipboard::new("initial text");
-    let start = std::time::Instant::now();
     let result = prepare_clipboard_for_expansion(&mut mock, "quick payload", 0);
-    let elapsed = start.elapsed();
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), "initial text");
-    assert!(
-        elapsed < Duration::from_millis(5),
-        "fast path clipboard prep should complete in sub-5ms, took {:?}",
-        elapsed
+    // Fast path must resolve on the Tier-1 micro-yield loop with zero sleep
+    // tiers: exactly two reads (initial + first verify). Wall-clock bounds
+    // are scheduling noise under parallel test load, read count is not.
+    assert_eq!(
+        mock.get_count, 2,
+        "fast path must verify on first poll, got {} reads: {:?}",
+        mock.get_count, mock.ops
     );
 }
 
