@@ -1,7 +1,12 @@
 use std::sync::Arc;
 use std::sync::Mutex;
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tracing::{debug, error, info, warn};
+use std::time::{Duration, Instant};
+#[cfg(not(test))]
+use tracing::error;
+use tracing::{debug, info, warn};
 
 /// Maximum buffered samples (5 minutes of 16kHz mono audio = 4,800,000 samples).
 pub const MAX_BUFFER_SAMPLES: usize = 16_000 * 60 * 5;
@@ -247,6 +252,47 @@ pub fn trailing_silence_frames(samples: &[f32]) -> usize {
         let mean_sq = frame.iter().map(|s| s * s).sum::<f32>() / FRAME_SAMPLES as f32;
         if mean_sq.sqrt() < SILENCE_RMS {
             silence_frames += 1;
+        } else {
+            break;
+        }
+    }
+    silence_frames
+}
+
+/// Slices an utterance buffer preserving a pre-roll cushion of leading speech onset.
+///
+/// If an utterance starts with silence (>8 frames = >256ms), we retain exactly 8 frames
+/// (~256ms / 4,096 samples at 16kHz) of lead-in so plosives are never clipped,
+/// while trimming excess dead silence beyond 8 frames.
+pub fn slice_utterance_with_preroll(buffer: &[f32], leading_silence_frames: usize) -> Vec<f32> {
+    const PRE_ROLL_FRAMES: usize = 8;
+    const FRAME_SAMPLES: usize = 512;
+    let excess_samples = leading_silence_frames.saturating_sub(PRE_ROLL_FRAMES) * FRAME_SAMPLES;
+    if excess_samples > 0 && buffer.len() > excess_samples {
+        buffer[excess_samples..].to_vec()
+    } else {
+        buffer.to_vec()
+    }
+}
+
+/// Counts leading 512-sample frames whose RMS energy falls below speech level.
+///
+/// Used by the transcribe path to measure leading dead air before applying
+/// [`slice_utterance_with_preroll`].
+pub fn leading_silence_frames(samples: &[f32]) -> usize {
+    const FRAME_SAMPLES: usize = 512;
+    const SILENCE_RMS: f32 = 1e-3;
+    if samples.is_empty() {
+        return 0;
+    }
+    let mut silence_frames = 0;
+    let mut idx = 0;
+    while idx + FRAME_SAMPLES <= samples.len() {
+        let frame = &samples[idx..idx + FRAME_SAMPLES];
+        let mean_sq = frame.iter().map(|s| s * s).sum::<f32>() / FRAME_SAMPLES as f32;
+        if mean_sq.sqrt() < SILENCE_RMS {
+            silence_frames += 1;
+            idx += FRAME_SAMPLES;
         } else {
             break;
         }
@@ -618,12 +664,58 @@ pub fn query_default_communications_device_name() -> Option<String> {
     None
 }
 
+/// Grace rungs for the held microphone, mirroring the model hold ladder
+/// (same 15/30/60/120s values — one ladder, not two).
+const MIC_HOLD_RUNGS_SECS: [u64; 4] = [15, 30, 60, 120];
+
+fn mic_base_hold() -> Duration {
+    Duration::from_secs(MIC_HOLD_RUNGS_SECS[0])
+}
+
+fn mic_next_rung(hold: Duration) -> Duration {
+    match MIC_HOLD_RUNGS_SECS
+        .iter()
+        .position(|r| *r == hold.as_secs())
+    {
+        Some(i) => {
+            Duration::from_secs(MIC_HOLD_RUNGS_SECS[(i + 1).min(MIC_HOLD_RUNGS_SECS.len() - 1)])
+        }
+        None => mic_base_hold(),
+    }
+}
+
+/// Open-stream identity snapshot: what the live mic records from.
+struct LiveMic {
+    identity: String,
+    configured: Option<String>,
+}
+
+/// Parked stream waiting out its silence deadline after stop.
+struct HeldMic {
+    identity: String,
+    configured: Option<String>,
+    deadline: Instant,
+    hold: Duration,
+}
+
 /// Dynamic microphone capture engine with automatic device reconnection.
+///
+/// Stop parks the open stream for a short grace instead of tearing it down,
+/// so the next press reuses it with no device reopen. Guards (disconnect
+/// flag, silence deadline, configured/effective identity match) make a stale
+/// mic impossible; the model eviction path also closes the hold, so the mic
+/// is never held longer than the model is warm.
 pub struct AudioCapture {
     buffer: Arc<AudioFrameBuffer>,
     is_running: Arc<AtomicBool>,
     device_disconnected: Arc<AtomicBool>,
     _stream: Mutex<Option<cpal::Stream>>,
+    live: Mutex<Option<LiveMic>>,
+    held: Mutex<Option<HeldMic>>,
+    #[cfg(test)]
+    open_count: AtomicUsize,
+    #[cfg(test)]
+    test_default: Mutex<Option<String>>,
 }
 
 // SAFETY: `_stream` is protected behind a `Mutex` and cpal audio stream handles can safely be
@@ -642,6 +734,12 @@ impl AudioCapture {
             is_running: Arc::new(AtomicBool::new(false)),
             device_disconnected: Arc::new(AtomicBool::new(false)),
             _stream: Mutex::new(None),
+            live: Mutex::new(None),
+            held: Mutex::new(None),
+            #[cfg(test)]
+            open_count: AtomicUsize::new(0),
+            #[cfg(test)]
+            test_default: Mutex::new(None),
         }
     }
 
@@ -660,9 +758,189 @@ impl AudioCapture {
         self.is_running.store(running, Ordering::Relaxed);
     }
 
+    #[cfg(test)]
+    pub fn open_count_for_test(&self) -> usize {
+        self.open_count.load(Ordering::SeqCst)
+    }
+
+    #[cfg(test)]
+    pub fn held_open_for_test(&self) -> bool {
+        self.held
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .is_some()
+    }
+
+    #[cfg(test)]
+    pub fn held_secs_for_test(&self) -> Option<u64> {
+        self.held
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .map(|h| h.hold.as_secs())
+    }
+
+    #[cfg(test)]
+    pub fn set_test_default_identity(&self, id: &str) {
+        *self.test_default.lock().unwrap_or_else(|p| p.into_inner()) = Some(id.to_string());
+    }
+
+    #[cfg(test)]
+    pub fn simulate_disconnect_for_test(&self) {
+        self.device_disconnected.store(true, Ordering::SeqCst);
+    }
+
+    #[cfg(test)]
+    pub fn backdate_held_deadline_for_test(&self, ago: Duration) {
+        if let Some(ref mut h) = *self.held.lock().unwrap_or_else(|p| p.into_inner()) {
+            h.deadline = Instant::now() - ago;
+        }
+    }
+
     /// Check if the capture device reported disconnection.
     pub fn is_device_disconnected(&self) -> bool {
         self.device_disconnected.load(Ordering::Relaxed)
+    }
+
+    /// Snapshot the current mic identity: cached configured device plus the
+    /// effective device a fresh open would record from.
+    fn current_mic_identity(&self) -> (Option<String>, String) {
+        let configured = taurine_core::settings::get_cached_voice_input_device();
+        let effective = configured
+            .clone()
+            .unwrap_or_else(|| self.current_default_identity());
+        (configured, effective)
+    }
+
+    /// Cheap OS default-device identity query: no enumeration, no stream.
+    fn current_default_identity(&self) -> String {
+        #[cfg(test)]
+        {
+            if let Some(stub) = self
+                .test_default
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone()
+            {
+                return stub;
+            }
+            "test-default-mic".to_string()
+        }
+        #[cfg(not(test))]
+        {
+            if let Some(name) = query_default_communications_device_name() {
+                return name;
+            }
+            use cpal::traits::{DeviceTrait, HostTrait};
+            cpal::default_host()
+                .default_input_device()
+                .and_then(|d| d.name().ok())
+                .unwrap_or_default()
+        }
+    }
+
+    /// Reuse the held stream when it is fresh and still current.
+    ///
+    /// Guards, in order: live recording, OS disconnect flag, silence
+    /// deadline, configured device match, effective identity match. A stale
+    /// or mismatched hold is reaped (stream closed, rung reset to base) so
+    /// the caller opens clean. Never touches hardware beyond one cheap
+    /// default-device identity query.
+    pub fn try_reuse_held_stream(&self) -> bool {
+        if self.is_running() || self.is_device_disconnected() {
+            return false;
+        }
+        let (configured, identity) = self.current_mic_identity();
+        let held = self.held.lock().unwrap_or_else(|p| p.into_inner());
+        match &*held {
+            Some(h)
+                if Instant::now() <= h.deadline
+                    && h.configured == configured
+                    && h.identity == identity =>
+            {
+                let live = LiveMic {
+                    identity: h.identity.clone(),
+                    configured: h.configured.clone(),
+                };
+                drop(held);
+                *self.live.lock().unwrap_or_else(|p| p.into_inner()) = Some(live);
+                self.is_running.store(true, Ordering::SeqCst);
+                debug!("Audio capture resumed on held microphone stream");
+                true
+            }
+            Some(_) => {
+                drop(held);
+                self.reap_held_and_stream();
+                false
+            }
+            None => false,
+        }
+    }
+
+    /// Drop the parked stream and any live handle, resetting the rung to base.
+    fn reap_held_and_stream(&self) {
+        drop(
+            self._stream
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .take(),
+        );
+        *self.live.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        *self.held.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    }
+
+    /// Force-close any live or held stream and reset all mic state.
+    fn force_close(&self) {
+        self.reap_held_and_stream();
+        self.is_running.store(false, Ordering::SeqCst);
+        self.device_disconnected.store(false, Ordering::SeqCst);
+        debug!("Audio capture closed");
+    }
+
+    /// Close the held stream now (device change, model eviction).
+    /// Never touches a live recording: idle-only callers.
+    pub fn close_held_now(&self) {
+        if self.is_running() {
+            return;
+        }
+        self.reap_held_and_stream();
+        debug!("Audio capture held stream released");
+    }
+
+    /// Explicit invalidation entry for a configured-device change.
+    pub fn invalidate_held_stream(&self) {
+        self.close_held_now();
+    }
+
+    /// Eager settings-apply hook: drop the held mic when the configured
+    /// device changed. Call after updating the cached device with the value
+    /// it held before the update; compares that against the live cached
+    /// value and releases any parked stream at once, with no press needed.
+    /// True on change. Never touches a live recording.
+    pub fn invalidate_held_on_device_change(&self, prev: Option<String>) -> bool {
+        if prev != taurine_core::settings::get_cached_voice_input_device() {
+            self.invalidate_held_stream();
+            return true;
+        }
+        false
+    }
+
+    /// Close the held stream once its silence deadline passes. Cheap and
+    /// recording-safe; suitable for every housekeeping tick.
+    pub fn reclaim_expired_held(&self) {
+        if self.is_running() {
+            return;
+        }
+        let expired = self
+            .held
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .is_some_and(|h| Instant::now() > h.deadline);
+        if expired {
+            self.reap_held_and_stream();
+            debug!("Audio capture held stream expired on silence");
+        }
     }
 
     /// Enumerate all unique audio input device names currently available on the system.
@@ -736,9 +1014,10 @@ impl AudioCapture {
     }
 
     /// Restart the audio stream if it is currently running (e.g. after changing input device).
+    /// Always reopens clean: any held stream is discarded first, never reused.
     pub fn restart(&self) -> Result<(), String> {
         let was_running = self.is_running();
-        self.stop();
+        self.force_close();
         if was_running {
             self.start()?;
         }
@@ -746,18 +1025,42 @@ impl AudioCapture {
     }
 
     /// Start capturing audio from the configured or default input device.
+    ///
+    /// A fresh held stream is reused with no reopen; otherwise the device is
+    /// resolved and opened. A tripped disconnect flag forces a clean reopen.
     pub fn start(&self) -> Result<(), String> {
-        // Hermetic tests never open the host microphone.
-        if cfg!(test) {
-            self.is_running.store(true, Ordering::SeqCst);
+        if self.is_running() {
             return Ok(());
         }
+        if self.is_device_disconnected() {
+            self.force_close();
+        } else if self.try_reuse_held_stream() {
+            return Ok(());
+        }
+        self.open_new_stream()
+    }
+
+    /// Hermetic test open: count the open, snapshot identity, never hardware.
+    #[cfg(test)]
+    fn open_new_stream(&self) -> Result<(), String> {
+        self.open_count.fetch_add(1, Ordering::SeqCst);
+        let (configured, identity) = self.current_mic_identity();
+        *self.live.lock().unwrap_or_else(|p| p.into_inner()) = Some(LiveMic {
+            identity,
+            configured,
+        });
+        self.is_running.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+
+    /// Open a new device stream (production; tests use the stub above).
+    #[cfg(not(test))]
+    fn open_new_stream(&self) -> Result<(), String> {
         use cpal::traits::{DeviceTrait, StreamTrait};
 
         let mut stream_guard = self._stream.lock().unwrap_or_else(|p| p.into_inner());
-        if stream_guard.is_some() || self.is_running() {
-            return Ok(());
-        }
+        // A leftover stream with no hold is stale by definition; drop it and open clean.
+        drop(stream_guard.take());
 
         let host = cpal::default_host();
         let device = Self::resolve_input_device(&host)?;
@@ -842,6 +1145,11 @@ impl AudioCapture {
             .map_err(|e| format!("Failed to start audio input stream: {e}"))?;
 
         *stream_guard = Some(stream);
+        let (configured, identity) = self.current_mic_identity();
+        *self.live.lock().unwrap_or_else(|p| p.into_inner()) = Some(LiveMic {
+            identity,
+            configured,
+        });
         self.is_running.store(true, Ordering::SeqCst);
         self.device_disconnected.store(false, Ordering::SeqCst);
         info!("Audio capture started at {sample_rate}Hz ({channels} ch) -> 16kHz mono");
@@ -856,7 +1164,7 @@ impl AudioCapture {
         }
 
         info!("Attempting automatic audio input device recovery...");
-        self.stop();
+        self.force_close();
 
         match self.start() {
             Ok(()) => {
@@ -870,24 +1178,38 @@ impl AudioCapture {
         }
     }
 
-    /// Stop capturing audio.
+    /// Stop capturing audio, parking the stream for the grace window.
+    ///
+    /// The device stays open until the silence deadline (15s base, stepping
+    /// 30/60/120s while bursts land inside the window, mirroring the model
+    /// hold ladder), so the next press reuses it with no reopen. Silence past
+    /// the deadline, a disconnect, or a device change reaps the hold; the
+    /// model eviction path also closes it, so the mic is never held longer
+    /// than the model is warm. Never touches hardware.
     pub fn stop(&self) {
-        if let Some(stream) = self
-            ._stream
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .take()
-        {
-            drop(stream);
-        }
         self.is_running.store(false, Ordering::SeqCst);
-        debug!("Audio capture stopped");
+        let live = self.live.lock().unwrap_or_else(|p| p.into_inner()).take();
+        let Some(live) = live else { return };
+        let now = Instant::now();
+        let mut held = self.held.lock().unwrap_or_else(|p| p.into_inner());
+        let rung = match &*held {
+            Some(h) if now <= h.deadline => mic_next_rung(h.hold),
+            _ => mic_base_hold(),
+        };
+        let secs = rung.as_secs();
+        *held = Some(HeldMic {
+            identity: live.identity,
+            configured: live.configured,
+            deadline: now + rung,
+            hold: rung,
+        });
+        debug!("Audio capture parked; held microphone for {secs}s of silence");
     }
 }
 
 impl Drop for AudioCapture {
     fn drop(&mut self) {
-        self.stop();
+        self.force_close();
     }
 }
 
@@ -1065,6 +1387,44 @@ mod tests {
     }
 
     #[test]
+    fn test_leading_silence_frames_counts_quiet_head() {
+        let mut samples = vec![0.0f32; 512 * 12];
+        samples.extend(vec![0.5f32; 5120]);
+        assert_eq!(leading_silence_frames(&samples), 12);
+
+        let speech_only = vec![0.5f32; 5120];
+        assert_eq!(leading_silence_frames(&speech_only), 0);
+        assert_eq!(leading_silence_frames(&[]), 0);
+    }
+
+    #[test]
+    fn test_slice_utterance_with_preroll_preserves_cushion() {
+        // 14 frames of silence + speech (10 frames)
+        let speech_len = 5120;
+        let silence_frames = 14;
+        let mut buffer = vec![0.0f32; silence_frames * 512];
+        buffer.extend(vec![0.5f32; speech_len]);
+
+        let leading = leading_silence_frames(&buffer);
+        assert_eq!(leading, silence_frames);
+        let sliced = slice_utterance_with_preroll(&buffer, leading);
+        // Pre-roll cushion preserves exactly 8 frames (4096 samples) of lead-in,
+        // trimming the excess 6 frames of dead air.
+        assert_eq!(sliced.len(), speech_len + (8 * 512));
+
+        // Leading silence <= 8 frames: no trimming (entire cushion preserved).
+        let mut short_buffer = vec![0.0f32; 5 * 512];
+        short_buffer.extend(vec![0.5f32; speech_len]);
+        let short_sliced = slice_utterance_with_preroll(&short_buffer, 5);
+        assert_eq!(short_sliced.len(), short_buffer.len());
+
+        // All-speech passes through untouched.
+        let speech_only = vec![0.5f32; speech_len];
+        let passthrough = slice_utterance_with_preroll(&speech_only, 0);
+        assert_eq!(passthrough, speech_only);
+    }
+
+    #[test]
     fn test_trailing_silence_frames_counts_quiet_tail() {
         let mut samples = vec![0.5f32; 5120];
         samples.extend(vec![0.0f32; 512 * 10]);
@@ -1151,5 +1511,178 @@ mod tests {
         let ratio = corr_4k.abs() / corr_1k.abs();
         // With rubato anti-aliasing filter, the 12kHz tone aliasing into 4kHz is suppressed below 5% of 1kHz signal.
         assert!(ratio < 0.05, "alias ratio was {ratio}");
+    }
+
+    fn mic_test_capture() -> AudioCapture {
+        AudioCapture::new(Arc::new(AudioFrameBuffer::new()))
+    }
+
+    /// Serialize on the global-settings lock and pin the input device to the
+    /// OS default; the caller restores the previous value at the end.
+    fn lock_pinned_input_for_test() -> (std::sync::MutexGuard<'static, ()>, Option<String>) {
+        let lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let prev = taurine_core::settings::get_cached_voice_input_device();
+        taurine_core::settings::set_cached_voice_input_device(None);
+        (lock, prev)
+    }
+
+    #[test]
+    fn test_mic_reuse_inside_grace_skips_reopen() {
+        let (_lock, prev) = lock_pinned_input_for_test();
+        let cap = mic_test_capture();
+        cap.start().expect("open");
+        assert_eq!(cap.open_count_for_test(), 1);
+        cap.stop();
+        assert!(
+            cap.held_open_for_test(),
+            "stop must park the mic, not close it"
+        );
+        cap.start().expect("reuse");
+        assert_eq!(
+            cap.open_count_for_test(),
+            1,
+            "press inside the grace window must not reopen the device"
+        );
+        assert!(cap.is_running());
+        taurine_core::settings::set_cached_voice_input_device(prev);
+    }
+
+    #[test]
+    fn test_mic_silence_past_grace_closes_stream() {
+        let (_lock, prev) = lock_pinned_input_for_test();
+        let cap = mic_test_capture();
+        cap.start().expect("open");
+        cap.stop();
+        cap.backdate_held_deadline_for_test(Duration::from_secs(30));
+        cap.reclaim_expired_held();
+        assert!(
+            !cap.held_open_for_test(),
+            "silence past the grace window must close the held mic"
+        );
+        cap.start().expect("reopen");
+        assert_eq!(cap.open_count_for_test(), 2);
+        taurine_core::settings::set_cached_voice_input_device(prev);
+    }
+
+    #[test]
+    fn test_mic_disconnect_mid_hold_forces_reopen() {
+        let (_lock, prev) = lock_pinned_input_for_test();
+        let cap = mic_test_capture();
+        cap.start().expect("open");
+        cap.stop();
+        cap.simulate_disconnect_for_test();
+        cap.start().expect("reopen");
+        assert_eq!(
+            cap.open_count_for_test(),
+            2,
+            "OS disconnect mid-hold must force a clean reopen"
+        );
+        assert!(!cap.is_device_disconnected());
+        taurine_core::settings::set_cached_voice_input_device(prev);
+    }
+
+    #[test]
+    fn test_mic_config_change_invalidates_held_stream() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let prev = taurine_core::settings::get_cached_voice_input_device();
+        taurine_core::settings::set_cached_voice_input_device(None);
+        let cap = mic_test_capture();
+        cap.start().expect("open");
+        cap.stop();
+        taurine_core::settings::set_cached_voice_input_device(Some("External Mic".to_string()));
+        cap.start().expect("reopen");
+        assert_eq!(
+            cap.open_count_for_test(),
+            2,
+            "configured-device change must invalidate the hold even inside the window"
+        );
+        cap.stop();
+        cap.invalidate_held_stream();
+        assert!(
+            !cap.held_open_for_test(),
+            "explicit invalidation must release the held stream at once"
+        );
+        taurine_core::settings::set_cached_voice_input_device(prev);
+    }
+
+    #[test]
+    fn test_mic_os_default_change_reopens() {
+        let (_lock, prev) = lock_pinned_input_for_test();
+        let cap = mic_test_capture();
+        cap.set_test_default_identity("mic-a");
+        cap.start().expect("open");
+        cap.stop();
+        cap.set_test_default_identity("mic-b");
+        cap.start().expect("reopen");
+        assert_eq!(
+            cap.open_count_for_test(),
+            2,
+            "OS default-device change must reopen, never record from the stale mic"
+        );
+        taurine_core::settings::set_cached_voice_input_device(prev);
+    }
+
+    #[test]
+    fn test_mic_grace_mirrors_model_ladder() {
+        let (_lock, prev) = lock_pinned_input_for_test();
+        let cap = mic_test_capture();
+        cap.start().expect("open");
+        cap.stop();
+        assert_eq!(cap.held_secs_for_test(), Some(15));
+        cap.start().expect("reuse");
+        cap.stop();
+        assert_eq!(cap.held_secs_for_test(), Some(30));
+        cap.start().expect("reuse");
+        cap.stop();
+        assert_eq!(cap.held_secs_for_test(), Some(60));
+        cap.backdate_held_deadline_for_test(Duration::from_secs(61));
+        cap.reclaim_expired_held();
+        assert_eq!(cap.held_secs_for_test(), None);
+        cap.start().expect("reopen");
+        cap.stop();
+        assert_eq!(
+            cap.held_secs_for_test(),
+            Some(15),
+            "silence past the rung must reset to base"
+        );
+        taurine_core::settings::set_cached_voice_input_device(prev);
+    }
+
+    #[test]
+    fn test_mic_settings_apply_eagerly_drops_held_stream() {
+        let (_lock, prev) = lock_pinned_input_for_test();
+        let cap = mic_test_capture();
+        cap.start().expect("open");
+        cap.stop();
+        assert!(
+            cap.held_open_for_test(),
+            "precondition: stop must park the mic"
+        );
+        // Simulate settings-apply: the cached device now differs from the
+        // value parked against, with no press in between.
+        taurine_core::settings::set_cached_voice_input_device(Some("External Mic".to_string()));
+        assert!(
+            cap.invalidate_held_on_device_change(None),
+            "device change must be reported"
+        );
+        assert!(
+            !cap.held_open_for_test(),
+            "eager: settings-apply must drop the held mic with no further press"
+        );
+        // Same-value apply (e.g. reload for an unrelated setting) keeps the hold.
+        cap.start().expect("reopen");
+        cap.stop();
+        assert!(cap.held_open_for_test());
+        let current = taurine_core::settings::get_cached_voice_input_device();
+        assert!(!cap.invalidate_held_on_device_change(current));
+        assert!(
+            cap.held_open_for_test(),
+            "same-device apply must keep the hold"
+        );
+        taurine_core::settings::set_cached_voice_input_device(prev);
     }
 }

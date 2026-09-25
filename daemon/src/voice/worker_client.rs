@@ -70,6 +70,7 @@ struct Inner {
     child: Option<Child>,
     stream: Option<DynStream>,
     model: String,
+    token: String,
 }
 
 fn default_spawner(pipe: &str, token: &str) -> io::Result<Child> {
@@ -265,10 +266,63 @@ impl WorkerClient {
                 child: None,
                 stream: None,
                 model: String::new(),
+                token: String::new(),
             })),
             spawner,
             connector,
         })
+    }
+
+    /// Pre-spawn a model-free worker: spawn plus handshake only, no model load.
+    ///
+    /// Idempotent and silent: a live connection is reused, failures degrade
+    /// to the lazy first-press path. The worker lives for the daemon
+    /// lifetime; the first real `ensure_worker` binds it without respawning.
+    pub fn warm_up(&self) {
+        let mut inner = lock_client(&self.inner);
+        if inner.stream.is_some() {
+            return;
+        }
+        if inner.child.is_some() {
+            self.drop_locked(&mut inner);
+        }
+        match self.spawn_and_connect("") {
+            Ok((child, stream, token)) => {
+                inner.child = Some(child);
+                inner.stream = Some(stream);
+                inner.model.clear();
+                inner.token = token;
+                debug!("voice worker warmed without model");
+            }
+            Err(e) => debug!("voice worker warm-up failed, lazy fallback: {e}"),
+        }
+    }
+
+    /// Spawn the process and complete the pipe handshake for `model`.
+    fn spawn_and_connect(&self, model: &str) -> Result<(Child, DynStream, String), String> {
+        let (pipe, token) = pipe_identity();
+        let mut child =
+            (self.spawner)(&pipe, &token).map_err(|e| format!("voice worker spawn failed: {e}"))?;
+        let version = env!("CARGO_PKG_VERSION").to_string();
+        let connector = Arc::clone(&self.connector);
+        let model = model.to_string();
+        let stream = block_on_client(&self.rt, async {
+            let mut last = String::new();
+            for wait_ms in [50, 200, 800] {
+                match connector(pipe.clone(), model.clone(), version.clone(), token.clone()).await {
+                    Ok(s) => return Ok(s),
+                    Err(e) => {
+                        last = e;
+                        tokio::time::sleep(Duration::from_millis(wait_ms)).await;
+                    }
+                }
+            }
+            Err(last)
+        })
+        .inspect_err(|_| {
+            let _ = child.kill();
+        })?;
+        Ok((child, stream, token))
     }
 
     /// Ensure a healthy worker serving `model`, spawning or switching as needed.
@@ -295,37 +349,41 @@ impl WorkerClient {
                 Err(_) => self.drop_locked(&mut inner),
             }
         }
+        if inner.stream.is_some() && inner.model.is_empty() {
+            // Warmed but unbound: bind the model over the live pipe.
+            let token = inner.token.clone();
+            let mut hello = Header::op(proto::OP_HELLO);
+            hello.version = Some(env!("CARGO_PKG_VERSION").to_string());
+            hello.model = Some(model.to_string());
+            hello.token = Some(token);
+            let bound = match inner.stream.as_mut() {
+                Some(stream) => block_on_client(
+                    &self.rt,
+                    transact(stream, hello, &[], Duration::from_secs(5)),
+                ),
+                None => Err("voice worker is not running".to_string()),
+            };
+            match bound {
+                Ok((resp, _)) if resp.op == proto::OP_READY => {
+                    inner.model = model.to_string();
+                    return Ok(());
+                }
+                Ok((resp, _)) => {
+                    let detail = resp.message.unwrap_or_else(|| resp.op.clone());
+                    self.drop_locked(&mut inner);
+                    return Err(format!("voice worker handshake failed: {detail}"));
+                }
+                Err(_) => self.drop_locked(&mut inner),
+            }
+        }
         if inner.stream.is_some() || inner.child.is_some() {
             self.drop_locked(&mut inner);
         }
-        let (pipe, token) = pipe_identity();
-        let child =
-            (self.spawner)(&pipe, &token).map_err(|e| format!("voice worker spawn failed: {e}"))?;
-        let version = env!("CARGO_PKG_VERSION").to_string();
-        let connector = Arc::clone(&self.connector);
-        let stream = block_on_client(&self.rt, async {
-            let mut last = String::new();
-            for wait_ms in [50, 200, 800] {
-                match connector(
-                    pipe.clone(),
-                    model.to_string(),
-                    version.clone(),
-                    token.clone(),
-                )
-                .await
-                {
-                    Ok(s) => return Ok(s),
-                    Err(e) => {
-                        last = e;
-                        tokio::time::sleep(Duration::from_millis(wait_ms)).await;
-                    }
-                }
-            }
-            Err(last)
-        })?;
+        let (child, stream, token) = self.spawn_and_connect(model)?;
         inner.child = Some(child);
         inner.stream = Some(stream);
         inner.model = model.to_string();
+        inner.token = token;
         Ok(())
     }
 
@@ -413,6 +471,7 @@ impl WorkerClient {
     fn drop_locked(&self, inner: &mut Inner) {
         inner.stream = None;
         inner.model.clear();
+        inner.token.clear();
         if let Some(mut child) = inner.child.take() {
             let _ = child.kill();
         }
@@ -658,6 +717,114 @@ mod tests {
                     return;
                 }
             }
+        }
+    }
+
+    #[test]
+    fn test_warm_up_then_ensure_spawns_once() {
+        let spawns = Arc::new(AtomicUsize::new(0));
+        let client = stub_client(Arc::clone(&spawns), "warm hello");
+        client.warm_up();
+        client.warm_up();
+        client
+            .ensure_worker("parakeet-tdt-ctc-110m")
+            .expect("ensure after warm");
+        assert_eq!(spawns.load(Ordering::SeqCst), 1);
+        client
+            .ensure_worker("parakeet-tdt-ctc-110m")
+            .expect("ping reuse");
+        assert_eq!(spawns.load(Ordering::SeqCst), 1);
+    }
+
+    /// True while pid is still a live process. Unix waitpid with WNOHANG
+    /// reaps a killed zombie (nonzero return) and reports 0 only when the
+    /// child is still running, so an orphan reads alive and a kill reads dead.
+    #[cfg(unix)]
+    fn child_is_alive(pid: u32) -> bool {
+        let mut status = 0;
+        // SAFETY: waitpid targets only our own spawned child pid; WNOHANG
+        // never blocks and reaps at most that pid, never an unrelated child.
+        let r = unsafe { libc::waitpid(pid as libc::pid_t, &mut status, libc::WNOHANG) };
+        r == 0
+    }
+
+    /// True while pid is still a live process. tasklist probes the live
+    /// process table, so a killed child reads dead once termination lands;
+    /// the bounded poll absorbs TerminateProcess lag without flaking green.
+    #[cfg(windows)]
+    fn child_is_alive(pid: u32) -> bool {
+        for _ in 0..20 {
+            let out = Command::new("tasklist")
+                .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+                .output();
+            match out {
+                Ok(o) => {
+                    if !String::from_utf8_lossy(&o.stdout).contains(&format!("\"{pid}\"")) {
+                        return false;
+                    }
+                }
+                Err(_) => return false,
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        true
+    }
+
+    // Live process-spawn test: spawns real long-lived sleepers plus
+    // tasklist/waitpid pid polling and sleeps, so it never runs by default.
+    // Opt in on a throwaway machine with
+    // TAURINE_ALLOW_HOST_INPUT=1 cargo test -p taurine_daemon -- --ignored.
+    #[test]
+    #[ignore]
+    fn test_handshake_failure_kills_spawned_child() {
+        if !crate::platform::host_tests_allowed() {
+            return;
+        }
+        // Orphan regression: a connector/handshake failure after a successful
+        // spawn must kill the child. Both warm_up (silent) and ensure_worker
+        // (loud) share spawn_and_connect, so both paths are covered here with
+        // a long-lived sleeper whose recorded pid must read dead afterwards.
+        let spawns = Arc::new(AtomicUsize::new(0));
+        let pids = Arc::new(Mutex::new(Vec::<u32>::new()));
+        let spawner: SpawnFn = Arc::new({
+            let spawns = Arc::clone(&spawns);
+            let pids = Arc::clone(&pids);
+            move |_, _| {
+                spawns.fetch_add(1, Ordering::SeqCst);
+                #[cfg(all(unix, not(target_os = "android")))]
+                let child = Command::new("sleep").arg("30").spawn()?;
+                #[cfg(target_os = "windows")]
+                let child = {
+                    use std::os::windows::process::CommandExt;
+                    let mut cmd = Command::new("ping");
+                    cmd.arg("-n").arg("30").arg("127.0.0.1");
+                    cmd.stdin(Stdio::null())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null());
+                    cmd.creation_flags(0x0800_0000);
+                    cmd.spawn()?
+                };
+                #[cfg(target_os = "android")]
+                let child = Command::new("sleep").arg("30").spawn()?;
+                pids.lock().unwrap().push(child.id());
+                Ok(child)
+            }
+        });
+        let failing: ConnectFn = Arc::new(|_, _, _, _| {
+            Box::pin(async move { Err("stub handshake failed".to_string()) })
+                as Pin<Box<dyn Future<Output = Result<DynStream, String>> + Send>>
+        });
+        let client = WorkerClient::with_hooks(spawner, failing).expect("test client");
+        client.warm_up();
+        assert!(client.ensure_worker("parakeet-tdt-ctc-110m").is_err());
+        assert_eq!(spawns.load(Ordering::SeqCst), 2);
+        let pids = pids.lock().unwrap().clone();
+        assert_eq!(pids.len(), 2);
+        for pid in pids {
+            assert!(
+                !child_is_alive(pid),
+                "handshake failure orphaned worker pid {pid}"
+            );
         }
     }
 

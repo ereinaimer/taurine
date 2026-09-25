@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **English-Only Local Dictation**: Everyday dictation now uses an automatic two-tier English engine (best quality on capable machines, light and fast on constrained ones) with no model picker needed.
-- **Faster First Response, Lower Idle Memory**: Voice models load the moment you press the key and unload ~10 seconds after you stop, keeping idle usage a fraction of before.
+- **Faster First Response, Lower Idle Memory**: Voice models load the moment you press the key and release memory when idle, keeping idle usage a fraction of before.
 - **Isolated Voice Engine**: Speech recognition now runs in a separate background process that stays loaded while you dictate and unloads afterwards, so voice issues can never interrupt text expansion.
 - **Voice Audio Feedback**: Play the copy sound when voice dictation starts and the paste sound the moment you stop dictation via hotkey, per audio theme.
 - **Warm Voice Model Caching**: Keep speech recognition models warm in memory with an automatic inactivity timeout for near-instant dictation responses.
@@ -41,8 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Local-Only Daemon Control**: Removed the TCP transport settings (`rpc_mode`, `rpc_host`, `rpc_port`) and the RPC auth token. The daemon is now controlled over the local socket (Unix) or a same-user named pipe (Windows) only.
 
 ### Fixed
+- **Instant Voice Dictation**: Push-to-talk answers instantly, repeat dictation stays warm across bursts, and the microphone and start cue respond without reopen delays.
 - **Piped Output Crash**: Piping CLI output to a command that exits early no longer crashes or logs a panic.
-- **Zero Idle Voice Memory**: Voice models now unload completely ~10 seconds after dictation ends, returning idle memory to baseline.
+- **Zero Idle Voice Memory**: Voice models now stay warm across repeat dictation and unload completely when idle, returning idle memory to baseline.
 - **Voice Recognition Accuracy**: Eliminate microphone aliasing, word-ending cutoffs, and audio distortion using anti-aliasing resampling, voice activity hysteresis, and communications mode echo cancellation.
 - **Voice Trigger Reliability**: Always-listening voice triggers now fire on near-miss dictation and quiet speech, with longer pauses tolerated between words.
 - **No Console Flash on Script Expansion**: Background script snippets evaluate without opening a terminal window or stealing focus.

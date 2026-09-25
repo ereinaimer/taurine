@@ -67,7 +67,13 @@ impl TraySettings {
     }
 
     pub fn set_voice_input_device(device: Option<&str>) -> Result<()> {
+        let prev = taurine_core::settings::get_cached_voice_input_device();
         apply_setting_input("voice_input_device", device)?;
+        // Same-process settings-apply: drop any parked mic at once so the
+        // next press records from the new device, never the stale hold.
+        if let Some(session) = crate::VOICE_SESSION.get() {
+            session.capture().invalidate_held_on_device_change(prev);
+        }
         Ok(())
     }
 }

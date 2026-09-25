@@ -159,6 +159,10 @@ pub fn start() -> taurine_core::error::Result<()> {
     taurine_core::settings::set_cached_voice_handsfree_hotkey(
         settings.voice_handsfree_hotkey.clone(),
     );
+    crate::input::hotkey::refresh_cached_voice_specs(
+        &settings.voice_ptt_hotkey,
+        &settings.voice_handsfree_hotkey,
+    );
     taurine_core::settings::set_cached_voice_dictionary(settings.voice_dictionary.clone());
     taurine_core::settings::set_cached_voice_input_device(settings.voice_input_device.clone());
 
@@ -242,8 +246,21 @@ pub fn start() -> taurine_core::error::Result<()> {
 
         // On-demand voice engine: the microphone stream stays closed and no
         // model is loaded until the user starts a Push-to-Talk or Hands-Free
-        // session. The single configured model evicts 10s after speech ends.
+        // session. The single configured model follows the burst hold ladder
+        // after speech ends (15s base, up to 120s across repeat bursts), then
+        // unloads. The model-free worker process itself is pre-spawned below
+        // and lives for the daemon lifetime.
+        let warm = Arc::clone(&session);
         let _ = VOICE_SESSION.set(session);
+        std::thread::Builder::new()
+            .name("tau-voice-warm".to_string())
+            .spawn(move || {
+                let _ = crate::platform::panic::catch_worker_panic(
+                    "tau-voice-warm",
+                    std::panic::AssertUnwindSafe(move || warm.warm_worker()),
+                );
+            })
+            .ok();
     }
 
     let (audio_tx, audio_rx) = services::audio::create_channel();
@@ -427,7 +444,7 @@ pub fn start() -> taurine_core::error::Result<()> {
 
         let shutdown_requested = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
 
-        // Periodic maintenance task for quality voice model TTL cleanup (10s inactivity)
+        // Periodic maintenance task for voice model hold-ladder expiry (swept every 5s)
         let shutdown_for_voice = shutdown_requested.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));

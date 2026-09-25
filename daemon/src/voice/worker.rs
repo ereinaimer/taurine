@@ -17,25 +17,60 @@ use taurine_core::error::{Error, Result};
 use taurine_core::voice::{Transcriber, is_model_downloaded};
 
 use super::capture::{
-    MAX_BUFFER_SAMPLES, normalize_snippet_rms, slice_utterance_with_postroll,
-    trailing_silence_frames,
+    MAX_BUFFER_SAMPLES, leading_silence_frames, normalize_snippet_rms,
+    slice_utterance_with_postroll, slice_utterance_with_preroll, trailing_silence_frames,
 };
 use super::factory::create_transcriber;
 use super::session::{MIN_SAMPLES_COUNT, MIN_SPEECH_RMS_ENERGY};
 use super::worker_protocol as proto;
 use super::worker_protocol::Header;
 
-/// Inactivity delay before the model is dropped inside the worker.
-const MODEL_TTL: Duration = Duration::from_secs(10);
-/// Silence on the pipe before the worker reaps itself for full OS reclaim.
-const IDLE_EXIT: Duration = Duration::from_secs(60);
-/// Read quantum; each expiry sweeps the model TTL and the idle deadline.
+/// Hold ladder rungs: a fresh load holds 15s; genuine use inside the
+/// window steps one rung up to the 120s cap. The daemon metadata mirror
+/// in session.rs carries the same table; both must agree.
+const HOLD_RUNGS_SECS: [u64; 4] = [15, 30, 60, 120];
+
+fn base_hold() -> Duration {
+    Duration::from_secs(HOLD_RUNGS_SECS[0])
+}
+
+fn next_rung(hold: Duration) -> Duration {
+    match HOLD_RUNGS_SECS.iter().position(|r| *r == hold.as_secs()) {
+        Some(i) => Duration::from_secs(HOLD_RUNGS_SECS[(i + 1).min(HOLD_RUNGS_SECS.len() - 1)]),
+        None => base_hold(),
+    }
+}
+/// Read quantum; each expiry sweeps the model TTL. Pipe silence never exits:
+/// the worker lives for the daemon lifetime and is reclaimed only at daemon
+/// shutdown (shutdown op), on disconnect, or on crash (daemon respawns).
 const SWEEP_INTERVAL: Duration = Duration::from_secs(1);
 
 struct Slot {
     transcriber: Box<dyn Transcriber>,
     model_id: String,
     last_used: Instant,
+    hold: Duration,
+}
+
+impl Slot {
+    /// Genuine use inside the current window steps one rung up (capped at
+    /// 120s) and logs one debug line; use past the deadline restarts at
+    /// base. Streaming appends pin `last_used` directly and never call this.
+    fn note_use(&mut self) {
+        if self.last_used.elapsed() <= self.hold {
+            let next = next_rung(self.hold);
+            if next != self.hold {
+                self.hold = next;
+                debug!(
+                    "voice-daemon: extending voice model hold to {}s",
+                    self.hold.as_secs()
+                );
+            }
+        } else {
+            self.hold = base_hold();
+        }
+        self.last_used = Instant::now();
+    }
 }
 
 struct WorkerState {
@@ -50,14 +85,18 @@ struct WorkerState {
 }
 
 impl WorkerState {
+    /// Fresh means the loaded model matches and activity is inside its rung.
+    fn slot_fresh(&self) -> bool {
+        match &self.slot {
+            Some(slot) => slot.model_id == self.model && slot.last_used.elapsed() <= slot.hold,
+            None => false,
+        }
+    }
+
     /// Dispatch a background load unless the slot is fresh or one is running.
     /// Skipped when model files are absent (transcribe reports it instead).
     fn kick_off_load(&mut self) {
-        let fresh = match &self.slot {
-            Some(slot) => slot.model_id == self.model && slot.last_used.elapsed() <= MODEL_TTL,
-            None => false,
-        };
-        if fresh || self.loading.is_some() {
+        if self.slot_fresh() || self.loading.is_some() {
             return;
         }
         if !is_model_downloaded(&self.model, Some(&self.model_dir)) {
@@ -75,11 +114,7 @@ impl WorkerState {
 
     /// Await any in-flight load, then fall back to inline init if needed.
     async fn ensure_slot(&mut self) {
-        let fresh = match &self.slot {
-            Some(slot) => slot.model_id == self.model && slot.last_used.elapsed() <= MODEL_TTL,
-            None => false,
-        };
-        if fresh {
+        if self.slot_fresh() {
             return;
         }
         if let Some((model, handle)) = self.loading.take()
@@ -90,6 +125,7 @@ impl WorkerState {
                 transcriber,
                 model_id: model,
                 last_used: Instant::now(),
+                hold: base_hold(),
             });
             return;
         }
@@ -103,15 +139,17 @@ impl WorkerState {
             transcriber: create_transcriber(&self.model, Some(&self.model_dir)),
             model_id: self.model.clone(),
             last_used: Instant::now(),
+            hold: base_hold(),
         });
     }
 
     fn sweep(&mut self) {
         if let Some(ref slot) = self.slot
-            && slot.last_used.elapsed() > MODEL_TTL
+            && slot.last_used.elapsed() > slot.hold
         {
+            let hold_secs = slot.hold.as_secs();
             self.slot = None;
-            debug!("voice-daemon: unloading idle voice model from RAM");
+            debug!("voice-daemon: unloading idle voice model from RAM ({hold_secs}s hold expired)");
         }
     }
 }
@@ -141,7 +179,14 @@ async fn handle_frame(
                 ready.model = Some(state.model.clone());
                 info!("voice-daemon: serving model '{}'", state.model);
                 // Overlap init with speech: the slot is warm by stop time.
-                state.kick_off_load();
+                // A model-free warm handshake carries no model and loads nothing.
+                if header
+                    .model
+                    .as_deref()
+                    .is_some_and(|m| !m.trim().is_empty())
+                {
+                    state.kick_off_load();
+                }
                 vec![respond(ready)]
             }
             Err(e) => {
@@ -204,8 +249,10 @@ async fn handle_frame(
 /// `ensure_slot`, so this stays synchronous and never blocks the loop.
 fn transcribe_buffer(state: &mut WorkerState, samples: &[f32]) -> Header {
     let mut out = Header::op(proto::OP_RESULT);
-    let silence_frames = trailing_silence_frames(samples);
-    let trimmed = slice_utterance_with_postroll(samples, silence_frames);
+    let leading_frames = leading_silence_frames(samples);
+    let front_trimmed = slice_utterance_with_preroll(samples, leading_frames);
+    let silence_frames = trailing_silence_frames(&front_trimmed);
+    let trimmed = slice_utterance_with_postroll(&front_trimmed, silence_frames);
     if trimmed.len() < MIN_SAMPLES_COUNT {
         return out;
     }
@@ -229,7 +276,7 @@ fn transcribe_buffer(state: &mut WorkerState, samples: &[f32]) -> Header {
     };
     match slot.transcriber.transcribe(&normed, 16000) {
         Ok(t) => {
-            slot.last_used = Instant::now();
+            slot.note_use();
             out.text = Some(t.text);
             out.confidence = Some(t.confidence);
             out.duration_secs = Some(t.duration_secs);
@@ -243,7 +290,8 @@ fn transcribe_buffer(state: &mut WorkerState, samples: &[f32]) -> Header {
     }
 }
 
-/// Read one full frame with idle sweeps. `Ok(None)` means peer disconnect.
+/// Read one full frame with model sweeps. `Ok(None)` means peer disconnect.
+/// Silence never exits; the worker lives for the daemon lifetime.
 async fn read_frame<S>(stream: &mut S, state: &mut WorkerState) -> Result<Option<(Header, Vec<u8>)>>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
@@ -251,30 +299,21 @@ where
     use tokio::io::AsyncReadExt;
     let mut buf = Vec::new();
     loop {
-        match state.idle_remaining() {
-            Some(remaining) => {
-                let wait = remaining.min(SWEEP_INTERVAL);
-                match tokio::time::timeout(wait, stream.read_buf(&mut buf)).await {
-                    Err(_) => {
-                        state.sweep();
-                        if state.idle_remaining().is_none() {
-                            info!("voice-daemon: 60s pipe idle; exiting for OS reclaim");
-                            return Err(Error::Service("voice worker idle exit".to_string()));
-                        }
-                        continue;
-                    }
-                    Ok(Err(e)) => return Err(Error::Io(e)),
-                    Ok(Ok(0)) if buf.is_empty() => return Ok(None),
-                    Ok(Ok(0)) => {
-                        return Err(Error::Engine("voice pipe closed mid-frame".to_string()));
-                    }
-                    Ok(Ok(_)) => {}
-                }
+        match tokio::time::timeout(SWEEP_INTERVAL, stream.read_buf(&mut buf)).await {
+            Err(_) => {
+                state.sweep();
+                debug!(
+                    idle_secs = state.last_frame.elapsed().as_secs(),
+                    "voice-daemon: pipe sweep"
+                );
+                continue;
             }
-            None => {
-                info!("voice-daemon: 60s pipe idle; exiting for OS reclaim");
-                return Err(Error::Service("voice worker idle exit".to_string()));
+            Ok(Err(e)) => return Err(Error::Io(e)),
+            Ok(Ok(0)) if buf.is_empty() => return Ok(None),
+            Ok(Ok(0)) => {
+                return Err(Error::Engine("voice pipe closed mid-frame".to_string()));
             }
+            Ok(Ok(_)) => {}
         }
         match proto::decode_frame(&mut buf).map_err(Error::Engine)? {
             Some(frame) => return Ok(Some(frame)),
@@ -283,13 +322,7 @@ where
     }
 }
 
-impl WorkerState {
-    fn idle_remaining(&self) -> Option<Duration> {
-        IDLE_EXIT.checked_sub(self.last_frame.elapsed())
-    }
-}
-
-/// Serve a single connected daemon until shutdown, disconnect, or idle exit.
+/// Serve a single connected daemon until shutdown or disconnect.
 async fn serve_stream<S>(
     stream: &mut S,
     model_dir: PathBuf,
@@ -360,11 +393,7 @@ pub fn run(pipe: Option<String>, version_token: Option<String>) -> Result<()> {
         .enable_all()
         .build()
         .map_err(Error::Io)?;
-    // Idle exit is clean shutdown, not failure.
-    match rt.block_on(serve(pipe, model_dir, own_version, expected_token)) {
-        Err(Error::Service(_)) => Ok(()),
-        other => other,
-    }
+    rt.block_on(serve(pipe, model_dir, own_version, expected_token))
 }
 
 #[cfg(all(unix, not(target_os = "android")))]
@@ -438,6 +467,69 @@ mod tests {
             warned_missing: false,
             last_frame: Instant::now(),
         }
+    }
+
+    struct LenRecorderTranscriber {
+        seen_len: std::sync::Arc<std::sync::Mutex<usize>>,
+    }
+    impl taurine_core::voice::Transcriber for LenRecorderTranscriber {
+        fn name(&self) -> &str {
+            "len-recorder"
+        }
+        fn transcribe(
+            &mut self,
+            audio: &[f32],
+            _sample_rate: u32,
+        ) -> taurine_core::error::Result<taurine_core::voice::Transcription> {
+            *self.seen_len.lock().unwrap_or_else(|p| p.into_inner()) = audio.len();
+            Ok(taurine_core::voice::Transcription::new("", 0.0, 0.0))
+        }
+    }
+
+    fn recorded_state() -> (WorkerState, std::sync::Arc<std::sync::Mutex<usize>>) {
+        // Stub model files so the downloaded-model gate passes hermetically.
+        let dir = std::env::temp_dir().join("taurine-worker-trim-models");
+        let sub = dir.join("parakeet-110m");
+        let _ = std::fs::create_dir_all(&sub);
+        let _ = std::fs::write(sub.join("model.int8.onnx"), b"not a model");
+        let _ = std::fs::write(sub.join("tokens.txt"), b"a b");
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+        let mut state = test_state();
+        state.model_dir = dir;
+        state.slot = Some(Slot {
+            transcriber: Box::new(LenRecorderTranscriber {
+                seen_len: seen.clone(),
+            }),
+            model_id: state.model.clone(),
+            last_used: Instant::now(),
+            hold: Duration::from_secs(15),
+        });
+        (state, seen)
+    }
+
+    #[test]
+    fn test_transcribe_trims_leading_silence_with_preroll() {
+        let (mut state, seen) = recorded_state();
+        // 12 silent frames + 10 speech frames: decoder must see speech plus
+        // exactly 8 frames (4096 samples) of pre-roll cushion.
+        let mut samples = vec![0.0f32; 12 * 512];
+        samples.extend(vec![0.5f32; 5120]);
+        let out = transcribe_buffer(&mut state, &samples);
+        assert!(out.text.is_some());
+        assert_eq!(
+            *seen.lock().unwrap_or_else(|p| p.into_inner()),
+            5120 + 8 * 512
+        );
+        let _ = std::fs::remove_dir_all(&state.model_dir);
+    }
+
+    #[test]
+    fn test_transcribe_all_silence_hits_gate_without_model() {
+        let mut state = test_state();
+        let out = transcribe_buffer(&mut state, &vec![0.0f32; 16000]);
+        assert_eq!(out.op, proto::OP_RESULT);
+        assert!(out.text.is_none());
+        assert!(state.slot.is_none(), "silence must not load the model");
     }
 
     #[test]
@@ -582,8 +674,112 @@ mod tests {
             transcriber: Box::new(DummyTranscriber),
             model_id: state.model.clone(),
             last_used: Instant::now(),
+            hold: Duration::from_secs(15),
         });
         state
+    }
+
+    fn runged_state(hold_secs: u64, last_used_ago: Duration) -> WorkerState {
+        let mut state = test_state();
+        state.slot = Some(Slot {
+            transcriber: Box::new(DummyTranscriber),
+            model_id: state.model.clone(),
+            last_used: Instant::now() - last_used_ago,
+            hold: Duration::from_secs(hold_secs),
+        });
+        state
+    }
+
+    #[test]
+    fn test_ladder_escalates_one_rung_per_use() {
+        let mut state = runged_state(15, Duration::from_secs(10));
+        for expected in [30u64, 60, 120] {
+            state.slot.as_mut().expect("slot").note_use();
+            assert_eq!(
+                state.slot.as_ref().expect("slot").hold,
+                Duration::from_secs(expected)
+            );
+            state.slot.as_mut().expect("slot").last_used = Instant::now() - Duration::from_secs(10);
+        }
+    }
+
+    #[test]
+    fn test_ladder_caps_at_120s() {
+        let mut state = runged_state(120, Duration::from_secs(10));
+        for _ in 0..3 {
+            state.slot.as_mut().expect("slot").note_use();
+            state.slot.as_mut().expect("slot").last_used = Instant::now() - Duration::from_secs(10);
+        }
+        assert_eq!(
+            state.slot.as_ref().expect("slot").hold,
+            Duration::from_secs(120),
+            "repeated use never exceeds the cap"
+        );
+        state.slot.as_mut().expect("slot").last_used = Instant::now() - Duration::from_secs(100);
+        state.sweep();
+        assert!(state.slot.is_some(), "100s fits the 120s cap rung");
+        state.slot.as_mut().expect("slot").last_used = Instant::now() - Duration::from_secs(121);
+        state.sweep();
+        assert!(state.slot.is_none(), "silence past the cap evicts");
+    }
+
+    #[test]
+    fn test_ladder_stale_use_restarts_at_base() {
+        let mut state = runged_state(60, Duration::from_secs(61));
+        state.slot.as_mut().expect("slot").note_use();
+        assert_eq!(
+            state.slot.as_ref().expect("slot").hold,
+            Duration::from_secs(15)
+        );
+    }
+
+    #[test]
+    fn test_long_recording_pin_then_use_steps_up() {
+        // Worker mirror of the daemon long-recording case: streaming appends
+        // pin last_used without stepping, so the transcribe success steps one
+        // rung up instead of resetting to base.
+        let mut state = runged_state(15, Duration::from_secs(20));
+        state.slot.as_mut().expect("slot").last_used = Instant::now();
+        state.slot.as_mut().expect("slot").note_use();
+        assert_eq!(
+            state.slot.as_ref().expect("slot").hold,
+            Duration::from_secs(30)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ladder_restarts_at_base_after_eviction() {
+        let mut state = runged_state(60, Duration::from_secs(61));
+        state.sweep();
+        assert!(
+            state.slot.is_none(),
+            "silence past the rung deadline evicts"
+        );
+        let model = state.model.clone();
+        state.loading = Some((
+            model,
+            tokio::task::spawn_blocking(|| Box::new(DummyTranscriber) as Box<dyn Transcriber>),
+        ));
+        state.ensure_slot().await;
+        assert_eq!(
+            state.slot.as_ref().expect("slot").hold,
+            Duration::from_secs(15),
+            "next load restarts at base"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ladder_resets_on_model_switch() {
+        let mut state = runged_state(120, Duration::from_secs(5));
+        state.model = "other-model".to_string();
+        state.loading = Some((
+            state.model.clone(),
+            tokio::task::spawn_blocking(|| Box::new(DummyTranscriber) as Box<dyn Transcriber>),
+        ));
+        state.ensure_slot().await;
+        let slot = state.slot.as_ref().expect("slot");
+        assert_eq!(slot.model_id, "other-model");
+        assert_eq!(slot.hold, Duration::from_secs(15));
     }
 
     #[tokio::test]
@@ -591,8 +787,12 @@ mod tests {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let (mut client_stream, mut server_stream) = tokio::io::duplex(256 * 1024);
         let mut state = slotted_state();
+        // 10s past activity is warm on the 15s base rung: sweep retains.
+        state.slot.as_mut().expect("slot").last_used = Instant::now() - Duration::from_secs(10);
+        state.sweep();
+        assert!(state.slot.is_some(), "10s past activity is warm");
         // Backdate past the TTL, then stream: activity must refresh.
-        state.slot.as_mut().expect("slot").last_used = Instant::now() - Duration::from_secs(30);
+        state.slot.as_mut().expect("slot").last_used = Instant::now() - Duration::from_secs(90);
         let mut append = hello_header("parakeet-tdt-ctc-110m");
         append.op = proto::OP_APPEND.to_string();
         append.req_id = Some("s9".to_string());
@@ -619,9 +819,26 @@ mod tests {
         assert!(state.slot.is_some(), "streamed audio pins past TTL");
 
         // Silence afterwards lets it expire.
-        state.slot.as_mut().expect("slot").last_used = Instant::now() - Duration::from_secs(30);
+        state.slot.as_mut().expect("slot").last_used = Instant::now() - Duration::from_secs(90);
         state.sweep();
-        assert!(state.slot.is_none());
+        assert!(state.slot.is_none(), "90s past activity is evicted");
+    }
+
+    #[tokio::test]
+    async fn test_long_silence_never_exits_worker() {
+        use tokio::io::AsyncWriteExt;
+        let (mut client, mut server) = tokio::io::duplex(64 * 1024);
+        let mut state = test_state();
+        state.last_frame = Instant::now() - Duration::from_secs(90);
+        let mut ping = Header::op(proto::OP_PING);
+        ping.req_id = Some("p-long".to_string());
+        let bytes = proto::encode_frame(&ping, &[]).expect("encode");
+        client.write_all(&bytes).await.expect("write");
+        let frame = read_frame(&mut server, &mut state)
+            .await
+            .expect("stays alive across long silence")
+            .expect("frame");
+        assert_eq!(frame.0.op, proto::OP_PING);
     }
 
     #[tokio::test]

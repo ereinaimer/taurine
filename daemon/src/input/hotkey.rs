@@ -2,6 +2,7 @@
 use evdev::KeyCode;
 #[cfg(not(target_os = "linux"))]
 use rdev::{Event, EventType};
+use std::sync::RwLock;
 use std::sync::atomic::AtomicBool;
 use taurine_core::keys::{
     Hotkey, KeyPress, LogicalKey, Modifier, ModifierState, Modifiers, hotkey_matches, parse_hotkey,
@@ -14,6 +15,30 @@ use crate::input::hotkey_evaluator::logical_key_from_rdev;
 
 pub static PTT_KEY_DOWN: AtomicBool = AtomicBool::new(false);
 pub static HANDSFREE_KEY_DOWN: AtomicBool = AtomicBool::new(false);
+
+// Parsed voice hotkey specs, refreshed on settings change so the hook thread
+// never pays a string parse per keystroke. Empty/unparsable settings cache
+// as None (hotkey inert), matching the previous per-event behaviour.
+static CACHED_PTT_SPEC: RwLock<Option<VoiceHotkeySpec>> = RwLock::new(None);
+static CACHED_HANDSFREE_SPEC: RwLock<Option<VoiceHotkeySpec>> = RwLock::new(None);
+
+pub fn refresh_cached_voice_specs(ptt: &str, handsfree: &str) {
+    *CACHED_PTT_SPEC.write().expect("voice ptt spec lock") = VoiceHotkeySpec::parse(ptt);
+    *CACHED_HANDSFREE_SPEC
+        .write()
+        .expect("voice handsfree spec lock") = VoiceHotkeySpec::parse(handsfree);
+}
+
+pub fn cached_voice_ptt_spec() -> Option<VoiceHotkeySpec> {
+    CACHED_PTT_SPEC.read().expect("voice ptt spec lock").clone()
+}
+
+pub fn cached_voice_handsfree_spec() -> Option<VoiceHotkeySpec> {
+    CACHED_HANDSFREE_SPEC
+        .read()
+        .expect("voice handsfree spec lock")
+        .clone()
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HotkeySpec {
@@ -303,6 +328,44 @@ mod tests {
     }
 
     #[test]
+    fn cached_voice_specs_update_only_on_refresh() {
+        let _lock = taurine_core::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        refresh_cached_voice_specs("ctrl+shift+v", "f8");
+        assert_eq!(
+            cached_voice_ptt_spec(),
+            VoiceHotkeySpec::parse("ctrl+shift+v")
+        );
+        assert_eq!(cached_voice_handsfree_spec(), VoiceHotkeySpec::parse("f8"));
+
+        // Swap the source strings without a refresh: the press path must
+        // keep matching the stale cached specs (no per-event re-parse).
+        taurine_core::settings::set_cached_voice_ptt_hotkey("f9".to_string());
+        taurine_core::settings::set_cached_voice_handsfree_hotkey("f10".to_string());
+        assert_eq!(
+            cached_voice_ptt_spec(),
+            VoiceHotkeySpec::parse("ctrl+shift+v")
+        );
+        assert_eq!(cached_voice_handsfree_spec(), VoiceHotkeySpec::parse("f8"));
+
+        // A refresh picks up the new settings.
+        refresh_cached_voice_specs("f9", "f10");
+        assert_eq!(cached_voice_ptt_spec(), VoiceHotkeySpec::parse("f9"));
+        assert_eq!(cached_voice_handsfree_spec(), VoiceHotkeySpec::parse("f10"));
+
+        // Empty or unparsable settings stay inert (None), as before.
+        refresh_cached_voice_specs("", "invalid_nonexistent_key_name");
+        assert!(cached_voice_ptt_spec().is_none());
+        assert!(cached_voice_handsfree_spec().is_none());
+
+        // Restore defaults so other tests see a clean cache.
+        taurine_core::settings::set_cached_voice_ptt_hotkey("win+lctrl".to_string());
+        taurine_core::settings::set_cached_voice_handsfree_hotkey("win+lctrl+lalt".to_string());
+        refresh_cached_voice_specs("win+lctrl", "win+lctrl+lalt");
+    }
+
+    #[test]
     fn voice_hotkey_spec_matches_modifier_chord_press_and_release() {
         let spec = VoiceHotkeySpec::parse("win+lctrl").unwrap();
 
@@ -426,5 +489,72 @@ mod linux_tests {
         assert!(spec.matches_release_evdev(KeyCode::KEY_LEFTCTRL, true));
         assert!(spec.matches_release_evdev(KeyCode::KEY_LEFTMETA, true));
         assert!(!spec.matches_release_evdev(KeyCode::KEY_A, true));
+    }
+
+    #[test]
+    fn linux_cached_voice_specs_drive_evdev_press_and_release_matching() {
+        let _lock = taurine_core::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        refresh_cached_voice_specs("ctrl+shift+v", "f8");
+
+        // Press path resolves through the cache — the same call chain as the
+        // evdev listener, with no per-keystroke re-parse.
+        let mods_ctrl_shift = modifiers_with(&[Modifier::LeftCtrl, Modifier::LeftShift]);
+        assert!(
+            cached_voice_ptt_spec().is_some_and(|spec| spec.matches_press_evdev(
+                KeyCode::KEY_V,
+                true,
+                mods_ctrl_shift
+            ))
+        );
+        assert!(
+            cached_voice_handsfree_spec().is_some_and(|spec| spec.matches_press_evdev(
+                KeyCode::KEY_F8,
+                true,
+                Modifiers::new()
+            ))
+        );
+        assert!(
+            cached_voice_ptt_spec().is_some_and(|spec| !spec.matches_press_evdev(
+                KeyCode::KEY_V,
+                true,
+                Modifiers::new()
+            ))
+        );
+
+        // Release path resolves through the cache as well.
+        assert!(
+            cached_voice_ptt_spec()
+                .is_some_and(|spec| spec.matches_release_evdev(KeyCode::KEY_V, true))
+        );
+        assert!(
+            cached_voice_handsfree_spec()
+                .is_some_and(|spec| spec.matches_release_evdev(KeyCode::KEY_F8, true))
+        );
+
+        // Swapping the source strings without a refresh leaves evdev matching
+        // on the stale cached specs.
+        taurine_core::settings::set_cached_voice_ptt_hotkey("f9".to_string());
+        taurine_core::settings::set_cached_voice_handsfree_hotkey("f10".to_string());
+        assert!(
+            cached_voice_ptt_spec().is_some_and(|spec| spec.matches_press_evdev(
+                KeyCode::KEY_V,
+                true,
+                mods_ctrl_shift
+            ))
+        );
+        assert!(
+            cached_voice_handsfree_spec().is_some_and(|spec| spec.matches_press_evdev(
+                KeyCode::KEY_F8,
+                true,
+                Modifiers::new()
+            ))
+        );
+
+        // Restore defaults so other tests see a clean cache.
+        taurine_core::settings::set_cached_voice_ptt_hotkey("win+lctrl".to_string());
+        taurine_core::settings::set_cached_voice_handsfree_hotkey("win+lctrl+lalt".to_string());
+        refresh_cached_voice_specs("win+lctrl", "win+lctrl+lalt");
     }
 }

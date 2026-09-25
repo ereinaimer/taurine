@@ -478,15 +478,21 @@ fn process_frame(
                     continue;
                 }
 
-                let ptt_str = taurine_core::settings::get_cached_voice_ptt_hotkey();
-                if !ptt_str.is_empty()
-                    && let Some(spec) = crate::input::hotkey::VoiceHotkeySpec::parse(&ptt_str)
+                if let Some(spec) = crate::input::hotkey::cached_voice_ptt_spec()
                     && spec.matches_press_evdev(key, is_press, modifiers)
                 {
-                    if !crate::input::hotkey::PTT_KEY_DOWN.swap(true, Ordering::Relaxed)
-                        && let Err(e) = session.start_ptt()
-                    {
-                        warn!("Voice PTT start error: {e}");
+                    if !crate::input::hotkey::PTT_KEY_DOWN.swap(true, Ordering::Relaxed) {
+                        let session = session.clone();
+                        if let Err(e) = std::thread::Builder::new()
+                            .name("taurine-voice-ptt-start".to_string())
+                            .spawn(move || {
+                                if let Err(e) = session.start_ptt() {
+                                    warn!("Voice PTT start error: {e}");
+                                }
+                            })
+                        {
+                            warn!("Voice PTT start spawn error: {e}");
+                        }
                     }
                     if !is_modifier_evdev(key) {
                         swallow_frame = true;
@@ -494,9 +500,7 @@ fn process_frame(
                     continue;
                 }
 
-                let hf_str = taurine_core::settings::get_cached_voice_handsfree_hotkey();
-                if !hf_str.is_empty()
-                    && let Some(spec) = crate::input::hotkey::VoiceHotkeySpec::parse(&hf_str)
+                if let Some(spec) = crate::input::hotkey::cached_voice_handsfree_spec()
                     && spec.matches_press_evdev(key, is_press, modifiers)
                 {
                     if !crate::input::hotkey::HANDSFREE_KEY_DOWN.swap(true, Ordering::Relaxed) {
@@ -714,9 +718,7 @@ fn process_frame(
             }
         } else {
             if is_release && let Some(session) = crate::VOICE_SESSION.get() {
-                let ptt_str = taurine_core::settings::get_cached_voice_ptt_hotkey();
-                if !ptt_str.is_empty()
-                    && let Some(spec) = crate::input::hotkey::VoiceHotkeySpec::parse(&ptt_str)
+                if let Some(spec) = crate::input::hotkey::cached_voice_ptt_spec()
                     && spec.matches_release_evdev(key, is_release)
                 {
                     let was_down =
@@ -735,9 +737,7 @@ fn process_frame(
                     }
                 }
 
-                let hf_str = taurine_core::settings::get_cached_voice_handsfree_hotkey();
-                if !hf_str.is_empty()
-                    && let Some(spec) = crate::input::hotkey::VoiceHotkeySpec::parse(&hf_str)
+                if let Some(spec) = crate::input::hotkey::cached_voice_handsfree_spec()
                     && spec.matches_release_evdev(key, is_release)
                 {
                     crate::input::hotkey::HANDSFREE_KEY_DOWN.store(false, Ordering::Relaxed);
